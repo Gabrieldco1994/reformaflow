@@ -7,6 +7,8 @@ import { MaterialPurchaseModule } from './material-purchase/material-purchase.mo
 import { ContractorModule } from './contractor/contractor.module';
 import { CashFlowModule } from './cash-flow/cash-flow.module';
 import { ChangeOrderModule } from './change-order/change-order.module';
+import { ExportModule } from './export/export.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -18,6 +20,8 @@ import { ChangeOrderModule } from './change-order/change-order.module';
     ContractorModule,
     CashFlowModule,
     ChangeOrderModule,
+    ExportModule,
+    NotificationsModule,
   ],
 })
 export class AppModule {}
