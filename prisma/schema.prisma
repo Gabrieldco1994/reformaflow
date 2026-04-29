@@ -1,0 +1,241 @@
+// ReformaFlow — Schema Prisma
+// Multi-tenant: todo modelo tem tenantId (exceto Tenant)
+// Soft delete: deletedAt em todas as entidades
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  users    User[]
+  projects Project[]
+
+  @@map("tenants")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  tenantId  String   @map("tenant_id")
+  externalId String? @unique @map("external_id") // Clerk/Auth0 ID
+  email     String
+  name      String
+  role      String   @default("OWNER") // UserRole enum
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, email])
+  @@map("users")
+}
+
+model Project {
+  id          String   @id @default(cuid())
+  tenantId    String   @map("tenant_id")
+  name        String
+  description String?
+  totalBudget Float    @default(0) @map("total_budget")
+  startDate   DateTime? @map("start_date")
+  endDate     DateTime? @map("end_date")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  tenant      Tenant @relation(fields: [tenantId], references: [id])
+  rooms       Room[]
+  budgetItems BudgetItem[]
+  contractors Contractor[]
+  purchases   MaterialPurchase[]
+  cashFlow    CashFlowEntry[]
+  changeOrders ChangeOrder[]
+
+  @@map("projects")
+}
+
+model Room {
+  id        String   @id @default(cuid())
+  projectId String   @map("project_id")
+  name      String
+  order     Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  project     Project @relation(fields: [projectId], references: [id])
+  budgetItems BudgetItem[]
+  purchases   MaterialPurchase[]
+  cashFlow    CashFlowEntry[]
+  changeOrders ChangeOrder[]
+
+  @@unique([projectId, name])
+  @@map("rooms")
+}
+
+model WorkType {
+  id        String   @id @default(cuid())
+  name      String
+  category  String   // WorkTypeCategory enum
+  createdAt DateTime @default(now()) @map("created_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  budgetItems  BudgetItem[]
+  purchases    MaterialPurchase[]
+  cashFlow     CashFlowEntry[]
+  changeOrders ChangeOrder[]
+
+  @@unique([name])
+  @@map("work_types")
+}
+
+model BudgetItem {
+  id         String   @id @default(cuid())
+  projectId  String   @map("project_id")
+  roomId     String   @map("room_id")
+  workTypeId String   @map("work_type_id")
+  planned    Float    @default(0)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  deletedAt  DateTime? @map("deleted_at")
+
+  project  Project  @relation(fields: [projectId], references: [id])
+  room     Room     @relation(fields: [roomId], references: [id])
+  workType WorkType @relation(fields: [workTypeId], references: [id])
+
+  @@unique([projectId, roomId, workTypeId])
+  @@map("budget_items")
+}
+
+model Contractor {
+  id              String   @id @default(cuid())
+  projectId       String   @map("project_id")
+  name            String
+  document        String?  // CPF/CNPJ mascarado
+  phone           String?
+  contractedAmount Float   @default(0) @map("contracted_amount")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  project    Project @relation(fields: [projectId], references: [id])
+  milestones ContractorMilestone[]
+
+  @@map("contractors")
+}
+
+model ContractorMilestone {
+  id              String   @id @default(cuid())
+  contractorId    String   @map("contractor_id")
+  stage           String
+  description     String
+  percentage      Float    @default(0)
+  percentCompleted Float   @default(0) @map("percent_completed")
+  paymentDate     DateTime? @map("payment_date")
+  paymentMethod   String?  @map("payment_method") // PaymentMethod enum
+  paymentStatus   String   @default("PENDING") @map("payment_status") // PaymentStatus enum
+  hasInvoice      Boolean  @default(false) @map("has_invoice")
+  notes           String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  contractor Contractor @relation(fields: [contractorId], references: [id])
+
+  @@map("contractor_milestones")
+}
+
+model MaterialPurchase {
+  id              String   @id @default(cuid())
+  projectId       String   @map("project_id")
+  roomId          String   @map("room_id")
+  workTypeId      String   @map("work_type_id")
+  date            DateTime
+  item            String
+  store           String?
+  paymentMethod   String   @map("payment_method") // PaymentMethod enum
+  totalAmount     Float    @map("total_amount")
+  installments    Int      @default(1)
+  installmentAmount Float  @default(0) @map("installment_amount")
+  warrantyMonths  Int?     @map("warranty_months")
+  hasInvoice      Boolean  @default(false) @map("has_invoice")
+  notes           String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  project  Project  @relation(fields: [projectId], references: [id])
+  room     Room     @relation(fields: [roomId], references: [id])
+  workType WorkType @relation(fields: [workTypeId], references: [id])
+
+  @@map("material_purchases")
+}
+
+model CashFlowEntry {
+  id           String   @id @default(cuid())
+  projectId    String   @map("project_id")
+  roomId       String?  @map("room_id")
+  workTypeId   String?  @map("work_type_id")
+  plannedDate  DateTime @map("planned_date")
+  effectiveDate DateTime? @map("effective_date")
+  description  String
+  type         String   // CashFlowType enum (INCOME | EXPENSE)
+  amount       Float
+  status       String   @default("FORECAST") // CashFlowStatus enum
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  project  Project   @relation(fields: [projectId], references: [id])
+  room     Room?     @relation(fields: [roomId], references: [id])
+  workType WorkType? @relation(fields: [workTypeId], references: [id])
+
+  @@map("cash_flow_entries")
+}
+
+model ChangeOrder {
+  id              String   @id @default(cuid())
+  projectId       String   @map("project_id")
+  roomId          String?  @map("room_id")
+  workTypeId      String?  @map("work_type_id")
+  date            DateTime
+  item            String
+  reason          String
+  additionalAmount Float   @map("additional_amount")
+  approvedBy      String?  @map("approved_by")
+  status          String   @default("PENDING") // ChangeOrderStatus enum
+  notes           String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  project  Project   @relation(fields: [projectId], references: [id])
+  room     Room?     @relation(fields: [roomId], references: [id])
+  workType WorkType? @relation(fields: [workTypeId], references: [id])
+
+  @@map("change_orders")
+}
+
+model Attachment {
+  id         String   @id @default(cuid())
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  fileName   String   @map("file_name")
+  mimeType   String   @map("mime_type")
+  url        String
+  uploadedBy String   @map("uploaded_by")
+  createdAt  DateTime @default(now()) @map("created_at")
+  deletedAt  DateTime? @map("deleted_at")
+
+  @@index([entityType, entityId])
+  @@map("attachments")
+}

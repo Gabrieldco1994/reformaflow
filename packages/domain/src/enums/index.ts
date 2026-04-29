@@ -1,0 +1,62 @@
+export enum UserRole {
+  OWNER = 'OWNER',
+  COLLABORATOR = 'COLLABORATOR',
+  CONTRACTOR = 'CONTRACTOR',
+  VIEWER = 'VIEWER',
+}
+
+export enum BudgetStatus {
+  OK = 'OK',
+  WARNING = 'WARNING',
+  OVER_BUDGET = 'OVER_BUDGET',
+}
+
+export enum PaymentStatus {
+  PENDING = 'PENDING',
+  PAID = 'PAID',
+  PARTIAL = 'PARTIAL',
+  OVERDUE = 'OVERDUE',
+}
+
+export enum PaymentMethod {
+  CASH = 'CASH',
+  PIX = 'PIX',
+  BANK_TRANSFER = 'BANK_TRANSFER',
+  CREDIT_CARD = 'CREDIT_CARD',
+  DEBIT_CARD = 'DEBIT_CARD',
+  BOLETO = 'BOLETO',
+}
+
+export enum CashFlowType {
+  INCOME = 'INCOME',
+  EXPENSE = 'EXPENSE',
+}
+
+export enum CashFlowStatus {
+  FORECAST = 'FORECAST',
+  EXECUTED = 'EXECUTED',
+  OVERDUE = 'OVERDUE',
+}
+
+export enum ChangeOrderStatus {
+  PENDING = 'PENDING',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+  EXECUTED = 'EXECUTED',
+}
+
+export enum WorkTypeCategory {
+  DEMOLITION = 'DEMOLITION',
+  CIVIL = 'CIVIL',
+  PLUMBING = 'PLUMBING',
+  ELECTRICAL = 'ELECTRICAL',
+  FLOORING = 'FLOORING',
+  PAINTING = 'PAINTING',
+  CARPENTRY = 'CARPENTRY',
+  FRAMES = 'FRAMES',
+  FIXTURES = 'FIXTURES',
+  LIGHTING = 'LIGHTING',
+  LABOR = 'LABOR',
+  FEES = 'FEES',
+  CONTINGENCY = 'CONTINGENCY',
+}
