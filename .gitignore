@@ -1,2 +1,10 @@
-node_modules\ndist\n.env\n.env.local\n.turbo\ncoverage\n*.tsbuildinfo\n.next
 node_modules
+dist
+.env
+.env.local
+.turbo
+coverage
+*.tsbuildinfo
+.next
+*.db
+*.db-journal

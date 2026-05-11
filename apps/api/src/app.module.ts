@@ -2,26 +2,26 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from './prisma/prisma.module';
 import { TenantModule } from './tenant/tenant.module';
 import { ProjectModule } from './project/project.module';
-import { BudgetItemModule } from './budget-item/budget-item.module';
-import { MaterialPurchaseModule } from './material-purchase/material-purchase.module';
-import { ContractorModule } from './contractor/contractor.module';
+import { ReceiptModule } from './receipt/receipt.module';
+import { ExpenseModule } from './expense/expense.module';
 import { CashFlowModule } from './cash-flow/cash-flow.module';
-import { ChangeOrderModule } from './change-order/change-order.module';
-import { ExportModule } from './export/export.module';
+import { DashboardModule } from './dashboard/dashboard.module';
+import { SimulationModule } from './simulation/simulation.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { LinkPreviewModule } from './link-preview/link-preview.module';
 
 @Module({
   imports: [
     PrismaModule,
     TenantModule,
     ProjectModule,
-    BudgetItemModule,
-    MaterialPurchaseModule,
-    ContractorModule,
+    ReceiptModule,
+    ExpenseModule,
     CashFlowModule,
-    ChangeOrderModule,
-    ExportModule,
+    DashboardModule,
+    SimulationModule,
     NotificationsModule,
+    LinkPreviewModule,
   ],
 })
 export class AppModule {}

@@ -23,7 +23,7 @@ export class ProjectController {
   constructor(private readonly projectService: ProjectService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Criar novo projeto (obra) com seed automático de 87 BudgetItems' })
+  @ApiOperation({ summary: 'Criar novo projeto com ambientes padrão' })
   create(@CurrentTenant() tenantId: string, @Body() dto: CreateProjectDto) {
     return this.projectService.create(tenantId, dto);
   }

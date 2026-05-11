@@ -1,71 +1,21 @@
-import { BudgetStatus, CashFlowType } from '../enums';
+import { CashFlowType, PaymentForm } from '../enums';
 import type { CashFlowEntry, CashFlowEntryComputed } from '../types';
 
 /**
- * Calcula o saldo: previsto - realizado
- * Regra: saldo = previsto - realizado (planilha: =C-D)
- */
-export function calculateBalance(planned: number, actual: number): number {
-  return planned - actual;
-}
-
-/**
- * Calcula o % consumido: realizado / previsto
- * Regra: proteger divisão por zero (planilha: =IFERROR(D/C, 0))
- */
-export function calculatePercentConsumed(planned: number, actual: number): number {
-  if (planned === 0) return 0;
-  return actual / planned;
-}
-
-/**
- * Determina o status do orçamento baseado no % consumido
- * Regra da planilha:
- *   - previsto = 0 → '-'
- *   - % > 100% → OVER_BUDGET (Estourado)
- *   - 80% ≤ % ≤ 100% → WARNING (Atenção)
- *   - caso contrário → OK
- */
-export function calculateBudgetStatus(
-  planned: number,
-  actual: number,
-): BudgetStatus | '-' {
-  if (planned === 0) return '-';
-  const percent = calculatePercentConsumed(planned, actual);
-  if (percent > 1) return BudgetStatus.OVER_BUDGET;
-  if (percent >= 0.8) return BudgetStatus.WARNING;
-  return BudgetStatus.OK;
-}
-
-/**
- * Calcula o valor liberado ao empreiteiro
- * Regra: valorLiberado = valorContratado × percentualConcluído
- * (planilha: =C*D na aba Empreiteiro)
- */
-export function calculateReleasedAmount(
-  contractedAmount: number,
-  percentCompleted: number,
-): number {
-  return contractedAmount * percentCompleted;
-}
-
-/**
  * Calcula o saldo acumulado do fluxo de caixa (rolling balance)
- * Regra da planilha:
- *   - Primeira linha: se Entrada → +valor, se Saída → -valor
- *   - Demais: saldoAnterior + valor (se Entrada) ou saldoAnterior - valor (se Saída)
+ * Recebimento soma, Despesa subtrai
  */
 export function calculateRollingBalance(
-  entries: Pick<CashFlowEntry, 'type' | 'amount'>[],
+  entries: Pick<CashFlowEntry, 'tipo' | 'valor'>[],
 ): number[] {
   const balances: number[] = [];
   let running = 0;
 
   for (const entry of entries) {
-    if (entry.type === CashFlowType.INCOME) {
-      running += entry.amount;
+    if (entry.tipo === CashFlowType.RECEBIMENTO) {
+      running += entry.valor;
     } else {
-      running -= entry.amount;
+      running -= entry.valor;
     }
     balances.push(running);
   }
@@ -87,22 +37,52 @@ export function computeCashFlowEntries(
 }
 
 /**
- * Calcula o Realizado total de um BudgetItem
- * Regra: soma de MaterialPurchases (por Room+WorkType) + ContractorMilestones pagos
+ * Gera as datas das parcelas conforme forma de pagamento.
+ * - PARCELADO: mensal (a cada 30 dias)
+ * - QUINZENAL: a cada 15 dias
  */
-export function calculateActual(
-  purchasesTotal: number,
-  paidMilestonesTotal: number,
-): number {
-  return purchasesTotal + paidMilestonesTotal;
+export function generateInstallmentDates(
+  startDate: Date,
+  quantity: number,
+  paymentForm: PaymentForm,
+): Date[] {
+  const dates: Date[] = [];
+  for (let i = 0; i < quantity; i++) {
+    const d = new Date(startDate);
+    if (paymentForm === PaymentForm.PARCELADO) {
+      d.setMonth(d.getMonth() + i);
+    } else {
+      d.setDate(d.getDate() + i * 15);
+    }
+    dates.push(d);
+  }
+  return dates;
 }
 
 /**
- * Calcula o valor sugerido para contingência (10-20% do total previsto)
+ * Distribui um valor total em N parcelas usando centavos inteiros.
+ * A última parcela absorve o restante para garantir que a soma seja exata.
  */
-export function calculateContingencySuggestion(
-  totalPlanned: number,
-  percentage: number = 0.15,
-): number {
-  return totalPlanned * Math.min(Math.max(percentage, 0.1), 0.2);
+export function splitIntoCents(totalCents: number, installments: number): number[] {
+  const base = Math.floor(totalCents / installments);
+  const remainder = totalCents - base * installments;
+  const amounts: number[] = [];
+  for (let i = 0; i < installments; i++) {
+    amounts.push(i === installments - 1 ? base + remainder : base);
+  }
+  return amounts;
+}
+
+/**
+ * Converte reais (number com decimais) para centavos (inteiro)
+ */
+export function toCents(value: number): number {
+  return Math.round(value * 100);
+}
+
+/**
+ * Converte centavos para reais
+ */
+export function fromCents(cents: number): number {
+  return cents / 100;
 }

@@ -1,61 +1,41 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateCashFlowDto } from './dto/create-cash-flow.dto';
-import { calculateRollingBalance } from '@reformaflow/domain';
-import { CashFlowType } from '@reformaflow/domain';
+import { CashFlowType, computeCashFlowEntries } from '@reformaflow/domain';
 
 @Injectable()
 export class CashFlowService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(tenantId: string, projectId: string, dto: CreateCashFlowDto) {
-    await this.validateProject(tenantId, projectId);
-
-    return this.prisma.cashFlowEntry.create({
-      data: {
-        projectId,
-        roomId: dto.roomId,
-        workTypeId: dto.workTypeId,
-        plannedDate: new Date(dto.plannedDate),
-        effectiveDate: dto.effectiveDate ? new Date(dto.effectiveDate) : null,
-        description: dto.description,
-        type: dto.type,
-        amount: dto.amount,
-        status: dto.effectiveDate ? 'EXECUTED' : 'FORECAST',
-      },
-    });
-  }
-
   /**
-   * Lista fluxo de caixa com saldo acumulado (rolling balance)
-   * Regra da planilha: Entrada soma, Saída subtrai do saldo anterior
+   * Lista fluxo de caixa (read-only, auto-gerado) com saldo acumulado
    */
-  async findAllWithBalance(tenantId: string, projectId: string) {
+  async findAll(tenantId: string, projectId: string) {
     await this.validateProject(tenantId, projectId);
 
     const entries = await this.prisma.cashFlowEntry.findMany({
-      where: { projectId },
-      orderBy: { plannedDate: 'asc' },
-      include: { room: true, workType: true },
+      where: { projectId, deletedAt: null },
+      orderBy: { data: 'asc' },
+      include: { expense: { select: { titulo: true, fornecedor: true } } },
     });
 
-    const balances = calculateRollingBalance(
-      entries.map((e) => ({
-        type: e.type as CashFlowType,
-        amount: e.amount,
-      })),
-    );
+    // Compute rolling balance
+    const balances: number[] = [];
+    let running = 0;
+    for (const entry of entries) {
+      if (entry.tipo === 'RECEBIMENTO') {
+        running += entry.valor;
+      } else {
+        running -= entry.valor;
+      }
+      balances.push(running);
+    }
 
     return entries.map((entry, i) => ({
       ...entry,
+      titulo: entry.expense?.titulo ?? null,
+      fornecedor: entry.expense?.fornecedor ?? null,
       rollingBalance: balances[i],
     }));
-  }
-
-  async remove(tenantId: string, projectId: string, id: string) {
-    await this.validateProject(tenantId, projectId);
-    await this.prisma.cashFlowEntry.delete({ where: { id } });
-    return { deleted: true };
   }
 
   private async validateProject(tenantId: string, projectId: string) {

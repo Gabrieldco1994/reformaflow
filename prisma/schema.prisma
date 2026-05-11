@@ -1,13 +1,14 @@
 // ReformaFlow — Schema Prisma
 // Multi-tenant: todo modelo tem tenantId (exceto Tenant)
 // Soft delete: deletedAt em todas as entidades
+// Valores monetários em centavos (Int)
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -27,10 +28,10 @@ model Tenant {
 model User {
   id        String   @id @default(cuid())
   tenantId  String   @map("tenant_id")
-  externalId String? @unique @map("external_id") // Clerk/Auth0 ID
+  externalId String? @unique @map("external_id")
   email     String
   name      String
-  role      String   @default("OWNER") // UserRole enum
+  role      String   @default("OWNER")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
@@ -46,7 +47,6 @@ model Project {
   tenantId    String   @map("tenant_id")
   name        String
   description String?
-  totalBudget Float    @default(0) @map("total_budget")
   startDate   DateTime? @map("start_date")
   endDate     DateTime? @map("end_date")
   createdAt   DateTime @default(now()) @map("created_at")
@@ -55,11 +55,11 @@ model Project {
 
   tenant      Tenant @relation(fields: [tenantId], references: [id])
   rooms       Room[]
-  budgetItems BudgetItem[]
-  contractors Contractor[]
-  purchases   MaterialPurchase[]
+  receipts    Receipt[]
+  expenses    Expense[]
   cashFlow    CashFlowEntry[]
-  changeOrders ChangeOrder[]
+  simulationValues SimulationValue[]
+  simulations      Simulation[]
 
   @@map("projects")
 }
@@ -72,157 +72,98 @@ model Room {
   createdAt DateTime @default(now()) @map("created_at")
   deletedAt DateTime? @map("deleted_at")
 
-  project     Project @relation(fields: [projectId], references: [id])
-  budgetItems BudgetItem[]
-  purchases   MaterialPurchase[]
-  cashFlow    CashFlowEntry[]
-  changeOrders ChangeOrder[]
+  project  Project   @relation(fields: [projectId], references: [id])
+  expenses Expense[]
 
   @@unique([projectId, name])
   @@map("rooms")
 }
 
-model WorkType {
+// ─── Recebimentos ───────────────────────────────────────────
+
+model Receipt {
   id        String   @id @default(cuid())
-  name      String
-  category  String   // WorkTypeCategory enum
+  projectId String   @map("project_id")
+  tenantId  String   @map("tenant_id")
+  valor     Int      // centavos
+  data      DateTime
+  tipo      String   // PAGAMENTO | BONUS | VENDA_ACAO | ORCAMENTO_INICIAL
+  status    String   @default("PREVISTO") // PREVISTO | EM_CAIXA
   createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
-  budgetItems  BudgetItem[]
-  purchases    MaterialPurchase[]
-  cashFlow     CashFlowEntry[]
-  changeOrders ChangeOrder[]
+  project  Project        @relation(fields: [projectId], references: [id])
+  cashFlow CashFlowEntry[]
 
-  @@unique([name])
-  @@map("work_types")
+  @@map("receipts")
 }
 
-model BudgetItem {
-  id         String   @id @default(cuid())
-  projectId  String   @map("project_id")
-  roomId     String   @map("room_id")
-  workTypeId String   @map("work_type_id")
-  planned    Float    @default(0)
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
-  deletedAt  DateTime? @map("deleted_at")
+// ─── Despesas ───────────────────────────────────────────────
 
-  project  Project  @relation(fields: [projectId], references: [id])
-  room     Room     @relation(fields: [roomId], references: [id])
-  workType WorkType @relation(fields: [workTypeId], references: [id])
+model Expense {
+  id                  String   @id @default(cuid())
+  projectId           String   @map("project_id")
+  tenantId            String   @map("tenant_id")
+  tipoDespesa         String   @map("tipo_despesa") // MATERIAL_CONSTRUCAO | ELETRODOMESTICO | REVESTIMENTO | ILUMINACAO | MARMORE | VIDRACARIA_SERRALHERIA | METAL_CERAMICA | MARCENARIA | MAO_DE_OBRA
+  categoriaMaoDeObra  String?  @map("categoria_mao_de_obra") // EMPREITEIRO | INSTALADOR_PISO | INSTALADOR_MARMORE | PINTOR | ELETRICISTA | VIDRACEIRO | SERRALHEIRO | MARCENEIRO
+  roomId              String?  @map("room_id") // ambiente da casa (opcional)
+  valor               Int      // valor unitário em centavos
+  quantidade          Int      @default(1)
+  valorTotal          Int      @map("valor_total") // calculado server-side: valor * quantidade
+  titulo              String?
+  fornecedor          String?
+  link                String?
+  imageUrl            String?  @map("image_url") // URL direta da imagem do produto (override manual)
+  formaPagamento      String   @map("forma_pagamento") // A_VISTA | PARCELADO | QUINZENAL
+  dataPagamento       DateTime? @map("data_pagamento") // quando A_VISTA
+  quantidadeParcela   Int?     @map("quantidade_parcela") // quando PARCELADO ou QUINZENAL
+  dataInicioParcela   DateTime? @map("data_inicio_parcela") // quando PARCELADO ou QUINZENAL
+  status              String   @default("PLANEJADO") // PLANEJADO | PAGO
+  plannedExpenseId    String?  @unique @map("planned_expense_id") // ref à despesa planejada que originou esta paga
+  settledByExpenseId  String?  @unique @map("settled_by_expense_id") // quando esta planejada foi liquidada por uma paga
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+  deletedAt           DateTime? @map("deleted_at")
 
-  @@unique([projectId, roomId, workTypeId])
-  @@map("budget_items")
+  project       Project        @relation(fields: [projectId], references: [id])
+  room          Room?          @relation(fields: [roomId], references: [id])
+  plannedExpense Expense?      @relation("ExpenseSettlement", fields: [plannedExpenseId], references: [id])
+  settledBy      Expense?      @relation("ExpenseSettlement")
+  cashFlow      CashFlowEntry[]
+
+  @@map("expenses")
 }
 
-model Contractor {
-  id              String   @id @default(cuid())
-  projectId       String   @map("project_id")
-  name            String
-  document        String?  // CPF/CNPJ mascarado
-  phone           String?
-  contractedAmount Float   @default(0) @map("contracted_amount")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
-  deletedAt       DateTime? @map("deleted_at")
-
-  project    Project @relation(fields: [projectId], references: [id])
-  milestones ContractorMilestone[]
-
-  @@map("contractors")
-}
-
-model ContractorMilestone {
-  id              String   @id @default(cuid())
-  contractorId    String   @map("contractor_id")
-  stage           String
-  description     String
-  percentage      Float    @default(0)
-  percentCompleted Float   @default(0) @map("percent_completed")
-  paymentDate     DateTime? @map("payment_date")
-  paymentMethod   String?  @map("payment_method") // PaymentMethod enum
-  paymentStatus   String   @default("PENDING") @map("payment_status") // PaymentStatus enum
-  hasInvoice      Boolean  @default(false) @map("has_invoice")
-  notes           String?
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
-  deletedAt       DateTime? @map("deleted_at")
-
-  contractor Contractor @relation(fields: [contractorId], references: [id])
-
-  @@map("contractor_milestones")
-}
-
-model MaterialPurchase {
-  id              String   @id @default(cuid())
-  projectId       String   @map("project_id")
-  roomId          String   @map("room_id")
-  workTypeId      String   @map("work_type_id")
-  date            DateTime
-  item            String
-  store           String?
-  paymentMethod   String   @map("payment_method") // PaymentMethod enum
-  totalAmount     Float    @map("total_amount")
-  installments    Int      @default(1)
-  installmentAmount Float  @default(0) @map("installment_amount")
-  warrantyMonths  Int?     @map("warranty_months")
-  hasInvoice      Boolean  @default(false) @map("has_invoice")
-  notes           String?
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
-  deletedAt       DateTime? @map("deleted_at")
-
-  project  Project  @relation(fields: [projectId], references: [id])
-  room     Room     @relation(fields: [roomId], references: [id])
-  workType WorkType @relation(fields: [workTypeId], references: [id])
-
-  @@map("material_purchases")
-}
+// ─── Fluxo de Caixa (auto-gerado) ──────────────────────────
 
 model CashFlowEntry {
-  id           String   @id @default(cuid())
-  projectId    String   @map("project_id")
-  roomId       String?  @map("room_id")
-  workTypeId   String?  @map("work_type_id")
-  plannedDate  DateTime @map("planned_date")
-  effectiveDate DateTime? @map("effective_date")
-  description  String
-  type         String   // CashFlowType enum (INCOME | EXPENSE)
-  amount       Float
-  status       String   @default("FORECAST") // CashFlowStatus enum
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-  deletedAt    DateTime? @map("deleted_at")
+  id            String   @id @default(cuid())
+  projectId     String   @map("project_id")
+  tenantId      String   @map("tenant_id")
+  receiptId     String?  @map("receipt_id")
+  expenseId     String?  @map("expense_id")
+  valor         Int      // centavos
+  tipo          String   // RECEBIMENTO | DESPESA
+  data          DateTime
+  categoria     String   // para recebimento: tipo do recebimento; para despesa: tipoDespesa
+  subcategoria  String?  // para despesa de mão de obra: categoriaMaoDeObra
+  ambiente      String?  // nome do room (denormalizado para exibição)
+  formaPagamento String? @map("forma_pagamento")
+  status        String   // PAGO | PLANEJADO | PREVISTO | EM_CAIXA
+  parcela       String?  // ex: "1/3", "2/3"
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  deletedAt     DateTime? @map("deleted_at")
 
-  project  Project   @relation(fields: [projectId], references: [id])
-  room     Room?     @relation(fields: [roomId], references: [id])
-  workType WorkType? @relation(fields: [workTypeId], references: [id])
+  project  Project  @relation(fields: [projectId], references: [id])
+  receipt  Receipt? @relation(fields: [receiptId], references: [id])
+  expense  Expense? @relation(fields: [expenseId], references: [id])
 
+  @@index([projectId, data])
+  @@index([receiptId])
+  @@index([expenseId])
   @@map("cash_flow_entries")
-}
-
-model ChangeOrder {
-  id              String   @id @default(cuid())
-  projectId       String   @map("project_id")
-  roomId          String?  @map("room_id")
-  workTypeId      String?  @map("work_type_id")
-  date            DateTime
-  item            String
-  reason          String
-  additionalAmount Float   @map("additional_amount")
-  approvedBy      String?  @map("approved_by")
-  status          String   @default("PENDING") // ChangeOrderStatus enum
-  notes           String?
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
-  deletedAt       DateTime? @map("deleted_at")
-
-  project  Project   @relation(fields: [projectId], references: [id])
-  room     Room?     @relation(fields: [roomId], references: [id])
-  workType WorkType? @relation(fields: [workTypeId], references: [id])
-
-  @@map("change_orders")
 }
 
 model Attachment {
@@ -238,4 +179,35 @@ model Attachment {
 
   @@index([entityType, entityId])
   @@map("attachments")
+}
+
+model Simulation {
+  id        String   @id @default(cuid())
+  projectId String   @map("project_id")
+  tenantId  String   @map("tenant_id")
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  project Project           @relation(fields: [projectId], references: [id])
+  values  SimulationValue[]
+
+  @@map("simulations")
+}
+
+model SimulationValue {
+  id           String   @id @default(cuid())
+  projectId    String   @map("project_id")
+  tenantId     String   @map("tenant_id")
+  simulationId String?  @map("simulation_id")
+  key          String
+  valor        String
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  project    Project      @relation(fields: [projectId], references: [id])
+  simulation Simulation?  @relation(fields: [simulationId], references: [id], onDelete: Cascade)
+
+  @@unique([simulationId, projectId, tenantId, key])
+  @@map("simulation_values")
 }

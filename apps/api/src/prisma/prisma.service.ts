@@ -6,10 +6,15 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   constructor() {
     super();
 
+    // Models that don't have deletedAt field
+    const modelsWithoutSoftDelete = new Set(['SimulationValue', 'Simulation']);
+
     // Middleware de soft delete: intercepta queries para filtrar deletedAt = null
     this.$use(async (params, next) => {
+      const skipSoftDelete = modelsWithoutSoftDelete.has(params.model ?? '');
+
       // Filtra soft-deleted records em findMany, findFirst, findUnique
-      if (params.action === 'findMany' || params.action === 'findFirst') {
+      if (!skipSoftDelete && (params.action === 'findMany' || params.action === 'findFirst')) {
         if (!params.args) params.args = {};
         if (!params.args.where) params.args.where = {};
         if (params.args.where.deletedAt === undefined) {
@@ -18,12 +23,12 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       }
 
       // Converte delete em soft delete (update deletedAt)
-      if (params.action === 'delete') {
+      if (!skipSoftDelete && params.action === 'delete') {
         params.action = 'update';
         params.args.data = { deletedAt: new Date() };
       }
 
-      if (params.action === 'deleteMany') {
+      if (!skipSoftDelete && params.action === 'deleteMany') {
         params.action = 'updateMany';
         if (!params.args) params.args = {};
         params.args.data = { deletedAt: new Date() };

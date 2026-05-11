@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsNumber, MinLength, IsDateString } from 'class-validator';
+import { IsString, IsOptional, MinLength, IsDateString } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateProjectDto {
@@ -11,11 +11,6 @@ export class CreateProjectDto {
   @IsOptional()
   @IsString()
   description?: string;
-
-  @ApiPropertyOptional({ example: 30000 })
-  @IsOptional()
-  @IsNumber()
-  totalBudget?: number;
 
   @ApiPropertyOptional({ example: '2026-05-01' })
   @IsOptional()
