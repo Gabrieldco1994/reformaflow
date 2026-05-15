@@ -3,5 +3,8 @@
   "buildCommand": "npm --workspace @reformaflow/domain run build && npm --workspace @reformaflow/web run build",
   "installCommand": "npm install --workspaces --include-workspace-root",
   "outputDirectory": "apps/web/.next",
-  "framework": "nextjs"
+  "framework": "nextjs",
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "https://reformaflow-api.fly.dev/:path*" }
+  ]
 }

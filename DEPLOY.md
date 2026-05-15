@@ -42,8 +42,8 @@ flyctl volumes create reformaflow_data --region gru --size 3 --app reformaflow-a
 # 2) Configurar secrets (NUNCA commitar)
 flyctl secrets set --app reformaflow-api \
   JWT_SECRET="$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")" \
-  ADMIN_USERNAME="gabrieldco" \
-  ADMIN_PASSWORD='K@rn1994' \
+  ADMIN_USERNAME="<seu-usuario-admin>" \
+  ADMIN_PASSWORD="<senha-forte-aqui>" \
   CORS_ORIGIN="https://SEU-DOMINIO.vercel.app"
 
 # (opcional) IA de plantas
@@ -108,7 +108,7 @@ Aceita lista separada por vírgula se quiser permitir preview deploys:
 
 ```bash
 flyctl secrets set --app reformaflow-api \
-  CORS_ORIGIN="https://reformaflow.vercel.app,https://reformaflow-git-main-gabrieldco.vercel.app"
+  CORS_ORIGIN="https://reformaflow.vercel.app,https://reformaflow-git-main-<usuario>.vercel.app"
 ```
 
 ---
