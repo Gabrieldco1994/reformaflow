@@ -500,14 +500,14 @@ export default function ExpensesPage() {
               <thead className="bg-gray-50 border-b">
                 <tr>
                   <th className="w-8 px-2 py-2" />
-                  <th className="text-left px-3 py-2 font-medium text-gray-600">Título</th>
-                  <th className="text-left px-3 py-2 font-medium text-gray-600">Fornecedor</th>
-                  <th className="text-left px-3 py-2 font-medium text-gray-600">Ambiente</th>
-                  <th className="text-right px-3 py-2 font-medium text-gray-600">Valor Unit.</th>
-                  <th className="text-right px-3 py-2 font-medium text-gray-600">Qtd</th>
-                  <th className="text-right px-3 py-2 font-medium text-gray-600">Valor Total</th>
-                  <th className="text-center px-3 py-2 font-medium text-gray-600">Pagamento</th>
-                  <th className="text-right px-3 py-2 font-medium text-gray-600">Ações</th>
+                  <th className="text-left px-2 py-2 font-medium text-gray-600">Título</th>
+                  <th className="text-left px-2 py-2 font-medium text-gray-600">Fornecedor</th>
+                  <th className="text-left px-2 py-2 font-medium text-gray-600">Ambiente</th>
+                  <th className="text-right px-2 py-2 font-medium text-gray-600">Valor Unit.</th>
+                  <th className="text-right px-2 py-2 font-medium text-gray-600">Qtd</th>
+                  <th className="text-right px-2 py-2 font-medium text-gray-600">Valor Total</th>
+                  <th className="text-center px-2 py-2 font-medium text-gray-600">Pagamento</th>
+                  <th className="text-right px-2 py-2 font-medium text-gray-600">Ações</th>
                 </tr>
               </thead>
               <tbody>
@@ -523,11 +523,11 @@ export default function ExpensesPage() {
                         <td className="px-2 py-2 text-center text-orange-500">
                           {isCatCollapsed ? <ChevronRight className="w-3.5 h-3.5 inline" /> : <ChevronDown className="w-3.5 h-3.5 inline" />}
                         </td>
-                        <td colSpan={3} className="px-3 py-2 font-semibold text-orange-800 text-xs">
+                        <td colSpan={3} className="px-2 py-2 font-semibold text-orange-800 text-xs">
                           {cat.label}
                           <span className="ml-2 text-[10px] font-normal text-orange-500">({cat.expenses.length} itens)</span>
                         </td>
-                        <td colSpan={2} className="px-3 py-2 text-right text-[10px] text-orange-600">
+                        <td colSpan={2} className="px-2 py-2 text-right text-[10px] text-orange-600">
                           <span className="inline-flex items-center gap-2">
                             {cat.totalPlanejado > 0 && (
                               <span className="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">Plan: {formatCurrency(cat.totalPlanejado / 100)}</span>
@@ -537,7 +537,7 @@ export default function ExpensesPage() {
                             )}
                           </span>
                         </td>
-                        <td className="px-3 py-2 text-right font-bold text-orange-800 text-xs">
+                        <td className="px-2 py-2 text-right font-bold text-orange-800 text-xs">
                           {formatCurrency(cat.total / 100)}
                         </td>
                         <td colSpan={2} />
@@ -558,27 +558,36 @@ export default function ExpensesPage() {
                                   </button>
                                 ) : null}
                               </td>
-                              <td className="px-3 py-1.5 font-medium text-gray-800">
+                              <td className="px-2 py-1.5 font-medium text-gray-800">
                                 {exp.titulo || tipoLabel(exp.tipoDespesa)}
                                 {exp.tipoDespesa === 'MAO_DE_OBRA' && exp.categoriaMaoDeObra && (
                                   <span className="ml-1.5 text-[10px] text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded">{catMaoLabel(exp.categoriaMaoDeObra)}</span>
                                 )}
-                                {hasDetail && (
-                                  <span className="ml-1.5 text-[10px] text-gray-400">({exp.quantidadeParcela}x)</span>
-                                )}
                               </td>
-                              <td className="px-3 py-1.5 text-gray-600">{exp.fornecedor || '—'}</td>
-                              <td className="px-3 py-1.5 text-gray-600">{exp.room?.name || '—'}</td>
-                              <td className="px-3 py-1.5 text-right text-gray-600">{formatCurrency(exp.valor / 100)}</td>
-                              <td className="px-3 py-1.5 text-right text-gray-600">{exp.quantidade}</td>
-                              <td className="px-3 py-1.5 text-right font-medium text-gray-800">{formatCurrency(exp.valorTotal / 100)}</td>
-                              <td className="px-3 py-1.5 text-center">
-                                <span className="inline-flex items-center gap-1.5">
-                                  <span className="text-gray-600">{formaLabel(exp.formaPagamento)}</span>
-                                  <StatusBadge status={exp.status} />
-                                </span>
+                              <td className="px-2 py-1.5 text-gray-600 max-w-[120px] truncate" title={exp.fornecedor || ''}>{exp.fornecedor || '—'}</td>
+                              <td className="px-2 py-1.5 text-gray-600 max-w-[110px] truncate" title={exp.room?.name || ''}>{exp.room?.name || '—'}</td>
+                              <td className="px-2 py-1.5 text-right text-gray-600 tabular-nums">{formatCurrency(exp.valor / 100)}</td>
+                              <td className="px-2 py-1.5 text-right text-gray-600 tabular-nums">{exp.quantidade}</td>
+                              <td className="px-2 py-1.5 text-right font-medium text-gray-800 tabular-nums">{formatCurrency(exp.valorTotal / 100)}</td>
+                              <td className="px-2 py-1.5 text-center align-middle">
+                                <div className="flex flex-col items-center gap-0.5 leading-tight">
+                                  <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                                    <span className="text-gray-600">{formaLabel(exp.formaPagamento)}</span>
+                                    {(exp.quantidadeParcela ?? 0) > 1 && (
+                                      <span className="text-[10px] font-medium text-gray-500 bg-gray-100 px-1 rounded">{exp.quantidadeParcela}×</span>
+                                    )}
+                                    <StatusBadge status={exp.status} />
+                                  </span>
+                                  {(exp.dataInicioParcela || exp.dataPagamento) && (
+                                    <span className="text-[10px] text-gray-400 tabular-nums">
+                                      {exp.dataInicioParcela
+                                        ? `1ª ${new Date(exp.dataInicioParcela).toLocaleDateString('pt-BR')}`
+                                        : new Date(exp.dataPagamento!).toLocaleDateString('pt-BR')}
+                                    </span>
+                                  )}
+                                </div>
                               </td>
-                              <td className="px-3 py-1.5 text-right">
+                              <td className="px-2 py-1.5 text-right">
                                 <span className="inline-flex gap-0.5">
                                   <button onClick={() => openEdit(exp)} className="p-1 rounded hover:bg-gray-200" title="Editar">
                                     <Pencil className="w-3.5 h-3.5 text-gray-500" />
@@ -594,16 +603,16 @@ export default function ExpensesPage() {
                             {isExpanded && hasDetail && getParcelaBreakdown(exp).map((p) => (
                               <tr key={`${exp.id}-${p.parcela}`} className="bg-gray-50/50">
                                 <td />
-                                <td className="px-3 py-1 pl-8 text-gray-500">
+                                <td className="px-2 py-1 pl-8 text-gray-500">
                                   ↳ Parcela {p.parcela}
                                 </td>
-                                <td className="px-3 py-1 text-gray-400">
+                                <td className="px-2 py-1 text-gray-400 tabular-nums">
                                   {new Date(p.data).toLocaleDateString('pt-BR')}
                                 </td>
                                 <td />
                                 <td />
                                 <td />
-                                <td className="px-3 py-1 text-right text-gray-500">{formatCurrency(p.valor / 100)}</td>
+                                <td className="px-2 py-1 text-right text-gray-500 tabular-nums">{formatCurrency(p.valor / 100)}</td>
                                 <td colSpan={2} />
                               </tr>
                             ))}
@@ -751,12 +760,12 @@ export default function ExpensesPage() {
               <tfoot className="bg-gray-50 border-t">
                 <tr className="font-semibold text-xs">
                   <td />
-                  <td className="px-3 py-2 text-gray-700">Total</td>
+                  <td className="px-2 py-2 text-gray-700">Total</td>
                   <td />
                   <td />
                   <td />
                   <td />
-                  <td className="px-3 py-2 text-right font-bold text-gray-800">{formatCurrency(totalGeral / 100)}</td>
+                  <td className="px-2 py-2 text-right font-bold text-gray-800 tabular-nums">{formatCurrency(totalGeral / 100)}</td>
                   <td />
                   <td />
                 </tr>

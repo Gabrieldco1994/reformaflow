@@ -11,7 +11,7 @@ import {
   toDateInputValue,
 } from '../_lib/format';
 
-export const ROW_H = 44;
+export const ROW_H = 52;
 
 export function EditableTaskRow({
   task,
@@ -124,7 +124,7 @@ export function EditableTaskRow({
 
       <div className="w-10 px-1 text-xs text-gray-500 tabular-nums">{task.numero}</div>
 
-      <div className="flex-1 min-w-[180px] px-2">
+      <div className="flex-1 min-w-[320px] px-2">
         <input
           value={nome}
           onChange={(e) => setNome(e.target.value)}
@@ -136,7 +136,7 @@ export function EditableTaskRow({
               (e.target as HTMLInputElement).blur();
             }
           }}
-          className={`w-full bg-transparent rounded px-1.5 py-1 text-sm outline-none border border-transparent hover:border-gray-200 focus:border-brand-400 focus:bg-white truncate ${
+          className={`w-full bg-transparent rounded px-2 py-1.5 text-[15px] outline-none border border-transparent hover:border-gray-200 focus:border-brand-400 focus:bg-white truncate ${
             done ? 'line-through text-gray-500' : 'text-gray-800'
           }`}
           title={nome}

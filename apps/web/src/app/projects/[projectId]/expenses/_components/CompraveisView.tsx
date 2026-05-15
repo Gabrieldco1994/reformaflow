@@ -27,12 +27,22 @@ export function CompráveisView({ expenses, tipoLabel }: { expenses: Expense[]; 
   const [filterStatus, setFilterStatus] = useState('');
   const [sortBy, setSortBy] = useState<'valor' | 'titulo' | 'custom'>('custom');
   const [cardOrder, setCardOrder] = useState<Record<string, string[]>>({});
+  const [colsPerRow, setColsPerRow] = useState<3 | 4>(3);
 
   // Load saved order from localStorage
   useEffect(() => {
     try {
       const saved = localStorage.getItem('compraveis-order');
       if (saved) setCardOrder(JSON.parse(saved));
+      const savedCols = localStorage.getItem('compraveis-cols');
+      if (savedCols === '4' || savedCols === '3') setColsPerRow(Number(savedCols) as 3 | 4);
+    } catch {}
+  }, []);
+
+  const changeCols = useCallback((n: 3 | 4) => {
+    setColsPerRow(n);
+    try {
+      localStorage.setItem('compraveis-cols', String(n));
     } catch {}
   }, []);
 
@@ -160,6 +170,23 @@ export function CompráveisView({ expenses, tipoLabel }: { expenses: Expense[]; 
               <option value="valor">Maior valor</option>
               <option value="titulo">A–Z</option>
             </select>
+            <div className="hidden lg:inline-flex items-center gap-1 text-xs bg-white border rounded-lg px-2 py-1" title="Itens por linha">
+              <span className="text-gray-400">Por linha:</span>
+              <button
+                type="button"
+                onClick={() => changeCols(3)}
+                className={`px-1.5 rounded ${colsPerRow === 3 ? 'bg-orange-100 text-orange-700 font-semibold' : 'text-gray-500 hover:bg-gray-100'}`}
+              >
+                3
+              </button>
+              <button
+                type="button"
+                onClick={() => changeCols(4)}
+                className={`px-1.5 rounded ${colsPerRow === 4 ? 'bg-orange-100 text-orange-700 font-semibold' : 'text-gray-500 hover:bg-gray-100'}`}
+              >
+                4
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -186,7 +213,7 @@ export function CompráveisView({ expenses, tipoLabel }: { expenses: Expense[]; 
                 onDragEnd={handleDragEnd(roomName)}
               >
                 <SortableContext items={items.map((e) => e.id)} strategy={rectSortingStrategy}>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                  <div className={`grid grid-cols-1 sm:grid-cols-2 ${colsPerRow === 4 ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-5`}>
                     {items.map((expense) => (
                       <SortableCard key={expense.id} expense={expense} tipoLabel={tipoLabel} />
                     ))}

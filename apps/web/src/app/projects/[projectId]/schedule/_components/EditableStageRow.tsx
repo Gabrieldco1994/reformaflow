@@ -41,7 +41,7 @@ export function EditableStageRow({
         {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
       </button>
       <div className="w-10 px-1 text-xs font-bold text-gray-500">{stage.tasks[0]?.numero ?? ''}</div>
-      <div className="flex-1 min-w-[180px] px-2 text-sm font-bold text-gray-800 truncate">
+      <div className="flex-1 min-w-[320px] px-2 text-sm font-bold text-gray-800 truncate">
         {editing ? (
           <input
             value={value}

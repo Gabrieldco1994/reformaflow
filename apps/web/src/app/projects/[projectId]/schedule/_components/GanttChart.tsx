@@ -13,7 +13,7 @@ import { EditableTaskRow, ROW_H } from './EditableTaskRow';
 import { EditableStageRow } from './EditableStageRow';
 
 const DAY_W = 28;
-const LEFT_PANEL_W = 700;
+const LEFT_PANEL_W = 900;
 
 interface GanttChartProps {
   stages: ScheduleStage[];
@@ -126,7 +126,7 @@ export function GanttChart({
           >
             <div className="w-8 px-1 flex items-end pb-1 text-center"></div>
             <div className="w-10 px-1 flex items-end pb-1">N°</div>
-            <div className="flex-1 min-w-[180px] px-2 flex items-end pb-1">Tarefa</div>
+            <div className="flex-1 min-w-[320px] px-2 flex items-end pb-1">Tarefa</div>
             <div className="w-14 px-1 flex items-end pb-1 text-center">Dur</div>
             <div className="w-14 px-1 flex items-end pb-1 text-center">Pred</div>
             <div className="w-[104px] px-1 flex items-end pb-1">Início</div>
