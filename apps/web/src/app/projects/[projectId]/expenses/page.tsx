@@ -506,7 +506,7 @@ export default function ExpensesPage() {
                   <th className="text-right px-2 py-2 font-medium text-gray-600">Valor Unit.</th>
                   <th className="text-right px-2 py-2 font-medium text-gray-600">Qtd</th>
                   <th className="text-right px-2 py-2 font-medium text-gray-600">Valor Total</th>
-                  <th className="text-center px-2 py-2 font-medium text-gray-600">Pagamento</th>
+                  <th className="text-center px-2 py-2 font-medium text-gray-600 min-w-[200px]">Pagamento</th>
                   <th className="text-right px-2 py-2 font-medium text-gray-600">Ações</th>
                 </tr>
               </thead>
@@ -569,17 +569,17 @@ export default function ExpensesPage() {
                               <td className="px-2 py-1.5 text-right text-gray-600 tabular-nums">{formatCurrency(exp.valor / 100)}</td>
                               <td className="px-2 py-1.5 text-right text-gray-600 tabular-nums">{exp.quantidade}</td>
                               <td className="px-2 py-1.5 text-right font-medium text-gray-800 tabular-nums">{formatCurrency(exp.valorTotal / 100)}</td>
-                              <td className="px-2 py-1.5 text-center align-middle">
+                              <td className="px-3 py-1.5 text-center align-middle">
                                 <div className="flex flex-col items-center gap-0.5 leading-tight">
-                                  <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                                  <span className="inline-flex items-center gap-2 whitespace-nowrap">
                                     <span className="text-gray-600">{formaLabel(exp.formaPagamento)}</span>
                                     {(exp.quantidadeParcela ?? 0) > 1 && (
-                                      <span className="text-[10px] font-medium text-gray-500 bg-gray-100 px-1 rounded">{exp.quantidadeParcela}×</span>
+                                      <span className="text-[11px] font-bold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded">{exp.quantidadeParcela}×</span>
                                     )}
                                     <StatusBadge status={exp.status} />
                                   </span>
                                   {(exp.dataInicioParcela || exp.dataPagamento) && (
-                                    <span className="text-[10px] text-gray-400 tabular-nums">
+                                    <span className="text-[11px] text-gray-400 tabular-nums">
                                       {exp.dataInicioParcela
                                         ? `1ª ${new Date(exp.dataInicioParcela).toLocaleDateString('pt-BR')}`
                                         : new Date(exp.dataPagamento!).toLocaleDateString('pt-BR')}
