@@ -356,7 +356,7 @@ export default function ExpensesPage() {
       {/* Header with tabs */}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-bold text-gray-900">Despesas</h1>
+          <h1 className="text-xl font-bold text-gray-900">Despesas</h1>
           <div className="inline-flex rounded-lg border border-gray-200 text-sm overflow-hidden">
             <button
               onClick={() => setActiveTab('despesas')}
