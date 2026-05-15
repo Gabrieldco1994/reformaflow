@@ -1,0 +1,7 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm --workspace @reformaflow/domain run build && npm --workspace @reformaflow/web run build",
+  "installCommand": "npm install --workspaces --include-workspace-root",
+  "outputDirectory": "apps/web/.next",
+  "framework": "nextjs"
+}

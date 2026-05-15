@@ -5,9 +5,6 @@
 app = "reformaflow-api"
 primary_region = "gru" # São Paulo. Trocar se preferir: gig (Rio), iad (Virginia), etc.
 
-[build]
-  dockerfile = "apps/api/Dockerfile"
-
 [env]
   NODE_ENV = "production"
   PORT = "3001"
@@ -35,10 +32,9 @@ primary_region = "gru" # São Paulo. Trocar se preferir: gig (Rio), iad (Virgini
   [[http_service.checks]]
     interval = "30s"
     timeout = "5s"
-    grace_period = "20s"
+    grace_period = "60s"
     method = "GET"
-    path = "/"
-
+    path = "/api/docs-json"
 # SQLite single-instance: NEVER scale > 1
 [[vm]]
   size = "shared-cpu-1x"

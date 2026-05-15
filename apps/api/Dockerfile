@@ -12,7 +12,6 @@ COPY package.json package-lock.json* turbo.json tsconfig*.json ./
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
 COPY packages/domain/package.json packages/domain/
-COPY packages/config/package.json packages/config/
 
 # Workspaces install (full, we need devDeps for build)
 RUN npm ci --no-audit --no-fund --include=dev
@@ -20,7 +19,6 @@ RUN npm ci --no-audit --no-fund --include=dev
 # Now copy the rest of the sources we need
 COPY prisma ./prisma
 COPY packages/domain ./packages/domain
-COPY packages/config ./packages/config
 COPY apps/api ./apps/api
 
 # Build domain first (referenced by api at runtime via path mapping/transpile)
@@ -51,7 +49,6 @@ COPY --from=builder /repo/apps/api/package.json apps/api/package.json
 COPY --from=builder /repo/apps/api/dist apps/api/dist
 COPY --from=builder /repo/packages/domain/package.json packages/domain/package.json
 COPY --from=builder /repo/packages/domain/dist packages/domain/dist
-COPY --from=builder /repo/packages/config packages/config
 COPY --from=builder /repo/prisma prisma
 
 # Install ONLY production deps for api workspace
@@ -67,7 +64,7 @@ RUN printf '#!/bin/sh\nset -e\nmkdir -p /data/uploads\nnpx prisma migrate deploy
 
 EXPOSE 3001
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD curl -fsS http://127.0.0.1:3001/api/health || curl -fsS http://127.0.0.1:3001/ || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD curl -fsS http://127.0.0.1:3001/api/docs-json || exit 1
 
 CMD ["/entrypoint.sh"]
