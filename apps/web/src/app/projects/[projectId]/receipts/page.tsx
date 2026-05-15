@@ -117,7 +117,7 @@ export default function ReceiptsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <h1 className="text-2xl font-bold text-gray-900">Recebimentos</h1>
         <Button onClick={openCreate}><Plus className="w-4 h-4" /> Novo Recebimento</Button>
       </div>

@@ -556,7 +556,7 @@ export default function FloorPlansPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">🏗️ Plantas Baixas</h1>
           <p className="text-sm text-gray-500 mt-1">
@@ -566,7 +566,7 @@ export default function FloorPlansPage() {
         <button
           onClick={() => fileRef.current?.click()}
           disabled={uploading}
-          className="px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 flex items-center gap-2 disabled:opacity-50"
+          className="self-start sm:self-auto px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 flex items-center gap-2 disabled:opacity-50"
         >
           {uploading ? (
             <RefreshCw className="w-4 h-4 animate-spin" />

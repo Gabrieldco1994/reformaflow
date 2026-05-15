@@ -440,7 +440,7 @@ export function MonthlyProjection({
   return (
     <div className="space-y-4">
       {/* KPIs */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {kpis.map((kpi) => (
           <div key={kpi.label} className={`rounded-lg border p-3 ${kpi.color}`}>
             <p className="text-xs font-medium opacity-75">{kpi.label}</p>

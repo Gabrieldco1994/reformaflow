@@ -354,10 +354,10 @@ export default function ExpensesPage() {
   return (
     <div className="space-y-4">
       {/* Header with tabs */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-bold text-gray-900">Despesas</h1>
-          <div className="inline-flex rounded-lg border border-gray-200 text-sm overflow-hidden ml-2">
+          <div className="inline-flex rounded-lg border border-gray-200 text-sm overflow-hidden">
             <button
               onClick={() => setActiveTab('despesas')}
               className={`px-4 py-1.5 transition-colors font-medium ${activeTab === 'despesas' ? 'bg-orange-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
@@ -369,7 +369,7 @@ export default function ExpensesPage() {
           </div>
         </div>
         {activeTab === 'despesas' && (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button variant="secondary" onClick={openPlanForm}>
               <Plus className="w-4 h-4" /> Planejar
             </Button>
@@ -386,7 +386,7 @@ export default function ExpensesPage() {
       <>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="rounded-lg border p-3 bg-orange-50 border-orange-200">
           <p className="text-xs font-medium text-orange-600">Total Despesas</p>
           <p className="text-lg font-bold text-orange-800 mt-0.5">{formatCurrency(totalGeral / 100)}</p>
@@ -444,7 +444,7 @@ export default function ExpensesPage() {
 
       {/* Expandable Filters */}
       {showFilters && (
-        <div className="grid grid-cols-3 md:grid-cols-6 gap-2 px-3 py-2 bg-gray-50 border rounded-lg">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 px-3 py-2 bg-gray-50 border rounded-lg">
           <div>
             <label className="text-[10px] font-medium text-gray-500 block mb-0.5">Tipo</label>
             <select value={filters.tipoDespesa} onChange={(e) => updateFilter('tipoDespesa', e.target.value)}

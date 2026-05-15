@@ -227,7 +227,7 @@ export default function SimulationPage() {
         <select
           value={activeScenarioId ?? ''}
           onChange={(e) => setActiveScenarioId(e.target.value || null)}
-          className="border rounded px-2 py-1 text-sm bg-white min-w-[160px]"
+          className="border rounded px-2 py-1 text-sm bg-white w-full sm:w-auto sm:min-w-[160px]"
         >
           <option value="">Selecione um cenário</option>
           {scenarios?.map((s) => (
