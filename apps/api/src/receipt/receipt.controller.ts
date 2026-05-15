@@ -14,10 +14,12 @@ import { CreateReceiptDto } from './dto/create-receipt.dto';
 import { UpdateReceiptDto } from './dto/update-receipt.dto';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
 import { CurrentTenant } from '../common/decorators/tenant.decorator';
+import { RequireModule } from '../common/decorators/require-module.decorator';
 
 @ApiTags('receipts')
 @ApiBearerAuth()
 @UseInterceptors(TenantInterceptor)
+@RequireModule('receipts')
 @Controller('projects/:projectId/receipts')
 export class ReceiptController {
   constructor(private readonly service: ReceiptService) {}

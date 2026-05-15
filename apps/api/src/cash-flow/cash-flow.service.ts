@@ -13,7 +13,14 @@ export class CashFlowService {
     await this.validateProject(tenantId, projectId);
 
     const entries = await this.prisma.cashFlowEntry.findMany({
-      where: { projectId, deletedAt: null },
+      where: {
+        projectId,
+        deletedAt: null,
+        OR: [
+          { expenseId: null },
+          { expense: { deletedAt: null } },
+        ],
+      },
       orderBy: { data: 'asc' },
       include: { expense: { select: { titulo: true, fornecedor: true } } },
     });

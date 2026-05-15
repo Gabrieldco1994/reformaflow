@@ -82,7 +82,15 @@ export class SimulationService {
         include: { room: true },
       }),
       this.prisma.cashFlowEntry.findMany({
-        where: { projectId, tenantId, deletedAt: null },
+        where: {
+          projectId,
+          tenantId,
+          deletedAt: null,
+          OR: [
+            { expenseId: null },
+            { expense: { deletedAt: null } },
+          ],
+        },
         orderBy: { data: 'asc' },
       }),
     ]);

@@ -1,4 +1,4 @@
-import { IsString, IsEmail, MinLength } from 'class-validator';
+import { IsString, Matches, MaxLength, MinLength } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateTenantDto {
@@ -7,9 +7,14 @@ export class CreateTenantDto {
   @MinLength(3)
   name!: string;
 
-  @ApiProperty({ example: 'gabriel@email.com' })
-  @IsEmail()
-  ownerEmail!: string;
+  @ApiProperty({ example: 'gabriel' })
+  @IsString()
+  @MinLength(3)
+  @MaxLength(40)
+  @Matches(/^[a-zA-Z0-9._-]+$/, {
+    message: 'Usuário deve conter apenas letras, números, ponto, hífen ou sublinhado',
+  })
+  ownerUsername!: string;
 
   @ApiProperty({ example: 'Gabriel Barbosa' })
   @IsString()

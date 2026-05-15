@@ -29,22 +29,25 @@ model User {
   id        String   @id @default(cuid())
   tenantId  String   @map("tenant_id")
   externalId String? @unique @map("external_id")
-  email     String
+  username  String
   name      String
-  role      String   @default("OWNER")
+  role      String   @default("USER")
+  passwordHash    String?  @map("password_hash")
+  allowedModules  String   @default("[]") @map("allowed_modules")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
-  @@unique([tenantId, email])
+  @@unique([tenantId, username])
   @@map("users")
 }
 
 model Project {
   id          String   @id @default(cuid())
   tenantId    String   @map("tenant_id")
+  type        String   @default("REFORMA") // REFORMA | COMPRA | CASA | CARRO
   name        String
   description String?
   startDate   DateTime? @map("start_date")
@@ -60,8 +63,39 @@ model Project {
   cashFlow    CashFlowEntry[]
   simulationValues SimulationValue[]
   simulations      Simulation[]
+  floorPlans       FloorPlan[]
+  recurringBills   RecurringBill[]
+  maintenanceLogs  MaintenanceLog[]
+  reminders        Reminder[]
+  carInfo          CarInfo?
+  scheduleConfig   ScheduleConfig?
+  scheduleStages   ScheduleStage[]
+  scheduleTasks    ScheduleTask[]
+  scheduleHolidays ScheduleHoliday[]
 
   @@map("projects")
+}
+
+model CarInfo {
+  id              String   @id @default(cuid())
+  projectId       String   @unique @map("project_id")
+  tenantId        String   @map("tenant_id")
+  marca           String?
+  modelo          String?
+  anoFabricacao   Int?     @map("ano_fabricacao")
+  anoModelo       Int?     @map("ano_modelo")
+  cor             String?
+  placa           String?
+  tabelaFipe      Int?     @map("tabela_fipe")   // centavos
+  valorPago       Int?     @map("valor_pago")     // centavos
+  kmAtual         Int?     @map("km_atual")
+  kmUltimaRevisao Int?     @map("km_ultima_revisao")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id])
+
+  @@map("car_info")
 }
 
 model Room {
@@ -74,6 +108,8 @@ model Room {
 
   project  Project   @relation(fields: [projectId], references: [id])
   expenses Expense[]
+  roomImages RoomImage[]
+  floorPlanRooms FloorPlanRoom[]
 
   @@unique([projectId, name])
   @@map("rooms")
@@ -210,4 +246,205 @@ model SimulationValue {
 
   @@unique([simulationId, projectId, tenantId, key])
   @@map("simulation_values")
+}
+
+// ─── Plantas Baixas ──────────────────────────────────────────
+
+model FloorPlan {
+  id        String   @id @default(cuid())
+  projectId String   @map("project_id")
+  tenantId  String   @map("tenant_id")
+  name      String
+  imageUrl  String   @map("image_url") // path to uploaded image
+  order     Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  project Project         @relation(fields: [projectId], references: [id])
+  rooms   FloorPlanRoom[]
+
+  @@map("floor_plans")
+}
+
+model FloorPlanRoom {
+  id          String   @id @default(cuid())
+  floorPlanId String   @map("floor_plan_id")
+  roomId      String?  @map("room_id") // linked to Room (ambiente)
+  label       String   // display name on the floor plan
+  bounds      String   // JSON: {x, y, width, height} as percentages of image
+  color       String   @default("#3B82F6") // overlay color
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  floorPlan FloorPlan @relation(fields: [floorPlanId], references: [id], onDelete: Cascade)
+  room      Room?     @relation(fields: [roomId], references: [id])
+
+  @@map("floor_plan_rooms")
+}
+
+model RoomImage {
+  id        String   @id @default(cuid())
+  roomId    String   @map("room_id")
+  imageUrl  String   @map("image_url")
+  caption   String?
+  order     Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@map("room_images")
+}
+
+// ─── Contas Recorrentes (CASA / CARRO) ──────────────────────
+
+model RecurringBill {
+  id                String   @id @default(cuid())
+  projectId         String   @map("project_id")
+  tenantId          String   @map("tenant_id")
+  nome              String
+  valor             Int      // centavos
+  categoria         String   // LUZ | AGUA | INTERNET | IPTU | CONDOMINIO | SEGURO | GAS | TELEFONE | STREAMING | OUTRO
+  frequencia        String   @default("MENSAL") // MENSAL | BIMESTRAL | TRIMESTRAL | SEMESTRAL | ANUAL
+  diaVencimento     Int      @map("dia_vencimento") // 1-31
+  status            String   @default("ATIVO") // ATIVO | PAUSADO
+  ultimoPagamento   DateTime? @map("ultimo_pagamento")
+  proximoVencimento DateTime? @map("proximo_vencimento")
+  observacoes       String?
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  deletedAt         DateTime? @map("deleted_at")
+
+  project Project @relation(fields: [projectId], references: [id])
+
+  @@index([projectId])
+  @@map("recurring_bills")
+}
+
+// ─── Manutenções (CASA / CARRO) ────────────────────────────
+
+model MaintenanceLog {
+  id              String   @id @default(cuid())
+  projectId       String   @map("project_id")
+  tenantId        String   @map("tenant_id")
+  tipo            String   // CASA: PINTURA | IMPERMEABILIZACAO | DEDETIZACAO | LIMPEZA_CAIXA | REVISAO_ELETRICA | REVISAO_HIDRAULICA | OUTRO
+                           // CARRO: TROCA_OLEO | FILTRO_AR | FILTRO_OLEO | FILTRO_COMBUSTIVEL | PNEUS | ALINHAMENTO | BALANCEAMENTO | REVISAO | FREIOS | CORREIA | OUTRO
+  dataRealizada   DateTime @map("data_realizada")
+  dataProxima     DateTime? @map("data_proxima")
+  quilometragem   Int?     // só para CARRO
+  custo           Int?     // centavos
+  fornecedor      String?
+  observacoes     String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  project Project @relation(fields: [projectId], references: [id])
+
+  @@index([projectId])
+  @@map("maintenance_logs")
+}
+
+// ─── Lembretes ──────────────────────────────────────────────
+
+model Reminder {
+  id          String   @id @default(cuid())
+  projectId   String   @map("project_id")
+  tenantId    String   @map("tenant_id")
+  titulo      String
+  descricao   String?
+  data        DateTime
+  recorrencia String   @default("UNICA") // UNICA | DIARIA | SEMANAL | MENSAL | ANUAL
+  status      String   @default("PENDENTE") // PENDENTE | CONCLUIDO | ADIADO
+  prioridade  String   @default("MEDIA") // BAIXA | MEDIA | ALTA | URGENTE
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  project Project @relation(fields: [projectId], references: [id])
+
+  @@index([projectId])
+  @@index([data])
+  @@map("reminders")
+}
+
+// ─── Cronograma de Obra ─────────────────────────────────────────
+
+model ScheduleConfig {
+  id                String   @id @default(cuid())
+  projectId         String   @unique @map("project_id")
+  tenantId          String   @map("tenant_id")
+  dataInicio        DateTime @map("data_inicio")
+  trabalhaDiasUteis Boolean  @default(true) @map("trabalha_dias_uteis")
+  trabalhaSabados   Boolean  @default(false) @map("trabalha_sabados")
+  linhaBaseData     DateTime? @map("linha_base_data")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  deletedAt         DateTime? @map("deleted_at")
+
+  project Project @relation(fields: [projectId], references: [id])
+
+  @@map("schedule_configs")
+}
+
+model ScheduleStage {
+  id        String   @id @default(cuid())
+  projectId String   @map("project_id")
+  tenantId  String   @map("tenant_id")
+  nome      String
+  ordem     Int
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  project Project @relation(fields: [projectId], references: [id])
+  tasks   ScheduleTask[]
+
+  @@index([projectId])
+  @@map("schedule_stages")
+}
+
+model ScheduleTask {
+  id                  String    @id @default(cuid())
+  stageId             String    @map("stage_id")
+  projectId           String    @map("project_id")
+  tenantId            String    @map("tenant_id")
+  numero              Int
+  nome                String
+  duracao             Int       @default(1) // dias
+  dataInicio          DateTime? @map("data_inicio")
+  dataTermino         DateTime? @map("data_termino")
+  predecessoras       String?   // JSON array de números de tarefas, ex: "[2,3]"
+  valorOrcado         Int?      @map("valor_orcado") // centavos
+  custoReal           Int?      @map("custo_real") // centavos
+  percentualConcluido Float     @default(0) @map("percentual_concluido")
+  ordem               Int
+  dataInicioBase      DateTime? @map("data_inicio_base")
+  dataTerminoBase     DateTime? @map("data_termino_base")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+  deletedAt           DateTime? @map("deleted_at")
+
+  stage   ScheduleStage @relation(fields: [stageId], references: [id])
+  project Project       @relation(fields: [projectId], references: [id])
+
+  @@index([stageId])
+  @@index([projectId])
+  @@map("schedule_tasks")
+}
+
+model ScheduleHoliday {
+  id        String   @id @default(cuid())
+  projectId String   @map("project_id")
+  tenantId  String   @map("tenant_id")
+  nome      String
+  data      DateTime
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  project Project @relation(fields: [projectId], references: [id])
+
+  @@index([projectId])
+  @@map("schedule_holidays")
 }

@@ -1,4 +1,4 @@
-import { IsString, IsOptional, MinLength, IsDateString } from 'class-validator';
+import { IsString, IsOptional, MinLength, IsDateString, IsIn } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateProjectDto {
@@ -6,6 +6,11 @@ export class CreateProjectDto {
   @IsString()
   @MinLength(3)
   name!: string;
+
+  @ApiProperty({ example: 'REFORMA', enum: ['REFORMA', 'COMPRA', 'CASA', 'CARRO'] })
+  @IsString()
+  @IsIn(['REFORMA', 'COMPRA', 'CASA', 'CARRO'])
+  type!: string;
 
   @ApiPropertyOptional({ example: 'Reforma completa do apto de 80m²' })
   @IsOptional()

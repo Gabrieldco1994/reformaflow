@@ -189,8 +189,8 @@ export class ExpenseService {
 
       if (expense) {
         const entries = this.buildCashFlowEntries(expense);
-        for (const entry of entries) {
-          await tx.cashFlowEntry.create({ data: entry });
+        if (entries.length > 0) {
+          await tx.cashFlowEntry.createMany({ data: entries });
         }
       }
 
@@ -229,7 +229,7 @@ export class ExpenseService {
     });
     if (!expense) return;
 
-    await this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx) => {
       // Soft-delete existing entries
       await tx.cashFlowEntry.updateMany({
         where: { expenseId, deletedAt: null },
@@ -240,8 +240,8 @@ export class ExpenseService {
       if (expense.settledByExpenseId) return;
 
       const entries = this.buildCashFlowEntries(expense);
-      for (const entry of entries) {
-        await tx.cashFlowEntry.create({ data: entry });
+      if (entries.length > 0) {
+        await tx.cashFlowEntry.createMany({ data: entries });
       }
     });
   }

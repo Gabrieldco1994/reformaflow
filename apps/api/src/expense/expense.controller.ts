@@ -14,10 +14,12 @@ import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
 import { CurrentTenant } from '../common/decorators/tenant.decorator';
+import { RequireModule } from '../common/decorators/require-module.decorator';
 
 @ApiTags('expenses')
 @ApiBearerAuth()
 @UseInterceptors(TenantInterceptor)
+@RequireModule('expenses')
 @Controller('projects/:projectId/expenses')
 export class ExpenseController {
   constructor(private readonly service: ExpenseService) {}

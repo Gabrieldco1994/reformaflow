@@ -1,0 +1,47 @@
+# Fly.io configuration for ReformaFlow API
+# Run from repo root: `flyctl launch --no-deploy --copy-config --dockerfile apps/api/Dockerfile`
+# Or use this file as-is: `flyctl deploy -c apps/api/fly.toml --dockerfile apps/api/Dockerfile`
+
+app = "reformaflow-api"
+primary_region = "gru" # São Paulo. Trocar se preferir: gig (Rio), iad (Virginia), etc.
+
+[build]
+  dockerfile = "apps/api/Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3001"
+  DATABASE_URL = "file:/data/dev.db"
+  UPLOADS_DIR = "/data/uploads"
+
+[[mounts]]
+  source = "reformaflow_data"
+  destination = "/data"
+  initial_size = "3gb"
+
+[http_service]
+  internal_port = 3001
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 200
+    hard_limit = 250
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"
+    method = "GET"
+    path = "/"
+
+# SQLite single-instance: NEVER scale > 1
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+  cpu_kind = "shared"
+  cpus = 1

@@ -12,7 +12,7 @@ export class TenantService {
         name: dto.name,
         users: {
           create: {
-            email: dto.ownerEmail,
+            username: dto.ownerUsername,
             name: dto.ownerName,
             role: 'OWNER',
           },

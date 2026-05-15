@@ -13,7 +13,13 @@ import { ProjectService } from './project.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
-import { CurrentTenant } from '../common/decorators/tenant.decorator';
+import { CurrentTenant, CurrentUser } from '../common/decorators/tenant.decorator';
+import { Roles } from '../common/decorators/roles.decorator';
+
+interface RequestUser {
+  role: string;
+  allowedModules: string[];
+}
 
 @ApiTags('projects')
 @ApiBearerAuth()
@@ -24,23 +30,35 @@ export class ProjectController {
 
   @Post()
   @ApiOperation({ summary: 'Criar novo projeto com ambientes padrão' })
-  create(@CurrentTenant() tenantId: string, @Body() dto: CreateProjectDto) {
-    return this.projectService.create(tenantId, dto);
+  create(
+    @CurrentTenant() tenantId: string,
+    @Body() dto: CreateProjectDto,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.projectService.create(tenantId, dto, user);
   }
 
   @Get()
   @ApiOperation({ summary: 'Listar projetos do tenant' })
-  findAll(@CurrentTenant() tenantId: string) {
-    return this.projectService.findAll(tenantId);
+  findAll(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.projectService.findAll(tenantId, user);
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Buscar projeto por ID' })
-  findOne(@CurrentTenant() tenantId: string, @Param('id') id: string) {
-    return this.projectService.findById(tenantId, id);
+  findOne(
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.projectService.findById(tenantId, id, user);
   }
 
   @Patch(':id')
+  @Roles('ADMIN')
   @ApiOperation({ summary: 'Atualizar projeto' })
   update(
     @CurrentTenant() tenantId: string,
@@ -51,6 +69,7 @@ export class ProjectController {
   }
 
   @Delete(':id')
+  @Roles('ADMIN')
   @ApiOperation({ summary: 'Remover projeto (soft delete)' })
   remove(@CurrentTenant() tenantId: string, @Param('id') id: string) {
     return this.projectService.remove(tenantId, id);

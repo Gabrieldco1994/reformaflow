@@ -1,5 +1,6 @@
 node_modules
 dist
+**/dist/
 .env
 .env.local
 .turbo
@@ -8,3 +9,36 @@ coverage
 .next
 *.db
 *.db-journal
+*.db.bak*
+prisma/dev.db*
+uploads/
+apps/api/uploads/
+api.log
+*.log
+.DS_Store
+
+# Local agent state
+.agents/
+.copilot/
+
+# Stray TS build artifacts emitted outside dist/ (legit ones: apps/web/next-env.d.ts)
+packages/domain/src/**/*.js
+packages/domain/src/**/*.js.map
+packages/domain/src/**/*.d.ts
+packages/domain/src/**/*.d.ts.map
+packages/domain/__tests__/**/*.js
+packages/domain/__tests__/**/*.js.map
+packages/domain/__tests__/**/*.d.ts
+packages/domain/__tests__/**/*.d.ts.map
+packages/domain/vitest.config.js
+packages/domain/vitest.config.js.map
+packages/domain/vitest.config.d.ts
+packages/domain/vitest.config.d.ts.map
+packages/config/**/*.js
+packages/config/**/*.d.ts
+packages/config/**/*.js.map
+packages/config/**/*.d.ts.map
+prisma/seed.js
+prisma/seed.js.map
+prisma/seed.d.ts
+prisma/seed.d.ts.map

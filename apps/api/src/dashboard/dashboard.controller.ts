@@ -8,10 +8,12 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { DashboardService } from './dashboard.service';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
 import { CurrentTenant } from '../common/decorators/tenant.decorator';
+import { RequireModule } from '../common/decorators/require-module.decorator';
 
 @ApiTags('dashboard')
 @ApiBearerAuth()
 @UseInterceptors(TenantInterceptor)
+@RequireModule('dashboard')
 @Controller('projects/:projectId/dashboard')
 export class DashboardController {
   constructor(private readonly service: DashboardService) {}

@@ -14,10 +14,12 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { SimulationService } from './simulation.service';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
 import { CurrentTenant } from '../common/decorators/tenant.decorator';
+import { RequireModule } from '../common/decorators/require-module.decorator';
 
 @ApiTags('simulation')
 @ApiBearerAuth()
 @UseInterceptors(TenantInterceptor)
+@RequireModule('simulation')
 @Controller('projects/:projectId/simulation')
 export class SimulationController {
   constructor(private readonly service: SimulationService) {}
