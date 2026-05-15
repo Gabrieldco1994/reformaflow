@@ -21,6 +21,8 @@ import {
   CalendarClock,
   Users,
   LogOut,
+  Menu,
+  X,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -83,6 +85,7 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
   const projectId = params.projectId as string;
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const { user, isAdmin, hasModule, hasProjectType, logout, loading: authLoading } = useAuth();
 
   useEffect(() => {
@@ -91,6 +94,10 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
       .catch(() => router.push('/projects'))
       .finally(() => setLoading(false));
   }, [projectId, router]);
+
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
 
   const navItems = useMemo(
     () => (project ? FEATURE_NAV[project.type] ?? FEATURE_NAV.REFORMA : []),
@@ -134,11 +141,62 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
 
   return (
     <ProjectProvider value={{ projectId: project.id, projectType: project.type, projectName: project.name }}>
-      <div className="flex h-screen">
-        {/* Sidebar */}
-        <aside className="group/sidebar w-16 hover:w-52 transition-all duration-200 border-r border-gray-200 bg-white flex flex-col overflow-hidden">
-          {/* Header with back + project name */}
-          <div className="p-3 border-b border-gray-200 min-h-[56px]">
+      <div className="flex flex-col md:flex-row h-screen">
+        {/* Mobile top bar */}
+        <header className="md:hidden flex items-center justify-between px-4 h-14 border-b border-gray-200 bg-white sticky top-0 z-30">
+          <button
+            type="button"
+            onClick={() => setMobileOpen(true)}
+            aria-label="Abrir menu"
+            className="p-2 -ml-2 rounded-lg text-gray-600 hover:bg-gray-100"
+          >
+            <Menu className="w-6 h-6" />
+          </button>
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-xl flex-shrink-0">{TYPE_ICONS[project.type] ?? '📋'}</span>
+            <span className="text-sm font-semibold text-brand-700 truncate">{project.name}</span>
+          </div>
+          <Link
+            href="/projects"
+            aria-label="Voltar para projetos"
+            className="p-2 -mr-2 rounded-lg text-gray-500 hover:bg-gray-100"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </Link>
+        </header>
+
+        {/* Mobile drawer backdrop */}
+        {mobileOpen && (
+          <div
+            className="md:hidden fixed inset-0 bg-black/50 z-40"
+            onClick={() => setMobileOpen(false)}
+            aria-hidden
+          />
+        )}
+
+        {/* Sidebar: drawer on mobile, hover-expand on desktop */}
+        <aside
+          className={`group/sidebar fixed md:static inset-y-0 left-0 z-50 md:z-auto bg-white border-r border-gray-200 flex flex-col overflow-hidden transition-all duration-200
+            w-64 md:w-16 md:hover:w-52
+            ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}
+        >
+          {/* Mobile close button */}
+          <div className="md:hidden flex items-center justify-between px-3 h-14 border-b border-gray-200">
+            <span className="text-sm font-semibold text-brand-700 truncate">
+              {TYPE_ICONS[project.type] ?? '📋'} {project.name}
+            </span>
+            <button
+              type="button"
+              onClick={() => setMobileOpen(false)}
+              aria-label="Fechar menu"
+              className="p-2 -mr-2 rounded-lg text-gray-500 hover:bg-gray-100"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Desktop header */}
+          <div className="hidden md:block p-3 border-b border-gray-200 min-h-[56px]">
             <Link
               href="/projects"
               className="flex items-center gap-2 text-gray-500 hover:text-gray-800 transition-colors"
@@ -157,7 +215,7 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
           </div>
 
           {/* Nav items */}
-          <nav className="flex-1 p-2 space-y-1">
+          <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
             {visibleNav.map((item) => {
               const fullHref = `${basePath}/${item.href}`;
               const isActive = pathname.startsWith(fullHref);
@@ -174,7 +232,7 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
                   }`}
                 >
                   <Icon className="w-5 h-5 flex-shrink-0" />
-                  <span className="whitespace-nowrap opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200">
+                  <span className="whitespace-nowrap md:opacity-0 md:group-hover/sidebar:opacity-100 transition-opacity duration-200">
                     {item.label}
                   </span>
                 </Link>
@@ -192,14 +250,14 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
                 }`}
               >
                 <Users className="w-5 h-5 flex-shrink-0" />
-                <span className="whitespace-nowrap opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200">
+                <span className="whitespace-nowrap md:opacity-0 md:group-hover/sidebar:opacity-100 transition-opacity duration-200">
                   Usuários
                 </span>
               </Link>
             )}
           </nav>
 
-          <div className="p-2 border-t border-gray-200 space-y-1">
+          <div className="p-2 border-t border-gray-200 space-y-1 safe-pb">
             {user && (
               <button
                 onClick={handleLogout}
@@ -207,19 +265,19 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
                 className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors"
               >
                 <LogOut className="w-5 h-5 flex-shrink-0" />
-                <span className="whitespace-nowrap opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200 truncate">
+                <span className="whitespace-nowrap md:opacity-0 md:group-hover/sidebar:opacity-100 transition-opacity duration-200 truncate">
                   Sair ({user.name})
                 </span>
               </button>
             )}
-            <div className="text-xs text-gray-400 whitespace-nowrap opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200 px-3">
+            <div className="text-xs text-gray-400 whitespace-nowrap md:opacity-0 md:group-hover/sidebar:opacity-100 transition-opacity duration-200 px-3">
               v0.2.0
             </div>
           </div>
         </aside>
 
         {/* Main content */}
-        <main className="flex-1 overflow-y-auto p-6">
+        <main className="flex-1 overflow-y-auto p-4 md:p-6">
           {children}
         </main>
       </div>

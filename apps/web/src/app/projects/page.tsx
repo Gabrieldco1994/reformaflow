@@ -111,14 +111,14 @@ export default function ProjectsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200 px-6 py-4 mb-6">
+      <header className="bg-white border-b border-gray-200 px-4 md:px-6 py-4 mb-6">
         <div className="max-w-4xl mx-auto flex items-center gap-3">
           <span className="text-2xl">🎯</span>
           <h1 className="text-xl font-bold text-gray-900">Controle de Vida</h1>
         </div>
       </header>
-      <div className="max-w-4xl mx-auto px-6">
-      <div className="flex items-center justify-between mb-8">
+      <div className="max-w-4xl mx-auto px-4 md:px-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 md:mb-8">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Meus Projetos</h1>
           <p className="text-gray-500 mt-1">Gerencie seus projetos de vida</p>
@@ -126,7 +126,7 @@ export default function ProjectsPage() {
         <button
           onClick={openCreate}
           disabled={!canCreate}
-          className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          className="self-start sm:self-auto flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           title={
             canCreate
               ? 'Criar novo projeto'
@@ -140,8 +140,8 @@ export default function ProjectsPage() {
 
       {/* Modal de criação */}
       {showCreate && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-xl">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-5 sm:p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
             <h2 className="text-xl font-bold mb-4">Novo Projeto</h2>
 
             <div className="space-y-4">

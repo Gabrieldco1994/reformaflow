@@ -22,3 +22,13 @@
     @apply bg-gray-50 text-gray-900 antialiased;
   }
 }
+
+@layer utilities {
+  .table-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .safe-pb {
+    padding-bottom: max(env(safe-area-inset-bottom), 0.5rem);
+  }
+}
