@@ -131,8 +131,8 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
 
   if (loading || !project) {
     return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600"></div>
+      <div className="flex h-screen items-center justify-center bg-darc-linen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-darc-red"></div>
       </div>
     );
   }
@@ -141,25 +141,25 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
 
   return (
     <ProjectProvider value={{ projectId: project.id, projectType: project.type, projectName: project.name }}>
-      <div className="flex flex-col md:flex-row h-screen">
+      <div className="flex flex-col md:flex-row h-screen bg-darc-linen">
         {/* Mobile top bar */}
-        <header className="md:hidden flex items-center justify-between px-4 h-14 border-b border-gray-200 bg-white sticky top-0 z-30">
+        <header className="md:hidden flex items-center justify-between px-4 h-14 border-b border-darc-velvet bg-darc-maroon sticky top-0 z-30">
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
             aria-label="Abrir menu"
-            className="p-2 -ml-2 rounded-lg text-gray-600 hover:bg-gray-100"
+            className="p-2 -ml-2 rounded-lg text-darc-linen hover:bg-darc-mist/15"
           >
             <Menu className="w-6 h-6" />
           </button>
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-xl flex-shrink-0">{TYPE_ICONS[project.type] ?? '📋'}</span>
-            <span className="text-sm font-semibold text-brand-700 truncate">{project.name}</span>
+            <span className="text-sm font-semibold text-darc-linen truncate">{project.name}</span>
           </div>
           <Link
             href="/projects"
             aria-label="Voltar para projetos"
-            className="p-2 -mr-2 rounded-lg text-gray-500 hover:bg-gray-100"
+            className="p-2 -mr-2 rounded-lg text-darc-mist hover:bg-darc-mist/15"
           >
             <ArrowLeft className="w-5 h-5" />
           </Link>
@@ -168,7 +168,7 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
         {/* Mobile drawer backdrop */}
         {mobileOpen && (
           <div
-            className="md:hidden fixed inset-0 bg-black/50 z-40"
+            className="md:hidden fixed inset-0 bg-darc-velvet/70 backdrop-blur-sm z-40"
             onClick={() => setMobileOpen(false)}
             aria-hidden
           />
@@ -176,39 +176,39 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
 
         {/* Sidebar: drawer on mobile, hover-expand on desktop */}
         <aside
-          className={`group/sidebar fixed md:static inset-y-0 left-0 z-50 md:z-auto bg-white border-r border-gray-200 flex flex-col overflow-hidden transition-all duration-200
-            w-64 md:w-16 md:hover:w-52
+          className={`group/sidebar fixed md:static inset-y-0 left-0 z-50 md:z-auto bg-darc-velvet flex flex-col overflow-hidden transition-all duration-200
+            w-64 md:w-16 md:hover:w-56
             ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}
         >
           {/* Mobile close button */}
-          <div className="md:hidden flex items-center justify-between px-3 h-14 border-b border-gray-200">
-            <span className="text-sm font-semibold text-brand-700 truncate">
+          <div className="md:hidden flex items-center justify-between px-3 h-14 border-b border-darc-maroon/60">
+            <span className="text-sm font-semibold text-darc-linen truncate">
               {TYPE_ICONS[project.type] ?? '📋'} {project.name}
             </span>
             <button
               type="button"
               onClick={() => setMobileOpen(false)}
               aria-label="Fechar menu"
-              className="p-2 -mr-2 rounded-lg text-gray-500 hover:bg-gray-100"
+              className="p-2 -mr-2 rounded-lg text-darc-mist hover:bg-darc-mist/15"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
 
           {/* Desktop header */}
-          <div className="hidden md:block p-3 border-b border-gray-200 min-h-[56px]">
+          <div className="hidden md:block p-3 border-b border-darc-maroon/60 min-h-[56px]">
             <Link
               href="/projects"
-              className="flex items-center gap-2 text-gray-500 hover:text-gray-800 transition-colors"
+              className="flex items-center gap-2 text-darc-mist hover:text-darc-linen transition-colors"
             >
               <ArrowLeft className="w-5 h-5 flex-shrink-0" />
-              <span className="text-xs whitespace-nowrap opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200">
+              <span className="text-[10px] tracking-[0.2em] uppercase whitespace-nowrap opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200">
                 Projetos
               </span>
             </Link>
             <div className="flex items-center gap-2 mt-2">
               <span className="text-xl flex-shrink-0">{TYPE_ICONS[project.type] ?? '📋'}</span>
-              <span className="text-sm font-bold text-brand-700 whitespace-nowrap opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200 truncate">
+              <span className="font-editorial italic text-base text-darc-linen whitespace-nowrap opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200 truncate">
                 {project.name}
               </span>
             </div>
@@ -227,11 +227,11 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
                   title={item.label}
                   className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                     isActive
-                      ? 'bg-brand-50 text-brand-700'
-                      : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                      ? 'bg-darc-red text-darc-linen'
+                      : 'text-darc-linen hover:bg-darc-mist/15'
                   }`}
                 >
-                  <Icon className="w-5 h-5 flex-shrink-0" />
+                  <Icon className={`w-5 h-5 flex-shrink-0 ${isActive ? 'text-darc-linen' : 'text-darc-mist'}`} />
                   <span className="whitespace-nowrap md:opacity-0 md:group-hover/sidebar:opacity-100 transition-opacity duration-200">
                     {item.label}
                   </span>
@@ -245,11 +245,11 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
                 title="Usuários"
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                   pathname.startsWith('/admin/users')
-                    ? 'bg-brand-50 text-brand-700'
-                    : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                    ? 'bg-darc-red text-darc-linen'
+                    : 'text-darc-linen hover:bg-darc-mist/15'
                 }`}
               >
-                <Users className="w-5 h-5 flex-shrink-0" />
+                <Users className={`w-5 h-5 flex-shrink-0 ${pathname.startsWith('/admin/users') ? 'text-darc-linen' : 'text-darc-mist'}`} />
                 <span className="whitespace-nowrap md:opacity-0 md:group-hover/sidebar:opacity-100 transition-opacity duration-200">
                   Usuários
                 </span>
@@ -257,27 +257,27 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
             )}
           </nav>
 
-          <div className="p-2 border-t border-gray-200 space-y-1 safe-pb">
+          <div className="p-2 border-t border-darc-maroon/60 space-y-1 safe-pb">
             {user && (
               <button
                 onClick={handleLogout}
                 title="Sair"
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors"
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-darc-linen hover:bg-darc-mist/15 transition-colors"
               >
-                <LogOut className="w-5 h-5 flex-shrink-0" />
+                <LogOut className="w-5 h-5 flex-shrink-0 text-darc-mist" />
                 <span className="whitespace-nowrap md:opacity-0 md:group-hover/sidebar:opacity-100 transition-opacity duration-200 truncate">
                   Sair ({user.name})
                 </span>
               </button>
             )}
-            <div className="text-xs text-gray-400 whitespace-nowrap md:opacity-0 md:group-hover/sidebar:opacity-100 transition-opacity duration-200 px-3">
+            <div className="text-[10px] tracking-[0.2em] uppercase text-darc-mist/60 whitespace-nowrap md:opacity-0 md:group-hover/sidebar:opacity-100 transition-opacity duration-200 px-3 pt-1">
               v0.2.0
             </div>
           </div>
         </aside>
 
         {/* Main content */}
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
+        <main className="flex-1 overflow-y-auto p-4 md:p-6 bg-darc-linen">
           {children}
         </main>
       </div>

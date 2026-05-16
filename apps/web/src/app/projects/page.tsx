@@ -110,18 +110,18 @@ export default function ProjectsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200 px-4 md:px-6 py-4 mb-6">
-        <div className="max-w-4xl mx-auto flex items-center gap-3">
-          <span className="text-2xl">🎯</span>
-          <h1 className="text-xl font-bold text-gray-900">Controle de Vida</h1>
+    <div className="min-h-screen bg-darc-linen">
+      <header className="bg-darc-maroon border-b border-darc-velvet px-4 md:px-6 py-4 mb-6 shadow-darc-soft">
+        <div className="max-w-4xl mx-auto flex items-baseline gap-3">
+          <h1 className="font-editorial text-3xl text-darc-red leading-none">D&apos;arc</h1>
+          <span className="text-[10px] tracking-[0.3em] uppercase text-darc-mist">Studio</span>
         </div>
       </header>
       <div className="max-w-4xl mx-auto px-4 md:px-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 md:mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Meus Projetos</h1>
-          <p className="text-gray-500 mt-1">Gerencie seus projetos de vida</p>
+          <h1 className="font-editorial text-3xl text-darc-maroon italic">Meus Projetos</h1>
+          <p className="text-darc-raspberry/80 mt-1 italic">Gerencie seus projetos de vida</p>
         </div>
         <button
           onClick={openCreate}
