@@ -1,15 +1,16 @@
 'use client';
 import { useProject } from '@/contexts/project-context';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
-import { Plus, Pencil, Trash2, Check, X } from 'lucide-react';
+import { Plus, Pencil, Trash2, Check, X, ChevronDown, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Modal } from '@/components/ui/modal';
+import React from 'react';
 import type { Receipt, ReceiptFormData } from '@/types';
 
 const TIPO_OPTIONS = [
@@ -39,6 +40,16 @@ export default function ReceiptsPage() {
   const [editing, setEditing] = useState<Receipt | null>(null);
   const [newRow, setNewRow] = useState({ valor: '', data: '', tipo: 'PAGAMENTO', status: 'PREVISTO' });
   const [showNewRow, setShowNewRow] = useState(false);
+  const [collapsedTipos, setCollapsedTipos] = useState<Set<string>>(new Set());
+
+  const toggleTipo = (tipo: string) => {
+    setCollapsedTipos((prev) => {
+      const next = new Set(prev);
+      if (next.has(tipo)) next.delete(tipo);
+      else next.add(tipo);
+      return next;
+    });
+  };
 
   const { data: receipts = [], isLoading } = useQuery<Receipt[]>({
     queryKey: ['receipts', PROJECT_ID],
@@ -115,6 +126,30 @@ export default function ReceiptsPage() {
 
   const tipoLabel = (tipo: string) => TIPO_OPTIONS.find((o) => o.value === tipo)?.label ?? tipo;
 
+  const grouped = useMemo(() => {
+    const byTipo = new Map<string, Receipt[]>();
+    for (const r of receipts) {
+      const arr = byTipo.get(r.tipo) ?? [];
+      arr.push(r);
+      byTipo.set(r.tipo, arr);
+    }
+    return TIPO_OPTIONS
+      .map((o) => ({
+        tipo: o.value,
+        label: o.label,
+        items: (byTipo.get(o.value) ?? []).slice().sort((a, b) => (a.data > b.data ? -1 : 1)),
+      }))
+      .filter((g) => g.items.length > 0)
+      .map((g) => ({
+        ...g,
+        total: g.items.reduce((s, r) => s + r.valor, 0),
+        totalEmCaixa: g.items.filter((r) => r.status === 'EM_CAIXA').reduce((s, r) => s + r.valor, 0),
+        totalPrevisto: g.items.filter((r) => r.status === 'PREVISTO').reduce((s, r) => s + r.valor, 0),
+      }));
+  }, [receipts]);
+
+  const totalGeral = grouped.reduce((s, g) => s + g.total, 0);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -125,56 +160,93 @@ export default function ReceiptsPage() {
       {isLoading ? (
         <p className="text-gray-500">Carregando...</p>
       ) : (
-        <div className="overflow-x-auto border rounded-lg">
+        <div className="overflow-x-auto border border-darc-linen rounded-lg bg-white shadow-darc-soft">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b">
+            <thead className="bg-darc-cream/60 border-b border-darc-linen">
               <tr>
-                <th className="text-left px-4 py-2 font-medium text-gray-600">Valor</th>
-                <th className="text-left px-4 py-2 font-medium text-gray-600">Data</th>
-                <th className="text-left px-4 py-2 font-medium text-gray-600">Tipo</th>
-                <th className="text-left px-4 py-2 font-medium text-gray-600">Status</th>
-                <th className="text-right px-4 py-2 font-medium text-gray-600">Ações</th>
+                <th className="w-8 px-2 py-2" />
+                <th className="text-left px-4 py-2 font-medium text-darc-velvet">Valor</th>
+                <th className="text-left px-4 py-2 font-medium text-darc-velvet">Data</th>
+                <th className="text-left px-4 py-2 font-medium text-darc-velvet">Tipo</th>
+                <th className="text-left px-4 py-2 font-medium text-darc-velvet">Status</th>
+                <th className="text-right px-4 py-2 font-medium text-darc-velvet">Ações</th>
               </tr>
             </thead>
-            <tbody className="divide-y">
-              {receipts.map((r) => (
-                <tr key={r.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-2 font-medium">{formatCurrency(r.valor / 100)}</td>
-                  <td className="px-4 py-2">{r.data ? new Date(r.data).toLocaleDateString('pt-BR') : '-'}</td>
-                  <td className="px-4 py-2">{tipoLabel(r.tipo)}</td>
-                  <td className="px-4 py-2"><StatusBadge status={r.status} /></td>
-                  <td className="px-4 py-2 text-right space-x-1">
-                    <button onClick={() => openEdit(r)} className="p-1 rounded hover:bg-gray-200">
-                      <Pencil className="w-4 h-4 text-gray-500" />
-                    </button>
-                    <button onClick={() => deleteMutation.mutate(r.id)} className="p-1 rounded hover:bg-red-100">
-                      <Trash2 className="w-4 h-4 text-red-500" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
+            <tbody>
+              {grouped.map((g) => {
+                const isCollapsed = collapsedTipos.has(g.tipo);
+                return (
+                  <React.Fragment key={g.tipo}>
+                    {/* Faixa de tipo (mesmo padrão do cronograma/despesas) */}
+                    <tr
+                      className="bg-darc-pink-logo/60 border-y border-darc-pink-logo cursor-pointer hover:bg-darc-pink-logo"
+                      onClick={() => toggleTipo(g.tipo)}
+                    >
+                      <td className="px-2 py-2 text-center text-darc-raspberry">
+                        {isCollapsed ? <ChevronRight className="w-3.5 h-3.5 inline" /> : <ChevronDown className="w-3.5 h-3.5 inline" />}
+                      </td>
+                      <td colSpan={2} className="px-4 py-2 font-bold uppercase tracking-wider text-darc-velvet text-xs">
+                        {g.label}
+                        <span className="ml-2 text-[10px] font-normal normal-case tracking-normal text-darc-raspberry/70">({g.items.length} itens)</span>
+                      </td>
+                      <td colSpan={2} className="px-2 py-2 text-right text-[10px] text-darc-raspberry">
+                        <span className="inline-flex items-center gap-2">
+                          {g.totalPrevisto > 0 && (
+                            <span className="bg-darc-sunfire/20 text-darc-raspberry px-1.5 py-0.5 rounded">Previsto: {formatCurrency(g.totalPrevisto / 100)}</span>
+                          )}
+                          {g.totalEmCaixa > 0 && (
+                            <span className="bg-darc-mist/30 text-darc-velvet px-1.5 py-0.5 rounded">Em caixa: {formatCurrency(g.totalEmCaixa / 100)}</span>
+                          )}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2 text-right font-bold text-darc-velvet text-xs tabular-nums">
+                        {formatCurrency(g.total / 100)}
+                      </td>
+                    </tr>
+
+                    {!isCollapsed && g.items.map((r) => (
+                      <tr key={r.id} className="hover:bg-darc-cream/40 border-b border-darc-linen/60">
+                        <td />
+                        <td className="px-4 py-2 font-medium text-darc-velvet tabular-nums">{formatCurrency(r.valor / 100)}</td>
+                        <td className="px-4 py-2 text-darc-velvet/80 tabular-nums">{r.data ? new Date(r.data).toLocaleDateString('pt-BR') : '-'}</td>
+                        <td className="px-4 py-2 text-darc-velvet/80">{tipoLabel(r.tipo)}</td>
+                        <td className="px-4 py-2"><StatusBadge status={r.status} /></td>
+                        <td className="px-4 py-2 text-right space-x-1">
+                          <button onClick={() => openEdit(r)} className="p-1 rounded hover:bg-darc-pink-logo" title="Editar">
+                            <Pencil className="w-4 h-4 text-darc-raspberry" />
+                          </button>
+                          <button onClick={() => deleteMutation.mutate(r.id)} className="p-1 rounded hover:bg-darc-red-pastel/30" title="Excluir">
+                            <Trash2 className="w-4 h-4 text-darc-red" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </React.Fragment>
+                );
+              })}
 
               {/* Linha de criação rápida inline (estilo Excel) */}
               {showNewRow && (
-                <tr className="bg-blue-50/30 border-t-2 border-blue-200">
+                <tr className="bg-darc-mist/15 border-t-2 border-darc-mist">
+                  <td />
                   <td className="px-4 py-2">
                     <input type="number" step="0.01" placeholder="Valor" value={newRow.valor}
                       onChange={(e) => setNewRow({ ...newRow, valor: e.target.value })}
                       onKeyDown={handleNewRowKeyDown}
-                      className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+                      className="w-full border border-darc-linen rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-darc-mist"
                       autoFocus />
                   </td>
                   <td className="px-4 py-2">
                     <input type="date" value={newRow.data}
                       onChange={(e) => setNewRow({ ...newRow, data: e.target.value })}
                       onKeyDown={handleNewRowKeyDown}
-                      className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                      className="w-full border border-darc-linen rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-darc-mist" />
                   </td>
                   <td className="px-4 py-2">
                     <select value={newRow.tipo}
                       onChange={(e) => setNewRow({ ...newRow, tipo: e.target.value })}
                       onKeyDown={handleNewRowKeyDown}
-                      className="w-full border border-gray-300 rounded px-2 py-1 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300">
+                      className="w-full border border-darc-linen rounded px-2 py-1 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-darc-mist">
                       {TIPO_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                     </select>
                   </td>
@@ -182,25 +254,34 @@ export default function ReceiptsPage() {
                     <select value={newRow.status}
                       onChange={(e) => setNewRow({ ...newRow, status: e.target.value })}
                       onKeyDown={handleNewRowKeyDown}
-                      className="w-full border border-gray-300 rounded px-2 py-1 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300">
+                      className="w-full border border-darc-linen rounded px-2 py-1 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-darc-mist">
                       {STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                     </select>
                   </td>
                   <td className="px-4 py-2 text-right space-x-1">
-                    <button onClick={handleNewRowSubmit} className="p-1 rounded hover:bg-green-100" title="Salvar (Enter)">
-                      <Check className="w-4 h-4 text-green-600" />
+                    <button onClick={handleNewRowSubmit} className="p-1 rounded hover:bg-darc-mist/30" title="Salvar (Enter)">
+                      <Check className="w-4 h-4 text-darc-raspberry" />
                     </button>
-                    <button onClick={() => setShowNewRow(false)} className="p-1 rounded hover:bg-gray-200" title="Cancelar (Esc)">
-                      <X className="w-4 h-4 text-gray-500" />
+                    <button onClick={() => setShowNewRow(false)} className="p-1 rounded hover:bg-darc-pink-logo" title="Cancelar (Esc)">
+                      <X className="w-4 h-4 text-darc-velvet/60" />
                     </button>
                   </td>
                 </tr>
               )}
 
-              {receipts.length === 0 && !showNewRow && (
-                <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400">Nenhum recebimento cadastrado.</td></tr>
+              {grouped.length === 0 && !showNewRow && (
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-darc-velvet/50 italic">Nenhum recebimento cadastrado.</td></tr>
               )}
             </tbody>
+            {grouped.length > 0 && (
+              <tfoot className="bg-darc-cream/60 border-t border-darc-linen">
+                <tr className="font-semibold text-xs">
+                  <td />
+                  <td colSpan={4} className="px-4 py-2 text-darc-velvet uppercase tracking-wider">Total</td>
+                  <td className="px-4 py-2 text-right font-bold text-darc-velvet tabular-nums">{formatCurrency(totalGeral / 100)}</td>
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       )}
@@ -208,7 +289,7 @@ export default function ReceiptsPage() {
       {/* Botão de adicionar linha rápida */}
       {!showNewRow && (
         <button onClick={() => setShowNewRow(true)}
-          className="w-full border-2 border-dashed border-gray-200 rounded-lg py-2 text-sm text-gray-400 hover:border-blue-300 hover:text-blue-500 transition-colors">
+          className="w-full border-2 border-dashed border-darc-linen rounded-lg py-2 text-sm text-darc-velvet/50 hover:border-darc-red-pastel hover:text-darc-red hover:bg-darc-red-pastel/10 transition-colors">
           + Adicionar rápido (linha inline)
         </button>
       )}

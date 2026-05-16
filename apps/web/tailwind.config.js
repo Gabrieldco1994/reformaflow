@@ -105,6 +105,8 @@ module.exports = {
           velvet:   '#4F000B',
           maroon:   '#391212',
           red:      '#EB1C24',
+          'red-bright':  '#DE342E', // brand-red usado nas laterais
+          'red-pastel':  '#F77A82', // hover claro, ainda dentro do vermelho
           raspberry:'#900131',
           pink:     '#E2366B',
           'pink-logo': '#F6CFF2',

@@ -131,7 +131,7 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
 
   if (loading || !project) {
     return (
-      <div className="flex h-screen items-center justify-center bg-darc-linen">
+      <div className="flex h-screen items-center justify-center bg-white">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-darc-red"></div>
       </div>
     );
@@ -141,14 +141,14 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
 
   return (
     <ProjectProvider value={{ projectId: project.id, projectType: project.type, projectName: project.name }}>
-      <div className="flex flex-col md:flex-row h-screen bg-darc-linen">
+      <div className="flex flex-col md:flex-row h-screen bg-white">
         {/* Mobile top bar */}
-        <header className="md:hidden flex items-center justify-between px-4 h-14 border-b border-darc-velvet bg-darc-maroon sticky top-0 z-30">
+        <header className="md:hidden flex items-center justify-between px-4 h-14 border-b border-darc-red-bright/30 bg-darc-red-bright sticky top-0 z-30">
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
             aria-label="Abrir menu"
-            className="p-2 -ml-2 rounded-lg text-darc-linen hover:bg-darc-mist/15"
+            className="p-2 -ml-2 rounded-lg text-darc-linen hover:bg-white/15"
           >
             <Menu className="w-6 h-6" />
           </button>
@@ -159,7 +159,7 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
           <Link
             href="/projects"
             aria-label="Voltar para projetos"
-            className="p-2 -mr-2 rounded-lg text-darc-mist hover:bg-darc-mist/15"
+            className="p-2 -mr-2 rounded-lg text-darc-linen/80 hover:bg-white/15"
           >
             <ArrowLeft className="w-5 h-5" />
           </Link>
@@ -176,12 +176,12 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
 
         {/* Sidebar: drawer on mobile, hover-expand on desktop */}
         <aside
-          className={`group/sidebar fixed md:static inset-y-0 left-0 z-50 md:z-auto bg-darc-velvet flex flex-col overflow-hidden transition-all duration-200
+          className={`group/sidebar fixed md:static inset-y-0 left-0 z-50 md:z-auto bg-darc-red-bright flex flex-col overflow-hidden transition-all duration-200
             w-64 md:w-16 md:hover:w-56
             ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}
         >
           {/* Mobile close button */}
-          <div className="md:hidden flex items-center justify-between px-3 h-14 border-b border-darc-maroon/60">
+          <div className="md:hidden flex items-center justify-between px-3 h-14 border-b border-white/20">
             <span className="text-sm font-semibold text-darc-linen truncate">
               {TYPE_ICONS[project.type] ?? '📋'} {project.name}
             </span>
@@ -189,17 +189,17 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
               type="button"
               onClick={() => setMobileOpen(false)}
               aria-label="Fechar menu"
-              className="p-2 -mr-2 rounded-lg text-darc-mist hover:bg-darc-mist/15"
+              className="p-2 -mr-2 rounded-lg text-darc-linen hover:bg-white/15"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
 
           {/* Desktop header */}
-          <div className="hidden md:block p-3 border-b border-darc-maroon/60 min-h-[56px]">
+          <div className="hidden md:block p-3 border-b border-white/20 min-h-[56px]">
             <Link
               href="/projects"
-              className="flex items-center gap-2 text-darc-mist hover:text-darc-linen transition-colors"
+              className="flex items-center gap-2 text-darc-linen/80 hover:text-darc-linen transition-colors"
             >
               <ArrowLeft className="w-5 h-5 flex-shrink-0" />
               <span className="text-[10px] tracking-[0.2em] uppercase whitespace-nowrap opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200">
@@ -227,11 +227,11 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
                   title={item.label}
                   className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                     isActive
-                      ? 'bg-darc-red text-darc-linen'
-                      : 'text-darc-linen hover:bg-darc-mist/15'
+                      ? 'bg-darc-linen text-darc-velvet shadow-darc-soft'
+                      : 'text-darc-linen hover:bg-white/15'
                   }`}
                 >
-                  <Icon className={`w-5 h-5 flex-shrink-0 ${isActive ? 'text-darc-linen' : 'text-darc-mist'}`} />
+                  <Icon className={`w-5 h-5 flex-shrink-0 ${isActive ? 'text-darc-red' : 'text-darc-linen/85'}`} />
                   <span className="whitespace-nowrap md:opacity-0 md:group-hover/sidebar:opacity-100 transition-opacity duration-200">
                     {item.label}
                   </span>
@@ -245,11 +245,11 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
                 title="Usuários"
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                   pathname.startsWith('/admin/users')
-                    ? 'bg-darc-red text-darc-linen'
-                    : 'text-darc-linen hover:bg-darc-mist/15'
+                    ? 'bg-darc-linen text-darc-velvet shadow-darc-soft'
+                    : 'text-darc-linen hover:bg-white/15'
                 }`}
               >
-                <Users className={`w-5 h-5 flex-shrink-0 ${pathname.startsWith('/admin/users') ? 'text-darc-linen' : 'text-darc-mist'}`} />
+                <Users className={`w-5 h-5 flex-shrink-0 ${pathname.startsWith('/admin/users') ? 'text-darc-red' : 'text-darc-linen/85'}`} />
                 <span className="whitespace-nowrap md:opacity-0 md:group-hover/sidebar:opacity-100 transition-opacity duration-200">
                   Usuários
                 </span>
@@ -257,27 +257,27 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
             )}
           </nav>
 
-          <div className="p-2 border-t border-darc-maroon/60 space-y-1 safe-pb">
+          <div className="p-2 border-t border-white/20 space-y-1 safe-pb">
             {user && (
               <button
                 onClick={handleLogout}
                 title="Sair"
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-darc-linen hover:bg-darc-mist/15 transition-colors"
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-darc-linen hover:bg-white/15 transition-colors"
               >
-                <LogOut className="w-5 h-5 flex-shrink-0 text-darc-mist" />
+                <LogOut className="w-5 h-5 flex-shrink-0 text-darc-linen/85" />
                 <span className="whitespace-nowrap md:opacity-0 md:group-hover/sidebar:opacity-100 transition-opacity duration-200 truncate">
                   Sair ({user.name})
                 </span>
               </button>
             )}
-            <div className="text-[10px] tracking-[0.2em] uppercase text-darc-mist/60 whitespace-nowrap md:opacity-0 md:group-hover/sidebar:opacity-100 transition-opacity duration-200 px-3 pt-1">
+            <div className="text-[10px] tracking-[0.2em] uppercase text-darc-linen/60 whitespace-nowrap md:opacity-0 md:group-hover/sidebar:opacity-100 transition-opacity duration-200 px-3 pt-1">
               v0.2.0
             </div>
           </div>
         </aside>
 
         {/* Main content */}
-        <main className="flex-1 overflow-y-auto p-4 md:p-6 bg-darc-linen">
+        <main className="flex-1 overflow-y-auto p-4 md:p-6 bg-white">
           {children}
         </main>
       </div>

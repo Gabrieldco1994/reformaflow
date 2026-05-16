@@ -517,27 +517,27 @@ export default function ExpensesPage() {
                     <React.Fragment key={cat.tipo}>
                       {/* Category header row */}
                       <tr
-                        className="bg-orange-50/60 border-t border-b border-orange-200 cursor-pointer hover:bg-orange-50"
+                        className="bg-darc-pink-logo/60 border-y border-darc-pink-logo cursor-pointer hover:bg-darc-pink-logo"
                         onClick={() => toggleCategory(cat.tipo)}
                       >
-                        <td className="px-2 py-2 text-center text-orange-500">
+                        <td className="px-2 py-2 text-center text-darc-raspberry">
                           {isCatCollapsed ? <ChevronRight className="w-3.5 h-3.5 inline" /> : <ChevronDown className="w-3.5 h-3.5 inline" />}
                         </td>
-                        <td colSpan={3} className="px-2 py-2 font-semibold text-orange-800 text-xs">
+                        <td colSpan={3} className="px-2 py-2 font-bold uppercase tracking-wider text-darc-velvet text-xs">
                           {cat.label}
-                          <span className="ml-2 text-[10px] font-normal text-orange-500">({cat.expenses.length} itens)</span>
+                          <span className="ml-2 text-[10px] font-normal normal-case tracking-normal text-darc-raspberry/70">({cat.expenses.length} itens)</span>
                         </td>
-                        <td colSpan={2} className="px-2 py-2 text-right text-[10px] text-orange-600">
+                        <td colSpan={2} className="px-2 py-2 text-right text-[10px] text-darc-raspberry">
                           <span className="inline-flex items-center gap-2">
                             {cat.totalPlanejado > 0 && (
-                              <span className="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">Plan: {formatCurrency(cat.totalPlanejado / 100)}</span>
+                              <span className="bg-darc-sunfire/20 text-darc-raspberry px-1.5 py-0.5 rounded">Plan: {formatCurrency(cat.totalPlanejado / 100)}</span>
                             )}
                             {cat.totalPago > 0 && (
-                              <span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded">Pago: {formatCurrency(cat.totalPago / 100)}</span>
+                              <span className="bg-darc-mist/30 text-darc-velvet px-1.5 py-0.5 rounded">Pago: {formatCurrency(cat.totalPago / 100)}</span>
                             )}
                           </span>
                         </td>
-                        <td className="px-2 py-2 text-right font-bold text-orange-800 text-xs">
+                        <td className="px-2 py-2 text-right font-bold text-darc-velvet text-xs tabular-nums">
                           {formatCurrency(cat.total / 100)}
                         </td>
                         <td colSpan={2} />

@@ -36,9 +36,9 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="group/sidebar w-16 hover:w-56 transition-all duration-200 bg-darc-velvet flex flex-col overflow-hidden">
-      <div className="p-3 border-b border-darc-maroon/50 flex items-center gap-3 min-h-[56px]">
-        <span className="font-editorial text-2xl text-darc-red leading-none flex-shrink-0">D</span>
+    <aside className="group/sidebar w-16 hover:w-56 transition-all duration-200 bg-darc-red-bright flex flex-col overflow-hidden">
+      <div className="p-3 border-b border-white/20 flex items-center gap-3 min-h-[56px]">
+        <span className="font-editorial text-2xl text-darc-linen leading-none flex-shrink-0">D</span>
         <span className="font-editorial italic text-darc-linen text-base whitespace-nowrap opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200">D&apos;arc Studio</span>
       </div>
 
@@ -53,11 +53,11 @@ export function Sidebar() {
               title={item.label}
               className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                 isActive
-                  ? 'bg-darc-red text-darc-linen'
-                  : 'text-darc-linen hover:bg-darc-mist/15'
+                  ? 'bg-darc-linen text-darc-velvet shadow-darc-soft'
+                  : 'text-darc-linen hover:bg-white/15'
               }`}
             >
-              <Icon className={`w-5 h-5 flex-shrink-0 ${isActive ? 'text-darc-linen' : 'text-darc-mist'}`} />
+              <Icon className={`w-5 h-5 flex-shrink-0 ${isActive ? 'text-darc-red' : 'text-darc-linen/85'}`} />
               <span className="whitespace-nowrap opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200">{item.label}</span>
             </Link>
           );
@@ -69,30 +69,30 @@ export function Sidebar() {
             title="Usuários"
             className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
               pathname.startsWith('/admin/users')
-                ? 'bg-darc-red text-darc-linen'
-                : 'text-darc-linen hover:bg-darc-mist/15'
+                ? 'bg-darc-linen text-darc-velvet shadow-darc-soft'
+                : 'text-darc-linen hover:bg-white/15'
             }`}
           >
-            <Users className={`w-5 h-5 flex-shrink-0 ${pathname.startsWith('/admin/users') ? 'text-darc-linen' : 'text-darc-mist'}`} />
+            <Users className={`w-5 h-5 flex-shrink-0 ${pathname.startsWith('/admin/users') ? 'text-darc-red' : 'text-darc-linen/85'}`} />
             <span className="whitespace-nowrap opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200">Usuários</span>
           </Link>
         )}
       </nav>
 
-      <div className="p-2 border-t border-darc-maroon/50 space-y-1">
+      <div className="p-2 border-t border-white/20 space-y-1">
         {user && (
           <button
             onClick={handleLogout}
             title="Sair"
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-darc-linen hover:bg-darc-mist/15 transition-colors"
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-darc-linen hover:bg-white/15 transition-colors"
           >
-            <LogOut className="w-5 h-5 flex-shrink-0 text-darc-mist" />
+            <LogOut className="w-5 h-5 flex-shrink-0 text-darc-linen/85" />
             <span className="whitespace-nowrap opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200">
               Sair ({user.name})
             </span>
           </button>
         )}
-        <div className="text-[10px] tracking-[0.2em] uppercase text-darc-mist/60 whitespace-nowrap opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200 px-3 pt-1">
+        <div className="text-[10px] tracking-[0.2em] uppercase text-darc-linen/60 whitespace-nowrap opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200 px-3 pt-1">
           v0.1.0
         </div>
       </div>

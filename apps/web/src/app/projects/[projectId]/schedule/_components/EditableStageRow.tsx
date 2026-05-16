@@ -30,18 +30,18 @@ export function EditableStageRow({
 
   return (
     <div
-      className="flex items-center bg-gray-50 border-b hover:bg-gray-100 group"
+      className="flex items-center bg-darc-pink-logo/60 border-y border-darc-pink-logo hover:bg-darc-pink-logo group"
       style={{ height: ROW_H }}
     >
       <button
-        className="w-8 flex justify-center text-gray-500 hover:text-gray-700"
+        className="w-8 flex justify-center text-darc-raspberry hover:text-darc-velvet"
         onClick={onToggle}
         title={collapsed ? 'Expandir etapa' : 'Recolher etapa'}
       >
         {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
       </button>
-      <div className="w-10 px-1 text-xs font-bold text-gray-500">{stage.tasks[0]?.numero ?? ''}</div>
-      <div className="flex-1 min-w-[320px] px-2 text-sm font-bold text-gray-800 truncate">
+      <div className="w-10 px-1 text-[11px] font-bold text-darc-raspberry tabular-nums">{stage.tasks[0]?.numero ?? ''}</div>
+      <div className="flex-1 min-w-[320px] px-2 text-sm font-bold uppercase tracking-wider text-darc-velvet truncate">
         {editing ? (
           <input
             value={value}
@@ -55,11 +55,11 @@ export function EditableStageRow({
               }
             }}
             autoFocus
-            className="w-full border border-brand-400 rounded px-1.5 py-0.5 text-sm font-bold uppercase outline-none"
+            className="w-full bg-white border border-darc-red rounded px-1.5 py-0.5 text-sm font-bold uppercase tracking-wider text-darc-velvet outline-none"
           />
         ) : (
           <button
-            className="w-full text-left truncate hover:text-brand-700"
+            className="w-full text-left truncate hover:text-darc-red"
             onDoubleClick={() => setEditing(true)}
             onClick={onToggle}
             title="Clique para expandir/recolher. Duplo clique para renomear."
@@ -75,7 +75,7 @@ export function EditableStageRow({
       <div className="w-20" />
       <button
         onClick={onDelete}
-        className="w-8 flex justify-center text-gray-300 opacity-0 group-hover:opacity-100 hover:text-red-500 transition"
+        className="w-8 flex justify-center text-darc-raspberry/40 opacity-0 group-hover:opacity-100 hover:text-darc-red transition"
         title="Excluir etapa"
       >
         <Trash2 className="w-4 h-4" />
