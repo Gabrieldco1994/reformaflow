@@ -171,22 +171,38 @@ export default function ExpensesPage() {
   const createMutation = useMutation({
     mutationFn: (data: ExpenseFormData) => api.post(`/projects/${PROJECT_ID}/expenses`, data),
     onSuccess: () => { invalidate(); closeFormModal(); setShowNewRow(false); setNewRow(makeEmptyNewRow(defaultExpenseType)); },
+    onError: (e: Error) => {
+      console.error('[expenses] create failed', e);
+      alert(`Erro ao criar despesa: ${e.message}`);
+    },
   });
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: ExpenseFormData }) =>
       api.patch(`/projects/${PROJECT_ID}/expenses/${id}`, data),
     onSuccess: () => { invalidate(); closeFormModal(); },
+    onError: (e: Error) => {
+      console.error('[expenses] update failed', e);
+      alert(`Erro ao salvar despesa: ${e.message}`);
+    },
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/projects/${PROJECT_ID}/expenses/${id}`),
     onSuccess: invalidate,
+    onError: (e: Error) => {
+      console.error('[expenses] delete failed', e);
+      alert(`Erro ao excluir despesa: ${e.message}`);
+    },
   });
 
   const payMutation = useMutation({
     mutationFn: (id: string) => api.post(`/projects/${PROJECT_ID}/expenses/${id}/pay`, {}),
     onSuccess: () => { invalidate(); setPayModalOpen(false); },
+    onError: (e: Error) => {
+      console.error('[expenses] pay failed', e);
+      alert(`Erro ao pagar despesa: ${e.message}`);
+    },
   });
 
   function closeFormModal() {
@@ -262,8 +278,10 @@ export default function ExpensesPage() {
       data.dataInicioParcela = str('dataInicioParcela');
     }
     if (editing) {
+      console.log('[expenses] PATCH', editing.id, data);
       updateMutation.mutate({ id: editing.id, data });
     } else {
+      console.log('[expenses] POST', data);
       createMutation.mutate(data);
     }
   }
@@ -883,13 +901,13 @@ export default function ExpensesPage() {
           <Input
             label="Link"
             name="link"
-            type="url"
+            type="text"
             defaultValue={editing?.link ?? ''}
           />
           <Input
             label="URL da Imagem (opcional)"
             name="imageUrl"
-            type="url"
+            type="text"
             placeholder="Cole a URL direta da imagem do produto"
             defaultValue={editing?.imageUrl ?? ''}
           />
