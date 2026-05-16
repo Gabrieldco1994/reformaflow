@@ -24,8 +24,8 @@ function formatMesLabel(mes: string) {
 function ChartTooltipCurrency({ active, payload, label }: { active?: boolean; payload?: { name: string; value: number; color: string }[]; label?: string }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-white border rounded-lg shadow-lg p-3 text-xs">
-      <p className="font-medium text-gray-700 mb-1">{label}</p>
+    <div className="bg-white border border-darc-linen rounded-lg shadow-darc-soft p-3 text-xs">
+      <p className="font-medium text-darc-velvet mb-1">{label}</p>
       {payload.map((p) => (
         <p key={p.name} style={{ color: p.color }}>
           {p.name}: {formatCurrency(p.value / 100)}
@@ -53,63 +53,82 @@ function FinancialDashboard({ projectId, projectType }: { projectId: string; pro
     [data?.saldoAcumuladoMensal]
   );
 
-  if (isLoading) return <div className="text-gray-500">Carregando...</div>;
-  if (error) return <div className="text-red-600">Erro ao carregar dashboard.</div>;
+  if (isLoading) return <div className="text-darc-velvet/60">Carregando...</div>;
+  if (error) return <div className="text-darc-red">Erro ao carregar dashboard.</div>;
   if (!data) return null;
 
-  const kpis = [
-    { label: 'Dinheiro Disponível', value: data.kpis.dinheiroDisponivel, color: 'bg-green-50 text-green-700 border-green-200' },
-    { label: 'Já Paguei', value: data.kpis.jaPaguei, color: 'bg-red-50 text-red-700 border-red-200' },
-    { label: 'Previsão de Gastos', value: data.kpis.previsaoGastos, color: 'bg-orange-50 text-orange-700 border-orange-200' },
-    { label: 'Previsão de Recebimentos', value: data.kpis.previsaoRecebimentos, color: 'bg-blue-50 text-blue-700 border-blue-200' },
-    { label: 'Previsão de Saldo', value: data.kpis.previsaoSaldo, color: 'bg-purple-50 text-purple-700 border-purple-200' },
-    { label: 'Saldo', value: data.kpis.saldo, color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  const kpis: { label: string; value: number; accent: string }[] = [
+    { label: 'Dinheiro Disponível', value: data.kpis.dinheiroDisponivel, accent: 'bg-darc-mist' },
+    { label: 'Já Paguei', value: data.kpis.jaPaguei, accent: 'bg-darc-raspberry' },
+    { label: 'Previsão de Gastos', value: data.kpis.previsaoGastos, accent: 'bg-darc-sunfire' },
+    { label: 'Previsão de Recebimentos', value: data.kpis.previsaoRecebimentos, accent: 'bg-darc-pink-logo' },
+    { label: 'Previsão de Saldo', value: data.kpis.previsaoSaldo, accent: 'bg-darc-velvet' },
+    { label: 'Saldo', value: data.kpis.saldo, accent: 'bg-darc-red-bright' },
   ];
 
   const showRooms = projectType === 'REFORMA';
 
   return (
-    <div className="space-y-8">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+    <div className="space-y-6 md:space-y-8">
+      {/* KPIs — scroll horizontal premium no mobile, grid no desktop */}
+      <div className="md:hidden -mx-4 px-4 overflow-x-auto scrollbar-hide">
+        <div className="flex gap-3 snap-x snap-mandatory">
+          {kpis.map((kpi) => (
+            <div
+              key={kpi.label}
+              className="snap-start flex-shrink-0 w-[78%] rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 relative overflow-hidden"
+            >
+              <span className={`absolute left-0 top-4 bottom-4 w-1 rounded-r-full ${kpi.accent}`} />
+              <p className="text-[11px] tracking-[0.18em] uppercase text-darc-velvet/60 pl-3">{kpi.label}</p>
+              <p className="text-2xl font-bold text-darc-velvet mt-2 pl-3">{formatCurrency(kpi.value / 100)}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="hidden md:grid grid-cols-2 lg:grid-cols-3 gap-4">
         {kpis.map((kpi) => (
-          <div key={kpi.label} className={`rounded-xl border p-4 ${kpi.color}`}>
-            <p className="text-xs font-medium opacity-75">{kpi.label}</p>
-            <p className="text-lg font-bold mt-1">{formatCurrency(kpi.value / 100)}</p>
+          <div
+            key={kpi.label}
+            className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-5 relative overflow-hidden"
+          >
+            <span className={`absolute left-0 top-5 bottom-5 w-1 rounded-r-full ${kpi.accent}`} />
+            <p className="text-[11px] tracking-[0.18em] uppercase text-darc-velvet/60 pl-3">{kpi.label}</p>
+            <p className="text-xl lg:text-2xl font-bold text-darc-velvet mt-2 pl-3">{formatCurrency(kpi.value / 100)}</p>
           </div>
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
         {despesasChartData.length > 0 && (
-          <section className="border rounded-xl p-4">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Despesas Mensais (Planejado × Pago)</h2>
-            <ResponsiveContainer width="100%" height={300}>
+          <section className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5">
+            <h2 className="font-editorial italic text-lg md:text-xl text-darc-velvet mb-4">Despesas Mensais (Planejado × Pago)</h2>
+            <ResponsiveContainer width="100%" height={280}>
               <BarChart data={despesasChartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="mesLabel" tick={{ fontSize: 12 }} />
-                <YAxis tickFormatter={(v: number) => formatCurrency(v / 100)} tick={{ fontSize: 11 }} width={90} />
+                <CartesianGrid strokeDasharray="3 3" stroke="#EDDBC2" />
+                <XAxis dataKey="mesLabel" tick={{ fontSize: 12, fill: '#391212' }} />
+                <YAxis tickFormatter={(v: number) => formatCurrency(v / 100)} tick={{ fontSize: 11, fill: '#391212' }} width={90} />
                 <Tooltip content={<ChartTooltipCurrency />} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="planejado" name="Planejado" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="pago" name="Pago" fill="#10b981" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="planejado" name="Planejado" fill="#F27D33" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="pago" name="Pago" fill="#900131" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </section>
         )}
 
         {saldoChartData.length > 0 && (
-          <section className="border rounded-xl p-4">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Saldo Acumulado do Fluxo de Caixa</h2>
-            <ResponsiveContainer width="100%" height={300}>
+          <section className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5">
+            <h2 className="font-editorial italic text-lg md:text-xl text-darc-velvet mb-4">Saldo Acumulado do Fluxo de Caixa</h2>
+            <ResponsiveContainer width="100%" height={280}>
               <LineChart data={saldoChartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="mesLabel" tick={{ fontSize: 12 }} />
-                <YAxis tickFormatter={(v: number) => formatCurrency(v / 100)} tick={{ fontSize: 11 }} width={90} />
+                <CartesianGrid strokeDasharray="3 3" stroke="#EDDBC2" />
+                <XAxis dataKey="mesLabel" tick={{ fontSize: 12, fill: '#391212' }} />
+                <YAxis tickFormatter={(v: number) => formatCurrency(v / 100)} tick={{ fontSize: 11, fill: '#391212' }} width={90} />
                 <Tooltip content={<ChartTooltipCurrency />} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Line type="monotone" dataKey="recebimentos" name="Recebimentos" stroke="#3b82f6" strokeWidth={2} dot={{ r: 4 }} />
-                <Line type="monotone" dataKey="despesas" name="Despesas" stroke="#ef4444" strokeWidth={2} dot={{ r: 4 }} />
-                <Line type="monotone" dataKey="saldoAcumulado" name="Saldo Acumulado" stroke="#8b5cf6" strokeWidth={3} dot={{ r: 5 }} />
+                <Line type="monotone" dataKey="recebimentos" name="Recebimentos" stroke="#BFA4D1" strokeWidth={2} dot={{ r: 4 }} />
+                <Line type="monotone" dataKey="despesas" name="Despesas" stroke="#EB1C24" strokeWidth={2} dot={{ r: 4 }} />
+                <Line type="monotone" dataKey="saldoAcumulado" name="Saldo Acumulado" stroke="#4F000B" strokeWidth={3} dot={{ r: 5 }} />
               </LineChart>
             </ResponsiveContainer>
           </section>
@@ -117,75 +136,68 @@ function FinancialDashboard({ projectId, projectType }: { projectId: string; pro
       </div>
 
       {showRooms && data.resumoPorAmbiente && data.resumoPorAmbiente.length > 0 && (
-        <section>
-          <h2 className="text-lg font-semibold text-gray-900 mb-3">Resumo por Ambiente</h2>
-          <div className="overflow-x-auto border rounded-lg">
+        <section className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5">
+          <h2 className="font-editorial italic text-lg md:text-xl text-darc-velvet mb-3">Resumo por Ambiente</h2>
+          {/* Desktop: tabela */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b">
-                <tr>
-                  <th className="text-left px-4 py-2 font-medium text-gray-600">Ambiente</th>
-                  <th className="text-right px-4 py-2 font-medium text-gray-600">Planejado</th>
-                  <th className="text-right px-4 py-2 font-medium text-gray-600">Pago</th>
+              <thead>
+                <tr className="border-b border-darc-linen">
+                  <th className="text-left px-3 py-2 font-medium text-darc-velvet/60 uppercase text-[10px] tracking-[0.18em]">Ambiente</th>
+                  <th className="text-right px-3 py-2 font-medium text-darc-velvet/60 uppercase text-[10px] tracking-[0.18em]">Planejado</th>
+                  <th className="text-right px-3 py-2 font-medium text-darc-velvet/60 uppercase text-[10px] tracking-[0.18em]">Pago</th>
                 </tr>
               </thead>
-              <tbody className="divide-y">
+              <tbody className="divide-y divide-darc-linen">
                 {data.resumoPorAmbiente.map((room) => (
-                  <tr key={room.roomName} className="hover:bg-gray-50">
-                    <td className="px-4 py-2">{room.roomName}</td>
-                    <td className="px-4 py-2 text-right">{formatCurrency(room.planned / 100)}</td>
-                    <td className="px-4 py-2 text-right">{formatCurrency(room.actual / 100)}</td>
+                  <tr key={room.roomName} className="hover:bg-darc-linen/40">
+                    <td className="px-3 py-3 text-darc-velvet">{room.roomName}</td>
+                    <td className="px-3 py-3 text-right text-darc-velvet">{formatCurrency(room.planned / 100)}</td>
+                    <td className="px-3 py-3 text-right font-semibold text-darc-raspberry">{formatCurrency(room.actual / 100)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
+          {/* Mobile: lista */}
+          <div className="md:hidden space-y-2">
+            {data.resumoPorAmbiente.map((room) => (
+              <div key={room.roomName} className="flex items-center justify-between py-2 border-b border-darc-linen last:border-0">
+                <span className="text-sm font-medium text-darc-velvet">{room.roomName}</span>
+                <div className="text-right">
+                  <p className="text-[10px] uppercase tracking-[0.15em] text-darc-velvet/50">{formatCurrency(room.planned / 100)} planejado</p>
+                  <p className="text-sm font-bold text-darc-raspberry">{formatCurrency(room.actual / 100)}</p>
+                </div>
+              </div>
+            ))}
           </div>
         </section>
       )}
 
       {data.resumoPorTipoDespesa && data.resumoPorTipoDespesa.length > 0 && (
-        <section>
-          <h2 className="text-lg font-semibold text-gray-900 mb-3">Resumo por Tipo de Despesa</h2>
-          <div className="overflow-x-auto border rounded-lg">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b">
-                <tr>
-                  <th className="text-left px-4 py-2 font-medium text-gray-600">Tipo</th>
-                  <th className="text-right px-4 py-2 font-medium text-gray-600">Total</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {data.resumoPorTipoDespesa.map((item) => (
-                  <tr key={item.label} className="hover:bg-gray-50">
-                    <td className="px-4 py-2">{item.label}</td>
-                    <td className="px-4 py-2 text-right">{formatCurrency(item.total / 100)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <section className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5">
+          <h2 className="font-editorial italic text-lg md:text-xl text-darc-velvet mb-3">Resumo por Tipo de Despesa</h2>
+          <div className="divide-y divide-darc-linen">
+            {data.resumoPorTipoDespesa.map((item) => (
+              <div key={item.label} className="flex items-center justify-between py-2.5">
+                <span className="text-sm text-darc-velvet">{item.label}</span>
+                <span className="text-sm font-semibold text-darc-velvet">{formatCurrency(item.total / 100)}</span>
+              </div>
+            ))}
           </div>
         </section>
       )}
 
       {data.resumoPorCategoria && data.resumoPorCategoria.length > 0 && (
-        <section>
-          <h2 className="text-lg font-semibold text-gray-900 mb-3">Resumo por Categoria</h2>
-          <div className="overflow-x-auto border rounded-lg">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b">
-                <tr>
-                  <th className="text-left px-4 py-2 font-medium text-gray-600">Categoria</th>
-                  <th className="text-right px-4 py-2 font-medium text-gray-600">Total</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {data.resumoPorCategoria.map((item) => (
-                  <tr key={item.label} className="hover:bg-gray-50">
-                    <td className="px-4 py-2">{item.label}</td>
-                    <td className="px-4 py-2 text-right">{formatCurrency(item.total / 100)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <section className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5">
+          <h2 className="font-editorial italic text-lg md:text-xl text-darc-velvet mb-3">Resumo por Categoria</h2>
+          <div className="divide-y divide-darc-linen">
+            {data.resumoPorCategoria.map((item) => (
+              <div key={item.label} className="flex items-center justify-between py-2.5">
+                <span className="text-sm text-darc-velvet">{item.label}</span>
+                <span className="text-sm font-semibold text-darc-velvet">{formatCurrency(item.total / 100)}</span>
+              </div>
+            ))}
           </div>
         </section>
       )}
@@ -229,75 +241,67 @@ function ManagementDashboard({ projectId }: { projectId: string; projectType: st
 
   const overdueBills = activeBills.filter(b => today.getDate() > b.diaVencimento);
 
-  const kpis = [
-    { label: 'Contas Ativas', value: `${activeBills.length}`, color: 'bg-blue-50 text-blue-700 border-blue-200' },
-    { label: 'Custo Mensal Estimado', value: formatCurrency(totalMensal / 100), color: 'bg-orange-50 text-orange-700 border-orange-200' },
-    { label: 'Manutenções Próximas', value: `${upcomingMaintenance.length}`, color: 'bg-yellow-50 text-yellow-700 border-yellow-200' },
-    { label: 'Lembretes Pendentes', value: `${pendingReminders.length}`, color: 'bg-purple-50 text-purple-700 border-purple-200' },
-    { label: 'Contas Vencidas', value: `${overdueBills.length}`, color: overdueBills.length > 0 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-green-50 text-green-700 border-green-200' },
+  const kpis: { label: string; value: string; accent: string }[] = [
+    { label: 'Contas Ativas', value: `${activeBills.length}`, accent: 'bg-darc-mist' },
+    { label: 'Custo Mensal Estimado', value: formatCurrency(totalMensal / 100), accent: 'bg-darc-sunfire' },
+    { label: 'Manutenções Próximas', value: `${upcomingMaintenance.length}`, accent: 'bg-darc-pink-logo' },
+    { label: 'Lembretes Pendentes', value: `${pendingReminders.length}`, accent: 'bg-darc-velvet' },
+    { label: 'Contas Vencidas', value: `${overdueBills.length}`, accent: overdueBills.length > 0 ? 'bg-darc-red-bright' : 'bg-darc-raspberry' },
   ];
 
   return (
-    <div className="space-y-8">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+    <div className="space-y-6 md:space-y-8">
+      <div className="md:hidden -mx-4 px-4 overflow-x-auto scrollbar-hide">
+        <div className="flex gap-3 snap-x snap-mandatory">
+          {kpis.map((kpi) => (
+            <div
+              key={kpi.label}
+              className="snap-start flex-shrink-0 w-[78%] rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 relative overflow-hidden"
+            >
+              <span className={`absolute left-0 top-4 bottom-4 w-1 rounded-r-full ${kpi.accent}`} />
+              <p className="text-[11px] tracking-[0.18em] uppercase text-darc-velvet/60 pl-3">{kpi.label}</p>
+              <p className="text-2xl font-bold text-darc-velvet mt-2 pl-3">{kpi.value}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="hidden md:grid grid-cols-2 lg:grid-cols-3 gap-4">
         {kpis.map((kpi) => (
-          <div key={kpi.label} className={`rounded-xl border p-4 ${kpi.color}`}>
-            <p className="text-xs font-medium opacity-75">{kpi.label}</p>
-            <p className="text-lg font-bold mt-1">{kpi.value}</p>
+          <div
+            key={kpi.label}
+            className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-5 relative overflow-hidden"
+          >
+            <span className={`absolute left-0 top-5 bottom-5 w-1 rounded-r-full ${kpi.accent}`} />
+            <p className="text-[11px] tracking-[0.18em] uppercase text-darc-velvet/60 pl-3">{kpi.label}</p>
+            <p className="text-xl lg:text-2xl font-bold text-darc-velvet mt-2 pl-3">{kpi.value}</p>
           </div>
         ))}
       </div>
 
-      <section>
-        <h2 className="text-lg font-semibold text-gray-900 mb-3">📋 Contas Recorrentes</h2>
+      <section className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5">
+        <h2 className="font-editorial italic text-lg md:text-xl text-darc-velvet mb-3">📋 Contas Recorrentes</h2>
         {activeBills.length === 0 ? (
-          <p className="text-gray-500 text-sm">Nenhuma conta cadastrada.</p>
+          <p className="text-darc-velvet/60 text-sm">Nenhuma conta cadastrada.</p>
         ) : (
-          <div className="overflow-x-auto border rounded-lg">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b">
-                <tr>
-                  <th className="text-left px-4 py-2 font-medium text-gray-600">Conta</th>
-                  <th className="text-left px-4 py-2 font-medium text-gray-600">Categoria</th>
-                  <th className="text-right px-4 py-2 font-medium text-gray-600">Valor</th>
-                  <th className="text-center px-4 py-2 font-medium text-gray-600">Vencimento</th>
-                  <th className="text-center px-4 py-2 font-medium text-gray-600">Frequência</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {activeBills.map((bill) => {
-                  const isOverdue = today.getDate() > bill.diaVencimento;
-                  return (
-                    <tr key={bill.id} className={isOverdue ? 'bg-red-50' : 'hover:bg-gray-50'}>
-                      <td className="px-4 py-2 font-medium">{bill.nome}{isOverdue && <span className="ml-2 text-xs text-red-600">⚠ Vencida</span>}</td>
-                      <td className="px-4 py-2">{BillCategoryLabels[bill.categoria as keyof typeof BillCategoryLabels] ?? bill.categoria}</td>
-                      <td className="px-4 py-2 text-right">{formatCurrency(bill.valor / 100)}</td>
-                      <td className="px-4 py-2 text-center">Dia {bill.diaVencimento}</td>
-                      <td className="px-4 py-2 text-center">{BillFrequencyLabels[bill.frequencia as keyof typeof BillFrequencyLabels] ?? bill.frequencia}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      <section>
-        <h2 className="text-lg font-semibold text-gray-900 mb-3">🔧 Próximas Manutenções</h2>
-        {upcomingMaintenance.length === 0 ? (
-          <p className="text-gray-500 text-sm">Nenhuma manutenção agendada.</p>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {upcomingMaintenance.map((m) => {
-              const daysUntil = Math.ceil((new Date(m.dataProxima!).getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-              const urgency = daysUntil <= 7 ? 'border-red-300 bg-red-50' : daysUntil <= 30 ? 'border-yellow-300 bg-yellow-50' : 'border-gray-200';
+          <div className="divide-y divide-darc-linen">
+            {activeBills.map((bill) => {
+              const isOverdue = today.getDate() > bill.diaVencimento;
               return (
-                <div key={m.id} className={`border rounded-xl p-4 ${urgency}`}>
-                  <p className="font-semibold text-gray-900">{m.tipo}</p>
-                  <p className="text-sm text-gray-600 mt-1">Próxima: {new Date(m.dataProxima!).toLocaleDateString('pt-BR')}</p>
-                  <p className="text-xs text-gray-500">{daysUntil <= 0 ? '⚠ Atrasada!' : `Em ${daysUntil} dias`}</p>
-                  {m.fornecedor && <p className="text-xs text-gray-400 mt-1">📞 {m.fornecedor}</p>}
+                <div key={bill.id} className={`flex items-center justify-between gap-3 py-3 ${isOverdue ? 'bg-darc-red-bright/5 -mx-2 px-2 rounded-lg' : ''}`}>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-darc-velvet truncate">
+                      {bill.nome}
+                      {isOverdue && <span className="ml-2 text-xs text-darc-red">⚠ Vencida</span>}
+                    </p>
+                    <p className="text-xs text-darc-velvet/60 mt-0.5">
+                      {BillCategoryLabels[bill.categoria as keyof typeof BillCategoryLabels] ?? bill.categoria}
+                      {' · '}
+                      Dia {bill.diaVencimento}
+                      {' · '}
+                      {BillFrequencyLabels[bill.frequencia as keyof typeof BillFrequencyLabels] ?? bill.frequencia}
+                    </p>
+                  </div>
+                  <span className="text-sm font-bold text-darc-velvet whitespace-nowrap">{formatCurrency(bill.valor / 100)}</span>
                 </div>
               );
             })}
@@ -305,30 +309,53 @@ function ManagementDashboard({ projectId }: { projectId: string; projectType: st
         )}
       </section>
 
-      <section>
-        <h2 className="text-lg font-semibold text-gray-900 mb-3">🔔 Lembretes Pendentes</h2>
+      <section className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5">
+        <h2 className="font-editorial italic text-lg md:text-xl text-darc-velvet mb-3">🔧 Próximas Manutenções</h2>
+        {upcomingMaintenance.length === 0 ? (
+          <p className="text-darc-velvet/60 text-sm">Nenhuma manutenção agendada.</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {upcomingMaintenance.map((m) => {
+              const daysUntil = Math.ceil((new Date(m.dataProxima!).getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+              const accent = daysUntil <= 7 ? 'bg-darc-red-bright' : daysUntil <= 30 ? 'bg-darc-sunfire' : 'bg-darc-mist';
+              return (
+                <div key={m.id} className="rounded-xl bg-darc-linen/40 p-3 relative overflow-hidden">
+                  <span className={`absolute left-0 top-3 bottom-3 w-1 rounded-r-full ${accent}`} />
+                  <p className="font-semibold text-darc-velvet pl-2">{m.tipo}</p>
+                  <p className="text-sm text-darc-velvet/70 mt-1 pl-2">Próxima: {new Date(m.dataProxima!).toLocaleDateString('pt-BR')}</p>
+                  <p className="text-xs text-darc-velvet/60 pl-2">{daysUntil <= 0 ? '⚠ Atrasada!' : `Em ${daysUntil} dias`}</p>
+                  {m.fornecedor && <p className="text-xs text-darc-velvet/50 mt-1 pl-2">📞 {m.fornecedor}</p>}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5">
+        <h2 className="font-editorial italic text-lg md:text-xl text-darc-velvet mb-3">🔔 Lembretes Pendentes</h2>
         {pendingReminders.length === 0 ? (
-          <p className="text-gray-500 text-sm">Nenhum lembrete pendente.</p>
+          <p className="text-darc-velvet/60 text-sm">Nenhum lembrete pendente.</p>
         ) : (
           <div className="space-y-2">
             {pendingReminders.map((r) => {
               const daysUntil = Math.ceil((new Date(r.data).getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
               const priorityColors: Record<string, string> = {
-                URGENTE: 'border-l-red-500 bg-red-50',
-                ALTA: 'border-l-orange-500 bg-orange-50',
-                MEDIA: 'border-l-yellow-500 bg-yellow-50',
-                BAIXA: 'border-l-gray-400 bg-gray-50',
+                URGENTE: 'border-l-darc-red-bright',
+                ALTA: 'border-l-darc-sunfire',
+                MEDIA: 'border-l-darc-pink',
+                BAIXA: 'border-l-darc-mist',
               };
               return (
-                <div key={r.id} className={`border-l-4 rounded-lg p-3 ${priorityColors[r.prioridade] ?? 'bg-gray-50'}`}>
-                  <div className="flex items-center justify-between">
-                    <p className="font-medium text-gray-900">{r.titulo}</p>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-white border">
+                <div key={r.id} className={`border-l-4 ${priorityColors[r.prioridade] ?? 'border-l-darc-mist'} bg-darc-linen/40 rounded-r-lg p-3`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-medium text-darc-velvet">{r.titulo}</p>
+                    <span className="text-[10px] uppercase tracking-[0.15em] px-2 py-0.5 rounded-full bg-white border border-darc-linen text-darc-velvet/70">
                       {ReminderPriorityLabels[r.prioridade as keyof typeof ReminderPriorityLabels] ?? r.prioridade}
                     </span>
                   </div>
-                  {r.descricao && <p className="text-sm text-gray-600 mt-1">{r.descricao}</p>}
-                  <p className="text-xs text-gray-500 mt-1">
+                  {r.descricao && <p className="text-sm text-darc-velvet/70 mt-1">{r.descricao}</p>}
+                  <p className="text-xs text-darc-velvet/60 mt-1">
                     {new Date(r.data).toLocaleDateString('pt-BR')} · {daysUntil <= 0 ? '⚠ Atrasado!' : `Em ${daysUntil} dias`}
                   </p>
                 </div>
@@ -344,14 +371,21 @@ function ManagementDashboard({ projectId }: { projectId: string; projectType: st
 // ─── Main Dashboard ─────────────────────────────────────────
 
 export default function DashboardPage() {
-  const { projectId, projectType } = useProject();
+  const { projectId, projectType, projectName } = useProject();
 
   const isFinancial = projectType === 'REFORMA' || projectType === 'COMPRA';
   const isManagement = projectType === 'CASA' || projectType === 'CARRO';
 
   return (
-    <div className="space-y-8">
-      <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+    <div className="space-y-6 md:space-y-8">
+      <header className="hidden md:block">
+        <p className="text-[10px] tracking-[0.2em] uppercase text-darc-velvet/60">Visão geral</p>
+        <h1 className="font-editorial italic text-3xl text-darc-velvet">{projectName}</h1>
+      </header>
+      <header className="md:hidden -mt-2">
+        <p className="text-[10px] tracking-[0.2em] uppercase text-darc-velvet/60">Dashboard</p>
+        <h1 className="font-editorial italic text-2xl text-darc-velvet leading-tight">{projectName}</h1>
+      </header>
       {isFinancial && <FinancialDashboard projectId={projectId} projectType={projectType} />}
       {isManagement && <ManagementDashboard projectId={projectId} projectType={projectType} />}
     </div>

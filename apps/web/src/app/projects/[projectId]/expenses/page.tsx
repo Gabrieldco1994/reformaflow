@@ -40,6 +40,7 @@ import {
 } from './_types';
 import { StatusBadge } from './_components/StatusBadge';
 import { CompráveisView } from './_components/CompraveisView';
+import { MobileExpenseList } from './_components/MobileExpenseList';
 
 export default function ExpensesPage() {
   const { projectId: PROJECT_ID, projectType } = useProject();
@@ -519,7 +520,21 @@ export default function ExpensesPage() {
       {isLoading ? (
         <p className="text-gray-500">Carregando...</p>
       ) : (
-        <div className="border rounded-lg overflow-hidden">
+        <>
+        <MobileExpenseList
+          categorias={categorias}
+          collapsedCategories={collapsedCategories}
+          toggleCategory={toggleCategory}
+          tipoLabel={tipoLabel}
+          formaLabel={formaLabel}
+          catMaoLabel={catMaoLabel}
+          openEdit={openEdit}
+          onDelete={(id) => deleteMutation.mutate(id)}
+          totalGeral={totalGeral}
+          hasActiveFilters={hasActiveFilters}
+          emptyMsg="Nenhuma despesa cadastrada."
+        />
+        <div className="hidden md:block border rounded-lg overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead className="bg-gray-50 border-b">
@@ -798,17 +813,30 @@ export default function ExpensesPage() {
             </table>
           </div>
         </div>
+        </>
       )}
 
-      {/* Botão para adicionar linha rápida */}
+      {/* Botão para adicionar linha rápida (desktop apenas) */}
       {!showNewRow && (
         <button onClick={() => setShowNewRow(true)}
-          className="w-full border-2 border-dashed border-gray-200 rounded-lg py-2 text-sm text-gray-400 hover:border-blue-300 hover:text-blue-500 transition-colors">
+          className="hidden md:block w-full border-2 border-dashed border-gray-200 rounded-lg py-2 text-sm text-gray-400 hover:border-blue-300 hover:text-blue-500 transition-colors">
           + Adicionar rápido (linha inline)
         </button>
       )}
 
       </>
+      )}
+
+      {/* FAB mobile — abre opções de adição (Planejar / Pagar) */}
+      {activeTab === 'despesas' && (
+        <button
+          type="button"
+          onClick={openPayOptions}
+          aria-label="Nova despesa"
+          className="md:hidden fixed right-4 bottom-20 z-30 h-14 w-14 rounded-full bg-darc-red text-darc-linen shadow-darc-hero flex items-center justify-center active:scale-95 transition-transform"
+        >
+          <Plus className="w-6 h-6" />
+        </button>
       )}
 
       {/* Pay Options Modal */}

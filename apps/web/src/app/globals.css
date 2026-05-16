@@ -81,6 +81,14 @@
   .safe-pb {
     padding-bottom: max(env(safe-area-inset-bottom), 0.5rem);
   }
+  /* Esconde scrollbar mantendo a rolagem (carrosséis mobile) */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
   /* Tipografia editorial D'arc para títulos hero/marketing */
   .font-editorial {
     font-family: var(--font-display), 'Cormorant Garamond', Georgia, serif;
