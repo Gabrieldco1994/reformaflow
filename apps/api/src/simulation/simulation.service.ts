@@ -1,6 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { ExpenseTypeLabels, LaborCategoryLabels } from '@reformaflow/domain';
+import {
+  ExpenseTypeLabels,
+  LaborCategoryLabels,
+  allocateEmpreiteiroExpenses,
+} from '@reformaflow/domain';
 
 @Injectable()
 export class SimulationService {
@@ -138,11 +142,14 @@ export class SimulationService {
       orderBy: { order: 'asc' },
     });
 
-    const roomGroups = new Map<string, { label: string; expenses: typeof expenses }>();
+    // Rateio de Mão de Obra Empreiteiro entre ambientes com valor > 0.
+    const expensesAllocated = allocateEmpreiteiroExpenses(expenses);
+
+    const roomGroups = new Map<string, { label: string; expenses: typeof expensesAllocated }>();
     for (const room of allRooms) {
       roomGroups.set(room.id, { label: room.name, expenses: [] });
     }
-    for (const exp of expenses) {
+    for (const exp of expensesAllocated) {
       if (!exp.roomId) continue;
       if (!roomGroups.has(exp.roomId)) {
         roomGroups.set(exp.roomId, { label: exp.room?.name ?? exp.roomId, expenses: [] });
@@ -176,7 +183,7 @@ export class SimulationService {
 
     const allRoomsList = allRooms.map((r) => ({ key: r.id, label: r.name }));
     const porTipo = expenseTypes.map((tipo) => {
-      const tipoExpenses = expenses.filter((e) => e.tipoDespesa === tipo);
+      const tipoExpenses = expensesAllocated.filter((e) => e.tipoDespesa === tipo);
       const totalTipo = tipoExpenses.reduce((s, e) => s + e.valorTotal, 0);
       const ambientesNested = allRoomsList.map((room) => {
         const roomTipoExpenses = tipoExpenses.filter((e) => e.roomId === room.key);

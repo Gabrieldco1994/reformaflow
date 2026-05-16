@@ -1,6 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { ExpenseTypeLabels, LaborCategoryLabels } from '@reformaflow/domain';
+import {
+  ExpenseTypeLabels,
+  LaborCategoryLabels,
+  allocateEmpreiteiroExpenses,
+} from '@reformaflow/domain';
 
 @Injectable()
 export class DashboardService {
@@ -43,8 +47,11 @@ export class DashboardService {
     const saldo = dinheiroDisponivel - jaPaguei;
 
     // Resumo por Ambiente
+    // Aplica rateio: despesas de MAO_DE_OBRA / EMPREITEIRO sem ambiente são
+    // distribuídas proporcionalmente entre os ambientes com valor > 0.
+    const expensesForRoomBreakdown = allocateEmpreiteiroExpenses(expenses);
     const byRoomMap = new Map<string, { planejado: number; pago: number }>();
-    for (const exp of expenses) {
+    for (const exp of expensesForRoomBreakdown) {
       const roomName = exp.room?.name ?? 'Sem Ambiente';
       if (!byRoomMap.has(roomName)) byRoomMap.set(roomName, { planejado: 0, pago: 0 });
       const entry = byRoomMap.get(roomName)!;
