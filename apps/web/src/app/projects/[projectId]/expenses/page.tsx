@@ -252,30 +252,37 @@ export default function ExpensesPage() {
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
-    const str = (key: string) => (form.get(key) as string)?.trim() || undefined;
+    // Campos opcionais: string vazia → null (sinaliza ao backend "limpar campo").
+    // Mantém `null` no payload (em vez de undefined) para que Prisma seta NULL no banco.
+    const nullable = (key: string) => {
+      const v = form.get(key);
+      if (v === null) return null;
+      const trimmed = (v as string).trim();
+      return trimmed === '' ? null : trimmed;
+    };
     const data: ExpenseFormData = {
       tipoDespesa: form.get('tipoDespesa') as string,
-      categoriaMaoDeObra: str('categoriaMaoDeObra'),
-      roomId: str('roomId'),
+      categoriaMaoDeObra: nullable('categoriaMaoDeObra'),
+      roomId: nullable('roomId'),
       valor: Number(form.get('valor')),
       quantidade: Number(form.get('quantidade')),
-      titulo: str('titulo'),
-      fornecedor: str('fornecedor'),
-      link: str('link'),
-      imageUrl: str('imageUrl'),
+      titulo: nullable('titulo'),
+      fornecedor: nullable('fornecedor'),
+      link: nullable('link'),
+      imageUrl: nullable('imageUrl'),
       formaPagamento: form.get('formaPagamento') as string,
       status: formStatus,
     };
-    // Remove undefined keys so they don't get serialized as null
-    Object.keys(data).forEach((k) => {
-      if ((data as unknown as Record<string, unknown>)[k] === undefined) delete (data as unknown as Record<string, unknown>)[k];
-    });
     const fp = data.formaPagamento;
     if (fp === 'A_VISTA') {
-      data.dataPagamento = str('dataPagamento');
+      data.dataPagamento = nullable('dataPagamento');
+      data.quantidadeParcela = null;
+      data.dataInicioParcela = null;
     } else if (fp === 'PARCELADO' || fp === 'QUINZENAL') {
-      data.quantidadeParcela = Number(form.get('quantidadeParcela')) || undefined;
-      data.dataInicioParcela = str('dataInicioParcela');
+      const q = Number(form.get('quantidadeParcela'));
+      data.quantidadeParcela = q > 0 ? q : null;
+      data.dataInicioParcela = nullable('dataInicioParcela');
+      data.dataPagamento = null;
     }
     if (editing) {
       console.log('[expenses] PATCH', editing.id, data);

@@ -111,9 +111,19 @@ export class ExpenseService {
         link: dto.link,
         imageUrl: dto.imageUrl,
         formaPagamento: dto.formaPagamento,
-        dataPagamento: dto.dataPagamento ? new Date(dto.dataPagamento) : undefined,
+        dataPagamento:
+          dto.dataPagamento === undefined
+            ? undefined
+            : dto.dataPagamento === null
+              ? null
+              : new Date(dto.dataPagamento),
         quantidadeParcela: dto.quantidadeParcela,
-        dataInicioParcela: dto.dataInicioParcela ? new Date(dto.dataInicioParcela) : undefined,
+        dataInicioParcela:
+          dto.dataInicioParcela === undefined
+            ? undefined
+            : dto.dataInicioParcela === null
+              ? null
+              : new Date(dto.dataInicioParcela),
         status: dto.status,
       },
       include: { room: true },

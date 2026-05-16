@@ -83,18 +83,18 @@ export type ExpenseStatus = 'PLANEJADO' | 'PAGO';
 
 export interface ExpenseFormData {
   tipoDespesa: string;
-  categoriaMaoDeObra?: string;
-  roomId?: string;
+  categoriaMaoDeObra?: string | null;
+  roomId?: string | null;
   valor: number;
   quantidade: number;
-  titulo?: string;
-  fornecedor?: string;
-  link?: string;
-  imageUrl?: string;
+  titulo?: string | null;
+  fornecedor?: string | null;
+  link?: string | null;
+  imageUrl?: string | null;
   formaPagamento: string;
-  dataPagamento?: string;
-  quantidadeParcela?: number;
-  dataInicioParcela?: string;
+  dataPagamento?: string | null;
+  quantidadeParcela?: number | null;
+  dataInicioParcela?: string | null;
   status: ExpenseStatus;
 }
 
