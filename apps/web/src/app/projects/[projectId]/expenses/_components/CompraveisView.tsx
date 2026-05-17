@@ -58,7 +58,7 @@ export function CompráveisView({ expenses, tipoLabel }: { expenses: Expense[]; 
 
   const compraveis = useMemo(() => {
     let items = expenses.filter(
-      (e) => e.link && e.tipoDespesa !== 'MATERIAL_CONSTRUCAO'
+      (e) => e.link && e.tipoDespesa !== 'MATERIAL_CONSTRUCAO' && !!e.room?.name
     );
     if (filterTipo) items = items.filter((e) => e.tipoDespesa === filterTipo);
     if (filterStatus) items = items.filter((e) => e.status === filterStatus);
@@ -75,11 +75,11 @@ export function CompráveisView({ expenses, tipoLabel }: { expenses: Expense[]; 
 
   const totalCompraveis = compraveis.reduce((s, e) => s + e.valorTotal, 0);
 
-  // Available tipos (only those with links, excluding Material Construção)
+  // Available tipos (only those with links + room, excluding Material Construção)
   const availableTipos = useMemo(() => {
     const tipos = new Set(
       expenses
-        .filter((e) => e.link && e.tipoDespesa !== 'MATERIAL_CONSTRUCAO')
+        .filter((e) => e.link && e.tipoDespesa !== 'MATERIAL_CONSTRUCAO' && !!e.room?.name)
         .map((e) => e.tipoDespesa)
     );
     return Array.from(tipos).map(t => ({ value: t, label: ExpenseTypeLabels[t as keyof typeof ExpenseTypeLabels] ?? t }));
@@ -89,13 +89,14 @@ export function CompráveisView({ expenses, tipoLabel }: { expenses: Expense[]; 
   const groupedRooms = useMemo(() => {
     const grouped = new Map<string, Expense[]>();
     compraveis.forEach((e) => {
-      const roomName = e.room?.name || 'Sem ambiente';
+      const roomName = e.room?.name;
+      if (!roomName) return;
       if (!grouped.has(roomName)) grouped.set(roomName, []);
       grouped.get(roomName)!.push(e);
     });
 
     return Array.from(grouped.entries())
-      .sort(([a], [b]) => a === 'Sem ambiente' ? 1 : b === 'Sem ambiente' ? -1 : a.localeCompare(b))
+      .sort(([a], [b]) => a.localeCompare(b))
       .map(([roomName, items]) => {
         // Apply custom order if sortBy is 'custom'
         if (sortBy === 'custom' && cardOrder[roomName]) {
@@ -196,7 +197,7 @@ export function CompráveisView({ expenses, tipoLabel }: { expenses: Expense[]; 
         <div className="text-center py-16 text-gray-400">
           <ShoppingCart className="w-12 h-12 mx-auto mb-3 opacity-30" />
           <p className="text-sm">Nenhum item comprável encontrado</p>
-          <p className="text-xs mt-1">Despesas com link preenchido (exceto Material de Construção) aparecerão aqui</p>
+          <p className="text-xs mt-1">Despesas com link e ambiente preenchidos (exceto Material de Construção) aparecerão aqui</p>
         </div>
       ) : (
         <div className="space-y-6">
