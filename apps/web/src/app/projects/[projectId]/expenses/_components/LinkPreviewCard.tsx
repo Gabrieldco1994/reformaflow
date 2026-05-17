@@ -32,7 +32,7 @@ export function LinkPreviewCard({ expense, tipoLabel }: { expense: Expense; tipo
     <>
       <div className="border rounded-xl overflow-hidden bg-white shadow-sm hover:shadow-md transition-all group flex flex-col">
         {/* Image area */}
-        <div className="relative h-56 bg-gray-100 overflow-hidden">
+        <div className="relative h-32 sm:h-56 bg-gray-100 overflow-hidden">
           {isLoading ? (
             <div className="flex items-center justify-center h-full">
               <div className="w-6 h-6 border-2 border-orange-300 border-t-transparent rounded-full animate-spin" />
@@ -67,35 +67,35 @@ export function LinkPreviewCard({ expense, tipoLabel }: { expense: Expense; tipo
         </div>
 
         {/* Content */}
-        <div className="p-3 flex-1 flex flex-col gap-1.5">
-          <h3 className="font-semibold text-sm text-gray-800 line-clamp-2 leading-snug">{title}</h3>
+        <div className="p-2 sm:p-3 flex-1 flex flex-col gap-1 sm:gap-1.5">
+          <h3 className="font-semibold text-[11px] sm:text-sm text-gray-800 line-clamp-2 leading-snug">{title}</h3>
           {preview?.ogDescription && (
-            <p className="text-[10px] text-gray-400 line-clamp-2">{preview.ogDescription}</p>
+            <p className="hidden sm:block text-[10px] text-gray-400 line-clamp-2">{preview.ogDescription}</p>
           )}
 
-          <div className="flex flex-wrap gap-1 mt-1">
-            <span className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">{tipoLabel(expense.tipoDespesa)}</span>
+          <div className="flex flex-wrap gap-1 mt-0.5 sm:mt-1">
+            <span className="text-[9px] sm:text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">{tipoLabel(expense.tipoDespesa)}</span>
             {expense.room?.name && (
-              <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">{expense.room.name}</span>
+              <span className="hidden sm:inline text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">{expense.room.name}</span>
             )}
           </div>
 
           {expense.fornecedor && (
-            <p className="text-[10px] text-gray-500">🏪 {expense.fornecedor}</p>
+            <p className="hidden sm:block text-[10px] text-gray-500">🏪 {expense.fornecedor}</p>
           )}
 
-          <div className="mt-auto pt-2 flex items-end justify-between border-t border-gray-100">
-            <div>
-              <p className="text-xs text-gray-400">Valor total</p>
-              <p className="text-base font-bold text-gray-900">{formatCurrency(expense.valorTotal / 100)}</p>
+          <div className="mt-auto pt-1.5 sm:pt-2 flex items-end justify-between border-t border-gray-100">
+            <div className="min-w-0">
+              <p className="hidden sm:block text-xs text-gray-400">Valor total</p>
+              <p className="text-sm sm:text-base font-bold text-gray-900 truncate">{formatCurrency(expense.valorTotal / 100)}</p>
               {expense.quantidade > 1 && (
-                <p className="text-[10px] text-gray-400">{expense.quantidade}x {formatCurrency(expense.valor / 100)}</p>
+                <p className="hidden sm:block text-[10px] text-gray-400">{expense.quantidade}x {formatCurrency(expense.valor / 100)}</p>
               )}
             </div>
-            <div className="flex gap-1.5">
+            <div className="flex gap-1 sm:gap-1.5 shrink-0">
               <button
                 onClick={() => setCompareOpen(true)}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-purple-100 text-purple-700 text-xs font-medium rounded-lg hover:bg-purple-200 transition-colors"
+                className="inline-flex items-center gap-1 px-1.5 sm:px-2.5 py-1 sm:py-1.5 bg-purple-100 text-purple-700 text-xs font-medium rounded-lg hover:bg-purple-200 transition-colors"
                 title="Comparar preços"
               >
                 <BarChart3 className="w-3 h-3" />
@@ -104,9 +104,9 @@ export function LinkPreviewCard({ expense, tipoLabel }: { expense: Expense; tipo
                 href={expense.link!}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 px-3 py-1.5 bg-orange-500 text-white text-xs font-medium rounded-lg hover:bg-orange-600 transition-colors"
+                className="inline-flex items-center gap-1 px-2 sm:px-3 py-1 sm:py-1.5 bg-orange-500 text-white text-xs font-medium rounded-lg hover:bg-orange-600 transition-colors"
               >
-                <ExternalLink className="w-3 h-3" /> Abrir
+                <ExternalLink className="w-3 h-3" /> <span className="hidden sm:inline">Abrir</span>
               </a>
             </div>
           </div>

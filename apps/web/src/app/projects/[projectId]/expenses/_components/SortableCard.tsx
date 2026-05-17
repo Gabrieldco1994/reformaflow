@@ -29,9 +29,9 @@ export function SortableCard({ expense, tipoLabel }: { expense: Expense; tipoLab
       <div
         {...attributes}
         {...listeners}
-        className="absolute top-2 left-2 z-10 p-1 rounded-md bg-white/80 backdrop-blur-sm shadow-sm cursor-grab active:cursor-grabbing hover:bg-white transition-colors"
+        className="absolute top-1.5 left-1.5 sm:top-2 sm:left-2 z-10 p-0.5 sm:p-1 rounded-md bg-white/80 backdrop-blur-sm shadow-sm cursor-grab active:cursor-grabbing hover:bg-white transition-colors"
       >
-        <GripVertical className="w-4 h-4 text-gray-400" />
+        <GripVertical className="w-3 h-3 sm:w-4 sm:h-4 text-gray-400" />
       </div>
       <LinkPreviewCard expense={expense} tipoLabel={tipoLabel} />
     </div>
