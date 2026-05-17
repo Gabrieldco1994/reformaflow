@@ -1,43 +1,92 @@
 'use client';
 
 import { X } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 interface ModalProps {
   open: boolean;
   onClose: () => void;
   title: string;
   children: React.ReactNode;
+  variant?: 'auto' | 'center' | 'sheet';
+  size?: 'sm' | 'md' | 'lg' | 'xl';
 }
 
-export function Modal({ open, onClose, title, children }: ModalProps) {
+const sizeMap = {
+  sm: 'max-w-md',
+  md: 'max-w-lg',
+  lg: 'max-w-2xl',
+  xl: 'max-w-4xl',
+};
+
+export function Modal({
+  open,
+  onClose,
+  title,
+  children,
+  variant = 'auto',
+  size = 'md',
+}: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     if (open) {
       document.body.style.overflow = 'hidden';
+      requestAnimationFrame(() => setMounted(true));
     } else {
       document.body.style.overflow = '';
+      setMounted(false);
     }
-    return () => { document.body.style.overflow = ''; };
+    return () => {
+      document.body.style.overflow = '';
+    };
   }, [open]);
 
   if (!open) return null;
 
+  const isSheetOnly = variant === 'sheet';
+  const isCenterOnly = variant === 'center';
+
+  const containerClasses = isCenterOnly
+    ? 'items-center justify-center'
+    : isSheetOnly
+      ? 'items-end justify-center'
+      : 'items-end justify-center md:items-center';
+
+  const panelClasses = isCenterOnly
+    ? `${sizeMap[size]} max-h-[90vh] rounded-2xl mx-4 transition-all duration-200 ${mounted ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`
+    : isSheetOnly
+      ? `w-full ${sizeMap[size]} max-h-[92vh] rounded-t-3xl transition-transform duration-300 ${mounted ? 'translate-y-0' : 'translate-y-full'}`
+      : `w-full ${sizeMap[size]} max-h-[92vh] rounded-t-3xl md:rounded-2xl md:mx-4 transition-all duration-300 ${mounted ? 'translate-y-0 md:opacity-100 md:scale-100' : 'translate-y-full md:translate-y-0 md:opacity-0 md:scale-95'}`;
+
   return (
     <div
       ref={overlayRef}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={(e) => { if (e.target === overlayRef.current) onClose(); }}
+      className={`fixed inset-0 z-50 flex ${containerClasses} bg-darc-velvet/85 backdrop-blur-sm transition-opacity duration-200 ${mounted ? 'opacity-100' : 'opacity-0'}`}
+      onClick={(e) => {
+        if (e.target === overlayRef.current) onClose();
+      }}
     >
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto mx-4">
-        <div className="flex items-center justify-between p-4 border-b">
-          <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
-          <button onClick={onClose} className="p-1 rounded hover:bg-gray-100">
-            <X className="w-5 h-5 text-gray-500" />
+      <div
+        className={`bg-white shadow-darc-hero overflow-y-auto border border-darc-linen ${panelClasses}`}
+      >
+        {!isCenterOnly && (
+          <div className="md:hidden flex justify-center pt-3 pb-1">
+            <div className="h-1.5 w-12 rounded-full bg-darc-linen/80" />
+          </div>
+        )}
+        <div className="sticky top-0 z-10 flex items-center justify-between px-5 py-4 bg-white border-b border-darc-linen">
+          <h2 className="font-editorial italic text-xl text-darc-maroon">{title}</h2>
+          <button
+            onClick={onClose}
+            className="p-2 rounded-full hover:bg-darc-linen/40 active:bg-darc-linen/60 transition-colors"
+            aria-label="Fechar"
+          >
+            <X className="w-5 h-5 text-darc-maroon" />
           </button>
         </div>
-        <div className="p-4">{children}</div>
+        <div className="px-5 py-5">{children}</div>
       </div>
     </div>
   );

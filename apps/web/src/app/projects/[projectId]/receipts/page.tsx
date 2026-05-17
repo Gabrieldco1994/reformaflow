@@ -12,6 +12,7 @@ import { Select } from '@/components/ui/select';
 import { Modal } from '@/components/ui/modal';
 import React from 'react';
 import type { Receipt, ReceiptFormData } from '@/types';
+import { MobileReceiptList } from './_components/MobileReceiptList';
 
 const TIPO_OPTIONS = [
   { value: 'PAGAMENTO', label: 'Pagamento' },
@@ -149,18 +150,59 @@ export default function ReceiptsPage() {
   }, [receipts]);
 
   const totalGeral = grouped.reduce((s, g) => s + g.total, 0);
+  const totalEmCaixa = grouped.reduce((s, g) => s + g.totalEmCaixa, 0);
+  const totalPrevisto = grouped.reduce((s, g) => s + g.totalPrevisto, 0);
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      {/* Header desktop */}
+      <div className="hidden md:flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <h1 className="text-2xl font-bold text-gray-900">Recebimentos</h1>
         <Button onClick={openCreate}><Plus className="w-4 h-4" /> Novo Recebimento</Button>
+      </div>
+
+      {/* Header mobile editorial */}
+      <div className="md:hidden -mt-2">
+        <p className="text-[11px] uppercase tracking-[0.2em] text-darc-raspberry/70">Financeiro</p>
+        <h1 className="font-editorial italic text-3xl text-darc-velvet leading-tight">
+          Recebimentos
+        </h1>
+      </div>
+
+      {/* KPIs mobile (scroll horizontal) */}
+      <div className="md:hidden -mx-4 px-4 overflow-x-auto scrollbar-hide">
+        <div className="flex gap-3 min-w-min pb-2">
+          <div className="min-w-[140px] rounded-2xl bg-white shadow-darc-soft border border-darc-linen px-4 py-3">
+            <p className="text-[10px] uppercase tracking-wider text-darc-velvet/60">Total</p>
+            <p className="font-bold text-darc-velvet tabular-nums mt-1">{formatCurrency(totalGeral / 100)}</p>
+          </div>
+          <div className="min-w-[140px] rounded-2xl bg-darc-mist/30 shadow-darc-soft border border-darc-mist/50 px-4 py-3">
+            <p className="text-[10px] uppercase tracking-wider text-darc-velvet/70">Em caixa</p>
+            <p className="font-bold text-darc-velvet tabular-nums mt-1">{formatCurrency(totalEmCaixa / 100)}</p>
+          </div>
+          <div className="min-w-[140px] rounded-2xl bg-darc-sunfire/15 shadow-darc-soft border border-darc-sunfire/40 px-4 py-3">
+            <p className="text-[10px] uppercase tracking-wider text-darc-raspberry/80">Previsto</p>
+            <p className="font-bold text-darc-raspberry tabular-nums mt-1">{formatCurrency(totalPrevisto / 100)}</p>
+          </div>
+        </div>
       </div>
 
       {isLoading ? (
         <p className="text-gray-500">Carregando...</p>
       ) : (
-        <div className="overflow-x-auto border border-darc-linen rounded-lg bg-white shadow-darc-soft">
+        <>
+          {/* Lista mobile */}
+          <MobileReceiptList
+            grouped={grouped}
+            collapsedTipos={collapsedTipos}
+            toggleTipo={toggleTipo}
+            openEdit={openEdit}
+            onDelete={(id) => deleteMutation.mutate(id)}
+            emptyMsg="Nenhum recebimento cadastrado."
+          />
+
+          {/* Tabela desktop */}
+          <div className="hidden md:block overflow-x-auto border border-darc-linen rounded-lg bg-white shadow-darc-soft">
           <table className="w-full text-sm">
             <thead className="bg-darc-cream/60 border-b border-darc-linen">
               <tr>
@@ -283,16 +325,27 @@ export default function ReceiptsPage() {
               </tfoot>
             )}
           </table>
-        </div>
+          </div>
+        </>
       )}
 
-      {/* Botão de adicionar linha rápida */}
+      {/* Botão de adicionar linha rápida — só desktop */}
       {!showNewRow && (
         <button onClick={() => setShowNewRow(true)}
-          className="w-full border-2 border-dashed border-darc-linen rounded-lg py-2 text-sm text-darc-velvet/50 hover:border-darc-red-pastel hover:text-darc-red hover:bg-darc-red-pastel/10 transition-colors">
+          className="hidden md:block w-full border-2 border-dashed border-darc-linen rounded-lg py-2 text-sm text-darc-velvet/50 hover:border-darc-red-pastel hover:text-darc-red hover:bg-darc-red-pastel/10 transition-colors">
           + Adicionar rápido (linha inline)
         </button>
       )}
+
+      {/* FAB mobile */}
+      <button
+        type="button"
+        onClick={openCreate}
+        aria-label="Novo recebimento"
+        className="md:hidden fixed bottom-20 right-4 z-40 w-14 h-14 rounded-full bg-darc-red-bright text-white shadow-darc-med flex items-center justify-center hover:bg-darc-red-pastel active:scale-95 transition-all"
+      >
+        <Plus className="w-6 h-6" />
+      </button>
 
       {/* Modal de criação/edição completa */}
       <Modal open={modalOpen} onClose={closeModal} title={editing ? 'Editar Recebimento' : 'Novo Recebimento'}>

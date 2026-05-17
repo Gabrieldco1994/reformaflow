@@ -28,7 +28,7 @@ interface Props {
   emptyMsg: string;
 }
 
-export function MobileExpenseList({
+function MobileExpenseListImpl({
   categorias,
   collapsedCategories,
   toggleCategory,
@@ -168,3 +168,5 @@ export function MobileExpenseList({
     </div>
   );
 }
+
+export const MobileExpenseList = React.memo(MobileExpenseListImpl);

@@ -12,6 +12,7 @@ import { GanttChart } from './_components/GanttChart';
 import { ImportModal } from './_components/ImportModal';
 import { AddTaskModal } from './_components/AddTaskModal';
 import { AddStageModal } from './_components/AddStageModal';
+import { MobileGanttList } from './_components/MobileGanttList';
 
 const SAVE_DEBOUNCE_MS = 300;
 
@@ -210,8 +211,8 @@ export default function SchedulePage() {
 
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      {/* Header desktop */}
+      <div className="hidden md:flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
             Cronograma da Obra
@@ -251,6 +252,15 @@ export default function SchedulePage() {
         </div>
       </div>
 
+      {/* Header mobile editorial */}
+      <div className="md:hidden -mt-2">
+        <p className="text-[11px] uppercase tracking-[0.2em] text-darc-raspberry/70">Obra</p>
+        <h1 className="font-editorial italic text-3xl text-darc-velvet leading-tight flex items-center gap-2">
+          Cronograma
+          {saving && <Loader2 className="w-4 h-4 animate-spin text-darc-raspberry" />}
+        </h1>
+      </div>
+
       {/* KPIs */}
       {hasData && <KPICards kpis={data.kpis} config={data.config} />}
 
@@ -259,15 +269,27 @@ export default function SchedulePage() {
 
       {/* Gantt or empty state */}
       {hasData ? (
-        <GanttChart
-          stages={data.stages}
-          config={data.config}
-          holidays={data.holidays}
-          onPatchTask={onPatchTask}
-          onDeleteTask={onDeleteTask}
-          onRenameStage={onRenameStage}
-          onDeleteStage={onDeleteStage}
-        />
+        <>
+          {/* Desktop: gantt chart completo */}
+          <div className="hidden md:block">
+            <GanttChart
+              stages={data.stages}
+              config={data.config}
+              holidays={data.holidays}
+              onPatchTask={onPatchTask}
+              onDeleteTask={onDeleteTask}
+              onRenameStage={onRenameStage}
+              onDeleteStage={onDeleteStage}
+            />
+          </div>
+
+          {/* Mobile: lista de tarefas com checkbox + slider de progresso */}
+          <MobileGanttList
+            stages={data.stages}
+            onPatchTask={onPatchTask}
+            onDeleteTask={onDeleteTask}
+          />
+        </>
       ) : (
         <div className="flex flex-col items-center justify-center h-64 bg-white rounded-xl border-2 border-dashed border-gray-300">
           <Calendar className="w-12 h-12 text-gray-300 mb-3" />
@@ -316,6 +338,17 @@ export default function SchedulePage() {
           }}
           onClose={() => setShowAddStage(false)}
         />
+      )}
+      {/* FAB mobile — adicionar tarefa */}
+      {hasData && (
+        <button
+          type="button"
+          onClick={() => setShowAddTask(true)}
+          aria-label="Nova tarefa"
+          className="md:hidden fixed bottom-20 right-4 z-40 w-14 h-14 rounded-full bg-darc-red-bright text-white shadow-darc-med flex items-center justify-center hover:bg-darc-red-pastel active:scale-95 transition-all"
+        >
+          <Plus className="w-6 h-6" />
+        </button>
       )}
     </div>
   );

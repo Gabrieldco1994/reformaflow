@@ -6,6 +6,7 @@ import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { ArrowUpCircle, ArrowDownCircle } from 'lucide-react';
 import type { CashFlowEntry } from '@/types';
+import { MobileCashFlowList } from './_components/MobileCashFlowList';
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
@@ -28,11 +29,66 @@ export default function CashFlowPage() {
   if (isLoading) return <div className="text-gray-500">Carregando...</div>;
   if (error) return <div className="text-red-600">Erro ao carregar fluxo de caixa.</div>;
 
+  const saldoAtual = entries[entries.length - 1]?.rollingBalance ?? 0;
+  const totalReceitas = entries
+    .filter((e) => e.tipo === 'RECEBIMENTO')
+    .reduce((s, e) => s + e.valor, 0);
+  const totalDespesas = entries
+    .filter((e) => e.tipo === 'DESPESA')
+    .reduce((s, e) => s + e.valor, 0);
+
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">Fluxo de Caixa</h1>
+      {/* Header desktop */}
+      <h1 className="hidden md:block text-2xl font-bold text-gray-900">Fluxo de Caixa</h1>
 
-      <div className="overflow-x-auto border rounded-lg">
+      {/* Header mobile editorial */}
+      <div className="md:hidden -mt-2">
+        <p className="text-[11px] uppercase tracking-[0.2em] text-darc-raspberry/70">Financeiro</p>
+        <h1 className="font-editorial italic text-3xl text-darc-velvet leading-tight">
+          Fluxo de Caixa
+        </h1>
+      </div>
+
+      {/* KPIs mobile */}
+      <div className="md:hidden -mx-4 px-4 overflow-x-auto scrollbar-hide">
+        <div className="flex gap-3 min-w-min pb-2">
+          <div
+            className={`min-w-[160px] rounded-2xl shadow-darc-soft border px-4 py-3 ${
+              saldoAtual >= 0
+                ? 'bg-darc-mist/30 border-darc-mist/50'
+                : 'bg-darc-red-pastel/15 border-darc-red-pastel/40'
+            }`}
+          >
+            <p className="text-[10px] uppercase tracking-wider text-darc-velvet/70">Saldo atual</p>
+            <p
+              className={`font-bold tabular-nums mt-1 ${
+                saldoAtual >= 0 ? 'text-darc-velvet' : 'text-darc-red'
+              }`}
+            >
+              {formatCurrency(saldoAtual / 100)}
+            </p>
+          </div>
+          <div className="min-w-[140px] rounded-2xl bg-white shadow-darc-soft border border-darc-linen px-4 py-3">
+            <p className="text-[10px] uppercase tracking-wider text-darc-raspberry/80">Receitas</p>
+            <p className="font-bold text-darc-raspberry tabular-nums mt-1">
+              {formatCurrency(totalReceitas / 100)}
+            </p>
+          </div>
+          <div className="min-w-[140px] rounded-2xl bg-white shadow-darc-soft border border-darc-linen px-4 py-3">
+            <p className="text-[10px] uppercase tracking-wider text-darc-red/80">Despesas</p>
+            <p className="font-bold text-darc-red tabular-nums mt-1">
+              {formatCurrency(totalDespesas / 100)}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Lista mobile */}
+      <MobileCashFlowList entries={entries} />
+
+      {/* Tabela desktop */}
+      <div className="hidden md:block overflow-x-auto border rounded-lg">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b">
             <tr>
