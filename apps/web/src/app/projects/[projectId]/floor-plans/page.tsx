@@ -1139,7 +1139,7 @@ function FloorPlanViewer({
       const all = await api.get<FloorPlanMarkerExpense[]>(`/projects/${PROJECT_ID}/expenses`);
       return (all || []).filter((e) => !!e.link);
     },
-    enabled: xrayMode,
+    enabled: xrayMode || markerDrawingMode || !!pendingMarkerBounds,
     staleTime: 1000 * 60,
   });
 
@@ -1718,9 +1718,9 @@ function XRayOverlay({
   return (
     <div className="fixed inset-0 z-[70] bg-darc-velvet flex flex-col">
       {/* Top bar */}
-      <div className="flex items-center gap-3 px-4 py-3 bg-darc-velvet text-white border-b border-white/10">
+      <div className="flex items-center gap-3 px-4 py-2 bg-darc-velvet text-white border-b border-white/10">
         <MapPin className="w-5 h-5 text-darc-sunfire" />
-        <h2 className="font-bold text-base flex-1 truncate">
+        <h2 className="font-bold text-sm flex-1 truncate">
           <span className="text-darc-sunfire">{floorPlan.name}</span>
         </h2>
         <button
@@ -1753,7 +1753,7 @@ function XRayOverlay({
           minScale={0.3}
           maxScale={8}
           centerOnInit
-          initialScale={1.3}
+          initialScale={2}
         >
           {({ zoomIn, zoomOut, resetTransform }) => (
             <>
@@ -1779,7 +1779,7 @@ function XRayOverlay({
                     alt={floorPlan.name}
                     width={1600}
                     height={1200}
-                    className="max-w-[98vw] max-h-[calc(100vh-4.5rem)] w-auto h-auto select-none"
+                    className="max-w-[100vw] max-h-[calc(100vh-3rem)] w-auto h-auto select-none"
                     draggable={false}
                   />
 
