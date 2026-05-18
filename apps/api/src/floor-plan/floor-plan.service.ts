@@ -111,7 +111,12 @@ export class FloorPlanService {
       include: {
         rooms: {
           include: {
-            room: { include: { expenses: { where: { deletedAt: null } } } },
+            room: {
+              include: {
+                expenses: { where: { deletedAt: null } },
+                roomImages: { orderBy: { order: 'asc' } },
+              },
+            },
           },
         },
       },
@@ -206,25 +211,44 @@ export class FloorPlanService {
   // Room images
   async addRoomImage(
     roomId: string,
-    file: { buffer: Buffer; originalname: string } | undefined,
+    file: { buffer: Buffer; originalname: string; mimetype?: string; size?: number } | undefined,
     caption?: string,
   ) {
+    this.logger.log(
+      `addRoomImage(roomId=${roomId}, hasFile=${!!file}, size=${file?.size ?? 'n/a'}, mime=${file?.mimetype ?? 'n/a'}, name=${file?.originalname ?? 'n/a'})`,
+    );
     if (!file?.buffer) {
+      this.logger.warn(`addRoomImage: arquivo não enviado (roomId=${roomId})`);
       throw new BadRequestException('Arquivo não enviado (campo "file" obrigatório)');
     }
-    const dir = path.join(UPLOADS_ROOT, 'room-images');
-    fs.mkdirSync(dir, { recursive: true });
-    const ext = path.extname(file.originalname) || '.png';
-    const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
-    fs.writeFileSync(path.join(dir, filename), file.buffer);
+    const room = await this.prisma.room.findUnique({ where: { id: roomId } });
+    if (!room) {
+      this.logger.warn(`addRoomImage: room não encontrado (roomId=${roomId})`);
+      throw new NotFoundException(`Ambiente ${roomId} não encontrado`);
+    }
+    try {
+      const dir = path.join(UPLOADS_ROOT, 'room-images');
+      fs.mkdirSync(dir, { recursive: true });
+      const ext = path.extname(file.originalname) || '.jpg';
+      const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
+      const filePath = path.join(dir, filename);
+      fs.writeFileSync(filePath, file.buffer);
+      this.logger.log(`addRoomImage: gravado em ${filePath} (${file.buffer.length} bytes)`);
 
-    return this.prisma.roomImage.create({
-      data: {
-        roomId,
-        imageUrl: `/uploads/room-images/${filename}`,
-        caption,
-      },
-    });
+      const created = await this.prisma.roomImage.create({
+        data: {
+          roomId,
+          imageUrl: `/uploads/room-images/${filename}`,
+          caption,
+        },
+      });
+      this.logger.log(`addRoomImage: ok id=${created.id}`);
+      return created;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`addRoomImage falhou: ${msg}`, err instanceof Error ? err.stack : undefined);
+      throw err;
+    }
   }
 
   async getRoomImages(roomId: string) {
