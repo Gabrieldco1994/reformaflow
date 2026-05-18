@@ -80,14 +80,18 @@ interface Bounds {
 
 function RoomDetailPanel({
   room,
+  projectRooms,
   onClose,
   onUploadImage,
   onDeleteImage,
+  onLinkRoom,
 }: {
   room: FloorPlanRoom;
+  projectRooms: Room[];
   onClose: () => void;
   onUploadImage: (roomId: string, file: File) => void;
   onDeleteImage: (imageId: string) => void;
+  onLinkRoom: (markerId: string, roomId: string | null) => void;
 }) {
   const expenses = room.room?.expenses || [];
   const images = room.room?.roomImages || [];
@@ -95,12 +99,16 @@ function RoomDetailPanel({
   const totalPlanejado = expenses.filter((e) => e.status === 'PLANEJADO').reduce((s, e) => s + e.valorTotal, 0);
   const bounds: Bounds = JSON.parse(room.bounds);
   const fileRef = useRef<HTMLInputElement>(null);
+  const isLinked = !!room.room;
 
   return (
     <div className="absolute right-0 top-0 h-full w-80 bg-white shadow-xl border-l z-50 overflow-y-auto">
       <div className="p-4 border-b flex items-center justify-between" style={{ borderLeftColor: room.color, borderLeftWidth: 4 }}>
         <div>
           <h3 className="font-bold text-lg">{room.label}</h3>
+          {room.room && room.room.name !== room.label && (
+            <p className="text-xs text-darc-velvet/60">vinculado a: {room.room.name}</p>
+          )}
           {bounds.area && <p className="text-sm text-gray-500">{bounds.area} m² {bounds.sqft ? `(${bounds.sqft} sqft)` : ''}</p>}
           {bounds.dimensions && (
             <p className="text-xs text-gray-400">
@@ -110,6 +118,36 @@ function RoomDetailPanel({
         </div>
         <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded"><X className="w-4 h-4" /></button>
       </div>
+
+      {/* Vincular a um ambiente — destaque quando não vinculado */}
+      {!isLinked && (
+        <div className="px-4 py-3 bg-darc-sunfire/10 border-b border-darc-sunfire/30">
+          <h4 className="font-semibold text-sm text-darc-velvet mb-1.5 flex items-center gap-1.5">
+            🔗 Vincular a um ambiente
+          </h4>
+          <p className="text-xs text-darc-velvet/70 mb-2">
+            Vincule esta marcação a um ambiente do projeto para ver despesas e subir fotos.
+          </p>
+          {projectRooms.length === 0 ? (
+            <p className="text-xs italic text-darc-velvet/60">
+              Nenhum ambiente cadastrado. Cadastre ambientes no projeto primeiro.
+            </p>
+          ) : (
+            <select
+              className="w-full text-sm border border-darc-linen rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-darc-red-bright"
+              value=""
+              onChange={(e) => {
+                if (e.target.value) onLinkRoom(room.id, e.target.value);
+              }}
+            >
+              <option value="">Escolha um ambiente...</option>
+              {projectRooms.map((r) => (
+                <option key={r.id} value={r.id}>{r.name}</option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
 
       {/* Despesas */}
       <div className="p-4 border-b">
@@ -156,13 +194,15 @@ function RoomDetailPanel({
       <div className="p-4">
         <div className="flex items-center justify-between mb-2">
           <h4 className="font-semibold text-sm text-gray-700">📷 Imagens do Projeto</h4>
-          {room.room && (
+          {isLinked ? (
             <button
               onClick={() => fileRef.current?.click()}
-              className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
+              className="text-xs text-darc-red-bright hover:text-darc-raspberry flex items-center gap-1 font-semibold"
             >
               <Plus className="w-3 h-3" /> Adicionar
             </button>
+          ) : (
+            <span className="text-[10px] italic text-darc-velvet/50">vincule um ambiente</span>
           )}
         </div>
         <input
@@ -177,7 +217,15 @@ function RoomDetailPanel({
           }}
         />
         {images.length === 0 ? (
-          <p className="text-sm text-gray-400">Nenhuma imagem</p>
+          <button
+            type="button"
+            disabled={!isLinked}
+            onClick={() => fileRef.current?.click()}
+            className="w-full mt-1 px-3 py-6 rounded-lg border-2 border-dashed border-darc-linen text-xs text-darc-velvet/60 hover:bg-darc-linen/30 disabled:opacity-50 disabled:cursor-not-allowed flex flex-col items-center gap-1"
+          >
+            <ImageIcon className="w-5 h-5 opacity-50" />
+            <span>{isLinked ? 'Clique para enviar fotos do ambiente' : 'Sem imagens'}</span>
+          </button>
         ) : (
           <div className="grid grid-cols-2 gap-2">
             {images.map((img) => (
@@ -189,7 +237,7 @@ function RoomDetailPanel({
                 />
                 <button
                   onClick={() => onDeleteImage(img.id)}
-                  className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="absolute top-1 right-1 p-1 bg-darc-red-bright text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
                 >
                   <X className="w-3 h-3" />
                 </button>
@@ -197,6 +245,168 @@ function RoomDetailPanel({
             ))}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Room Link Modal ─────────────────────────────────────────
+
+function RoomLinkModal({
+  projectRooms,
+  alreadyLinkedIds,
+  onConfirm,
+  onCancel,
+}: {
+  projectRooms: Room[];
+  alreadyLinkedIds: Set<string>;
+  onConfirm: (input: { roomId?: string; label: string }) => void;
+  onCancel: () => void;
+}) {
+  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
+  const [customLabel, setCustomLabel] = useState('');
+  const [mode, setMode] = useState<'existing' | 'custom'>(
+    projectRooms.length > 0 ? 'existing' : 'custom',
+  );
+
+  const canConfirm =
+    (mode === 'existing' && !!selectedRoomId) ||
+    (mode === 'custom' && customLabel.trim().length > 0);
+
+  const handleConfirm = () => {
+    if (mode === 'existing' && selectedRoomId) {
+      const r = projectRooms.find((x) => x.id === selectedRoomId);
+      if (!r) return;
+      onConfirm({ roomId: r.id, label: r.name });
+    } else if (mode === 'custom' && customLabel.trim()) {
+      onConfirm({ label: customLabel.trim() });
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-darc-velvet/70 backdrop-blur-sm">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-darc-strong overflow-hidden">
+        <div className="px-5 py-4 border-b border-darc-linen flex items-center justify-between">
+          <div>
+            <h3 className="font-bold text-darc-velvet text-base">Vincular ao ambiente</h3>
+            <p className="text-xs text-darc-velvet/60 mt-0.5">
+              Escolha um ambiente do projeto para criar o vínculo
+            </p>
+          </div>
+          <button
+            onClick={onCancel}
+            className="p-1.5 hover:bg-darc-linen/40 rounded-lg text-darc-velvet/60"
+            aria-label="Cancelar"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {projectRooms.length > 0 && (
+          <div className="flex gap-1 px-5 pt-4">
+            <button
+              onClick={() => setMode('existing')}
+              className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                mode === 'existing'
+                  ? 'bg-darc-red-bright text-white'
+                  : 'bg-darc-linen/40 text-darc-velvet/70 hover:bg-darc-linen/70'
+              }`}
+            >
+              Ambientes existentes
+            </button>
+            <button
+              onClick={() => setMode('custom')}
+              className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                mode === 'custom'
+                  ? 'bg-darc-red-bright text-white'
+                  : 'bg-darc-linen/40 text-darc-velvet/70 hover:bg-darc-linen/70'
+              }`}
+            >
+              Nome livre
+            </button>
+          </div>
+        )}
+
+        <div className="p-5 max-h-[55vh] overflow-y-auto">
+          {mode === 'existing' && projectRooms.length === 0 && (
+            <p className="text-sm text-darc-velvet/60 italic">
+              Nenhum ambiente cadastrado no projeto. Use &quot;Nome livre&quot;.
+            </p>
+          )}
+
+          {mode === 'existing' && projectRooms.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {projectRooms.map((r) => {
+                const isLinked = alreadyLinkedIds.has(r.id);
+                const isSelected = selectedRoomId === r.id;
+                return (
+                  <button
+                    key={r.id}
+                    onClick={() => setSelectedRoomId(r.id)}
+                    className={`text-left px-3 py-2.5 rounded-lg border transition-all ${
+                      isSelected
+                        ? 'border-darc-red-bright bg-darc-red-bright/10 shadow-darc-soft'
+                        : 'border-darc-linen bg-white hover:border-darc-blue-mist hover:bg-darc-linen/30'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-medium text-darc-velvet truncate">
+                        {r.name}
+                      </span>
+                      {isLinked && (
+                        <span
+                          className="text-[9px] uppercase tracking-wider text-darc-sunfire bg-darc-sunfire/15 px-1.5 py-0.5 rounded-full"
+                          title="Já vinculado a outra marcação"
+                        >
+                          em uso
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {mode === 'custom' && (
+            <div>
+              <label className="block text-xs font-semibold text-darc-velvet/70 mb-1.5 uppercase tracking-wider">
+                Nome do cômodo
+              </label>
+              <input
+                type="text"
+                autoFocus
+                value={customLabel}
+                onChange={(e) => setCustomLabel(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && customLabel.trim()) handleConfirm();
+                }}
+                placeholder="Ex.: Sala íntima"
+                className="w-full px-3 py-2 rounded-lg border border-darc-linen focus:border-darc-red-bright focus:outline-none focus:ring-2 focus:ring-darc-blue-mist/40 text-sm text-darc-velvet"
+              />
+              <p className="text-[11px] text-darc-velvet/50 mt-1.5">
+                A marcação ficará sem vínculo a um ambiente do projeto. Você poderá vincular
+                depois pelo painel do cômodo.
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="px-5 py-3 bg-darc-linen/30 border-t border-darc-linen flex items-center justify-end gap-2">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 rounded-lg text-sm font-medium text-darc-velvet/70 hover:bg-darc-linen/60"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={handleConfirm}
+            disabled={!canConfirm}
+            className="px-4 py-2 rounded-lg text-sm font-semibold bg-darc-red-bright text-white hover:bg-darc-raspberry disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            Vincular
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -220,9 +430,20 @@ function FloorPlanViewer({
   const [drawingMode, setDrawingMode] = useState(false);
   const [drawStart, setDrawStart] = useState<{ x: number; y: number } | null>(null);
   const [drawCurrent, setDrawCurrent] = useState<{ x: number; y: number } | null>(null);
+  const [pendingBounds, setPendingBounds] = useState<Bounds | null>(null);
   const [reanalyzing, setReanalyzing] = useState(false);
   const [hoveredRoom, setHoveredRoom] = useState<string | null>(null);
   const imageRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!selectedRoom) return;
+    const fresh = floorPlan.rooms.find((r) => r.id === selectedRoom.id);
+    if (!fresh) {
+      setSelectedRoom(null);
+    } else if (fresh !== selectedRoom) {
+      setSelectedRoom(fresh);
+    }
+  }, [floorPlan, selectedRoom]);
 
   const handleReanalyze = async () => {
     setReanalyzing(true);
@@ -276,29 +497,31 @@ function FloorPlanViewer({
       width: Math.abs(drawCurrent.x - drawStart.x),
       height: Math.abs(drawCurrent.y - drawStart.y),
     };
-    if (bounds.width < 2 || bounds.height < 2) {
-      setDrawStart(null);
-      setDrawCurrent(null);
-      return;
-    }
-    const label = prompt('Nome do cômodo:');
-    if (!label) {
-      setDrawStart(null);
-      setDrawCurrent(null);
-      return;
-    }
+    setDrawStart(null);
+    setDrawCurrent(null);
+    if (bounds.width < 2 || bounds.height < 2) return;
+    setPendingBounds(bounds);
+  };
+
+  const confirmPendingRoom = async (input: { roomId?: string; label: string }) => {
+    if (!pendingBounds) return;
     try {
       await api.post(`/projects/${PROJECT_ID}/floor-plans/${floorPlan.id}/rooms`, {
-        label,
-        bounds: JSON.stringify(bounds),
+        label: input.label,
+        bounds: JSON.stringify(pendingBounds),
         color: `hsl(${Math.random() * 360}, 70%, 50%)`,
+        ...(input.roomId ? { roomId: input.roomId } : {}),
       });
       onRefresh();
     } catch (err) {
       console.error(err);
     }
-    setDrawStart(null);
-    setDrawCurrent(null);
+    setPendingBounds(null);
+    setDrawingMode(false);
+  };
+
+  const cancelPendingRoom = () => {
+    setPendingBounds(null);
     setDrawingMode(false);
   };
 
@@ -541,12 +764,30 @@ function FloorPlanViewer({
         {selectedRoom && (
           <RoomDetailPanel
             room={selectedRoom}
+            projectRooms={projectRooms}
             onClose={() => setSelectedRoom(null)}
             onUploadImage={handleUploadImage}
             onDeleteImage={handleDeleteImage}
+            onLinkRoom={handleLinkRoom}
           />
         )}
       </div>
+
+      {/* Modal: vincular ambiente após desenhar */}
+      {pendingBounds && (
+        <RoomLinkModal
+          projectRooms={projectRooms}
+          alreadyLinkedIds={
+            new Set(
+              floorPlan.rooms
+                .map((r) => r.roomId)
+                .filter((id): id is string => !!id),
+            )
+          }
+          onConfirm={confirmPendingRoom}
+          onCancel={cancelPendingRoom}
+        />
+      )}
     </div>
   );
 }
