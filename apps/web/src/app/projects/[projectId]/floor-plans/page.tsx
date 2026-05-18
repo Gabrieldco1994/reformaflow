@@ -153,16 +153,6 @@ function withAlpha(color: string, alpha: number): string {
   return `rgba(${parsed.r}, ${parsed.g}, ${parsed.b}, ${alpha})`;
 }
 
-function summarizeRoom(room: FloorPlanRoom) {
-  const expenses = room.room?.expenses ?? [];
-  const images = room.room?.roomImages ?? [];
-  const pago = expenses.filter((e) => e.status === 'PAGO').reduce((s, e) => s + e.valorTotal, 0);
-  const planejado = expenses
-    .filter((e) => e.status === 'PLANEJADO')
-    .reduce((s, e) => s + e.valorTotal, 0);
-  return { expenses, images, pago, planejado, total: pago + planejado };
-}
-
 // ─── Types ──────────────────────────────────────────────────
 
 interface FloorPlanRoom {
@@ -863,9 +853,19 @@ function FloorPlanViewer({
   const [pendingBounds, setPendingBounds] = useState<Bounds | null>(null);
   const [reanalyzing, setReanalyzing] = useState(false);
   const [hoveredRoom, setHoveredRoom] = useState<string | null>(null);
+  const [canHover, setCanHover] = useState(false);
   const [imageUploading, setImageUploading] = useState(false);
   const [imageUploadError, setImageUploadError] = useState<string | null>(null);
   const imageRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(hover: hover) and (pointer: fine)');
+    const update = () => setCanHover(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
 
   useEffect(() => {
     if (!selectedRoom) return;
@@ -1071,8 +1071,6 @@ function FloorPlanViewer({
                     const b: Bounds = JSON.parse(room.bounds);
                     const isHovered = hoveredRoom === room.id;
                     const isSelected = selectedRoom?.id === room.id;
-                    const summary = summarizeRoom(room);
-                    const showHoverCard = isHovered && !isSelected;
                     return (
                       <div
                         key={room.id}
@@ -1080,7 +1078,10 @@ function FloorPlanViewer({
                           e.stopPropagation();
                           setSelectedRoom(isSelected ? null : room);
                         }}
-                        onMouseEnter={() => setHoveredRoom(room.id)}
+                        onMouseEnter={() => {
+                          setHoveredRoom(room.id);
+                          if (canHover) setSelectedRoom(room);
+                        }}
                         onMouseLeave={() => setHoveredRoom(null)}
                         className="absolute transition-all duration-150 cursor-pointer"
                         style={{
@@ -1114,46 +1115,6 @@ function FloorPlanViewer({
                         {b.area && (
                           <div className="absolute bottom-0.5 right-1 text-[9px] font-medium" style={{ color: room.color }}>
                             {b.area}m²
-                          </div>
-                        )}
-
-                        {/* Hover preview card */}
-                        {showHoverCard && (
-                          <div
-                            className="absolute z-30 pointer-events-none rounded-xl bg-white border border-darc-linen shadow-darc-medium px-3 py-2.5 min-w-[180px]"
-                            style={{
-                              left: '50%',
-                              transform: 'translateX(-50%)',
-                              ...(b.y + b.height > 75
-                                ? { bottom: 'calc(100% + 8px)' }
-                                : { top: 'calc(100% + 8px)' }),
-                            }}
-                          >
-                            <div
-                              className="text-[10px] font-bold uppercase tracking-[0.15em] mb-1.5"
-                              style={{ color: room.color }}
-                            >
-                              {room.room?.name ?? room.label}
-                            </div>
-                            <div className="grid grid-cols-2 gap-1.5 text-[10px]">
-                              <div className="rounded-md bg-darc-raspberry/10 px-1.5 py-1">
-                                <p className="text-darc-velvet/60 uppercase tracking-wider text-[8px]">Pago</p>
-                                <p className="font-bold text-darc-raspberry text-[11px]">{BRL(summary.pago)}</p>
-                              </div>
-                              <div className="rounded-md bg-darc-sunfire/15 px-1.5 py-1">
-                                <p className="text-darc-velvet/60 uppercase tracking-wider text-[8px]">Previsto</p>
-                                <p className="font-bold text-darc-sunfire text-[11px]">{BRL(summary.planejado)}</p>
-                              </div>
-                            </div>
-                            <div className="mt-1.5 flex items-center justify-between text-[10px] text-darc-velvet/70">
-                              <span>🛒 {summary.expenses.length} {summary.expenses.length === 1 ? 'item' : 'itens'}</span>
-                              <span>📷 {summary.images.length}</span>
-                            </div>
-                            {!room.room && (
-                              <p className="mt-1.5 text-[9px] italic text-darc-velvet/50">
-                                Vincule um ambiente para ver detalhes
-                              </p>
-                            )}
                           </div>
                         )}
                       </div>
