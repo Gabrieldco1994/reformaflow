@@ -427,6 +427,7 @@ export default function SimulationPage() {
         <ShoppableSimulationView
           payConfigs={monthlyPayConfigs}
           excludes={monthlyExcludes}
+          scenarioId={activeScenarioId ?? undefined}
           onPayConfigChange={(id, cfg) => {
             setMonthlyPayConfigs((p) => ({ ...p, [id]: cfg }));
             scheduleSave();
