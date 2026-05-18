@@ -26,6 +26,7 @@ import {
   ScanLine,
   ShoppingBag,
   Search,
+  MapPin,
 } from 'lucide-react';
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 
@@ -841,6 +842,105 @@ function MarkerLinkModal({
   );
 }
 
+// ─── Marker Pin (ícone único na planta) ──────────────────────
+
+function MarkerPin({
+  marker,
+  isHovered,
+  onMouseEnter,
+  onMouseLeave,
+  onClick,
+  onDelete,
+}: {
+  marker: FloorPlanMarker;
+  isHovered: boolean;
+  onMouseEnter: () => void;
+  onMouseLeave: () => void;
+  onClick: (ev: React.MouseEvent) => void;
+  onDelete: (ev: React.MouseEvent) => void;
+}) {
+  let mb: Bounds;
+  try {
+    mb = JSON.parse(marker.bounds);
+  } catch {
+    return null;
+  }
+  // Suporta markers legacy (retângulo): usa centro do retângulo
+  const cx = mb.x + (mb.width ?? 0) / 2;
+  const cy = mb.y + (mb.height ?? 0) / 2;
+  const e = marker.expense;
+
+  return (
+    <div
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      onClick={onClick}
+      className="absolute group"
+      style={{
+        left: `${cx}%`,
+        top: `${cy}%`,
+        transform: 'translate(-50%, -100%)',
+        zIndex: isHovered ? 25 : 15,
+        cursor: e?.link ? 'pointer' : 'default',
+      }}
+    >
+      <div className={`relative transition-transform ${isHovered ? 'scale-125' : ''}`}>
+        <MapPin
+          className="w-7 h-7 drop-shadow-md"
+          style={{
+            color: isHovered ? '#FF6B00' : '#FF9100',
+            fill: isHovered ? '#FF6B00' : '#FF9100',
+            strokeWidth: 1.5,
+            stroke: '#ffffff',
+          }}
+        />
+        <button
+          onClick={onDelete}
+          className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-white text-darc-velvet flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow"
+          aria-label="Remover marca"
+        >
+          <X className="w-2.5 h-2.5" />
+        </button>
+      </div>
+
+      {isHovered && (
+        <div
+          className="absolute z-40 pointer-events-none rounded-lg bg-white border border-darc-linen shadow-darc-medium overflow-hidden w-[150px]"
+          style={{
+            left: '50%',
+            transform: 'translateX(-50%)',
+            ...(cy > 60
+              ? { bottom: 'calc(100% + 10px)' }
+              : { top: 'calc(100% + 10px)' }),
+          }}
+        >
+          <div className="h-16 bg-darc-linen/20 flex items-center justify-center overflow-hidden">
+            {e?.link ? (
+              <ShoppableThumb link={e.link} imageUrl={e.imageUrl} title={e.titulo ?? ''} />
+            ) : (
+              <ShoppingBag className="w-5 h-5 text-darc-velvet/30" />
+            )}
+          </div>
+          <div className="px-2 py-1.5">
+            <p className="text-[10px] font-bold text-darc-velvet line-clamp-2 leading-tight">
+              {e?.titulo ?? 'Sem título'}
+            </p>
+            {e?.fornecedor && (
+              <p className="text-[9px] text-darc-velvet/60 mt-0.5 truncate">{e.fornecedor}</p>
+            )}
+            <div className="flex items-center justify-between mt-1">
+              <span className="text-[10px] font-bold text-darc-sunfire">
+                {BRL(e?.valorTotal ?? 0)}
+              </span>
+              {e?.link && <ExternalLink className="w-2.5 h-2.5 text-darc-velvet/40" />}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Room Link Modal ─────────────────────────────────────────
 
 function RoomLinkModal({
@@ -1077,7 +1177,7 @@ function FloorPlanViewer({
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!drawingMode && !markerDrawingMode) return;
+    if (!drawingMode) return;
     e.preventDefault();
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
@@ -1089,13 +1189,13 @@ function FloorPlanViewer({
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if ((!drawingMode && !markerDrawingMode) || !drawStart) return;
+    if (!drawingMode || !drawStart) return;
     e.preventDefault();
     setDrawCurrent(getPointerPercent(e));
   };
 
   const handlePointerUp = async (e: React.PointerEvent<HTMLDivElement>) => {
-    if ((!drawingMode && !markerDrawingMode) || !drawStart || !drawCurrent) return;
+    if (!drawingMode || !drawStart || !drawCurrent) return;
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
     } catch {
@@ -1107,15 +1207,10 @@ function FloorPlanViewer({
       width: Math.abs(drawCurrent.x - drawStart.x),
       height: Math.abs(drawCurrent.y - drawStart.y),
     };
-    const wasMarker = markerDrawingMode;
     setDrawStart(null);
     setDrawCurrent(null);
     if (bounds.width < 1 || bounds.height < 1) return;
-    if (wasMarker) {
-      setPendingMarkerBounds(bounds);
-    } else {
-      setPendingBounds(bounds);
-    }
+    setPendingBounds(bounds);
   };
 
   const confirmPendingRoom = async (input: { roomId?: string; label: string }) => {
@@ -1236,12 +1331,20 @@ function FloorPlanViewer({
           <Edit3 className="w-4 h-4" /> {drawingMode ? 'Desenhando...' : 'Marcar Cômodo'}
         </button>
         <button
-          onClick={() => setXrayMode(true)}
-          className="px-3 py-1.5 rounded-lg text-sm flex items-center gap-1 bg-darc-sunfire/15 text-darc-sunfire hover:bg-darc-sunfire/25 font-semibold"
-          title="Marcar objetos compráveis na planta"
+          onClick={() => {
+            setMarkerDrawingMode((v) => !v);
+            setDrawingMode(false);
+          }}
+          className={`px-3 py-1.5 rounded-lg text-sm flex items-center gap-1 font-semibold ${
+            markerDrawingMode
+              ? 'bg-darc-sunfire text-white'
+              : 'bg-darc-sunfire/15 text-darc-sunfire hover:bg-darc-sunfire/25'
+          }`}
+          title="Clique em um ponto da planta para marcar um objeto comprável"
         >
-          <ScanLine className="w-4 h-4" /> Raio-X
-          {(floorPlan.markers?.length ?? 0) > 0 && (
+          <MapPin className="w-4 h-4" />
+          {markerDrawingMode ? 'Clique para marcar...' : 'Marcar Objeto'}
+          {!markerDrawingMode && (floorPlan.markers?.length ?? 0) > 0 && (
             <span className="ml-1 text-[10px] bg-darc-sunfire text-white rounded-full px-1.5 py-0.5 leading-none">
               {floorPlan.markers!.length}
             </span>
@@ -1260,7 +1363,7 @@ function FloorPlanViewer({
       {/* Main content */}
       <div className="flex-1 relative bg-gray-100 rounded-xl overflow-hidden min-h-0">
         <TransformWrapper
-          disabled={drawingMode || markerDrawingMode}
+          disabled={drawingMode}
           minScale={0.5}
           maxScale={4}
           centerOnInit
@@ -1288,8 +1391,8 @@ function FloorPlanViewer({
                   onPointerUp={handlePointerUp}
                   onPointerCancel={handlePointerUp}
                   style={{
-                    cursor: drawingMode || markerDrawingMode ? 'crosshair' : 'grab',
-                    touchAction: drawingMode || markerDrawingMode ? 'none' : 'auto',
+                    cursor: drawingMode ? 'crosshair' : 'grab',
+                    touchAction: drawingMode ? 'none' : 'auto',
                   }}
                 >
                   <img
@@ -1299,6 +1402,10 @@ function FloorPlanViewer({
                     height={1200}
                     className="max-w-full max-h-[75vh] w-auto h-auto select-none"
                     draggable={false}
+                    onClick={() => {
+                      if (drawingMode || markerDrawingMode) return;
+                      setXrayMode(true);
+                    }}
                   />
 
                   {/* Room overlays */}
@@ -1405,109 +1512,46 @@ function FloorPlanViewer({
                     );
                   })}
 
-                  {/* Marker overlays (Raio-X) */}
-                  {(floorPlan.markers ?? []).map((marker) => {
-                    let mb: Bounds;
-                    try {
-                      mb = JSON.parse(marker.bounds);
-                    } catch {
-                      return null;
-                    }
-                    const isHovered = hoveredMarker === marker.id;
-                    const e = marker.expense;
-                    return (
-                      <div
-                        key={marker.id}
-                        onMouseEnter={() => setHoveredMarker(marker.id)}
-                        onMouseLeave={() => setHoveredMarker(null)}
-                        onClick={(ev) => {
-                          ev.stopPropagation();
-                          if (e?.link) {
-                            window.open(e.link, '_blank', 'noopener,noreferrer');
-                          }
-                        }}
-                        className="absolute transition-all duration-150 group"
-                        style={{
-                          left: `${mb.x}%`,
-                          top: `${mb.y}%`,
-                          width: `${mb.width}%`,
-                          height: `${mb.height}%`,
-                          backgroundColor: isHovered ? 'rgba(255, 145, 0, 0.30)' : 'rgba(255, 145, 0, 0.15)',
-                          borderWidth: 2,
-                          borderStyle: 'dashed',
-                          borderColor: isHovered ? '#FF9100' : 'rgba(255, 145, 0, 0.75)',
-                          borderRadius: 4,
-                          cursor: e?.link ? 'pointer' : 'default',
-                          zIndex: isHovered ? 25 : 15,
-                        }}
-                      >
-                        {/* Botão fechar pequeno */}
-                        <button
-                          onClick={(ev) => {
-                            ev.stopPropagation();
-                            handleDeleteMarker(marker.id);
-                          }}
-                          className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-darc-velvet/80 hover:bg-darc-velvet text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-30"
-                          aria-label="Remover marca"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
+                  {/* Marker pins (objetos compráveis) */}
+                  {(floorPlan.markers ?? []).map((marker) => (
+                    <MarkerPin
+                      key={marker.id}
+                      marker={marker}
+                      isHovered={hoveredMarker === marker.id}
+                      onMouseEnter={() => setHoveredMarker(marker.id)}
+                      onMouseLeave={() => setHoveredMarker(null)}
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        if (marker.expense?.link) {
+                          window.open(marker.expense.link, '_blank', 'noopener,noreferrer');
+                        }
+                      }}
+                      onDelete={(ev) => {
+                        ev.stopPropagation();
+                        handleDeleteMarker(marker.id);
+                      }}
+                    />
+                  ))}
 
-                        {/* Hover card mostrando comprável */}
-                        {isHovered && (
-                          <div
-                            className="absolute z-40 pointer-events-none rounded-xl bg-white border border-darc-linen shadow-darc-medium overflow-hidden w-[200px]"
-                            style={{
-                              left: '50%',
-                              transform: 'translateX(-50%)',
-                              ...(mb.y + mb.height > 75
-                                ? { bottom: 'calc(100% + 8px)' }
-                                : { top: 'calc(100% + 8px)' }),
-                            }}
-                          >
-                            <div className="h-24 bg-darc-linen/20 flex items-center justify-center overflow-hidden">
-                              {e?.link ? (
-                                <ShoppableThumb
-                                  link={e.link}
-                                  imageUrl={e.imageUrl}
-                                  title={e.titulo ?? ''}
-                                />
-                              ) : (
-                                <ShoppingBag className="w-6 h-6 text-darc-velvet/30" />
-                              )}
-                            </div>
-                            <div className="px-3 py-2">
-                              <p className="text-[11px] font-bold text-darc-velvet line-clamp-2 leading-tight">
-                                {e?.titulo ?? 'Sem título'}
-                              </p>
-                              {e?.fornecedor && (
-                                <p className="text-[9px] text-darc-velvet/60 mt-0.5 truncate">
-                                  {e.fornecedor}
-                                </p>
-                              )}
-                              <div className="flex items-center justify-between mt-1.5">
-                                <span className="text-[10px] font-bold text-darc-sunfire">
-                                  {BRL(e?.valorTotal ?? 0)}
-                                </span>
-                                {e?.link && (
-                                  <ExternalLink className="w-3 h-3 text-darc-velvet/40" />
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-
-                  {/* Drawing preview */}
-                  {drawStart && drawCurrent && (
+                  {/* Marker placement overlay (click cria pin) */}
+                  {markerDrawingMode && (
                     <div
-                      className={`absolute border-2 border-dashed pointer-events-none ${
-                        markerDrawingMode
-                          ? 'border-darc-sunfire bg-darc-sunfire/30'
-                          : 'border-blue-500 bg-blue-200/30'
-                      }`}
+                      className="absolute inset-0 z-20 cursor-crosshair"
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        const rect = imageRef.current?.getBoundingClientRect();
+                        if (!rect) return;
+                        const x = ((ev.clientX - rect.left) / rect.width) * 100;
+                        const y = ((ev.clientY - rect.top) / rect.height) * 100;
+                        setPendingMarkerBounds({ x, y, width: 0, height: 0 });
+                      }}
+                    />
+                  )}
+
+                  {/* Drawing preview (apenas room drawing) */}
+                  {drawStart && drawCurrent && drawingMode && (
+                    <div
+                      className="absolute border-2 border-dashed border-blue-500 bg-blue-200/30 pointer-events-none"
                       style={{
                         left: `${Math.min(drawStart.x, drawCurrent.x)}%`,
                         top: `${Math.min(drawStart.y, drawCurrent.y)}%`,
@@ -1587,22 +1631,17 @@ function FloorPlanViewer({
         />
       )}
 
-      {/* ─── Raio-X Full-Screen Overlay ─── */}
+      {/* ─── Planta ampliada (X-Ray) ─── */}
       {xrayMode && (
         <XRayOverlay
           floorPlan={floorPlan}
-          drawingMode={markerDrawingMode}
-          drawStart={drawStart}
-          drawCurrent={drawCurrent}
+          markerDrawingMode={markerDrawingMode}
           hoveredMarker={hoveredMarker}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onToggleDrawing={() => setMarkerDrawingMode((v) => !v)}
+          onToggleMarkerDrawing={() => setMarkerDrawingMode((v) => !v)}
+          onCreateMarker={(b) => setPendingMarkerBounds(b)}
           onSetHoveredMarker={setHoveredMarker}
           onDeleteMarker={handleDeleteMarker}
           onExit={exitXrayMode}
-          imageRef={imageRef}
         />
       )}
 
@@ -1621,37 +1660,29 @@ function FloorPlanViewer({
   );
 }
 
-// ─── X-Ray Overlay (Modo Raio-X) ────────────────────────────
+// ─── Planta ampliada (X-Ray) ────────────────────────────
 
 function XRayOverlay({
   floorPlan,
-  drawingMode,
-  drawStart,
-  drawCurrent,
+  markerDrawingMode,
   hoveredMarker,
-  onPointerDown,
-  onPointerMove,
-  onPointerUp,
-  onToggleDrawing,
+  onToggleMarkerDrawing,
+  onCreateMarker,
   onSetHoveredMarker,
   onDeleteMarker,
   onExit,
-  imageRef,
 }: {
   floorPlan: FloorPlan;
-  drawingMode: boolean;
-  drawStart: { x: number; y: number } | null;
-  drawCurrent: { x: number; y: number } | null;
+  markerDrawingMode: boolean;
   hoveredMarker: string | null;
-  onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
-  onPointerMove: (e: React.PointerEvent<HTMLDivElement>) => void;
-  onPointerUp: (e: React.PointerEvent<HTMLDivElement>) => void | Promise<void>;
-  onToggleDrawing: () => void;
+  onToggleMarkerDrawing: () => void;
+  onCreateMarker: (bounds: Bounds) => void;
   onSetHoveredMarker: (id: string | null) => void;
   onDeleteMarker: (id: string) => void;
   onExit: () => void;
-  imageRef: React.RefObject<HTMLDivElement>;
 }) {
+  const imageRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     const handler = (ev: KeyboardEvent) => {
       if (ev.key === 'Escape') onExit();
@@ -1664,20 +1695,20 @@ function XRayOverlay({
     <div className="fixed inset-0 z-[70] bg-darc-velvet flex flex-col">
       {/* Top bar */}
       <div className="flex items-center gap-3 px-4 py-3 bg-darc-velvet text-white border-b border-white/10">
-        <ScanLine className="w-5 h-5 text-darc-sunfire" />
+        <MapPin className="w-5 h-5 text-darc-sunfire" />
         <h2 className="font-bold text-base flex-1 truncate">
-          Raio-X — <span className="text-darc-sunfire">{floorPlan.name}</span>
+          <span className="text-darc-sunfire">{floorPlan.name}</span>
         </h2>
         <button
-          onClick={onToggleDrawing}
+          onClick={onToggleMarkerDrawing}
           className={`px-3 py-1.5 rounded-lg text-sm flex items-center gap-1 font-semibold transition-colors ${
-            drawingMode
+            markerDrawingMode
               ? 'bg-darc-sunfire text-darc-velvet'
               : 'bg-white/10 text-white hover:bg-white/20'
           }`}
         >
-          <Edit3 className="w-4 h-4" />
-          {drawingMode ? 'Desenhando item...' : 'Marcar item'}
+          <MapPin className="w-4 h-4" />
+          {markerDrawingMode ? 'Clique para marcar...' : 'Marcar Objeto'}
         </button>
         <span className="text-xs text-white/60 hidden sm:inline">
           {floorPlan.markers?.length ?? 0} {(floorPlan.markers?.length ?? 0) === 1 ? 'item' : 'itens'}
@@ -1685,7 +1716,7 @@ function XRayOverlay({
         <button
           onClick={onExit}
           className="p-1.5 rounded-lg hover:bg-white/10"
-          aria-label="Sair do Raio-X"
+          aria-label="Fechar"
         >
           <X className="w-5 h-5" />
         </button>
@@ -1694,11 +1725,11 @@ function XRayOverlay({
       {/* Canvas */}
       <div className="flex-1 relative overflow-hidden">
         <TransformWrapper
-          disabled={drawingMode}
+          disabled={markerDrawingMode}
           minScale={0.3}
           maxScale={8}
           centerOnInit
-          initialScale={2}
+          initialScale={1}
         >
           {({ zoomIn, zoomOut, resetTransform }) => (
             <>
@@ -1718,18 +1749,7 @@ function XRayOverlay({
                 wrapperClass="!w-full !h-full"
                 contentClass="!w-full !h-full flex items-center justify-center"
               >
-                <div
-                  ref={imageRef}
-                  className="relative inline-block"
-                  onPointerDown={onPointerDown}
-                  onPointerMove={onPointerMove}
-                  onPointerUp={onPointerUp}
-                  onPointerCancel={onPointerUp}
-                  style={{
-                    cursor: drawingMode ? 'crosshair' : 'grab',
-                    touchAction: drawingMode ? 'none' : 'auto',
-                  }}
-                >
+                <div ref={imageRef} className="relative inline-block">
                   <img
                     src={`${API_BASE}${floorPlan.imageUrl}`}
                     alt={floorPlan.name}
@@ -1739,108 +1759,38 @@ function XRayOverlay({
                     draggable={false}
                   />
 
-                  {/* Markers */}
-                  {(floorPlan.markers ?? []).map((marker) => {
-                    let mb: Bounds;
-                    try {
-                      mb = JSON.parse(marker.bounds);
-                    } catch {
-                      return null;
-                    }
-                    const isHovered = hoveredMarker === marker.id;
-                    const e = marker.expense;
-                    return (
-                      <div
-                        key={marker.id}
-                        onMouseEnter={() => onSetHoveredMarker(marker.id)}
-                        onMouseLeave={() => onSetHoveredMarker(null)}
-                        onClick={(ev) => {
-                          ev.stopPropagation();
-                          if (e?.link) {
-                            window.open(e.link, '_blank', 'noopener,noreferrer');
-                          }
-                        }}
-                        className="absolute transition-all duration-150 group"
-                        style={{
-                          left: `${mb.x}%`,
-                          top: `${mb.y}%`,
-                          width: `${mb.width}%`,
-                          height: `${mb.height}%`,
-                          backgroundColor: isHovered ? 'rgba(255, 145, 0, 0.35)' : 'rgba(255, 145, 0, 0.18)',
-                          borderWidth: 2,
-                          borderStyle: 'dashed',
-                          borderColor: isHovered ? '#FF9100' : 'rgba(255, 145, 0, 0.85)',
-                          borderRadius: 4,
-                          cursor: e?.link ? 'pointer' : 'default',
-                          zIndex: isHovered ? 25 : 15,
-                        }}
-                      >
-                        <button
-                          onClick={(ev) => {
-                            ev.stopPropagation();
-                            onDeleteMarker(marker.id);
-                          }}
-                          className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-white/95 hover:bg-white text-darc-velvet flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-30 shadow"
-                          aria-label="Remover marca"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
+                  {/* Markers como pins */}
+                  {(floorPlan.markers ?? []).map((marker) => (
+                    <MarkerPin
+                      key={marker.id}
+                      marker={marker}
+                      isHovered={hoveredMarker === marker.id}
+                      onMouseEnter={() => onSetHoveredMarker(marker.id)}
+                      onMouseLeave={() => onSetHoveredMarker(null)}
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        if (marker.expense?.link) {
+                          window.open(marker.expense.link, '_blank', 'noopener,noreferrer');
+                        }
+                      }}
+                      onDelete={(ev) => {
+                        ev.stopPropagation();
+                        onDeleteMarker(marker.id);
+                      }}
+                    />
+                  ))}
 
-                        {isHovered && (
-                          <div
-                            className="absolute z-40 pointer-events-none rounded-lg bg-white border border-darc-linen shadow-darc-medium overflow-hidden w-[150px]"
-                            style={{
-                              left: '50%',
-                              transform: 'translateX(-50%)',
-                              ...(mb.y + mb.height > 75
-                                ? { bottom: 'calc(100% + 6px)' }
-                                : { top: 'calc(100% + 6px)' }),
-                            }}
-                          >
-                            <div className="h-16 bg-darc-linen/20 flex items-center justify-center overflow-hidden">
-                              {e?.link ? (
-                                <ShoppableThumb
-                                  link={e.link}
-                                  imageUrl={e.imageUrl}
-                                  title={e.titulo ?? ''}
-                                />
-                              ) : (
-                                <ShoppingBag className="w-5 h-5 text-darc-velvet/30" />
-                              )}
-                            </div>
-                            <div className="px-2 py-1.5">
-                              <p className="text-[10px] font-bold text-darc-velvet line-clamp-2 leading-tight">
-                                {e?.titulo ?? 'Sem título'}
-                              </p>
-                              {e?.fornecedor && (
-                                <p className="text-[9px] text-darc-velvet/60 mt-0.5 truncate">
-                                  {e.fornecedor}
-                                </p>
-                              )}
-                              <div className="flex items-center justify-between mt-1">
-                                <span className="text-[10px] font-bold text-darc-sunfire">
-                                  {BRL(e?.valorTotal ?? 0)}
-                                </span>
-                                {e?.link && (
-                                  <ExternalLink className="w-2.5 h-2.5 text-darc-velvet/40" />
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-
-                  {/* Drawing preview */}
-                  {drawStart && drawCurrent && drawingMode && (
+                  {/* Overlay clickable para criar pins */}
+                  {markerDrawingMode && (
                     <div
-                      className="absolute border-2 border-dashed border-darc-sunfire bg-darc-sunfire/25 pointer-events-none"
-                      style={{
-                        left: `${Math.min(drawStart.x, drawCurrent.x)}%`,
-                        top: `${Math.min(drawStart.y, drawCurrent.y)}%`,
-                        width: `${Math.abs(drawCurrent.x - drawStart.x)}%`,
-                        height: `${Math.abs(drawCurrent.y - drawStart.y)}%`,
+                      className="absolute inset-0 z-20 cursor-crosshair"
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        const rect = imageRef.current?.getBoundingClientRect();
+                        if (!rect) return;
+                        const x = ((ev.clientX - rect.left) / rect.width) * 100;
+                        const y = ((ev.clientY - rect.top) / rect.height) * 100;
+                        onCreateMarker({ x, y, width: 0, height: 0 });
                       }}
                     />
                   )}
@@ -1851,12 +1801,12 @@ function XRayOverlay({
         </TransformWrapper>
 
         {/* Help banner */}
-        {(floorPlan.markers?.length ?? 0) === 0 && !drawingMode && (
+        {(floorPlan.markers?.length ?? 0) === 0 && !markerDrawingMode && (
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white/95 backdrop-blur rounded-xl px-4 py-2.5 shadow-darc-medium text-center text-sm text-darc-velvet max-w-md">
-            <p className="font-semibold mb-0.5">🔬 Marque objetos compráveis</p>
+            <p className="font-semibold mb-0.5">📍 Marque objetos compráveis</p>
             <p className="text-xs text-darc-velvet/70">
-              Clique em <span className="font-semibold text-darc-sunfire">&quot;Marcar item&quot;</span>,
-              desenhe um retângulo sobre o objeto e associe a um item da sua lista de compráveis.
+              Clique em <span className="font-semibold text-darc-sunfire">&quot;Marcar Objeto&quot;</span>,
+              depois toque sobre o objeto na planta para fixar um pin e associá-lo a um item da sua lista.
             </p>
           </div>
         )}
