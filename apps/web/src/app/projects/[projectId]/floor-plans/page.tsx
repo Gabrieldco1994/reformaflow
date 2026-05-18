@@ -1698,7 +1698,7 @@ function XRayOverlay({
           minScale={0.3}
           maxScale={8}
           centerOnInit
-          initialScale={1}
+          initialScale={2}
         >
           {({ zoomIn, zoomOut, resetTransform }) => (
             <>
@@ -1788,16 +1788,16 @@ function XRayOverlay({
 
                         {isHovered && (
                           <div
-                            className="absolute z-40 pointer-events-none rounded-xl bg-white border border-darc-linen shadow-darc-strong overflow-hidden w-[220px]"
+                            className="absolute z-40 pointer-events-none rounded-lg bg-white border border-darc-linen shadow-darc-medium overflow-hidden w-[150px]"
                             style={{
                               left: '50%',
                               transform: 'translateX(-50%)',
                               ...(mb.y + mb.height > 75
-                                ? { bottom: 'calc(100% + 8px)' }
-                                : { top: 'calc(100% + 8px)' }),
+                                ? { bottom: 'calc(100% + 6px)' }
+                                : { top: 'calc(100% + 6px)' }),
                             }}
                           >
-                            <div className="h-28 bg-darc-linen/20 flex items-center justify-center overflow-hidden">
+                            <div className="h-16 bg-darc-linen/20 flex items-center justify-center overflow-hidden">
                               {e?.link ? (
                                 <ShoppableThumb
                                   link={e.link}
@@ -1805,24 +1805,24 @@ function XRayOverlay({
                                   title={e.titulo ?? ''}
                                 />
                               ) : (
-                                <ShoppingBag className="w-6 h-6 text-darc-velvet/30" />
+                                <ShoppingBag className="w-5 h-5 text-darc-velvet/30" />
                               )}
                             </div>
-                            <div className="px-3 py-2">
-                              <p className="text-xs font-bold text-darc-velvet line-clamp-2 leading-tight">
+                            <div className="px-2 py-1.5">
+                              <p className="text-[10px] font-bold text-darc-velvet line-clamp-2 leading-tight">
                                 {e?.titulo ?? 'Sem título'}
                               </p>
                               {e?.fornecedor && (
-                                <p className="text-[10px] text-darc-velvet/60 mt-0.5 truncate">
+                                <p className="text-[9px] text-darc-velvet/60 mt-0.5 truncate">
                                   {e.fornecedor}
                                 </p>
                               )}
-                              <div className="flex items-center justify-between mt-1.5">
-                                <span className="text-xs font-bold text-darc-sunfire">
+                              <div className="flex items-center justify-between mt-1">
+                                <span className="text-[10px] font-bold text-darc-sunfire">
                                   {BRL(e?.valorTotal ?? 0)}
                                 </span>
                                 {e?.link && (
-                                  <ExternalLink className="w-3 h-3 text-darc-velvet/40" />
+                                  <ExternalLink className="w-2.5 h-2.5 text-darc-velvet/40" />
                                 )}
                               </div>
                             </div>
