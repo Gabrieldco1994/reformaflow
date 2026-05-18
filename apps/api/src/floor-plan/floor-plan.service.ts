@@ -119,6 +119,7 @@ export class FloorPlanService {
             },
           },
         },
+        markers: { include: { expense: true } },
       },
       orderBy: { order: 'asc' },
     });
@@ -138,6 +139,7 @@ export class FloorPlanService {
             },
           },
         },
+        markers: { include: { expense: true } },
       },
     });
     if (!fp) throw new NotFoundException('Floor plan not found');
@@ -260,5 +262,20 @@ export class FloorPlanService {
 
   async deleteRoomImage(id: string) {
     return this.prisma.roomImage.delete({ where: { id } });
+  }
+
+  // ─── Markers (Raio-X) ─────────────────────────────────────
+  async createMarker(
+    floorPlanId: string,
+    data: { expenseId: string; bounds: string },
+  ) {
+    return this.prisma.floorPlanMarker.create({
+      data: { floorPlanId, ...data },
+      include: { expense: true },
+    });
+  }
+
+  async deleteMarker(markerId: string) {
+    return this.prisma.floorPlanMarker.delete({ where: { id: markerId } });
   }
 }

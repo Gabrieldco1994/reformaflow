@@ -23,6 +23,9 @@ import {
   ZoomIn,
   ZoomOut,
   Maximize2,
+  ScanLine,
+  ShoppingBag,
+  Search,
 } from 'lucide-react';
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 
@@ -165,6 +168,28 @@ function summarizeRoom(room: FloorPlanRoom) {
 
 // ─── Types ──────────────────────────────────────────────────
 
+interface FloorPlanMarkerExpense {
+  id: string;
+  titulo: string | null;
+  valor: number;
+  quantidade: number;
+  valorTotal: number;
+  status: string;
+  tipoDespesa: string;
+  link: string | null;
+  imageUrl: string | null;
+  fornecedor: string | null;
+  roomId: string | null;
+}
+
+interface FloorPlanMarker {
+  id: string;
+  floorPlanId: string;
+  expenseId: string;
+  bounds: string;
+  expense: FloorPlanMarkerExpense;
+}
+
 interface FloorPlanRoom {
   id: string;
   floorPlanId: string;
@@ -196,6 +221,7 @@ interface FloorPlan {
   name: string;
   imageUrl: string;
   rooms: FloorPlanRoom[];
+  markers?: FloorPlanMarker[];
   createdAt: string;
 }
 
@@ -680,6 +706,141 @@ function ExpenseTypeGroup({
   );
 }
 
+// ─── Marker Link Modal (Raio-X) ──────────────────────────────
+
+function MarkerLinkModal({
+  expenses,
+  alreadyMarkedIds,
+  onConfirm,
+  onCancel,
+}: {
+  expenses: FloorPlanMarkerExpense[];
+  alreadyMarkedIds: Set<string>;
+  onConfirm: (expenseId: string) => void;
+  onCancel: () => void;
+}) {
+  const [search, setSearch] = useState('');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return expenses
+      .filter((e) => {
+        if (!q) return true;
+        const hay = `${e.titulo ?? ''} ${e.fornecedor ?? ''}`.toLowerCase();
+        return hay.includes(q);
+      })
+      .sort((a, b) => (a.titulo ?? '').localeCompare(b.titulo ?? ''));
+  }, [expenses, search]);
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-darc-velvet/80 backdrop-blur-sm">
+      <div className="w-full max-w-2xl bg-white rounded-2xl shadow-darc-strong overflow-hidden flex flex-col max-h-[85vh]">
+        <div className="px-5 py-4 border-b border-darc-linen flex items-center justify-between">
+          <div>
+            <h3 className="font-bold text-darc-velvet text-base flex items-center gap-2">
+              <ScanLine className="w-4 h-4 text-darc-sunfire" /> Associar comprável
+            </h3>
+            <p className="text-xs text-darc-velvet/60 mt-0.5">
+              Escolha o item que você marcou na planta
+            </p>
+          </div>
+          <button
+            onClick={onCancel}
+            className="p-1.5 hover:bg-darc-linen/40 rounded-lg text-darc-velvet/60"
+            aria-label="Cancelar"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="px-5 pt-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-darc-velvet/40" />
+            <input
+              type="text"
+              placeholder="Buscar por nome ou fornecedor..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              autoFocus
+              className="w-full pl-9 pr-3 py-2 rounded-lg border border-darc-linen bg-darc-linen/20 text-sm focus:outline-none focus:border-darc-sunfire"
+            />
+          </div>
+        </div>
+
+        <div className="p-5 flex-1 overflow-y-auto min-h-0">
+          {filtered.length === 0 && (
+            <p className="text-sm text-darc-velvet/60 italic text-center py-8">
+              {expenses.length === 0
+                ? 'Nenhum comprável cadastrado neste projeto. Adicione despesas com link em Despesas.'
+                : 'Nenhum resultado para essa busca.'}
+            </p>
+          )}
+          {filtered.length > 0 && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {filtered.map((e) => {
+                const isMarked = alreadyMarkedIds.has(e.id);
+                const isSelected = selectedId === e.id;
+                return (
+                  <button
+                    key={e.id}
+                    onClick={() => setSelectedId(e.id)}
+                    className={`group text-left rounded-xl border overflow-hidden transition-all ${
+                      isSelected
+                        ? 'border-darc-sunfire bg-darc-sunfire/10 ring-2 ring-darc-sunfire'
+                        : isMarked
+                        ? 'border-darc-linen bg-darc-linen/30 opacity-60'
+                        : 'border-darc-linen bg-white hover:border-darc-sunfire/50'
+                    }`}
+                  >
+                    <div className="h-20 bg-darc-linen/20 flex items-center justify-center overflow-hidden">
+                      {e.link ? (
+                        <ShoppableThumb link={e.link} imageUrl={e.imageUrl} title={e.titulo ?? ''} />
+                      ) : (
+                        <ShoppingBag className="w-6 h-6 text-darc-velvet/30" />
+                      )}
+                    </div>
+                    <div className="px-2 py-1.5">
+                      <p className="text-[11px] font-semibold text-darc-velvet line-clamp-2 leading-tight">
+                        {e.titulo ?? 'Sem título'}
+                      </p>
+                      <div className="flex items-center justify-between mt-1">
+                        <span className="text-[10px] text-darc-velvet/60">{e.fornecedor ?? ''}</span>
+                        <span className="text-[10px] font-bold text-darc-sunfire">{BRL(e.valorTotal)}</span>
+                      </div>
+                      {isMarked && (
+                        <span className="text-[9px] uppercase tracking-wider text-darc-velvet/50 italic">
+                          já marcado
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="px-5 py-3 border-t border-darc-linen flex items-center justify-end gap-2">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 rounded-lg text-sm font-semibold text-darc-velvet/70 hover:bg-darc-linen/40"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={() => selectedId && onConfirm(selectedId)}
+            disabled={!selectedId}
+            className="px-4 py-2 rounded-lg text-sm font-semibold bg-darc-sunfire text-white hover:bg-darc-sunfire/90 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Associar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Room Link Modal ─────────────────────────────────────────
 
 function RoomLinkModal({
@@ -865,6 +1026,23 @@ function FloorPlanViewer({
   const [hoveredRoom, setHoveredRoom] = useState<string | null>(null);
   const [imageUploading, setImageUploading] = useState(false);
   const [imageUploadError, setImageUploadError] = useState<string | null>(null);
+
+  // ─── Raio-X (markers) state ───────────────────────────────
+  const [xrayMode, setXrayMode] = useState(false);
+  const [markerDrawingMode, setMarkerDrawingMode] = useState(false);
+  const [pendingMarkerBounds, setPendingMarkerBounds] = useState<Bounds | null>(null);
+  const [hoveredMarker, setHoveredMarker] = useState<string | null>(null);
+
+  const { data: shoppableExpenses = [] } = useQuery<FloorPlanMarkerExpense[]>({
+    queryKey: ['expenses-shoppable', PROJECT_ID],
+    queryFn: async () => {
+      const all = await api.get<FloorPlanMarkerExpense[]>(`/projects/${PROJECT_ID}/expenses`);
+      return (all || []).filter((e) => !!e.link);
+    },
+    enabled: xrayMode,
+    staleTime: 1000 * 60,
+  });
+
   const imageRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -899,7 +1077,7 @@ function FloorPlanViewer({
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!drawingMode) return;
+    if (!drawingMode && !markerDrawingMode) return;
     e.preventDefault();
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
@@ -911,13 +1089,13 @@ function FloorPlanViewer({
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!drawingMode || !drawStart) return;
+    if ((!drawingMode && !markerDrawingMode) || !drawStart) return;
     e.preventDefault();
     setDrawCurrent(getPointerPercent(e));
   };
 
   const handlePointerUp = async (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!drawingMode || !drawStart || !drawCurrent) return;
+    if ((!drawingMode && !markerDrawingMode) || !drawStart || !drawCurrent) return;
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
     } catch {
@@ -929,10 +1107,15 @@ function FloorPlanViewer({
       width: Math.abs(drawCurrent.x - drawStart.x),
       height: Math.abs(drawCurrent.y - drawStart.y),
     };
+    const wasMarker = markerDrawingMode;
     setDrawStart(null);
     setDrawCurrent(null);
-    if (bounds.width < 2 || bounds.height < 2) return;
-    setPendingBounds(bounds);
+    if (bounds.width < 1 || bounds.height < 1) return;
+    if (wasMarker) {
+      setPendingMarkerBounds(bounds);
+    } else {
+      setPendingBounds(bounds);
+    }
   };
 
   const confirmPendingRoom = async (input: { roomId?: string; label: string }) => {
@@ -955,6 +1138,44 @@ function FloorPlanViewer({
   const cancelPendingRoom = () => {
     setPendingBounds(null);
     setDrawingMode(false);
+  };
+
+  // ─── Markers (Raio-X) handlers ────────────────────────────
+  const confirmPendingMarker = async (expenseId: string) => {
+    if (!pendingMarkerBounds) return;
+    try {
+      await api.post(`/projects/${PROJECT_ID}/floor-plans/${floorPlan.id}/markers`, {
+        expenseId,
+        bounds: JSON.stringify(pendingMarkerBounds),
+      });
+      onRefresh();
+    } catch (err) {
+      console.error(err);
+    }
+    setPendingMarkerBounds(null);
+    setMarkerDrawingMode(false);
+  };
+
+  const cancelPendingMarker = () => {
+    setPendingMarkerBounds(null);
+    setMarkerDrawingMode(false);
+  };
+
+  const handleDeleteMarker = async (markerId: string) => {
+    if (!confirm('Remover esta marcação?')) return;
+    try {
+      await api.delete(`/projects/${PROJECT_ID}/floor-plans/markers/${markerId}`);
+      onRefresh();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const exitXrayMode = () => {
+    setXrayMode(false);
+    setMarkerDrawingMode(false);
+    setPendingMarkerBounds(null);
+    setHoveredMarker(null);
   };
 
   const handleDeleteRoom = async (roomId: string) => {
@@ -1015,6 +1236,18 @@ function FloorPlanViewer({
           <Edit3 className="w-4 h-4" /> {drawingMode ? 'Desenhando...' : 'Marcar Cômodo'}
         </button>
         <button
+          onClick={() => setXrayMode(true)}
+          className="px-3 py-1.5 rounded-lg text-sm flex items-center gap-1 bg-darc-sunfire/15 text-darc-sunfire hover:bg-darc-sunfire/25 font-semibold"
+          title="Marcar objetos compráveis na planta"
+        >
+          <ScanLine className="w-4 h-4" /> Raio-X
+          {(floorPlan.markers?.length ?? 0) > 0 && (
+            <span className="ml-1 text-[10px] bg-darc-sunfire text-white rounded-full px-1.5 py-0.5 leading-none">
+              {floorPlan.markers!.length}
+            </span>
+          )}
+        </button>
+        <button
           onClick={handleReanalyze}
           disabled={reanalyzing}
           className="px-3 py-1.5 rounded-lg text-sm bg-purple-100 text-purple-700 hover:bg-purple-200 flex items-center gap-1 disabled:opacity-50"
@@ -1027,7 +1260,7 @@ function FloorPlanViewer({
       {/* Main content */}
       <div className="flex-1 relative bg-gray-100 rounded-xl overflow-hidden min-h-0">
         <TransformWrapper
-          disabled={drawingMode}
+          disabled={drawingMode || markerDrawingMode}
           minScale={0.5}
           maxScale={4}
           centerOnInit
@@ -1055,8 +1288,8 @@ function FloorPlanViewer({
                   onPointerUp={handlePointerUp}
                   onPointerCancel={handlePointerUp}
                   style={{
-                    cursor: drawingMode ? 'crosshair' : 'grab',
-                    touchAction: drawingMode ? 'none' : 'auto',
+                    cursor: drawingMode || markerDrawingMode ? 'crosshair' : 'grab',
+                    touchAction: drawingMode || markerDrawingMode ? 'none' : 'auto',
                   }}
                 >
                   <img
@@ -1170,10 +1403,109 @@ function FloorPlanViewer({
                     );
                   })}
 
+                  {/* Marker overlays (Raio-X) */}
+                  {(floorPlan.markers ?? []).map((marker) => {
+                    let mb: Bounds;
+                    try {
+                      mb = JSON.parse(marker.bounds);
+                    } catch {
+                      return null;
+                    }
+                    const isHovered = hoveredMarker === marker.id;
+                    const e = marker.expense;
+                    return (
+                      <div
+                        key={marker.id}
+                        onMouseEnter={() => setHoveredMarker(marker.id)}
+                        onMouseLeave={() => setHoveredMarker(null)}
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          if (e?.link) {
+                            window.open(e.link, '_blank', 'noopener,noreferrer');
+                          }
+                        }}
+                        className="absolute transition-all duration-150 group"
+                        style={{
+                          left: `${mb.x}%`,
+                          top: `${mb.y}%`,
+                          width: `${mb.width}%`,
+                          height: `${mb.height}%`,
+                          backgroundColor: isHovered ? 'rgba(255, 145, 0, 0.30)' : 'rgba(255, 145, 0, 0.15)',
+                          borderWidth: 2,
+                          borderStyle: 'dashed',
+                          borderColor: isHovered ? '#FF9100' : 'rgba(255, 145, 0, 0.75)',
+                          borderRadius: 4,
+                          cursor: e?.link ? 'pointer' : 'default',
+                          zIndex: isHovered ? 25 : 15,
+                        }}
+                      >
+                        {/* Botão fechar pequeno */}
+                        <button
+                          onClick={(ev) => {
+                            ev.stopPropagation();
+                            handleDeleteMarker(marker.id);
+                          }}
+                          className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-darc-velvet/80 hover:bg-darc-velvet text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-30"
+                          aria-label="Remover marca"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+
+                        {/* Hover card mostrando comprável */}
+                        {isHovered && (
+                          <div
+                            className="absolute z-40 pointer-events-none rounded-xl bg-white border border-darc-linen shadow-darc-medium overflow-hidden w-[200px]"
+                            style={{
+                              left: '50%',
+                              transform: 'translateX(-50%)',
+                              ...(mb.y + mb.height > 75
+                                ? { bottom: 'calc(100% + 8px)' }
+                                : { top: 'calc(100% + 8px)' }),
+                            }}
+                          >
+                            <div className="h-24 bg-darc-linen/20 flex items-center justify-center overflow-hidden">
+                              {e?.link ? (
+                                <ShoppableThumb
+                                  link={e.link}
+                                  imageUrl={e.imageUrl}
+                                  title={e.titulo ?? ''}
+                                />
+                              ) : (
+                                <ShoppingBag className="w-6 h-6 text-darc-velvet/30" />
+                              )}
+                            </div>
+                            <div className="px-3 py-2">
+                              <p className="text-[11px] font-bold text-darc-velvet line-clamp-2 leading-tight">
+                                {e?.titulo ?? 'Sem título'}
+                              </p>
+                              {e?.fornecedor && (
+                                <p className="text-[9px] text-darc-velvet/60 mt-0.5 truncate">
+                                  {e.fornecedor}
+                                </p>
+                              )}
+                              <div className="flex items-center justify-between mt-1.5">
+                                <span className="text-[10px] font-bold text-darc-sunfire">
+                                  {BRL(e?.valorTotal ?? 0)}
+                                </span>
+                                {e?.link && (
+                                  <ExternalLink className="w-3 h-3 text-darc-velvet/40" />
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
                   {/* Drawing preview */}
                   {drawStart && drawCurrent && (
                     <div
-                      className="absolute border-2 border-dashed border-blue-500 bg-blue-200/30 pointer-events-none"
+                      className={`absolute border-2 border-dashed pointer-events-none ${
+                        markerDrawingMode
+                          ? 'border-darc-sunfire bg-darc-sunfire/30'
+                          : 'border-blue-500 bg-blue-200/30'
+                      }`}
                       style={{
                         left: `${Math.min(drawStart.x, drawCurrent.x)}%`,
                         top: `${Math.min(drawStart.y, drawCurrent.y)}%`,
@@ -1252,6 +1584,279 @@ function FloorPlanViewer({
           onCancel={cancelPendingRoom}
         />
       )}
+
+      {/* ─── Raio-X Full-Screen Overlay ─── */}
+      {xrayMode && (
+        <XRayOverlay
+          floorPlan={floorPlan}
+          drawingMode={markerDrawingMode}
+          drawStart={drawStart}
+          drawCurrent={drawCurrent}
+          hoveredMarker={hoveredMarker}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onToggleDrawing={() => setMarkerDrawingMode((v) => !v)}
+          onSetHoveredMarker={setHoveredMarker}
+          onDeleteMarker={handleDeleteMarker}
+          onExit={exitXrayMode}
+          imageRef={imageRef}
+        />
+      )}
+
+      {/* Modal: associar comprável ao marker desenhado */}
+      {pendingMarkerBounds && (
+        <MarkerLinkModal
+          expenses={shoppableExpenses}
+          alreadyMarkedIds={
+            new Set((floorPlan.markers ?? []).map((m) => m.expenseId))
+          }
+          onConfirm={confirmPendingMarker}
+          onCancel={cancelPendingMarker}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── X-Ray Overlay (Modo Raio-X) ────────────────────────────
+
+function XRayOverlay({
+  floorPlan,
+  drawingMode,
+  drawStart,
+  drawCurrent,
+  hoveredMarker,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  onToggleDrawing,
+  onSetHoveredMarker,
+  onDeleteMarker,
+  onExit,
+  imageRef,
+}: {
+  floorPlan: FloorPlan;
+  drawingMode: boolean;
+  drawStart: { x: number; y: number } | null;
+  drawCurrent: { x: number; y: number } | null;
+  hoveredMarker: string | null;
+  onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
+  onPointerMove: (e: React.PointerEvent<HTMLDivElement>) => void;
+  onPointerUp: (e: React.PointerEvent<HTMLDivElement>) => void | Promise<void>;
+  onToggleDrawing: () => void;
+  onSetHoveredMarker: (id: string | null) => void;
+  onDeleteMarker: (id: string) => void;
+  onExit: () => void;
+  imageRef: React.RefObject<HTMLDivElement>;
+}) {
+  useEffect(() => {
+    const handler = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') onExit();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onExit]);
+
+  return (
+    <div className="fixed inset-0 z-[70] bg-darc-velvet flex flex-col">
+      {/* Top bar */}
+      <div className="flex items-center gap-3 px-4 py-3 bg-darc-velvet text-white border-b border-white/10">
+        <ScanLine className="w-5 h-5 text-darc-sunfire" />
+        <h2 className="font-bold text-base flex-1 truncate">
+          Raio-X — <span className="text-darc-sunfire">{floorPlan.name}</span>
+        </h2>
+        <button
+          onClick={onToggleDrawing}
+          className={`px-3 py-1.5 rounded-lg text-sm flex items-center gap-1 font-semibold transition-colors ${
+            drawingMode
+              ? 'bg-darc-sunfire text-darc-velvet'
+              : 'bg-white/10 text-white hover:bg-white/20'
+          }`}
+        >
+          <Edit3 className="w-4 h-4" />
+          {drawingMode ? 'Desenhando item...' : 'Marcar item'}
+        </button>
+        <span className="text-xs text-white/60 hidden sm:inline">
+          {floorPlan.markers?.length ?? 0} {(floorPlan.markers?.length ?? 0) === 1 ? 'item' : 'itens'}
+        </span>
+        <button
+          onClick={onExit}
+          className="p-1.5 rounded-lg hover:bg-white/10"
+          aria-label="Sair do Raio-X"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* Canvas */}
+      <div className="flex-1 relative overflow-hidden">
+        <TransformWrapper
+          disabled={drawingMode}
+          minScale={0.3}
+          maxScale={8}
+          centerOnInit
+          initialScale={1}
+        >
+          {({ zoomIn, zoomOut, resetTransform }) => (
+            <>
+              <div className="absolute top-3 left-3 z-30 flex flex-col gap-1">
+                <button onClick={() => zoomIn()} className="p-2 bg-white/90 rounded-lg shadow hover:bg-white">
+                  <ZoomIn className="w-4 h-4" />
+                </button>
+                <button onClick={() => zoomOut()} className="p-2 bg-white/90 rounded-lg shadow hover:bg-white">
+                  <ZoomOut className="w-4 h-4" />
+                </button>
+                <button onClick={() => resetTransform()} className="p-2 bg-white/90 rounded-lg shadow hover:bg-white">
+                  <Maximize2 className="w-4 h-4" />
+                </button>
+              </div>
+
+              <TransformComponent
+                wrapperClass="!w-full !h-full"
+                contentClass="!w-full !h-full flex items-center justify-center"
+              >
+                <div
+                  ref={imageRef}
+                  className="relative inline-block"
+                  onPointerDown={onPointerDown}
+                  onPointerMove={onPointerMove}
+                  onPointerUp={onPointerUp}
+                  onPointerCancel={onPointerUp}
+                  style={{
+                    cursor: drawingMode ? 'crosshair' : 'grab',
+                    touchAction: drawingMode ? 'none' : 'auto',
+                  }}
+                >
+                  <img
+                    src={`${API_BASE}${floorPlan.imageUrl}`}
+                    alt={floorPlan.name}
+                    className="max-w-[95vw] max-h-[calc(100vh-7rem)] select-none"
+                    draggable={false}
+                  />
+
+                  {/* Markers */}
+                  {(floorPlan.markers ?? []).map((marker) => {
+                    let mb: Bounds;
+                    try {
+                      mb = JSON.parse(marker.bounds);
+                    } catch {
+                      return null;
+                    }
+                    const isHovered = hoveredMarker === marker.id;
+                    const e = marker.expense;
+                    return (
+                      <div
+                        key={marker.id}
+                        onMouseEnter={() => onSetHoveredMarker(marker.id)}
+                        onMouseLeave={() => onSetHoveredMarker(null)}
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          if (e?.link) {
+                            window.open(e.link, '_blank', 'noopener,noreferrer');
+                          }
+                        }}
+                        className="absolute transition-all duration-150 group"
+                        style={{
+                          left: `${mb.x}%`,
+                          top: `${mb.y}%`,
+                          width: `${mb.width}%`,
+                          height: `${mb.height}%`,
+                          backgroundColor: isHovered ? 'rgba(255, 145, 0, 0.35)' : 'rgba(255, 145, 0, 0.18)',
+                          borderWidth: 2,
+                          borderStyle: 'dashed',
+                          borderColor: isHovered ? '#FF9100' : 'rgba(255, 145, 0, 0.85)',
+                          borderRadius: 4,
+                          cursor: e?.link ? 'pointer' : 'default',
+                          zIndex: isHovered ? 25 : 15,
+                        }}
+                      >
+                        <button
+                          onClick={(ev) => {
+                            ev.stopPropagation();
+                            onDeleteMarker(marker.id);
+                          }}
+                          className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-white/95 hover:bg-white text-darc-velvet flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-30 shadow"
+                          aria-label="Remover marca"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+
+                        {isHovered && (
+                          <div
+                            className="absolute z-40 pointer-events-none rounded-xl bg-white border border-darc-linen shadow-darc-strong overflow-hidden w-[220px]"
+                            style={{
+                              left: '50%',
+                              transform: 'translateX(-50%)',
+                              ...(mb.y + mb.height > 75
+                                ? { bottom: 'calc(100% + 8px)' }
+                                : { top: 'calc(100% + 8px)' }),
+                            }}
+                          >
+                            <div className="h-28 bg-darc-linen/20 flex items-center justify-center overflow-hidden">
+                              {e?.link ? (
+                                <ShoppableThumb
+                                  link={e.link}
+                                  imageUrl={e.imageUrl}
+                                  title={e.titulo ?? ''}
+                                />
+                              ) : (
+                                <ShoppingBag className="w-6 h-6 text-darc-velvet/30" />
+                              )}
+                            </div>
+                            <div className="px-3 py-2">
+                              <p className="text-xs font-bold text-darc-velvet line-clamp-2 leading-tight">
+                                {e?.titulo ?? 'Sem título'}
+                              </p>
+                              {e?.fornecedor && (
+                                <p className="text-[10px] text-darc-velvet/60 mt-0.5 truncate">
+                                  {e.fornecedor}
+                                </p>
+                              )}
+                              <div className="flex items-center justify-between mt-1.5">
+                                <span className="text-xs font-bold text-darc-sunfire">
+                                  {BRL(e?.valorTotal ?? 0)}
+                                </span>
+                                {e?.link && (
+                                  <ExternalLink className="w-3 h-3 text-darc-velvet/40" />
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {/* Drawing preview */}
+                  {drawStart && drawCurrent && drawingMode && (
+                    <div
+                      className="absolute border-2 border-dashed border-darc-sunfire bg-darc-sunfire/25 pointer-events-none"
+                      style={{
+                        left: `${Math.min(drawStart.x, drawCurrent.x)}%`,
+                        top: `${Math.min(drawStart.y, drawCurrent.y)}%`,
+                        width: `${Math.abs(drawCurrent.x - drawStart.x)}%`,
+                        height: `${Math.abs(drawCurrent.y - drawStart.y)}%`,
+                      }}
+                    />
+                  )}
+                </div>
+              </TransformComponent>
+            </>
+          )}
+        </TransformWrapper>
+
+        {/* Help banner */}
+        {(floorPlan.markers?.length ?? 0) === 0 && !drawingMode && (
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white/95 backdrop-blur rounded-xl px-4 py-2.5 shadow-darc-medium text-center text-sm text-darc-velvet max-w-md">
+            <p className="font-semibold mb-0.5">🔬 Marque objetos compráveis</p>
+            <p className="text-xs text-darc-velvet/70">
+              Clique em <span className="font-semibold text-darc-sunfire">&quot;Marcar item&quot;</span>,
+              desenhe um retângulo sobre o objeto e associe a um item da sua lista de compráveis.
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -107,4 +107,18 @@ export class FloorPlanController {
   async deleteRoomImage(@Param('imageId') imageId: string) {
     return this.service.deleteRoomImage(imageId);
   }
+
+  // Markers (Raio-X)
+  @Post(':id/markers')
+  async createMarker(
+    @Param('id') floorPlanId: string,
+    @Body() body: { expenseId: string; bounds: string },
+  ) {
+    return this.service.createMarker(floorPlanId, body);
+  }
+
+  @Delete('markers/:markerId')
+  async deleteMarker(@Param('markerId') markerId: string) {
+    return this.service.deleteMarker(markerId);
+  }
 }

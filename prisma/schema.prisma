@@ -167,6 +167,7 @@ model Expense {
   plannedExpense Expense?      @relation("ExpenseSettlement", fields: [plannedExpenseId], references: [id])
   settledBy      Expense?      @relation("ExpenseSettlement")
   cashFlow      CashFlowEntry[]
+  markers       FloorPlanMarker[]
 
   @@map("expenses")
 }
@@ -263,8 +264,23 @@ model FloorPlan {
 
   project Project         @relation(fields: [projectId], references: [id])
   rooms   FloorPlanRoom[]
+  markers FloorPlanMarker[]
 
   @@map("floor_plans")
+}
+
+model FloorPlanMarker {
+  id          String   @id @default(cuid())
+  floorPlanId String   @map("floor_plan_id")
+  expenseId   String   @map("expense_id")
+  bounds      String   // JSON: {x, y, width, height} as percentages of image
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  floorPlan FloorPlan @relation(fields: [floorPlanId], references: [id], onDelete: Cascade)
+  expense   Expense   @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+
+  @@map("floor_plan_markers")
 }
 
 model FloorPlanRoom {
