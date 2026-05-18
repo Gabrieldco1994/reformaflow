@@ -10,6 +10,7 @@ import type { CashFlowEntry } from '@/types';
 import { TIPO_DESPESA_OPTIONS, CATEGORIA_MAO_DE_OBRA_OPTIONS, tipoLabel } from '@/lib/expense-options';
 import { CompareView } from './_components/CompareView';
 import { MonthlyProjection } from './_components/MonthlyProjection';
+import { ShoppableSimulationView } from './_components/ShoppableSimulationView';
 import {
   SAVE_DEBOUNCE_MS,
   type SimRow,
@@ -21,6 +22,7 @@ import {
   type Scenario,
   type SimValues,
   type SimMode,
+  type PayConfig,
 } from './_types';
 
 export default function SimulationPage() {
@@ -97,7 +99,7 @@ export default function SimulationPage() {
   const [simDespesas, setSimDespesas] = useState<SimValues>({});
   // Monthly projection: excludes + payment configs per expense + rec distribution
   const [monthlyExcludes, setMonthlyExcludes] = useState<Set<string>>(new Set());
-  const [monthlyPayConfigs, setMonthlyPayConfigs] = useState<Record<string, { mode: string; parcelas: string; inicio: string; valor: string; titulo?: string; categoria?: string; subcategoria?: string; ambiente?: string }>>({});
+  const [monthlyPayConfigs, setMonthlyPayConfigs] = useState<Record<string, PayConfig>>({});
   const [monthlyRecDist, setMonthlyRecDist] = useState<Record<string, string>>({});
   const [tipoOverrides, setTipoOverrides] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -125,7 +127,7 @@ export default function SimulationPage() {
     const rec: Record<string, string> = {};
     const desp: SimValues = {};
     const mExcludes = new Set<string>();
-    const mPayConfigs: Record<string, { mode: string; parcelas: string; inicio: string; valor: string; titulo?: string; categoria?: string; subcategoria?: string; ambiente?: string }> = {};
+    const mPayConfigs: Record<string, PayConfig> = {};
     const mRecDist: Record<string, string> = {};
     const mTipoOver: Record<string, string> = {};
     for (const [key, val] of Object.entries(data.savedValues)) {
@@ -149,6 +151,8 @@ export default function SimulationPage() {
         else if (field === 'categoria') mPayConfigs[id].categoria = val;
         else if (field === 'subcategoria') mPayConfigs[id].subcategoria = val;
         else if (field === 'ambiente') mPayConfigs[id].ambiente = val;
+        else if (field === 'link') mPayConfigs[id].link = val;
+        else if (field === 'imageUrl') mPayConfigs[id].imageUrl = val;
       } else if (key.startsWith('monthly_rec|')) {
         mRecDist[key.slice(12)] = val;
       } else if (key.startsWith('tipo_over|')) {
@@ -188,6 +192,8 @@ export default function SimulationPage() {
       if (cfg.categoria) vals[`monthly_pay|${id}|categoria`] = cfg.categoria;
       if (cfg.subcategoria) vals[`monthly_pay|${id}|subcategoria`] = cfg.subcategoria;
       if (cfg.ambiente) vals[`monthly_pay|${id}|ambiente`] = cfg.ambiente;
+      if (cfg.link) vals[`monthly_pay|${id}|link`] = cfg.link;
+      if (cfg.imageUrl) vals[`monthly_pay|${id}|imageUrl`] = cfg.imageUrl;
     }
     // Monthly rec distribution
     for (const [month, v] of Object.entries(latestMonthlyRecDistRef.current)) {
@@ -330,7 +336,7 @@ export default function SimulationPage() {
 
       {/* Mode toggle */}
       <div className="inline-flex rounded-md border border-gray-300 text-xs overflow-hidden">
-        {(['simulacao', 'comparar'] as SimMode[]).map((mode) => (
+        {(['simulacao', 'comparar', 'compraveis'] as SimMode[]).map((mode) => (
           <button
             key={mode}
             onClick={() => {
@@ -344,7 +350,7 @@ export default function SimulationPage() {
               simMode === mode ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
             }`}
           >
-            {{ simulacao: 'Simulação', comparar: 'Comparar Cenários' }[mode]}
+            {{ simulacao: 'Simulação', comparar: 'Comparar Cenários', compraveis: 'Compráveis Simulados' }[mode]}
           </button>
         ))}
       </div>
@@ -413,6 +419,18 @@ export default function SimulationPage() {
           compareIdB={compareIdB}
           setCompareIdA={setCompareIdA}
           setCompareIdB={setCompareIdB}
+        />
+      )}
+
+      {/* ═══ COMPRÁVEIS SIMULADOS ═══ */}
+      {simMode === 'compraveis' && data && (
+        <ShoppableSimulationView
+          payConfigs={monthlyPayConfigs}
+          excludes={monthlyExcludes}
+          onPayConfigChange={(id, cfg) => {
+            setMonthlyPayConfigs((p) => ({ ...p, [id]: cfg }));
+            scheduleSave();
+          }}
         />
       )}
     </div>

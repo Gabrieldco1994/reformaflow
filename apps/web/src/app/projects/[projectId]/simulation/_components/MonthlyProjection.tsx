@@ -8,7 +8,7 @@ import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import type { CashFlowEntry } from '@/types';
 import { TIPO_DESPESA_OPTIONS, CATEGORIA_MAO_DE_OBRA_OPTIONS, tipoLabel } from '@/lib/expense-options';
-import type { MonthlyRow, SimRow, SimTipoCard } from '../_types';
+import type { MonthlyRow, SimRow, SimTipoCard, PayConfig } from '../_types';
 
 /* ═══════════════════════════════════════════════════════════
    MONTHLY PROJECTION
@@ -23,10 +23,10 @@ export function MonthlyProjection({
   porTipo: SimTipoCard[];
   tipoOverrides: Record<string, string>;
   excludes: Set<string>;
-  payConfigs: Record<string, { mode: string; parcelas: string; inicio: string; valor: string; titulo?: string; categoria?: string; subcategoria?: string; ambiente?: string }>;
+  payConfigs: Record<string, PayConfig>;
   recDist: Record<string, string>;
   onToggleExclude: (id: string) => void;
-  onPayConfigChange: (id: string, cfg: { mode: string; parcelas: string; inicio: string; valor: string; titulo?: string; categoria?: string; subcategoria?: string; ambiente?: string }) => void;
+  onPayConfigChange: (id: string, cfg: PayConfig) => void;
   onRecDistChange: (month: string, val: string) => void;
   onTipoOverrideChange: (tipoKey: string, val: string) => void;
   onResetDespesas: () => void;
@@ -189,7 +189,7 @@ export function MonthlyProjection({
 
   // State for inline add form
   const [showAddExtra, setShowAddExtra] = useState(false);
-  const [newExtra, setNewExtra] = useState({ titulo: '', valor: '', mode: 'avista', parcelas: '1', inicio: '', categoria: '', subcategoria: '', ambiente: '' });
+  const [newExtra, setNewExtra] = useState({ titulo: '', valor: '', mode: 'avista', parcelas: '1', inicio: '', categoria: '', subcategoria: '', ambiente: '', link: '', imageUrl: '' });
 
   const hasDespChanges = excludes.size > 0 || Object.keys(payConfigs).length > 0;
 
@@ -859,7 +859,7 @@ export function MonthlyProjection({
               {showAddExtra && (
                 <tr className="border-t bg-purple-50/30">
                   <td className="px-2 py-1.5 text-center">
-                    <button onClick={() => { setShowAddExtra(false); setNewExtra({ titulo: '', valor: '', mode: 'avista', parcelas: '1', inicio: '', categoria: '', subcategoria: '', ambiente: '' }); }}
+                    <button onClick={() => { setShowAddExtra(false); setNewExtra({ titulo: '', valor: '', mode: 'avista', parcelas: '1', inicio: '', categoria: '', subcategoria: '', ambiente: '', link: '', imageUrl: '' }); }}
                       className="text-gray-400 hover:text-gray-600 text-xs">✕</button>
                   </td>
                   <td className="px-3 py-1.5" colSpan={4}>
@@ -880,6 +880,10 @@ export function MonthlyProjection({
                       )}
                       <input value={newExtra.ambiente} onChange={(e) => setNewExtra((p) => ({ ...p, ambiente: e.target.value }))}
                         className="border rounded px-1 py-0.5 text-xs w-24" placeholder="Ambiente" />
+                      <input type="url" value={newExtra.link} onChange={(e) => setNewExtra((p) => ({ ...p, link: e.target.value }))}
+                        className="border rounded px-1.5 py-0.5 text-xs w-40" placeholder="URL do produto (opcional)" />
+                      <input type="url" value={newExtra.imageUrl} onChange={(e) => setNewExtra((p) => ({ ...p, imageUrl: e.target.value }))}
+                        className="border rounded px-1.5 py-0.5 text-xs w-40" placeholder="URL da imagem (opcional)" />
                     </div>
                   </td>
                   <td className="px-3 py-1.5 bg-blue-50/20">
@@ -921,8 +925,10 @@ export function MonthlyProjection({
                             categoria: newExtra.categoria,
                             subcategoria: newExtra.subcategoria,
                             ambiente: newExtra.ambiente,
+                            link: newExtra.link || undefined,
+                            imageUrl: newExtra.imageUrl || undefined,
                           });
-                          setNewExtra({ titulo: '', valor: '', mode: 'avista', parcelas: '1', inicio: '', categoria: '', subcategoria: '', ambiente: '' });
+                          setNewExtra({ titulo: '', valor: '', mode: 'avista', parcelas: '1', inicio: '', categoria: '', subcategoria: '', ambiente: '', link: '', imageUrl: '' });
                           setShowAddExtra(false);
                         }}
                         disabled={!newExtra.titulo || !newExtra.valor || !newExtra.inicio}

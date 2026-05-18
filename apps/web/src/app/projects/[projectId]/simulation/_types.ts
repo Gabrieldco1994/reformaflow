@@ -5,6 +5,19 @@ export interface SimTipoCard { key: string; label: string; total: number; ambien
 
 export interface MonthlyRow { month: string; recebimentos: number; despesas: number }
 
+export interface PayConfig {
+  mode: string;
+  parcelas: string;
+  inicio: string;
+  valor: string;
+  titulo?: string;
+  categoria?: string;
+  subcategoria?: string;
+  ambiente?: string;
+  link?: string;
+  imageUrl?: string;
+}
+
 export interface SimulationData {
   kpis: { totalRecebimentos: number; previsaoGastos: number; previsaoSaldo: number };
   recebimentosPorTipo: SimRow[];
@@ -22,6 +35,6 @@ export interface Scenario {
 }
 
 export type SimValues = Record<string, string>;
-export type SimMode = 'simulacao' | 'comparar';
+export type SimMode = 'simulacao' | 'comparar' | 'compraveis';
 
 export const SAVE_DEBOUNCE_MS = 1500;
