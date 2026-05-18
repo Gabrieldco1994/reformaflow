@@ -41,19 +41,42 @@ export const api = {
   put: <T>(path: string, body: unknown) =>
     request<T>(path, { method: 'PUT', body: JSON.stringify(body) }),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
-  upload: <T>(path: string, formData: FormData) =>
-    fetch(`${API_BASE}${path}`, {
+  upload: <T>(path: string, formData: FormData, opts?: { timeoutMs?: number }) => {
+    const timeoutMs = opts?.timeoutMs ?? 90_000;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    return fetch(`${API_BASE}${path}`, {
       method: 'POST',
       credentials: 'include',
       body: formData,
-    }).then(async (res) => {
-      if (!res.ok) {
-        const error = await res.json().catch(() => ({ message: `HTTP ${res.status}` }));
-        const msg = Array.isArray(error.message)
-          ? error.message.join('; ')
-          : (error.message ?? `HTTP ${res.status}`);
-        throw new Error(msg);
-      }
-      return res.json() as Promise<T>;
-    }),
+      signal: controller.signal,
+    })
+      .then(async (res) => {
+        if (res.status === 401 && typeof window !== 'undefined') {
+          const here = window.location.pathname;
+          const isAuthFlow =
+            here.startsWith('/login') || here.startsWith('/no-permission');
+          if (!isAuthFlow) {
+            window.location.href = `/login?next=${encodeURIComponent(here)}`;
+          }
+        }
+        if (!res.ok) {
+          const error = await res.json().catch(() => ({ message: `HTTP ${res.status}` }));
+          const msg = Array.isArray(error.message)
+            ? error.message.join('; ')
+            : (error.message ?? `HTTP ${res.status}`);
+          throw new Error(msg);
+        }
+        return res.json() as Promise<T>;
+      })
+      .catch((err) => {
+        if (err?.name === 'AbortError') {
+          throw new Error(
+            `Upload demorou demais (>${Math.round(timeoutMs / 1000)}s). Verifique sua conexão e tente novamente.`,
+          );
+        }
+        throw err;
+      })
+      .finally(() => clearTimeout(timer));
+  },
 };

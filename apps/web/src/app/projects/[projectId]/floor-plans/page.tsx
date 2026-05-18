@@ -3,6 +3,7 @@ import { useProject } from '@/contexts/project-context';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { api } from '@/lib/api';
+import { compressImage } from '@/lib/image-compress';
 import {
   Upload,
   Trash2,
@@ -85,6 +86,9 @@ function RoomDetailPanel({
   onUploadImage,
   onDeleteImage,
   onLinkRoom,
+  uploading,
+  uploadError,
+  onDismissUploadError,
 }: {
   room: FloorPlanRoom;
   projectRooms: Room[];
@@ -92,6 +96,9 @@ function RoomDetailPanel({
   onUploadImage: (roomId: string, file: File) => void;
   onDeleteImage: (imageId: string) => void;
   onLinkRoom: (markerId: string, roomId: string | null) => void;
+  uploading: boolean;
+  uploadError: string | null;
+  onDismissUploadError: () => void;
 }) {
   const expenses = room.room?.expenses || [];
   const images = room.room?.roomImages || [];
@@ -197,14 +204,40 @@ function RoomDetailPanel({
           {isLinked ? (
             <button
               onClick={() => fileRef.current?.click()}
-              className="text-xs text-darc-red-bright hover:text-darc-raspberry flex items-center gap-1 font-semibold"
+              disabled={uploading}
+              className="text-xs text-darc-red-bright hover:text-darc-raspberry flex items-center gap-1 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Plus className="w-3 h-3" /> Adicionar
+              {uploading ? (
+                <>
+                  <RefreshCw className="w-3 h-3 animate-spin" /> Enviando...
+                </>
+              ) : (
+                <>
+                  <Plus className="w-3 h-3" /> Adicionar
+                </>
+              )}
             </button>
           ) : (
             <span className="text-[10px] italic text-darc-velvet/50">vincule um ambiente</span>
           )}
         </div>
+
+        {uploadError && (
+          <div className="mb-2 px-3 py-2 rounded-lg bg-darc-red-bright/10 border border-darc-red-bright/30 flex items-start gap-2 text-xs">
+            <div className="flex-1 text-darc-raspberry">
+              <p className="font-semibold mb-0.5">Falha no envio</p>
+              <p className="text-darc-velvet/80">{uploadError}</p>
+            </div>
+            <button
+              onClick={onDismissUploadError}
+              className="p-0.5 text-darc-raspberry hover:bg-darc-red-bright/20 rounded"
+              aria-label="Fechar"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        )}
+
         <input
           ref={fileRef}
           type="file"
@@ -219,12 +252,21 @@ function RoomDetailPanel({
         {images.length === 0 ? (
           <button
             type="button"
-            disabled={!isLinked}
+            disabled={!isLinked || uploading}
             onClick={() => fileRef.current?.click()}
             className="w-full mt-1 px-3 py-6 rounded-lg border-2 border-dashed border-darc-linen text-xs text-darc-velvet/60 hover:bg-darc-linen/30 disabled:opacity-50 disabled:cursor-not-allowed flex flex-col items-center gap-1"
           >
-            <ImageIcon className="w-5 h-5 opacity-50" />
-            <span>{isLinked ? 'Clique para enviar fotos do ambiente' : 'Sem imagens'}</span>
+            {uploading ? (
+              <>
+                <RefreshCw className="w-5 h-5 animate-spin text-darc-red-bright" />
+                <span>Enviando imagem...</span>
+              </>
+            ) : (
+              <>
+                <ImageIcon className="w-5 h-5 opacity-50" />
+                <span>{isLinked ? 'Clique para enviar fotos do ambiente' : 'Sem imagens'}</span>
+              </>
+            )}
           </button>
         ) : (
           <div className="grid grid-cols-2 gap-2">
@@ -433,6 +475,8 @@ function FloorPlanViewer({
   const [pendingBounds, setPendingBounds] = useState<Bounds | null>(null);
   const [reanalyzing, setReanalyzing] = useState(false);
   const [hoveredRoom, setHoveredRoom] = useState<string | null>(null);
+  const [imageUploading, setImageUploading] = useState(false);
+  const [imageUploadError, setImageUploadError] = useState<string | null>(null);
   const imageRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -538,15 +582,32 @@ function FloorPlanViewer({
   };
 
   const handleUploadImage = async (roomId: string, file: File) => {
-    const fd = new FormData();
-    fd.append('file', file);
-    await api.upload(`/projects/${PROJECT_ID}/floor-plans/room-images/${roomId}`, fd);
-    onRefresh();
+    setImageUploading(true);
+    setImageUploadError(null);
+    try {
+      const compressed = await compressImage(file, { maxDimension: 1800, quality: 0.82 });
+      const fd = new FormData();
+      fd.append('file', compressed);
+      await api.upload(`/projects/${PROJECT_ID}/floor-plans/room-images/${roomId}`, fd);
+      onRefresh();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Falha ao enviar imagem';
+      setImageUploadError(msg);
+      console.error('upload room image failed:', err);
+    } finally {
+      setImageUploading(false);
+    }
   };
 
   const handleDeleteImage = async (imageId: string) => {
-    await api.delete(`/projects/${PROJECT_ID}/floor-plans/room-images/image/${imageId}`);
-    onRefresh();
+    try {
+      await api.delete(`/projects/${PROJECT_ID}/floor-plans/room-images/image/${imageId}`);
+      onRefresh();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Falha ao remover imagem';
+      setImageUploadError(msg);
+      console.error('delete room image failed:', err);
+    }
   };
 
   return (
@@ -769,6 +830,9 @@ function FloorPlanViewer({
             onUploadImage={handleUploadImage}
             onDeleteImage={handleDeleteImage}
             onLinkRoom={handleLinkRoom}
+            uploading={imageUploading}
+            uploadError={imageUploadError}
+            onDismissUploadError={() => setImageUploadError(null)}
           />
         )}
       </div>
@@ -825,8 +889,9 @@ export default function FloorPlansPage() {
     setUploading(true);
     setUploadError(null);
     try {
+      const compressed = await compressImage(file, { maxDimension: 2400, quality: 0.85 });
       const fd = new FormData();
-      fd.append('file', file);
+      fd.append('file', compressed);
       fd.append('name', file.name.replace(/\.[^.]+$/, ''));
       const fp = await api.upload<FloorPlan>(`/projects/${PROJECT_ID}/floor-plans`, fd);
       // Wait a bit for Gemini analysis
