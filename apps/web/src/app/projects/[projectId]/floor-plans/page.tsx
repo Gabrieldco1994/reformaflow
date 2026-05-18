@@ -1145,6 +1145,24 @@ function FloorPlanViewer({
 
   const imageRef = useRef<HTMLDivElement>(null);
 
+  // ESC para sair de qualquer modo de marcação (cômodo ou objeto) no viewer normal.
+  // No overlay X-Ray, o handler do próprio overlay tem prioridade (z-[70]).
+  useEffect(() => {
+    if (xrayMode) return;
+    if (!drawingMode && !markerDrawingMode) return;
+    const handler = (ev: KeyboardEvent) => {
+      if (ev.key !== 'Escape') return;
+      if (markerDrawingMode) setMarkerDrawingMode(false);
+      if (drawingMode) {
+        setDrawingMode(false);
+        setDrawStart(null);
+        setDrawCurrent(null);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [drawingMode, markerDrawingMode, xrayMode]);
+
   useEffect(() => {
     if (!selectedRoom) return;
     const fresh = floorPlan.rooms.find((r) => r.id === selectedRoom.id);
@@ -1685,11 +1703,17 @@ function XRayOverlay({
 
   useEffect(() => {
     const handler = (ev: KeyboardEvent) => {
-      if (ev.key === 'Escape') onExit();
+      if (ev.key !== 'Escape') return;
+      // ESC primeiro desliga o modo de marcação; segundo ESC sai do overlay
+      if (markerDrawingMode) {
+        onToggleMarkerDrawing();
+      } else {
+        onExit();
+      }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [onExit]);
+  }, [onExit, markerDrawingMode, onToggleMarkerDrawing]);
 
   return (
     <div className="fixed inset-0 z-[70] bg-darc-velvet flex flex-col">
@@ -1729,7 +1753,7 @@ function XRayOverlay({
           minScale={0.3}
           maxScale={8}
           centerOnInit
-          initialScale={1}
+          initialScale={1.3}
         >
           {({ zoomIn, zoomOut, resetTransform }) => (
             <>
@@ -1755,7 +1779,7 @@ function XRayOverlay({
                     alt={floorPlan.name}
                     width={1600}
                     height={1200}
-                    className="max-w-[95vw] max-h-[calc(100vh-7rem)] w-auto h-auto select-none"
+                    className="max-w-[98vw] max-h-[calc(100vh-4.5rem)] w-auto h-auto select-none"
                     draggable={false}
                   />
 
