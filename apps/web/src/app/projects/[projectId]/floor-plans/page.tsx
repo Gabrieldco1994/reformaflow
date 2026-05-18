@@ -1129,6 +1129,16 @@ function FloorPlanViewer({
                                 : { top: 'calc(100% + 8px)' }),
                             }}
                           >
+                            {summary.images.length > 0 && (
+                              <div className="-mx-3 -mt-2.5 mb-2 h-24 overflow-hidden bg-darc-linen/30 rounded-t-xl">
+                                <img
+                                  src={`${API_BASE}${summary.images[0].imageUrl}`}
+                                  alt={room.room?.name ?? room.label}
+                                  className="w-full h-full object-cover"
+                                  loading="lazy"
+                                />
+                              </div>
+                            )}
                             <div
                               className="text-[10px] font-bold uppercase tracking-[0.15em] mb-1.5"
                               style={{ color: room.color }}
