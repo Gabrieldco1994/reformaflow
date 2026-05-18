@@ -413,78 +413,6 @@ function RoomDetailPanel({
 
         {/* Scroll área das seções */}
         <div className="flex-1 overflow-y-auto overscroll-contain">
-          {/* Despesas — agrupadas por tipo */}
-          <CollapsibleSection
-            title="Despesas"
-            icon="💰"
-            badge={expenses.length > 0 ? `${expenses.length}` : '0'}
-            defaultOpen={true}
-          >
-            {expenses.length === 0 ? (
-              <p className="text-sm italic text-darc-velvet/50">Nenhuma despesa vinculada</p>
-            ) : (
-              <div className="space-y-1.5">
-                {groupedByType.map((group) => (
-                  <ExpenseTypeGroup key={group.tipo} group={group} />
-                ))}
-              </div>
-            )}
-          </CollapsibleSection>
-
-          {/* Compráveis — despesas com link */}
-          <CollapsibleSection
-            title="Compráveis"
-            icon="🛒"
-            badge={compraveis.length > 0 ? `${compraveis.length}` : '0'}
-            defaultOpen={compraveis.length > 0}
-          >
-            {compraveis.length === 0 ? (
-              <p className="text-sm italic text-darc-velvet/50">
-                Nenhum item com link cadastrado neste ambiente.
-              </p>
-            ) : (
-              <div className="grid grid-cols-3 gap-1.5">
-                {compraveis.map((e) => (
-                  <a
-                    key={e.id}
-                    href={e.link!}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="group rounded-lg border border-darc-linen overflow-hidden bg-white hover:border-darc-red-bright hover:shadow-darc-soft transition-all"
-                  >
-                    <div className="aspect-square bg-darc-linen/40 relative">
-                      <ShoppableThumb
-                        link={e.link!}
-                        imageUrl={e.imageUrl}
-                        title={e.titulo || e.fornecedor || ''}
-                      />
-                      <span
-                        className={`absolute top-0.5 right-0.5 text-[8px] uppercase tracking-wider px-1 py-0.5 rounded-full font-bold ${
-                          e.status === 'PAGO'
-                            ? 'bg-darc-raspberry text-white'
-                            : 'bg-darc-sunfire text-darc-velvet'
-                        }`}
-                      >
-                        {e.status === 'PAGO' ? 'pago' : 'previsto'}
-                      </span>
-                    </div>
-                    <div className="px-1.5 py-1">
-                      <p className="text-[10px] font-semibold text-darc-velvet truncate leading-tight">
-                        {e.titulo || e.fornecedor || ExpenseTypeLabels[e.tipoDespesa as keyof typeof ExpenseTypeLabels] || e.tipoDespesa}
-                      </p>
-                      <div className="flex items-center justify-between gap-1 mt-0.5">
-                        <span className="text-[10px] font-bold text-darc-red-bright truncate">
-                          {BRL(e.valorTotal)}
-                        </span>
-                        <ExternalLink className="w-2.5 h-2.5 text-darc-velvet/40 group-hover:text-darc-red-bright shrink-0" />
-                      </div>
-                    </div>
-                  </a>
-                ))}
-              </div>
-            )}
-          </CollapsibleSection>
-
           {/* Imagens do Projeto */}
           <CollapsibleSection
             title="Imagens do Projeto"
@@ -578,6 +506,78 @@ function RoomDetailPanel({
                       <X className="w-3 h-3" />
                     </button>
                   </div>
+                ))}
+              </div>
+            )}
+          </CollapsibleSection>
+
+          {/* Despesas — agrupadas por tipo */}
+          <CollapsibleSection
+            title="Despesas"
+            icon="💰"
+            badge={expenses.length > 0 ? `${expenses.length}` : '0'}
+            defaultOpen={true}
+          >
+            {expenses.length === 0 ? (
+              <p className="text-sm italic text-darc-velvet/50">Nenhuma despesa vinculada</p>
+            ) : (
+              <div className="space-y-1.5">
+                {groupedByType.map((group) => (
+                  <ExpenseTypeGroup key={group.tipo} group={group} />
+                ))}
+              </div>
+            )}
+          </CollapsibleSection>
+
+          {/* Compráveis — despesas com link */}
+          <CollapsibleSection
+            title="Compráveis"
+            icon="🛒"
+            badge={compraveis.length > 0 ? `${compraveis.length}` : '0'}
+            defaultOpen={compraveis.length > 0}
+          >
+            {compraveis.length === 0 ? (
+              <p className="text-sm italic text-darc-velvet/50">
+                Nenhum item com link cadastrado neste ambiente.
+              </p>
+            ) : (
+              <div className="grid grid-cols-3 gap-1.5">
+                {compraveis.map((e) => (
+                  <a
+                    key={e.id}
+                    href={e.link!}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group rounded-lg border border-darc-linen overflow-hidden bg-white hover:border-darc-red-bright hover:shadow-darc-soft transition-all"
+                  >
+                    <div className="aspect-square bg-darc-linen/40 relative">
+                      <ShoppableThumb
+                        link={e.link!}
+                        imageUrl={e.imageUrl}
+                        title={e.titulo || e.fornecedor || ''}
+                      />
+                      <span
+                        className={`absolute top-0.5 right-0.5 text-[8px] uppercase tracking-wider px-1 py-0.5 rounded-full font-bold ${
+                          e.status === 'PAGO'
+                            ? 'bg-darc-raspberry text-white'
+                            : 'bg-darc-sunfire text-darc-velvet'
+                        }`}
+                      >
+                        {e.status === 'PAGO' ? 'pago' : 'previsto'}
+                      </span>
+                    </div>
+                    <div className="px-1.5 py-1">
+                      <p className="text-[10px] font-semibold text-darc-velvet truncate leading-tight">
+                        {e.titulo || e.fornecedor || ExpenseTypeLabels[e.tipoDespesa as keyof typeof ExpenseTypeLabels] || e.tipoDespesa}
+                      </p>
+                      <div className="flex items-center justify-between gap-1 mt-0.5">
+                        <span className="text-[10px] font-bold text-darc-red-bright truncate">
+                          {BRL(e.valorTotal)}
+                        </span>
+                        <ExternalLink className="w-2.5 h-2.5 text-darc-velvet/40 group-hover:text-darc-red-bright shrink-0" />
+                      </div>
+                    </div>
+                  </a>
                 ))}
               </div>
             )}
