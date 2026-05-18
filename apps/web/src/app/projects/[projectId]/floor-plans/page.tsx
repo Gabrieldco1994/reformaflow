@@ -88,6 +88,71 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 const BRL = (centavos: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(centavos / 100);
 
+function randomHexColor() {
+  const h = Math.floor(Math.random() * 360);
+  const s = 70;
+  const l = 50;
+  const c = (1 - Math.abs((2 * l) / 100 - 1)) * (s / 100);
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l / 100 - c / 2;
+  let r = 0, g = 0, b = 0;
+  if (h < 60) { r = c; g = x; b = 0; }
+  else if (h < 120) { r = x; g = c; b = 0; }
+  else if (h < 180) { r = 0; g = c; b = x; }
+  else if (h < 240) { r = 0; g = x; b = c; }
+  else if (h < 300) { r = x; g = 0; b = c; }
+  else { r = c; g = 0; b = x; }
+  const toHex = (v: number) => Math.round((v + m) * 255).toString(16).padStart(2, '0');
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+function parseColor(color: string): { r: number; g: number; b: number } | null {
+  if (!color) return null;
+  const hex = color.trim().replace('#', '');
+  if (/^[0-9a-fA-F]{6}$/.test(hex)) {
+    return {
+      r: parseInt(hex.slice(0, 2), 16),
+      g: parseInt(hex.slice(2, 4), 16),
+      b: parseInt(hex.slice(4, 6), 16),
+    };
+  }
+  if (/^[0-9a-fA-F]{3}$/.test(hex)) {
+    return {
+      r: parseInt(hex[0] + hex[0], 16),
+      g: parseInt(hex[1] + hex[1], 16),
+      b: parseInt(hex[2] + hex[2], 16),
+    };
+  }
+  const hslMatch = color.match(/^hsl\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)%\s*,\s*(\d+(?:\.\d+)?)%\s*\)$/);
+  if (hslMatch) {
+    const h = Number(hslMatch[1]);
+    const s = Number(hslMatch[2]) / 100;
+    const l = Number(hslMatch[3]) / 100;
+    const c = (1 - Math.abs(2 * l - 1)) * s;
+    const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+    const m = l - c / 2;
+    let r = 0, g = 0, b = 0;
+    if (h < 60) { r = c; g = x; b = 0; }
+    else if (h < 120) { r = x; g = c; b = 0; }
+    else if (h < 180) { r = 0; g = c; b = x; }
+    else if (h < 240) { r = 0; g = x; b = c; }
+    else if (h < 300) { r = x; g = 0; b = c; }
+    else { r = c; g = 0; b = x; }
+    return {
+      r: Math.round((r + m) * 255),
+      g: Math.round((g + m) * 255),
+      b: Math.round((b + m) * 255),
+    };
+  }
+  return null;
+}
+
+function withAlpha(color: string, alpha: number): string {
+  const parsed = parseColor(color);
+  if (!parsed) return color;
+  return `rgba(${parsed.r}, ${parsed.g}, ${parsed.b}, ${alpha})`;
+}
+
 function summarizeRoom(room: FloorPlanRoom) {
   const expenses = room.room?.expenses ?? [];
   const images = room.room?.roomImages ?? [];
@@ -876,7 +941,7 @@ function FloorPlanViewer({
       await api.post(`/projects/${PROJECT_ID}/floor-plans/${floorPlan.id}/rooms`, {
         label: input.label,
         bounds: JSON.stringify(pendingBounds),
-        color: `hsl(${Math.random() * 360}, 70%, 50%)`,
+        color: randomHexColor(),
         ...(input.roomId ? { roomId: input.roomId } : {}),
       });
       onRefresh();
@@ -1023,8 +1088,10 @@ function FloorPlanViewer({
                           top: `${b.y}%`,
                           width: `${b.width}%`,
                           height: `${b.height}%`,
-                          backgroundColor: `${room.color}${isHovered || isSelected ? '40' : '20'}`,
-                          border: `2px dashed ${room.color}${isHovered || isSelected ? 'FF' : 'CC'}`,
+                          backgroundColor: withAlpha(room.color, isHovered || isSelected ? 0.25 : 0.12),
+                          borderWidth: 2,
+                          borderStyle: 'dashed',
+                          borderColor: withAlpha(room.color, isHovered || isSelected ? 1 : 0.8),
                           borderRadius: 4,
                         }}
                       >
