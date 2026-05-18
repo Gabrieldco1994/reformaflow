@@ -19,7 +19,9 @@ primary_region = "gru" # São Paulo. Trocar se preferir: gig (Rio), iad (Virgini
 [http_service]
   internal_port = 3001
   force_https = true
-  auto_stop_machines = "stop"
+  # `suspend` mantém o processo em memória após inatividade; resume em
+  # ~1-2s, ao invés de cold-start completo de `stop` (~5-15s).
+  auto_stop_machines = "suspend"
   auto_start_machines = true
   min_machines_running = 0
   processes = ["app"]

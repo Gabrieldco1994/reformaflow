@@ -4,32 +4,50 @@ const DEFAULT_HEADERS: Record<string, string> = {
   'Content-Type': 'application/json',
 };
 
+// Fly auto-suspende a máquina após inatividade; o primeiro request pode
+// levar alguns segundos pra ela acordar. 25s cobre cold-start + margem.
+const REQUEST_TIMEOUT_MS = 25_000;
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    credentials: 'include',
-    headers: { ...DEFAULT_HEADERS, ...options?.headers },
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      credentials: 'include',
+      headers: { ...DEFAULT_HEADERS, ...options?.headers },
+      signal: controller.signal,
+    });
 
-  if (res.status === 401 && typeof window !== 'undefined') {
-    const here = window.location.pathname;
-    const isAuthFlow =
-      here.startsWith('/login') || here.startsWith('/no-permission');
-    const isMeProbe = path === '/auth/me';
-    if (!isAuthFlow && !isMeProbe) {
-      window.location.href = `/login?next=${encodeURIComponent(here)}`;
+    if (res.status === 401 && typeof window !== 'undefined') {
+      const here = window.location.pathname;
+      const isAuthFlow =
+        here.startsWith('/login') || here.startsWith('/no-permission');
+      const isMeProbe = path === '/auth/me';
+      if (!isAuthFlow && !isMeProbe) {
+        window.location.href = `/login?next=${encodeURIComponent(here)}`;
+      }
     }
-  }
 
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({ message: 'Erro de rede' }));
-    const msg = Array.isArray(error.message)
-      ? error.message.join('; ')
-      : (error.message ?? `HTTP ${res.status}`);
-    throw new Error(msg);
-  }
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({ message: 'Erro de rede' }));
+      const msg = Array.isArray(error.message)
+        ? error.message.join('; ')
+        : (error.message ?? `HTTP ${res.status}`);
+      throw new Error(msg);
+    }
 
-  return res.json();
+    return res.json();
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error(
+        'O servidor demorou mais que o esperado pra responder. Tente novamente.',
+      );
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export const api = {
