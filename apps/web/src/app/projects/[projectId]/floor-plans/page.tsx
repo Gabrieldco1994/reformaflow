@@ -1,9 +1,10 @@
 'use client';
 import { useProject } from '@/contexts/project-context';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { api } from '@/lib/api';
 import { compressImage } from '@/lib/image-compress';
+import { ExpenseTypeLabels } from '@reformaflow/domain';
 import {
   Upload,
   Trash2,
@@ -11,6 +12,9 @@ import {
   Plus,
   X,
   ChevronLeft,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
   Eye,
   Edit3,
   Image as ImageIcon,
@@ -48,8 +52,19 @@ interface FloorPlanRoom {
   room?: {
     id: string;
     name: string;
-    expenses?: { id: string; titulo: string; valorTotal: number; status: string; tipoDespesa: string }[];
-    roomImages?: { id: string; imageUrl: string; caption?: string }[];
+    expenses?: {
+      id: string;
+      titulo: string | null;
+      valor: number;
+      quantidade: number;
+      valorTotal: number;
+      status: string;
+      tipoDespesa: string;
+      link: string | null;
+      imageUrl: string | null;
+      fornecedor: string | null;
+    }[];
+    roomImages?: { id: string; imageUrl: string; caption?: string | null }[];
   };
 }
 
@@ -75,6 +90,50 @@ interface Bounds {
   sqft?: number;
   dimensions?: { width?: number; depth?: number; units?: string };
   elements?: string[];
+}
+
+// ─── Collapsible Section ────────────────────────────────────
+
+function CollapsibleSection({
+  title,
+  icon,
+  badge,
+  defaultOpen = true,
+  children,
+  action,
+}: {
+  title: string;
+  icon: string;
+  badge?: string | null;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+  action?: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="border-b border-darc-linen/60 last:border-b-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-2 px-4 py-3 hover:bg-darc-linen/30 transition-colors"
+      >
+        <span className="text-base leading-none" aria-hidden>{icon}</span>
+        <span className="flex-1 text-left text-sm font-semibold text-darc-velvet">{title}</span>
+        {badge != null && (
+          <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-darc-linen/60 text-darc-velvet/70 font-semibold">
+            {badge}
+          </span>
+        )}
+        {action && <span onClick={(e) => e.stopPropagation()}>{action}</span>}
+        {open ? (
+          <ChevronUp className="w-4 h-4 text-darc-velvet/60" />
+        ) : (
+          <ChevronDown className="w-4 h-4 text-darc-velvet/60" />
+        )}
+      </button>
+      {open && <div className="px-4 pb-4">{children}</div>}
+    </div>
+  );
 }
 
 // ─── Room Detail Panel ──────────────────────────────────────
@@ -108,186 +167,399 @@ function RoomDetailPanel({
   const fileRef = useRef<HTMLInputElement>(null);
   const isLinked = !!room.room;
 
+  const groupedByType = useMemo(() => {
+    const groups = new Map<string, typeof expenses>();
+    for (const e of expenses) {
+      const arr = groups.get(e.tipoDespesa) ?? [];
+      arr.push(e);
+      groups.set(e.tipoDespesa, arr);
+    }
+    return Array.from(groups.entries())
+      .map(([tipo, items]) => ({
+        tipo,
+        items,
+        total: items.reduce((s, i) => s + i.valorTotal, 0),
+        pago: items.filter((i) => i.status === 'PAGO').reduce((s, i) => s + i.valorTotal, 0),
+      }))
+      .sort((a, b) => b.total - a.total);
+  }, [expenses]);
+
+  const compraveis = useMemo(
+    () => expenses.filter((e) => !!e.link),
+    [expenses],
+  );
+
   return (
-    <div className="absolute right-0 top-0 h-full w-80 bg-white shadow-xl border-l z-50 overflow-y-auto">
-      <div className="p-4 border-b flex items-center justify-between" style={{ borderLeftColor: room.color, borderLeftWidth: 4 }}>
-        <div>
-          <h3 className="font-bold text-lg">{room.label}</h3>
-          {room.room && room.room.name !== room.label && (
-            <p className="text-xs text-darc-velvet/60">vinculado a: {room.room.name}</p>
-          )}
-          {bounds.area && <p className="text-sm text-gray-500">{bounds.area} m² {bounds.sqft ? `(${bounds.sqft} sqft)` : ''}</p>}
-          {bounds.dimensions && (
-            <p className="text-xs text-gray-400">
-              {bounds.dimensions.width} × {bounds.dimensions.depth} {bounds.dimensions.units || 'm'}
-            </p>
-          )}
-        </div>
-        <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded"><X className="w-4 h-4" /></button>
-      </div>
+    <>
+      {/* Backdrop apenas mobile */}
+      <div
+        className="md:hidden fixed inset-0 z-40 bg-darc-velvet/40 backdrop-blur-sm"
+        onClick={onClose}
+        aria-hidden
+      />
 
-      {/* Vincular a um ambiente — destaque quando não vinculado */}
-      {!isLinked && (
-        <div className="px-4 py-3 bg-darc-sunfire/10 border-b border-darc-sunfire/30">
-          <h4 className="font-semibold text-sm text-darc-velvet mb-1.5 flex items-center gap-1.5">
-            🔗 Vincular a um ambiente
-          </h4>
-          <p className="text-xs text-darc-velvet/70 mb-2">
-            Vincule esta marcação a um ambiente do projeto para ver despesas e subir fotos.
-          </p>
-          {projectRooms.length === 0 ? (
-            <p className="text-xs italic text-darc-velvet/60">
-              Nenhum ambiente cadastrado. Cadastre ambientes no projeto primeiro.
-            </p>
-          ) : (
-            <select
-              className="w-full text-sm border border-darc-linen rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-darc-red-bright"
-              value=""
-              onChange={(e) => {
-                if (e.target.value) onLinkRoom(room.id, e.target.value);
-              }}
-            >
-              <option value="">Escolha um ambiente...</option>
-              {projectRooms.map((r) => (
-                <option key={r.id} value={r.id}>{r.name}</option>
-              ))}
-            </select>
-          )}
-        </div>
-      )}
-
-      {/* Despesas */}
-      <div className="p-4 border-b">
-        <h4 className="font-semibold text-sm text-gray-700 mb-2">💰 Despesas</h4>
-        {expenses.length === 0 ? (
-          <p className="text-sm text-gray-400">Nenhuma despesa vinculada</p>
-        ) : (
-          <>
-            <div className="flex gap-3 mb-3">
-              <div className="flex-1 bg-green-50 rounded-lg p-2 text-center">
-                <p className="text-xs text-green-600">Pago</p>
-                <p className="font-bold text-green-700">R$ {(totalPago / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-              </div>
-              <div className="flex-1 bg-yellow-50 rounded-lg p-2 text-center">
-                <p className="text-xs text-yellow-600">Planejado</p>
-                <p className="font-bold text-yellow-700">R$ {(totalPlanejado / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-              </div>
-            </div>
-            <div className="space-y-1 max-h-40 overflow-y-auto">
-              {expenses.map((e) => (
-                <div key={e.id} className="flex justify-between text-xs p-1.5 bg-gray-50 rounded">
-                  <span className="truncate flex-1">{e.titulo || e.tipoDespesa}</span>
-                  <span className={`font-medium ${e.status === 'PAGO' ? 'text-green-600' : 'text-yellow-600'}`}>
-                    R$ {(e.valorTotal / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* Elementos detectados */}
-      {bounds.elements && bounds.elements.length > 0 && (
-        <div className="px-4 pb-3 border-b">
-          <h4 className="font-semibold text-sm text-gray-700 mb-2">🏠 Elementos</h4>
-          <div className="flex flex-wrap gap-1">
-            {bounds.elements.map((el, i) => (
-              <span key={i} className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded-full">{el}</span>
-            ))}
-          </div>
-        </div>
-      )}
-      <div className="p-4">
-        <div className="flex items-center justify-between mb-2">
-          <h4 className="font-semibold text-sm text-gray-700">📷 Imagens do Projeto</h4>
-          {isLinked ? (
-            <button
-              onClick={() => fileRef.current?.click()}
-              disabled={uploading}
-              className="text-xs text-darc-red-bright hover:text-darc-raspberry flex items-center gap-1 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {uploading ? (
-                <>
-                  <RefreshCw className="w-3 h-3 animate-spin" /> Enviando...
-                </>
-              ) : (
-                <>
-                  <Plus className="w-3 h-3" /> Adicionar
-                </>
-              )}
-            </button>
-          ) : (
-            <span className="text-[10px] italic text-darc-velvet/50">vincule um ambiente</span>
-          )}
+      <div
+        className={[
+          'fixed z-50 bg-white shadow-darc-strong overflow-hidden flex flex-col',
+          // Mobile: bottom sheet
+          'inset-x-0 bottom-0 max-h-[88vh] rounded-t-2xl',
+          // Desktop: sidebar lateral
+          'md:inset-y-0 md:right-0 md:left-auto md:bottom-auto md:top-0 md:h-full md:max-h-none md:w-[22rem] md:rounded-none md:border-l md:border-darc-linen',
+        ].join(' ')}
+        role="dialog"
+        aria-label={`Detalhes de ${room.label}`}
+      >
+        {/* Handle drag (visual apenas, mobile) */}
+        <div className="md:hidden flex justify-center pt-2 pb-1">
+          <div className="w-10 h-1 bg-darc-linen rounded-full" />
         </div>
 
-        {uploadError && (
-          <div className="mb-2 px-3 py-2 rounded-lg bg-darc-red-bright/10 border border-darc-red-bright/30 flex items-start gap-2 text-xs">
-            <div className="flex-1 text-darc-raspberry">
-              <p className="font-semibold mb-0.5">Falha no envio</p>
-              <p className="text-darc-velvet/80">{uploadError}</p>
-            </div>
-            <button
-              onClick={onDismissUploadError}
-              className="p-0.5 text-darc-raspberry hover:bg-darc-red-bright/20 rounded"
-              aria-label="Fechar"
-            >
-              <X className="w-3 h-3" />
-            </button>
-          </div>
-        )}
-
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f && room.room) onUploadImage(room.room.id, f);
-            e.target.value = '';
-          }}
-        />
-        {images.length === 0 ? (
-          <button
-            type="button"
-            disabled={!isLinked || uploading}
-            onClick={() => fileRef.current?.click()}
-            className="w-full mt-1 px-3 py-6 rounded-lg border-2 border-dashed border-darc-linen text-xs text-darc-velvet/60 hover:bg-darc-linen/30 disabled:opacity-50 disabled:cursor-not-allowed flex flex-col items-center gap-1"
-          >
-            {uploading ? (
-              <>
-                <RefreshCw className="w-5 h-5 animate-spin text-darc-red-bright" />
-                <span>Enviando imagem...</span>
-              </>
-            ) : (
-              <>
-                <ImageIcon className="w-5 h-5 opacity-50" />
-                <span>{isLinked ? 'Clique para enviar fotos do ambiente' : 'Sem imagens'}</span>
-              </>
+        {/* Header sticky */}
+        <div
+          className="px-4 py-3 border-b border-darc-linen flex items-start justify-between gap-3"
+          style={{ borderLeftColor: room.color, borderLeftWidth: 4 }}
+        >
+          <div className="min-w-0 flex-1">
+            <h3 className="font-bold text-base text-darc-velvet truncate">{room.label}</h3>
+            {room.room && room.room.name !== room.label && (
+              <p className="text-[11px] text-darc-velvet/60 truncate">vinculado a: {room.room.name}</p>
             )}
+            <div className="flex flex-wrap items-center gap-x-2 text-[11px] text-darc-velvet/60">
+              {bounds.area && (
+                <span>
+                  {bounds.area} m²{bounds.sqft ? ` (${bounds.sqft} sqft)` : ''}
+                </span>
+              )}
+              {bounds.dimensions && (
+                <span>
+                  · {bounds.dimensions.width} × {bounds.dimensions.depth} {bounds.dimensions.units || 'm'}
+                </span>
+              )}
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 hover:bg-darc-linen/60 rounded-lg text-darc-velvet/70 flex-shrink-0"
+            aria-label="Fechar"
+          >
+            <X className="w-4 h-4" />
           </button>
-        ) : (
-          <div className="grid grid-cols-2 gap-2">
-            {images.map((img) => (
-              <div key={img.id} className="relative group">
-                <img
-                  src={`${API_BASE}${img.imageUrl}`}
-                  alt={img.caption || ''}
-                  className="w-full h-24 object-cover rounded-lg"
-                />
+        </div>
+
+        {/* Stats — sempre visíveis */}
+        <div className="px-4 py-3 grid grid-cols-2 gap-2 border-b border-darc-linen bg-darc-linen/20">
+          <div className="rounded-lg bg-darc-raspberry/10 px-3 py-2">
+            <p className="text-[10px] uppercase tracking-wider text-darc-velvet/60 font-semibold">Pago</p>
+            <p className="font-bold text-darc-raspberry text-sm">{BRL(totalPago)}</p>
+          </div>
+          <div className="rounded-lg bg-darc-sunfire/15 px-3 py-2">
+            <p className="text-[10px] uppercase tracking-wider text-darc-velvet/60 font-semibold">Previsto</p>
+            <p className="font-bold text-darc-sunfire text-sm">{BRL(totalPlanejado)}</p>
+          </div>
+        </div>
+
+        {/* Vincular ambiente (se necessário) */}
+        {!isLinked && (
+          <div className="px-4 py-3 bg-darc-sunfire/10 border-b border-darc-sunfire/30">
+            <h4 className="font-semibold text-sm text-darc-velvet mb-1.5 flex items-center gap-1.5">
+              🔗 Vincular a um ambiente
+            </h4>
+            <p className="text-xs text-darc-velvet/70 mb-2">
+              Vincule esta marcação a um ambiente do projeto para ver despesas e subir fotos.
+            </p>
+            {projectRooms.length === 0 ? (
+              <p className="text-xs italic text-darc-velvet/60">
+                Nenhum ambiente cadastrado. Cadastre ambientes no projeto primeiro.
+              </p>
+            ) : (
+              <select
+                className="w-full text-sm border border-darc-linen rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-darc-red-bright"
+                value=""
+                onChange={(e) => {
+                  if (e.target.value) onLinkRoom(room.id, e.target.value);
+                }}
+              >
+                <option value="">Escolha um ambiente...</option>
+                {projectRooms.map((r) => (
+                  <option key={r.id} value={r.id}>{r.name}</option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
+
+        {/* Scroll área das seções */}
+        <div className="flex-1 overflow-y-auto overscroll-contain">
+          {/* Despesas — agrupadas por tipo */}
+          <CollapsibleSection
+            title="Despesas"
+            icon="💰"
+            badge={expenses.length > 0 ? `${expenses.length}` : '0'}
+            defaultOpen={true}
+          >
+            {expenses.length === 0 ? (
+              <p className="text-sm italic text-darc-velvet/50">Nenhuma despesa vinculada</p>
+            ) : (
+              <div className="space-y-1.5">
+                {groupedByType.map((group) => (
+                  <ExpenseTypeGroup key={group.tipo} group={group} />
+                ))}
+              </div>
+            )}
+          </CollapsibleSection>
+
+          {/* Compráveis — despesas com link */}
+          <CollapsibleSection
+            title="Compráveis"
+            icon="🛒"
+            badge={compraveis.length > 0 ? `${compraveis.length}` : '0'}
+            defaultOpen={compraveis.length > 0}
+          >
+            {compraveis.length === 0 ? (
+              <p className="text-sm italic text-darc-velvet/50">
+                Nenhum item com link cadastrado neste ambiente.
+              </p>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                {compraveis.map((e) => (
+                  <a
+                    key={e.id}
+                    href={e.link!}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group rounded-lg border border-darc-linen overflow-hidden bg-white hover:border-darc-red-bright hover:shadow-darc-soft transition-all"
+                  >
+                    <div className="aspect-square bg-darc-linen/40 relative">
+                      {e.imageUrl ? (
+                        <img
+                          src={e.imageUrl}
+                          alt={e.titulo || ''}
+                          className="w-full h-full object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-darc-velvet/30">
+                          <ImageIcon className="w-6 h-6" />
+                        </div>
+                      )}
+                      <span
+                        className={`absolute top-1 right-1 text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full font-bold ${
+                          e.status === 'PAGO'
+                            ? 'bg-darc-raspberry text-white'
+                            : 'bg-darc-sunfire text-darc-velvet'
+                        }`}
+                      >
+                        {e.status === 'PAGO' ? 'pago' : 'previsto'}
+                      </span>
+                    </div>
+                    <div className="px-2 py-1.5">
+                      <p className="text-[11px] font-semibold text-darc-velvet truncate">
+                        {e.titulo || e.fornecedor || ExpenseTypeLabels[e.tipoDespesa as keyof typeof ExpenseTypeLabels] || e.tipoDespesa}
+                      </p>
+                      <div className="flex items-center justify-between gap-1 mt-0.5">
+                        <span className="text-[11px] font-bold text-darc-red-bright">
+                          {BRL(e.valorTotal)}
+                        </span>
+                        <ExternalLink className="w-3 h-3 text-darc-velvet/40 group-hover:text-darc-red-bright" />
+                      </div>
+                    </div>
+                  </a>
+                ))}
+              </div>
+            )}
+          </CollapsibleSection>
+
+          {/* Imagens do Projeto */}
+          <CollapsibleSection
+            title="Imagens do Projeto"
+            icon="📷"
+            badge={images.length > 0 ? `${images.length}` : '0'}
+            defaultOpen={images.length > 0}
+            action={
+              isLinked ? (
                 <button
-                  onClick={() => onDeleteImage(img.id)}
-                  className="absolute top-1 right-1 p-1 bg-darc-red-bright text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                  onClick={() => fileRef.current?.click()}
+                  disabled={uploading}
+                  className="text-[11px] text-darc-red-bright hover:text-darc-raspberry flex items-center gap-1 font-semibold disabled:opacity-50 disabled:cursor-not-allowed px-2 py-0.5 rounded-md hover:bg-darc-red-bright/10"
+                >
+                  {uploading ? (
+                    <>
+                      <RefreshCw className="w-3 h-3 animate-spin" />
+                      <span className="hidden sm:inline">Enviando</span>
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-3 h-3" />
+                      <span>Adicionar</span>
+                    </>
+                  )}
+                </button>
+              ) : null
+            }
+          >
+            {uploadError && (
+              <div className="mb-2 px-3 py-2 rounded-lg bg-darc-red-bright/10 border border-darc-red-bright/30 flex items-start gap-2 text-xs">
+                <div className="flex-1 text-darc-raspberry">
+                  <p className="font-semibold mb-0.5">Falha no envio</p>
+                  <p className="text-darc-velvet/80 break-words">{uploadError}</p>
+                </div>
+                <button
+                  onClick={onDismissUploadError}
+                  className="p-0.5 text-darc-raspberry hover:bg-darc-red-bright/20 rounded"
+                  aria-label="Fechar"
                 >
                   <X className="w-3 h-3" />
                 </button>
               </div>
-            ))}
-          </div>
-        )}
+            )}
+
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f && room.room) onUploadImage(room.room.id, f);
+                e.target.value = '';
+              }}
+            />
+
+            {images.length === 0 ? (
+              <button
+                type="button"
+                disabled={!isLinked || uploading}
+                onClick={() => fileRef.current?.click()}
+                className="w-full px-3 py-6 rounded-lg border-2 border-dashed border-darc-linen text-xs text-darc-velvet/60 hover:bg-darc-linen/30 disabled:opacity-50 disabled:cursor-not-allowed flex flex-col items-center gap-1"
+              >
+                {uploading ? (
+                  <>
+                    <RefreshCw className="w-5 h-5 animate-spin text-darc-red-bright" />
+                    <span>Enviando imagem...</span>
+                  </>
+                ) : (
+                  <>
+                    <ImageIcon className="w-5 h-5 opacity-50" />
+                    <span>{isLinked ? 'Clique para enviar fotos do ambiente' : 'Sem imagens'}</span>
+                  </>
+                )}
+              </button>
+            ) : (
+              <div className="grid grid-cols-3 sm:grid-cols-2 gap-2">
+                {images.map((img) => (
+                  <div key={img.id} className="relative group aspect-square">
+                    <img
+                      src={`${API_BASE}${img.imageUrl}`}
+                      alt={img.caption || ''}
+                      className="w-full h-full object-cover rounded-lg"
+                      loading="lazy"
+                    />
+                    <button
+                      onClick={() => onDeleteImage(img.id)}
+                      className="absolute top-1 right-1 p-1 bg-darc-red-bright text-white rounded-full opacity-0 group-hover:opacity-100 active:opacity-100 transition-opacity shadow"
+                      aria-label="Remover imagem"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CollapsibleSection>
+
+          {/* Elementos detectados (se houver) */}
+          {bounds.elements && bounds.elements.length > 0 && (
+            <CollapsibleSection
+              title="Elementos detectados"
+              icon="🏠"
+              badge={`${bounds.elements.length}`}
+              defaultOpen={false}
+            >
+              <div className="flex flex-wrap gap-1">
+                {bounds.elements.map((el, i) => (
+                  <span
+                    key={i}
+                    className="px-2 py-0.5 bg-darc-linen/50 text-darc-velvet/70 text-[11px] rounded-full"
+                  >
+                    {el}
+                  </span>
+                ))}
+              </div>
+            </CollapsibleSection>
+          )}
+        </div>
       </div>
+    </>
+  );
+}
+
+function ExpenseTypeGroup({
+  group,
+}: {
+  group: {
+    tipo: string;
+    items: NonNullable<NonNullable<FloorPlanRoom['room']>['expenses']>;
+    total: number;
+    pago: number;
+  };
+}) {
+  const [open, setOpen] = useState(false);
+  const label =
+    ExpenseTypeLabels[group.tipo as keyof typeof ExpenseTypeLabels] ?? group.tipo;
+  const pct = group.total > 0 ? Math.round((group.pago / group.total) * 100) : 0;
+  return (
+    <div className="rounded-lg border border-darc-linen overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-2 px-2.5 py-2 hover:bg-darc-linen/30 transition-colors"
+      >
+        <div className="flex-1 min-w-0 text-left">
+          <p className="text-xs font-semibold text-darc-velvet truncate">{label}</p>
+          <div className="flex items-center gap-2 mt-0.5">
+            <span className="text-[10px] text-darc-velvet/60">
+              {group.items.length} {group.items.length === 1 ? 'item' : 'itens'}
+            </span>
+            {pct > 0 && (
+              <span className="text-[10px] text-darc-raspberry font-semibold">
+                {pct}% pago
+              </span>
+            )}
+          </div>
+        </div>
+        <span className="text-xs font-bold text-darc-velvet whitespace-nowrap">
+          {BRL(group.total)}
+        </span>
+        {open ? (
+          <ChevronUp className="w-3.5 h-3.5 text-darc-velvet/60" />
+        ) : (
+          <ChevronDown className="w-3.5 h-3.5 text-darc-velvet/60" />
+        )}
+      </button>
+      {open && (
+        <div className="border-t border-darc-linen bg-darc-linen/20 px-2 py-1.5 space-y-1">
+          {group.items.map((e) => (
+            <div
+              key={e.id}
+              className="flex items-center gap-2 text-[11px] px-1.5 py-1 rounded bg-white"
+            >
+              <span className="flex-1 truncate text-darc-velvet">
+                {e.titulo || e.fornecedor || '—'}
+              </span>
+              {e.quantidade > 1 && (
+                <span className="text-darc-velvet/50">×{e.quantidade}</span>
+              )}
+              <span
+                className={`font-semibold whitespace-nowrap ${
+                  e.status === 'PAGO' ? 'text-darc-raspberry' : 'text-darc-sunfire'
+                }`}
+              >
+                {BRL(e.valorTotal)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
