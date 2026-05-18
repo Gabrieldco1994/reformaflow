@@ -2,6 +2,7 @@
 import { useProject } from '@/contexts/project-context';
 
 import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { compressImage } from '@/lib/image-compress';
 import { ExpenseTypeLabels } from '@reformaflow/domain';
@@ -24,6 +25,63 @@ import {
   Maximize2,
 } from 'lucide-react';
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
+
+interface LinkPreview {
+  url: string;
+  ogImage: string | null;
+  ogTitle: string | null;
+  ogDescription: string | null;
+  favicon: string | null;
+}
+
+function ShoppableThumb({
+  link,
+  imageUrl,
+  title,
+}: {
+  link: string;
+  imageUrl: string | null;
+  title: string;
+}) {
+  const [imgError, setImgError] = useState(false);
+  const { data: preview } = useQuery<LinkPreview>({
+    queryKey: ['link-preview', link],
+    queryFn: () => api.get(`/link-preview?url=${encodeURIComponent(link)}`),
+    staleTime: 1000 * 60 * 60 * 24,
+    retry: 1,
+    enabled: !!link && !imageUrl,
+  });
+
+  const src = imageUrl || (!imgError ? preview?.ogImage : null);
+
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt={title}
+        className="w-full h-full object-contain p-1"
+        loading="lazy"
+        onError={() => setImgError(true)}
+      />
+    );
+  }
+  return (
+    <div className="w-full h-full flex items-center justify-center text-darc-velvet/30">
+      {preview?.favicon ? (
+        <img
+          src={preview.favicon}
+          alt=""
+          className="w-6 h-6 object-contain opacity-60"
+          onError={(e) => {
+            (e.target as HTMLImageElement).style.display = 'none';
+          }}
+        />
+      ) : (
+        <ImageIcon className="w-5 h-5" />
+      )}
+    </div>
+  );
+}
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -320,7 +378,7 @@ function RoomDetailPanel({
                 Nenhum item com link cadastrado neste ambiente.
               </p>
             ) : (
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-1.5">
                 {compraveis.map((e) => (
                   <a
                     key={e.id}
@@ -330,20 +388,13 @@ function RoomDetailPanel({
                     className="group rounded-lg border border-darc-linen overflow-hidden bg-white hover:border-darc-red-bright hover:shadow-darc-soft transition-all"
                   >
                     <div className="aspect-square bg-darc-linen/40 relative">
-                      {e.imageUrl ? (
-                        <img
-                          src={e.imageUrl}
-                          alt={e.titulo || ''}
-                          className="w-full h-full object-cover"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-darc-velvet/30">
-                          <ImageIcon className="w-6 h-6" />
-                        </div>
-                      )}
+                      <ShoppableThumb
+                        link={e.link!}
+                        imageUrl={e.imageUrl}
+                        title={e.titulo || e.fornecedor || ''}
+                      />
                       <span
-                        className={`absolute top-1 right-1 text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full font-bold ${
+                        className={`absolute top-0.5 right-0.5 text-[8px] uppercase tracking-wider px-1 py-0.5 rounded-full font-bold ${
                           e.status === 'PAGO'
                             ? 'bg-darc-raspberry text-white'
                             : 'bg-darc-sunfire text-darc-velvet'
@@ -352,15 +403,15 @@ function RoomDetailPanel({
                         {e.status === 'PAGO' ? 'pago' : 'previsto'}
                       </span>
                     </div>
-                    <div className="px-2 py-1.5">
-                      <p className="text-[11px] font-semibold text-darc-velvet truncate">
+                    <div className="px-1.5 py-1">
+                      <p className="text-[10px] font-semibold text-darc-velvet truncate leading-tight">
                         {e.titulo || e.fornecedor || ExpenseTypeLabels[e.tipoDespesa as keyof typeof ExpenseTypeLabels] || e.tipoDespesa}
                       </p>
                       <div className="flex items-center justify-between gap-1 mt-0.5">
-                        <span className="text-[11px] font-bold text-darc-red-bright">
+                        <span className="text-[10px] font-bold text-darc-red-bright truncate">
                           {BRL(e.valorTotal)}
                         </span>
-                        <ExternalLink className="w-3 h-3 text-darc-velvet/40 group-hover:text-darc-red-bright" />
+                        <ExternalLink className="w-2.5 h-2.5 text-darc-velvet/40 group-hover:text-darc-red-bright shrink-0" />
                       </div>
                     </div>
                   </a>
