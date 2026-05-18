@@ -31,6 +31,35 @@ function formatMesLabel(mes: string) {
   return `${meses[parseInt(m) - 1]}/${y.slice(2)}`;
 }
 
+// ─── Skeleton para reservar layout (evita CLS) ──────────────
+
+function FinancialDashboardSkeleton() {
+  return (
+    <div className="space-y-6 md:space-y-8 animate-pulse">
+      {/* KPIs mobile */}
+      <div className="md:hidden -mx-4 px-4 overflow-x-hidden">
+        <div className="flex gap-3">
+          <div className="flex-shrink-0 w-[78%] h-[88px] rounded-2xl bg-white shadow-darc-soft border border-darc-linen" />
+          <div className="flex-shrink-0 w-[78%] h-[88px] rounded-2xl bg-white shadow-darc-soft border border-darc-linen" />
+        </div>
+      </div>
+      {/* KPIs desktop (6 cards) */}
+      <div className="hidden md:grid grid-cols-2 lg:grid-cols-3 gap-4">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="h-[96px] rounded-2xl bg-white shadow-darc-soft border border-darc-linen" />
+        ))}
+      </div>
+      {/* Charts (2x 340px) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+        <div className="h-[340px] rounded-2xl bg-white shadow-darc-soft border border-darc-linen" />
+        <div className="h-[340px] rounded-2xl bg-white shadow-darc-soft border border-darc-linen" />
+      </div>
+      {/* Resumo section */}
+      <div className="h-[200px] rounded-2xl bg-white shadow-darc-soft border border-darc-linen" />
+    </div>
+  );
+}
+
 // ─── Financial Dashboard (REFORMA / COMPRA) ──────────────────
 
 function FinancialDashboard({ projectId, projectType }: { projectId: string; projectType: string }) {
@@ -49,7 +78,7 @@ function FinancialDashboard({ projectId, projectType }: { projectId: string; pro
     [data?.saldoAcumuladoMensal]
   );
 
-  if (isLoading) return <div className="text-darc-velvet/60">Carregando...</div>;
+  if (isLoading) return <FinancialDashboardSkeleton />;
   if (error) return <div className="text-darc-red">Erro ao carregar dashboard.</div>;
   if (!data) return null;
 

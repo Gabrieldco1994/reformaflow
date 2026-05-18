@@ -1295,7 +1295,9 @@ function FloorPlanViewer({
                   <img
                     src={`${API_BASE}${floorPlan.imageUrl}`}
                     alt={floorPlan.name}
-                    className="max-w-full max-h-[75vh] select-none"
+                    width={1600}
+                    height={1200}
+                    className="max-w-full max-h-[75vh] w-auto h-auto select-none"
                     draggable={false}
                   />
 
@@ -1731,7 +1733,9 @@ function XRayOverlay({
                   <img
                     src={`${API_BASE}${floorPlan.imageUrl}`}
                     alt={floorPlan.name}
-                    className="max-w-[95vw] max-h-[calc(100vh-7rem)] select-none"
+                    width={1600}
+                    height={1200}
+                    className="max-w-[95vw] max-h-[calc(100vh-7rem)] w-auto h-auto select-none"
                     draggable={false}
                   />
 
@@ -1923,8 +1927,27 @@ export default function FloorPlansPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
+      <div className="animate-pulse">
+        {/* Header skeleton (mesmas dimensões) */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+          <div className="flex-1">
+            <div className="h-8 w-56 bg-gray-200 rounded mb-2" />
+            <div className="h-4 w-72 bg-gray-100 rounded" />
+          </div>
+          <div className="h-10 w-32 bg-gray-200 rounded-xl" />
+        </div>
+        {/* Grid skeleton (3 cards de 192px) */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="rounded-xl border bg-white overflow-hidden">
+              <div className="h-48 bg-gray-100" />
+              <div className="p-3">
+                <div className="h-4 w-32 bg-gray-100 rounded" />
+                <div className="h-3 w-24 bg-gray-50 rounded mt-2" />
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }

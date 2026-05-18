@@ -518,7 +518,18 @@ export default function ExpensesPage() {
       )}
 
       {isLoading ? (
-        <p className="text-gray-500">Carregando...</p>
+        <div className="space-y-4 animate-pulse">
+          {/* KPIs skeleton (mesma altura do real ~76px) */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="h-[76px] rounded-lg border border-orange-200 bg-orange-50" />
+            <div className="h-[76px] rounded-lg border border-amber-200 bg-amber-50" />
+            <div className="h-[76px] rounded-lg border border-green-200 bg-green-50" />
+          </div>
+          {/* Search bar skeleton */}
+          <div className="h-[34px] rounded-lg bg-gray-100" />
+          {/* Tabela skeleton */}
+          <div className="h-[60vh] min-h-[400px] rounded-lg border border-gray-200 bg-white" />
+        </div>
       ) : (
         <>
         <MobileExpenseList
