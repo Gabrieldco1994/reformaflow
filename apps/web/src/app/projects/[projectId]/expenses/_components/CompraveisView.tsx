@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -21,13 +21,17 @@ import { formatCurrency } from '@/lib/utils';
 import { ExpenseTypeLabels } from '@reformaflow/domain';
 import type { Expense } from '@/types';
 import { SortableCard } from './SortableCard';
+import { CompraveisFloorPlanPanel } from './CompraveisFloorPlanPanel';
 
 export function CompráveisView({ expenses, tipoLabel }: { expenses: Expense[]; tipoLabel: (t: string) => string }) {
   const [filterTipo, setFilterTipo] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [filterAmbiente, setFilterAmbiente] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<'valor' | 'titulo' | 'custom'>('custom');
   const [cardOrder, setCardOrder] = useState<Record<string, string[]>>({});
   const [colsPerRow, setColsPerRow] = useState<3 | 4>(3);
+  const [focusedExpenseId, setFocusedExpenseId] = useState<string | null>(null);
+  const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   // Load saved order from localStorage
   useEffect(() => {
@@ -62,6 +66,7 @@ export function CompráveisView({ expenses, tipoLabel }: { expenses: Expense[]; 
     );
     if (filterTipo) items = items.filter((e) => e.tipoDespesa === filterTipo);
     if (filterStatus) items = items.filter((e) => e.status === filterStatus);
+    if (filterAmbiente) items = items.filter((e) => e.room?.name === filterAmbiente);
 
     if (sortBy === 'valor') {
       items.sort((a, b) => b.valorTotal - a.valorTotal);
@@ -71,7 +76,7 @@ export function CompráveisView({ expenses, tipoLabel }: { expenses: Expense[]; 
     // 'custom' uses cardOrder per room group
 
     return items;
-  }, [expenses, filterTipo, filterStatus, sortBy]);
+  }, [expenses, filterTipo, filterStatus, filterAmbiente, sortBy]);
 
   const totalCompraveis = compraveis.reduce((s, e) => s + e.valorTotal, 0);
 
@@ -130,8 +135,31 @@ export function CompráveisView({ expenses, tipoLabel }: { expenses: Expense[]; 
     setSortBy('custom');
   }, [groupedRooms, cardOrder, saveOrder]);
 
+  const focusExpense = useCallback((expenseId: string) => {
+    const exp = expenses.find((e) => e.id === expenseId);
+    if (exp?.room?.name) setFilterAmbiente(exp.room.name);
+    setFocusedExpenseId(expenseId);
+    setTimeout(() => {
+      const el = cardRefs.current[expenseId];
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 50);
+  }, [expenses]);
+
+  useEffect(() => {
+    if (!focusedExpenseId) return;
+    const t = setTimeout(() => setFocusedExpenseId(null), 2200);
+    return () => clearTimeout(t);
+  }, [focusedExpenseId]);
+
   return (
     <div className="space-y-4">
+      {/* Floor plan panel */}
+      <CompraveisFloorPlanPanel
+        filterAmbiente={filterAmbiente}
+        onFilterAmbiente={setFilterAmbiente}
+        onFocusExpense={focusExpense}
+      />
+
       {/* Summary + Filters */}
       <div className="bg-gradient-to-r from-orange-50 to-amber-50 rounded-xl p-4 border border-orange-100">
         <div className="flex items-center justify-between mb-3">
@@ -216,7 +244,13 @@ export function CompráveisView({ expenses, tipoLabel }: { expenses: Expense[]; 
                 <SortableContext items={items.map((e) => e.id)} strategy={rectSortingStrategy}>
                   <div className={`grid grid-cols-2 sm:grid-cols-2 ${colsPerRow === 4 ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-2 sm:gap-5`}>
                     {items.map((expense) => (
-                      <SortableCard key={expense.id} expense={expense} tipoLabel={tipoLabel} />
+                      <div
+                        key={expense.id}
+                        ref={(el) => { cardRefs.current[expense.id] = el; }}
+                        className={focusedExpenseId === expense.id ? 'ring-4 ring-orange-400 rounded-xl transition-all' : ''}
+                      >
+                        <SortableCard expense={expense} tipoLabel={tipoLabel} />
+                      </div>
                     ))}
                   </div>
                 </SortableContext>
