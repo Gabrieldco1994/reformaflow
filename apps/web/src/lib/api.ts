@@ -47,7 +47,13 @@ export const api = {
       credentials: 'include',
       body: formData,
     }).then(async (res) => {
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({ message: `HTTP ${res.status}` }));
+        const msg = Array.isArray(error.message)
+          ? error.message.join('; ')
+          : (error.message ?? `HTTP ${res.status}`);
+        throw new Error(msg);
+      }
       return res.json() as Promise<T>;
     }),
 };

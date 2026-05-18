@@ -6,24 +6,26 @@ import {
   Delete,
   Param,
   Body,
-  Headers,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { FloorPlanService } from './floor-plan.service';
 import { RequireModule } from '../common/decorators/require-module.decorator';
+import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
+import { CurrentTenant } from '../common/decorators/tenant.decorator';
 
+@UseInterceptors(TenantInterceptor)
 @RequireModule('floorPlans')
 @Controller('projects/:projectId/floor-plans')
 export class FloorPlanController {
   constructor(private readonly service: FloorPlanService) {}
 
   @Post()
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 25 * 1024 * 1024 } }))
   async create(
     @Param('projectId') projectId: string,
-    @Headers('x-tenant-id') tenantId: string,
+    @CurrentTenant() tenantId: string,
     @UploadedFile() file: Express.Multer.File,
     @Body('name') name?: string,
   ) {
@@ -33,7 +35,7 @@ export class FloorPlanController {
   @Get()
   async findAll(
     @Param('projectId') projectId: string,
-    @Headers('x-tenant-id') tenantId: string,
+    @CurrentTenant() tenantId: string,
   ) {
     return this.service.findAll(projectId, tenantId);
   }
@@ -41,7 +43,7 @@ export class FloorPlanController {
   @Get(':id')
   async findOne(
     @Param('id') id: string,
-    @Headers('x-tenant-id') tenantId: string,
+    @CurrentTenant() tenantId: string,
   ) {
     return this.service.findOne(id, tenantId);
   }
@@ -49,7 +51,7 @@ export class FloorPlanController {
   @Post(':id/reanalyze')
   async reanalyze(
     @Param('id') id: string,
-    @Headers('x-tenant-id') tenantId: string,
+    @CurrentTenant() tenantId: string,
   ) {
     return this.service.reanalyze(id, tenantId);
   }
@@ -57,7 +59,7 @@ export class FloorPlanController {
   @Delete(':id')
   async delete(
     @Param('id') id: string,
-    @Headers('x-tenant-id') tenantId: string,
+    @CurrentTenant() tenantId: string,
   ) {
     return this.service.delete(id, tenantId);
   }
@@ -87,7 +89,7 @@ export class FloorPlanController {
 
   // Room images
   @Post('room-images/:roomId')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 15 * 1024 * 1024 } }))
   async addRoomImage(
     @Param('roomId') roomId: string,
     @UploadedFile() file: Express.Multer.File,

@@ -22,6 +22,19 @@ import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
+const BRL = (centavos: number) =>
+  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(centavos / 100);
+
+function summarizeRoom(room: FloorPlanRoom) {
+  const expenses = room.room?.expenses ?? [];
+  const images = room.room?.roomImages ?? [];
+  const pago = expenses.filter((e) => e.status === 'PAGO').reduce((s, e) => s + e.valorTotal, 0);
+  const planejado = expenses
+    .filter((e) => e.status === 'PLANEJADO')
+    .reduce((s, e) => s + e.valorTotal, 0);
+  return { expenses, images, pago, planejado, total: pago + planejado };
+}
+
 // ─── Types ──────────────────────────────────────────────────
 
 interface FloorPlanRoom {
@@ -371,6 +384,8 @@ function FloorPlanViewer({
                     const b: Bounds = JSON.parse(room.bounds);
                     const isHovered = hoveredRoom === room.id;
                     const isSelected = selectedRoom?.id === room.id;
+                    const summary = summarizeRoom(room);
+                    const showHoverCard = isHovered && !isSelected;
                     return (
                       <div
                         key={room.id}
@@ -410,6 +425,46 @@ function FloorPlanViewer({
                         {b.area && (
                           <div className="absolute bottom-0.5 right-1 text-[9px] font-medium" style={{ color: room.color }}>
                             {b.area}m²
+                          </div>
+                        )}
+
+                        {/* Hover preview card */}
+                        {showHoverCard && (
+                          <div
+                            className="absolute z-30 pointer-events-none rounded-xl bg-white border border-darc-linen shadow-darc-medium px-3 py-2.5 min-w-[180px]"
+                            style={{
+                              left: '50%',
+                              transform: 'translateX(-50%)',
+                              ...(b.y + b.height > 75
+                                ? { bottom: 'calc(100% + 8px)' }
+                                : { top: 'calc(100% + 8px)' }),
+                            }}
+                          >
+                            <div
+                              className="text-[10px] font-bold uppercase tracking-[0.15em] mb-1.5"
+                              style={{ color: room.color }}
+                            >
+                              {room.room?.name ?? room.label}
+                            </div>
+                            <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+                              <div className="rounded-md bg-darc-raspberry/10 px-1.5 py-1">
+                                <p className="text-darc-velvet/60 uppercase tracking-wider text-[8px]">Pago</p>
+                                <p className="font-bold text-darc-raspberry text-[11px]">{BRL(summary.pago)}</p>
+                              </div>
+                              <div className="rounded-md bg-darc-sunfire/15 px-1.5 py-1">
+                                <p className="text-darc-velvet/60 uppercase tracking-wider text-[8px]">Previsto</p>
+                                <p className="font-bold text-darc-sunfire text-[11px]">{BRL(summary.planejado)}</p>
+                              </div>
+                            </div>
+                            <div className="mt-1.5 flex items-center justify-between text-[10px] text-darc-velvet/70">
+                              <span>🛒 {summary.expenses.length} {summary.expenses.length === 1 ? 'item' : 'itens'}</span>
+                              <span>📷 {summary.images.length}</span>
+                            </div>
+                            {!room.room && (
+                              <p className="mt-1.5 text-[9px] italic text-darc-velvet/50">
+                                Vincule um ambiente para ver detalhes
+                              </p>
+                            )}
                           </div>
                         )}
                       </div>
@@ -489,6 +544,7 @@ export default function FloorPlansPage() {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -511,6 +567,7 @@ export default function FloorPlansPage() {
 
   const handleUpload = async (file: File) => {
     setUploading(true);
+    setUploadError(null);
     try {
       const fd = new FormData();
       fd.append('file', file);
@@ -519,7 +576,10 @@ export default function FloorPlansPage() {
       // Wait a bit for Gemini analysis
       setTimeout(() => load(), 5000);
       setSelectedId(fp.id);
+      load();
     } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Falha no upload';
+      setUploadError(msg);
       console.error(err);
     } finally {
       setUploading(false);
@@ -587,6 +647,20 @@ export default function FloorPlansPage() {
           }}
         />
       </div>
+      {uploadError && (
+        <div className="mb-4 px-4 py-3 rounded-xl bg-darc-red-bright/10 border border-darc-red-bright/30 text-sm text-darc-red flex items-start gap-2">
+          <span className="font-semibold">Erro ao enviar:</span>
+          <span className="flex-1">{uploadError}</span>
+          <button
+            type="button"
+            onClick={() => setUploadError(null)}
+            className="text-darc-red/70 hover:text-darc-red"
+            aria-label="Fechar"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {floorPlans.length === 0 ? (
         <div className="text-center py-20 text-gray-400">

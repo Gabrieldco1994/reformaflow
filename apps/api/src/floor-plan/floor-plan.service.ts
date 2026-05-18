@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { GeminiService } from './gemini.service';
 import * as fs from 'fs';
@@ -26,9 +26,15 @@ export class FloorPlanService {
   async create(
     projectId: string,
     tenantId: string,
-    file: { buffer: Buffer; mimetype: string; originalname: string },
+    file: { buffer: Buffer; mimetype: string; originalname: string } | undefined,
     name?: string,
   ) {
+    if (!file?.buffer) {
+      throw new BadRequestException('Arquivo não enviado (campo "file" obrigatório)');
+    }
+    if (!tenantId) {
+      throw new BadRequestException('Tenant não identificado');
+    }
     // Save file to disk
     const ext = path.extname(file.originalname) || '.png';
     const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
@@ -200,9 +206,12 @@ export class FloorPlanService {
   // Room images
   async addRoomImage(
     roomId: string,
-    file: { buffer: Buffer; originalname: string },
+    file: { buffer: Buffer; originalname: string } | undefined,
     caption?: string,
   ) {
+    if (!file?.buffer) {
+      throw new BadRequestException('Arquivo não enviado (campo "file" obrigatório)');
+    }
     const dir = path.join(UPLOADS_ROOT, 'room-images');
     fs.mkdirSync(dir, { recursive: true });
     const ext = path.extname(file.originalname) || '.png';
