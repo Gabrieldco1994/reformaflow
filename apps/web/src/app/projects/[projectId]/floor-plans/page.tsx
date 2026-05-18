@@ -1024,7 +1024,7 @@ function FloorPlanViewer({
                           width: `${b.width}%`,
                           height: `${b.height}%`,
                           backgroundColor: `${room.color}${isHovered || isSelected ? '40' : '20'}`,
-                          border: `2px solid ${room.color}${isHovered || isSelected ? 'FF' : '80'}`,
+                          border: `2px dashed ${room.color}${isHovered || isSelected ? 'FF' : 'CC'}`,
                           borderRadius: 4,
                         }}
                       >
