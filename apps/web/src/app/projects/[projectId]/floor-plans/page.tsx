@@ -236,7 +236,7 @@ function FloorPlanViewer({
     }
   };
 
-  const getMousePercent = (e: React.MouseEvent) => {
+  const getPointerPercent = (e: React.PointerEvent) => {
     const rect = imageRef.current?.getBoundingClientRect();
     if (!rect) return { x: 0, y: 0 };
     return {
@@ -245,20 +245,31 @@ function FloorPlanViewer({
     };
   };
 
-  const handleMouseDown = (e: React.MouseEvent) => {
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!drawingMode) return;
     e.preventDefault();
-    setDrawStart(getMousePercent(e));
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      /* alguns navegadores não dão capture em mouse, ok */
+    }
+    setDrawStart(getPointerPercent(e));
     setDrawCurrent(null);
   };
 
-  const handleMouseMove = (e: React.MouseEvent) => {
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!drawingMode || !drawStart) return;
-    setDrawCurrent(getMousePercent(e));
+    e.preventDefault();
+    setDrawCurrent(getPointerPercent(e));
   };
 
-  const handleMouseUp = async () => {
+  const handlePointerUp = async (e: React.PointerEvent<HTMLDivElement>) => {
     if (!drawingMode || !drawStart || !drawCurrent) return;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      /* idem */
+    }
     const bounds: Bounds = {
       x: Math.min(drawStart.x, drawCurrent.x),
       y: Math.min(drawStart.y, drawCurrent.y),
@@ -367,10 +378,14 @@ function FloorPlanViewer({
                 <div
                   ref={imageRef}
                   className="relative inline-block"
-                  onMouseDown={handleMouseDown}
-                  onMouseMove={handleMouseMove}
-                  onMouseUp={handleMouseUp}
-                  style={{ cursor: drawingMode ? 'crosshair' : 'grab' }}
+                  onPointerDown={handlePointerDown}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={handlePointerUp}
+                  onPointerCancel={handlePointerUp}
+                  style={{
+                    cursor: drawingMode ? 'crosshair' : 'grab',
+                    touchAction: drawingMode ? 'none' : 'auto',
+                  }}
                 >
                   <img
                     src={`${API_BASE}${floorPlan.imageUrl}`}
