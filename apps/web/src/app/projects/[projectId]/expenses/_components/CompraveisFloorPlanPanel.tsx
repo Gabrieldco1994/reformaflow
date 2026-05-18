@@ -98,30 +98,62 @@ export function CompraveisFloorPlanPanel({
     try { return { ...r, _bounds: JSON.parse(r.bounds) as Bounds }; } catch { return null; }
   }).filter(Boolean) as (FloorPlanRoom & { _bounds: Bounds })[], [rooms]);
 
-  // Lista de cômodos navegáveis (com nome vinculado), ordenada
+  // Lista de cômodos navegáveis (com nome vinculado), ordenada por nome (estável por id)
   const navRooms = useMemo(
-    () => parsedRooms.filter((r) => r.room?.name).sort((a, b) => (a.room!.name).localeCompare(b.room!.name)),
+    () => parsedRooms
+      .filter((r) => r.room?.name)
+      .sort((a, b) => {
+        const c = (a.room!.name).localeCompare(b.room!.name);
+        return c !== 0 ? c : a.id.localeCompare(b.id);
+      }),
     [parsedRooms],
   );
 
+  // ID do cômodo ativo (necessário para distinguir entre cômodos com mesmo nome,
+  // ex.: duas "Área de Serviço"). filterAmbiente filtra por nome — pode mapear pra N rooms.
+  const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
+
   const activeRoom = useMemo(() => {
     if (!filterAmbiente) return null;
+    if (activeRoomId) {
+      const byId = navRooms.find((r) => r.id === activeRoomId);
+      if (byId && byId.room?.name === filterAmbiente) return byId;
+    }
     return navRooms.find((r) => r.room?.name === filterAmbiente) ?? null;
-  }, [filterAmbiente, navRooms]);
+  }, [filterAmbiente, navRooms, activeRoomId]);
+
+  // Sincroniza activeRoomId quando muda externamente / quando perdeu validade
+  useEffect(() => {
+    if (!filterAmbiente) { setActiveRoomId(null); return; }
+    if (!activeRoomId || !navRooms.some((r) => r.id === activeRoomId && r.room?.name === filterAmbiente)) {
+      const first = navRooms.find((r) => r.room?.name === filterAmbiente);
+      setActiveRoomId(first?.id ?? null);
+    }
+  }, [filterAmbiente, navRooms, activeRoomId]);
+
+  const setActive = useCallback((room: (FloorPlanRoom & { _bounds: Bounds }) | null) => {
+    if (!room || !room.room?.name) {
+      setActiveRoomId(null);
+      onFilterAmbiente(null);
+      return;
+    }
+    setActiveRoomId(room.id);
+    onFilterAmbiente(room.room.name);
+  }, [onFilterAmbiente]);
 
   const goPrev = useCallback(() => {
     if (navRooms.length === 0) return;
-    if (!activeRoom) { onFilterAmbiente(navRooms[0].room!.name); return; }
+    if (!activeRoom) { setActive(navRooms[0]); return; }
     const i = navRooms.findIndex((r) => r.id === activeRoom.id);
-    onFilterAmbiente(navRooms[(i - 1 + navRooms.length) % navRooms.length].room!.name);
-  }, [navRooms, activeRoom, onFilterAmbiente]);
+    setActive(navRooms[(i - 1 + navRooms.length) % navRooms.length]);
+  }, [navRooms, activeRoom, setActive]);
 
   const goNext = useCallback(() => {
     if (navRooms.length === 0) return;
-    if (!activeRoom) { onFilterAmbiente(navRooms[0].room!.name); return; }
+    if (!activeRoom) { setActive(navRooms[0]); return; }
     const i = navRooms.findIndex((r) => r.id === activeRoom.id);
-    onFilterAmbiente(navRooms[(i + 1) % navRooms.length].room!.name);
-  }, [navRooms, activeRoom, onFilterAmbiente]);
+    setActive(navRooms[(i + 1) % navRooms.length]);
+  }, [navRooms, activeRoom, setActive]);
 
   // Atalhos de teclado
   useEffect(() => {
@@ -130,11 +162,11 @@ export function CompraveisFloorPlanPanel({
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
       if (e.key === 'ArrowLeft') { e.preventDefault(); goPrev(); }
       else if (e.key === 'ArrowRight') { e.preventDefault(); goNext(); }
-      else if (e.key === 'Escape' && activeRoom) { e.preventDefault(); onFilterAmbiente(null); }
+      else if (e.key === 'Escape' && activeRoom) { e.preventDefault(); setActive(null); }
     };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
-  }, [goPrev, goNext, activeRoom, collapsed, onFilterAmbiente]);
+  }, [goPrev, goNext, activeRoom, collapsed, setActive]);
 
   // Zoom transform pro cômodo ativo
   const zoomStyle = useMemo<React.CSSProperties>(() => {
@@ -219,7 +251,7 @@ export function CompraveisFloorPlanPanel({
               </button>
               {activeRoom && (
                 <button
-                  onClick={() => onFilterAmbiente(null)}
+                  onClick={() => setActive(null)}
                   className="p-0.5 rounded hover:bg-gray-100 text-gray-400 ml-0.5"
                   title="Limpar filtro (Esc)"
                 >
@@ -230,7 +262,7 @@ export function CompraveisFloorPlanPanel({
           )}
           {filterAmbiente && (
             <button
-              onClick={() => onFilterAmbiente(null)}
+              onClick={() => setActive(null)}
               className="text-[10px] bg-orange-500 text-white px-2 py-0.5 rounded-full hover:bg-orange-600"
             >
               {filterAmbiente} ✕
@@ -267,16 +299,16 @@ export function CompraveisFloorPlanPanel({
 
               {/* Room areas */}
               {parsedRooms.map((room) => {
-                const isSelected = filterAmbiente && room.room?.name === filterAmbiente;
-                const isHighlighted = filterAmbiente
-                  ? room.room?.name === filterAmbiente
-                  : true;
+                const sameName = filterAmbiente && room.room?.name === filterAmbiente;
+                const isActive = activeRoom?.id === room.id;
+                const isHighlighted = filterAmbiente ? sameName : true;
                 return (
                   <div key={room.id}>
                     <button
-                      onClick={() => onFilterAmbiente(
-                        filterAmbiente === room.room?.name ? null : (room.room?.name ?? null),
-                      )}
+                      onClick={() => {
+                        if (isActive) setActive(null);
+                        else setActive(room);
+                      }}
                       disabled={!room.room?.name}
                       className="absolute border-2 transition-all"
                       style={{
@@ -285,9 +317,9 @@ export function CompraveisFloorPlanPanel({
                         width: `${room._bounds.width ?? 0}%`,
                         height: `${room._bounds.height ?? 0}%`,
                         borderColor: room.color,
-                        backgroundColor: `${room.color}${isSelected ? '40' : '15'}`,
+                        backgroundColor: `${room.color}${isActive ? '40' : sameName ? '25' : '15'}`,
                         opacity: isHighlighted ? 1 : 0.25,
-                        boxShadow: isSelected ? `0 0 0 2px ${room.color}, 0 4px 12px rgba(0,0,0,.15)` : undefined,
+                        boxShadow: isActive ? `0 0 0 2px ${room.color}, 0 4px 12px rgba(0,0,0,.15)` : undefined,
                         cursor: room.room?.name ? 'pointer' : 'default',
                       }}
                       title={room.room?.name ?? room.label}
