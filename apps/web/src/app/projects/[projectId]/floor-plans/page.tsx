@@ -1126,6 +1126,7 @@ function FloorPlanViewer({
   const [hoveredRoom, setHoveredRoom] = useState<string | null>(null);
   const [imageUploading, setImageUploading] = useState(false);
   const [imageUploadError, setImageUploadError] = useState<string | null>(null);
+  const [legendCollapsed, setLegendCollapsed] = useState(false);
 
   // ─── Raio-X (markers) state ───────────────────────────────
   const [xrayMode, setXrayMode] = useState(false);
@@ -1584,37 +1585,62 @@ function FloorPlanViewer({
           )}
         </TransformWrapper>
 
-        {/* Room list sidebar */}
+        {/* Room list sidebar — colapsável */}
         {floorPlan.rooms.length > 0 && !selectedRoom && (
-          <div className="absolute right-3 top-3 w-52 bg-white/95 backdrop-blur rounded-xl shadow-lg p-3 z-20 max-h-[60vh] overflow-y-auto">
-            <h4 className="text-xs font-bold text-gray-500 mb-2 uppercase">Cômodos</h4>
-            {floorPlan.rooms.map((room) => (
-              <div
-                key={room.id}
-                className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-gray-50 cursor-pointer text-sm"
-                onClick={() => setSelectedRoom(room)}
-                onMouseEnter={() => setHoveredRoom(room.id)}
-                onMouseLeave={() => setHoveredRoom(null)}
-              >
-                <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: room.color }} />
-                <span className="flex-1 truncate">{room.label}</span>
-                {!room.roomId && (
-                  <select
-                    className="text-xs border rounded px-1 py-0.5 max-w-[80px]"
-                    value=""
-                    onClick={(e) => e.stopPropagation()}
-                    onChange={(e) => handleLinkRoom(room.id, e.target.value || null)}
-                  >
-                    <option value="">Vincular</option>
-                    {projectRooms.map((r) => (
-                      <option key={r.id} value={r.id}>{r.name}</option>
-                    ))}
-                  </select>
-                )}
-                {room.roomId && <span className="text-green-500 text-xs">✓</span>}
+          legendCollapsed ? (
+            <button
+              type="button"
+              onClick={() => setLegendCollapsed(false)}
+              className="absolute right-3 top-3 z-20 bg-white/95 backdrop-blur rounded-xl shadow-lg px-2 py-1.5 flex items-center gap-1 text-[11px] font-semibold text-darc-velvet/80 hover:text-darc-velvet hover:bg-white transition-colors"
+              title="Expandir cômodos"
+            >
+              <MapIcon className="w-3.5 h-3.5" />
+              <span>{floorPlan.rooms.length}</span>
+              <ChevronDown className="w-3 h-3" />
+            </button>
+          ) : (
+            <div className="absolute right-3 top-3 w-44 bg-white/95 backdrop-blur rounded-xl shadow-lg p-2 z-20 max-h-[55vh] overflow-y-auto">
+              <div className="flex items-center justify-between gap-1 mb-1.5 px-1">
+                <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                  Cômodos ({floorPlan.rooms.length})
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => setLegendCollapsed(true)}
+                  className="p-0.5 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-700"
+                  title="Recolher"
+                >
+                  <ChevronUp className="w-3.5 h-3.5" />
+                </button>
               </div>
-            ))}
-          </div>
+              {floorPlan.rooms.map((room) => (
+                <div
+                  key={room.id}
+                  className="flex items-center gap-1.5 p-1 rounded-md hover:bg-gray-50 cursor-pointer text-xs"
+                  onClick={() => setSelectedRoom(room)}
+                  onMouseEnter={() => setHoveredRoom(room.id)}
+                  onMouseLeave={() => setHoveredRoom(null)}
+                >
+                  <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: room.color }} />
+                  <span className="flex-1 truncate">{room.label}</span>
+                  {!room.roomId && (
+                    <select
+                      className="text-[10px] border rounded px-1 py-0.5 max-w-[72px]"
+                      value=""
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => handleLinkRoom(room.id, e.target.value || null)}
+                    >
+                      <option value="">Vincular</option>
+                      {projectRooms.map((r) => (
+                        <option key={r.id} value={r.id}>{r.name}</option>
+                      ))}
+                    </select>
+                  )}
+                  {room.roomId && <span className="text-green-500 text-[11px]">✓</span>}
+                </div>
+              ))}
+            </div>
+          )
         )}
 
         {/* Selected room detail */}
