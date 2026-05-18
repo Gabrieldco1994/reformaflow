@@ -159,6 +159,8 @@ export function ShoppableSimulationView({
     const seen = new Set<string>();
 
     const EXCLUDED_TIPOS = new Set(['MATERIAL_CONSTRUCAO', 'MAO_DE_OBRA']);
+    const EXCLUDED_LABELS = new Set(['Material p/ Construção', 'Mão de Obra']);
+    const isExcluded = (tipo?: string) => !!tipo && (EXCLUDED_TIPOS.has(tipo) || EXCLUDED_LABELS.has(tipo));
 
     // Despesas reais agrupadas por expenseId
     const byExpense = new Map<string, CashFlowEntry[]>();
@@ -172,14 +174,14 @@ export function ShoppableSimulationView({
       const exp = expenseById.get(expenseId);
       const first = entries[0];
       const cfg = payConfigs[expenseId];
-      const tipo = cfg?.categoria || first.categoria || exp?.tipoDespesa;
-      if (tipo && EXCLUDED_TIPOS.has(tipo)) continue;
+      // Source of truth: Expense.tipoDespesa (enum value). Fallback to cfg.categoria / cf.categoria (labels).
+      if (isExcluded(exp?.tipoDespesa) || isExcluded(cfg?.categoria) || isExcluded(first.categoria)) continue;
       const totalReal = entries.reduce((s, x) => s + x.valor, 0);
       const projValor = cfg?.valor ? Math.round(parseFloat(cfg.valor) * 100) : totalReal;
       out.push({
         id: expenseId,
         titulo: cfg?.titulo || first.titulo || exp?.titulo || first.categoria || 'Despesa',
-        categoria: cfg?.categoria || first.categoria,
+        categoria: exp?.tipoDespesa || cfg?.categoria || first.categoria,
         ambiente: cfg?.ambiente || first.ambiente || exp?.room?.name,
         valorReal: totalReal,
         valorProj: projValor,
@@ -196,7 +198,7 @@ export function ShoppableSimulationView({
     for (const [id, cfg] of Object.entries(payConfigs)) {
       if (!id.startsWith('extra_')) continue;
       if (seen.has(id)) continue;
-      if (cfg.categoria && EXCLUDED_TIPOS.has(cfg.categoria)) continue;
+      if (isExcluded(cfg.categoria)) continue;
       const valor = cfg.valor ? Math.round(parseFloat(cfg.valor) * 100) : 0;
       out.push({
         id,
