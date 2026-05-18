@@ -158,6 +158,8 @@ export function ShoppableSimulationView({
     const out: ShoppableItem[] = [];
     const seen = new Set<string>();
 
+    const EXCLUDED_TIPOS = new Set(['MATERIAL_CONSTRUCAO', 'MAO_DE_OBRA']);
+
     // Despesas reais agrupadas por expenseId
     const byExpense = new Map<string, CashFlowEntry[]>();
     for (const e of cfEntries.filter((e) => e.tipo === 'DESPESA')) {
@@ -169,8 +171,10 @@ export function ShoppableSimulationView({
     for (const [expenseId, entries] of byExpense) {
       const exp = expenseById.get(expenseId);
       const first = entries[0];
-      const totalReal = entries.reduce((s, x) => s + x.valor, 0);
       const cfg = payConfigs[expenseId];
+      const tipo = cfg?.categoria || first.categoria || exp?.tipoDespesa;
+      if (tipo && EXCLUDED_TIPOS.has(tipo)) continue;
+      const totalReal = entries.reduce((s, x) => s + x.valor, 0);
       const projValor = cfg?.valor ? Math.round(parseFloat(cfg.valor) * 100) : totalReal;
       out.push({
         id: expenseId,
@@ -192,6 +196,7 @@ export function ShoppableSimulationView({
     for (const [id, cfg] of Object.entries(payConfigs)) {
       if (!id.startsWith('extra_')) continue;
       if (seen.has(id)) continue;
+      if (cfg.categoria && EXCLUDED_TIPOS.has(cfg.categoria)) continue;
       const valor = cfg.valor ? Math.round(parseFloat(cfg.valor) * 100) : 0;
       out.push({
         id,
@@ -265,7 +270,7 @@ export function ShoppableSimulationView({
               className="border rounded px-2 py-1.5 text-sm bg-white"
             >
               <option value="">Tipo de despesa...</option>
-              {TIPO_DESPESA_OPTIONS.map((o) => (<option key={o.value} value={o.value}>{o.label}</option>))}
+              {TIPO_DESPESA_OPTIONS.filter((o) => o.value !== 'MATERIAL_CONSTRUCAO' && o.value !== 'MAO_DE_OBRA').map((o) => (<option key={o.value} value={o.value}>{o.label}</option>))}
             </select>
             {draft.categoria === 'MAO_DE_OBRA' && (
               <select

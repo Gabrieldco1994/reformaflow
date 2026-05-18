@@ -336,7 +336,7 @@ export default function SimulationPage() {
 
       {/* Mode toggle */}
       <div className="inline-flex rounded-md border border-gray-300 text-xs overflow-hidden">
-        {(['simulacao', 'comparar', 'compraveis'] as SimMode[]).map((mode) => (
+        {(['simulacao', 'compraveis', 'comparar'] as SimMode[]).map((mode) => (
           <button
             key={mode}
             onClick={() => {
@@ -350,7 +350,7 @@ export default function SimulationPage() {
               simMode === mode ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
             }`}
           >
-            {{ simulacao: 'Simulação', comparar: 'Comparar Cenários', compraveis: 'Compráveis Simulados' }[mode]}
+            {{ simulacao: 'Simulação', compraveis: 'Compráveis Simulados', comparar: 'Comparar Cenários' }[mode]}
           </button>
         ))}
       </div>
