@@ -276,20 +276,38 @@ export class SimulationService {
     await this.validateProject(tenantId, projectId);
     await this.validateScenario(tenantId, projectId, scenarioId);
 
-    const ops = Object.entries(values).map(([key, valor]) => {
-      if (!valor || valor.trim() === '') {
-        return this.prisma.simulationValue.deleteMany({
-          where: { projectId, tenantId, simulationId: scenarioId, key },
-        });
+    // Build the list of (key, valor) to upsert. Empty strings are treated as deletes.
+    const upserts: Array<{ key: string; valor: string }> = [];
+    for (const [key, valor] of Object.entries(values)) {
+      if (valor && valor.trim() !== '') {
+        upserts.push({ key, valor });
       }
-      return this.prisma.simulationValue.upsert({
-        where: { simulationId_projectId_tenantId_key: { simulationId: scenarioId, projectId, tenantId, key } },
-        update: { valor },
-        create: { projectId, tenantId, simulationId: scenarioId, key, valor },
-      });
+    }
+    const keysToKeep = upserts.map((u) => u.key);
+
+    // Replace semantics: delete any stale key from this scenario that is NOT in the new payload.
+    // This is required so that "uncheck exclude", "clear projected value", "remove tipo override", etc.
+    // actually persist (frontend omits empty/cleared keys from the payload).
+    await this.prisma.simulationValue.deleteMany({
+      where: {
+        projectId,
+        tenantId,
+        simulationId: scenarioId,
+        ...(keysToKeep.length > 0 ? { key: { notIn: keysToKeep } } : {}),
+      },
     });
 
-    await Promise.all(ops);
+    // Upsert the remaining keys.
+    await Promise.all(
+      upserts.map((u) =>
+        this.prisma.simulationValue.upsert({
+          where: { simulationId_projectId_tenantId_key: { simulationId: scenarioId, projectId, tenantId, key: u.key } },
+          update: { valor: u.valor },
+          create: { projectId, tenantId, simulationId: scenarioId, key: u.key, valor: u.valor },
+        }),
+      ),
+    );
+
     return { ok: true };
   }
 
