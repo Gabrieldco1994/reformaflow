@@ -148,15 +148,18 @@ export class FloorPlanService {
 
   async updateRoom(
     roomMarkerId: string,
+    tenantId: string,
     data: { label?: string; bounds?: string; color?: string; roomId?: string | null },
   ) {
+    await this.assertRoomMarkerTenant(roomMarkerId, tenantId);
     return this.prisma.floorPlanRoom.update({
       where: { id: roomMarkerId },
       data,
     });
   }
 
-  async deleteRoom(roomMarkerId: string) {
+  async deleteRoom(roomMarkerId: string, tenantId: string) {
+    await this.assertRoomMarkerTenant(roomMarkerId, tenantId);
     return this.prisma.floorPlanRoom.delete({
       where: { id: roomMarkerId },
     });
@@ -164,8 +167,10 @@ export class FloorPlanService {
 
   async createRoom(
     floorPlanId: string,
+    tenantId: string,
     data: { label: string; bounds: string; color?: string; roomId?: string },
   ) {
+    await this.assertFloorPlanTenant(floorPlanId, tenantId);
     return this.prisma.floorPlanRoom.create({
       data: { floorPlanId, ...data },
     });
@@ -193,7 +198,35 @@ export class FloorPlanService {
     if (!fp) throw new NotFoundException('Floor plan not found');
     const patch: { name?: string; cropBounds?: string | null } = {};
     if (typeof data.name === 'string') patch.name = data.name;
-    if ('cropBounds' in data) patch.cropBounds = data.cropBounds ?? null;
+    if ('cropBounds' in data) {
+      const raw = data.cropBounds;
+      if (raw === null || raw === undefined || raw === '') {
+        patch.cropBounds = null;
+      } else {
+        let parsed: { x: number; y: number; width: number; height: number };
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          throw new BadRequestException('cropBounds inválido (JSON malformado)');
+        }
+        const nums = [parsed.x, parsed.y, parsed.width, parsed.height];
+        if (nums.some((n) => typeof n !== 'number' || !Number.isFinite(n))) {
+          throw new BadRequestException('cropBounds inválido (x/y/width/height precisam ser números finitos)');
+        }
+        if (parsed.x < 0 || parsed.x > 100 || parsed.y < 0 || parsed.y > 100) {
+          throw new BadRequestException('cropBounds fora dos limites (x/y devem estar entre 0 e 100)');
+        }
+        if (parsed.width <= 0 || parsed.width > 100 || parsed.height <= 0 || parsed.height > 100) {
+          throw new BadRequestException('cropBounds fora dos limites (width/height devem estar entre 0 e 100, exclusivo)');
+        }
+        if (parsed.x + parsed.width > 100.01 || parsed.y + parsed.height > 100.01) {
+          throw new BadRequestException('cropBounds excede 100% (x+width ou y+height)');
+        }
+        patch.cropBounds = JSON.stringify({
+          x: parsed.x, y: parsed.y, width: parsed.width, height: parsed.height,
+        });
+      }
+    }
     return this.prisma.floorPlan.update({ where: { id }, data: patch });
   }
 
@@ -228,6 +261,7 @@ export class FloorPlanService {
   // Room images
   async addRoomImage(
     roomId: string,
+    tenantId: string,
     file: { buffer: Buffer; originalname: string; mimetype?: string; size?: number } | undefined,
     caption?: string,
   ) {
@@ -238,7 +272,7 @@ export class FloorPlanService {
       this.logger.warn(`addRoomImage: arquivo não enviado (roomId=${roomId})`);
       throw new BadRequestException('Arquivo não enviado (campo "file" obrigatório)');
     }
-    const room = await this.prisma.room.findUnique({ where: { id: roomId } });
+    const room = await this.prisma.room.findFirst({ where: { id: roomId, deletedAt: null, project: { tenantId } } });
     if (!room) {
       this.logger.warn(`addRoomImage: room não encontrado (roomId=${roomId})`);
       throw new NotFoundException(`Ambiente ${roomId} não encontrado`);
@@ -268,29 +302,65 @@ export class FloorPlanService {
     }
   }
 
-  async getRoomImages(roomId: string) {
+  async getRoomImages(roomId: string, tenantId: string) {
+    const room = await this.prisma.room.findFirst({ where: { id: roomId, deletedAt: null, project: { tenantId } } });
+    if (!room) throw new NotFoundException(`Ambiente ${roomId} não encontrado`);
     return this.prisma.roomImage.findMany({
       where: { roomId },
       orderBy: { order: 'asc' },
     });
   }
 
-  async deleteRoomImage(id: string) {
+  async deleteRoomImage(id: string, tenantId: string) {
+    const img = await this.prisma.roomImage.findFirst({
+      where: { id },
+      include: { room: { include: { project: { select: { tenantId: true } } } } },
+    });
+    if (!img || img.room?.project?.tenantId !== tenantId) {
+      throw new NotFoundException('Imagem não encontrada');
+    }
     return this.prisma.roomImage.delete({ where: { id } });
   }
 
   // ─── Markers (Raio-X) ─────────────────────────────────────
   async createMarker(
     floorPlanId: string,
+    tenantId: string,
     data: { expenseId: string; bounds: string },
   ) {
+    await this.assertFloorPlanTenant(floorPlanId, tenantId);
     return this.prisma.floorPlanMarker.create({
       data: { floorPlanId, ...data },
       include: { expense: true },
     });
   }
 
-  async deleteMarker(markerId: string) {
+  async deleteMarker(markerId: string, tenantId: string) {
+    const marker = await this.prisma.floorPlanMarker.findFirst({
+      where: { id: markerId },
+      include: { floorPlan: { select: { tenantId: true, deletedAt: true } } },
+    });
+    if (!marker || marker.floorPlan?.tenantId !== tenantId || marker.floorPlan?.deletedAt) {
+      throw new NotFoundException('Marker não encontrado');
+    }
     return this.prisma.floorPlanMarker.delete({ where: { id: markerId } });
+  }
+
+  private async assertFloorPlanTenant(floorPlanId: string, tenantId: string) {
+    const fp = await this.prisma.floorPlan.findFirst({
+      where: { id: floorPlanId, tenantId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!fp) throw new NotFoundException('Floor plan not found');
+  }
+
+  private async assertRoomMarkerTenant(roomMarkerId: string, tenantId: string) {
+    const marker = await this.prisma.floorPlanRoom.findFirst({
+      where: { id: roomMarkerId },
+      include: { floorPlan: { select: { tenantId: true, deletedAt: true } } },
+    });
+    if (!marker || marker.floorPlan?.tenantId !== tenantId || marker.floorPlan?.deletedAt) {
+      throw new NotFoundException('Room marker not found');
+    }
   }
 }

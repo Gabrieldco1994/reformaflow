@@ -72,11 +72,12 @@ export function GuidedPlanModal({
   const [hoveredMarker, setHoveredMarker] = useState<string | null>(null);
   const [hoveredRoomId, setHoveredRoomId] = useState<string | null>(null);
 
-  const plan = floorPlans[selectedIdx];
+  const safeIdx = selectedIdx >= floorPlans.length ? 0 : selectedIdx;
+  const plan = floorPlans[safeIdx];
 
   useEffect(() => {
-    if (selectedIdx >= floorPlans.length) setSelectedIdx(0);
-  }, [floorPlans.length, selectedIdx]);
+    if (selectedIdx !== safeIdx) setSelectedIdx(safeIdx);
+  }, [selectedIdx, safeIdx]);
 
   useEffect(() => {
     try {
@@ -132,18 +133,24 @@ export function GuidedPlanModal({
   );
 
   const goPrev = useCallback(() => {
-    if (navRooms.length === 0) return;
-    if (!activeRoom) { setActiveRoomId(navRooms[0].id); return; }
-    const i = navRooms.findIndex((r) => r.id === activeRoom.id);
-    setActiveRoomId(navRooms[(i - 1 + navRooms.length) % navRooms.length].id);
-  }, [navRooms, activeRoom]);
+    setActiveRoomId((current) => {
+      if (navRooms.length === 0) return current;
+      if (!current) return navRooms[0].id;
+      const i = navRooms.findIndex((r) => r.id === current);
+      if (i < 0) return navRooms[0].id;
+      return navRooms[(i - 1 + navRooms.length) % navRooms.length].id;
+    });
+  }, [navRooms]);
 
   const goNext = useCallback(() => {
-    if (navRooms.length === 0) return;
-    if (!activeRoom) { setActiveRoomId(navRooms[0].id); return; }
-    const i = navRooms.findIndex((r) => r.id === activeRoom.id);
-    setActiveRoomId(navRooms[(i + 1) % navRooms.length].id);
-  }, [navRooms, activeRoom]);
+    setActiveRoomId((current) => {
+      if (navRooms.length === 0) return current;
+      if (!current) return navRooms[0].id;
+      const i = navRooms.findIndex((r) => r.id === current);
+      if (i < 0) return navRooms[0].id;
+      return navRooms[(i + 1) % navRooms.length].id;
+    });
+  }, [navRooms]);
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {

@@ -77,23 +77,28 @@ export class FloorPlanController {
   @Post(':id/rooms')
   async createRoom(
     @Param('id') floorPlanId: string,
+    @CurrentTenant() tenantId: string,
     @Body() body: { label: string; bounds: string; color?: string; roomId?: string },
   ) {
-    return this.service.createRoom(floorPlanId, body);
+    return this.service.createRoom(floorPlanId, tenantId, body);
   }
 
   @Patch('rooms/:roomMarkerId')
   async updateRoom(
     @Param('roomMarkerId') roomMarkerId: string,
+    @CurrentTenant() tenantId: string,
     @Body()
     body: { label?: string; bounds?: string; color?: string; roomId?: string | null },
   ) {
-    return this.service.updateRoom(roomMarkerId, body);
+    return this.service.updateRoom(roomMarkerId, tenantId, body);
   }
 
   @Delete('rooms/:roomMarkerId')
-  async deleteRoom(@Param('roomMarkerId') roomMarkerId: string) {
-    return this.service.deleteRoom(roomMarkerId);
+  async deleteRoom(
+    @Param('roomMarkerId') roomMarkerId: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.service.deleteRoom(roomMarkerId, tenantId);
   }
 
   // Room images
@@ -101,33 +106,44 @@ export class FloorPlanController {
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 15 * 1024 * 1024 } }))
   async addRoomImage(
     @Param('roomId') roomId: string,
+    @CurrentTenant() tenantId: string,
     @UploadedFile() file: Express.Multer.File,
     @Body('caption') caption?: string,
   ) {
-    return this.service.addRoomImage(roomId, file, caption);
+    return this.service.addRoomImage(roomId, tenantId, file, caption);
   }
 
   @Get('room-images/:roomId')
-  async getRoomImages(@Param('roomId') roomId: string) {
-    return this.service.getRoomImages(roomId);
+  async getRoomImages(
+    @Param('roomId') roomId: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.service.getRoomImages(roomId, tenantId);
   }
 
   @Delete('room-images/image/:imageId')
-  async deleteRoomImage(@Param('imageId') imageId: string) {
-    return this.service.deleteRoomImage(imageId);
+  async deleteRoomImage(
+    @Param('imageId') imageId: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.service.deleteRoomImage(imageId, tenantId);
   }
 
   // Markers (Raio-X)
   @Post(':id/markers')
   async createMarker(
     @Param('id') floorPlanId: string,
+    @CurrentTenant() tenantId: string,
     @Body() body: { expenseId: string; bounds: string },
   ) {
-    return this.service.createMarker(floorPlanId, body);
+    return this.service.createMarker(floorPlanId, tenantId, body);
   }
 
   @Delete('markers/:markerId')
-  async deleteMarker(@Param('markerId') markerId: string) {
-    return this.service.deleteMarker(markerId);
+  async deleteMarker(
+    @Param('markerId') markerId: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.service.deleteMarker(markerId, tenantId);
   }
 }

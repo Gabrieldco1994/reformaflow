@@ -285,30 +285,30 @@ export class SimulationService {
     }
     const keysToKeep = upserts.map((u) => u.key);
 
-    // Replace semantics: delete any stale key from this scenario that is NOT in the new payload.
-    // This is required so that "uncheck exclude", "clear projected value", "remove tipo override", etc.
-    // actually persist (frontend omits empty/cleared keys from the payload).
-    await this.prisma.simulationValue.deleteMany({
-      where: {
-        projectId,
-        tenantId,
-        simulationId: scenarioId,
-        ...(keysToKeep.length > 0 ? { key: { notIn: keysToKeep } } : {}),
-      },
-    });
+    // Atomic replace: delete stale keys + upsert new ones inside a single transaction
+    // so concurrent saveValues calls (e.g. two tabs editing the same scenario) can't
+    // interleave delete + upsert and corrupt state. SQLite serializes writes, so we
+    // also run upserts sequentially to avoid contention.
+    return this.prisma.$transaction(async (tx) => {
+      await tx.simulationValue.deleteMany({
+        where: {
+          projectId,
+          tenantId,
+          simulationId: scenarioId,
+          ...(keysToKeep.length > 0 ? { key: { notIn: keysToKeep } } : {}),
+        },
+      });
 
-    // Upsert the remaining keys.
-    await Promise.all(
-      upserts.map((u) =>
-        this.prisma.simulationValue.upsert({
+      for (const u of upserts) {
+        await tx.simulationValue.upsert({
           where: { simulationId_projectId_tenantId_key: { simulationId: scenarioId, projectId, tenantId, key: u.key } },
           update: { valor: u.valor },
           create: { projectId, tenantId, simulationId: scenarioId, key: u.key, valor: u.valor },
-        }),
-      ),
-    );
+        });
+      }
 
-    return { ok: true };
+      return { ok: true };
+    });
   }
 
   private async validateProject(tenantId: string, projectId: string) {

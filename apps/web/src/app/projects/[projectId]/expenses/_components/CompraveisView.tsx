@@ -136,15 +136,20 @@ export function CompráveisView({ expenses, tipoLabel }: { expenses: Expense[]; 
     setSortBy('custom');
   }, [groupedRooms, cardOrder, saveOrder]);
 
+  const expensesRef = useRef(expenses);
+  useEffect(() => {
+    expensesRef.current = expenses;
+  });
+
   const focusExpense = useCallback((expenseId: string) => {
-    const exp = expenses.find((e) => e.id === expenseId);
+    const exp = expensesRef.current.find((e) => e.id === expenseId);
     if (exp?.room?.name) setFilterAmbiente(exp.room.name);
     setFocusedExpenseId(expenseId);
     setTimeout(() => {
       const el = cardRefs.current[expenseId];
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, 50);
-  }, [expenses]);
+  }, []);
 
   useEffect(() => {
     if (!focusedExpenseId) return;
