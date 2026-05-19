@@ -33,6 +33,49 @@ export function CompráveisView({ expenses, tipoLabel }: { expenses: Expense[]; 
   const [focusedExpenseId, setFocusedExpenseId] = useState<string | null>(null);
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
+  // ─── Split vertical redimensionável (mapa em cima / lista embaixo) ─────────
+  const [mapPct, setMapPct] = useState<number>(60);
+  const dragHandleRef = useRef<HTMLDivElement | null>(null);
+  const splitDraggingRef = useRef(false);
+
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem('compraveis-mappct');
+      if (v) {
+        const n = Number(v);
+        if (Number.isFinite(n) && n >= 20 && n <= 85) setMapPct(n);
+      }
+    } catch {}
+  }, []);
+
+  const onSplitDown = useCallback((ev: React.MouseEvent) => {
+    ev.preventDefault();
+    splitDraggingRef.current = true;
+    document.body.style.userSelect = 'none';
+    const move = (e: MouseEvent) => {
+      if (!splitDraggingRef.current) return;
+      const container = dragHandleRef.current?.parentElement;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const rel = ((e.clientY - rect.top) / rect.height) * 100;
+      const next = Math.max(20, Math.min(85, rel));
+      setMapPct(next);
+    };
+    const up = () => {
+      splitDraggingRef.current = false;
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      try { localStorage.setItem('compraveis-mappct', String(mapPct)); } catch {}
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  }, [mapPct]);
+
+  useEffect(() => {
+    try { localStorage.setItem('compraveis-mappct', String(mapPct)); } catch {}
+  }, [mapPct]);
+
   // Load saved order from localStorage
   useEffect(() => {
     try {
@@ -226,10 +269,9 @@ export function CompráveisView({ expenses, tipoLabel }: { expenses: Expense[]; 
         </div>
       </div>
 
-      {/* Layout: mapa + itens lado a lado em desktop, stack em mobile */}
-      <div className="lg:grid lg:grid-cols-[minmax(0,38%)_1fr] lg:gap-4 lg:h-[calc(100vh-220px)] space-y-4 lg:space-y-0">
-        {/* Coluna esquerda — mapa (sticky-like via height fixed) */}
-        <div className="lg:h-full lg:min-h-0">
+      {/* Layout split vertical: mapa em cima (redimensionável) + lista embaixo */}
+      <div className="hidden lg:flex lg:flex-col lg:h-[calc(100vh-150px)]">
+        <div style={{ flexBasis: `${mapPct}%`, minHeight: 0 }} className="flex flex-col">
           <CompraveisFloorPlanPanel
             filterAmbiente={filterAmbiente}
             onFilterAmbiente={setFilterAmbiente}
@@ -237,49 +279,111 @@ export function CompráveisView({ expenses, tipoLabel }: { expenses: Expense[]; 
             expenses={expenses}
           />
         </div>
-
-        {/* Coluna direita — lista de itens com scroll interno */}
-        <div className="lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pr-1">
-          {compraveis.length === 0 ? (
-            <div className="text-center py-16 text-gray-400">
-              <ShoppingCart className="w-12 h-12 mx-auto mb-3 opacity-30" />
-              <p className="text-sm">Nenhum item comprável encontrado</p>
-              <p className="text-xs mt-1">Despesas com link e ambiente preenchidos (exceto Material de Construção) aparecerão aqui</p>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              {groupedRooms.map(({ roomName, items }) => (
-                <div key={roomName}>
-                  <div className="flex items-center gap-2 mb-3 sticky top-0 bg-white/85 backdrop-blur-sm py-1 z-10 -mx-1 px-1 rounded">
-                    <h3 className="text-sm font-bold text-gray-700">🏠 {roomName}</h3>
-                    <span className="text-[10px] bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full">{items.length} {items.length === 1 ? 'item' : 'itens'}</span>
-                    <span className="text-[10px] text-gray-500 ml-auto font-medium">{formatCurrency(items.reduce((s, e) => s + e.valorTotal, 0) / 100)}</span>
-                  </div>
-                  <DndContext
-                    sensors={sensors}
-                    collisionDetection={closestCenter}
-                    onDragEnd={handleDragEnd(roomName)}
-                  >
-                    <SortableContext items={items.map((e) => e.id)} strategy={rectSortingStrategy}>
-                      <div className={`grid grid-cols-1 sm:grid-cols-2 ${colsPerRow === 4 ? 'lg:grid-cols-3 xl:grid-cols-4' : colsPerRow === 2 ? 'lg:grid-cols-2' : 'lg:grid-cols-2 xl:grid-cols-3'} gap-2 sm:gap-3`}>
-                        {items.map((expense) => (
-                          <div
-                            key={expense.id}
-                            ref={(el) => { cardRefs.current[expense.id] = el; }}
-                            className={focusedExpenseId === expense.id ? 'ring-4 ring-orange-400 rounded-xl transition-all' : ''}
-                          >
-                            <SortableCard expense={expense} tipoLabel={tipoLabel} />
-                          </div>
-                        ))}
-                      </div>
-                    </SortableContext>
-                  </DndContext>
-                </div>
-              ))}
-            </div>
-          )}
+        {/* Divisor arrastável */}
+        <div
+          ref={dragHandleRef}
+          onMouseDown={onSplitDown}
+          onDoubleClick={() => setMapPct(60)}
+          className="h-2 my-1 cursor-row-resize bg-gray-100 hover:bg-orange-200 transition-colors rounded-full flex items-center justify-center shrink-0 group"
+          title="Arraste para redimensionar (dois cliques = reset)"
+        >
+          <div className="w-12 h-0.5 bg-gray-300 group-hover:bg-orange-500 rounded-full" />
+        </div>
+        <div style={{ flexBasis: `${100 - mapPct}%`, minHeight: 0 }} className="overflow-y-auto pr-1 flex-1">
+          <CompraveisList
+            compraveis={compraveis}
+            groupedRooms={groupedRooms}
+            handleDragEnd={handleDragEnd}
+            sensors={sensors}
+            cardRefs={cardRefs}
+            focusedExpenseId={focusedExpenseId}
+            tipoLabel={tipoLabel}
+            colsPerRow={colsPerRow}
+          />
         </div>
       </div>
+
+      {/* Mobile: stack vertical natural */}
+      <div className="lg:hidden space-y-4">
+        <CompraveisFloorPlanPanel
+          filterAmbiente={filterAmbiente}
+          onFilterAmbiente={setFilterAmbiente}
+          onFocusExpense={focusExpense}
+          expenses={expenses}
+        />
+        <CompraveisList
+          compraveis={compraveis}
+          groupedRooms={groupedRooms}
+          handleDragEnd={handleDragEnd}
+          sensors={sensors}
+          cardRefs={cardRefs}
+          focusedExpenseId={focusedExpenseId}
+          tipoLabel={tipoLabel}
+          colsPerRow={colsPerRow}
+        />
+      </div>
+    </div>
+  );
+}
+
+function CompraveisList({
+  compraveis,
+  groupedRooms,
+  handleDragEnd,
+  sensors,
+  cardRefs,
+  focusedExpenseId,
+  tipoLabel,
+  colsPerRow,
+}: {
+  compraveis: Expense[];
+  groupedRooms: { roomName: string; items: Expense[] }[];
+  handleDragEnd: (room: string) => (e: DragEndEvent) => void;
+  sensors: ReturnType<typeof useSensors>;
+  cardRefs: React.MutableRefObject<Record<string, HTMLDivElement | null>>;
+  focusedExpenseId: string | null;
+  tipoLabel: (t: string) => string;
+  colsPerRow: 2 | 3 | 4;
+}) {
+  if (compraveis.length === 0) {
+    return (
+      <div className="text-center py-16 text-gray-400">
+        <ShoppingCart className="w-12 h-12 mx-auto mb-3 opacity-30" />
+        <p className="text-sm">Nenhum item comprável encontrado</p>
+        <p className="text-xs mt-1">Despesas com link e ambiente preenchidos (exceto Material de Construção) aparecerão aqui</p>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-6">
+      {groupedRooms.map(({ roomName, items }) => (
+        <div key={roomName}>
+          <div className="flex items-center gap-2 mb-3 sticky top-0 bg-white/85 backdrop-blur-sm py-1 z-10 -mx-1 px-1 rounded">
+            <h3 className="text-sm font-bold text-gray-700">🏠 {roomName}</h3>
+            <span className="text-[10px] bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full">{items.length} {items.length === 1 ? 'item' : 'itens'}</span>
+            <span className="text-[10px] text-gray-500 ml-auto font-medium">{formatCurrency(items.reduce((s, e) => s + e.valorTotal, 0) / 100)}</span>
+          </div>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd(roomName)}
+          >
+            <SortableContext items={items.map((e) => e.id)} strategy={rectSortingStrategy}>
+              <div className={`grid grid-cols-2 sm:grid-cols-2 ${colsPerRow === 4 ? 'lg:grid-cols-4' : colsPerRow === 2 ? 'lg:grid-cols-2' : 'lg:grid-cols-3'} gap-2 sm:gap-4`}>
+                {items.map((expense) => (
+                  <div
+                    key={expense.id}
+                    ref={(el) => { cardRefs.current[expense.id] = el; }}
+                    className={focusedExpenseId === expense.id ? 'ring-4 ring-orange-400 rounded-xl transition-all' : ''}
+                  >
+                    <SortableCard expense={expense} tipoLabel={tipoLabel} />
+                  </div>
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
+        </div>
+      ))}
     </div>
   );
 }
