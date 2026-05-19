@@ -7,6 +7,9 @@ import { api } from '@/lib/api';
 import { useProject } from '@/contexts/project-context';
 import { formatCurrency } from '@/lib/utils';
 
+import type { Expense } from '@/types';
+import { LinkPreviewImage } from './LinkPreviewImage';
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 interface FloorPlanRoom {
@@ -37,6 +40,7 @@ interface FloorPlan {
   id: string;
   name: string;
   imageUrl: string;
+  cropBounds?: string | null;
   rooms: FloorPlanRoom[];
   markers?: FloorPlanMarker[];
 }
@@ -52,10 +56,12 @@ export function CompraveisFloorPlanPanel({
   filterAmbiente,
   onFilterAmbiente,
   onFocusExpense,
+  expenses = [],
 }: {
   filterAmbiente: string | null;
   onFilterAmbiente: (name: string | null) => void;
   onFocusExpense: (expenseId: string) => void;
+  expenses?: Expense[];
 }) {
   const { projectId: PROJECT_ID } = useProject();
   const { data: floorPlans = [] } = useQuery<FloorPlan[]>({
@@ -66,9 +72,26 @@ export function CompraveisFloorPlanPanel({
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [removeWhiteBg, setRemoveWhiteBg] = useState(true);
   const [hoveredMarker, setHoveredMarker] = useState<string | null>(null);
+  const [hoveredRoomId, setHoveredRoomId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
 
   const plan = floorPlans[selectedIdx];
+
+  // Agrupa expenses por nome do ambiente, calculando totais e amostra de imagens
+  const expensesByAmbiente = useMemo(() => {
+    const map = new Map<string, { items: Expense[]; pago: number; planejado: number }>();
+    for (const e of expenses) {
+      const name = e.room?.name;
+      if (!name || !e.link) continue;
+      if (e.tipoDespesa === 'MAO_DE_OBRA' || e.tipoDespesa === 'MATERIAL_CONSTRUCAO') continue;
+      let agg = map.get(name);
+      if (!agg) { agg = { items: [], pago: 0, planejado: 0 }; map.set(name, agg); }
+      agg.items.push(e);
+      if (e.status === 'PAGO') agg.pago += e.valorTotal;
+      else agg.planejado += e.valorTotal;
+    }
+    return map;
+  }, [expenses]);
 
   useEffect(() => {
     if (selectedIdx >= floorPlans.length) setSelectedIdx(0);
@@ -168,21 +191,39 @@ export function CompraveisFloorPlanPanel({
     return () => window.removeEventListener('keydown', h);
   }, [goPrev, goNext, activeRoom, collapsed, setActive]);
 
-  // Zoom transform pro cômodo ativo
+  // Zoom transform — combina crop salvo + zoom no cômodo ativo
+  const cropBounds = useMemo<Bounds | null>(() => {
+    if (!plan?.cropBounds) return null;
+    try { return JSON.parse(plan.cropBounds) as Bounds; } catch { return null; }
+  }, [plan?.cropBounds]);
+
   const zoomStyle = useMemo<React.CSSProperties>(() => {
-    if (!activeRoom) return { transform: 'scale(1)', transformOrigin: '50% 50%', transition: 'transform 700ms cubic-bezier(.22,1,.36,1)' };
-    const b = activeRoom._bounds;
-    const cx = b.x + (b.width ?? 0) / 2;
-    const cy = b.y + (b.height ?? 0) / 2;
-    const targetSize = 60;
-    const roomMax = Math.max(b.width ?? 30, b.height ?? 30);
-    const zoom = Math.min(2.4, Math.max(1.4, targetSize / roomMax));
-    return {
-      transform: `scale(${zoom})`,
-      transformOrigin: `${cx}% ${cy}%`,
-      transition: 'transform 700ms cubic-bezier(.22,1,.36,1)',
-    };
-  }, [activeRoom]);
+    const transition = 'transform 700ms cubic-bezier(.22,1,.36,1)';
+    if (activeRoom) {
+      const b = activeRoom._bounds;
+      const cx = b.x + (b.width ?? 0) / 2;
+      const cy = b.y + (b.height ?? 0) / 2;
+      const targetSize = 60;
+      const roomMax = Math.max(b.width ?? 30, b.height ?? 30);
+      const zoom = Math.min(2.4, Math.max(1.4, targetSize / roomMax));
+      return {
+        transform: `scale(${zoom})`,
+        transformOrigin: `${cx}% ${cy}%`,
+        transition,
+      };
+    }
+    if (cropBounds && cropBounds.width && cropBounds.height) {
+      const cx = cropBounds.x + cropBounds.width / 2;
+      const cy = cropBounds.y + cropBounds.height / 2;
+      const s = Math.min(100 / cropBounds.width, 100 / cropBounds.height);
+      return {
+        transform: `scale(${s})`,
+        transformOrigin: `${cx}% ${cy}%`,
+        transition,
+      };
+    }
+    return { transform: 'scale(1)', transformOrigin: '50% 50%', transition };
+  }, [activeRoom, cropBounds]);
 
   if (floorPlans.length === 0) return null;
 
@@ -302,6 +343,9 @@ export function CompraveisFloorPlanPanel({
                 const sameName = filterAmbiente && room.room?.name === filterAmbiente;
                 const isActive = activeRoom?.id === room.id;
                 const isHighlighted = filterAmbiente ? sameName : true;
+                const isHover = hoveredRoomId === room.id;
+                const agg = room.room?.name ? expensesByAmbiente.get(room.room.name) : null;
+                const tipCount = agg?.items.length ?? 0;
                 return (
                   <div key={room.id}>
                     <button
@@ -309,6 +353,8 @@ export function CompraveisFloorPlanPanel({
                         if (isActive) setActive(null);
                         else setActive(room);
                       }}
+                      onMouseEnter={() => setHoveredRoomId(room.id)}
+                      onMouseLeave={() => setHoveredRoomId((id) => (id === room.id ? null : id))}
                       disabled={!room.room?.name}
                       className="absolute border-2 transition-all"
                       style={{
@@ -317,7 +363,7 @@ export function CompraveisFloorPlanPanel({
                         width: `${room._bounds.width ?? 0}%`,
                         height: `${room._bounds.height ?? 0}%`,
                         borderColor: room.color,
-                        backgroundColor: `${room.color}${isActive ? '40' : sameName ? '25' : '15'}`,
+                        backgroundColor: `${room.color}${isActive ? '40' : sameName ? '25' : isHover ? '30' : '15'}`,
                         opacity: isHighlighted ? 1 : 0.25,
                         boxShadow: isActive ? `0 0 0 2px ${room.color}, 0 4px 12px rgba(0,0,0,.15)` : undefined,
                         cursor: room.room?.name ? 'pointer' : 'default',
@@ -329,8 +375,65 @@ export function CompraveisFloorPlanPanel({
                         style={{ backgroundColor: room.color }}
                       >
                         {room.room?.name ?? room.label}
+                        {tipCount > 0 && (
+                          <span className="ml-1 bg-white/30 px-1 rounded">{tipCount}</span>
+                        )}
                       </span>
                     </button>
+
+                    {/* Tooltip por hover do cômodo: imagens + totais pago/previsto */}
+                    {isHover && agg && agg.items.length > 0 && (() => {
+                      const cb = room._bounds;
+                      const cx = cb.x + (cb.width ?? 0) / 2;
+                      const placeTop = cb.y > 50;
+                      const sample = agg.items.slice(0, 6);
+                      const total = agg.pago + agg.planejado;
+                      return (
+                        <div
+                          className="absolute z-30 pointer-events-none rounded-lg bg-white shadow-xl overflow-hidden w-[220px] border border-orange-200"
+                          style={{
+                            left: `${cx}%`,
+                            transform: 'translateX(-50%)',
+                            ...(placeTop
+                              ? { top: `${cb.y - 1}%`, transformOrigin: 'center bottom' }
+                              : { top: `${cb.y + (cb.height ?? 0) + 1}%`, transformOrigin: 'center top' }),
+                            transition: 'opacity 120ms',
+                          }}
+                        >
+                          <div className="px-2.5 py-1.5 bg-gradient-to-r from-orange-50 to-amber-50 border-b border-orange-100">
+                            <p className="text-[11px] font-bold text-gray-800">{room.room?.name}</p>
+                            <p className="text-[9px] text-gray-500">{agg.items.length} {agg.items.length === 1 ? 'item' : 'itens'}</p>
+                          </div>
+                          <div className="px-2.5 py-1.5 grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px]">
+                            <span className="text-gray-500">Pago</span>
+                            <span className="text-emerald-700 font-semibold text-right">{formatCurrency(agg.pago / 100)}</span>
+                            <span className="text-gray-500">Previsto</span>
+                            <span className="text-orange-700 font-semibold text-right">{formatCurrency(agg.planejado / 100)}</span>
+                            <span className="text-gray-700 font-semibold border-t border-gray-100 pt-0.5">Total</span>
+                            <span className="text-gray-900 font-bold text-right border-t border-gray-100 pt-0.5">{formatCurrency(total / 100)}</span>
+                          </div>
+                          {sample.length > 0 && (
+                            <div className="px-2 pb-2 pt-1 flex gap-1 flex-wrap">
+                              {sample.map((e) => (
+                                <div key={e.id} className="w-12 h-12 bg-gray-50 rounded border border-gray-100 overflow-hidden flex items-center justify-center">
+                                  <LinkPreviewImage
+                                    imageUrl={e.imageUrl ?? null}
+                                    link={e.link ?? null}
+                                    alt={e.titulo ?? ''}
+                                    className="max-w-full max-h-full object-contain"
+                                  />
+                                </div>
+                              ))}
+                              {agg.items.length > sample.length && (
+                                <div className="w-12 h-12 bg-orange-50 rounded text-[10px] font-bold text-orange-600 flex items-center justify-center">
+                                  +{agg.items.length - sample.length}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })}
@@ -383,11 +486,14 @@ export function CompraveisFloorPlanPanel({
                           ...(cy > 60 ? { bottom: 'calc(100% + 6px)' } : { top: 'calc(100% + 6px)' }),
                         }}
                       >
-                        {e.imageUrl && (
-                          <div className="h-14 bg-gray-50 overflow-hidden flex items-center justify-center">
-                            <img src={e.imageUrl} alt={e.titulo ?? ''} className="h-full w-full object-contain" />
-                          </div>
-                        )}
+                        <div className="h-14 bg-gray-50 overflow-hidden flex items-center justify-center">
+                          <LinkPreviewImage
+                            imageUrl={e.imageUrl}
+                            link={e.link}
+                            alt={e.titulo ?? ''}
+                            className="h-full w-full object-contain"
+                          />
+                        </div>
                         <div className="px-2 py-1.5">
                           <p className="text-[10px] font-bold text-gray-800 line-clamp-2 leading-tight">
                             {e.titulo ?? 'Sem título'}

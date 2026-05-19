@@ -27,6 +27,7 @@ import {
   ShoppingBag,
   Search,
   MapPin,
+  Crop,
 } from 'lucide-react';
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 
@@ -221,6 +222,7 @@ interface FloorPlan {
   id: string;
   name: string;
   imageUrl: string;
+  cropBounds?: string | null;
   rooms: FloorPlanRoom[];
   markers?: FloorPlanMarker[];
   createdAt: string;
@@ -1134,6 +1136,15 @@ function FloorPlanViewer({
   const [pendingMarkerBounds, setPendingMarkerBounds] = useState<Bounds | null>(null);
   const [hoveredMarker, setHoveredMarker] = useState<string | null>(null);
 
+  // ─── Crop (área útil da imagem) ───────────────────────────
+  const [cropMode, setCropMode] = useState(false);
+  const [cropDraft, setCropDraft] = useState<Bounds | null>(null);
+  const existingCrop = useMemo<Bounds | null>(() => {
+    if (!floorPlan.cropBounds) return null;
+    try { return JSON.parse(floorPlan.cropBounds) as Bounds; } catch { return null; }
+  }, [floorPlan.cropBounds]);
+  const [savingCrop, setSavingCrop] = useState(false);
+
   const { data: shoppableExpenses = [] } = useQuery<FloorPlanMarkerExpense[]>({
     queryKey: ['expenses-shoppable', PROJECT_ID],
     queryFn: async () => {
@@ -1150,7 +1161,7 @@ function FloorPlanViewer({
   // No overlay X-Ray, o handler do próprio overlay tem prioridade (z-[70]).
   useEffect(() => {
     if (xrayMode) return;
-    if (!drawingMode && !markerDrawingMode) return;
+    if (!drawingMode && !markerDrawingMode && !cropMode) return;
     const handler = (ev: KeyboardEvent) => {
       if (ev.key !== 'Escape') return;
       if (markerDrawingMode) setMarkerDrawingMode(false);
@@ -1159,10 +1170,16 @@ function FloorPlanViewer({
         setDrawStart(null);
         setDrawCurrent(null);
       }
+      if (cropMode) {
+        setCropMode(false);
+        setCropDraft(null);
+        setDrawStart(null);
+        setDrawCurrent(null);
+      }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [drawingMode, markerDrawingMode, xrayMode]);
+  }, [drawingMode, markerDrawingMode, xrayMode, cropMode]);
 
   useEffect(() => {
     if (!selectedRoom) return;
@@ -1196,7 +1213,7 @@ function FloorPlanViewer({
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!drawingMode) return;
+    if (!drawingMode && !cropMode) return;
     e.preventDefault();
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
@@ -1208,13 +1225,13 @@ function FloorPlanViewer({
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!drawingMode || !drawStart) return;
+    if ((!drawingMode && !cropMode) || !drawStart) return;
     e.preventDefault();
     setDrawCurrent(getPointerPercent(e));
   };
 
   const handlePointerUp = async (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!drawingMode || !drawStart || !drawCurrent) return;
+    if ((!drawingMode && !cropMode) || !drawStart || !drawCurrent) return;
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
     } catch {
@@ -1229,7 +1246,27 @@ function FloorPlanViewer({
     setDrawStart(null);
     setDrawCurrent(null);
     if (bounds.width < 1 || bounds.height < 1) return;
+    if (cropMode) {
+      setCropDraft(bounds);
+      return;
+    }
     setPendingBounds(bounds);
+  };
+
+  const saveCrop = async (bounds: Bounds | null) => {
+    setSavingCrop(true);
+    try {
+      await api.patch(`/projects/${PROJECT_ID}/floor-plans/${floorPlan.id}`, {
+        cropBounds: bounds ? JSON.stringify(bounds) : null,
+      });
+      onRefresh();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSavingCrop(false);
+      setCropDraft(null);
+      setCropMode(false);
+    }
   };
 
   const confirmPendingRoom = async (input: { roomId?: string; label: string }) => {
@@ -1370,6 +1407,31 @@ function FloorPlanViewer({
           )}
         </button>
         <button
+          onClick={() => {
+            setCropMode((v) => !v);
+            setDrawingMode(false);
+            setMarkerDrawingMode(false);
+            setCropDraft(null);
+          }}
+          className={`px-3 py-1.5 rounded-lg text-sm flex items-center gap-1 ${
+            cropMode ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+          }`}
+          title="Selecione a área da imagem que deve aparecer nos Compráveis"
+        >
+          <Crop className="w-4 h-4" />
+          {cropMode ? 'Desenhe a área...' : existingCrop ? 'Reajustar recorte' : 'Recortar área visível'}
+        </button>
+        {existingCrop && !cropMode && (
+          <button
+            onClick={() => saveCrop(null)}
+            disabled={savingCrop}
+            className="px-2 py-1.5 rounded-lg text-xs bg-gray-100 text-gray-600 hover:bg-gray-200 disabled:opacity-50"
+            title="Remover recorte (volta a mostrar imagem inteira)"
+          >
+            ✕ remover recorte
+          </button>
+        )}
+        <button
           onClick={handleReanalyze}
           disabled={reanalyzing}
           className="px-3 py-1.5 rounded-lg text-sm bg-purple-100 text-purple-700 hover:bg-purple-200 flex items-center gap-1 disabled:opacity-50"
@@ -1382,7 +1444,7 @@ function FloorPlanViewer({
       {/* Main content */}
       <div className="flex-1 relative bg-gray-100 rounded-xl overflow-hidden min-h-0">
         <TransformWrapper
-          disabled={drawingMode}
+          disabled={drawingMode || cropMode}
           minScale={0.5}
           maxScale={4}
           centerOnInit
@@ -1410,8 +1472,8 @@ function FloorPlanViewer({
                   onPointerUp={handlePointerUp}
                   onPointerCancel={handlePointerUp}
                   style={{
-                    cursor: drawingMode ? 'crosshair' : 'grab',
-                    touchAction: drawingMode ? 'none' : 'auto',
+                    cursor: drawingMode || cropMode ? 'crosshair' : 'grab',
+                    touchAction: drawingMode || cropMode ? 'none' : 'auto',
                   }}
                 >
                   <img
@@ -1422,10 +1484,49 @@ function FloorPlanViewer({
                     className="max-w-full max-h-[75vh] w-auto h-auto select-none"
                     draggable={false}
                     onClick={() => {
-                      if (drawingMode || markerDrawingMode) return;
+                      if (drawingMode || markerDrawingMode || cropMode) return;
                       setXrayMode(true);
                     }}
                   />
+
+                  {/* Existing crop frame (não em modo crop) */}
+                  {existingCrop && !cropMode && (
+                    <div
+                      className="absolute pointer-events-none border-2 border-dashed border-emerald-500 rounded-md"
+                      style={{
+                        left: `${existingCrop.x}%`,
+                        top: `${existingCrop.y}%`,
+                        width: `${existingCrop.width ?? 0}%`,
+                        height: `${existingCrop.height ?? 0}%`,
+                        boxShadow: '0 0 0 9999px rgba(0,0,0,.04)',
+                      }}
+                    >
+                      <span className="absolute -top-5 left-0 text-[10px] font-semibold text-emerald-700 bg-white/90 px-1.5 py-0.5 rounded">
+                        Área visível nos Compráveis
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Crop overlay enquanto desenha */}
+                  {cropMode && drawStart && drawCurrent && (() => {
+                    const cb: Bounds = {
+                      x: Math.min(drawStart.x, drawCurrent.x),
+                      y: Math.min(drawStart.y, drawCurrent.y),
+                      width: Math.abs(drawCurrent.x - drawStart.x),
+                      height: Math.abs(drawCurrent.y - drawStart.y),
+                    };
+                    return (
+                      <div
+                        className="absolute pointer-events-none border-2 border-emerald-500 bg-emerald-400/10"
+                        style={{
+                          left: `${cb.x}%`,
+                          top: `${cb.y}%`,
+                          width: `${cb.width}%`,
+                          height: `${cb.height}%`,
+                        }}
+                      />
+                    );
+                  })()}
 
                   {/* Room overlays */}
                   {floorPlan.rooms.map((room) => {
@@ -1658,6 +1759,38 @@ function FloorPlanViewer({
           />
         )}
       </div>
+
+      {/* Modal: confirmar recorte */}
+      {cropDraft && (
+        <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-5">
+            <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
+              <Crop className="w-4 h-4 text-emerald-600" /> Confirmar recorte
+            </h3>
+            <p className="text-xs text-gray-500 mt-1">
+              Essa área será a janela visível da planta na tela de Compráveis. Você pode reajustar a qualquer momento.
+            </p>
+            <div className="mt-3 text-[11px] text-gray-600 bg-gray-50 rounded-lg p-2 font-mono">
+              x:{cropDraft.x.toFixed(1)}% y:{cropDraft.y.toFixed(1)}% · {cropDraft.width?.toFixed(1)}%×{cropDraft.height?.toFixed(1)}%
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button
+                onClick={() => { setCropDraft(null); }}
+                className="flex-1 px-3 py-2 rounded-lg text-sm bg-gray-100 text-gray-700 hover:bg-gray-200"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => saveCrop(cropDraft)}
+                disabled={savingCrop}
+                className="flex-1 px-3 py-2 rounded-lg text-sm bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60"
+              >
+                {savingCrop ? 'Salvando...' : 'Salvar recorte'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal: vincular ambiente após desenhar */}
       {pendingBounds && (

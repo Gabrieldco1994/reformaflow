@@ -56,6 +56,15 @@ export class FloorPlanController {
     return this.service.reanalyze(id, tenantId);
   }
 
+  @Patch(':id')
+  async update(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @Body() body: { name?: string; cropBounds?: string | null },
+  ) {
+    return this.service.update(id, tenantId, body);
+  }
+
   @Delete(':id')
   async delete(
     @Param('id') id: string,

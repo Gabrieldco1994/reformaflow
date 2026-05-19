@@ -182,6 +182,21 @@ export class FloorPlanService {
     });
   }
 
+  async update(
+    id: string,
+    tenantId: string,
+    data: { name?: string; cropBounds?: string | null },
+  ) {
+    const fp = await this.prisma.floorPlan.findFirst({
+      where: { id, tenantId, deletedAt: null },
+    });
+    if (!fp) throw new NotFoundException('Floor plan not found');
+    const patch: { name?: string; cropBounds?: string | null } = {};
+    if (typeof data.name === 'string') patch.name = data.name;
+    if ('cropBounds' in data) patch.cropBounds = data.cropBounds ?? null;
+    return this.prisma.floorPlan.update({ where: { id }, data: patch });
+  }
+
   async reanalyze(id: string, tenantId: string) {
     const fp = await this.prisma.floorPlan.findFirst({
       where: { id, tenantId, deletedAt: null },

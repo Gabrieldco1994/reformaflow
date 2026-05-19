@@ -158,6 +158,7 @@ export function CompráveisView({ expenses, tipoLabel }: { expenses: Expense[]; 
         filterAmbiente={filterAmbiente}
         onFilterAmbiente={setFilterAmbiente}
         onFocusExpense={focusExpense}
+        expenses={expenses}
       />
 
       {/* Summary + Filters */}
