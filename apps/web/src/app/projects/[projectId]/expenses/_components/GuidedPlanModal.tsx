@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { X, ChevronLeft, ChevronRight, ArrowLeft, ArrowRight, MapPin, ExternalLink, Eye, EyeOff } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, ArrowLeft, ArrowRight, MapPin, ExternalLink, Eye, EyeOff, Map as MapIcon, ImageIcon } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useProject } from '@/contexts/project-context';
 import { formatCurrency } from '@/lib/utils';
@@ -18,7 +18,11 @@ interface FloorPlanRoom {
   label: string;
   bounds: string;
   color: string;
-  room?: { id: string; name: string };
+  room?: {
+    id: string;
+    name: string;
+    roomImages?: { id: string; imageUrl: string; caption?: string | null }[];
+  };
 }
 
 interface FloorPlanMarker {
@@ -152,16 +156,27 @@ export function GuidedPlanModal({
     });
   }, [navRooms]);
 
+  const switchPlan = useCallback((delta: 1 | -1) => {
+    if (floorPlans.length <= 1) return;
+    setSelectedIdx((cur) => {
+      const total = floorPlans.length;
+      return (cur + delta + total) % total;
+    });
+    setActiveRoomId(null);
+  }, [floorPlans.length]);
+
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
       if (e.key === 'ArrowLeft') { e.preventDefault(); goPrev(); }
       else if (e.key === 'ArrowRight') { e.preventDefault(); goNext(); }
+      else if (e.key === '[') { e.preventDefault(); switchPlan(-1); }
+      else if (e.key === ']') { e.preventDefault(); switchPlan(1); }
       else if (e.key === 'Escape') { e.preventDefault(); if (activeRoomId) setActiveRoomId(null); else onClose(); }
     };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
-  }, [goPrev, goNext, onClose, activeRoomId]);
+  }, [goPrev, goNext, switchPlan, onClose, activeRoomId]);
 
   // Zoom só quando há cômodo ativo — SEM cropBounds (estava deslocando marcações)
   const zoomStyle = useMemo<React.CSSProperties>(() => {
@@ -208,8 +223,8 @@ export function GuidedPlanModal({
   return (
     <div className="fixed inset-0 z-50 bg-gray-900/95 backdrop-blur-sm flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2 bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-lg shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
+      <div className="flex items-center justify-between px-4 py-2 bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-lg shrink-0 gap-3">
+        <div className="flex items-center gap-2 min-w-0 shrink-0">
           <MapPin className="w-4 h-4 shrink-0" />
           <span className="text-sm font-semibold truncate">
             {plan?.name ?? 'Planta'}{activeRoomName ? ` — ${activeRoomName}` : ''}
@@ -219,18 +234,43 @@ export function GuidedPlanModal({
           )}
         </div>
 
-        <div className="flex items-center gap-2">
-          {floorPlans.length > 1 && (
-            <select
-              value={selectedIdx}
-              onChange={(e) => setSelectedIdx(Number(e.target.value))}
-              className="text-xs text-gray-700 px-2 py-1 rounded bg-white"
+        {floorPlans.length > 1 && (
+          <div className="flex-1 min-w-0 flex items-center justify-center gap-1.5">
+            <button
+              onClick={() => switchPlan(-1)}
+              className="p-1 rounded hover:bg-white/20 transition-colors shrink-0"
+              title="Planta anterior ([)"
             >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <div className="flex items-center gap-1 overflow-x-auto max-w-full scrollbar-thin">
               {floorPlans.map((fp, i) => (
-                <option key={fp.id} value={i}>{fp.name}</option>
+                <button
+                  key={fp.id}
+                  onClick={() => { setSelectedIdx(i); setActiveRoomId(null); }}
+                  className={`text-[11px] px-2.5 py-1 rounded-full whitespace-nowrap transition-colors flex items-center gap-1 ${
+                    i === safeIdx
+                      ? 'bg-white text-orange-700 font-bold shadow-md'
+                      : 'bg-white/15 text-white/85 hover:bg-white/25'
+                  }`}
+                  title={fp.name}
+                >
+                  <MapIcon className="w-3 h-3" />
+                  <span className="max-w-[120px] truncate">{fp.name}</span>
+                </button>
               ))}
-            </select>
-          )}
+            </div>
+            <button
+              onClick={() => switchPlan(1)}
+              className="p-1 rounded hover:bg-white/20 transition-colors shrink-0"
+              title="Próxima planta (])"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={() => setRemoveWhiteBg((v) => !v)}
             className="text-[11px] flex items-center gap-1 px-2 py-1 rounded bg-white/15 hover:bg-white/25 transition-colors"
@@ -266,6 +306,8 @@ export function GuidedPlanModal({
                 {parsedRooms.map((room) => {
                   const isActive = activeRoom?.id === room.id;
                   const isHover = hoveredRoomId === room.id;
+                  const mainImage = room.room?.roomImages?.[0]?.imageUrl ?? null;
+                  const cyRoom = room._bounds.y + (room._bounds.height ?? 0) / 2;
                   return (
                     <button
                       key={room.id}
@@ -295,6 +337,38 @@ export function GuidedPlanModal({
                       >
                         {room.room?.name ?? room.label}
                       </span>
+
+                      {isHover && !isActive && room.room?.name && (
+                        <div
+                          className="absolute z-30 pointer-events-none rounded-lg bg-white shadow-2xl overflow-hidden border w-[180px]"
+                          style={{
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            borderColor: room.color,
+                            ...(cyRoom > 55
+                              ? { bottom: 'calc(100% + 8px)' }
+                              : { top: 'calc(100% + 8px)' }),
+                          }}
+                        >
+                          <div className="h-24 bg-gray-50 flex items-center justify-center overflow-hidden">
+                            {mainImage ? (
+                              <img
+                                src={`${API_BASE}${mainImage}`}
+                                alt={room.room.name}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <ImageIcon className="w-6 h-6 text-gray-300" />
+                            )}
+                          </div>
+                          <div
+                            className="px-2 py-1 text-white text-[11px] font-bold uppercase tracking-wider"
+                            style={{ backgroundColor: room.color }}
+                          >
+                            {room.room.name}
+                          </div>
+                        </div>
+                      )}
                     </button>
                   );
                 })}
@@ -302,26 +376,48 @@ export function GuidedPlanModal({
                 {markers.map((m) => {
                   let b: Bounds;
                   try { b = JSON.parse(m.bounds); } catch { return null; }
+                  const cx = b.x + (b.width ?? 0) / 2;
+                  const cy = b.y + (b.height ?? 0) / 2;
                   const isHover = hoveredMarker === m.id;
                   return (
-                    <button
+                    <div
                       key={m.id}
-                      onClick={() => onFocusExpense(m.expenseId)}
                       onMouseEnter={() => setHoveredMarker(m.id)}
                       onMouseLeave={() => setHoveredMarker((id) => (id === m.id ? null : id))}
-                      className="absolute z-20"
+                      onClick={() => onFocusExpense(m.expenseId)}
+                      className="absolute group"
                       style={{
-                        left: `${b.x}%`,
-                        top: `${b.y}%`,
-                        width: `${b.width ?? 2}%`,
-                        height: `${b.height ?? 2}%`,
+                        left: `${cx}%`,
+                        top: `${cy}%`,
+                        transform: 'translate(-50%, -100%)',
+                        zIndex: isHover ? 25 : 15,
+                        cursor: 'pointer',
                       }}
                       title={m.expense.titulo ?? ''}
                     >
-                      <div className="w-full h-full bg-orange-500/40 hover:bg-orange-500/60 border-2 border-white rounded-full shadow-lg" />
+                      <div className={`relative transition-transform ${isHover ? 'scale-125' : ''}`}>
+                        <MapPin
+                          className="w-7 h-7 drop-shadow-md"
+                          style={{
+                            color: isHover ? '#FF6B00' : '#FF9100',
+                            fill: isHover ? '#FF6B00' : '#FF9100',
+                            strokeWidth: 1.5,
+                            stroke: '#ffffff',
+                          }}
+                        />
+                      </div>
                       {isHover && (
-                        <div className="absolute z-30 pointer-events-none bottom-full left-1/2 -translate-x-1/2 mb-1 w-32 rounded-lg bg-white shadow-2xl overflow-hidden border border-orange-200">
-                          <div className="h-20 bg-gray-50 flex items-center justify-center">
+                        <div
+                          className="absolute z-40 pointer-events-none rounded-lg bg-white border border-orange-200 shadow-2xl overflow-hidden w-[160px]"
+                          style={{
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            ...(cy > 60
+                              ? { bottom: 'calc(100% + 10px)' }
+                              : { top: 'calc(100% + 10px)' }),
+                          }}
+                        >
+                          <div className="h-20 bg-gray-50 flex items-center justify-center overflow-hidden">
                             <LinkPreviewImage
                               imageUrl={m.expense.imageUrl}
                               link={m.expense.link}
@@ -329,13 +425,20 @@ export function GuidedPlanModal({
                               className="max-w-full max-h-full object-contain"
                             />
                           </div>
-                          <div className="p-1.5">
-                            <p className="text-[10px] font-semibold text-gray-800 line-clamp-2">{m.expense.titulo}</p>
-                            <p className="text-[10px] font-bold text-orange-700 mt-0.5">{formatCurrency(m.expense.valorTotal / 100)}</p>
+                          <div className="px-2 py-1.5">
+                            <p className="text-[10px] font-bold text-gray-800 line-clamp-2 leading-tight">
+                              {m.expense.titulo ?? 'Sem título'}
+                            </p>
+                            <div className="flex items-center justify-between mt-1">
+                              <span className="text-[10px] font-bold text-orange-700">
+                                {formatCurrency(m.expense.valorTotal / 100)}
+                              </span>
+                              {m.expense.link && <ExternalLink className="w-2.5 h-2.5 text-gray-400" />}
+                            </div>
                           </div>
                         </div>
                       )}
-                    </button>
+                    </div>
                   );
                 })}
               </div>
