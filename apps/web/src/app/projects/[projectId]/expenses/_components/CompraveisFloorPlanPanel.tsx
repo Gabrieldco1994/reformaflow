@@ -240,9 +240,9 @@ export function CompraveisFloorPlanPanel({
   }
 
   return (
-    <div className="border border-orange-100 rounded-xl bg-gradient-to-br from-orange-50/40 to-amber-50/40 overflow-hidden">
+    <div className="border border-orange-100 rounded-xl bg-gradient-to-br from-orange-50/40 to-amber-50/40 overflow-hidden lg:h-full lg:flex lg:flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 bg-white/60 border-b border-orange-100">
+      <div className="flex items-center justify-between px-3 py-2 bg-white/60 border-b border-orange-100 lg:shrink-0">
         <div className="flex items-center gap-2 min-w-0">
           <MapPin className="w-4 h-4 text-orange-500 shrink-0" />
           <span className="text-xs font-semibold text-gray-700 truncate">
@@ -327,14 +327,14 @@ export function CompraveisFloorPlanPanel({
       </div>
 
       {/* Image + overlays */}
-      <div className="relative bg-[linear-gradient(45deg,#fff8f0_25%,transparent_25%,transparent_75%,#fff8f0_75%),linear-gradient(45deg,#fff8f0_25%,transparent_25%,transparent_75%,#fff8f0_75%)] bg-[length:16px_16px] bg-[position:0_0,8px_8px]">
-        <div className="relative w-full h-[55vh] sm:h-[65vh] flex items-center justify-center overflow-hidden">
+      <div className="relative bg-[linear-gradient(45deg,#fff8f0_25%,transparent_25%,transparent_75%,#fff8f0_75%),linear-gradient(45deg,#fff8f0_25%,transparent_25%,transparent_75%,#fff8f0_75%)] bg-[length:16px_16px] bg-[position:0_0,8px_8px] lg:flex-1 lg:min-h-0">
+        <div className="relative w-full h-[55vh] sm:h-[65vh] lg:h-full flex items-center justify-center overflow-hidden">
           {plan?.imageUrl && (
             <div className="relative inline-block max-h-full" style={zoomStyle}>
               <img
                 src={`${API_BASE}${plan.imageUrl}`}
                 alt={plan.name}
-                className="max-h-[55vh] sm:max-h-[65vh] max-w-full block"
+                className="max-h-[55vh] sm:max-h-[65vh] lg:max-h-[calc(100vh-260px)] max-w-full block"
                 style={removeWhiteBg ? { mixBlendMode: 'multiply' } : undefined}
               />
 
@@ -514,7 +514,7 @@ export function CompraveisFloorPlanPanel({
       </div>
 
       {/* Hint */}
-      <div className="px-3 py-1.5 bg-white/40 border-t border-orange-100 text-[10px] text-gray-500 flex items-center justify-between flex-wrap gap-1">
+      <div className="px-3 py-1.5 bg-white/40 border-t border-orange-100 text-[10px] text-gray-500 flex items-center justify-between flex-wrap gap-1 lg:shrink-0">
         <span>💡 Use as <b>setas ← →</b> ou clique numa <b>área</b> para navegar · <b>Esc</b> limpa filtro</span>
         <span className="text-gray-400">{rooms.length} cômodos · {markers.length} pins</span>
       </div>

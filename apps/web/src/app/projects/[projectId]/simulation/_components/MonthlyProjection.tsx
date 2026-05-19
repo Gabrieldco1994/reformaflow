@@ -712,19 +712,21 @@ export function MonthlyProjection({
                       <React.Fragment key={group.groupId}>
                         <tr className={`hover:bg-gray-50 border-b border-gray-100 ${isExcluded ? 'opacity-40' : ''} ${isExtra ? 'bg-purple-50/20' : ''}`}>
                           <td className="px-2 py-1.5 text-center">
-                            {isExtra ? (
+                            <input
+                              type="checkbox"
+                              checked={!isExcluded}
+                              onChange={() => onToggleExclude(group.groupId)}
+                              className="rounded border-gray-300"
+                              title={isExtra ? 'Incluir/excluir item simulado da projeção' : 'Incluir/excluir esta despesa da projeção'}
+                            />
+                            {isExtra && (
                               <button
-                                onClick={() => onRemovePayConfig(group.groupId)}
-                                className="text-red-400 hover:text-red-600 text-xs"
-                                title="Remover"
+                                onClick={() => {
+                                  if (confirm('Excluir definitivamente este item simulado?')) onRemovePayConfig(group.groupId);
+                                }}
+                                className="block mx-auto mt-0.5 text-[9px] text-red-400 hover:text-red-600"
+                                title="Excluir definitivamente"
                               >✕</button>
-                            ) : (
-                              <input
-                                type="checkbox"
-                                checked={!isExcluded}
-                                onChange={() => onToggleExclude(group.groupId)}
-                                className="rounded border-gray-300"
-                              />
                             )}
                           </td>
                           <td className="px-3 py-1.5">

@@ -29,7 +29,7 @@ export function CompráveisView({ expenses, tipoLabel }: { expenses: Expense[]; 
   const [filterAmbiente, setFilterAmbiente] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<'valor' | 'titulo' | 'custom'>('custom');
   const [cardOrder, setCardOrder] = useState<Record<string, string[]>>({});
-  const [colsPerRow, setColsPerRow] = useState<3 | 4>(3);
+  const [colsPerRow, setColsPerRow] = useState<2 | 3 | 4>(3);
   const [focusedExpenseId, setFocusedExpenseId] = useState<string | null>(null);
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -39,11 +39,11 @@ export function CompráveisView({ expenses, tipoLabel }: { expenses: Expense[]; 
       const saved = localStorage.getItem('compraveis-order');
       if (saved) setCardOrder(JSON.parse(saved));
       const savedCols = localStorage.getItem('compraveis-cols');
-      if (savedCols === '4' || savedCols === '3') setColsPerRow(Number(savedCols) as 3 | 4);
+      if (savedCols === '4' || savedCols === '3' || savedCols === '2') setColsPerRow(Number(savedCols) as 2 | 3 | 4);
     } catch {}
   }, []);
 
-  const changeCols = useCallback((n: 3 | 4) => {
+  const changeCols = useCallback((n: 2 | 3 | 4) => {
     setColsPerRow(n);
     try {
       localStorage.setItem('compraveis-cols', String(n));
@@ -153,14 +153,6 @@ export function CompráveisView({ expenses, tipoLabel }: { expenses: Expense[]; 
 
   return (
     <div className="space-y-4">
-      {/* Floor plan panel */}
-      <CompraveisFloorPlanPanel
-        filterAmbiente={filterAmbiente}
-        onFilterAmbiente={setFilterAmbiente}
-        onFocusExpense={focusExpense}
-        expenses={expenses}
-      />
-
       {/* Summary + Filters */}
       <div className="bg-gradient-to-r from-orange-50 to-amber-50 rounded-xl p-4 border border-orange-100">
         <div className="flex items-center justify-between mb-3">
@@ -168,10 +160,16 @@ export function CompráveisView({ expenses, tipoLabel }: { expenses: Expense[]; 
             <h2 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
               <ShoppingCart className="w-4 h-4 text-orange-500" />
               {compraveis.length} {compraveis.length === 1 ? 'item comprável' : 'itens compráveis'}
+              {filterAmbiente && (
+                <span className="text-[10px] bg-orange-500 text-white px-2 py-0.5 rounded-full">
+                  {filterAmbiente}
+                  <button onClick={() => setFilterAmbiente(null)} className="ml-1 hover:opacity-80">✕</button>
+                </span>
+              )}
             </h2>
             <p className="text-xs text-gray-500 mt-0.5">Total: <span className="font-bold text-orange-700">{formatCurrency(totalCompraveis / 100)}</span></p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <select
               value={filterTipo}
               onChange={(e) => setFilterTipo(e.target.value)}
@@ -204,6 +202,13 @@ export function CompráveisView({ expenses, tipoLabel }: { expenses: Expense[]; 
               <span className="text-gray-400">Por linha:</span>
               <button
                 type="button"
+                onClick={() => changeCols(2)}
+                className={`px-1.5 rounded ${colsPerRow === 2 ? 'bg-orange-100 text-orange-700 font-semibold' : 'text-gray-500 hover:bg-gray-100'}`}
+              >
+                2
+              </button>
+              <button
+                type="button"
                 onClick={() => changeCols(3)}
                 className={`px-1.5 rounded ${colsPerRow === 3 ? 'bg-orange-100 text-orange-700 font-semibold' : 'text-gray-500 hover:bg-gray-100'}`}
               >
@@ -221,45 +226,60 @@ export function CompráveisView({ expenses, tipoLabel }: { expenses: Expense[]; 
         </div>
       </div>
 
-      {/* Cards grouped by Room */}
-      {compraveis.length === 0 ? (
-        <div className="text-center py-16 text-gray-400">
-          <ShoppingCart className="w-12 h-12 mx-auto mb-3 opacity-30" />
-          <p className="text-sm">Nenhum item comprável encontrado</p>
-          <p className="text-xs mt-1">Despesas com link e ambiente preenchidos (exceto Material de Construção) aparecerão aqui</p>
+      {/* Layout: mapa + itens lado a lado em desktop, stack em mobile */}
+      <div className="lg:grid lg:grid-cols-[minmax(0,38%)_1fr] lg:gap-4 lg:h-[calc(100vh-220px)] space-y-4 lg:space-y-0">
+        {/* Coluna esquerda — mapa (sticky-like via height fixed) */}
+        <div className="lg:h-full lg:min-h-0">
+          <CompraveisFloorPlanPanel
+            filterAmbiente={filterAmbiente}
+            onFilterAmbiente={setFilterAmbiente}
+            onFocusExpense={focusExpense}
+            expenses={expenses}
+          />
         </div>
-      ) : (
-        <div className="space-y-6">
-          {groupedRooms.map(({ roomName, items }) => (
-            <div key={roomName}>
-              <div className="flex items-center gap-2 mb-3">
-                <h3 className="text-sm font-bold text-gray-700">🏠 {roomName}</h3>
-                <span className="text-[10px] bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full">{items.length} {items.length === 1 ? 'item' : 'itens'}</span>
-                <span className="text-[10px] text-gray-500 ml-auto font-medium">{formatCurrency(items.reduce((s, e) => s + e.valorTotal, 0) / 100)}</span>
-              </div>
-              <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragEnd={handleDragEnd(roomName)}
-              >
-                <SortableContext items={items.map((e) => e.id)} strategy={rectSortingStrategy}>
-                  <div className={`grid grid-cols-2 sm:grid-cols-2 ${colsPerRow === 4 ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-2 sm:gap-5`}>
-                    {items.map((expense) => (
-                      <div
-                        key={expense.id}
-                        ref={(el) => { cardRefs.current[expense.id] = el; }}
-                        className={focusedExpenseId === expense.id ? 'ring-4 ring-orange-400 rounded-xl transition-all' : ''}
-                      >
-                        <SortableCard expense={expense} tipoLabel={tipoLabel} />
-                      </div>
-                    ))}
-                  </div>
-                </SortableContext>
-              </DndContext>
+
+        {/* Coluna direita — lista de itens com scroll interno */}
+        <div className="lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pr-1">
+          {compraveis.length === 0 ? (
+            <div className="text-center py-16 text-gray-400">
+              <ShoppingCart className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <p className="text-sm">Nenhum item comprável encontrado</p>
+              <p className="text-xs mt-1">Despesas com link e ambiente preenchidos (exceto Material de Construção) aparecerão aqui</p>
             </div>
-          ))}
+          ) : (
+            <div className="space-y-6">
+              {groupedRooms.map(({ roomName, items }) => (
+                <div key={roomName}>
+                  <div className="flex items-center gap-2 mb-3 sticky top-0 bg-white/85 backdrop-blur-sm py-1 z-10 -mx-1 px-1 rounded">
+                    <h3 className="text-sm font-bold text-gray-700">🏠 {roomName}</h3>
+                    <span className="text-[10px] bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full">{items.length} {items.length === 1 ? 'item' : 'itens'}</span>
+                    <span className="text-[10px] text-gray-500 ml-auto font-medium">{formatCurrency(items.reduce((s, e) => s + e.valorTotal, 0) / 100)}</span>
+                  </div>
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={handleDragEnd(roomName)}
+                  >
+                    <SortableContext items={items.map((e) => e.id)} strategy={rectSortingStrategy}>
+                      <div className={`grid grid-cols-1 sm:grid-cols-2 ${colsPerRow === 4 ? 'lg:grid-cols-3 xl:grid-cols-4' : colsPerRow === 2 ? 'lg:grid-cols-2' : 'lg:grid-cols-2 xl:grid-cols-3'} gap-2 sm:gap-3`}>
+                        {items.map((expense) => (
+                          <div
+                            key={expense.id}
+                            ref={(el) => { cardRefs.current[expense.id] = el; }}
+                            className={focusedExpenseId === expense.id ? 'ring-4 ring-orange-400 rounded-xl transition-all' : ''}
+                          >
+                            <SortableCard expense={expense} tipoLabel={tipoLabel} />
+                          </div>
+                        ))}
+                      </div>
+                    </SortableContext>
+                  </DndContext>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
