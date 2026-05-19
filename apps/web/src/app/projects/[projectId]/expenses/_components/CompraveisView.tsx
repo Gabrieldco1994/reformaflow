@@ -16,12 +16,12 @@ import {
   sortableKeyboardCoordinates,
   rectSortingStrategy,
 } from '@dnd-kit/sortable';
-import { ShoppingCart } from 'lucide-react';
+import { ShoppingCart, Map as MapIcon } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import { ExpenseTypeLabels } from '@reformaflow/domain';
 import type { Expense } from '@/types';
 import { SortableCard } from './SortableCard';
-import { CompraveisFloorPlanPanel } from './CompraveisFloorPlanPanel';
+import { GuidedPlanModal } from './GuidedPlanModal';
 
 export function CompráveisView({ expenses, tipoLabel }: { expenses: Expense[]; tipoLabel: (t: string) => string }) {
   const [filterTipo, setFilterTipo] = useState('');
@@ -31,6 +31,7 @@ export function CompráveisView({ expenses, tipoLabel }: { expenses: Expense[]; 
   const [cardOrder, setCardOrder] = useState<Record<string, string[]>>({});
   const [colsPerRow, setColsPerRow] = useState<2 | 3 | 4>(3);
   const [focusedExpenseId, setFocusedExpenseId] = useState<string | null>(null);
+  const [guidedOpen, setGuidedOpen] = useState(false);
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   // Load saved order from localStorage
@@ -169,7 +170,15 @@ export function CompráveisView({ expenses, tipoLabel }: { expenses: Expense[]; 
             </h2>
             <p className="text-xs text-gray-500 mt-0.5">Total: <span className="font-bold text-orange-700">{formatCurrency(totalCompraveis / 100)}</span></p>
           </div>
-          <div className="flex gap-2 flex-wrap">
+          <div className="flex gap-2 flex-wrap items-center">
+            <button
+              type="button"
+              onClick={() => setGuidedOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-orange-500 text-white hover:bg-orange-600 shadow-sm transition-colors"
+              title="Abrir tour guiado pela planta"
+            >
+              <MapIcon className="w-3.5 h-3.5" /> Guiar por planta
+            </button>
             <select
               value={filterTipo}
               onChange={(e) => setFilterTipo(e.target.value)}
@@ -226,49 +235,29 @@ export function CompráveisView({ expenses, tipoLabel }: { expenses: Expense[]; 
         </div>
       </div>
 
-      {/* Layout: mapa em cima (altura fixa ~60vh) + lista embaixo */}
-      <div className="lg:flex lg:flex-col lg:gap-3">
-        <div className="lg:h-[58vh] lg:shrink-0">
-          <CompraveisFloorPlanPanel
-            filterAmbiente={filterAmbiente}
-            onFilterAmbiente={setFilterAmbiente}
-            onFocusExpense={focusExpense}
-            expenses={expenses}
-          />
-        </div>
-        <div className="lg:flex-1 lg:min-h-0">
-          <CompraveisList
-            compraveis={compraveis}
-            groupedRooms={groupedRooms}
-            handleDragEnd={handleDragEnd}
-            sensors={sensors}
-            cardRefs={cardRefs}
-            focusedExpenseId={focusedExpenseId}
-            tipoLabel={tipoLabel}
-            colsPerRow={colsPerRow}
-          />
-        </div>
-      </div>
+      {/* Lista de itens (sem mapa embutido — usar botao "Guiar por planta" para abrir tour) */}
+      <CompraveisList
+        compraveis={compraveis}
+        groupedRooms={groupedRooms}
+        handleDragEnd={handleDragEnd}
+        sensors={sensors}
+        cardRefs={cardRefs}
+        focusedExpenseId={focusedExpenseId}
+        tipoLabel={tipoLabel}
+        colsPerRow={colsPerRow}
+      />
 
-      {/* Mobile: stack vertical natural */}
-      <div className="lg:hidden space-y-4">
-        <CompraveisFloorPlanPanel
-          filterAmbiente={filterAmbiente}
-          onFilterAmbiente={setFilterAmbiente}
-          onFocusExpense={focusExpense}
+      {guidedOpen && (
+        <GuidedPlanModal
           expenses={expenses}
+          onClose={() => setGuidedOpen(false)}
+          onFocusExpense={(id) => {
+            setGuidedOpen(false);
+            focusExpense(id);
+          }}
+          initialAmbiente={filterAmbiente}
         />
-        <CompraveisList
-          compraveis={compraveis}
-          groupedRooms={groupedRooms}
-          handleDragEnd={handleDragEnd}
-          sensors={sensors}
-          cardRefs={cardRefs}
-          focusedExpenseId={focusedExpenseId}
-          tipoLabel={tipoLabel}
-          colsPerRow={colsPerRow}
-        />
-      </div>
+      )}
     </div>
   );
 }
