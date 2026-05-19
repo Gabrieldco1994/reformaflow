@@ -356,11 +356,11 @@ export default function SimulationPage() {
       </div>
 
       {/* Loading / no scenario */}
-      {!activeScenarioId && simMode !== 'comparar' && (
+      {!activeScenarioId && simMode !== 'comparar' && simMode !== 'compraveis' && (
         <div className="text-gray-500 text-sm">Selecione ou crie um cenário para começar.</div>
       )}
 
-      {isLoading && <div className="text-gray-500">Carregando dados...</div>}
+      {isLoading && simMode !== 'compraveis' && <div className="text-gray-500">Carregando dados...</div>}
       {error && <div className="text-red-600">Erro ao carregar simulação.</div>}
 
       {/* ═══ SIMULAÇÃO (unified view) ═══ */}
@@ -422,17 +422,9 @@ export default function SimulationPage() {
         />
       )}
 
-      {/* ═══ COMPRÁVEIS SIMULADOS ═══ */}
-      {simMode === 'compraveis' && data && (
-        <ShoppableSimulationView
-          payConfigs={monthlyPayConfigs}
-          excludes={monthlyExcludes}
-          scenarioId={activeScenarioId ?? undefined}
-          onPayConfigChange={(id, cfg) => {
-            setMonthlyPayConfigs((p) => ({ ...p, [id]: cfg }));
-            scheduleSave();
-          }}
-        />
+      {/* ═══ COMPRÁVEIS SIMULADOS (todos os cenários lado a lado) ═══ */}
+      {simMode === 'compraveis' && (
+        <ShoppableSimulationView />
       )}
     </div>
   );

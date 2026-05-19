@@ -330,11 +330,11 @@ export function CompraveisFloorPlanPanel({
       <div className="relative bg-[linear-gradient(45deg,#fff8f0_25%,transparent_25%,transparent_75%,#fff8f0_75%),linear-gradient(45deg,#fff8f0_25%,transparent_25%,transparent_75%,#fff8f0_75%)] bg-[length:16px_16px] bg-[position:0_0,8px_8px] lg:flex-1 lg:min-h-0">
         <div className="relative w-full h-[55vh] sm:h-[65vh] lg:h-full flex items-center justify-center overflow-hidden">
           {plan?.imageUrl && (
-            <div className="relative inline-block max-h-full" style={zoomStyle}>
+            <div className="relative inline-block max-h-full max-w-full" style={zoomStyle}>
               <img
                 src={`${API_BASE}${plan.imageUrl}`}
                 alt={plan.name}
-                className="max-h-[55vh] sm:max-h-[65vh] lg:max-h-[calc(100vh-260px)] max-w-full block"
+                className="max-h-[55vh] sm:max-h-[65vh] lg:max-h-full max-w-full block"
                 style={removeWhiteBg ? { mixBlendMode: 'multiply' } : undefined}
               />
 

@@ -2,7 +2,7 @@
 import { useProject } from '@/contexts/project-context';
 
 import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { compressImage } from '@/lib/image-compress';
 import { ExpenseTypeLabels } from '@reformaflow/domain';
@@ -1119,6 +1119,7 @@ function FloorPlanViewer({
   onRefresh: () => void;
 }) {
   const { projectId: PROJECT_ID } = useProject();
+  const queryClient = useQueryClient();
   const [selectedRoom, setSelectedRoom] = useState<FloorPlanRoom | null>(null);
   const [drawingMode, setDrawingMode] = useState(false);
   const [drawStart, setDrawStart] = useState<{ x: number; y: number } | null>(null);
@@ -1259,6 +1260,7 @@ function FloorPlanViewer({
       await api.patch(`/projects/${PROJECT_ID}/floor-plans/${floorPlan.id}`, {
         cropBounds: bounds ? JSON.stringify(bounds) : null,
       });
+      await queryClient.invalidateQueries({ queryKey: ['floor-plans', PROJECT_ID] });
       onRefresh();
     } catch (err) {
       console.error(err);

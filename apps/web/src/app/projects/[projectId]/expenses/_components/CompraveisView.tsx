@@ -33,49 +33,6 @@ export function CompráveisView({ expenses, tipoLabel }: { expenses: Expense[]; 
   const [focusedExpenseId, setFocusedExpenseId] = useState<string | null>(null);
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
-  // ─── Split vertical redimensionável (mapa em cima / lista embaixo) ─────────
-  const [mapPct, setMapPct] = useState<number>(60);
-  const dragHandleRef = useRef<HTMLDivElement | null>(null);
-  const splitDraggingRef = useRef(false);
-
-  useEffect(() => {
-    try {
-      const v = localStorage.getItem('compraveis-mappct');
-      if (v) {
-        const n = Number(v);
-        if (Number.isFinite(n) && n >= 20 && n <= 85) setMapPct(n);
-      }
-    } catch {}
-  }, []);
-
-  const onSplitDown = useCallback((ev: React.MouseEvent) => {
-    ev.preventDefault();
-    splitDraggingRef.current = true;
-    document.body.style.userSelect = 'none';
-    const move = (e: MouseEvent) => {
-      if (!splitDraggingRef.current) return;
-      const container = dragHandleRef.current?.parentElement;
-      if (!container) return;
-      const rect = container.getBoundingClientRect();
-      const rel = ((e.clientY - rect.top) / rect.height) * 100;
-      const next = Math.max(20, Math.min(85, rel));
-      setMapPct(next);
-    };
-    const up = () => {
-      splitDraggingRef.current = false;
-      document.body.style.userSelect = '';
-      window.removeEventListener('mousemove', move);
-      window.removeEventListener('mouseup', up);
-      try { localStorage.setItem('compraveis-mappct', String(mapPct)); } catch {}
-    };
-    window.addEventListener('mousemove', move);
-    window.addEventListener('mouseup', up);
-  }, [mapPct]);
-
-  useEffect(() => {
-    try { localStorage.setItem('compraveis-mappct', String(mapPct)); } catch {}
-  }, [mapPct]);
-
   // Load saved order from localStorage
   useEffect(() => {
     try {
@@ -269,9 +226,9 @@ export function CompráveisView({ expenses, tipoLabel }: { expenses: Expense[]; 
         </div>
       </div>
 
-      {/* Layout split vertical: mapa em cima (redimensionável) + lista embaixo */}
-      <div className="hidden lg:flex lg:flex-col lg:h-[calc(100vh-150px)]">
-        <div style={{ flexBasis: `${mapPct}%`, minHeight: 0 }} className="flex flex-col">
+      {/* Layout: mapa em cima (altura fixa ~60vh) + lista embaixo */}
+      <div className="lg:flex lg:flex-col lg:gap-3">
+        <div className="lg:h-[58vh] lg:shrink-0">
           <CompraveisFloorPlanPanel
             filterAmbiente={filterAmbiente}
             onFilterAmbiente={setFilterAmbiente}
@@ -279,17 +236,7 @@ export function CompráveisView({ expenses, tipoLabel }: { expenses: Expense[]; 
             expenses={expenses}
           />
         </div>
-        {/* Divisor arrastável */}
-        <div
-          ref={dragHandleRef}
-          onMouseDown={onSplitDown}
-          onDoubleClick={() => setMapPct(60)}
-          className="h-2 my-1 cursor-row-resize bg-gray-100 hover:bg-orange-200 transition-colors rounded-full flex items-center justify-center shrink-0 group"
-          title="Arraste para redimensionar (dois cliques = reset)"
-        >
-          <div className="w-12 h-0.5 bg-gray-300 group-hover:bg-orange-500 rounded-full" />
-        </div>
-        <div style={{ flexBasis: `${100 - mapPct}%`, minHeight: 0 }} className="overflow-y-auto pr-1 flex-1">
+        <div className="lg:flex-1 lg:min-h-0">
           <CompraveisList
             compraveis={compraveis}
             groupedRooms={groupedRooms}
