@@ -273,6 +273,77 @@ describe('ExpenseService', () => {
     });
   });
 
+  describe('parcelamento — datas geradas em UTC (regressão de timezone)', () => {
+    it('PARCELADO mensal: 01/07 +1 = 01/08 (não 31/07) mesmo em local time BRT', async () => {
+      // Repro: setMonth em local time com TZ=America/Sao_Paulo move 01/07Z → 31/07Z.
+      // Bug original reportado: parcelas de 01/07/2026 em 3x apareciam em 01/07, 31/07, 31/08.
+      // Esperado: 01/07, 01/08, 01/09.
+      const expense = {
+        id: 'e-parc',
+        projectId,
+        tenantId,
+        tipoDespesa: 'MATERIAL_CONSTRUCAO',
+        categoriaMaoDeObra: null,
+        roomId: null,
+        valorTotal: 30000,
+        formaPagamento: 'PARCELADO',
+        dataPagamento: null,
+        quantidadeParcela: 3,
+        dataInicioParcela: new Date('2026-07-01T00:00:00.000Z'),
+        status: 'PLANEJADO',
+        settledByExpenseId: null,
+        room: null,
+      };
+      prisma.expense.findUnique.mockResolvedValue(expense);
+
+      let createdEntries: any[] = [];
+      prisma.cashFlowEntry.createMany.mockImplementation(async ({ data }: any) => {
+        createdEntries = data;
+        return { count: data.length };
+      });
+
+      await (service as any).regenerateCashFlow('e-parc');
+
+      const datas = createdEntries.map((e) => e.data.toISOString().slice(0, 10));
+      expect(datas).toEqual(['2026-07-01', '2026-08-01', '2026-09-01']);
+    });
+
+    it('QUINZENAL: 18/05 + 7*15d = 31/08 (não 30/08) mesmo em local time BRT', async () => {
+      const expense = {
+        id: 'e-q',
+        projectId,
+        tenantId,
+        tipoDespesa: 'MAO_DE_OBRA',
+        categoriaMaoDeObra: 'EMPREITEIRO',
+        roomId: null,
+        valorTotal: 80000,
+        formaPagamento: 'QUINZENAL',
+        dataPagamento: null,
+        quantidadeParcela: 9,
+        dataInicioParcela: new Date('2026-05-18T00:00:00.000Z'),
+        status: 'PLANEJADO',
+        settledByExpenseId: null,
+        room: null,
+      };
+      prisma.expense.findUnique.mockResolvedValue(expense);
+
+      let createdEntries: any[] = [];
+      prisma.cashFlowEntry.createMany.mockImplementation(async ({ data }: any) => {
+        createdEntries = data;
+        return { count: data.length };
+      });
+
+      await (service as any).regenerateCashFlow('e-q');
+
+      const datas = createdEntries.map((e) => e.data.toISOString().slice(0, 10));
+      expect(datas).toEqual([
+        '2026-05-18', '2026-06-02', '2026-06-17',
+        '2026-07-02', '2026-07-17', '2026-08-01',
+        '2026-08-16', '2026-08-31', '2026-09-15',
+      ]);
+    });
+  });
+
   describe('remove', () => {
     it('soft-delete da despesa e das entradas do fluxo de caixa', async () => {
       prisma.expense.findFirst.mockResolvedValue({

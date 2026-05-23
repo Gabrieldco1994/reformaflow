@@ -309,9 +309,9 @@ export class ExpenseService {
     for (let i = 0; i < n; i++) {
       const d = new Date(startDate);
       if (isQuinzenal) {
-        d.setDate(d.getDate() + i * 15);
+        d.setUTCDate(d.getUTCDate() + i * 15);
       } else {
-        d.setMonth(d.getMonth() + i);
+        d.setUTCMonth(d.getUTCMonth() + i);
       }
 
       entries.push({
