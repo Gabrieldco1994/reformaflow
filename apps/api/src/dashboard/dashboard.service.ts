@@ -4,6 +4,7 @@ import {
   ExpenseTypeLabels,
   LaborCategoryLabels,
   allocateEmpreiteiroExpenses,
+  buildMonthlyAccumulated,
 } from '@reformaflow/domain';
 
 @Injectable()
@@ -17,8 +18,27 @@ export class DashboardService {
       this.prisma.receipt.findMany({
         where: { projectId, tenantId, deletedAt: null },
       }),
+      // IMPORTANTE: filtra entries cuja despesa OU receipt vinculado foi soft-deleted.
+      // Sem esses filtros o dashboard contabilizava entries fantasma cujo recurso
+      // original já tinha sido excluído, distorcendo o saldo acumulado.
       this.prisma.cashFlowEntry.findMany({
-        where: { projectId, tenantId, deletedAt: null },
+        where: {
+          projectId,
+          tenantId,
+          deletedAt: null,
+          OR: [
+            { expenseId: null },
+            { expense: { deletedAt: null } },
+          ],
+          AND: [
+            {
+              OR: [
+                { receiptId: null },
+                { receipt: { deletedAt: null } },
+              ],
+            },
+          ],
+        },
       }),
       this.prisma.expense.findMany({
         where: { projectId, tenantId, deletedAt: null, settledByExpenseId: null },
@@ -97,24 +117,12 @@ export class DashboardService {
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([mes, vals]) => ({ mes, planejado: vals.planejado, pago: vals.pago }));
 
-    // Saldo acumulado mensal do fluxo de caixa
-    const fluxoMensalMap = new Map<string, { recebimentos: number; despesas: number }>();
-    for (const entry of cashFlowEntries) {
-      const mesKey = entry.data.toISOString().slice(0, 7);
-      if (!fluxoMensalMap.has(mesKey)) fluxoMensalMap.set(mesKey, { recebimentos: 0, despesas: 0 });
-      const bucket = fluxoMensalMap.get(mesKey)!;
-      if (entry.tipo === 'RECEBIMENTO') bucket.recebimentos += entry.valor;
-      else bucket.despesas += entry.valor;
-    }
-    // Add receipts that may not have cash flow entries (EM_CAIXA receipts generate cash flow, PREVISTO may not)
-    // Cash flow already contains receipt entries, so we just use cashFlowEntries
-    const sortedMonths = Array.from(fluxoMensalMap.keys()).sort();
-    let acumulado = 0;
-    const saldoAcumuladoMensal = sortedMonths.map((mes) => {
-      const bucket = fluxoMensalMap.get(mes)!;
-      acumulado += bucket.recebimentos - bucket.despesas;
-      return { mes, recebimentos: bucket.recebimentos, despesas: bucket.despesas, saldoAcumulado: acumulado };
-    });
+    // Saldo acumulado mensal — usa helper do domain que:
+    // (1) preenche meses vazios entre o primeiro e o último mês com entries
+    //     (evita "saltos" na linha do gráfico),
+    // (2) calcula duas séries: projetado (tudo) e realizado (só PAGO+EM_CAIXA),
+    //     permitindo o frontend exibir as duas para diferenciar com clareza.
+    const saldoAcumuladoMensal = buildMonthlyAccumulated(cashFlowEntries);
 
     return {
       kpis: {

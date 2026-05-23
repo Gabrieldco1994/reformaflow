@@ -114,6 +114,7 @@ export interface CashFlowEntry {
 
 export interface CashFlowEntryComputed extends CashFlowEntry {
   rollingBalance: number;
+  rollingBalanceRealizado: number;
 }
 
 // ─── Dashboard ──────────────────────────────────────────────

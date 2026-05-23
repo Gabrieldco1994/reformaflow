@@ -30,6 +30,7 @@ export default function CashFlowPage() {
   if (error) return <div className="text-red-600">Erro ao carregar fluxo de caixa.</div>;
 
   const saldoAtual = entries[entries.length - 1]?.rollingBalance ?? 0;
+  const saldoRealizado = entries[entries.length - 1]?.rollingBalanceRealizado ?? 0;
   const totalReceitas = entries
     .filter((e) => e.tipo === 'RECEBIMENTO')
     .reduce((s, e) => s + e.valor, 0);
@@ -60,13 +61,29 @@ export default function CashFlowPage() {
                 : 'bg-darc-red-pastel/15 border-darc-red-pastel/40'
             }`}
           >
-            <p className="text-[10px] uppercase tracking-wider text-darc-velvet/70">Saldo atual</p>
+            <p className="text-[10px] uppercase tracking-wider text-darc-velvet/70">Saldo projetado</p>
             <p
               className={`font-bold tabular-nums mt-1 ${
                 saldoAtual >= 0 ? 'text-darc-velvet' : 'text-darc-red'
               }`}
             >
               {formatCurrency(saldoAtual / 100)}
+            </p>
+          </div>
+          <div
+            className={`min-w-[160px] rounded-2xl shadow-darc-soft border px-4 py-3 ${
+              saldoRealizado >= 0
+                ? 'bg-emerald-50 border-emerald-200'
+                : 'bg-darc-red-pastel/15 border-darc-red-pastel/40'
+            }`}
+          >
+            <p className="text-[10px] uppercase tracking-wider text-emerald-700/80">Saldo realizado</p>
+            <p
+              className={`font-bold tabular-nums mt-1 ${
+                saldoRealizado >= 0 ? 'text-emerald-700' : 'text-darc-red'
+              }`}
+            >
+              {formatCurrency(saldoRealizado / 100)}
             </p>
           </div>
           <div className="min-w-[140px] rounded-2xl bg-white shadow-darc-soft border border-darc-linen px-4 py-3">
@@ -101,7 +118,8 @@ export default function CashFlowPage() {
               <th className="text-left px-4 py-2 font-medium text-gray-600">Forma Pagto</th>
               <th className="text-left px-4 py-2 font-medium text-gray-600">Parcela</th>
               <th className="text-left px-4 py-2 font-medium text-gray-600">Status</th>
-              <th className="text-right px-4 py-2 font-medium text-gray-600">Saldo Acumulado</th>
+              <th className="text-right px-4 py-2 font-medium text-gray-600" title="Inclui planejados e previstos">Saldo Projetado</th>
+              <th className="text-right px-4 py-2 font-medium text-gray-600" title="Apenas PAGO e EM_CAIXA">Saldo Realizado</th>
             </tr>
           </thead>
           <tbody className="divide-y">
@@ -127,10 +145,11 @@ export default function CashFlowPage() {
                 <td className="px-4 py-2">{entry.parcela ?? '-'}</td>
                 <td className="px-4 py-2"><StatusBadge status={entry.status} /></td>
                 <td className="px-4 py-2 text-right font-semibold">{formatCurrency(entry.rollingBalance / 100)}</td>
+                <td className="px-4 py-2 text-right font-semibold text-emerald-700">{formatCurrency(entry.rollingBalanceRealizado / 100)}</td>
               </tr>
             ))}
             {entries.length === 0 && (
-              <tr><td colSpan={10} className="px-4 py-8 text-center text-gray-400">Nenhuma entrada no fluxo de caixa.</td></tr>
+              <tr><td colSpan={11} className="px-4 py-8 text-center text-gray-400">Nenhuma entrada no fluxo de caixa.</td></tr>
             )}
           </tbody>
         </table>

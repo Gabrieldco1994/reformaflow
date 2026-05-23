@@ -42,7 +42,10 @@ interface SaldoData {
   mesLabel: string;
   recebimentos: number;
   despesas: number;
+  recebimentosRealizados?: number;
+  despesasRealizadas?: number;
   saldoAcumulado: number;
+  saldoAcumuladoRealizado?: number;
 }
 
 interface Props {
@@ -78,9 +81,12 @@ export default function DashboardCharts({ despesasChartData, saldoChartData }: P
 
       {saldoChartData.length > 0 && (
         <section className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5">
-          <h2 className="font-editorial italic text-lg md:text-xl text-darc-velvet mb-4">
+          <h2 className="font-editorial italic text-lg md:text-xl text-darc-velvet mb-1">
             Saldo Acumulado do Fluxo de Caixa
           </h2>
+          <p className="text-[11px] text-darc-velvet/60 mb-3">
+            <span className="font-semibold">Projetado</span> inclui planejados/previstos; <span className="font-semibold">Realizado</span> considera apenas pagos e em caixa.
+          </p>
           <ResponsiveContainer width="100%" height={280}>
             <LineChart data={saldoChartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#EDDBC2" />
@@ -111,8 +117,17 @@ export default function DashboardCharts({ despesasChartData, saldoChartData }: P
               <Line
                 type="monotone"
                 dataKey="saldoAcumulado"
-                name="Saldo Acumulado"
+                name="Saldo Projetado"
                 stroke="#4F000B"
+                strokeWidth={3}
+                strokeDasharray="6 4"
+                dot={{ r: 4 }}
+              />
+              <Line
+                type="monotone"
+                dataKey="saldoAcumuladoRealizado"
+                name="Saldo Realizado"
+                stroke="#138A6B"
                 strokeWidth={3}
                 dot={{ r: 5 }}
               />

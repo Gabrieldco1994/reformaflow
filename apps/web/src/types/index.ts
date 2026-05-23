@@ -36,7 +36,10 @@ export interface SaldoMensal {
   mes: string;
   recebimentos: number;
   despesas: number;
+  recebimentosRealizados: number;
+  despesasRealizadas: number;
   saldoAcumulado: number;
+  saldoAcumuladoRealizado: number;
 }
 
 // Receipts
@@ -124,6 +127,7 @@ export interface CashFlowEntry {
   parcela?: string;
   status: string;
   rollingBalance: number;
+  rollingBalanceRealizado: number;
   expenseId?: string | null;
   receiptId?: string | null;
   titulo?: string | null;

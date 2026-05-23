@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   calculateRollingBalance,
+  calculateRollingBalanceRealizado,
+  buildMonthlyAccumulated,
   computeCashFlowEntries,
   generateInstallmentDates,
   splitIntoCents,
@@ -107,6 +109,102 @@ describe('computeCashFlowEntries', () => {
     expect(result[0]!.id).toBe('x');
     expect(result[0]!.categoria).toBe('Aporte');
     expect(result[0]!.rollingBalance).toBe(100);
+  });
+});
+
+describe('calculateRollingBalanceRealizado', () => {
+  it('considera apenas PAGO e EM_CAIXA; ignora PLANEJADO e PREVISTO', () => {
+    const entries = [
+      { tipo: CashFlowType.RECEBIMENTO, valor: 10000, status: CashFlowStatus.EM_CAIXA },
+      { tipo: CashFlowType.RECEBIMENTO, valor: 50000, status: CashFlowStatus.PREVISTO },
+      { tipo: CashFlowType.DESPESA, valor: 3000, status: CashFlowStatus.PAGO },
+      { tipo: CashFlowType.DESPESA, valor: 7000, status: CashFlowStatus.PLANEJADO },
+    ];
+    // realizado: +10000, +10000 (PREVISTO ignorado), -3000, -3000 (PLANEJADO ignorado)
+    expect(calculateRollingBalanceRealizado(entries)).toEqual([10000, 10000, 7000, 7000]);
+  });
+
+  it('retorna 0 quando nada foi realizado', () => {
+    const entries = [
+      { tipo: CashFlowType.RECEBIMENTO, valor: 1000, status: CashFlowStatus.PREVISTO },
+      { tipo: CashFlowType.DESPESA, valor: 500, status: CashFlowStatus.PLANEJADO },
+    ];
+    expect(calculateRollingBalanceRealizado(entries)).toEqual([0, 0]);
+  });
+});
+
+describe('buildMonthlyAccumulated', () => {
+  it('preenche meses vazios entre o primeiro e o último mês com entries', () => {
+    const entries = [
+      {
+        tipo: CashFlowType.RECEBIMENTO, valor: 10000,
+        status: CashFlowStatus.EM_CAIXA, data: new Date(Date.UTC(2025, 0, 5)),
+      },
+      {
+        tipo: CashFlowType.DESPESA, valor: 4000,
+        status: CashFlowStatus.PAGO, data: new Date(Date.UTC(2025, 3, 20)),
+      },
+    ];
+    const rows = buildMonthlyAccumulated(entries);
+    expect(rows.map((r) => r.mes)).toEqual(['2025-01', '2025-02', '2025-03', '2025-04']);
+    expect(rows[0]!.saldoAcumulado).toBe(10000);
+    expect(rows[1]!.saldoAcumulado).toBe(10000); // mês vazio mantém saldo
+    expect(rows[2]!.saldoAcumulado).toBe(10000);
+    expect(rows[3]!.saldoAcumulado).toBe(6000);
+  });
+
+  it('separa saldo projetado de saldo realizado', () => {
+    const entries = [
+      {
+        tipo: CashFlowType.RECEBIMENTO, valor: 5000,
+        status: CashFlowStatus.PREVISTO, data: new Date(Date.UTC(2025, 0, 10)),
+      },
+      {
+        tipo: CashFlowType.RECEBIMENTO, valor: 3000,
+        status: CashFlowStatus.EM_CAIXA, data: new Date(Date.UTC(2025, 0, 12)),
+      },
+      {
+        tipo: CashFlowType.DESPESA, valor: 1000,
+        status: CashFlowStatus.PLANEJADO, data: new Date(Date.UTC(2025, 1, 5)),
+      },
+      {
+        tipo: CashFlowType.DESPESA, valor: 500,
+        status: CashFlowStatus.PAGO, data: new Date(Date.UTC(2025, 1, 8)),
+      },
+    ];
+    const rows = buildMonthlyAccumulated(entries);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.saldoAcumulado).toBe(8000);          // 5000 + 3000
+    expect(rows[0]!.saldoAcumuladoRealizado).toBe(3000); // só EM_CAIXA
+    expect(rows[1]!.saldoAcumulado).toBe(6500);          // 8000 - 1000 - 500
+    expect(rows[1]!.saldoAcumuladoRealizado).toBe(2500); // 3000 - 500
+  });
+
+  it('retorna [] quando não há entries', () => {
+    expect(buildMonthlyAccumulated([])).toEqual([]);
+  });
+
+  it('agrupa múltiplas entries no mesmo mês corretamente', () => {
+    const entries = [
+      {
+        tipo: CashFlowType.DESPESA, valor: 100,
+        status: CashFlowStatus.PAGO, data: new Date(Date.UTC(2025, 5, 1)),
+      },
+      {
+        tipo: CashFlowType.DESPESA, valor: 200,
+        status: CashFlowStatus.PAGO, data: new Date(Date.UTC(2025, 5, 15)),
+      },
+      {
+        tipo: CashFlowType.RECEBIMENTO, valor: 1000,
+        status: CashFlowStatus.EM_CAIXA, data: new Date(Date.UTC(2025, 5, 28)),
+      },
+    ];
+    const rows = buildMonthlyAccumulated(entries);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.despesas).toBe(300);
+    expect(rows[0]!.recebimentos).toBe(1000);
+    expect(rows[0]!.saldoAcumulado).toBe(700);
+    expect(rows[0]!.saldoAcumuladoRealizado).toBe(700);
   });
 });
 
