@@ -5,6 +5,7 @@ export enum ProjectType {
   COMPRA = 'COMPRA',
   CASA = 'CASA',
   CARRO = 'CARRO',
+  PESSOAL = 'PESSOAL',
 }
 
 export const ProjectTypeLabels: Record<ProjectType, string> = {
@@ -12,6 +13,7 @@ export const ProjectTypeLabels: Record<ProjectType, string> = {
   [ProjectType.COMPRA]: 'Compra',
   [ProjectType.CASA]: 'Casa',
   [ProjectType.CARRO]: 'Carro',
+  [ProjectType.PESSOAL]: 'Pessoal',
 };
 
 export const ProjectTypeIcons: Record<ProjectType, string> = {
@@ -19,6 +21,7 @@ export const ProjectTypeIcons: Record<ProjectType, string> = {
   [ProjectType.COMPRA]: '🏠',
   [ProjectType.CASA]: '🏡',
   [ProjectType.CARRO]: '🚗',
+  [ProjectType.PESSOAL]: '💰',
 };
 
 export const ProjectTypeDescriptions: Record<ProjectType, string> = {
@@ -26,6 +29,7 @@ export const ProjectTypeDescriptions: Record<ProjectType, string> = {
   [ProjectType.COMPRA]: 'Acompanhe compras grandes (casa, carro, etc.)',
   [ProjectType.CASA]: 'Gerencie contas, manutenções e lembretes da casa',
   [ProjectType.CARRO]: 'Controle manutenções, custos e lembretes do carro',
+  [ProjectType.PESSOAL]: 'Controle de despesas e recebimentos pessoais',
 };
 
 export enum UserRole {
@@ -41,6 +45,15 @@ export enum ReceiptType {
   BONUS = 'BONUS',
   VENDA_ACAO = 'VENDA_ACAO',
   ORCAMENTO_INICIAL = 'ORCAMENTO_INICIAL',
+  SALARIO = 'SALARIO',
+  ADIANTAMENTO_SALARIO = 'ADIANTAMENTO_SALARIO',
+  FREELANCE = 'FREELANCE',
+  ALUGUEL = 'ALUGUEL',
+  REEMBOLSO = 'REEMBOLSO',
+  DIVIDENDOS = 'DIVIDENDOS',
+  JUROS_RENDA_FIXA = 'JUROS_RENDA_FIXA',
+  RESGATE = 'RESGATE',
+  OUTROS = 'OUTROS',
 }
 
 export enum ReceiptStatus {
@@ -69,6 +82,18 @@ export enum ExpenseType {
   SEGURO_COMPRA = 'SEGURO_COMPRA',
   VISTORIA = 'VISTORIA',
   MUDANCA = 'MUDANCA',
+  // PESSOAL-specific types
+  CARTAO_CREDITO = 'CARTAO_CREDITO',
+  MORADIA = 'MORADIA',
+  ALIMENTACAO = 'ALIMENTACAO',
+  TRANSPORTE = 'TRANSPORTE',
+  SAUDE = 'SAUDE',
+  EDUCACAO = 'EDUCACAO',
+  LAZER = 'LAZER',
+  ASSINATURAS = 'ASSINATURAS',
+  INVESTIMENTOS = 'INVESTIMENTOS',
+  SEGUROS_PESSOAIS = 'SEGUROS_PESSOAIS',
+  IMPREVISTOS = 'IMPREVISTOS',
   OUTROS = 'OUTROS',
 }
 
@@ -115,6 +140,15 @@ export const ReceiptTypeLabels: Record<ReceiptType, string> = {
   [ReceiptType.BONUS]: 'Bônus',
   [ReceiptType.VENDA_ACAO]: 'Venda de Ação',
   [ReceiptType.ORCAMENTO_INICIAL]: 'Orçamento Inicial',
+  [ReceiptType.SALARIO]: 'Salário',
+  [ReceiptType.ADIANTAMENTO_SALARIO]: 'Adiantamento de Salário',
+  [ReceiptType.FREELANCE]: 'Freelance',
+  [ReceiptType.ALUGUEL]: 'Aluguel',
+  [ReceiptType.REEMBOLSO]: 'Reembolso',
+  [ReceiptType.DIVIDENDOS]: 'Dividendos',
+  [ReceiptType.JUROS_RENDA_FIXA]: 'Juros de Renda Fixa',
+  [ReceiptType.RESGATE]: 'Resgate',
+  [ReceiptType.OUTROS]: 'Outros',
 };
 
 export const ExpenseTypeLabels: Record<ExpenseType, string> = {
@@ -135,6 +169,17 @@ export const ExpenseTypeLabels: Record<ExpenseType, string> = {
   [ExpenseType.SEGURO_COMPRA]: 'Seguro',
   [ExpenseType.VISTORIA]: 'Vistoria',
   [ExpenseType.MUDANCA]: 'Mudança',
+  [ExpenseType.CARTAO_CREDITO]: 'Cartão de Crédito',
+  [ExpenseType.MORADIA]: 'Moradia',
+  [ExpenseType.ALIMENTACAO]: 'Alimentação',
+  [ExpenseType.TRANSPORTE]: 'Transporte',
+  [ExpenseType.SAUDE]: 'Saúde',
+  [ExpenseType.EDUCACAO]: 'Educação',
+  [ExpenseType.LAZER]: 'Lazer',
+  [ExpenseType.ASSINATURAS]: 'Assinaturas',
+  [ExpenseType.INVESTIMENTOS]: 'Investimentos',
+  [ExpenseType.SEGUROS_PESSOAIS]: 'Seguros',
+  [ExpenseType.IMPREVISTOS]: 'Imprevistos',
   [ExpenseType.OUTROS]: 'Outros',
 };
 

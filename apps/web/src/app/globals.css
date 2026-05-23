@@ -74,6 +74,11 @@
 }
 
 @layer utilities {
+  .font-platform-content {
+    font-family: var(--font-sans), 'Jost', system-ui, sans-serif;
+    font-weight: 500;
+  }
+
   .table-scroll {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;

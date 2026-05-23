@@ -366,7 +366,7 @@ function ManagementDashboard({ projectId }: { projectId: string; projectType: st
 export default function DashboardPage() {
   const { projectId, projectType, projectName } = useProject();
 
-  const isFinancial = projectType === 'REFORMA' || projectType === 'COMPRA';
+  const isFinancial = projectType === 'REFORMA' || projectType === 'COMPRA' || projectType === 'PESSOAL';
   const isManagement = projectType === 'CASA' || projectType === 'CARRO';
 
   return (

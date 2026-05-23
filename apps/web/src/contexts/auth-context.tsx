@@ -44,6 +44,7 @@ export const ALL_MODULES: { slug: ModuleSlug; label: string }[] = [
 export const TYPE_MODULES: Record<string, ModuleSlug[]> = {
   REFORMA: ['expenses', 'receipts', 'cashFlow', 'schedule', 'floorPlans', 'simulation', 'priceCompare', 'rooms'],
   COMPRA: ['expenses', 'receipts', 'cashFlow'],
+  PESSOAL: ['expenses', 'receipts', 'cashFlow'],
   CASA: ['recurringBills', 'maintenance', 'reminders'],
   CARRO: ['carInfo', 'recurringBills', 'maintenance', 'reminders'],
 };

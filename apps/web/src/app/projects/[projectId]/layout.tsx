@@ -56,6 +56,12 @@ const FEATURE_NAV: Record<string, NavItem[]> = {
     { href: 'receipts', label: 'Recebimentos', icon: Wallet, module: 'receipts' },
     { href: 'cash-flow', label: 'Fluxo de Caixa', icon: ArrowLeftRight, module: 'cashFlow' },
   ],
+  PESSOAL: [
+    { href: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, module: 'dashboard' },
+    { href: 'expenses', label: 'Despesas', icon: Receipt, module: 'expenses' },
+    { href: 'receipts', label: 'Recebimentos', icon: Wallet, module: 'receipts' },
+    { href: 'cash-flow', label: 'Fluxo de Caixa', icon: ArrowLeftRight, module: 'cashFlow' },
+  ],
   CASA: [
     { href: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, module: 'dashboard' },
     { href: 'bills', label: 'Contas', icon: CreditCard, module: 'recurringBills' },
@@ -74,6 +80,7 @@ const FEATURE_NAV: Record<string, NavItem[]> = {
 const TYPE_ICONS: Record<string, string> = {
   REFORMA: '🏗️',
   COMPRA: '🏠',
+  PESSOAL: '💰',
   CASA: '🏡',
   CARRO: '🚗',
 };
@@ -335,7 +342,7 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
         </aside>
 
         {/* Main content */}
-        <main className="flex-1 overflow-y-auto p-4 md:p-6 bg-white pb-24 md:pb-6">
+        <main className="font-platform-content flex-1 overflow-y-auto p-4 md:p-6 bg-white pb-24 md:pb-6">
           {children}
         </main>
 

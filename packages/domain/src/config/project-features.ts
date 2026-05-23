@@ -27,6 +27,9 @@ export const PROJECT_FEATURES: Record<ProjectType, ProjectFeature[]> = {
   [ProjectType.CARRO]: [
     'dashboard', 'recurringBills', 'maintenance', 'reminders',
   ],
+  [ProjectType.PESSOAL]: [
+    'dashboard', 'expenses', 'receipts', 'cashFlow',
+  ],
 };
 
 export function hasFeature(projectType: ProjectType, feature: ProjectFeature): boolean {
@@ -54,10 +57,27 @@ const COMPRA_EXPENSE_TYPES: ExpenseType[] = [
   ExpenseType.OUTROS,
 ];
 
+const PESSOAL_EXPENSE_TYPES: ExpenseType[] = [
+  ExpenseType.CARTAO_CREDITO,
+  ExpenseType.MORADIA,
+  ExpenseType.ALIMENTACAO,
+  ExpenseType.TRANSPORTE,
+  ExpenseType.SAUDE,
+  ExpenseType.EDUCACAO,
+  ExpenseType.LAZER,
+  ExpenseType.ASSINATURAS,
+  ExpenseType.INVESTIMENTOS,
+  ExpenseType.SEGUROS_PESSOAIS,
+  ExpenseType.IMPREVISTOS,
+  ExpenseType.IMPOSTO,
+  ExpenseType.OUTROS,
+];
+
 export function getExpenseTypesForProject(projectType: ProjectType): ExpenseType[] {
   switch (projectType) {
     case ProjectType.REFORMA: return REFORMA_EXPENSE_TYPES;
     case ProjectType.COMPRA: return COMPRA_EXPENSE_TYPES;
+    case ProjectType.PESSOAL: return PESSOAL_EXPENSE_TYPES;
     default: return REFORMA_EXPENSE_TYPES;
   }
 }

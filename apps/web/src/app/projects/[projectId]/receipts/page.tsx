@@ -14,11 +14,24 @@ import React from 'react';
 import type { Receipt, ReceiptFormData } from '@/types';
 import { MobileReceiptList } from './_components/MobileReceiptList';
 
-const TIPO_OPTIONS = [
+const DEFAULT_TIPO_OPTIONS = [
   { value: 'PAGAMENTO', label: 'Pagamento' },
   { value: 'BONUS', label: 'Bônus' },
   { value: 'VENDA_ACAO', label: 'Venda de Ação' },
   { value: 'ORCAMENTO_INICIAL', label: 'Orçamento Inicial' },
+];
+
+const PESSOAL_TIPO_OPTIONS = [
+  { value: 'SALARIO', label: 'Salário' },
+  { value: 'ADIANTAMENTO_SALARIO', label: 'Adiantamento de Salário' },
+  { value: 'FREELANCE', label: 'Freelance' },
+  { value: 'ALUGUEL', label: 'Aluguel' },
+  { value: 'DIVIDENDOS', label: 'Dividendos' },
+  { value: 'JUROS_RENDA_FIXA', label: 'Juros de Renda Fixa' },
+  { value: 'RESGATE', label: 'Resgate' },
+  { value: 'REEMBOLSO', label: 'Reembolso' },
+  { value: 'BONUS', label: 'Bônus' },
+  { value: 'OUTROS', label: 'Outros' },
 ];
 
 const STATUS_OPTIONS = [
@@ -35,13 +48,26 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export default function ReceiptsPage() {
-  const { projectId: PROJECT_ID } = useProject();
+  const { projectId: PROJECT_ID, projectType } = useProject();
+  const isPessoal = projectType === 'PESSOAL';
+  const TIPO_OPTIONS = isPessoal ? PESSOAL_TIPO_OPTIONS : DEFAULT_TIPO_OPTIONS;
+  const defaultTipo = TIPO_OPTIONS[0]?.value ?? 'PAGAMENTO';
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Receipt | null>(null);
-  const [newRow, setNewRow] = useState({ valor: '', data: '', tipo: 'PAGAMENTO', status: 'PREVISTO' });
+  const [newRow, setNewRow] = useState({ valor: '', data: '', tipo: defaultTipo, status: 'PREVISTO' });
   const [showNewRow, setShowNewRow] = useState(false);
   const [collapsedTipos, setCollapsedTipos] = useState<Set<string>>(new Set());
+  const [salaryValue, setSalaryValue] = useState('');
+  const [salaryDay15Pct, setSalaryDay15Pct] = useState('40');
+  const [monthsToGenerate, setMonthsToGenerate] = useState('12');
+  const [startMonth, setStartMonth] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [dividendsValue, setDividendsValue] = useState('');
+  const [fixedIncomeValue, setFixedIncomeValue] = useState('');
+  const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
 
   const toggleTipo = (tipo: string) => {
     setCollapsedTipos((prev) => {
@@ -65,7 +91,7 @@ export default function ReceiptsPage() {
 
   const createMutation = useMutation({
     mutationFn: (data: ReceiptFormData) => api.post(`/projects/${PROJECT_ID}/receipts`, data),
-    onSuccess: () => { invalidate(); closeModal(); setShowNewRow(false); setNewRow({ valor: '', data: '', tipo: 'PAGAMENTO', status: 'PREVISTO' }); },
+    onSuccess: () => { invalidate(); closeModal(); setShowNewRow(false); setNewRow({ valor: '', data: '', tipo: defaultTipo, status: 'PREVISTO' }); },
   });
 
   const updateMutation = useMutation({
@@ -125,6 +151,79 @@ export default function ReceiptsPage() {
     else if (e.key === 'Escape') setShowNewRow(false);
   }
 
+  async function generatePersonalPlan() {
+    if (!isPessoal) return;
+    const salary = Number(salaryValue) || 0;
+    const day15Pct = Number(salaryDay15Pct);
+    const months = Math.max(1, Number(monthsToGenerate) || 1);
+    const dividends = Number(dividendsValue) || 0;
+    const fixedIncome = Number(fixedIncomeValue) || 0;
+    if (salary <= 0 && dividends <= 0 && fixedIncome <= 0) return;
+
+    const [startY, startM] = startMonth.split('-').map(Number);
+    const payloads: ReceiptFormData[] = [];
+
+    const safeDate = (year: number, monthIndex: number, day: number) => {
+      const monthLastDay = new Date(year, monthIndex + 1, 0).getDate();
+      const safeDay = Math.min(day, monthLastDay);
+      return `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(safeDay).padStart(2, '0')}`;
+    };
+
+    for (let i = 0; i < months; i++) {
+      const monthIndexAbsolute = (startM - 1) + i;
+      const year = startY + Math.floor(monthIndexAbsolute / 12);
+      const monthIndex = monthIndexAbsolute % 12;
+
+      if (salary > 0) {
+        const adiantamento = Math.round((salary * (Math.max(0, Math.min(100, day15Pct)) / 100)) * 100) / 100;
+        const fechamento = Math.round((salary - adiantamento) * 100) / 100;
+        if (adiantamento > 0) {
+          payloads.push({
+            valor: adiantamento,
+            data: safeDate(year, monthIndex, 15),
+            tipo: 'ADIANTAMENTO_SALARIO',
+            status: 'PREVISTO',
+          });
+        }
+        if (fechamento > 0) {
+          payloads.push({
+            valor: fechamento,
+            data: safeDate(year, monthIndex, 30),
+            tipo: 'SALARIO',
+            status: 'PREVISTO',
+          });
+        }
+      }
+
+      if (dividends > 0) {
+        payloads.push({
+          valor: dividends,
+          data: safeDate(year, monthIndex, 30),
+          tipo: 'DIVIDENDOS',
+          status: 'PREVISTO',
+        });
+      }
+      if (fixedIncome > 0) {
+        payloads.push({
+          valor: fixedIncome,
+          data: safeDate(year, monthIndex, 30),
+          tipo: 'JUROS_RENDA_FIXA',
+          status: 'PREVISTO',
+        });
+      }
+    }
+
+    if (payloads.length === 0) return;
+
+    try {
+      setIsGeneratingPlan(true);
+      await Promise.all(payloads.map((p) => api.post(`/projects/${PROJECT_ID}/receipts`, p)));
+      invalidate();
+    } finally {
+      setIsGeneratingPlan(false);
+    }
+  }
+
   const tipoLabel = (tipo: string) => TIPO_OPTIONS.find((o) => o.value === tipo)?.label ?? tipo;
 
   const grouped = useMemo(() => {
@@ -134,20 +233,30 @@ export default function ReceiptsPage() {
       arr.push(r);
       byTipo.set(r.tipo, arr);
     }
-    return TIPO_OPTIONS
+    const ordered = TIPO_OPTIONS
       .map((o) => ({
         tipo: o.value,
         label: o.label,
         items: (byTipo.get(o.value) ?? []).slice().sort((a, b) => (a.data > b.data ? -1 : 1)),
       }))
-      .filter((g) => g.items.length > 0)
+      .filter((g) => g.items.length > 0);
+
+    const remaining = Array.from(byTipo.entries())
+      .filter(([tipo]) => !TIPO_OPTIONS.some((o) => o.value === tipo))
+      .map(([tipo, items]) => ({
+        tipo,
+        label: tipo,
+        items: items.slice().sort((a, b) => (a.data > b.data ? -1 : 1)),
+      }));
+
+    return [...ordered, ...remaining]
       .map((g) => ({
         ...g,
         total: g.items.reduce((s, r) => s + r.valor, 0),
         totalEmCaixa: g.items.filter((r) => r.status === 'EM_CAIXA').reduce((s, r) => s + r.valor, 0),
         totalPrevisto: g.items.filter((r) => r.status === 'PREVISTO').reduce((s, r) => s + r.valor, 0),
       }));
-  }, [receipts]);
+  }, [receipts, TIPO_OPTIONS]);
 
   const totalGeral = grouped.reduce((s, g) => s + g.total, 0);
   const totalEmCaixa = grouped.reduce((s, g) => s + g.totalEmCaixa, 0);
@@ -186,6 +295,70 @@ export default function ReceiptsPage() {
           </div>
         </div>
       </div>
+
+      {isPessoal && (
+        <section className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 space-y-4">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-darc-velvet/60">Planejamento pessoal</p>
+            <h2 className="font-editorial italic text-xl text-darc-velvet">Configuração rápida de recebimentos</h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <Input
+              label="Salário mensal total (R$)"
+              type="number"
+              min="0"
+              step="0.01"
+              value={salaryValue}
+              onChange={(e) => setSalaryValue(e.target.value)}
+            />
+            <Input
+              label="% no dia 15"
+              type="number"
+              min="0"
+              max="100"
+              value={salaryDay15Pct}
+              onChange={(e) => setSalaryDay15Pct(e.target.value)}
+            />
+            <Input
+              label="Meses para gerar"
+              type="number"
+              min="1"
+              max="24"
+              value={monthsToGenerate}
+              onChange={(e) => setMonthsToGenerate(e.target.value)}
+            />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <Input
+              label="Mês inicial"
+              type="month"
+              value={startMonth}
+              onChange={(e) => setStartMonth(e.target.value)}
+            />
+            <Input
+              label="Dividendos mensais (R$)"
+              type="number"
+              min="0"
+              step="0.01"
+              value={dividendsValue}
+              onChange={(e) => setDividendsValue(e.target.value)}
+            />
+            <Input
+              label="Juros renda fixa mensal (R$)"
+              type="number"
+              min="0"
+              step="0.01"
+              value={fixedIncomeValue}
+              onChange={(e) => setFixedIncomeValue(e.target.value)}
+            />
+          </div>
+          <div className="flex justify-end">
+            <Button onClick={generatePersonalPlan} disabled={isGeneratingPlan}>
+              {isGeneratingPlan ? 'Gerando...' : 'Gerar recebimentos automáticos (15/30)'}
+            </Button>
+          </div>
+        </section>
+      )}
 
       {isLoading ? (
         <p className="text-gray-500">Carregando...</p>
@@ -355,7 +528,7 @@ export default function ReceiptsPage() {
           <Input label="Data" name="data" type="date" required
             defaultValue={editing?.data ? editing.data.slice(0, 10) : ''} />
           <Select label="Tipo" name="tipo" options={TIPO_OPTIONS} required
-            defaultValue={editing?.tipo ?? ''} />
+            defaultValue={editing?.tipo ?? defaultTipo} />
           <Select label="Status" name="status" options={STATUS_OPTIONS} required
             defaultValue={editing?.status ?? ''} />
           <div className="flex justify-end gap-2 pt-2">

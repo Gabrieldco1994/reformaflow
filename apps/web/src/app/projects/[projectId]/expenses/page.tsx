@@ -1,11 +1,11 @@
 'use client';
 import { useProject } from '@/contexts/project-context';
 
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
-import { Plus, CreditCard, Pencil, Trash2, Check, X, ChevronDown, ChevronRight, Filter, Search, ExternalLink, ShoppingCart, ImageOff, GripVertical, BarChart3 } from 'lucide-react';
+import { Plus, CreditCard, Pencil, Trash2, Check, X, ChevronDown, ChevronRight, Filter, Search, ExternalLink, ShoppingCart, ImageOff, GripVertical, BarChart3, Mic } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -29,7 +29,16 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
-import { ExpenseTypeLabels, type ProjectType as PType, getExpenseTypesForProject } from '@reformaflow/domain';
+import {
+  ExpenseType,
+  ExpenseTypeLabels,
+  ExpenseStatus,
+  PaymentForm,
+  type ParsedVoiceExpense,
+  parseVoiceExpense,
+  type ProjectType as PType,
+  getExpenseTypesForProject,
+} from '@reformaflow/domain';
 import { CATEGORIA_MAO_DE_OBRA_OPTIONS, FORMA_PAGAMENTO_OPTIONS } from '@/lib/expense-options';
 import {
   type InlineNewRow,
@@ -41,6 +50,38 @@ import {
 import { StatusBadge } from './_components/StatusBadge';
 import { CompráveisView } from './_components/CompraveisView';
 import { MobileExpenseList } from './_components/MobileExpenseList';
+
+interface TenantProjectRef {
+  id: string;
+  name: string;
+  type: string;
+}
+
+interface RecurringBillLite {
+  valor: number;
+  frequencia: string;
+  status: string;
+}
+
+interface MaintenanceLogLite {
+  custo?: number | null;
+}
+
+interface SpeechRecognitionLike {
+  lang: string;
+  interimResults: boolean;
+  maxAlternatives: number;
+  onstart: (() => void) | null;
+  onend: (() => void) | null;
+  onerror: ((event: { error: string }) => void) | null;
+  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  start: () => void;
+  stop: () => void;
+}
+
+type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
+
+const toIsoDate = (date: Date) => date.toISOString().slice(0, 10);
 
 export default function ExpensesPage() {
   const { projectId: PROJECT_ID, projectType } = useProject();
@@ -58,11 +99,13 @@ export default function ExpensesPage() {
   const [valor, setValor] = useState('');
   const [quantidade, setQuantidade] = useState('1');
 
-  const defaultExpenseType = TIPO_DESPESA_OPTIONS[0]?.value ?? 'MATERIAL_CONSTRUCAO';
+  const defaultExpenseType = (TIPO_DESPESA_OPTIONS[0]?.value ?? ExpenseType.MATERIAL_CONSTRUCAO) as ExpenseType;
 
   // Inline new row
   const [showNewRow, setShowNewRow] = useState(false);
   const [newRow, setNewRow] = useState<InlineNewRow>(() => makeEmptyNewRow(defaultExpenseType));
+  const [editingInlineId, setEditingInlineId] = useState<string | null>(null);
+  const [editingInlineRow, setEditingInlineRow] = useState<InlineNewRow>(() => makeEmptyNewRow(defaultExpenseType));
 
   // Expand/collapse per expense (for parcelas detail)
   const [expandedExpenses, setExpandedExpenses] = useState<Set<string>>(new Set());
@@ -81,6 +124,16 @@ export default function ExpensesPage() {
   });
   const updateFilter = (key: string, value: string) => setFilters((f) => ({ ...f, [key]: value }));
   const [searchText, setSearchText] = useState('');
+  const [voiceModalOpen, setVoiceModalOpen] = useState(false);
+  const [voiceSupported, setVoiceSupported] = useState(false);
+  const [voiceListening, setVoiceListening] = useState(false);
+  const [voiceTranscript, setVoiceTranscript] = useState('');
+  const [voiceError, setVoiceError] = useState('');
+  const [voiceData, setVoiceData] = useState<ParsedVoiceExpense | null>(null);
+  const [voiceFornecedor, setVoiceFornecedor] = useState('');
+  const [speechApi, setSpeechApi] = useState<SpeechRecognitionCtor | null>(null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const voiceFeatureEnabled = true;
 
   const tipoLabel = (t: string) => TIPO_DESPESA_OPTIONS.find((o) => o.value === t)?.label ?? t;
   const formaLabel = (f: string) => FORMA_PAGAMENTO_OPTIONS.find((o) => o.value === f)?.label ?? f;
@@ -94,6 +147,56 @@ export default function ExpensesPage() {
   const { data: project } = useQuery<Project>({
     queryKey: ['project', PROJECT_ID],
     queryFn: () => api.get(`/projects/${PROJECT_ID}`),
+  });
+
+  const { data: tenantProjects = [] } = useQuery<TenantProjectRef[]>({
+    queryKey: ['projects', 'tenant-index'],
+    queryFn: () => api.get('/projects'),
+    enabled: projectType === 'PESSOAL',
+  });
+
+  const influenceProjects = useMemo(
+    () => tenantProjects.filter((p) => p.id !== PROJECT_ID && (p.type === 'CASA' || p.type === 'CARRO')),
+    [tenantProjects, PROJECT_ID],
+  );
+
+  const { data: influenceSummary = [] } = useQuery<
+    Array<{ id: string; name: string; type: string; estimatedMonthly: number }>
+  >({
+    queryKey: ['pessoal-influence', influenceProjects.map((p) => p.id).join(',')],
+    enabled: projectType === 'PESSOAL' && influenceProjects.length > 0,
+    queryFn: async () => {
+      const monthlyFactor = (frequencia: string) => {
+        switch (frequencia) {
+          case 'ANUAL': return 1 / 12;
+          case 'SEMESTRAL': return 1 / 6;
+          case 'TRIMESTRAL': return 1 / 3;
+          case 'BIMESTRAL': return 1 / 2;
+          default: return 1;
+        }
+      };
+      const rows = await Promise.all(
+        influenceProjects.map(async (p) => {
+          const [bills, logs] = await Promise.all([
+            api.get<RecurringBillLite[]>(`/projects/${p.id}/recurring-bills`).catch(() => []),
+            api.get<MaintenanceLogLite[]>(`/projects/${p.id}/maintenance-logs`).catch(() => []),
+          ]);
+          const recurringMonthly = bills
+            .filter((b) => b.status === 'ATIVO')
+            .reduce((sum, b) => sum + Math.round((b.valor ?? 0) * monthlyFactor(b.frequencia ?? 'MENSAL')), 0);
+          const maintenanceMonthly = Math.round(
+            logs.reduce((sum, l) => sum + (l.custo ?? 0), 0) / 12,
+          );
+          return {
+            id: p.id,
+            name: p.name,
+            type: p.type,
+            estimatedMonthly: recurringMonthly + maintenanceMonthly,
+          };
+        }),
+      );
+      return rows.sort((a, b) => b.estimatedMonthly - a.estimatedMonthly);
+    },
   });
 
   const { data: plannedExpenses = [] } = useQuery<Expense[]>({
@@ -110,7 +213,7 @@ export default function ExpensesPage() {
   const filteredExpenses = useMemo(() => {
     return expenses.filter((exp) => {
       if (filters.tipoDespesa && exp.tipoDespesa !== filters.tipoDespesa) return false;
-      if (filters.room) {
+      if (showRooms && filters.room) {
         const roomName = exp.room?.name ?? '';
         if (!roomName.toLowerCase().includes(filters.room.toLowerCase())) return false;
       }
@@ -133,7 +236,7 @@ export default function ExpensesPage() {
       }
       return true;
     });
-  }, [expenses, filters, searchText]);
+  }, [expenses, filters, searchText, showRooms]);
 
   const hasActiveFilters = Object.values(filters).some((v) => v !== '') || searchText !== '';
 
@@ -160,8 +263,10 @@ export default function ExpensesPage() {
 
   // KPIs
   const totalGeral = filteredExpenses.reduce((s, e) => s + e.valorTotal, 0);
+  const totalProjeto = expenses.reduce((s, e) => s + e.valorTotal, 0);
   const totalPlanejado = filteredExpenses.filter((e) => e.status === 'PLANEJADO').reduce((s, e) => s + e.valorTotal, 0);
   const totalPago = filteredExpenses.filter((e) => e.status === 'PAGO').reduce((s, e) => s + e.valorTotal, 0);
+  const influenceTotal = influenceSummary.reduce((sum, i) => sum + i.estimatedMonthly, 0);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['expenses', PROJECT_ID] });
@@ -241,6 +346,8 @@ export default function ExpensesPage() {
   }
 
   function openEdit(expense: Expense) {
+    setShowNewRow(false);
+    closeInlineEdit();
     setEditing(expense);
     setFormStatus(expense.status as 'PLANEJADO' | 'PAGO');
     setTipoDespesa(expense.tipoDespesa);
@@ -248,6 +355,55 @@ export default function ExpensesPage() {
     setValor(expense.valor ? (expense.valor / 100).toFixed(2) : '');
     setQuantidade(String(expense.quantidade ?? 1));
     setFormModalOpen(true);
+  }
+
+  function openInlineEdit(expense: Expense) {
+    setShowNewRow(false);
+    setEditingInlineId(expense.id);
+    setEditingInlineRow({
+      tipoDespesa: expense.tipoDespesa,
+      categoriaMaoDeObra: expense.categoriaMaoDeObra ?? '',
+      roomId: expense.roomId ?? '',
+      valor: (expense.valor / 100).toFixed(2),
+      quantidade: String(expense.quantidade ?? 1),
+      titulo: expense.titulo ?? '',
+      fornecedor: expense.fornecedor ?? '',
+      formaPagamento: expense.formaPagamento,
+      status: expense.status,
+      dataPagamento: expense.dataPagamento?.slice(0, 10) ?? '',
+      quantidadeParcela: expense.quantidadeParcela ? String(expense.quantidadeParcela) : '',
+      dataInicioParcela: expense.dataInicioParcela?.slice(0, 10) ?? '',
+    });
+  }
+
+  function closeInlineEdit() {
+    setEditingInlineId(null);
+    setEditingInlineRow(makeEmptyNewRow(defaultExpenseType));
+  }
+
+  function buildPayloadFromInlineRow(row: InlineNewRow, defaultDateIfMissing = false): ExpenseFormData {
+    const fp = row.formaPagamento;
+    const data: ExpenseFormData = {
+      tipoDespesa: row.tipoDespesa,
+      categoriaMaoDeObra: row.tipoDespesa === 'MAO_DE_OBRA' && row.categoriaMaoDeObra ? row.categoriaMaoDeObra : null,
+      roomId: showRooms ? (row.roomId || null) : null,
+      valor: parseFloat(row.valor),
+      quantidade: parseInt(row.quantidade) || 1,
+      titulo: row.titulo || null,
+      fornecedor: row.fornecedor || null,
+      formaPagamento: fp,
+      status: row.status as 'PLANEJADO' | 'PAGO',
+    };
+    if (fp === 'A_VISTA') {
+      data.dataPagamento = row.dataPagamento || (defaultDateIfMissing ? new Date().toISOString().slice(0, 10) : null);
+      data.quantidadeParcela = null;
+      data.dataInicioParcela = null;
+    } else if (fp === 'PARCELADO' || fp === 'QUINZENAL') {
+      data.quantidadeParcela = parseInt(row.quantidadeParcela) || 1;
+      data.dataInicioParcela = row.dataInicioParcela || null;
+      data.dataPagamento = null;
+    }
+    return data;
   }
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -264,7 +420,7 @@ export default function ExpensesPage() {
     const data: ExpenseFormData = {
       tipoDespesa: form.get('tipoDespesa') as string,
       categoriaMaoDeObra: nullable('categoriaMaoDeObra'),
-      roomId: nullable('roomId'),
+      roomId: showRooms ? nullable('roomId') : null,
       valor: Number(form.get('valor')),
       quantidade: Number(form.get('quantidade')),
       titulo: nullable('titulo'),
@@ -297,32 +453,27 @@ export default function ExpensesPage() {
   // Inline new row
   function handleInlineSubmit() {
     if (!newRow.valor || !newRow.tipoDespesa) return;
-    const fp = newRow.formaPagamento;
-    const data: ExpenseFormData = {
-      tipoDespesa: newRow.tipoDespesa,
-      valor: parseFloat(newRow.valor),
-      quantidade: parseInt(newRow.quantidade) || 1,
-      formaPagamento: fp,
-      status: newRow.status as 'PLANEJADO' | 'PAGO',
-    };
-    if (newRow.tipoDespesa === 'MAO_DE_OBRA' && newRow.categoriaMaoDeObra) {
-      data.categoriaMaoDeObra = newRow.categoriaMaoDeObra;
-    }
-    if (newRow.roomId) data.roomId = newRow.roomId;
-    if (newRow.titulo) data.titulo = newRow.titulo;
-    if (newRow.fornecedor) data.fornecedor = newRow.fornecedor;
-    if (fp === 'A_VISTA') {
-      data.dataPagamento = newRow.dataPagamento || new Date().toISOString().slice(0, 10);
-    } else if (fp === 'PARCELADO' || fp === 'QUINZENAL') {
-      data.quantidadeParcela = parseInt(newRow.quantidadeParcela) || 1;
-      if (newRow.dataInicioParcela) data.dataInicioParcela = newRow.dataInicioParcela;
-    }
+    const data = buildPayloadFromInlineRow(newRow, true);
     createMutation.mutate(data);
+  }
+
+  function handleInlineUpdateSubmit() {
+    if (!editingInlineId || !editingInlineRow.valor || !editingInlineRow.tipoDespesa) return;
+    const data = buildPayloadFromInlineRow(editingInlineRow);
+    updateMutation.mutate(
+      { id: editingInlineId, data },
+      { onSuccess: () => closeInlineEdit() },
+    );
   }
 
   function inlineKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'Enter') handleInlineSubmit();
     else if (e.key === 'Escape') setShowNewRow(false);
+  }
+
+  function inlineEditKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Enter') handleInlineUpdateSubmit();
+    else if (e.key === 'Escape') closeInlineEdit();
   }
 
   const valorTotal = useMemo(() => {
@@ -375,7 +526,133 @@ export default function ExpensesPage() {
     });
   };
 
-  const COL_SPAN = 9;
+  const COL_SPAN = showRooms ? 9 : 8;
+
+  useEffect(() => {
+    if (!voiceFeatureEnabled) return;
+    if (typeof window === 'undefined') return;
+    const win = window as Window & {
+      SpeechRecognition?: SpeechRecognitionCtor;
+      webkitSpeechRecognition?: SpeechRecognitionCtor;
+    };
+    const ctor = win.SpeechRecognition ?? win.webkitSpeechRecognition ?? null;
+    // IMPORTANTE: React trata o argumento de useState como updater function quando é função.
+    // Como SpeechRecognition é um construtor (function), precisamos wrappear em callback
+    // para guardá-lo como valor, e não invocá-lo. Sem isso: TypeError "use 'new' operator".
+    setSpeechApi(() => ctor);
+    setVoiceSupported(Boolean(ctor));
+  }, [voiceFeatureEnabled]);
+
+  useEffect(() => {
+    if (!voiceFeatureEnabled) return;
+    return () => {
+      try {
+        recognitionRef.current?.stop();
+      } catch {
+        // no-op: navegadores podem lançar se já estiver parado
+      } finally {
+        recognitionRef.current = null;
+      }
+    };
+  }, [voiceFeatureEnabled]);
+
+  const parseVoiceTranscript = useCallback((rawText: string): ParsedVoiceExpense => {
+    return parseVoiceExpense({
+      transcript: rawText,
+      allowedExpenseTypes: TIPO_DESPESA_OPTIONS.map((o) => o.value as ExpenseType),
+      defaultExpenseType,
+    });
+  }, [TIPO_DESPESA_OPTIONS, defaultExpenseType]);
+
+  const startVoiceCapture = useCallback(() => {
+    if (!speechApi) {
+      setVoiceError('Seu navegador não suporta lançamento por voz.');
+      return;
+    }
+    setVoiceError('');
+    setVoiceTranscript('');
+    setVoiceData(null);
+    setVoiceFornecedor('');
+
+    try {
+      recognitionRef.current?.stop();
+      const recognition = new speechApi();
+      recognitionRef.current = recognition;
+      recognition.lang = 'pt-BR';
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+      recognition.onstart = () => setVoiceListening(true);
+      recognition.onend = () => setVoiceListening(false);
+      recognition.onerror = (event) => {
+        setVoiceListening(false);
+        if (event.error === 'not-allowed') {
+          setVoiceError('Microfone bloqueado. Libere a permissão para continuar.');
+          return;
+        }
+        setVoiceError('Não consegui captar sua voz. Tente novamente.');
+      };
+      recognition.onresult = (event) => {
+        const text = event.results[0]?.[0]?.transcript?.trim() ?? '';
+        setVoiceTranscript(text);
+        if (!text) {
+          setVoiceError('Não consegui entender o áudio.');
+          setVoiceData(null);
+          return;
+        }
+        try {
+          const parsed = parseVoiceTranscript(text);
+          setVoiceData(parsed);
+          setVoiceFornecedor('');
+          if (!parsed.valor) {
+            setVoiceError('Não consegui identificar o valor. Fale algo como "gastei 85 reais no mercado".');
+          } else {
+            setVoiceError('');
+          }
+        } catch {
+          setVoiceData(null);
+          setVoiceError('Ocorreu um erro ao interpretar o comando de voz.');
+        }
+      };
+      recognition.start();
+    } catch {
+      setVoiceListening(false);
+      setVoiceError('Falha ao iniciar o microfone neste dispositivo.');
+    }
+  }, [parseVoiceTranscript, speechApi]);
+
+  function saveVoiceExpense() {
+    if (!voiceData || !voiceData.valor) return;
+    const data: ExpenseFormData = {
+      tipoDespesa: voiceData.tipoDespesa,
+      categoriaMaoDeObra: null,
+      roomId: null,
+      valor: voiceData.valor,
+      quantidade: 1,
+      titulo: voiceData.titulo || null,
+      fornecedor: voiceFornecedor || null,
+      formaPagamento: voiceData.formaPagamento,
+      status: voiceData.status as 'PLANEJADO' | 'PAGO',
+      dataPagamento: null,
+      quantidadeParcela: null,
+      dataInicioParcela: null,
+    };
+    if (voiceData.formaPagamento === PaymentForm.A_VISTA) {
+      data.dataPagamento = voiceData.dataReferencia || toIsoDate(new Date());
+    } else {
+      data.quantidadeParcela = voiceData.quantidadeParcela || 1;
+      data.dataInicioParcela = voiceData.dataReferencia || toIsoDate(new Date());
+    }
+
+    createMutation.mutate(data, {
+      onSuccess: () => {
+        setVoiceModalOpen(false);
+        setVoiceTranscript('');
+        setVoiceData(null);
+        setVoiceFornecedor('');
+        setVoiceError('');
+      },
+    });
+  }
 
   return (
     <div className="space-y-4">
@@ -396,6 +673,20 @@ export default function ExpensesPage() {
         </div>
         {activeTab === 'despesas' && (
           <div className="flex flex-wrap gap-2">
+            {voiceFeatureEnabled && (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setVoiceModalOpen(true);
+                  setVoiceError('');
+                  setVoiceTranscript('');
+                  setVoiceData(null);
+                  setVoiceFornecedor('');
+                }}
+              >
+                <Mic className="w-4 h-4" /> Lançar por voz
+              </Button>
+            )}
             <Button variant="secondary" onClick={openPlanForm}>
               <Plus className="w-4 h-4" /> Planejar
             </Button>
@@ -414,9 +705,20 @@ export default function ExpensesPage() {
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="rounded-lg border p-3 bg-orange-50 border-orange-200">
-          <p className="text-xs font-medium text-orange-600">Total Despesas</p>
-          <p className="text-lg font-bold text-orange-800 mt-0.5">{formatCurrency(totalGeral / 100)}</p>
-          <p className="text-[10px] text-orange-500 mt-0.5">{filteredExpenses.length} itens</p>
+          <p className="text-xs font-medium text-orange-600">{projectType === 'REFORMA' ? 'Total da Reforma' : 'Total Despesas'}</p>
+          <p className="text-lg font-bold text-orange-800 mt-0.5">
+            {formatCurrency((projectType === 'REFORMA' ? totalProjeto : totalGeral) / 100)}
+          </p>
+          <p className="text-[10px] text-orange-500 mt-0.5">
+            {projectType === 'REFORMA'
+              ? `${expenses.length} itens no projeto`
+              : `${filteredExpenses.length} itens`}
+          </p>
+          {projectType === 'REFORMA' && hasActiveFilters && (
+            <p className="text-[10px] text-orange-500/80 mt-0.5">
+              Filtros exibindo {formatCurrency(totalGeral / 100)} ({filteredExpenses.length} itens)
+            </p>
+          )}
         </div>
         <div className="rounded-lg border p-3 bg-amber-50 border-amber-200">
           <p className="text-xs font-medium text-amber-600">Planejado</p>
@@ -429,6 +731,35 @@ export default function ExpensesPage() {
           <p className="text-[10px] text-green-500 mt-0.5">{filteredExpenses.filter((e) => e.status === 'PAGO').length} itens</p>
         </div>
       </div>
+
+      {projectType === 'PESSOAL' && influenceProjects.length > 0 && (
+        <section className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-3 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <p className="text-xs font-medium text-indigo-700">Influência de CASA/CARRO no Pessoal</p>
+              <p className="text-[11px] text-indigo-600">
+                Consolidação mensal estimada de contas recorrentes e manutenção dos outros projetos.
+              </p>
+            </div>
+            <p className="text-sm font-bold text-indigo-800 tabular-nums">
+              {formatCurrency(influenceTotal / 100)}/mês
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {influenceSummary.map((p) => (
+              <div key={p.id} className="rounded-md border border-indigo-100 bg-white px-3 py-2 flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-800">{p.name}</p>
+                  <p className="text-[10px] uppercase tracking-wider text-gray-500">{p.type}</p>
+                </div>
+                <p className="text-sm font-semibold text-indigo-800 tabular-nums">
+                  {formatCurrency(p.estimatedMonthly / 100)}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Search + Filter bar */}
       <div className="flex items-center gap-2">
@@ -479,12 +810,14 @@ export default function ExpensesPage() {
               {TIPO_DESPESA_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </div>
-          <div>
-            <label className="text-[10px] font-medium text-gray-500 block mb-0.5">Ambiente</label>
-            <input type="text" placeholder="Filtrar..." value={filters.room}
-              onChange={(e) => updateFilter('room', e.target.value)}
-              className="w-full border border-gray-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300" />
-          </div>
+          {showRooms && (
+            <div>
+              <label className="text-[10px] font-medium text-gray-500 block mb-0.5">Ambiente</label>
+              <input type="text" placeholder="Filtrar..." value={filters.room}
+                onChange={(e) => updateFilter('room', e.target.value)}
+                className="w-full border border-gray-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300" />
+            </div>
+          )}
           <div>
             <label className="text-[10px] font-medium text-gray-500 block mb-0.5">Título</label>
             <input type="text" placeholder="Filtrar..." value={filters.titulo}
@@ -553,7 +886,7 @@ export default function ExpensesPage() {
                   <th className="w-8 px-2 py-2" />
                   <th className="text-left px-2 py-2 font-medium text-gray-600">Título</th>
                   <th className="text-left px-2 py-2 font-medium text-gray-600">Fornecedor</th>
-                  <th className="text-left px-2 py-2 font-medium text-gray-600">Ambiente</th>
+                  {showRooms && <th className="text-left px-2 py-2 font-medium text-gray-600">Ambiente</th>}
                   <th className="text-right px-2 py-2 font-medium text-gray-600">Valor Unit.</th>
                   <th className="text-right px-2 py-2 font-medium text-gray-600">Qtd</th>
                   <th className="text-right px-2 py-2 font-medium text-gray-600">Valor Total</th>
@@ -574,7 +907,7 @@ export default function ExpensesPage() {
                         <td className="px-2 py-2 text-center text-darc-raspberry">
                           {isCatCollapsed ? <ChevronRight className="w-3.5 h-3.5 inline" /> : <ChevronDown className="w-3.5 h-3.5 inline" />}
                         </td>
-                        <td colSpan={3} className="px-2 py-2 font-bold uppercase tracking-wider text-darc-velvet text-xs">
+                        <td colSpan={showRooms ? 3 : 2} className="px-2 py-2 font-bold uppercase tracking-wider text-darc-velvet text-xs">
                           {cat.label}
                           <span className="ml-2 text-[10px] font-normal normal-case tracking-normal text-darc-raspberry/70">({cat.expenses.length} itens)</span>
                         </td>
@@ -616,7 +949,9 @@ export default function ExpensesPage() {
                                 )}
                               </td>
                               <td className="px-2 py-1.5 text-gray-600 max-w-[120px] truncate" title={exp.fornecedor || ''}>{exp.fornecedor || '—'}</td>
-                              <td className="px-2 py-1.5 text-gray-600 max-w-[110px] truncate" title={exp.room?.name || ''}>{exp.room?.name || '—'}</td>
+                              {showRooms && (
+                                <td className="px-2 py-1.5 text-gray-600 max-w-[110px] truncate" title={exp.room?.name || ''}>{exp.room?.name || '—'}</td>
+                              )}
                               <td className="px-2 py-1.5 text-right text-gray-600 tabular-nums">{formatCurrency(exp.valor / 100)}</td>
                               <td className="px-2 py-1.5 text-right text-gray-600 tabular-nums">{exp.quantidade}</td>
                               <td className="px-2 py-1.5 text-right font-medium text-gray-800 tabular-nums">{formatCurrency(exp.valorTotal / 100)}</td>
@@ -640,8 +975,11 @@ export default function ExpensesPage() {
                               </td>
                               <td className="px-2 py-1.5 text-right">
                                 <span className="inline-flex gap-0.5">
-                                  <button onClick={() => openEdit(exp)} className="p-1 rounded hover:bg-gray-200" title="Editar">
+                                  <button onClick={() => openInlineEdit(exp)} className="p-1 rounded hover:bg-blue-100" title="Editar rápido">
                                     <Pencil className="w-3.5 h-3.5 text-gray-500" />
+                                  </button>
+                                  <button onClick={() => openEdit(exp)} className="p-1 rounded hover:bg-gray-200" title="Editar completo">
+                                    <ExternalLink className="w-3.5 h-3.5 text-gray-500" />
                                   </button>
                                   <button onClick={() => deleteMutation.mutate(exp.id)} className="p-1 rounded hover:bg-red-100" title="Excluir">
                                     <Trash2 className="w-3.5 h-3.5 text-red-500" />
@@ -649,6 +987,127 @@ export default function ExpensesPage() {
                                 </span>
                               </td>
                             </tr>
+
+                            {editingInlineId === exp.id && (
+                              <>
+                                <tr className="bg-blue-50/40 border-b border-blue-100">
+                                  <td className="px-2 py-2 text-center">
+                                    <Pencil className="w-3.5 h-3.5 text-blue-500 inline" />
+                                  </td>
+                                  <td className="px-3 py-2" colSpan={2}>
+                                    <div className="flex gap-2">
+                                      <select value={editingInlineRow.tipoDespesa} onChange={(e) => setEditingInlineRow({ ...editingInlineRow, tipoDespesa: e.target.value })}
+                                        onKeyDown={inlineEditKeyDown}
+                                        className="border border-gray-300 rounded px-2 py-1 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-300">
+                                        {TIPO_DESPESA_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                                      </select>
+                                      <input type="text" placeholder="Título" value={editingInlineRow.titulo}
+                                        onChange={(e) => setEditingInlineRow({ ...editingInlineRow, titulo: e.target.value })} onKeyDown={inlineEditKeyDown}
+                                        className="flex-1 border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <input type="text" placeholder="Fornecedor" value={editingInlineRow.fornecedor}
+                                      onChange={(e) => setEditingInlineRow({ ...editingInlineRow, fornecedor: e.target.value })} onKeyDown={inlineEditKeyDown}
+                                      className="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <input type="number" step="0.01" placeholder="Valor" value={editingInlineRow.valor}
+                                      onChange={(e) => setEditingInlineRow({ ...editingInlineRow, valor: e.target.value })} onKeyDown={inlineEditKeyDown}
+                                      className="w-20 border border-gray-300 rounded px-2 py-1 text-xs text-right focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <input type="number" min="1" value={editingInlineRow.quantidade}
+                                      onChange={(e) => setEditingInlineRow({ ...editingInlineRow, quantidade: e.target.value })} onKeyDown={inlineEditKeyDown}
+                                      className="w-14 border border-gray-300 rounded px-2 py-1 text-xs text-right focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                                  </td>
+                                  <td className="px-3 py-2 text-right text-xs text-gray-500 font-medium">
+                                    {formatCurrency((parseFloat(editingInlineRow.valor) || 0) * (parseInt(editingInlineRow.quantidade) || 1))}
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <div className="flex gap-1">
+                                      <select value={editingInlineRow.formaPagamento} onChange={(e) => setEditingInlineRow({ ...editingInlineRow, formaPagamento: e.target.value })}
+                                        onKeyDown={inlineEditKeyDown}
+                                        className="border border-gray-300 rounded px-1 py-1 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-300">
+                                        {FORMA_PAGAMENTO_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                                      </select>
+                                      <select value={editingInlineRow.status} onChange={(e) => setEditingInlineRow({ ...editingInlineRow, status: e.target.value })}
+                                        onKeyDown={inlineEditKeyDown}
+                                        className="border border-gray-300 rounded px-1 py-1 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-300">
+                                        <option value="PLANEJADO">Plan.</option>
+                                        <option value="PAGO">Pago</option>
+                                      </select>
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-2 text-right">
+                                    <span className="inline-flex gap-0.5">
+                                      <button onClick={handleInlineUpdateSubmit} className="p-1 rounded hover:bg-green-100" title="Salvar (Enter)">
+                                        <Check className="w-3.5 h-3.5 text-green-600" />
+                                      </button>
+                                      <button onClick={closeInlineEdit} className="p-1 rounded hover:bg-gray-200" title="Cancelar (Esc)">
+                                        <X className="w-3.5 h-3.5 text-gray-500" />
+                                      </button>
+                                    </span>
+                                  </td>
+                                </tr>
+                                <tr className="bg-blue-50/20 border-b border-blue-100">
+                                  <td />
+                                  <td colSpan={COL_SPAN - 1} className="px-3 py-1.5">
+                                    <div className="flex items-center gap-4 flex-wrap">
+                                      {showRooms && (
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-[10px] text-gray-500 font-medium">Ambiente:</span>
+                                          <select value={editingInlineRow.roomId} onChange={(e) => setEditingInlineRow({ ...editingInlineRow, roomId: e.target.value })}
+                                            onKeyDown={inlineEditKeyDown}
+                                            className="border border-gray-300 rounded px-1.5 py-0.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-300">
+                                            <option value="">-</option>
+                                            {roomOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                                          </select>
+                                        </div>
+                                      )}
+                                      {editingInlineRow.tipoDespesa === 'MAO_DE_OBRA' && (
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-[10px] text-gray-500 font-medium">Cat. Mão de Obra:</span>
+                                          <select value={editingInlineRow.categoriaMaoDeObra}
+                                            onChange={(e) => setEditingInlineRow({ ...editingInlineRow, categoriaMaoDeObra: e.target.value })}
+                                            onKeyDown={inlineEditKeyDown}
+                                            className="border border-gray-300 rounded px-1.5 py-0.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-300">
+                                            <option value="">Selecione...</option>
+                                            {CATEGORIA_MAO_DE_OBRA_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                                          </select>
+                                        </div>
+                                      )}
+                                      {editingInlineRow.formaPagamento === 'A_VISTA' && (
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-[10px] text-gray-500 font-medium">Data Pagto:</span>
+                                          <input type="date" value={editingInlineRow.dataPagamento}
+                                            onChange={(e) => setEditingInlineRow({ ...editingInlineRow, dataPagamento: e.target.value })} onKeyDown={inlineEditKeyDown}
+                                            className="border border-gray-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300" />
+                                        </div>
+                                      )}
+                                      {(editingInlineRow.formaPagamento === 'PARCELADO' || editingInlineRow.formaPagamento === 'QUINZENAL') && (
+                                        <>
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-[10px] text-gray-500 font-medium">
+                                              {editingInlineRow.formaPagamento === 'PARCELADO' ? 'Parcelas:' : 'Quinzenas:'}
+                                            </span>
+                                            <input type="number" min="1" placeholder="1" value={editingInlineRow.quantidadeParcela}
+                                              onChange={(e) => setEditingInlineRow({ ...editingInlineRow, quantidadeParcela: e.target.value })} onKeyDown={inlineEditKeyDown}
+                                              className="w-14 border border-gray-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300" />
+                                          </div>
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-[10px] text-gray-500 font-medium">Início:</span>
+                                            <input type="date" value={editingInlineRow.dataInicioParcela}
+                                              onChange={(e) => setEditingInlineRow({ ...editingInlineRow, dataInicioParcela: e.target.value })} onKeyDown={inlineEditKeyDown}
+                                              className="border border-gray-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300" />
+                                          </div>
+                                        </>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              </>
+                            )}
 
                             {/* Parcela detail rows */}
                             {isExpanded && hasDetail && getParcelaBreakdown(exp).map((p) => (
@@ -742,15 +1201,17 @@ export default function ExpensesPage() {
                       <td />
                       <td colSpan={COL_SPAN - 1} className="px-3 py-1.5">
                         <div className="flex items-center gap-4 flex-wrap">
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-gray-500 font-medium">Ambiente:</span>
-                            <select value={newRow.roomId} onChange={(e) => setNewRow({ ...newRow, roomId: e.target.value })}
-                              onKeyDown={inlineKeyDown}
-                              className="border border-gray-300 rounded px-1.5 py-0.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-300">
-                              <option value="">-</option>
-                              {roomOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                            </select>
-                          </div>
+                          {showRooms && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] text-gray-500 font-medium">Ambiente:</span>
+                              <select value={newRow.roomId} onChange={(e) => setNewRow({ ...newRow, roomId: e.target.value })}
+                                onKeyDown={inlineKeyDown}
+                                className="border border-gray-300 rounded px-1.5 py-0.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-300">
+                                <option value="">-</option>
+                                {roomOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                              </select>
+                            </div>
+                          )}
                           {newRow.tipoDespesa === 'MAO_DE_OBRA' && (
                             <div className="flex items-center gap-2">
                               <span className="text-[10px] text-gray-500 font-medium">Cat. Mão de Obra:</span>
@@ -828,8 +1289,8 @@ export default function ExpensesPage() {
       )}
 
       {/* Botão para adicionar linha rápida (desktop apenas) */}
-      {!showNewRow && (
-        <button onClick={() => setShowNewRow(true)}
+      {!showNewRow && !editingInlineId && (
+        <button onClick={() => { closeInlineEdit(); setShowNewRow(true); }}
           className="hidden md:block w-full border-2 border-dashed border-gray-200 rounded-lg py-2 text-sm text-gray-400 hover:border-blue-300 hover:text-blue-500 transition-colors">
           + Adicionar rápido (linha inline)
         </button>
@@ -850,10 +1311,214 @@ export default function ExpensesPage() {
         </button>
       )}
 
+      {voiceFeatureEnabled && (
+      <Modal
+        open={voiceModalOpen}
+        onClose={() => {
+          try {
+            recognitionRef.current?.stop();
+          } catch {
+            // no-op
+          }
+          setVoiceModalOpen(false);
+          setVoiceListening(false);
+          setVoiceFornecedor('');
+        }}
+        title="Lançar despesa por voz"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">
+            Fale uma frase como: <span className="font-medium">&quot;Gastei 85 reais no mercado no cartão hoje&quot;</span>.
+          </p>
+
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              onClick={startVoiceCapture}
+              disabled={!voiceSupported || voiceListening}
+            >
+              <Mic className="w-4 h-4" /> {voiceListening ? 'Ouvindo...' : 'Capturar voz'}
+            </Button>
+            {voiceTranscript && (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  setVoiceTranscript('');
+                  setVoiceData(null);
+                  setVoiceFornecedor('');
+                  setVoiceError('');
+                }}
+              >
+                Limpar
+              </Button>
+            )}
+          </div>
+
+          {!voiceSupported && (
+            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+              Seu navegador não suporta reconhecimento de voz. Use o lançamento manual.
+            </p>
+          )}
+
+          {voiceTranscript && (
+            <div className="rounded border bg-gray-50 px-3 py-2">
+              <p className="text-xs text-gray-500 mb-1">Transcrição</p>
+              <p className="text-sm text-gray-800">{voiceTranscript}</p>
+            </div>
+          )}
+
+          {voiceError && (
+            <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
+              {voiceError}
+            </p>
+          )}
+
+          {voiceData && (
+            <div className="space-y-3 rounded border p-3">
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Revisar antes de salvar</p>
+              <Select
+                label="Tipo da Despesa"
+                name="voiceTipoDespesa"
+                options={TIPO_DESPESA_OPTIONS}
+                value={voiceData.tipoDespesa}
+                onChange={(e) => setVoiceData({ ...voiceData, tipoDespesa: e.target.value as ExpenseType })}
+              />
+              <div className="grid grid-cols-2 gap-3">
+                <Input
+                  label="Valor (R$)"
+                  name="voiceValor"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={voiceData.valor ? String(voiceData.valor) : ''}
+                  onChange={(e) =>
+                    setVoiceData({
+                      ...voiceData,
+                      valor: e.target.value ? Number.parseFloat(e.target.value) : null,
+                    })
+                  }
+                />
+                <Select
+                  label="Forma de Pagamento"
+                  name="voiceFormaPagamento"
+                  options={FORMA_PAGAMENTO_OPTIONS}
+                  value={voiceData.formaPagamento}
+                  onChange={(e) =>
+                    setVoiceData({
+                      ...voiceData,
+                      formaPagamento: e.target.value as PaymentForm,
+                      quantidadeParcela:
+                        e.target.value === PaymentForm.A_VISTA ? null : (voiceData.quantidadeParcela ?? 1),
+                    })
+                  }
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Select
+                  label="Status"
+                  name="voiceStatus"
+                  options={[
+                    { value: 'PLANEJADO', label: 'Planejado' },
+                    { value: 'PAGO', label: 'Pago' },
+                  ]}
+                  value={voiceData.status}
+                  onChange={(e) =>
+                    setVoiceData({ ...voiceData, status: e.target.value as ExpenseStatus })
+                  }
+                />
+                {voiceData.formaPagamento === PaymentForm.A_VISTA ? (
+                  <Input
+                    label="Data do Pagamento"
+                    name="voiceDataPagamento"
+                    type="date"
+                    value={voiceData.dataReferencia}
+                    onChange={(e) => setVoiceData({ ...voiceData, dataReferencia: e.target.value })}
+                  />
+                ) : (
+                  <Input
+                    label="Qtd Parcelas"
+                    name="voiceQuantidadeParcela"
+                    type="number"
+                    min="1"
+                    value={String(voiceData.quantidadeParcela ?? 1)}
+                    onChange={(e) =>
+                      setVoiceData({
+                        ...voiceData,
+                        quantidadeParcela: Math.max(1, Number.parseInt(e.target.value || '1', 10)),
+                      })
+                    }
+                  />
+                )}
+              </div>
+              {voiceData.formaPagamento !== PaymentForm.A_VISTA && (
+                <Input
+                  label="Data de Início"
+                  name="voiceDataInicioParcela"
+                  type="date"
+                  value={voiceData.dataReferencia}
+                  onChange={(e) => setVoiceData({ ...voiceData, dataReferencia: e.target.value })}
+                />
+              )}
+              <Input
+                label="Título"
+                name="voiceTitulo"
+                value={voiceData.titulo}
+                onChange={(e) => setVoiceData({ ...voiceData, titulo: e.target.value })}
+              />
+              <Input
+                label="Fornecedor"
+                name="voiceFornecedor"
+                value={voiceFornecedor}
+                onChange={(e) => setVoiceFornecedor(e.target.value)}
+              />
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                setVoiceModalOpen(false);
+                setVoiceFornecedor('');
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              onClick={saveVoiceExpense}
+              disabled={!voiceData?.valor || createMutation.isPending}
+            >
+              Salvar despesa
+            </Button>
+          </div>
+        </div>
+      </Modal>
+      )}
+
       {/* Pay Options Modal */}
       <Modal open={payModalOpen} onClose={() => setPayModalOpen(false)} title="Pagar Despesa">
         <div className="space-y-4">
           <Button className="w-full" onClick={openNewPaidForm}>Nova Despesa (já paga)</Button>
+          {voiceFeatureEnabled && (
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full"
+              onClick={() => {
+                setPayModalOpen(false);
+                setVoiceModalOpen(true);
+                setVoiceError('');
+                setVoiceTranscript('');
+                setVoiceData(null);
+                setVoiceFornecedor('');
+              }}
+            >
+              <Mic className="w-4 h-4" /> Lançar por voz
+            </Button>
+          )}
           <div className="border-t pt-4">
             <p className="text-sm font-medium text-gray-700 mb-2">Pagar Despesa Planejada:</p>
             {plannedExpenses.length === 0 ? (
@@ -901,12 +1566,14 @@ export default function ExpensesPage() {
             />
           )}
 
-          <Select
-            label="Ambiente"
-            name="roomId"
-            options={roomOptions}
-            defaultValue={editing?.roomId ?? ''}
-          />
+          {showRooms && (
+            <Select
+              label="Ambiente"
+              name="roomId"
+              options={roomOptions}
+              defaultValue={editing?.roomId ?? ''}
+            />
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <Input

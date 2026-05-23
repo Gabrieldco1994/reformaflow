@@ -18,6 +18,7 @@ interface Project {
 const TYPE_CONFIG: Record<string, { icon: string; label: string; description: string; color: string }> = {
   REFORMA: { icon: '🏗️', label: 'Reforma', description: 'Controle financeiro e visual de reformas', color: 'bg-amber-50 border-amber-200' },
   COMPRA: { icon: '🏠', label: 'Compra', description: 'Acompanhe compras grandes (casa, carro, etc.)', color: 'bg-blue-50 border-blue-200' },
+  PESSOAL: { icon: '💰', label: 'Pessoal', description: 'Controle de despesas e recebimentos pessoais', color: 'bg-rose-50 border-rose-200' },
   CASA: { icon: '🏡', label: 'Casa', description: 'Gerencie contas, manutenções e lembretes da casa', color: 'bg-green-50 border-green-200' },
   CARRO: { icon: '🚗', label: 'Carro', description: 'Controle manutenções, custos e lembretes do carro', color: 'bg-purple-50 border-purple-200' },
 };

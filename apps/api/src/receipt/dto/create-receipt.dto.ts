@@ -1,5 +1,6 @@
 import { IsString, IsNumber, IsDateString, IsIn, Min } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+import { ReceiptType } from '@reformaflow/domain';
 
 export class CreateReceiptDto {
   @ApiProperty({ example: 50000.0, description: 'Valor em reais' })
@@ -13,10 +14,10 @@ export class CreateReceiptDto {
 
   @ApiProperty({
     example: 'PAGAMENTO',
-    enum: ['PAGAMENTO', 'BONUS', 'VENDA_ACAO', 'ORCAMENTO_INICIAL'],
+    enum: Object.values(ReceiptType),
   })
   @IsString()
-  @IsIn(['PAGAMENTO', 'BONUS', 'VENDA_ACAO', 'ORCAMENTO_INICIAL'])
+  @IsIn(Object.values(ReceiptType))
   tipo!: string;
 
   @ApiProperty({ example: 'PREVISTO', enum: ['PREVISTO', 'EM_CAIXA'] })

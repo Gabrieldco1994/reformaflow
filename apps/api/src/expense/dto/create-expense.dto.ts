@@ -1,10 +1,11 @@
 import { IsString, IsNumber, IsDateString, IsIn, IsOptional, Min } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ExpenseType } from '@reformaflow/domain';
 
 export class CreateExpenseDto {
-  @ApiProperty({ enum: ['MATERIAL_CONSTRUCAO', 'ELETRODOMESTICO', 'REVESTIMENTO', 'ILUMINACAO', 'MARMORE', 'VIDRACARIA_SERRALHERIA', 'METAL_CERAMICA', 'MARCENARIA', 'MAO_DE_OBRA'] })
+  @ApiProperty({ enum: Object.values(ExpenseType) })
   @IsString()
-  @IsIn(['MATERIAL_CONSTRUCAO', 'ELETRODOMESTICO', 'REVESTIMENTO', 'ILUMINACAO', 'MARMORE', 'VIDRACARIA_SERRALHERIA', 'METAL_CERAMICA', 'MARCENARIA', 'MAO_DE_OBRA'])
+  @IsIn(Object.values(ExpenseType))
   tipoDespesa!: string;
 
   @ApiPropertyOptional({ enum: ['EMPREITEIRO', 'INSTALADOR_PISO', 'INSTALADOR_MARMORE', 'PINTOR', 'ELETRICISTA', 'VIDRACEIRO', 'SERRALHEIRO', 'MARCENEIRO'] })

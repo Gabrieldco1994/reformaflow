@@ -5,3 +5,4 @@ export * from './calculations/schedule-engine';
 export * from './calculations/empreiteiro-allocation';
 export * from './seed';
 export * from './config';
+export * from './voice/expense-voice-parser';

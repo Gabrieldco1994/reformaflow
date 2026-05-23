@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   ExpenseTypeLabels,
   LaborCategoryLabels,
+  ReceiptTypeLabels,
   allocateEmpreiteiroExpenses,
 } from '@reformaflow/domain';
 
@@ -113,18 +114,12 @@ export class SimulationService {
     const previsaoSaldo = totalRecebimentos - previsaoGastos;
 
     // Recebimentos por tipo
-    const receiptTypes = ['PAGAMENTO', 'BONUS', 'VENDA_ACAO', 'ORCAMENTO_INICIAL'];
-    const receiptTypeLabels: Record<string, string> = {
-      PAGAMENTO: 'Pagamento',
-      BONUS: 'Bônus',
-      VENDA_ACAO: 'Venda de Ação',
-      ORCAMENTO_INICIAL: 'Orçamento Inicial',
-    };
+    const receiptTypes = Array.from(new Set(receipts.map((r) => r.tipo))).sort();
     const recebimentosPorTipo = receiptTypes.map((tipo) => {
       const total = receipts
         .filter((r) => r.tipo === tipo)
         .reduce((sum, r) => sum + r.valor, 0);
-      return { key: tipo, label: receiptTypeLabels[tipo] ?? tipo, total };
+      return { key: tipo, label: ReceiptTypeLabels[tipo as keyof typeof ReceiptTypeLabels] ?? tipo, total };
     });
 
     // Despesas consolidadas por ambiente → tipos → categorias

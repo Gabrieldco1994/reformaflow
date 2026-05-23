@@ -48,7 +48,20 @@ export interface Receipt {
   status: ReceiptStatus;
 }
 
-export type ReceiptType = 'PAGAMENTO' | 'BONUS' | 'VENDA_ACAO' | 'ORCAMENTO_INICIAL';
+export type ReceiptType =
+  | 'PAGAMENTO'
+  | 'BONUS'
+  | 'VENDA_ACAO'
+  | 'ORCAMENTO_INICIAL'
+  | 'SALARIO'
+  | 'ADIANTAMENTO_SALARIO'
+  | 'FREELANCE'
+  | 'ALUGUEL'
+  | 'REEMBOLSO'
+  | 'DIVIDENDOS'
+  | 'JUROS_RENDA_FIXA'
+  | 'RESGATE'
+  | 'OUTROS';
 export type ReceiptStatus = 'PREVISTO' | 'EM_CAIXA';
 
 export interface ReceiptFormData {
