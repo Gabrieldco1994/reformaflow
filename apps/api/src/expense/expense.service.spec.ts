@@ -308,6 +308,38 @@ describe('ExpenseService', () => {
       expect(datas).toEqual(['2026-07-01', '2026-08-01', '2026-09-01']);
     });
 
+    it('PARCELADO começando em 31/05: clampa 30/06 (junho não tem 31) e segue 31/07', async () => {
+      // Antes do clamp, setUTCMonth(31/05 → +1) overflowava pra 01/07.
+      const expense = {
+        id: 'e-31',
+        projectId,
+        tenantId,
+        tipoDespesa: 'MATERIAL_CONSTRUCAO',
+        categoriaMaoDeObra: null,
+        roomId: null,
+        valorTotal: 30000,
+        formaPagamento: 'PARCELADO',
+        dataPagamento: null,
+        quantidadeParcela: 3,
+        dataInicioParcela: new Date('2026-05-31T00:00:00.000Z'),
+        status: 'PLANEJADO',
+        settledByExpenseId: null,
+        room: null,
+      };
+      prisma.expense.findUnique.mockResolvedValue(expense);
+
+      let createdEntries: any[] = [];
+      prisma.cashFlowEntry.createMany.mockImplementation(async ({ data }: any) => {
+        createdEntries = data;
+        return { count: data.length };
+      });
+
+      await (service as any).regenerateCashFlow('e-31');
+
+      const datas = createdEntries.map((e) => e.data.toISOString().slice(0, 10));
+      expect(datas).toEqual(['2026-05-31', '2026-06-30', '2026-07-31']);
+    });
+
     it('QUINZENAL: 18/05 + 7*15d = 31/08 (não 30/08) mesmo em local time BRT', async () => {
       const expense = {
         id: 'e-q',

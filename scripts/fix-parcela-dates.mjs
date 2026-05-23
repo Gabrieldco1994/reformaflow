@@ -40,7 +40,12 @@ function buildEntries(expense) {
     if (isQuinzenal) {
       d.setUTCDate(d.getUTCDate() + i * 15);
     } else {
-      d.setUTCMonth(d.getUTCMonth() + i);
+      const targetMonth = d.getUTCMonth() + i;
+      const targetDay = d.getUTCDate();
+      d.setUTCDate(1);
+      d.setUTCMonth(targetMonth);
+      const lastDay = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+      d.setUTCDate(Math.min(targetDay, lastDay));
     }
     entries.push({
       ...base,
