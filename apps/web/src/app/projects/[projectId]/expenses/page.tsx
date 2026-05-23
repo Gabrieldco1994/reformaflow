@@ -156,12 +156,12 @@ export default function ExpensesPage() {
   });
 
   const influenceProjects = useMemo(
-    () => tenantProjects.filter((p) => p.id !== PROJECT_ID && (p.type === 'CASA' || p.type === 'CARRO')),
+    () => tenantProjects.filter((p) => p.id !== PROJECT_ID && (p.type === 'CASA' || p.type === 'CARRO' || p.type === 'REFORMA')),
     [tenantProjects, PROJECT_ID],
   );
 
   const { data: influenceSummary = [] } = useQuery<
-    Array<{ id: string; name: string; type: string; estimatedMonthly: number }>
+    Array<{ id: string; name: string; type: string; estimatedMonthly: number; totalAccumulated: number; isOneTime: boolean }>
   >({
     queryKey: ['pessoal-influence', influenceProjects.map((p) => p.id).join(',')],
     enabled: projectType === 'PESSOAL' && influenceProjects.length > 0,
@@ -177,6 +177,20 @@ export default function ExpensesPage() {
       };
       const rows = await Promise.all(
         influenceProjects.map(async (p) => {
+          if (p.type === 'REFORMA') {
+            const exps = await api
+              .get<Array<{ valorTotal?: number | null }>>(`/projects/${p.id}/expenses`)
+              .catch(() => []);
+            const totalAccumulated = exps.reduce((sum, e) => sum + (e.valorTotal ?? 0), 0);
+            return {
+              id: p.id,
+              name: p.name,
+              type: p.type,
+              estimatedMonthly: 0,
+              totalAccumulated,
+              isOneTime: true,
+            };
+          }
           const [bills, logs] = await Promise.all([
             api.get<RecurringBillLite[]>(`/projects/${p.id}/recurring-bills`).catch(() => []),
             api.get<MaintenanceLogLite[]>(`/projects/${p.id}/maintenance-logs`).catch(() => []),
@@ -192,10 +206,12 @@ export default function ExpensesPage() {
             name: p.name,
             type: p.type,
             estimatedMonthly: recurringMonthly + maintenanceMonthly,
+            totalAccumulated: 0,
+            isOneTime: false,
           };
         }),
       );
-      return rows.sort((a, b) => b.estimatedMonthly - a.estimatedMonthly);
+      return rows.sort((a, b) => (b.estimatedMonthly + b.totalAccumulated) - (a.estimatedMonthly + a.totalAccumulated));
     },
   });
 
@@ -267,6 +283,9 @@ export default function ExpensesPage() {
   const totalPlanejado = filteredExpenses.filter((e) => e.status === 'PLANEJADO').reduce((s, e) => s + e.valorTotal, 0);
   const totalPago = filteredExpenses.filter((e) => e.status === 'PAGO').reduce((s, e) => s + e.valorTotal, 0);
   const influenceTotal = influenceSummary.reduce((sum, i) => sum + i.estimatedMonthly, 0);
+  const influenceReformaTotal = influenceSummary
+    .filter((i) => i.isOneTime)
+    .reduce((sum, i) => sum + i.totalAccumulated, 0);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['expenses', PROJECT_ID] });
@@ -734,16 +753,25 @@ export default function ExpensesPage() {
 
       {projectType === 'PESSOAL' && influenceProjects.length > 0 && (
         <section className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-3 space-y-2">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
-              <p className="text-xs font-medium text-indigo-700">Influência de CASA/CARRO no Pessoal</p>
+              <p className="text-xs font-medium text-indigo-700">Influência de Reforma / Casa / Carro no Pessoal</p>
               <p className="text-[11px] text-indigo-600">
-                Consolidação mensal estimada de contas recorrentes e manutenção dos outros projetos.
+                CASA/CARRO consolidam mensalmente contas recorrentes e manutenção. REFORMA mostra o total acumulado das despesas.
               </p>
             </div>
-            <p className="text-sm font-bold text-indigo-800 tabular-nums">
-              {formatCurrency(influenceTotal / 100)}/mês
-            </p>
+            <div className="text-right space-y-0.5">
+              {influenceTotal > 0 && (
+                <p className="text-sm font-bold text-indigo-800 tabular-nums">
+                  {formatCurrency(influenceTotal / 100)}/mês
+                </p>
+              )}
+              {influenceReformaTotal > 0 && (
+                <p className="text-[11px] font-semibold text-indigo-700 tabular-nums">
+                  + {formatCurrency(influenceReformaTotal / 100)} reforma (total)
+                </p>
+              )}
+            </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {influenceSummary.map((p) => (
@@ -752,9 +780,12 @@ export default function ExpensesPage() {
                   <p className="text-sm font-medium text-gray-800">{p.name}</p>
                   <p className="text-[10px] uppercase tracking-wider text-gray-500">{p.type}</p>
                 </div>
-                <p className="text-sm font-semibold text-indigo-800 tabular-nums">
-                  {formatCurrency(p.estimatedMonthly / 100)}
-                </p>
+                <div className="text-right">
+                  <p className="text-sm font-semibold text-indigo-800 tabular-nums">
+                    {formatCurrency((p.isOneTime ? p.totalAccumulated : p.estimatedMonthly) / 100)}
+                  </p>
+                  <p className="text-[10px] text-indigo-500">{p.isOneTime ? 'total' : '/mês'}</p>
+                </div>
               </div>
             ))}
           </div>
