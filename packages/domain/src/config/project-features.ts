@@ -5,6 +5,7 @@ export type ProjectFeature =
   | 'receipts'
   | 'cashFlow'
   | 'dashboard'
+  | 'monthlyOverview'
   | 'rooms'
   | 'floorPlans'
   | 'simulation'
@@ -28,7 +29,7 @@ export const PROJECT_FEATURES: Record<ProjectType, ProjectFeature[]> = {
     'dashboard', 'recurringBills', 'maintenance', 'reminders',
   ],
   [ProjectType.PESSOAL]: [
-    'dashboard', 'expenses', 'receipts', 'cashFlow',
+    'monthlyOverview', 'dashboard', 'expenses', 'receipts', 'cashFlow',
   ],
 };
 

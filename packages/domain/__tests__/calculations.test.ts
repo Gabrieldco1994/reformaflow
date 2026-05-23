@@ -3,6 +3,8 @@ import {
   calculateRollingBalance,
   calculateRollingBalanceRealizado,
   buildMonthlyAccumulated,
+  buildMonthlyOverview,
+  compareMonths,
   computeCashFlowEntries,
   generateInstallmentDates,
   splitIntoCents,
@@ -281,5 +283,102 @@ describe('toCents / fromCents', () => {
     for (const value of [0, 1, 10.5, 100, 1234.56]) {
       expect(fromCents(toCents(value))).toBeCloseTo(value, 2);
     }
+  });
+});
+
+describe('buildMonthlyOverview', () => {
+  it('retorna lista vazia para input vazio', () => {
+    expect(buildMonthlyOverview([])).toEqual([]);
+  });
+
+  it('agrupa por mês com saldo do mês (não acumulado) e porOrigem', () => {
+    const entries = [
+      { tipo: CashFlowType.RECEBIMENTO, valor: 50000, status: CashFlowStatus.EM_CAIXA, data: '2026-07-05', categoria: 'Salário', projectOrigin: 'PESSOAL' },
+      { tipo: CashFlowType.DESPESA, valor: 10000, status: CashFlowStatus.PAGO, data: '2026-07-10', categoria: 'Alimentação', projectOrigin: 'PESSOAL' },
+      { tipo: CashFlowType.DESPESA, valor: 5000, status: CashFlowStatus.PLANEJADO, data: '2026-07-20', categoria: 'Material p/ Construção', projectOrigin: 'REFORMA' },
+      { tipo: CashFlowType.DESPESA, valor: 2000, status: CashFlowStatus.PAGO, data: '2026-08-01', categoria: 'Combustível', projectOrigin: 'CARRO' },
+    ];
+    const rows = buildMonthlyOverview(entries);
+    expect(rows.map((r) => r.mes)).toEqual(['2026-07', '2026-08']);
+
+    const jul = rows[0]!;
+    expect(jul.totalRecebimentos).toBe(50000);
+    expect(jul.totalDespesas).toBe(15000);
+    expect(jul.saldoMes).toBe(35000); // 50000 − 15000
+    expect(jul.recebimentosRealizados).toBe(50000);
+    expect(jul.despesasRealizadas).toBe(10000); // só PAGO; PLANEJADO REFORMA não conta
+    expect(jul.saldoMesRealizado).toBe(40000);
+    expect(jul.porOrigem.PESSOAL).toEqual({ despesas: 10000, recebimentos: 50000 });
+    expect(jul.porOrigem.REFORMA).toEqual({ despesas: 5000, recebimentos: 0 });
+
+    const ago = rows[1]!;
+    expect(ago.totalDespesas).toBe(2000);
+    expect(ago.saldoMes).toBe(-2000);
+    expect(ago.porOrigem.CARRO).toEqual({ despesas: 2000, recebimentos: 0 });
+  });
+
+  it('porCategoria é ordenado desc e limitado por topCategorias', () => {
+    const entries = [
+      { tipo: CashFlowType.DESPESA, valor: 100, status: CashFlowStatus.PLANEJADO, data: '2026-07-01', categoria: 'A', projectOrigin: 'PESSOAL' },
+      { tipo: CashFlowType.DESPESA, valor: 500, status: CashFlowStatus.PLANEJADO, data: '2026-07-02', categoria: 'B', projectOrigin: 'PESSOAL' },
+      { tipo: CashFlowType.DESPESA, valor: 300, status: CashFlowStatus.PLANEJADO, data: '2026-07-03', categoria: 'C', projectOrigin: 'PESSOAL' },
+      { tipo: CashFlowType.DESPESA, valor: 200, status: CashFlowStatus.PLANEJADO, data: '2026-07-04', categoria: 'A', projectOrigin: 'PESSOAL' },
+    ];
+    const rows = buildMonthlyOverview(entries, { topCategorias: 2 });
+    expect(rows[0]!.porCategoria).toEqual([
+      { categoria: 'B', valor: 500 },
+      { categoria: 'A', valor: 300 }, // 100+200
+    ]);
+  });
+
+  it('preenche meses vazios entre primeiro e último com gap-filling', () => {
+    const entries = [
+      { tipo: CashFlowType.DESPESA, valor: 100, status: CashFlowStatus.PAGO, data: '2026-05-01', categoria: 'X', projectOrigin: 'PESSOAL' },
+      { tipo: CashFlowType.DESPESA, valor: 200, status: CashFlowStatus.PAGO, data: '2026-08-01', categoria: 'X', projectOrigin: 'PESSOAL' },
+    ];
+    const rows = buildMonthlyOverview(entries);
+    expect(rows.map((r) => r.mes)).toEqual(['2026-05', '2026-06', '2026-07', '2026-08']);
+    expect(rows[1]!.totalDespesas).toBe(0);
+    expect(rows[2]!.totalDespesas).toBe(0);
+  });
+
+  it('entries sem projectOrigin vão para "OUTROS"; sem categoria vão para "Sem categoria"', () => {
+    const entries = [
+      { tipo: CashFlowType.DESPESA, valor: 100, status: CashFlowStatus.PAGO, data: '2026-07-01' },
+    ];
+    const rows = buildMonthlyOverview(entries);
+    expect(rows[0]!.porOrigem.OUTROS).toEqual({ despesas: 100, recebimentos: 0 });
+    expect(rows[0]!.porCategoria).toEqual([{ categoria: 'Sem categoria', valor: 100 }]);
+  });
+});
+
+describe('compareMonths', () => {
+  const rows = buildMonthlyOverview([
+    { tipo: CashFlowType.DESPESA, valor: 10000, status: CashFlowStatus.PAGO, data: '2026-06-01', categoria: 'A', projectOrigin: 'PESSOAL' },
+    { tipo: CashFlowType.RECEBIMENTO, valor: 50000, status: CashFlowStatus.EM_CAIXA, data: '2026-06-01', categoria: 'S', projectOrigin: 'PESSOAL' },
+    { tipo: CashFlowType.DESPESA, valor: 15000, status: CashFlowStatus.PAGO, data: '2026-07-01', categoria: 'A', projectOrigin: 'PESSOAL' },
+    { tipo: CashFlowType.RECEBIMENTO, valor: 50000, status: CashFlowStatus.EM_CAIXA, data: '2026-07-01', categoria: 'S', projectOrigin: 'PESSOAL' },
+  ]);
+
+  it('calcula deltas absolutos e percentuais', () => {
+    const cmp = compareMonths(rows, '2026-07');
+    expect(cmp.current?.mes).toBe('2026-07');
+    expect(cmp.previous?.mes).toBe('2026-06');
+    expect(cmp.deltaDespesas).toBe(5000);            // 15000 − 10000
+    expect(cmp.deltaDespesasPct).toBe(50);           // 5000 / 10000 * 100
+    expect(cmp.deltaRecebimentos).toBe(0);
+    expect(cmp.deltaRecebimentosPct).toBe(0);
+    expect(cmp.deltaSaldo).toBe(-5000);              // 35000 − 40000
+  });
+
+  it('retorna previous=null para o primeiro mês', () => {
+    const cmp = compareMonths(rows, '2026-06');
+    expect(cmp.previous).toBeNull();
+    expect(cmp.deltaDespesasPct).toBeNull();         // sem base
+  });
+
+  it('retorna current=null para mês inexistente', () => {
+    const cmp = compareMonths(rows, '2026-12');
+    expect(cmp.current).toBeNull();
   });
 });

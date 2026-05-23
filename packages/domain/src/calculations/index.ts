@@ -177,6 +177,190 @@ export function buildMonthlyAccumulated(
 }
 
 /**
+ * Visão consolidada mensal (usada principalmente pelo tipo PESSOAL).
+ *
+ * Diferente de `buildMonthlyAccumulated` (que gera saldo acumulado),
+ * este helper retorna **saldo do mês** (não acumulado) + breakdowns
+ * úteis para controle mensal:
+ * - `porOrigem`: agrupado pelo tipo do projeto que originou a entry
+ *   (PESSOAL, REFORMA, CASA, CARRO) — útil para mostrar quanto cada
+ *   projeto contribuiu no mês.
+ * - `porCategoria`: top despesas por categoria no mês (ordenado desc).
+ */
+export interface MonthlyOverviewRow {
+  mes: string;                       // YYYY-MM
+  totalDespesas: number;
+  totalRecebimentos: number;
+  despesasRealizadas: number;
+  recebimentosRealizados: number;
+  saldoMes: number;                  // receb − desp do mês (projetado)
+  saldoMesRealizado: number;         // só PAGO/EM_CAIXA
+  porOrigem: Record<string, { despesas: number; recebimentos: number }>;
+  porCategoria: Array<{ categoria: string; valor: number }>;
+}
+
+export interface MonthlyOverviewEntry {
+  tipo: string;
+  valor: number;
+  status: string;
+  data: Date | string;
+  categoria?: string | null;
+  projectOrigin?: string | null;     // 'PESSOAL' | 'REFORMA' | 'CASA' | 'CARRO'
+}
+
+const UNKNOWN_ORIGIN = 'OUTROS';
+const UNKNOWN_CATEGORY = 'Sem categoria';
+
+export function buildMonthlyOverview(
+  entries: MonthlyOverviewEntry[],
+  options?: { topCategorias?: number },
+): MonthlyOverviewRow[] {
+  if (entries.length === 0) return [];
+
+  const topN = options?.topCategorias ?? 5;
+
+  const byMonth = new Map<string, {
+    totalDespesas: number;
+    totalRecebimentos: number;
+    despesasRealizadas: number;
+    recebimentosRealizados: number;
+    porOrigem: Record<string, { despesas: number; recebimentos: number }>;
+    categoriaAcc: Map<string, number>;
+  }>();
+
+  for (const entry of entries) {
+    const d = entry.data instanceof Date ? entry.data : new Date(entry.data as unknown as string);
+    const mesKey = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+
+    let bucket = byMonth.get(mesKey);
+    if (!bucket) {
+      bucket = {
+        totalDespesas: 0,
+        totalRecebimentos: 0,
+        despesasRealizadas: 0,
+        recebimentosRealizados: 0,
+        porOrigem: {},
+        categoriaAcc: new Map<string, number>(),
+      };
+      byMonth.set(mesKey, bucket);
+    }
+
+    const origin = entry.projectOrigin ?? UNKNOWN_ORIGIN;
+    if (!bucket.porOrigem[origin]) {
+      bucket.porOrigem[origin] = { despesas: 0, recebimentos: 0 };
+    }
+
+    const realized = isRealizedEntry(entry);
+    if (entry.tipo === CashFlowType.RECEBIMENTO) {
+      bucket.totalRecebimentos += entry.valor;
+      bucket.porOrigem[origin]!.recebimentos += entry.valor;
+      if (realized) bucket.recebimentosRealizados += entry.valor;
+    } else {
+      bucket.totalDespesas += entry.valor;
+      bucket.porOrigem[origin]!.despesas += entry.valor;
+      if (realized) bucket.despesasRealizadas += entry.valor;
+      const cat = (entry.categoria && entry.categoria.trim()) || UNKNOWN_CATEGORY;
+      bucket.categoriaAcc.set(cat, (bucket.categoriaAcc.get(cat) ?? 0) + entry.valor);
+    }
+  }
+
+  const sorted = Array.from(byMonth.keys()).sort();
+  if (sorted.length === 0) return [];
+  const firstMes = sorted[0]!;
+  const lastMes = sorted[sorted.length - 1]!;
+
+  const months: string[] = [];
+  let cursor = firstMes;
+  while (cursor <= lastMes) {
+    months.push(cursor);
+    if (cursor === lastMes) break;
+    cursor = nextMonthKey(cursor);
+    if (months.length > 600) break;
+  }
+
+  const rows: MonthlyOverviewRow[] = [];
+  for (const mes of months) {
+    const bucket = byMonth.get(mes);
+    if (!bucket) {
+      rows.push({
+        mes,
+        totalDespesas: 0,
+        totalRecebimentos: 0,
+        despesasRealizadas: 0,
+        recebimentosRealizados: 0,
+        saldoMes: 0,
+        saldoMesRealizado: 0,
+        porOrigem: {},
+        porCategoria: [],
+      });
+      continue;
+    }
+    const porCategoria = Array.from(bucket.categoriaAcc.entries())
+      .map(([categoria, valor]) => ({ categoria, valor }))
+      .sort((a, b) => b.valor - a.valor)
+      .slice(0, topN);
+
+    rows.push({
+      mes,
+      totalDespesas: bucket.totalDespesas,
+      totalRecebimentos: bucket.totalRecebimentos,
+      despesasRealizadas: bucket.despesasRealizadas,
+      recebimentosRealizados: bucket.recebimentosRealizados,
+      saldoMes: bucket.totalRecebimentos - bucket.totalDespesas,
+      saldoMesRealizado: bucket.recebimentosRealizados - bucket.despesasRealizadas,
+      porOrigem: bucket.porOrigem,
+      porCategoria,
+    });
+  }
+  return rows;
+}
+
+/**
+ * Compara um mês alvo com o anterior, devolvendo deltas absolutos e percentuais.
+ * Útil para KPIs "subiu/desceu X% vs mês anterior".
+ */
+export interface MonthComparison {
+  current: MonthlyOverviewRow | null;
+  previous: MonthlyOverviewRow | null;
+  deltaDespesas: number;
+  deltaDespesasPct: number | null;
+  deltaRecebimentos: number;
+  deltaRecebimentosPct: number | null;
+  deltaSaldo: number;
+}
+
+export function compareMonths(
+  rows: MonthlyOverviewRow[],
+  targetMes: string,
+): MonthComparison {
+  const current = rows.find((r) => r.mes === targetMes) ?? null;
+  const previous = (() => {
+    const idx = rows.findIndex((r) => r.mes === targetMes);
+    if (idx <= 0) return null;
+    return rows[idx - 1] ?? null;
+  })();
+
+  const deltaDespesas = (current?.totalDespesas ?? 0) - (previous?.totalDespesas ?? 0);
+  const deltaRecebimentos = (current?.totalRecebimentos ?? 0) - (previous?.totalRecebimentos ?? 0);
+  const deltaSaldo = (current?.saldoMes ?? 0) - (previous?.saldoMes ?? 0);
+
+  const pct = (delta: number, base: number | undefined): number | null => {
+    if (!base || base === 0) return null;
+    return (delta / Math.abs(base)) * 100;
+  };
+
+  return {
+    current,
+    previous,
+    deltaDespesas,
+    deltaDespesasPct: pct(deltaDespesas, previous?.totalDespesas),
+    deltaRecebimentos,
+    deltaRecebimentosPct: pct(deltaRecebimentos, previous?.totalRecebimentos),
+    deltaSaldo,
+  };
+}
+
+/**
  * Gera as datas das parcelas conforme forma de pagamento.
  * - PARCELADO: mensal (a cada 30 dias)
  * - QUINZENAL: a cada 15 dias

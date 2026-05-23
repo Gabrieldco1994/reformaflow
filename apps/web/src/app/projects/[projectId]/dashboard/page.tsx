@@ -3,6 +3,8 @@
 import { useProject } from '@/contexts/project-context';
 import { useMemo } from 'react';
 import dynamic from 'next/dynamic';
+import Link from 'next/link';
+import { CalendarClock } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
@@ -95,6 +97,26 @@ function FinancialDashboard({ projectId, projectType }: { projectId: string; pro
 
   return (
     <div className="space-y-6 md:space-y-8">
+      {projectType === 'PESSOAL' && (
+        <Link
+          href={`/projects/${projectId}/monthly`}
+          className="flex items-center justify-between gap-3 p-4 rounded-2xl bg-gradient-to-br from-indigo-50 to-rose-50 border border-indigo-100 hover:border-indigo-300 transition-colors group"
+        >
+          <div className="flex items-center gap-3">
+            <CalendarClock className="w-5 h-5 text-indigo-700 flex-shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-darc-velvet">Visão Mensal Consolidada</p>
+              <p className="text-[11px] text-darc-velvet/70 leading-snug">
+                Gasto, recebido e saldo do mês — agrega Reforma, Casa e Carro
+              </p>
+            </div>
+          </div>
+          <span className="text-xs text-indigo-700 group-hover:translate-x-0.5 transition-transform">
+            Ver →
+          </span>
+        </Link>
+      )}
+
       {/* KPIs — scroll horizontal premium no mobile, grid no desktop */}
       <div className="md:hidden -mx-4 px-4 overflow-x-auto scrollbar-hide">
         <div className="flex gap-3 snap-x snap-mandatory">

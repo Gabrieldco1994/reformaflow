@@ -14,6 +14,7 @@ import { ReceiptModule } from './receipt/receipt.module';
 import { ExpenseModule } from './expense/expense.module';
 import { CashFlowModule } from './cash-flow/cash-flow.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { MonthlyOverviewModule } from './monthly-overview/monthly-overview.module';
 import { SimulationModule } from './simulation/simulation.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { LinkPreviewModule } from './link-preview/link-preview.module';
@@ -46,6 +47,7 @@ const UPLOADS_DIR = (() => {
     ExpenseModule,
     CashFlowModule,
     DashboardModule,
+    MonthlyOverviewModule,
     SimulationModule,
     NotificationsModule,
     LinkPreviewModule,
