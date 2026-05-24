@@ -13,7 +13,8 @@ export type ProjectFeature =
   | 'recurringBills'
   | 'maintenance'
   | 'reminders'
-  | 'creditCards';
+  | 'creditCards'
+  | 'bankAccounts';
 
 export const PROJECT_FEATURES: Record<ProjectType, ProjectFeature[]> = {
   [ProjectType.REFORMA]: [
@@ -30,7 +31,7 @@ export const PROJECT_FEATURES: Record<ProjectType, ProjectFeature[]> = {
     'dashboard', 'recurringBills', 'maintenance', 'reminders',
   ],
   [ProjectType.PESSOAL]: [
-    'monthlyOverview', 'dashboard', 'expenses', 'receipts', 'cashFlow', 'creditCards',
+    'monthlyOverview', 'dashboard', 'expenses', 'receipts', 'cashFlow', 'creditCards', 'bankAccounts',
   ],
 };
 

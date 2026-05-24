@@ -73,6 +73,7 @@ model Project {
   scheduleTasks    ScheduleTask[]
   scheduleHolidays ScheduleHoliday[]
   creditCards     CreditCard[]
+  bankAccounts    BankAccount[]
 
   @@map("projects")
 }
@@ -124,8 +125,12 @@ model Receipt {
   tenantId  String   @map("tenant_id")
   valor     Int      // centavos
   data      DateTime
-  tipo      String   // PAGAMENTO | BONUS | VENDA_ACAO | ORCAMENTO_INICIAL
+  tipo      String   // PAGAMENTO | BONUS | VENDA_ACAO | ORCAMENTO_INICIAL | RENDIMENTO | TRANSFERENCIA | OUTROS
   status    String   @default("PREVISTO") // PREVISTO | EM_CAIXA
+  descricao String?  // texto livre (descrição do crédito do extrato)
+  importId  String?  @map("import_id") // ref BankStatementImport — opcional
+  externalId String? @map("external_id") // hash idempotente da transação importada
+  bankLast4 String?  @map("bank_last4") // últimos 4 da conta bancária de origem
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
@@ -133,6 +138,7 @@ model Receipt {
   project  Project        @relation(fields: [projectId], references: [id])
   cashFlow CashFlowEntry[]
 
+  @@index([projectId, externalId])
   @@map("receipts")
 }
 
@@ -163,6 +169,7 @@ model Expense {
   externalId          String?  @map("external_id") // hash idempotente da transação importada
   seriesKey           String?  @map("series_key")  // identifica compra parcelada (cardId|merchantNorm|amountPerInstall|total) — para casar parcelas futuras
   cardLast4           String?  @map("card_last4") // últimos 4 do cartão de origem (denormalizado)
+  bankLast4           String?  @map("bank_last4") // últimos 4 da conta bancária de origem
   linkedExpenseId     String?  @map("linked_expense_id") // quando importada do cartão é vinculada a despesa de outro projeto (evita dupla contagem)
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
@@ -522,4 +529,75 @@ model CreditCardStatementImport {
   @@index([cardId])
   @@index([tenantId])
   @@map("credit_card_imports")
+}
+
+// ──────────────────────────────────────────────────────────────
+// Bank Accounts (extratos bancários — débitos viram despesas pessoais)
+// ──────────────────────────────────────────────────────────────
+
+model BankAccount {
+  id              String   @id @default(cuid())
+  projectId       String   @map("project_id")
+  tenantId        String   @map("tenant_id")
+  institution     String   // ITAU | NUBANK | BRADESCO | SANTANDER | BB | CAIXA | INTER | C6 | OUTRO
+  nickname        String
+  agency          String?  // agência (ex: 7057)
+  accountNumber   String?  @map("account_number") // número formatado (ex: 077424-7)
+  last4           String   // últimos 4 dígitos do número (denormalizado, NUNCA o número completo se for sensível)
+  notes           String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  project Project                     @relation(fields: [projectId], references: [id])
+  imports BankStatementImport[]
+
+  @@index([projectId])
+  @@index([tenantId])
+  @@map("bank_accounts")
+}
+
+model BankStatementImport {
+  id              String   @id @default(cuid())
+  accountId       String   @map("account_id")
+  tenantId        String   @map("tenant_id")
+  periodLabel     String   @map("period_label") // ex: "2026-05" (mês de referência do extrato)
+  source          String   // OFX | CSV_GENERIC | PDF
+  fileName        String?  @map("file_name")
+  fileSize        Int?     @map("file_size")
+  status          String   @default("COMPLETED") // PROCESSING | COMPLETED | FAILED
+  inserted        Int      @default(0)
+  duplicated      Int      @default(0)
+  skipped         Int      @default(0)
+  totalAmountCents Int     @default(0) @map("total_amount_cents") // somatório de débitos (positivo)
+  message         String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  account BankAccount @relation(fields: [accountId], references: [id])
+
+  @@index([accountId])
+  @@index([tenantId])
+  @@map("bank_statement_imports")
+}
+
+// ─── Merchant categorization cache (global, sem tenant) ──────
+// Cache de classificação de estabelecimento. A chave é o nome
+// normalizado (lowercase, sem datas/números). Compartilhado entre tenants.
+
+model MerchantCategory {
+  id              String   @id @default(cuid())
+  merchantKey     String   @unique @map("merchant_key") // chave normalizada (lowercase, alpha)
+  merchantSample  String   @map("merchant_sample") // exemplo original (para auditoria)
+  category        String   // taxonomia: alimentação | transporte | assinaturas | viagem | saúde | compras | educação | casa | moradia | servicos | beleza | pets | impostos | outros
+  subcategory     String?  // detalhe livre (ex: "restaurante", "posto combustível")
+  source          String   // REGEX | AI | MANUAL
+  confidence      Float    @default(1.0)
+  aiResponse      String?  @map("ai_response") // raw JSON do AI (debug)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([category])
+  @@map("merchant_categories")
 }

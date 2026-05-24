@@ -7,7 +7,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     super();
 
     // Models that don't have deletedAt field
-    const modelsWithoutSoftDelete = new Set(['SimulationValue', 'Simulation', 'FloorPlanRoom', 'RoomImage', 'FloorPlanMarker', 'CarInfo']);
+    const modelsWithoutSoftDelete = new Set(['SimulationValue', 'Simulation', 'FloorPlanRoom', 'RoomImage', 'FloorPlanMarker', 'CarInfo', 'MerchantCategory']);
 
     // Middleware de soft delete: intercepta queries para filtrar deletedAt = null
     this.$use(async (params, next) => {

@@ -26,6 +26,8 @@ import { ReminderModule } from './reminder/reminder.module';
 import { CarInfoModule } from './car-info/car-info.module';
 import { ScheduleModule } from './schedule/schedule.module';
 import { CreditCardModule } from './credit-card/credit-card.module';
+import { BankAccountModule } from './bank-account/bank-account.module';
+import { MerchantClassifierModule } from './merchant-classifier/merchant-classifier.module';
 
 const UPLOADS_DIR = (() => {
   const raw = process.env['UPLOADS_DIR'];
@@ -60,6 +62,8 @@ const UPLOADS_DIR = (() => {
     CarInfoModule,
     ScheduleModule,
     CreditCardModule,
+    BankAccountModule,
+    MerchantClassifierModule,
   ],
   providers: [
     {
