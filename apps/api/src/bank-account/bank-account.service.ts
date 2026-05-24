@@ -50,12 +50,38 @@ function fastClassify(merchant: string): string | null {
   if (/^PAY\s+UBR\b|^PAY\s+UBER/.test(m)) return 'TRANSPORTE';
   if (/^PAY\s+99\b/.test(m)) return 'TRANSPORTE';
   if (/^PAY\s+RAPPI|^PAY\s+RPP/.test(m)) return 'ALIMENTACAO';
-  if (/^PAY\s+(HAVAN|DECAT|LOJAS|SHOPP|RENNER|RIACH|MAGALU|AMERIC|CASAS)/.test(m)) return 'OUTROS'; // compras
+  if (/^PAY\s+(HAVAN|DECAT|LOJAS|SHOPP|RENNER|RIACH|MAGALU|AMERIC|CASAS)/.test(m)) return 'OUTROS';
   if (/^PAY\s+(DONA|BAR|REST|PIZZA|HAMB|BURGER|CAFE|DOC|PADAR|ACOUG)/.test(m)) return 'ALIMENTACAO';
   if (/^PAY\s+(POSTO|SHELL|IPIRANGA|PETROBR|ULTRA|BR\s)/.test(m)) return 'TRANSPORTE';
   if (/^PAY\s+(FARMA|DROGAS|DROGA|HOSP|CLINIC)/.test(m)) return 'SAUDE';
-  // PIX QRS — pagamento via QR Code: Nubank pagamento = transferência
   if (/^PIX\s+QRS\s+(PIX\s+MARKETP|NU\s+PAGAMENT|MERCADO\s*PAGO|MERCADOPAG)/.test(m)) return 'TRANSFERENCIA';
+  return null;
+}
+
+/**
+ * Detecta despesa de utility/telco/imposto que deveria virar RecurringBill em
+ * outro projeto (CASA ou CARRO). Retorna config ou null.
+ */
+type RecurrenceHint = {
+  projectType: 'CASA' | 'CARRO';
+  nome: string;
+  categoria: string;        // LUZ | AGUA | GAS | INTERNET | TELEFONE | IPVA | OUTRO
+  frequencia: 'MENSAL' | 'ANUAL';
+};
+function detectRecurrence(merchant: string): RecurrenceHint | null {
+  const m = merchant.toUpperCase();
+  // CASA — utilities
+  if (/\bENEL\b|\bELETROPAULO\b|\bCEMIG\b|\bCOPEL\b|\bLIGHT\b|\bCOELBA\b|\bENERGISA\b/.test(m))
+    return { projectType: 'CASA', nome: 'Energia elétrica', categoria: 'LUZ', frequencia: 'MENSAL' };
+  if (/\bSABESP\b|\bCEDAE\b|\bCASAN\b|\bCAESB\b|\bSANEPAR\b/.test(m))
+    return { projectType: 'CASA', nome: 'Água', categoria: 'AGUA', frequencia: 'MENSAL' };
+  if (/\bCOMGAS\b|\bCEG\b|\bGAS\s+NATURAL\b/.test(m))
+    return { projectType: 'CASA', nome: 'Gás', categoria: 'GAS', frequencia: 'MENSAL' };
+  if (/\bVIVO\b|\bCLARO\b|\bTIM\b|\bNET\s|NETFLIX|\bSKY\b|\bOI\s/.test(m))
+    return { projectType: 'CASA', nome: 'Internet/Telefone', categoria: 'INTERNET', frequencia: 'MENSAL' };
+  // CARRO
+  if (/\bIPVA\b/.test(m))
+    return { projectType: 'CARRO', nome: 'IPVA', categoria: 'IPVA', frequencia: 'ANUAL' };
   return null;
 }
 
@@ -224,6 +250,11 @@ export class BankAccountService {
     // classifier (cache DB + Gemini). Atualiza tipoDespesa + categoria do CashFlow.
     const aiReclassified = await this.reclassifyImportedExpenses(tenantId, projectId, importRecord.id);
 
+    // ─── Propagação de recorrências p/ projetos CASA/CARRO ───
+    // Utilities (Enel/Sabesp/Comgas/...) viram RecurringBill no projeto CASA do tenant.
+    // IPVA vira RecurringBill no projeto CARRO.
+    const recurrencesCreated = await this.propagateRecurrences(tenantId, importRecord.id);
+
     await this.prisma.bankStatementImport.update({
       where: { id: importRecord.id },
       data: {
@@ -233,6 +264,7 @@ export class BankAccountService {
           receiptsInserted > 0 ? `${receiptsInserted} recebimento(s)` : null,
           cardPayments > 0 ? `${cardPayments} pagto(s) de cartão vinculado(s)` : null,
           aiReclassified > 0 ? `${aiReclassified} categoria(s) sugerida(s) por IA` : null,
+          recurrencesCreated > 0 ? `${recurrencesCreated} recorrência(s) propagada(s)` : null,
         ].filter(Boolean).join(' • ') || null,
       },
     });
@@ -248,6 +280,7 @@ export class BankAccountService {
       receiptsInserted,
       cardPayments,
       aiReclassified,
+      recurrencesCreated,
       skipped,
     };
   }
@@ -296,6 +329,92 @@ export class BankAccountService {
       updated++;
     }
     return updated;
+  }
+
+  /**
+   * Para cada Expense criada neste import cujo fornecedor casa com detectRecurrence,
+   * faz upsert de RecurringBill no projeto CASA ou CARRO do tenant.
+   * - Match por (projectId+categoria+nome). Atualiza ultimoPagamento/proximoVencimento/valor.
+   * - Se não houver projeto CASA/CARRO, pula silenciosamente.
+   */
+  private async propagateRecurrences(tenantId: string, importId: string): Promise<number> {
+    const expenses = await this.prisma.expense.findMany({
+      where: { tenantId, importId, deletedAt: null },
+      select: { id: true, fornecedor: true, valor: true, dataPagamento: true },
+    });
+    if (!expenses.length) return 0;
+
+    // Acha projetos CASA/CARRO do tenant (1x cada — primeiro encontrado)
+    const houseProj = await this.prisma.project.findFirst({
+      where: { tenantId, type: 'CASA', deletedAt: null },
+      select: { id: true },
+    });
+    const carProj = await this.prisma.project.findFirst({
+      where: { tenantId, type: 'CARRO', deletedAt: null },
+      select: { id: true },
+    });
+
+    let created = 0;
+    for (const exp of expenses) {
+      const hint = detectRecurrence(exp.fornecedor || '');
+      if (!hint) continue;
+      const targetProjectId =
+        hint.projectType === 'CASA' ? houseProj?.id : carProj?.id;
+      if (!targetProjectId) continue;
+
+      const payDate = exp.dataPagamento ?? new Date();
+      const dia = payDate.getDate();
+      // Upsert por (projectId, categoria, nome) — match insensível a case
+      const existing = await this.prisma.recurringBill.findFirst({
+        where: {
+          tenantId,
+          projectId: targetProjectId,
+          categoria: hint.categoria,
+          deletedAt: null,
+        },
+      });
+      const proxVenc = this.nextDueAfter(payDate, dia, hint.frequencia);
+      if (existing) {
+        await this.prisma.recurringBill.update({
+          where: { id: existing.id },
+          data: {
+            valor: exp.valor,
+            ultimoPagamento: payDate,
+            proximoVencimento: proxVenc,
+            diaVencimento: dia,
+          },
+        });
+      } else {
+        await this.prisma.recurringBill.create({
+          data: {
+            tenantId,
+            projectId: targetProjectId,
+            nome: hint.nome,
+            valor: exp.valor,
+            categoria: hint.categoria,
+            frequencia: hint.frequencia,
+            diaVencimento: dia,
+            status: 'ATIVO',
+            ultimoPagamento: payDate,
+            proximoVencimento: proxVenc,
+            observacoes: `Detectado automaticamente do extrato (${exp.fornecedor})`,
+          },
+        });
+        created++;
+      }
+    }
+    return created;
+  }
+
+  private nextDueAfter(from: Date, dia: number, freq: 'MENSAL' | 'ANUAL'): Date {
+    const d = new Date(from);
+    if (freq === 'ANUAL') {
+      d.setFullYear(d.getFullYear() + 1);
+    } else {
+      d.setMonth(d.getMonth() + 1);
+    }
+    d.setDate(Math.min(dia, 28));
+    return d;
   }
 
   // ─── Links cross-project ─────────────────────────────────
