@@ -11,9 +11,11 @@ import {
 } from './dto/credit-card.dto';
 import { RequireModule } from '../common/decorators/require-module.decorator';
 import { CurrentTenant } from '../common/decorators/tenant.decorator';
+import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
 import { PdfPasswordRequiredError, PdfWrongPasswordError } from './parsers';
 
 @RequireModule('creditCards')
+@UseInterceptors(TenantInterceptor)
 @Controller('projects/:projectId/credit-cards')
 export class CreditCardController {
   constructor(private readonly service: CreditCardService) {}
