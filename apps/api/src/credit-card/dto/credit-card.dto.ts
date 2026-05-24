@@ -2,13 +2,13 @@ import {
   IsIn, IsInt, IsOptional, IsString, Length, Max, Min, Matches,
 } from 'class-validator';
 
-const INSTITUTIONS = ['ITAU', 'NUBANK', 'INTER', 'BB', 'CAIXA', 'SANTANDER', 'BRADESCO', 'C6', 'XP', 'OUTROS'] as const;
+const INSTITUTIONS = ['ITAU', 'NUBANK', 'INTER', 'BB', 'CAIXA', 'SANTANDER', 'BRADESCO', 'C6', 'XP', 'OUTRO', 'OUTROS'] as const;
 const BRANDS = ['Visa', 'Mastercard', 'Elo', 'Amex', 'Hipercard', 'Diners', 'Outros'] as const;
 
 export class CreateCreditCardDto {
   @IsString() @IsIn(INSTITUTIONS as unknown as string[]) institution!: string;
   @IsString() @IsIn(BRANDS as unknown as string[]) brand!: string;
-  @IsString() @Length(1, 120) nickname!: string;
+  @IsOptional() @IsString() @Length(0, 120) nickname?: string;
   @IsString() @Matches(/^\d{4}$/, { message: 'last4 deve ter exatamente 4 dígitos numéricos' }) last4!: string;
   @IsOptional() @IsInt() @Min(0) limitTotalCents?: number;
   @IsOptional() @IsInt() @Min(0) limitAvailableCents?: number;
@@ -20,7 +20,7 @@ export class CreateCreditCardDto {
 export class UpdateCreditCardDto {
   @IsOptional() @IsString() @IsIn(INSTITUTIONS as unknown as string[]) institution?: string;
   @IsOptional() @IsString() @IsIn(BRANDS as unknown as string[]) brand?: string;
-  @IsOptional() @IsString() @Length(1, 120) nickname?: string;
+  @IsOptional() @IsString() @Length(0, 120) nickname?: string;
   @IsOptional() @IsString() @Matches(/^\d{4}$/) last4?: string;
   @IsOptional() @IsInt() @Min(0) limitTotalCents?: number;
   @IsOptional() @IsInt() @Min(0) limitAvailableCents?: number;

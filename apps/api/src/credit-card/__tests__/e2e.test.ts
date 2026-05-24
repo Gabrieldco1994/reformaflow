@@ -92,9 +92,9 @@ async function main() {
   assert(leroyEntries[1].status === 'PLANEJADO' && leroyEntries[1].parcela === '2/3', 'parcela 2/3 PLANEJADO');
   assert(leroyEntries[2].status === 'PLANEJADO' && leroyEntries[2].parcela === '3/3', 'parcela 3/3 PLANEJADO');
 
-  // À vista deve ter 1 entry só
+  // À vista deve ter 1 entry só (isolado por tenant para evitar leak de runs anteriores)
   const ifoodEntries = await prisma.cashFlowEntry.findMany({
-    where: { expense: { fornecedor: { contains: 'IFOOD' } } },
+    where: { tenantId: tenant.id, expense: { fornecedor: { contains: 'IFOOD' } } },
   });
   assert(ifoodEntries.length === 1 && ifoodEntries[0].status === 'PAGO', 'iFood 1 entry PAGO');
 

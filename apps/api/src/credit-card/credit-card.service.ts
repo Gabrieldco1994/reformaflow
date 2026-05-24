@@ -34,14 +34,20 @@ export class CreditCardService {
 
   async createCard(tenantId: string, projectId: string, dto: CreateCreditCardDto) {
     await this.ensureProject(tenantId, projectId);
+    const nickname = dto.nickname?.trim() || `${dto.brand} ****${dto.last4}`;
     return this.prisma.creditCard.create({
-      data: { ...dto, tenantId, projectId },
+      data: { ...dto, nickname, tenantId, projectId },
     });
   }
 
   async updateCard(tenantId: string, projectId: string, id: string, dto: UpdateCreditCardDto) {
     await this.findCard(tenantId, projectId, id);
-    await this.prisma.creditCard.update({ where: { id }, data: dto });
+    const data: any = { ...dto };
+    if (dto.nickname != null) {
+      data.nickname = dto.nickname.trim() || undefined;
+      if (!data.nickname) delete data.nickname;
+    }
+    await this.prisma.creditCard.update({ where: { id }, data });
     return this.findCard(tenantId, projectId, id);
   }
 

@@ -47,15 +47,17 @@ export default function CardFormModal({ projectId, card, onClose, onSaved }: Pro
     }
     setSaving(true);
     try {
-      const body = {
+      const body: Record<string, unknown> = {
         institution,
         brand,
-        nickname: nickname || null,
         last4,
-        limitTotalCents: limitReais ? Math.round(parseFloat(limitReais) * 100) : null,
-        closingDay: closingDay ? parseInt(closingDay, 10) : null,
-        dueDay: dueDay ? parseInt(dueDay, 10) : null,
       };
+      const trimmedNickname = nickname.trim();
+      if (trimmedNickname) body.nickname = trimmedNickname;
+      if (limitReais) body.limitTotalCents = Math.round(parseFloat(limitReais) * 100);
+      if (closingDay) body.closingDay = parseInt(closingDay, 10);
+      if (dueDay) body.dueDay = parseInt(dueDay, 10);
+
       if (card) {
         await api.patch(`/projects/${projectId}/credit-cards/${card.id}`, body);
       } else {
