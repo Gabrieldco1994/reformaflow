@@ -62,8 +62,15 @@ export class RecurringBillService {
 
   private calcNextDue(day: number): Date {
     const now = new Date();
-    let next = new Date(now.getFullYear(), now.getMonth(), day);
-    if (next <= now) next.setMonth(next.getMonth() + 1);
+    const clampToMonth = (y: number, m: number): Date => {
+      // Último dia do mês: dia 0 do mês seguinte
+      const lastDay = new Date(y, m + 1, 0).getDate();
+      return new Date(y, m, Math.min(day, lastDay));
+    };
+    let next = clampToMonth(now.getFullYear(), now.getMonth());
+    if (next <= now) {
+      next = clampToMonth(next.getFullYear(), next.getMonth() + 1);
+    }
     return next;
   }
 }

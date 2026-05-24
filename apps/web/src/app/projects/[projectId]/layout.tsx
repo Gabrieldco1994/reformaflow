@@ -62,6 +62,7 @@ const FEATURE_NAV: Record<string, NavItem[]> = {
     { href: 'expenses', label: 'Despesas', icon: Receipt, module: 'expenses' },
     { href: 'receipts', label: 'Recebimentos', icon: Wallet, module: 'receipts' },
     { href: 'cash-flow', label: 'Fluxo de Caixa', icon: ArrowLeftRight, module: 'cashFlow' },
+    { href: 'credit-cards', label: 'Cartões', icon: CreditCard, module: 'creditCards' },
   ],
   CASA: [
     { href: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, module: 'dashboard' },

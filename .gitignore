@@ -43,3 +43,4 @@ prisma/seed.js.map
 prisma/seed.d.ts
 prisma/seed.d.ts.map
 .vercel
+.env.vercel.local

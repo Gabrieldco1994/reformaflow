@@ -93,7 +93,7 @@ export class SimulationService {
           deletedAt: null,
           OR: [
             { expenseId: null },
-            { expense: { deletedAt: null } },
+            { expense: { deletedAt: null, linkedExpenseId: null } },
           ],
         },
         orderBy: { data: 'asc' },

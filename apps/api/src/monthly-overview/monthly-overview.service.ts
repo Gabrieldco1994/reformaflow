@@ -37,7 +37,7 @@ export class MonthlyOverviewService {
         tenantId,
         projectId: { in: projectIds },
         deletedAt: null,
-        OR: [{ expenseId: null }, { expense: { deletedAt: null } }],
+        OR: [{ expenseId: null }, { expense: { deletedAt: null, linkedExpenseId: null } }],
         AND: [
           {
             OR: [{ receiptId: null }, { receipt: { deletedAt: null } }],

@@ -72,6 +72,7 @@ model Project {
   scheduleStages   ScheduleStage[]
   scheduleTasks    ScheduleTask[]
   scheduleHolidays ScheduleHoliday[]
+  creditCards     CreditCard[]
 
   @@map("projects")
 }
@@ -158,6 +159,11 @@ model Expense {
   status              String   @default("PLANEJADO") // PLANEJADO | PAGO
   plannedExpenseId    String?  @unique @map("planned_expense_id") // ref à despesa planejada que originou esta paga
   settledByExpenseId  String?  @unique @map("settled_by_expense_id") // quando esta planejada foi liquidada por uma paga
+  importId            String?  @map("import_id") // id da importação de fatura (CreditCardStatementImport) — opcional
+  externalId          String?  @map("external_id") // hash idempotente da transação importada
+  seriesKey           String?  @map("series_key")  // identifica compra parcelada (cardId|merchantNorm|amountPerInstall|total) — para casar parcelas futuras
+  cardLast4           String?  @map("card_last4") // últimos 4 do cartão de origem (denormalizado)
+  linkedExpenseId     String?  @map("linked_expense_id") // quando importada do cartão é vinculada a despesa de outro projeto (evita dupla contagem)
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
   deletedAt           DateTime? @map("deleted_at")
@@ -464,4 +470,56 @@ model ScheduleHoliday {
 
   @@index([projectId])
   @@map("schedule_holidays")
+}
+
+// ─── Cartões de crédito (import de fatura OFX/CSV) ─────────
+
+model CreditCard {
+  id                    String   @id @default(cuid())
+  projectId             String   @map("project_id")
+  tenantId              String   @map("tenant_id")
+  institution           String   // ITAU | NUBANC | INTER | BB | CAIXA | OUTROS
+  brand                 String   @default("Outros") // Visa | Mastercard | Elo | Amex | Hipercard | Outros
+  nickname              String
+  last4                 String   // últimos 4 dígitos. NUNCA salvar PAN completo.
+  limitTotalCents       Int?     @map("limit_total_cents")
+  limitAvailableCents   Int?     @map("limit_available_cents")
+  closingDay            Int?     @map("closing_day") // dia do mês do fechamento
+  dueDay                Int?     @map("due_day")     // dia do mês do vencimento
+  notes                 String?
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+  deletedAt             DateTime? @map("deleted_at")
+
+  project Project                    @relation(fields: [projectId], references: [id])
+  imports CreditCardStatementImport[]
+
+  @@index([projectId])
+  @@index([tenantId])
+  @@map("credit_cards")
+}
+
+model CreditCardStatementImport {
+  id              String   @id @default(cuid())
+  cardId          String   @map("card_id")
+  tenantId        String   @map("tenant_id")
+  periodLabel     String   @map("period_label") // ex: "2026-05" (mês de referência da fatura)
+  source          String   // OFX | CSV_NUBANK | CSV_ITAU | CSV_GENERIC
+  fileName        String?  @map("file_name")
+  fileSize        Int?     @map("file_size")
+  status          String   @default("COMPLETED") // PROCESSING | COMPLETED | FAILED
+  inserted        Int      @default(0)
+  duplicated      Int      @default(0)
+  skipped         Int      @default(0)
+  totalAmountCents Int     @default(0) @map("total_amount_cents")
+  message         String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  card CreditCard @relation(fields: [cardId], references: [id])
+
+  @@index([cardId])
+  @@index([tenantId])
+  @@map("credit_card_imports")
 }

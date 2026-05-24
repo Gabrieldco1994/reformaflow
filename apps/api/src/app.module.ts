@@ -25,6 +25,7 @@ import { MaintenanceModule } from './maintenance/maintenance.module';
 import { ReminderModule } from './reminder/reminder.module';
 import { CarInfoModule } from './car-info/car-info.module';
 import { ScheduleModule } from './schedule/schedule.module';
+import { CreditCardModule } from './credit-card/credit-card.module';
 
 const UPLOADS_DIR = (() => {
   const raw = process.env['UPLOADS_DIR'];
@@ -58,6 +59,7 @@ const UPLOADS_DIR = (() => {
     ReminderModule,
     CarInfoModule,
     ScheduleModule,
+    CreditCardModule,
   ],
   providers: [
     {

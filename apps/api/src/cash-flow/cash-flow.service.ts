@@ -24,7 +24,7 @@ export class CashFlowService {
         deletedAt: null,
         OR: [
           { expenseId: null },
-          { expense: { deletedAt: null } },
+          { expense: { deletedAt: null, linkedExpenseId: null } },
         ],
         // também garante que receipts soft-deleted não vazem
         AND: [
