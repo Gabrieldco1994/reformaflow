@@ -11,9 +11,10 @@ export const TYPE_MODULES: Record<string, ModuleSlug[]> = {
     'simulation',
     'priceCompare',
     'rooms',
+    'creditCards',
   ],
-  COMPRA: ['dashboard', 'expenses', 'receipts', 'cashFlow'],
-  PESSOAL: ['dashboard', 'expenses', 'receipts', 'cashFlow'],
+  COMPRA: ['dashboard', 'expenses', 'receipts', 'cashFlow', 'creditCards'],
+  PESSOAL: ['dashboard', 'expenses', 'receipts', 'cashFlow', 'creditCards', 'monthlyOverview'],
   CASA: ['dashboard', 'recurringBills', 'maintenance', 'reminders'],
   CARRO: ['dashboard', 'carInfo', 'recurringBills', 'maintenance', 'reminders'],
 };
