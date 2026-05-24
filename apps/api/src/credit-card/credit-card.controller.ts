@@ -1,5 +1,5 @@
 import {
-  Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query,
+  Body, Controller, Delete, Get, Param, Patch, Post, Query,
   UploadedFile, UseInterceptors, BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -10,6 +10,7 @@ import {
   UpdateCreditCardDto,
 } from './dto/credit-card.dto';
 import { RequireModule } from '../common/decorators/require-module.decorator';
+import { CurrentTenant } from '../common/decorators/tenant.decorator';
 import { PdfPasswordRequiredError, PdfWrongPasswordError } from './parsers';
 
 @RequireModule('creditCards')
@@ -18,13 +19,13 @@ export class CreditCardController {
   constructor(private readonly service: CreditCardService) {}
 
   @Get()
-  list(@Headers('x-tenant-id') tenantId: string, @Param('projectId') projectId: string) {
+  list(@CurrentTenant() tenantId: string, @Param('projectId') projectId: string) {
     return this.service.listCards(tenantId, projectId);
   }
 
   @Post()
   create(
-    @Headers('x-tenant-id') tenantId: string,
+    @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Body() dto: CreateCreditCardDto,
   ) {
@@ -33,7 +34,7 @@ export class CreditCardController {
 
   @Patch(':id')
   update(
-    @Headers('x-tenant-id') tenantId: string,
+    @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('id') id: string,
     @Body() dto: UpdateCreditCardDto,
@@ -43,7 +44,7 @@ export class CreditCardController {
 
   @Delete(':id')
   remove(
-    @Headers('x-tenant-id') tenantId: string,
+    @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('id') id: string,
   ) {
@@ -52,7 +53,7 @@ export class CreditCardController {
 
   @Get(':id/imports')
   imports(
-    @Headers('x-tenant-id') tenantId: string,
+    @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('id') cardId: string,
   ) {
@@ -61,7 +62,7 @@ export class CreditCardController {
 
   @Get(':id/suggest-links')
   suggestLinks(
-    @Headers('x-tenant-id') tenantId: string,
+    @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('id') cardId: string,
   ) {
@@ -70,7 +71,7 @@ export class CreditCardController {
 
   @Post('transactions/:expenseId/link')
   linkToExpense(
-    @Headers('x-tenant-id') tenantId: string,
+    @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('expenseId') expenseId: string,
     @Body() body: { targetExpenseId: string },
@@ -80,7 +81,7 @@ export class CreditCardController {
 
   @Delete('transactions/:expenseId/link')
   unlink(
-    @Headers('x-tenant-id') tenantId: string,
+    @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('expenseId') expenseId: string,
   ) {
@@ -90,7 +91,7 @@ export class CreditCardController {
   @Post(':id/import-statement')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
   async importStatement(
-    @Headers('x-tenant-id') tenantId: string,
+    @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('id') cardId: string,
     @UploadedFile() file: Express.Multer.File | undefined,
