@@ -214,13 +214,28 @@ export function MonthlyProjection({
       if (excludes.has(group.groupId)) continue; // excluded
 
       const cfg = payConfigs[group.groupId];
+      const hasOverride = !!cfg && (
+        cfg.mode !== undefined ||
+        cfg.inicio !== undefined ||
+        cfg.parcelas !== undefined ||
+        (cfg.valor !== undefined && cfg.valor !== '')
+      );
+
+      // Without override: use original entry dates so Projetado == Real
+      if (!hasOverride) {
+        for (const e of group.entries) {
+          const m = toMonth(e.data);
+          if (result[m] !== undefined) result[m] += e.valor;
+        }
+        continue;
+      }
+
       const mode = cfg?.mode || (group.isMulti ? 'parcelado' : 'avista');
       const inicio = cfg?.inicio || toMonth(group.entries[0].data);
       const parcelas = mode === 'parcelado'
         ? Math.max(1, Math.min(12, parseInt(cfg?.parcelas || String(group.entries.length)) || 1))
         : 1;
 
-      // Use edited valor if present, otherwise real
       const valorStr = cfg?.valor;
       const valorParsed = parseFloat(valorStr || '');
       const totalValor = valorStr && !isNaN(valorParsed) ? Math.round(valorParsed * 100) : group.totalValor;
