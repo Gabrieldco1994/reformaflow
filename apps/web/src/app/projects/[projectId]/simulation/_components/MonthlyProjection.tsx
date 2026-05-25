@@ -8,6 +8,7 @@ import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import type { CashFlowEntry } from '@/types';
 import { TIPO_DESPESA_OPTIONS, CATEGORIA_MAO_DE_OBRA_OPTIONS, tipoLabel } from '@/lib/expense-options';
+import { projectMonthlyExpenses } from '@reformaflow/domain';
 import type { MonthlyRow, SimRow, SimTipoCard, PayConfig } from '../_types';
 
 /* ═══════════════════════════════════════════════════════════
@@ -206,75 +207,30 @@ export function MonthlyProjection({
   const recRemaining = totalRecReal - totalRecDistributed;
 
   // Compute projected monthly despesas based on active groups + payment configs + edited values
-  const monthlyDespProjected = useMemo(() => {
-    const result: Record<string, number> = {};
-    for (const m of monthList) result[m] = 0;
-
-    for (const group of despGroups) {
-      if (excludes.has(group.groupId)) continue; // excluded
-
-      const cfg = payConfigs[group.groupId];
-      const hasOverride = !!cfg && (
-        cfg.mode !== undefined ||
-        cfg.inicio !== undefined ||
-        cfg.parcelas !== undefined ||
-        (cfg.valor !== undefined && cfg.valor !== '')
-      );
-
-      // Without override: use original entry dates so Projetado == Real
-      if (!hasOverride) {
-        for (const e of group.entries) {
-          const m = toMonth(e.data);
-          if (result[m] !== undefined) result[m] += e.valor;
-        }
-        continue;
-      }
-
-      const mode = cfg?.mode || (group.isMulti ? 'parcelado' : 'avista');
-      const inicio = cfg?.inicio || toMonth(group.entries[0].data);
-      const parcelas = mode === 'parcelado'
-        ? Math.max(1, Math.min(12, parseInt(cfg?.parcelas || String(group.entries.length)) || 1))
-        : 1;
-
-      const valorStr = cfg?.valor;
-      const valorParsed = parseFloat(valorStr || '');
-      const totalValor = valorStr && !isNaN(valorParsed) ? Math.round(valorParsed * 100) : group.totalValor;
-
-      const startIdx = monthList.indexOf(inicio);
-      if (startIdx === -1) {
-        result[monthList[0]] += totalValor;
-        continue;
-      }
-
-      const valorParcela = Math.floor(totalValor / parcelas);
-      const resto = totalValor - valorParcela * parcelas;
-
-      for (let i = 0; i < parcelas; i++) {
-        const mIdx = startIdx + i;
-        if (mIdx >= monthList.length) break;
-        result[monthList[mIdx]] += valorParcela + (i === parcelas - 1 ? resto : 0);
-      }
-    }
-
-    // Include extra projected-only rows
-    for (const extra of extraRows) {
-      const totalValor = Math.round(extra.valor * 100);
-      if (totalValor <= 0) continue;
-      const parcelas = extra.mode === 'parcelado' ? Math.max(1, Math.min(12, parseInt(extra.parcelas) || 1)) : 1;
-      const inicio = extra.inicio || monthList[0];
-      const startIdx = monthList.indexOf(inicio);
-      if (startIdx === -1) { result[monthList[0]] += totalValor; continue; }
-      const valorParcela = Math.floor(totalValor / parcelas);
-      const resto = totalValor - valorParcela * parcelas;
-      for (let i = 0; i < parcelas; i++) {
-        const mIdx = startIdx + i;
-        if (mIdx >= monthList.length) break;
-        result[monthList[mIdx]] += valorParcela + (i === parcelas - 1 ? resto : 0);
-      }
-    }
-
-    return result;
-  }, [despGroups, excludes, payConfigs, monthList, extraRows]);
+  const monthlyDespProjected = useMemo(() => projectMonthlyExpenses({
+    monthList,
+    groups: despGroups.map((g) => ({
+      groupId: g.groupId,
+      totalValor: g.totalValor,
+      entries: g.entries.map((e) => ({ data: e.data, valor: e.valor })),
+      isMulti: g.isMulti,
+    })),
+    excludes,
+    payConfigs: Object.fromEntries(
+      Object.entries(payConfigs).map(([k, v]) => [k, {
+        mode: v.mode === 'parcelado' ? 'parcelado' : v.mode === 'avista' ? 'avista' : undefined,
+        inicio: v.inicio,
+        parcelas: v.parcelas,
+        valor: v.valor,
+      }]),
+    ),
+    extras: extraRows.map((r) => ({
+      valor: r.valor,
+      mode: r.mode === 'parcelado' ? 'parcelado' : 'avista',
+      parcelas: r.parcelas,
+      inicio: r.inicio || undefined,
+    })),
+  }), [despGroups, excludes, payConfigs, monthList, extraRows]);
 
   // Total active despesas projected (using edited values)
   const totalDespActive = useMemo(() => {
@@ -1042,7 +998,17 @@ export function MonthlyProjection({
 
       {/* Chart 1: Saldo Acumulado */}
       <div className="border rounded-lg p-4 bg-white">
-        <h4 className="text-sm font-semibold text-gray-700 mb-3">Saldo Acumulado — Real vs Projetado</h4>
+        <h4 className="text-sm font-semibold text-gray-700 mb-1">Saldo Acumulado — Real vs Projetado</h4>
+        <details className="mb-3">
+          <summary className="text-[11px] text-gray-500 cursor-pointer hover:text-gray-700 select-none">
+            O que esse gráfico mostra?
+          </summary>
+          <div className="mt-2 text-[11px] text-gray-600 bg-gray-50 border border-gray-200 rounded p-2 space-y-1">
+            <p><span className="inline-block w-3 h-3 bg-gray-400 rounded-sm mr-1 align-middle"></span><b>Saldo Real:</b> recebimentos − despesas mês a mês usando o que está registrado no fluxo de caixa.</p>
+            <p><span className="inline-block w-3 h-3 bg-blue-500 rounded-sm mr-1 align-middle"></span><b>Saldo Projetado:</b> mesmo cálculo aplicando suas simulações (overrides de valor por tipo, reparcelamentos, despesas excluídas).</p>
+            <p className="text-gray-500 italic">💡 Se a linha cai abaixo de zero, você precisa de mais recebimentos ou ajustar despesas naquele mês.</p>
+          </div>
+        </details>
         <ResponsiveContainer width="100%" height={250}>
           <LineChart data={rowsAdjusted.map((r) => ({
             month: formatMonth(r.month),
@@ -1063,7 +1029,17 @@ export function MonthlyProjection({
 
       {/* Chart 2: Despesas por Mês */}
       <div className="border rounded-lg p-4 bg-white">
-        <h4 className="text-sm font-semibold text-gray-700 mb-3">Despesas por Mês — Projetado</h4>
+        <h4 className="text-sm font-semibold text-gray-700 mb-1">Despesas por Mês — Projetado</h4>
+        <details className="mb-3">
+          <summary className="text-[11px] text-gray-500 cursor-pointer hover:text-gray-700 select-none">
+            O que significa cada barra?
+          </summary>
+          <div className="mt-2 text-[11px] text-gray-600 bg-gray-50 border border-gray-200 rounded p-2 space-y-1">
+            <p><span className="inline-block w-3 h-3 bg-orange-300 rounded-sm mr-1 align-middle"></span><b>Despesas Reais:</b> o que está efetivamente registrado no fluxo de caixa de cada mês (parcelas com data definida — pagas ou planejadas).</p>
+            <p><span className="inline-block w-3 h-3 bg-orange-500 rounded-sm mr-1 align-middle"></span><b>Despesas Projetadas:</b> mesma base, mas aplicando seus ajustes (mudança de parcelas, valores simulados, exclusões e despesas extras adicionadas). Sem nenhum ajuste, é igual ao Real.</p>
+            <p className="text-gray-500 italic">💡 Se uma despesa está como "Planejada" mas sem data de pagamento definida, ela não aparece aqui. Defina datas em /expenses para projetar.</p>
+          </div>
+        </details>
         <ResponsiveContainer width="100%" height={220}>
           <BarChart data={rowsAdjusted.map((r) => ({
             month: formatMonth(r.month),

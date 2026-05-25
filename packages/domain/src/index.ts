@@ -3,6 +3,7 @@ export * from './types';
 export * from './calculations';
 export * from './calculations/schedule-engine';
 export * from './calculations/empreiteiro-allocation';
+export * from './calculations/monthly-projection';
 export * from './seed';
 export * from './config';
 export * from './voice/expense-voice-parser';
