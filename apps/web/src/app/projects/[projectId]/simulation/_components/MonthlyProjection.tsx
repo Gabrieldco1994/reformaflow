@@ -154,10 +154,10 @@ export function MonthlyProjection({
   const categorias = useMemo(() => {
     const catMap = new Map<string, DespGroup[]>();
     for (const g of despGroups) {
-      const cat = g.categoria || 'Outros';
+      const cat = g.categoria ? tipoLabel(g.categoria) : 'Outros';
       const arr = catMap.get(cat);
-      if (arr) arr.push(g);
-      else catMap.set(cat, [g]);
+      if (arr) arr.push({ ...g, categoria: cat });
+      else catMap.set(cat, [{ ...g, categoria: cat }]);
     }
     // Include extra rows as pseudo-groups in their respective categories
     for (const extra of extraRows) {
@@ -305,7 +305,7 @@ export function MonthlyProjection({
   const summaryByTipo = useMemo(() => {
     const map = new Map<string, { real: number; proj: number }>();
     for (const g of despGroups) {
-      const tipo = g.categoria || 'Outros';
+      const tipo = g.categoria ? tipoLabel(g.categoria) : 'Outros';
       if (!map.has(tipo)) map.set(tipo, { real: 0, proj: 0 });
       const entry = map.get(tipo)!;
       entry.real += g.totalValor;
