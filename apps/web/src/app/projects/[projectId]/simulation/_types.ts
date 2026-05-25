@@ -1,7 +1,7 @@
 export interface SimRow { key: string; label: string; total: number }
 export interface SimTipo extends SimRow { categorias?: SimRow[] }
 export interface SimAmbiente { key: string; label: string; total: number; tipos: SimTipo[] }
-export interface SimTipoCard { key: string; label: string; total: number; ambientes: (SimRow & { categorias?: SimRow[] })[] }
+export interface SimTipoCard { key: string; label: string; total: number; pago?: number; planejado?: number; ambientes: (SimRow & { categorias?: SimRow[] })[] }
 
 export interface MonthlyRow { month: string; recebimentos: number; despesas: number }
 

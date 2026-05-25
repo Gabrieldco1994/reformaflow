@@ -535,9 +535,15 @@ export function MonthlyProjection({
                             <span className="font-semibold text-sm text-gray-800 truncate">{tipoCard.label}</span>
                             {tipoCard.key === 'MAO_DE_OBRA' && <span className="text-[9px] bg-gray-200 text-gray-500 px-1 py-0.5 rounded">subcategorias</span>}
                           </div>
-                          <div className="flex items-center gap-3 text-xs mt-1 ml-4">
-                            <span className="text-gray-500">Real: <span className="font-semibold">{formatCurrency(tipoCard.total / 100)}</span></span>
-                            <span className="text-gray-400">Proj: <span className="font-medium">{formatCurrency(currentProj / 100)}</span></span>
+                          <div className="flex items-center gap-3 text-xs mt-1 ml-4 flex-wrap">
+                            <span className="text-gray-500">Total: <span className="font-semibold">{formatCurrency(tipoCard.total / 100)}</span></span>
+                            {typeof tipoCard.pago === 'number' && (
+                              <span className="text-green-700">Pago: <span className="font-medium">{formatCurrency(tipoCard.pago / 100)}</span></span>
+                            )}
+                            {typeof tipoCard.planejado === 'number' && tipoCard.planejado > 0 && (
+                              <span className="text-amber-700">Planejado: <span className="font-medium">{formatCurrency(tipoCard.planejado / 100)}</span></span>
+                            )}
+                            <span className="text-gray-400" title="Soma das parcelas no horizonte da projeção mensal exibida">Parcelas no período: <span className="font-medium">{formatCurrency(currentProj / 100)}</span></span>
                           </div>
                         </div>
                         {hasOverride && diff !== 0 && (

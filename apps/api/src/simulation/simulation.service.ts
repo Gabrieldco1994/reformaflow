@@ -188,6 +188,10 @@ export class SimulationService {
     const porTipo = expenseTypes.map((tipo) => {
       const tipoExpenses = expensesAllocated.filter((e) => e.tipoDespesa === tipo);
       const totalTipo = tipoExpenses.reduce((s, e) => s + e.valorTotal, 0);
+      const pagoTipo = tipoExpenses
+        .filter((e) => e.status === 'PAGO')
+        .reduce((s, e) => s + e.valorTotal, 0);
+      const planejadoTipo = totalTipo - pagoTipo;
       const ambientesNested = allRoomsList.map((room) => {
         const roomTipoExpenses = tipoExpenses.filter((e) => e.roomId === room.key);
         const total = roomTipoExpenses.reduce((s, e) => s + e.valorTotal, 0);
@@ -206,6 +210,8 @@ export class SimulationService {
         key: tipo,
         label: ExpenseTypeLabels[tipo as keyof typeof ExpenseTypeLabels] ?? tipo,
         total: totalTipo,
+        pago: pagoTipo,
+        planejado: planejadoTipo,
         ambientes: ambientesNested,
       };
     }).sort((a, b) => b.total - a.total);
