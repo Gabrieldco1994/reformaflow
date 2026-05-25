@@ -31,7 +31,7 @@ export class CashFlowService {
           {
             OR: [
               { receiptId: null },
-              { receipt: { deletedAt: null } },
+              { receipt: { deletedAt: null, linkedReceiptId: null } },
             ],
           },
         ],

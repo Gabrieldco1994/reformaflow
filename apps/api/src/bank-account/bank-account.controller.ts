@@ -71,6 +71,15 @@ export class BankAccountController {
     return this.service.suggestLinks(tenantId, projectId, accountId);
   }
 
+  @Get(':id/suggest-receipt-links')
+  suggestReceiptLinks(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Param('id') accountId: string,
+  ) {
+    return this.service.suggestReceiptLinks(tenantId, projectId, accountId);
+  }
+
   @Post('transactions/:expenseId/link')
   linkToExpense(
     @CurrentTenant() tenantId: string,
@@ -88,6 +97,25 @@ export class BankAccountController {
     @Param('expenseId') expenseId: string,
   ) {
     return this.service.unlinkExpense(tenantId, projectId, expenseId);
+  }
+
+  @Post('receipts/:receiptId/link')
+  linkToReceipt(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Param('receiptId') receiptId: string,
+    @Body() body: { targetReceiptId: string },
+  ) {
+    return this.service.linkToReceipt(tenantId, projectId, receiptId, body.targetReceiptId);
+  }
+
+  @Delete('receipts/:receiptId/link')
+  unlinkReceiptEndpoint(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Param('receiptId') receiptId: string,
+  ) {
+    return this.service.unlinkReceipt(tenantId, projectId, receiptId);
   }
 
   @Post(':id/import-statement')

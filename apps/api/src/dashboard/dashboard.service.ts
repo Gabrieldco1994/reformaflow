@@ -16,7 +16,7 @@ export class DashboardService {
 
     const [receipts, cashFlowEntries, expenses] = await Promise.all([
       this.prisma.receipt.findMany({
-        where: { projectId, tenantId, deletedAt: null },
+        where: { projectId, tenantId, deletedAt: null, linkedReceiptId: null },
       }),
       // IMPORTANTE: filtra entries cuja despesa OU receipt vinculado foi soft-deleted.
       // Sem esses filtros o dashboard contabilizava entries fantasma cujo recurso
@@ -34,7 +34,7 @@ export class DashboardService {
             {
               OR: [
                 { receiptId: null },
-                { receipt: { deletedAt: null } },
+                { receipt: { deletedAt: null, linkedReceiptId: null } },
               ],
             },
           ],

@@ -550,6 +550,150 @@ export class BankAccountService {
     return { ok: true };
   }
 
+  /**
+   * Sugere vínculos para recebimentos importados (no PESSOAL) a recebimentos
+   * planejados em outros projetos (REFORMA/CASA/CARRO).
+   * Critério: mesmo tenant, valor ≈ (±5%), data ±10 dias, status PREVISTO.
+   */
+  async suggestReceiptLinks(tenantId: string, projectId: string, accountId: string) {
+    const account = await this.findAccount(tenantId, projectId, accountId);
+
+    const bankReceipts = await this.prisma.receipt.findMany({
+      where: {
+        tenantId,
+        projectId,
+        bankLast4: account.last4,
+        linkedReceiptId: null,
+        deletedAt: null,
+      },
+      orderBy: { data: 'desc' },
+      take: 200,
+    });
+
+    if (bankReceipts.length === 0) return [];
+
+    const otherProjects = await this.prisma.project.findMany({
+      where: { tenantId, id: { not: projectId }, deletedAt: null },
+      select: { id: true, name: true, type: true },
+    });
+    if (otherProjects.length === 0) {
+      return bankReceipts.map((r) => ({ receipt: serializeReceipt(r), suggestions: [] }));
+    }
+
+    const otherIds = otherProjects.map((p) => p.id);
+    const planned = await this.prisma.receipt.findMany({
+      where: {
+        tenantId,
+        projectId: { in: otherIds },
+        status: 'PREVISTO',
+        deletedAt: null,
+      },
+      take: 500,
+      orderBy: { data: 'desc' },
+    });
+    const projectById = new Map(otherProjects.map((p) => [p.id, p]));
+
+    return bankReceipts.map((r) => {
+      const minDate = new Date(r.data); minDate.setUTCDate(minDate.getUTCDate() - 10);
+      const maxDate = new Date(r.data); maxDate.setUTCDate(maxDate.getUTCDate() + 10);
+      const tolerance = Math.max(100, Math.round(r.valor * 0.05));
+
+      const matches = planned
+        .filter((p) => {
+          if (Math.abs(p.valor - r.valor) > tolerance) return false;
+          return p.data >= minDate && p.data <= maxDate;
+        })
+        .slice(0, 5)
+        .map((p) => ({
+          receiptId: p.id,
+          projectId: p.projectId,
+          projectName: projectById.get(p.projectId)?.name ?? '',
+          projectType: projectById.get(p.projectId)?.type ?? '',
+          tipo: p.tipo,
+          descricao: p.descricao,
+          valor: p.valor,
+          data: p.data.toISOString(),
+          deltaCents: r.valor - p.valor,
+        }));
+
+      return { receipt: serializeReceipt(r), suggestions: matches };
+    });
+  }
+
+  /**
+   * Vincula um recebimento importado (do extrato, no PESSOAL) a um recebimento
+   * planejado em outro projeto (PREVISTO em REFORMA/CASA/CARRO).
+   *
+   * Efeitos:
+   *  - Recebimento alvo vira EM_CAIXA (mantendo data original).
+   *  - CashFlowEntries do alvo viram EM_CAIXA.
+   *  - Recebimento fonte ganha linkedReceiptId apontando para o alvo.
+   *  - Visões consolidadas filtram entries com receipt.linkedReceiptId
+   *    para evitar dupla contagem.
+   */
+  async linkToReceipt(
+    tenantId: string,
+    projectId: string,
+    bankReceiptId: string,
+    targetReceiptId: string,
+  ) {
+    const source = await this.prisma.receipt.findFirst({
+      where: { id: bankReceiptId, tenantId, projectId, deletedAt: null },
+    });
+    if (!source) throw new NotFoundException('Recebimento importado não encontrado');
+    if (!source.bankLast4) throw new BadRequestException('Recebimento não foi importado de conta bancária');
+
+    const target = await this.prisma.receipt.findFirst({
+      where: { id: targetReceiptId, tenantId, deletedAt: null },
+    });
+    if (!target) throw new NotFoundException('Recebimento alvo não encontrado');
+    if (target.status === 'EM_CAIXA') {
+      throw new BadRequestException('Recebimento alvo já está EM_CAIXA — desvincule antes de re-linkar');
+    }
+    if (target.projectId === projectId) {
+      throw new BadRequestException('Alvo deve estar em outro projeto');
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.receipt.update({
+        where: { id: target.id },
+        data: { status: 'EM_CAIXA' },
+      }),
+      this.prisma.cashFlowEntry.updateMany({
+        where: {
+          tenantId,
+          receiptId: target.id,
+          status: { in: ['PLANEJADO', 'PREVISTO'] },
+          deletedAt: null,
+        },
+        data: { status: 'EM_CAIXA' },
+      }),
+      this.prisma.receipt.update({
+        where: { id: source.id },
+        data: { linkedReceiptId: target.id },
+      }),
+    ]);
+
+    return { ok: true, sourceId: source.id, targetId: target.id };
+  }
+
+  /**
+   * Desfaz o link entre um recebimento importado e o alvo.
+   * NÃO reverte o status do alvo (pode ter sido marcado EM_CAIXA por outro motivo).
+   */
+  async unlinkReceipt(tenantId: string, projectId: string, bankReceiptId: string) {
+    const source = await this.prisma.receipt.findFirst({
+      where: { id: bankReceiptId, tenantId, projectId, deletedAt: null },
+    });
+    if (!source) throw new NotFoundException('Recebimento não encontrado');
+    if (!source.linkedReceiptId) return { ok: true, alreadyUnlinked: true };
+    await this.prisma.receipt.update({
+      where: { id: source.id },
+      data: { linkedReceiptId: null },
+    });
+    return { ok: true };
+  }
+
   // ─── helpers ─────────────────────────────────────────────
 
   private async ensureProject(tenantId: string, projectId: string) {
@@ -809,5 +953,21 @@ function serializeExpense(e: {
     formaPagamento: e.formaPagamento,
     linkedExpenseId: e.linkedExpenseId,
     tipoDespesa: e.tipoDespesa,
+  };
+}
+
+function serializeReceipt(r: {
+  id: string; valor: number; data: Date; tipo: string; status: string;
+  descricao: string | null; bankLast4: string | null; linkedReceiptId: string | null;
+}) {
+  return {
+    id: r.id,
+    valor: r.valor,
+    data: r.data.toISOString(),
+    tipo: r.tipo,
+    status: r.status,
+    descricao: r.descricao,
+    bankLast4: r.bankLast4,
+    linkedReceiptId: r.linkedReceiptId,
   };
 }

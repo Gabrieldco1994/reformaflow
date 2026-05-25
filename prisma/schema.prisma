@@ -131,6 +131,7 @@ model Receipt {
   importId  String?  @map("import_id") // ref BankStatementImport — opcional
   externalId String? @map("external_id") // hash idempotente da transação importada
   bankLast4 String?  @map("bank_last4") // últimos 4 da conta bancária de origem
+  linkedReceiptId String? @map("linked_receipt_id") // quando importado do extrato é vinculado a recebimento planejado de outro projeto (evita dupla contagem)
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")

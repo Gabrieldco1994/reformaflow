@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
-import { Landmark, Plus, Upload, Trash2, Link2 } from 'lucide-react';
+import { Landmark, Plus, Upload, Trash2, Link2, ArrowDownLeft } from 'lucide-react';
 import BankAccountFormModal from './_components/BankAccountFormModal';
 import ImportBankStatementModal from './_components/ImportBankStatementModal';
 import BankLinkSuggestionsPanel from './_components/BankLinkSuggestionsPanel';
+import BankReceiptLinkPanel from './_components/BankReceiptLinkPanel';
 import type { BankAccountRow } from './_types';
 
 export default function BankAccountsPage() {
@@ -18,6 +19,7 @@ export default function BankAccountsPage() {
   const [editing, setEditing] = useState<BankAccountRow | null>(null);
   const [importing, setImporting] = useState<BankAccountRow | null>(null);
   const [linksFor, setLinksFor] = useState<BankAccountRow | null>(null);
+  const [receiptLinksFor, setReceiptLinksFor] = useState<BankAccountRow | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -91,7 +93,13 @@ export default function BankAccountsPage() {
                   onClick={() => setLinksFor(a)}
                   className="px-3 py-2 text-sm border rounded-lg flex items-center gap-1 hover:bg-gray-50"
                 >
-                  <Link2 className="w-4 h-4" /> Vincular
+                  <Link2 className="w-4 h-4" /> Vincular despesas
+                </button>
+                <button
+                  onClick={() => setReceiptLinksFor(a)}
+                  className="px-3 py-2 text-sm border rounded-lg flex items-center gap-1 hover:bg-gray-50"
+                >
+                  <ArrowDownLeft className="w-4 h-4" /> Vincular recebimentos
                 </button>
                 <button
                   onClick={() => { setEditing(a); setFormOpen(true); }}
@@ -132,6 +140,13 @@ export default function BankAccountsPage() {
           projectId={projectId}
           account={linksFor}
           onClose={() => setLinksFor(null)}
+        />
+      )}
+      {receiptLinksFor && (
+        <BankReceiptLinkPanel
+          projectId={projectId}
+          account={receiptLinksFor}
+          onClose={() => setReceiptLinksFor(null)}
         />
       )}
     </div>

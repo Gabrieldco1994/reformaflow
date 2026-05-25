@@ -280,6 +280,85 @@ async function main() {
   });
   assert(!cfOrfao, 'pagto órfão também sem CashFlowEntry');
 
+  // ───── 12) Link cross-project de RECEBIMENTOS ───────────────
+  header('12) Link cross-project recebimentos: banco PESSOAL → REFORMA');
+  // Cria um recebimento PREVISTO na REFORMA com valor próximo ao SALARIO importado
+  const plannedReformaReceipt = await prisma.receipt.create({
+    data: {
+      tenantId: tenant.id,
+      projectId: reforma.id,
+      valor: 850000, // mesmo valor do SALARIO
+      data: salarioReceipt!.data,
+      tipo: 'PAGAMENTO',
+      status: 'PREVISTO',
+      descricao: 'Pagamento sócios da empreitada',
+    },
+  });
+  await prisma.cashFlowEntry.create({
+    data: {
+      tenantId: tenant.id,
+      projectId: reforma.id,
+      receiptId: plannedReformaReceipt.id,
+      valor: 850000,
+      tipo: 'RECEBIMENTO',
+      categoria: 'PAGAMENTO',
+      data: salarioReceipt!.data,
+      status: 'PREVISTO',
+    },
+  });
+
+  const receiptSugs = await svc.suggestReceiptLinks(tenant.id, pessoal.id, itau.id);
+  const salarioSug = receiptSugs.find((s: any) => s.receipt.id === salarioReceipt!.id);
+  assert(!!salarioSug, 'SALARIO tem entrada em suggestReceiptLinks');
+  assert(salarioSug!.suggestions.length >= 1, `SALARIO tem >=1 sugestão (got ${salarioSug!.suggestions.length})`);
+  assert(
+    salarioSug!.suggestions[0].receiptId === plannedReformaReceipt.id,
+    'sugestão aponta para recebimento previsto da REFORMA',
+  );
+
+  const recLink = await svc.linkToReceipt(
+    tenant.id, pessoal.id, salarioReceipt!.id, plannedReformaReceipt.id,
+  );
+  assert(recLink.ok === true, 'linkToReceipt.ok = true');
+
+  const reformaRecAfter = await prisma.receipt.findUnique({ where: { id: plannedReformaReceipt.id } });
+  assert(reformaRecAfter?.status === 'EM_CAIXA', 'recebimento REFORMA virou EM_CAIXA');
+
+  const reformaRecEntry = await prisma.cashFlowEntry.findFirst({
+    where: { receiptId: plannedReformaReceipt.id },
+  });
+  assert(reformaRecEntry?.status === 'EM_CAIXA', 'cashFlowEntry REFORMA virou EM_CAIXA');
+
+  const sourceRecAfter = await prisma.receipt.findUnique({ where: { id: salarioReceipt!.id } });
+  assert(
+    sourceRecAfter?.linkedReceiptId === plannedReformaReceipt.id,
+    'recebimento banco linkedReceiptId aponta REFORMA',
+  );
+
+  // ───── 13) Unlink recebimento ───────────────────────────────
+  header('13) Unlink recebimento');
+  await svc.unlinkReceipt(tenant.id, pessoal.id, salarioReceipt!.id);
+  const sourceRecUnlinked = await prisma.receipt.findUnique({ where: { id: salarioReceipt!.id } });
+  assert(sourceRecUnlinked?.linkedReceiptId === null, 'após unlink, linkedReceiptId = null');
+
+  // ───── 14) Validações de erro: receipt em mesmo projeto / já EM_CAIXA ──
+  header('14) Erros: receipt mesmo projeto / já em caixa');
+  const samePrjReceipt = await prisma.receipt.create({
+    data: {
+      tenantId: tenant.id, projectId: pessoal.id,
+      valor: 1000, data: new Date(), tipo: 'PAGAMENTO', status: 'PREVISTO',
+    },
+  });
+  let threw = false;
+  try {
+    await svc.linkToReceipt(tenant.id, pessoal.id, salarioReceipt!.id, samePrjReceipt.id);
+  } catch { threw = true; }
+  assert(threw, 'não permite linkar recebimento no mesmo projeto');
+
+  // Cleanup auxiliar receipt
+  await prisma.cashFlowEntry.deleteMany({ where: { receiptId: samePrjReceipt.id } });
+  await prisma.receipt.delete({ where: { id: samePrjReceipt.id } });
+
   // ───── Cleanup ─────────────────────────────────────────────
   header('Cleanup');
   await prisma.$transaction([

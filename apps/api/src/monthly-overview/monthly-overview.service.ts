@@ -40,7 +40,7 @@ export class MonthlyOverviewService {
         OR: [{ expenseId: null }, { expense: { deletedAt: null, linkedExpenseId: null } }],
         AND: [
           {
-            OR: [{ receiptId: null }, { receipt: { deletedAt: null } }],
+            OR: [{ receiptId: null }, { receipt: { deletedAt: null, linkedReceiptId: null } }],
           },
         ],
       },

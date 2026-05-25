@@ -80,7 +80,7 @@ export class SimulationService {
 
     const [receipts, expenses, cashFlowEntries] = await Promise.all([
       this.prisma.receipt.findMany({
-        where: { projectId, tenantId, deletedAt: null },
+        where: { projectId, tenantId, deletedAt: null, linkedReceiptId: null },
       }),
       this.prisma.expense.findMany({
         where: { projectId, tenantId, deletedAt: null, settledByExpenseId: null },
@@ -94,6 +94,14 @@ export class SimulationService {
           OR: [
             { expenseId: null },
             { expense: { deletedAt: null, linkedExpenseId: null } },
+          ],
+          AND: [
+            {
+              OR: [
+                { receiptId: null },
+                { receipt: { deletedAt: null, linkedReceiptId: null } },
+              ],
+            },
           ],
         },
         orderBy: { data: 'asc' },

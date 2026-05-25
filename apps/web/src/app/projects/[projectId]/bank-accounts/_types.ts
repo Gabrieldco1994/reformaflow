@@ -48,7 +48,7 @@ export interface BankSuggestionRow {
     linkedExpenseId: string | null;
   };
   suggestions: Array<{
-    id: string;
+    expenseId: string;
     projectId: string;
     projectName: string;
     projectType: string;
@@ -56,7 +56,30 @@ export interface BankSuggestionRow {
     fornecedor: string | null;
     valor: number;
     data: string;
+    deltaCents: number;
+  }>;
+}
+
+export interface BankReceiptSuggestionRow {
+  receipt: {
+    id: string;
+    valor: number;
+    data: string;
+    tipo: string;
     status: string;
-    matchScore: number;
+    descricao: string | null;
+    bankLast4: string | null;
+    linkedReceiptId: string | null;
+  };
+  suggestions: Array<{
+    receiptId: string;
+    projectId: string;
+    projectName: string;
+    projectType: string;
+    tipo: string;
+    descricao: string | null;
+    valor: number;
+    data: string;
+    deltaCents: number;
   }>;
 }
