@@ -53,6 +53,15 @@ export enum ReceiptType {
   DIVIDENDOS = 'DIVIDENDOS',
   JUROS_RENDA_FIXA = 'JUROS_RENDA_FIXA',
   RESGATE = 'RESGATE',
+  POUPANCA = 'POUPANCA',
+  ACAO = 'ACAO',
+  FII = 'FII',
+  CRIPTO = 'CRIPTO',
+  PENSAO = 'PENSAO',
+  RESTITUICAO_IR = 'RESTITUICAO_IR',
+  COMISSAO = 'COMISSAO',
+  VENDA_BEM = 'VENDA_BEM',
+  PRESENTE = 'PRESENTE',
   OUTROS = 'OUTROS',
 }
 
@@ -148,6 +157,15 @@ export const ReceiptTypeLabels: Record<ReceiptType, string> = {
   [ReceiptType.DIVIDENDOS]: 'Dividendos',
   [ReceiptType.JUROS_RENDA_FIXA]: 'Juros de Renda Fixa',
   [ReceiptType.RESGATE]: 'Resgate',
+  [ReceiptType.POUPANCA]: 'Rend. Poupança',
+  [ReceiptType.ACAO]: 'Ação (Operação)',
+  [ReceiptType.FII]: 'Fundo Imobiliário',
+  [ReceiptType.CRIPTO]: 'Criptomoeda',
+  [ReceiptType.PENSAO]: 'Pensão / Aposentadoria',
+  [ReceiptType.RESTITUICAO_IR]: 'Restituição IR',
+  [ReceiptType.COMISSAO]: 'Comissão',
+  [ReceiptType.VENDA_BEM]: 'Venda de Bem',
+  [ReceiptType.PRESENTE]: 'Presente / Doação',
   [ReceiptType.OUTROS]: 'Outros',
 };
 

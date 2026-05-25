@@ -64,6 +64,15 @@ export type ReceiptType =
   | 'DIVIDENDOS'
   | 'JUROS_RENDA_FIXA'
   | 'RESGATE'
+  | 'POUPANCA'
+  | 'ACAO'
+  | 'FII'
+  | 'CRIPTO'
+  | 'PENSAO'
+  | 'RESTITUICAO_IR'
+  | 'COMISSAO'
+  | 'VENDA_BEM'
+  | 'PRESENTE'
   | 'OUTROS';
 export type ReceiptStatus = 'PREVISTO' | 'EM_CAIXA';
 

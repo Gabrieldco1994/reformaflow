@@ -14,24 +14,39 @@ import React from 'react';
 import type { Receipt, ReceiptFormData } from '@/types';
 import { MobileReceiptList } from './_components/MobileReceiptList';
 
-const DEFAULT_TIPO_OPTIONS = [
+type TipoOption = { value: string; label: string; group?: string };
+
+const DEFAULT_TIPO_OPTIONS: TipoOption[] = [
   { value: 'PAGAMENTO', label: 'Pagamento' },
   { value: 'BONUS', label: 'Bônus' },
   { value: 'VENDA_ACAO', label: 'Venda de Ação' },
   { value: 'ORCAMENTO_INICIAL', label: 'Orçamento Inicial' },
 ];
 
-const PESSOAL_TIPO_OPTIONS = [
-  { value: 'SALARIO', label: 'Salário' },
-  { value: 'ADIANTAMENTO_SALARIO', label: 'Adiantamento de Salário' },
-  { value: 'FREELANCE', label: 'Freelance' },
-  { value: 'ALUGUEL', label: 'Aluguel' },
-  { value: 'DIVIDENDOS', label: 'Dividendos' },
-  { value: 'JUROS_RENDA_FIXA', label: 'Juros de Renda Fixa' },
-  { value: 'RESGATE', label: 'Resgate' },
-  { value: 'REEMBOLSO', label: 'Reembolso' },
-  { value: 'BONUS', label: 'Bônus' },
-  { value: 'OUTROS', label: 'Outros' },
+const PESSOAL_TIPO_OPTIONS: TipoOption[] = [
+  // Trabalho
+  { value: 'SALARIO', label: 'Salário', group: 'Trabalho' },
+  { value: 'ADIANTAMENTO_SALARIO', label: 'Adiantamento de Salário', group: 'Trabalho' },
+  { value: 'FREELANCE', label: 'Freelance', group: 'Trabalho' },
+  { value: 'BONUS', label: 'Bônus', group: 'Trabalho' },
+  { value: 'COMISSAO', label: 'Comissão', group: 'Trabalho' },
+  { value: 'PENSAO', label: 'Pensão / Aposentadoria', group: 'Trabalho' },
+  // Investimentos
+  { value: 'DIVIDENDOS', label: 'Dividendos', group: 'Investimentos' },
+  { value: 'JUROS_RENDA_FIXA', label: 'Juros de Renda Fixa', group: 'Investimentos' },
+  { value: 'POUPANCA', label: 'Rend. Poupança', group: 'Investimentos' },
+  { value: 'ACAO', label: 'Ação (Operação)', group: 'Investimentos' },
+  { value: 'VENDA_ACAO', label: 'Venda de Ação', group: 'Investimentos' },
+  { value: 'FII', label: 'Fundo Imobiliário', group: 'Investimentos' },
+  { value: 'CRIPTO', label: 'Criptomoeda', group: 'Investimentos' },
+  { value: 'RESGATE', label: 'Resgate', group: 'Investimentos' },
+  // Outros
+  { value: 'ALUGUEL', label: 'Aluguel', group: 'Outros' },
+  { value: 'REEMBOLSO', label: 'Reembolso', group: 'Outros' },
+  { value: 'RESTITUICAO_IR', label: 'Restituição IR', group: 'Outros' },
+  { value: 'VENDA_BEM', label: 'Venda de Bem', group: 'Outros' },
+  { value: 'PRESENTE', label: 'Presente / Doação', group: 'Outros' },
+  { value: 'OUTROS', label: 'Outros', group: 'Outros' },
 ];
 
 const STATUS_OPTIONS = [
@@ -52,6 +67,24 @@ export default function ReceiptsPage() {
   const isPessoal = projectType === 'PESSOAL';
   const TIPO_OPTIONS = isPessoal ? PESSOAL_TIPO_OPTIONS : DEFAULT_TIPO_OPTIONS;
   const defaultTipo = TIPO_OPTIONS[0]?.value ?? 'PAGAMENTO';
+
+  const renderTipoOptions = () => {
+    const hasGroups = TIPO_OPTIONS.some((o) => o.group);
+    if (!hasGroups) {
+      return TIPO_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>);
+    }
+    const byGroup = new Map<string, TipoOption[]>();
+    for (const o of TIPO_OPTIONS) {
+      const g = o.group || 'Outros';
+      const arr = byGroup.get(g);
+      if (arr) arr.push(o); else byGroup.set(g, [o]);
+    }
+    return Array.from(byGroup.entries()).map(([group, opts]) => (
+      <optgroup key={group} label={group}>
+        {opts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </optgroup>
+    ));
+  };
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Receipt | null>(null);
@@ -462,7 +495,7 @@ export default function ReceiptsPage() {
                       onChange={(e) => setNewRow({ ...newRow, tipo: e.target.value })}
                       onKeyDown={handleNewRowKeyDown}
                       className="w-full border border-darc-linen rounded px-2 py-1 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-darc-mist">
-                      {TIPO_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      {renderTipoOptions()}
                     </select>
                   </td>
                   <td className="px-4 py-2">
@@ -527,8 +560,18 @@ export default function ReceiptsPage() {
             defaultValue={editing ? (editing.valor / 100).toFixed(2) : ''} />
           <Input label="Data" name="data" type="date" required
             defaultValue={editing?.data ? editing.data.slice(0, 10) : ''} />
-          <Select label="Tipo" name="tipo" options={TIPO_OPTIONS} required
-            defaultValue={editing?.tipo ?? defaultTipo} />
+          <div className="space-y-1">
+            <label htmlFor="tipo" className="block text-sm font-medium text-gray-700">Tipo</label>
+            <select
+              id="tipo"
+              name="tipo"
+              required
+              defaultValue={editing?.tipo ?? defaultTipo}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500"
+            >
+              {renderTipoOptions()}
+            </select>
+          </div>
           <Select label="Status" name="status" options={STATUS_OPTIONS} required
             defaultValue={editing?.status ?? ''} />
           <div className="flex justify-end gap-2 pt-2">
