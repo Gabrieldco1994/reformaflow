@@ -545,6 +545,21 @@ export function MonthlyProjection({
                             )}
                             <span className="text-gray-400" title="Soma das parcelas no horizonte da projeção mensal exibida">Parcelas no período: <span className="font-medium">{formatCurrency(currentProj / 100)}</span></span>
                           </div>
+                          {(() => {
+                            const semData = (tipoCard.planejado ?? 0) - Math.max(0, currentProj - (tipoCard.pago ?? 0));
+                            if (semData > 100) {
+                              return (
+                                <div
+                                  className="ml-4 mt-1 text-[10px] text-orange-600 flex items-center gap-1"
+                                  title="Existem despesas planejadas sem data de pagamento — elas entram no Total mas não nas parcelas projetadas. Defina datas em /expenses para projetar."
+                                >
+                                  <span>⚠</span>
+                                  <span>{formatCurrency(semData / 100)} planejado sem data de pagamento</span>
+                                </div>
+                              );
+                            }
+                            return null;
+                          })()}
                         </div>
                         {hasOverride && diff !== 0 && (
                           <span className={`text-xs font-semibold whitespace-nowrap mt-0.5 ${diff > 0 ? 'text-red-500' : 'text-green-600'}`}>
