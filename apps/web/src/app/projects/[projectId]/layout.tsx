@@ -19,6 +19,7 @@ import {
   ArrowLeft,
   Car,
   CalendarClock,
+  Landmark,
   Users,
   LogOut,
   MoreHorizontal,
@@ -63,6 +64,7 @@ const FEATURE_NAV: Record<string, NavItem[]> = {
     { href: 'receipts', label: 'Recebimentos', icon: Wallet, module: 'receipts' },
     { href: 'cash-flow', label: 'Fluxo de Caixa', icon: ArrowLeftRight, module: 'cashFlow' },
     { href: 'credit-cards', label: 'Cartões', icon: CreditCard, module: 'creditCards' },
+    { href: 'bank-accounts', label: 'Contas', icon: Landmark, module: 'bankAccounts' },
   ],
   CASA: [
     { href: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, module: 'dashboard' },
