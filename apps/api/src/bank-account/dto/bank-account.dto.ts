@@ -28,3 +28,11 @@ export class ImportBankStatementQueryDto {
   @IsOptional() @IsString() @IsIn(['preview', 'commit']) mode?: 'preview' | 'commit';
   @IsOptional() @IsString() @Length(0, 200) password?: string;
 }
+
+export class LinkToExpenseDto {
+  @IsString() @Length(1, 50) targetExpenseId!: string;
+}
+
+export class LinkToReceiptDto {
+  @IsString() @Length(1, 50) targetReceiptId!: string;
+}

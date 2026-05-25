@@ -219,6 +219,12 @@ export class ExpenseService {
     const now = new Date();
 
     await this.prisma.$transaction([
+      // Se esta despesa é alvo de algum link cross-project, limpa o ponteiro
+      // dos sources para não deixar dangling reference.
+      this.prisma.expense.updateMany({
+        where: { tenantId, linkedExpenseId: id, deletedAt: null },
+        data: { linkedExpenseId: null },
+      }),
       this.prisma.cashFlowEntry.updateMany({
         where: { expenseId: id, deletedAt: null },
         data: { deletedAt: now },

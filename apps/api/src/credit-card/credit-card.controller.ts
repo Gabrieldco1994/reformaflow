@@ -7,6 +7,7 @@ import { CreditCardService } from './credit-card.service';
 import {
   CreateCreditCardDto,
   ImportStatementQueryDto,
+  LinkToExpenseDto,
   UpdateCreditCardDto,
 } from './dto/credit-card.dto';
 import { RequireModule } from '../common/decorators/require-module.decorator';
@@ -76,7 +77,7 @@ export class CreditCardController {
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('expenseId') expenseId: string,
-    @Body() body: { targetExpenseId: string },
+    @Body() body: LinkToExpenseDto,
   ) {
     return this.service.linkToExpense(tenantId, projectId, expenseId, body.targetExpenseId);
   }

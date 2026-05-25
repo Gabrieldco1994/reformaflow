@@ -498,28 +498,29 @@ export class BankAccountService {
     if (!source) throw new NotFoundException('Despesa importada não encontrada');
     if (!source.bankLast4) throw new BadRequestException('Despesa não foi importada de conta bancária');
 
-    const target = await this.prisma.expense.findFirst({
-      where: { id: targetExpenseId, tenantId, deletedAt: null },
-    });
-    if (!target) throw new NotFoundException('Despesa alvo não encontrada');
-    if (target.status === 'PAGO') {
-      throw new BadRequestException('Despesa alvo já está paga — desvincule antes de re-linkar');
-    }
-    if (target.projectId === projectId) {
-      throw new BadRequestException('Alvo deve estar em outro projeto');
-    }
-
     const paymentDate = source.dataPagamento ?? source.dataInicioParcela ?? source.createdAt;
 
-    await this.prisma.$transaction([
-      this.prisma.expense.update({
+    const result = await this.prisma.$transaction(async (tx) => {
+      // Re-lê target dentro da transação para evitar race com link concorrente.
+      const target = await tx.expense.findFirst({
+        where: { id: targetExpenseId, tenantId, deletedAt: null },
+      });
+      if (!target) throw new NotFoundException('Despesa alvo não encontrada');
+      if (target.status === 'PAGO') {
+        throw new BadRequestException('Despesa alvo já está paga — desvincule antes de re-linkar');
+      }
+      if (target.projectId === projectId) {
+        throw new BadRequestException('Alvo deve estar em outro projeto');
+      }
+
+      await tx.expense.update({
         where: { id: target.id },
         data: {
           status: 'PAGO',
           dataPagamento: target.dataPagamento ?? target.dataInicioParcela ?? paymentDate,
         },
-      }),
-      this.prisma.cashFlowEntry.updateMany({
+      });
+      await tx.cashFlowEntry.updateMany({
         where: {
           tenantId,
           expenseId: target.id,
@@ -527,14 +528,16 @@ export class BankAccountService {
           deletedAt: null,
         },
         data: { status: 'PAGO' },
-      }),
-      this.prisma.expense.update({
+      });
+      await tx.expense.update({
         where: { id: source.id },
         data: { linkedExpenseId: target.id },
-      }),
-    ]);
+      });
 
-    return { ok: true, sourceId: source.id, targetId: target.id, paymentDate };
+      return { targetId: target.id };
+    });
+
+    return { ok: true, sourceId: source.id, targetId: result.targetId, paymentDate };
   }
 
   async unlinkExpense(tenantId: string, projectId: string, bankExpenseId: string) {
@@ -643,23 +646,23 @@ export class BankAccountService {
     if (!source) throw new NotFoundException('Recebimento importado não encontrado');
     if (!source.bankLast4) throw new BadRequestException('Recebimento não foi importado de conta bancária');
 
-    const target = await this.prisma.receipt.findFirst({
-      where: { id: targetReceiptId, tenantId, deletedAt: null },
-    });
-    if (!target) throw new NotFoundException('Recebimento alvo não encontrado');
-    if (target.status === 'EM_CAIXA') {
-      throw new BadRequestException('Recebimento alvo já está EM_CAIXA — desvincule antes de re-linkar');
-    }
-    if (target.projectId === projectId) {
-      throw new BadRequestException('Alvo deve estar em outro projeto');
-    }
+    const result = await this.prisma.$transaction(async (tx) => {
+      const target = await tx.receipt.findFirst({
+        where: { id: targetReceiptId, tenantId, deletedAt: null },
+      });
+      if (!target) throw new NotFoundException('Recebimento alvo não encontrado');
+      if (target.status === 'EM_CAIXA') {
+        throw new BadRequestException('Recebimento alvo já está EM_CAIXA — desvincule antes de re-linkar');
+      }
+      if (target.projectId === projectId) {
+        throw new BadRequestException('Alvo deve estar em outro projeto');
+      }
 
-    await this.prisma.$transaction([
-      this.prisma.receipt.update({
+      await tx.receipt.update({
         where: { id: target.id },
         data: { status: 'EM_CAIXA' },
-      }),
-      this.prisma.cashFlowEntry.updateMany({
+      });
+      await tx.cashFlowEntry.updateMany({
         where: {
           tenantId,
           receiptId: target.id,
@@ -667,14 +670,16 @@ export class BankAccountService {
           deletedAt: null,
         },
         data: { status: 'EM_CAIXA' },
-      }),
-      this.prisma.receipt.update({
+      });
+      await tx.receipt.update({
         where: { id: source.id },
         data: { linkedReceiptId: target.id },
-      }),
-    ]);
+      });
 
-    return { ok: true, sourceId: source.id, targetId: target.id };
+      return { targetId: target.id };
+    });
+
+    return { ok: true, sourceId: source.id, targetId: result.targetId };
   }
 
   /**

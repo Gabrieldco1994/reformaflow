@@ -273,29 +273,30 @@ export class CreditCardService {
     if (!source) throw new NotFoundException('Despesa importada não encontrada');
     if (!source.cardLast4) throw new BadRequestException('Despesa não foi importada de cartão');
 
-    const target = await this.prisma.expense.findFirst({
-      where: { id: targetExpenseId, tenantId, deletedAt: null },
-    });
-    if (!target) throw new NotFoundException('Despesa alvo não encontrada');
-    if (target.status === 'PAGO') {
-      throw new BadRequestException('Despesa alvo já está paga — desvincule antes de re-linkar');
-    }
-    if (target.projectId === projectId) {
-      throw new BadRequestException('Alvo deve estar em outro projeto');
-    }
-
     const paymentDate = source.dataPagamento ?? source.dataInicioParcela ?? source.createdAt;
 
-    await this.prisma.$transaction([
-      this.prisma.expense.update({
+    const result = await this.prisma.$transaction(async (tx) => {
+      // Valida target dentro da transação para evitar race com link concorrente.
+      const target = await tx.expense.findFirst({
+        where: { id: targetExpenseId, tenantId, deletedAt: null },
+      });
+      if (!target) throw new NotFoundException('Despesa alvo não encontrada');
+      if (target.status === 'PAGO') {
+        throw new BadRequestException('Despesa alvo já está paga — desvincule antes de re-linkar');
+      }
+      if (target.projectId === projectId) {
+        throw new BadRequestException('Alvo deve estar em outro projeto');
+      }
+
+      await tx.expense.update({
         where: { id: target.id },
         data: {
           status: 'PAGO',
           // Preserva a data planejada original do alvo; só registra dataPagamento se faltar
           dataPagamento: target.dataPagamento ?? target.dataInicioParcela ?? paymentDate,
         },
-      }),
-      this.prisma.cashFlowEntry.updateMany({
+      });
+      await tx.cashFlowEntry.updateMany({
         where: {
           tenantId,
           expenseId: target.id,
@@ -304,14 +305,16 @@ export class CreditCardService {
         },
         // Mantém a data original do entry — só converte status para PAGO
         data: { status: 'PAGO' },
-      }),
-      this.prisma.expense.update({
+      });
+      await tx.expense.update({
         where: { id: source.id },
         data: { linkedExpenseId: target.id },
-      }),
-    ]);
+      });
 
-    return { ok: true, sourceId: source.id, targetId: target.id, paymentDate };
+      return { targetId: target.id };
+    });
+
+    return { ok: true, sourceId: source.id, targetId: result.targetId, paymentDate };
   }
 
   /**

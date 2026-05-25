@@ -87,6 +87,12 @@ export class ReceiptService {
     if (!existing) throw new NotFoundException('Recebimento não encontrado');
 
     return this.prisma.$transaction(async (tx) => {
+      // Limpa pointers dangling de qualquer source linkado a este receipt
+      await tx.receipt.updateMany({
+        where: { tenantId, linkedReceiptId: id, deletedAt: null },
+        data: { linkedReceiptId: null },
+      });
+
       await tx.cashFlowEntry.updateMany({
         where: { receiptId: id, deletedAt: null },
         data: { deletedAt: new Date() },

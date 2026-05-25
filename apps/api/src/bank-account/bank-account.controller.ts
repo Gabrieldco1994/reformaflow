@@ -7,6 +7,8 @@ import { BankAccountService } from './bank-account.service';
 import {
   CreateBankAccountDto,
   ImportBankStatementQueryDto,
+  LinkToExpenseDto,
+  LinkToReceiptDto,
   UpdateBankAccountDto,
 } from './dto/bank-account.dto';
 import { RequireModule } from '../common/decorators/require-module.decorator';
@@ -85,7 +87,7 @@ export class BankAccountController {
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('expenseId') expenseId: string,
-    @Body() body: { targetExpenseId: string },
+    @Body() body: LinkToExpenseDto,
   ) {
     return this.service.linkToExpense(tenantId, projectId, expenseId, body.targetExpenseId);
   }
@@ -104,7 +106,7 @@ export class BankAccountController {
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('receiptId') receiptId: string,
-    @Body() body: { targetReceiptId: string },
+    @Body() body: LinkToReceiptDto,
   ) {
     return this.service.linkToReceipt(tenantId, projectId, receiptId, body.targetReceiptId);
   }

@@ -35,3 +35,7 @@ export class ImportStatementQueryDto {
   @IsOptional() @IsString() @IsIn(['preview', 'commit']) mode?: 'preview' | 'commit'; // default: preview
   @IsOptional() @IsString() @Length(0, 200) password?: string; // senha do PDF (faturas criptografadas)
 }
+
+export class LinkToExpenseDto {
+  @IsString() @Length(1, 50) targetExpenseId!: string;
+}

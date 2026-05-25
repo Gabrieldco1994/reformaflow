@@ -140,6 +140,7 @@ model Receipt {
   cashFlow CashFlowEntry[]
 
   @@index([projectId, externalId])
+  @@index([linkedReceiptId])
   @@map("receipts")
 }
 
@@ -183,6 +184,8 @@ model Expense {
   cashFlow      CashFlowEntry[]
   markers       FloorPlanMarker[]
 
+  @@index([linkedExpenseId])
+  @@index([seriesKey])
   @@map("expenses")
 }
 
