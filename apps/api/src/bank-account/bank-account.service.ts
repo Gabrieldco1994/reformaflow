@@ -6,6 +6,18 @@ import type { NormalizedTx } from '../credit-card/parsers/types';
 import { categorize } from '../credit-card/categorizer';
 import { MerchantClassifierService } from '../merchant-classifier/merchant-classifier.service';
 
+export interface BankImportDecision {
+  externalId: string;
+  action?: 'create' | 'skip' | 'link';
+  linkToExpenseId?: string;
+  linkToReceiptId?: string;
+  overrides?: {
+    titulo?: string;
+    valorCents?: number;
+    category?: string;
+  };
+}
+
 // Mapeamento categoria → ExpenseType pessoal (mesmo do credit-card)
 const PESSOAL_CATEGORY_MAP: Record<string, string> = {
   alimentação: 'ALIMENTACAO',
@@ -158,8 +170,91 @@ export class BankAccountService {
       parsed.transactions.map((t) => t.externalId),
     );
 
+    // Carrega despesas E recebimentos planejados em outros projetos
+    const otherProjects = await this.prisma.project.findMany({
+      where: { tenantId, id: { not: projectId }, deletedAt: null },
+      select: { id: true, name: true, type: true },
+    });
+    const projectById = new Map(otherProjects.map((p) => [p.id, p]));
+    const otherIds = otherProjects.map((p) => p.id);
+    const [plannedExpenses, plannedReceipts] = otherIds.length > 0
+      ? await Promise.all([
+          this.prisma.expense.findMany({
+            where: { tenantId, projectId: { in: otherIds }, status: 'PLANEJADO', linkedExpenseId: null, deletedAt: null },
+            take: 1000,
+            orderBy: { dataInicioParcela: 'desc' },
+          }),
+          this.prisma.receipt.findMany({
+            where: { tenantId, projectId: { in: otherIds }, status: 'PREVISTO', linkedReceiptId: null, deletedAt: null },
+            take: 1000,
+            orderBy: { data: 'desc' },
+          }),
+        ])
+      : [[], []];
+
+    function findExpenseMatches(tx: { date: Date; amountCents: number }) {
+      if (plannedExpenses.length === 0) return [];
+      const minDate = new Date(tx.date); minDate.setUTCDate(minDate.getUTCDate() - 10);
+      const maxDate = new Date(tx.date); maxDate.setUTCDate(maxDate.getUTCDate() + 10);
+      const txCents = Math.abs(tx.amountCents);
+      const tolerance = Math.max(100, Math.round(txCents * 0.05));
+      return plannedExpenses
+        .filter((p) => {
+          if (Math.abs(p.valorTotal - txCents) > tolerance) return false;
+          const pDate = p.dataPagamento ?? p.dataInicioParcela ?? p.createdAt;
+          return pDate >= minDate && pDate <= maxDate;
+        })
+        .slice(0, 5)
+        .map((p) => {
+          const proj = projectById.get(p.projectId);
+          return {
+            kind: 'expense' as const,
+            expenseId: p.id,
+            projectId: p.projectId,
+            projectName: proj?.name ?? '',
+            projectType: proj?.type ?? '',
+            titulo: p.titulo,
+            valorCents: p.valorTotal,
+            data: (p.dataPagamento ?? p.dataInicioParcela ?? p.createdAt).toISOString().slice(0, 10),
+            deltaCents: txCents - p.valorTotal,
+          };
+        });
+    }
+
+    function findReceiptMatches(tx: { date: Date; amountCents: number }) {
+      if (plannedReceipts.length === 0) return [];
+      const minDate = new Date(tx.date); minDate.setUTCDate(minDate.getUTCDate() - 10);
+      const maxDate = new Date(tx.date); maxDate.setUTCDate(maxDate.getUTCDate() + 10);
+      const txCents = Math.abs(tx.amountCents);
+      const tolerance = Math.max(100, Math.round(txCents * 0.05));
+      return plannedReceipts
+        .filter((r) => {
+          if (Math.abs(r.valor - txCents) > tolerance) return false;
+          const rDate = r.data;
+          return rDate >= minDate && rDate <= maxDate;
+        })
+        .slice(0, 5)
+        .map((r) => {
+          const proj = projectById.get(r.projectId);
+          return {
+            kind: 'receipt' as const,
+            receiptId: r.id,
+            projectId: r.projectId,
+            projectName: proj?.name ?? '',
+            projectType: proj?.type ?? '',
+            titulo: r.descricao,
+            valorCents: r.valor,
+            data: r.data.toISOString().slice(0, 10),
+            deltaCents: txCents - r.valor,
+          };
+        });
+    }
+
     const preview = parsed.transactions.map((tx) => {
       const isCardPay = tx.amountCents > 0 && detectCardPayment(tx.merchant).isCardPayment;
+      const matches = tx.amountCents < 0
+        ? findReceiptMatches(tx)         // crédito → match com Receipt PLANEJADO
+        : findExpenseMatches(tx);        // débito → match com Expense PLANEJADO
       return {
         ...tx,
         date: tx.date.toISOString().slice(0, 10),
@@ -169,6 +264,7 @@ export class BankAccountService {
         suggestedCategory: tx.amountCents > 0
           ? (isCardPay ? 'PAGAMENTO_FATURA_CARTAO' : (PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS'))
           : 'RECEITA',
+        crossProjectMatches: matches,
       };
     });
 
@@ -195,11 +291,17 @@ export class BankAccountService {
     source: BankSourceHint,
     periodLabelOverride?: string,
     password?: string,
+    decisions?: BankImportDecision[],
   ) {
     const account = await this.findAccount(tenantId, projectId, accountId);
     const buf = typeof fileContent === 'string' ? Buffer.from(fileContent, 'utf-8') : fileContent;
     const parsed = await parseBankStatementBuffer(buf, account.id, source, fileName, password);
     const periodLabel = periodLabelOverride ?? parsed.periodLabel ?? new Date().toISOString().slice(0, 7);
+
+    const decisionByExt = new Map<string, BankImportDecision>();
+    for (const d of decisions ?? []) {
+      if (d?.externalId) decisionByExt.set(d.externalId, d);
+    }
 
     const existingIds = await this.findExistingExternalIds(
       tenantId,
@@ -207,8 +309,14 @@ export class BankAccountService {
       parsed.transactions.map((t) => t.externalId),
     );
 
-    const toInsert = parsed.transactions.filter((t) => !existingIds.has(t.externalId));
-    const duplicated = parsed.transactions.length - toInsert.length;
+    const toInsert = parsed.transactions.filter((t) => {
+      const d = decisionByExt.get(t.externalId);
+      if (d?.action === 'skip') return false;
+      if (existingIds.has(t.externalId)) return false;
+      return true;
+    });
+    const userSkipped = (decisions ?? []).filter((d) => d?.action === 'skip' && !existingIds.has(d.externalId)).length;
+    const duplicated = parsed.transactions.length - toInsert.length - userSkipped;
 
     const debitsTotal = parsed.transactions
       .filter((t) => t.amountCents > 0)
@@ -233,12 +341,41 @@ export class BankAccountService {
     let receiptsInserted = 0;
     let cardPayments = 0;
     let skipped = 0;
+    let linked = 0;
     for (const tx of toInsert) {
+      const d = decisionByExt.get(tx.externalId);
+      const adjustedTx: NormalizedTx = {
+        ...tx,
+        merchant: d?.overrides?.titulo ?? tx.merchant,
+        amountCents: d?.overrides?.valorCents ?? tx.amountCents,
+      };
       try {
-        const result = await this.createExpenseFromTransaction(tenantId, projectId, account, tx, importRecord.id);
+        const result = await this.createExpenseFromTransaction(
+          tenantId,
+          projectId,
+          account,
+          adjustedTx,
+          importRecord.id,
+          d?.overrides?.category,
+        );
         if (result.inserted) inserted++;
         if (result.receiptInserted) receiptsInserted++;
         if (result.cardPayment) cardPayments++;
+
+        // Link cross-project
+        if (d?.action === 'link') {
+          try {
+            if (d.linkToExpenseId && result.expenseId) {
+              await this.linkToExpense(tenantId, projectId, result.expenseId, d.linkToExpenseId);
+              linked++;
+            } else if (d.linkToReceiptId && result.receiptId) {
+              await this.linkToReceipt(tenantId, projectId, result.receiptId, d.linkToReceiptId);
+              linked++;
+            }
+          } catch (linkErr) {
+            console.warn(`[bank-import] link failed for ${tx.externalId.slice(0, 8)}:`, (linkErr as Error).message);
+          }
+        }
       } catch (err) {
         skipped++;
         console.warn(`[bank-import] tx skipped (${tx.externalId.slice(0, 8)}):`, (err as Error).message);
@@ -259,10 +396,11 @@ export class BankAccountService {
       where: { id: importRecord.id },
       data: {
         inserted,
-        skipped,
+        skipped: skipped + userSkipped,
         message: [
           receiptsInserted > 0 ? `${receiptsInserted} recebimento(s)` : null,
           cardPayments > 0 ? `${cardPayments} pagto(s) de cartão vinculado(s)` : null,
+          linked > 0 ? `${linked} vinculada(s) a planejado` : null,
           aiReclassified > 0 ? `${aiReclassified} categoria(s) sugerida(s) por IA` : null,
           recurrencesCreated > 0 ? `${recurrencesCreated} recorrência(s) propagada(s)` : null,
         ].filter(Boolean).join(' • ') || null,
@@ -281,7 +419,8 @@ export class BankAccountService {
       cardPayments,
       aiReclassified,
       recurrencesCreated,
-      skipped,
+      skipped: skipped + userSkipped,
+      linked,
     };
   }
 
@@ -750,7 +889,8 @@ export class BankAccountService {
     account: { id: string; nickname: string; last4: string; institution: string },
     tx: NormalizedTx,
     importId: string,
-  ): Promise<{ inserted: boolean; receiptInserted: boolean; cardPayment: boolean }> {
+    categoryOverride?: string,
+  ): Promise<{ inserted: boolean; receiptInserted: boolean; cardPayment: boolean; expenseId?: string; receiptId?: string }> {
     if (tx.amountCents < 0) {
       const receiptAmount = -tx.amountCents;
       const tipoReceipt = classifyCreditType(tx.merchant);
@@ -782,16 +922,10 @@ export class BankAccountService {
           status: 'EM_CAIXA',
         },
       });
-      return { inserted: false, receiptInserted: true, cardPayment: false };
+      return { inserted: false, receiptInserted: true, cardPayment: false, receiptId: receipt.id };
     }
 
     // ─── Detecção de pagamento de fatura de cartão ─────────────
-    // Quando o extrato bancário tem uma linha "FATURA PAGA" / "PAGTO CARTAO" /
-    // "DEB AUT CARTAO", essa despesa já foi contabilizada pela fatura do cartão
-    // de crédito importada. Para evitar dupla contagem no fluxo de caixa:
-    //   - Criamos a Expense com tipoDespesa PAGAMENTO_FATURA_CARTAO
-    //   - NÃO criamos CashFlowEntry (a fatura já gerou suas próprias DESPESAs)
-    //   - Tentamos auto-vincular a um CreditCardStatementImport por valor/data
     const cardPaymentInfo = detectCardPayment(tx.merchant);
     if (cardPaymentInfo.isCardPayment) {
       const matchedCard = await this.findMatchingCreditCard(
@@ -800,7 +934,7 @@ export class BankAccountService {
         tx.date,
         cardPaymentInfo.last4,
       );
-      await this.prisma.expense.create({
+      const e = await this.prisma.expense.create({
         data: {
           tenantId,
           projectId,
@@ -821,11 +955,11 @@ export class BankAccountService {
           cardLast4: matchedCard?.last4 ?? cardPaymentInfo.last4 ?? null,
         },
       });
-      return { inserted: false, receiptInserted: false, cardPayment: true };
+      return { inserted: false, receiptInserted: false, cardPayment: true, expenseId: e.id };
     }
 
-    const expenseType =
-      fastClassify(tx.merchant) ??
+    const expenseType = categoryOverride ||
+      fastClassify(tx.merchant) ||
       (PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS');
     const titulo = tx.merchant.slice(0, 200);
 
@@ -863,7 +997,7 @@ export class BankAccountService {
       },
     });
 
-    return { inserted: true, receiptInserted: false, cardPayment: false };
+    return { inserted: true, receiptInserted: false, cardPayment: false, expenseId: expense.id };
   }
 
   /**

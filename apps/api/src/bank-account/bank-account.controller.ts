@@ -128,14 +128,24 @@ export class BankAccountController {
     @Param('id') accountId: string,
     @UploadedFile() file: Express.Multer.File | undefined,
     @Query() query: ImportBankStatementQueryDto,
+    @Body() body: { decisions?: string } | undefined,
   ) {
     if (!file) return { error: 'arquivo ausente' };
     const source = (query.source ?? 'AUTO') as 'AUTO' | 'OFX' | 'CSV_GENERIC' | 'PDF';
+    let decisions: import('./bank-account.service').BankImportDecision[] | undefined;
+    if (body?.decisions) {
+      try {
+        const parsed = JSON.parse(body.decisions);
+        if (Array.isArray(parsed)) decisions = parsed;
+      } catch {
+        throw new BadRequestException({ message: 'campo "decisions" deve ser JSON array' });
+      }
+    }
     try {
       if ((query.mode ?? 'preview') === 'commit') {
         return await this.service.commitImport(
           tenantId, projectId, accountId, file.buffer, file.originalname, source,
-          query.periodLabel, query.password,
+          query.periodLabel, query.password, decisions,
         );
       }
       return await this.service.previewImport(

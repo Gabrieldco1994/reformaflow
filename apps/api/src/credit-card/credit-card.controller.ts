@@ -99,11 +99,22 @@ export class CreditCardController {
     @Param('id') cardId: string,
     @UploadedFile() file: Express.Multer.File | undefined,
     @Query() query: ImportStatementQueryDto,
+    @Body() body: { decisions?: string } | undefined,
   ) {
     if (!file) {
       return { error: 'arquivo ausente' };
     }
     const source = (query.source ?? 'AUTO') as any;
+    // decisions vêm via multipart field 'decisions' como JSON-string
+    let decisions: import('./credit-card.service').ImportDecision[] | undefined;
+    if (body?.decisions) {
+      try {
+        const parsed = JSON.parse(body.decisions);
+        if (Array.isArray(parsed)) decisions = parsed;
+      } catch {
+        throw new BadRequestException({ message: 'campo "decisions" deve ser JSON array' });
+      }
+    }
     try {
       // Passa o Buffer puro para o service (parser PDF precisa de binário)
       if ((query.mode ?? 'preview') === 'commit') {
@@ -116,6 +127,7 @@ export class CreditCardController {
           source,
           query.periodLabel,
           query.password,
+          decisions,
         );
       }
       return await this.service.previewImport(

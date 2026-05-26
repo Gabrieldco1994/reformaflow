@@ -10,6 +10,18 @@ export interface CardRow {
   dueDay: number | null;
 }
 
+export interface CrossProjectMatch {
+  expenseId: string;
+  projectId: string;
+  projectName: string;
+  projectType: string;
+  titulo: string | null;
+  fornecedor?: string | null;
+  valorCents: number;
+  data: string;
+  deltaCents: number;
+}
+
 export interface PreviewTx {
   externalId: string;
   date: string;
@@ -19,12 +31,16 @@ export interface PreviewTx {
   installmentCurrent: number | null;
   installmentTotal: number | null;
   duplicate: boolean;
+  suggestedCategory?: string;
+  crossProjectMatches?: CrossProjectMatch[];
+  isFuture?: boolean;
 }
 
 export interface PreviewResult {
   source: string;
   periodLabel: string | null;
   preview: PreviewTx[];
+  futureInstallments?: PreviewTx[];
   total: number;
   duplicated: number;
   totalAmountCents: number;
@@ -38,6 +54,8 @@ export interface CommitResult {
   duplicated: number;
   settled: number;
   importId: string;
+  linked?: number;
+  skipped?: number;
 }
 
 export interface SuggestionRow {

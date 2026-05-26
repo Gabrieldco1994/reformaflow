@@ -7,6 +7,32 @@ export interface BankAccountRow {
   accountNumber: string | null;
 }
 
+export interface BankCrossExpenseMatch {
+  kind: 'expense';
+  expenseId: string;
+  projectId: string;
+  projectName: string;
+  projectType: string;
+  titulo: string | null;
+  valorCents: number;
+  data: string;
+  deltaCents: number;
+}
+
+export interface BankCrossReceiptMatch {
+  kind: 'receipt';
+  receiptId: string;
+  projectId: string;
+  projectName: string;
+  projectType: string;
+  titulo: string | null;
+  valorCents: number;
+  data: string;
+  deltaCents: number;
+}
+
+export type BankCrossProjectMatch = BankCrossExpenseMatch | BankCrossReceiptMatch;
+
 export interface BankPreviewTx {
   externalId: string;
   date: string;
@@ -14,6 +40,10 @@ export interface BankPreviewTx {
   amountCents: number;
   category: string | null;
   duplicate: boolean;
+  isCredit?: boolean;
+  isCardPayment?: boolean;
+  suggestedCategory?: string;
+  crossProjectMatches?: BankCrossProjectMatch[];
 }
 
 export interface BankPreviewResult {

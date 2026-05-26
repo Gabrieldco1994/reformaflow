@@ -8,13 +8,15 @@ export interface NormalizedTx {
   rawCategory?: string;      // se a fonte enviar
   installmentCurrent?: number;
   installmentTotal?: number;
+  isFuture?: boolean;        // true = parcela/lançamento futuro (entrará como PLANEJADO)
 }
 
 export interface ParseResult {
   source: 'OFX' | 'CSV_NUBANK' | 'CSV_ITAU' | 'CSV_GENERIC' | 'PDF';
   transactions: NormalizedTx[];
   totalAmountCents: number;
-  periodLabel?: string; // YYYY-MM da maior densidade
+  periodLabel?: string;       // YYYY-MM da maior densidade
+  futureInstallments?: NormalizedTx[]; // parcelas/lançamentos futuros (apenas informativo)
 }
 
 export function makeExternalId(parts: {

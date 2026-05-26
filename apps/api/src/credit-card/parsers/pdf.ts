@@ -160,21 +160,34 @@ export async function extractPdfText(buffer: Buffer, password?: string): Promise
  *  - Sinal de "-" antes do valor (com espaços) indica estorno (negativo)
  *  - Ano é inferido por mês: faturas mostram lançamentos passados (parcelas)
  */
-function extractTransactionsFromText(
+// Marcadores de seção "futura" — após estes, paramos de ler transações
+// (faturas listam parcelas futuras como projeção; commitImport gera essas automaticamente).
+const FUTURE_SECTION_RE = /^(?:\s*)(pr[oó]xim[oa]s?\s+(?:faturas?|compras?|lan[cç]amentos?|parcelas?|pagamentos?)|compras\s+parceladas\s+(?:futuras?|em\s+aberto|a\s+vencer)|parcelas?\s+(?:futuras?|a\s+vencer)|pagamentos?\s+futuros?(?:\s+parcelados?)?|pr[eé]\s*-?\s*fatura|demonstrativo\s+das\s+compras\s+parceladas|resumo\s+das\s+parcelas?\s+(?:a\s+vencer|futuras?)|fatura\s+(?:posterior|seguinte))\b/i;
+
+export function extractTransactionsFromText(
   text: string,
   fallbackYear: number,
   due?: { month: number; year: number },
-): NormalizedTx[] {
-  const tx: NormalizedTx[] = [];
+): { current: NormalizedTx[]; future: NormalizedTx[] } {
+  const current: NormalizedTx[] = [];
+  const future: NormalizedTx[] = [];
   const lines = text.split(/\r?\n/);
 
   // Padrão tolerante: data no início, opcional "- " (estorno), valor no fim
   // Captura grupo 3 = sinal de estorno opcional, grupo 4 = valor absoluto
   const lineRe = /^\s*(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\s+(.+?)\s+(-\s+)?(?:R\$\s*)?(-?\d{1,3}(?:[.\s]\d{3})*(?:[,.]\d{2})|-?\d+[,.]\d{2})\s*$/;
 
+  let inFutureSection = false;
+
   for (const raw of lines) {
     const line = raw.trim();
     if (!line) continue;
+
+    // Detecta entrada em seção de futuro/projeção
+    if (FUTURE_SECTION_RE.test(line)) {
+      inFutureSection = true;
+      continue;
+    }
 
     // Skip linhas óbvias de cabeçalho/rodapé/totais/recibo bancário
     if (/^(total|subtotal|saldo|limite|vencimento|fechamento|p[aá]gina|fatura|período|cliente|cpf|cnpj|endere[çc]o|pagamento|nome\b|n[uú]mero|valor\s+do\s+documento|emiss[aã]o|postagem|previs[aã]o)/i.test(line)) continue;
@@ -207,33 +220,71 @@ function extractTransactionsFromText(
     const inst = detectInstallmentLoose(description);
     const merchant = inst.cleanMerchant || description;
 
-    tx.push({
+    const t: NormalizedTx = {
       externalId: '',
       date,
       merchant,
       amountCents,
       installmentCurrent: inst.current,
       installmentTotal: inst.total,
-    });
+      isFuture: inFutureSection,
+    };
+    if (inFutureSection) future.push(t);
+    else current.push(t);
   }
 
-  // Dedup: faturas listam parcelas atuais (cobradas) E parcelas futuras (planejamento).
-  // Como o commitImport já gera futuras automaticamente, mantemos apenas a 1ª
-  // ocorrência de cada (date + merchant + amountCents com sinal). Para parcelas,
-  // prefere a menor (parcela atual = cobrada nesta fatura).
-  const dedup = new Map<string, NormalizedTx>();
-  for (const t of tx) {
-    const key = `${t.date.toISOString().slice(0, 10)}|${t.merchant.toLowerCase()}|${t.amountCents}`;
-    const existing = dedup.get(key);
-    if (!existing) {
-      dedup.set(key, t);
-      continue;
+  function dedupAll(arr: NormalizedTx[], collapseSeries: boolean): NormalizedTx[] {
+    // Dedup nível 1: chave exata (date + merchant + amount + installment).
+    const dedup = new Map<string, NormalizedTx>();
+    for (const t of arr) {
+      const instKey = t.installmentCurrent != null ? `#${t.installmentCurrent}/${t.installmentTotal ?? '?'}` : '';
+      const key = `${t.date.toISOString().slice(0, 10)}|${t.merchant.toLowerCase()}|${t.amountCents}${instKey}`;
+      const existing = dedup.get(key);
+      if (!existing) {
+        dedup.set(key, t);
+        continue;
+      }
+      const existingInst = existing.installmentCurrent ?? Number.MAX_SAFE_INTEGER;
+      const currentInst = t.installmentCurrent ?? Number.MAX_SAFE_INTEGER;
+      if (currentInst < existingInst) dedup.set(key, t);
     }
-    const existingInst = existing.installmentCurrent ?? Number.MAX_SAFE_INTEGER;
-    const currentInst = t.installmentCurrent ?? Number.MAX_SAFE_INTEGER;
-    if (currentInst < existingInst) dedup.set(key, t);
+
+    // Dedup nível 2: mesma série de parcelamento aparecendo duas vezes
+    // (ex.: "POLO MARMORESS 1/3 R$ 2158,34" + "POLO MARMORESS 2/3 R$ 2158,33"
+    // — 1 cent de diff por arredondamento). Mantém apenas a parcela menor.
+    const bySeries = new Map<string, NormalizedTx>();
+    const seriesCount = new Map<string, number>();
+    for (const t of dedup.values()) {
+      if (t.installmentCurrent == null || t.installmentTotal == null) continue;
+      const k = `${t.date.toISOString().slice(0, 10)}|${t.merchant.toLowerCase()}|${t.installmentTotal}`;
+      seriesCount.set(k, (seriesCount.get(k) ?? 0) + 1);
+      const existing = bySeries.get(k);
+      if (!existing) { bySeries.set(k, t); continue; }
+      const diff = Math.abs(existing.amountCents - t.amountCents);
+      const tol = Math.max(5, Math.round(Math.abs(existing.amountCents) * 0.01));
+      if (diff <= tol) {
+        const winner = (t.installmentCurrent ?? Infinity) < (existing.installmentCurrent ?? Infinity) ? t : existing;
+        bySeries.set(k, winner);
+      }
+    }
+    const result: NormalizedTx[] = [];
+    for (const t of dedup.values()) {
+      if (collapseSeries && t.installmentCurrent != null && t.installmentTotal != null) {
+        const k = `${t.date.toISOString().slice(0, 10)}|${t.merchant.toLowerCase()}|${t.installmentTotal}`;
+        if ((seriesCount.get(k) ?? 0) > 1) {
+          if (bySeries.get(k) === t) result.push(t);
+          continue;
+        }
+      }
+      result.push(t);
+    }
+    return result.sort((a, b) => a.date.getTime() - b.date.getTime());
   }
-  return [...dedup.values()].sort((a, b) => a.date.getTime() - b.date.getTime());
+
+  return {
+    current: dedupAll(current, true),
+    future: dedupAll(future, false),
+  };
 }
 
 export async function parsePdfStatement(
@@ -245,9 +296,9 @@ export async function parsePdfStatement(
   const text = await extractPdfText(buffer, password);
   const due = inferDueDateFromText(text);
   const year = due?.year ?? inferYearFromText(text) ?? new Date().getUTCFullYear();
-  const transactions = extractTransactionsFromText(text, year, due);
+  const { current, future } = extractTransactionsFromText(text, year, due);
 
-  for (const t of transactions) {
+  for (const t of current) {
     t.externalId = makeExternalId({
       cardId,
       date: t.date,
@@ -255,13 +306,23 @@ export async function parsePdfStatement(
       amountCents: t.amountCents,
     });
   }
+  for (const t of future) {
+    // ID determinístico inclui parcela para evitar colisões com current
+    t.externalId = makeExternalId({
+      cardId,
+      date: t.date,
+      merchant: `${t.merchant}#FUT${t.installmentCurrent ?? 0}/${t.installmentTotal ?? 0}`,
+      amountCents: t.amountCents,
+    });
+  }
 
-  const totalAmountCents = transactions.reduce((s, t) => s + t.amountCents, 0);
+  const totalAmountCents = current.reduce((s, t) => s + t.amountCents, 0);
 
   return {
     source: 'PDF',
-    periodLabel: inferPeriodLabel(transactions),
-    transactions,
+    periodLabel: inferPeriodLabel(current),
+    transactions: current,
     totalAmountCents,
+    futureInstallments: future,
   };
 }

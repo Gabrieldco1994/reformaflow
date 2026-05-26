@@ -18,6 +18,17 @@ const PESSOAL_CATEGORY_MAP: Record<string, string> = {
 
 import { categorize } from './categorizer';
 
+export interface ImportDecision {
+  externalId: string;
+  action?: 'create' | 'skip' | 'link';
+  linkToExpenseId?: string;        // quando action='link'
+  overrides?: {
+    titulo?: string;
+    valorCents?: number;
+    category?: string;             // ExpenseType pessoal (ex.: 'MORADIA', 'ALIMENTACAO')
+  };
+}
+
 @Injectable()
 export class CreditCardService {
   constructor(private readonly prisma: PrismaService) {}
@@ -86,11 +97,69 @@ export class CreditCardService {
       parsed.transactions.map((t) => t.externalId),
     );
 
+    // Carrega despesas planejadas em outros projetos para cross-project match
+    const otherProjects = await this.prisma.project.findMany({
+      where: { tenantId, id: { not: projectId }, deletedAt: null },
+      select: { id: true, name: true, type: true },
+    });
+    const projectById = new Map(otherProjects.map((p) => [p.id, p]));
+    const planned = otherProjects.length > 0
+      ? await this.prisma.expense.findMany({
+          where: {
+            tenantId,
+            projectId: { in: otherProjects.map((p) => p.id) },
+            status: 'PLANEJADO',
+            linkedExpenseId: null,
+            deletedAt: null,
+          },
+          take: 1000,
+          orderBy: { dataInicioParcela: 'desc' },
+        })
+      : [];
+
+    function findMatches(tx: NormalizedTx) {
+      if (planned.length === 0) return [];
+      const txDate = tx.date;
+      const minDate = new Date(txDate); minDate.setUTCDate(minDate.getUTCDate() - 10);
+      const maxDate = new Date(txDate); maxDate.setUTCDate(maxDate.getUTCDate() + 10);
+      const txCents = tx.amountCents;
+      const tolerance = Math.max(100, Math.round(txCents * 0.05));
+      return planned
+        .filter((p) => {
+          if (Math.abs(p.valorTotal - txCents) > tolerance) return false;
+          const pDate = p.dataPagamento ?? p.dataInicioParcela ?? p.createdAt;
+          return pDate >= minDate && pDate <= maxDate;
+        })
+        .slice(0, 5)
+        .map((p) => {
+          const proj = projectById.get(p.projectId);
+          return {
+            expenseId: p.id,
+            projectId: p.projectId,
+            projectName: proj?.name ?? '',
+            projectType: proj?.type ?? '',
+            titulo: p.titulo,
+            fornecedor: p.fornecedor,
+            valorCents: p.valorTotal,
+            data: (p.dataPagamento ?? p.dataInicioParcela ?? p.createdAt).toISOString().slice(0, 10),
+            deltaCents: txCents - p.valorTotal,
+          };
+        });
+    }
+
     const preview = parsed.transactions.map((tx) => ({
       ...tx,
       date: tx.date.toISOString().slice(0, 10),
       duplicate: existing.has(tx.externalId),
       suggestedCategory: PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS',
+      crossProjectMatches: findMatches(tx),
+    }));
+
+    const futureInstallments = (parsed.futureInstallments ?? []).map((tx) => ({
+      ...tx,
+      date: tx.date.toISOString().slice(0, 10),
+      suggestedCategory: PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS',
+      crossProjectMatches: findMatches(tx),
     }));
 
     return {
@@ -101,6 +170,7 @@ export class CreditCardService {
       duplicated: preview.filter((p) => p.duplicate).length,
       inserted: 0, // ainda não inseriu
       preview,
+      futureInstallments,
     };
   }
 
@@ -113,11 +183,18 @@ export class CreditCardService {
     source: SourceHint,
     periodLabelOverride?: string,
     password?: string,
+    decisions?: ImportDecision[],
   ) {
     const card = await this.findCard(tenantId, projectId, cardId);
     const buf = typeof fileContent === 'string' ? Buffer.from(fileContent, 'utf-8') : fileContent;
     const parsed = await parseStatementBuffer(buf, card.id, source, fileName, password);
     const periodLabel = periodLabelOverride ?? parsed.periodLabel ?? new Date().toISOString().slice(0, 7);
+
+    // Index decisions por externalId
+    const decisionByExt = new Map<string, ImportDecision>();
+    for (const d of decisions ?? []) {
+      if (d?.externalId) decisionByExt.set(d.externalId, d);
+    }
 
     const existingIds = await this.findExistingExternalIds(
       tenantId,
@@ -125,8 +202,15 @@ export class CreditCardService {
       parsed.transactions.map((t) => t.externalId),
     );
 
-    const toInsert = parsed.transactions.filter((t) => !existingIds.has(t.externalId));
-    const duplicated = parsed.transactions.length - toInsert.length;
+    // Filtra transações: pula as que tem decision=skip ou já existentes
+    const toProcess = parsed.transactions.filter((t) => {
+      const d = decisionByExt.get(t.externalId);
+      if (d?.action === 'skip') return false;
+      if (existingIds.has(t.externalId)) return false;
+      return true;
+    });
+    const duplicated = parsed.transactions.length - toProcess.length - (decisions?.filter((d) => d?.action === 'skip').length ?? 0);
+    const userSkipped = (decisions ?? []).filter((d) => d?.action === 'skip' && !existingIds.has(d.externalId)).length;
 
     const importRecord = await this.prisma.creditCardStatementImport.create({
       data: {
@@ -137,7 +221,7 @@ export class CreditCardService {
         fileName: fileName?.slice(0, 200),
         fileSize: buf.length,
         status: 'COMPLETED',
-        inserted: toInsert.length,
+        inserted: toProcess.length,
         duplicated,
         totalAmountCents: parsed.totalAmountCents,
       },
@@ -146,21 +230,53 @@ export class CreditCardService {
     let inserted = 0;
     let settled = 0;
     let skipped = 0;
-    for (const tx of toInsert) {
+    let linked = 0;
+    for (const tx of toProcess) {
+      const d = decisionByExt.get(tx.externalId);
+      // Aplica overrides antes de criar
+      const adjustedTx: NormalizedTx = {
+        ...tx,
+        merchant: d?.overrides?.titulo ?? tx.merchant,
+        amountCents: d?.overrides?.valorCents ?? tx.amountCents,
+      };
       try {
-        const result = await this.createExpenseFromTransaction(tenantId, projectId, card, tx, importRecord.id);
+        const result = await this.createExpenseFromTransaction(
+          tenantId,
+          projectId,
+          card,
+          adjustedTx,
+          importRecord.id,
+          d?.overrides?.category,
+        );
         if (result.settled) settled++;
         if (result.inserted) inserted++;
+
+        // Aplica link cross-project se solicitado
+        if (d?.action === 'link' && d.linkToExpenseId && result.expenseId) {
+          try {
+            await this.linkToExpense(tenantId, projectId, result.expenseId, d.linkToExpenseId);
+            linked++;
+          } catch (linkErr) {
+            console.warn(`[credit-card-import] link failed for ${tx.externalId.slice(0, 8)}:`, (linkErr as Error).message);
+          }
+        }
       } catch (err) {
         skipped++;
-        // continua importando os demais; loga via console limpo (sem PII)
         console.warn(`[credit-card-import] tx skipped (${tx.externalId.slice(0, 8)}):`, (err as Error).message);
       }
     }
 
     await this.prisma.creditCardStatementImport.update({
       where: { id: importRecord.id },
-      data: { inserted, skipped, duplicated: duplicated + settled, message: settled > 0 ? `${settled} parcela(s) liquidada(s)` : null },
+      data: {
+        inserted,
+        skipped: skipped + userSkipped,
+        duplicated: duplicated + settled,
+        message: [
+          settled > 0 ? `${settled} parcela(s) liquidada(s)` : null,
+          linked > 0 ? `${linked} vinculada(s) a planejado` : null,
+        ].filter(Boolean).join(' · ') || null,
+      },
     });
 
     return {
@@ -172,7 +288,8 @@ export class CreditCardService {
       inserted,
       duplicated,
       settled,
-      skipped,
+      skipped: skipped + userSkipped,
+      linked,
     };
   }
 
@@ -371,13 +488,14 @@ export class CreditCardService {
     card: { id: string; nickname: string; last4: string; institution: string },
     tx: NormalizedTx,
     importId: string,
-  ): Promise<{ inserted: boolean; settled: boolean }> {
+    categoryOverride?: string,
+  ): Promise<{ inserted: boolean; settled: boolean; expenseId?: string }> {
     if (tx.amountCents <= 0) {
       // MVP: estornos ignorados (usuário lança manualmente quando precisar).
       throw new Error('estorno-ignorado');
     }
 
-    const expenseType = PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS';
+    const expenseType = categoryOverride || (PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS');
     const total = tx.installmentTotal && tx.installmentTotal > 1 ? tx.installmentTotal : 1;
     const current = tx.installmentCurrent && tx.installmentCurrent >= 1 ? tx.installmentCurrent : 1;
     const remainingAfterCurrent = Math.max(0, total - current);
@@ -426,7 +544,7 @@ export class CreditCardService {
                 data: { externalId: tx.externalId, importId },
               });
             }
-            return { inserted: false, settled: true };
+            return { inserted: false, settled: true, expenseId: existing.id };
           }
         }
       }
@@ -487,7 +605,7 @@ export class CreditCardService {
       });
     }
 
-    return { inserted: true, settled: false };
+    return { inserted: true, settled: false, expenseId: expense.id };
   }
 }
 
