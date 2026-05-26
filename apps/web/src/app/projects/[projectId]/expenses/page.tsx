@@ -5,7 +5,7 @@ import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
-import { Plus, CreditCard, Pencil, Trash2, Check, X, ChevronDown, ChevronRight, Filter, Search, ExternalLink, ShoppingCart, ImageOff, GripVertical, BarChart3, Mic } from 'lucide-react';
+import { Plus, CreditCard, Pencil, Trash2, Check, X, ChevronDown, ChevronRight, Filter, Search, ExternalLink, ImageOff, GripVertical, BarChart3, Mic } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -48,7 +48,8 @@ import {
   getExpenseOptions,
 } from './_types';
 import { StatusBadge } from './_components/StatusBadge';
-import { CompráveisView } from './_components/CompraveisView';
+import { OtherProjectsExpensesView } from './_components/OtherProjectsExpensesView';
+import { VinculosFields } from './_components/VinculosFields';
 import { MobileExpenseList } from './_components/MobileExpenseList';
 import ImportLauncher from './_components/ImportLauncher';
 
@@ -90,7 +91,7 @@ export default function ExpensesPage() {
   const showRooms = projectType === 'REFORMA';
   const showMaoDeObra = projectType === 'REFORMA';
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'despesas' | 'compraveis'>('despesas');
+  const [activeTab, setActiveTab] = useState<'despesas' | 'outros'>('despesas');
   const [formModalOpen, setFormModalOpen] = useState(false);
   const [payModalOpen, setPayModalOpen] = useState(false);
   const [editing, setEditing] = useState<Expense | null>(null);
@@ -99,6 +100,13 @@ export default function ExpensesPage() {
   const [formaPagamento, setFormaPagamento] = useState('');
   const [valor, setValor] = useState('');
   const [quantidade, setQuantidade] = useState('1');
+
+  // Estado do bloco "Vínculos" do modal de despesa
+  const [formVinculos, setFormVinculos] = useState<{ creditCardId: string; bankAccountId: string; linkedExpenseId: string }>({
+    creditCardId: '',
+    bankAccountId: '',
+    linkedExpenseId: '',
+  });
 
   const defaultExpenseType = (TIPO_DESPESA_OPTIONS[0]?.value ?? ExpenseType.MATERIAL_CONSTRUCAO) as ExpenseType;
 
@@ -347,6 +355,7 @@ export default function ExpensesPage() {
     setFormaPagamento('');
     setValor('');
     setQuantidade('1');
+    setFormVinculos({ creditCardId: '', bankAccountId: '', linkedExpenseId: '' });
     setFormModalOpen(true);
   }
 
@@ -362,6 +371,7 @@ export default function ExpensesPage() {
     setFormaPagamento('');
     setValor('');
     setQuantidade('1');
+    setFormVinculos({ creditCardId: '', bankAccountId: '', linkedExpenseId: '' });
     setFormModalOpen(true);
   }
 
@@ -374,6 +384,11 @@ export default function ExpensesPage() {
     setFormaPagamento(expense.formaPagamento);
     setValor(expense.valor ? (expense.valor / 100).toFixed(2) : '');
     setQuantidade(String(expense.quantidade ?? 1));
+    setFormVinculos({
+      creditCardId: '',
+      bankAccountId: '',
+      linkedExpenseId: expense.linkedExpenseId ?? '',
+    });
     setFormModalOpen(true);
   }
 
@@ -461,6 +476,10 @@ export default function ExpensesPage() {
       data.dataInicioParcela = nullable('dataInicioParcela');
       data.dataPagamento = null;
     }
+    // Vínculos (cards/contas/cross-project) — '' equivale a null pro backend
+    data.creditCardId = formVinculos.creditCardId || null;
+    data.bankAccountId = formVinculos.bankAccountId || null;
+    data.linkedExpenseId = formVinculos.linkedExpenseId || null;
     if (editing) {
       console.log('[expenses] PATCH', editing.id, data);
       updateMutation.mutate({ id: editing.id, data });
@@ -686,9 +705,9 @@ export default function ExpensesPage() {
               className={`px-4 py-1.5 transition-colors font-medium ${activeTab === 'despesas' ? 'bg-orange-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
             >Despesas</button>
             <button
-              onClick={() => setActiveTab('compraveis')}
-              className={`px-4 py-1.5 transition-colors font-medium border-l border-gray-200 flex items-center gap-1.5 ${activeTab === 'compraveis' ? 'bg-orange-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
-            ><ShoppingCart className="w-3.5 h-3.5" /> Compráveis</button>
+              onClick={() => setActiveTab('outros')}
+              className={`px-4 py-1.5 transition-colors font-medium border-l border-gray-200 flex items-center gap-1.5 ${activeTab === 'outros' ? 'bg-orange-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+            ><ExternalLink className="w-3.5 h-3.5" /> Outras despesas</button>
           </div>
         </div>
         {activeTab === 'despesas' && (
@@ -724,8 +743,8 @@ export default function ExpensesPage() {
         )}
       </div>
 
-      {activeTab === 'compraveis' ? (
-        <CompráveisView expenses={expenses} tipoLabel={tipoLabel} />
+      {activeTab === 'outros' ? (
+        <OtherProjectsExpensesView projectId={PROJECT_ID} localExpenses={expenses} />
       ) : (
       <>
 
@@ -1699,6 +1718,15 @@ export default function ExpensesPage() {
               />
             </div>
           )}
+
+          <VinculosFields
+            projectId={PROJECT_ID}
+            value={formVinculos}
+            onChange={setFormVinculos}
+            initialCardLast4={editing?.cardLast4 ?? null}
+            initialBankLast4={editing?.bankLast4 ?? null}
+            initialLinkedExpenseId={editing?.linkedExpenseId ?? null}
+          />
 
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="secondary" onClick={closeFormModal}>Cancelar</Button>

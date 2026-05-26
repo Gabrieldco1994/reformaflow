@@ -43,6 +43,15 @@ export class CreditCardService {
     });
   }
 
+  /** Lista todos os cartões do tenant (independente de projeto). Útil para vínculos cross-project. */
+  async listCardsTenant(tenantId: string) {
+    return this.prisma.creditCard.findMany({
+      where: { tenantId, deletedAt: null },
+      orderBy: [{ projectId: 'asc' }, { createdAt: 'asc' }],
+      include: { project: { select: { id: true, name: true, type: true } } },
+    });
+  }
+
   async createCard(tenantId: string, projectId: string, dto: CreateCreditCardDto) {
     await this.ensureProject(tenantId, projectId);
     const nickname = dto.nickname?.trim() || `${dto.brand} ****${dto.last4}`;

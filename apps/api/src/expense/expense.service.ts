@@ -8,11 +8,72 @@ import { ExpenseTypeLabels, LaborCategoryLabels } from '@reformaflow/domain';
 export class ExpenseService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * Resolve creditCardId/bankAccountId/linkedExpenseId em valores armazenáveis.
+   * - creditCardId → cardLast4 (denormalizado)
+   * - bankAccountId → bankLast4 (denormalizado)
+   * - linkedExpenseId → valida que pertence ao mesmo tenant e que NÃO é do projeto atual
+   * Retorna { cardLast4?, bankLast4?, linkedExpenseId? } com null explícito para "limpar".
+   */
+  private async resolveLinks(
+    tenantId: string,
+    currentProjectId: string,
+    dto: Pick<CreateExpenseDto, 'creditCardId' | 'bankAccountId' | 'linkedExpenseId'>,
+  ): Promise<{ cardLast4?: string | null; bankLast4?: string | null; linkedExpenseId?: string | null }> {
+    const out: { cardLast4?: string | null; bankLast4?: string | null; linkedExpenseId?: string | null } = {};
+
+    if (dto.creditCardId !== undefined) {
+      if (dto.creditCardId === null || dto.creditCardId === '') {
+        out.cardLast4 = null;
+      } else {
+        const card = await this.prisma.creditCard.findFirst({
+          where: { id: dto.creditCardId, tenantId, deletedAt: null },
+          select: { last4: true },
+        });
+        if (!card) throw new BadRequestException('Cartão de crédito não encontrado neste tenant');
+        out.cardLast4 = card.last4 ?? null;
+      }
+    }
+
+    if (dto.bankAccountId !== undefined) {
+      if (dto.bankAccountId === null || dto.bankAccountId === '') {
+        out.bankLast4 = null;
+      } else {
+        const acc = await this.prisma.bankAccount.findFirst({
+          where: { id: dto.bankAccountId, tenantId, deletedAt: null },
+          select: { last4: true },
+        });
+        if (!acc) throw new BadRequestException('Conta bancária não encontrada neste tenant');
+        out.bankLast4 = acc.last4 ?? null;
+      }
+    }
+
+    if (dto.linkedExpenseId !== undefined) {
+      if (dto.linkedExpenseId === null || dto.linkedExpenseId === '') {
+        out.linkedExpenseId = null;
+      } else {
+        const target = await this.prisma.expense.findFirst({
+          where: { id: dto.linkedExpenseId, tenantId, deletedAt: null },
+          select: { projectId: true },
+        });
+        if (!target) throw new BadRequestException('Despesa vinculada não encontrada neste tenant');
+        if (target.projectId === currentProjectId) {
+          throw new BadRequestException('Vínculo cross-project requer despesa de outro projeto');
+        }
+        out.linkedExpenseId = dto.linkedExpenseId;
+      }
+    }
+
+    return out;
+  }
+
   async create(tenantId: string, projectId: string, dto: CreateExpenseDto) {
     await this.validateProject(tenantId, projectId);
 
     const valorCents = Math.round(dto.valor * 100);
     const valorTotal = valorCents * dto.quantidade;
+
+    const links = await this.resolveLinks(tenantId, projectId, dto);
 
     const expense = await this.prisma.expense.create({
       data: {
@@ -33,6 +94,9 @@ export class ExpenseService {
         quantidadeParcela: dto.quantidadeParcela,
         dataInicioParcela: dto.dataInicioParcela ? new Date(dto.dataInicioParcela) : null,
         status: dto.status,
+        cardLast4: links.cardLast4 ?? undefined,
+        bankLast4: links.bankLast4 ?? undefined,
+        linkedExpenseId: links.linkedExpenseId ?? undefined,
       },
       include: { room: true },
     });
@@ -73,6 +137,79 @@ export class ExpenseService {
     });
   }
 
+  /**
+   * Lista despesas de OUTROS projetos do mesmo tenant — base para o seletor
+   * cross-project no formulário e para a aba "Outras despesas".
+   * Suporta busca textual leve (titulo/fornecedor) e filtro por projectId.
+   */
+  async findCrossProject(
+    tenantId: string,
+    currentProjectId: string,
+    opts: { search?: string; projectId?: string; status?: 'PLANEJADO' | 'PAGO'; limit?: number } = {},
+  ) {
+    await this.validateProject(tenantId, currentProjectId);
+    const limit = Math.min(Math.max(opts.limit ?? 100, 1), 500);
+    const where: any = {
+      tenantId,
+      deletedAt: null,
+      settledByExpenseId: null,
+      NOT: { projectId: currentProjectId },
+    };
+    if (opts.projectId) where.projectId = opts.projectId;
+    if (opts.status) where.status = opts.status;
+    if (opts.search && opts.search.trim()) {
+      const s = opts.search.trim();
+      where.OR = [
+        { titulo: { contains: s } },
+        { fornecedor: { contains: s } },
+      ];
+    }
+    return this.prisma.expense.findMany({
+      where,
+      include: {
+        room: true,
+        project: { select: { id: true, name: true, type: true } },
+      },
+      orderBy: [{ createdAt: 'desc' }],
+      take: limit,
+    });
+  }
+
+  /** Vincula esta despesa a uma despesa de outro projeto (cross-project). */
+  async linkCrossProject(tenantId: string, projectId: string, id: string, targetExpenseId: string) {
+    await this.validateProject(tenantId, projectId);
+    const source = await this.prisma.expense.findFirst({
+      where: { id, projectId, tenantId, deletedAt: null },
+    });
+    if (!source) throw new NotFoundException('Despesa não encontrada');
+    const target = await this.prisma.expense.findFirst({
+      where: { id: targetExpenseId, tenantId, deletedAt: null },
+      select: { projectId: true },
+    });
+    if (!target) throw new BadRequestException('Despesa alvo não encontrada');
+    if (target.projectId === projectId) {
+      throw new BadRequestException('Vínculo cross-project requer despesa de outro projeto');
+    }
+    return this.prisma.expense.update({
+      where: { id },
+      data: { linkedExpenseId: targetExpenseId },
+      include: { room: true },
+    });
+  }
+
+  async unlinkCrossProject(tenantId: string, projectId: string, id: string) {
+    await this.validateProject(tenantId, projectId);
+    const source = await this.prisma.expense.findFirst({
+      where: { id, projectId, tenantId, deletedAt: null },
+    });
+    if (!source) throw new NotFoundException('Despesa não encontrada');
+    return this.prisma.expense.update({
+      where: { id },
+      data: { linkedExpenseId: null },
+      include: { room: true },
+    });
+  }
+
   async findById(tenantId: string, projectId: string, id: string) {
     await this.validateProject(tenantId, projectId);
 
@@ -96,6 +233,8 @@ export class ExpenseService {
     const valorCents = dto.valor !== undefined ? Math.round(dto.valor * 100) : existing.valor;
     const quantidade = dto.quantidade !== undefined ? dto.quantidade : existing.quantidade;
     const valorTotal = valorCents * quantidade;
+
+    const links = await this.resolveLinks(tenantId, projectId, dto);
 
     const expense = await this.prisma.expense.update({
       where: { id },
@@ -125,6 +264,9 @@ export class ExpenseService {
               ? null
               : new Date(dto.dataInicioParcela),
         status: dto.status,
+        cardLast4: links.cardLast4,
+        bankLast4: links.bankLast4,
+        linkedExpenseId: links.linkedExpenseId,
       },
       include: { room: true },
     });

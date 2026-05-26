@@ -74,4 +74,23 @@ export class CreateExpenseDto {
   @IsString()
   @IsIn(['PLANEJADO', 'PAGO'])
   status!: string;
+
+  // ─── Vínculos manuais (opcionais) ────────────────────────────
+  // Quando informados, o backend popula automaticamente cardLast4/bankLast4
+  // a partir do CreditCard/BankAccount referenciado.
+
+  @ApiPropertyOptional({ description: 'Vincula despesa a um cartão de crédito (qualquer projeto do tenant)' })
+  @IsOptional()
+  @IsString()
+  creditCardId?: string;
+
+  @ApiPropertyOptional({ description: 'Vincula despesa a uma conta bancária (qualquer projeto do tenant)' })
+  @IsOptional()
+  @IsString()
+  bankAccountId?: string;
+
+  @ApiPropertyOptional({ description: 'Vincula a uma despesa de outro projeto (cross-project, evita dupla contagem)' })
+  @IsOptional()
+  @IsString()
+  linkedExpenseId?: string;
 }

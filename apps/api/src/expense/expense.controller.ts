@@ -6,6 +6,7 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseInterceptors,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
@@ -52,6 +53,24 @@ export class ExpenseController {
     return this.service.findPlanned(tenantId, projectId);
   }
 
+  @Get('cross-project')
+  @ApiOperation({ summary: 'Listar despesas de outros projetos do tenant (para vínculo)' })
+  findCrossProject(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Query('search') search?: string,
+    @Query('targetProjectId') targetProjectId?: string,
+    @Query('status') status?: 'PLANEJADO' | 'PAGO',
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.findCrossProject(tenantId, projectId, {
+      search,
+      projectId: targetProjectId,
+      status,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Buscar despesa por ID' })
   findById(
@@ -82,6 +101,27 @@ export class ExpenseController {
     @Body() dto: UpdateExpenseDto,
   ) {
     return this.service.payPlanned(tenantId, projectId, id, dto);
+  }
+
+  @Post(':id/link')
+  @ApiOperation({ summary: 'Vincular esta despesa a uma despesa de outro projeto' })
+  link(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Param('id') id: string,
+    @Body() body: { targetExpenseId: string },
+  ) {
+    return this.service.linkCrossProject(tenantId, projectId, id, body.targetExpenseId);
+  }
+
+  @Delete(':id/link')
+  @ApiOperation({ summary: 'Remover vínculo cross-project desta despesa' })
+  unlink(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Param('id') id: string,
+  ) {
+    return this.service.unlinkCrossProject(tenantId, projectId, id);
   }
 
   @Delete(':id')

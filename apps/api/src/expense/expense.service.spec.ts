@@ -15,6 +15,8 @@ interface PrismaMock {
     update: AnyFn;
     updateMany: AnyFn;
   };
+  creditCard: { findFirst: AnyFn };
+  bankAccount: { findFirst: AnyFn };
   cashFlowEntry: {
     updateMany: AnyFn;
     createMany: AnyFn;
@@ -38,6 +40,8 @@ const makePrismaMock = (): PrismaMock => {
   const mock = {
     project: { findFirst: jest.fn() },
     expense: expenseMock,
+    creditCard: { findFirst: jest.fn() },
+    bankAccount: { findFirst: jest.fn() },
     cashFlowEntry: cashFlowMock,
     $transaction: jest.fn(),
   } as PrismaMock;
@@ -402,6 +406,175 @@ describe('ExpenseService', () => {
       prisma.expense.findFirst.mockResolvedValueOnce(null);
       await expect(
         service.remove(tenantId, projectId, 'e404'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe('resolveLinks — vínculos manuais (cartão / conta / cross-project)', () => {
+    it('create com creditCardId resolve cardLast4 automaticamente', async () => {
+      prisma.creditCard.findFirst.mockResolvedValue({ last4: '1234' });
+      prisma.expense.create.mockResolvedValue({ id: 'e1' });
+      prisma.expense.findUnique.mockResolvedValue(null);
+
+      await service.create(tenantId, projectId, {
+        tipoDespesa: 'MATERIAL_CONSTRUCAO',
+        valor: 100,
+        quantidade: 1,
+        formaPagamento: 'A_VISTA',
+        status: 'PAGO',
+        creditCardId: 'card-99',
+      } as any);
+
+      const arg = prisma.expense.create.mock.calls[0]![0];
+      expect(arg.data.cardLast4).toBe('1234');
+      expect(prisma.creditCard.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ id: 'card-99', tenantId }),
+        }),
+      );
+    });
+
+    it('create com bankAccountId resolve bankLast4 automaticamente', async () => {
+      prisma.bankAccount.findFirst.mockResolvedValue({ last4: '7890' });
+      prisma.expense.create.mockResolvedValue({ id: 'e1' });
+      prisma.expense.findUnique.mockResolvedValue(null);
+
+      await service.create(tenantId, projectId, {
+        tipoDespesa: 'MATERIAL_CONSTRUCAO',
+        valor: 100,
+        quantidade: 1,
+        formaPagamento: 'A_VISTA',
+        status: 'PAGO',
+        bankAccountId: 'acc-1',
+      } as any);
+
+      const arg = prisma.expense.create.mock.calls[0]![0];
+      expect(arg.data.bankLast4).toBe('7890');
+    });
+
+    it('create com linkedExpenseId de outro projeto é aceito', async () => {
+      prisma.expense.findFirst.mockResolvedValue({ projectId: 'other-project' });
+      prisma.expense.create.mockResolvedValue({ id: 'e1' });
+      prisma.expense.findUnique.mockResolvedValue(null);
+
+      await service.create(tenantId, projectId, {
+        tipoDespesa: 'MATERIAL_CONSTRUCAO',
+        valor: 100,
+        quantidade: 1,
+        formaPagamento: 'A_VISTA',
+        status: 'PAGO',
+        linkedExpenseId: 'target-1',
+      } as any);
+
+      const arg = prisma.expense.create.mock.calls[0]![0];
+      expect(arg.data.linkedExpenseId).toBe('target-1');
+    });
+
+    it('create rejeita linkedExpenseId do MESMO projeto', async () => {
+      prisma.expense.findFirst.mockResolvedValue({ projectId }); // mesmo projeto
+      await expect(
+        service.create(tenantId, projectId, {
+          tipoDespesa: 'MATERIAL_CONSTRUCAO',
+          valor: 100,
+          quantidade: 1,
+          formaPagamento: 'A_VISTA',
+          status: 'PAGO',
+          linkedExpenseId: 'self',
+        } as any),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('create rejeita creditCardId inválido', async () => {
+      prisma.creditCard.findFirst.mockResolvedValue(null);
+      await expect(
+        service.create(tenantId, projectId, {
+          tipoDespesa: 'MATERIAL_CONSTRUCAO',
+          valor: 100,
+          quantidade: 1,
+          formaPagamento: 'A_VISTA',
+          status: 'PAGO',
+          creditCardId: 'card-fake',
+        } as any),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('update com creditCardId="" limpa cardLast4', async () => {
+      prisma.expense.findFirst.mockResolvedValue({
+        id: 'e1', projectId, tenantId, valor: 1000, quantidade: 1, deletedAt: null,
+      });
+      prisma.expense.update.mockImplementation(async ({ data }: any) => data);
+
+      await service.update(tenantId, projectId, 'e1', { creditCardId: '' } as any);
+      const arg = prisma.expense.update.mock.calls[0]![0];
+      expect(arg.data.cardLast4).toBeNull();
+    });
+  });
+
+  describe('findCrossProject', () => {
+    it('retorna apenas despesas de OUTROS projetos do mesmo tenant', async () => {
+      prisma.expense.findMany.mockResolvedValue([
+        { id: 'x1', projectId: 'other-1', titulo: 'Mármore', valorTotal: 5000 },
+      ]);
+      await service.findCrossProject(tenantId, projectId, {});
+      const arg = prisma.expense.findMany.mock.calls[0]![0];
+      expect(arg.where.tenantId).toBe(tenantId);
+      expect(arg.where.NOT).toEqual({ projectId });
+    });
+
+    it('aplica busca textual (title / fornecedor) e limit', async () => {
+      prisma.expense.findMany.mockResolvedValue([]);
+      await service.findCrossProject(tenantId, projectId, { search: 'polo', limit: 50 });
+      const arg = prisma.expense.findMany.mock.calls[0]![0];
+      expect(arg.where.OR).toEqual([
+        { titulo: { contains: 'polo' } },
+        { fornecedor: { contains: 'polo' } },
+      ]);
+      expect(arg.take).toBe(50);
+    });
+
+    it('limit é clampado entre 1 e 500', async () => {
+      prisma.expense.findMany.mockResolvedValue([]);
+      await service.findCrossProject(tenantId, projectId, { limit: 9999 });
+      const arg = prisma.expense.findMany.mock.calls[0]![0];
+      expect(arg.take).toBe(500);
+    });
+  });
+
+  describe('linkCrossProject / unlinkCrossProject', () => {
+    it('link rejeita quando alvo está no MESMO projeto', async () => {
+      prisma.expense.findFirst
+        .mockResolvedValueOnce({ id: 'src', projectId, tenantId, deletedAt: null })
+        .mockResolvedValueOnce({ projectId }); // mesmo projeto
+
+      await expect(
+        service.linkCrossProject(tenantId, projectId, 'src', 'target'),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('link salva linkedExpenseId quando alvo é de outro projeto', async () => {
+      prisma.expense.findFirst
+        .mockResolvedValueOnce({ id: 'src', projectId, tenantId, deletedAt: null })
+        .mockResolvedValueOnce({ projectId: 'other-project' });
+      prisma.expense.update.mockResolvedValue({ id: 'src', linkedExpenseId: 'target' });
+
+      await service.linkCrossProject(tenantId, projectId, 'src', 'target');
+      const arg = prisma.expense.update.mock.calls[0]![0];
+      expect(arg.data.linkedExpenseId).toBe('target');
+    });
+
+    it('unlink seta linkedExpenseId=null', async () => {
+      prisma.expense.findFirst.mockResolvedValueOnce({ id: 'src', projectId, tenantId, deletedAt: null });
+      prisma.expense.update.mockResolvedValue({ id: 'src', linkedExpenseId: null });
+
+      await service.unlinkCrossProject(tenantId, projectId, 'src');
+      const arg = prisma.expense.update.mock.calls[0]![0];
+      expect(arg.data.linkedExpenseId).toBeNull();
+    });
+
+    it('link lança NotFound se a despesa de origem não existe', async () => {
+      prisma.expense.findFirst.mockResolvedValueOnce(null);
+      await expect(
+        service.linkCrossProject(tenantId, projectId, 'ghost', 'target'),
       ).rejects.toBeInstanceOf(NotFoundException);
     });
   });

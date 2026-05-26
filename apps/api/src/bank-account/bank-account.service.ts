@@ -114,6 +114,15 @@ export class BankAccountService {
     });
   }
 
+  /** Lista todas as contas do tenant (todos os projetos). Útil para vínculos cross-project. */
+  async listAccountsTenant(tenantId: string) {
+    return this.prisma.bankAccount.findMany({
+      where: { tenantId, deletedAt: null },
+      orderBy: [{ projectId: 'asc' }, { createdAt: 'asc' }],
+      include: { project: { select: { id: true, name: true, type: true } } },
+    });
+  }
+
   async createAccount(tenantId: string, projectId: string, dto: CreateBankAccountDto) {
     await this.ensureProject(tenantId, projectId);
     const nickname = dto.nickname?.trim() || `${dto.institution} ****${dto.last4}`;

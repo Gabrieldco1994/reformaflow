@@ -86,6 +86,7 @@ export interface ReceiptFormData {
 // Expenses
 export interface Expense {
   id: string;
+  projectId?: string;
   tipoDespesa: string;
   categoriaMaoDeObra?: string;
   roomId?: string;
@@ -102,6 +103,11 @@ export interface Expense {
   quantidadeParcela?: number;
   dataInicioParcela?: string;
   status: ExpenseStatus;
+  // Vínculos
+  cardLast4?: string | null;
+  bankLast4?: string | null;
+  linkedExpenseId?: string | null;
+  importId?: string | null;
 }
 
 export type ExpenseStatus = 'PLANEJADO' | 'PAGO';
@@ -121,6 +127,10 @@ export interface ExpenseFormData {
   quantidadeParcela?: number | null;
   dataInicioParcela?: string | null;
   status: ExpenseStatus;
+  // Vínculos opcionais
+  creditCardId?: string | null;
+  bankAccountId?: string | null;
+  linkedExpenseId?: string | null;
 }
 
 // Cash Flow
