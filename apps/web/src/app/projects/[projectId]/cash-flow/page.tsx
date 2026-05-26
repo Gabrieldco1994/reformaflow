@@ -3,7 +3,7 @@ import { useProject } from '@/contexts/project-context';
 
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { ArrowUpCircle, ArrowDownCircle } from 'lucide-react';
 import type { CashFlowEntry } from '@/types';
 import { MobileCashFlowList } from './_components/MobileCashFlowList';
@@ -125,7 +125,7 @@ export default function CashFlowPage() {
           <tbody className="divide-y">
             {entries.map((entry) => (
               <tr key={entry.id} className="hover:bg-gray-50">
-                <td className="px-4 py-2">{entry.data ? new Date(entry.data).toLocaleDateString('pt-BR') : '-'}</td>
+                <td className="px-4 py-2">{entry.data ? formatDateBR(entry.data) : '-'}</td>
                 <td className="px-4 py-2">
                   {entry.tipo === 'RECEBIMENTO' ? (
                     <span className="inline-flex items-center gap-1 text-green-700">

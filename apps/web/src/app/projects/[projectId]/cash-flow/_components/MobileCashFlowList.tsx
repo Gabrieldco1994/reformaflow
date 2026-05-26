@@ -1,7 +1,7 @@
 'use client';
 import React from 'react';
 import { ArrowUpCircle, ArrowDownCircle } from 'lucide-react';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, parseISODateLocal } from '@/lib/utils';
 import type { CashFlowEntry } from '@/types';
 
 interface Props {
@@ -69,10 +69,10 @@ function MobileCashFlowListImpl({ entries }: Props) {
                         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-darc-velvet/60 tabular-nums">
                           <span>
                             {entry.data
-                              ? new Date(entry.data).toLocaleDateString('pt-BR', {
+                              ? parseISODateLocal(entry.data)?.toLocaleDateString('pt-BR', {
                                   day: '2-digit',
                                   month: 'short',
-                                })
+                                }) ?? '—'
                               : '—'}
                           </span>
                           {entry.parcela && <span>· {entry.parcela}</span>}

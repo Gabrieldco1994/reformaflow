@@ -1,7 +1,7 @@
 'use client';
 import React from 'react';
 import { ChevronDown, ChevronRight, Pencil, Trash2 } from 'lucide-react';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatDateBR } from '@/lib/utils';
 import type { Receipt } from '@/types';
 
 interface Grupo {
@@ -93,7 +93,7 @@ function MobileReceiptListImpl({
                         </p>
                         <p className="text-xs text-darc-velvet/60 mt-1 tabular-nums">
                           {r.data
-                            ? new Date(r.data).toLocaleDateString('pt-BR')
+                            ? formatDateBR(r.data)
                             : '—'}
                         </p>
                       </div>

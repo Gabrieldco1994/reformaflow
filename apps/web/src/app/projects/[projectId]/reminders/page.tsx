@@ -4,6 +4,7 @@ import { useProject } from '@/contexts/project-context';
 import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
 import { Plus, Trash2, Edit2, Bell, Check, Clock } from 'lucide-react';
+import { formatDateBR } from '@/lib/utils';
 
 interface Reminder {
   id: string;
@@ -114,7 +115,7 @@ export default function RemindersPage() {
   }
 
   function formatDate(d: string) {
-    return new Date(d).toLocaleDateString('pt-BR');
+    return formatDateBR(d);
   }
 
   if (loading) {

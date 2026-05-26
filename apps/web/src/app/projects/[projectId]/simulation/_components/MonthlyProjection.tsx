@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatDateBR } from '@/lib/utils';
 import type { CashFlowEntry } from '@/types';
 import { TIPO_DESPESA_OPTIONS, CATEGORIA_MAO_DE_OBRA_OPTIONS, tipoLabel } from '@/lib/expense-options';
 import { projectMonthlyExpenses } from '@reformaflow/domain';
@@ -836,7 +836,7 @@ export function MonthlyProjection({
                             <td />
                             <td className="px-3 py-1 pl-8 text-gray-500">
                               ↳ Parcela {entry.parcela || `${idx + 1}/${group.entries.length}`}
-                              <span className="ml-2 text-gray-400">{new Date(entry.data).toLocaleDateString('pt-BR')}</span>
+                              <span className="ml-2 text-gray-400">{formatDateBR(entry.data)}</span>
                             </td>
                             <td className="px-3 py-1 text-right text-gray-500 bg-gray-50/50">{formatCurrency(entry.valor / 100)}</td>
                             <td colSpan={2} className="bg-gray-50/50" />

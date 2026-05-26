@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { api } from '@/lib/api';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { X, Upload, CheckCircle2, AlertCircle } from 'lucide-react';
 import type { BankAccountRow, BankPreviewResult, BankCommitResult } from '../_types';
 
@@ -183,7 +183,7 @@ export default function ImportBankStatementModal({ projectId, account, onClose, 
                     <tbody>
                       {preview.transactions.map((t) => (
                         <tr key={t.externalId} className={t.duplicate ? 'bg-yellow-50 text-gray-500' : ''}>
-                          <td className="p-2">{new Date(t.date).toLocaleDateString('pt-BR')}</td>
+                          <td className="p-2">{formatDateBR(t.date)}</td>
                           <td className="p-2">{t.merchant}</td>
                           <td className={`p-2 text-right font-mono ${t.amountCents < 0 ? 'text-green-700' : ''}`}>
                             {formatCurrency(t.amountCents / 100)}

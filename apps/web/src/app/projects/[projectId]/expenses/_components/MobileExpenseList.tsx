@@ -1,7 +1,7 @@
 'use client';
 import React from 'react';
 import { ChevronDown, ChevronRight, Pencil, Trash2 } from 'lucide-react';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatDateBR } from '@/lib/utils';
 import type { Expense } from '@/types';
 import { StatusBadge } from './StatusBadge';
 
@@ -75,9 +75,9 @@ function MobileExpenseListImpl({
                 {cat.expenses.map((exp) => {
                   const totalParcelas = exp.quantidadeParcela ?? 0;
                   const dataExibir = exp.dataInicioParcela
-                    ? `1ª ${new Date(exp.dataInicioParcela).toLocaleDateString('pt-BR')}`
+                    ? `1ª ${formatDateBR(exp.dataInicioParcela)}`
                     : exp.dataPagamento
-                    ? new Date(exp.dataPagamento).toLocaleDateString('pt-BR')
+                    ? formatDateBR(exp.dataPagamento)
                     : null;
                   return (
                     <div key={exp.id} className="px-4 py-3 active:bg-darc-linen/40 transition-colors">

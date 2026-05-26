@@ -1,7 +1,7 @@
 'use client';
 
 import { ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, parseISODateLocal } from '@/lib/utils';
 import { ORIGIN_COLORS, ORIGIN_ICONS, type MonthlyEntry } from '../_types';
 
 interface Props {
@@ -70,9 +70,9 @@ export default function MonthlyEntriesList({ entries }: Props) {
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-darc-velvet/60 tabular-nums">
                       <span>
-                        {new Date(e.data).toLocaleDateString('pt-BR', {
+                        {parseISODateLocal(e.data)?.toLocaleDateString('pt-BR', {
                           day: '2-digit', month: 'short',
-                        })}
+                        }) ?? '—'}
                       </span>
                       {e.formaPagamento && <span>· {e.formaPagamento}</span>}
                       <span className="text-darc-velvet/50 truncate">· {e.projectName}</span>

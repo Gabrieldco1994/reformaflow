@@ -4,7 +4,7 @@ import { useProject } from '@/contexts/project-context';
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { Plus, CreditCard, Pencil, Trash2, Check, X, ChevronDown, ChevronRight, Filter, Search, ExternalLink, ShoppingCart, ImageOff, GripVertical, BarChart3, Mic } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -998,8 +998,8 @@ export default function ExpensesPage() {
                                   {(exp.dataInicioParcela || exp.dataPagamento) && (
                                     <span className="text-[11px] text-gray-400 tabular-nums">
                                       {exp.dataInicioParcela
-                                        ? `1ª ${new Date(exp.dataInicioParcela).toLocaleDateString('pt-BR')}`
-                                        : new Date(exp.dataPagamento!).toLocaleDateString('pt-BR')}
+                                        ? `1ª ${formatDateBR(exp.dataInicioParcela)}`
+                                        : formatDateBR(exp.dataPagamento!)}
                                     </span>
                                   )}
                                 </div>
@@ -1148,7 +1148,7 @@ export default function ExpensesPage() {
                                   ↳ Parcela {p.parcela}
                                 </td>
                                 <td className="px-2 py-1 text-gray-400 tabular-nums">
-                                  {new Date(p.data).toLocaleDateString('pt-BR')}
+                                  {formatDateBR(p.data)}
                                 </td>
                                 <td />
                                 <td />

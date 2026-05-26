@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { api } from '@/lib/api';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { X, Upload, CheckCircle2, AlertCircle } from 'lucide-react';
 import type { CardRow, PreviewResult, CommitResult } from '../_types';
 
@@ -190,7 +190,7 @@ export default function ImportStatementModal({ projectId, card, onClose, onCommi
                     <tbody>
                       {preview.transactions.map((t) => (
                         <tr key={t.externalId} className={t.duplicate ? 'bg-yellow-50 text-gray-500' : ''}>
-                          <td className="p-2">{new Date(t.date).toLocaleDateString('pt-BR')}</td>
+                          <td className="p-2">{formatDateBR(t.date)}</td>
                           <td className="p-2">{t.merchant}</td>
                           <td className="p-2">
                             {t.installmentCurrent && t.installmentTotal

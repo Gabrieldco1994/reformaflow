@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { CalendarClock } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatDateBR } from '@/lib/utils';
 import type { DashboardResponse } from '@/types';
 import {
   BillCategoryLabels, BillFrequencyLabels,
@@ -337,7 +337,7 @@ function ManagementDashboard({ projectId }: { projectId: string; projectType: st
                 <div key={m.id} className="rounded-xl bg-darc-linen/40 p-3 relative overflow-hidden">
                   <span className={`absolute left-0 top-3 bottom-3 w-1 rounded-r-full ${accent}`} />
                   <p className="font-semibold text-darc-velvet pl-2">{m.tipo}</p>
-                  <p className="text-sm text-darc-velvet/70 mt-1 pl-2">Próxima: {new Date(m.dataProxima!).toLocaleDateString('pt-BR')}</p>
+                  <p className="text-sm text-darc-velvet/70 mt-1 pl-2">Próxima: {formatDateBR(m.dataProxima!)}</p>
                   <p className="text-xs text-darc-velvet/60 pl-2">{daysUntil <= 0 ? '⚠ Atrasada!' : `Em ${daysUntil} dias`}</p>
                   {m.fornecedor && <p className="text-xs text-darc-velvet/50 mt-1 pl-2">📞 {m.fornecedor}</p>}
                 </div>
@@ -371,7 +371,7 @@ function ManagementDashboard({ projectId }: { projectId: string; projectType: st
                   </div>
                   {r.descricao && <p className="text-sm text-darc-velvet/70 mt-1">{r.descricao}</p>}
                   <p className="text-xs text-darc-velvet/60 mt-1">
-                    {new Date(r.data).toLocaleDateString('pt-BR')} · {daysUntil <= 0 ? '⚠ Atrasado!' : `Em ${daysUntil} dias`}
+                    {formatDateBR(r.data)} · {daysUntil <= 0 ? '⚠ Atrasado!' : `Em ${daysUntil} dias`}
                   </p>
                 </div>
               );

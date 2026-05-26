@@ -3,7 +3,7 @@
 import { useProject } from '@/contexts/project-context';
 import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { Plus, Trash2, Edit2, Wrench } from 'lucide-react';
 
 interface MaintenanceLog {
@@ -113,7 +113,7 @@ export default function MaintenancePage() {
   }
 
   function formatDate(d: string) {
-    return new Date(d).toLocaleDateString('pt-BR');
+    return formatDateBR(d);
   }
 
   function daysUntil(d: string) {

@@ -4,7 +4,7 @@ import { useProject } from '@/contexts/project-context';
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { Plus, Pencil, Trash2, Check, X, ChevronDown, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -456,7 +456,7 @@ export default function ReceiptsPage() {
                       <tr key={r.id} className="hover:bg-darc-cream/40 border-b border-darc-linen/60">
                         <td />
                         <td className="px-4 py-2 font-medium text-darc-velvet tabular-nums">{formatCurrency(r.valor / 100)}</td>
-                        <td className="px-4 py-2 text-darc-velvet/80 tabular-nums">{r.data ? new Date(r.data).toLocaleDateString('pt-BR') : '-'}</td>
+                        <td className="px-4 py-2 text-darc-velvet/80 tabular-nums">{formatDateBR(r.data)}</td>
                         <td className="px-4 py-2 text-darc-velvet/80">{tipoLabel(r.tipo)}</td>
                         <td className="px-4 py-2"><StatusBadge status={r.status} /></td>
                         <td className="px-4 py-2 text-right space-x-1">

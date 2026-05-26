@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { X, Link2, Unlink, ExternalLink } from 'lucide-react';
 import type { BankAccountRow, BankReceiptSuggestionRow } from '../_types';
 
@@ -94,7 +94,7 @@ export default function BankReceiptLinkPanel({ projectId, account, onClose }: Pr
                   <div className="min-w-0 flex-1">
                     <div className="font-medium truncate">{receipt.descricao ?? receipt.tipo}</div>
                     <div className="text-xs text-gray-500">
-                      {new Date(receipt.data).toLocaleDateString('pt-BR')} ·
+                      {formatDateBR(receipt.data)} ·
                       <span className="font-mono ml-1">{formatCurrency(receipt.valor / 100)}</span>
                       <span className="ml-1">· {receipt.tipo}</span>
                     </div>
@@ -121,7 +121,7 @@ export default function BankReceiptLinkPanel({ projectId, account, onClose }: Pr
                             <span className={`text-xs px-1.5 py-0.5 rounded ${badge.color} mr-1`}>{badge.label}</span>
                             <span className="text-gray-700">{s.projectName} · {s.descricao ?? s.tipo}</span>
                             <span className="text-xs text-gray-500 ml-2">
-                              {formatCurrency(s.valor / 100)} · {new Date(s.data).toLocaleDateString('pt-BR')}
+                              {formatCurrency(s.valor / 100)} · {formatDateBR(s.data)}
                             </span>
                           </div>
                           <button

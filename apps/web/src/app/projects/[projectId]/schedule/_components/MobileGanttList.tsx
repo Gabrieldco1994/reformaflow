@@ -1,7 +1,7 @@
 'use client';
 import React, { useState } from 'react';
 import { ChevronDown, ChevronRight, Check, Trash2 } from 'lucide-react';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, parseISODateLocal } from '@/lib/utils';
 import type { ScheduleStage, TaskUpdatePatch } from '../_types';
 
 interface Props {
@@ -13,7 +13,7 @@ interface Props {
 function formatDate(value: string | null): string {
   if (!value) return '—';
   try {
-    return new Date(value).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+    return parseISODateLocal(value)?.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }) ?? '—';
   } catch {
     return '—';
   }
