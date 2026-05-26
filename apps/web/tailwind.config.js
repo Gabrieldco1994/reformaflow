@@ -97,6 +97,19 @@ const blueMist = {
 
 module.exports = {
   content: ['./src/**/*.{ts,tsx}'],
+  safelist: [
+    // Project colors para sidebar dinâmico
+    'bg-orange-500',
+    'bg-pink-500',
+    'bg-teal-500',
+    'bg-blue-500',
+    'bg-purple-500',
+    'text-orange-600',
+    'text-pink-600',
+    'text-teal-600',
+    'text-blue-600',
+    'text-purple-600',
+  ],
   theme: {
     extend: {
       colors: {

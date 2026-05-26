@@ -1015,7 +1015,16 @@ export default function ExpensesPage() {
                                   <span className="ml-1.5 text-[10px] text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded">{catMaoLabel(exp.categoriaMaoDeObra)}</span>
                                 )}
                               </td>
-                              <td className="px-2 py-1.5 text-gray-600 max-w-[120px] truncate" title={exp.fornecedor || ''}>{exp.fornecedor || '—'}</td>
+                              <td className="px-2 py-1.5 text-gray-600 max-w-[120px]" title={exp.fornecedor || ''}>
+                                <div className="truncate">
+                                  {exp.fornecedor || '—'}
+                                  {(exp.cardLast4 || exp.bankLast4) && (
+                                    <span className="ml-1 text-[10px] text-gray-500">
+                                      {exp.cardLast4 ? `💳••${exp.cardLast4}` : `🏦••${exp.bankLast4}`}
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
                               {showRooms && (
                                 <td className="px-2 py-1.5 text-gray-600 max-w-[110px] truncate" title={exp.room?.name || ''}>{exp.room?.name || '—'}</td>
                               )}
