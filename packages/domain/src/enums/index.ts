@@ -62,6 +62,7 @@ export enum ReceiptType {
   COMISSAO = 'COMISSAO',
   VENDA_BEM = 'VENDA_BEM',
   PRESENTE = 'PRESENTE',
+  ALOCACAO_ORCAMENTO = 'ALOCACAO_ORCAMENTO', // Budget allocation from PESSOAL
   OUTROS = 'OUTROS',
 }
 
@@ -166,6 +167,7 @@ export const ReceiptTypeLabels: Record<ReceiptType, string> = {
   [ReceiptType.COMISSAO]: 'Comissão',
   [ReceiptType.VENDA_BEM]: 'Venda de Bem',
   [ReceiptType.PRESENTE]: 'Presente / Doação',
+  [ReceiptType.ALOCACAO_ORCAMENTO]: 'Alocação de Orçamento',
   [ReceiptType.OUTROS]: 'Outros',
 };
 

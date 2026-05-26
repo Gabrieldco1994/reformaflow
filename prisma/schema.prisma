@@ -74,6 +74,8 @@ model Project {
   scheduleHolidays ScheduleHoliday[]
   creditCards     CreditCard[]
   bankAccounts    BankAccount[]
+  budgetAllocationsSource BudgetAllocation[] @relation("SourceAllocations")
+  budgetAllocationsTarget BudgetAllocation[] @relation("TargetAllocations")
 
   @@map("projects")
 }
@@ -138,6 +140,7 @@ model Receipt {
 
   project  Project        @relation(fields: [projectId], references: [id])
   cashFlow CashFlowEntry[]
+  budgetAllocations BudgetAllocation[]
 
   @@index([projectId, externalId])
   @@index([linkedReceiptId])
@@ -197,6 +200,7 @@ model CashFlowEntry {
   tenantId      String   @map("tenant_id")
   receiptId     String?  @map("receipt_id")
   expenseId     String?  @map("expense_id")
+  budgetAllocationId String? @map("budget_allocation_id")
   valor         Int      // centavos
   tipo          String   // RECEBIMENTO | DESPESA
   data          DateTime
@@ -213,10 +217,12 @@ model CashFlowEntry {
   project  Project  @relation(fields: [projectId], references: [id])
   receipt  Receipt? @relation(fields: [receiptId], references: [id])
   expense  Expense? @relation(fields: [expenseId], references: [id])
+  budgetAllocation BudgetAllocation? @relation(fields: [budgetAllocationId], references: [id])
 
   @@index([projectId, data])
   @@index([receiptId])
   @@index([expenseId])
+  @@index([budgetAllocationId])
   @@map("cash_flow_entries")
 }
 
@@ -604,4 +610,39 @@ model MerchantCategory {
 
   @@index([category])
   @@map("merchant_categories")
+}
+
+// ─── Budget Allocation (Envelope Budgeting) ───────────────────
+
+model BudgetAllocation {
+  id                String   @id @default(cuid())
+  tenantId          String   @map("tenant_id")
+  
+  // Source (always PESSOAL project)
+  sourceProjectId   String   @map("source_project_id")
+  sourceReceiptId   String?  @map("source_receipt_id")
+  
+  // Target (REFORMA, CARRO, CASA, COMPRA)
+  targetProjectId   String   @map("target_project_id")
+  
+  // Allocation details
+  valor             Int      // in cents
+  descricao         String?  // "Budget mensal Abril", "Extra reforma banheiro"
+  mes               String   // YYYY-MM (for monthly tracking)
+  dataAlocacao      DateTime @default(now()) @map("data_alocacao")
+  
+  // Metadata
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  deletedAt         DateTime? @map("deleted_at")
+  
+  sourceProject Project  @relation("SourceAllocations", fields: [sourceProjectId], references: [id])
+  sourceReceipt Receipt? @relation(fields: [sourceReceiptId], references: [id])
+  targetProject Project  @relation("TargetAllocations", fields: [targetProjectId], references: [id])
+  cashFlowEntries CashFlowEntry[]
+  
+  @@index([tenantId, sourceProjectId])
+  @@index([tenantId, targetProjectId])
+  @@index([mes])
+  @@map("budget_allocations")
 }
