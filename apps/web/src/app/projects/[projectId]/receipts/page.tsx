@@ -250,8 +250,25 @@ export default function ReceiptsPage() {
 
     try {
       setIsGeneratingPlan(true);
-      await Promise.all(payloads.map((p) => api.post(`/projects/${PROJECT_ID}/receipts`, p)));
+      let ok = 0;
+      const failures: Array<{ payload: ReceiptFormData; error: unknown }> = [];
+      for (const p of payloads) {
+        try {
+          await api.post(`/projects/${PROJECT_ID}/receipts`, p);
+          ok += 1;
+        } catch (err) {
+          failures.push({ payload: p, error: err });
+        }
+      }
       invalidate();
+      if (failures.length > 0) {
+        const firstErr = failures[0]?.error;
+        const msg = firstErr instanceof Error ? firstErr.message : 'erro desconhecido';
+        alert(
+          `Foram criados ${ok} de ${payloads.length} recebimentos.\n` +
+          `${failures.length} falharam (ex.: ${msg}). Tente gerar os restantes novamente.`
+        );
+      }
     } finally {
       setIsGeneratingPlan(false);
     }
