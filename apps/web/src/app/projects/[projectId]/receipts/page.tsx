@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
-import { Plus, Pencil, Trash2, Check, X, ChevronDown, ChevronRight } from 'lucide-react';
+import { Plus, Pencil, Trash2, Check, X, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -101,6 +101,7 @@ export default function ReceiptsPage() {
   const [dividendsValue, setDividendsValue] = useState('');
   const [fixedIncomeValue, setFixedIncomeValue] = useState('');
   const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
+  const [genProgress, setGenProgress] = useState<{ done: number; total: number } | null>(null);
 
   const toggleTipo = (tipo: string) => {
     setCollapsedTipos((prev) => {
@@ -250,6 +251,7 @@ export default function ReceiptsPage() {
 
     try {
       setIsGeneratingPlan(true);
+      setGenProgress({ done: 0, total: payloads.length });
       let ok = 0;
       const failures: Array<{ payload: ReceiptFormData; error: unknown }> = [];
       for (const p of payloads) {
@@ -259,6 +261,7 @@ export default function ReceiptsPage() {
         } catch (err) {
           failures.push({ payload: p, error: err });
         }
+        setGenProgress({ done: ok + failures.length, total: payloads.length });
       }
       invalidate();
       if (failures.length > 0) {
@@ -271,6 +274,7 @@ export default function ReceiptsPage() {
       }
     } finally {
       setIsGeneratingPlan(false);
+      setGenProgress(null);
     }
   }
 
@@ -404,10 +408,35 @@ export default function ReceiptsPage() {
           </div>
           <div className="flex justify-end">
             <Button onClick={generatePersonalPlan} disabled={isGeneratingPlan}>
-              {isGeneratingPlan ? 'Gerando...' : 'Gerar recebimentos automáticos (15/30)'}
+              {isGeneratingPlan ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  {genProgress
+                    ? `Gerando ${genProgress.done}/${genProgress.total}...`
+                    : 'Gerando...'}
+                </>
+              ) : (
+                'Gerar recebimentos automáticos (15/30)'
+              )}
             </Button>
           </div>
         </section>
+      )}
+
+      {isGeneratingPlan && (
+        <div className="fixed inset-0 z-50 bg-black/30 backdrop-blur-sm flex items-center justify-center pointer-events-auto">
+          <div className="bg-white rounded-xl shadow-2xl px-6 py-5 flex items-center gap-3 min-w-[280px]">
+            <Loader2 className="w-6 h-6 animate-spin text-orange-500" />
+            <div>
+              <p className="text-sm font-medium text-gray-900">Gerando recebimentos…</p>
+              {genProgress && (
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {genProgress.done} de {genProgress.total} criados
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {isLoading ? (
