@@ -24,8 +24,11 @@ export interface PreviewTx {
 export interface PreviewResult {
   source: string;
   periodLabel: string | null;
-  transactions: PreviewTx[];
-  totals: { count: number; sumCents: number; duplicates: number };
+  preview: PreviewTx[];
+  total: number;
+  duplicated: number;
+  totalAmountCents: number;
+  inserted?: number;
 }
 
 export interface CommitResult {

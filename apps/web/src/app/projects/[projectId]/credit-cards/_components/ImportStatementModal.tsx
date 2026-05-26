@@ -170,9 +170,9 @@ export default function ImportStatementModal({ projectId, card, onClose, onCommi
             {preview && (
               <div className="mt-4">
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3 text-sm">
-                  <strong>{preview.totals.count}</strong> transações ·
-                  total <strong>{formatCurrency(preview.totals.sumCents / 100)}</strong> ·
-                  <strong> {preview.totals.duplicates}</strong> já existentes ·
+                  <strong>{preview.total}</strong> transações ·
+                  total <strong>{formatCurrency((preview.totalAmountCents ?? 0) / 100)}</strong> ·
+                  <strong> {preview.duplicated}</strong> já existentes ·
                   formato detectado: <strong>{preview.source}</strong>
                 </div>
 
@@ -188,7 +188,7 @@ export default function ImportStatementModal({ projectId, card, onClose, onCommi
                       </tr>
                     </thead>
                     <tbody>
-                      {preview.transactions.map((t) => (
+                      {(preview.preview ?? []).map((t) => (
                         <tr key={t.externalId} className={t.duplicate ? 'bg-yellow-50 text-gray-500' : ''}>
                           <td className="p-2">{formatDateBR(t.date)}</td>
                           <td className="p-2">{t.merchant}</td>
@@ -217,7 +217,7 @@ export default function ImportStatementModal({ projectId, card, onClose, onCommi
                   <button onClick={onClose} className="px-4 py-2 border rounded-lg">Cancelar</button>
                   <button
                     onClick={handleCommit}
-                    disabled={loading || preview.totals.count - preview.totals.duplicates === 0}
+                    disabled={loading || preview.total - preview.duplicated === 0}
                     className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2 disabled:opacity-50"
                   >
                     <Upload className="w-4 h-4" />

@@ -19,8 +19,13 @@ export interface BankPreviewTx {
 export interface BankPreviewResult {
   source: string;
   periodLabel: string | null;
-  transactions: BankPreviewTx[];
-  totals: { count: number; sumCents: number; duplicates: number };
+  preview: BankPreviewTx[];
+  total: number;
+  duplicated: number;
+  totalAmountCents: number;
+  totalDebits?: number;
+  totalCredits?: number;
+  inserted?: number;
 }
 
 export interface BankCommitResult {
