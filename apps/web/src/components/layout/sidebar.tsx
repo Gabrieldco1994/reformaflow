@@ -28,19 +28,19 @@ const navItems: { href: string; label: string; icon: typeof LayoutDashboard; mod
 ];
 
 const PROJECT_BG_COLORS: Record<string, string> = {
-  REFORMA: 'bg-orange-500',
-  COMPRA: 'bg-pink-500',
-  CASA: 'bg-teal-500',
-  CARRO: 'bg-blue-500',
-  PESSOAL: 'bg-purple-500',
+  REFORMA: 'bg-[#F27D33]',   // sunfire
+  COMPRA: 'bg-[#E2366B]',    // brand-pink
+  CASA: 'bg-[#900131]',      // raspberry
+  CARRO: 'bg-[#BFA4D1]',     // blue-mist
+  PESSOAL: 'bg-[#9171AE]',   // purple-mist (500)
 };
 
 const PROJECT_ICON_COLORS: Record<string, string> = {
-  REFORMA: 'text-orange-600',
-  COMPRA: 'text-pink-600',
-  CASA: 'text-teal-600',
-  CARRO: 'text-blue-600',
-  PESSOAL: 'text-purple-600',
+  REFORMA: 'text-[#F27D33]',
+  COMPRA: 'text-[#E2366B]',
+  CASA: 'text-[#900131]',
+  CARRO: 'text-[#BFA4D1]',
+  PESSOAL: 'text-[#9171AE]',
 };
 
 export function Sidebar() {

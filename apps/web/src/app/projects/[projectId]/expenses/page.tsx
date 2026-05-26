@@ -1016,14 +1016,12 @@ export default function ExpensesPage() {
                                 )}
                               </td>
                               <td className="px-2 py-1.5 text-gray-600 max-w-[120px]" title={exp.fornecedor || ''}>
-                                <div className="truncate">
-                                  {exp.fornecedor || '—'}
-                                  {(exp.cardLast4 || exp.bankLast4) && (
-                                    <span className="ml-1 text-[10px] text-gray-500">
-                                      {exp.cardLast4 ? `💳••${exp.cardLast4}` : `🏦••${exp.bankLast4}`}
-                                    </span>
-                                  )}
-                                </div>
+                                <div className="truncate">{exp.fornecedor || '—'}</div>
+                                {(exp.cardLast4 || exp.bankLast4) && (
+                                  <div className="text-[10px] text-gray-500 mt-0.5">
+                                    {exp.cardLast4 ? `💳 ••${exp.cardLast4}` : `🏦 ••${exp.bankLast4}`}
+                                  </div>
+                                )}
                               </td>
                               {showRooms && (
                                 <td className="px-2 py-1.5 text-gray-600 max-w-[110px] truncate" title={exp.room?.name || ''}>{exp.room?.name || '—'}</td>

@@ -91,12 +91,16 @@ function MobileExpenseListImpl({
                               {catMaoLabel(exp.categoriaMaoDeObra)}
                             </span>
                           )}
-                          {(exp.fornecedor || exp.room?.name || exp.cardLast4 || exp.bankLast4) && (
+                          {(exp.fornecedor || exp.room?.name) && (
                             <p className="text-xs text-darc-velvet/60 mt-1 truncate">
                               {exp.fornecedor || '—'}
                               {exp.room?.name ? ` · ${exp.room.name}` : ''}
-                              {exp.cardLast4 ? ` · 💳 ••${exp.cardLast4}` : ''}
-                              {exp.bankLast4 ? ` · 🏦 ••${exp.bankLast4}` : ''}
+                            </p>
+                          )}
+                          {(exp.cardLast4 || exp.bankLast4) && (
+                            <p className="text-[10px] text-darc-velvet/50 mt-0.5">
+                              {exp.cardLast4 && `💳 ••${exp.cardLast4}`}
+                              {exp.bankLast4 && `🏦 ••${exp.bankLast4}`}
                             </p>
                           )}
                         </div>
