@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { ChevronRight, Home, Car, Hammer, ShoppingBag, User } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
+import { getProjectBadgeColor, getProjectProgressColor } from '@/lib/project-colors';
 import { PROJECT_TYPE_LABELS, type ProjectBreakdownRow, type ProjectType } from '../_types';
 
 const ICONS: Record<ProjectType, typeof Home> = {
@@ -11,14 +12,6 @@ const ICONS: Record<ProjectType, typeof Home> = {
   REFORMA: Hammer,
   COMPRA: ShoppingBag,
   PESSOAL: User,
-};
-
-const COLORS: Record<ProjectType, string> = {
-  CASA: 'bg-teal-100 text-teal-700',
-  CARRO: 'bg-blue-100 text-blue-700',
-  REFORMA: 'bg-orange-100 text-orange-700',
-  COMPRA: 'bg-pink-100 text-pink-700',
-  PESSOAL: 'bg-purple-100 text-purple-700',
 };
 
 export function ProjectsBreakdown({ rows }: { rows: ProjectBreakdownRow[] }) {
@@ -36,7 +29,8 @@ export function ProjectsBreakdown({ rows }: { rows: ProjectBreakdownRow[] }) {
       <div className="space-y-2">
         {rows.map((p) => {
           const Icon = ICONS[p.type] ?? Home;
-          const iconClass = COLORS[p.type] ?? 'bg-gray-100 text-gray-700';
+          const badgeColor = getProjectBadgeColor(p.type);
+          const progressColor = getProjectProgressColor(p.type);
           const pct = Math.round(p.progresso * 100);
           return (
             <Link
@@ -44,7 +38,7 @@ export function ProjectsBreakdown({ rows }: { rows: ProjectBreakdownRow[] }) {
               href={`/projects/${p.projectId}/dashboard`}
               className="flex items-center gap-3 p-3 rounded-xl hover:bg-darc-linen/40 transition-colors border border-transparent hover:border-darc-linen group"
             >
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${iconClass}`}>
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${badgeColor}`}>
                 <Icon className="w-5 h-5" />
               </div>
               <div className="flex-1 min-w-0">
@@ -61,7 +55,7 @@ export function ProjectsBreakdown({ rows }: { rows: ProjectBreakdownRow[] }) {
                   <span className="text-darc-velvet/70">{pct}%</span>
                 </div>
                 <div className="mt-2 h-1.5 bg-darc-linen rounded-full overflow-hidden">
-                  <div className={`h-full ${iconClass.replace('100', '500').replace('text-', 'bg-').split(' ')[0]}`} style={{ width: `${pct}%` }} />
+                  <div className={progressColor} style={{ width: `${pct}%` }} />
                 </div>
               </div>
               <ChevronRight className="w-5 h-5 text-darc-velvet/30 flex-shrink-0 group-hover:text-darc-velvet/60 transition-colors" />

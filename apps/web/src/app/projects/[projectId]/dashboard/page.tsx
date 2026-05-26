@@ -8,6 +8,7 @@ import { CalendarClock } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
+import { getProjectAccentColor } from '@/lib/project-colors';
 import type { DashboardResponse } from '@/types';
 import {
   BillCategoryLabels, BillFrequencyLabels,
@@ -84,13 +85,15 @@ function FinancialDashboard({ projectId, projectType }: { projectId: string; pro
   if (error) return <div className="text-darc-red">Erro ao carregar dashboard.</div>;
   if (!data) return null;
 
+  const accentColor = getProjectAccentColor(projectType);
+
   const kpis: { label: string; value: number; accent: string }[] = [
-    { label: 'Dinheiro Disponível', value: data.kpis.dinheiroDisponivel, accent: 'bg-darc-mist' },
-    { label: 'Já Paguei', value: data.kpis.jaPaguei, accent: 'bg-darc-raspberry' },
-    { label: 'Previsão de Gastos', value: data.kpis.previsaoGastos, accent: 'bg-darc-sunfire' },
-    { label: 'Previsão de Recebimentos', value: data.kpis.previsaoRecebimentos, accent: 'bg-darc-pink-logo' },
-    { label: 'Previsão de Saldo', value: data.kpis.previsaoSaldo, accent: 'bg-darc-velvet' },
-    { label: 'Saldo', value: data.kpis.saldo, accent: 'bg-darc-red-bright' },
+    { label: 'Dinheiro Disponível', value: data.kpis.dinheiroDisponivel, accent: accentColor },
+    { label: 'Já Paguei', value: data.kpis.jaPaguei, accent: accentColor },
+    { label: 'Previsão de Gastos', value: data.kpis.previsaoGastos, accent: accentColor },
+    { label: 'Previsão de Recebimentos', value: data.kpis.previsaoRecebimentos, accent: accentColor },
+    { label: 'Previsão de Saldo', value: data.kpis.previsaoSaldo, accent: accentColor },
+    { label: 'Saldo', value: data.kpis.saldo, accent: accentColor },
   ];
 
   const showRooms = projectType === 'REFORMA';
@@ -226,7 +229,7 @@ interface Bill { id: string; nome: string; valor: number; categoria: string; fre
 interface Maintenance { id: string; tipo: string; dataRealizada: string; dataProxima?: string; custo: number; fornecedor?: string; }
 interface Reminder { id: string; titulo: string; descricao?: string; data: string; prioridade: string; recorrencia: string; status: string; }
 
-function ManagementDashboard({ projectId }: { projectId: string; projectType: string }) {
+function ManagementDashboard({ projectId, projectType }: { projectId: string; projectType: string }) {
   const { data: bills } = useQuery<Bill[]>({
     queryKey: ['recurring-bills', projectId],
     queryFn: () => api.get(`/projects/${projectId}/recurring-bills`),
@@ -256,12 +259,14 @@ function ManagementDashboard({ projectId }: { projectId: string; projectType: st
 
   const overdueBills = activeBills.filter(b => today.getDate() > b.diaVencimento);
 
+  const accentColor = getProjectAccentColor(projectType);
+
   const kpis: { label: string; value: string; accent: string }[] = [
-    { label: 'Contas Ativas', value: `${activeBills.length}`, accent: 'bg-darc-mist' },
-    { label: 'Custo Mensal Estimado', value: formatCurrency(totalMensal / 100), accent: 'bg-darc-sunfire' },
-    { label: 'Manutenções Próximas', value: `${upcomingMaintenance.length}`, accent: 'bg-darc-pink-logo' },
-    { label: 'Lembretes Pendentes', value: `${pendingReminders.length}`, accent: 'bg-darc-velvet' },
-    { label: 'Contas Vencidas', value: `${overdueBills.length}`, accent: overdueBills.length > 0 ? 'bg-darc-red-bright' : 'bg-darc-raspberry' },
+    { label: 'Contas Ativas', value: `${activeBills.length}`, accent: accentColor },
+    { label: 'Custo Mensal Estimado', value: formatCurrency(totalMensal / 100), accent: accentColor },
+    { label: 'Manutenções Próximas', value: `${upcomingMaintenance.length}`, accent: accentColor },
+    { label: 'Lembretes Pendentes', value: `${pendingReminders.length}`, accent: accentColor },
+    { label: 'Contas Vencidas', value: `${overdueBills.length}`, accent: overdueBills.length > 0 ? 'bg-darc-red-bright' : accentColor },
   ];
 
   return (
