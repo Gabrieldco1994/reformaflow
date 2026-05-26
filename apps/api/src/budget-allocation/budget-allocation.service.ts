@@ -259,12 +259,14 @@ export class BudgetAllocationService {
 
   async calculateAvailableBudget(sourceProjectId: string, tenantId: string): Promise<number> {
     // Total receipts EM_CAIXA in source project
+    // IMPORTANT: exclude linked receipts to avoid double-counting
     const receipts = await this.prisma.receipt.findMany({
       where: {
         projectId: sourceProjectId,
         tenantId,
         deletedAt: null,
         status: 'EM_CAIXA',
+        linkedReceiptId: null, // Only count non-linked receipts
       },
     });
 
@@ -283,14 +285,17 @@ export class BudgetAllocationService {
 
     const available = totalReceipts - totalAllocated;
 
-    // Debug log (remove in production)
+    // Debug log
     console.log('[BudgetAllocation] calculateAvailableBudget:', {
       projectId: sourceProjectId,
       receiptsCount: receipts.length,
       totalReceipts,
+      totalReceiptsReais: totalReceipts / 100,
       allocationsCount: allocations.length,
       totalAllocated,
+      totalAllocatedReais: totalAllocated / 100,
       available,
+      availableReais: available / 100,
     });
 
     // Ensure we never return negative values
