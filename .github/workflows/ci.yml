@@ -27,6 +27,9 @@ jobs:
           cd ../../apps/api && npm ci
           cd ../../apps/web && npm ci
 
+      - name: Build Domain package
+        run: cd packages/domain && npm run build
+
       - name: Generate Prisma Client
         run: cd apps/api && npx prisma generate --schema=../../prisma/schema.prisma
 
@@ -73,6 +76,9 @@ jobs:
           cd packages/domain && npm ci
           cd ../../apps/api && npm ci
 
+      - name: Build Domain package
+        run: cd packages/domain && npm run build
+
       - name: Generate Prisma Client
         run: cd apps/api && npx prisma generate --schema=../../prisma/schema.prisma
 
@@ -97,6 +103,9 @@ jobs:
           cd packages/domain && npm ci
           cd ../../apps/web && npm ci
 
+      - name: Build Domain package
+        run: cd packages/domain && npm run build
+
       - name: Build Next.js
         run: cd apps/web && npx next build
 
@@ -117,6 +126,9 @@ jobs:
           npm ci
           cd packages/domain && npm ci
           cd ../../apps/api && npm ci
+
+      - name: Build Domain package
+        run: cd packages/domain && npm run build
 
       - name: Generate Prisma Client
         run: cd apps/api && npx prisma generate --schema=../../prisma/schema.prisma
