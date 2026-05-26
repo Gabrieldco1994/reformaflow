@@ -21,13 +21,32 @@ interface ChartTooltipProps {
 
 function ChartTooltipCurrency({ active, payload, label }: ChartTooltipProps) {
   if (!active || !payload?.length) return null;
+  
+  const descriptions: Record<string, string> = {
+    'planejado': 'Despesas com status PLANEJADO + PAGO',
+    'pago': 'Despesas já efetivadas (status PAGO)',
+    'recebimentos': 'Recebimentos previstos (EM_CAIXA + previstos)',
+    'despesas': 'Despesas previstas (PAGO + PLANEJADO)',
+    'recebimentosRealizados': 'Recebimentos já recebidos (EM_CAIXA)',
+    'despesasRealizadas': 'Despesas já pagas (PAGO)',
+    'saldoAcumulado': 'Saldo projetado: Recebimentos - Despesas acumulado',
+    'saldoAcumuladoRealizado': 'Saldo real: apenas valores já pagos/recebidos',
+  };
+  
   return (
-    <div className="bg-white border border-darc-linen rounded-lg shadow-darc-soft p-3 text-xs">
-      <p className="font-medium text-darc-velvet mb-1">{label}</p>
+    <div className="bg-white border border-darc-linen rounded-lg shadow-darc-soft p-3 text-xs max-w-[280px]">
+      <p className="font-semibold text-darc-velvet mb-2">{label}</p>
       {payload.map((p) => (
-        <p key={p.name} style={{ color: p.color }}>
-          {p.name}: {formatCurrency(p.value / 100)}
-        </p>
+        <div key={p.name} className="mb-1.5 last:mb-0">
+          <p className="font-medium" style={{ color: p.color }}>
+            {p.name}: {formatCurrency(p.value / 100)}
+          </p>
+          {descriptions[p.name] && (
+            <p className="text-darc-velvet/60 text-[10px] leading-tight">
+              {descriptions[p.name]}
+            </p>
+          )}
+        </div>
       ))}
     </div>
   );

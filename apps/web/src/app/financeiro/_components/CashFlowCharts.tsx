@@ -18,6 +18,62 @@ function compactCurrency(value: number) {
   return `R$ ${value.toFixed(0)}`;
 }
 
+interface TooltipProps {
+  active?: boolean;
+  payload?: { name: string; value: number; color: string; dataKey: string }[];
+  label?: string;
+}
+
+function CustomFluxoTooltip({ active, payload, label }: TooltipProps) {
+  if (!active || !payload?.length) return null;
+  
+  const descriptions: Record<string, string> = {
+    'pagoR': 'Despesas já pagas (status PAGO)',
+    'planejadoR': 'Despesas planejadas (status PLANEJADO + PAGO)',
+    'recebidoR': 'Recebimentos já recebidos (status EM_CAIXA)',
+    'saldoR': 'Recebimentos - Despesas acumulado até o mês',
+  };
+  
+  return (
+    <div className="bg-white border border-darc-linen rounded-lg shadow-darc-soft p-3 text-xs max-w-[260px]">
+      <p className="font-semibold text-darc-velvet mb-2">{label}</p>
+      {payload.map((p) => (
+        <div key={p.dataKey} className="mb-1.5 last:mb-0">
+          <p className="font-medium" style={{ color: p.color }}>
+            {p.name}: {formatCurrency(p.value)}
+          </p>
+          <p className="text-darc-velvet/60 text-[10px] leading-tight">
+            {descriptions[p.dataKey] || ''}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CustomStackTooltip({ active, payload, label }: TooltipProps) {
+  if (!active || !payload?.length) return null;
+  
+  const total = payload.reduce((sum, p) => sum + p.value, 0);
+  
+  return (
+    <div className="bg-white border border-darc-linen rounded-lg shadow-darc-soft p-3 text-xs max-w-[220px]">
+      <p className="font-semibold text-darc-velvet mb-2">{label}</p>
+      <p className="text-darc-velvet/60 text-[10px] mb-2">Despesas pagas por projeto:</p>
+      {payload.map((p) => (
+        <p key={p.dataKey} className="mb-0.5" style={{ color: p.color }}>
+          {p.name}: {formatCurrency(p.value)}
+        </p>
+      ))}
+      <div className="border-t border-darc-linen mt-2 pt-1.5">
+        <p className="font-semibold text-darc-velvet">
+          Total: {formatCurrency(total)}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function CashFlowCharts({
   cashFlow,
   byProject,
@@ -74,7 +130,7 @@ export default function CashFlowCharts({
               <CartesianGrid strokeDasharray="3 3" stroke="#f5e7e0" />
               <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => compactCurrency(v)} />
-              <Tooltip formatter={(v: number) => formatCurrency(v)} />
+              <Tooltip content={<CustomStackTooltip />} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               {byProject.map((p) => (
                 <Bar
