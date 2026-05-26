@@ -11,6 +11,7 @@ import {
   Map,
   Users,
   LogOut,
+  PieChart,
 } from 'lucide-react';
 import { useAuth, type ModuleSlug } from '@/contexts/auth-context';
 
@@ -43,6 +44,19 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 p-2 space-y-1">
+        <Link
+          href="/financeiro"
+          title="Visão Geral"
+          className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+            pathname === '/financeiro'
+              ? 'bg-darc-linen text-darc-velvet shadow-darc-soft'
+              : 'text-darc-linen hover:bg-white/15'
+          }`}
+        >
+          <PieChart className={`w-5 h-5 flex-shrink-0 ${pathname === '/financeiro' ? 'text-darc-red' : 'text-darc-linen/85'}`} />
+          <span className="whitespace-nowrap opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200">Visão Geral</span>
+        </Link>
+
         {visibleItems.map((item) => {
           const isActive = pathname.startsWith(item.href);
           const Icon = item.icon;
