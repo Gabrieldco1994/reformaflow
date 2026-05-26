@@ -14,10 +14,20 @@ export class DashboardService {
   async getDashboard(tenantId: string, projectId: string) {
     await this.validateProject(tenantId, projectId);
 
+    // Check if project has budget allocations (replace logic)
+    const budgetAllocations = await this.prisma.budgetAllocation.findMany({
+      where: { targetProjectId: projectId, tenantId, deletedAt: null },
+    });
+
+    const hasBudgetAllocations = budgetAllocations.length > 0;
+
     const [receipts, cashFlowEntries, expenses] = await Promise.all([
-      this.prisma.receipt.findMany({
-        where: { projectId, tenantId, deletedAt: null, linkedReceiptId: null },
-      }),
+      // Only fetch receipts if NO budget allocations (replace logic)
+      hasBudgetAllocations
+        ? Promise.resolve([])
+        : this.prisma.receipt.findMany({
+            where: { projectId, tenantId, deletedAt: null, linkedReceiptId: null },
+          }),
       // IMPORTANTE: filtra entries cuja despesa OU receipt vinculado foi soft-deleted.
       // Sem esses filtros o dashboard contabilizava entries fantasma cujo recurso
       // original já tinha sido excluído, distorcendo o saldo acumulado.
@@ -46,10 +56,17 @@ export class DashboardService {
       }),
     ]);
 
+    // Calculate budget received (if using budget allocations)
+    const budgetRecebido = hasBudgetAllocations
+      ? budgetAllocations.reduce((sum, b) => sum + b.valor, 0)
+      : 0;
+
     // KPIs
-    const dinheiroDisponivel = receipts
-      .filter((r) => r.status === 'EM_CAIXA')
-      .reduce((sum, r) => sum + r.valor, 0);
+    const dinheiroDisponivel = hasBudgetAllocations
+      ? budgetRecebido // Budget allocated is considered "available"
+      : receipts
+          .filter((r) => r.status === 'EM_CAIXA')
+          .reduce((sum, r) => sum + r.valor, 0);
 
     const jaPaguei = cashFlowEntries
       .filter((e) => e.tipo === 'DESPESA' && e.status === 'PAGO')
@@ -59,9 +76,11 @@ export class DashboardService {
       .filter((e) => e.tipo === 'DESPESA' && e.status === 'PLANEJADO')
       .reduce((sum, e) => sum + e.valor, 0);
 
-    const previsaoRecebimentos = receipts
-      .filter((r) => r.status === 'PREVISTO')
-      .reduce((sum, r) => sum + r.valor, 0);
+    const previsaoRecebimentos = hasBudgetAllocations
+      ? 0 // No future receipts when using budget allocations
+      : receipts
+          .filter((r) => r.status === 'PREVISTO')
+          .reduce((sum, r) => sum + r.valor, 0);
 
     const previsaoSaldo = dinheiroDisponivel + previsaoRecebimentos - jaPaguei - previsaoGastos;
     const saldo = dinheiroDisponivel - jaPaguei;
