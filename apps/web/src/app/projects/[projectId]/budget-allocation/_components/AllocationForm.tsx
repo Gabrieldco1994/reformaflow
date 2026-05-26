@@ -18,6 +18,15 @@ export default function AllocationForm({ sourceProjectId, onSuccess }: Props) {
   });
   const [descricao, setDescricao] = useState('');
 
+  // Get available budget
+  const { data: availableBudget = 0 } = useQuery<number>({
+    queryKey: ['budget-available', sourceProjectId],
+    queryFn: async () => {
+      const data = await api.get(`/budget-allocations/available/${sourceProjectId}`);
+      return data as number;
+    },
+  });
+
   // Get all projects except PESSOAL
   const { data: projects = [] } = useQuery<any[]>({
     queryKey: ['projects'],
@@ -51,6 +60,12 @@ export default function AllocationForm({ sourceProjectId, onSuccess }: Props) {
       return;
     }
 
+    // Check if trying to allocate more than available
+    if (valorCents > availableBudget) {
+      alert(`Valor excede o budget disponível. Disponível: R$ ${(availableBudget / 100).toFixed(2)}`);
+      return;
+    }
+
     mutation.mutate({
       targetProjectId,
       valor: valorCents,
@@ -58,6 +73,8 @@ export default function AllocationForm({ sourceProjectId, onSuccess }: Props) {
       descricao: descricao || undefined,
     });
   };
+
+  const isFormDisabled = availableBudget === 0 || mutation.isPending;
 
   return (
     <div className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 lg:p-6">
@@ -127,11 +144,21 @@ export default function AllocationForm({ sourceProjectId, onSuccess }: Props) {
 
         <button
           type="submit"
-          disabled={mutation.isPending}
-          className="w-full px-4 py-2 bg-darc-red text-white rounded-lg hover:bg-darc-red/90 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled={isFormDisabled}
+          className={`w-full px-4 py-2 rounded-lg font-medium transition-colors ${
+            isFormDisabled
+              ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+              : 'bg-darc-red text-white hover:bg-darc-red/90'
+          }`}
         >
           {mutation.isPending ? 'Alocando...' : 'Alocar Budget'}
         </button>
+
+        {availableBudget === 0 && (
+          <p className="text-sm text-orange-600 text-center">
+            ⚠️ Nenhum budget disponível. Adicione recebimentos com status <strong>EM CAIXA</strong> primeiro.
+          </p>
+        )}
       </form>
     </div>
   );

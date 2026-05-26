@@ -281,6 +281,7 @@ export class BudgetAllocationService {
 
     const totalAllocated = allocations.reduce((sum, a) => sum + a.valor, 0);
 
-    return totalReceipts - totalAllocated;
+    // Ensure we never return negative values
+    return Math.max(0, totalReceipts - totalAllocated);
   }
 }
