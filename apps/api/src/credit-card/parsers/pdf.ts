@@ -100,14 +100,22 @@ function inferYearFromText(text: string): number | undefined {
  * Dado o mês de vencimento da fatura e o mês/dia de uma transação (sem ano),
  * retorna o ano correto considerando que faturas referenciam transações dos
  * últimos ~12 meses. Se o mês da transação > mês de vencimento, ela é do ano anterior.
+ *
+ * Exceção: parcelas N/M com N>1 e mês > due geralmente são **projeções futuras**
+ * (parcelamentos vencendo em meses seguintes do mesmo ano da fatura).
  */
 function resolveYearForTransaction(
   txMonth: number,
   due: { month: number; year: number } | undefined,
   fallbackYear: number,
+  installmentCurrent?: number,
 ): number {
   if (!due) return fallbackYear;
-  if (txMonth > due.month) return due.year - 1;
+  if (txMonth > due.month) {
+    // Se é parcela N>1, provavelmente é projeção futura do mesmo ano da fatura
+    if (installmentCurrent != null && installmentCurrent > 1) return due.year;
+    return due.year - 1;
+  }
   return due.year;
 }
 
@@ -162,7 +170,32 @@ export async function extractPdfText(buffer: Buffer, password?: string): Promise
  */
 // Marcadores de seção "futura" — após estes, paramos de ler transações
 // (faturas listam parcelas futuras como projeção; commitImport gera essas automaticamente).
-const FUTURE_SECTION_RE = /^(?:\s*)(pr[oó]xim[oa]s?\s+(?:faturas?|compras?|lan[cç]amentos?|parcelas?|pagamentos?)|compras\s+parceladas\s+(?:futuras?|em\s+aberto|a\s+vencer)|parcelas?\s+(?:futuras?|a\s+vencer)|pagamentos?\s+futuros?(?:\s+parcelados?)?|pr[eé]\s*-?\s*fatura|demonstrativo\s+das\s+compras\s+parceladas|resumo\s+das\s+parcelas?\s+(?:a\s+vencer|futuras?)|fatura\s+(?:posterior|seguinte))\b/i;
+// Marcadores de seção "futura" — após estes, paramos de ler transações
+// (faturas listam parcelas futuras como projeção; commitImport gera essas automaticamente).
+// Mais permissivo: cobre Itaú, Nubank, Santander, Bradesco, BB, Caixa, C6, Inter, XP, etc.
+const FUTURE_SECTION_RE = new RegExp(
+  '^(?:\\s*)(' +
+  [
+    'pr[oó]xim[oa]s?\\s+(?:faturas?|compras?|lan[cç]amentos?|parcelas?|pagamentos?|m[eê]s|meses|vencimentos?|cobran[cç]as?)',
+    'compras\\s+parceladas\\s+(?:futuras?|em\\s+aberto|a\\s+vencer|projetadas?)',
+    'parcelas?\\s+(?:futuras?|a\\s+vencer|previstas?|em\\s+aberto|projetadas?|seguintes?)',
+    'pagamentos?\\s+(?:futuros?|previstos?)(?:\\s+parcelados?)?',
+    'pr[eé]\\s*-?\\s*fatura',
+    'demonstrativo\\s+das\\s+compras\\s+parceladas',
+    'resumo\\s+das\\s+parcelas?\\s+(?:a\\s+vencer|futuras?)',
+    'fatura\\s+(?:posterior|seguinte|pr[oó]xima)',
+    'lan[cç]amentos?\\s+(?:futuros?|previstos?|a\\s+vencer)',
+    'compromissos?\\s+(?:futuros?|pr[oó]ximos?|a\\s+vencer)',
+    'faturas?\\s+(?:seguintes?|pr[oó]ximas?|projetadas?)',
+    'compras?\\s+a\\s+vencer',
+    'demonstrativo\\s+de\\s+parcelamentos?',
+    'previs[aã]o\\s+de\\s+(?:cobran[cç]as?|lan[cç]amentos?|parcelas?|pagamentos?)',
+    'acompanhamento\\s+de\\s+compras\\s+parceladas',
+    'saldo\\s+a\\s+vencer',
+  ].join('|') +
+  ')\\b',
+  'i',
+);
 
 export function extractTransactionsFromText(
   text: string,
@@ -212,13 +245,14 @@ export function extractTransactionsFromText(
     if (amountCents == null || amountCents === 0) continue;
     if (isRefund) amountCents = -Math.abs(amountCents);
 
-    // Ano correto baseado no mês de vencimento (faturas mostram parcelas passadas)
-    const txYear = resolveYearForTransaction(mm, due, fallbackYear);
-    const date = new Date(Date.UTC(txYear, mm - 1, dd));
-    if (isNaN(date.getTime())) continue;
-
+    // Detecta parcela ANTES de resolver o ano: parcelas N>1 ajudam a inferir ano correto
     const inst = detectInstallmentLoose(description);
     const merchant = inst.cleanMerchant || description;
+
+    // Ano correto baseado no mês de vencimento (faturas mostram parcelas passadas)
+    const txYear = resolveYearForTransaction(mm, due, fallbackYear, inst.current);
+    const date = new Date(Date.UTC(txYear, mm - 1, dd));
+    if (isNaN(date.getTime())) continue;
 
     const t: NormalizedTx = {
       externalId: '',
@@ -281,9 +315,47 @@ export function extractTransactionsFromText(
     return result.sort((a, b) => a.date.getTime() - b.date.getTime());
   }
 
+  // Heurística adicional: se uma parcela N/M aparece em data > mês de vencimento
+  // da fatura, e não há "1/M" da mesma série em `current`, é provavelmente uma
+  // projeção futura (cobre casos onde a fatura não usa header reconhecido).
+  // Esta heurística é CONSERVADORA: só move pra future se:
+  //  - tem installmentCurrent > 1 e installmentTotal definidos
+  //  - data > fim do mês de vencimento (parcelas futuras vencem em meses seguintes)
+  //  - amount > 0 (despesa, não estorno)
+  function applyFutureHeuristic(curArr: NormalizedTx[], futArr: NormalizedTx[]): {
+    current: NormalizedTx[]; future: NormalizedTx[];
+  } {
+    if (!due) return { current: curArr, future: futArr };
+    // Última data válida da fatura "atual": último dia do mês de vencimento.
+    const dueMonthEnd = new Date(Date.UTC(due.year, due.month, 0));
+    const movedToFuture: NormalizedTx[] = [];
+    const remainingCurrent: NormalizedTx[] = [];
+    for (const t of curArr) {
+      const isFutureLike =
+        t.installmentCurrent != null &&
+        t.installmentTotal != null &&
+        t.installmentCurrent > 1 &&
+        t.amountCents > 0 &&
+        t.date > dueMonthEnd;
+      if (isFutureLike) {
+        movedToFuture.push({ ...t, isFuture: true });
+      } else {
+        remainingCurrent.push(t);
+      }
+    }
+    return {
+      current: remainingCurrent,
+      future: [...futArr, ...movedToFuture],
+    };
+  }
+
+  const dedupedCurrent = dedupAll(current, true);
+  const dedupedFuture = dedupAll(future, false);
+  const adjusted = applyFutureHeuristic(dedupedCurrent, dedupedFuture);
+
   return {
-    current: dedupAll(current, true),
-    future: dedupAll(future, false),
+    current: adjusted.current,
+    future: adjusted.future,
   };
 }
 
@@ -314,6 +386,20 @@ export async function parsePdfStatement(
       merchant: `${t.merchant}#FUT${t.installmentCurrent ?? 0}/${t.installmentTotal ?? 0}`,
       amountCents: t.amountCents,
     });
+  }
+
+  // Telemetria suave: detecta cenários suspeitos onde MUITAS parcelas N>1 ainda
+  // estão em `current` (provável fatura cujo header de "futuros" não foi reconhecido).
+  // Apenas loga — não muda o resultado (a heurística aplyFutureHeuristic já tentou
+  // remediar quando há mês de vencimento detectado).
+  const nonFirstInstallments = current.filter(
+    (t) => t.installmentCurrent != null && t.installmentCurrent > 1 && t.amountCents > 0,
+  ).length;
+  if (current.length > 0 && nonFirstInstallments / current.length > 0.4) {
+    console.warn(
+      `[pdf-parser] suspect: ${nonFirstInstallments}/${current.length} txs are non-first installments; ` +
+      `due=${due ? `${due.month}/${due.year}` : 'unknown'} — fatura pode ter header de futuras não reconhecido.`,
+    );
   }
 
   const totalAmountCents = current.reduce((s, t) => s + t.amountCents, 0);
