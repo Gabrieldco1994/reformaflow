@@ -4,7 +4,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/auth-context';
-import { Plus, Trash2, ChevronRight } from 'lucide-react';
+import { Plus, Trash2, ChevronRight, LineChart } from 'lucide-react';
+import Link from 'next/link';
 import { Modal } from '@/components/ui/modal';
 
 interface Project {
@@ -148,6 +149,26 @@ export default function ProjectsPage() {
           Meus Projetos
         </h1>
       </div>
+
+      {/* Card destaque: Visão Financeira Consolidada */}
+      {visibleProjects.length > 0 && (
+        <Link
+          href="/financeiro"
+          className="block mb-4 md:mb-6 rounded-2xl bg-gradient-to-br from-darc-velvet to-darc-maroon p-4 md:p-5 text-darc-linen hover:shadow-darc-hero active:scale-[0.99] transition-all"
+        >
+          <div className="flex items-center gap-3 md:gap-4">
+            <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-darc-linen/15 flex items-center justify-center flex-shrink-0">
+              <LineChart className="w-5 h-5 md:w-6 md:h-6" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] tracking-[0.2em] uppercase text-darc-pink-logo/80">Visão Geral</p>
+              <p className="font-editorial italic text-lg md:text-xl text-darc-linen leading-tight">Saúde financeira consolidada</p>
+              <p className="text-xs md:text-sm text-darc-linen/70 mt-0.5">Todos os seus projetos juntos</p>
+            </div>
+            <ChevronRight className="w-5 h-5 text-darc-linen/60 flex-shrink-0" />
+          </div>
+        </Link>
+      )}
 
       {/* Modal de criação (sheet em mobile, center em desktop) */}
       <Modal

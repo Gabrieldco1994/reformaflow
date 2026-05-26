@@ -393,13 +393,24 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6 md:space-y-8">
-      <header className="hidden md:block">
-        <p className="text-[10px] tracking-[0.2em] uppercase text-darc-velvet/60">Visão geral</p>
+      <Link
+        href="/financeiro"
+        className="hidden md:inline-flex items-center gap-1.5 text-[11px] tracking-[0.18em] uppercase text-darc-velvet/60 hover:text-darc-red transition-colors"
+      >
+        ← Visão Geral
+      </Link>
+      <header className="hidden md:block -mt-4">
+        <p className="text-[10px] tracking-[0.2em] uppercase text-darc-velvet/60">Visão geral do projeto</p>
         <h1 className="font-editorial italic text-3xl text-darc-velvet">{projectName}</h1>
       </header>
       <header className="md:hidden -mt-2">
-        <p className="text-[10px] tracking-[0.2em] uppercase text-darc-velvet/60">Dashboard</p>
-        <h1 className="font-editorial italic text-2xl text-darc-velvet leading-tight">{projectName}</h1>
+        <Link
+          href="/financeiro"
+          className="text-[10px] tracking-[0.18em] uppercase text-darc-velvet/60 hover:text-darc-red"
+        >
+          ← Visão Geral
+        </Link>
+        <h1 className="font-editorial italic text-2xl text-darc-velvet leading-tight mt-1">{projectName}</h1>
       </header>
       {isFinancial && <FinancialDashboard projectId={projectId} projectType={projectType} />}
       {isManagement && <ManagementDashboard projectId={projectId} projectType={projectType} />}

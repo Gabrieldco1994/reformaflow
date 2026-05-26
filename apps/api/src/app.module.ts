@@ -28,6 +28,7 @@ import { ScheduleModule } from './schedule/schedule.module';
 import { CreditCardModule } from './credit-card/credit-card.module';
 import { BankAccountModule } from './bank-account/bank-account.module';
 import { MerchantClassifierModule } from './merchant-classifier/merchant-classifier.module';
+import { TenantFinancialModule } from './tenant-financial/tenant-financial.module';
 
 const UPLOADS_DIR = (() => {
   const raw = process.env['UPLOADS_DIR'];
@@ -64,6 +65,7 @@ const UPLOADS_DIR = (() => {
     CreditCardModule,
     BankAccountModule,
     MerchantClassifierModule,
+    TenantFinancialModule,
   ],
   providers: [
     {
