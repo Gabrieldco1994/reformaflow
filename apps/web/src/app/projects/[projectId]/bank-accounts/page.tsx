@@ -3,9 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
-import { Landmark, Plus, Upload, Trash2, Link2, ArrowDownLeft } from 'lucide-react';
+import { Landmark, Plus, Trash2, Link2, ArrowDownLeft } from 'lucide-react';
 import BankAccountFormModal from './_components/BankAccountFormModal';
-import ImportBankStatementModal from './_components/ImportBankStatementModal';
 import BankLinkSuggestionsPanel from './_components/BankLinkSuggestionsPanel';
 import BankReceiptLinkPanel from './_components/BankReceiptLinkPanel';
 import type { BankAccountRow } from './_types';
@@ -17,7 +16,6 @@ export default function BankAccountsPage() {
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<BankAccountRow | null>(null);
-  const [importing, setImporting] = useState<BankAccountRow | null>(null);
   const [linksFor, setLinksFor] = useState<BankAccountRow | null>(null);
   const [receiptLinksFor, setReceiptLinksFor] = useState<BankAccountRow | null>(null);
 
@@ -84,12 +82,6 @@ export default function BankAccountsPage() {
               </div>
               <div className="flex gap-2">
                 <button
-                  onClick={() => setImporting(a)}
-                  className="px-3 py-2 text-sm border rounded-lg flex items-center gap-1 hover:bg-gray-50"
-                >
-                  <Upload className="w-4 h-4" /> Importar extrato
-                </button>
-                <button
                   onClick={() => setLinksFor(a)}
                   className="px-3 py-2 text-sm border rounded-lg flex items-center gap-1 hover:bg-gray-50"
                 >
@@ -125,14 +117,6 @@ export default function BankAccountsPage() {
           account={editing}
           onClose={() => { setFormOpen(false); setEditing(null); }}
           onSaved={() => { setFormOpen(false); setEditing(null); void load(); }}
-        />
-      )}
-      {importing && (
-        <ImportBankStatementModal
-          projectId={projectId}
-          account={importing}
-          onClose={() => setImporting(null)}
-          onCommitted={() => { setImporting(null); void load(); }}
         />
       )}
       {linksFor && (

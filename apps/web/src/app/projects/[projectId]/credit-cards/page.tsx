@@ -4,9 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
-import { CreditCard, Plus, Upload, Trash2, Link2 } from 'lucide-react';
+import { CreditCard, Plus, Trash2, Link2 } from 'lucide-react';
 import CardFormModal from './_components/CardFormModal';
-import ImportStatementModal from './_components/ImportStatementModal';
 import LinkSuggestionsPanel from './_components/LinkSuggestionsPanel';
 import type { CardRow } from './_types';
 
@@ -17,7 +16,6 @@ export default function CreditCardsPage() {
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<CardRow | null>(null);
-  const [importing, setImporting] = useState<CardRow | null>(null);
   const [linksFor, setLinksFor] = useState<CardRow | null>(null);
 
   const load = useCallback(async () => {
@@ -82,12 +80,6 @@ export default function CreditCardsPage() {
               </div>
               <div className="flex gap-2">
                 <button
-                  onClick={() => setImporting(c)}
-                  className="px-3 py-2 text-sm border rounded-lg flex items-center gap-1 hover:bg-gray-50"
-                >
-                  <Upload className="w-4 h-4" /> Importar fatura
-                </button>
-                <button
                   onClick={() => setLinksFor(c)}
                   className="px-3 py-2 text-sm border rounded-lg flex items-center gap-1 hover:bg-gray-50"
                 >
@@ -117,14 +109,6 @@ export default function CreditCardsPage() {
           card={editing}
           onClose={() => { setFormOpen(false); setEditing(null); }}
           onSaved={() => { setFormOpen(false); setEditing(null); void load(); }}
-        />
-      )}
-      {importing && (
-        <ImportStatementModal
-          projectId={projectId}
-          card={importing}
-          onClose={() => setImporting(null)}
-          onCommitted={() => { setImporting(null); void load(); }}
         />
       )}
       {linksFor && (

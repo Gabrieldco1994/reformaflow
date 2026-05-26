@@ -50,6 +50,7 @@ import {
 import { StatusBadge } from './_components/StatusBadge';
 import { CompráveisView } from './_components/CompraveisView';
 import { MobileExpenseList } from './_components/MobileExpenseList';
+import ImportLauncher from './_components/ImportLauncher';
 
 interface TenantProjectRef {
   id: string;
@@ -709,6 +710,13 @@ export default function ExpensesPage() {
             <Button variant="secondary" onClick={openPlanForm}>
               <Plus className="w-4 h-4" /> Planejar
             </Button>
+            <ImportLauncher
+              projectId={PROJECT_ID}
+              onImported={() => {
+                queryClient.invalidateQueries({ queryKey: ['expenses', PROJECT_ID] });
+                queryClient.invalidateQueries({ queryKey: ['cash-flow', PROJECT_ID] });
+              }}
+            />
             <Button onClick={openPayOptions}>
               <CreditCard className="w-4 h-4" /> Pagar
             </Button>
