@@ -281,7 +281,19 @@ export class BudgetAllocationService {
 
     const totalAllocated = allocations.reduce((sum, a) => sum + a.valor, 0);
 
+    const available = totalReceipts - totalAllocated;
+
+    // Debug log (remove in production)
+    console.log('[BudgetAllocation] calculateAvailableBudget:', {
+      projectId: sourceProjectId,
+      receiptsCount: receipts.length,
+      totalReceipts,
+      allocationsCount: allocations.length,
+      totalAllocated,
+      available,
+    });
+
     // Ensure we never return negative values
-    return Math.max(0, totalReceipts - totalAllocated);
+    return Math.max(0, available);
   }
 }
