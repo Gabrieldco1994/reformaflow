@@ -31,7 +31,7 @@ jobs:
         run: cd packages/domain && npm run build
 
       - name: Generate Prisma Client
-        run: cd apps/api && npx prisma generate --schema=../../prisma/schema.prisma
+        run: cd apps/api && npx prisma@5 generate --schema=../../prisma/schema.prisma
 
       - name: Type check - Domain
         run: cd packages/domain && npx tsc --noEmit
@@ -80,7 +80,7 @@ jobs:
         run: cd packages/domain && npm run build
 
       - name: Generate Prisma Client
-        run: cd apps/api && npx prisma generate --schema=../../prisma/schema.prisma
+        run: cd apps/api && npx prisma@5 generate --schema=../../prisma/schema.prisma
 
       - name: Run tests
         run: cd apps/api && npx jest --no-coverage
@@ -131,7 +131,7 @@ jobs:
         run: cd packages/domain && npm run build
 
       - name: Generate Prisma Client
-        run: cd apps/api && npx prisma generate --schema=../../prisma/schema.prisma
+        run: cd apps/api && npx prisma@5 generate --schema=../../prisma/schema.prisma
 
       - name: Build NestJS
         run: cd apps/api && npx nest build
