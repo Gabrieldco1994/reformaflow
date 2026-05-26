@@ -138,7 +138,7 @@ export function VinculosFields({
 
   const selectedCross = crossExpenses.find((e) => e.id === value.linkedExpenseId);
   const displayLabel = selectedCross
-    ? `${selectedCross.titulo || selectedCross.fornecedor || '—'} · ${formatCurrency(selectedCross.valorTotal)} · ${selectedCross.project?.name ?? ''}`
+    ? `${selectedCross.titulo || selectedCross.fornecedor || '—'} · ${formatCurrency(selectedCross.valorTotal / 100)} · ${selectedCross.project?.name ?? ''}`
     : initialLinkedExpenseLabel ?? null;
 
   return (
@@ -212,7 +212,7 @@ export function VinculosFields({
                       {exp.titulo || exp.fornecedor || '—'}
                     </div>
                     <div className="text-xs text-gray-500">
-                      {formatCurrency(exp.valorTotal)} · {exp.status} · {exp.project?.name ?? '—'}
+                      {formatCurrency(exp.valorTotal / 100)} · {exp.status} · {exp.project?.name ?? '—'}
                       {exp.dataPagamento ? ` · ${formatDateBR(exp.dataPagamento)}` : ''}
                     </div>
                   </button>

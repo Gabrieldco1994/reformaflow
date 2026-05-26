@@ -320,7 +320,7 @@ function LocalPickerModal({
                   {e.titulo || e.fornecedor || '—'}
                 </div>
                 <div className="text-xs text-gray-500">
-                  {formatCurrency(e.valorTotal)} · {e.status}
+                  {formatCurrency(e.valorTotal / 100)} · {e.status}
                 </div>
               </button>
             ))}

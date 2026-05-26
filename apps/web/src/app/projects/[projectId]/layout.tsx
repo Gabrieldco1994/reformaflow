@@ -60,6 +60,7 @@ const FEATURE_NAV: Record<string, NavItem[]> = {
   PESSOAL: [
     { href: 'monthly', label: 'Mensal', icon: CalendarClock, module: 'monthlyOverview' },
     { href: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, module: 'dashboard' },
+    { href: 'budget-allocation', label: 'Alocação Budget', icon: Wallet, module: 'dashboard' },
     { href: 'expenses', label: 'Despesas', icon: Receipt, module: 'expenses' },
     { href: 'receipts', label: 'Recebimentos', icon: Wallet, module: 'receipts' },
     { href: 'cash-flow', label: 'Fluxo de Caixa', icon: ArrowLeftRight, module: 'cashFlow' },
