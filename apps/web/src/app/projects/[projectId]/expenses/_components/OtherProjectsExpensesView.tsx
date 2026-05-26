@@ -171,7 +171,7 @@ export function OtherProjectsExpensesView({ projectId, localExpenses }: Props) {
                         <div className="text-xs text-gray-500 truncate max-w-xs">{exp.fornecedor}</div>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-right font-mono">{formatCurrency(exp.valorTotal)}</td>
+                    <td className="px-3 py-2 text-right font-mono">{formatCurrency(exp.valorTotal / 100)}</td>
                     <td className="px-3 py-2 text-gray-600">
                       {exp.dataPagamento ? formatDateBR(exp.dataPagamento) : '—'}
                     </td>
@@ -212,7 +212,7 @@ export function OtherProjectsExpensesView({ projectId, localExpenses }: Props) {
                             onClick={() =>
                               setPickerOpen({
                                 targetId: exp.id,
-                                targetLabel: `${exp.titulo || exp.fornecedor || '—'} · ${formatCurrency(exp.valorTotal)}`,
+                                targetLabel: `${exp.titulo || exp.fornecedor || '—'} · ${formatCurrency(exp.valorTotal / 100)}`,
                               })
                             }
                           >

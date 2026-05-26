@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { ExpenseTypeLabels } from '@reformaflow/domain';
 import { CreateCreditCardDto, UpdateCreditCardDto } from './dto/credit-card.dto';
 import { parseStatementBuffer, type SourceHint, type NormalizedTx, type ParseResult } from './parsers';
 
@@ -591,7 +592,7 @@ export class CreditCardService {
       expenseId: expense.id,
       valor: tx.amountCents,
       tipo: 'DESPESA' as const,
-      categoria: expenseType,
+      categoria: ExpenseTypeLabels[expenseType as keyof typeof ExpenseTypeLabels] ?? expenseType,
       subcategoria: card.nickname,
       formaPagamento: 'CARTAO_CREDITO',
     };
