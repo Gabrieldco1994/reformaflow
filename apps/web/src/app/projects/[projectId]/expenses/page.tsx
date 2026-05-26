@@ -5,7 +5,7 @@ import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
-import { Plus, CreditCard, Pencil, Trash2, Check, X, ChevronDown, ChevronRight, Filter, Search, ExternalLink, ImageOff, GripVertical, BarChart3, Mic } from 'lucide-react';
+import { Plus, CreditCard, Pencil, Trash2, Check, X, ChevronDown, ChevronRight, Filter, Search, ExternalLink, ShoppingCart, ImageOff, GripVertical, BarChart3, Mic } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -48,6 +48,7 @@ import {
   getExpenseOptions,
 } from './_types';
 import { StatusBadge } from './_components/StatusBadge';
+import { CompráveisView } from './_components/CompraveisView';
 import { OtherProjectsExpensesView } from './_components/OtherProjectsExpensesView';
 import { VinculosFields } from './_components/VinculosFields';
 import { MobileExpenseList } from './_components/MobileExpenseList';
@@ -91,7 +92,7 @@ export default function ExpensesPage() {
   const showRooms = projectType === 'REFORMA';
   const showMaoDeObra = projectType === 'REFORMA';
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'despesas' | 'outros'>('despesas');
+  const [activeTab, setActiveTab] = useState<'despesas' | 'compraveis' | 'outros'>('despesas');
   const [formModalOpen, setFormModalOpen] = useState(false);
   const [payModalOpen, setPayModalOpen] = useState(false);
   const [editing, setEditing] = useState<Expense | null>(null);
@@ -704,6 +705,12 @@ export default function ExpensesPage() {
               onClick={() => setActiveTab('despesas')}
               className={`px-4 py-1.5 transition-colors font-medium ${activeTab === 'despesas' ? 'bg-orange-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
             >Despesas</button>
+            {projectType === 'REFORMA' && (
+              <button
+                onClick={() => setActiveTab('compraveis')}
+                className={`px-4 py-1.5 transition-colors font-medium border-l border-gray-200 flex items-center gap-1.5 ${activeTab === 'compraveis' ? 'bg-orange-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+              ><ShoppingCart className="w-3.5 h-3.5" /> Compráveis</button>
+            )}
             <button
               onClick={() => setActiveTab('outros')}
               className={`px-4 py-1.5 transition-colors font-medium border-l border-gray-200 flex items-center gap-1.5 ${activeTab === 'outros' ? 'bg-orange-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
@@ -743,7 +750,9 @@ export default function ExpensesPage() {
         )}
       </div>
 
-      {activeTab === 'outros' ? (
+      {activeTab === 'compraveis' ? (
+        <CompráveisView expenses={expenses} tipoLabel={tipoLabel} />
+      ) : activeTab === 'outros' ? (
         <OtherProjectsExpensesView projectId={PROJECT_ID} localExpenses={expenses} />
       ) : (
       <>
