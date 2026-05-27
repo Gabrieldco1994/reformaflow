@@ -21,6 +21,7 @@ const DEFAULT_TIPO_OPTIONS: TipoOption[] = [
   { value: 'BONUS', label: 'Bônus' },
   { value: 'VENDA_ACAO', label: 'Venda de Ação' },
   { value: 'ORCAMENTO_INICIAL', label: 'Orçamento Inicial' },
+  { value: 'ALOCACAO_ORCAMENTO', label: '💰 Alocação de Orçamento' },
 ];
 
 const PESSOAL_TIPO_OPTIONS: TipoOption[] = [
@@ -40,6 +41,8 @@ const PESSOAL_TIPO_OPTIONS: TipoOption[] = [
   { value: 'FII', label: 'Fundo Imobiliário', group: 'Investimentos' },
   { value: 'CRIPTO', label: 'Criptomoeda', group: 'Investimentos' },
   { value: 'RESGATE', label: 'Resgate', group: 'Investimentos' },
+  // Transferências
+  { value: 'ALOCACAO_ORCAMENTO', label: '💰 Alocação de Orçamento', group: 'Transferências' },
   // Outros
   { value: 'ALUGUEL', label: 'Aluguel', group: 'Outros' },
   { value: 'REEMBOLSO', label: 'Reembolso', group: 'Outros' },
@@ -115,6 +118,12 @@ export default function ReceiptsPage() {
   const { data: receipts = [], isLoading } = useQuery<Receipt[]>({
     queryKey: ['receipts', PROJECT_ID],
     queryFn: () => api.get(`/projects/${PROJECT_ID}/receipts`),
+  });
+
+  // Fetch budget allocations TO this project
+  const { data: budgetAllocations = [] } = useQuery<any[]>({
+    queryKey: ['budget-allocations-target', PROJECT_ID],
+    queryFn: () => api.get(`/budget-allocations?targetProjectId=${PROJECT_ID}`),
   });
 
   const invalidate = () => {
@@ -281,8 +290,27 @@ export default function ReceiptsPage() {
   const tipoLabel = (tipo: string) => TIPO_OPTIONS.find((o) => o.value === tipo)?.label ?? tipo;
 
   const grouped = useMemo(() => {
+    // Combine receipts and budget allocations
+    const allReceipts: Receipt[] = [...receipts];
+    
+    // Add budget allocations as synthetic receipts
+    for (const alloc of budgetAllocations) {
+      allReceipts.push({
+        id: `alloc-${alloc.id}`,
+        projectId: PROJECT_ID,
+        tenantId: '',
+        valor: alloc.valor,
+        data: `${alloc.mes}-01`, // First day of month
+        tipo: 'ALOCACAO_ORCAMENTO' as any,
+        status: 'EM_CAIXA',
+        createdAt: alloc.createdAt,
+        updatedAt: alloc.updatedAt,
+        deletedAt: null,
+      } as Receipt);
+    }
+    
     const byTipo = new Map<string, Receipt[]>();
-    for (const r of receipts) {
+    for (const r of allReceipts) {
       const arr = byTipo.get(r.tipo) ?? [];
       arr.push(r);
       byTipo.set(r.tipo, arr);
@@ -310,7 +338,7 @@ export default function ReceiptsPage() {
         totalEmCaixa: g.items.filter((r) => r.status === 'EM_CAIXA').reduce((s, r) => s + r.valor, 0),
         totalPrevisto: g.items.filter((r) => r.status === 'PREVISTO').reduce((s, r) => s + r.valor, 0),
       }));
-  }, [receipts, TIPO_OPTIONS]);
+  }, [receipts, budgetAllocations, TIPO_OPTIONS, PROJECT_ID]);
 
   const totalGeral = grouped.reduce((s, g) => s + g.total, 0);
   const totalEmCaixa = grouped.reduce((s, g) => s + g.totalEmCaixa, 0);
