@@ -23,10 +23,15 @@ function ReceiptsKpiCardsImpl({ receipts }: Props) {
     let monthEmCaixa = 0;
     let monthPrevisto = 0;
     let nextMonthTotal = 0;
-    let totalConsolidado = 0;
+    let totalConsolidadoEmCaixa = 0;
+    let totalConsolidadoGeral = 0;
 
     for (const r of receipts) {
-      totalConsolidado += r.valor;
+      totalConsolidadoGeral += r.valor;
+      if (r.status === 'EM_CAIXA') {
+        totalConsolidadoEmCaixa += r.valor;
+      }
+      
       const k = mesKeyFromDate(r.data);
       if (k === curKey) {
         if (r.status === 'EM_CAIXA') monthEmCaixa += r.valor;
@@ -45,7 +50,8 @@ function ReceiptsKpiCardsImpl({ receipts }: Props) {
       monthTotal,
       progress,
       nextMonthTotal,
-      totalConsolidado,
+      totalConsolidadoEmCaixa,
+      totalConsolidadoGeral,
       curLabel: mesLabelFromKey(curKey),
       nextLabel: mesLabelFromKey(nextKey),
     };
@@ -111,16 +117,32 @@ function ReceiptsKpiCardsImpl({ receipts }: Props) {
       </div>
 
       {/* Card terciário: total consolidado (nova linha) */}
-      <div className="rounded-2xl bg-gradient-to-br from-darc-velvet to-darc-velvet/80 shadow-darc-soft border border-darc-velvet p-3 flex items-center justify-between">
-        <div>
-          <p className="text-[10px] uppercase tracking-[0.2em] text-white/80">
-            Total Consolidado
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {/* Em Caixa Total */}
+        <div className="rounded-2xl bg-gradient-to-br from-emerald-600 to-emerald-700 shadow-darc-soft border border-emerald-700 p-4 flex items-center justify-between">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-white/80">
+              Total em Caixa
+            </p>
+            <p className="text-[11px] text-white/90 mt-0.5">Recebimentos confirmados</p>
+          </div>
+          <p className="font-bold text-white tabular-nums text-2xl">
+            {stats.totalConsolidadoEmCaixa > 0 ? formatCurrency(stats.totalConsolidadoEmCaixa / 100) : '—'}
           </p>
-          <p className="text-[11px] text-white/90 mt-0.5">Todos os recebimentos cadastrados</p>
         </div>
-        <p className="font-bold text-white tabular-nums text-xl">
-          {stats.totalConsolidado > 0 ? formatCurrency(stats.totalConsolidado / 100) : '—'}
-        </p>
+
+        {/* Total Geral (Caixa + Previsto) */}
+        <div className="rounded-2xl bg-gradient-to-br from-darc-velvet to-darc-velvet/80 shadow-darc-soft border border-darc-velvet p-4 flex items-center justify-between">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-white/80">
+              Total Geral
+            </p>
+            <p className="text-[11px] text-white/90 mt-0.5">Caixa + Previsto</p>
+          </div>
+          <p className="font-bold text-white tabular-nums text-2xl">
+            {stats.totalConsolidadoGeral > 0 ? formatCurrency(stats.totalConsolidadoGeral / 100) : '—'}
+          </p>
+        </div>
       </div>
     </div>
   );
