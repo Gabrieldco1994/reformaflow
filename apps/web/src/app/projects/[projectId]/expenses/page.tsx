@@ -41,7 +41,7 @@ import {
   getExpenseTypesForProject,
   buildInstallments,
 } from '@reformaflow/domain';
-import { CATEGORIA_MAO_DE_OBRA_OPTIONS, FORMA_PAGAMENTO_OPTIONS } from '@/lib/expense-options';
+import { CATEGORIA_MAO_DE_OBRA_OPTIONS, FORMA_PAGAMENTO_OPTIONS, tipoLabel, formaLabel, catMaoLabel } from '@/lib/expense-options';
 import {
   type InlineNewRow,
   type LinkPreview,
@@ -146,10 +146,6 @@ export default function ExpensesPage() {
   const [speechApi, setSpeechApi] = useState<SpeechRecognitionCtor | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const voiceFeatureEnabled = true;
-
-  const tipoLabel = (t: string) => TIPO_DESPESA_OPTIONS.find((o) => o.value === t)?.label ?? t;
-  const formaLabel = (f: string) => FORMA_PAGAMENTO_OPTIONS.find((o) => o.value === f)?.label ?? f;
-  const catMaoLabel = (c: string) => CATEGORIA_MAO_DE_OBRA_OPTIONS.find((o) => o.value === c)?.label ?? c;
 
   const { data: expenses = [], isLoading } = useQuery<Expense[]>({
     queryKey: ['expenses', PROJECT_ID],

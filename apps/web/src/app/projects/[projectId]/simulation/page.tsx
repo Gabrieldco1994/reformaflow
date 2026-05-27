@@ -7,7 +7,6 @@ import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
 import type { CashFlowEntry } from '@/types';
-import { TIPO_DESPESA_OPTIONS, CATEGORIA_MAO_DE_OBRA_OPTIONS, tipoLabel } from '@/lib/expense-options';
 import { CompareView } from './_components/CompareView';
 import { MonthlyProjection } from './_components/MonthlyProjection';
 import { ShoppableSimulationView } from './_components/ShoppableSimulationView';

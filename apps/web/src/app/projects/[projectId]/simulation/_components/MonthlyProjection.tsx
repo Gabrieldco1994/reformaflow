@@ -7,8 +7,9 @@ import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import type { CashFlowEntry } from '@/types';
-import { TIPO_DESPESA_OPTIONS, CATEGORIA_MAO_DE_OBRA_OPTIONS, tipoLabel } from '@/lib/expense-options';
+import { CATEGORIA_MAO_DE_OBRA_OPTIONS, tipoLabel } from '@/lib/expense-options';
 import { projectMonthlyExpenses } from '@reformaflow/domain';
+import { getExpenseOptions } from '../../expenses/_types';
 import type { MonthlyRow, SimRow, SimTipoCard, PayConfig } from '../_types';
 
 /* ═══════════════════════════════════════════════════════════
@@ -33,7 +34,8 @@ export function MonthlyProjection({
   onResetDespesas: () => void;
   onRemovePayConfig: (id: string) => void;
 }) {
-  const { projectId: PROJECT_ID } = useProject();
+  const { projectId: PROJECT_ID, projectType } = useProject();
+  const TIPO_DESPESA_OPTIONS = useMemo(() => getExpenseOptions(projectType), [projectType]);
   // Fetch cash flow entries (read-only — never modifies real data)
   const { data: cfEntries = [] } = useQuery<CashFlowEntry[]>({
     queryKey: ['cash-flow', PROJECT_ID],
@@ -310,7 +312,7 @@ export function MonthlyProjection({
     const map = new Map<string, string>();
     for (const o of TIPO_DESPESA_OPTIONS) map.set(o.label, o.value);
     return map;
-  }, []);
+  }, [TIPO_DESPESA_OPTIONS]);
 
   // Projected total per tipo key (from monthly groups + extras)
   const projByTipoKey = useMemo(() => {
