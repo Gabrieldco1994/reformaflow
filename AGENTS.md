@@ -1,5 +1,51 @@
 # reformaflow — Agent Guidance
 
+## ✅ Checklist Obrigatório Antes de Qualquer Commit
+
+Execute **sempre** antes de `git commit`, independente do tamanho da mudança:
+
+### Se mudou `packages/domain/src/`:
+```bash
+cd packages/domain && npm run build
+cd ../..
+```
+
+### Verificações de tipo (rodar da raiz):
+```bash
+cd packages/domain && npx tsc --noEmit
+cd ../../apps/api && npx tsc --noEmit
+cd ../../apps/web && npx tsc --noEmit
+```
+
+### Se mudou a API:
+```bash
+npm --workspace @reformaflow/api run build
+```
+
+### Se mudou o schema Prisma:
+```bash
+# 1. BACKUP OBRIGATÓRIO
+cp prisma/dev.db prisma/dev.db.bak-$(date +%Y%m%d-%H%M%S)
+
+# 2. Criar migration
+cd apps/api && npx prisma migrate dev --name <descricao> --schema=../../prisma/schema.prisma
+```
+
+### Verificação de artefatos perdidos:
+```bash
+# Garante que nest build não gerou .js dentro de src/app (causa "Duplicate page")
+find apps/web/src -name "page.js" -o -name "layout.js" | head -5
+# Se encontrar algo: find apps/web/src -name "page.js" -delete
+```
+
+### ❌ Nunca commitar se:
+- Qualquer `tsc --noEmit` retornar erros
+- `nest build` retornar erros
+- Existirem `console.log` de debug com dados de usuário
+- O domain foi modificado mas `npm run build` não foi rodado
+
+---
+
 Monorepo Turbo (pnpm) com **Next 14 (App Router)** + **NestJS** + **Prisma/SQLite** + **Tailwind** + React Query + Zustand + recharts + dnd-kit.
 
 ## Layout
