@@ -22,7 +22,7 @@ COPY packages/domain ./packages/domain
 COPY apps/api ./apps/api
 
 # Build domain first (referenced by api at runtime via path mapping/transpile)
-RUN npm --workspace @reformaflow/domain run build || true
+RUN npm --workspace @reformaflow/domain run build
 
 # Generate Prisma client (sqlite) and build NestJS
 RUN npx prisma generate --schema=prisma/schema.prisma
