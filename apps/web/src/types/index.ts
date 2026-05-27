@@ -58,6 +58,8 @@ export type ReceiptType =
   | 'ORCAMENTO_INICIAL'
   | 'SALARIO'
   | 'ADIANTAMENTO_SALARIO'
+  | 'DECIMO_TERCEIRO'
+  | 'FERIAS'
   | 'FREELANCE'
   | 'ALUGUEL'
   | 'REEMBOLSO'

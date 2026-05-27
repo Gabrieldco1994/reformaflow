@@ -33,6 +33,8 @@ const PESSOAL_TIPO_OPTIONS: TipoOption[] = [
   // Trabalho
   { value: 'SALARIO', label: 'Salário', group: 'Trabalho' },
   { value: 'ADIANTAMENTO_SALARIO', label: 'Adiantamento de Salário', group: 'Trabalho' },
+  { value: 'DECIMO_TERCEIRO', label: '13º Salário', group: 'Trabalho' },
+  { value: 'FERIAS', label: 'Férias', group: 'Trabalho' },
   { value: 'FREELANCE', label: 'Freelance', group: 'Trabalho' },
   { value: 'BONUS', label: 'Bônus', group: 'Trabalho' },
   { value: 'COMISSAO', label: 'Comissão', group: 'Trabalho' },
