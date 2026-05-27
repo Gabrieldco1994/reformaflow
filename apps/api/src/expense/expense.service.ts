@@ -119,19 +119,42 @@ export class ExpenseService {
     return expense;
   }
 
-  async findAll(tenantId: string, projectId: string) {
+  async findAll(
+    tenantId: string,
+    projectId: string,
+    opts: { page?: number; pageSize?: number } = {},
+  ) {
     await this.validateProject(tenantId, projectId);
 
-    return this.prisma.expense.findMany({
-      where: {
-        projectId,
-        tenantId,
-        deletedAt: null,
-        settledByExpenseId: null,
-      },
-      include: { room: true },
-      orderBy: { createdAt: 'desc' },
-    });
+    const pageSize = Math.min(Math.max(opts.pageSize ?? 100, 10), 500);
+    const page = Math.max(opts.page ?? 1, 1);
+    const skip = (page - 1) * pageSize;
+
+    const where: Prisma.ExpenseWhereInput = {
+      projectId,
+      tenantId,
+      deletedAt: null,
+      settledByExpenseId: null,
+    };
+
+    const [items, total] = await Promise.all([
+      this.prisma.expense.findMany({
+        where,
+        include: { room: true },
+        orderBy: { createdAt: 'desc' },
+        take: pageSize,
+        skip,
+      }),
+      this.prisma.expense.count({ where }),
+    ]);
+
+    return {
+      items,
+      total,
+      page,
+      pageSize,
+      totalPages: Math.max(Math.ceil(total / pageSize), 1),
+    };
   }
 
   async findPlanned(tenantId: string, projectId: string) {

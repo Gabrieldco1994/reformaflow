@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Modal } from '@/components/ui/modal';
-import type { Expense, ExpenseFormData, Project } from '@/types';
+import type { Expense, ExpenseFormData, ExpensesPage, Project } from '@/types';
 import { toast } from 'sonner';
 import {
   DndContext,
@@ -147,10 +147,11 @@ export default function ExpensesPage() {
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const voiceFeatureEnabled = true;
 
-  const { data: expenses = [], isLoading } = useQuery<Expense[]>({
+  const { data: expensesPage, isLoading } = useQuery<ExpensesPage>({
     queryKey: ['expenses', PROJECT_ID],
-    queryFn: () => api.get(`/projects/${PROJECT_ID}/expenses`),
+    queryFn: () => api.get(`/projects/${PROJECT_ID}/expenses?pageSize=500`),
   });
+  const expenses = expensesPage?.items ?? [];
 
   const { data: project } = useQuery<Project>({
     queryKey: ['project', PROJECT_ID],
@@ -187,9 +188,9 @@ export default function ExpensesPage() {
         influenceProjects.map(async (p) => {
           if (p.type === 'REFORMA') {
             const exps = await api
-              .get<Array<{ valorTotal?: number | null }>>(`/projects/${p.id}/expenses`)
-              .catch(() => []);
-            const totalAccumulated = exps.reduce((sum, e) => sum + (e.valorTotal ?? 0), 0);
+              .get<{ items: Array<{ valorTotal?: number | null }> }>(`/projects/${p.id}/expenses?pageSize=500`)
+              .catch(() => ({ items: [] as Array<{ valorTotal?: number | null }> }));
+            const totalAccumulated = (exps.items ?? []).reduce((sum, e) => sum + (e.valorTotal ?? 0), 0);
             return {
               id: p.id,
               name: p.name,

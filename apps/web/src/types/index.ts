@@ -112,6 +112,14 @@ export interface Expense {
 
 export type ExpenseStatus = 'PLANEJADO' | 'PAGO';
 
+export interface ExpensesPage {
+  items: Expense[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
 export interface ExpenseFormData {
   tipoDespesa: string;
   categoriaMaoDeObra?: string | null;

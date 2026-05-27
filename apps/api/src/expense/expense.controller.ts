@@ -36,12 +36,17 @@ export class ExpenseController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'Listar despesas do projeto' })
+  @ApiOperation({ summary: 'Listar despesas do projeto (paginado)' })
   findAll(
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
   ) {
-    return this.service.findAll(tenantId, projectId);
+    return this.service.findAll(tenantId, projectId, {
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
   }
 
   @Get('planned')

@@ -7,7 +7,7 @@ import { ExpenseTypeLabels } from '@reformaflow/domain';
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
-import type { CashFlowEntry, Expense } from '@/types';
+import type { CashFlowEntry, Expense, ExpensesPage } from '@/types';
 import { tipoLabel } from '@/lib/expense-options';
 import type { PayConfig, Scenario, SimulationData } from '../_types';
 
@@ -154,10 +154,11 @@ export function ShoppableSimulationView() {
     queryFn: () => api.get(`/projects/${PROJECT_ID}/cash-flow`),
   });
 
-  const { data: expenses = [] } = useQuery<Expense[]>({
+  const { data: expensesPage } = useQuery<ExpensesPage>({
     queryKey: ['expenses', PROJECT_ID],
-    queryFn: () => api.get(`/projects/${PROJECT_ID}/expenses`),
+    queryFn: () => api.get(`/projects/${PROJECT_ID}/expenses?pageSize=500`),
   });
+  const expenses: Expense[] = expensesPage?.items ?? [];
 
   const scenarioQueries = useQueries({
     queries: scenarios.map((s) => ({
