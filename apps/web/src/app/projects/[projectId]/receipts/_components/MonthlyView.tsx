@@ -1,5 +1,5 @@
 'use client';
-import React from 'react';
+import React, { useState } from 'react';
 import {
   ChevronDown,
   ChevronRight,
@@ -7,6 +7,8 @@ import {
   Trash2,
   CheckCircle2,
   Clock,
+  Check,
+  X,
 } from 'lucide-react';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import type { Receipt } from '@/types';
@@ -19,6 +21,8 @@ interface Props {
   tipoLabel: (tipo: string) => string;
   openEdit: (receipt: Receipt) => void;
   onDelete: (id: string) => void;
+  onToggleStatus: (id: string, newStatus: 'EM_CAIXA' | 'PREVISTO') => void;
+  onQuickUpdate: (id: string, valor: number, data: string) => void;
   emptyMsg: string;
 }
 
@@ -52,8 +56,13 @@ function MonthlyViewImpl({
   tipoLabel,
   openEdit,
   onDelete,
+  onToggleStatus,
+  onQuickUpdate,
   emptyMsg,
 }: Props) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValor, setEditValor] = useState('');
+  const [editData, setEditData] = useState('');
   if (grouped.length === 0) {
     return (
       <div className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen px-4 py-8 text-center text-darc-velvet/50 text-sm italic">
@@ -150,69 +159,138 @@ function MonthlyViewImpl({
 
             {!collapsed && (
               <div className="divide-y divide-darc-linen border-t border-darc-linen">
-                {g.items.map((r) => (
-                  <div
-                    key={r.id}
-                    className="px-4 py-2.5 hover:bg-darc-cream/30 transition-colors group"
-                  >
-                    <div className="flex items-center gap-3">
-                      {/* Dia (apenas o número) */}
-                      <div className="flex-shrink-0 w-9 text-center">
-                        <p className="text-[10px] text-darc-velvet/50 uppercase">
-                          {formatDateBR(r.data).slice(3, 6).replace('/', '')}
-                        </p>
-                        <p className="text-base font-semibold text-darc-velvet tabular-nums leading-none">
-                          {formatDateBR(r.data).slice(0, 2)}
-                        </p>
-                      </div>
+                {g.items.map((r) => {
+                  const isEditing = editingId === r.id;
+                  const canEdit = !r.id.startsWith('alloc-');
 
-                      {/* Tipo + Status */}
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm text-darc-velvet font-medium truncate">
-                          {tipoLabel(r.tipo)}
-                        </p>
-                        <div className="mt-0.5">
-                          <StatusInline status={r.status} />
+                  return (
+                    <div
+                      key={r.id}
+                      className="px-4 py-2.5 hover:bg-darc-cream/30 transition-colors group"
+                    >
+                      {isEditing ? (
+                        // Modo de edição inline
+                        <div className="flex items-center gap-2">
+                          <div className="flex-shrink-0 w-9" />
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={editValor}
+                            onChange={(e) => setEditValor(e.target.value)}
+                            placeholder="Valor"
+                            className="w-24 border border-darc-mist rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-darc-mist"
+                            autoFocus
+                          />
+                          <input
+                            type="date"
+                            value={editData}
+                            onChange={(e) => setEditData(e.target.value)}
+                            className="w-32 border border-darc-mist rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-darc-mist"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const valor = parseFloat(editValor);
+                              if (valor && editData) {
+                                onQuickUpdate(r.id, valor, editData);
+                                setEditingId(null);
+                              }
+                            }}
+                            className="p-1.5 rounded-full hover:bg-emerald-100"
+                            title="Salvar"
+                          >
+                            <Check className="w-4 h-4 text-emerald-700" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingId(null)}
+                            className="p-1.5 rounded-full hover:bg-darc-linen/60"
+                            title="Cancelar"
+                          >
+                            <X className="w-4 h-4 text-darc-velvet/60" />
+                          </button>
                         </div>
-                      </div>
+                      ) : (
+                        // Modo de visualização normal
+                        <div className="flex items-center gap-3">
+                          {/* Dia (apenas o número) */}
+                          <div className="flex-shrink-0 w-9 text-center">
+                            <p className="text-[10px] text-darc-velvet/50 uppercase">
+                              {formatDateBR(r.data).slice(3, 6).replace('/', '')}
+                            </p>
+                            <p className="text-base font-semibold text-darc-velvet tabular-nums leading-none">
+                              {formatDateBR(r.data).slice(0, 2)}
+                            </p>
+                          </div>
 
-                      {/* Valor */}
-                      <p
-                        className={`font-semibold tabular-nums text-sm flex-shrink-0 ${
-                          r.status === 'EM_CAIXA'
-                            ? 'text-darc-velvet'
-                            : 'text-darc-velvet/60'
-                        }`}
-                      >
-                        {formatCurrency(r.valor / 100)}
-                      </p>
+                          {/* Tipo + Status (clicável para toggle) */}
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm text-darc-velvet font-medium truncate">
+                              {tipoLabel(r.tipo)}
+                            </p>
+                            <div className="mt-0.5">
+                              {canEdit ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const newStatus = r.status === 'EM_CAIXA' ? 'PREVISTO' : 'EM_CAIXA';
+                                    onToggleStatus(r.id, newStatus);
+                                  }}
+                                  className="hover:opacity-70 transition-opacity"
+                                  title="Clique para alternar status"
+                                >
+                                  <StatusInline status={r.status} />
+                                </button>
+                              ) : (
+                                <StatusInline status={r.status} />
+                              )}
+                            </div>
+                          </div>
 
-                      {/* Ações (escondem em hover) */}
-                      <div className="flex items-center gap-0.5 flex-shrink-0 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-                        {!r.id.startsWith('alloc-') && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => openEdit(r)}
-                              aria-label="Editar"
-                              className="p-1.5 rounded-full hover:bg-darc-linen/60"
-                            >
-                              <Pencil className="w-3.5 h-3.5 text-darc-velvet/70" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => onDelete(r.id)}
-                              aria-label="Excluir"
-                              className="p-1.5 rounded-full hover:bg-darc-red-bright/10"
-                            >
-                              <Trash2 className="w-3.5 h-3.5 text-darc-red" />
-                            </button>
-                          </>
-                        )}
-                      </div>
+                          {/* Valor */}
+                          <p
+                            className={`font-semibold tabular-nums text-sm flex-shrink-0 ${
+                              r.status === 'EM_CAIXA'
+                                ? 'text-darc-velvet'
+                                : 'text-darc-velvet/60'
+                            }`}
+                          >
+                            {formatCurrency(r.valor / 100)}
+                          </p>
+
+                          {/* Ações (escondem em hover) */}
+                          <div className="flex items-center gap-0.5 flex-shrink-0 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                            {canEdit && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingId(r.id);
+                                    setEditValor((r.valor / 100).toFixed(2));
+                                    setEditData(r.data.slice(0, 10));
+                                  }}
+                                  aria-label="Editar rápido"
+                                  className="p-1.5 rounded-full hover:bg-darc-linen/60"
+                                  title="Edição rápida"
+                                >
+                                  <Pencil className="w-3.5 h-3.5 text-darc-velvet/70" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => onDelete(r.id)}
+                                  aria-label="Excluir"
+                                  className="p-1.5 rounded-full hover:bg-darc-red-bright/10"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5 text-darc-red" />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

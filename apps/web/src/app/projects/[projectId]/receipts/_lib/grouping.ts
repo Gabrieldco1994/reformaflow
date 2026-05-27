@@ -31,7 +31,7 @@ export function groupByMes(receipts: Receipt[]): GrupoPorMes[] {
     else byMes.set(key, [r]);
   }
   const sorted = Array.from(byMes.entries()).sort((a, b) =>
-    a[0] < b[0] ? 1 : -1,
+    a[0] < b[0] ? -1 : 1,
   );
   return sorted.map(([key, items]) => {
     const sortedItems = items

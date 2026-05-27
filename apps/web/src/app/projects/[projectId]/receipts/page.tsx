@@ -172,6 +172,18 @@ export default function ReceiptsPage() {
     onSuccess: () => { invalidate(); closeModal(); },
   });
 
+  const toggleStatusMutation = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: 'EM_CAIXA' | 'PREVISTO' }) =>
+      api.patch(`/projects/${PROJECT_ID}/receipts/${id}`, { status }),
+    onSuccess: invalidate,
+  });
+
+  const quickUpdateMutation = useMutation({
+    mutationFn: ({ id, valor, data }: { id: string; valor: number; data: string }) =>
+      api.patch(`/projects/${PROJECT_ID}/receipts/${id}`, { valor, data }),
+    onSuccess: invalidate,
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/projects/${PROJECT_ID}/receipts/${id}`),
     onSuccess: invalidate,
@@ -519,6 +531,8 @@ export default function ReceiptsPage() {
           tipoLabel={tipoLabel}
           openEdit={openEdit}
           onDelete={(id) => deleteMutation.mutate(id)}
+          onToggleStatus={(id, status) => toggleStatusMutation.mutate({ id, status })}
+          onQuickUpdate={(id, valor, data) => quickUpdateMutation.mutate({ id, valor, data })}
           emptyMsg="Nenhum recebimento cadastrado."
         />
       ) : (
