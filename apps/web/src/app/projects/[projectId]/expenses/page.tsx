@@ -35,8 +35,6 @@ import {
   ExpenseTypeLabels,
   ExpenseStatus,
   PaymentForm,
-  type ParsedVoiceExpense,
-  parseVoiceExpense,
   type ProjectType as PType,
   getExpenseTypesForProject,
   buildInstallments,
@@ -49,6 +47,7 @@ import {
   makeEmptyNewRow,
   getExpenseOptions,
 } from './_types';
+import { useVoiceExpense } from './_hooks/useVoiceExpense';
 import { StatusBadge } from './_components/StatusBadge';
 import { CompráveisView } from './_components/CompraveisView';
 import { OtherProjectsExpensesView } from './_components/OtherProjectsExpensesView';
@@ -71,20 +70,6 @@ interface RecurringBillLite {
 interface MaintenanceLogLite {
   custo?: number | null;
 }
-
-interface SpeechRecognitionLike {
-  lang: string;
-  interimResults: boolean;
-  maxAlternatives: number;
-  onstart: (() => void) | null;
-  onend: (() => void) | null;
-  onerror: ((event: { error: string }) => void) | null;
-  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-  start: () => void;
-  stop: () => void;
-}
-
-type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
 
 const toIsoDate = (date: Date) => date.toISOString().slice(0, 10);
 
@@ -136,16 +121,6 @@ export default function ExpensesPage() {
   });
   const updateFilter = (key: string, value: string) => setFilters((f) => ({ ...f, [key]: value }));
   const [searchText, setSearchText] = useState('');
-  const [voiceModalOpen, setVoiceModalOpen] = useState(false);
-  const [voiceSupported, setVoiceSupported] = useState(false);
-  const [voiceListening, setVoiceListening] = useState(false);
-  const [voiceTranscript, setVoiceTranscript] = useState('');
-  const [voiceError, setVoiceError] = useState('');
-  const [voiceData, setVoiceData] = useState<ParsedVoiceExpense | null>(null);
-  const [voiceFornecedor, setVoiceFornecedor] = useState('');
-  const [speechApi, setSpeechApi] = useState<SpeechRecognitionCtor | null>(null);
-  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
-  const voiceFeatureEnabled = true;
 
   const { data: expensesPage, isLoading } = useQuery<ExpensesPage>({
     queryKey: ['expenses', PROJECT_ID],
@@ -560,131 +535,32 @@ export default function ExpensesPage() {
 
   const COL_SPAN = showRooms ? 9 : 8;
 
-  useEffect(() => {
-    if (!voiceFeatureEnabled) return;
-    if (typeof window === 'undefined') return;
-    const win = window as Window & {
-      SpeechRecognition?: SpeechRecognitionCtor;
-      webkitSpeechRecognition?: SpeechRecognitionCtor;
-    };
-    const ctor = win.SpeechRecognition ?? win.webkitSpeechRecognition ?? null;
-    // IMPORTANTE: React trata o argumento de useState como updater function quando é função.
-    // Como SpeechRecognition é um construtor (function), precisamos wrappear em callback
-    // para guardá-lo como valor, e não invocá-lo. Sem isso: TypeError "use 'new' operator".
-    setSpeechApi(() => ctor);
-    setVoiceSupported(Boolean(ctor));
-  }, [voiceFeatureEnabled]);
-
-  useEffect(() => {
-    if (!voiceFeatureEnabled) return;
-    return () => {
-      try {
-        recognitionRef.current?.stop();
-      } catch {
-        // no-op: navegadores podem lançar se já estiver parado
-      } finally {
-        recognitionRef.current = null;
-      }
-    };
-  }, [voiceFeatureEnabled]);
-
-  const parseVoiceTranscript = useCallback((rawText: string): ParsedVoiceExpense => {
-    return parseVoiceExpense({
-      transcript: rawText,
-      allowedExpenseTypes: TIPO_DESPESA_OPTIONS.map((o) => o.value as ExpenseType),
-      defaultExpenseType,
-    });
-  }, [TIPO_DESPESA_OPTIONS, defaultExpenseType]);
-
-  const startVoiceCapture = useCallback(() => {
-    if (!speechApi) {
-      setVoiceError('Seu navegador não suporta lançamento por voz.');
-      return;
-    }
-    setVoiceError('');
-    setVoiceTranscript('');
-    setVoiceData(null);
-    setVoiceFornecedor('');
-
-    try {
-      recognitionRef.current?.stop();
-      const recognition = new speechApi();
-      recognitionRef.current = recognition;
-      recognition.lang = 'pt-BR';
-      recognition.interimResults = false;
-      recognition.maxAlternatives = 1;
-      recognition.onstart = () => setVoiceListening(true);
-      recognition.onend = () => setVoiceListening(false);
-      recognition.onerror = (event) => {
-        setVoiceListening(false);
-        if (event.error === 'not-allowed') {
-          setVoiceError('Microfone bloqueado. Libere a permissão para continuar.');
-          return;
-        }
-        setVoiceError('Não consegui captar sua voz. Tente novamente.');
-      };
-      recognition.onresult = (event) => {
-        const text = event.results[0]?.[0]?.transcript?.trim() ?? '';
-        setVoiceTranscript(text);
-        if (!text) {
-          setVoiceError('Não consegui entender o áudio.');
-          setVoiceData(null);
-          return;
-        }
-        try {
-          const parsed = parseVoiceTranscript(text);
-          setVoiceData(parsed);
-          setVoiceFornecedor('');
-          if (!parsed.valor) {
-            setVoiceError('Não consegui identificar o valor. Fale algo como "gastei 85 reais no mercado".');
-          } else {
-            setVoiceError('');
-          }
-        } catch {
-          setVoiceData(null);
-          setVoiceError('Ocorreu um erro ao interpretar o comando de voz.');
-        }
-      };
-      recognition.start();
-    } catch {
-      setVoiceListening(false);
-      setVoiceError('Falha ao iniciar o microfone neste dispositivo.');
-    }
-  }, [parseVoiceTranscript, speechApi]);
-
-  function saveVoiceExpense() {
-    if (!voiceData || !voiceData.valor) return;
-    const data: ExpenseFormData = {
-      tipoDespesa: voiceData.tipoDespesa,
-      categoriaMaoDeObra: null,
-      roomId: null,
-      valor: voiceData.valor,
-      quantidade: 1,
-      titulo: voiceData.titulo || null,
-      fornecedor: voiceFornecedor || null,
-      formaPagamento: voiceData.formaPagamento,
-      status: voiceData.status as 'PLANEJADO' | 'PAGO',
-      dataPagamento: null,
-      quantidadeParcela: null,
-      dataInicioParcela: null,
-    };
-    if (voiceData.formaPagamento === PaymentForm.A_VISTA) {
-      data.dataPagamento = voiceData.dataReferencia || toIsoDate(new Date());
-    } else {
-      data.quantidadeParcela = voiceData.quantidadeParcela || 1;
-      data.dataInicioParcela = voiceData.dataReferencia || toIsoDate(new Date());
-    }
-
-    createMutation.mutate(data, {
-      onSuccess: () => {
-        setVoiceModalOpen(false);
-        setVoiceTranscript('');
-        setVoiceData(null);
-        setVoiceFornecedor('');
-        setVoiceError('');
-      },
-    });
-  }
+  // ─── Lançamento por voz (hook isolado em _hooks/useVoiceExpense.ts) ───
+  const allowedExpenseTypes = useMemo(
+    () => TIPO_DESPESA_OPTIONS.map((o) => o.value as ExpenseType),
+    [TIPO_DESPESA_OPTIONS],
+  );
+  const voice = useVoiceExpense({
+    allowedExpenseTypes,
+    defaultExpenseType,
+    onCreate: (data, onSuccess) => createMutation.mutate(data, { onSuccess }),
+  });
+  const {
+    voiceModalOpen,
+    voiceSupported,
+    voiceListening,
+    voiceTranscript,
+    voiceError,
+    voiceData,
+    setVoiceData,
+    voiceFornecedor,
+    setVoiceFornecedor,
+    openVoiceModal,
+    closeVoiceModal,
+    clearVoiceTranscript,
+    startVoiceCapture,
+    saveVoiceExpense,
+  } = voice;
 
   return (
     <div className="space-y-4">
@@ -711,20 +587,12 @@ export default function ExpensesPage() {
         </div>
         {activeTab === 'despesas' && (
           <div className="flex flex-wrap gap-2">
-            {voiceFeatureEnabled && (
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  setVoiceModalOpen(true);
-                  setVoiceError('');
-                  setVoiceTranscript('');
-                  setVoiceData(null);
-                  setVoiceFornecedor('');
-                }}
-              >
-                <Mic className="w-4 h-4" /> Lançar por voz
-              </Button>
-            )}
+            <Button
+              variant="secondary"
+              onClick={openVoiceModal}
+            >
+              <Mic className="w-4 h-4" /> Lançar por voz
+            </Button>
             <Button variant="secondary" onClick={openPlanForm}>
               <Plus className="w-4 h-4" /> Planejar
             </Button>
@@ -1383,19 +1251,9 @@ export default function ExpensesPage() {
         </button>
       )}
 
-      {voiceFeatureEnabled && (
       <Modal
         open={voiceModalOpen}
-        onClose={() => {
-          try {
-            recognitionRef.current?.stop();
-          } catch {
-            // no-op
-          }
-          setVoiceModalOpen(false);
-          setVoiceListening(false);
-          setVoiceFornecedor('');
-        }}
+        onClose={closeVoiceModal}
         title="Lançar despesa por voz"
       >
         <div className="space-y-4">
@@ -1415,12 +1273,7 @@ export default function ExpensesPage() {
               <Button
                 type="button"
                 variant="secondary"
-                onClick={() => {
-                  setVoiceTranscript('');
-                  setVoiceData(null);
-                  setVoiceFornecedor('');
-                  setVoiceError('');
-                }}
+                onClick={clearVoiceTranscript}
               >
                 Limpar
               </Button>
@@ -1551,10 +1404,7 @@ export default function ExpensesPage() {
             <Button
               type="button"
               variant="secondary"
-              onClick={() => {
-                setVoiceModalOpen(false);
-                setVoiceFornecedor('');
-              }}
+              onClick={closeVoiceModal}
             >
               Cancelar
             </Button>
@@ -1568,29 +1418,22 @@ export default function ExpensesPage() {
           </div>
         </div>
       </Modal>
-      )}
 
       {/* Pay Options Modal */}
       <Modal open={payModalOpen} onClose={() => setPayModalOpen(false)} title="Pagar Despesa">
         <div className="space-y-4">
           <Button className="w-full" onClick={openNewPaidForm}>Nova Despesa (já paga)</Button>
-          {voiceFeatureEnabled && (
-            <Button
-              type="button"
-              variant="secondary"
-              className="w-full"
-              onClick={() => {
-                setPayModalOpen(false);
-                setVoiceModalOpen(true);
-                setVoiceError('');
-                setVoiceTranscript('');
-                setVoiceData(null);
-                setVoiceFornecedor('');
-              }}
-            >
-              <Mic className="w-4 h-4" /> Lançar por voz
-            </Button>
-          )}
+          <Button
+            type="button"
+            variant="secondary"
+            className="w-full"
+            onClick={() => {
+              setPayModalOpen(false);
+              openVoiceModal();
+            }}
+          >
+            <Mic className="w-4 h-4" /> Lançar por voz
+          </Button>
           <div className="border-t pt-4">
             <p className="text-sm font-medium text-gray-700 mb-2">Pagar Despesa Planejada:</p>
             {plannedExpenses.length === 0 ? (
