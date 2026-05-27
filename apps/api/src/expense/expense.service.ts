@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
 import { ExpenseTypeLabels, LaborCategoryLabels } from '@reformaflow/domain';
+import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class ExpenseService {
@@ -161,7 +162,7 @@ export class ExpenseService {
   ) {
     await this.validateProject(tenantId, currentProjectId);
     const limit = Math.min(Math.max(opts.limit ?? 100, 1), 500);
-    const where: any = {
+    const where: Prisma.ExpenseWhereInput = {
       tenantId,
       deletedAt: null,
       settledByExpenseId: null,
