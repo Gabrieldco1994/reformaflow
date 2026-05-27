@@ -9,6 +9,7 @@ import {
   Clock,
   Check,
   X,
+  Copy,
 } from 'lucide-react';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import type { Receipt } from '@/types';
@@ -72,6 +73,8 @@ function MonthlyViewImpl({
   const [newData, setNewData] = useState('');
   const [newTipo, setNewTipo] = useState(tipoOptions[0]?.value || '');
   const [newStatus, setNewStatus] = useState('PREVISTO');
+  const [copyingId, setCopyingId] = useState<string | null>(null);
+  const [copyData, setCopyData] = useState('');
   if (grouped.length === 0) {
     return (
       <div className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen px-4 py-8 text-center text-darc-velvet/50 text-sm italic">
@@ -170,6 +173,7 @@ function MonthlyViewImpl({
               <div className="divide-y divide-darc-linen border-t border-darc-linen">
                 {g.items.map((r) => {
                   const isEditing = editingId === r.id;
+                  const isCopying = copyingId === r.id;
                   const canEdit = !r.id.startsWith('alloc-');
 
                   return (
@@ -177,7 +181,49 @@ function MonthlyViewImpl({
                       key={r.id}
                       className="px-4 py-2.5 hover:bg-darc-cream/30 transition-colors group"
                     >
-                      {isEditing ? (
+                      {isCopying ? (
+                        // Modo de cópia - apenas altera a data
+                        <div className="flex items-center gap-2 bg-blue-50 -mx-4 -my-2.5 px-4 py-2.5">
+                          <div className="flex-shrink-0 w-9" />
+                          <div className="flex items-center gap-2 flex-1">
+                            <span className="text-xs text-blue-700 font-medium flex-shrink-0">
+                              Copiar para:
+                            </span>
+                            <input
+                              type="date"
+                              value={copyData}
+                              onChange={(e) => setCopyData(e.target.value)}
+                              className="w-36 border border-blue-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                              autoFocus
+                            />
+                            <span className="text-xs text-darc-velvet/70">
+                              {formatCurrency(r.valor / 100)} · {tipoLabel(r.tipo)}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (copyData) {
+                                onQuickCreate(r.valor / 100, copyData, r.tipo, r.status);
+                                setCopyingId(null);
+                                setCopyData('');
+                              }
+                            }}
+                            className="p-1.5 rounded-full hover:bg-blue-200 flex-shrink-0"
+                            title="Confirmar cópia"
+                          >
+                            <Check className="w-4 h-4 text-blue-700" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setCopyingId(null)}
+                            className="p-1.5 rounded-full hover:bg-darc-linen/60 flex-shrink-0"
+                            title="Cancelar"
+                          >
+                            <X className="w-4 h-4 text-darc-velvet/60" />
+                          </button>
+                        </div>
+                      ) : isEditing ? (
                         // Modo de edição inline
                         <div className="flex items-center gap-2">
                           <div className="flex-shrink-0 w-9" />
@@ -286,6 +332,21 @@ function MonthlyViewImpl({
                           <div className="flex items-center gap-0.5 flex-shrink-0 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                             {canEdit && (
                               <>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setCopyingId(r.id);
+                                    // Sugere próximo mês
+                                    const currentDate = new Date(r.data);
+                                    currentDate.setMonth(currentDate.getMonth() + 1);
+                                    setCopyData(currentDate.toISOString().slice(0, 10));
+                                  }}
+                                  aria-label="Copiar para outro mês"
+                                  className="p-1.5 rounded-full hover:bg-blue-100"
+                                  title="Copiar para outro mês"
+                                >
+                                  <Copy className="w-3.5 h-3.5 text-blue-600" />
+                                </button>
                                 <button
                                   type="button"
                                   onClick={() => {
