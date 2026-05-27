@@ -48,6 +48,8 @@ import {
   getExpenseOptions,
 } from './_types';
 import { useVoiceExpense } from './_hooks/useVoiceExpense';
+import { useExpenseFilters } from './_hooks/useExpenseFilters';
+import { ExpenseKpiCards } from './_components/ExpenseKpiCards';
 import { StatusBadge } from './_components/StatusBadge';
 import { CompráveisView } from './_components/CompraveisView';
 import { OtherProjectsExpensesView } from './_components/OtherProjectsExpensesView';
@@ -108,19 +110,6 @@ export default function ExpensesPage() {
   const [expandedExpenses, setExpandedExpenses] = useState<Set<string>>(new Set());
   // Expand/collapse per category
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
-
-  // Filters
-  const [showFilters, setShowFilters] = useState(false);
-  const [filters, setFilters] = useState({
-    tipoDespesa: '',
-    room: '',
-    titulo: '',
-    fornecedor: '',
-    formaPagamento: '',
-    status: '',
-  });
-  const updateFilter = (key: string, value: string) => setFilters((f) => ({ ...f, [key]: value }));
-  const [searchText, setSearchText] = useState('');
 
   const { data: expensesPage, isLoading } = useQuery<ExpensesPage>({
     queryKey: ['expenses', PROJECT_ID],
@@ -210,56 +199,18 @@ export default function ExpensesPage() {
     [project]
   );
 
-  const filteredExpenses = useMemo(() => {
-    return expenses.filter((exp) => {
-      if (filters.tipoDespesa && exp.tipoDespesa !== filters.tipoDespesa) return false;
-      if (showRooms && filters.room) {
-        const roomName = exp.room?.name ?? '';
-        if (!roomName.toLowerCase().includes(filters.room.toLowerCase())) return false;
-      }
-      if (filters.titulo) {
-        if (!(exp.titulo ?? '').toLowerCase().includes(filters.titulo.toLowerCase())) return false;
-      }
-      if (filters.fornecedor) {
-        if (!(exp.fornecedor ?? '').toLowerCase().includes(filters.fornecedor.toLowerCase())) return false;
-      }
-      if (filters.formaPagamento && exp.formaPagamento !== filters.formaPagamento) return false;
-      if (filters.status && exp.status !== filters.status) return false;
-      // Global search
-      if (searchText) {
-        const s = searchText.toLowerCase();
-        const searchable = [
-          exp.titulo, exp.fornecedor, exp.room?.name,
-          tipoLabel(exp.tipoDespesa), formaLabel(exp.formaPagamento),
-        ].filter(Boolean).join(' ').toLowerCase();
-        if (!searchable.includes(s)) return false;
-      }
-      return true;
-    });
-  }, [expenses, filters, searchText, showRooms]);
-
-  const hasActiveFilters = Object.values(filters).some((v) => v !== '') || searchText !== '';
-
-  // Group filtered expenses by tipoDespesa (category)
-  const categorias = useMemo(() => {
-    const catMap = new Map<string, Expense[]>();
-    for (const exp of filteredExpenses) {
-      const cat = exp.tipoDespesa;
-      const arr = catMap.get(cat);
-      if (arr) arr.push(exp);
-      else catMap.set(cat, [exp]);
-    }
-    return Array.from(catMap.entries())
-      .map(([cat, items]) => ({
-        tipo: cat,
-        label: tipoLabel(cat),
-        expenses: items.sort((a, b) => b.valorTotal - a.valorTotal),
-        totalPlanejado: items.filter((e) => e.status === 'PLANEJADO').reduce((s, e) => s + e.valorTotal, 0),
-        totalPago: items.filter((e) => e.status === 'PAGO').reduce((s, e) => s + e.valorTotal, 0),
-        total: items.reduce((s, e) => s + e.valorTotal, 0),
-      }))
-      .sort((a, b) => b.total - a.total);
-  }, [filteredExpenses]);
+  const {
+    showFilters,
+    setShowFilters,
+    filters,
+    updateFilter,
+    clearFilters,
+    searchText,
+    setSearchText,
+    filteredExpenses,
+    hasActiveFilters,
+    categorias,
+  } = useExpenseFilters(expenses, showRooms);
 
   // KPIs
   const totalGeral = filteredExpenses.reduce((s, e) => s + e.valorTotal, 0);
@@ -618,75 +569,22 @@ export default function ExpensesPage() {
       <>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="rounded-lg border p-3 bg-orange-50 border-orange-200">
-          <p className="text-xs font-medium text-orange-600">{projectType === 'REFORMA' ? 'Total da Reforma' : 'Total Despesas'}</p>
-          <p className="text-lg font-bold text-orange-800 mt-0.5">
-            {formatCurrency((projectType === 'REFORMA' ? totalProjeto : totalGeral) / 100)}
-          </p>
-          <p className="text-[10px] text-orange-500 mt-0.5">
-            {projectType === 'REFORMA'
-              ? `${expenses.length} itens no projeto`
-              : `${filteredExpenses.length} itens`}
-          </p>
-          {projectType === 'REFORMA' && hasActiveFilters && (
-            <p className="text-[10px] text-orange-500/80 mt-0.5">
-              Filtros exibindo {formatCurrency(totalGeral / 100)} ({filteredExpenses.length} itens)
-            </p>
-          )}
-        </div>
-        <div className="rounded-lg border p-3 bg-amber-50 border-amber-200">
-          <p className="text-xs font-medium text-amber-600">Planejado</p>
-          <p className="text-lg font-bold text-amber-800 mt-0.5">{formatCurrency(totalPlanejado / 100)}</p>
-          <p className="text-[10px] text-amber-500 mt-0.5">{filteredExpenses.filter((e) => e.status === 'PLANEJADO').length} itens</p>
-        </div>
-        <div className="rounded-lg border p-3 bg-green-50 border-green-200">
-          <p className="text-xs font-medium text-green-600">Pago</p>
-          <p className="text-lg font-bold text-green-800 mt-0.5">{formatCurrency(totalPago / 100)}</p>
-          <p className="text-[10px] text-green-500 mt-0.5">{filteredExpenses.filter((e) => e.status === 'PAGO').length} itens</p>
-        </div>
-      </div>
-
-      {projectType === 'PESSOAL' && influenceProjects.length > 0 && (
-        <section className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-3 space-y-2">
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <div>
-              <p className="text-xs font-medium text-indigo-700">Influência de Reforma / Casa / Carro no Pessoal</p>
-              <p className="text-[11px] text-indigo-600">
-                CASA/CARRO consolidam mensalmente contas recorrentes e manutenção. REFORMA mostra o total acumulado das despesas.
-              </p>
-            </div>
-            <div className="text-right space-y-0.5">
-              {influenceTotal > 0 && (
-                <p className="text-sm font-bold text-indigo-800 tabular-nums">
-                  {formatCurrency(influenceTotal / 100)}/mês
-                </p>
-              )}
-              {influenceReformaTotal > 0 && (
-                <p className="text-[11px] font-semibold text-indigo-700 tabular-nums">
-                  + {formatCurrency(influenceReformaTotal / 100)} reforma (total)
-                </p>
-              )}
-            </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            {influenceSummary.map((p) => (
-              <div key={p.id} className="rounded-md border border-indigo-100 bg-white px-3 py-2 flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-800">{p.name}</p>
-                  <p className="text-[10px] uppercase tracking-wider text-gray-500">{p.type}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm font-semibold text-indigo-800 tabular-nums">
-                    {formatCurrency((p.isOneTime ? p.totalAccumulated : p.estimatedMonthly) / 100)}
-                  </p>
-                  <p className="text-[10px] text-indigo-500">{p.isOneTime ? 'total' : '/mês'}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+      <ExpenseKpiCards
+        projectType={projectType}
+        expensesCount={expenses.length}
+        filteredCount={filteredExpenses.length}
+        filteredPlanejadoCount={filteredExpenses.filter((e) => e.status === 'PLANEJADO').length}
+        filteredPagoCount={filteredExpenses.filter((e) => e.status === 'PAGO').length}
+        totalProjeto={totalProjeto}
+        totalGeral={totalGeral}
+        totalPlanejado={totalPlanejado}
+        totalPago={totalPago}
+        hasActiveFilters={hasActiveFilters}
+        showInfluencePanel={projectType === 'PESSOAL' && influenceProjects.length > 0}
+        influenceSummary={influenceSummary}
+        influenceTotal={influenceTotal}
+        influenceReformaTotal={influenceReformaTotal}
+      />
 
       {/* Search + Filter bar */}
       <div className="flex items-center gap-2">
@@ -718,7 +616,7 @@ export default function ExpensesPage() {
         </button>
         {hasActiveFilters && (
           <button
-            onClick={() => { setFilters({ tipoDespesa: '', room: '', titulo: '', fornecedor: '', formaPagamento: '', status: '' }); setSearchText(''); }}
+            onClick={clearFilters}
             className="text-xs text-blue-600 hover:text-blue-800 px-2 py-1.5"
           >
             Limpar
