@@ -1,11 +1,11 @@
 'use client';
 import { useProject } from '@/contexts/project-context';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
-import { Plus, Pencil, Trash2, Check, X, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, Check, X, ChevronDown, ChevronRight, ChevronUp, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -13,6 +13,11 @@ import { Modal } from '@/components/ui/modal';
 import React from 'react';
 import type { Receipt, ReceiptFormData } from '@/types';
 import { MobileReceiptList } from './_components/MobileReceiptList';
+import { ReceiptsKpiCards } from './_components/ReceiptsKpiCards';
+import { ViewToggle } from './_components/ViewToggle';
+import { MonthlyView } from './_components/MonthlyView';
+import { groupByMes, currentMonthKey } from './_lib/grouping';
+import type { ViewMode } from './_types';
 
 type TipoOption = { value: string; label: string; group?: string };
 
@@ -94,6 +99,9 @@ export default function ReceiptsPage() {
   const [newRow, setNewRow] = useState({ valor: '', data: '', tipo: defaultTipo, status: 'PREVISTO' });
   const [showNewRow, setShowNewRow] = useState(false);
   const [collapsedTipos, setCollapsedTipos] = useState<Set<string>>(new Set());
+  const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(new Set());
+  const [viewMode, setViewMode] = useState<ViewMode>('month');
+  const [personalCollapsed, setPersonalCollapsed] = useState(true);
   const [salaryValue, setSalaryValue] = useState('');
   const [salaryDay15Pct, setSalaryDay15Pct] = useState('40');
   const [monthsToGenerate, setMonthsToGenerate] = useState('12');
@@ -114,6 +122,27 @@ export default function ReceiptsPage() {
       return next;
     });
   };
+
+  const toggleMonth = (key: string) => {
+    setCollapsedMonths((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const key = `receipts:viewMode:${PROJECT_ID}`;
+    const saved = window.localStorage.getItem(key);
+    if (saved === 'month' || saved === 'type') setViewMode(saved);
+  }, [PROJECT_ID]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(`receipts:viewMode:${PROJECT_ID}`, viewMode);
+  }, [viewMode, PROJECT_ID]);
 
   const { data: receipts = [], isLoading } = useQuery<Receipt[]>({
     queryKey: ['receipts', PROJECT_ID],
@@ -289,18 +318,15 @@ export default function ReceiptsPage() {
 
   const tipoLabel = (tipo: string) => TIPO_OPTIONS.find((o) => o.value === tipo)?.label ?? tipo;
 
-  const grouped = useMemo(() => {
-    // Combine receipts and budget allocations
-    const allReceipts: Receipt[] = [...receipts];
-    
-    // Add budget allocations as synthetic receipts
+  const allReceipts = useMemo<Receipt[]>(() => {
+    const combined: Receipt[] = [...receipts];
     for (const alloc of budgetAllocations) {
-      allReceipts.push({
+      combined.push({
         id: `alloc-${alloc.id}`,
         projectId: PROJECT_ID,
         tenantId: '',
         valor: alloc.valor,
-        data: `${alloc.mes}-01`, // First day of month
+        data: `${alloc.mes}-01`,
         tipo: 'ALOCACAO_ORCAMENTO' as any,
         status: 'EM_CAIXA',
         createdAt: alloc.createdAt,
@@ -308,7 +334,18 @@ export default function ReceiptsPage() {
         deletedAt: null,
       } as Receipt);
     }
-    
+    return combined;
+  }, [receipts, budgetAllocations, PROJECT_ID]);
+
+  const groupedByMes = useMemo(() => groupByMes(allReceipts), [allReceipts]);
+
+  // Default: colapsar tudo exceto o mês atual.
+  useEffect(() => {
+    const curKey = currentMonthKey();
+    setCollapsedMonths(new Set(groupedByMes.filter((g) => g.mesKey !== curKey).map((g) => g.mesKey)));
+  }, [groupedByMes.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const grouped = useMemo(() => {
     const byTipo = new Map<string, Receipt[]>();
     for (const r of allReceipts) {
       const arr = byTipo.get(r.tipo) ?? [];
@@ -338,52 +375,55 @@ export default function ReceiptsPage() {
         totalEmCaixa: g.items.filter((r) => r.status === 'EM_CAIXA').reduce((s, r) => s + r.valor, 0),
         totalPrevisto: g.items.filter((r) => r.status === 'PREVISTO').reduce((s, r) => s + r.valor, 0),
       }));
-  }, [receipts, budgetAllocations, TIPO_OPTIONS, PROJECT_ID]);
+  }, [allReceipts, TIPO_OPTIONS]);
 
   const totalGeral = grouped.reduce((s, g) => s + g.total, 0);
-  const totalEmCaixa = grouped.reduce((s, g) => s + g.totalEmCaixa, 0);
-  const totalPrevisto = grouped.reduce((s, g) => s + g.totalPrevisto, 0);
 
   return (
     <div className="space-y-6">
       {/* Header desktop */}
       <div className="hidden md:flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <h1 className="text-2xl font-bold text-gray-900">Recebimentos</h1>
-        <Button onClick={openCreate}><Plus className="w-4 h-4" /> Novo Recebimento</Button>
-      </div>
-
-      {/* Header mobile editorial */}
-      <div className="md:hidden -mt-2">
-        <p className="text-[11px] uppercase tracking-[0.2em] text-darc-raspberry/70">Financeiro</p>
-        <h1 className="font-editorial italic text-3xl text-darc-velvet leading-tight">
-          Recebimentos
-        </h1>
-      </div>
-
-      {/* KPIs mobile (scroll horizontal) */}
-      <div className="md:hidden -mx-4 px-4 overflow-x-auto scrollbar-hide">
-        <div className="flex gap-3 min-w-min pb-2">
-          <div className="min-w-[140px] rounded-2xl bg-white shadow-darc-soft border border-darc-linen px-4 py-3">
-            <p className="text-[10px] uppercase tracking-wider text-darc-velvet/60">Total</p>
-            <p className="font-bold text-darc-velvet tabular-nums mt-1">{formatCurrency(totalGeral / 100)}</p>
-          </div>
-          <div className="min-w-[140px] rounded-2xl bg-darc-mist/30 shadow-darc-soft border border-darc-mist/50 px-4 py-3">
-            <p className="text-[10px] uppercase tracking-wider text-darc-velvet/70">Em caixa</p>
-            <p className="font-bold text-darc-velvet tabular-nums mt-1">{formatCurrency(totalEmCaixa / 100)}</p>
-          </div>
-          <div className="min-w-[140px] rounded-2xl bg-darc-sunfire/15 shadow-darc-soft border border-darc-sunfire/40 px-4 py-3">
-            <p className="text-[10px] uppercase tracking-wider text-darc-raspberry/80">Previsto</p>
-            <p className="font-bold text-darc-raspberry tabular-nums mt-1">{formatCurrency(totalPrevisto / 100)}</p>
-          </div>
+        <div className="flex items-center gap-3">
+          <ViewToggle value={viewMode} onChange={setViewMode} />
+          <Button onClick={openCreate}><Plus className="w-4 h-4" /> Novo Recebimento</Button>
         </div>
       </div>
 
+      {/* Header mobile editorial */}
+      <div className="md:hidden -mt-2 flex items-end justify-between gap-3">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.2em] text-darc-raspberry/70">Financeiro</p>
+          <h1 className="font-editorial italic text-3xl text-darc-velvet leading-tight">
+            Recebimentos
+          </h1>
+        </div>
+        <ViewToggle value={viewMode} onChange={setViewMode} />
+      </div>
+
+      {/* KPIs unificados (mobile + desktop) */}
+      <ReceiptsKpiCards receipts={allReceipts} />
+
       {isPessoal && (
-        <section className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 space-y-4">
-          <div>
-            <p className="text-[10px] uppercase tracking-[0.2em] text-darc-velvet/60">Planejamento pessoal</p>
-            <h2 className="font-editorial italic text-xl text-darc-velvet">Configuração rápida de recebimentos</h2>
-          </div>
+        <section className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen">
+          <button
+            type="button"
+            onClick={() => setPersonalCollapsed((v) => !v)}
+            className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-darc-cream/30 transition-colors"
+          >
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.2em] text-darc-velvet/60">Planejamento pessoal</p>
+              <h2 className="font-editorial italic text-lg text-darc-velvet leading-tight">Configuração rápida de recebimentos</h2>
+            </div>
+            {personalCollapsed ? (
+              <ChevronDown className="w-4 h-4 text-darc-velvet/60 flex-shrink-0" />
+            ) : (
+              <ChevronUp className="w-4 h-4 text-darc-velvet/60 flex-shrink-0" />
+            )}
+          </button>
+
+          {!personalCollapsed && (
+            <div className="px-4 pb-4 space-y-4 border-t border-darc-linen pt-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <Input
               label="Salário mensal total (R$)"
@@ -448,6 +488,8 @@ export default function ReceiptsPage() {
               )}
             </Button>
           </div>
+            </div>
+          )}
         </section>
       )}
 
@@ -469,6 +511,16 @@ export default function ReceiptsPage() {
 
       {isLoading ? (
         <p className="text-gray-500">Carregando...</p>
+      ) : viewMode === 'month' ? (
+        <MonthlyView
+          grouped={groupedByMes}
+          collapsedMonths={collapsedMonths}
+          toggleMonth={toggleMonth}
+          tipoLabel={tipoLabel}
+          openEdit={openEdit}
+          onDelete={(id) => deleteMutation.mutate(id)}
+          emptyMsg="Nenhum recebimento cadastrado."
+        />
       ) : (
         <>
           {/* Lista mobile */}
@@ -609,8 +661,8 @@ export default function ReceiptsPage() {
         </>
       )}
 
-      {/* Botão de adicionar linha rápida — só desktop */}
-      {!showNewRow && (
+      {/* Botão de adicionar linha rápida — só desktop e na view por tipo */}
+      {viewMode === 'type' && !showNewRow && (
         <button onClick={() => setShowNewRow(true)}
           className="hidden md:block w-full border-2 border-dashed border-darc-linen rounded-lg py-2 text-sm text-darc-velvet/50 hover:border-darc-red-pastel hover:text-darc-red hover:bg-darc-red-pastel/10 transition-colors">
           + Adicionar rápido (linha inline)
