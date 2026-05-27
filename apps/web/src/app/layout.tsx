@@ -3,6 +3,7 @@ import { Cormorant_Garamond, Jost } from 'next/font/google';
 import { SpeedInsights } from '@vercel/speed-insights/next';
 import './globals.css';
 import { Providers } from '@/lib/providers';
+import { Toaster } from 'sonner';
 
 const jost = Jost({
   subsets: ['latin'],
@@ -40,6 +41,7 @@ export default function RootLayout({
     <html lang="pt-BR" className={`${jost.variable} ${cormorant.variable}`}>
       <body className={jost.className}>
         <Providers>
+          <Toaster richColors position="top-right" />
           {children}
         </Providers>
         <SpeedInsights />
