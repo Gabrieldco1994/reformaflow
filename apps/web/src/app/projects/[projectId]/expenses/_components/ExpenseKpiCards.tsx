@@ -75,6 +75,33 @@ export function ExpenseKpiCards({
         </div>
       </div>
 
+      {/* Cards consolidados (Total Pago e Total Geral) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="rounded-2xl bg-gradient-to-br from-emerald-600 to-emerald-700 shadow-darc-soft border border-emerald-700 p-4 flex items-center justify-between">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-white/80">
+              Total Pago
+            </p>
+            <p className="text-[11px] text-white/90 mt-0.5">Despesas já pagas</p>
+          </div>
+          <p className="font-bold text-white tabular-nums text-2xl">
+            {totalPago > 0 ? formatCurrency(totalPago / 100) : '—'}
+          </p>
+        </div>
+
+        <div className="rounded-2xl bg-gradient-to-br from-darc-velvet to-darc-velvet/80 shadow-darc-soft border border-darc-velvet p-4 flex items-center justify-between">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-white/80">
+              Total Geral
+            </p>
+            <p className="text-[11px] text-white/90 mt-0.5">Pago + Planejado</p>
+          </div>
+          <p className="font-bold text-white tabular-nums text-2xl">
+            {(totalPago + totalPlanejado) > 0 ? formatCurrency((totalPago + totalPlanejado) / 100) : '—'}
+          </p>
+        </div>
+      </div>
+
       {showInfluencePanel && (
         <section className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-3 space-y-2">
           <div className="flex flex-wrap items-start justify-between gap-2">

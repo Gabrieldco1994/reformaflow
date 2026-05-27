@@ -1,7 +1,7 @@
 'use client';
 import { useProject } from '@/contexts/project-context';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
@@ -28,6 +28,9 @@ import { ExpenseDesktopTable } from './_components/ExpenseDesktopTable';
 import { CompráveisView } from './_components/CompraveisView';
 import { OtherProjectsExpensesView } from './_components/OtherProjectsExpensesView';
 import { MobileExpenseList } from './_components/MobileExpenseList';
+import { MonthlyExpenseView } from './_components/MonthlyExpenseView';
+import { ExpenseViewToggle, type ExpenseViewMode } from './_components/ExpenseViewToggle';
+import { groupExpensesByMes, currentMonthKey } from './_lib/grouping-by-month';
 import ImportLauncher from './_components/ImportLauncher';
 
 interface TenantProjectRef {
@@ -83,6 +86,21 @@ export default function ExpensesPage() {
   const [expandedExpenses, setExpandedExpenses] = useState<Set<string>>(new Set());
   // Expand/collapse per category
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
+  // View mode: por categoria (legado) ou por mês (nova UX igual recebimentos)
+  const [viewMode, setViewMode] = useState<ExpenseViewMode>('category');
+  const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(new Set());
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const key = `expenses:viewMode:${PROJECT_ID}`;
+    const saved = window.localStorage.getItem(key);
+    if (saved === 'category' || saved === 'month') setViewMode(saved);
+  }, [PROJECT_ID]);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(`expenses:viewMode:${PROJECT_ID}`, viewMode);
+  }, [viewMode, PROJECT_ID]);
 
   const { data: expensesPage, isLoading } = useQuery<ExpensesPage>({
     queryKey: ['expenses', PROJECT_ID],
@@ -190,6 +208,15 @@ export default function ExpensesPage() {
   const totalProjeto = expenses.reduce((s, e) => s + e.valorTotal, 0);
   const totalPlanejado = filteredExpenses.filter((e) => e.status === 'PLANEJADO').reduce((s, e) => s + e.valorTotal, 0);
   const totalPago = filteredExpenses.filter((e) => e.status === 'PAGO').reduce((s, e) => s + e.valorTotal, 0);
+
+  // Visão mensal
+  const groupedByMes = useMemo(() => groupExpensesByMes(filteredExpenses), [filteredExpenses]);
+  useEffect(() => {
+    const cur = currentMonthKey();
+    setCollapsedMonths(new Set(groupedByMes.filter((g) => g.mesKey !== cur).map((g) => g.mesKey)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupedByMes.length]);
+
   const influenceTotal = influenceSummary.reduce((sum, i) => sum + i.estimatedMonthly, 0);
   const influenceReformaTotal = influenceSummary
     .filter((i) => i.isOneTime)
@@ -252,6 +279,33 @@ export default function ExpensesPage() {
     onError: (e: Error) => {
       console.error('[expenses] pay failed', e);
       toast.error(`Erro ao pagar despesa: ${e.message}`);
+    },
+  });
+
+  // Toggle rápido de status (PAGO ↔ PLANEJADO)
+  const toggleStatusMutation = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: 'PAGO' | 'PLANEJADO' }) =>
+      api.patch(`/projects/${PROJECT_ID}/expenses/${id}`, { status }),
+    onSuccess: invalidate,
+    onError: (e: Error) => {
+      console.error('[expenses] toggle status failed', e);
+      toast.error(`Erro ao alterar status: ${e.message}`);
+    },
+  });
+
+  // Edição rápida (valor + data)
+  const quickUpdateMutation = useMutation({
+    mutationFn: ({ id, valorTotal, dataPagamento, quantidade }: { id: string; valorTotal: number; dataPagamento: string; quantidade: number }) => {
+      const valorUnit = quantidade > 0 ? valorTotal / quantidade : valorTotal;
+      return api.patch(`/projects/${PROJECT_ID}/expenses/${id}`, {
+        valor: valorUnit,
+        dataPagamento,
+      });
+    },
+    onSuccess: invalidate,
+    onError: (e: Error) => {
+      console.error('[expenses] quick update failed', e);
+      toast.error(`Erro ao atualizar: ${e.message}`);
     },
   });
 
@@ -510,7 +564,8 @@ export default function ExpensesPage() {
           </div>
         </div>
         {activeTab === 'despesas' && (
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 items-center">
+            <ExpenseViewToggle value={viewMode} onChange={setViewMode} />
             <Button
               variant="secondary"
               onClick={openVoiceModal}
@@ -588,6 +643,42 @@ export default function ExpensesPage() {
         </div>
       ) : (
         <>
+        {viewMode === 'month' ? (
+          <MonthlyExpenseView
+            grouped={groupedByMes}
+            collapsedMonths={collapsedMonths}
+            toggleMonth={(key) => {
+              setCollapsedMonths((prev) => {
+                const next = new Set(prev);
+                if (next.has(key)) next.delete(key);
+                else next.add(key);
+                return next;
+              });
+            }}
+            tipoLabel={tipoLabel}
+            tipoOptions={TIPO_DESPESA_OPTIONS}
+            openEdit={openEdit}
+            onDelete={(id) => deleteMutation.mutate(id)}
+            onToggleStatus={(id, status) => toggleStatusMutation.mutate({ id, status })}
+            onQuickUpdate={(id, valor, data) => {
+              const exp = expenses.find((x) => x.id === id);
+              const qty = exp?.quantidade ?? 1;
+              quickUpdateMutation.mutate({ id, valorTotal: valor, dataPagamento: data, quantidade: qty });
+            }}
+            onQuickCreate={(d) => {
+              createMutation.mutate({
+                tipoDespesa: d.tipoDespesa,
+                valor: d.valor,
+                quantidade: 1,
+                formaPagamento: 'A_VISTA',
+                dataPagamento: d.dataPagamento,
+                status: d.status,
+              } as ExpenseFormData);
+            }}
+            emptyMsg="Nenhuma despesa cadastrada."
+          />
+        ) : (
+        <>
         <MobileExpenseList
           categorias={categorias}
           collapsedCategories={collapsedCategories}
@@ -639,6 +730,9 @@ export default function ExpensesPage() {
           className="hidden md:block w-full border-2 border-dashed border-gray-200 rounded-lg py-2 text-sm text-gray-400 hover:border-blue-300 hover:text-blue-500 transition-colors">
           + Adicionar rápido (linha inline)
         </button>
+      )}
+
+      </>
       )}
 
       </>
