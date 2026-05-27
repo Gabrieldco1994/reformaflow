@@ -39,6 +39,7 @@ import {
   parseVoiceExpense,
   type ProjectType as PType,
   getExpenseTypesForProject,
+  buildInstallments,
 } from '@reformaflow/domain';
 import { CATEGORIA_MAO_DE_OBRA_OPTIONS, FORMA_PAGAMENTO_OPTIONS } from '@/lib/expense-options';
 import {
@@ -541,30 +542,6 @@ export default function ExpensesPage() {
   }, [valor, quantidade]);
 
   // (moved to top of component)
-
-  // Helper: generate parcela breakdown for parcelado/quinzenal expenses
-  function getParcelaBreakdown(exp: Expense): { parcela: string; valor: number; data: string }[] {
-    const qtd = exp.quantidadeParcela || 1;
-    const total = exp.valorTotal;
-    const valorParcela = Math.floor(total / qtd);
-    const resto = total - valorParcela * qtd;
-    const inicio = exp.dataInicioParcela ? new Date(exp.dataInicioParcela) : new Date();
-    const isQuinzenal = exp.formaPagamento === 'QUINZENAL';
-
-    return Array.from({ length: qtd }, (_, i) => {
-      const d = new Date(inicio);
-      if (isQuinzenal) {
-        d.setDate(d.getDate() + i * 15);
-      } else {
-        d.setMonth(d.getMonth() + i);
-      }
-      return {
-        parcela: `${i + 1}/${qtd}`,
-        valor: valorParcela + (i === qtd - 1 ? resto : 0),
-        data: d.toISOString().slice(0, 10),
-      };
-    });
-  }
 
   const toggleExpand = (id: string) => {
     setExpandedExpenses((prev) => {
@@ -1202,14 +1179,20 @@ export default function ExpensesPage() {
                             )}
 
                             {/* Parcela detail rows */}
-                            {isExpanded && hasDetail && getParcelaBreakdown(exp).map((p) => (
+                            {isExpanded && hasDetail && buildInstallments({
+                              valorTotal: exp.valorTotal,
+                              formaPagamento: exp.formaPagamento,
+                              dataPagamento: exp.dataPagamento ? new Date(exp.dataPagamento) : null,
+                              quantidadeParcela: exp.quantidadeParcela,
+                              dataInicioParcela: exp.dataInicioParcela ? new Date(exp.dataInicioParcela) : null,
+                            }).map((p) => (
                               <tr key={`${exp.id}-${p.parcela}`} className="bg-gray-50/50">
                                 <td />
                                 <td className="px-2 py-1 pl-8 text-gray-500">
                                   ↳ Parcela {p.parcela}
                                 </td>
                                 <td className="px-2 py-1 text-gray-400 tabular-nums">
-                                  {formatDateBR(p.data)}
+                                  {formatDateBR(p.data.toISOString().slice(0, 10))}
                                 </td>
                                 <td />
                                 <td />

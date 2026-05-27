@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
-import { ExpenseTypeLabels, LaborCategoryLabels } from '@reformaflow/domain';
+import { ExpenseTypeLabels, LaborCategoryLabels, buildInstallments, PaymentForm } from '@reformaflow/domain';
 import { Prisma } from '@prisma/client';
 
 @Injectable()
@@ -439,7 +439,17 @@ export class ExpenseService {
     const ambiente = expense.room?.name ?? null;
     const status = expense.status === 'PAGO' ? 'PAGO' : 'PLANEJADO';
 
-    const baseEntry = {
+    const installments = buildInstallments({
+      valorTotal: expense.valorTotal,
+      formaPagamento: expense.formaPagamento,
+      dataPagamento: expense.dataPagamento,
+      quantidadeParcela: expense.quantidadeParcela,
+      dataInicioParcela: expense.dataInicioParcela,
+    });
+
+    const isAVista = expense.formaPagamento === PaymentForm.A_VISTA;
+
+    return installments.map(({ parcela, valor, data }) => ({
       projectId: expense.projectId,
       tenantId: expense.tenantId,
       expenseId: expense.id,
@@ -448,48 +458,11 @@ export class ExpenseService {
       subcategoria,
       ambiente,
       status,
-    };
-
-    if (expense.formaPagamento === 'A_VISTA') {
-      return [{
-        ...baseEntry,
-        valor: expense.valorTotal,
-        data: expense.dataPagamento ?? new Date(),
-        formaPagamento: 'A_VISTA',
-        parcela: null,
-      }];
-    }
-
-    const n = expense.quantidadeParcela ?? 1;
-    const baseValue = Math.floor(expense.valorTotal / n);
-    const remainder = expense.valorTotal - baseValue * n;
-    const startDate = expense.dataInicioParcela ?? new Date();
-    const isQuinzenal = expense.formaPagamento === 'QUINZENAL';
-
-    const entries = [];
-    for (let i = 0; i < n; i++) {
-      const d = new Date(startDate);
-      if (isQuinzenal) {
-        d.setUTCDate(d.getUTCDate() + i * 15);
-      } else {
-        const targetMonth = d.getUTCMonth() + i;
-        const targetDay = d.getUTCDate();
-        d.setUTCDate(1);
-        d.setUTCMonth(targetMonth);
-        const lastDay = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
-        d.setUTCDate(Math.min(targetDay, lastDay));
-      }
-
-      entries.push({
-        ...baseEntry,
-        valor: i === n - 1 ? baseValue + remainder : baseValue,
-        data: d,
-        formaPagamento: expense.formaPagamento,
-        parcela: `${i + 1}/${n}`,
-      });
-    }
-
-    return entries;
+      valor,
+      data,
+      formaPagamento: expense.formaPagamento,
+      parcela: isAVista ? null : parcela,
+    }));
   }
 
   private async validateProject(tenantId: string, projectId: string) {
