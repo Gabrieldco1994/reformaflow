@@ -50,6 +50,8 @@ import {
 import { useVoiceExpense } from './_hooks/useVoiceExpense';
 import { useExpenseFilters } from './_hooks/useExpenseFilters';
 import { ExpenseKpiCards } from './_components/ExpenseKpiCards';
+import { ExpenseFiltersBar } from './_components/ExpenseFiltersBar';
+import { VoiceExpenseModal } from './_components/VoiceExpenseModal';
 import { StatusBadge } from './_components/StatusBadge';
 import { CompráveisView } from './_components/CompraveisView';
 import { OtherProjectsExpensesView } from './_components/OtherProjectsExpensesView';
@@ -587,93 +589,18 @@ export default function ExpensesPage() {
       />
 
       {/* Search + Filter bar */}
-      <div className="flex items-center gap-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Buscar despesas..."
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-            className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300"
-          />
-        </div>
-        <button
-          onClick={() => setShowFilters(!showFilters)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-lg transition-colors ${
-            showFilters || hasActiveFilters
-              ? 'bg-blue-50 border-blue-300 text-blue-700'
-              : 'border-gray-200 text-gray-600 hover:bg-gray-50'
-          }`}
-        >
-          <Filter className="w-4 h-4" />
-          Filtros
-          {hasActiveFilters && (
-            <span className="ml-1 bg-blue-600 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center">
-              {Object.values(filters).filter((v) => v !== '').length}
-            </span>
-          )}
-        </button>
-        {hasActiveFilters && (
-          <button
-            onClick={clearFilters}
-            className="text-xs text-blue-600 hover:text-blue-800 px-2 py-1.5"
-          >
-            Limpar
-          </button>
-        )}
-      </div>
-
-      {/* Expandable Filters */}
-      {showFilters && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 px-3 py-2 bg-gray-50 border rounded-lg">
-          <div>
-            <label className="text-[10px] font-medium text-gray-500 block mb-0.5">Tipo</label>
-            <select value={filters.tipoDespesa} onChange={(e) => updateFilter('tipoDespesa', e.target.value)}
-              className="w-full border border-gray-200 rounded px-1.5 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-300">
-              <option value="">Todos</option>
-              {TIPO_DESPESA_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-          </div>
-          {showRooms && (
-            <div>
-              <label className="text-[10px] font-medium text-gray-500 block mb-0.5">Ambiente</label>
-              <input type="text" placeholder="Filtrar..." value={filters.room}
-                onChange={(e) => updateFilter('room', e.target.value)}
-                className="w-full border border-gray-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300" />
-            </div>
-          )}
-          <div>
-            <label className="text-[10px] font-medium text-gray-500 block mb-0.5">Título</label>
-            <input type="text" placeholder="Filtrar..." value={filters.titulo}
-              onChange={(e) => updateFilter('titulo', e.target.value)}
-              className="w-full border border-gray-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300" />
-          </div>
-          <div>
-            <label className="text-[10px] font-medium text-gray-500 block mb-0.5">Fornecedor</label>
-            <input type="text" placeholder="Filtrar..." value={filters.fornecedor}
-              onChange={(e) => updateFilter('fornecedor', e.target.value)}
-              className="w-full border border-gray-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300" />
-          </div>
-          <div>
-            <label className="text-[10px] font-medium text-gray-500 block mb-0.5">Pagamento</label>
-            <select value={filters.formaPagamento} onChange={(e) => updateFilter('formaPagamento', e.target.value)}
-              className="w-full border border-gray-200 rounded px-1.5 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-300">
-              <option value="">Todos</option>
-              {FORMA_PAGAMENTO_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-[10px] font-medium text-gray-500 block mb-0.5">Status</label>
-            <select value={filters.status} onChange={(e) => updateFilter('status', e.target.value)}
-              className="w-full border border-gray-200 rounded px-1.5 py-1 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-300">
-              <option value="">Todos</option>
-              <option value="PLANEJADO">Planejado</option>
-              <option value="PAGO">Pago</option>
-            </select>
-          </div>
-        </div>
-      )}
+      <ExpenseFiltersBar
+        searchText={searchText}
+        onSearchTextChange={setSearchText}
+        showFilters={showFilters}
+        onToggleFilters={() => setShowFilters(!showFilters)}
+        filters={filters}
+        updateFilter={updateFilter}
+        clearFilters={clearFilters}
+        hasActiveFilters={hasActiveFilters}
+        showRooms={showRooms}
+        tipoDespesaOptions={TIPO_DESPESA_OPTIONS}
+      />
 
       {isLoading ? (
         <div className="space-y-4 animate-pulse">
@@ -1149,173 +1076,23 @@ export default function ExpensesPage() {
         </button>
       )}
 
-      <Modal
+      <VoiceExpenseModal
         open={voiceModalOpen}
         onClose={closeVoiceModal}
-        title="Lançar despesa por voz"
-      >
-        <div className="space-y-4">
-          <p className="text-sm text-gray-600">
-            Fale uma frase como: <span className="font-medium">&quot;Gastei 85 reais no mercado no cartão hoje&quot;</span>.
-          </p>
-
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              onClick={startVoiceCapture}
-              disabled={!voiceSupported || voiceListening}
-            >
-              <Mic className="w-4 h-4" /> {voiceListening ? 'Ouvindo...' : 'Capturar voz'}
-            </Button>
-            {voiceTranscript && (
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={clearVoiceTranscript}
-              >
-                Limpar
-              </Button>
-            )}
-          </div>
-
-          {!voiceSupported && (
-            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
-              Seu navegador não suporta reconhecimento de voz. Use o lançamento manual.
-            </p>
-          )}
-
-          {voiceTranscript && (
-            <div className="rounded border bg-gray-50 px-3 py-2">
-              <p className="text-xs text-gray-500 mb-1">Transcrição</p>
-              <p className="text-sm text-gray-800">{voiceTranscript}</p>
-            </div>
-          )}
-
-          {voiceError && (
-            <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
-              {voiceError}
-            </p>
-          )}
-
-          {voiceData && (
-            <div className="space-y-3 rounded border p-3">
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Revisar antes de salvar</p>
-              <Select
-                label="Tipo da Despesa"
-                name="voiceTipoDespesa"
-                options={TIPO_DESPESA_OPTIONS}
-                value={voiceData.tipoDespesa}
-                onChange={(e) => setVoiceData({ ...voiceData, tipoDespesa: e.target.value as ExpenseType })}
-              />
-              <div className="grid grid-cols-2 gap-3">
-                <Input
-                  label="Valor (R$)"
-                  name="voiceValor"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={voiceData.valor ? String(voiceData.valor) : ''}
-                  onChange={(e) =>
-                    setVoiceData({
-                      ...voiceData,
-                      valor: e.target.value ? Number.parseFloat(e.target.value) : null,
-                    })
-                  }
-                />
-                <Select
-                  label="Forma de Pagamento"
-                  name="voiceFormaPagamento"
-                  options={FORMA_PAGAMENTO_OPTIONS}
-                  value={voiceData.formaPagamento}
-                  onChange={(e) =>
-                    setVoiceData({
-                      ...voiceData,
-                      formaPagamento: e.target.value as PaymentForm,
-                      quantidadeParcela:
-                        e.target.value === PaymentForm.A_VISTA ? null : (voiceData.quantidadeParcela ?? 1),
-                    })
-                  }
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <Select
-                  label="Status"
-                  name="voiceStatus"
-                  options={[
-                    { value: 'PLANEJADO', label: 'Planejado' },
-                    { value: 'PAGO', label: 'Pago' },
-                  ]}
-                  value={voiceData.status}
-                  onChange={(e) =>
-                    setVoiceData({ ...voiceData, status: e.target.value as ExpenseStatus })
-                  }
-                />
-                {voiceData.formaPagamento === PaymentForm.A_VISTA ? (
-                  <Input
-                    label="Data do Pagamento"
-                    name="voiceDataPagamento"
-                    type="date"
-                    value={voiceData.dataReferencia}
-                    onChange={(e) => setVoiceData({ ...voiceData, dataReferencia: e.target.value })}
-                  />
-                ) : (
-                  <Input
-                    label="Qtd Parcelas"
-                    name="voiceQuantidadeParcela"
-                    type="number"
-                    min="1"
-                    value={String(voiceData.quantidadeParcela ?? 1)}
-                    onChange={(e) =>
-                      setVoiceData({
-                        ...voiceData,
-                        quantidadeParcela: Math.max(1, Number.parseInt(e.target.value || '1', 10)),
-                      })
-                    }
-                  />
-                )}
-              </div>
-              {voiceData.formaPagamento !== PaymentForm.A_VISTA && (
-                <Input
-                  label="Data de Início"
-                  name="voiceDataInicioParcela"
-                  type="date"
-                  value={voiceData.dataReferencia}
-                  onChange={(e) => setVoiceData({ ...voiceData, dataReferencia: e.target.value })}
-                />
-              )}
-              <Input
-                label="Título"
-                name="voiceTitulo"
-                value={voiceData.titulo}
-                onChange={(e) => setVoiceData({ ...voiceData, titulo: e.target.value })}
-              />
-              <Input
-                label="Fornecedor"
-                name="voiceFornecedor"
-                value={voiceFornecedor}
-                onChange={(e) => setVoiceFornecedor(e.target.value)}
-              />
-            </div>
-          )}
-
-          <div className="flex justify-end gap-2 pt-2">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={closeVoiceModal}
-            >
-              Cancelar
-            </Button>
-            <Button
-              type="button"
-              onClick={saveVoiceExpense}
-              disabled={!voiceData?.valor || createMutation.isPending}
-            >
-              Salvar despesa
-            </Button>
-          </div>
-        </div>
-      </Modal>
+        voiceSupported={voiceSupported}
+        voiceListening={voiceListening}
+        voiceTranscript={voiceTranscript}
+        voiceError={voiceError}
+        voiceData={voiceData}
+        setVoiceData={setVoiceData}
+        voiceFornecedor={voiceFornecedor}
+        setVoiceFornecedor={setVoiceFornecedor}
+        startVoiceCapture={startVoiceCapture}
+        clearVoiceTranscript={clearVoiceTranscript}
+        saveVoiceExpense={saveVoiceExpense}
+        saveDisabled={!voiceData?.valor || createMutation.isPending}
+        tipoDespesaOptions={TIPO_DESPESA_OPTIONS}
+      />
 
       {/* Pay Options Modal */}
       <Modal open={payModalOpen} onClose={() => setPayModalOpen(false)} title="Pagar Despesa">
