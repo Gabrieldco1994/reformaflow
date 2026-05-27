@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
 import { ExpenseTypeLabels, LaborCategoryLabels } from '@reformaflow/domain';
+import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class ExpenseService {
@@ -20,46 +21,58 @@ export class ExpenseService {
     currentProjectId: string,
     dto: Pick<CreateExpenseDto, 'creditCardId' | 'bankAccountId' | 'linkedExpenseId'>,
   ): Promise<{ cardLast4?: string | null; bankLast4?: string | null; linkedExpenseId?: string | null }> {
+    // Parallel queries for better performance
+    const [cardRow, accRow, linkedRow] = await Promise.all([
+      dto.creditCardId && dto.creditCardId !== null && dto.creditCardId !== ''
+        ? this.prisma.creditCard.findFirst({
+            where: { id: dto.creditCardId, tenantId, deletedAt: null },
+            select: { last4: true },
+          })
+        : null,
+      dto.bankAccountId && dto.bankAccountId !== null && dto.bankAccountId !== ''
+        ? this.prisma.bankAccount.findFirst({
+            where: { id: dto.bankAccountId, tenantId, deletedAt: null },
+            select: { last4: true },
+          })
+        : null,
+      dto.linkedExpenseId && dto.linkedExpenseId !== null && dto.linkedExpenseId !== ''
+        ? this.prisma.expense.findFirst({
+            where: { id: dto.linkedExpenseId, tenantId, deletedAt: null },
+            select: { projectId: true },
+          })
+        : null,
+    ]);
+
     const out: { cardLast4?: string | null; bankLast4?: string | null; linkedExpenseId?: string | null } = {};
 
     if (dto.creditCardId !== undefined) {
-      if (dto.creditCardId === null || dto.creditCardId === '') {
+      if (!dto.creditCardId) {
         out.cardLast4 = null;
+      } else if (!cardRow) {
+        throw new BadRequestException('Cartão de crédito não encontrado neste tenant');
       } else {
-        const card = await this.prisma.creditCard.findFirst({
-          where: { id: dto.creditCardId, tenantId, deletedAt: null },
-          select: { last4: true },
-        });
-        if (!card) throw new BadRequestException('Cartão de crédito não encontrado neste tenant');
-        out.cardLast4 = card.last4 ?? null;
+        out.cardLast4 = cardRow.last4 ?? null;
       }
     }
 
     if (dto.bankAccountId !== undefined) {
-      if (dto.bankAccountId === null || dto.bankAccountId === '') {
+      if (!dto.bankAccountId) {
         out.bankLast4 = null;
+      } else if (!accRow) {
+        throw new BadRequestException('Conta bancária não encontrada neste tenant');
       } else {
-        const acc = await this.prisma.bankAccount.findFirst({
-          where: { id: dto.bankAccountId, tenantId, deletedAt: null },
-          select: { last4: true },
-        });
-        if (!acc) throw new BadRequestException('Conta bancária não encontrada neste tenant');
-        out.bankLast4 = acc.last4 ?? null;
+        out.bankLast4 = accRow.last4 ?? null;
       }
     }
 
     if (dto.linkedExpenseId !== undefined) {
-      if (dto.linkedExpenseId === null || dto.linkedExpenseId === '') {
+      if (!dto.linkedExpenseId) {
         out.linkedExpenseId = null;
+      } else if (!linkedRow) {
+        throw new BadRequestException('Despesa vinculada não encontrada neste tenant');
+      } else if (linkedRow.projectId === currentProjectId) {
+        throw new BadRequestException('Vínculo cross-project requer despesa de outro projeto');
       } else {
-        const target = await this.prisma.expense.findFirst({
-          where: { id: dto.linkedExpenseId, tenantId, deletedAt: null },
-          select: { projectId: true },
-        });
-        if (!target) throw new BadRequestException('Despesa vinculada não encontrada neste tenant');
-        if (target.projectId === currentProjectId) {
-          throw new BadRequestException('Vínculo cross-project requer despesa de outro projeto');
-        }
         out.linkedExpenseId = dto.linkedExpenseId;
       }
     }
@@ -149,7 +162,7 @@ export class ExpenseService {
   ) {
     await this.validateProject(tenantId, currentProjectId);
     const limit = Math.min(Math.max(opts.limit ?? 100, 1), 500);
-    const where: any = {
+    const where: Prisma.ExpenseWhereInput = {
       tenantId,
       deletedAt: null,
       settledByExpenseId: null,

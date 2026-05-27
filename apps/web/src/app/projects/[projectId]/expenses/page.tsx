@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Modal } from '@/components/ui/modal';
 import type { Expense, ExpenseFormData, Project } from '@/types';
+import { toast } from 'sonner';
 import {
   DndContext,
   closestCenter,
@@ -305,38 +306,55 @@ export default function ExpensesPage() {
 
   const createMutation = useMutation({
     mutationFn: (data: ExpenseFormData) => api.post(`/projects/${PROJECT_ID}/expenses`, data),
-    onSuccess: () => { invalidate(); closeFormModal(); setShowNewRow(false); setNewRow(makeEmptyNewRow(defaultExpenseType)); },
+    onSuccess: () => { 
+      toast.success('Despesa criada com sucesso');
+      invalidate(); 
+      closeFormModal(); 
+      setShowNewRow(false); 
+      setNewRow(makeEmptyNewRow(defaultExpenseType)); 
+    },
     onError: (e: Error) => {
       console.error('[expenses] create failed', e);
-      alert(`Erro ao criar despesa: ${e.message}`);
+      toast.error(`Erro ao criar despesa: ${e.message}`);
     },
   });
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: ExpenseFormData }) =>
       api.patch(`/projects/${PROJECT_ID}/expenses/${id}`, data),
-    onSuccess: () => { invalidate(); closeFormModal(); },
+    onSuccess: () => { 
+      toast.success('Despesa atualizada com sucesso');
+      invalidate(); 
+      closeFormModal(); 
+    },
     onError: (e: Error) => {
       console.error('[expenses] update failed', e);
-      alert(`Erro ao salvar despesa: ${e.message}`);
+      toast.error(`Erro ao salvar despesa: ${e.message}`);
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/projects/${PROJECT_ID}/expenses/${id}`),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      toast.success('Despesa excluída com sucesso');
+      invalidate();
+    },
     onError: (e: Error) => {
       console.error('[expenses] delete failed', e);
-      alert(`Erro ao excluir despesa: ${e.message}`);
+      toast.error(`Erro ao excluir despesa: ${e.message}`);
     },
   });
 
   const payMutation = useMutation({
     mutationFn: (id: string) => api.post(`/projects/${PROJECT_ID}/expenses/${id}/pay`, {}),
-    onSuccess: () => { invalidate(); setPayModalOpen(false); },
+    onSuccess: () => { 
+      toast.success('Despesa marcada como paga');
+      invalidate(); 
+      setPayModalOpen(false); 
+    },
     onError: (e: Error) => {
       console.error('[expenses] pay failed', e);
-      alert(`Erro ao pagar despesa: ${e.message}`);
+      toast.error(`Erro ao pagar despesa: ${e.message}`);
     },
   });
 

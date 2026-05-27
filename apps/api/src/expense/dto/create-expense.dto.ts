@@ -1,6 +1,6 @@
 import { IsString, IsNumber, IsDateString, IsIn, IsOptional, Min } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { ExpenseType } from '@reformaflow/domain';
+import { ExpenseType, LaborCategory, ExpenseStatus } from '@reformaflow/domain';
 
 export class CreateExpenseDto {
   @ApiProperty({ enum: Object.values(ExpenseType) })
@@ -8,10 +8,10 @@ export class CreateExpenseDto {
   @IsIn(Object.values(ExpenseType))
   tipoDespesa!: string;
 
-  @ApiPropertyOptional({ enum: ['EMPREITEIRO', 'INSTALADOR_PISO', 'INSTALADOR_MARMORE', 'PINTOR', 'ELETRICISTA', 'VIDRACEIRO', 'SERRALHEIRO', 'MARCENEIRO'] })
+  @ApiPropertyOptional({ enum: Object.values(LaborCategory) })
   @IsOptional()
   @IsString()
-  @IsIn(['EMPREITEIRO', 'INSTALADOR_PISO', 'INSTALADOR_MARMORE', 'PINTOR', 'ELETRICISTA', 'VIDRACEIRO', 'SERRALHEIRO', 'MARCENEIRO'])
+  @IsIn(Object.values(LaborCategory))
   categoriaMaoDeObra?: string;
 
   @ApiPropertyOptional()
@@ -70,9 +70,9 @@ export class CreateExpenseDto {
   @IsDateString()
   dataInicioParcela?: string;
 
-  @ApiProperty({ enum: ['PLANEJADO', 'PAGO'] })
+  @ApiProperty({ enum: Object.values(ExpenseStatus) })
   @IsString()
-  @IsIn(['PLANEJADO', 'PAGO'])
+  @IsIn(Object.values(ExpenseStatus))
   status!: string;
 
   // ─── Vínculos manuais (opcionais) ────────────────────────────
