@@ -19,10 +19,12 @@ interface Props {
   collapsedMonths: Set<string>;
   toggleMonth: (key: string) => void;
   tipoLabel: (tipo: string) => string;
+  tipoOptions: Array<{ value: string; label: string }>;
   openEdit: (receipt: Receipt) => void;
   onDelete: (id: string) => void;
   onToggleStatus: (id: string, newStatus: 'EM_CAIXA' | 'PREVISTO') => void;
   onQuickUpdate: (id: string, valor: number, data: string) => void;
+  onQuickCreate: (valor: number, data: string, tipo: string, status: string) => void;
   emptyMsg: string;
 }
 
@@ -54,15 +56,22 @@ function MonthlyViewImpl({
   collapsedMonths,
   toggleMonth,
   tipoLabel,
+  tipoOptions,
   openEdit,
   onDelete,
   onToggleStatus,
   onQuickUpdate,
+  onQuickCreate,
   emptyMsg,
 }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValor, setEditValor] = useState('');
   const [editData, setEditData] = useState('');
+  const [addingToMonth, setAddingToMonth] = useState<string | null>(null);
+  const [newValor, setNewValor] = useState('');
+  const [newData, setNewData] = useState('');
+  const [newTipo, setNewTipo] = useState(tipoOptions[0]?.value || '');
+  const [newStatus, setNewStatus] = useState('PREVISTO');
   if (grouped.length === 0) {
     return (
       <div className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen px-4 py-8 text-center text-darc-velvet/50 text-sm italic">
@@ -232,14 +241,29 @@ function MonthlyViewImpl({
                               {canEdit ? (
                                 <button
                                   type="button"
-                                  onClick={() => {
+                                  onClick={(e) => {
+                                    e.stopPropagation();
                                     const newStatus = r.status === 'EM_CAIXA' ? 'PREVISTO' : 'EM_CAIXA';
                                     onToggleStatus(r.id, newStatus);
                                   }}
-                                  className="hover:opacity-70 transition-opacity"
-                                  title="Clique para alternar status"
+                                  className="inline-flex items-center gap-1 text-[11px] rounded-full px-2 py-0.5 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                                  style={{
+                                    backgroundColor: r.status === 'EM_CAIXA' ? 'rgb(209 250 229)' : 'rgb(254 242 242)',
+                                    color: r.status === 'EM_CAIXA' ? 'rgb(22 101 52)' : 'rgb(153 27 27)',
+                                  }}
+                                  title="Clique para alternar entre Previsto e Recebido"
                                 >
-                                  <StatusInline status={r.status} />
+                                  {r.status === 'EM_CAIXA' ? (
+                                    <>
+                                      <CheckCircle2 className="w-3.5 h-3.5" />
+                                      <span className="hidden sm:inline font-medium">Recebido</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Clock className="w-3.5 h-3.5" />
+                                      <span className="hidden sm:inline font-medium">Previsto</span>
+                                    </>
+                                  )}
                                 </button>
                               ) : (
                                 <StatusInline status={r.status} />
@@ -291,6 +315,84 @@ function MonthlyViewImpl({
                     </div>
                   );
                 })}
+                
+                {/* Linha de adição rápida */}
+                {addingToMonth === g.mesKey ? (
+                  <div className="px-4 py-2.5 bg-darc-mist/10 border-t-2 border-darc-mist">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-shrink-0 w-9" />
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={newValor}
+                        onChange={(e) => setNewValor(e.target.value)}
+                        placeholder="Valor (R$)"
+                        className="w-28 border border-darc-mist rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-darc-mist"
+                        autoFocus
+                      />
+                      <input
+                        type="date"
+                        value={newData}
+                        onChange={(e) => setNewData(e.target.value)}
+                        className="w-36 border border-darc-mist rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-darc-mist"
+                      />
+                      <select
+                        value={newTipo}
+                        onChange={(e) => setNewTipo(e.target.value)}
+                        className="flex-1 border border-darc-mist rounded px-2 py-1 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-darc-mist"
+                      >
+                        {tipoOptions.map((o) => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                      <select
+                        value={newStatus}
+                        onChange={(e) => setNewStatus(e.target.value)}
+                        className="w-28 border border-darc-mist rounded px-2 py-1 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-darc-mist"
+                      >
+                        <option value="PREVISTO">Previsto</option>
+                        <option value="EM_CAIXA">Em Caixa</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const valor = parseFloat(newValor);
+                          if (valor && newData && newTipo) {
+                            onQuickCreate(valor, newData, newTipo, newStatus);
+                            setAddingToMonth(null);
+                            setNewValor('');
+                            setNewData('');
+                            setNewTipo(tipoOptions[0]?.value || '');
+                            setNewStatus('PREVISTO');
+                          }
+                        }}
+                        className="p-1.5 rounded-full hover:bg-emerald-100 flex-shrink-0"
+                        title="Salvar"
+                      >
+                        <Check className="w-4 h-4 text-emerald-700" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAddingToMonth(null)}
+                        className="p-1.5 rounded-full hover:bg-darc-linen/60 flex-shrink-0"
+                        title="Cancelar"
+                      >
+                        <X className="w-4 h-4 text-darc-velvet/60" />
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAddingToMonth(g.mesKey);
+                      setNewData(`${g.mesKey}-01`);
+                    }}
+                    className="w-full px-4 py-2 text-left text-xs text-darc-velvet/50 hover:bg-darc-mist/10 hover:text-darc-velvet transition-colors border-t border-darc-linen"
+                  >
+                    + Adicionar recebimento rápido neste mês
+                  </button>
+                )}
               </div>
             )}
           </div>

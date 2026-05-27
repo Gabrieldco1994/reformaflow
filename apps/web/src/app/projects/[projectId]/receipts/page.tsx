@@ -529,10 +529,14 @@ export default function ReceiptsPage() {
           collapsedMonths={collapsedMonths}
           toggleMonth={toggleMonth}
           tipoLabel={tipoLabel}
+          tipoOptions={TIPO_OPTIONS}
           openEdit={openEdit}
           onDelete={(id) => deleteMutation.mutate(id)}
           onToggleStatus={(id, status) => toggleStatusMutation.mutate({ id, status })}
           onQuickUpdate={(id, valor, data) => quickUpdateMutation.mutate({ id, valor, data })}
+          onQuickCreate={(valor, data, tipo, status) => 
+            createMutation.mutate({ valor, data, tipo: tipo as any, status: status as any })
+          }
           emptyMsg="Nenhum recebimento cadastrado."
         />
       ) : (
