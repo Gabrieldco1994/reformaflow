@@ -5,7 +5,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
-import { Plus, CreditCard, ExternalLink, ShoppingCart, Mic, Calendar, ArrowLeft, ArrowRight } from 'lucide-react';
+import { Plus, CreditCard, ShoppingCart, Mic, Calendar, ArrowLeft, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { Expense, ExpenseFormData, ExpensesPage, Project } from '@/types';
 import { toast } from 'sonner';
@@ -26,7 +26,6 @@ import { ExpenseFormModal } from './_components/ExpenseFormModal';
 import { PayOptionsModal } from './_components/PayOptionsModal';
 import { ExpenseDesktopTable } from './_components/ExpenseDesktopTable';
 import { CompráveisView } from './_components/CompraveisView';
-import { OtherProjectsExpensesView } from './_components/OtherProjectsExpensesView';
 import { MobileExpenseList } from './_components/MobileExpenseList';
 import { MonthlyExpenseView } from './_components/MonthlyExpenseView';
 import { UnifiedExpenseView } from './_components/UnifiedExpenseView';
@@ -40,6 +39,7 @@ import {
   periodLabel,
   currentPeriod,
   totalsOf as personalTotalsOf,
+  groupPersonalExpenses,
 } from './_lib/personal-hierarchy';
 import ImportLauncher from './_components/ImportLauncher';
 
@@ -67,7 +67,7 @@ export default function ExpensesPage() {
   const showRooms = projectType === 'REFORMA';
   const showMaoDeObra = projectType === 'REFORMA';
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'despesas' | 'compraveis' | 'outros'>('despesas');
+  const [activeTab, setActiveTab] = useState<'despesas' | 'compraveis'>('despesas');
   const [formModalOpen, setFormModalOpen] = useState(false);
   const [payModalOpen, setPayModalOpen] = useState(false);
   const [editing, setEditing] = useState<Expense | null>(null);
@@ -263,9 +263,27 @@ export default function ExpensesPage() {
 
   // KPIs
   const totalGeral = filteredExpenses.reduce((s, e) => s + e.valorTotal, 0);
-  const totalProjeto = expenses.reduce((s, e) => s + e.valorTotal, 0);
   const totalPlanejado = filteredExpenses.filter((e) => e.status === 'PLANEJADO').reduce((s, e) => s + e.valorTotal, 0);
   const totalPago = filteredExpenses.filter((e) => e.status === 'PAGO').reduce((s, e) => s + e.valorTotal, 0);
+
+  // Quebra por projeto (cockpit) — só faz sentido no Pessoal, que consolida vários projetos
+  const kpiPerProject = useMemo(() => {
+    if (projectType !== 'PESSOAL') return [];
+    return groupPersonalExpenses(
+      filteredExpenses,
+      remoteProjectMap,
+      project?.name ?? 'Pessoal',
+      PROJECT_ID,
+    ).map((g) => ({
+      key: g.projectKey,
+      name: g.projectName,
+      type: g.projectType,
+      planejado: g.totalPlanejado,
+      pago: g.totalPago,
+      total: g.totalPlanejado + g.totalPago,
+      count: g.itens.length,
+    }));
+  }, [projectType, filteredExpenses, remoteProjectMap, project?.name, PROJECT_ID]);
 
   // Visão mensal
   const groupedByMes = useMemo(() => groupExpensesByMes(filteredExpenses), [filteredExpenses]);
@@ -615,15 +633,10 @@ export default function ExpensesPage() {
                 className={`px-4 py-1.5 transition-colors font-medium border-l border-gray-200 flex items-center gap-1.5 ${activeTab === 'compraveis' ? 'bg-orange-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
               ><ShoppingCart className="w-3.5 h-3.5" /> Compráveis</button>
             )}
-            <button
-              onClick={() => setActiveTab('outros')}
-              className={`px-4 py-1.5 transition-colors font-medium border-l border-gray-200 flex items-center gap-1.5 ${activeTab === 'outros' ? 'bg-orange-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
-            ><ExternalLink className="w-3.5 h-3.5" /> Outras despesas</button>
           </div>
         </div>
         {activeTab === 'despesas' && (
           <div className="flex flex-wrap gap-2 items-center">
-            <ExpenseViewToggle value={viewMode} onChange={setViewMode} showProject={projectType === 'PESSOAL'} />
             <Button
               variant="secondary"
               onClick={openVoiceModal}
@@ -649,23 +662,19 @@ export default function ExpensesPage() {
 
       {activeTab === 'compraveis' ? (
         <CompráveisView expenses={expenses} tipoLabel={tipoLabel} />
-      ) : activeTab === 'outros' ? (
-        <OtherProjectsExpensesView projectId={PROJECT_ID} localExpenses={expenses} />
       ) : (
       <>
 
-      {/* KPI Cards */}
+      {/* KPI Cards — cockpit financeiro */}
       <ExpenseKpiCards
         projectType={projectType}
-        expensesCount={expenses.length}
         filteredCount={filteredExpenses.length}
         filteredPlanejadoCount={filteredExpenses.filter((e) => e.status === 'PLANEJADO').length}
         filteredPagoCount={filteredExpenses.filter((e) => e.status === 'PAGO').length}
-        totalProjeto={totalProjeto}
         totalGeral={totalGeral}
         totalPlanejado={totalPlanejado}
         totalPago={totalPago}
-        hasActiveFilters={hasActiveFilters}
+        perProject={kpiPerProject}
         showInfluencePanel={projectType === 'PESSOAL' && influenceProjects.length > 0}
         influenceSummary={influenceSummary}
         influenceTotal={influenceTotal}
@@ -685,6 +694,11 @@ export default function ExpensesPage() {
         showRooms={showRooms}
         tipoDespesaOptions={TIPO_DESPESA_OPTIONS}
       />
+
+      {/* Toggle de visão (Categoria / Mês / Por projeto) — logo abaixo da busca */}
+      <div className="flex">
+        <ExpenseViewToggle value={viewMode} onChange={setViewMode} showProject={projectType === 'PESSOAL'} />
+      </div>
 
       {/* Período (PESSOAL) — filtro de mês / ano todo aplicado nos 3 modos */}
       {projectType === 'PESSOAL' && (
