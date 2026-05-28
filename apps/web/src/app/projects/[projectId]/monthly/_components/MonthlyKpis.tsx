@@ -9,7 +9,7 @@ interface Props {
   comparison: MonthComparison;
 }
 
-function Delta({ value, pct }: { value: number; pct: number | null }) {
+function Delta({ value, pct, goodWhenPositive = false }: { value: number; pct: number | null; goodWhenPositive?: boolean }) {
   if (!pct && value === 0) {
     return (
       <span className="inline-flex items-center gap-1 text-[11px] text-darc-velvet/60">
@@ -18,8 +18,9 @@ function Delta({ value, pct }: { value: number; pct: number | null }) {
     );
   }
   const positive = value > 0;
+  const isGood = goodWhenPositive ? positive : !positive;
   const Icon = positive ? TrendingUp : TrendingDown;
-  const color = positive ? 'text-darc-red' : 'text-emerald-700';
+  const color = isGood ? 'text-emerald-700' : 'text-darc-red';
   return (
     <span className={`inline-flex items-center gap-1 text-[11px] font-medium ${color}`}>
       <Icon className="w-3 h-3" />
@@ -59,7 +60,7 @@ export default function MonthlyKpis({ current, comparison }: Props) {
           {formatCurrency(recebimentos / 100)}
         </p>
         <div className="mt-2">
-          <Delta value={comparison.deltaRecebimentos} pct={comparison.deltaRecebimentosPct} />
+          <Delta value={comparison.deltaRecebimentos} pct={comparison.deltaRecebimentosPct} goodWhenPositive />
         </div>
         <p className="text-[10px] text-darc-velvet/50 mt-1 tabular-nums">
           Realizado: {formatCurrency((current?.recebimentosRealizados ?? 0) / 100)}
@@ -78,7 +79,7 @@ export default function MonthlyKpis({ current, comparison }: Props) {
           {formatCurrency(saldo / 100)}
         </p>
         <p className="text-[10px] text-darc-velvet/50 mt-2 tabular-nums">
-          vs mês anterior: <Delta value={comparison.deltaSaldo} pct={null} />
+          vs mês anterior: <Delta value={comparison.deltaSaldo} pct={null} goodWhenPositive />
         </p>
       </div>
 

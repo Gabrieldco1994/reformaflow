@@ -53,6 +53,9 @@ function ExpenseRow({
   onToggleStatus: (id: string, next: ExpenseStatus) => void;
 }) {
   const dt = effectiveDate(e);
+  const parcelas = e.formaPagamento === 'PARCELADO' && (e.quantidadeParcela ?? 1) > 1
+    ? e.quantidadeParcela!
+    : 0;
   return (
     <div className="flex items-center gap-2 px-3 py-1.5 text-xs border-t border-gray-100 hover:bg-orange-50/40">
       <div className="flex-1 min-w-0">
@@ -63,11 +66,17 @@ function ExpenseRow({
           {tipoLabel(e.tipoDespesa)}
           {e.room?.name ? ` · ${e.room.name}` : ''}
           {dt ? ` · ${new Date(dt).toLocaleDateString('pt-BR')}` : ''}
+          {parcelas ? ` · ${parcelas}x de ${formatCurrency(Math.round(e.valorTotal / parcelas) / 100)}` : ''}
         </div>
       </div>
-      <span className="font-mono text-gray-900 text-xs whitespace-nowrap">
-        {formatCurrency(e.valorTotal / 100)}
-      </span>
+      <div className="flex flex-col items-end whitespace-nowrap">
+        <span className="font-mono text-gray-900 text-xs">
+          {formatCurrency(e.valorTotal / 100)}
+        </span>
+        {parcelas ? (
+          <span className="text-[10px] font-semibold text-teal-700">{parcelas}x</span>
+        ) : null}
+      </div>
       {statusButton(e, (next) => onToggleStatus(e.id, next))}
       <button
         type="button"
