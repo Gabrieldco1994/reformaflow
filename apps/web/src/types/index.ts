@@ -110,6 +110,8 @@ export interface Expense {
   bankLast4?: string | null;
   linkedExpenseId?: string | null;
   importId?: string | null;
+  // Project info (presente em listagens cross-project)
+  project?: { id: string; name: string; type: string } | null;
 }
 
 export type ExpenseStatus = 'PLANEJADO' | 'PAGO';

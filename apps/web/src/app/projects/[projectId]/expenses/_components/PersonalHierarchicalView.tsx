@@ -1,18 +1,13 @@
 'use client';
 import React, { useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Calendar, Edit2, Trash2, ArrowLeft, ArrowRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Edit2, Trash2 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import type { Expense, ExpenseStatus } from '@/types';
 import {
   groupPersonalExpenses,
   groupOrigemByTipo,
   groupOrigemByRoom,
-  inPeriod,
-  listPeriods,
-  periodLabel,
-  currentPeriod,
   totalsOf,
-  type PeriodFilter,
   type RemoteProjectMap,
 } from '../_lib/personal-hierarchy';
 import { effectiveDate } from '../_lib/grouping-by-month';
@@ -223,88 +218,16 @@ function projectAccent(type: string): { card: string; badge: string } {
 export function PersonalHierarchicalView({
   expenses, remoteMap, selfProjectName, tipoLabel, openEdit, onDelete, onToggleStatus,
 }: Props) {
-  const [year] = useState<number>(() => new Date().getFullYear());
-  const [period, setPeriod] = useState<PeriodFilter>(() => currentPeriod());
-
-  const filtered = useMemo(
-    () => expenses.filter((e) => inPeriod(e, period, year)),
-    [expenses, period, year],
-  );
-
-  const allPeriods = useMemo(() => listPeriods(expenses, year), [expenses, year]);
-
-  // Navegação prev/next mês
-  const navigate = (delta: -1 | 1) => {
-    if (period === 'ALL') return;
-    const [yy, mm] = period.split('-').map(Number);
-    const d = new Date(yy, mm - 1 + delta, 1);
-    setPeriod(`${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}`);
-  };
-
   const projects = useMemo(
-    () => groupPersonalExpenses(filtered, remoteMap, selfProjectName),
-    [filtered, remoteMap, selfProjectName],
+    () => groupPersonalExpenses(expenses, remoteMap, selfProjectName),
+    [expenses, remoteMap, selfProjectName],
   );
-
-  const { pago: totalPago, planejado: totalPlanejado } = totalsOf(filtered);
-  const totalGeral = totalPago + totalPlanejado;
 
   return (
     <div className="space-y-4">
-      {/* Header período */}
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-orange-200 bg-orange-50/60 px-3 py-2">
-        <Calendar className="w-4 h-4 text-orange-600" />
-        <span className="text-xs font-semibold text-orange-900">Período:</span>
-        {period !== 'ALL' && (
-          <button
-            type="button"
-            onClick={() => navigate(-1)}
-            className="rounded p-1 hover:bg-orange-100"
-            title="Mês anterior"
-          >
-            <ArrowLeft className="w-3.5 h-3.5 text-orange-700" />
-          </button>
-        )}
-        <select
-          value={period}
-          onChange={(e) => setPeriod(e.target.value as PeriodFilter)}
-          className="text-xs border border-orange-200 rounded px-2 py-1 bg-white font-medium"
-        >
-          <option value="ALL">Ano todo ({year})</option>
-          {allPeriods.map((p) => (
-            <option key={p} value={p}>{periodLabel(p)}</option>
-          ))}
-          {!allPeriods.includes(currentPeriod()) && (
-            <option value={currentPeriod()}>{periodLabel(currentPeriod())} (sem despesas)</option>
-          )}
-        </select>
-        {period !== 'ALL' && (
-          <button
-            type="button"
-            onClick={() => navigate(1)}
-            className="rounded p-1 hover:bg-orange-100"
-            title="Próximo mês"
-          >
-            <ArrowRight className="w-3.5 h-3.5 text-orange-700" />
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={() => setPeriod('ALL')}
-          className={`ml-2 text-xs px-2 py-1 rounded ${period === 'ALL' ? 'bg-orange-500 text-white' : 'bg-white text-orange-700 border border-orange-200 hover:bg-orange-100'}`}
-        >
-          Ano todo
-        </button>
-        <div className="ml-auto flex items-center gap-3 text-xs">
-          <span className="text-gray-600">Pago: <span className="font-mono font-semibold text-emerald-700">{formatCurrency(totalPago / 100)}</span></span>
-          <span className="text-gray-600">Planejado: <span className="font-mono font-semibold text-amber-700">{formatCurrency(totalPlanejado / 100)}</span></span>
-          <span className="text-gray-600">Total: <span className="font-mono font-semibold text-gray-900">{formatCurrency(totalGeral / 100)}</span></span>
-        </div>
-      </div>
-
       {projects.length === 0 && (
         <div className="rounded-lg border border-dashed border-gray-200 bg-white p-8 text-center text-sm text-gray-500">
-          Nenhuma despesa em {periodLabel(period)}.
+          Nenhuma despesa no período selecionado.
         </div>
       )}
 
@@ -325,6 +248,13 @@ export function PersonalHierarchicalView({
     </div>
   );
 }
+
+export function projectAccentOf(type: string) {
+  return projectAccent(type);
+}
+
+export { ProjectCard, OrigemBlock, TipoBlock, ExpenseRow };
+
 
 function ProjectCard({
   pg, accent, tipoLabel, openEdit, onDelete, onToggleStatus,

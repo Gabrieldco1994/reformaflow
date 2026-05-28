@@ -75,13 +75,16 @@ export function inPeriod(e: Expense, period: PeriodFilter, year: number): boolea
 }
 
 /**
- * Agrupa despesas do projeto Pessoal por projeto destino → origem (cartão/extrato/manual).
- * Inclui o próprio "self" (Pessoal) quando despesa não tem linkedExpenseId.
+ * Agrupa despesas (do projeto Pessoal + cross-project) por projeto destino → origem.
+ * - Se `e.project` está presente e é diferente do "self" → usa `e.project`.
+ * - Senão, se há `linkedExpenseId` resolvível em remoteMap → usa o destino.
+ * - Caso contrário → cai em "self" (Pessoal).
  */
 export function groupPersonalExpenses(
   expenses: Expense[],
   remoteMap: RemoteProjectMap,
   selfProjectName: string,
+  selfProjectId?: string,
 ): ProjectGroup[] {
   const projects = new Map<string, ProjectGroup>();
 
@@ -90,7 +93,11 @@ export function groupPersonalExpenses(
     let projectName = selfProjectName;
     let projectType = 'PESSOAL';
 
-    if (e.linkedExpenseId) {
+    if (e.project && (!selfProjectId || e.project.id !== selfProjectId)) {
+      projectKey = e.project.id;
+      projectName = e.project.name;
+      projectType = e.project.type;
+    } else if (e.linkedExpenseId) {
       const remote = remoteMap.get(e.linkedExpenseId);
       if (remote) {
         projectKey = remote.id;
@@ -221,4 +228,84 @@ export function totalsOf(items: Expense[]): { pago: number; planejado: number } 
     else planejado += e.valorTotal;
   }
   return { pago, planejado };
+}
+
+// ───── Agrupamentos para os modos Categoria / Mês ─────────────────
+
+export interface MonthGroup {
+  ym: string; // 'YYYY-MM' ou 'sem-data'
+  label: string;
+  projects: ProjectGroup[];
+  totalPago: number;
+  totalPlanejado: number;
+  count: number;
+}
+
+const MES_LABEL_CURTO = MES_LABEL;
+
+export function groupByMonth(
+  expenses: Expense[],
+  remoteMap: RemoteProjectMap,
+  selfProjectName: string,
+  selfProjectId?: string,
+): MonthGroup[] {
+  const buckets = new Map<string, Expense[]>();
+  for (const e of expenses) {
+    const dt = effectiveDate(e);
+    let ym = 'sem-data';
+    if (dt) {
+      const d = new Date(dt);
+      if (!Number.isNaN(d.getTime())) {
+        ym = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}`;
+      }
+    }
+    if (!buckets.has(ym)) buckets.set(ym, []);
+    buckets.get(ym)!.push(e);
+  }
+  const arr: MonthGroup[] = Array.from(buckets.entries()).map(([ym, itens]) => {
+    const projects = groupPersonalExpenses(itens, remoteMap, selfProjectName, selfProjectId);
+    const { pago, planejado } = totalsOf(itens);
+    let label = 'Sem data';
+    if (ym !== 'sem-data') {
+      const [yy, mm] = ym.split('-').map(Number);
+      label = `${MES_LABEL_CURTO[mm - 1]} ${yy}`;
+    }
+    return { ym, label, projects, totalPago: pago, totalPlanejado: planejado, count: itens.length };
+  });
+  return arr.sort((a, b) => {
+    if (a.ym === 'sem-data') return 1;
+    if (b.ym === 'sem-data') return -1;
+    return b.ym.localeCompare(a.ym);
+  });
+}
+
+export interface TipoTopGroup {
+  tipo: string;
+  label: string;
+  projects: ProjectGroup[];
+  totalPago: number;
+  totalPlanejado: number;
+  count: number;
+}
+
+export function groupByTipo(
+  expenses: Expense[],
+  remoteMap: RemoteProjectMap,
+  selfProjectName: string,
+  tipoLabel: (t: string) => string,
+  selfProjectId?: string,
+): TipoTopGroup[] {
+  const buckets = new Map<string, Expense[]>();
+  for (const e of expenses) {
+    const k = e.tipoDespesa || 'OUTROS';
+    if (!buckets.has(k)) buckets.set(k, []);
+    buckets.get(k)!.push(e);
+  }
+  const arr: TipoTopGroup[] = Array.from(buckets.entries()).map(([tipo, itens]) => {
+    const projects = groupPersonalExpenses(itens, remoteMap, selfProjectName, selfProjectId);
+    const { pago, planejado } = totalsOf(itens);
+    return { tipo, label: tipoLabel(tipo), projects, totalPago: pago, totalPlanejado: planejado, count: itens.length };
+  });
+  // Maior gasto primeiro
+  return arr.sort((a, b) => (b.totalPago + b.totalPlanejado) - (a.totalPago + a.totalPlanejado));
 }

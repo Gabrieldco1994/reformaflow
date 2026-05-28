@@ -5,7 +5,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
-import { Plus, CreditCard, ExternalLink, ShoppingCart, Mic } from 'lucide-react';
+import { Plus, CreditCard, ExternalLink, ShoppingCart, Mic, Calendar, ArrowLeft, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { Expense, ExpenseFormData, ExpensesPage, Project } from '@/types';
 import { toast } from 'sonner';
@@ -29,10 +29,18 @@ import { CompráveisView } from './_components/CompraveisView';
 import { OtherProjectsExpensesView } from './_components/OtherProjectsExpensesView';
 import { MobileExpenseList } from './_components/MobileExpenseList';
 import { MonthlyExpenseView } from './_components/MonthlyExpenseView';
-import { PersonalHierarchicalView } from './_components/PersonalHierarchicalView';
+import { UnifiedExpenseView } from './_components/UnifiedExpenseView';
 import { ExpenseViewToggle, type ExpenseViewMode } from './_components/ExpenseViewToggle';
 import { groupExpensesByMes, currentMonthKey } from './_lib/grouping-by-month';
-import type { RemoteProjectMap } from './_lib/personal-hierarchy';
+import {
+  type RemoteProjectMap,
+  type PeriodFilter,
+  inPeriod,
+  listPeriods,
+  periodLabel,
+  currentPeriod,
+  totalsOf as personalTotalsOf,
+} from './_lib/personal-hierarchy';
 import ImportLauncher from './_components/ImportLauncher';
 
 interface TenantProjectRef {
@@ -96,7 +104,7 @@ export default function ExpensesPage() {
     if (typeof window === 'undefined') return;
     const key = `expenses:viewMode:${PROJECT_ID}`;
     const saved = window.localStorage.getItem(key);
-    if (saved === 'category' || saved === 'month') setViewMode(saved);
+    if (saved === 'category' || saved === 'month' || saved === 'project') setViewMode(saved);
   }, [PROJECT_ID]);
 
   React.useEffect(() => {
@@ -121,11 +129,10 @@ export default function ExpensesPage() {
     enabled: projectType === 'PESSOAL',
   });
 
-  // Cross-project despesas (para resolver linkedExpenseId → projeto destino na visão "Por projeto")
-  const { data: crossProjectExpenses = [] } = useQuery<
-    Array<{ id: string; project?: { id: string; name: string; type: string } | null }>
-  >({
-    queryKey: ['cross-project-expenses', PROJECT_ID, 'view-projeto-light'],
+  // Cross-project despesas (PESSOAL): full data com room+project, usado tanto
+  // para mostrar como itens próprios quanto para resolver linkedExpenseId via remoteMap.
+  const { data: crossProjectExpenses = [] } = useQuery<Expense[]>({
+    queryKey: ['cross-project-expenses', PROJECT_ID, 'unified-view'],
     queryFn: () => api.get(`/projects/${PROJECT_ID}/expenses/cross-project?limit=500`),
     enabled: projectType === 'PESSOAL',
     staleTime: 60_000,
@@ -138,6 +145,12 @@ export default function ExpensesPage() {
     }
     return m;
   }, [crossProjectExpenses]);
+
+  // Lista consolidada para PESSOAL: despesas locais + despesas dos outros projetos
+  const allExpensesPersonal = useMemo<Expense[]>(() => {
+    if (projectType !== 'PESSOAL') return expenses;
+    return [...expenses, ...crossProjectExpenses];
+  }, [projectType, expenses, crossProjectExpenses]);
 
 
   const influenceProjects = useMemo(
@@ -222,7 +235,31 @@ export default function ExpensesPage() {
     filteredExpenses,
     hasActiveFilters,
     categorias,
-  } = useExpenseFilters(expenses, showRooms);
+  } = useExpenseFilters(allExpensesPersonal, showRooms);
+
+  // Período (filtro mês específico / ano todo) — só usado quando PESSOAL
+  const [periodYear] = useState<number>(() => new Date().getFullYear());
+  const [period, setPeriod] = useState<PeriodFilter>(() => currentPeriod());
+  const allPeriods = useMemo(
+    () => projectType === 'PESSOAL' ? listPeriods(filteredExpenses, periodYear) : [],
+    [projectType, filteredExpenses, periodYear],
+  );
+  const navigatePeriod = (delta: -1 | 1) => {
+    if (period === 'ALL') return;
+    const [yy, mm] = period.split('-').map(Number);
+    const d = new Date(yy, mm - 1 + delta, 1);
+    setPeriod(`${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}`);
+  };
+  const periodFilteredPersonal = useMemo<Expense[]>(() => {
+    if (projectType !== 'PESSOAL') return filteredExpenses;
+    return filteredExpenses.filter((e) => inPeriod(e, period, periodYear));
+  }, [projectType, filteredExpenses, period, periodYear]);
+
+  // Totais do período (só relevantes em PESSOAL)
+  const periodTotals = useMemo(
+    () => personalTotalsOf(periodFilteredPersonal),
+    [periodFilteredPersonal],
+  );
 
   // KPIs
   const totalGeral = filteredExpenses.reduce((s, e) => s + e.valorTotal, 0);
@@ -649,6 +686,59 @@ export default function ExpensesPage() {
         tipoDespesaOptions={TIPO_DESPESA_OPTIONS}
       />
 
+      {/* Período (PESSOAL) — filtro de mês / ano todo aplicado nos 3 modos */}
+      {projectType === 'PESSOAL' && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-orange-200 bg-orange-50/60 px-3 py-2">
+          <Calendar className="w-4 h-4 text-orange-600" />
+          <span className="text-xs font-semibold text-orange-900">Período:</span>
+          {period !== 'ALL' && (
+            <button
+              type="button"
+              onClick={() => navigatePeriod(-1)}
+              className="rounded p-1 hover:bg-orange-100"
+              title="Mês anterior"
+            >
+              <ArrowLeft className="w-3.5 h-3.5 text-orange-700" />
+            </button>
+          )}
+          <select
+            value={period}
+            onChange={(e) => setPeriod(e.target.value as PeriodFilter)}
+            className="text-xs border border-orange-200 rounded px-2 py-1 bg-white font-medium"
+          >
+            <option value="ALL">Ano todo ({periodYear})</option>
+            {allPeriods.map((p) => (
+              <option key={p} value={p}>{periodLabel(p)}</option>
+            ))}
+            {!allPeriods.includes(currentPeriod()) && (
+              <option value={currentPeriod()}>{periodLabel(currentPeriod())} (sem despesas)</option>
+            )}
+          </select>
+          {period !== 'ALL' && (
+            <button
+              type="button"
+              onClick={() => navigatePeriod(1)}
+              className="rounded p-1 hover:bg-orange-100"
+              title="Próximo mês"
+            >
+              <ArrowRight className="w-3.5 h-3.5 text-orange-700" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setPeriod('ALL')}
+            className={`ml-2 text-xs px-2 py-1 rounded ${period === 'ALL' ? 'bg-orange-500 text-white' : 'bg-white text-orange-700 border border-orange-200 hover:bg-orange-100'}`}
+          >
+            Ano todo
+          </button>
+          <div className="ml-auto flex items-center gap-3 text-xs">
+            <span className="text-gray-600">Pago: <span className="font-mono font-semibold text-emerald-700">{formatCurrency(periodTotals.pago / 100)}</span></span>
+            <span className="text-gray-600">Planejado: <span className="font-mono font-semibold text-amber-700">{formatCurrency(periodTotals.planejado / 100)}</span></span>
+            <span className="text-gray-600">Total: <span className="font-mono font-semibold text-gray-900">{formatCurrency((periodTotals.pago + periodTotals.planejado) / 100)}</span></span>
+          </div>
+        </div>
+      )}
+
       {isLoading ? (
         <div className="space-y-4 animate-pulse">
           {/* KPIs skeleton (mesma altura do real ~76px) */}
@@ -664,10 +754,12 @@ export default function ExpensesPage() {
         </div>
       ) : (
         <>
-        {viewMode === 'project' && projectType === 'PESSOAL' ? (
-          <PersonalHierarchicalView
-            expenses={filteredExpenses}
+        {projectType === 'PESSOAL' ? (
+          <UnifiedExpenseView
+            mode={viewMode}
+            expenses={periodFilteredPersonal}
             remoteMap={remoteProjectMap}
+            selfProjectId={PROJECT_ID}
             selfProjectName={project?.name ?? 'Pessoal'}
             tipoLabel={tipoLabel}
             openEdit={openEdit}
