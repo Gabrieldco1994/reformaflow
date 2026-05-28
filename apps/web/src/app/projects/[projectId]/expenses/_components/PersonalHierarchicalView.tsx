@@ -253,7 +253,69 @@ export function projectAccentOf(type: string) {
   return projectAccent(type);
 }
 
-export { ProjectCard, OrigemBlock, TipoBlock, ExpenseRow };
+export { ProjectCard, OrigemBlock, TipoBlock, ExpenseRow, RoomTipoBlocks };
+
+
+/**
+ * Renderiza o corpo de um projeto: Ambiente → Tipo (REFORMA) ou direto Tipo.
+ * O nível de "origem" (cartão/extrato) foi removido — a origem agora é filtrada
+ * via chips de cartões/contas acima da lista.
+ */
+function RoomTipoBlocks({
+  itens, isReforma, tipoLabel, openEdit, onDelete, onToggleStatus,
+}: {
+  itens: Expense[];
+  isReforma: boolean;
+  tipoLabel: (t: string) => string;
+  openEdit: (e: Expense) => void; onDelete: (id: string) => void;
+  onToggleStatus: (id: string, next: ExpenseStatus) => void;
+}) {
+  const tipoBlocks = useMemo(
+    () => groupOrigemByTipo({ key: '', kind: 'MANUAL', label: '', itens }),
+    [itens],
+  );
+  const roomBlocks = useMemo(
+    () => isReforma ? groupOrigemByRoom({ key: '', kind: 'MANUAL', label: '', itens }) : [],
+    [itens, isReforma],
+  );
+
+  return (
+    <div className="rounded-lg border border-gray-200 overflow-hidden bg-white">
+      {isReforma ? (
+        roomBlocks.map((rg) => (
+          <div key={rg.roomKey} className="border-t border-gray-100 first:border-t-0">
+            <div className="px-3 py-1 text-[11px] font-semibold text-gray-600 bg-gray-50">
+              🏠 {rg.roomLabel} ({rg.itens.length}) · {formatCurrency(rg.itens.reduce((s, x) => s + x.valorTotal, 0) / 100)}
+            </div>
+            {groupOrigemByTipo({ key: '', kind: 'MANUAL', label: '', itens: rg.itens }).map((tg) => (
+              <TipoBlock
+                key={tg.tipo}
+                tipo={tg.tipo}
+                itens={tg.itens}
+                tipoLabel={tipoLabel}
+                openEdit={openEdit}
+                onDelete={onDelete}
+                onToggleStatus={onToggleStatus}
+              />
+            ))}
+          </div>
+        ))
+      ) : (
+        tipoBlocks.map((tg) => (
+          <TipoBlock
+            key={tg.tipo}
+            tipo={tg.tipo}
+            itens={tg.itens}
+            tipoLabel={tipoLabel}
+            openEdit={openEdit}
+            onDelete={onDelete}
+            onToggleStatus={onToggleStatus}
+          />
+        ))
+      )}
+    </div>
+  );
+}
 
 
 function ProjectCard({
@@ -290,20 +352,15 @@ function ProjectCard({
         </div>
       </button>
       {open && (
-        <div className="space-y-2 p-3 bg-gray-50/40">
-          {pg.origens.map((o) => (
-            <OrigemBlock
-              key={o.key}
-              label={o.label}
-              kind={o.kind}
-              itens={o.itens}
-              isReforma={isReforma}
-              tipoLabel={tipoLabel}
-              openEdit={openEdit}
-              onDelete={onDelete}
-              onToggleStatus={onToggleStatus}
-            />
-          ))}
+        <div className="p-3 bg-gray-50/40">
+          <RoomTipoBlocks
+            itens={pg.itens}
+            isReforma={isReforma}
+            tipoLabel={tipoLabel}
+            openEdit={openEdit}
+            onDelete={onDelete}
+            onToggleStatus={onToggleStatus}
+          />
         </div>
       )}
     </div>

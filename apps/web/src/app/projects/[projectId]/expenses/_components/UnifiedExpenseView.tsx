@@ -1,13 +1,14 @@
 'use client';
 import React, { useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { ChevronDown, ChevronRight, CreditCard, Landmark } from 'lucide-react';
+import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import type { Expense, ExpenseStatus } from '@/types';
 import {
   groupPersonalExpenses,
   groupByMonth,
   groupByTipo,
-  totalsOf,
   type RemoteProjectMap,
 } from '../_lib/personal-hierarchy';
 import {
@@ -16,6 +17,9 @@ import {
 } from './PersonalHierarchicalView';
 
 export type UnifiedMode = 'category' | 'month' | 'project';
+
+interface TenantCardLite { id: string; nickname?: string | null; brand: string; last4: string; }
+interface TenantAccountLite { id: string; nickname?: string | null; institution: string; last4?: string | null; }
 
 interface Props {
   mode: UnifiedMode;
@@ -27,6 +31,98 @@ interface Props {
   openEdit: (e: Expense) => void;
   onDelete: (id: string) => void;
   onToggleStatus: (id: string, next: ExpenseStatus) => void;
+}
+
+interface OriginChip {
+  key: string;
+  kind: 'CARTAO' | 'EXTRATO';
+  last4: string;
+  label: string;
+  pago: number;
+  planejado: number;
+  count: number;
+}
+
+/** Chave de origem (cartão/conta) de uma despesa, ou null se for manual. */
+function originKeyOf(e: Expense): string | null {
+  if (e.cardLast4) return `CARTAO:${e.cardLast4}`;
+  if (e.bankLast4) return `EXTRATO:${e.bankLast4}`;
+  return null;
+}
+
+function deriveOriginChips(
+  expenses: Expense[],
+  cardLabels: Map<string, string>,
+  accountLabels: Map<string, string>,
+): OriginChip[] {
+  const map = new Map<string, OriginChip>();
+  for (const e of expenses) {
+    let kind: 'CARTAO' | 'EXTRATO';
+    let last4: string;
+    if (e.cardLast4) { kind = 'CARTAO'; last4 = e.cardLast4; }
+    else if (e.bankLast4) { kind = 'EXTRATO'; last4 = e.bankLast4; }
+    else continue;
+    const key = `${kind}:${last4}`;
+    let chip = map.get(key);
+    if (!chip) {
+      const label = kind === 'CARTAO'
+        ? (cardLabels.get(last4) ?? `Cartão ••${last4}`)
+        : (accountLabels.get(last4) ?? `Conta ••${last4}`);
+      chip = { key, kind, last4, label, pago: 0, planejado: 0, count: 0 };
+      map.set(key, chip);
+    }
+    if (e.status === 'PAGO') chip.pago += e.valorTotal;
+    else chip.planejado += e.valorTotal;
+    chip.count++;
+  }
+  return Array.from(map.values()).sort((a, b) => (b.pago + b.planejado) - (a.pago + a.planejado));
+}
+
+function OriginChips({
+  chips, selected, onSelect,
+}: {
+  chips: OriginChip[];
+  selected: string | null;
+  onSelect: (key: string | null) => void;
+}) {
+  if (chips.length === 0) return null;
+  return (
+    <div className="flex flex-wrap items-stretch gap-2">
+      {chips.map((c) => {
+        const isActive = selected === c.key;
+        const Icon = c.kind === 'CARTAO' ? CreditCard : Landmark;
+        return (
+          <button
+            key={c.key}
+            type="button"
+            onClick={() => onSelect(isActive ? null : c.key)}
+            className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors ${
+              isActive
+                ? 'border-teal-600 bg-teal-600 text-white shadow-sm'
+                : 'border-gray-200 bg-white text-gray-700 hover:border-teal-400 hover:bg-teal-50'
+            }`}
+          >
+            <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-white' : 'text-teal-600'}`} />
+            <div className="leading-tight">
+              <div className="text-xs font-semibold">{c.label}</div>
+              <div className={`text-[10px] font-mono ${isActive ? 'text-teal-50' : 'text-gray-500'}`}>
+                {formatCurrency(c.pago / 100)} pago · {formatCurrency(c.planejado / 100)} plan.
+              </div>
+            </div>
+          </button>
+        );
+      })}
+      {selected && (
+        <button
+          type="button"
+          onClick={() => onSelect(null)}
+          className="self-center rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-600 hover:bg-gray-50"
+        >
+          Limpar filtro
+        </button>
+      )}
+    </div>
+  );
 }
 
 function EmptyState() {
@@ -106,50 +202,114 @@ function TopShell({
 export function UnifiedExpenseView({
   mode, expenses, remoteMap, selfProjectId, selfProjectName, tipoLabel, openEdit, onDelete, onToggleStatus,
 }: Props) {
+  const [selectedOrigin, setSelectedOrigin] = useState<string | null>(null);
+
+  const { data: cards = [] } = useQuery<TenantCardLite[]>({
+    queryKey: ['tenant', 'credit-cards'],
+    queryFn: () => api.get('/tenant/credit-cards'),
+    staleTime: 60_000,
+  });
+  const { data: accounts = [] } = useQuery<TenantAccountLite[]>({
+    queryKey: ['tenant', 'bank-accounts'],
+    queryFn: () => api.get('/tenant/bank-accounts'),
+    staleTime: 60_000,
+  });
+
+  const cardLabels = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of cards) if (c.last4 && !m.has(c.last4)) m.set(c.last4, `${c.nickname || c.brand} ••${c.last4}`);
+    return m;
+  }, [cards]);
+  const accountLabels = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const a of accounts) if (a.last4 && !m.has(a.last4)) m.set(a.last4, `${a.nickname || a.institution} ••${a.last4}`);
+    return m;
+  }, [accounts]);
+
+  const chips = useMemo(
+    () => deriveOriginChips(expenses, cardLabels, accountLabels),
+    [expenses, cardLabels, accountLabels],
+  );
+
+  // Se o chip selecionado deixar de existir (ex.: mudou o período), limpa.
+  const selected = selectedOrigin && chips.some((c) => c.key === selectedOrigin) ? selectedOrigin : null;
+
+  const filteredExpenses = useMemo(
+    () => selected ? expenses.filter((e) => originKeyOf(e) === selected) : expenses,
+    [expenses, selected],
+  );
+
   const projects = useMemo(
-    () => groupPersonalExpenses(expenses, remoteMap, selfProjectName, selfProjectId),
-    [expenses, remoteMap, selfProjectName, selfProjectId],
+    () => groupPersonalExpenses(filteredExpenses, remoteMap, selfProjectName, selfProjectId),
+    [filteredExpenses, remoteMap, selfProjectName, selfProjectId],
   );
 
   const months = useMemo(
-    () => mode === 'month' ? groupByMonth(expenses, remoteMap, selfProjectName, selfProjectId) : [],
-    [mode, expenses, remoteMap, selfProjectName, selfProjectId],
+    () => mode === 'month' ? groupByMonth(filteredExpenses, remoteMap, selfProjectName, selfProjectId) : [],
+    [mode, filteredExpenses, remoteMap, selfProjectName, selfProjectId],
   );
 
   const tipos = useMemo(
-    () => mode === 'category' ? groupByTipo(expenses, remoteMap, selfProjectName, tipoLabel, selfProjectId) : [],
-    [mode, expenses, remoteMap, selfProjectName, tipoLabel, selfProjectId],
+    () => mode === 'category' ? groupByTipo(filteredExpenses, remoteMap, selfProjectName, tipoLabel, selfProjectId) : [],
+    [mode, filteredExpenses, remoteMap, selfProjectName, tipoLabel, selfProjectId],
   );
 
-  if (expenses.length === 0) return <EmptyState />;
+  const body = (() => {
+    if (filteredExpenses.length === 0) return <EmptyState />;
 
-  if (mode === 'project') {
-    return (
-      <ProjectsList
-        projects={projects}
-        tipoLabel={tipoLabel}
-        openEdit={openEdit}
-        onDelete={onDelete}
-        onToggleStatus={onToggleStatus}
-      />
-    );
-  }
+    if (mode === 'project') {
+      return (
+        <ProjectsList
+          projects={projects}
+          tipoLabel={tipoLabel}
+          openEdit={openEdit}
+          onDelete={onDelete}
+          onToggleStatus={onToggleStatus}
+        />
+      );
+    }
 
-  if (mode === 'month') {
+    if (mode === 'month') {
+      return (
+        <div className="space-y-3">
+          {months.map((mg, idx) => (
+            <TopShell
+              key={mg.ym}
+              title={mg.label}
+              badgeTone="indigo"
+              count={mg.count}
+              pago={mg.totalPago}
+              planejado={mg.totalPlanejado}
+              defaultOpen={idx === 0}
+            >
+              <ProjectsList
+                projects={mg.projects}
+                tipoLabel={tipoLabel}
+                openEdit={openEdit}
+                onDelete={onDelete}
+                onToggleStatus={onToggleStatus}
+              />
+            </TopShell>
+          ))}
+        </div>
+      );
+    }
+
+    // category
     return (
       <div className="space-y-3">
-        {months.map((mg, idx) => (
+        {tipos.map((tg, idx) => (
           <TopShell
-            key={mg.ym}
-            title={mg.label}
-            badgeTone="indigo"
-            count={mg.count}
-            pago={mg.totalPago}
-            planejado={mg.totalPlanejado}
+            key={tg.tipo}
+            title={tg.label}
+            badgeTone="emerald"
+            count={tg.count}
+            pago={tg.totalPago}
+            planejado={tg.totalPlanejado}
             defaultOpen={idx === 0}
           >
             <ProjectsList
-              projects={mg.projects}
+              projects={tg.projects}
               tipoLabel={tipoLabel}
               openEdit={openEdit}
               onDelete={onDelete}
@@ -159,30 +319,14 @@ export function UnifiedExpenseView({
         ))}
       </div>
     );
-  }
+  })();
 
-  // category
+  if (expenses.length === 0) return <EmptyState />;
+
   return (
     <div className="space-y-3">
-      {tipos.map((tg, idx) => (
-        <TopShell
-          key={tg.tipo}
-          title={tg.label}
-          badgeTone="emerald"
-          count={tg.count}
-          pago={tg.totalPago}
-          planejado={tg.totalPlanejado}
-          defaultOpen={idx === 0}
-        >
-          <ProjectsList
-            projects={tg.projects}
-            tipoLabel={tipoLabel}
-            openEdit={openEdit}
-            onDelete={onDelete}
-            onToggleStatus={onToggleStatus}
-          />
-        </TopShell>
-      ))}
+      <OriginChips chips={chips} selected={selected} onSelect={setSelectedOrigin} />
+      {body}
     </div>
   );
 }
