@@ -215,6 +215,15 @@ export default function ExpensesPage() {
     queryClient.invalidateQueries({ queryKey: ['expenses', PROJECT_ID] });
     queryClient.invalidateQueries({ queryKey: ['dashboard', PROJECT_ID] });
     queryClient.invalidateQueries({ queryKey: ['cash-flow', PROJECT_ID] });
+    queryClient.invalidateQueries({ queryKey: ['cross-project-expenses', PROJECT_ID] });
+  };
+
+  // Na visão consolidada (PESSOAL) as despesas de outros projetos aparecem como itens.
+  // Mutations (editar/excluir/status) precisam apontar para o projeto DONO da despesa,
+  // senão a API responde "Despesa não encontrada".
+  const resolveOwnerProjectId = (id: string) => {
+    const exp = allExpensesPersonal.find((e) => e.id === id);
+    return exp?.project?.id ?? exp?.projectId ?? PROJECT_ID;
   };
 
   const createMutation = useMutation({
@@ -234,7 +243,7 @@ export default function ExpensesPage() {
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: ExpenseFormData }) =>
-      api.patch(`/projects/${PROJECT_ID}/expenses/${id}`, data),
+      api.patch(`/projects/${resolveOwnerProjectId(id)}/expenses/${id}`, data),
     onSuccess: () => { 
       toast.success('Despesa atualizada com sucesso');
       invalidate(); 
@@ -247,7 +256,7 @@ export default function ExpensesPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.delete(`/projects/${PROJECT_ID}/expenses/${id}`),
+    mutationFn: (id: string) => api.delete(`/projects/${resolveOwnerProjectId(id)}/expenses/${id}`),
     onSuccess: () => {
       toast.success('Despesa excluída com sucesso');
       invalidate();
@@ -274,7 +283,7 @@ export default function ExpensesPage() {
   // Toggle rápido de status (PAGO ↔ PLANEJADO)
   const toggleStatusMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: 'PAGO' | 'PLANEJADO' }) =>
-      api.patch(`/projects/${PROJECT_ID}/expenses/${id}`, { status }),
+      api.patch(`/projects/${resolveOwnerProjectId(id)}/expenses/${id}`, { status }),
     onSuccess: invalidate,
     onError: (e: Error) => {
       console.error('[expenses] toggle status failed', e);
@@ -286,7 +295,7 @@ export default function ExpensesPage() {
   const quickUpdateMutation = useMutation({
     mutationFn: ({ id, valorTotal, dataPagamento, quantidade }: { id: string; valorTotal: number; dataPagamento: string; quantidade: number }) => {
       const valorUnit = quantidade > 0 ? valorTotal / quantidade : valorTotal;
-      return api.patch(`/projects/${PROJECT_ID}/expenses/${id}`, {
+      return api.patch(`/projects/${resolveOwnerProjectId(id)}/expenses/${id}`, {
         valor: valorUnit,
         dataPagamento,
       });
