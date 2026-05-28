@@ -1,0 +1,381 @@
+'use client';
+import React, { useMemo, useState } from 'react';
+import { ChevronDown, ChevronRight, Calendar, Edit2, Trash2, ArrowLeft, ArrowRight } from 'lucide-react';
+import { formatCurrency } from '@/lib/utils';
+import type { Expense, ExpenseStatus } from '@/types';
+import {
+  groupPersonalExpenses,
+  groupOrigemByTipo,
+  groupOrigemByRoom,
+  inPeriod,
+  listPeriods,
+  periodLabel,
+  currentPeriod,
+  totalsOf,
+  type PeriodFilter,
+  type RemoteProjectMap,
+} from '../_lib/personal-hierarchy';
+import { effectiveDate } from '../_lib/grouping-by-month';
+
+interface Props {
+  expenses: Expense[];
+  remoteMap: RemoteProjectMap;
+  selfProjectName: string;
+  tipoLabel: (t: string) => string;
+  openEdit: (e: Expense) => void;
+  onDelete: (id: string) => void;
+  onToggleStatus: (id: string, next: ExpenseStatus) => void;
+}
+
+function statusButton(e: Expense, onToggle: (next: ExpenseStatus) => void) {
+  const isPago = e.status === 'PAGO';
+  return (
+    <button
+      type="button"
+      onClick={(ev) => { ev.stopPropagation(); onToggle(isPago ? 'PLANEJADO' : 'PAGO'); }}
+      title="Alternar status"
+      style={{
+        backgroundColor: isPago ? '#16a34a' : '#f59e0b',
+        color: '#fff',
+        borderRadius: 6,
+        padding: '2px 8px',
+        fontSize: 11,
+        fontWeight: 600,
+        border: 'none',
+        cursor: 'pointer',
+      }}
+    >
+      {isPago ? 'PAGO' : 'PLANEJADO'}
+    </button>
+  );
+}
+
+function ExpenseRow({
+  e, tipoLabel, openEdit, onDelete, onToggleStatus,
+}: {
+  e: Expense; tipoLabel: (t: string) => string;
+  openEdit: (e: Expense) => void; onDelete: (id: string) => void;
+  onToggleStatus: (id: string, next: ExpenseStatus) => void;
+}) {
+  const dt = effectiveDate(e);
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5 text-xs border-t border-gray-100 hover:bg-orange-50/40">
+      <div className="flex-1 min-w-0">
+        <div className="font-medium text-gray-900 truncate">
+          {e.titulo || e.fornecedor || tipoLabel(e.tipoDespesa)}
+        </div>
+        <div className="text-[10px] text-gray-500">
+          {tipoLabel(e.tipoDespesa)}
+          {e.room?.name ? ` · ${e.room.name}` : ''}
+          {dt ? ` · ${new Date(dt).toLocaleDateString('pt-BR')}` : ''}
+        </div>
+      </div>
+      <span className="font-mono text-gray-900 text-xs whitespace-nowrap">
+        {formatCurrency(e.valorTotal / 100)}
+      </span>
+      {statusButton(e, (next) => onToggleStatus(e.id, next))}
+      <button
+        type="button"
+        onClick={() => openEdit(e)}
+        className="text-blue-600 hover:bg-blue-50 rounded p-1"
+        title="Editar"
+      >
+        <Edit2 className="w-3.5 h-3.5" />
+      </button>
+      <button
+        type="button"
+        onClick={() => { if (confirm('Excluir despesa?')) onDelete(e.id); }}
+        className="text-red-500 hover:bg-red-50 rounded p-1"
+        title="Excluir"
+      >
+        <Trash2 className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+}
+
+function TipoBlock({
+  tipo, itens, tipoLabel, openEdit, onDelete, onToggleStatus,
+}: {
+  tipo: string; itens: Expense[];
+  tipoLabel: (t: string) => string;
+  openEdit: (e: Expense) => void; onDelete: (id: string) => void;
+  onToggleStatus: (id: string, next: ExpenseStatus) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const { pago, planejado } = totalsOf(itens);
+  const total = pago + planejado;
+  return (
+    <div className="border-t border-gray-100 first:border-t-0">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-gray-50"
+      >
+        {open ? <ChevronDown className="w-3 h-3 text-gray-500" /> : <ChevronRight className="w-3 h-3 text-gray-500" />}
+        <span className="font-medium text-gray-700">{tipoLabel(tipo)}</span>
+        <span className="text-[10px] text-gray-400">({itens.length})</span>
+        <span className="ml-auto font-mono text-gray-900">{formatCurrency(total / 100)}</span>
+      </button>
+      {open && (
+        <div>
+          {itens.map((e) => (
+            <ExpenseRow
+              key={e.id}
+              e={e}
+              tipoLabel={tipoLabel}
+              openEdit={openEdit}
+              onDelete={onDelete}
+              onToggleStatus={onToggleStatus}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OrigemBlock({
+  label, kind, itens, isReforma, tipoLabel, openEdit, onDelete, onToggleStatus,
+}: {
+  label: string; kind: 'CARTAO' | 'EXTRATO' | 'MANUAL'; itens: Expense[];
+  isReforma: boolean;
+  tipoLabel: (t: string) => string;
+  openEdit: (e: Expense) => void; onDelete: (id: string) => void;
+  onToggleStatus: (id: string, next: ExpenseStatus) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const { pago, planejado } = totalsOf(itens);
+  const total = pago + planejado;
+
+  const tipoBlocks = useMemo(() => groupOrigemByTipo({ key: '', kind, label, itens }), [itens, kind, label]);
+  const roomBlocks = useMemo(
+    () => isReforma ? groupOrigemByRoom({ key: '', kind, label, itens }) : [],
+    [itens, kind, label, isReforma],
+  );
+
+  const accent = kind === 'CARTAO' ? 'bg-purple-50 border-purple-200 text-purple-700'
+    : kind === 'EXTRATO' ? 'bg-cyan-50 border-cyan-200 text-cyan-700'
+    : 'bg-gray-50 border-gray-200 text-gray-700';
+
+  return (
+    <div className="border border-gray-200 rounded-lg overflow-hidden bg-white">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={`w-full flex items-center gap-2 px-3 py-2 text-xs ${accent} border-b`}
+      >
+        {open ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+        <span className="font-semibold">{label}</span>
+        <span className="text-[10px] opacity-75">({itens.length})</span>
+        <span className="ml-auto font-mono">{formatCurrency(total / 100)}</span>
+      </button>
+      {open && (
+        <div className="bg-white">
+          {isReforma ? (
+            roomBlocks.map((rg) => (
+              <div key={rg.roomKey} className="border-t border-gray-100 first:border-t-0">
+                <div className="px-3 py-1 text-[11px] font-semibold text-gray-600 bg-gray-50">
+                  🏠 {rg.roomLabel} ({rg.itens.length}) · {formatCurrency(rg.itens.reduce((s, x) => s + x.valorTotal, 0) / 100)}
+                </div>
+                {groupOrigemByTipo({ key: '', kind, label, itens: rg.itens }).map((tg) => (
+                  <TipoBlock
+                    key={tg.tipo}
+                    tipo={tg.tipo}
+                    itens={tg.itens}
+                    tipoLabel={tipoLabel}
+                    openEdit={openEdit}
+                    onDelete={onDelete}
+                    onToggleStatus={onToggleStatus}
+                  />
+                ))}
+              </div>
+            ))
+          ) : (
+            tipoBlocks.map((tg) => (
+              <TipoBlock
+                key={tg.tipo}
+                tipo={tg.tipo}
+                itens={tg.itens}
+                tipoLabel={tipoLabel}
+                openEdit={openEdit}
+                onDelete={onDelete}
+                onToggleStatus={onToggleStatus}
+              />
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function projectAccent(type: string): { card: string; badge: string } {
+  switch (type) {
+    case 'REFORMA': return { card: 'border-orange-300', badge: 'bg-orange-100 text-orange-800' };
+    case 'CASA': return { card: 'border-emerald-300', badge: 'bg-emerald-100 text-emerald-800' };
+    case 'CARRO': return { card: 'border-blue-300', badge: 'bg-blue-100 text-blue-800' };
+    case 'COMPRA': return { card: 'border-amber-300', badge: 'bg-amber-100 text-amber-800' };
+    default: return { card: 'border-gray-300', badge: 'bg-gray-100 text-gray-800' };
+  }
+}
+
+export function PersonalHierarchicalView({
+  expenses, remoteMap, selfProjectName, tipoLabel, openEdit, onDelete, onToggleStatus,
+}: Props) {
+  const [year] = useState<number>(() => new Date().getFullYear());
+  const [period, setPeriod] = useState<PeriodFilter>(() => currentPeriod());
+
+  const filtered = useMemo(
+    () => expenses.filter((e) => inPeriod(e, period, year)),
+    [expenses, period, year],
+  );
+
+  const allPeriods = useMemo(() => listPeriods(expenses, year), [expenses, year]);
+
+  // Navegação prev/next mês
+  const navigate = (delta: -1 | 1) => {
+    if (period === 'ALL') return;
+    const [yy, mm] = period.split('-').map(Number);
+    const d = new Date(yy, mm - 1 + delta, 1);
+    setPeriod(`${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}`);
+  };
+
+  const projects = useMemo(
+    () => groupPersonalExpenses(filtered, remoteMap, selfProjectName),
+    [filtered, remoteMap, selfProjectName],
+  );
+
+  const { pago: totalPago, planejado: totalPlanejado } = totalsOf(filtered);
+  const totalGeral = totalPago + totalPlanejado;
+
+  return (
+    <div className="space-y-4">
+      {/* Header período */}
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-orange-200 bg-orange-50/60 px-3 py-2">
+        <Calendar className="w-4 h-4 text-orange-600" />
+        <span className="text-xs font-semibold text-orange-900">Período:</span>
+        {period !== 'ALL' && (
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            className="rounded p-1 hover:bg-orange-100"
+            title="Mês anterior"
+          >
+            <ArrowLeft className="w-3.5 h-3.5 text-orange-700" />
+          </button>
+        )}
+        <select
+          value={period}
+          onChange={(e) => setPeriod(e.target.value as PeriodFilter)}
+          className="text-xs border border-orange-200 rounded px-2 py-1 bg-white font-medium"
+        >
+          <option value="ALL">Ano todo ({year})</option>
+          {allPeriods.map((p) => (
+            <option key={p} value={p}>{periodLabel(p)}</option>
+          ))}
+          {!allPeriods.includes(currentPeriod()) && (
+            <option value={currentPeriod()}>{periodLabel(currentPeriod())} (sem despesas)</option>
+          )}
+        </select>
+        {period !== 'ALL' && (
+          <button
+            type="button"
+            onClick={() => navigate(1)}
+            className="rounded p-1 hover:bg-orange-100"
+            title="Próximo mês"
+          >
+            <ArrowRight className="w-3.5 h-3.5 text-orange-700" />
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => setPeriod('ALL')}
+          className={`ml-2 text-xs px-2 py-1 rounded ${period === 'ALL' ? 'bg-orange-500 text-white' : 'bg-white text-orange-700 border border-orange-200 hover:bg-orange-100'}`}
+        >
+          Ano todo
+        </button>
+        <div className="ml-auto flex items-center gap-3 text-xs">
+          <span className="text-gray-600">Pago: <span className="font-mono font-semibold text-emerald-700">{formatCurrency(totalPago / 100)}</span></span>
+          <span className="text-gray-600">Planejado: <span className="font-mono font-semibold text-amber-700">{formatCurrency(totalPlanejado / 100)}</span></span>
+          <span className="text-gray-600">Total: <span className="font-mono font-semibold text-gray-900">{formatCurrency(totalGeral / 100)}</span></span>
+        </div>
+      </div>
+
+      {projects.length === 0 && (
+        <div className="rounded-lg border border-dashed border-gray-200 bg-white p-8 text-center text-sm text-gray-500">
+          Nenhuma despesa em {periodLabel(period)}.
+        </div>
+      )}
+
+      {projects.map((pg) => {
+        const accent = projectAccent(pg.projectType);
+        return (
+          <ProjectCard
+            key={pg.projectKey}
+            pg={pg}
+            accent={accent}
+            tipoLabel={tipoLabel}
+            openEdit={openEdit}
+            onDelete={onDelete}
+            onToggleStatus={onToggleStatus}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function ProjectCard({
+  pg, accent, tipoLabel, openEdit, onDelete, onToggleStatus,
+}: {
+  pg: ReturnType<typeof groupPersonalExpenses>[number];
+  accent: { card: string; badge: string };
+  tipoLabel: (t: string) => string;
+  openEdit: (e: Expense) => void; onDelete: (id: string) => void;
+  onToggleStatus: (id: string, next: ExpenseStatus) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const total = pg.totalPago + pg.totalPlanejado;
+  const isReforma = pg.projectType === 'REFORMA';
+  return (
+    <div className={`rounded-xl border-2 ${accent.card} bg-white overflow-hidden shadow-sm`}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50"
+      >
+        {open ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+        <span className="font-bold text-gray-900 text-sm">{pg.projectName}</span>
+        <span className={`text-[10px] font-semibold rounded px-1.5 py-0.5 ${accent.badge}`}>
+          {pg.projectType}
+        </span>
+        <span className="text-xs text-gray-500">{pg.itens.length} itens</span>
+        <div className="ml-auto flex items-center gap-3 text-xs">
+          <span className="text-emerald-700 font-mono">{formatCurrency(pg.totalPago / 100)}</span>
+          <span className="text-gray-300">·</span>
+          <span className="text-amber-700 font-mono">{formatCurrency(pg.totalPlanejado / 100)}</span>
+          <span className="text-gray-300">=</span>
+          <span className="font-mono font-bold text-gray-900">{formatCurrency(total / 100)}</span>
+        </div>
+      </button>
+      {open && (
+        <div className="space-y-2 p-3 bg-gray-50/40">
+          {pg.origens.map((o) => (
+            <OrigemBlock
+              key={o.key}
+              label={o.label}
+              kind={o.kind}
+              itens={o.itens}
+              isReforma={isReforma}
+              tipoLabel={tipoLabel}
+              openEdit={openEdit}
+              onDelete={onDelete}
+              onToggleStatus={onToggleStatus}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

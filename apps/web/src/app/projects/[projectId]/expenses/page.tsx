@@ -29,8 +29,10 @@ import { CompráveisView } from './_components/CompraveisView';
 import { OtherProjectsExpensesView } from './_components/OtherProjectsExpensesView';
 import { MobileExpenseList } from './_components/MobileExpenseList';
 import { MonthlyExpenseView } from './_components/MonthlyExpenseView';
+import { PersonalHierarchicalView } from './_components/PersonalHierarchicalView';
 import { ExpenseViewToggle, type ExpenseViewMode } from './_components/ExpenseViewToggle';
 import { groupExpensesByMes, currentMonthKey } from './_lib/grouping-by-month';
+import type { RemoteProjectMap } from './_lib/personal-hierarchy';
 import ImportLauncher from './_components/ImportLauncher';
 
 interface TenantProjectRef {
@@ -118,6 +120,25 @@ export default function ExpensesPage() {
     queryFn: () => api.get('/projects'),
     enabled: projectType === 'PESSOAL',
   });
+
+  // Cross-project despesas (para resolver linkedExpenseId → projeto destino na visão "Por projeto")
+  const { data: crossProjectExpenses = [] } = useQuery<
+    Array<{ id: string; project?: { id: string; name: string; type: string } | null }>
+  >({
+    queryKey: ['cross-project-expenses', PROJECT_ID, 'view-projeto-light'],
+    queryFn: () => api.get(`/projects/${PROJECT_ID}/expenses/cross-project?limit=500`),
+    enabled: projectType === 'PESSOAL',
+    staleTime: 60_000,
+  });
+
+  const remoteProjectMap = useMemo<RemoteProjectMap>(() => {
+    const m = new Map();
+    for (const e of crossProjectExpenses) {
+      if (e.project) m.set(e.id, { id: e.project.id, name: e.project.name, type: e.project.type });
+    }
+    return m;
+  }, [crossProjectExpenses]);
+
 
   const influenceProjects = useMemo(
     () => tenantProjects.filter((p) => p.id !== PROJECT_ID && (p.type === 'CASA' || p.type === 'CARRO' || p.type === 'REFORMA')),
@@ -565,7 +586,7 @@ export default function ExpensesPage() {
         </div>
         {activeTab === 'despesas' && (
           <div className="flex flex-wrap gap-2 items-center">
-            <ExpenseViewToggle value={viewMode} onChange={setViewMode} />
+            <ExpenseViewToggle value={viewMode} onChange={setViewMode} showProject={projectType === 'PESSOAL'} />
             <Button
               variant="secondary"
               onClick={openVoiceModal}
@@ -643,7 +664,17 @@ export default function ExpensesPage() {
         </div>
       ) : (
         <>
-        {viewMode === 'month' ? (
+        {viewMode === 'project' && projectType === 'PESSOAL' ? (
+          <PersonalHierarchicalView
+            expenses={filteredExpenses}
+            remoteMap={remoteProjectMap}
+            selfProjectName={project?.name ?? 'Pessoal'}
+            tipoLabel={tipoLabel}
+            openEdit={openEdit}
+            onDelete={(id) => deleteMutation.mutate(id)}
+            onToggleStatus={(id, status) => toggleStatusMutation.mutate({ id, status })}
+          />
+        ) : viewMode === 'month' ? (
           <MonthlyExpenseView
             grouped={groupedByMes}
             collapsedMonths={collapsedMonths}
