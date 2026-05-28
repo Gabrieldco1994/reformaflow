@@ -43,22 +43,6 @@ import {
 } from './_lib/personal-hierarchy';
 import ImportLauncher from './_components/ImportLauncher';
 
-interface TenantProjectRef {
-  id: string;
-  name: string;
-  type: string;
-}
-
-interface RecurringBillLite {
-  valor: number;
-  frequencia: string;
-  status: string;
-}
-
-interface MaintenanceLogLite {
-  custo?: number | null;
-}
-
 const toIsoDate = (date: Date) => date.toISOString().slice(0, 10);
 
 export default function ExpensesPage() {
@@ -123,12 +107,6 @@ export default function ExpensesPage() {
     queryFn: () => api.get(`/projects/${PROJECT_ID}`),
   });
 
-  const { data: tenantProjects = [] } = useQuery<TenantProjectRef[]>({
-    queryKey: ['projects', 'tenant-index'],
-    queryFn: () => api.get('/projects'),
-    enabled: projectType === 'PESSOAL',
-  });
-
   // Cross-project despesas (PESSOAL): full data com room+project, usado tanto
   // para mostrar como itens próprios quanto para resolver linkedExpenseId via remoteMap.
   const { data: crossProjectExpenses = [] } = useQuery<Expense[]>({
@@ -152,66 +130,6 @@ export default function ExpensesPage() {
     return [...expenses, ...crossProjectExpenses];
   }, [projectType, expenses, crossProjectExpenses]);
 
-
-  const influenceProjects = useMemo(
-    () => tenantProjects.filter((p) => p.id !== PROJECT_ID && (p.type === 'CASA' || p.type === 'CARRO' || p.type === 'REFORMA')),
-    [tenantProjects, PROJECT_ID],
-  );
-
-  const { data: influenceSummary = [] } = useQuery<
-    Array<{ id: string; name: string; type: string; estimatedMonthly: number; totalAccumulated: number; isOneTime: boolean }>
-  >({
-    queryKey: ['pessoal-influence', influenceProjects.map((p) => p.id).join(',')],
-    enabled: projectType === 'PESSOAL' && influenceProjects.length > 0,
-    queryFn: async () => {
-      const monthlyFactor = (frequencia: string) => {
-        switch (frequencia) {
-          case 'ANUAL': return 1 / 12;
-          case 'SEMESTRAL': return 1 / 6;
-          case 'TRIMESTRAL': return 1 / 3;
-          case 'BIMESTRAL': return 1 / 2;
-          default: return 1;
-        }
-      };
-      const rows = await Promise.all(
-        influenceProjects.map(async (p) => {
-          if (p.type === 'REFORMA') {
-            const exps = await api
-              .get<{ items: Array<{ valorTotal?: number | null }> }>(`/projects/${p.id}/expenses?pageSize=500`)
-              .catch(() => ({ items: [] as Array<{ valorTotal?: number | null }> }));
-            const totalAccumulated = (exps.items ?? []).reduce((sum, e) => sum + (e.valorTotal ?? 0), 0);
-            return {
-              id: p.id,
-              name: p.name,
-              type: p.type,
-              estimatedMonthly: 0,
-              totalAccumulated,
-              isOneTime: true,
-            };
-          }
-          const [bills, logs] = await Promise.all([
-            api.get<RecurringBillLite[]>(`/projects/${p.id}/recurring-bills`).catch(() => []),
-            api.get<MaintenanceLogLite[]>(`/projects/${p.id}/maintenance-logs`).catch(() => []),
-          ]);
-          const recurringMonthly = bills
-            .filter((b) => b.status === 'ATIVO')
-            .reduce((sum, b) => sum + Math.round((b.valor ?? 0) * monthlyFactor(b.frequencia ?? 'MENSAL')), 0);
-          const maintenanceMonthly = Math.round(
-            logs.reduce((sum, l) => sum + (l.custo ?? 0), 0) / 12,
-          );
-          return {
-            id: p.id,
-            name: p.name,
-            type: p.type,
-            estimatedMonthly: recurringMonthly + maintenanceMonthly,
-            totalAccumulated: 0,
-            isOneTime: false,
-          };
-        }),
-      );
-      return rows.sort((a, b) => (b.estimatedMonthly + b.totalAccumulated) - (a.estimatedMonthly + a.totalAccumulated));
-    },
-  });
 
   const { data: plannedExpenses = [] } = useQuery<Expense[]>({
     queryKey: ['expenses', PROJECT_ID, 'planned'],
@@ -292,11 +210,6 @@ export default function ExpensesPage() {
     setCollapsedMonths(new Set(groupedByMes.filter((g) => g.mesKey !== cur).map((g) => g.mesKey)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupedByMes.length]);
-
-  const influenceTotal = influenceSummary.reduce((sum, i) => sum + i.estimatedMonthly, 0);
-  const influenceReformaTotal = influenceSummary
-    .filter((i) => i.isOneTime)
-    .reduce((sum, i) => sum + i.totalAccumulated, 0);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['expenses', PROJECT_ID] });
@@ -675,10 +588,6 @@ export default function ExpensesPage() {
         totalPlanejado={totalPlanejado}
         totalPago={totalPago}
         perProject={kpiPerProject}
-        showInfluencePanel={projectType === 'PESSOAL' && influenceProjects.length > 0}
-        influenceSummary={influenceSummary}
-        influenceTotal={influenceTotal}
-        influenceReformaTotal={influenceReformaTotal}
       />
 
       {/* Search + Filter bar */}
