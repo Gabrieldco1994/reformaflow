@@ -27,6 +27,8 @@ interface Props {
   remoteMap: RemoteProjectMap;
   selfProjectId: string;
   selfProjectName: string;
+  /** Quando true (mês específico selecionado), parceladas contam só 1 parcela nos chips. */
+  splitInstallments?: boolean;
   tipoLabel: (t: string) => string;
   openEdit: (e: Expense) => void;
   onDelete: (id: string) => void;
@@ -50,10 +52,21 @@ function originKeyOf(e: Expense): string | null {
   return null;
 }
 
+/**
+ * Valor que efetivamente impacta o período: despesas parceladas pagam só uma
+ * parcela por mês, então usamos `valorTotal / quantidadeParcela`. À vista usa o total.
+ */
+function periodValue(e: Expense, split: boolean): number {
+  const n = e.quantidadeParcela ?? 1;
+  if (split && e.formaPagamento === 'PARCELADO' && n > 1) return Math.round(e.valorTotal / n);
+  return e.valorTotal;
+}
+
 function deriveOriginChips(
   expenses: Expense[],
   cardLabels: Map<string, string>,
   accountLabels: Map<string, string>,
+  split: boolean,
 ): OriginChip[] {
   const map = new Map<string, OriginChip>();
   for (const e of expenses) {
@@ -71,8 +84,9 @@ function deriveOriginChips(
       chip = { key, kind, last4, label, pago: 0, planejado: 0, count: 0 };
       map.set(key, chip);
     }
-    if (e.status === 'PAGO') chip.pago += e.valorTotal;
-    else chip.planejado += e.valorTotal;
+    const v = periodValue(e, split);
+    if (e.status === 'PAGO') chip.pago += v;
+    else chip.planejado += v;
     chip.count++;
   }
   return Array.from(map.values()).sort((a, b) => (b.pago + b.planejado) - (a.pago + a.planejado));
@@ -96,16 +110,16 @@ function OriginChips({
             key={c.key}
             type="button"
             onClick={() => onSelect(isActive ? null : c.key)}
-            className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors ${
+            className={`flex items-center gap-2.5 rounded-xl border px-4 py-2.5 text-left transition-colors ${
               isActive
                 ? 'border-teal-600 bg-teal-600 text-white shadow-sm'
                 : 'border-gray-200 bg-white text-gray-700 hover:border-teal-400 hover:bg-teal-50'
             }`}
           >
-            <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-white' : 'text-teal-600'}`} />
+            <Icon className={`h-5 w-5 shrink-0 ${isActive ? 'text-white' : 'text-teal-600'}`} />
             <div className="leading-tight">
-              <div className="text-xs font-semibold">{c.label}</div>
-              <div className={`text-[10px] font-mono ${isActive ? 'text-teal-50' : 'text-gray-500'}`}>
+              <div className="text-sm font-semibold">{c.label}</div>
+              <div className={`text-xs font-mono ${isActive ? 'text-teal-50' : 'text-gray-500'}`}>
                 {formatCurrency(c.pago / 100)} pago · {formatCurrency(c.planejado / 100)} plan.
               </div>
             </div>
@@ -116,7 +130,7 @@ function OriginChips({
         <button
           type="button"
           onClick={() => onSelect(null)}
-          className="self-center rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-600 hover:bg-gray-50"
+          className="self-center rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50"
         >
           Limpar filtro
         </button>
@@ -200,7 +214,7 @@ function TopShell({
 }
 
 export function UnifiedExpenseView({
-  mode, expenses, remoteMap, selfProjectId, selfProjectName, tipoLabel, openEdit, onDelete, onToggleStatus,
+  mode, expenses, remoteMap, selfProjectId, selfProjectName, splitInstallments = false, tipoLabel, openEdit, onDelete, onToggleStatus,
 }: Props) {
   const [selectedOrigin, setSelectedOrigin] = useState<string | null>(null);
 
@@ -227,8 +241,8 @@ export function UnifiedExpenseView({
   }, [accounts]);
 
   const chips = useMemo(
-    () => deriveOriginChips(expenses, cardLabels, accountLabels),
-    [expenses, cardLabels, accountLabels],
+    () => deriveOriginChips(expenses, cardLabels, accountLabels, splitInstallments),
+    [expenses, cardLabels, accountLabels, splitInstallments],
   );
 
   // Se o chip selecionado deixar de existir (ex.: mudou o período), limpa.

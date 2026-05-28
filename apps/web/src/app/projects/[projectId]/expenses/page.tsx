@@ -722,6 +722,7 @@ export default function ExpensesPage() {
             remoteMap={remoteProjectMap}
             selfProjectId={PROJECT_ID}
             selfProjectName={project?.name ?? 'Pessoal'}
+            splitInstallments={period !== 'ALL'}
             tipoLabel={tipoLabel}
             openEdit={openEdit}
             onDelete={(id) => deleteMutation.mutate(id)}
