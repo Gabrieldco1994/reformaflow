@@ -142,6 +142,35 @@ export default function ExpensesPage() {
     [project]
   );
 
+  // ── Contexto do formulário de edição ───────────────────────────────
+  // Na visão consolidada (PESSOAL) é possível editar despesas de OUTROS projetos.
+  // O formulário precisa usar a config do projeto DONO da despesa (ex.: REFORMA tem
+  // Ambiente e tipos próprios), senão salvar apaga ambiente/tipo.
+  const editingProjectId = editing?.project?.id ?? PROJECT_ID;
+  const editingProjectType = editing?.project?.type ?? projectType;
+  const isCrossProjectEdit = !!editing?.project && editing.project.id !== PROJECT_ID;
+
+  const { data: editingProject } = useQuery<Project>({
+    queryKey: ['project', editingProjectId],
+    queryFn: () => api.get(`/projects/${editingProjectId}`),
+    enabled: isCrossProjectEdit,
+  });
+
+  const formShowRooms = editingProjectType === 'REFORMA';
+  const formTipoOptions = useMemo(
+    () => getExpenseOptions(editingProjectType),
+    [editingProjectType],
+  );
+  const formRoomOptions = useMemo(() => {
+    const src = isCrossProjectEdit ? editingProject : project;
+    const opts = (src?.rooms ?? []).map((r) => ({ value: r.id, label: r.name }));
+    // Garante que o ambiente atual da despesa apareça mesmo se a lista ainda não carregou.
+    if (editing?.roomId && !opts.some((o) => o.value === editing.roomId)) {
+      opts.unshift({ value: editing.roomId, label: editing.room?.name ?? 'Ambiente atual' });
+    }
+    return opts;
+  }, [isCrossProjectEdit, editingProject, project, editing]);
+
   const {
     showFilters,
     setShowFilters,
@@ -423,7 +452,7 @@ export default function ExpensesPage() {
     const data: ExpenseFormData = {
       tipoDespesa: form.get('tipoDespesa') as string,
       categoriaMaoDeObra: nullable('categoriaMaoDeObra'),
-      roomId: showRooms ? nullable('roomId') : null,
+      roomId: formShowRooms ? nullable('roomId') : null,
       valor: Number(form.get('valor')),
       quantidade: Number(form.get('quantidade')),
       titulo: nullable('titulo'),
@@ -855,10 +884,10 @@ export default function ExpensesPage() {
         valorTotal={valorTotal}
         formVinculos={formVinculos}
         setFormVinculos={setFormVinculos}
-        projectId={PROJECT_ID}
-        showRooms={showRooms}
-        tipoDespesaOptions={TIPO_DESPESA_OPTIONS}
-        roomOptions={roomOptions}
+        projectId={editingProjectId}
+        showRooms={formShowRooms}
+        tipoDespesaOptions={formTipoOptions}
+        roomOptions={formRoomOptions}
         isPending={createMutation.isPending || updateMutation.isPending}
       />
     </div>
