@@ -58,7 +58,8 @@ function originKeyOf(e: Expense): string | null {
  */
 function periodValue(e: Expense, split: boolean): number {
   const n = e.quantidadeParcela ?? 1;
-  if (split && e.formaPagamento === 'PARCELADO' && n > 1) return Math.round(e.valorTotal / n);
+  if (split && (e.formaPagamento === 'PARCELADO' || e.formaPagamento === 'QUINZENAL') && n > 1)
+    return Math.round(e.valorTotal / n);
   return e.valorTotal;
 }
 

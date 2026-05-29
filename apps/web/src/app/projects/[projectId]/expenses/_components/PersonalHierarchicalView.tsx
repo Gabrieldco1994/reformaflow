@@ -53,9 +53,11 @@ function ExpenseRow({
   onToggleStatus: (id: string, next: ExpenseStatus) => void;
 }) {
   const dt = effectiveDate(e);
-  const parcelas = e.formaPagamento === 'PARCELADO' && (e.quantidadeParcela ?? 1) > 1
-    ? e.quantidadeParcela!
-    : 0;
+  const isParcelado =
+    (e.formaPagamento === 'PARCELADO' || e.formaPagamento === 'QUINZENAL') &&
+    (e.quantidadeParcela ?? 1) > 1;
+  const parcelas = isParcelado ? e.quantidadeParcela! : 0;
+  const isQuinzenal = e.formaPagamento === 'QUINZENAL';
   return (
     <div className="flex items-center gap-2 px-3 py-1.5 text-xs border-t border-gray-100 hover:bg-orange-50/40">
       <div className="flex-1 min-w-0">
@@ -66,7 +68,7 @@ function ExpenseRow({
           {tipoLabel(e.tipoDespesa)}
           {e.room?.name ? ` · ${e.room.name}` : ''}
           {dt ? ` · ${new Date(dt).toLocaleDateString('pt-BR')}` : ''}
-          {parcelas ? ` · ${parcelas}x de ${formatCurrency(Math.round(e.valorTotal / parcelas) / 100)}` : ''}
+          {parcelas ? ` · ${parcelas}x de ${formatCurrency(Math.round(e.valorTotal / parcelas) / 100)}${isQuinzenal ? ' (quinzenal)' : ''}` : ''}
         </div>
       </div>
       <div className="flex flex-col items-end whitespace-nowrap">
