@@ -32,11 +32,15 @@ export class MonthlyOverviewService {
 
     // Cash flow entries de todos os projetos (soft-deleted excluídos, e entries de
     // despesas/receipts soft-deleted também excluídos para consistência).
+    // Entries de alocação de orçamento (budgetAllocationId) são transferências
+    // internas entre projetos do mesmo tenant: o recebimento original já é contado
+    // na origem, então o espelho na reforma contaria em dobro no consolidado.
     const entries = await this.prisma.cashFlowEntry.findMany({
       where: {
         tenantId,
         projectId: { in: projectIds },
         deletedAt: null,
+        budgetAllocationId: null,
         OR: [{ expenseId: null }, { expense: { deletedAt: null, linkedExpenseId: null } }],
         AND: [
           {
