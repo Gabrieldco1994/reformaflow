@@ -10,6 +10,11 @@ export interface MonthlyOverviewRow {
   porCategoria: Array<{ categoria: string; valor: number }>;
 }
 
+export interface AccumulatedRow extends MonthlyOverviewRow {
+  saldoAcumulado: number;
+  saldoAcumuladoRealizado: number;
+}
+
 export interface MonthComparison {
   current: MonthlyOverviewRow | null;
   previous: MonthlyOverviewRow | null;

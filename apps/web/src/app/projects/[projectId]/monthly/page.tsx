@@ -5,13 +5,24 @@ import { useQuery } from '@tanstack/react-query';
 import dynamic from 'next/dynamic';
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
-import type { MonthlyOverviewResponse } from './_types';
+import type { MonthlyOverviewResponse, AccumulatedRow } from './_types';
 import MonthlyKpis from './_components/MonthlyKpis';
+import CockpitSummary from './_components/CockpitSummary';
 import TopCategoriasCard from './_components/TopCategoriasCard';
 import MonthlyEntriesList from './_components/MonthlyEntriesList';
 
 const MonthlyByOriginChart = dynamic(
   () => import('./_components/MonthlyByOriginChart'),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 h-[320px] animate-pulse" />
+    ),
+  },
+);
+
+const AccumulatedBalanceChart = dynamic(
+  () => import('./_components/AccumulatedBalanceChart'),
   {
     ssr: false,
     loading: () => (
@@ -72,12 +83,24 @@ export default function MonthlyOverviewPage() {
   const current = data.comparativo.current ?? data.meses[data.meses.length - 1] ?? null;
   const projetosAtivos = data.projetos.filter((p) => p.type !== 'PESSOAL');
 
+  let accProj = 0;
+  let accReal = 0;
+  let totalRecebido = 0;
+  let totalGasto = 0;
+  const mesesAcumulados: AccumulatedRow[] = data.meses.map((m) => {
+    accProj += m.saldoMes;
+    accReal += m.saldoMesRealizado;
+    totalRecebido += m.recebimentosRealizados;
+    totalGasto += m.despesasRealizadas;
+    return { ...m, saldoAcumulado: accProj, saldoAcumuladoRealizado: accReal };
+  });
+
   return (
     <div className="space-y-5">
       <div className="rounded-2xl bg-gradient-to-br from-indigo-50 to-rose-50 border border-indigo-100 p-4 md:p-5">
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
-            <p className="text-[10px] uppercase tracking-wider text-indigo-700">Visão consolidada</p>
+            <p className="text-[10px] uppercase tracking-wider text-indigo-700">Cockpit consolidado</p>
             <h1 className="text-lg md:text-xl font-semibold text-darc-velvet mt-1">
               {formatMesLabel(data.mesAtual)}
             </h1>
@@ -100,7 +123,19 @@ export default function MonthlyOverviewPage() {
         </div>
       </div>
 
-      <MonthlyKpis current={current} comparison={data.comparativo} />
+      <CockpitSummary
+        saldoRealizado={accReal}
+        saldoProjetado={accProj}
+        totalRecebido={totalRecebido}
+        totalGasto={totalGasto}
+      />
+
+      <div>
+        <h2 className="text-xs uppercase tracking-wider text-darc-velvet/60 mb-2 px-1">Mês atual</h2>
+        <MonthlyKpis current={current} comparison={data.comparativo} />
+      </div>
+
+      <AccumulatedBalanceChart meses={mesesAcumulados} />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2">
