@@ -175,13 +175,14 @@ function MonthlyExpenseViewImpl({
             {!collapsed && (
               <div className="divide-y divide-darc-linen border-t border-darc-linen">
                 {g.items.map((e) => {
-                  const isEditing = editingId === e.id;
-                  const isCopying = copyingId === e.id;
-                  const dateStr = effectiveDate(e) || '';
+                  const isEditing = editingId === e.occKey;
+                  const isCopying = copyingId === e.occKey;
+                  const dateStr = e.occDate || effectiveDate(e) || '';
+                  const origDate = effectiveDate(e) || '';
 
                   return (
                     <div
-                      key={e.id}
+                      key={e.occKey}
                       className="px-4 py-2.5 hover:bg-darc-cream/30 transition-colors group"
                     >
                       {isCopying ? (
@@ -324,6 +325,11 @@ function MonthlyExpenseViewImpl({
                                   {tipoLabel(e.tipoDespesa)}
                                 </span>
                               )}
+                              {e.occTotalParcelas > 1 && (
+                                <span className="text-[10px] font-medium text-darc-raspberry/80 bg-darc-raspberry/10 rounded-full px-1.5 py-0.5 flex-shrink-0">
+                                  {e.formaPagamento === 'QUINZENAL' ? 'quinzena' : 'parcela'} {e.occIndex}/{e.occTotalParcelas}
+                                </span>
+                              )}
                             </div>
                           </div>
 
@@ -334,14 +340,14 @@ function MonthlyExpenseViewImpl({
                                 : 'text-darc-velvet/60'
                             }`}
                           >
-                            {formatCurrency(e.valorTotal / 100)}
+                            {formatCurrency(e.occValue / 100)}
                           </p>
 
                           <div className="flex items-center gap-0.5 flex-shrink-0 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                             <button
                               type="button"
                               onClick={() => {
-                                setCopyingId(e.id);
+                                setCopyingId(e.occKey);
                                 const cur = new Date(dateStr || new Date().toISOString().slice(0, 10));
                                 cur.setMonth(cur.getMonth() + 1);
                                 setCopyData(cur.toISOString().slice(0, 10));
@@ -355,9 +361,9 @@ function MonthlyExpenseViewImpl({
                             <button
                               type="button"
                               onClick={() => {
-                                setEditingId(e.id);
+                                setEditingId(e.occKey);
                                 setEditValor((e.valorTotal / 100).toFixed(2));
-                                setEditData((dateStr || '').slice(0, 10));
+                                setEditData((origDate || '').slice(0, 10));
                               }}
                               aria-label="Editar rápido"
                               className="p-1.5 rounded-full hover:bg-darc-linen/60"

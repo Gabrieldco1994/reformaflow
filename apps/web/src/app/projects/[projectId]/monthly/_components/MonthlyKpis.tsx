@@ -57,14 +57,16 @@ export default function MonthlyKpis({ current, comparison }: Props) {
       <div className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4">
         <p className="text-[10px] uppercase tracking-wider text-darc-velvet/70">Recebido no mês</p>
         <p className="font-bold tabular-nums text-emerald-700 text-xl mt-1">
-          {formatCurrency(recebimentos / 100)}
+          {formatCurrency((current?.recebimentosRealizados ?? 0) / 100)}
         </p>
         <div className="mt-2">
           <Delta value={comparison.deltaRecebimentos} pct={comparison.deltaRecebimentosPct} goodWhenPositive />
         </div>
-        <p className="text-[10px] text-darc-velvet/50 mt-1 tabular-nums">
-          Realizado: {formatCurrency((current?.recebimentosRealizados ?? 0) / 100)}
-        </p>
+        {recebimentos - (current?.recebimentosRealizados ?? 0) > 0 && (
+          <p className="text-[10px] text-darc-velvet/50 mt-1 tabular-nums">
+            A receber (previsto): {formatCurrency((recebimentos - (current?.recebimentosRealizados ?? 0)) / 100)}
+          </p>
+        )}
       </div>
 
       <div
