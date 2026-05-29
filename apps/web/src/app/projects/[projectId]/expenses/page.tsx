@@ -25,6 +25,7 @@ import { VoiceExpenseModal } from './_components/VoiceExpenseModal';
 import { ExpenseFormModal } from './_components/ExpenseFormModal';
 import { PayOptionsModal } from './_components/PayOptionsModal';
 import { ExpenseDesktopTable } from './_components/ExpenseDesktopTable';
+import { QuickAddCard } from './_components/QuickAddCard';
 import { CompráveisView } from './_components/CompraveisView';
 import { MobileExpenseList } from './_components/MobileExpenseList';
 import { MonthlyExpenseView } from './_components/MonthlyExpenseView';
@@ -60,6 +61,9 @@ export default function ExpensesPage() {
   const [formaPagamento, setFormaPagamento] = useState('');
   const [valor, setValor] = useState('');
   const [quantidade, setQuantidade] = useState('1');
+  const [formTitulo, setFormTitulo] = useState('');
+  const [formFornecedor, setFormFornecedor] = useState('');
+  const [formCategoriaMaoDeObra, setFormCategoriaMaoDeObra] = useState('');
 
   // Estado do bloco "Vínculos" do modal de despesa
   const [formVinculos, setFormVinculos] = useState<{ creditCardId: string; bankAccountId: string; linkedExpenseId: string }>({
@@ -343,6 +347,9 @@ export default function ExpensesPage() {
     setFormaPagamento('');
     setValor('');
     setQuantidade('1');
+    setFormTitulo('');
+    setFormFornecedor('');
+    setFormCategoriaMaoDeObra('');
   }
 
   function openPlanForm() {
@@ -352,6 +359,9 @@ export default function ExpensesPage() {
     setFormaPagamento('');
     setValor('');
     setQuantidade('1');
+    setFormTitulo('');
+    setFormFornecedor('');
+    setFormCategoriaMaoDeObra('');
     setFormVinculos({ creditCardId: '', bankAccountId: '', linkedExpenseId: '' });
     setFormModalOpen(true);
   }
@@ -368,6 +378,9 @@ export default function ExpensesPage() {
     setFormaPagamento('');
     setValor('');
     setQuantidade('1');
+    setFormTitulo('');
+    setFormFornecedor('');
+    setFormCategoriaMaoDeObra('');
     setFormVinculos({ creditCardId: '', bankAccountId: '', linkedExpenseId: '' });
     setFormModalOpen(true);
   }
@@ -381,12 +394,31 @@ export default function ExpensesPage() {
     setFormaPagamento(expense.formaPagamento);
     setValor(expense.valor ? (expense.valor / 100).toFixed(2) : '');
     setQuantidade(String(expense.quantidade ?? 1));
+    setFormTitulo(expense.titulo ?? '');
+    setFormFornecedor(expense.fornecedor ?? '');
+    setFormCategoriaMaoDeObra(expense.categoriaMaoDeObra ?? '');
     setFormVinculos({
       creditCardId: '',
       bankAccountId: '',
       linkedExpenseId: expense.linkedExpenseId ?? '',
     });
     setFormModalOpen(true);
+  }
+
+  /**
+   * Ao vincular esta despesa a outra (cross-project), herda as características
+   * da despesa alvo: tipo e categoria sobrescrevem; título/fornecedor só se vazios.
+   */
+  function handleLinkSelected(exp: {
+    tipoDespesa?: string | null;
+    categoriaMaoDeObra?: string | null;
+    titulo?: string | null;
+    fornecedor?: string | null;
+  }) {
+    if (exp.tipoDespesa) setTipoDespesa(exp.tipoDespesa);
+    setFormCategoriaMaoDeObra(exp.categoriaMaoDeObra ?? '');
+    setFormTitulo((prev) => prev || exp.titulo || '');
+    setFormFornecedor((prev) => prev || exp.fornecedor || '');
   }
 
   function openInlineEdit(expense: Expense) {
@@ -649,53 +681,65 @@ export default function ExpensesPage() {
 
       {/* Período (PESSOAL) — filtro de mês / ano todo aplicado nos 3 modos */}
       {projectType === 'PESSOAL' && (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-orange-200 bg-orange-50/60 px-3 py-2">
-          <Calendar className="w-4 h-4 text-orange-600" />
-          <span className="text-xs font-semibold text-orange-900">Período:</span>
-          {period !== 'ALL' && (
-            <button
-              type="button"
-              onClick={() => navigatePeriod(-1)}
-              className="rounded p-1 hover:bg-orange-100"
-              title="Mês anterior"
-            >
-              <ArrowLeft className="w-3.5 h-3.5 text-orange-700" />
-            </button>
-          )}
-          <select
-            value={period}
-            onChange={(e) => setPeriod(e.target.value as PeriodFilter)}
-            className="text-xs border border-orange-200 rounded px-2 py-1 bg-white font-medium"
-          >
-            <option value="ALL">Ano todo ({periodYear})</option>
-            {allPeriods.map((p) => (
-              <option key={p} value={p}>{periodLabel(p)}</option>
-            ))}
-            {!allPeriods.includes(currentPeriod()) && (
-              <option value={currentPeriod()}>{periodLabel(currentPeriod())} (sem despesas)</option>
+        <div className="flex flex-col gap-2 rounded-lg border border-orange-200 bg-orange-50/60 px-3 py-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Calendar className="w-4 h-4 text-orange-600" />
+            <span className="text-xs font-semibold text-orange-900">Período:</span>
+            {period !== 'ALL' && (
+              <button
+                type="button"
+                onClick={() => navigatePeriod(-1)}
+                className="rounded p-1 hover:bg-orange-100"
+                title="Mês anterior"
+              >
+                <ArrowLeft className="w-3.5 h-3.5 text-orange-700" />
+              </button>
             )}
-          </select>
-          {period !== 'ALL' && (
+            <select
+              value={period}
+              onChange={(e) => setPeriod(e.target.value as PeriodFilter)}
+              className="text-xs border border-orange-200 rounded px-2 py-1 bg-white font-medium"
+            >
+              <option value="ALL">Ano todo ({periodYear})</option>
+              {allPeriods.map((p) => (
+                <option key={p} value={p}>{periodLabel(p)}</option>
+              ))}
+              {!allPeriods.includes(currentPeriod()) && (
+                <option value={currentPeriod()}>{periodLabel(currentPeriod())} (sem despesas)</option>
+              )}
+            </select>
+            {period !== 'ALL' && (
+              <button
+                type="button"
+                onClick={() => navigatePeriod(1)}
+                className="rounded p-1 hover:bg-orange-100"
+                title="Próximo mês"
+              >
+                <ArrowRight className="w-3.5 h-3.5 text-orange-700" />
+              </button>
+            )}
             <button
               type="button"
-              onClick={() => navigatePeriod(1)}
-              className="rounded p-1 hover:bg-orange-100"
-              title="Próximo mês"
+              onClick={() => setPeriod('ALL')}
+              className={`ml-2 text-xs px-2 py-1 rounded ${period === 'ALL' ? 'bg-orange-500 text-white' : 'bg-white text-orange-700 border border-orange-200 hover:bg-orange-100'}`}
             >
-              <ArrowRight className="w-3.5 h-3.5 text-orange-700" />
+              Ano todo
             </button>
-          )}
-          <button
-            type="button"
-            onClick={() => setPeriod('ALL')}
-            className={`ml-2 text-xs px-2 py-1 rounded ${period === 'ALL' ? 'bg-orange-500 text-white' : 'bg-white text-orange-700 border border-orange-200 hover:bg-orange-100'}`}
-          >
-            Ano todo
-          </button>
-          <div className="ml-auto flex items-center gap-3 text-xs">
-            <span className="text-gray-600">Pago: <span className="font-mono font-semibold text-emerald-700">{formatCurrency(periodTotals.pago / 100)}</span></span>
-            <span className="text-gray-600">Planejado: <span className="font-mono font-semibold text-amber-700">{formatCurrency(periodTotals.planejado / 100)}</span></span>
-            <span className="text-gray-600">Total: <span className="font-mono font-semibold text-gray-900">{formatCurrency((periodTotals.pago + periodTotals.planejado) / 100)}</span></span>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600">Pago</p>
+              <p className="mt-0.5 font-mono text-sm font-bold text-emerald-700 tabular-nums truncate">{formatCurrency(periodTotals.pago / 100)}</p>
+            </div>
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-600">Planejado</p>
+              <p className="mt-0.5 font-mono text-sm font-bold text-amber-700 tabular-nums truncate">{formatCurrency(periodTotals.planejado / 100)}</p>
+            </div>
+            <div className="rounded-md border border-orange-300 bg-orange-100 px-2.5 py-1.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-orange-700">Total</p>
+              <p className="mt-0.5 font-mono text-sm font-bold text-orange-900 tabular-nums truncate">{formatCurrency((periodTotals.pago + periodTotals.planejado) / 100)}</p>
+            </div>
           </div>
         </div>
       )}
@@ -817,6 +861,20 @@ export default function ExpensesPage() {
         </button>
       )}
 
+      {/* Card de criação rápida — usado nas visões sem a tabela inline (Mês / Pessoal) */}
+      {showNewRow && !(projectType !== 'PESSOAL' && viewMode === 'category') && (
+        <QuickAddCard
+          newRow={newRow}
+          setNewRow={setNewRow}
+          tipoDespesaOptions={TIPO_DESPESA_OPTIONS}
+          showRooms={showRooms}
+          roomOptions={roomOptions}
+          onSubmit={handleInlineSubmit}
+          onCancel={() => setShowNewRow(false)}
+          inlineKeyDown={inlineKeyDown}
+        />
+      )}
+
       </>
       )}
 
@@ -883,8 +941,15 @@ export default function ExpensesPage() {
         quantidade={quantidade}
         setQuantidade={setQuantidade}
         valorTotal={valorTotal}
+        titulo={formTitulo}
+        setTitulo={setFormTitulo}
+        fornecedor={formFornecedor}
+        setFornecedor={setFormFornecedor}
+        categoriaMaoDeObra={formCategoriaMaoDeObra}
+        setCategoriaMaoDeObra={setFormCategoriaMaoDeObra}
         formVinculos={formVinculos}
         setFormVinculos={setFormVinculos}
+        onLinkSelected={handleLinkSelected}
         projectId={editingProjectId}
         showRooms={formShowRooms}
         tipoDespesaOptions={formTipoOptions}

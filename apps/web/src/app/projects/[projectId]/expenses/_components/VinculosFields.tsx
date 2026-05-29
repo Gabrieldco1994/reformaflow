@@ -26,6 +26,8 @@ interface CrossExpense {
   id: string;
   titulo?: string | null;
   fornecedor?: string | null;
+  tipoDespesa?: string | null;
+  categoriaMaoDeObra?: string | null;
   valorTotal: number;
   status: string;
   dataPagamento?: string | null;
@@ -42,6 +44,8 @@ interface Props {
   };
   /** Quando o usuário muda algum campo. */
   onChange: (next: Props['value']) => void;
+  /** Disparado quando o usuário seleciona uma despesa cross-project (para herdar características). */
+  onLinkSelected?: (exp: CrossExpense) => void;
   /** Hint do last4 atual da despesa em edição (para pré-selecionar cartão/conta sem ID). */
   initialCardLast4?: string | null;
   initialBankLast4?: string | null;
@@ -59,6 +63,7 @@ export function VinculosFields({
   projectId,
   value,
   onChange,
+  onLinkSelected,
   initialCardLast4,
   initialBankLast4,
   initialLinkedExpenseId,
@@ -204,6 +209,7 @@ export function VinculosFields({
                     className="block w-full px-3 py-1.5 text-left hover:bg-orange-50"
                     onClick={() => {
                       onChange({ ...value, linkedExpenseId: exp.id });
+                      onLinkSelected?.(exp);
                       setSearchOpen(false);
                       setSearch('');
                     }}

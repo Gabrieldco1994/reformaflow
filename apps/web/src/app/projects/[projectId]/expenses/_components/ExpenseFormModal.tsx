@@ -2,7 +2,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Modal } from '@/components/ui/modal';
-import { CATEGORIA_MAO_DE_OBRA_OPTIONS, FORMA_PAGAMENTO_OPTIONS } from '@/lib/expense-options';
+import { CATEGORIA_MAO_DE_OBRA_OPTIONS, FORMA_PAGAMENTO_OPTIONS, tipoLabel } from '@/lib/expense-options';
 import { formatCurrency } from '@/lib/utils';
 import { VinculosFields } from './VinculosFields';
 import type { Expense } from '@/types';
@@ -38,8 +38,20 @@ interface ExpenseFormModalProps {
   quantidade: string;
   setQuantidade: (value: string) => void;
   valorTotal: number;
+  titulo: string;
+  setTitulo: (value: string) => void;
+  fornecedor: string;
+  setFornecedor: (value: string) => void;
+  categoriaMaoDeObra: string;
+  setCategoriaMaoDeObra: (value: string) => void;
   formVinculos: ExpenseFormVinculos;
   setFormVinculos: (v: ExpenseFormVinculos) => void;
+  onLinkSelected?: (exp: {
+    tipoDespesa?: string | null;
+    categoriaMaoDeObra?: string | null;
+    titulo?: string | null;
+    fornecedor?: string | null;
+  }) => void;
   projectId: string;
   showRooms: boolean;
   tipoDespesaOptions: ExpenseOption[];
@@ -62,14 +74,27 @@ export function ExpenseFormModal({
   quantidade,
   setQuantidade,
   valorTotal,
+  titulo,
+  setTitulo,
+  fornecedor,
+  setFornecedor,
+  categoriaMaoDeObra,
+  setCategoriaMaoDeObra,
   formVinculos,
   setFormVinculos,
+  onLinkSelected,
   projectId,
   showRooms,
   tipoDespesaOptions,
   roomOptions,
   isPending,
 }: ExpenseFormModalProps) {
+  // Inclui o tipo ativo nas opções mesmo se ele não pertencer ao conjunto padrão
+  // do projeto (ex.: tipo herdado de uma despesa vinculada de outro tipo de projeto).
+  const effectiveTipoOptions =
+    tipoDespesa && !tipoDespesaOptions.some((o) => o.value === tipoDespesa)
+      ? [...tipoDespesaOptions, { value: tipoDespesa, label: tipoLabel(tipoDespesa) }]
+      : tipoDespesaOptions;
   return (
     <Modal
       open={open}
@@ -80,7 +105,7 @@ export function ExpenseFormModal({
         <Select
           label="Tipo da Despesa"
           name="tipoDespesa"
-          options={tipoDespesaOptions}
+          options={effectiveTipoOptions}
           required
           value={tipoDespesa}
           onChange={(e) => setTipoDespesa(e.target.value)}
@@ -91,7 +116,8 @@ export function ExpenseFormModal({
             label="Categoria Mão de Obra"
             name="categoriaMaoDeObra"
             options={CATEGORIA_MAO_DE_OBRA_OPTIONS}
-            defaultValue={editing?.categoriaMaoDeObra ?? ''}
+            value={categoriaMaoDeObra}
+            onChange={(e) => setCategoriaMaoDeObra(e.target.value)}
           />
         )}
 
@@ -130,8 +156,8 @@ export function ExpenseFormModal({
           Valor Total: <span className="font-semibold">{formatCurrency(valorTotal)}</span>
         </div>
 
-        <Input label="Título da Despesa" name="titulo" defaultValue={editing?.titulo ?? ''} />
-        <Input label="Fornecedor" name="fornecedor" defaultValue={editing?.fornecedor ?? ''} />
+        <Input label="Título da Despesa" name="titulo" value={titulo} onChange={(e) => setTitulo(e.target.value)} />
+        <Input label="Fornecedor" name="fornecedor" value={fornecedor} onChange={(e) => setFornecedor(e.target.value)} />
         <Input label="Link" name="link" type="text" defaultValue={editing?.link ?? ''} />
         <Input
           label="URL da Imagem (opcional)"
@@ -181,6 +207,7 @@ export function ExpenseFormModal({
           projectId={projectId}
           value={formVinculos}
           onChange={setFormVinculos}
+          onLinkSelected={onLinkSelected}
           initialCardLast4={editing?.cardLast4 ?? null}
           initialBankLast4={editing?.bankLast4 ?? null}
           initialLinkedExpenseId={editing?.linkedExpenseId ?? null}
