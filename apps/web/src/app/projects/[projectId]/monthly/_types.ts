@@ -10,11 +10,6 @@ export interface MonthlyOverviewRow {
   porCategoria: Array<{ categoria: string; valor: number }>;
 }
 
-export interface AccumulatedRow extends MonthlyOverviewRow {
-  saldoAcumulado: number;
-  saldoAcumuladoRealizado: number;
-}
-
 export interface MonthComparison {
   current: MonthlyOverviewRow | null;
   previous: MonthlyOverviewRow | null;
@@ -45,26 +40,4 @@ export interface MonthlyOverviewResponse {
   comparativo: MonthComparison;
   mesAtualEntries: MonthlyEntry[];
   projetos: Array<{ id: string; name: string; type: string }>;
-}
-
-export const ORIGIN_COLORS: Record<string, string> = {
-  PESSOAL: '#138A6B',
-  REFORMA: '#4F000B',
-  CASA: '#A8327D',
-  CARRO: '#D77A61',
-  OUTROS: '#888',
-};
-
-export const ORIGIN_ICONS: Record<string, string> = {
-  PESSOAL: '💰',
-  REFORMA: '🏗️',
-  CASA: '🏡',
-  CARRO: '🚗',
-  OUTROS: '📦',
-};
-
-export function formatMesLabel(mes: string) {
-  const [y, m] = mes.split('-');
-  const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-  return `${meses[parseInt(m ?? '1') - 1]}/${(y ?? '').slice(2)}`;
 }

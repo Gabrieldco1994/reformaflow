@@ -1,9 +1,10 @@
 'use client';
 
 import { useProject } from '@/contexts/project-context';
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { CalendarClock } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
@@ -391,9 +392,19 @@ function ManagementDashboard({ projectId, projectType }: { projectId: string; pr
 // ─── Main Dashboard ─────────────────────────────────────────
 
 export default function DashboardPage() {
+  const router = useRouter();
   const { projectId, projectType, projectName } = useProject();
 
-  const isFinancial = projectType === 'REFORMA' || projectType === 'COMPRA' || projectType === 'PESSOAL';
+  // PESSOAL usa o Cockpit (rota /monthly) como visão principal — redireciona.
+  useEffect(() => {
+    if (projectType === 'PESSOAL') {
+      router.replace(`/projects/${projectId}/monthly`);
+    }
+  }, [projectType, projectId, router]);
+
+  if (projectType === 'PESSOAL') return null;
+
+  const isFinancial = projectType === 'REFORMA' || projectType === 'COMPRA';
   const isManagement = projectType === 'CASA' || projectType === 'CARRO';
 
   return (
