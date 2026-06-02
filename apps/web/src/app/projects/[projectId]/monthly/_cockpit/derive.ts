@@ -84,27 +84,47 @@ export interface MonthDerived {
 
 const FORMA_FIXA = new Set(['PARCELADO', 'QUINZENAL']);
 
-export function deriveMonth(data: MonthlyOverviewResponse): MonthDerived {
+export function deriveMonth(
+  data: MonthlyOverviewResponse,
+  monthKey: string = data.mesAtual,
+  entriesArg?: MonthlyEntry[],
+): MonthDerived {
   const { mesAtualKey, year, month0 } = (() => {
-    const p = parseMesKey(data.mesAtual);
-    return { mesAtualKey: data.mesAtual, ...p };
+    const p = parseMesKey(monthKey);
+    return { mesAtualKey: monthKey, ...p };
   })();
 
   const diasNoMes = new Date(Date.UTC(year, month0 + 1, 0)).getUTCDate();
 
-  // "Hoje": se o mês corrente bate com o dia real, usa o dia real; senão mês inteiro realizado.
+  // Entries do mês selecionado: usa o argumento, senão filtra da lista completa,
+  // senão cai no mês corrente (compatibilidade).
+  const entries =
+    entriesArg ??
+    (data.entries
+      ? data.entries.filter((e) => (e.data ?? '').slice(0, 7) === mesAtualKey)
+      : data.mesAtualEntries);
+
+  // "Hoje": mês passado = totalmente realizado; mês corrente = dia real;
+  // mês futuro = nada realizado ainda (tudo projeção).
   const now = new Date();
   const nowKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const hoje = nowKey === mesAtualKey ? Math.min(now.getDate(), diasNoMes) : diasNoMes;
+  let hoje: number;
+  if (mesAtualKey < nowKey) hoje = diasNoMes;
+  else if (mesAtualKey === nowKey) hoje = Math.min(now.getDate(), diasNoMes);
+  else hoje = 0;
   const diasRestantes = Math.max(0, diasNoMes - hoje);
 
-  // Saldo inicial = saldo realizado acumulado de todos os meses anteriores.
+  // Saldo inicial = posição estimada de caixa no 1º dia do mês selecionado.
+  // - Meses puramente passados (< hoje): usa o REALIZADO (o que de fato aconteceu).
+  // - Meses entre "hoje" e o mês selecionado: usa o TOTAL (assume que o planejado vai
+  //   sair) para projetar o saldo de entrada nos meses futuros.
   let saldoInicial = 0;
   for (const r of data.meses) {
-    if (r.mes < mesAtualKey) saldoInicial += r.saldoMesRealizado;
+    if (r.mes >= mesAtualKey) continue;
+    if (r.mes < nowKey) saldoInicial += r.saldoMesRealizado;
+    else saldoInicial += r.saldoMes;
   }
 
-  const entries = data.mesAtualEntries;
   let gasteiRealizado = 0;
   let gasteiPlanejado = 0;
   let entrouRealizado = 0;

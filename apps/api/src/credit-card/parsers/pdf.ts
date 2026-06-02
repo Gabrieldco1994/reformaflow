@@ -13,6 +13,7 @@ import { PDFParse } from 'pdf-parse';
 import {
   type NormalizedTx,
   type ParseResult,
+  assignOrdinals,
   detectInstallment,
   inferPeriodLabel,
   makeExternalId,
@@ -370,21 +371,25 @@ export async function parsePdfStatement(
   const year = due?.year ?? inferYearFromText(text) ?? new Date().getUTCFullYear();
   const { current, future } = extractTransactionsFromText(text, year, due);
 
-  for (const t of current) {
-    t.externalId = makeExternalId({
+  const ordCurrent = assignOrdinals(current);
+  for (let i = 0; i < current.length; i++) {
+    current[i].externalId = makeExternalId({
       cardId,
-      date: t.date,
-      merchant: t.merchant,
-      amountCents: t.amountCents,
+      date: current[i].date,
+      merchant: current[i].merchant,
+      amountCents: current[i].amountCents,
+      ordinal: ordCurrent[i]._ordinal,
     });
   }
-  for (const t of future) {
+  const ordFuture = assignOrdinals(future);
+  for (let i = 0; i < future.length; i++) {
     // ID determinístico inclui parcela para evitar colisões com current
-    t.externalId = makeExternalId({
+    future[i].externalId = makeExternalId({
       cardId,
-      date: t.date,
-      merchant: `${t.merchant}#FUT${t.installmentCurrent ?? 0}/${t.installmentTotal ?? 0}`,
-      amountCents: t.amountCents,
+      date: future[i].date,
+      merchant: `${future[i].merchant}#FUT${future[i].installmentCurrent ?? 0}/${future[i].installmentTotal ?? 0}`,
+      amountCents: future[i].amountCents,
+      ordinal: ordFuture[i]._ordinal,
     });
   }
 

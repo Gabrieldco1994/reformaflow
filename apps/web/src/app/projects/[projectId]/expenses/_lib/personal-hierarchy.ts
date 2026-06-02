@@ -1,5 +1,6 @@
 import type { Expense } from '@/types';
-import { effectiveDate } from './grouping-by-month';
+import { effectiveDate, expandExpenseOccurrences } from './grouping-by-month';
+import { isNeutralExpenseType } from '@reformaflow/domain';
 
 export interface CrossProjectMeta {
   id: string;
@@ -62,16 +63,22 @@ function originOf(e: Expense): OriginGroup {
  */
 export type PeriodFilter = 'ALL' | string;
 
-export function inPeriod(e: Expense, period: PeriodFilter, year: number): boolean {
-  const dt = effectiveDate(e);
-  if (!dt) return period === 'ALL'; // sem data → só aparece no "ano todo"
-  const d = new Date(dt);
-  if (Number.isNaN(d.getTime())) return false;
-  if (period === 'ALL') {
-    return d.getFullYear() === year;
+/** Conjunto de meses (YYYY-MM) que uma despesa toca: uma por parcela. */
+function expenseMonths(e: Expense): string[] {
+  const set = new Set<string>();
+  for (const occ of expandExpenseOccurrences(e)) {
+    if (occ.occDate) set.add(occ.occDate.slice(0, 7));
   }
-  const [yy, mm] = period.split('-').map(Number);
-  return d.getFullYear() === yy && d.getMonth() + 1 === mm;
+  return Array.from(set);
+}
+
+export function inPeriod(e: Expense, period: PeriodFilter, year: number): boolean {
+  const months = expenseMonths(e);
+  if (months.length === 0) return period === 'ALL'; // sem data → só aparece no "ano todo"
+  if (period === 'ALL') {
+    return months.some((m) => m.slice(0, 4) === String(year));
+  }
+  return months.includes(period);
 }
 
 /**
@@ -193,13 +200,9 @@ export function groupOrigemByRoom(origem: OriginGroup): RoomGroup[] {
 export function listPeriods(expenses: Expense[], year: number): string[] {
   const set = new Set<string>();
   for (const e of expenses) {
-    const dt = effectiveDate(e);
-    if (!dt) continue;
-    const d = new Date(dt);
-    if (Number.isNaN(d.getTime())) continue;
-    if (d.getFullYear() !== year) continue;
-    const m = (d.getMonth() + 1).toString().padStart(2, '0');
-    set.add(`${d.getFullYear()}-${m}`);
+    for (const m of expenseMonths(e)) {
+      if (m.slice(0, 4) === String(year)) set.add(m);
+    }
   }
   return Array.from(set).sort();
 }
@@ -224,6 +227,9 @@ export function totalsOf(items: Expense[]): { pago: number; planejado: number } 
   let pago = 0;
   let planejado = 0;
   for (const e of items) {
+    // Movimentação interna e pagamento de fatura não contam no total — são
+    // movimentações neutras (não representam consumo nem entrada nova).
+    if (isNeutralExpenseType(e.tipoDespesa)) continue;
     if (e.status === 'PAGO') pago += e.valorTotal;
     else planejado += e.valorTotal;
   }

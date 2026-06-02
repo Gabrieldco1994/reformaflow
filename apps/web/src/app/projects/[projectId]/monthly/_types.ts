@@ -39,5 +39,6 @@ export interface MonthlyOverviewResponse {
   meses: MonthlyOverviewRow[];
   comparativo: MonthComparison;
   mesAtualEntries: MonthlyEntry[];
+  entries?: MonthlyEntry[];
   projetos: Array<{ id: string; name: string; type: string }>;
 }

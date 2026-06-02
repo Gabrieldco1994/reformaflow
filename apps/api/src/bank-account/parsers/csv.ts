@@ -10,26 +10,27 @@
  * a interpretação é oposta à da fatura de cartão.
  */
 import { parseCsv as parseCreditCardCsv } from '../../credit-card/parsers/csv';
-import { makeExternalId } from '../../credit-card/parsers/types';
+import { assignOrdinals, makeExternalId } from '../../credit-card/parsers/types';
 import type { ParseResult } from '../../credit-card/parsers/types';
 
 export function parseBankCsv(content: string, accountId: string): ParseResult {
   const raw = parseCreditCardCsv(content, { cardId: accountId, source: 'CSV_GENERIC' });
 
-  // Inverte sinal e regenera externalId (porque o hash depende do amountCents)
-  const transactions = raw.transactions.map((t) => {
-    const amountCents = -t.amountCents;
-    return {
-      ...t,
-      amountCents,
-      externalId: makeExternalId({
-        cardId: accountId,
-        date: t.date,
-        merchant: t.merchant,
-        amountCents,
-      }),
-    };
-  });
+  // Inverte sinal e regenera externalId com ordinal por bucket — garante que N
+  // linhas idênticas no mesmo dia gerem N externalIds distintos sem duplicar
+  // em re-imports do mesmo arquivo.
+  const inverted = raw.transactions.map((t) => ({ ...t, amountCents: -t.amountCents }));
+  const withOrdinals = assignOrdinals(inverted);
+  const transactions = withOrdinals.map((t) => ({
+    ...t,
+    externalId: makeExternalId({
+      cardId: accountId,
+      date: t.date,
+      merchant: t.merchant,
+      amountCents: t.amountCents,
+      ordinal: t._ordinal,
+    }),
+  }));
 
   const totalAmountCents = transactions
     .filter((t) => t.amountCents > 0)

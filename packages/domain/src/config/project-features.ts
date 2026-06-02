@@ -73,6 +73,7 @@ const PESSOAL_EXPENSE_TYPES: ExpenseType[] = [
   ExpenseType.SEGUROS_PESSOAIS,
   ExpenseType.IMPREVISTOS,
   ExpenseType.IMPOSTO,
+  ExpenseType.MOVIMENTACAO_INTERNA,
   ExpenseType.OUTROS,
 ];
 

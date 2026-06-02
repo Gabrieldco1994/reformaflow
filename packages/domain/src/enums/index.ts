@@ -107,6 +107,7 @@ export enum ExpenseType {
   SEGUROS_PESSOAIS = 'SEGUROS_PESSOAIS',
   IMPREVISTOS = 'IMPREVISTOS',
   OUTROS = 'OUTROS',
+  MOVIMENTACAO_INTERNA = 'MOVIMENTACAO_INTERNA',
 }
 
 export enum LaborCategory {
@@ -205,7 +206,23 @@ export const ExpenseTypeLabels: Record<ExpenseType, string> = {
   [ExpenseType.SEGUROS_PESSOAIS]: 'Seguros',
   [ExpenseType.IMPREVISTOS]: 'Imprevistos',
   [ExpenseType.OUTROS]: 'Outros',
+  [ExpenseType.MOVIMENTACAO_INTERNA]: 'Movimentação entre contas próprias',
 };
+
+/**
+ * Tipos de despesa "neutros": movimentações que não representam consumo real
+ * (transferência entre contas próprias, pagamento de fatura — cuja compra já
+ * está nas despesas do cartão). NÃO geram cashflow, NÃO entram no saldo do
+ * consolidado e NÃO somam no total da tela /expenses.
+ */
+export const NEUTRAL_EXPENSE_TYPES = new Set<string>([
+  'PAGAMENTO_FATURA_CARTAO',
+  ExpenseType.MOVIMENTACAO_INTERNA,
+]);
+
+export function isNeutralExpenseType(tipoDespesa: string | null | undefined): boolean {
+  return !!tipoDespesa && NEUTRAL_EXPENSE_TYPES.has(tipoDespesa);
+}
 
 export const LaborCategoryLabels: Record<LaborCategory, string> = {
   [LaborCategory.EMPREITEIRO]: 'Empreiteiro',

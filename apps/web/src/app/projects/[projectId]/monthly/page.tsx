@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { Gauge } from 'lucide-react';
+import { Gauge, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
 import type { MonthlyOverviewResponse } from './_types';
@@ -15,12 +15,19 @@ import YearView from './_cockpit/YearView';
 
 type View = 'mes' | 'ano';
 
+function addMonthKey(key: string, delta: number): string {
+  const [y, m] = key.split('-').map((n) => parseInt(n, 10));
+  const d = new Date(Date.UTC(y ?? 1970, (m ?? 1) - 1 + delta, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
 export default function CockpitPage() {
   const params = useParams<{ projectId: string }>();
   const projectId = params.projectId;
   const { projectType } = useProject();
   const [view, setView] = useState<View>('mes');
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
 
   const { data, isLoading, error } = useQuery<MonthlyOverviewResponse>({
     queryKey: ['monthly-overview', projectId],
@@ -38,11 +45,21 @@ export default function CockpitPage() {
     );
   }
 
-  const [yearStr, monthStr] = (data?.mesAtual ?? '').split('-');
-  const currentYear = yearStr ? parseInt(yearStr, 10) : new Date().getFullYear();
+  // Meses disponíveis (ordenados) para navegação na visão "Mês".
+  const mesesDisponiveis = data ? data.meses.map((r) => r.mes).sort() : [];
+  const monthKey = selectedMonth ?? data?.mesAtual ?? '';
+  const [yearStr, monthStr] = monthKey.split('-');
+  const monthYear = yearStr ? parseInt(yearStr, 10) : new Date().getFullYear();
   const month0 = monthStr ? parseInt(monthStr, 10) - 1 : new Date().getMonth();
-  const anos = data ? anosDisponiveis(data) : [currentYear];
-  const year = selectedYear ?? currentYear;
+  const minMes = mesesDisponiveis[0] ?? monthKey;
+  const maxMes = mesesDisponiveis[mesesDisponiveis.length - 1] ?? monthKey;
+
+  const monthEntries = data?.entries
+    ? data.entries.filter((e) => (e.data ?? '').slice(0, 7) === monthKey)
+    : undefined;
+
+  const anos = data ? anosDisponiveis(data) : [monthYear];
+  const year = selectedYear ?? monthYear;
 
   return (
     <div
@@ -59,7 +76,7 @@ export default function CockpitPage() {
             <h1 className="font-display text-xl md:text-2xl text-[var(--ck-text)] leading-tight">
               {view === 'mes'
                 ? data
-                  ? `${mesLongo(month0)} ${currentYear}`
+                  ? `${mesLongo(month0)} ${monthYear}`
                   : 'Visão do mês'
                 : `Ano ${year}`}
             </h1>
@@ -67,6 +84,37 @@ export default function CockpitPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          {view === 'mes' && data && (
+            <div className="inline-flex items-center gap-1 rounded-xl border border-[var(--ck-border)] bg-[var(--ck-surface-2)] p-1">
+              <button
+                type="button"
+                aria-label="Mês anterior"
+                disabled={monthKey <= minMes}
+                onClick={() => setSelectedMonth(addMonthKey(monthKey, -1))}
+                className="p-1.5 rounded-lg text-[var(--ck-muted)] enabled:hover:text-[var(--ck-text)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              {monthKey !== data.mesAtual && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedMonth(null)}
+                  className="px-2 text-[11px] text-[var(--ck-accent)] hover:underline"
+                >
+                  hoje
+                </button>
+              )}
+              <button
+                type="button"
+                aria-label="Próximo mês"
+                disabled={monthKey >= maxMes}
+                onClick={() => setSelectedMonth(addMonthKey(monthKey, 1))}
+                className="p-1.5 rounded-lg text-[var(--ck-muted)] enabled:hover:text-[var(--ck-text)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
           {view === 'ano' && anos.length > 1 && (
             <select
               value={year}
@@ -113,7 +161,9 @@ export default function CockpitPage() {
       )}
 
       {data && !isLoading && (
-        view === 'mes' ? <MonthView data={data} /> : <YearView data={data} year={year} />
+        view === 'mes'
+          ? <MonthView key={monthKey} data={data} monthKey={monthKey} entries={monthEntries} />
+          : <YearView data={data} year={year} />
       )}
     </div>
   );

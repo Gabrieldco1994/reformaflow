@@ -25,11 +25,35 @@ export function makeExternalId(parts: {
   merchant: string;
   amountCents: number;
   bankRef?: string;
+  ordinal?: number;       // ordinal por bucket (date+merchant+amount) — diferencia
+                          // N transações idênticas no mesmo dia. Quando bankRef
+                          // é único, ordinal não é necessário (e é ignorado).
 }): string {
-  const key = parts.bankRef
-    ? `${parts.cardId}|${parts.bankRef}`
-    : `${parts.cardId}|${parts.date.toISOString().slice(0, 10)}|${parts.merchant.toLowerCase().trim()}|${parts.amountCents}`;
+  if (parts.bankRef) {
+    return createHash('sha256').update(`${parts.cardId}|${parts.bankRef}`).digest('hex').slice(0, 32);
+  }
+  const ord = parts.ordinal ?? 0;
+  const key = `${parts.cardId}|${parts.date.toISOString().slice(0, 10)}|${parts.merchant.toLowerCase().trim()}|${parts.amountCents}|${ord}`;
   return createHash('sha256').update(key).digest('hex').slice(0, 32);
+}
+
+/**
+ * Atribui ordinais sequenciais a transações com mesmo bucket (date+merchant+amount).
+ * Preserva a ordem original do arquivo — re-import do mesmo arquivo gera os mesmos
+ * ordinais (idempotente). N linhas idênticas geram N externalIds distintos.
+ *
+ * Use depois de parsear o arquivo, ANTES de gerar os externalIds.
+ */
+export function assignOrdinals<T extends { date: Date; merchant: string; amountCents: number }>(
+  txs: T[],
+): (T & { _ordinal: number })[] {
+  const counts = new Map<string, number>();
+  return txs.map((t) => {
+    const key = `${t.date.toISOString().slice(0, 10)}|${t.merchant.toLowerCase().trim()}|${t.amountCents}`;
+    const next = counts.get(key) ?? 0;
+    counts.set(key, next + 1);
+    return Object.assign({}, t, { _ordinal: next });
+  });
 }
 
 export function inferPeriodLabel(txs: NormalizedTx[]): string | undefined {

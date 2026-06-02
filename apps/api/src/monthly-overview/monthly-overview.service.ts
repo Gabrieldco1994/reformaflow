@@ -70,26 +70,32 @@ export class MonthlyOverviewService {
     const currentKey = `${today.getUTCFullYear()}-${String(today.getUTCMonth() + 1).padStart(2, '0')}`;
     const comparison = compareMonths(rows, currentKey);
 
-    // Entries do mês corrente, enriquecidas com origem (project name + type) para a tabela
+    // Entries enriquecidas com origem (project name + type) para a tabela / cockpit.
+    const enrich = (e: (typeof entries)[number]) => ({
+      id: e.id,
+      data: e.data,
+      tipo: e.tipo,
+      status: e.status,
+      valor: e.valor,
+      categoria: e.categoria
+        ? ExpenseTypeLabels[e.categoria as keyof typeof ExpenseTypeLabels] ?? e.categoria
+        : null,
+      subcategoria: e.subcategoria,
+      formaPagamento: e.formaPagamento,
+      projectId: e.projectId,
+      projectName: projectNameById.get(e.projectId) ?? '',
+      projectType: projectTypeById.get(e.projectId) ?? 'OUTROS',
+    });
+
+    // Todas as entries (todos os meses) para permitir navegação de mês no cockpit.
+    const allEntries = entries.map(enrich);
+
+    // Entries do mês corrente (mantido para compatibilidade).
     const monthStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
     const monthEnd = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 1));
-    const currentMonthEntries = entries
-      .filter((e) => e.data >= monthStart && e.data < monthEnd)
-      .map((e) => ({
-        id: e.id,
-        data: e.data,
-        tipo: e.tipo,
-        status: e.status,
-        valor: e.valor,
-        categoria: e.categoria
-          ? ExpenseTypeLabels[e.categoria as keyof typeof ExpenseTypeLabels] ?? e.categoria
-          : null,
-        subcategoria: e.subcategoria,
-        formaPagamento: e.formaPagamento,
-        projectId: e.projectId,
-        projectName: projectNameById.get(e.projectId) ?? '',
-        projectType: projectTypeById.get(e.projectId) ?? 'OUTROS',
-      }));
+    const currentMonthEntries = allEntries.filter(
+      (e) => e.data >= monthStart && e.data < monthEnd,
+    );
 
     // Lista de projetos contribuintes (para legenda do gráfico)
     const contributingProjects = projects
@@ -101,6 +107,7 @@ export class MonthlyOverviewService {
       meses: rows,
       comparativo: comparison,
       mesAtualEntries: currentMonthEntries,
+      entries: allEntries,
       projetos: contributingProjects,
     };
   }

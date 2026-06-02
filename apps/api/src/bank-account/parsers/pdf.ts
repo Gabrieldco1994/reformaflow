@@ -16,6 +16,7 @@ import {
 import {
   type NormalizedTx,
   type ParseResult,
+  assignOrdinals,
   inferPeriodLabel,
   makeExternalId,
   parseBrlMoney,
@@ -101,13 +102,10 @@ function extractTransactionsFromText(
     });
   }
 
-  // Dedup por (data + descrição + valor)
-  const dedup = new Map<string, NormalizedTx>();
-  for (const t of tx) {
-    const key = `${t.date.toISOString().slice(0, 10)}|${t.merchant.toLowerCase()}|${t.amountCents}`;
-    if (!dedup.has(key)) dedup.set(key, t);
-  }
-  return [...dedup.values()].sort((a, b) => a.date.getTime() - b.date.getTime());
+  // NÃO deduplica linhas idênticas — N transações iguais no mesmo dia (ex.: 3
+  // cobranças de R$8,00 da mesma loja) são legítimas. A unicidade vem do
+  // ordinal por bucket (assignOrdinals) → externalIds distintos.
+  return tx.sort((a, b) => a.date.getTime() - b.date.getTime());
 }
 
 function inferYearFromText(text: string): number | undefined {
@@ -136,16 +134,23 @@ export async function parseBankPdfStatement(
 ): Promise<ParseResult> {
   const text = await extractPdfText(buffer, password);
   const fallbackYear = inferYearFromText(text) ?? new Date().getUTCFullYear();
-  const transactions = extractTransactionsFromText(text, fallbackYear);
+  const raw = extractTransactionsFromText(text, fallbackYear);
 
-  for (const t of transactions) {
-    t.externalId = makeExternalId({
+  // Atribui ordinal por bucket (date+merchant+amount) para diferenciar N linhas
+  // idênticas no mesmo dia (legítimas) sem reintroduzir duplicação em re-imports.
+  const withOrdinals = assignOrdinals(raw);
+  const transactions: NormalizedTx[] = withOrdinals.map((t) => ({
+    externalId: makeExternalId({
       cardId: accountId,
       date: t.date,
       merchant: t.merchant,
       amountCents: t.amountCents,
-    });
-  }
+      ordinal: t._ordinal,
+    }),
+    date: t.date,
+    merchant: t.merchant,
+    amountCents: t.amountCents,
+  }));
 
   // Total: só soma débitos (positivos após normalização)
   const totalAmountCents = transactions
