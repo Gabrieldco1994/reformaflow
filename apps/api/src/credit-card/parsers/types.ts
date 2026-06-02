@@ -33,7 +33,12 @@ export function makeExternalId(parts: {
     return createHash('sha256').update(`${parts.cardId}|${parts.bankRef}`).digest('hex').slice(0, 32);
   }
   const ord = parts.ordinal ?? 0;
-  const key = `${parts.cardId}|${parts.date.toISOString().slice(0, 10)}|${parts.merchant.toLowerCase().trim()}|${parts.amountCents}|${ord}`;
+  // BACKWARD COMPAT: ordinal=0 produz o MESMO hash do formato antigo
+  // (sem campo ordinal). Isso garante que re-importar dados pré-fix
+  // não duplique: linhas únicas continuam casando o externalId existente.
+  // Apenas ordinal>0 (2ª, 3ª... ocorrência idêntica) entra no hash.
+  const baseKey = `${parts.cardId}|${parts.date.toISOString().slice(0, 10)}|${parts.merchant.toLowerCase().trim()}|${parts.amountCents}`;
+  const key = ord === 0 ? baseKey : `${baseKey}|${ord}`;
   return createHash('sha256').update(key).digest('hex').slice(0, 32);
 }
 
