@@ -62,12 +62,12 @@ export function parseCsv(content: string, opts: ParseOptions): ParseResult {
     let amountCents = parseBrlMoney(amountRaw);
     if (amountCents === 0) continue;
 
-    // Itaú em CSV normalmente já vem com sinal negativo para débitos no extrato.
-    // Nubank fatura: valores positivos = despesas.
-    // Padronizamos: despesa = positivo. Se vier negativo, invertemos.
-    if (opts.source === 'CSV_ITAU' && amountCents < 0) {
-      amountCents = -amountCents;
-    }
+    // CSV de FATURA Itaú: positivo = despesa (compra), negativo = crédito
+    // (pagamento da fatura anterior, estornos, descontos). Mantemos o sinal:
+    // o serviço de import trata negativos como estornos/pagamento de fatura.
+    // CSV Nubank também usa positivo=despesa.
+    // (Antes invertíamos negativos do CSV_ITAU — bug: confundia com extrato
+    // bancário, mascarando estornos como despesa positiva.)
 
     const { current, total, cleanMerchant } = detectInstallment(descRaw);
     transactions.push({
