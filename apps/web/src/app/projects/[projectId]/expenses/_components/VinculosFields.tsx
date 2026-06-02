@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
+import { CreateLinkedExpenseModal, type LinkedExpenseDraft } from './CreateLinkedExpenseModal';
 
 interface TenantCard {
   id: string;
@@ -52,6 +53,9 @@ interface Props {
   initialLinkedExpenseId?: string | null;
   /** Resumo da despesa já vinculada (vinda do servidor) — exibe nome do projeto. */
   initialLinkedExpenseLabel?: string | null;
+  /** Snapshot dos campos atuais do form pai — usado para pré-preencher o modal
+   *  "Criar nova despesa em outro projeto e vincular". */
+  baseDraft?: LinkedExpenseDraft;
 }
 
 /**
@@ -68,7 +72,10 @@ export function VinculosFields({
   initialBankLast4,
   initialLinkedExpenseId,
   initialLinkedExpenseLabel,
+  baseDraft,
 }: Props) {
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [createdLabel, setCreatedLabel] = useState<string | null>(null);
   const { data: cards = [] } = useQuery<TenantCard[]>({
     queryKey: ['tenant', 'credit-cards'],
     queryFn: () => api.get('/tenant/credit-cards'),
@@ -144,7 +151,7 @@ export function VinculosFields({
   const selectedCross = crossExpenses.find((e) => e.id === value.linkedExpenseId);
   const displayLabel = selectedCross
     ? `${selectedCross.titulo || selectedCross.fornecedor || '—'} · ${formatCurrency(selectedCross.valorTotal / 100)} · ${selectedCross.project?.name ?? ''}`
-    : initialLinkedExpenseLabel ?? null;
+    : createdLabel ?? initialLinkedExpenseLabel ?? null;
 
   return (
     <div className="space-y-3 border-t pt-3">
@@ -180,7 +187,10 @@ export function VinculosFields({
             <button
               type="button"
               className="text-xs text-blue-700 hover:underline"
-              onClick={() => onChange({ ...value, linkedExpenseId: '' })}
+              onClick={() => {
+                onChange({ ...value, linkedExpenseId: '' });
+                setCreatedLabel(null);
+              }}
             >
               Remover
             </button>
@@ -225,12 +235,35 @@ export function VinculosFields({
                 ))}
               </div>
             )}
-            <p className="mt-1 text-xs text-gray-500">
-              Vincule esta despesa a outra existente (ex.: pagou material da reforma no cartão pessoal) — evita dupla contagem.
-            </p>
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <p className="text-xs text-gray-500">
+                Vincule esta despesa a outra existente (ex.: pagou material da reforma no cartão pessoal) — evita dupla contagem.
+              </p>
+              <button
+                type="button"
+                className="shrink-0 text-xs font-medium text-blue-700 hover:underline"
+                onClick={() => setCreateModalOpen(true)}
+              >
+                + Criar nova em outro projeto
+              </button>
+            </div>
           </div>
         )}
       </div>
+
+      <CreateLinkedExpenseModal
+        open={createModalOpen}
+        onClose={() => setCreateModalOpen(false)}
+        currentProjectId={projectId}
+        defaults={baseDraft ?? {}}
+        onCreated={(exp) => {
+          onChange({ ...value, linkedExpenseId: exp.id });
+          setCreatedLabel(
+            `${exp.titulo || exp.fornecedor || '—'} · ${formatCurrency(exp.valorTotal / 100)} · ${exp.project?.name ?? ''}`,
+          );
+          onLinkSelected?.(exp);
+        }}
+      />
     </div>
   );
 }

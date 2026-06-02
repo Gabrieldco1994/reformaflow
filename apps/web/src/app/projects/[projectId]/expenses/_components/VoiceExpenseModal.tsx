@@ -1,10 +1,22 @@
+import { useMemo, useState } from 'react';
 import { Mic } from 'lucide-react';
-import { ExpenseType, PaymentForm, type ExpenseStatus } from '@reformaflow/domain';
+import { useQuery } from '@tanstack/react-query';
+import {
+  ExpenseType,
+  PaymentForm,
+  type ExpenseStatus,
+  type VoiceMatchableAccount,
+  type VoiceMatchableCard,
+  type VoiceMatchableProject,
+} from '@reformaflow/domain';
+import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Modal } from '@/components/ui/modal';
 import { FORMA_PAGAMENTO_OPTIONS } from '@/lib/expense-options';
+import { formatCurrency, formatDateBR } from '@/lib/utils';
+import { CreateLinkedExpenseModal } from './CreateLinkedExpenseModal';
 
 interface ExpenseOption {
   value: string;
@@ -19,6 +31,19 @@ export interface VoiceExpenseData {
   quantidadeParcela: number | null;
   status: ExpenseStatus;
   dataReferencia: string;
+  creditCardId: string | null;
+  bankAccountId: string | null;
+  linkedProjectId: string | null;
+}
+
+interface CrossExpenseLite {
+  id: string;
+  titulo?: string | null;
+  fornecedor?: string | null;
+  valorTotal: number;
+  status: string;
+  dataPagamento?: string | null;
+  project?: { id: string; name: string; type: string } | null;
 }
 
 interface VoiceExpenseModalProps {
@@ -32,11 +57,22 @@ interface VoiceExpenseModalProps {
   setVoiceData: (data: VoiceExpenseData) => void;
   voiceFornecedor: string;
   setVoiceFornecedor: (value: string) => void;
+  /** ID da despesa cross-project vinculada (escolhida ou recém-criada). */
+  voiceLinkedExpenseId: string;
+  setVoiceLinkedExpenseId: (value: string) => void;
   startVoiceCapture: () => void;
   clearVoiceTranscript: () => void;
   saveVoiceExpense: () => void;
   saveDisabled: boolean;
   tipoDespesaOptions: ExpenseOption[];
+  /** Cartões disponíveis no tenant (com auto-seleção via voz). */
+  cards: VoiceMatchableCard[];
+  /** Contas bancárias do tenant. */
+  accounts: VoiceMatchableAccount[];
+  /** Projeto detectado pela voz para vínculo cross-project. */
+  voiceLinkedProject: VoiceMatchableProject | null;
+  /** ID do projeto atual — usado para busca cross-project. */
+  currentProjectId: string;
 }
 
 export function VoiceExpenseModal({
@@ -50,17 +86,60 @@ export function VoiceExpenseModal({
   setVoiceData,
   voiceFornecedor,
   setVoiceFornecedor,
+  voiceLinkedExpenseId,
+  setVoiceLinkedExpenseId,
   startVoiceCapture,
   clearVoiceTranscript,
   saveVoiceExpense,
   saveDisabled,
   tipoDespesaOptions,
+  cards,
+  accounts,
+  voiceLinkedProject,
+  currentProjectId,
 }: VoiceExpenseModalProps) {
+  const [createLinkedOpen, setCreateLinkedOpen] = useState(false);
+  const [linkedSearch, setLinkedSearch] = useState('');
+  const [linkedSearchOpen, setLinkedSearchOpen] = useState(false);
+  // Label exibido para a despesa cross-project escolhida (existente ou recém-criada).
+  const [linkedLabel, setLinkedLabel] = useState<string | null>(null);
+
+  const cardOptions = useMemo(() => {
+    const opts: { value: string; label: string }[] = [{ value: '', label: 'Nenhum' }];
+    for (const c of cards) {
+      opts.push({ value: c.id, label: `${c.nickname || c.brand} ****${c.last4}` });
+    }
+    return opts;
+  }, [cards]);
+
+  const accountOptions = useMemo(() => {
+    const opts: { value: string; label: string }[] = [{ value: '', label: 'Nenhuma' }];
+    for (const a of accounts) {
+      const tail = a.last4 ? ` ****${a.last4}` : '';
+      opts.push({ value: a.id, label: `${a.nickname || a.institution}${tail}` });
+    }
+    return opts;
+  }, [accounts]);
+
+  // Busca cross-project quando o usuário quer vincular a uma existente
+  const { data: crossResults = [], isFetching: searching } = useQuery<CrossExpenseLite[]>({
+    queryKey: ['cross-project-expenses', currentProjectId, 'voice', linkedSearch],
+    queryFn: () =>
+      api.get(
+        `/projects/${currentProjectId}/expenses/cross-project?limit=15${
+          linkedSearch ? `&search=${encodeURIComponent(linkedSearch)}` : ''
+        }`,
+      ),
+    enabled: linkedSearchOpen,
+    staleTime: 20_000,
+  });
+
   return (
     <Modal open={open} onClose={onClose} title="Lançar despesa por voz">
       <div className="space-y-4">
         <p className="text-sm text-gray-600">
-          Fale uma frase como: <span className="font-medium">&quot;Gastei 85 reais no mercado no cartão hoje&quot;</span>.
+          Fale uma frase como: <span className="font-medium">&quot;Gastei 85 reais no mercado no Itaú Personnalité para a reforma&quot;</span>.
+          A IA tenta vincular automaticamente o cartão/conta e o projeto destino.
         </p>
 
         <div className="flex flex-wrap gap-2">
@@ -193,6 +272,116 @@ export function VoiceExpenseModal({
               value={voiceFornecedor}
               onChange={(e) => setVoiceFornecedor(e.target.value)}
             />
+
+            {/* ── Vínculos automáticos detectados pela voz ────────────── */}
+            <div className="space-y-3 rounded border border-blue-100 bg-blue-50/40 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">
+                Vínculos (IA detectou pela voz)
+              </p>
+
+              <Select
+                label="Pago no cartão"
+                name="voiceCreditCardId"
+                options={cardOptions}
+                value={voiceData.creditCardId ?? ''}
+                onChange={(e) =>
+                  setVoiceData({ ...voiceData, creditCardId: e.target.value || null })
+                }
+              />
+
+              <Select
+                label="Pago pela conta"
+                name="voiceBankAccountId"
+                options={accountOptions}
+                value={voiceData.bankAccountId ?? ''}
+                onChange={(e) =>
+                  setVoiceData({ ...voiceData, bankAccountId: e.target.value || null })
+                }
+              />
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Vincular a despesa de outro projeto
+                </label>
+                {voiceLinkedExpenseId ? (
+                  <div className="flex items-center gap-2 rounded border border-blue-200 bg-blue-50 px-2 py-1.5 text-sm">
+                    <span className="flex-1 truncate text-blue-900">
+                      🔗 {linkedLabel ?? voiceLinkedExpenseId}
+                    </span>
+                    <button
+                      type="button"
+                      className="text-xs text-blue-700 hover:underline"
+                      onClick={() => {
+                        setVoiceLinkedExpenseId('');
+                        setLinkedLabel(null);
+                      }}
+                    >
+                      Remover
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {voiceLinkedProject && (
+                      <div className="rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+                        🎯 IA detectou projeto destino:{' '}
+                        <span className="font-semibold">{voiceLinkedProject.name}</span> ·{' '}
+                        {voiceLinkedProject.type}
+                      </div>
+                    )}
+                    <Input
+                      placeholder="Buscar despesa existente em outro projeto…"
+                      value={linkedSearch}
+                      onChange={(e) => {
+                        setLinkedSearch(e.target.value);
+                        setLinkedSearchOpen(true);
+                      }}
+                      onFocus={() => setLinkedSearchOpen(true)}
+                    />
+                    {linkedSearchOpen && (
+                      <div className="max-h-40 overflow-auto rounded border border-gray-200 bg-white text-sm shadow-sm">
+                        {searching && <div className="px-3 py-2 text-gray-500">Buscando…</div>}
+                        {!searching && crossResults.length === 0 && (
+                          <div className="px-3 py-2 text-gray-500">Nenhuma despesa encontrada.</div>
+                        )}
+                        {crossResults.map((exp) => (
+                          <button
+                            key={exp.id}
+                            type="button"
+                            className="block w-full px-3 py-1.5 text-left hover:bg-orange-50"
+                            onClick={() => {
+                              setVoiceLinkedExpenseId(exp.id);
+                              setLinkedLabel(
+                                `${exp.titulo || exp.fornecedor || '—'} · ${formatCurrency(
+                                  exp.valorTotal / 100,
+                                )} · ${exp.project?.name ?? ''}`,
+                              );
+                              setLinkedSearchOpen(false);
+                              setLinkedSearch('');
+                            }}
+                          >
+                            <div className="font-medium text-gray-900 truncate">
+                              {exp.titulo || exp.fornecedor || '—'}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              {formatCurrency(exp.valorTotal / 100)} · {exp.status} ·{' '}
+                              {exp.project?.name ?? '—'}
+                              {exp.dataPagamento ? ` · ${formatDateBR(exp.dataPagamento)}` : ''}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      className="text-xs font-medium text-blue-700 hover:underline"
+                      onClick={() => setCreateLinkedOpen(true)}
+                    >
+                      + Criar nova despesa em outro projeto e vincular
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
@@ -205,6 +394,30 @@ export function VoiceExpenseModal({
           </Button>
         </div>
       </div>
+
+      {voiceData && (
+        <CreateLinkedExpenseModal
+          open={createLinkedOpen}
+          onClose={() => setCreateLinkedOpen(false)}
+          currentProjectId={currentProjectId}
+          defaults={{
+            titulo: voiceData.titulo,
+            fornecedor: voiceFornecedor,
+            tipoDespesa: voiceData.tipoDespesa,
+            valor: voiceData.valor != null ? String(voiceData.valor) : '',
+            quantidade: '1',
+            formaPagamento: voiceData.formaPagamento,
+          }}
+          onCreated={(exp) => {
+            setVoiceLinkedExpenseId(exp.id);
+            setLinkedLabel(
+              `${exp.titulo || exp.fornecedor || '—'} · ${formatCurrency(exp.valorTotal / 100)} · ${
+                exp.project?.name ?? ''
+              }`,
+            );
+          }}
+        />
+      )}
     </Modal>
   );
 }

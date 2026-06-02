@@ -612,10 +612,37 @@ export default function ExpensesPage() {
     () => TIPO_DESPESA_OPTIONS.map((o) => o.value as ExpenseType),
     [TIPO_DESPESA_OPTIONS],
   );
+
+  // Cartões/contas/projetos do tenant — usados pela IA de voz para auto-vincular
+  // ("no Itaú", "no 5868", "para a reforma").
+  const { data: tenantCards = [] } = useQuery<
+    Array<{ id: string; last4: string; nickname?: string | null; brand?: string | null }>
+  >({
+    queryKey: ['tenant', 'credit-cards'],
+    queryFn: () => api.get('/tenant/credit-cards'),
+    staleTime: 60_000,
+  });
+  const { data: tenantAccounts = [] } = useQuery<
+    Array<{ id: string; last4?: string | null; nickname?: string | null; institution?: string | null }>
+  >({
+    queryKey: ['tenant', 'bank-accounts'],
+    queryFn: () => api.get('/tenant/bank-accounts'),
+    staleTime: 60_000,
+  });
+  const { data: tenantProjects = [] } = useQuery<Array<{ id: string; name: string; type: string }>>({
+    queryKey: ['tenant', 'projects'],
+    queryFn: () => api.get('/projects'),
+    staleTime: 60_000,
+  });
+
   const voice = useVoiceExpense({
     allowedExpenseTypes,
     defaultExpenseType,
     onCreate: (data, onSuccess) => createMutation.mutate(data, { onSuccess }),
+    cards: tenantCards,
+    accounts: tenantAccounts,
+    projects: tenantProjects,
+    currentProjectId: PROJECT_ID,
   });
   const {
     voiceModalOpen,
@@ -627,6 +654,9 @@ export default function ExpensesPage() {
     setVoiceData,
     voiceFornecedor,
     setVoiceFornecedor,
+    voiceLinkedExpenseId,
+    setVoiceLinkedExpenseId,
+    voiceLinkedProject,
     openVoiceModal,
     closeVoiceModal,
     clearVoiceTranscript,
@@ -939,11 +969,17 @@ export default function ExpensesPage() {
         setVoiceData={setVoiceData}
         voiceFornecedor={voiceFornecedor}
         setVoiceFornecedor={setVoiceFornecedor}
+        voiceLinkedExpenseId={voiceLinkedExpenseId}
+        setVoiceLinkedExpenseId={setVoiceLinkedExpenseId}
+        voiceLinkedProject={voiceLinkedProject}
         startVoiceCapture={startVoiceCapture}
         clearVoiceTranscript={clearVoiceTranscript}
         saveVoiceExpense={saveVoiceExpense}
         saveDisabled={!voiceData?.valor || createMutation.isPending}
         tipoDespesaOptions={TIPO_DESPESA_OPTIONS}
+        cards={tenantCards}
+        accounts={tenantAccounts}
+        currentProjectId={PROJECT_ID}
       />
 
       {/* Pay Options Modal */}
@@ -990,6 +1026,15 @@ export default function ExpensesPage() {
         tipoDespesaOptions={formTipoOptions}
         roomOptions={formRoomOptions}
         isPending={createMutation.isPending || updateMutation.isPending}
+        linkedExpenseDraft={{
+          titulo: formTitulo,
+          fornecedor: formFornecedor,
+          tipoDespesa,
+          categoriaMaoDeObra: formCategoriaMaoDeObra,
+          valor,
+          quantidade,
+          formaPagamento,
+        }}
       />
     </div>
   );

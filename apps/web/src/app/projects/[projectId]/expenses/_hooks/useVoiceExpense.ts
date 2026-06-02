@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ExpenseType,
   PaymentForm,
   type ParsedVoiceExpense,
+  type VoiceMatchableAccount,
+  type VoiceMatchableCard,
+  type VoiceMatchableProject,
   parseVoiceExpense,
 } from '@reformaflow/domain';
 import type { ExpenseFormData } from '@/types';
@@ -31,6 +34,14 @@ interface UseVoiceExpenseArgs {
   defaultExpenseType: ExpenseType;
   /** Chamado para persistir a despesa interpretada do áudio. */
   onCreate: (data: ExpenseFormData, onSuccess: () => void) => void;
+  /** Cartões disponíveis no tenant — para auto-vínculo via voz. */
+  cards?: VoiceMatchableCard[];
+  /** Contas bancárias do tenant — idem. */
+  accounts?: VoiceMatchableAccount[];
+  /** Projetos do tenant — para detectar cross-project ("para a reforma"). */
+  projects?: VoiceMatchableProject[];
+  /** ID do projeto atual — usado para excluir auto-link cross para o próprio projeto. */
+  currentProjectId?: string;
 }
 
 /**
@@ -42,6 +53,10 @@ export function useVoiceExpense({
   allowedExpenseTypes,
   defaultExpenseType,
   onCreate,
+  cards,
+  accounts,
+  projects,
+  currentProjectId,
 }: UseVoiceExpenseArgs) {
   const [voiceModalOpen, setVoiceModalOpen] = useState(false);
   const [voiceSupported, setVoiceSupported] = useState(false);
@@ -50,6 +65,8 @@ export function useVoiceExpense({
   const [voiceError, setVoiceError] = useState('');
   const [voiceData, setVoiceData] = useState<ParsedVoiceExpense | null>(null);
   const [voiceFornecedor, setVoiceFornecedor] = useState('');
+  /** ID da despesa já existente em outro projeto, escolhida pelo usuário para vincular. */
+  const [voiceLinkedExpenseId, setVoiceLinkedExpenseId] = useState<string>('');
   const [speechApi, setSpeechApi] = useState<SpeechRecognitionCtor | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
 
@@ -85,8 +102,12 @@ export function useVoiceExpense({
         transcript: rawText,
         allowedExpenseTypes,
         defaultExpenseType,
+        cards,
+        accounts,
+        projects,
+        currentProjectId,
       }),
-    [allowedExpenseTypes, defaultExpenseType],
+    [allowedExpenseTypes, defaultExpenseType, cards, accounts, projects, currentProjectId],
   );
 
   const startVoiceCapture = useCallback(() => {
@@ -98,6 +119,7 @@ export function useVoiceExpense({
     setVoiceTranscript('');
     setVoiceData(null);
     setVoiceFornecedor('');
+    setVoiceLinkedExpenseId('');
 
     try {
       recognitionRef.current?.stop();
@@ -152,6 +174,7 @@ export function useVoiceExpense({
     setVoiceTranscript('');
     setVoiceData(null);
     setVoiceFornecedor('');
+    setVoiceLinkedExpenseId('');
   }, []);
 
   const openVoiceModal = useCallback(() => {
@@ -168,12 +191,14 @@ export function useVoiceExpense({
     setVoiceModalOpen(false);
     setVoiceListening(false);
     setVoiceFornecedor('');
+    setVoiceLinkedExpenseId('');
   }, []);
 
   const clearVoiceTranscript = useCallback(() => {
     setVoiceTranscript('');
     setVoiceData(null);
     setVoiceFornecedor('');
+    setVoiceLinkedExpenseId('');
     setVoiceError('');
   }, []);
 
@@ -192,6 +217,9 @@ export function useVoiceExpense({
       dataPagamento: null,
       quantidadeParcela: null,
       dataInicioParcela: null,
+      creditCardId: voiceData.creditCardId || null,
+      bankAccountId: voiceData.bankAccountId || null,
+      linkedExpenseId: voiceLinkedExpenseId || null,
     };
     if (voiceData.formaPagamento === PaymentForm.A_VISTA) {
       data.dataPagamento = voiceData.dataReferencia || toIsoDate(new Date());
@@ -204,9 +232,16 @@ export function useVoiceExpense({
       setVoiceTranscript('');
       setVoiceData(null);
       setVoiceFornecedor('');
+      setVoiceLinkedExpenseId('');
       setVoiceError('');
     });
-  }, [onCreate, voiceData, voiceFornecedor]);
+  }, [onCreate, voiceData, voiceFornecedor, voiceLinkedExpenseId]);
+
+  /** Projeto destino sugerido pela voz (objeto completo, se houver match). */
+  const voiceLinkedProject = useMemo(() => {
+    if (!voiceData?.linkedProjectId) return null;
+    return projects?.find((p) => p.id === voiceData.linkedProjectId) ?? null;
+  }, [projects, voiceData?.linkedProjectId]);
 
   return {
     voiceModalOpen,
@@ -218,6 +253,9 @@ export function useVoiceExpense({
     setVoiceData,
     voiceFornecedor,
     setVoiceFornecedor,
+    voiceLinkedExpenseId,
+    setVoiceLinkedExpenseId,
+    voiceLinkedProject,
     openVoiceModal,
     closeVoiceModal,
     clearVoiceTranscript,

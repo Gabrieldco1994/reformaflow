@@ -5,6 +5,7 @@ import { Modal } from '@/components/ui/modal';
 import { CATEGORIA_MAO_DE_OBRA_OPTIONS, FORMA_PAGAMENTO_OPTIONS, tipoLabel } from '@/lib/expense-options';
 import { formatCurrency } from '@/lib/utils';
 import { VinculosFields } from './VinculosFields';
+import type { LinkedExpenseDraft } from './CreateLinkedExpenseModal';
 import type { Expense } from '@/types';
 
 interface ExpenseOption {
@@ -57,6 +58,8 @@ interface ExpenseFormModalProps {
   tipoDespesaOptions: ExpenseOption[];
   roomOptions: RoomOption[];
   isPending: boolean;
+  /** Snapshot dos campos atuais — usado para pré-preencher o modal "criar despesa em outro projeto". */
+  linkedExpenseDraft?: LinkedExpenseDraft;
 }
 
 export function ExpenseFormModal({
@@ -88,6 +91,7 @@ export function ExpenseFormModal({
   tipoDespesaOptions,
   roomOptions,
   isPending,
+  linkedExpenseDraft,
 }: ExpenseFormModalProps) {
   // Inclui o tipo ativo nas opções mesmo se ele não pertencer ao conjunto padrão
   // do projeto (ex.: tipo herdado de uma despesa vinculada de outro tipo de projeto).
@@ -211,6 +215,7 @@ export function ExpenseFormModal({
           initialCardLast4={editing?.cardLast4 ?? null}
           initialBankLast4={editing?.bankLast4 ?? null}
           initialLinkedExpenseId={editing?.linkedExpenseId ?? null}
+          baseDraft={linkedExpenseDraft}
         />
 
         <div className="flex justify-end gap-2 pt-2">
