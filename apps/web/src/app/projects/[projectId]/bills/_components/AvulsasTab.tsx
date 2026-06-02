@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, Edit2 } from 'lucide-react';
-import { ExpenseTypeLabels, getExpenseTypesForProject, type ProjectType } from '@reformaflow/domain';
+import { ExpenseTypeLabels, getExpenseTypesForProject, isSinglePaymentForm, type ProjectType } from '@reformaflow/domain';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -126,7 +126,7 @@ export function AvulsasTab({ projectId, projectType }: Props) {
         formaPagamento: d.formaPagamento,
         status: d.status,
       };
-      if (d.formaPagamento === 'A_VISTA' && d.dataPagamento) {
+      if (isSinglePaymentForm(d.formaPagamento) && d.dataPagamento) {
         payload.dataPagamento = d.dataPagamento;
       }
       if (d.formaPagamento === 'PARCELADO' || d.formaPagamento === 'QUINZENAL') {
@@ -356,7 +356,7 @@ export function AvulsasTab({ projectId, projectType }: Props) {
             options={FORMA_PAGAMENTO_OPTIONS}
             onChange={(e) => setDraft({ ...draft, formaPagamento: e.target.value })}
           />
-          {draft.formaPagamento === 'A_VISTA' && (
+          {isSinglePaymentForm(draft.formaPagamento) && (
             <Input
               label="Data do pagamento"
               name="dataPagamento"

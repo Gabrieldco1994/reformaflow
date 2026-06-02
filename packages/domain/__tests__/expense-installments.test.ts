@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildInstallments, PaymentForm } from '../src';
+import { buildInstallments, isSinglePaymentForm, PaymentForm } from '../src';
 
 const utc = (y: number, m: number, d: number) => new Date(Date.UTC(y, m - 1, d));
 
@@ -112,5 +112,47 @@ describe('buildInstallments', () => {
       valor: 500,
       data: utc(2026, 4, 5),
     });
+  });
+
+  it('PIX é tratado como pagamento único', () => {
+    const data = utc(2026, 6, 1);
+    const out = buildInstallments({
+      valorTotal: 9999,
+      formaPagamento: PaymentForm.PIX,
+      dataPagamento: data,
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]).toEqual({ parcela: '1/1', valor: 9999, data });
+  });
+
+  it('PAGAMENTO_CONTA é tratado como pagamento único', () => {
+    const data = utc(2026, 6, 10);
+    const out = buildInstallments({
+      valorTotal: 25000,
+      formaPagamento: PaymentForm.PAGAMENTO_CONTA,
+      dataPagamento: data,
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]).toEqual({ parcela: '1/1', valor: 25000, data });
+  });
+});
+
+describe('isSinglePaymentForm', () => {
+  it('true para formas únicas (A_VISTA, PIX, PAGAMENTO_CONTA)', () => {
+    expect(isSinglePaymentForm(PaymentForm.A_VISTA)).toBe(true);
+    expect(isSinglePaymentForm(PaymentForm.PIX)).toBe(true);
+    expect(isSinglePaymentForm(PaymentForm.PAGAMENTO_CONTA)).toBe(true);
+  });
+
+  it('false para PARCELADO e QUINZENAL', () => {
+    expect(isSinglePaymentForm(PaymentForm.PARCELADO)).toBe(false);
+    expect(isSinglePaymentForm(PaymentForm.QUINZENAL)).toBe(false);
+  });
+
+  it('true para null/undefined/desconhecido (compat com legados do importer)', () => {
+    expect(isSinglePaymentForm(null)).toBe(true);
+    expect(isSinglePaymentForm(undefined)).toBe(true);
+    expect(isSinglePaymentForm('CARTAO_CREDITO')).toBe(true);
+    expect(isSinglePaymentForm('CONTA_CORRENTE')).toBe(true);
   });
 });

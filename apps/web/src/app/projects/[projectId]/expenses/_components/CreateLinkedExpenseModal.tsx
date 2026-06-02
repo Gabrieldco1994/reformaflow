@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { isSinglePaymentForm } from '@reformaflow/domain';
 import { api } from '@/lib/api';
 import { Modal } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
@@ -163,7 +164,7 @@ export function CreateLinkedExpenseModal({
       };
       if (showMaoDeObra && categoriaMaoDeObra) payload.categoriaMaoDeObra = categoriaMaoDeObra;
       if (showRooms && roomId) payload.roomId = roomId;
-      if (formaPagamento === 'A_VISTA' && dataPagamento) payload.dataPagamento = dataPagamento;
+      if (isSinglePaymentForm(formaPagamento) && dataPagamento) payload.dataPagamento = dataPagamento;
       if (formaPagamento === 'PARCELADO' || formaPagamento === 'QUINZENAL') {
         if (quantidadeParcela) payload.quantidadeParcela = parseInt(quantidadeParcela, 10);
         if (dataInicioParcela) payload.dataInicioParcela = dataInicioParcela;
@@ -288,7 +289,7 @@ export function CreateLinkedExpenseModal({
               />
             </div>
 
-            {formaPagamento === 'A_VISTA' && (
+            {isSinglePaymentForm(formaPagamento) && (
               <Input
                 label="Data do pagamento"
                 name="dataPagamento"

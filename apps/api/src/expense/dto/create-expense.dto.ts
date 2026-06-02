@@ -49,9 +49,9 @@ export class CreateExpenseDto {
   @IsString()
   imageUrl?: string;
 
-  @ApiProperty({ enum: ['A_VISTA', 'PARCELADO', 'QUINZENAL'] })
+  @ApiProperty({ enum: ['A_VISTA', 'PARCELADO', 'QUINZENAL', 'PIX', 'PAGAMENTO_CONTA'] })
   @IsString()
-  @IsIn(['A_VISTA', 'PARCELADO', 'QUINZENAL'])
+  @IsIn(['A_VISTA', 'PARCELADO', 'QUINZENAL', 'PIX', 'PAGAMENTO_CONTA'])
   formaPagamento!: string;
 
   @ApiPropertyOptional({ example: '2026-05-01' })

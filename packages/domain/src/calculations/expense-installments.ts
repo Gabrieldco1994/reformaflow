@@ -3,7 +3,23 @@ import { PaymentForm } from '../enums';
 export type InstallmentPaymentForm =
   | typeof PaymentForm.A_VISTA
   | typeof PaymentForm.PARCELADO
-  | typeof PaymentForm.QUINZENAL;
+  | typeof PaymentForm.QUINZENAL
+  | typeof PaymentForm.PIX
+  | typeof PaymentForm.PAGAMENTO_CONTA;
+
+/**
+ * Retorna `true` quando a forma de pagamento gera UMA única parcela
+ * (pagamento único na data informada).
+ *
+ * Inclui formas tradicionais (A_VISTA), eletrônicas (PIX) e boleto/conta
+ * (PAGAMENTO_CONTA). Strings desconhecidas também caem no caminho de
+ * pagamento único para evitar quebras quando o backend recebe valores
+ * legados (ex.: CARTAO_CREDITO, CONTA_CORRENTE vindos do importer).
+ */
+export function isSinglePaymentForm(forma: string | null | undefined): boolean {
+  if (!forma) return true;
+  return forma !== PaymentForm.PARCELADO && forma !== PaymentForm.QUINZENAL;
+}
 
 export interface InstallmentInput {
   /** Valor total da despesa em centavos (inteiro). */
@@ -52,7 +68,7 @@ export function buildInstallments(input: InstallmentInput): InstallmentEntry[] {
     dataInicioParcela,
   } = input;
 
-  if (formaPagamento === PaymentForm.A_VISTA) {
+  if (isSinglePaymentForm(formaPagamento)) {
     return [
       {
         parcela: '1/1',

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Pencil, Trash2, ChevronDown, ChevronRight, ExternalLink, Check, X } from 'lucide-react';
-import { buildInstallments } from '@reformaflow/domain';
+import { buildInstallments, isSinglePaymentForm } from '@reformaflow/domain';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import {
   CATEGORIA_MAO_DE_OBRA_OPTIONS,
@@ -295,7 +295,7 @@ export function ExpenseDesktopTable({
                                       </select>
                                     </div>
                                   )}
-                                  {editingInlineRow.formaPagamento === 'A_VISTA' && (
+                                  {isSinglePaymentForm(editingInlineRow.formaPagamento) && (
                                     <div className="flex items-center gap-2">
                                       <span className="text-[10px] text-gray-500 font-medium">Data Pagto:</span>
                                       <input type="date" value={editingInlineRow.dataPagamento}
@@ -445,7 +445,7 @@ export function ExpenseDesktopTable({
                           </select>
                         </div>
                       )}
-                      {newRow.formaPagamento === 'A_VISTA' && (
+                      {isSinglePaymentForm(newRow.formaPagamento) && (
                         <div className="flex items-center gap-2">
                           <span className="text-[10px] text-gray-500 font-medium">Data Pagto:</span>
                           <input type="date" value={newRow.dataPagamento}

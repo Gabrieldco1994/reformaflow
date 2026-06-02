@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
-import { ExpenseTypeLabels, LaborCategoryLabels, buildInstallments, PaymentForm, isNeutralExpenseType } from '@reformaflow/domain';
+import { ExpenseTypeLabels, LaborCategoryLabels, buildInstallments, isSinglePaymentForm, isNeutralExpenseType } from '@reformaflow/domain';
 import { Prisma } from '@prisma/client';
 
 @Injectable()
@@ -474,7 +474,7 @@ export class ExpenseService {
       dataInicioParcela: expense.dataInicioParcela,
     });
 
-    const isAVista = expense.formaPagamento === PaymentForm.A_VISTA;
+    const singlePayment = isSinglePaymentForm(expense.formaPagamento);
 
     return installments.map(({ parcela, valor, data }) => ({
       projectId: expense.projectId,
@@ -488,7 +488,7 @@ export class ExpenseService {
       valor,
       data,
       formaPagamento: expense.formaPagamento,
-      parcela: isAVista ? null : parcela,
+      parcela: singlePayment ? null : parcela,
     }));
   }
 

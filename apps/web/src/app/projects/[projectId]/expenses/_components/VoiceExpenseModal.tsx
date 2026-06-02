@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   ExpenseType,
   PaymentForm,
+  isSinglePaymentForm,
   type ExpenseStatus,
   type VoiceMatchableAccount,
   type VoiceMatchableCard,
@@ -210,8 +211,9 @@ export function VoiceExpenseModal({
                   setVoiceData({
                     ...voiceData,
                     formaPagamento: e.target.value as PaymentForm,
-                    quantidadeParcela:
-                      e.target.value === PaymentForm.A_VISTA ? null : (voiceData.quantidadeParcela ?? 1),
+                    quantidadeParcela: isSinglePaymentForm(e.target.value)
+                      ? null
+                      : (voiceData.quantidadeParcela ?? 1),
                   })
                 }
               />
@@ -227,7 +229,7 @@ export function VoiceExpenseModal({
                 value={voiceData.status}
                 onChange={(e) => setVoiceData({ ...voiceData, status: e.target.value as ExpenseStatus })}
               />
-              {voiceData.formaPagamento === PaymentForm.A_VISTA ? (
+              {isSinglePaymentForm(voiceData.formaPagamento) ? (
                 <Input
                   label="Data do Pagamento"
                   name="voiceDataPagamento"
@@ -251,7 +253,7 @@ export function VoiceExpenseModal({
                 />
               )}
             </div>
-            {voiceData.formaPagamento !== PaymentForm.A_VISTA && (
+            {!isSinglePaymentForm(voiceData.formaPagamento) && (
               <Input
                 label="Data de Início"
                 name="voiceDataInicioParcela"

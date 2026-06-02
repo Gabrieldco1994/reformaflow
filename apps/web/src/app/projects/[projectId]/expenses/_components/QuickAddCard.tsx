@@ -1,6 +1,7 @@
 'use client';
 import React from 'react';
 import { Check, X } from 'lucide-react';
+import { isSinglePaymentForm } from '@reformaflow/domain';
 import { formatCurrency } from '@/lib/utils';
 import { CATEGORIA_MAO_DE_OBRA_OPTIONS, FORMA_PAGAMENTO_OPTIONS } from '@/lib/expense-options';
 import type { InlineNewRow } from '../_types';
@@ -163,7 +164,7 @@ export function QuickAddCard({
             </select>
           </label>
         )}
-        {newRow.formaPagamento === 'A_VISTA' && (
+        {isSinglePaymentForm(newRow.formaPagamento) && (
           <label className="flex items-center gap-1 text-[10px] font-medium text-gray-500">
             Data Pagto
             <input

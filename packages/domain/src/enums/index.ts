@@ -125,6 +125,8 @@ export enum PaymentForm {
   A_VISTA = 'A_VISTA',
   PARCELADO = 'PARCELADO',
   QUINZENAL = 'QUINZENAL',
+  PIX = 'PIX',
+  PAGAMENTO_CONTA = 'PAGAMENTO_CONTA',
 }
 
 export enum ExpenseStatus {
@@ -239,6 +241,8 @@ export const PaymentFormLabels: Record<PaymentForm, string> = {
   [PaymentForm.A_VISTA]: 'À Vista',
   [PaymentForm.PARCELADO]: 'Parcelado',
   [PaymentForm.QUINZENAL]: 'Quinzenal',
+  [PaymentForm.PIX]: 'PIX',
+  [PaymentForm.PAGAMENTO_CONTA]: 'Pagamento de Conta (boleto)',
 };
 
 export const CashFlowStatusLabels: Record<CashFlowStatus, string> = {

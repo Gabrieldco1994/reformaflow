@@ -83,11 +83,21 @@ describe('getExpenseTypesForProject', () => {
     expect(types).toContain(ExpenseType.DOCUMENTACAO);
   });
 
-  it('CASA/CARRO caem no default (REFORMA)', () => {
-    // Caso defensivo: o sistema não chama isto pra CASA/CARRO, mas a função
-    // não deve quebrar. Documenta o comportamento atual.
+  it('CASA tem tipos de despesa específicos (não cai no default REFORMA)', () => {
     const casa = getExpenseTypesForProject(ProjectType.CASA);
-    expect(casa).toEqual(getExpenseTypesForProject(ProjectType.REFORMA));
+    expect(casa).toContain(ExpenseType.MORADIA);
+    expect(casa).toContain(ExpenseType.ALIMENTACAO);
+    expect(casa).toContain(ExpenseType.OUTROS);
+    // Não deve conter tipos típicos só de REFORMA
+    expect(casa).not.toContain(ExpenseType.MAO_DE_OBRA);
+    expect(casa).not.toContain(ExpenseType.MATERIAL_CONSTRUCAO);
+  });
+
+  it('CARRO tem tipos de despesa específicos (não cai no default REFORMA)', () => {
+    const carro = getExpenseTypesForProject(ProjectType.CARRO);
+    expect(carro).toContain(ExpenseType.TRANSPORTE);
+    expect(carro).toContain(ExpenseType.OUTROS);
+    expect(carro).not.toContain(ExpenseType.MAO_DE_OBRA);
   });
 
   it('listas não estão vazias', () => {

@@ -4,6 +4,7 @@ import { Select } from '@/components/ui/select';
 import { Modal } from '@/components/ui/modal';
 import { CATEGORIA_MAO_DE_OBRA_OPTIONS, FORMA_PAGAMENTO_OPTIONS, tipoLabel } from '@/lib/expense-options';
 import { formatCurrency } from '@/lib/utils';
+import { isSinglePaymentForm } from '@reformaflow/domain';
 import { VinculosFields } from './VinculosFields';
 import type { LinkedExpenseDraft } from './CreateLinkedExpenseModal';
 import type { Expense } from '@/types';
@@ -180,7 +181,7 @@ export function ExpenseFormModal({
           onChange={(e) => setFormaPagamento(e.target.value)}
         />
 
-        {formaPagamento === 'A_VISTA' && (
+        {isSinglePaymentForm(formaPagamento) && (
           <Input
             label="Data do Pagamento"
             name="dataPagamento"

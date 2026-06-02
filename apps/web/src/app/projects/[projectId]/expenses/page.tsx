@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import type { Expense, ExpenseFormData, ExpensesPage, Project } from '@/types';
 import { toast } from 'sonner';
 
-import { ExpenseType, isNeutralExpenseType } from '@reformaflow/domain';
+import { ExpenseType, isNeutralExpenseType, isSinglePaymentForm } from '@reformaflow/domain';
 import { tipoLabel, formaLabel, catMaoLabel } from '@/lib/expense-options';
 import {
   type InlineNewRow,
@@ -493,7 +493,7 @@ export default function ExpensesPage() {
       formaPagamento: fp,
       status: row.status as 'PLANEJADO' | 'PAGO',
     };
-    if (fp === 'A_VISTA') {
+    if (isSinglePaymentForm(fp)) {
       data.dataPagamento = row.dataPagamento || (defaultDateIfMissing ? new Date().toISOString().slice(0, 10) : null);
       data.quantidadeParcela = null;
       data.dataInicioParcela = null;
@@ -530,7 +530,7 @@ export default function ExpensesPage() {
       status: formStatus,
     };
     const fp = data.formaPagamento;
-    if (fp === 'A_VISTA') {
+    if (isSinglePaymentForm(fp)) {
       data.dataPagamento = nullable('dataPagamento');
       data.quantidadeParcela = null;
       data.dataInicioParcela = null;

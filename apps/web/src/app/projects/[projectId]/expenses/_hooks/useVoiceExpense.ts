@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ExpenseType,
   PaymentForm,
+  isSinglePaymentForm,
   type ParsedVoiceExpense,
   type VoiceMatchableAccount,
   type VoiceMatchableCard,
@@ -221,7 +222,7 @@ export function useVoiceExpense({
       bankAccountId: voiceData.bankAccountId || null,
       linkedExpenseId: voiceLinkedExpenseId || null,
     };
-    if (voiceData.formaPagamento === PaymentForm.A_VISTA) {
+    if (isSinglePaymentForm(voiceData.formaPagamento)) {
       data.dataPagamento = voiceData.dataReferencia || toIsoDate(new Date());
     } else {
       data.quantidadeParcela = voiceData.quantidadeParcela || 1;
