@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { Wallet, ArrowUpCircle, ArrowDownCircle, Target, SlidersHorizontal } from 'lucide-react';
-import type { MonthlyOverviewResponse } from '../_types';
+import type { MonthlyOverviewResponse, MonthlyEntry } from '../_types';
 import { KpiCard, Card } from './ui';
 import { fmtMoney } from './format';
 import { deriveMonth, buildSaldoSeries, saldoProjetado } from './derive';
@@ -16,11 +16,20 @@ const SaldoMesChart = dynamic(() => import('./SaldoMesChart'), {
   loading: () => <div className="h-[280px] rounded-xl bg-[var(--ck-surface-2)] animate-pulse" />,
 });
 
-export default function MonthView({ data }: { data: MonthlyOverviewResponse }) {
-  const m = useMemo(() => deriveMonth(data), [data]);
+export default function MonthView({
+  data,
+  monthKey,
+  entries,
+}: {
+  data: MonthlyOverviewResponse;
+  monthKey?: string;
+  entries?: MonthlyEntry[];
+}) {
+  const m = useMemo(() => deriveMonth(data, monthKey ?? data.mesAtual, entries), [data, monthKey, entries]);
   const [ritmo, setRitmo] = useState<number>(m.ritmoDiario);
 
-  const serie = useMemo(() => buildSaldoSeries(m, data.mesAtualEntries, ritmo), [m, data.mesAtualEntries, ritmo]);
+  const serieEntries = entries ?? data.mesAtualEntries;
+  const serie = useMemo(() => buildSaldoSeries(m, serieEntries, ritmo), [m, serieEntries, ritmo]);
   const projetado = useMemo(() => saldoProjetado(m, ritmo), [m, ritmo]);
 
   const projTone = projetado >= m.saldoInicial ? 'pos' : 'neg';

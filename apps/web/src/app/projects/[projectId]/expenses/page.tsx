@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import type { Expense, ExpenseFormData, ExpensesPage, Project } from '@/types';
 import { toast } from 'sonner';
 
-import { ExpenseType } from '@reformaflow/domain';
+import { ExpenseType, isNeutralExpenseType } from '@reformaflow/domain';
 import { tipoLabel, formaLabel, catMaoLabel } from '@/lib/expense-options';
 import {
   type InlineNewRow,
@@ -31,7 +31,7 @@ import { MobileExpenseList } from './_components/MobileExpenseList';
 import { MonthlyExpenseView } from './_components/MonthlyExpenseView';
 import { UnifiedExpenseView } from './_components/UnifiedExpenseView';
 import { ExpenseViewToggle, type ExpenseViewMode } from './_components/ExpenseViewToggle';
-import { groupExpensesByMes, currentMonthKey } from './_lib/grouping-by-month';
+import { groupExpensesByMes, currentMonthKey, expandExpenseOccurrences } from './_lib/grouping-by-month';
 import {
   type RemoteProjectMap,
   type PeriodFilter,
@@ -128,7 +128,7 @@ export default function ExpensesPage() {
     return m;
   }, [crossProjectExpenses]);
 
-  // Lista consolidada para PESSOAL: despesas locais + despesas dos outros projetos
+  // Lista consolidada para PESSOAL: despesas locais + despesas dos outros projetos.
   const allExpensesPersonal = useMemo<Expense[]>(() => {
     if (projectType !== 'PESSOAL') return expenses;
     return [...expenses, ...crossProjectExpenses];
@@ -203,7 +203,33 @@ export default function ExpensesPage() {
   };
   const periodFilteredPersonal = useMemo<Expense[]>(() => {
     if (projectType !== 'PESSOAL') return filteredExpenses;
-    return filteredExpenses.filter((e) => inPeriod(e, period, periodYear));
+    if (period === 'ALL') {
+      return filteredExpenses.filter((e) => inPeriod(e, period, periodYear));
+    }
+    // Mês específico: expande parcelas e mantém só a parcela do mês selecionado,
+    // com valor e status próprios da parcela (parcela futura nunca aparece como paga).
+    const nowKey = currentMonthKey();
+    const out: Expense[] = [];
+    for (const e of filteredExpenses) {
+      const isInst =
+        (e.formaPagamento === 'PARCELADO' || e.formaPagamento === 'QUINZENAL') &&
+        (e.quantidadeParcela ?? 1) > 1;
+      for (const occ of expandExpenseOccurrences(e)) {
+        if (!occ.occDate || occ.occDate.slice(0, 7) !== period) continue;
+        if (!isInst) {
+          out.push(e);
+        } else {
+          const occMonth = occ.occDate.slice(0, 7);
+          out.push({
+            ...e,
+            valorTotal: occ.occValue,
+            quantidadeParcela: 1,
+            status: occMonth > nowKey ? 'PLANEJADO' : e.status,
+          });
+        }
+      }
+    }
+    return out;
   }, [projectType, filteredExpenses, period, periodYear]);
 
   // Totais do período (só relevantes em PESSOAL)
@@ -212,10 +238,16 @@ export default function ExpensesPage() {
     [periodFilteredPersonal],
   );
 
-  // KPIs
-  const totalGeral = filteredExpenses.reduce((s, e) => s + e.valorTotal, 0);
-  const totalPlanejado = filteredExpenses.filter((e) => e.status === 'PLANEJADO').reduce((s, e) => s + e.valorTotal, 0);
-  const totalPago = filteredExpenses.filter((e) => e.status === 'PAGO').reduce((s, e) => s + e.valorTotal, 0);
+  // KPIs (excluem tipos neutros — movimentação interna / pagto fatura)
+  const totalGeral = filteredExpenses.reduce(
+    (s, e) => isNeutralExpenseType(e.tipoDespesa) ? s : s + e.valorTotal, 0,
+  );
+  const totalPlanejado = filteredExpenses
+    .filter((e) => e.status === 'PLANEJADO' && !isNeutralExpenseType(e.tipoDespesa))
+    .reduce((s, e) => s + e.valorTotal, 0);
+  const totalPago = filteredExpenses
+    .filter((e) => e.status === 'PAGO' && !isNeutralExpenseType(e.tipoDespesa))
+    .reduce((s, e) => s + e.valorTotal, 0);
 
   // Quebra por projeto (cockpit) — só faz sentido no Pessoal, que consolida vários projetos
   const kpiPerProject = useMemo(() => {
@@ -385,7 +417,10 @@ export default function ExpensesPage() {
     setFormModalOpen(true);
   }
 
-  function openEdit(expense: Expense) {
+  function openEdit(expenseArg: Expense) {
+    // Em PESSOAL com mês específico, a despesa pode vir "fatiada" (1 parcela);
+    // resolve a original para editar valores/parcelas corretos.
+    const expense = allExpensesPersonal.find((x) => x.id === expenseArg.id) ?? expenseArg;
     setShowNewRow(false);
     closeInlineEdit();
     setEditing(expense);
@@ -766,7 +801,7 @@ export default function ExpensesPage() {
             remoteMap={remoteProjectMap}
             selfProjectId={PROJECT_ID}
             selfProjectName={project?.name ?? 'Pessoal'}
-            splitInstallments={period !== 'ALL'}
+            splitInstallments={false}
             tipoLabel={tipoLabel}
             openEdit={openEdit}
             onDelete={(id) => deleteMutation.mutate(id)}

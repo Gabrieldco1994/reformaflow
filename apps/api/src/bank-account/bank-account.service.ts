@@ -43,8 +43,19 @@ const PESSOAL_CATEGORY_MAP: Record<string, string> = {
  * Heurísticas determinísticas para descrições de extrato que IA não distingue bem.
  * Retorna categoria interna (tipoDespesa) ou null se não aplicável.
  */
-function fastClassify(merchant: string): string | null {
+export function fastClassify(merchant: string): string | null {
   const m = merchant.toUpperCase();
+  // GUARD: juros, rendimentos, dividendos NUNCA são movimentação interna —
+  // são receita real (precisam virar Receipt RENDIMENTO). Esse check vem
+  // ANTES da detecção de mov-interna para evitar que tokens "POUPANCA"/"CDB"
+  // dentro de "REND PAGO CDB"/"RENDIMENTO POUPANCA" sejam mal classificados.
+  if (/\bREND(IMENTO)?\s+PAG|\bRENDIMENTO\b|\bJUROS\b|\bDIVIDENDO|\bSALARIO\b/i.test(m)) return null;
+  // Movimentação interna (aplicações/resgates/cofrinhos/poupança etc.) — saída
+  // ou entrada que reflete movimento dentro das contas próprias, não consumo nem
+  // receita nova. Usa \b para evitar falsos positivos (ex.: \bRESG\b não casa
+  // "RESGUARDO"; \bCDB\b não casa palavras maiores).
+  if (/\b(APLICA[CÇ][AÃ]O|RESG(ATE)?|AG\.?\s*EST\s+RESG|COFRINHO|FUNDO\s+(DI|RF|MULTI)|POUPAN[CÇ]A|CDB|TESOURO|LCI|LCA|PERSONDIF)\b/i.test(m))
+    return 'MOVIMENTACAO_INTERNA';
   // PIX entre pessoas físicas / TED → transferência (não é consumo)
   if (/^PIX\s+TRANSF\b/.test(m)) return 'TRANSFERENCIA';
   if (/^PIX\s+CARTAO\b/.test(m)) return 'TRANSFERENCIA';
@@ -259,8 +270,13 @@ export class BankAccountService {
         });
     }
 
-    const preview = parsed.transactions.map((tx) => {
-      const isCardPay = tx.amountCents > 0 && detectCardPayment(tx.merchant).isCardPayment;
+    const preview = await Promise.all(parsed.transactions.map(async (tx) => {
+      let isCardPay = tx.amountCents > 0 && detectCardPayment(tx.merchant).isCardPayment;
+      // Match async por valor para "Pagamento PIX" / "PgConta" sem texto explícito
+      if (!isCardPay && tx.amountCents > 0 && looksLikeOutboundTransfer(tx.merchant)) {
+        const matched = await this.findCardPaymentByAmount(tenantId, tx.amountCents, tx.date);
+        if (matched) isCardPay = true;
+      }
       const matches = tx.amountCents < 0
         ? findReceiptMatches(tx)         // crédito → match com Receipt PLANEJADO
         : findExpenseMatches(tx);        // débito → match com Expense PLANEJADO
@@ -271,11 +287,13 @@ export class BankAccountService {
         isCredit: tx.amountCents < 0,
         isCardPayment: isCardPay,
         suggestedCategory: tx.amountCents > 0
-          ? (isCardPay ? 'PAGAMENTO_FATURA_CARTAO' : (PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS'))
-          : 'RECEITA',
+          ? (isCardPay
+              ? 'PAGAMENTO_FATURA_CARTAO'
+              : (fastClassify(tx.merchant) ?? PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS'))
+          : (fastClassify(tx.merchant) === 'MOVIMENTACAO_INTERNA' ? 'MOVIMENTACAO_INTERNA' : 'RECEITA'),
         crossProjectMatches: matches,
       };
-    });
+    }));
 
     const debits = parsed.transactions.filter((t) => t.amountCents > 0);
     return {
@@ -902,6 +920,32 @@ export class BankAccountService {
   ): Promise<{ inserted: boolean; receiptInserted: boolean; cardPayment: boolean; expenseId?: string; receiptId?: string }> {
     if (tx.amountCents < 0) {
       const receiptAmount = -tx.amountCents;
+      // Movimentação interna (resgate de aplicação/cofrinho etc.) entra como
+      // crédito mas NÃO é receita real — vira Expense neutra (sem cashflow).
+      // categoryOverride do usuário tem prioridade sobre o auto-detect.
+      const isInternalMov = categoryOverride === 'MOVIMENTACAO_INTERNA'
+        || (!categoryOverride && fastClassify(tx.merchant) === 'MOVIMENTACAO_INTERNA');
+      if (isInternalMov) {
+        const e = await this.prisma.expense.create({
+          data: {
+            tenantId,
+            projectId,
+            tipoDespesa: 'MOVIMENTACAO_INTERNA',
+            titulo: tx.merchant.slice(0, 200),
+            fornecedor: tx.merchant.slice(0, 200),
+            valor: receiptAmount,
+            quantidade: 1,
+            valorTotal: receiptAmount,
+            formaPagamento: 'A_VISTA',
+            dataPagamento: tx.date,
+            status: 'PAGO',
+            importId,
+            externalId: tx.externalId,
+            bankLast4: account.last4,
+          },
+        });
+        return { inserted: false, receiptInserted: false, cardPayment: false, expenseId: e.id };
+      }
       const tipoReceipt = classifyCreditType(tx.merchant);
       const receipt = await this.prisma.receipt.create({
         data: {
@@ -935,14 +979,25 @@ export class BankAccountService {
     }
 
     // ─── Detecção de pagamento de fatura de cartão ─────────────
+    // (a) por texto explícito ("FATURA PAGA", "PAGTO CART CRED" etc.)
     const cardPaymentInfo = detectCardPayment(tx.merchant);
-    if (cardPaymentInfo.isCardPayment) {
-      const matchedCard = await this.findMatchingCreditCard(
+    let matchedCard: { id: string; last4: string; nickname: string } | null = null;
+    let isCardPayment = cardPaymentInfo.isCardPayment;
+    if (isCardPayment) {
+      matchedCard = await this.findMatchingCreditCard(
         tenantId,
         tx.amountCents,
         tx.date,
         cardPaymentInfo.last4,
       );
+    } else if (looksLikeOutboundTransfer(tx.merchant) && !categoryOverride) {
+      // (b) match por valor — apenas transferências de saída sem texto explícito.
+      // Ex.: "Pagamento PIX" da fatura 7777, "PgConta NU PAGAMENTOS SA" etc.
+      // Critério estrito (±R$ 0,50, ±10 dias) para evitar falso positivo.
+      matchedCard = await this.findCardPaymentByAmount(tenantId, tx.amountCents, tx.date);
+      if (matchedCard) isCardPayment = true;
+    }
+    if (isCardPayment) {
       const e = await this.prisma.expense.create({
         data: {
           tenantId,
@@ -990,6 +1045,12 @@ export class BankAccountService {
         bankLast4: account.last4,
       },
     });
+
+    // Tipos neutros (movimentação interna entre contas próprias) NÃO geram
+    // cashflow — não afetam o saldo consolidado nem o total de despesas.
+    if (expenseType === 'MOVIMENTACAO_INTERNA') {
+      return { inserted: false, receiptInserted: false, cardPayment: false, expenseId: expense.id };
+    }
 
     await this.prisma.cashFlowEntry.create({
       data: {
@@ -1054,13 +1115,47 @@ export class BankAccountService {
     if (cards.length === 1) return cards[0];
     return null;
   }
+
+  /**
+   * Match ESTRITO: usado quando o texto NÃO indica explicitamente pagamento
+   * de cartão (ex.: "Pagamento PIX", "PgConta NU PAGAMENTOS"). Critérios mais
+   * apertados para evitar falsos positivos:
+   *   - tolerância de R$ 0,50 (não R$ 2 — assumimos valor exato)
+   *   - janela de ±10 dias (pagto cai em D ou poucos dias após emissão da fatura)
+   * Retorna null se não há match com alta confiança.
+   */
+  private async findCardPaymentByAmount(
+    tenantId: string,
+    amountCents: number,
+    paymentDate: Date,
+  ): Promise<{ id: string; last4: string; nickname: string } | null> {
+    const tenDaysBefore = new Date(paymentDate);
+    tenDaysBefore.setDate(tenDaysBefore.getDate() - 10);
+    const tenDaysAfter = new Date(paymentDate);
+    tenDaysAfter.setDate(tenDaysAfter.getDate() + 10);
+    const tolerance = 50; // R$ 0,50
+    const matches = await this.prisma.creditCardStatementImport.findMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+        createdAt: { gte: tenDaysBefore, lte: tenDaysAfter },
+        totalAmountCents: { gte: amountCents - tolerance, lte: amountCents + tolerance },
+      },
+      include: { card: { select: { id: true, last4: true, nickname: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 2,
+    });
+    // Só aceitamos match ÚNICO — múltiplos = ambíguo (não classifica).
+    if (matches.length === 1 && matches[0].card) return matches[0].card;
+    return null;
+  }
 }
 
 /**
  * Detecta se uma linha de extrato é pagamento de fatura de cartão.
  * Retorna also o hint de last4 se aparecer na descrição (ex: "PAGTO CART CRED 1234").
  */
-function detectCardPayment(merchant: string): { isCardPayment: boolean; last4: string | null } {
+export function detectCardPayment(merchant: string): { isCardPayment: boolean; last4: string | null } {
   const m = merchant.toUpperCase();
   // Padrões: "FATURA PAGA", "PAGAMENTO CARTAO CRED", "PAGTO CART CRED", "DEB AUT CART", "DEBITO AUTOM CART"
   const isCardPayment = /(FATURA\s+PAG[AO])|(PAG(AMEN)?TO\s+(DE\s+)?CART(\u00c3O|AO)?\s+CRED)|(PAG(AMEN)?TO\s+(DE\s+)?CART(\u00c3O|AO))|(DEB(ITO)?\s+AUT(OM)?(ATICO|AT)?\s+CART)|(DEBITO\s+AUTOM\s+CART)/i.test(
@@ -1069,6 +1164,24 @@ function detectCardPayment(merchant: string): { isCardPayment: boolean; last4: s
   if (!isCardPayment) return { isCardPayment: false, last4: null };
   const last4Match = m.match(/\b(\d{4})\b/);
   return { isCardPayment: true, last4: last4Match ? last4Match[1] : null };
+}
+
+/**
+ * Heurística: a transação PARECE uma transferência de saída que poderia ser
+ * pagamento de fatura mesmo sem texto explícito (PIX, TED, DOC, PgConta).
+ * Não inclui PAY xxx (compras com cartão de débito) nem PIX QRS (consumo).
+ *
+ * Usada em conjunto com matching async por valor+data contra
+ * CreditCardStatementImport para detectar "Pagamento PIX" da fatura.
+ */
+export function looksLikeOutboundTransfer(merchant: string): boolean {
+  const m = merchant.toUpperCase().trim();
+  if (/^PIX\s+(TRANSF|CARTAO)\b/.test(m)) return true;
+  if (/^PAGAMENTO\s+PIX\b/.test(m)) return true;
+  if (/^PGCONTA\b/.test(m)) return true;
+  if (/^TED\b/.test(m)) return true;
+  if (/^DOC\b/.test(m)) return true;
+  return false;
 }
 
 /**

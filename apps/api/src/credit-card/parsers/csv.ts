@@ -1,4 +1,5 @@
 import {
+  assignOrdinals,
   detectInstallment,
   inferPeriodLabel,
   makeExternalId,
@@ -69,15 +70,8 @@ export function parseCsv(content: string, opts: ParseOptions): ParseResult {
     }
 
     const { current, total, cleanMerchant } = detectInstallment(descRaw);
-    const externalId = makeExternalId({
-      cardId: opts.cardId,
-      date,
-      merchant: cleanMerchant,
-      amountCents,
-    });
-
     transactions.push({
-      externalId,
+      externalId: '',  // preenchido abaixo após assignOrdinals
       date,
       merchant: cleanMerchant || 'Lançamento',
       amountCents,
@@ -86,6 +80,18 @@ export function parseCsv(content: string, opts: ParseOptions): ParseResult {
       installmentTotal: total,
     });
     totalAmountCents += amountCents;
+  }
+
+  // Atribui ordinal por bucket para diferenciar N linhas idênticas no mesmo dia.
+  const withOrdinals = assignOrdinals(transactions);
+  for (let i = 0; i < transactions.length; i++) {
+    transactions[i].externalId = makeExternalId({
+      cardId: opts.cardId,
+      date: transactions[i].date,
+      merchant: transactions[i].merchant,
+      amountCents: transactions[i].amountCents,
+      ordinal: withOrdinals[i]._ordinal,
+    });
   }
 
   return {

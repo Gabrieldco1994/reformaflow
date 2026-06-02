@@ -500,9 +500,53 @@ export class CreditCardService {
     importId: string,
     categoryOverride?: string,
   ): Promise<{ inserted: boolean; settled: boolean; expenseId?: string }> {
-    if (tx.amountCents <= 0) {
-      // MVP: estornos ignorados (usuário lança manualmente quando precisar).
-      throw new Error('estorno-ignorado');
+    if (tx.amountCents < 0) {
+      // Pagamento da fatura ANTERIOR aparece nas faturas Itaú como linha negativa
+      // ("PAGAMENTO EFETUADO", "Pagamento PIX"). Esses NÃO viram lançamento — a
+      // própria liquidação da fatura é o que paga. Filtramos por texto.
+      if (/PAGAMENTO\s+EFETUADO|PAGAMENTO\s+PIX|PGTO\s+FAT|FATURA\s+PAG/i.test(tx.merchant)) {
+        throw new Error('pagamento-fatura-ignorado');
+      }
+      // Estorno/crédito real (refund, desconto, ajuste). Cria Expense com valor
+      // NEGATIVO para abater do total da fatura — soma corretamente no cashflow.
+      const expenseType = categoryOverride || (PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS');
+      const tituloEst = `Estorno: ${tx.merchant}`.slice(0, 200);
+      const expEst = await this.prisma.expense.create({
+        data: {
+          tenantId,
+          projectId,
+          tipoDespesa: expenseType,
+          titulo: tituloEst,
+          fornecedor: tx.merchant.slice(0, 200),
+          valor: tx.amountCents,                  // negativo
+          quantidade: 1,
+          valorTotal: tx.amountCents,             // negativo
+          formaPagamento: 'A_VISTA',
+          dataPagamento: tx.date,
+          status: 'PAGO',
+          importId,
+          externalId: tx.externalId,
+          cardLast4: card.last4,
+        },
+      });
+      await this.prisma.cashFlowEntry.create({
+        data: {
+          tenantId,
+          projectId,
+          expenseId: expEst.id,
+          valor: tx.amountCents,                  // negativo
+          tipo: 'DESPESA',
+          categoria: ExpenseTypeLabels[expenseType as keyof typeof ExpenseTypeLabels] ?? expenseType,
+          subcategoria: card.nickname,
+          formaPagamento: 'CARTAO_CREDITO',
+          data: tx.date,
+          status: 'PAGO',
+        },
+      });
+      return { inserted: true, settled: false, expenseId: expEst.id };
+    }
+    if (tx.amountCents === 0) {
+      throw new Error('valor-zero');
     }
 
     const expenseType = categoryOverride || (PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS');
@@ -526,6 +570,7 @@ export class CreditCardService {
         orderBy: { createdAt: 'asc' },
       });
       if (existing) {
+        // Caso (a): parcela current ainda PLANEJADO/PREVISTO — settle normal
         const plannedEntry = await this.prisma.cashFlowEntry.findFirst({
           where: {
             tenantId,
@@ -556,6 +601,20 @@ export class CreditCardService {
             }
             return { inserted: false, settled: true, expenseId: existing.id };
           }
+        }
+        // Caso (b): parcela current JÁ está PAGA (ex.: reconciliação manual de
+        // ciclo irregular). Re-import seria duplicação — IGNORA silenciosamente.
+        const anyEntry = await this.prisma.cashFlowEntry.findFirst({
+          where: {
+            tenantId,
+            projectId,
+            expenseId: existing.id,
+            parcela: `${current}/${total}`,
+            deletedAt: null,
+          },
+        });
+        if (anyEntry) {
+          throw new Error('parcela-ja-existente');
         }
       }
     }

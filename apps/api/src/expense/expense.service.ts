@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
-import { ExpenseTypeLabels, LaborCategoryLabels, buildInstallments, PaymentForm } from '@reformaflow/domain';
+import { ExpenseTypeLabels, LaborCategoryLabels, buildInstallments, PaymentForm, isNeutralExpenseType } from '@reformaflow/domain';
 import { Prisma } from '@prisma/client';
 
 @Injectable()
@@ -455,6 +455,10 @@ export class ExpenseService {
     status: string;
     room: { name: string } | null;
   }) {
+    // Tipos "neutros" (transferência entre contas próprias, pagto de fatura)
+    // não geram entradas de cashflow — não representam consumo/saldo real.
+    if (isNeutralExpenseType(expense.tipoDespesa)) return [];
+
     const categoria = ExpenseTypeLabels[expense.tipoDespesa as keyof typeof ExpenseTypeLabels] ?? expense.tipoDespesa;
     const subcategoria = expense.categoriaMaoDeObra
       ? LaborCategoryLabels[expense.categoriaMaoDeObra as keyof typeof LaborCategoryLabels] ?? expense.categoriaMaoDeObra
