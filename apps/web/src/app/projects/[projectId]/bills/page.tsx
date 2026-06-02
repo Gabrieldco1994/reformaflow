@@ -4,7 +4,9 @@ import { useProject } from '@/contexts/project-context';
 import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
-import { Plus, Pause, Play, Trash2, Edit2, Check, X } from 'lucide-react';
+import { Plus, Pause, Play, Trash2, Edit2 } from 'lucide-react';
+import type { ProjectType } from '@reformaflow/domain';
+import { AvulsasTab } from './_components/AvulsasTab';
 
 const CATEGORIAS = [
   { value: 'LUZ', label: 'Luz' },
@@ -51,7 +53,8 @@ const emptyBill = {
 };
 
 export default function BillsPage() {
-  const { projectId } = useProject();
+  const { projectId, projectType } = useProject();
+  const [activeTab, setActiveTab] = useState<'recorrentes' | 'avulsas'>('recorrentes');
   const [bills, setBills] = useState<RecurringBill[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -112,31 +115,127 @@ export default function BillsPage() {
     setShowForm(true);
   }
 
-  if (loading) {
-    return <div className="flex justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600"></div></div>;
-  }
-
   const totalMensal = bills
     .filter((b) => b.status === 'ATIVO')
     .reduce((sum, b) => {
-      const multiplier: Record<string, number> = { MENSAL: 1, BIMESTRAL: 0.5, TRIMESTRAL: 1/3, SEMESTRAL: 1/6, ANUAL: 1/12 };
+      const multiplier: Record<string, number> = {
+        MENSAL: 1,
+        BIMESTRAL: 0.5,
+        TRIMESTRAL: 1 / 3,
+        SEMESTRAL: 1 / 6,
+        ANUAL: 1 / 12,
+      };
       return sum + b.valor * (multiplier[b.frequencia] ?? 1);
     }, 0);
 
   return (
-    <div>
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Contas Recorrentes</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Total mensal estimado: <span className="font-semibold text-brand-700">{formatCurrency(totalMensal / 100)}</span>
-          </p>
+    <div className="space-y-4">
+      {/* Header com tabs */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-bold text-gray-900">Contas</h1>
+          <div className="inline-flex rounded-lg border border-gray-200 text-sm overflow-hidden">
+            <button
+              onClick={() => setActiveTab('recorrentes')}
+              className={`px-4 py-1.5 transition-colors font-medium ${
+                activeTab === 'recorrentes'
+                  ? 'bg-brand-600 text-white'
+                  : 'bg-white text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              Recorrentes
+            </button>
+            <button
+              onClick={() => setActiveTab('avulsas')}
+              className={`px-4 py-1.5 transition-colors font-medium border-l border-gray-200 ${
+                activeTab === 'avulsas'
+                  ? 'bg-brand-600 text-white'
+                  : 'bg-white text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              Avulsas
+            </button>
+          </div>
         </div>
+        {activeTab === 'recorrentes' && (
+          <div className="text-sm text-gray-500">
+            Total mensal estimado:{' '}
+            <span className="font-semibold text-brand-700">{formatCurrency(totalMensal / 100)}</span>
+          </div>
+        )}
+      </div>
+
+      {activeTab === 'avulsas' ? (
+        <AvulsasTab projectId={projectId} projectType={projectType as ProjectType} />
+      ) : (
+        <RecorrentesContent
+          loading={loading}
+          bills={bills}
+          form={form}
+          setForm={setForm}
+          showForm={showForm}
+          setShowForm={setShowForm}
+          editingId={editingId}
+          setEditingId={setEditingId}
+          handleSave={handleSave}
+          handleDelete={handleDelete}
+          toggleStatus={toggleStatus}
+          startEdit={startEdit}
+        />
+      )}
+    </div>
+  );
+}
+
+interface RecorrentesContentProps {
+  loading: boolean;
+  bills: RecurringBill[];
+  form: typeof emptyBill;
+  setForm: React.Dispatch<React.SetStateAction<typeof emptyBill>>;
+  showForm: boolean;
+  setShowForm: React.Dispatch<React.SetStateAction<boolean>>;
+  editingId: string | null;
+  setEditingId: React.Dispatch<React.SetStateAction<string | null>>;
+  handleSave: () => Promise<void>;
+  handleDelete: (id: string) => Promise<void>;
+  toggleStatus: (bill: RecurringBill) => Promise<void>;
+  startEdit: (bill: RecurringBill) => void;
+}
+
+function RecorrentesContent({
+  loading,
+  bills,
+  form,
+  setForm,
+  showForm,
+  setShowForm,
+  editingId,
+  setEditingId,
+  handleSave,
+  handleDelete,
+  toggleStatus,
+  startEdit,
+}: RecorrentesContentProps) {
+  if (loading) {
+    return (
+      <div className="flex justify-center py-16">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600" />
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex justify-end mb-4">
         <button
-          onClick={() => { setForm(emptyBill); setEditingId(null); setShowForm(true); }}
-          className="self-start sm:self-auto flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700"
+          onClick={() => {
+            setForm(emptyBill);
+            setEditingId(null);
+            setShowForm(true);
+          }}
+          className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700"
         >
-          <Plus className="w-4 h-4" /> Nova Conta
+          <Plus className="w-4 h-4" /> Nova conta recorrente
         </button>
       </div>
 

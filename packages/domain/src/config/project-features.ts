@@ -77,11 +77,35 @@ const PESSOAL_EXPENSE_TYPES: ExpenseType[] = [
   ExpenseType.OUTROS,
 ];
 
+// CASA: usado pelas despesas avulsas dentro da página "Contas" (além das
+// recorrências). Cobre contas de consumo, manutenções e imprevistos do lar.
+const CASA_EXPENSE_TYPES: ExpenseType[] = [
+  ExpenseType.MORADIA,
+  ExpenseType.ALIMENTACAO,
+  ExpenseType.SAUDE,
+  ExpenseType.LAZER,
+  ExpenseType.ASSINATURAS,
+  ExpenseType.SEGUROS_PESSOAIS,
+  ExpenseType.IMPREVISTOS,
+  ExpenseType.OUTROS,
+];
+
+// CARRO: despesas avulsas (combustível, lavagem, oficina, IPVA, multas).
+const CARRO_EXPENSE_TYPES: ExpenseType[] = [
+  ExpenseType.TRANSPORTE,
+  ExpenseType.SEGUROS_PESSOAIS,
+  ExpenseType.IMPOSTO,
+  ExpenseType.IMPREVISTOS,
+  ExpenseType.OUTROS,
+];
+
 export function getExpenseTypesForProject(projectType: ProjectType): ExpenseType[] {
   switch (projectType) {
     case ProjectType.REFORMA: return REFORMA_EXPENSE_TYPES;
     case ProjectType.COMPRA: return COMPRA_EXPENSE_TYPES;
     case ProjectType.PESSOAL: return PESSOAL_EXPENSE_TYPES;
+    case ProjectType.CASA: return CASA_EXPENSE_TYPES;
+    case ProjectType.CARRO: return CARRO_EXPENSE_TYPES;
     default: return REFORMA_EXPENSE_TYPES;
   }
 }
