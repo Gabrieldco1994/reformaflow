@@ -24,11 +24,10 @@ import { ExpenseFiltersBar } from './_components/ExpenseFiltersBar';
 import { VoiceExpenseModal } from './_components/VoiceExpenseModal';
 import { ExpenseFormModal } from './_components/ExpenseFormModal';
 import { PayOptionsModal } from './_components/PayOptionsModal';
-import { ExpenseDesktopTable } from './_components/ExpenseDesktopTable';
 import { QuickAddCard } from './_components/QuickAddCard';
 import { CompráveisView } from './_components/CompraveisView';
-import { MobileExpenseList } from './_components/MobileExpenseList';
 import { MonthlyExpenseView } from './_components/MonthlyExpenseView';
+import { CategoryExpenseView } from './_components/CategoryExpenseView';
 import { UnifiedExpenseView } from './_components/UnifiedExpenseView';
 import { ExpenseViewToggle, type ExpenseViewMode } from './_components/ExpenseViewToggle';
 import { groupExpensesByMes, currentMonthKey, expandExpenseOccurrences } from './_lib/grouping-by-month';
@@ -872,54 +871,35 @@ export default function ExpensesPage() {
             emptyMsg="Nenhuma despesa cadastrada."
           />
         ) : (
-        <>
-        <MobileExpenseList
+        <CategoryExpenseView
           categorias={categorias}
           collapsedCategories={collapsedCategories}
           toggleCategory={toggleCategory}
           tipoLabel={tipoLabel}
-          formaLabel={formaLabel}
-          catMaoLabel={catMaoLabel}
           openEdit={openEdit}
           onDelete={(id) => deleteMutation.mutate(id)}
-          totalGeral={totalGeral}
-          hasActiveFilters={hasActiveFilters}
+          onToggleStatus={(id, status) => toggleStatusMutation.mutate({ id, status })}
+          onQuickUpdate={(id, valor, data) => {
+            const exp = expenses.find((x) => x.id === id);
+            const qty = exp?.quantidade ?? 1;
+            quickUpdateMutation.mutate({ id, valorTotal: valor, dataPagamento: data, quantidade: qty });
+          }}
+          onQuickCreate={(d) => {
+            createMutation.mutate({
+              tipoDespesa: d.tipoDespesa,
+              valor: d.valor,
+              quantidade: 1,
+              formaPagamento: 'A_VISTA',
+              dataPagamento: d.dataPagamento,
+              status: d.status,
+            } as ExpenseFormData);
+          }}
           emptyMsg="Nenhuma despesa cadastrada."
         />
-        <ExpenseDesktopTable
-          categorias={categorias}
-          filteredExpenses={filteredExpenses}
-          collapsedCategories={collapsedCategories}
-          toggleCategory={toggleCategory}
-          expandedExpenses={expandedExpenses}
-          toggleExpand={toggleExpand}
-          showRooms={showRooms}
-          colSpan={COL_SPAN}
-          totalGeral={totalGeral}
-          hasActiveFilters={hasActiveFilters}
-          openInlineEdit={openInlineEdit}
-          openEdit={openEdit}
-          onDelete={(id) => deleteMutation.mutate(id)}
-          editingInlineId={editingInlineId}
-          editingInlineRow={editingInlineRow}
-          setEditingInlineRow={setEditingInlineRow}
-          handleInlineUpdateSubmit={handleInlineUpdateSubmit}
-          closeInlineEdit={closeInlineEdit}
-          inlineEditKeyDown={inlineEditKeyDown}
-          showNewRow={showNewRow}
-          setShowNewRow={setShowNewRow}
-          newRow={newRow}
-          setNewRow={setNewRow}
-          handleInlineSubmit={handleInlineSubmit}
-          inlineKeyDown={inlineKeyDown}
-          tipoDespesaOptions={TIPO_DESPESA_OPTIONS}
-          roomOptions={roomOptions}
-        />
-        </>
       )}
 
-      {/* Botão para adicionar linha rápida (desktop apenas) */}
-      {!showNewRow && !editingInlineId && (
+      {/* Botão para adicionar linha rápida (desktop apenas) — não aparece em REFORMA/category pois cada card de categoria tem seu próprio "+ Adicionar despesa rápida em <categoria>" */}
+      {!showNewRow && !editingInlineId && !(projectType !== 'PESSOAL' && viewMode === 'category') && (
         <button onClick={() => { closeInlineEdit(); setShowNewRow(true); }}
           className="hidden md:block w-full border-2 border-dashed border-gray-200 rounded-lg py-2 text-sm text-gray-400 hover:border-blue-300 hover:text-blue-500 transition-colors">
           + Adicionar rápido (linha inline)
