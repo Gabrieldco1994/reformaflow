@@ -11,12 +11,14 @@ export function EditableStageRow({
   onToggle,
   onRename,
   onDelete,
+  compact = false,
 }: {
   stage: ScheduleStage;
   collapsed: boolean;
   onToggle: () => void;
   onRename: (name: string) => void;
   onDelete: () => void;
+  compact?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(stage.nome);
@@ -68,10 +70,14 @@ export function EditableStageRow({
           </button>
         )}
       </div>
-      <div className="w-14" />
-      <div className="w-14" />
-      <div className="w-[104px]" />
-      <div className="w-[104px]" />
+      {!compact && (
+        <>
+          <div className="w-14" />
+          <div className="w-14" />
+          <div className="w-[104px]" />
+          <div className="w-[104px]" />
+        </>
+      )}
       <div className="w-20" />
       <button
         onClick={onDelete}

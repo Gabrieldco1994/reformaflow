@@ -17,10 +17,12 @@ export function EditableTaskRow({
   task,
   onPatch,
   onDelete,
+  compact = false,
 }: {
   task: ScheduleTask;
   onPatch: (taskId: string, patch: TaskUpdatePatch, opts?: { immediate?: boolean }) => void;
   onDelete: (taskId: string) => void;
+  compact?: boolean;
 }) {
   const done = task.percentualConcluido >= 100;
   const hasPreds = parsePredecessoras(task.predecessoras).length > 0;
@@ -143,56 +145,60 @@ export function EditableTaskRow({
         />
       </div>
 
-      <div className="w-14 px-1">
-        <input
-          type="number"
-          min={1}
-          value={duracao}
-          onChange={(e) => setDuracao(e.target.value)}
-          onBlur={commitDuracao}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-          }}
-          className="w-full bg-transparent rounded px-1 py-1 text-xs text-center outline-none border border-transparent hover:border-gray-200 focus:border-brand-400 focus:bg-white tabular-nums"
-        />
-      </div>
+      {!compact && (
+        <>
+          <div className="w-14 px-1">
+            <input
+              type="number"
+              min={1}
+              value={duracao}
+              onChange={(e) => setDuracao(e.target.value)}
+              onBlur={commitDuracao}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+              }}
+              className="w-full bg-transparent rounded px-1 py-1 text-xs text-center outline-none border border-transparent hover:border-gray-200 focus:border-brand-400 focus:bg-white tabular-nums"
+            />
+          </div>
 
-      <div className="w-14 px-1">
-        <input
-          value={predText}
-          onChange={(e) => setPredText(e.target.value)}
-          onBlur={commitPred}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-          }}
-          className="w-full bg-transparent rounded px-1 py-1 text-xs text-center outline-none border border-transparent hover:border-gray-200 focus:border-brand-400 focus:bg-white"
-          placeholder="-"
-          title="Predecessoras (separadas por vírgula). Ex: 2,3"
-        />
-      </div>
+          <div className="w-14 px-1">
+            <input
+              value={predText}
+              onChange={(e) => setPredText(e.target.value)}
+              onBlur={commitPred}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+              }}
+              className="w-full bg-transparent rounded px-1 py-1 text-xs text-center outline-none border border-transparent hover:border-gray-200 focus:border-brand-400 focus:bg-white"
+              placeholder="-"
+              title="Predecessoras (separadas por vírgula). Ex: 2,3"
+            />
+          </div>
 
-      <div className="w-[104px] px-1 flex items-center gap-1">
-        <input
-          type="date"
-          value={toDateInputValue(task.dataInicio)}
-          disabled={hasPreds}
-          onChange={(e) => onDateChange(e.target.value)}
-          className={`w-full rounded px-1 py-1 text-xs outline-none border border-transparent ${
-            hasPreds
-              ? 'text-gray-500 cursor-not-allowed bg-transparent'
-              : 'hover:border-gray-200 focus:border-brand-400 focus:bg-white text-gray-700'
-          }`}
-          title={hasPreds ? 'Data calculada a partir das predecessoras' : 'Data de início'}
-        />
-        {hasPreds && (
-          <AlertCircle
-            className="w-3 h-3 text-gray-300 flex-shrink-0"
-            aria-label="Data calculada automaticamente"
-          />
-        )}
-      </div>
+          <div className="w-[104px] px-1 flex items-center gap-1">
+            <input
+              type="date"
+              value={toDateInputValue(task.dataInicio)}
+              disabled={hasPreds}
+              onChange={(e) => onDateChange(e.target.value)}
+              className={`w-full rounded px-1 py-1 text-xs outline-none border border-transparent ${
+                hasPreds
+                  ? 'text-gray-500 cursor-not-allowed bg-transparent'
+                  : 'hover:border-gray-200 focus:border-brand-400 focus:bg-white text-gray-700'
+              }`}
+              title={hasPreds ? 'Data calculada a partir das predecessoras' : 'Data de início'}
+            />
+            {hasPreds && (
+              <AlertCircle
+                className="w-3 h-3 text-gray-300 flex-shrink-0"
+                aria-label="Data calculada automaticamente"
+              />
+            )}
+          </div>
 
-      <div className="w-[104px] px-1 text-xs text-gray-600 tabular-nums">{fmtDate(task.dataTermino)}</div>
+          <div className="w-[104px] px-1 text-xs text-gray-600 tabular-nums">{fmtDate(task.dataTermino)}</div>
+        </>
+      )}
 
       <div className="w-20 px-1 flex items-center gap-1">
         <input

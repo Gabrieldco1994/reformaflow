@@ -1,6 +1,14 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Maximize2,
+  Minimize2,
+  PanelLeft,
+  PanelLeftClose,
+  PanelLeftOpen,
+  X,
+} from 'lucide-react';
 import type {
   ScheduleConfig,
   ScheduleHoliday,
@@ -13,7 +21,9 @@ import { EditableTaskRow, ROW_H } from './EditableTaskRow';
 import { EditableStageRow } from './EditableStageRow';
 
 const DAY_W = 28;
-const LEFT_PANEL_W = 900;
+const PANEL_W: Record<PanelMode, number> = { full: 900, compact: 480, hidden: 0 };
+
+type PanelMode = 'full' | 'compact' | 'hidden';
 
 interface GanttChartProps {
   stages: ScheduleStage[];
@@ -36,6 +46,25 @@ export function GanttChart({
 }: GanttChartProps) {
   const ganttRef = useRef<HTMLDivElement>(null);
   const [collapsedStages, setCollapsedStages] = useState<Set<string>>(new Set());
+  const [panelMode, setPanelMode] = useState<PanelMode>('full');
+  const [fullscreen, setFullscreen] = useState(false);
+  const leftPanelW = PANEL_W[panelMode];
+  const compact = panelMode === 'compact';
+  const panelHidden = panelMode === 'hidden';
+
+  useEffect(() => {
+    if (!fullscreen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFullscreen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [fullscreen]);
 
   const { startDate, totalDays, days } = useMemo(() => {
     if (!config) return { startDate: new Date(), totalDays: 30, days: [] as Date[] };
@@ -81,6 +110,10 @@ export function GanttChart({
     });
   };
 
+  const cyclePanelMode = () => {
+    setPanelMode((m) => (m === 'full' ? 'compact' : m === 'compact' ? 'hidden' : 'full'));
+  };
+
   const today = new Date();
 
   const rows = useMemo(() => {
@@ -115,49 +148,98 @@ export function GanttChart({
 
   if (!config) return null;
 
-  return (
-    <div className="border rounded-lg bg-white overflow-hidden">
-      <div className="flex overflow-x-auto" ref={ganttRef}>
-        {/* LEFT: Editable task table */}
-        <div className="flex-shrink-0 border-r border-gray-300" style={{ width: LEFT_PANEL_W }}>
-          <div
-            className="flex bg-gray-100 border-b text-xs font-semibold text-gray-600 sticky top-0 z-10"
-            style={{ height: 56 }}
-          >
-            <div className="w-8 px-1 flex items-end pb-1 text-center"></div>
-            <div className="w-10 px-1 flex items-end pb-1">N°</div>
-            <div className="flex-1 min-w-[320px] px-2 flex items-end pb-1">Tarefa</div>
-            <div className="w-14 px-1 flex items-end pb-1 text-center">Dur</div>
-            <div className="w-14 px-1 flex items-end pb-1 text-center">Pred</div>
-            <div className="w-[104px] px-1 flex items-end pb-1">Início</div>
-            <div className="w-[104px] px-1 flex items-end pb-1">Término</div>
-            <div className="w-20 px-1 flex items-end pb-1 text-center">%</div>
-            <div className="w-8 px-1 flex items-end pb-1"></div>
-          </div>
+  const panelLabel =
+    panelMode === 'full' ? 'Tabela completa' : panelMode === 'compact' ? 'Tabela compacta' : 'Só gráfico';
+  const PanelIcon =
+    panelMode === 'full' ? PanelLeftClose : panelMode === 'compact' ? PanelLeft : PanelLeftOpen;
 
-          {rows.map((row) => {
-            if (row.type === 'stage') {
+  const chart = (
+    <div className={`border rounded-lg bg-white overflow-hidden ${fullscreen ? 'h-full flex flex-col' : ''}`}>
+      {/* Toolbar */}
+      <div className="flex items-center justify-between gap-2 px-3 py-2 border-b bg-gray-50">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={cyclePanelMode}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-gray-300 bg-white text-xs font-medium text-gray-700 hover:bg-gray-100 hover:border-gray-400 transition"
+            title="Alternar tabela: completa → compacta → só gráfico"
+          >
+            <PanelIcon className="w-3.5 h-3.5" />
+            <span>{panelLabel}</span>
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={() => setFullscreen((v) => !v)}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-gray-300 bg-white text-xs font-medium text-gray-700 hover:bg-gray-100 hover:border-gray-400 transition"
+          title={fullscreen ? 'Sair da tela cheia (Esc)' : 'Tela cheia'}
+        >
+          {fullscreen ? (
+            <>
+              <Minimize2 className="w-3.5 h-3.5" />
+              <span>Sair</span>
+            </>
+          ) : (
+            <>
+              <Maximize2 className="w-3.5 h-3.5" />
+              <span>Tela cheia</span>
+            </>
+          )}
+        </button>
+      </div>
+
+      <div
+        className={`flex overflow-x-auto ${fullscreen ? 'flex-1 overflow-y-auto' : ''}`}
+        ref={ganttRef}
+      >
+        {/* LEFT: Editable task table */}
+        {!panelHidden && (
+          <div className="flex-shrink-0 border-r border-gray-300" style={{ width: leftPanelW }}>
+            <div
+              className="flex bg-gray-100 border-b text-xs font-semibold text-gray-600 sticky top-0 z-10"
+              style={{ height: 56 }}
+            >
+              <div className="w-8 px-1 flex items-end pb-1 text-center"></div>
+              <div className="w-10 px-1 flex items-end pb-1">N°</div>
+              <div className="flex-1 min-w-[320px] px-2 flex items-end pb-1">Tarefa</div>
+              {!compact && (
+                <>
+                  <div className="w-14 px-1 flex items-end pb-1 text-center">Dur</div>
+                  <div className="w-14 px-1 flex items-end pb-1 text-center">Pred</div>
+                  <div className="w-[104px] px-1 flex items-end pb-1">Início</div>
+                  <div className="w-[104px] px-1 flex items-end pb-1">Término</div>
+                </>
+              )}
+              <div className="w-20 px-1 flex items-end pb-1 text-center">%</div>
+              <div className="w-8 px-1 flex items-end pb-1"></div>
+            </div>
+
+            {rows.map((row) => {
+              if (row.type === 'stage') {
+                return (
+                  <EditableStageRow
+                    key={`s-${row.stage.id}`}
+                    stage={row.stage}
+                    collapsed={collapsedStages.has(row.stage.id)}
+                    onToggle={() => toggleStage(row.stage.id)}
+                    onRename={(name) => onRenameStage(row.stage.id, name)}
+                    onDelete={() => onDeleteStage(row.stage.id)}
+                    compact={compact}
+                  />
+                );
+              }
               return (
-                <EditableStageRow
-                  key={`s-${row.stage.id}`}
-                  stage={row.stage}
-                  collapsed={collapsedStages.has(row.stage.id)}
-                  onToggle={() => toggleStage(row.stage.id)}
-                  onRename={(name) => onRenameStage(row.stage.id, name)}
-                  onDelete={() => onDeleteStage(row.stage.id)}
+                <EditableTaskRow
+                  key={`t-${row.task!.id}`}
+                  task={row.task!}
+                  onPatch={onPatchTask}
+                  onDelete={onDeleteTask}
+                  compact={compact}
                 />
               );
-            }
-            return (
-              <EditableTaskRow
-                key={`t-${row.task!.id}`}
-                task={row.task!}
-                onPatch={onPatchTask}
-                onDelete={onDeleteTask}
-              />
-            );
-          })}
-        </div>
+            })}
+          </div>
+        )}
 
         {/* RIGHT: Gantt bars */}
         <div className="flex-1 overflow-x-auto relative">
@@ -233,6 +315,11 @@ export function GanttChart({
                         />
                       ))}
                     </div>
+                    {panelHidden && (
+                      <div className="absolute left-2 top-1.5 text-[11px] font-bold uppercase tracking-wider text-darc-velvet pointer-events-none z-10 bg-white/80 px-1.5 rounded">
+                        {row.stage.nome}
+                      </div>
+                    )}
                     {minStart && maxEnd && (
                       <div
                         className="absolute top-4 h-2 bg-gray-500 rounded-sm"
@@ -250,6 +337,10 @@ export function GanttChart({
               const taskStart = task.dataInicio ? new Date(task.dataInicio) : null;
               const taskEnd = task.dataTermino ? new Date(task.dataTermino) : null;
               const done = task.percentualConcluido >= 100;
+              const barWidth =
+                taskStart && taskEnd
+                  ? Math.max(1, daysBetween(taskStart, taskEnd) + 1) * DAY_W - 4
+                  : 0;
 
               return (
                 <div key={`gt-${task.id}`} className="relative border-b" style={{ height: ROW_H }}>
@@ -280,7 +371,7 @@ export function GanttChart({
                       className="absolute top-3 rounded group cursor-pointer"
                       style={{
                         left: Math.max(0, daysBetween(startDate, taskStart)) * DAY_W + 2,
-                        width: Math.max(1, daysBetween(taskStart, taskEnd) + 1) * DAY_W - 4,
+                        width: barWidth,
                         height: ROW_H - 18,
                       }}
                     >
@@ -299,6 +390,11 @@ export function GanttChart({
                             task.percentualConcluido >= 100 ? '0.25rem' : '0.25rem 0 0 0.25rem',
                         }}
                       />
+                      {panelHidden && barWidth > 80 && (
+                        <div className="absolute inset-0 flex items-center px-2 text-[11px] font-medium text-white truncate pointer-events-none">
+                          <span className="truncate">{task.nome}</span>
+                        </div>
+                      )}
                       <div className="hidden group-hover:block absolute bottom-full left-0 mb-1 bg-gray-800 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap z-50">
                         {task.nome} | {task.duracao}d | {task.percentualConcluido}%
                       </div>
@@ -319,4 +415,23 @@ export function GanttChart({
       </div>
     </div>
   );
+
+  if (fullscreen) {
+    return (
+      <div className="fixed inset-0 z-50 bg-white p-3 flex flex-col">
+        <button
+          type="button"
+          onClick={() => setFullscreen(false)}
+          className="absolute top-2 right-2 z-50 w-8 h-8 flex items-center justify-center rounded-full bg-white border border-gray-300 text-gray-600 hover:bg-gray-100"
+          title="Fechar tela cheia (Esc)"
+          aria-label="Fechar tela cheia"
+        >
+          <X className="w-4 h-4" />
+        </button>
+        {chart}
+      </div>
+    );
+  }
+
+  return chart;
 }
