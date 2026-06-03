@@ -177,7 +177,7 @@ function SummaryContent({
                 Gastos
               </p>
               <p className="font-editorial italic text-lg text-darc-maroon">
-                {formatCurrency(hoje.gastos.total)}
+                {formatCurrency(hoje.gastos.total / 100)}
               </p>
               <p className="text-xs text-darc-velvet/60">
                 {hoje.gastos.count} {hoje.gastos.count === 1 ? 'lançamento' : 'lançamentos'}
@@ -188,7 +188,7 @@ function SummaryContent({
                 Recebimentos
               </p>
               <p className="font-editorial italic text-lg text-darc-maroon">
-                {formatCurrency(hoje.recebimentos.total)}
+                {formatCurrency(hoje.recebimentos.total / 100)}
               </p>
               <p className="text-xs text-darc-velvet/60">
                 {hoje.recebimentos.count} {hoje.recebimentos.count === 1 ? 'lançamento' : 'lançamentos'}
@@ -324,7 +324,7 @@ function Item({
       </div>
       {item.valor !== undefined && (
         <span className="text-sm font-medium text-darc-maroon flex-shrink-0">
-          {formatCurrency(item.valor)}
+          {formatCurrency(item.valor / 100)}
         </span>
       )}
     </button>
