@@ -27,6 +27,7 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
+import { NotificationsBell } from '@/components/notifications/NotificationsBell';
 
 interface Project {
   id: string;
@@ -173,18 +174,19 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
             <span className="text-lg flex-shrink-0">{TYPE_ICONS[project.type] ?? '📋'}</span>
             <span className="font-editorial italic text-base text-darc-velvet truncate">{project.name}</span>
           </div>
-          {hasMoreSheet ? (
-            <button
-              type="button"
-              onClick={() => setMobileOpen(true)}
-              aria-label="Mais opções"
-              className="-mr-2 p-2 rounded-full text-darc-velvet/70 hover:bg-darc-linen/60 active:bg-darc-linen transition-colors"
-            >
-              <MoreHorizontal className="w-5 h-5" />
-            </button>
-          ) : (
-            <div className="w-9" />
-          )}
+          <div className="flex items-center -mr-2">
+            <NotificationsBell variant="light" />
+            {hasMoreSheet ? (
+              <button
+                type="button"
+                onClick={() => setMobileOpen(true)}
+                aria-label="Mais opções"
+                className="p-2 rounded-full text-darc-velvet/70 hover:bg-darc-linen/60 active:bg-darc-linen transition-colors"
+              >
+                <MoreHorizontal className="w-5 h-5" />
+              </button>
+            ) : null}
+          </div>
         </header>
 
         {/* Mobile "Mais" bottom-sheet */}
@@ -267,15 +269,20 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
         >
           {/* Desktop header */}
           <div className="p-3 border-b border-white/20 min-h-[56px]">
-            <Link
-              href="/projects"
-              className="flex items-center gap-2 text-darc-linen/80 hover:text-darc-linen transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5 flex-shrink-0" />
-              <span className="text-[10px] tracking-[0.2em] uppercase whitespace-nowrap opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200">
-                Projetos
-              </span>
-            </Link>
+            <div className="flex items-center justify-between">
+              <Link
+                href="/projects"
+                className="flex items-center gap-2 text-darc-linen/80 hover:text-darc-linen transition-colors"
+              >
+                <ArrowLeft className="w-5 h-5 flex-shrink-0" />
+                <span className="text-[10px] tracking-[0.2em] uppercase whitespace-nowrap opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200">
+                  Projetos
+                </span>
+              </Link>
+              <div className="opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200">
+                <NotificationsBell variant="dark" />
+              </div>
+            </div>
             <div className="flex items-center gap-2 mt-2">
               <span className="text-xl flex-shrink-0">{TYPE_ICONS[project.type] ?? '📋'}</span>
               <span className="font-editorial italic text-base text-darc-linen whitespace-nowrap opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200 truncate">

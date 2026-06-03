@@ -7,6 +7,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { Plus, Trash2, ChevronRight, LineChart } from 'lucide-react';
 import Link from 'next/link';
 import { Modal } from '@/components/ui/modal';
+import { NotificationsBell } from '@/components/notifications/NotificationsBell';
 
 interface Project {
   id: string;
@@ -115,9 +116,12 @@ export default function ProjectsPage() {
   return (
     <div className="min-h-screen bg-darc-linen">
       <header className="bg-darc-maroon border-b border-darc-velvet px-4 md:px-6 py-2.5 md:py-4 mb-4 md:mb-6 shadow-darc-soft">
-        <div className="max-w-4xl mx-auto flex items-baseline gap-2 md:gap-3">
-          <h1 className="font-editorial text-2xl md:text-3xl text-darc-red leading-none">D&apos;arc</h1>
-          <span className="text-[9px] md:text-[10px] tracking-[0.3em] uppercase text-darc-mist">Studio</span>
+        <div className="max-w-4xl mx-auto flex items-center justify-between gap-2 md:gap-3">
+          <div className="flex items-baseline gap-2 md:gap-3">
+            <h1 className="font-editorial text-2xl md:text-3xl text-darc-red leading-none">D&apos;arc</h1>
+            <span className="text-[9px] md:text-[10px] tracking-[0.3em] uppercase text-darc-mist">Studio</span>
+          </div>
+          <NotificationsBell variant="dark" />
         </div>
       </header>
       <div className="max-w-4xl mx-auto px-4 md:px-6 pb-24 md:pb-0">
