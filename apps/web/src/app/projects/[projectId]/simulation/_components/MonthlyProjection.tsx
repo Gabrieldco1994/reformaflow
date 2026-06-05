@@ -199,15 +199,6 @@ export function MonthlyProjection({
   // Total recebimentos from real data
   const totalRecReal = useMemo(() => recEntries.reduce((s, e) => s + e.valor, 0), [recEntries]);
 
-  // Recebimentos distribution
-  const totalRecDistributed = useMemo(() => {
-    return Object.values(recDist).reduce((s, v) => {
-      const n = parseFloat(v || '');
-      return s + (isNaN(n) ? 0 : Math.round(n * 100));
-    }, 0);
-  }, [recDist]);
-  const recRemaining = totalRecReal - totalRecDistributed;
-
   // Compute projected monthly despesas based on active groups + payment configs + edited values
   const monthlyDespProjected = useMemo(() => projectMonthlyExpenses({
     monthList,
@@ -365,6 +356,30 @@ export function MonthlyProjection({
     return result;
   }, [recEntries, monthList]);
 
+  // Projected recebimentos per month. Por padrão usa o recebimento REAL do mês
+  // (inclui orçamento alocado via budget allocation); o usuário pode sobrescrever
+  // por mês via recDist (string vazia/undefined = usar o real; "0" = zerar o mês).
+  const monthlyRecProj = useMemo(() => {
+    const result: Record<string, number> = {};
+    for (const m of monthList) {
+      const override = recDist[m];
+      if (override !== undefined && override.trim() !== '') {
+        const n = parseFloat(override);
+        result[m] = isNaN(n) ? 0 : Math.round(n * 100);
+      } else {
+        result[m] = monthlyRecReal[m] ?? 0;
+      }
+    }
+    return result;
+  }, [monthList, recDist, monthlyRecReal]);
+
+  // Distribuição (efetiva) e restante a distribuir
+  const totalRecDistributed = useMemo(
+    () => Object.values(monthlyRecProj).reduce((s, v) => s + v, 0),
+    [monthlyRecProj],
+  );
+  const recRemaining = totalRecReal - totalRecDistributed;
+
   // Build projection rows
   const rows = useMemo(() => {
     let saldoRealAcum = 0;
@@ -374,9 +389,7 @@ export function MonthlyProjection({
       const recReal = monthlyRecReal[month] ?? 0;
       const despReal = monthlyDespReal[month] ?? 0;
 
-      const recProjStr = recDist[month] || '';
-      const recProjVal = parseFloat(recProjStr);
-      const recProj = isNaN(recProjVal) ? 0 : Math.round(recProjVal * 100);
+      const recProj = monthlyRecProj[month] ?? 0;
       const despProj = monthlyDespProjected[month] ?? 0;
 
       saldoRealAcum += recReal - despReal;
@@ -384,7 +397,7 @@ export function MonthlyProjection({
 
       return { month, recReal, recProj, despReal, despProj, saldoReal: saldoRealAcum, saldoProj: saldoProjAcum };
     });
-  }, [monthList, monthlyRecReal, monthlyDespReal, recDist, monthlyDespProjected]);
+  }, [monthList, monthlyRecReal, monthlyDespReal, monthlyRecProj, monthlyDespProjected]);
 
   const totalRecProj = rows.reduce((s, r) => s + r.recProj, 0);
   const totalDespProj = rows.reduce((s, r) => s + r.despProj, 0);
@@ -987,7 +1000,7 @@ export function MonthlyProjection({
                 type="number"
                 step="0.01"
                 min="0"
-                placeholder="0"
+                placeholder={(monthlyRecReal[month] ?? 0) > 0 ? ((monthlyRecReal[month] ?? 0) / 100).toFixed(2) : '0'}
                 value={recDist[month] ?? ''}
                 onChange={(e) => onRecDistChange(month, e.target.value)}
                 className="w-full border border-gray-200 rounded px-1 py-0.5 text-xs text-right focus:outline-none focus:ring-1 focus:ring-green-300 mt-0.5"
@@ -1000,6 +1013,9 @@ export function MonthlyProjection({
             <p className="text-xs text-red-600 font-medium">⚠️ Valor distribuído excede o total em {formatCurrency(Math.abs(recRemaining) / 100)}</p>
           </div>
         )}
+        <div className="px-3 pb-2">
+          <p className="text-[11px] text-gray-500 italic">💡 Deixe um mês em branco para usar o recebimento real já registrado (inclui orçamento alocado). Preencha apenas para remanejar valores entre meses; digite 0 para zerar o mês.</p>
+        </div>
       </div>
 
       {/* Chart 1: Saldo Acumulado */}
