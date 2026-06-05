@@ -339,16 +339,20 @@ export function MonthlyProjection({
 
   const hasTipoOverrides = Object.values(tipoOverrides).some((v) => v !== '');
 
-  // Real despesas distribution by month (original entry dates, all entries)
+  // Real despesas distribution by month (original entry dates).
+  // Despesas excluídas na simulação são removidas também da linha/barra "Real",
+  // para que o gráfico não contabilize o que o usuário marcou como excluído.
   const monthlyDespReal = useMemo(() => {
     const result: Record<string, number> = {};
     for (const m of monthList) result[m] = 0;
     for (const e of despEntries) {
+      const groupId = e.expenseId || e.id;
+      if (excludes.has(groupId)) continue;
       const m = toMonth(e.data);
       if (result[m] !== undefined) result[m] += e.valor;
     }
     return result;
-  }, [despEntries, monthList]);
+  }, [despEntries, monthList, excludes]);
 
   // Real recebimentos distribution by month (original entry dates)
   const monthlyRecReal = useMemo(() => {
@@ -1006,7 +1010,7 @@ export function MonthlyProjection({
             O que esse gráfico mostra?
           </summary>
           <div className="mt-2 text-[11px] text-gray-600 bg-gray-50 border border-gray-200 rounded p-2 space-y-1">
-            <p><span className="inline-block w-3 h-3 bg-gray-400 rounded-sm mr-1 align-middle"></span><b>Saldo Real:</b> recebimentos − despesas mês a mês usando o que está registrado no fluxo de caixa.</p>
+            <p><span className="inline-block w-3 h-3 bg-gray-400 rounded-sm mr-1 align-middle"></span><b>Saldo Real:</b> recebimentos − despesas mês a mês usando o que está registrado no fluxo de caixa (despesas excluídas na simulação não entram).</p>
             <p><span className="inline-block w-3 h-3 bg-blue-500 rounded-sm mr-1 align-middle"></span><b>Saldo Projetado:</b> mesmo cálculo aplicando suas simulações (overrides de valor por tipo, reparcelamentos, despesas excluídas).</p>
             <p className="text-gray-500 italic">💡 Se a linha cai abaixo de zero, você precisa de mais recebimentos ou ajustar despesas naquele mês.</p>
           </div>
@@ -1037,7 +1041,7 @@ export function MonthlyProjection({
             O que significa cada barra?
           </summary>
           <div className="mt-2 text-[11px] text-gray-600 bg-gray-50 border border-gray-200 rounded p-2 space-y-1">
-            <p><span className="inline-block w-3 h-3 bg-orange-300 rounded-sm mr-1 align-middle"></span><b>Despesas Reais:</b> o que está efetivamente registrado no fluxo de caixa de cada mês (parcelas com data definida — pagas ou planejadas).</p>
+            <p><span className="inline-block w-3 h-3 bg-orange-300 rounded-sm mr-1 align-middle"></span><b>Despesas Reais:</b> o que está efetivamente registrado no fluxo de caixa de cada mês (parcelas com data definida — pagas ou planejadas; despesas excluídas na simulação não entram).</p>
             <p><span className="inline-block w-3 h-3 bg-orange-500 rounded-sm mr-1 align-middle"></span><b>Despesas Projetadas:</b> mesma base, mas aplicando seus ajustes (mudança de parcelas, valores simulados, exclusões e despesas extras adicionadas). Sem nenhum ajuste, é igual ao Real.</p>
             <p className="text-gray-500 italic">💡 Se uma despesa está como "Planejada" mas sem data de pagamento definida, ela não aparece aqui. Defina datas em /expenses para projetar.</p>
           </div>

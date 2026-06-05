@@ -11,6 +11,7 @@ interface PrismaMock {
   cashFlowEntry: { findMany: AnyFn };
   room: { findMany: AnyFn };
   simulationValue: { findMany: AnyFn };
+  budgetAllocation: { findMany: AnyFn };
 }
 
 const makePrismaMock = (): PrismaMock => ({
@@ -20,6 +21,7 @@ const makePrismaMock = (): PrismaMock => ({
   cashFlowEntry: { findMany: jest.fn().mockResolvedValue([]) },
   room: { findMany: jest.fn().mockResolvedValue([]) },
   simulationValue: { findMany: jest.fn().mockResolvedValue([]) },
+  budgetAllocation: { findMany: jest.fn().mockResolvedValue([]) },
 });
 
 describe('SimulationService.getData — porTipo breakdown', () => {
@@ -129,5 +131,51 @@ describe('SimulationService.getData — porTipo breakdown', () => {
     expect(iluminacao!.total).toBe(100000);
     expect(iluminacao!.pago).toBe(0);
     expect(iluminacao!.planejado).toBe(100000);
+  });
+});
+
+describe('SimulationService.getData — recebimentos via budget allocation', () => {
+  let service: SimulationService;
+  let prisma: PrismaMock;
+  const tenantId = 'tenant-1';
+  const projectId = 'project-1';
+
+  beforeEach(async () => {
+    prisma = makePrismaMock();
+    prisma.project.findFirst.mockResolvedValue({ id: projectId, tenantId, type: 'REFORMA' });
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [SimulationService, { provide: PrismaService, useValue: prisma }],
+    }).compile();
+
+    service = module.get<SimulationService>(SimulationService);
+  });
+
+  it('usa o orçamento alocado como Total Recebimentos quando há budget allocations', async () => {
+    prisma.budgetAllocation.findMany.mockResolvedValue([
+      { id: 'a1', valor: 3000000, targetProjectId: projectId, tenantId },
+      { id: 'a2', valor: 2000000, targetProjectId: projectId, tenantId },
+    ]);
+
+    const data = await service.getData(tenantId, projectId);
+
+    expect(data.kpis.totalRecebimentos).toBe(5000000);
+    expect(data.recebimentosPorTipo).toEqual([
+      { key: 'ALOCACAO_ORCAMENTO', label: 'Alocação de Orçamento', total: 5000000 },
+    ]);
+    // Não deve buscar receipts quando há alocações (evita dupla contagem)
+    expect(prisma.receipt.findMany).not.toHaveBeenCalled();
+  });
+
+  it('cai no fluxo de receipts quando não há budget allocations', async () => {
+    prisma.budgetAllocation.findMany.mockResolvedValue([]);
+    prisma.receipt.findMany.mockResolvedValue([
+      { id: 'r1', tipo: 'COMISSAO', valor: 1500000, status: 'EM_CAIXA' },
+    ]);
+
+    const data = await service.getData(tenantId, projectId);
+
+    expect(data.kpis.totalRecebimentos).toBe(1500000);
+    expect(prisma.receipt.findMany).toHaveBeenCalled();
   });
 });

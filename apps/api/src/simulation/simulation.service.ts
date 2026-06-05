@@ -78,10 +78,21 @@ export class SimulationService {
   async getData(tenantId: string, projectId: string, scenarioId?: string) {
     await this.validateProject(tenantId, projectId);
 
+    // Projetos financiados por alocação de orçamento (ex.: REFORMA recebendo budget
+    // de um projeto PESSOAL) não possuem `receipt`; o recebimento é registrado como
+    // CashFlowEntry (categoria ALOCACAO_ORCAMENTO). Espelha a lógica do dashboard:
+    // quando há alocações, elas SUBSTITUEM os receipts no cálculo de recebimentos.
+    const budgetAllocations = await this.prisma.budgetAllocation.findMany({
+      where: { targetProjectId: projectId, tenantId, deletedAt: null },
+    });
+    const hasBudgetAllocations = budgetAllocations.length > 0;
+
     const [receipts, expenses, cashFlowEntries] = await Promise.all([
-      this.prisma.receipt.findMany({
-        where: { projectId, tenantId, deletedAt: null, linkedReceiptId: null },
-      }),
+      hasBudgetAllocations
+        ? Promise.resolve([])
+        : this.prisma.receipt.findMany({
+            where: { projectId, tenantId, deletedAt: null, linkedReceiptId: null },
+          }),
       this.prisma.expense.findMany({
         where: { projectId, tenantId, deletedAt: null, settledByExpenseId: null },
         include: { room: true },
@@ -109,26 +120,43 @@ export class SimulationService {
     ]);
 
     // KPIs base
-    const dinheiroDisponivel = receipts
-      .filter((r) => r.status === 'EM_CAIXA')
-      .reduce((sum, r) => sum + r.valor, 0);
+    const budgetRecebido = hasBudgetAllocations
+      ? budgetAllocations.reduce((sum, b) => sum + b.valor, 0)
+      : 0;
 
-    const previsaoRecebimentos = receipts
-      .filter((r) => r.status === 'PREVISTO')
-      .reduce((sum, r) => sum + r.valor, 0);
+    const dinheiroDisponivel = hasBudgetAllocations
+      ? budgetRecebido
+      : receipts
+          .filter((r) => r.status === 'EM_CAIXA')
+          .reduce((sum, r) => sum + r.valor, 0);
+
+    const previsaoRecebimentos = hasBudgetAllocations
+      ? 0
+      : receipts
+          .filter((r) => r.status === 'PREVISTO')
+          .reduce((sum, r) => sum + r.valor, 0);
 
     const totalRecebimentos = dinheiroDisponivel + previsaoRecebimentos;
     const previsaoGastos = expenses.reduce((sum, e) => sum + e.valorTotal, 0);
     const previsaoSaldo = totalRecebimentos - previsaoGastos;
 
     // Recebimentos por tipo
-    const receiptTypes = Array.from(new Set(receipts.map((r) => r.tipo))).sort();
-    const recebimentosPorTipo = receiptTypes.map((tipo) => {
-      const total = receipts
-        .filter((r) => r.tipo === tipo)
-        .reduce((sum, r) => sum + r.valor, 0);
-      return { key: tipo, label: ReceiptTypeLabels[tipo as keyof typeof ReceiptTypeLabels] ?? tipo, total };
-    });
+    const recebimentosPorTipo = hasBudgetAllocations
+      ? [
+          {
+            key: 'ALOCACAO_ORCAMENTO',
+            label: ReceiptTypeLabels['ALOCACAO_ORCAMENTO' as keyof typeof ReceiptTypeLabels] ?? 'Alocação de Orçamento',
+            total: budgetRecebido,
+          },
+        ]
+      : Array.from(new Set(receipts.map((r) => r.tipo)))
+          .sort()
+          .map((tipo) => {
+            const total = receipts
+              .filter((r) => r.tipo === tipo)
+              .reduce((sum, r) => sum + r.valor, 0);
+            return { key: tipo, label: ReceiptTypeLabels[tipo as keyof typeof ReceiptTypeLabels] ?? tipo, total };
+          });
 
     // Despesas consolidadas por ambiente → tipos → categorias
     const expenseTypes = [
