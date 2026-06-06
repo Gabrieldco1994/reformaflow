@@ -38,7 +38,6 @@ import {
   listPeriods,
   periodLabel,
   currentPeriod,
-  totalsOf as personalTotalsOf,
   groupPersonalExpenses,
 } from './_lib/personal-hierarchy';
 import ImportLauncher from './_components/ImportLauncher';
@@ -230,12 +229,6 @@ export default function ExpensesPage() {
     return out;
   }, [projectType, filteredExpenses, period, periodYear]);
 
-  // Totais do período (só relevantes em PESSOAL)
-  const periodTotals = useMemo(
-    () => personalTotalsOf(periodFilteredPersonal),
-    [periodFilteredPersonal],
-  );
-
   // KPIs (excluem tipos neutros — movimentação interna / pagto fatura).
   // Em PESSOAL respeitam o período selecionado (mês clicado / ano todo); nos demais
   // projetos periodFilteredPersonal === filteredExpenses. Calculado por ocorrência
@@ -252,6 +245,10 @@ export default function ExpensesPage() {
     }
     return { totalGeral: geral, totalPlanejado: planejado, totalPago: pago };
   }, [periodFilteredPersonal]);
+
+  // Totais do período (só relevantes em PESSOAL) — mesma base por-parcela dos KPIs,
+  // para não divergir dos cards no "Ano todo" com parcelas parcialmente pagas.
+  const periodTotals = { pago: totalPago, planejado: totalPlanejado };
 
   // Quebra por projeto (cockpit) — só faz sentido no Pessoal, que consolida vários projetos.
   // Respeita o período selecionado (mês clicado / ano todo).
