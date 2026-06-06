@@ -93,6 +93,7 @@ export default function BudgetAllocationPage() {
       <AvailableBudgetCard
         available={availableBudget ?? 0}
         totalAllocated={summary?.totalAllocated ?? 0}
+        totalExpenses={summary?.totalExpenses ?? 0}
         allocations={summary?.allocations ?? []}
       />
 

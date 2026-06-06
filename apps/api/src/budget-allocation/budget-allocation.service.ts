@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { isNeutralExpenseType } from '@reformaflow/domain';
 import { CreateBudgetAllocationDto } from './dto/create-budget-allocation.dto';
 import { UpdateBudgetAllocationDto } from './dto/update-budget-allocation.dto';
 
@@ -212,10 +213,12 @@ export class BudgetAllocationService {
       }, {} as Record<string, any>);
 
       const available = await this.calculateAvailableBudget(projectId, tenantId);
+      const totalExpenses = await this.sumOwnCommittedExpenses(projectId, tenantId);
 
       return {
         totalAllocated,
         available,
+        totalExpenses,
         allocations: Object.values(byTargetProject),
       };
     } else {
@@ -283,22 +286,49 @@ export class BudgetAllocationService {
 
     const totalAllocated = allocations.reduce((sum, a) => sum + a.valor, 0);
 
-    const available = totalReceipts - totalAllocated;
+    // Despesas do PRÓPRIO projeto PESSOAL (pagas + planejadas) — dinheiro já gasto
+    // ou comprometido, que não pode ser alocado para outros projetos.
+    const totalExpenses = await this.sumOwnCommittedExpenses(sourceProjectId, tenantId);
+
+    const available = totalReceipts - totalAllocated - totalExpenses;
 
     // Debug log
     console.log('[BudgetAllocation] calculateAvailableBudget:', {
       projectId: sourceProjectId,
-      receiptsCount: receipts.length,
       totalReceipts,
       totalReceiptsReais: totalReceipts / 100,
-      allocationsCount: allocations.length,
       totalAllocated,
       totalAllocatedReais: totalAllocated / 100,
+      totalExpenses,
+      totalExpensesReais: totalExpenses / 100,
       available,
       availableReais: available / 100,
     });
 
     // Ensure we never return negative values
     return Math.max(0, available);
+  }
+
+  /**
+   * Soma as despesas do próprio projeto (pagas + planejadas) que comprometem o caixa:
+   * - settledByExpenseId: null → não conta a planejada que já virou paga (clone), evitando dupla contagem
+   * - linkedExpenseId: null → não conta despesa "espelho" de outro projeto
+   * - tipos neutros (transferência entre contas / pagto de fatura) não representam consumo real
+   */
+  private async sumOwnCommittedExpenses(projectId: string, tenantId: string): Promise<number> {
+    const expenses = await this.prisma.expense.findMany({
+      where: {
+        projectId,
+        tenantId,
+        deletedAt: null,
+        settledByExpenseId: null,
+        linkedExpenseId: null,
+      },
+      select: { valorTotal: true, tipoDespesa: true },
+    });
+
+    return expenses
+      .filter((e) => !isNeutralExpenseType(e.tipoDespesa))
+      .reduce((sum, e) => sum + e.valorTotal, 0);
   }
 }

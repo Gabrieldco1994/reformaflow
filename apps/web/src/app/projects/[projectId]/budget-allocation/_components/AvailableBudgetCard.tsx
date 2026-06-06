@@ -5,10 +5,11 @@ import { formatCurrency } from '@/lib/utils';
 interface Props {
   available: number;
   totalAllocated: number;
+  totalExpenses?: number;
   allocations: Array<{ projectName: string; projectType: string; total: number }>;
 }
 
-export default function AvailableBudgetCard({ available, totalAllocated, allocations }: Props) {
+export default function AvailableBudgetCard({ available, totalAllocated, totalExpenses = 0, allocations }: Props) {
   const hasNoBudget = available === 0;
 
   return (
@@ -32,6 +33,15 @@ export default function AvailableBudgetCard({ available, totalAllocated, allocat
           </p>
         )}
       </div>
+
+      {totalExpenses > 0 && (
+        <div className="border-t border-darc-linen pt-3 mb-3">
+          <div className="flex justify-between text-sm">
+            <span className="text-darc-velvet/60">Despesas do projeto (pagas + planejadas)</span>
+            <span className="font-medium text-darc-velvet tabular-nums">− {formatCurrency(totalExpenses / 100)}</span>
+          </div>
+        </div>
+      )}
 
       {totalAllocated > 0 && (
         <div className="border-t border-darc-linen pt-4">
