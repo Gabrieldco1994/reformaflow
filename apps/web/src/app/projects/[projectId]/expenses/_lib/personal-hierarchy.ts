@@ -259,11 +259,11 @@ export function groupByMonth(
   for (const e of expenses) {
     const dt = effectiveDate(e);
     let ym = 'sem-data';
-    if (dt) {
-      const d = new Date(dt);
-      if (!Number.isNaN(d.getTime())) {
-        ym = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}`;
-      }
+    // Fatia a string ISO (UTC) — usar new Date()/getMonth() converteria para o
+    // fuso local e jogaria datas em UTC-00:00 (ex.: 2026-06-01T00:00Z) para o mês
+    // anterior em BRT (maio).
+    if (dt && typeof dt === 'string' && /^\d{4}-\d{2}/.test(dt)) {
+      ym = dt.slice(0, 7);
     }
     if (!buckets.has(ym)) buckets.set(ym, []);
     buckets.get(ym)!.push(e);
