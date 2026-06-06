@@ -206,8 +206,8 @@ export default function ExpensesPage() {
       return filteredExpenses.filter((e) => inPeriod(e, period, periodYear));
     }
     // Mês específico: expande parcelas e mantém só a parcela do mês selecionado,
-    // com valor e status próprios da parcela (parcela futura nunca aparece como paga).
-    const nowKey = currentMonthKey();
+    // com valor e status próprios da parcela (cada quinzena/parcela tem status
+    // independente — ver paidParcelas).
     const out: Expense[] = [];
     for (const e of filteredExpenses) {
       const isInst =
@@ -218,12 +218,11 @@ export default function ExpensesPage() {
         if (!isInst) {
           out.push(e);
         } else {
-          const occMonth = occ.occDate.slice(0, 7);
           out.push({
             ...e,
             valorTotal: occ.occValue,
             quantidadeParcela: 1,
-            status: occMonth > nowKey ? 'PLANEJADO' : e.status,
+            status: occ.status,
           });
         }
       }
@@ -238,11 +237,12 @@ export default function ExpensesPage() {
   );
 
   // KPIs (excluem tipos neutros — movimentação interna / pagto fatura).
-  // Calculado por ocorrência para refletir pagamento parcial de parcelas/quinzenas:
-  // uma despesa parceladas pode ter algumas parcelas pagas e outras planejadas.
+  // Em PESSOAL respeitam o período selecionado (mês clicado / ano todo); nos demais
+  // projetos periodFilteredPersonal === filteredExpenses. Calculado por ocorrência
+  // para refletir pagamento parcial de parcelas/quinzenas.
   const { totalGeral, totalPlanejado, totalPago } = useMemo(() => {
     let geral = 0, planejado = 0, pago = 0;
-    for (const e of filteredExpenses) {
+    for (const e of periodFilteredPersonal) {
       if (isNeutralExpenseType(e.tipoDespesa)) continue;
       for (const occ of expandExpenseOccurrences(e)) {
         geral += occ.occValue;
@@ -251,13 +251,14 @@ export default function ExpensesPage() {
       }
     }
     return { totalGeral: geral, totalPlanejado: planejado, totalPago: pago };
-  }, [filteredExpenses]);
+  }, [periodFilteredPersonal]);
 
-  // Quebra por projeto (cockpit) — só faz sentido no Pessoal, que consolida vários projetos
+  // Quebra por projeto (cockpit) — só faz sentido no Pessoal, que consolida vários projetos.
+  // Respeita o período selecionado (mês clicado / ano todo).
   const kpiPerProject = useMemo(() => {
     if (projectType !== 'PESSOAL') return [];
     return groupPersonalExpenses(
-      filteredExpenses,
+      periodFilteredPersonal,
       remoteProjectMap,
       project?.name ?? 'Pessoal',
       PROJECT_ID,
@@ -270,7 +271,7 @@ export default function ExpensesPage() {
       total: g.totalPlanejado + g.totalPago,
       count: g.itens.length,
     }));
-  }, [projectType, filteredExpenses, remoteProjectMap, project?.name, PROJECT_ID]);
+  }, [projectType, periodFilteredPersonal, remoteProjectMap, project?.name, PROJECT_ID]);
 
   // Visão mensal
   const groupedByMes = useMemo(() => groupExpensesByMes(filteredExpenses), [filteredExpenses]);
@@ -731,9 +732,9 @@ export default function ExpensesPage() {
       {/* KPI Cards — cockpit financeiro */}
       <ExpenseKpiCards
         projectType={projectType}
-        filteredCount={filteredExpenses.length}
-        filteredPlanejadoCount={filteredExpenses.filter((e) => e.status === 'PLANEJADO').length}
-        filteredPagoCount={filteredExpenses.filter((e) => e.status === 'PAGO').length}
+        filteredCount={periodFilteredPersonal.length}
+        filteredPlanejadoCount={periodFilteredPersonal.filter((e) => e.status === 'PLANEJADO').length}
+        filteredPagoCount={periodFilteredPersonal.filter((e) => e.status === 'PAGO').length}
         totalGeral={totalGeral}
         totalPlanejado={totalPlanejado}
         totalPago={totalPago}
