@@ -25,6 +25,8 @@ interface Props {
   openEdit: (expense: Expense) => void;
   onDelete: (id: string) => void;
   onToggleStatus: (id: string, newStatus: 'PAGO' | 'PLANEJADO') => void;
+  /** Marca/desmarca uma parcela específica (0-based) como paga. */
+  onToggleParcela?: (id: string, parcela: number, paid: boolean) => void;
   onQuickUpdate: (id: string, valor: number, data: string) => void;
   onQuickCreate: (data: {
     tipoDespesa: string;
@@ -67,6 +69,7 @@ function MonthlyExpenseViewImpl({
   openEdit,
   onDelete,
   onToggleStatus,
+  onToggleParcela,
   onQuickUpdate,
   onQuickCreate,
   emptyMsg,
@@ -299,7 +302,11 @@ function MonthlyExpenseViewImpl({
                                 onClick={(ev) => {
                                   ev.stopPropagation();
                                   const newStatus = e.status === 'PAGO' ? 'PLANEJADO' : 'PAGO';
-                                  onToggleStatus(e.id, newStatus);
+                                  if (e.occTotalParcelas > 1 && onToggleParcela) {
+                                    onToggleParcela(e.id, e.occIndex - 1, newStatus === 'PAGO');
+                                  } else {
+                                    onToggleStatus(e.id, newStatus);
+                                  }
                                 }}
                                 className="inline-flex items-center gap-1 text-[11px] rounded-full px-2 py-0.5 transition-all hover:scale-105 active:scale-95 cursor-pointer"
                                 style={{

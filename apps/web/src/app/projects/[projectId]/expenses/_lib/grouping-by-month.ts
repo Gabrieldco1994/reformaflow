@@ -1,4 +1,5 @@
 import type { Expense } from '@/types';
+import { buildInstallments } from '@reformaflow/domain';
 
 const MESES_PT = [
   'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
@@ -39,26 +40,28 @@ export function effectiveDate(e: Expense): string | null {
   );
 }
 
-function addMonthsToISO(iso: string, i: number): string {
-  const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
-  if (!y || !m || !d) return iso.slice(0, 10);
-  const total = (m - 1) + i;
-  const ny = y + Math.floor(total / 12);
-  const nm = ((total % 12) + 12) % 12;
-  return `${ny}-${String(nm + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-}
-
-function addDaysToISO(iso: string, days: number): string {
-  const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
-  if (!y || !m || !d) return iso.slice(0, 10);
-  const base = new Date(Date.UTC(y, m - 1, d));
-  base.setUTCDate(base.getUTCDate() + days);
-  return base.toISOString().slice(0, 10);
+/** Parseia o JSON de parcelas pagas (índices 0-based), filtrando inválidos. */
+function parsePaidSet(raw: string | null | undefined, n: number): Set<number> {
+  if (!raw) return new Set();
+  try {
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return new Set();
+    const s = new Set<number>();
+    for (const v of arr) {
+      const i = Number(v);
+      if (Number.isInteger(i) && i >= 0 && i < n) s.add(i);
+    }
+    return s;
+  } catch {
+    return new Set();
+  }
 }
 
 /**
  * Expande uma despesa em suas ocorrências mensais.
  * PARCELADO → uma ocorrência por mês; QUINZENAL → a cada 15 dias.
+ * Cada ocorrência tem status próprio: paga se a parcela está em `paidParcelas`
+ * (ou se a despesa inteira está PAGO).
  */
 export function expandExpenseOccurrences(e: Expense): Occurrence[] {
   const n = e.quantidadeParcela ?? 1;
@@ -80,27 +83,28 @@ export function expandExpenseOccurrences(e: Expense): Occurrence[] {
     ];
   }
 
-  const start = e.dataInicioParcela || e.dataPagamento || effectiveDate(e) || '';
-  const isQuinzenal = e.formaPagamento === 'QUINZENAL';
-  const per = Math.round(e.valorTotal / n);
-  const occ: Occurrence[] = [];
-  let acc = 0;
-  for (let i = 0; i < n; i++) {
-    const value = i === n - 1 ? e.valorTotal - acc : per;
-    acc += per;
-    const occDate = isQuinzenal
-      ? addDaysToISO(start, i * 15)
-      : addMonthsToISO(start, i);
-    occ.push({
-      ...e,
-      occKey: `${e.id}#${i}`,
-      occDate,
-      occValue: value,
-      occIndex: i + 1,
-      occTotalParcelas: n,
-    });
-  }
-  return occ;
+  // Usa o MESMO cálculo de parcelas do backend (@reformaflow/domain) para
+  // garantir que valores e datas das parcelas batam com o fluxo de caixa.
+  const installments = buildInstallments({
+    valorTotal: e.valorTotal,
+    formaPagamento: e.formaPagamento,
+    dataPagamento: e.dataPagamento ? new Date(e.dataPagamento) : null,
+    quantidadeParcela: e.quantidadeParcela ?? null,
+    dataInicioParcela: e.dataInicioParcela ? new Date(e.dataInicioParcela) : null,
+  });
+
+  const paidSet = parsePaidSet(e.paidParcelas, installments.length);
+  const fullyPaid = e.status === 'PAGO';
+
+  return installments.map((inst, i) => ({
+    ...e,
+    occKey: `${e.id}#${i}`,
+    occDate: inst.data.toISOString().slice(0, 10),
+    occValue: inst.valor,
+    occIndex: i + 1,
+    occTotalParcelas: installments.length,
+    status: (fullyPaid || paidSet.has(i) ? 'PAGO' : 'PLANEJADO') as Expense['status'],
+  }));
 }
 
 export function mesKeyFromDate(data: string): string {

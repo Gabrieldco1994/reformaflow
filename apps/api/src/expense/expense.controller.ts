@@ -13,6 +13,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { ExpenseService } from './expense.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
+import { SetParcelaStatusDto } from './dto/set-parcela-status.dto';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
 import { CurrentTenant } from '../common/decorators/tenant.decorator';
 import { RequireModule } from '../common/decorators/require-module.decorator';
@@ -95,6 +96,17 @@ export class ExpenseController {
     @Body() dto: UpdateExpenseDto,
   ) {
     return this.service.update(tenantId, projectId, id, dto);
+  }
+
+  @Patch(':id/parcela')
+  @ApiOperation({ summary: 'Marcar/desmarcar uma parcela específica como paga' })
+  setParcelaStatus(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Param('id') id: string,
+    @Body() dto: SetParcelaStatusDto,
+  ) {
+    return this.service.setParcelaStatus(tenantId, projectId, id, dto.parcela, dto.paid);
   }
 
   @Post(':id/pay')

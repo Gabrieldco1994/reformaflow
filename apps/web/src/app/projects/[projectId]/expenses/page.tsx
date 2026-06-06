@@ -237,16 +237,21 @@ export default function ExpensesPage() {
     [periodFilteredPersonal],
   );
 
-  // KPIs (excluem tipos neutros — movimentação interna / pagto fatura)
-  const totalGeral = filteredExpenses.reduce(
-    (s, e) => isNeutralExpenseType(e.tipoDespesa) ? s : s + e.valorTotal, 0,
-  );
-  const totalPlanejado = filteredExpenses
-    .filter((e) => e.status === 'PLANEJADO' && !isNeutralExpenseType(e.tipoDespesa))
-    .reduce((s, e) => s + e.valorTotal, 0);
-  const totalPago = filteredExpenses
-    .filter((e) => e.status === 'PAGO' && !isNeutralExpenseType(e.tipoDespesa))
-    .reduce((s, e) => s + e.valorTotal, 0);
+  // KPIs (excluem tipos neutros — movimentação interna / pagto fatura).
+  // Calculado por ocorrência para refletir pagamento parcial de parcelas/quinzenas:
+  // uma despesa parceladas pode ter algumas parcelas pagas e outras planejadas.
+  const { totalGeral, totalPlanejado, totalPago } = useMemo(() => {
+    let geral = 0, planejado = 0, pago = 0;
+    for (const e of filteredExpenses) {
+      if (isNeutralExpenseType(e.tipoDespesa)) continue;
+      for (const occ of expandExpenseOccurrences(e)) {
+        geral += occ.occValue;
+        if (occ.status === 'PAGO') pago += occ.occValue;
+        else planejado += occ.occValue;
+      }
+    }
+    return { totalGeral: geral, totalPlanejado: planejado, totalPago: pago };
+  }, [filteredExpenses]);
 
   // Quebra por projeto (cockpit) — só faz sentido no Pessoal, que consolida vários projetos
   const kpiPerProject = useMemo(() => {
@@ -352,6 +357,17 @@ export default function ExpensesPage() {
     onError: (e: Error) => {
       console.error('[expenses] toggle status failed', e);
       toast.error(`Erro ao alterar status: ${e.message}`);
+    },
+  });
+
+  // Toggle de status de UMA parcela específica (quinzena/parcela individual)
+  const toggleParcelaMutation = useMutation({
+    mutationFn: ({ id, parcela, paid }: { id: string; parcela: number; paid: boolean }) =>
+      api.patch(`/projects/${resolveOwnerProjectId(id)}/expenses/${id}/parcela`, { parcela, paid }),
+    onSuccess: invalidate,
+    onError: (e: Error) => {
+      console.error('[expenses] toggle parcela failed', e);
+      toast.error(`Erro ao alterar parcela: ${e.message}`);
     },
   });
 
@@ -853,6 +869,7 @@ export default function ExpensesPage() {
             openEdit={openEdit}
             onDelete={(id) => deleteMutation.mutate(id)}
             onToggleStatus={(id, status) => toggleStatusMutation.mutate({ id, status })}
+            onToggleParcela={(id, parcela, paid) => toggleParcelaMutation.mutate({ id, parcela, paid })}
             onQuickUpdate={(id, valor, data) => {
               const exp = expenses.find((x) => x.id === id);
               const qty = exp?.quantidade ?? 1;

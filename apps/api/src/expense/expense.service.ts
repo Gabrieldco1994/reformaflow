@@ -272,6 +272,16 @@ export class ExpenseService {
 
     const links = await this.resolveLinks(tenantId, projectId, dto);
 
+    // Mudanças em status agregado, forma, valor ou config de parcelamento
+    // invalidam os índices de parcelas pagas — limpa para evitar estado stale.
+    const resetPaidParcelas =
+      dto.status !== undefined ||
+      dto.formaPagamento !== undefined ||
+      dto.quantidadeParcela !== undefined ||
+      dto.valor !== undefined ||
+      dto.quantidade !== undefined ||
+      dto.dataInicioParcela !== undefined;
+
     const expense = await this.prisma.expense.update({
       where: { id },
       data: {
@@ -300,6 +310,7 @@ export class ExpenseService {
               ? null
               : new Date(dto.dataInicioParcela),
         status: dto.status,
+        ...(resetPaidParcelas ? { paidParcelas: null } : {}),
         cardLast4: links.cardLast4,
         bankLast4: links.bankLast4,
         linkedExpenseId: links.linkedExpenseId,
@@ -324,6 +335,11 @@ export class ExpenseService {
     }
     if (planned.settledByExpenseId) {
       throw new BadRequestException('Despesa já foi liquidada');
+    }
+    if (this.parsePaidParcelas(planned.paidParcelas, planned.quantidadeParcela ?? 1).length > 0) {
+      throw new BadRequestException(
+        'Despesa tem parcelas pagas individualmente. Quite as parcelas restantes pelo status de cada parcela.',
+      );
     }
 
     const valorCents = dto.valor !== undefined ? Math.round(dto.valor * 100) : planned.valor;
@@ -383,6 +399,77 @@ export class ExpenseService {
       }
 
       return paidExpense;
+    });
+  }
+
+  /**
+   * Marca/desmarca UMA parcela (0-based) de uma despesa PARCELADO/QUINZENAL como paga.
+   * Não cria clone (diferente de payPlanned): mantém a despesa e ajusta `paidParcelas`
+   * + regenera o fluxo de caixa com status por parcela. Quando todas as parcelas ficam
+   * pagas, a despesa inteira vira status='PAGO' (e paidParcelas é limpo).
+   */
+  async setParcelaStatus(
+    tenantId: string,
+    projectId: string,
+    id: string,
+    parcela: number,
+    paid: boolean,
+  ) {
+    await this.validateProject(tenantId, projectId);
+
+    return this.prisma.$transaction(async (tx) => {
+      const expense = await tx.expense.findFirst({
+        where: { id, projectId, tenantId, deletedAt: null },
+        include: { room: true },
+      });
+      if (!expense) throw new NotFoundException('Despesa não encontrada');
+      if (expense.settledByExpenseId) {
+        throw new BadRequestException('Despesa já foi liquidada');
+      }
+      if (isSinglePaymentForm(expense.formaPagamento)) {
+        throw new BadRequestException('Despesa não é parcelada/quinzenal');
+      }
+      const n = expense.quantidadeParcela ?? 1;
+      if (n <= 1) {
+        throw new BadRequestException('Despesa não possui múltiplas parcelas');
+      }
+      if (!Number.isInteger(parcela) || parcela < 0 || parcela >= n) {
+        throw new BadRequestException('Índice de parcela inválido');
+      }
+
+      // Estado base: se a despesa estava PAGO, todas as parcelas eram pagas.
+      const baseSet =
+        expense.status === 'PAGO'
+          ? new Set<number>(Array.from({ length: n }, (_, i) => i))
+          : new Set<number>(this.parsePaidParcelas(expense.paidParcelas, n));
+
+      if (paid) baseSet.add(parcela);
+      else baseSet.delete(parcela);
+
+      const allPaid = baseSet.size === n;
+      const nextStatus = allPaid ? 'PAGO' : 'PLANEJADO';
+      const nextPaidParcelas =
+        allPaid || baseSet.size === 0
+          ? null
+          : JSON.stringify(Array.from(baseSet).sort((a, b) => a - b));
+
+      const updated = await tx.expense.update({
+        where: { id: expense.id },
+        data: { status: nextStatus, paidParcelas: nextPaidParcelas },
+        include: { room: true },
+      });
+
+      // Regenera o fluxo de caixa com o status por parcela atualizado.
+      await tx.cashFlowEntry.updateMany({
+        where: { expenseId: expense.id, deletedAt: null },
+        data: { deletedAt: new Date() },
+      });
+      const entries = this.buildCashFlowEntries(updated);
+      if (entries.length > 0) {
+        await tx.cashFlowEntry.createMany({ data: entries });
+      }
+
+      return updated;
     });
   }
 
@@ -453,6 +540,7 @@ export class ExpenseService {
     quantidadeParcela: number | null;
     dataInicioParcela: Date | null;
     status: string;
+    paidParcelas?: string | null;
     room: { name: string } | null;
   }) {
     // Tipos "neutros" (transferência entre contas próprias, pagto de fatura)
@@ -464,7 +552,7 @@ export class ExpenseService {
       ? LaborCategoryLabels[expense.categoriaMaoDeObra as keyof typeof LaborCategoryLabels] ?? expense.categoriaMaoDeObra
       : null;
     const ambiente = expense.room?.name ?? null;
-    const status = expense.status === 'PAGO' ? 'PAGO' : 'PLANEJADO';
+    const fullyPaid = expense.status === 'PAGO';
 
     const installments = buildInstallments({
       valorTotal: expense.valorTotal,
@@ -475,8 +563,13 @@ export class ExpenseService {
     });
 
     const singlePayment = isSinglePaymentForm(expense.formaPagamento);
+    // Parcelas pagas individualmente (status por parcela). Quando a despesa
+    // inteira está PAGO, todas as parcelas entram como PAGO independentemente.
+    const paidSet = singlePayment
+      ? new Set<number>()
+      : new Set(this.parsePaidParcelas(expense.paidParcelas, installments.length));
 
-    return installments.map(({ parcela, valor, data }) => ({
+    return installments.map(({ parcela, valor, data }, idx) => ({
       projectId: expense.projectId,
       tenantId: expense.tenantId,
       expenseId: expense.id,
@@ -484,12 +577,33 @@ export class ExpenseService {
       categoria,
       subcategoria,
       ambiente,
-      status,
+      status: fullyPaid || paidSet.has(idx) ? 'PAGO' : 'PLANEJADO',
       valor,
       data,
       formaPagamento: expense.formaPagamento,
       parcela: singlePayment ? null : parcela,
     }));
+  }
+
+  /**
+   * Normaliza o JSON de parcelas pagas: aceita só inteiros no range [0, n),
+   * sem duplicados, ordenados. Nunca confia no formato bruto vindo do banco/cliente.
+   */
+  private parsePaidParcelas(raw: string | null | undefined, n: number): number[] {
+    if (!raw) return [];
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return [];
+    }
+    if (!Array.isArray(parsed)) return [];
+    const set = new Set<number>();
+    for (const v of parsed) {
+      const i = Number(v);
+      if (Number.isInteger(i) && i >= 0 && i < n) set.add(i);
+    }
+    return Array.from(set).sort((a, b) => a - b);
   }
 
   private async validateProject(tenantId: string, projectId: string) {

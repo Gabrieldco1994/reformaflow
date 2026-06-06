@@ -105,6 +105,7 @@ export interface Expense {
   quantidadeParcela?: number;
   dataInicioParcela?: string;
   status: ExpenseStatus;
+  paidParcelas?: string | null; // JSON array de índices 0-based de parcelas pagas
   // Vínculos
   cardLast4?: string | null;
   bankLast4?: string | null;

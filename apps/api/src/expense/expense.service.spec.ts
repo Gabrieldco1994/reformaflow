@@ -382,6 +382,127 @@ describe('ExpenseService', () => {
     });
   });
 
+  describe('setParcelaStatus — pagamento por parcela (quinzenal)', () => {
+    const baseQuinzenal = {
+      id: 'e-q',
+      projectId,
+      tenantId,
+      tipoDespesa: 'MAO_DE_OBRA',
+      categoriaMaoDeObra: 'EMPREITEIRO',
+      roomId: null,
+      valorTotal: 80000,
+      formaPagamento: 'QUINZENAL',
+      dataPagamento: null,
+      quantidadeParcela: 4,
+      dataInicioParcela: new Date('2026-05-18T00:00:00.000Z'),
+      status: 'PLANEJADO',
+      paidParcelas: null,
+      settledByExpenseId: null,
+      room: null,
+    };
+
+    it('marca apenas a parcela 0 como paga, mantendo as demais planejadas', async () => {
+      prisma.expense.findFirst.mockResolvedValue({ ...baseQuinzenal });
+      let updateArg: any;
+      prisma.expense.update.mockImplementation(async (arg: any) => {
+        updateArg = arg;
+        return { ...baseQuinzenal, ...arg.data, room: null };
+      });
+      let createdEntries: any[] = [];
+      prisma.cashFlowEntry.createMany.mockImplementation(async ({ data }: any) => {
+        createdEntries = data;
+        return { count: data.length };
+      });
+
+      await service.setParcelaStatus(tenantId, projectId, 'e-q', 0, true);
+
+      // Persiste paidParcelas=[0] e mantém status agregado PLANEJADO
+      expect(updateArg.data.status).toBe('PLANEJADO');
+      expect(updateArg.data.paidParcelas).toBe('[0]');
+      // Fluxo de caixa: só a 1ª parcela PAGO
+      const statuses = createdEntries.map((e) => e.status);
+      expect(statuses).toEqual(['PAGO', 'PLANEJADO', 'PLANEJADO', 'PLANEJADO']);
+    });
+
+    it('quando todas as parcelas ficam pagas, status vira PAGO e paidParcelas é limpo', async () => {
+      prisma.expense.findFirst.mockResolvedValue({ ...baseQuinzenal, paidParcelas: '[0,1,2]' });
+      let updateArg: any;
+      prisma.expense.update.mockImplementation(async (arg: any) => {
+        updateArg = arg;
+        return { ...baseQuinzenal, ...arg.data, room: null };
+      });
+      let createdEntries: any[] = [];
+      prisma.cashFlowEntry.createMany.mockImplementation(async ({ data }: any) => {
+        createdEntries = data;
+        return { count: data.length };
+      });
+
+      await service.setParcelaStatus(tenantId, projectId, 'e-q', 3, true);
+
+      expect(updateArg.data.status).toBe('PAGO');
+      expect(updateArg.data.paidParcelas).toBeNull();
+      expect(createdEntries.map((e) => e.status)).toEqual(['PAGO', 'PAGO', 'PAGO', 'PAGO']);
+    });
+
+    it('desmarcar uma parcela de despesa PAGA volta para PLANEJADO com as demais pagas', async () => {
+      prisma.expense.findFirst.mockResolvedValue({ ...baseQuinzenal, status: 'PAGO', paidParcelas: null });
+      let updateArg: any;
+      prisma.expense.update.mockImplementation(async (arg: any) => {
+        updateArg = arg;
+        return { ...baseQuinzenal, ...arg.data, room: null };
+      });
+      let createdEntries: any[] = [];
+      prisma.cashFlowEntry.createMany.mockImplementation(async ({ data }: any) => {
+        createdEntries = data;
+        return { count: data.length };
+      });
+
+      await service.setParcelaStatus(tenantId, projectId, 'e-q', 1, false);
+
+      expect(updateArg.data.status).toBe('PLANEJADO');
+      expect(updateArg.data.paidParcelas).toBe('[0,2,3]');
+      expect(createdEntries.map((e) => e.status)).toEqual(['PAGO', 'PLANEJADO', 'PAGO', 'PAGO']);
+    });
+
+    it('rejeita índice de parcela fora do range', async () => {
+      prisma.expense.findFirst.mockResolvedValue({ ...baseQuinzenal });
+      await expect(
+        service.setParcelaStatus(tenantId, projectId, 'e-q', 9, true),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('rejeita despesa não parcelada (A_VISTA)', async () => {
+      prisma.expense.findFirst.mockResolvedValue({
+        ...baseQuinzenal,
+        formaPagamento: 'A_VISTA',
+        quantidadeParcela: null,
+      });
+      await expect(
+        service.setParcelaStatus(tenantId, projectId, 'e-q', 0, true),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
+
+  describe('payPlanned — bloqueio com parcelas pagas', () => {
+    it('rejeita liquidação total quando há parcelas pagas individualmente', async () => {
+      prisma.expense.findFirst.mockResolvedValue({
+        id: 'e-q',
+        projectId,
+        tenantId,
+        formaPagamento: 'QUINZENAL',
+        quantidadeParcela: 4,
+        valor: 20000,
+        quantidade: 1,
+        status: 'PLANEJADO',
+        paidParcelas: '[0]',
+        settledByExpenseId: null,
+      });
+      await expect(
+        service.payPlanned(tenantId, projectId, 'e-q', {} as any),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
+
   describe('remove', () => {
     it('soft-delete da despesa e das entradas do fluxo de caixa', async () => {
       prisma.expense.findFirst.mockResolvedValue({
