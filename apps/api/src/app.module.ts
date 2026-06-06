@@ -30,6 +30,7 @@ import { BankAccountModule } from './bank-account/bank-account.module';
 import { MerchantClassifierModule } from './merchant-classifier/merchant-classifier.module';
 import { TenantFinancialModule } from './tenant-financial/tenant-financial.module';
 import { BudgetAllocationModule } from './budget-allocation/budget-allocation.module';
+import { AgentModule } from './agent/agent.module';
 
 const UPLOADS_DIR = (() => {
   const raw = process.env['UPLOADS_DIR'];
@@ -68,6 +69,7 @@ const UPLOADS_DIR = (() => {
     MerchantClassifierModule,
     TenantFinancialModule,
     BudgetAllocationModule,
+    AgentModule,
   ],
   providers: [
     {

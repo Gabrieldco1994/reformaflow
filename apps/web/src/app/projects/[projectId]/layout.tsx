@@ -28,6 +28,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { NotificationsBell } from '@/components/notifications/NotificationsBell';
+import { FinancialAgentWidget } from '@/components/agent/FinancialAgentWidget';
 
 interface Project {
   id: string;
@@ -405,6 +406,9 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
           </div>
         </nav>
       </div>
+
+      {/* Copiloto Financeiro (chat flutuante) */}
+      <FinancialAgentWidget />
     </ProjectProvider>
   );
 }
