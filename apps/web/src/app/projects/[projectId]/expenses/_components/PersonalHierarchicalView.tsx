@@ -1,7 +1,7 @@
 'use client';
 import React, { useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Edit2, Trash2 } from 'lucide-react';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatDateBR } from '@/lib/utils';
 import type { Expense, ExpenseStatus } from '@/types';
 import {
   groupPersonalExpenses,
@@ -67,7 +67,7 @@ function ExpenseRow({
         <div className="text-[10px] text-gray-500">
           {tipoLabel(e.tipoDespesa)}
           {e.room?.name ? ` · ${e.room.name}` : ''}
-          {dt ? ` · ${new Date(dt).toLocaleDateString('pt-BR')}` : ''}
+          {dt ? ` · ${formatDateBR(dt)}` : ''}
           {parcelas ? ` · ${parcelas}x de ${formatCurrency(Math.round(e.valorTotal / parcelas) / 100)}${isQuinzenal ? ' (quinzenal)' : ''}` : ''}
         </div>
       </div>
