@@ -205,8 +205,10 @@ export default function ExpensesPage() {
       return filteredExpenses.filter((e) => inPeriod(e, period, periodYear));
     }
     // Mês específico: expande parcelas e mantém só a parcela do mês selecionado,
-    // com valor e status próprios da parcela (cada quinzena/parcela tem status
-    // independente — ver paidParcelas).
+    // com valor, data e status próprios da parcela. IMPORTANTE: a data do slice é
+    // ajustada para a data da ocorrência (dataPagamento) e o parcelamento é zerado,
+    // senão a UnifiedExpenseView reagrupa pela data ORIGINAL (mês de início) e a
+    // parcela "vaza" para o mês errado.
     const out: Expense[] = [];
     for (const e of filteredExpenses) {
       const isInst =
@@ -221,6 +223,8 @@ export default function ExpensesPage() {
             ...e,
             valorTotal: occ.occValue,
             quantidadeParcela: 1,
+            dataPagamento: occ.occDate,
+            dataInicioParcela: undefined,
             status: occ.status,
           });
         }
