@@ -1149,7 +1149,7 @@ function FloorPlanViewer({
   const { data: shoppableExpenses = [] } = useQuery<FloorPlanMarkerExpense[]>({
     queryKey: ['expenses-shoppable', PROJECT_ID],
     queryFn: async () => {
-      const all = await api.get<{ items: FloorPlanMarkerExpense[] }>(`/projects/${PROJECT_ID}/expenses?pageSize=500`);
+      const all = await api.get<{ items: FloorPlanMarkerExpense[] }>(`/projects/${PROJECT_ID}/expenses?pageSize=2000`);
       return (all?.items || []).filter((e) => !!e.link);
     },
     enabled: xrayMode || markerDrawingMode || !!pendingMarkerBounds,

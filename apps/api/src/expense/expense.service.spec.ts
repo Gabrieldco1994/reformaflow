@@ -653,11 +653,11 @@ describe('ExpenseService', () => {
       expect(arg.take).toBe(50);
     });
 
-    it('limit é clampado entre 1 e 500', async () => {
+    it('limit é clampado entre 1 e 2000', async () => {
       prisma.expense.findMany.mockResolvedValue([]);
       await service.findCrossProject(tenantId, projectId, { limit: 9999 });
       const arg = prisma.expense.findMany.mock.calls[0]![0];
-      expect(arg.take).toBe(500);
+      expect(arg.take).toBe(2000);
     });
   });
 

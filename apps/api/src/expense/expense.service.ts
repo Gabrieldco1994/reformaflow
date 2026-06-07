@@ -126,7 +126,7 @@ export class ExpenseService {
   ) {
     await this.validateProject(tenantId, projectId);
 
-    const pageSize = Math.min(Math.max(opts.pageSize ?? 100, 10), 500);
+    const pageSize = Math.min(Math.max(opts.pageSize ?? 100, 10), 2000);
     const page = Math.max(opts.page ?? 1, 1);
     const skip = (page - 1) * pageSize;
 
@@ -184,7 +184,7 @@ export class ExpenseService {
     opts: { search?: string; projectId?: string; status?: 'PLANEJADO' | 'PAGO'; limit?: number } = {},
   ) {
     await this.validateProject(tenantId, currentProjectId);
-    const limit = Math.min(Math.max(opts.limit ?? 100, 1), 500);
+    const limit = Math.min(Math.max(opts.limit ?? 100, 1), 2000);
     const where: Prisma.ExpenseWhereInput = {
       tenantId,
       deletedAt: null,

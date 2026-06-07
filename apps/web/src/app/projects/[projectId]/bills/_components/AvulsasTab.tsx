@@ -95,7 +95,7 @@ export function AvulsasTab({ projectId, projectType }: Props) {
 
   const { data: page, isLoading } = useQuery<ExpensesPage>({
     queryKey: ['expenses', projectId, 'bills-avulsas'],
-    queryFn: () => api.get(`/projects/${projectId}/expenses?pageSize=500`),
+    queryFn: () => api.get(`/projects/${projectId}/expenses?pageSize=2000`),
   });
   const all = page?.items ?? [];
 

@@ -100,7 +100,7 @@ export default function ExpensesPage() {
 
   const { data: expensesPage, isLoading } = useQuery<ExpensesPage>({
     queryKey: ['expenses', PROJECT_ID],
-    queryFn: () => api.get(`/projects/${PROJECT_ID}/expenses?pageSize=500`),
+    queryFn: () => api.get(`/projects/${PROJECT_ID}/expenses?pageSize=2000`),
   });
   const expenses = expensesPage?.items ?? [];
 
@@ -113,7 +113,7 @@ export default function ExpensesPage() {
   // para mostrar como itens próprios quanto para resolver linkedExpenseId via remoteMap.
   const { data: crossProjectExpenses = [] } = useQuery<Expense[]>({
     queryKey: ['cross-project-expenses', PROJECT_ID, 'unified-view'],
-    queryFn: () => api.get(`/projects/${PROJECT_ID}/expenses/cross-project?limit=500`),
+    queryFn: () => api.get(`/projects/${PROJECT_ID}/expenses/cross-project?limit=2000`),
     enabled: projectType === 'PESSOAL',
     staleTime: 60_000,
   });

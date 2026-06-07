@@ -156,7 +156,7 @@ export function ShoppableSimulationView() {
 
   const { data: expensesPage } = useQuery<ExpensesPage>({
     queryKey: ['expenses', PROJECT_ID],
-    queryFn: () => api.get(`/projects/${PROJECT_ID}/expenses?pageSize=500`),
+    queryFn: () => api.get(`/projects/${PROJECT_ID}/expenses?pageSize=2000`),
   });
   const expenses: Expense[] = expensesPage?.items ?? [];
 
