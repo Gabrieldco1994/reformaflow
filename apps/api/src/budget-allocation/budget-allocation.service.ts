@@ -215,10 +215,25 @@ export class BudgetAllocationService {
       const available = await this.calculateAvailableBudget(projectId, tenantId);
       const totalExpenses = await this.sumOwnCommittedExpenses(projectId, tenantId);
 
+      // Recebimentos EM_CAIXA (não-linkados) — permite distinguir "não há recebimentos"
+      // de "recebimentos já comprometidos por despesas + alocações" na mensagem da UI.
+      const receipts = await this.prisma.receipt.findMany({
+        where: {
+          projectId,
+          tenantId,
+          deletedAt: null,
+          status: 'EM_CAIXA',
+          linkedReceiptId: null,
+        },
+        select: { valor: true },
+      });
+      const totalReceipts = receipts.reduce((sum, r) => sum + r.valor, 0);
+
       return {
         totalAllocated,
         available,
         totalExpenses,
+        totalReceipts,
         allocations: Object.values(byTargetProject),
       };
     } else {

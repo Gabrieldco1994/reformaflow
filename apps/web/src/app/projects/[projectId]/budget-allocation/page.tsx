@@ -94,6 +94,7 @@ export default function BudgetAllocationPage() {
         available={availableBudget ?? 0}
         totalAllocated={summary?.totalAllocated ?? 0}
         totalExpenses={summary?.totalExpenses ?? 0}
+        totalReceipts={summary?.totalReceipts ?? 0}
         allocations={summary?.allocations ?? []}
       />
 

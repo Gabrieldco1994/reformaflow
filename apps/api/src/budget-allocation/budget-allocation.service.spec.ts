@@ -86,3 +86,47 @@ describe('BudgetAllocationService.calculateAvailableBudget', () => {
     );
   });
 });
+
+describe('BudgetAllocationService.getSummary', () => {
+  let service: BudgetAllocationService;
+  let prisma: PrismaMock;
+  const tenantId = 'tenant-1';
+  const projectId = 'pessoal-1';
+
+  beforeEach(async () => {
+    prisma = makePrismaMock();
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [BudgetAllocationService, { provide: PrismaService, useValue: prisma }],
+    }).compile();
+    service = module.get<BudgetAllocationService>(BudgetAllocationService);
+  });
+
+  it('expõe totalReceipts (EM_CAIXA não-linkado) para a UI distinguir a causa de available=0', async () => {
+    prisma.project.findFirst.mockResolvedValue({ id: projectId, type: 'PESSOAL' });
+    // 1ª chamada (byTargetProject) sem include; 2ª chamada dentro de calculateAvailableBudget.
+    prisma.budgetAllocation.findMany.mockResolvedValue([]);
+    prisma.receipt.findMany.mockResolvedValue([{ valor: 49639995 }]); // R$ 496.399,95 em caixa
+    prisma.expense.findMany.mockResolvedValue([
+      { valorTotal: 53095494, tipoDespesa: 'MATERIAL_CONSTRUCAO' },
+    ]);
+
+    const summary = await service.getSummary(projectId, tenantId);
+
+    // Recebimentos existem, mas despesas excedem → available clampado em 0,
+    // e totalReceipts continua > 0 (a UI usa isso para não dizer "adicione recebimentos").
+    expect(summary.totalReceipts).toBe(49639995);
+    expect(summary.available).toBe(0);
+    expect(summary.totalExpenses).toBe(53095494);
+    expect(prisma.receipt.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          projectId,
+          tenantId,
+          deletedAt: null,
+          status: 'EM_CAIXA',
+          linkedReceiptId: null,
+        }),
+      }),
+    );
+  });
+});

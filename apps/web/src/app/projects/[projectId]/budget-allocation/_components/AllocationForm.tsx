@@ -156,7 +156,7 @@ export default function AllocationForm({ sourceProjectId, onSuccess }: Props) {
 
         {availableBudget === 0 && (
           <p className="text-sm text-orange-600 text-center">
-            ⚠️ Nenhum budget disponível. Adicione recebimentos com status <strong>EM CAIXA</strong> primeiro.
+            ⚠️ Nenhum budget disponível para alocar. Seus recebimentos em caixa já estão comprometidos com despesas e alocações existentes (ou ainda não há recebimentos <strong>EM CAIXA</strong>).
           </p>
         )}
       </form>
