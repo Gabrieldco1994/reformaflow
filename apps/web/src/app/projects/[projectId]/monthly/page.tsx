@@ -3,13 +3,13 @@
 import { useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { Gauge, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Gauge, ChevronLeft, ChevronRight, Wallet, TrendingUp } from 'lucide-react';
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
 import type { MonthlyOverviewResponse } from './_types';
-import { mesLongo } from './_cockpit/format';
-import { COCKPIT_THEME } from './_cockpit/ui';
-import { anosDisponiveis } from './_cockpit/derive';
+import { mesLongo, fmtMoney } from './_cockpit/format';
+import { COCKPIT_THEME, KpiCard } from './_cockpit/ui';
+import { anosDisponiveis, deriveTotals } from './_cockpit/derive';
 import MonthView from './_cockpit/MonthView';
 import YearView from './_cockpit/YearView';
 
@@ -142,6 +142,28 @@ export default function CockpitPage() {
           </div>
         </div>
       </header>
+
+      {data && !isLoading && (() => {
+        const t = deriveTotals(data);
+        return (
+          <div className="grid grid-cols-2 gap-3 mb-5">
+            <KpiCard
+              label="Em caixa agora"
+              value={fmtMoney(t.caixaAgora)}
+              tone={t.caixaAgora >= 0 ? 'pos' : 'neg'}
+              icon={<Wallet className="w-4 h-4" />}
+              context={`Realizado: entradas ${fmtMoney(t.entradasRealizadas)} − saídas ${fmtMoney(t.saidasRealizadas)}`}
+            />
+            <KpiCard
+              label="Saldo projetado"
+              value={fmtMoney(t.saldoProjetado)}
+              tone={t.saldoProjetado >= 0 ? 'pos' : 'neg'}
+              icon={<TrendingUp className="w-4 h-4" />}
+              context={`+ a receber ${fmtMoney(t.entradasPrevistas)} · − a pagar ${fmtMoney(t.saidasPlanejadas)}`}
+            />
+          </div>
+        );
+      })()}
 
       {isLoading && (
         <div className="space-y-4 animate-pulse">

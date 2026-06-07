@@ -331,3 +331,46 @@ export function anosDisponiveis(data: MonthlyOverviewResponse): number[] {
   for (const r of data.meses) set.add(parseMesKey(r.mes).year);
   return Array.from(set).sort();
 }
+
+// ───────────── Totais globais: caixa atual e saldo projetado ─────────────
+
+export interface TotalsDerived {
+  /** Realizado acumulado (entradas EM_CAIXA − saídas PAGO). */
+  caixaAgora: number;
+  /** Caixa atual + futuro conhecido (a receber − a pagar). */
+  saldoProjetado: number;
+  entradasRealizadas: number;
+  saidasRealizadas: number;
+  entradasPrevistas: number;
+  saidasPlanejadas: number;
+}
+
+/**
+ * Totais do "agora" e projetado. Por padrão considera só o projeto PESSOAL
+ * (espelha o consolidado financeiro do extrato+faturas); passe onlyPessoal=false
+ * para incluir os demais projetos.
+ */
+export function deriveTotals(
+  data: MonthlyOverviewResponse,
+  onlyPessoal = true,
+): TotalsDerived {
+  let er = 0, sr = 0, ep = 0, sp = 0;
+  for (const e of data.entries ?? []) {
+    if (onlyPessoal && e.projectType !== 'PESSOAL') continue;
+    const realizado = e.status === 'PAGO' || e.status === 'EM_CAIXA';
+    if (e.tipo === 'RECEBIMENTO') {
+      if (realizado) er += e.valor; else ep += e.valor;
+    } else {
+      if (realizado) sr += e.valor; else sp += e.valor;
+    }
+  }
+  const caixaAgora = er - sr;
+  return {
+    caixaAgora,
+    saldoProjetado: caixaAgora + (ep - sp),
+    entradasRealizadas: er,
+    saidasRealizadas: sr,
+    entradasPrevistas: ep,
+    saidasPlanejadas: sp,
+  };
+}
