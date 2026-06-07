@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, ChevronRight, CreditCard, Landmark } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
+import { isNeutralExpenseType } from '@reformaflow/domain';
 import type { Expense, ExpenseStatus } from '@/types';
 import {
   groupPersonalExpenses,
@@ -71,6 +72,8 @@ function deriveOriginChips(
 ): OriginChip[] {
   const map = new Map<string, OriginChip>();
   for (const e of expenses) {
+    // Pagamento de fatura é neutro (não é gasto real do cartão/conta) — fora dos chips.
+    if (isNeutralExpenseType(e.tipoDespesa)) continue;
     let kind: 'CARTAO' | 'EXTRATO';
     let last4: string;
     if (e.cardLast4) { kind = 'CARTAO'; last4 = e.cardLast4; }
