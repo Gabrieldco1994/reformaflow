@@ -64,6 +64,7 @@ export enum ReceiptType {
   COMISSAO = 'COMISSAO',
   VENDA_BEM = 'VENDA_BEM',
   PRESENTE = 'PRESENTE',
+  PIX_RECEBIDO = 'PIX_RECEBIDO',
   ALOCACAO_ORCAMENTO = 'ALOCACAO_ORCAMENTO', // Budget allocation from PESSOAL
   OUTROS = 'OUTROS',
 }
@@ -108,6 +109,19 @@ export enum ExpenseType {
   IMPREVISTOS = 'IMPREVISTOS',
   OUTROS = 'OUTROS',
   MOVIMENTACAO_INTERNA = 'MOVIMENTACAO_INTERNA',
+  // PESSOAL — categorias do consolidado financeiro (extrato + faturas)
+  PIX_ENVIADO = 'PIX_ENVIADO',
+  COMPRAS_VAREJO = 'COMPRAS_VAREJO',
+  COMPRAS_DEBITO = 'COMPRAS_DEBITO',
+  OBRA_REFORMA = 'OBRA_REFORMA',
+  CONTAS_UTILIDADES = 'CONTAS_UTILIDADES',
+  TELEFONE_INTERNET = 'TELEFONE_INTERNET',
+  IMPOSTOS_IOF = 'IMPOSTOS_IOF',
+  IMPOSTOS_TAXAS = 'IMPOSTOS_TAXAS',
+  TARIFAS_BANCARIAS = 'TARIFAS_BANCARIAS',
+  ESTORNOS_AJUSTES = 'ESTORNOS_AJUSTES',
+  PAGAMENTO_BOLETO = 'PAGAMENTO_BOLETO',
+  TRANSFERENCIA_TED = 'TRANSFERENCIA_TED',
 }
 
 export enum LaborCategory {
@@ -174,6 +188,7 @@ export const ReceiptTypeLabels: Record<ReceiptType, string> = {
   [ReceiptType.COMISSAO]: 'Comissão',
   [ReceiptType.VENDA_BEM]: 'Venda de Bem',
   [ReceiptType.PRESENTE]: 'Presente / Doação',
+  [ReceiptType.PIX_RECEBIDO]: 'PIX Recebido',
   [ReceiptType.ALOCACAO_ORCAMENTO]: 'Alocação de Orçamento',
   [ReceiptType.OUTROS]: 'Outros',
 };
@@ -209,6 +224,18 @@ export const ExpenseTypeLabels: Record<ExpenseType, string> = {
   [ExpenseType.IMPREVISTOS]: 'Imprevistos',
   [ExpenseType.OUTROS]: 'Outros',
   [ExpenseType.MOVIMENTACAO_INTERNA]: 'Movimentação entre contas próprias',
+  [ExpenseType.PIX_ENVIADO]: 'PIX Enviado',
+  [ExpenseType.COMPRAS_VAREJO]: 'Compras / Varejo',
+  [ExpenseType.COMPRAS_DEBITO]: 'Compras no Débito',
+  [ExpenseType.OBRA_REFORMA]: 'Obra / Reforma',
+  [ExpenseType.CONTAS_UTILIDADES]: 'Contas / Utilidades',
+  [ExpenseType.TELEFONE_INTERNET]: 'Telefone / Internet',
+  [ExpenseType.IMPOSTOS_IOF]: 'Impostos / IOF',
+  [ExpenseType.IMPOSTOS_TAXAS]: 'Impostos / Taxas',
+  [ExpenseType.TARIFAS_BANCARIAS]: 'Tarifas Bancárias',
+  [ExpenseType.ESTORNOS_AJUSTES]: 'Estornos / Ajustes',
+  [ExpenseType.PAGAMENTO_BOLETO]: 'Pagamento / Boleto',
+  [ExpenseType.TRANSFERENCIA_TED]: 'Transferência (TED)',
 };
 
 /**

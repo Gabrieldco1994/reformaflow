@@ -74,6 +74,19 @@ const PESSOAL_EXPENSE_TYPES: ExpenseType[] = [
   ExpenseType.IMPREVISTOS,
   ExpenseType.IMPOSTO,
   ExpenseType.MOVIMENTACAO_INTERNA,
+  // Categorias do consolidado financeiro (extrato + faturas)
+  ExpenseType.PIX_ENVIADO,
+  ExpenseType.COMPRAS_VAREJO,
+  ExpenseType.COMPRAS_DEBITO,
+  ExpenseType.OBRA_REFORMA,
+  ExpenseType.CONTAS_UTILIDADES,
+  ExpenseType.TELEFONE_INTERNET,
+  ExpenseType.IMPOSTOS_IOF,
+  ExpenseType.IMPOSTOS_TAXAS,
+  ExpenseType.TARIFAS_BANCARIAS,
+  ExpenseType.ESTORNOS_AJUSTES,
+  ExpenseType.PAGAMENTO_BOLETO,
+  ExpenseType.TRANSFERENCIA_TED,
   ExpenseType.OUTROS,
 ];
 

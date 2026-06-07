@@ -926,25 +926,39 @@ export class BankAccountService {
       const isInternalMov = categoryOverride === 'MOVIMENTACAO_INTERNA'
         || (!categoryOverride && fastClassify(tx.merchant) === 'MOVIMENTACAO_INTERNA');
       if (isInternalMov) {
-        const e = await this.prisma.expense.create({
+        // Resgate/movimentação interna entra como CRÉDITO → é ENTRADA (dinheiro
+        // voltando da aplicação). Vira Receipt RESGATE (preserva a direção, em
+        // linha com o consolidado financeiro). Antes virava Expense, o que
+        // invertia o sinal do resgate.
+        const receipt = await this.prisma.receipt.create({
           data: {
             tenantId,
             projectId,
-            tipoDespesa: 'MOVIMENTACAO_INTERNA',
-            titulo: tx.merchant.slice(0, 200),
-            fornecedor: tx.merchant.slice(0, 200),
             valor: receiptAmount,
-            quantidade: 1,
-            valorTotal: receiptAmount,
-            formaPagamento: 'A_VISTA',
-            dataPagamento: tx.date,
-            status: 'PAGO',
+            data: tx.date,
+            tipo: 'RESGATE',
+            status: 'EM_CAIXA',
+            descricao: tx.merchant.slice(0, 200),
             importId,
             externalId: tx.externalId,
             bankLast4: account.last4,
           },
         });
-        return { inserted: false, receiptInserted: false, cardPayment: false, expenseId: e.id };
+        await this.prisma.cashFlowEntry.create({
+          data: {
+            tenantId,
+            projectId,
+            receiptId: receipt.id,
+            valor: receiptAmount,
+            tipo: 'RECEBIMENTO',
+            categoria: 'RESGATE',
+            subcategoria: account.nickname,
+            formaPagamento: 'CONTA_CORRENTE',
+            data: tx.date,
+            status: 'EM_CAIXA',
+          },
+        });
+        return { inserted: false, receiptInserted: true, cardPayment: false, receiptId: receipt.id };
       }
       const tipoReceipt = classifyCreditType(tx.merchant);
       const receipt = await this.prisma.receipt.create({
