@@ -133,9 +133,13 @@ A migration só cria a coluna com **default 0** — o valor precisa ser inserido
 
 ## 6. Pendências / follow-ups conhecidos
 
-- **`MonthView` (aba "Mês") ainda usa saldo por FLUXO** (`deriveMonth` começa do zero, sem `saldoInicial`).
-  → Rebasear `saldoInicial`/`saldoAtual`/gráfico mensal no **caixa real** (`data.caixa.porMes`) pra não
-  reintroduzir a divergência "Saldo atual (fluxo)" × "Caixa (real)". **Recomendado como fase 2.**
+- ✅ **FEITO (fase 2, commit `cf181e6d`): `MonthView` (aba "Mês") agora usa o CAIXA REAL.**
+  `deriveMonth` rebaseia `saldoInicial`/`saldoAtual` no caixa real (`data.caixa.porMes`/`hoje`) quando há
+  saldo inicial (`temSaldoInicial`), para meses ≤ corrente; meses futuros projetam a partir do caixa real
+  de hoje + fluxo; fallback p/ fluxo quando não há saldo inicial (flag `MonthDerived.caixaReal`). Provado:
+  `saldoAtual(mês corrente) = caixa.hoje = R$ 17.229,74`. Também corrigido bug: `buildSaldoSeries` passou a
+  filtrar `isEspelho` (igual ao `deriveMonth`), evitando dobrar despesa vinculada cross-project no gráfico.
+  Rótulos honestos: "Caixa na conta" (reconciliado) + gráfico "Fluxo de caixa do mês" (inclui cartão).
 - **Glossário de 3 termos** (Caixa / Resultado / Projeção) e **unificar `/financeiro` e `/dashboard`**
   (hoje repetem os mesmos 6 cards genéricos) — fora do escopo desta fase, era a opção "Glossário + unificar telas".
 - **Sparkline** usa `data.caixa.porMes` inteiro; se quiser limitar a 6 meses, fatiar no `deriveCockpitTop`.
