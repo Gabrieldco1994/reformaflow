@@ -7,6 +7,7 @@ import { Modal } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { toast } from 'sonner';
 import { CATEGORIA_MAO_DE_OBRA_OPTIONS, FORMA_PAGAMENTO_OPTIONS } from '@/lib/expense-options';
 import { getExpenseOptions } from '../_types';
 
@@ -161,6 +162,7 @@ export function CreateLinkedExpenseModal({
   const mutation = useMutation<CreatedExpense, Error, void>({
     mutationFn: async () => {
       if (!targetProjectId) throw new Error('Escolha o projeto destino');
+      if (!tipoDespesa) throw new Error('Escolha o tipo da despesa');
       const valorNum = parseFloat(valor.replace(',', '.'));
       if (!valorNum || valorNum <= 0) throw new Error('Valor inválido');
       const qtdNum = parseInt(quantidade, 10) || 1;
@@ -180,28 +182,47 @@ export function CreateLinkedExpenseModal({
         if (quantidadeParcela) payload.quantidadeParcela = parseInt(quantidadeParcela, 10);
         if (dataInicioParcela) payload.dataInicioParcela = dataInicioParcela;
       }
-      return api.post(`/projects/${targetProjectId}/expenses`, payload);
+      // Log diagnóstico para rastrear bugs silenciosos (visível no DevTools/console).
+      // eslint-disable-next-line no-console
+      console.log('[CreateLinkedExpense] POST', `/projects/${targetProjectId}/expenses`, payload);
+      try {
+        const created = await api.post<CreatedExpense>(
+          `/projects/${targetProjectId}/expenses`,
+          payload,
+        );
+        // eslint-disable-next-line no-console
+        console.log('[CreateLinkedExpense] criado', created);
+        return created;
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error('[CreateLinkedExpense] falhou', err);
+        throw err;
+      }
     },
     onSuccess: (created) => {
       // Atualiza caches que dependem da nova despesa
       queryClient.invalidateQueries({ queryKey: ['expenses', targetProjectId] });
       queryClient.invalidateQueries({ queryKey: ['cross-project-expenses'] });
+      toast.success(`Despesa criada em ${created.project?.name ?? 'outro projeto'} e vinculada`);
       onCreated(created);
       onClose();
     },
-    onError: (e) => setError(e.message || 'Erro ao criar despesa'),
+    onError: (e) => {
+      // Mostra o erro no modal (visual) e como toast (caso o usuário não veja inline).
+      setError(e.message || 'Erro ao criar despesa');
+      toast.error(`Erro ao criar despesa: ${e.message || 'desconhecido'}`);
+    },
   });
 
   return (
     <Modal open={open} onClose={onClose} title="Criar despesa em outro projeto e vincular">
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          setError(null);
-          mutation.mutate();
-        }}
-        className="space-y-3"
-      >
+      {/*
+        IMPORTANTE: NÃO usar <form> aqui porque este modal é renderizado DENTRO do
+        <form> do ExpenseFormModal (forms aninhados são inválidos em HTML — o submit
+        borbulha pro form externo e cria/atualiza a despesa pai SEM o vínculo, sem
+        nunca chamar nossa mutation). Usamos <div> + onClick no botão.
+      */}
+      <div className="space-y-3">
         <Select
           label="Projeto destino"
           name="targetProjectId"
@@ -345,11 +366,18 @@ export function CreateLinkedExpenseModal({
 
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
-          <Button type="submit" disabled={mutation.isPending || !targetProjectId}>
+          <Button
+            type="button"
+            disabled={mutation.isPending || !targetProjectId}
+            onClick={() => {
+              setError(null);
+              mutation.mutate();
+            }}
+          >
             {mutation.isPending ? 'Criando…' : 'Criar e vincular'}
           </Button>
         </div>
-      </form>
+      </div>
     </Modal>
   );
 }
