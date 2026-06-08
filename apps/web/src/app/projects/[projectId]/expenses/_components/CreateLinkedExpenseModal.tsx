@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { isSinglePaymentForm } from '@reformaflow/domain';
+import { isSinglePaymentForm, hasFeature, ProjectType } from '@reformaflow/domain';
 import { api } from '@/lib/api';
 import { Modal } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
@@ -74,8 +74,13 @@ export function CreateLinkedExpenseModal({
     enabled: open,
   });
 
+  // Só projetos que têm o módulo de despesas (REFORMA/COMPRA/PESSOAL). CASA/CARRO usam
+  // contas recorrentes/manutenção e a API rejeita POST /expenses com 403 — não podem ser alvo.
   const otherProjects = useMemo(
-    () => projects.filter((p) => p.id !== currentProjectId),
+    () =>
+      projects.filter(
+        (p) => p.id !== currentProjectId && hasFeature(p.type as ProjectType, 'expenses'),
+      ),
     [projects, currentProjectId],
   );
 
@@ -203,6 +208,12 @@ export function CreateLinkedExpenseModal({
           ]}
         />
 
+        {otherProjects.length === 0 && (
+          <p className="text-xs text-amber-600">
+            Nenhum projeto com módulo de despesas para vincular. Projetos do tipo CASA/CARRO usam
+            contas recorrentes e manutenção (não despesas).
+          </p>
+        )}
         {targetProject && (
           <>
             <Select
