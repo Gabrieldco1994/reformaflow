@@ -74,7 +74,7 @@ export function fastClassify(merchant: string): string | null {
   // Alimentação (delivery, padaria, restaurante, conveniência, mercado, fast food)
   if (/^PAY\s+IFD\b|^PAY\s+IFOOD|^ON\s+IFD\b/.test(m)) return 'ALIMENTACAO';
   if (/^PAY\s+RAPPI|^PAY\s+RPP|^PAY\s+(99FOOD|UBER\s*EATS|KEETA)/.test(m)) return 'ALIMENTACAO';
-  if (/^PAY\s+(DONA|BAR|REST|PIZZA|HAMB|BURGER|CAFE|DOC|PADAR|ACOUG|BANCA|BOTEC|NONNA|FORNE|DAPAD|FBQ|NA\s+JA|NAJAN|JIM\s+C|DLKNE|CONVE|OXXO|MC\s*DO|MULTI|DLK|MANIA|TIC\s+T|RIORE|MARCE|INOVA|SAFRA|KEZ|CB\b|MP\b|CASA|54624)/.test(m))
+  if (/^PAY\s+(DONA|BAR|REST|PIZZA|HAMB|BURGER|CAFE|DOC|PADAR|ACOUG|BANCA|BOTEC|NONNA|FORNE|DAPAD|FBQ|NA\s+JA|NAJAN|JIM\s+C|DLKNE|CONVE|OXXO|MC\s*DO|MULTI|DLK|MANIA|TIC\s+T|RIORE|MARCE|INOVA|SAFRA|KEZ|CB\b|MP\b|CASA|54624|MERCA|EMPOR|BITES|PIRAJ|MIX|RESER|RCV|LB\b|RODOS)/.test(m))
     return 'ALIMENTACAO';
   // Transporte (combustível, posto, ride, estacionamento, pedágio)
   if (/^PAY\s+UBR\b|^PAY\s+UBER/.test(m)) return 'TRANSPORTE';
@@ -90,7 +90,7 @@ export function fastClassify(merchant: string): string | null {
   if (/^PAY\s+(TIMO|VIVO|CLARO|TIM|OI|NETFLIX|SPOTIFY|DISNEY|HBO|GOOGLE|APPLE|MICROSOFT|YOUTUBE)/.test(m)) return 'ASSINATURAS';
   // Lazer/viagem/pets
   if (/^PAY\s+(LATAM|GOL|AZUL|DECOLAR|BOOKING|AIRBNB|HOTEL|CINEMA|TEATRO|INGRESSO|ZIG|CINE)/.test(m)) return 'LAZER';
-  if (/^RSCSS\s+LAZY\s+DOG\b|^PAY\s+(PETZ|COBASI|PETSHOP|PET\s*SHOP|VETERIN)/.test(m)) return 'LAZER';
+  if (/^RSCSS\s+LAZY\s+DOG\b|^PAY\s+(PETZ|COBASI|PETSHOP|PET\s*SHOP|VETERIN|FOTO|CINEMA|CINE)|^RSCSS\s+CONVENIENCIA/.test(m)) return 'LAZER';
   // PIX vendor: marketplaces e contrapartes específicas
   if (/^PIX\s+QRS\s+(PIX\s+MARKETP|NU\s+PAGAMENT|MERCADO\s*PAGO|MERCADOPAG)/.test(m)) return 'TRANSFERENCIA';
   return null;
