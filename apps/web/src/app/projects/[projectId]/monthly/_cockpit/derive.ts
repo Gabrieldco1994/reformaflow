@@ -31,6 +31,30 @@ function parseMesKey(mes: string): { year: number; month0: number } {
   return { year: parseInt(y ?? '0', 10), month0: parseInt(m ?? '1', 10) - 1 };
 }
 
+/** Chave YYYY-MM do mês anterior a `mes`. */
+function prevMonthKey(mes: string): string {
+  const { year, month0 } = parseMesKey(mes);
+  const d = new Date(Date.UTC(year, month0 - 1, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+/**
+ * Caixa real (§10) acumulado ao FIM de `mesKey`: último ponto de `porMes` com mês ≤ mesKey,
+ * senão o saldo inicial (opening). `porMes` só tem meses com movimento de conta, então o
+ * saldo "carrega" do último mês com lançamento.
+ */
+function caixaRealAoFimDoMes(
+  caixa: NonNullable<MonthlyOverviewResponse['caixa']>,
+  mesKey: string,
+): number {
+  let val = caixa.saldoInicial;
+  for (const p of [...caixa.porMes].sort((a, b) => a.mes.localeCompare(b.mes))) {
+    if (p.mes <= mesKey) val = p.caixa;
+    else break;
+  }
+  return val;
+}
+
 // ───────────────────────── Visão do mês ─────────────────────────
 
 export interface DiaSaldo {
@@ -63,6 +87,8 @@ export interface MonthDerived {
 
   saldoInicial: number;
   saldoAtual: number;
+  /** true = saldoInicial/saldoAtual são o caixa real (§10) reconciliado; false = fluxo/projeção. */
+  caixaReal: boolean;
   gasteiRealizado: number;
   gasteiPlanejado: number;
   entrouRealizado: number;
@@ -118,11 +144,11 @@ export function deriveMonth(
   // - Meses puramente passados (< hoje): usa o REALIZADO (o que de fato aconteceu).
   // - Meses entre "hoje" e o mês selecionado: usa o TOTAL (assume que o planejado vai
   //   sair) para projetar o saldo de entrada nos meses futuros.
-  let saldoInicial = 0;
+  let saldoInicialFluxo = 0;
   for (const r of data.meses) {
     if (r.mes >= mesAtualKey) continue;
-    if (r.mes < nowKey) saldoInicial += r.saldoMesRealizado;
-    else saldoInicial += r.saldoMes;
+    if (r.mes < nowKey) saldoInicialFluxo += r.saldoMesRealizado;
+    else saldoInicialFluxo += r.saldoMes;
   }
 
   let gasteiRealizado = 0;
@@ -168,7 +194,32 @@ export function deriveMonth(
     }
   }
 
-  const saldoAtual = saldoInicial + entrouRealizado - gasteiRealizado;
+  // Saldo (caixa): por padrão usa o FLUXO (conta+cartão); quando há saldo inicial real
+  // cadastrado (§10), rebaseia no CAIXA REAL reconciliado com o banco, alinhando este
+  // número com o card "Caixa" do topo do cockpit. Meses futuros = projeção a partir do
+  // caixa real de hoje + fluxo projetado (caixaReal=false → rótulo de projeção).
+  let saldoInicial = saldoInicialFluxo;
+  let saldoAtual = saldoInicial + entrouRealizado - gasteiRealizado;
+  let caixaReal = false;
+  if (data.caixa?.temSaldoInicial) {
+    const c = data.caixa;
+    if (mesAtualKey <= nowKey) {
+      saldoInicial = caixaRealAoFimDoMes(c, prevMonthKey(mesAtualKey));
+      saldoAtual = mesAtualKey === nowKey ? c.hoje : caixaRealAoFimDoMes(c, mesAtualKey);
+      caixaReal = true;
+    } else {
+      // Futuro: parte do caixa real de hoje + o que ainda falta acontecer no mês corrente
+      // + o líquido projetado dos meses intermediários.
+      const rowNow = data.meses.find((r) => r.mes === nowKey);
+      let base = c.hoje + (rowNow ? rowNow.saldoMes - rowNow.saldoMesRealizado : 0);
+      for (const r of data.meses) {
+        if (r.mes > nowKey && r.mes < mesAtualKey) base += r.saldoMes;
+      }
+      const rowM = data.meses.find((r) => r.mes === mesAtualKey);
+      saldoInicial = base;
+      saldoAtual = base + (rowM?.saldoMes ?? 0);
+    }
+  }
   const ritmoDiario = hoje > 0 ? Math.round(variavelRealizadoAteHoje / hoje) : 0;
 
   // Categorias de despesa do mês corrente (todas, realizado + planejado).
@@ -195,7 +246,7 @@ export function deriveMonth(
 
   return {
     mesAtualKey, year, month0, hoje, diasNoMes, diasRestantes,
-    saldoInicial, saldoAtual, gasteiRealizado, gasteiPlanejado, entrouRealizado, entrouPrevisto,
+    saldoInicial, saldoAtual, caixaReal, gasteiRealizado, gasteiPlanejado, entrouRealizado, entrouPrevisto,
     ritmoDiario, agendadosPorDia, contasFuturas,
     categorias, maiorGastoVariavel,
     reservaMeses, reservaMeta: 6, despesaMensalMedia,
@@ -207,6 +258,8 @@ export function buildSaldoSeries(m: MonthDerived, entries: MonthlyEntry[], ritmo
   // Realizado acumulado por dia (1..hoje).
   const realizadoPorDia = new Map<number, number>();
   for (const e of entries) {
+    // Mesmo filtro do deriveMonth: espelho cross-project é deduplicado (não dobra).
+    if (e.isEspelho) continue;
     if (!isRealized(e.status)) continue;
     const dia = dayOfMonth(e.data);
     const sign = e.tipo === 'RECEBIMENTO' ? e.valor : -e.valor;

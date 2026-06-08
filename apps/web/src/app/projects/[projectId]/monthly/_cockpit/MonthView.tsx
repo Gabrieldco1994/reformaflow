@@ -39,11 +39,13 @@ export default function MonthView({
     <div className="space-y-4">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <KpiCard
-          label="Saldo atual"
+          label={m.caixaReal ? 'Caixa na conta' : 'Saldo atual'}
           value={fmtMoney(m.saldoAtual)}
           tone={m.saldoAtual >= 0 ? 'accent' : 'neg'}
           icon={<Wallet className="w-4 h-4" />}
-          context={`Começou o mês com ${fmtMoney(m.saldoInicial)}`}
+          context={m.caixaReal
+            ? `Reconciliado com o banco · começou o mês com ${fmtMoney(m.saldoInicial)}`
+            : `Começou o mês com ${fmtMoney(m.saldoInicial)}`}
         />
         <KpiCard
           label="Gastei no mês"
@@ -69,8 +71,10 @@ export default function MonthView({
       </div>
 
       <Card
-        title="Saldo ao longo do mês"
-        hint={`dia ${m.hoje} de ${m.diasNoMes}`}
+        title={m.caixaReal ? 'Fluxo de caixa do mês' : 'Saldo ao longo do mês'}
+        hint={m.caixaReal
+          ? `começa no caixa real · inclui cartão (ainda não debitado)`
+          : `dia ${m.hoje} de ${m.diasNoMes}`}
       >
         <SaldoMesChart serie={serie} hoje={m.hoje} />
         <div className="mt-4 rounded-xl border border-[var(--ck-border)] bg-[var(--ck-surface-2)] p-3">
