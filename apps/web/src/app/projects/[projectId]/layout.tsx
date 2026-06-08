@@ -72,6 +72,7 @@ const FEATURE_NAV: Record<string, NavItem[]> = {
   CASA: [
     { href: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, module: 'dashboard' },
     { href: 'bills', label: 'Contas', icon: CreditCard, module: 'recurringBills' },
+    { href: 'expenses', label: 'Despesas', icon: Receipt, module: 'expenses' },
     { href: 'maintenance', label: 'Manutenções', icon: Wrench, module: 'maintenance' },
     { href: 'reminders', label: 'Lembretes', icon: Bell, module: 'reminders' },
   ],
@@ -79,6 +80,7 @@ const FEATURE_NAV: Record<string, NavItem[]> = {
     { href: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, module: 'dashboard' },
     { href: 'car-info', label: 'Meu Carro', icon: Car, module: 'carInfo' },
     { href: 'bills', label: 'Contas', icon: CreditCard, module: 'recurringBills' },
+    { href: 'expenses', label: 'Despesas', icon: Receipt, module: 'expenses' },
     { href: 'maintenance', label: 'Manutenções', icon: Wrench, module: 'maintenance' },
     { href: 'reminders', label: 'Lembretes', icon: Bell, module: 'reminders' },
   ],
