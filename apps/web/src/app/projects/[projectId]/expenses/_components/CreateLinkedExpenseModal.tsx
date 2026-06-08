@@ -28,6 +28,9 @@ export interface LinkedExpenseDraft {
   dataPagamento?: string;
   quantidadeParcela?: string;
   dataInicioParcela?: string;
+  /** Status da despesa fonte. Herdado pelo alvo p/ manter coerência com o caixa
+   * (espelho PAGO + alvo PLANEJADO faria o consolidado ver como planejada). */
+  status?: 'PLANEJADO' | 'PAGO';
 }
 
 interface CreatedExpense {
@@ -113,7 +116,10 @@ export function CreateLinkedExpenseModal({
     setDataPagamento(defaults.dataPagamento ?? '');
     setQuantidadeParcela(defaults.quantidadeParcela ?? '');
     setDataInicioParcela(defaults.dataInicioParcela ?? '');
-    setStatus('PLANEJADO');
+    // Herda o status da fonte (default PLANEJADO). Coerência: se a fonte PESSOAL é PAGO,
+    // o alvo precisa ser PAGO também — senão o consolidado vê a despesa como planejada
+    // (espelho é deduplicado e o alvo é o canônico).
+    setStatus(defaults.status ?? 'PLANEJADO');
     setRoomId('');
     setTargetProjectId('');
     setError(null);
@@ -210,8 +216,7 @@ export function CreateLinkedExpenseModal({
 
         {otherProjects.length === 0 && (
           <p className="text-xs text-amber-600">
-            Nenhum projeto com módulo de despesas para vincular. Projetos do tipo CASA/CARRO usam
-            contas recorrentes e manutenção (não despesas).
+            Nenhum projeto disponível para vínculo cross-project.
           </p>
         )}
         {targetProject && (

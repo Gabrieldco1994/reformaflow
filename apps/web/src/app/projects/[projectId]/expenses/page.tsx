@@ -1041,6 +1041,7 @@ export default function ExpensesPage() {
           valor,
           quantidade,
           formaPagamento,
+          status: formStatus,
         }}
       />
     </div>

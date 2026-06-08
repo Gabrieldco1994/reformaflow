@@ -26,9 +26,13 @@ export const PROJECT_FEATURES: Record<ProjectType, ProjectFeature[]> = {
   ],
   [ProjectType.CASA]: [
     'dashboard', 'recurringBills', 'maintenance', 'reminders',
+    // Despesas avulsas (one-off) — complementam as recorrentes. Também tornam CASA elegível
+    // como alvo de vínculo cross-project a partir do PESSOAL.
+    'expenses',
   ],
   [ProjectType.CARRO]: [
     'dashboard', 'recurringBills', 'maintenance', 'reminders',
+    'expenses',
   ],
   [ProjectType.PESSOAL]: [
     'monthlyOverview', 'dashboard', 'expenses', 'receipts', 'cashFlow', 'creditCards', 'bankAccounts',

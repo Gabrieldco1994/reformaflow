@@ -51,8 +51,8 @@ export const TYPE_MODULES: Record<string, ModuleSlug[]> = {
   REFORMA: ['expenses', 'receipts', 'cashFlow', 'schedule', 'floorPlans', 'simulation', 'priceCompare', 'rooms'],
   COMPRA: ['expenses', 'receipts', 'cashFlow'],
   PESSOAL: ['monthlyOverview', 'expenses', 'receipts', 'cashFlow', 'creditCards', 'bankAccounts'],
-  CASA: ['recurringBills', 'maintenance', 'reminders'],
-  CARRO: ['carInfo', 'recurringBills', 'maintenance', 'reminders'],
+  CASA: ['recurringBills', 'maintenance', 'reminders', 'expenses'],
+  CARRO: ['carInfo', 'recurringBills', 'maintenance', 'reminders', 'expenses'],
 };
 
 export interface AuthUser {

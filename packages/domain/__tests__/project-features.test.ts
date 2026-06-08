@@ -32,20 +32,22 @@ describe('hasFeature', () => {
     expect(hasFeature(ProjectType.COMPRA, 'priceCompare')).toBe(false);
   });
 
-  it('CASA tem gestão de bens, sem financeiro detalhado', () => {
+  it('CASA tem gestão de bens + despesas avulsas (one-off)', () => {
     expect(hasFeature(ProjectType.CASA, 'dashboard')).toBe(true);
     expect(hasFeature(ProjectType.CASA, 'recurringBills')).toBe(true);
     expect(hasFeature(ProjectType.CASA, 'maintenance')).toBe(true);
     expect(hasFeature(ProjectType.CASA, 'reminders')).toBe(true);
-    expect(hasFeature(ProjectType.CASA, 'expenses')).toBe(false);
+    expect(hasFeature(ProjectType.CASA, 'expenses')).toBe(true);
+    // Não tem receipts/cashFlow detalhado (sem fluxo financeiro próprio).
     expect(hasFeature(ProjectType.CASA, 'receipts')).toBe(false);
   });
 
-  it('CARRO espelha CASA + carInfo via PROJECT_FEATURES', () => {
+  it('CARRO espelha CASA + carInfo via PROJECT_FEATURES (inclui expenses avulsas)', () => {
     expect(hasFeature(ProjectType.CARRO, 'dashboard')).toBe(true);
     expect(hasFeature(ProjectType.CARRO, 'recurringBills')).toBe(true);
     expect(hasFeature(ProjectType.CARRO, 'maintenance')).toBe(true);
     expect(hasFeature(ProjectType.CARRO, 'reminders')).toBe(true);
+    expect(hasFeature(ProjectType.CARRO, 'expenses')).toBe(true);
   });
 });
 
