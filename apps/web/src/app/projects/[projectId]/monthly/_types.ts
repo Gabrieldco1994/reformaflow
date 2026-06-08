@@ -32,6 +32,8 @@ export interface MonthlyEntry {
   projectId: string;
   projectName: string;
   projectType: string;
+  /** Despesa PESSOAL vinculada a outro projeto (espelho). Conta no PESSOAL-only; dedup no consolidado. */
+  isEspelho?: boolean;
 }
 
 export interface MonthlyOverviewResponse {

@@ -127,9 +127,17 @@ export default function ExpensesPage() {
   }, [crossProjectExpenses]);
 
   // Lista consolidada para PESSOAL: despesas locais + despesas dos outros projetos.
+  // Dedup do vínculo cross-project: se uma despesa própria (espelho) referencia um alvo
+  // de outro projeto, o alvo é removido da lista — o espelho é o registro canônico
+  // (mantém o chip de origem do pagamento) e já é agrupado sob o projeto-alvo via
+  // remoteMap/linkedExpenseId. Assim o total do projeto-alvo não conta em dobro.
   const allExpensesPersonal = useMemo<Expense[]>(() => {
     if (projectType !== 'PESSOAL') return expenses;
-    return [...expenses, ...crossProjectExpenses];
+    const linkedTargetIds = new Set(
+      expenses.map((e) => e.linkedExpenseId).filter((id): id is string => !!id),
+    );
+    const crossDeduped = crossProjectExpenses.filter((t) => !linkedTargetIds.has(t.id));
+    return [...expenses, ...crossDeduped];
   }, [projectType, expenses, crossProjectExpenses]);
 
 

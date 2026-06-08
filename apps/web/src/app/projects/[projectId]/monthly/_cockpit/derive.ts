@@ -135,6 +135,9 @@ export function deriveMonth(
   const contasFuturas: ContaFutura[] = [];
 
   for (const e of entries) {
+    // Consolidado (deriveMonth não filtra projeto): espelho deduplicado — o registro
+    // do projeto-alvo é o canônico, coerente com data.meses (linhas espelho-free).
+    if (e.isEspelho) continue;
     const realized = isRealized(e.status);
     const dia = dayOfMonth(e.data);
     if (e.tipo === 'DESPESA') {
@@ -357,6 +360,10 @@ export function deriveTotals(
   let er = 0, sr = 0, ep = 0, sp = 0;
   for (const e of data.entries ?? []) {
     if (onlyPessoal && e.projectType !== 'PESSOAL') continue;
+    // Consolidado: o espelho (despesa PESSOAL vinculada) é deduplicado — o registro do
+    // projeto-alvo é o canônico. No PESSOAL-only o espelho CONTA (a grana saiu da conta
+    // pessoal; o alvo do outro projeto é filtrado pelo projectType acima).
+    if (!onlyPessoal && e.isEspelho) continue;
     const realizado = e.status === 'PAGO' || e.status === 'EM_CAIXA';
     if (e.tipo === 'RECEBIMENTO') {
       if (realizado) er += e.valor; else ep += e.valor;
