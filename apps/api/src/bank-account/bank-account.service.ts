@@ -69,14 +69,26 @@ export function fastClassify(merchant: string): string | null {
   if (/\bENEL\b|\bSABESP\b|\bELETROPAULO\b|\bCOMGAS\b|\bCEMIG\b|\bCOPEL\b|\bLIGHT\b/.test(m)) return 'MORADIA';
   if (/\bIPVA\b|\bIPTU\b|\bDARF\b|\bGPS\b|\bDETRAN\b/.test(m)) return 'OUTROS';
   // PAY xxx — códigos abreviados Itaú; alguns conhecidos:
-  if (/^PAY\s+IFD\b|^PAY\s+IFOOD/.test(m)) return 'ALIMENTACAO';
+  // Alimentação (delivery, padaria, restaurante, conveniência, mercado, fast food)
+  if (/^PAY\s+IFD\b|^PAY\s+IFOOD|^ON\s+IFD\b/.test(m)) return 'ALIMENTACAO';
+  if (/^PAY\s+RAPPI|^PAY\s+RPP|^PAY\s+(99FOOD|UBER\s*EATS|KEETA)/.test(m)) return 'ALIMENTACAO';
+  if (/^PAY\s+(DONA|BAR|REST|PIZZA|HAMB|BURGER|CAFE|DOC|PADAR|ACOUG|BANCA|BOTEC|NONNA|FORNE|DAPAD|FBQ|NA\s+JA|JIM\s+C|DLKNE|CONVE|OXXO|MC\s*DO|MULTI|DLK|MANIA|TIC\s+T|RioRe|Marce|Inova|SAFRA)/.test(m))
+    return 'ALIMENTACAO';
+  // Transporte (combustível, posto, ride, estacionamento)
   if (/^PAY\s+UBR\b|^PAY\s+UBER/.test(m)) return 'TRANSPORTE';
   if (/^PAY\s+99\b/.test(m)) return 'TRANSPORTE';
-  if (/^PAY\s+RAPPI|^PAY\s+RPP/.test(m)) return 'ALIMENTACAO';
-  if (/^PAY\s+(HAVAN|DECAT|LOJAS|SHOPP|RENNER|RIACH|MAGALU|AMERIC|CASAS)/.test(m)) return 'OUTROS';
-  if (/^PAY\s+(DONA|BAR|REST|PIZZA|HAMB|BURGER|CAFE|DOC|PADAR|ACOUG)/.test(m)) return 'ALIMENTACAO';
-  if (/^PAY\s+(POSTO|SHELL|IPIRANGA|PETROBR|ULTRA|BR\s)/.test(m)) return 'TRANSPORTE';
-  if (/^PAY\s+(FARMA|DROGAS|DROGA|HOSP|CLINIC)/.test(m)) return 'SAUDE';
+  if (/^PAY\s+(POSTO|SHELL|IPIRANGA|PETROBR|ULTRA|BR\s|AutoP|ESTAPAR|ZUL\s|PARKING|ESTAC)/.test(m)) return 'TRANSPORTE';
+  // Saúde (farmácia, drogaria, hospital, academia, clínica)
+  if (/^PAY\s+(FARMA|DROGAS|DROGA|HOSP|CLINIC|RAIA|PACHECO|DROGASIL|ACADE|SMARTFIT|GYM|FLEURY|DASA)/.test(m)) return 'SAUDE';
+  // Casa/Reforma (material, construção, decoração)
+  if (/^PAY\s+(LEROY|TOK\s*STOK|TELHA|OBRAMAX|IKEA|HOME\s*CENTER|MADEIRA|CASAS\s+BAHIA)/.test(m)) return 'MORADIA';
+  // Compras gerais (varejo, e-commerce, shopping)
+  if (/^PAY\s+(HAVAN|DECAT|LOJAS|SHOPP|RENNER|RIACH|MAGALU|AMERIC|CASAS|AMAZON|MERC\s*LIVRE|SHEIN|SHOPEE|ZARA|HERING|NIKE|ADIDAS)/.test(m)) return 'COMPRAS_VAREJO';
+  // Assinaturas/telco (operadora, streaming)
+  if (/^PAY\s+(TIMO|VIVO|CLARO|TIM|OI|NETFLIX|SPOTIFY|DISNEY|HBO|GOOGLE|APPLE|MICROSOFT|YOUTUBE)/.test(m)) return 'ASSINATURAS';
+  // Lazer/viagem
+  if (/^PAY\s+(LATAM|GOL|AZUL|DECOLAR|BOOKING|AIRBNB|HOTEL|CINEMA|TEATRO|INGRESSO|ZIG|CINE)/.test(m)) return 'LAZER';
+  // PIX vendor: marketplaces e contrapartes específicas
   if (/^PIX\s+QRS\s+(PIX\s+MARKETP|NU\s+PAGAMENT|MERCADO\s*PAGO|MERCADOPAG)/.test(m)) return 'TRANSFERENCIA';
   return null;
 }

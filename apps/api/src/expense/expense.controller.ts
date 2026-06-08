@@ -150,4 +150,20 @@ export class ExpenseController {
   ) {
     return this.service.remove(tenantId, projectId, id);
   }
+
+  @Post('reclassify')
+  @ApiOperation({
+    summary: 'Reclassifica despesas existentes via fastClassify (corrige imports antigos)',
+  })
+  reclassify(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Query('dryRun') dryRun?: string,
+    @Query('onlyGeneric') onlyGeneric?: string,
+  ) {
+    return this.service.reclassifyByMerchant(tenantId, projectId, {
+      dryRun: dryRun === 'true' || dryRun === '1',
+      onlyGeneric: onlyGeneric !== 'false' && onlyGeneric !== '0',
+    });
+  }
 }

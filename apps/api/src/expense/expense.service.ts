@@ -4,6 +4,7 @@ import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
 import { ExpenseTypeLabels, LaborCategoryLabels, buildInstallments, isSinglePaymentForm, isNeutralExpenseType } from '@reformaflow/domain';
 import { Prisma } from '@prisma/client';
+import { fastClassify } from '../bank-account/bank-account.service';
 
 @Injectable()
 export class ExpenseService {
@@ -256,6 +257,89 @@ export class ExpenseService {
     if (!expense) throw new NotFoundException('Despesa não encontrada');
 
     return expense;
+  }
+
+  /**
+   * Reclassifica despesas existentes do projeto rodando o `fastClassify` sobre o
+   * `titulo` de cada uma. Só atualiza quando: (a) o tipo atual está na lista de
+   * "genéricos" (OUTROS, COMPRAS_DEBITO, etc.) — para não sobrescrever escolhas
+   * manuais do usuário; e (b) o classifier retorna um tipo novo, diferente.
+   *
+   * Útil após adicionar novas regras ao fastClassify ou para corrigir despesas
+   * importadas em lote (ex.: reseed do master que veio tudo como COMPRAS_DEBITO).
+   * Também atualiza o `categoria` dos CashFlowEntry vinculados para manter o
+   * cockpit consistente.
+   */
+  async reclassifyByMerchant(
+    tenantId: string,
+    projectId: string,
+    opts: { onlyGeneric?: boolean; dryRun?: boolean } = {},
+  ) {
+    await this.validateProject(tenantId, projectId);
+    const onlyGeneric = opts.onlyGeneric ?? true;
+    const dryRun = opts.dryRun ?? false;
+
+    const GENERIC_TYPES = new Set(['OUTROS', 'COMPRAS_DEBITO', 'COMPRAS_VAREJO']);
+    const where: Prisma.ExpenseWhereInput = {
+      projectId,
+      tenantId,
+      deletedAt: null,
+      settledByExpenseId: null,
+      linkedExpenseId: null,
+    };
+    if (onlyGeneric) where.tipoDespesa = { in: Array.from(GENERIC_TYPES) };
+
+    const items = await this.prisma.expense.findMany({
+      where,
+      select: { id: true, titulo: true, fornecedor: true, tipoDespesa: true },
+    });
+
+    const updates: Array<{ id: string; from: string; to: string; titulo: string | null }> = [];
+    for (const e of items) {
+      const merchant = (e.titulo ?? e.fornecedor ?? '').trim();
+      if (!merchant) continue;
+      const suggested = fastClassify(merchant);
+      if (!suggested) continue;
+      if (suggested === e.tipoDespesa) continue;
+      // Não reclassifica para tipos neutros (espelho/transferência/mov interna)
+      if (isNeutralExpenseType(suggested)) continue;
+      updates.push({ id: e.id, from: e.tipoDespesa, to: suggested, titulo: e.titulo });
+    }
+
+    if (!dryRun && updates.length > 0) {
+      // Em lotes para não estourar o pool de conexões. Atualiza Expense + CashFlowEntry.
+      const CHUNK = 50;
+      for (let i = 0; i < updates.length; i += CHUNK) {
+        const chunk = updates.slice(i, i + CHUNK);
+        await this.prisma.$transaction([
+          ...chunk.map((u) =>
+            this.prisma.expense.update({
+              where: { id: u.id },
+              data: { tipoDespesa: u.to },
+            }),
+          ),
+          ...chunk.map((u) =>
+            this.prisma.cashFlowEntry.updateMany({
+              where: { expenseId: u.id, deletedAt: null },
+              data: { categoria: u.to },
+            }),
+          ),
+        ]);
+      }
+    }
+
+    // Resumo por tipo destino (para o response)
+    const byTo: Record<string, number> = {};
+    for (const u of updates) byTo[u.to] = (byTo[u.to] ?? 0) + 1;
+
+    return {
+      candidates: items.length,
+      reclassified: dryRun ? 0 : updates.length,
+      dryRunChanges: dryRun ? updates.length : undefined,
+      byTipoDespesa: byTo,
+      samples: updates.slice(0, 10).map((u) => ({ titulo: u.titulo, from: u.from, to: u.to })),
+      dryRun,
+    };
   }
 
   async update(tenantId: string, projectId: string, id: string, dto: UpdateExpenseDto) {
