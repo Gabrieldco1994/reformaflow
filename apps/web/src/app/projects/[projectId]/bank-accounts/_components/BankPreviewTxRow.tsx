@@ -12,6 +12,7 @@ const DEBIT_CATEGORIES = [
   { value: 'SAUDE', label: 'Saúde' },
   { value: 'EDUCACAO', label: 'Educação' },
   { value: 'LAZER', label: 'Lazer' },
+  { value: 'BELEZA', label: 'Beleza' },
   { value: 'ASSINATURAS', label: 'Assinaturas' },
   { value: 'INVESTIMENTOS', label: 'Investimentos' },
   { value: 'SEGUROS_PESSOAIS', label: 'Seguros' },
