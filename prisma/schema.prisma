@@ -556,6 +556,8 @@ model BankAccount {
   accountNumber   String?  @map("account_number") // número formatado (ex: 077424-7)
   last4           String   // últimos 4 dígitos do número (denormalizado, NUNCA o número completo se for sensível)
   notes           String?
+  openingBalanceCents Int      @default(0) @map("opening_balance_cents") // saldo inicial da conta (centavos) na openingBalanceDate — base da reconciliação §10
+  openingBalanceDate  DateTime? @map("opening_balance_date") // data de referência do saldo inicial (ex.: 31/12 do extrato)
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
   deletedAt       DateTime? @map("deleted_at")

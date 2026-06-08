@@ -381,3 +381,89 @@ export function deriveTotals(
     saidasPlanejadas: sp,
   };
 }
+
+// ───────────── Topo do cockpit: Caixa · Resultado · Projeção ─────────────
+
+export interface CockpitTopDerived {
+  /** Caixa base (centavos): real §10 se houver saldo inicial, senão fluxo realizado. */
+  caixaValor: number;
+  /** true = reconciliado com o banco (§10); false = só fluxo realizado (sem saldo inicial). */
+  caixaReal: boolean;
+  /** Variação do caixa no último mês com movimento (centavos). */
+  caixaDelta: number;
+  /** Série de saldo (centavos) para o sparkline. */
+  caixaSpark: number[];
+
+  /** Resultado realizado do mês corrente: entrou − gastou (centavos). */
+  resultadoMes: number;
+  resultadoEntrou: number;
+  resultadoGastou: number;
+  /** Variação % do resultado vs. mês anterior (null se não dá pra comparar). */
+  resultadoDeltaPct: number | null;
+
+  /** Projeção do fim do mês corrente: caixa + a receber − a pagar (centavos). */
+  projecaoMes: number;
+  aReceberMes: number;
+  aPagarMes: number;
+
+  mesAtualKey: string;
+  /** Fração do mês já decorrida (0..1). */
+  pctMesDecorrido: number;
+}
+
+export function deriveCockpitTop(data: MonthlyOverviewResponse): CockpitTopDerived {
+  const totals = deriveTotals(data);
+  const temSaldo = data.caixa?.temSaldoInicial ?? false;
+  const caixaValor = temSaldo ? data.caixa!.hoje : totals.caixaAgora;
+
+  const spark = (data.caixa?.porMes ?? []).map((p) => p.caixa);
+  const caixaDelta =
+    spark.length >= 2 ? spark[spark.length - 1]! - spark[spark.length - 2]! : 0;
+
+  // Mês corrente e anterior a partir das linhas mensais.
+  const sorted = [...data.meses].sort((a, b) => a.mes.localeCompare(b.mes));
+  const idxAtual = sorted.findIndex((r) => r.mes === data.mesAtual);
+  const rowAtual = idxAtual >= 0 ? sorted[idxAtual] : sorted[sorted.length - 1];
+  const rowAnterior = idxAtual > 0 ? sorted[idxAtual - 1] : undefined;
+
+  const resultadoEntrou = rowAtual?.recebimentosRealizados ?? 0;
+  const resultadoGastou = rowAtual?.despesasRealizadas ?? 0;
+  const resultadoMes = resultadoEntrou - resultadoGastou;
+  const resultadoAnterior = rowAnterior
+    ? rowAnterior.recebimentosRealizados - rowAnterior.despesasRealizadas
+    : null;
+  const resultadoDeltaPct =
+    resultadoAnterior != null && resultadoAnterior !== 0
+      ? ((resultadoMes - resultadoAnterior) / Math.abs(resultadoAnterior)) * 100
+      : null;
+
+  // A receber / a pagar do mês corrente (ainda não realizados).
+  const aReceberMes = (rowAtual?.totalRecebimentos ?? 0) - resultadoEntrou;
+  const aPagarMes = (rowAtual?.totalDespesas ?? 0) - resultadoGastou;
+  const projecaoMes = caixaValor + aReceberMes - aPagarMes;
+
+  // Fração do mês decorrida (para a barra de progresso do headline).
+  const [y, m] = data.mesAtual.split('-').map((n) => parseInt(n, 10));
+  const now = new Date();
+  const nowKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const diasNoMes = new Date(Date.UTC(y ?? 1970, m ?? 1, 0)).getUTCDate();
+  let pctMesDecorrido = 1;
+  if (data.mesAtual === nowKey) pctMesDecorrido = Math.min(now.getDate() / diasNoMes, 1);
+  else if (data.mesAtual > nowKey) pctMesDecorrido = 0;
+
+  return {
+    caixaValor,
+    caixaReal: temSaldo,
+    caixaDelta,
+    caixaSpark: spark,
+    resultadoMes,
+    resultadoEntrou,
+    resultadoGastou,
+    resultadoDeltaPct,
+    projecaoMes,
+    aReceberMes,
+    aPagarMes,
+    mesAtualKey: data.mesAtual,
+    pctMesDecorrido,
+  };
+}

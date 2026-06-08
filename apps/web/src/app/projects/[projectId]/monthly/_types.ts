@@ -36,6 +36,18 @@ export interface MonthlyEntry {
   isEspelho?: boolean;
 }
 
+/** Caixa real da conta corrente (reconciliação §10). Valores em centavos. */
+export interface CaixaConta {
+  /** Saldo da conta hoje = saldo inicial + lançamentos realizados da conta. */
+  hoje: number;
+  /** Soma dos saldos iniciais cadastrados nas contas do projeto. */
+  saldoInicial: number;
+  /** Há saldo inicial cadastrado? Se não, `hoje` é só o fluxo (não bate com o banco). */
+  temSaldoInicial: boolean;
+  /** Saldo acumulado ao fim de cada mês (para sparkline e delta). */
+  porMes: Array<{ mes: string; caixa: number }>;
+}
+
 export interface MonthlyOverviewResponse {
   mesAtual: string;
   meses: MonthlyOverviewRow[];
@@ -43,4 +55,5 @@ export interface MonthlyOverviewResponse {
   mesAtualEntries: MonthlyEntry[];
   entries?: MonthlyEntry[];
   projetos: Array<{ id: string; name: string; type: string }>;
+  caixa?: CaixaConta;
 }
