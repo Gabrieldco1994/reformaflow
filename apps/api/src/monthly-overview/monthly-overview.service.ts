@@ -120,6 +120,8 @@ export class MonthlyOverviewService {
       .filter((p) => p.id !== pessoalProjectId)
       .map((p) => ({ id: p.id, name: p.name, type: p.type }));
 
+    const caixa = await this.computeCaixaConta(tenantId, pessoalProjectId);
+
     return {
       mesAtual: currentKey,
       meses: rows,
@@ -127,6 +129,103 @@ export class MonthlyOverviewService {
       mesAtualEntries: currentMonthEntries,
       entries: allEntries,
       projetos: contributingProjects,
+      caixa,
     };
   }
+
+  /**
+   * Caixa real da conta corrente — reconciliação §10 do consolidado financeiro:
+   *
+   *   saldo hoje = saldo inicial (das contas) + Σ lançamentos REALIZADOS da conta
+   *
+   * "Lançamento da conta" = qualquer Expense/Receipt com `bankLast4` preenchido
+   * (extrato, aplicações/resgates e pagamentos de fatura debitados na conta).
+   * Itens de cartão (cardLast4, sem bankLast4) NÃO entram — eles estão na fatura,
+   * não na conta. Lançamentos futuros (PLANEJADO, ex.: seguros agendados) ficam de
+   * fora porque ainda não foram debitados — exatamente o que a §10 manda descontar.
+   *
+   * Diferente de "caixaAgora" do cockpit (fluxo realizado conta+cartão): este bate
+   * com o saldo do app do banco quando o saldo inicial está cadastrado.
+   */
+  private async computeCaixaConta(tenantId: string, projectId: string) {
+    const [accounts, expenses, receipts] = await Promise.all([
+      this.prisma.bankAccount.findMany({
+        where: { tenantId, projectId, deletedAt: null },
+        select: { openingBalanceCents: true, openingBalanceDate: true },
+      }),
+      this.prisma.expense.findMany({
+        where: { tenantId, projectId, deletedAt: null, bankLast4: { not: null } },
+        select: { valorTotal: true, status: true, dataPagamento: true, createdAt: true },
+      }),
+      this.prisma.receipt.findMany({
+        where: { tenantId, projectId, deletedAt: null, bankLast4: { not: null } },
+        select: { valor: true, status: true, data: true },
+      }),
+    ]);
+    return computeCaixaConta(accounts, expenses, receipts);
+  }
+}
+
+/** YYYY-MM em UTC (datas do banco são gravadas em UTC, sem deslocar timezone). */
+function monthKeyOf(d: Date): string {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+export interface CaixaContaAccount {
+  openingBalanceCents: number;
+  openingBalanceDate: Date | null;
+}
+export interface CaixaContaExpense {
+  valorTotal: number;
+  status: string;
+  dataPagamento: Date | null;
+  createdAt: Date;
+}
+export interface CaixaContaReceipt {
+  valor: number;
+  status: string;
+  data: Date;
+}
+
+/**
+ * Reconciliação §10 (função pura, testável): saldo da conta hoje =
+ * saldo inicial + Σ lançamentos REALIZADOS da conta. Espera apenas lançamentos
+ * com `bankLast4` (filtrados pelo chamador). Cartão (sem bankLast4) e futuros
+ * (status ≠ PAGO/EM_CAIXA) ficam de fora.
+ */
+export function computeCaixaConta(
+  accounts: CaixaContaAccount[],
+  expenses: CaixaContaExpense[],
+  receipts: CaixaContaReceipt[],
+) {
+  const saldoInicial = accounts.reduce((s, a) => s + a.openingBalanceCents, 0);
+  const temSaldoInicial = accounts.some(
+    (a) => a.openingBalanceCents !== 0 || a.openingBalanceDate != null,
+  );
+
+  // Lançamentos realizados com sinal (despesa −, recebimento +) e mês de referência.
+  const movs: Array<{ mes: string; valor: number }> = [];
+  for (const e of expenses) {
+    if (e.status !== 'PAGO') continue; // só realizados afetam o caixa
+    const d = e.dataPagamento ?? e.createdAt;
+    movs.push({ mes: monthKeyOf(d), valor: -e.valorTotal });
+  }
+  for (const r of receipts) {
+    if (r.status !== 'EM_CAIXA') continue;
+    movs.push({ mes: monthKeyOf(r.data), valor: r.valor });
+  }
+
+  const netRealizado = movs.reduce((s, m) => s + m.valor, 0);
+
+  // Série mensal acumulada (saldo ao fim de cada mês) para o sparkline.
+  const porMesMap = new Map<string, number>();
+  for (const m of movs) porMesMap.set(m.mes, (porMesMap.get(m.mes) ?? 0) + m.valor);
+  const porMes: Array<{ mes: string; caixa: number }> = [];
+  let acc = saldoInicial;
+  for (const mes of Array.from(porMesMap.keys()).sort()) {
+    acc += porMesMap.get(mes) ?? 0;
+    porMes.push({ mes, caixa: acc });
+  }
+
+  return { hoje: saldoInicial + netRealizado, saldoInicial, temSaldoInicial, porMes };
 }

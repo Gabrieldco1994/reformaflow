@@ -137,18 +137,29 @@ export class BankAccountService {
   async createAccount(tenantId: string, projectId: string, dto: CreateBankAccountDto) {
     await this.ensureProject(tenantId, projectId);
     const nickname = dto.nickname?.trim() || `${dto.institution} ****${dto.last4}`;
+    const { openingBalanceDate, ...rest } = dto;
     return this.prisma.bankAccount.create({
-      data: { ...dto, nickname, tenantId, projectId },
+      data: {
+        ...rest,
+        nickname,
+        tenantId,
+        projectId,
+        ...(openingBalanceDate ? { openingBalanceDate: new Date(openingBalanceDate) } : {}),
+      },
     });
   }
 
   async updateAccount(tenantId: string, projectId: string, id: string, dto: UpdateBankAccountDto) {
     await this.findAccount(tenantId, projectId, id);
-    const data: Record<string, unknown> = { ...dto };
+    const { openingBalanceDate, ...rest } = dto;
+    const data: Record<string, unknown> = { ...rest };
     if (dto.nickname != null) {
       const t = dto.nickname.trim();
       if (t) data.nickname = t;
       else delete data.nickname;
+    }
+    if (openingBalanceDate !== undefined) {
+      data.openingBalanceDate = openingBalanceDate ? new Date(openingBalanceDate) : null;
     }
     await this.prisma.bankAccount.update({ where: { id }, data });
     return this.findAccount(tenantId, projectId, id);

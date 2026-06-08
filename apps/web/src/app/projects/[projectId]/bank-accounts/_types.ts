@@ -5,6 +5,8 @@ export interface BankAccountRow {
   last4: string;
   agency: string | null;
   accountNumber: string | null;
+  openingBalanceCents?: number;
+  openingBalanceDate?: string | null;
 }
 
 export interface BankCrossExpenseMatch {
