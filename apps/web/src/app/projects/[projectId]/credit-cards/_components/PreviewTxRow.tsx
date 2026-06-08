@@ -13,6 +13,8 @@ const PESSOAL_CATEGORIES = [
   { value: 'EDUCACAO', label: 'Educação' },
   { value: 'LAZER', label: 'Lazer' },
   { value: 'BELEZA', label: 'Beleza' },
+  { value: 'PETS', label: 'Pets' },
+  { value: 'SUPERMERCADO', label: 'Supermercado' },
   { value: 'ASSINATURAS', label: 'Assinaturas' },
   { value: 'INVESTIMENTOS', label: 'Investimentos' },
   { value: 'SEGUROS_PESSOAIS', label: 'Seguros' },

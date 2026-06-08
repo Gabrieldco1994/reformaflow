@@ -12,6 +12,7 @@ const PESSOAL_CATEGORY_MAP: Record<string, string> = {
   viagem: 'LAZER',
   saúde: 'SAUDE',
   beleza: 'BELEZA',
+  pets: 'PETS',
   compras: 'OUTROS',
   educação: 'EDUCACAO',
   casa: 'MORADIA',

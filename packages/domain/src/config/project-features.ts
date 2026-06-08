@@ -73,6 +73,8 @@ const PESSOAL_EXPENSE_TYPES: ExpenseType[] = [
   ExpenseType.EDUCACAO,
   ExpenseType.LAZER,
   ExpenseType.BELEZA,
+  ExpenseType.PETS,
+  ExpenseType.SUPERMERCADO,
   ExpenseType.ASSINATURAS,
   ExpenseType.INVESTIMENTOS,
   ExpenseType.SEGUROS_PESSOAIS,
