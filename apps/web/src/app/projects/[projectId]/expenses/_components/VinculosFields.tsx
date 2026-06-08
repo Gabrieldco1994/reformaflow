@@ -210,7 +210,20 @@ export function VinculosFields({
               <div className="mt-1 max-h-48 overflow-auto rounded border border-gray-200 bg-white text-sm shadow-sm">
                 {searching && <div className="px-3 py-2 text-gray-500">Buscando…</div>}
                 {!searching && crossExpenses.length === 0 && (
-                  <div className="px-3 py-2 text-gray-500">Nenhuma despesa encontrada.</div>
+                  <div className="px-3 py-2 text-gray-500">
+                    Nenhuma despesa encontrada nos outros projetos.
+                    {' '}
+                    <button
+                      type="button"
+                      className="font-medium text-blue-700 hover:underline"
+                      onClick={() => {
+                        setSearchOpen(false);
+                        setCreateModalOpen(true);
+                      }}
+                    >
+                      Criar nova em outro projeto →
+                    </button>
+                  </div>
                 )}
                 {crossExpenses.map((exp) => (
                   <button
@@ -235,18 +248,17 @@ export function VinculosFields({
                 ))}
               </div>
             )}
-            <div className="mt-2 flex items-center justify-between gap-2">
-              <p className="text-xs text-gray-500">
-                Vincule esta despesa a outra existente (ex.: pagou material da reforma no cartão pessoal) — evita dupla contagem.
-              </p>
-              <button
-                type="button"
-                className="shrink-0 text-xs font-medium text-blue-700 hover:underline"
-                onClick={() => setCreateModalOpen(true)}
-              >
-                + Criar nova em outro projeto
-              </button>
-            </div>
+            <p className="mt-2 text-xs text-gray-500">
+              Vincule esta despesa a outra de outro projeto (ex.: IPTU pago no Pessoal → atribuído à Casa) para
+              evitar dupla contagem.
+            </p>
+            <button
+              type="button"
+              className="mt-2 w-full rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 transition-colors"
+              onClick={() => setCreateModalOpen(true)}
+            >
+              + Criar despesa em outro projeto e vincular
+            </button>
           </div>
         )}
       </div>
