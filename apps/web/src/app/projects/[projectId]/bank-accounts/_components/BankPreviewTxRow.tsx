@@ -208,6 +208,9 @@ function BankMatchChip({
       <div className="flex-1">
         <span className="font-semibold">{match.projectName}</span>
         <span className="text-gray-500"> · {match.titulo ?? '(sem título)'}</span>
+        {match.kind === 'expense' && match.installmentCurrent && match.installmentTotal && (
+          <span className="text-gray-500"> · parcela {match.installmentCurrent}/{match.installmentTotal}</span>
+        )}
         <span className="text-gray-500"> · {formatCurrency(match.valorCents / 100)}</span>
         <span className="text-gray-400"> · {formatDateBR(match.data)} · Δ {deltaTxt}</span>
       </div>

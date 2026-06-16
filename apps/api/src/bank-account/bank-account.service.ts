@@ -265,8 +265,8 @@ export class BankAccountService {
           });
           const fallbackDate = p.dataPagamento ?? p.dataInicioParcela ?? p.createdAt;
           const candidates = slices.length > 1
-            ? slices.map((s) => ({ value: s.valor, date: new Date(s.data) }))
-            : [{ value: p.valorTotal, date: fallbackDate }];
+            ? slices.map((s, idx) => ({ idx, value: s.valor, date: s.data }))
+            : [{ idx: -1, value: p.valorTotal, date: fallbackDate }];
           const valid = candidates.filter((c) => {
             if (Math.abs(c.value - txCents) > tolerance) return false;
             return c.date >= minDate && c.date <= maxDate;
@@ -289,6 +289,8 @@ export class BankAccountService {
             valorCents: best.value,
             data: best.date.toISOString().slice(0, 10),
             deltaCents: txCents - best.value,
+            installmentCurrent: slices.length > 1 && best.idx >= 0 ? best.idx + 1 : null,
+            installmentTotal: slices.length > 1 ? slices.length : null,
           };
         })
         .filter((m): m is NonNullable<typeof m> => !!m)
@@ -698,8 +700,8 @@ export class BankAccountService {
           });
           const fallbackDate = p.dataPagamento ?? p.dataInicioParcela ?? p.createdAt;
           const candidates = slices.length > 1
-            ? slices.map((s) => ({ value: s.valor, date: new Date(s.data) }))
-            : [{ value: p.valorTotal, date: fallbackDate }];
+            ? slices.map((s, idx) => ({ idx, value: s.valor, date: s.data }))
+            : [{ idx: -1, value: p.valorTotal, date: fallbackDate }];
           const valid = candidates.filter((c) => {
             if (Math.abs(c.value - e.valorTotal) > tolerance) return false;
             return c.date >= minDate && c.date <= maxDate;
@@ -721,6 +723,8 @@ export class BankAccountService {
             valor: best.value,
             data: best.date.toISOString(),
             deltaCents: e.valorTotal - best.value,
+            installmentCurrent: slices.length > 1 && best.idx >= 0 ? best.idx + 1 : null,
+            installmentTotal: slices.length > 1 ? slices.length : null,
           };
         })
         .filter((m): m is NonNullable<typeof m> => !!m)

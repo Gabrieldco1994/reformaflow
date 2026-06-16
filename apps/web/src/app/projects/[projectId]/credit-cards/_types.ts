@@ -20,6 +20,8 @@ export interface CrossProjectMatch {
   valorCents: number;
   data: string;
   deltaCents: number;
+  installmentCurrent?: number | null;
+  installmentTotal?: number | null;
 }
 
 export interface PreviewTx {

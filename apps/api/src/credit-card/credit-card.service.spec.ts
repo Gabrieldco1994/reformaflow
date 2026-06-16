@@ -183,6 +183,8 @@ describe('CreditCardService', () => {
       const result = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'fatura.ofx', 'OFX');
       expect(result.preview[0].crossProjectMatches).toHaveLength(1);
       expect(result.preview[0].crossProjectMatches?.[0]?.valorCents).toBe(666666);
+      expect(result.preview[0].crossProjectMatches?.[0]?.installmentCurrent).toBe(1);
+      expect(result.preview[0].crossProjectMatches?.[0]?.installmentTotal).toBe(3);
     });
 
     it('marca como duplicate quando externalId já existe no projeto', async () => {

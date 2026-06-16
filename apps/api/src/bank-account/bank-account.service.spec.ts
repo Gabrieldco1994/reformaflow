@@ -207,6 +207,8 @@ describe('BankAccountService', () => {
       const tx = result.preview.find((t: any) => t.amountCents > 0);
       expect(tx?.crossProjectMatches?.[0]?.kind).toBe('expense');
       expect((tx?.crossProjectMatches?.[0] as any)?.valorCents).toBe(666666);
+      expect((tx?.crossProjectMatches?.[0] as any)?.installmentCurrent).toBe(1);
+      expect((tx?.crossProjectMatches?.[0] as any)?.installmentTotal).toBe(3);
     });
   });
 
