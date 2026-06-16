@@ -31,7 +31,11 @@ export function ExpenseFiltersBar({
   hasActiveFilters,
   showRooms,
   tipoDespesaOptions,
-}: ExpenseFiltersBarProps) {
+  rangeStart,
+  rangeEnd,
+  onRangeStartChange,
+  onRangeEndChange,
+}: ExpenseFiltersBarProps & { rangeStart?: string; rangeEnd?: string; onRangeStartChange?: (v: string) => void; onRangeEndChange?: (v: string) => void }) {
   return (
     <>
       <div className="flex items-center gap-2">
@@ -117,6 +121,18 @@ export function ExpenseFiltersBar({
               <option value="PLANEJADO">Planejado</option>
               <option value="PAGO">Pago</option>
             </select>
+          </div>
+
+          {/* Período entre dois meses (YYYY-MM) - opcional */}
+          <div>
+            <label className="text-[10px] font-medium text-gray-500 block mb-0.5">Período início</label>
+            <input type="month" value={rangeStart ?? ''} onChange={(e) => onRangeStartChange?.(e.target.value)}
+              className="w-full border border-gray-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300" />
+          </div>
+          <div>
+            <label className="text-[10px] font-medium text-gray-500 block mb-0.5">Período fim</label>
+            <input type="month" value={rangeEnd ?? ''} onChange={(e) => onRangeEndChange?.(e.target.value)}
+              className="w-full border border-gray-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300" />
           </div>
         </div>
       )}

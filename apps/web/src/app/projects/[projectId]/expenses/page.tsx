@@ -197,6 +197,10 @@ export default function ExpensesPage() {
   // Período (filtro mês específico / ano todo) — só usado quando PESSOAL
   const [periodYear] = useState<number>(() => new Date().getFullYear());
   const [period, setPeriod] = useState<PeriodFilter>(() => currentPeriod());
+  // Range filter: start and end in format YYYY-MM (optional)
+  const [rangeStart, setRangeStart] = useState<string>('');
+  const [rangeEnd, setRangeEnd] = useState<string>('');
+
   const allPeriods = useMemo(
     () => projectType === 'PESSOAL' ? listPeriods(filteredExpenses, periodYear) : [],
     [projectType, filteredExpenses, periodYear],
@@ -209,9 +213,43 @@ export default function ExpensesPage() {
   };
   const periodFilteredPersonal = useMemo<Expense[]>(() => {
     if (projectType !== 'PESSOAL') return filteredExpenses;
+
+    // If a range is specified (both start and end), use it to filter occurrences
+    if (rangeStart && rangeEnd) {
+      const out: Expense[] = [];
+      const startDate = new Date(`${rangeStart}-01`);
+      const tmp = new Date(`${rangeEnd}-01`);
+      // move to last day of end month
+      const endDate = new Date(tmp.getFullYear(), tmp.getMonth() + 1, 0);
+      for (const e of filteredExpenses) {
+        const isInst =
+          (e.formaPagamento === 'PARCELADO' || e.formaPagamento === 'QUINZENAL') &&
+          (e.quantidadeParcela ?? 1) > 1;
+        for (const occ of expandExpenseOccurrences(e)) {
+          if (!occ.occDate) continue;
+          const occDateObj = new Date(occ.occDate);
+          if (occDateObj < startDate || occDateObj > endDate) continue;
+          if (!isInst) {
+            out.push(e);
+          } else {
+            out.push({
+              ...e,
+              valorTotal: occ.occValue,
+              quantidadeParcela: 1,
+              dataPagamento: occ.occDate,
+              dataInicioParcela: undefined,
+              status: occ.status,
+            });
+          }
+        }
+      }
+      return out;
+    }
+
     if (period === 'ALL') {
       return filteredExpenses.filter((e) => inPeriod(e, period, periodYear));
     }
+
     // Mês específico: expande parcelas e mantém só a parcela do mês selecionado,
     // com valor, data e status próprios da parcela. IMPORTANTE: a data do slice é
     // ajustada para a data da ocorrência (dataPagamento) e o parcelamento é zerado,
@@ -239,7 +277,7 @@ export default function ExpensesPage() {
       }
     }
     return out;
-  }, [projectType, filteredExpenses, period, periodYear]);
+  }, [projectType, filteredExpenses, period, periodYear, rangeStart, rangeEnd]);
 
   // KPIs (excluem tipos neutros — movimentação interna / pagto fatura).
   // Em PESSOAL respeitam o período selecionado (mês clicado / ano todo); nos demais
@@ -762,6 +800,10 @@ export default function ExpensesPage() {
         hasActiveFilters={hasActiveFilters}
         showRooms={showRooms}
         tipoDespesaOptions={TIPO_DESPESA_OPTIONS}
+        rangeStart={rangeStart}
+        rangeEnd={rangeEnd}
+        onRangeStartChange={setRangeStart}
+        onRangeEndChange={setRangeEnd}
       />
 
       {/* Toggle de visão (Categoria / Mês / Por projeto) — logo abaixo da busca */}
