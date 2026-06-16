@@ -231,4 +231,31 @@ describe('BankAccountService', () => {
       expect(call.data.tipoDespesa).toBe('MORADIA');
     });
   });
+
+  describe('linkToExpense', () => {
+    it('permite re-link quando a despesa alvo já está PAGO', async () => {
+      prisma.expense.findFirst
+        .mockResolvedValueOnce({
+          id: 'src1',
+          tenantId: 't1',
+          projectId: 'pessoal1',
+          bankLast4: '5678',
+          dataPagamento: new Date('2026-04-29'),
+          dataInicioParcela: null,
+          createdAt: new Date('2026-04-29'),
+        })
+        .mockResolvedValueOnce({
+          id: 'tgt1',
+          tenantId: 't1',
+          projectId: 'casa1',
+          status: 'PAGO',
+        });
+
+      await expect(
+        service.linkToExpense('t1', 'pessoal1', 'src1', 'tgt1'),
+      ).resolves.toEqual(
+        expect.objectContaining({ ok: true, sourceId: 'src1', targetId: 'tgt1' }),
+      );
+    });
+  });
 });

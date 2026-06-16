@@ -698,9 +698,6 @@ export class BankAccountService {
         where: { id: targetExpenseId, tenantId, deletedAt: null },
       });
       if (!target) throw new NotFoundException('Despesa alvo não encontrada');
-      if (target.status === 'PAGO') {
-        throw new BadRequestException('Despesa alvo já está paga — desvincule antes de re-linkar');
-      }
       if (target.projectId === projectId) {
         throw new BadRequestException('Alvo deve estar em outro projeto');
       }

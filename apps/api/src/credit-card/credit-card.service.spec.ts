@@ -267,6 +267,32 @@ describe('CreditCardService', () => {
       expect(res.inserted).toBe(1);
       expect(prisma.$transaction).toHaveBeenCalled();
     });
+
+    it('decision.link também atualiza alvo já PAGO (re-link)', async () => {
+      const ofx = buildOfx(ofxFor('20260429', 100, 'LOJA Z', 'LK2'));
+      prisma.expense.findFirst
+        .mockResolvedValueOnce({
+          id: 'src2', tenantId: 't1', projectId: 'pessoal1',
+          cardLast4: '1234', dataPagamento: new Date('2026-04-29'),
+          dataInicioParcela: null, createdAt: new Date(), linkedExpenseId: null,
+        })
+        .mockResolvedValueOnce({
+          id: 'tgt2', tenantId: 't1', projectId: 'casa1',
+          status: 'PAGO', dataPagamento: new Date('2026-04-10'), dataInicioParcela: null,
+        });
+
+      prisma.expense.create.mockResolvedValueOnce({ id: 'src2' });
+      const preview = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX');
+      const ext = preview.preview[0].externalId;
+
+      const res = await service.commitImport(
+        't1', 'pessoal1', 'card1',
+        Buffer.from(ofx), 'f.ofx', 'OFX',
+        undefined, undefined,
+        [{ externalId: ext, action: 'link', linkToExpenseId: 'tgt2' }],
+      );
+
+      expect(res.linked).toBe(1);
+    });
   });
 });
-
