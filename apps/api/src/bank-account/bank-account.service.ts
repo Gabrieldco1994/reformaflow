@@ -705,26 +705,69 @@ export class BankAccountService {
         throw new BadRequestException('Alvo deve estar em outro projeto');
       }
 
-      await tx.expense.update({
+      // Sobrescreve a despesa alvo com os valores/data/parcelas da fonte (comportamento solicitado)
+      const updatedTarget = await tx.expense.update({
         where: { id: target.id },
         data: {
           status: 'PAGO',
-          dataPagamento: target.dataPagamento ?? target.dataInicioParcela ?? paymentDate,
+          valor: source.valor,
+          quantidade: source.quantidade,
+          valorTotal: source.valorTotal,
+          quantidadeParcela: source.quantidadeParcela,
+          dataInicioParcela: source.dataInicioParcela ?? null,
+          // dataPagamento: usar a data da fonte quando disponível, senão a data de parcela/createdAt
+          dataPagamento: source.dataPagamento ?? source.dataInicioParcela ?? paymentDate,
         },
       });
+
+      // Regenera as entradas de cashflow para refletir os novos valores e status
       await tx.cashFlowEntry.updateMany({
-        where: {
+        where: { expenseId: target.id, deletedAt: null },
+        data: { deletedAt: new Date() },
+      });
+
+      // Não gera entradas para tipos neutros
+      const isNeutral = (() => {
+        try {
+          // Import local to evitar circular import de DI
+          const { isNeutralExpenseType } = require('@reformaflow/domain');
+          return isNeutralExpenseType(updatedTarget.tipoDespesa);
+        } catch {
+          return false;
+        }
+      })();
+
+      if (!isNeutral) {
+        // Reconstrói parcelas (reaproveita utilitário do domain)
+        const { buildInstallments, isSinglePaymentForm, ExpenseTypeLabels } = require('@reformaflow/domain');
+        const installments = buildInstallments({
+          valorTotal: updatedTarget.valorTotal,
+          formaPagamento: updatedTarget.formaPagamento,
+          dataPagamento: updatedTarget.dataPagamento,
+          quantidadeParcela: updatedTarget.quantidadeParcela,
+          dataInicioParcela: updatedTarget.dataInicioParcela,
+        });
+
+        const categoria = (ExpenseTypeLabels[updatedTarget.tipoDespesa] ?? updatedTarget.tipoDespesa) as string;
+        const entries = installments.map(({ parcela, valor, data }: { parcela: number; valor: number; data: string }) => ({
+          projectId: updatedTarget.projectId,
           tenantId,
-          expenseId: target.id,
-          status: { in: ['PLANEJADO', 'PREVISTO'] },
-          deletedAt: null,
-        },
-        data: { status: 'PAGO' },
-      });
-      await tx.expense.update({
-        where: { id: source.id },
-        data: { linkedExpenseId: target.id },
-      });
+          expenseId: updatedTarget.id,
+          tipo: 'DESPESA',
+          categoria,
+          subcategoria: updatedTarget.categoriaMaoDeObra ?? null,
+          ambiente: null,
+          status: 'PAGO',
+          valor,
+          data,
+          formaPagamento: updatedTarget.formaPagamento,
+          parcela: isSinglePaymentForm(updatedTarget.formaPagamento) ? null : parcela,
+        }));
+
+        if (entries.length > 0) await tx.cashFlowEntry.createMany({ data: entries });
+      }
+
+      await tx.expense.update({ where: { id: source.id }, data: { linkedExpenseId: target.id } });
 
       return { targetId: target.id };
     });
