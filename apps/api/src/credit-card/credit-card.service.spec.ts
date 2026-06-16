@@ -26,6 +26,7 @@ function makePrismaMock() {
     cashFlowEntry: {
       findFirst: jest.fn(),
       create: jest.fn().mockResolvedValue({}),
+      createMany: jest.fn().mockResolvedValue({ count: 0 }),
       update: jest.fn().mockResolvedValue({}),
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
