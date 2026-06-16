@@ -121,6 +121,9 @@ export default function LinkSuggestionsPanel({ projectId, card, onClose }: Props
                             <span className={`text-xs px-1.5 py-0.5 rounded ${badge.color} mr-1`}>{badge.label}</span>
                             <span className="text-gray-700">{s.projectName} · {s.titulo ?? s.fornecedor}</span>
                             <span className="text-xs text-gray-500 ml-2">
+                              {s.installmentCurrent && s.installmentTotal
+                                ? `parcela ${s.installmentCurrent}/${s.installmentTotal} · `
+                                : ''}
                               {formatCurrency(s.valor / 100)} · {formatDateBR(s.data)}
                             </span>
                           </div>

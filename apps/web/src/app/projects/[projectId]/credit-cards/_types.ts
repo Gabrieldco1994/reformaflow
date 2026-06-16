@@ -83,5 +83,7 @@ export interface SuggestionRow {
     data: string;
     status: string;
     matchScore: number;
+    installmentCurrent?: number | null;
+    installmentTotal?: number | null;
   }>;
 }

@@ -96,6 +96,8 @@ export interface BankSuggestionRow {
     valor: number;
     data: string;
     deltaCents: number;
+    installmentCurrent?: number | null;
+    installmentTotal?: number | null;
   }>;
 }
 
