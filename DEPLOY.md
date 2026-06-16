@@ -156,6 +156,20 @@ flyctl deploy --app reformaflow-api -c apps/api/fly.toml --dockerfile apps/api/D
 
 ## Troubleshooting
 
+**Deployment checklist (documentado — executado por Copilot CLI)**
+
+1. Commit e push para branch `main` (ex.: `git push origin main`). Pre-commit hooks rodam TypeScript checks em `packages/domain`, `apps/api`, `apps/web` (bloqueiam commit se falhar). Veja `package.json` scripts e hooks.
+2. Se o push falhar por permissão (403), rodar: `unset GH_TOKEN && gh auth switch -u <your-github-username>` e então `git push origin main`.
+3. O GitHub Actions `CI` é disparado automaticamente. Verificar status: `gh run list --repo <owner>/<repo> --branch main` e `gh run view <run-id>` para log.
+4. Vercel detecta push e inicia deploy automático (se projeto conectado). Verificar no painel Vercel ou `vercel --prod`/`vercel ls` com CLI autenticada.
+5. Após deploy, validar:
+   - API em `NEXT_PUBLIC_API_URL` responde `/api/docs`.
+   - Fazer smoke tests: `curl -sI $NEXT_PUBLIC_API_URL/api/docs` e validar 200.
+6. Se algo falhar, ver logs do GitHub Actions (build) e Fly/Vercel logs (flyctl logs / Vercel UI).
+
+> Observação de segurança: nunca comitar tokens ou secrets. Use `flyctl secrets set` e `vercel env add`.
+
+
 **"Database locked" no Fly**
 - SQLite não suporta múltiplas réplicas. Mantenha `min_machines_running = 0` ou `1` (nunca 2+).
 
