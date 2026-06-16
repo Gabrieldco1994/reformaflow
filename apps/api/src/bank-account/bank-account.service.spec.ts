@@ -114,6 +114,8 @@ describe('BankAccountService', () => {
           titulo: 'PEDREIRO JOÃO',
           fornecedor: null,
           valorTotal: 50000,
+          formaPagamento: 'A_VISTA',
+          quantidadeParcela: null,
           dataInicioParcela: new Date('2026-04-29'),
           dataPagamento: null,
           createdAt: new Date('2026-04-01'),
@@ -179,6 +181,32 @@ describe('BankAccountService', () => {
       expect(result.totalDebits).toBeGreaterThanOrEqual(0);
       expect(result.totalCredits).toBeGreaterThanOrEqual(0);
       expect(result.total).toBe(result.preview.length);
+    });
+
+    it('faz match por valor de parcela para despesa parcelada no projeto CASA', async () => {
+      prisma.project.findMany.mockResolvedValue([
+        { id: 'casa1', name: 'Casa', type: 'CASA' },
+      ]);
+      prisma.expense.findMany.mockResolvedValue([
+        {
+          id: 'exp-parc',
+          projectId: 'casa1',
+          titulo: 'Infra+Eletrica+Hidraulica+Demolição',
+          fornecedor: null,
+          valorTotal: 2000000,
+          formaPagamento: 'PARCELADO',
+          quantidadeParcela: 3,
+          dataInicioParcela: new Date('2026-04-29'),
+          dataPagamento: null,
+          createdAt: new Date('2026-04-01'),
+        },
+      ]);
+
+      const ofx = buildBankOfx(ofxBankFor('20260429', 666666, 'INFRA', 'P1'));
+      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX');
+      const tx = result.preview.find((t: any) => t.amountCents > 0);
+      expect(tx?.crossProjectMatches?.[0]?.kind).toBe('expense');
+      expect((tx?.crossProjectMatches?.[0] as any)?.valorCents).toBe(666666);
     });
   });
 

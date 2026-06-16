@@ -88,6 +88,8 @@ describe('CreditCardService', () => {
           titulo: 'POLO MARMORESS',
           fornecedor: null,
           valorTotal: 215834,
+          formaPagamento: 'A_VISTA',
+          quantidadeParcela: null,
           dataInicioParcela: new Date('2026-04-28'),
           dataPagamento: null,
           createdAt: new Date('2026-04-01'),
@@ -117,6 +119,8 @@ describe('CreditCardService', () => {
           titulo: 'POLO',
           fornecedor: null,
           valorTotal: 100000,
+          formaPagamento: 'A_VISTA',
+          quantidadeParcela: null,
           dataInicioParcela: new Date('2026-04-28'),
           dataPagamento: null,
           createdAt: new Date('2026-04-01'),
@@ -138,6 +142,8 @@ describe('CreditCardService', () => {
           titulo: 'POLO',
           fornecedor: null,
           valorTotal: 215834,
+          formaPagamento: 'A_VISTA',
+          quantidadeParcela: null,
           dataInicioParcela: new Date('2026-01-01'),
           dataPagamento: null,
           createdAt: new Date('2026-01-01'),
@@ -152,6 +158,31 @@ describe('CreditCardService', () => {
       const ofx = buildOfx(ofxFor('20260429', 100, 'LOJA', 'X4'));
       const result = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX');
       expect(Array.isArray(result.futureInstallments)).toBe(true);
+    });
+
+    it('faz match por valor de parcela para despesas parceladas de outro projeto', async () => {
+      prisma.project.findMany.mockResolvedValue([
+        { id: 'casa1', name: 'Casa', type: 'CASA' },
+      ]);
+      prisma.expense.findMany.mockResolvedValue([
+        {
+          id: 'exp-parc',
+          projectId: 'casa1',
+          titulo: 'Infra+Eletrica+Hidraulica+Demolição',
+          fornecedor: null,
+          valorTotal: 2000000,
+          formaPagamento: 'PARCELADO',
+          quantidadeParcela: 3,
+          dataInicioParcela: new Date('2026-04-29'),
+          dataPagamento: null,
+          createdAt: new Date('2026-04-01'),
+        },
+      ]);
+
+      const ofx = buildOfx(ofxFor('20260429', 6666.66, 'INFRA', 'PX1'));
+      const result = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'fatura.ofx', 'OFX');
+      expect(result.preview[0].crossProjectMatches).toHaveLength(1);
+      expect(result.preview[0].crossProjectMatches?.[0]?.valorCents).toBe(666666);
     });
 
     it('marca como duplicate quando externalId já existe no projeto', async () => {

@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { ExpenseTypeLabels } from '@reformaflow/domain';
+import { ExpenseTypeLabels, buildInstallments } from '@reformaflow/domain';
 import { CreateCreditCardDto, UpdateCreditCardDto } from './dto/credit-card.dto';
 import { parseStatementBuffer, type SourceHint, type NormalizedTx, type ParseResult } from './parsers';
 
@@ -120,7 +120,10 @@ export class CreditCardService {
           where: {
             tenantId,
             projectId: { in: otherProjects.map((p) => p.id) },
-            status: 'PLANEJADO',
+            OR: [
+              { status: 'PLANEJADO' },
+              { status: 'PAGO', quantidadeParcela: { gt: 1 } },
+            ],
             linkedExpenseId: null,
             deletedAt: null,
           },
@@ -136,14 +139,30 @@ export class CreditCardService {
       const maxDate = new Date(txDate); maxDate.setUTCDate(maxDate.getUTCDate() + 10);
       const txCents = tx.amountCents;
       const tolerance = Math.max(100, Math.round(txCents * 0.05));
-      return planned
-        .filter((p) => {
-          if (Math.abs(p.valorTotal - txCents) > tolerance) return false;
-          const pDate = p.dataPagamento ?? p.dataInicioParcela ?? p.createdAt;
-          return pDate >= minDate && pDate <= maxDate;
-        })
-        .slice(0, 5)
+      const scored = planned
         .map((p) => {
+          const slices = buildInstallments({
+            valorTotal: p.valorTotal,
+            formaPagamento: p.formaPagamento,
+            dataPagamento: p.dataPagamento,
+            quantidadeParcela: p.quantidadeParcela,
+            dataInicioParcela: p.dataInicioParcela,
+          });
+          const fallbackDate = p.dataPagamento ?? p.dataInicioParcela ?? p.createdAt;
+          const candidates = slices.length > 1
+            ? slices.map((s) => ({ value: s.valor, date: new Date(s.data) }))
+            : [{ value: p.valorTotal, date: fallbackDate }];
+          const valid = candidates.filter((c) => {
+            if (Math.abs(c.value - txCents) > tolerance) return false;
+            return c.date >= minDate && c.date <= maxDate;
+          });
+          if (valid.length === 0) return null;
+          const best = valid.sort((a, b) => {
+            const deltaA = Math.abs(a.value - txCents);
+            const deltaB = Math.abs(b.value - txCents);
+            if (deltaA !== deltaB) return deltaA - deltaB;
+            return Math.abs(a.date.getTime() - txDate.getTime()) - Math.abs(b.date.getTime() - txDate.getTime());
+          })[0];
           const proj = projectById.get(p.projectId);
           return {
             expenseId: p.id,
@@ -152,11 +171,14 @@ export class CreditCardService {
             projectType: proj?.type ?? '',
             titulo: p.titulo,
             fornecedor: p.fornecedor,
-            valorCents: p.valorTotal,
-            data: (p.dataPagamento ?? p.dataInicioParcela ?? p.createdAt).toISOString().slice(0, 10),
-            deltaCents: txCents - p.valorTotal,
+            valorCents: best.value,
+            data: best.date.toISOString().slice(0, 10),
+            deltaCents: txCents - best.value,
           };
-        });
+        })
+        .filter((m): m is NonNullable<typeof m> => !!m)
+        .sort((a, b) => Math.abs(a.deltaCents) - Math.abs(b.deltaCents));
+      return scored.slice(0, 5);
     }
 
     const preview = parsed.transactions.map((tx) => ({
@@ -342,7 +364,10 @@ export class CreditCardService {
       where: {
         tenantId,
         projectId: { in: otherIds },
-        status: 'PLANEJADO',
+        OR: [
+          { status: 'PLANEJADO' },
+          { status: 'PAGO', quantidadeParcela: { gt: 1 } },
+        ],
         deletedAt: null,
       },
       take: 500,
@@ -357,23 +382,44 @@ export class CreditCardService {
       const tolerance = Math.max(100, Math.round(e.valorTotal * 0.05));
 
       const matches = planned
-        .filter((p) => {
-          if (Math.abs(p.valorTotal - e.valorTotal) > tolerance) return false;
-          const pDate = p.dataPagamento ?? p.dataInicioParcela ?? p.createdAt;
-          return pDate >= minDate && pDate <= maxDate;
+        .map((p) => {
+          const slices = buildInstallments({
+            valorTotal: p.valorTotal,
+            formaPagamento: p.formaPagamento,
+            dataPagamento: p.dataPagamento,
+            quantidadeParcela: p.quantidadeParcela,
+            dataInicioParcela: p.dataInicioParcela,
+          });
+          const fallbackDate = p.dataPagamento ?? p.dataInicioParcela ?? p.createdAt;
+          const candidates = slices.length > 1
+            ? slices.map((s) => ({ value: s.valor, date: new Date(s.data) }))
+            : [{ value: p.valorTotal, date: fallbackDate }];
+          const valid = candidates.filter((c) => {
+            if (Math.abs(c.value - e.valorTotal) > tolerance) return false;
+            return c.date >= minDate && c.date <= maxDate;
+          });
+          if (valid.length === 0) return null;
+          const best = valid.sort((a, b) => {
+            const deltaA = Math.abs(a.value - e.valorTotal);
+            const deltaB = Math.abs(b.value - e.valorTotal);
+            if (deltaA !== deltaB) return deltaA - deltaB;
+            return Math.abs(a.date.getTime() - baseDate.getTime()) - Math.abs(b.date.getTime() - baseDate.getTime());
+          })[0];
+          return {
+            expenseId: p.id,
+            projectId: p.projectId,
+            projectName: projectById.get(p.projectId)?.name ?? '',
+            projectType: projectById.get(p.projectId)?.type ?? '',
+            titulo: p.titulo,
+            fornecedor: p.fornecedor,
+            valor: best.value,
+            data: best.date.toISOString(),
+            deltaCents: e.valorTotal - best.value,
+          };
         })
-        .slice(0, 5)
-        .map((p) => ({
-          expenseId: p.id,
-          projectId: p.projectId,
-          projectName: projectById.get(p.projectId)?.name ?? '',
-          projectType: projectById.get(p.projectId)?.type ?? '',
-          titulo: p.titulo,
-          fornecedor: p.fornecedor,
-          valor: p.valorTotal,
-          data: (p.dataPagamento ?? p.dataInicioParcela ?? p.createdAt).toISOString(),
-          deltaCents: e.valorTotal - p.valorTotal,
-        }));
+        .filter((m): m is NonNullable<typeof m> => !!m)
+        .sort((a, b) => Math.abs(a.deltaCents) - Math.abs(b.deltaCents))
+        .slice(0, 5);
 
       return { expense: serializeExpense(e), suggestions: matches };
     });
