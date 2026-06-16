@@ -116,6 +116,9 @@ const CASA_EXPENSE_TYPES: ExpenseType[] = [
 
 // CARRO: despesas avulsas (combustível, lavagem, oficina, IPVA, multas).
 const CARRO_EXPENSE_TYPES: ExpenseType[] = [
+  ExpenseType.ESTACIONAMENTO,
+  ExpenseType.GASOLINA,
+  ExpenseType.LAVAGEM,
   ExpenseType.TRANSPORTE,
   ExpenseType.SEGUROS_PESSOAIS,
   ExpenseType.IMPOSTO,
