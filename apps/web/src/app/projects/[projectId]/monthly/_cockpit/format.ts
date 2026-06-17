@@ -5,6 +5,11 @@ export function fmtMoney(cents: number): string {
   return `R$ ${new Intl.NumberFormat('pt-BR').format(v)}`;
 }
 
+/** Valor exato com centavos (para extratos/listas onde a precisão importa). */
+export function fmtMoneyExact(cents: number): string {
+  return `R$ ${new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(cents / 100)}`;
+}
+
 /** Versão compacta para eixos de gráfico: R$ 12k / R$ 1,2M (recebe reais, não centavos). */
 export function fmtK(value: number): string {
   const abs = Math.abs(value);

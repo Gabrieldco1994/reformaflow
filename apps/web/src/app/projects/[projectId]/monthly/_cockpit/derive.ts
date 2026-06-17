@@ -630,3 +630,98 @@ export function buildComprometimentoFuturo(
     .sort((a, b) => a.mes.localeCompare(b.mes))
     .slice(0, maxMonths);
 }
+
+// ─── Visão "Geral": extrato cronológico de saídas do mês ──────────────────────
+
+export interface ExtratoItem {
+  id: string;
+  data: string;             // ISO da despesa
+  dia: number;              // dia do mês (UTC)
+  descricao: string;        // subcategoria → categoria → "Despesa"
+  categoria: string;        // rótulo da categoria
+  valor: number;            // centavos (saída)
+  status: string;           // PAGO/EM_CAIXA = realizado; demais = planejado
+  realizado: boolean;
+  parcela: string | null;   // "k/n" quando parcelado
+  formaPagamento: string | null;
+  cardLast4: string | null; // origem cartão (null = conta/débito)
+  projectName: string;      // origem (PESSOAL ou projeto vinculado)
+  projectType: string;
+  acumulado: number;        // soma acumulada das saídas até este item (centavos)
+}
+
+export interface ExtratoResumo {
+  totalSaidas: number;      // todas as despesas do mês (realizado + planejado)
+  totalRealizado: number;   // só PAGO/EM_CAIXA
+  totalPlanejado: number;   // demais
+  qtd: number;
+}
+
+export interface ExtratoMes {
+  itens: ExtratoItem[];
+  resumo: ExtratoResumo;
+}
+
+/**
+ * Extrato de despesas do mês para a visão "Geral": todas as SAÍDAS do mês
+ * (respeitando o filtro de data já aplicado pela página), em ordem cronológica
+ * por data da despesa, com acumulado — um "fluxo de caixa" focado em saídas.
+ *
+ * Regras (coerentes com o eixo "Gastei"/competência):
+ * - apenas `tipo === 'DESPESA'`;
+ * - espelhos cross-project são deduplicados (`isEspelho`) — o registro do
+ *   projeto-alvo é o canônico, evitando dupla contagem;
+ * - tipos neutros (pagamento de fatura / movimentação interna) ficam de fora,
+ *   pois não representam consumo real;
+ * - empates de data mantêm a ordem por maior valor (saída mais relevante antes).
+ */
+export function buildExtratoDespesas(entries: MonthlyEntry[]): ExtratoMes {
+  const despesas = entries
+    .filter((e) => e.tipo === 'DESPESA')
+    .filter((e) => !e.isEspelho)
+    .filter((e) => !isNeutralExpenseType(e.categoriaCodigo ?? undefined));
+
+  const ordenadas = [...despesas].sort((a, b) => {
+    const da = a.data ?? '';
+    const db = b.data ?? '';
+    if (da !== db) return da < db ? -1 : 1;
+    return b.valor - a.valor;
+  });
+
+  let acumulado = 0;
+  let totalRealizado = 0;
+  let totalPlanejado = 0;
+
+  const itens: ExtratoItem[] = ordenadas.map((e) => {
+    acumulado += e.valor;
+    const realizado = isRealized(e.status);
+    if (realizado) totalRealizado += e.valor;
+    else totalPlanejado += e.valor;
+    return {
+      id: e.id,
+      data: e.data,
+      dia: dayOfMonth(e.data),
+      descricao: e.subcategoria ?? e.categoria ?? 'Despesa',
+      categoria: e.categoria ?? 'Outros',
+      valor: e.valor,
+      status: e.status,
+      realizado,
+      parcela: e.parcela ?? null,
+      formaPagamento: e.formaPagamento ?? null,
+      cardLast4: e.cardLast4 ?? null,
+      projectName: e.projectName ?? '',
+      projectType: e.projectType ?? '',
+      acumulado,
+    };
+  });
+
+  return {
+    itens,
+    resumo: {
+      totalSaidas: totalRealizado + totalPlanejado,
+      totalRealizado,
+      totalPlanejado,
+      qtd: itens.length,
+    },
+  };
+}

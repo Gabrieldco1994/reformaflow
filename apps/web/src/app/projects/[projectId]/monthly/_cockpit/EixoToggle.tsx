@@ -1,13 +1,14 @@
 'use client';
 
-export type Eixo = 'competencia' | 'caixa';
+export type Eixo = 'competencia' | 'caixa' | 'geral';
 
 const OPTS: { key: Eixo; label: string; hint: string }[] = [
   { key: 'competencia', label: 'Gastei', hint: 'quando você comprou (competência)' },
   { key: 'caixa', label: 'Vai sair', hint: 'quando o dinheiro sai (vencimento da fatura do cartão)' },
+  { key: 'geral', label: 'Geral', hint: 'extrato: todas as saídas do mês em ordem de data' },
 ];
 
-/** Segmented control do eixo de tempo do cockpit: competência × caixa. */
+/** Segmented control do eixo de tempo do cockpit: competência × caixa × extrato. */
 export default function EixoToggle({
   eixo,
   onChange,

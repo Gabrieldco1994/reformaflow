@@ -12,6 +12,7 @@ import { COCKPIT_THEME } from './_cockpit/ui';
 import { anosDisponiveis, buildCaixaData } from './_cockpit/derive';
 import CockpitTop from './_cockpit/CockpitTop';
 import MonthView from './_cockpit/MonthView';
+import ExtratoGeral from './_cockpit/ExtratoGeral';
 import YearView from './_cockpit/YearView';
 import EixoToggle, { type Eixo } from './_cockpit/EixoToggle';
 
@@ -35,7 +36,7 @@ export default function CockpitPage() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const saved = window.localStorage.getItem('cockpit-eixo');
-    if (saved === 'competencia' || saved === 'caixa') setEixo(saved);
+    if (saved === 'competencia' || saved === 'caixa' || saved === 'geral') setEixo(saved);
   }, []);
 
   const changeEixo = (e: Eixo) => {
@@ -182,7 +183,9 @@ export default function CockpitPage() {
 
       {viewData && !isLoading && (
         view === 'mes'
-          ? <MonthView key={`${eixo}-${monthKey}`} data={viewData} monthKey={monthKey} entries={monthEntries} />
+          ? eixo === 'geral'
+            ? <ExtratoGeral key={`geral-${monthKey}`} entries={monthEntries ?? []} mesIndex0={month0} />
+            : <MonthView key={`${eixo}-${monthKey}`} data={viewData} monthKey={monthKey} entries={monthEntries} />
           : <YearView data={viewData} year={year} />
       )}
     </div>
