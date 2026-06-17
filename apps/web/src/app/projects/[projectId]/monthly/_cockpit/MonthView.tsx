@@ -6,10 +6,11 @@ import { Wallet, ArrowUpCircle, ArrowDownCircle, Target, SlidersHorizontal } fro
 import type { MonthlyOverviewResponse, MonthlyEntry } from '../_types';
 import { KpiCard, Card } from './ui';
 import { fmtMoney } from './format';
-import { deriveMonth, buildSaldoSeries, saldoProjetado } from './derive';
+import { deriveMonth, buildSaldoSeries, saldoProjetado, buildComprometimentoFuturo } from './derive';
 import Recomendacoes from './Recomendacoes';
 import CategoriasBarras from './CategoriasBarras';
 import SaudeFinanceira from './SaudeFinanceira';
+import ComprometimentoFuturo from './ComprometimentoFuturo';
 
 const SaldoMesChart = dynamic(() => import('./SaldoMesChart'), {
   ssr: false,
@@ -31,6 +32,10 @@ export default function MonthView({
   const serieEntries = entries ?? data.mesAtualEntries;
   const serie = useMemo(() => buildSaldoSeries(m, serieEntries, ritmo), [m, serieEntries, ritmo]);
   const projetado = useMemo(() => saldoProjetado(m, ritmo), [m, ritmo]);
+  const comprometimento = useMemo(
+    () => buildComprometimentoFuturo(data, monthKey ?? data.mesAtual, 12),
+    [data, monthKey],
+  );
 
   const projTone = projetado >= m.saldoInicial ? 'pos' : 'neg';
   const maxRitmo = Math.max(m.ritmoDiario * 3, 30000); // teto do slider (centavos/dia)
@@ -111,6 +116,7 @@ export default function MonthView({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Recomendacoes m={m} saldoProjetadoVal={projetado} />
         <div className="space-y-4">
+          <ComprometimentoFuturo rows={comprometimento} />
           <CategoriasBarras categorias={m.categorias} hint="mês atual" />
           <SaudeFinanceira m={m} />
         </div>

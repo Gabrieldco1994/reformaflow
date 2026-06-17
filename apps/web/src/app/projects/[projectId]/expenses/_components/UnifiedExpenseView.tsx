@@ -16,10 +16,18 @@ import {
   ProjectCard,
   projectAccentOf,
 } from './PersonalHierarchicalView';
+import type { PersonalCardInfo } from './PersonalExpenseCard';
 
 export type UnifiedMode = 'category' | 'month' | 'project';
 
-interface TenantCardLite { id: string; nickname?: string | null; brand: string; last4: string; }
+interface TenantCardLite {
+  id: string;
+  nickname?: string | null;
+  brand: string;
+  last4: string;
+  closingDay?: number | null;
+  dueDay?: number | null;
+}
 interface TenantAccountLite { id: string; nickname?: string | null; institution: string; last4?: string | null; }
 
 interface Props {
@@ -152,10 +160,11 @@ function EmptyState() {
 }
 
 function ProjectsList({
-  projects, tipoLabel, openEdit, onDelete, onToggleStatus,
+  projects, tipoLabel, cardInfoByLast4, openEdit, onDelete, onToggleStatus,
 }: {
   projects: ReturnType<typeof groupPersonalExpenses>;
   tipoLabel: (t: string) => string;
+  cardInfoByLast4: Map<string, PersonalCardInfo>;
   openEdit: (e: Expense) => void;
   onDelete: (id: string) => void;
   onToggleStatus: (id: string, next: ExpenseStatus) => void;
@@ -168,6 +177,7 @@ function ProjectsList({
           pg={pg}
           accent={projectAccentOf(pg.projectType)}
           tipoLabel={tipoLabel}
+          cardInfoByLast4={cardInfoByLast4}
           openEdit={openEdit}
           onDelete={onDelete}
           onToggleStatus={onToggleStatus}
@@ -238,6 +248,18 @@ export function UnifiedExpenseView({
     for (const c of cards) if (c.last4 && !m.has(c.last4)) m.set(c.last4, `${c.nickname || c.brand} ••${c.last4}`);
     return m;
   }, [cards]);
+  const cardInfoByLast4 = useMemo(() => {
+    const m = new Map<string, PersonalCardInfo>();
+    for (const c of cards) {
+      if (!c.last4 || m.has(c.last4)) continue;
+      m.set(c.last4, {
+        label: `${c.nickname || c.brand} ••${c.last4}`,
+        closingDay: c.closingDay ?? null,
+        dueDay: c.dueDay ?? null,
+      });
+    }
+    return m;
+  }, [cards]);
   const accountLabels = useMemo(() => {
     const m = new Map<string, string>();
     for (const a of accounts) if (a.last4 && !m.has(a.last4)) m.set(a.last4, `${a.nickname || a.institution} ••${a.last4}`);
@@ -280,6 +302,7 @@ export function UnifiedExpenseView({
         <ProjectsList
           projects={projects}
           tipoLabel={tipoLabel}
+          cardInfoByLast4={cardInfoByLast4}
           openEdit={openEdit}
           onDelete={onDelete}
           onToggleStatus={onToggleStatus}
@@ -303,6 +326,7 @@ export function UnifiedExpenseView({
               <ProjectsList
                 projects={mg.projects}
                 tipoLabel={tipoLabel}
+                cardInfoByLast4={cardInfoByLast4}
                 openEdit={openEdit}
                 onDelete={onDelete}
                 onToggleStatus={onToggleStatus}
@@ -329,6 +353,7 @@ export function UnifiedExpenseView({
             <ProjectsList
               projects={tg.projects}
               tipoLabel={tipoLabel}
+              cardInfoByLast4={cardInfoByLast4}
               openEdit={openEdit}
               onDelete={onDelete}
               onToggleStatus={onToggleStatus}

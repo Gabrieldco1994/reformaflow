@@ -577,3 +577,56 @@ export function buildCaixaData(data: MonthlyOverviewResponse): MonthlyOverviewRe
 
   return { ...data, entries: remappedEntries, meses, mesAtualEntries };
 }
+
+export interface ComprometimentoItem {
+  descricao: string;
+  parcela: string | null;
+  valor: number;
+  cardLast4: string;
+}
+
+export interface ComprometimentoMes {
+  mes: string; // YYYY-MM
+  total: number;
+  itens: ComprometimentoItem[];
+}
+
+/**
+ * Trilha de comprometimento futuro: soma as saídas ainda NÃO realizadas
+ * (status != PAGO/EM_CAIXA) de cartão por mês, já no eixo recebido pela tela
+ * (`data` pode estar em competência ou caixa, conforme o toggle).
+ */
+export function buildComprometimentoFuturo(
+  data: MonthlyOverviewResponse,
+  fromMonth: string = data.mesAtual,
+  maxMonths = 12,
+): ComprometimentoMes[] {
+  const byMonth = new Map<string, ComprometimentoMes>();
+
+  for (const e of data.entries ?? []) {
+    if (e.tipo !== 'DESPESA') continue;
+    if (e.status === 'PAGO' || e.status === 'EM_CAIXA') continue;
+    if (!e.cardLast4) continue;
+    if (isNeutralExpenseType(e.categoriaCodigo ?? undefined)) continue;
+
+    const mes = (e.data ?? '').slice(0, 7);
+    if (!mes || mes < fromMonth) continue;
+
+    let bucket = byMonth.get(mes);
+    if (!bucket) {
+      bucket = { mes, total: 0, itens: [] };
+      byMonth.set(mes, bucket);
+    }
+    bucket.total += e.valor;
+    bucket.itens.push({
+      descricao: e.subcategoria ?? e.categoria ?? 'Despesa',
+      parcela: e.parcela ?? null,
+      valor: e.valor,
+      cardLast4: e.cardLast4,
+    });
+  }
+
+  return Array.from(byMonth.values())
+    .sort((a, b) => a.mes.localeCompare(b.mes))
+    .slice(0, maxMonths);
+}

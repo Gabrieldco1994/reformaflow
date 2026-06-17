@@ -62,6 +62,12 @@ describe('MonthlyOverviewService.getOverview — enriquecimento de cartão', () 
     expect(entry.cardLast4).toBe('1234');
   });
 
+  it('expõe parcela por entry (para trilha de comprometimento/tooltip)', async () => {
+    const res: any = await service.getOverview(tenantId, PESSOAL);
+    const entry = res.entries.find((e: any) => e.id === 'cfe-card');
+    expect(entry.parcela ?? null).toBe(null);
+  });
+
   it('inclui cards[] com closingDay/dueDay/last4/nickname', async () => {
     const res: any = await service.getOverview(tenantId, PESSOAL);
     expect(res.cards).toContainEqual({

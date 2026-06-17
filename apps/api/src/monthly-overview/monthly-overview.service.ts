@@ -99,6 +99,7 @@ export class MonthlyOverviewService {
         : null,
       categoriaCodigo: e.categoria ?? null,
       subcategoria: e.subcategoria,
+      parcela: e.parcela,
       formaPagamento: e.formaPagamento,
       projectId: e.projectId,
       projectName: projectNameById.get(e.projectId) ?? '',
