@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
 import { ExpenseTypeLabels, LaborCategoryLabels, buildInstallments, isSinglePaymentForm, isNeutralExpenseType } from '@reformaflow/domain';
@@ -8,7 +9,10 @@ import { fastClassify } from '../bank-account/bank-account.service';
 
 @Injectable()
 export class ExpenseService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly conciliacao: ConciliacaoService,
+  ) {}
 
   /**
    * Resolve creditCardId/bankAccountId/linkedExpenseId em valores armazenáveis.
@@ -245,6 +249,58 @@ export class ExpenseService {
       data: { linkedExpenseId: null },
       include: { room: true },
     });
+  }
+
+  /**
+   * Concilia esta despesa (source, PESSOAL) com UMA parcela de uma despesa
+   * planejada em outro projeto (Fase 6 — vínculo manual por parcela). Liquida a
+   * parcela alvo com o valor REAL (default = valorTotal da source), de forma
+   * não-destrutiva e reversível. Mantém o `linkedExpenseId` para dedupe.
+   */
+  async conciliarParcela(
+    tenantId: string,
+    projectId: string,
+    sourceId: string,
+    params: { targetExpenseId: string; parcelaIndex?: number; realValor?: number },
+  ) {
+    await this.validateProject(tenantId, projectId);
+    const source = await this.prisma.expense.findFirst({
+      where: { id: sourceId, projectId, tenantId, deletedAt: null },
+    });
+    if (!source) throw new NotFoundException('Despesa não encontrada');
+
+    const realValor = params.realValor ?? source.valorTotal;
+    const parcelaIndex = Math.max(0, params.parcelaIndex ?? 0);
+
+    await this.prisma.$transaction(async (tx) => {
+      await this.conciliacao.settleTargetParcela(tx, {
+        tenantId,
+        sourceExpenseId: source.id,
+        targetExpenseId: params.targetExpenseId,
+        parcelaIndex,
+        realValor,
+      });
+    });
+
+    return { ok: true, sourceId: source.id, targetId: params.targetExpenseId, parcelaIndex };
+  }
+
+  /**
+   * Desfaz a conciliação (todas as parcelas liquidadas por esta source),
+   * restaurando o planejado do alvo e limpando o vínculo. Reversível.
+   */
+  async desconciliar(tenantId: string, projectId: string, sourceId: string) {
+    await this.validateProject(tenantId, projectId);
+    const source = await this.prisma.expense.findFirst({
+      where: { id: sourceId, projectId, tenantId, deletedAt: null },
+    });
+    if (!source) throw new NotFoundException('Despesa não encontrada');
+    if (!source.linkedExpenseId) return { ok: true, alreadyUnlinked: true };
+
+    await this.prisma.$transaction(async (tx) => {
+      await this.conciliacao.unsettleBySource(tx, { tenantId, sourceExpenseId: source.id });
+    });
+    return { ok: true };
   }
 
   async findById(tenantId: string, projectId: string, id: string) {

@@ -141,6 +141,31 @@ export class ExpenseController {
     return this.service.unlinkCrossProject(tenantId, projectId, id);
   }
 
+  @Post(':id/conciliar-parcela')
+  @ApiOperation({ summary: 'Concilia esta despesa com UMA parcela de despesa de outro projeto (Fase 6)' })
+  conciliarParcela(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Param('id') id: string,
+    @Body() body: { targetExpenseId: string; parcelaIndex?: number; realValor?: number },
+  ) {
+    return this.service.conciliarParcela(tenantId, projectId, id, {
+      targetExpenseId: body.targetExpenseId,
+      parcelaIndex: body.parcelaIndex,
+      realValor: body.realValor,
+    });
+  }
+
+  @Delete(':id/conciliar-parcela')
+  @ApiOperation({ summary: 'Desfaz a conciliação por parcela desta despesa (reversível)' })
+  desconciliar(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Param('id') id: string,
+  ) {
+    return this.service.desconciliar(tenantId, projectId, id);
+  }
+
   @Delete(':id')
   @ApiOperation({ summary: 'Remover despesa (soft delete)' })
   remove(

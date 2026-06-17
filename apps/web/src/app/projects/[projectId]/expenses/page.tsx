@@ -64,10 +64,11 @@ export default function ExpensesPage() {
   const [formCategoriaMaoDeObra, setFormCategoriaMaoDeObra] = useState('');
 
   // Estado do bloco "Vínculos" do modal de despesa
-  const [formVinculos, setFormVinculos] = useState<{ creditCardId: string; bankAccountId: string; linkedExpenseId: string }>({
+  const [formVinculos, setFormVinculos] = useState<{ creditCardId: string; bankAccountId: string; linkedExpenseId: string; linkedParcelaIndex?: number | null }>({
     creditCardId: '',
     bankAccountId: '',
     linkedExpenseId: '',
+    linkedParcelaIndex: null,
   });
 
   const defaultExpenseType = (TIPO_DESPESA_OPTIONS[0]?.value ?? ExpenseType.MATERIAL_CONSTRUCAO) as ExpenseType;
@@ -466,6 +467,21 @@ export default function ExpensesPage() {
     },
   });
 
+  // Conciliação cross-project por parcela (vínculo manual — Fase 6). Liquida a
+  // parcela escolhida do alvo com o valor desta despesa.
+  const conciliarMutation = useMutation({
+    mutationFn: ({ sourceId, targetExpenseId, parcelaIndex }: { sourceId: string; targetExpenseId: string; parcelaIndex: number }) =>
+      api.post(`/projects/${PROJECT_ID}/expenses/${sourceId}/conciliar-parcela`, { targetExpenseId, parcelaIndex }),
+    onSuccess: () => {
+      invalidate();
+      toast.success('Despesa conciliada com a parcela do outro projeto');
+    },
+    onError: (e: Error) => {
+      console.error('[expenses] conciliar failed', e);
+      toast.error(`Erro ao conciliar parcela: ${e.message}`);
+    },
+  });
+
   function closeFormModal() {
     setFormModalOpen(false);
     setEditing(null);
@@ -488,7 +504,7 @@ export default function ExpensesPage() {
     setFormTitulo('');
     setFormFornecedor('');
     setFormCategoriaMaoDeObra('');
-    setFormVinculos({ creditCardId: '', bankAccountId: '', linkedExpenseId: '' });
+    setFormVinculos({ creditCardId: '', bankAccountId: '', linkedExpenseId: '', linkedParcelaIndex: null });
     setFormModalOpen(true);
   }
 
@@ -507,7 +523,7 @@ export default function ExpensesPage() {
     setFormTitulo('');
     setFormFornecedor('');
     setFormCategoriaMaoDeObra('');
-    setFormVinculos({ creditCardId: '', bankAccountId: '', linkedExpenseId: '' });
+    setFormVinculos({ creditCardId: '', bankAccountId: '', linkedExpenseId: '', linkedParcelaIndex: null });
     setFormModalOpen(true);
   }
 
@@ -530,6 +546,7 @@ export default function ExpensesPage() {
       creditCardId: '',
       bankAccountId: '',
       linkedExpenseId: expense.linkedExpenseId ?? '',
+      linkedParcelaIndex: null,
     });
     setFormModalOpen(true);
   }
@@ -637,13 +654,26 @@ export default function ExpensesPage() {
     // Vínculos (cards/contas/cross-project) — '' equivale a null pro backend
     data.creditCardId = formVinculos.creditCardId || null;
     data.bankAccountId = formVinculos.bankAccountId || null;
-    data.linkedExpenseId = formVinculos.linkedExpenseId || null;
+    const linkedId = formVinculos.linkedExpenseId || null;
+    const parcelaIdx = formVinculos.linkedParcelaIndex;
+    // Quando o usuário escolheu uma PARCELA específica do alvo, a conciliação
+    // (Fase 6) cuida de setar o vínculo + liquidar a parcela — então não enviamos
+    // linkedExpenseId no payload (evita set duplicado/simples).
+    const useConciliacao = !!linkedId && parcelaIdx != null;
+    data.linkedExpenseId = useConciliacao ? null : linkedId;
+
+    const afterSave = (sourceId?: string) => {
+      if (useConciliacao && linkedId && sourceId) {
+        conciliarMutation.mutate({ sourceId, targetExpenseId: linkedId, parcelaIndex: parcelaIdx! });
+      }
+    };
+
     if (editing) {
       console.log('[expenses] PATCH', editing.id, data);
-      updateMutation.mutate({ id: editing.id, data });
+      updateMutation.mutate({ id: editing.id, data }, { onSuccess: () => afterSave(editing.id) });
     } else {
       console.log('[expenses] POST', data);
-      createMutation.mutate(data);
+      createMutation.mutate(data, { onSuccess: (created) => afterSave((created as { id?: string } | undefined)?.id) });
     }
   }
 

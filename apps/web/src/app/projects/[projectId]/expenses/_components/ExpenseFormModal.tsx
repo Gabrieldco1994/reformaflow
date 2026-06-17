@@ -23,6 +23,8 @@ export interface ExpenseFormVinculos {
   creditCardId: string;
   bankAccountId: string;
   linkedExpenseId: string;
+  /** Parcela 0-based do alvo escolhida no vínculo cross-project (null = nenhuma). */
+  linkedParcelaIndex?: number | null;
 }
 
 interface ExpenseFormModalProps {

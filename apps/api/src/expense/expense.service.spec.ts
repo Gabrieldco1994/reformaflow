@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { ExpenseService } from './expense.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 
 type AnyFn = jest.Mock;
 
@@ -20,6 +21,11 @@ interface PrismaMock {
   cashFlowEntry: {
     updateMany: AnyFn;
     createMany: AnyFn;
+  };
+  crossProjectSettlement: {
+    upsert: AnyFn;
+    deleteMany: AnyFn;
+    findMany: AnyFn;
   };
   $transaction: AnyFn;
 }
@@ -43,6 +49,11 @@ const makePrismaMock = (): PrismaMock => {
     creditCard: { findFirst: jest.fn() },
     bankAccount: { findFirst: jest.fn() },
     cashFlowEntry: cashFlowMock,
+    crossProjectSettlement: {
+      upsert: jest.fn().mockResolvedValue({}),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     $transaction: jest.fn(),
   } as PrismaMock;
 
@@ -72,6 +83,7 @@ describe('ExpenseService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ExpenseService,
+        ConciliacaoService,
         { provide: PrismaService, useValue: prisma },
       ],
     }).compile();
