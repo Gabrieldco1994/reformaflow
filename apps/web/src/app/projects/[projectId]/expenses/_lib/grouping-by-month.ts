@@ -190,12 +190,18 @@ export function groupExpensesByMes(expenses: Expense[]): GrupoDespesaPorMes[] {
 
 /**
  * Agrupa TODAS as despesas numa única lista cronológica (visão "Geral"):
- * expande parcelas em ocorrências, ordena por data (empate por maior valor) e
- * devolve um único grupo. É o "fluxo de caixa" focado em saídas — o que saiu,
- * quando e quanto — preservando as ocorrências (parcela k/n) para que as ações
- * (editar, pagar, copiar) funcionem igual à visão "Mês".
+ * expande parcelas em ocorrências, ordena por data e devolve um único grupo.
+ * É o "fluxo de caixa" focado em saídas — o que saiu, quando e quanto —
+ * preservando as ocorrências (parcela k/n) para que as ações (editar, pagar,
+ * copiar) funcionem igual à visão "Mês".
+ *
+ * @param direction 'desc' (padrão: mais recente primeiro) ou 'asc'.
+ *   Itens sem data ficam sempre por último. Empate de data: maior valor antes.
  */
-export function groupExpensesChrono(expenses: Expense[]): GrupoDespesaPorMes[] {
+export function groupExpensesChrono(
+  expenses: Expense[],
+  direction: 'asc' | 'desc' = 'desc',
+): GrupoDespesaPorMes[] {
   const comData: Occurrence[] = [];
   const semData: Occurrence[] = [];
 
@@ -206,8 +212,9 @@ export function groupExpensesChrono(expenses: Expense[]): GrupoDespesaPorMes[] {
     }
   }
 
+  const dir = direction === 'asc' ? 1 : -1;
   comData.sort((a, b) => {
-    if (a.occDate !== b.occDate) return a.occDate < b.occDate ? -1 : 1;
+    if (a.occDate !== b.occDate) return (a.occDate < b.occDate ? -1 : 1) * dir;
     return b.occValue - a.occValue;
   });
 

@@ -5,7 +5,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
-import { Plus, CreditCard, ShoppingCart, Mic, Calendar, ArrowLeft, ArrowRight } from 'lucide-react';
+import { Plus, CreditCard, ShoppingCart, Mic, Calendar, ArrowLeft, ArrowRight, ArrowDownWideNarrow, ArrowUpNarrowWide } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { Expense, ExpenseFormData, ExpensesPage, Project } from '@/types';
 import { toast } from 'sonner';
@@ -85,6 +85,8 @@ export default function ExpensesPage() {
   // View mode: por categoria (legado) ou por mês (nova UX igual recebimentos)
   const [viewMode, setViewMode] = useState<ExpenseViewMode>('category');
   const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(new Set());
+  // Direção de ordenação da visão "Geral" (extrato por data). Padrão: decrescente.
+  const [generalSortDir, setGeneralSortDir] = useState<'asc' | 'desc'>('desc');
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -97,6 +99,17 @@ export default function ExpensesPage() {
     if (typeof window === 'undefined') return;
     window.localStorage.setItem(`expenses:viewMode:${PROJECT_ID}`, viewMode);
   }, [viewMode, PROJECT_ID]);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const saved = window.localStorage.getItem(`expenses:generalSort:${PROJECT_ID}`);
+    if (saved === 'asc' || saved === 'desc') setGeneralSortDir(saved);
+  }, [PROJECT_ID]);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(`expenses:generalSort:${PROJECT_ID}`, generalSortDir);
+  }, [generalSortDir, PROJECT_ID]);
 
   const { data: expensesPage, isLoading } = useQuery<ExpensesPage>({
     queryKey: ['expenses', PROJECT_ID],
@@ -326,8 +339,8 @@ export default function ExpensesPage() {
   // (PESSOAL respeita o período selecionado; demais usam o conjunto filtrado),
   // então o filtro de data é honrado igual às outras visões.
   const groupedGeneral = useMemo(
-    () => groupExpensesChrono(projectType === 'PESSOAL' ? periodFilteredPersonal : filteredExpenses),
-    [projectType, periodFilteredPersonal, filteredExpenses],
+    () => groupExpensesChrono(projectType === 'PESSOAL' ? periodFilteredPersonal : filteredExpenses, generalSortDir),
+    [projectType, periodFilteredPersonal, filteredExpenses, generalSortDir],
   );
   useEffect(() => {
     const cur = currentMonthKey();
@@ -899,40 +912,59 @@ export default function ExpensesPage() {
       ) : (
         <>
         {viewMode === 'general' ? (
-          <MonthlyExpenseView
-            grouped={groupedGeneral}
-            collapsedMonths={collapsedMonths}
-            toggleMonth={(key) => {
-              setCollapsedMonths((prev) => {
-                const next = new Set(prev);
-                if (next.has(key)) next.delete(key);
-                else next.add(key);
-                return next;
-              });
-            }}
-            tipoLabel={tipoLabel}
-            tipoOptions={TIPO_DESPESA_OPTIONS}
-            openEdit={openEdit}
-            onDelete={(id) => deleteMutation.mutate(id)}
-            onToggleStatus={(id, status) => toggleStatusMutation.mutate({ id, status })}
-            onToggleParcela={(id, parcela, paid) => toggleParcelaMutation.mutate({ id, parcela, paid })}
-            onQuickUpdate={(id, valor, data) => {
-              const exp = expenses.find((x) => x.id === id);
-              const qty = exp?.quantidade ?? 1;
-              quickUpdateMutation.mutate({ id, valorTotal: valor, dataPagamento: data, quantidade: qty });
-            }}
-            onQuickCreate={(d) => {
-              createMutation.mutate({
-                tipoDespesa: d.tipoDespesa,
-                valor: d.valor,
-                quantidade: 1,
-                formaPagamento: 'A_VISTA',
-                dataPagamento: d.dataPagamento,
-                status: d.status,
-              } as ExpenseFormData);
-            }}
-            emptyMsg="Nenhuma despesa no período."
-          />
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] uppercase tracking-wider text-darc-velvet/50">
+                Extrato por data
+              </span>
+              <button
+                type="button"
+                onClick={() => setGeneralSortDir((d) => (d === 'desc' ? 'asc' : 'desc'))}
+                title={generalSortDir === 'desc' ? 'Mais recentes primeiro (clique para inverter)' : 'Mais antigos primeiro (clique para inverter)'}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+              >
+                {generalSortDir === 'desc' ? (
+                  <><ArrowDownWideNarrow className="w-3.5 h-3.5" /> Mais recentes</>
+                ) : (
+                  <><ArrowUpNarrowWide className="w-3.5 h-3.5" /> Mais antigos</>
+                )}
+              </button>
+            </div>
+            <MonthlyExpenseView
+              grouped={groupedGeneral}
+              collapsedMonths={collapsedMonths}
+              toggleMonth={(key) => {
+                setCollapsedMonths((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(key)) next.delete(key);
+                  else next.add(key);
+                  return next;
+                });
+              }}
+              tipoLabel={tipoLabel}
+              tipoOptions={TIPO_DESPESA_OPTIONS}
+              openEdit={openEdit}
+              onDelete={(id) => deleteMutation.mutate(id)}
+              onToggleStatus={(id, status) => toggleStatusMutation.mutate({ id, status })}
+              onToggleParcela={(id, parcela, paid) => toggleParcelaMutation.mutate({ id, parcela, paid })}
+              onQuickUpdate={(id, valor, data) => {
+                const exp = expenses.find((x) => x.id === id);
+                const qty = exp?.quantidade ?? 1;
+                quickUpdateMutation.mutate({ id, valorTotal: valor, dataPagamento: data, quantidade: qty });
+              }}
+              onQuickCreate={(d) => {
+                createMutation.mutate({
+                  tipoDespesa: d.tipoDespesa,
+                  valor: d.valor,
+                  quantidade: 1,
+                  formaPagamento: 'A_VISTA',
+                  dataPagamento: d.dataPagamento,
+                  status: d.status,
+                } as ExpenseFormData);
+              }}
+              emptyMsg="Nenhuma despesa no período."
+            />
+          </div>
         ) : projectType === 'PESSOAL' ? (
           <UnifiedExpenseView
             mode={viewMode}
