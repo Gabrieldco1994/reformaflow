@@ -1,4 +1,10 @@
 import type { MonthlyOverviewResponse, MonthlyOverviewRow, MonthlyEntry } from '../_types';
+import {
+  caixaDateForCardPurchase,
+  isNeutralExpenseType,
+  buildMonthlyOverview,
+  type MonthlyOverviewEntry,
+} from '@reformaflow/domain';
 
 /** Categorias com cor fixa (significado consistente em todo o cockpit). */
 export const CAT_COLORS: Record<string, string> = {
@@ -519,4 +525,55 @@ export function deriveCockpitTop(data: MonthlyOverviewResponse): CockpitTopDeriv
     mesAtualKey: data.mesAtual,
     pctMesDecorrido,
   };
+}
+
+// ───────────── Eixo de caixa ("Vai sair"): reprojeta por vencimento ─────────────
+
+/**
+ * Reprojeta a resposta consolidada para o EIXO DE CAIXA (vencimento):
+ * - despesas de cartão são remapeadas para a data de vencimento da fatura
+ *   (via `caixaDateForCardPurchase`, usando closingDay/dueDay de `data.cards`);
+ * - débitos de conta e recebimentos permanecem na competência;
+ * - categorias neutras (PAGAMENTO_FATURA_CARTAO / MOVIMENTACAO_INTERNA) são
+ *   removidas para não dobrar (a fatura projetada já representa a saída).
+ *
+ * As linhas mensais (`meses`) são reconstruídas com o MESMO helper de domínio
+ * usado no servidor (`buildMonthlyOverview`) — fonte única, sem cálculo novo.
+ * O caixa real (§10, `data.caixa`) é preservado: o eixo muda QUANDO a saída
+ * acontece, não o saldo reconciliado com o banco.
+ */
+export function buildCaixaData(data: MonthlyOverviewResponse): MonthlyOverviewResponse {
+  const cardByLast4 = new Map((data.cards ?? []).map((c) => [c.last4, c] as const));
+
+  const remap = (e: MonthlyEntry): MonthlyEntry | null => {
+    if (e.tipo === 'DESPESA' && isNeutralExpenseType(e.categoriaCodigo ?? undefined)) {
+      return null; // neutra: fora do eixo de caixa
+    }
+    if (e.tipo === 'DESPESA' && e.cardLast4) {
+      const card = cardByLast4.get(e.cardLast4);
+      const d = caixaDateForCardPurchase(e.data, card?.closingDay ?? null, card?.dueDay ?? null);
+      return { ...e, data: d.toISOString() };
+    }
+    return e; // conta/recebimento: competência
+  };
+
+  const remappedEntries = (data.entries ?? [])
+    .map(remap)
+    .filter((e): e is MonthlyEntry => e !== null);
+
+  const adapted: MonthlyOverviewEntry[] = remappedEntries
+    .filter((e) => !e.isEspelho)
+    .map((e) => ({
+      tipo: e.tipo,
+      valor: e.valor,
+      status: e.status,
+      data: e.data,
+      categoria: e.categoria,
+      projectOrigin: e.projectType,
+    }));
+
+  const meses = buildMonthlyOverview(adapted, { topCategorias: 6 }) as MonthlyOverviewRow[];
+  const mesAtualEntries = remappedEntries.filter((e) => (e.data ?? '').slice(0, 7) === data.mesAtual);
+
+  return { ...data, entries: remappedEntries, meses, mesAtualEntries };
 }

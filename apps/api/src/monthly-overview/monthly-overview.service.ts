@@ -97,6 +97,7 @@ export class MonthlyOverviewService {
       categoria: e.categoria
         ? ExpenseTypeLabels[e.categoria as keyof typeof ExpenseTypeLabels] ?? e.categoria
         : null,
+      categoriaCodigo: e.categoria ?? null,
       subcategoria: e.subcategoria,
       formaPagamento: e.formaPagamento,
       projectId: e.projectId,

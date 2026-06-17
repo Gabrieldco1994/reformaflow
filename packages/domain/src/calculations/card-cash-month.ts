@@ -31,6 +31,23 @@ function formatYearMonth(year: number, monthIndex0: number): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
+/**
+ * Offset (em meses) do vencimento em relação ao mês da compra.
+ * `null` quando não há configuração de fechamento/vencimento (fallback).
+ */
+function dueMonthOffset(
+  day: number,
+  closingDay: number | null | undefined,
+  dueDay: number | null | undefined,
+): number | null {
+  if (closingDay == null || dueDay == null) return null;
+  // Mês em que a fatura FECHA (compra no dia do fechamento cai na próxima fatura).
+  const closeMonthOffset = day < closingDay ? 0 : 1;
+  // Vencimento: se vence antes do dia de fechamento, é no mês seguinte ao fechamento.
+  const dueOffset = dueDay >= closingDay ? 0 : 1;
+  return closeMonthOffset + dueOffset;
+}
+
 export function caixaMonthForCardPurchase(
   purchaseDate: Date | string,
   closingDay: number | null | undefined,
@@ -41,15 +58,33 @@ export function caixaMonthForCardPurchase(
   const month = d.getUTCMonth(); // 0-11
   const day = d.getUTCDate();
 
-  // Fallback: sem configuração de fechamento/vencimento, usa a competência.
-  if (closingDay == null || dueDay == null) {
-    return formatYearMonth(year, month);
-  }
+  const offset = dueMonthOffset(day, closingDay, dueDay);
+  if (offset == null) return formatYearMonth(year, month); // fallback: competência
 
-  // Mês em que a fatura FECHA (offset relativo ao mês da compra).
-  const closeMonthOffset = day < closingDay ? 0 : 1;
-  // Vencimento: se vence antes do dia de fechamento, é no mês seguinte ao fechamento.
-  const dueMonthOffset = dueDay >= closingDay ? 0 : 1;
+  return formatYearMonth(year, month + offset);
+}
 
-  return formatYearMonth(year, month + closeMonthOffset + dueMonthOffset);
+/**
+ * Como `caixaMonthForCardPurchase`, mas retorna a DATA de vencimento (com o
+ * `dueDay` aplicado e clamp para o último dia de meses curtos) — útil para
+ * reprojetar lançamentos no eixo de caixa preservando o dia.
+ *
+ * Fallback (dias nulos): retorna a própria data da compra (competência).
+ */
+export function caixaDateForCardPurchase(
+  purchaseDate: Date | string,
+  closingDay: number | null | undefined,
+  dueDay: number | null | undefined,
+): Date {
+  const d = toUtcDate(purchaseDate);
+  const year = d.getUTCFullYear();
+  const month = d.getUTCMonth();
+  const day = d.getUTCDate();
+
+  const offset = dueMonthOffset(day, closingDay, dueDay);
+  if (offset == null) return d; // fallback: mantém a data da compra
+
+  const lastDay = new Date(Date.UTC(year, month + offset + 1, 0)).getUTCDate();
+  const clampedDue = Math.min(dueDay as number, lastDay);
+  return new Date(Date.UTC(year, month + offset, clampedDue));
 }

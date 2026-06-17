@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { caixaMonthForCardPurchase } from '../src';
+import { caixaMonthForCardPurchase, caixaDateForCardPurchase } from '../src';
 
 const utc = (y: number, m: number, d: number) => new Date(Date.UTC(y, m - 1, d));
 
@@ -57,5 +57,34 @@ describe('caixaMonthForCardPurchase', () => {
 
   it('aceita string ISO como data de compra', () => {
     expect(caixaMonthForCardPurchase('2026-03-05T00:00:00.000Z', 10, 20)).toBe('2026-03');
+  });
+});
+
+describe('caixaDateForCardPurchase', () => {
+  it('retorna a data de VENCIMENTO (dueDay) no mês de caixa', () => {
+    // fecha 28, vence 7: compra 15/jan vence 07/fev
+    expect(caixaDateForCardPurchase(utc(2026, 1, 15), 28, 7).toISOString().slice(0, 10)).toBe('2026-02-07');
+  });
+
+  it('compra após o fechamento empurra o vencimento um mês', () => {
+    expect(caixaDateForCardPurchase(utc(2026, 1, 28), 28, 7).toISOString().slice(0, 10)).toBe('2026-03-07');
+  });
+
+  it('dueDay >= closingDay vence no mesmo mês do fechamento', () => {
+    expect(caixaDateForCardPurchase(utc(2026, 6, 3), 5, 15).toISOString().slice(0, 10)).toBe('2026-06-15');
+  });
+
+  it('faz clamp do dueDay para o último dia de meses curtos', () => {
+    // due 31 em abril (30 dias) → 2026-04-30
+    expect(caixaDateForCardPurchase(utc(2026, 4, 5), 10, 31).toISOString().slice(0, 10)).toBe('2026-04-30');
+  });
+
+  it('dias nulos → fallback para a própria data da compra (competência)', () => {
+    expect(caixaDateForCardPurchase(utc(2026, 5, 9), null, 7).toISOString().slice(0, 10)).toBe('2026-05-09');
+  });
+
+  it('é consistente com caixaMonthForCardPurchase (mesmo ano-mês)', () => {
+    const d = caixaDateForCardPurchase(utc(2026, 12, 29), 28, 7);
+    expect(d.toISOString().slice(0, 7)).toBe(caixaMonthForCardPurchase(utc(2026, 12, 29), 28, 7));
   });
 });

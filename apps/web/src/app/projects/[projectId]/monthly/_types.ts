@@ -27,6 +27,8 @@ export interface MonthlyEntry {
   status: string;
   valor: number;
   categoria: string | null;
+  /** Código bruto do tipo de despesa (ex.: 'PAGAMENTO_FATURA_CARTAO'), para detecção de neutras. */
+  categoriaCodigo?: string | null;
   subcategoria: string | null;
   formaPagamento: string | null;
   projectId: string;

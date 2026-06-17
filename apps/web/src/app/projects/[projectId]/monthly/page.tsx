@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { Gauge, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -9,10 +9,11 @@ import { api } from '@/lib/api';
 import type { MonthlyOverviewResponse } from './_types';
 import { mesLongo } from './_cockpit/format';
 import { COCKPIT_THEME } from './_cockpit/ui';
-import { anosDisponiveis } from './_cockpit/derive';
+import { anosDisponiveis, buildCaixaData } from './_cockpit/derive';
 import CockpitTop from './_cockpit/CockpitTop';
 import MonthView from './_cockpit/MonthView';
 import YearView from './_cockpit/YearView';
+import EixoToggle, { type Eixo } from './_cockpit/EixoToggle';
 
 type View = 'mes' | 'ano';
 
@@ -27,8 +28,20 @@ export default function CockpitPage() {
   const projectId = params.projectId;
   const { projectType } = useProject();
   const [view, setView] = useState<View>('mes');
+  const [eixo, setEixo] = useState<Eixo>('competencia');
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const saved = window.localStorage.getItem('cockpit-eixo');
+    if (saved === 'competencia' || saved === 'caixa') setEixo(saved);
+  }, []);
+
+  const changeEixo = (e: Eixo) => {
+    setEixo(e);
+    if (typeof window !== 'undefined') window.localStorage.setItem('cockpit-eixo', e);
+  };
 
   const { data, isLoading, error } = useQuery<MonthlyOverviewResponse>({
     queryKey: ['monthly-overview', projectId],
@@ -46,20 +59,23 @@ export default function CockpitPage() {
     );
   }
 
+  // Eixo de tempo: competência (default) ou caixa (vencimento da fatura).
+  const viewData = data ? (eixo === 'caixa' ? buildCaixaData(data) : data) : undefined;
+
   // Meses disponíveis (ordenados) para navegação na visão "Mês".
-  const mesesDisponiveis = data ? data.meses.map((r) => r.mes).sort() : [];
-  const monthKey = selectedMonth ?? data?.mesAtual ?? '';
+  const mesesDisponiveis = viewData ? viewData.meses.map((r) => r.mes).sort() : [];
+  const monthKey = selectedMonth ?? viewData?.mesAtual ?? '';
   const [yearStr, monthStr] = monthKey.split('-');
   const monthYear = yearStr ? parseInt(yearStr, 10) : new Date().getFullYear();
   const month0 = monthStr ? parseInt(monthStr, 10) - 1 : new Date().getMonth();
   const minMes = mesesDisponiveis[0] ?? monthKey;
   const maxMes = mesesDisponiveis[mesesDisponiveis.length - 1] ?? monthKey;
 
-  const monthEntries = data?.entries
-    ? data.entries.filter((e) => (e.data ?? '').slice(0, 7) === monthKey)
+  const monthEntries = viewData?.entries
+    ? viewData.entries.filter((e) => (e.data ?? '').slice(0, 7) === monthKey)
     : undefined;
 
-  const anos = data ? anosDisponiveis(data) : [monthYear];
+  const anos = viewData ? anosDisponiveis(viewData) : [monthYear];
   const year = selectedYear ?? monthYear;
 
   return (
@@ -141,10 +157,11 @@ export default function CockpitPage() {
               </button>
             ))}
           </div>
+          {data && <EixoToggle eixo={eixo} onChange={changeEixo} />}
         </div>
       </header>
 
-      {data && !isLoading && <CockpitTop data={data} />}
+      {viewData && !isLoading && <CockpitTop data={viewData} />}
 
       {isLoading && (
         <div className="space-y-4 animate-pulse">
@@ -163,10 +180,10 @@ export default function CockpitPage() {
         </div>
       )}
 
-      {data && !isLoading && (
+      {viewData && !isLoading && (
         view === 'mes'
-          ? <MonthView key={monthKey} data={data} monthKey={monthKey} entries={monthEntries} />
-          : <YearView data={data} year={year} />
+          ? <MonthView key={`${eixo}-${monthKey}`} data={viewData} monthKey={monthKey} entries={monthEntries} />
+          : <YearView data={viewData} year={year} />
       )}
     </div>
   );

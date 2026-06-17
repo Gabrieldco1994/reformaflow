@@ -71,4 +71,10 @@ describe('MonthlyOverviewService.getOverview — enriquecimento de cartão', () 
       dueDay: 7,
     });
   });
+
+  it('expõe categoriaCodigo (código bruto) por entry para detecção de neutras', async () => {
+    const res: any = await service.getOverview(tenantId, PESSOAL);
+    const entry = res.entries.find((e: any) => e.id === 'cfe-card');
+    expect(entry.categoriaCodigo).toBe('COMPRAS_VAREJO');
+  });
 });
