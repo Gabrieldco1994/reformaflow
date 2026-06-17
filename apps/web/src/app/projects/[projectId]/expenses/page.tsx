@@ -455,6 +455,17 @@ export default function ExpensesPage() {
     },
   });
 
+  // Troca rápida da categoria (tipo de despesa) direto na lista — igual ao toggle de status.
+  const changeTipoMutation = useMutation({
+    mutationFn: ({ id, tipoDespesa }: { id: string; tipoDespesa: string }) =>
+      api.patch(`/projects/${resolveOwnerProjectId(id)}/expenses/${id}`, { tipoDespesa }),
+    onSuccess: invalidate,
+    onError: (e: Error) => {
+      console.error('[expenses] change tipo failed', e);
+      toast.error(`Erro ao alterar categoria: ${e.message}`);
+    },
+  });
+
   function closeFormModal() {
     setFormModalOpen(false);
     setEditing(null);
@@ -947,6 +958,7 @@ export default function ExpensesPage() {
               onDelete={(id) => deleteMutation.mutate(id)}
               onToggleStatus={(id, status) => toggleStatusMutation.mutate({ id, status })}
               onToggleParcela={(id, parcela, paid) => toggleParcelaMutation.mutate({ id, parcela, paid })}
+              onChangeTipo={(id, tipoDespesa) => changeTipoMutation.mutate({ id, tipoDespesa })}
               onQuickUpdate={(id, valor, data) => {
                 const exp = expenses.find((x) => x.id === id);
                 const qty = exp?.quantidade ?? 1;
@@ -996,6 +1008,7 @@ export default function ExpensesPage() {
             onDelete={(id) => deleteMutation.mutate(id)}
             onToggleStatus={(id, status) => toggleStatusMutation.mutate({ id, status })}
             onToggleParcela={(id, parcela, paid) => toggleParcelaMutation.mutate({ id, parcela, paid })}
+            onChangeTipo={(id, tipoDespesa) => changeTipoMutation.mutate({ id, tipoDespesa })}
             onQuickUpdate={(id, valor, data) => {
               const exp = expenses.find((x) => x.id === id);
               const qty = exp?.quantidade ?? 1;

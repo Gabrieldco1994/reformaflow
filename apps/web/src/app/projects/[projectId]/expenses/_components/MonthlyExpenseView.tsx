@@ -27,6 +27,8 @@ interface Props {
   onToggleStatus: (id: string, newStatus: 'PAGO' | 'PLANEJADO') => void;
   /** Marca/desmarca uma parcela específica (0-based) como paga. */
   onToggleParcela?: (id: string, parcela: number, paid: boolean) => void;
+  /** Troca rápida da categoria (tipo de despesa) direto na lista. */
+  onChangeTipo?: (id: string, tipoDespesa: string) => void;
   onQuickUpdate: (id: string, valor: number, data: string) => void;
   onQuickCreate: (data: {
     tipoDespesa: string;
@@ -70,6 +72,7 @@ function MonthlyExpenseViewImpl({
   onDelete,
   onToggleStatus,
   onToggleParcela,
+  onChangeTipo,
   onQuickUpdate,
   onQuickCreate,
   emptyMsg,
@@ -77,6 +80,7 @@ function MonthlyExpenseViewImpl({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValor, setEditValor] = useState('');
   const [editData, setEditData] = useState('');
+  const [tipoEditingId, setTipoEditingId] = useState<string | null>(null);
   const [addingToMonth, setAddingToMonth] = useState<string | null>(null);
   const [newValor, setNewValor] = useState('');
   const [newData, setNewData] = useState('');
@@ -328,9 +332,36 @@ function MonthlyExpenseViewImpl({
                                 )}
                               </button>
                               {e.tipoDespesa && (
-                                <span className="text-[10px] text-darc-velvet/50 truncate">
-                                  {tipoLabel(e.tipoDespesa)}
-                                </span>
+                                onChangeTipo && tipoEditingId === e.occKey ? (
+                                  <select
+                                    autoFocus
+                                    value={e.tipoDespesa}
+                                    onChange={(ev) => {
+                                      const next = ev.target.value;
+                                      if (next && next !== e.tipoDespesa) onChangeTipo(e.id, next);
+                                      setTipoEditingId(null);
+                                    }}
+                                    onBlur={() => setTipoEditingId(null)}
+                                    onClick={(ev) => ev.stopPropagation()}
+                                    className="text-[11px] border border-darc-mist rounded px-1 py-0.5 bg-white focus:outline-none focus:ring-2 focus:ring-darc-mist max-w-[150px]"
+                                  >
+                                    {tipoOptions.map((o) => (
+                                      <option key={o.value} value={o.value}>{o.label}</option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={(ev) => {
+                                      ev.stopPropagation();
+                                      if (onChangeTipo) setTipoEditingId(e.occKey);
+                                    }}
+                                    title={onChangeTipo ? 'Clique para trocar a categoria' : undefined}
+                                    className={`text-[10px] text-darc-velvet/50 truncate rounded px-1 -mx-1 ${onChangeTipo ? 'hover:bg-darc-mist/20 hover:text-darc-velvet cursor-pointer transition-colors' : 'cursor-default'}`}
+                                  >
+                                    {tipoLabel(e.tipoDespesa)}
+                                  </button>
+                                )
                               )}
                               {e.occTotalParcelas > 1 && (
                                 <span className="text-[10px] font-medium text-darc-raspberry/80 bg-darc-raspberry/10 rounded-full px-1.5 py-0.5 flex-shrink-0">
