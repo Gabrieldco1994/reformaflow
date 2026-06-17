@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ExpenseTypeLabels, buildInstallments } from '@reformaflow/domain';
+import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import { CreateCreditCardDto, UpdateCreditCardDto } from './dto/credit-card.dto';
 import { parseStatementBuffer, type SourceHint, type NormalizedTx, type ParseResult } from './parsers';
 
@@ -34,7 +35,10 @@ export interface ImportDecision {
 
 @Injectable()
 export class CreditCardService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly conciliacao: ConciliacaoService,
+  ) {}
 
   // ─── CRUD cartões ────────────────────────────────────────
 
@@ -287,10 +291,15 @@ export class CreditCardService {
         if (result.settled) settled++;
         if (result.inserted) inserted++;
 
-        // Aplica link cross-project se solicitado
+        // Aplica link cross-project se solicitado — liquida a parcela da fatura
+        // (current) sobre a parcela correspondente do alvo, com o valor real.
         if (d?.action === 'link' && d.linkToExpenseId && result.expenseId) {
           try {
-            await this.linkToExpense(tenantId, projectId, result.expenseId, d.linkToExpenseId);
+            const parcelaIndex = Math.max(0, (adjustedTx.installmentCurrent ?? 1) - 1);
+            await this.linkToExpense(tenantId, projectId, result.expenseId, d.linkToExpenseId, {
+              parcelaIndex,
+              realValor: adjustedTx.amountCents,
+            });
             linked++;
           } catch (linkErr) {
             console.warn(`[credit-card-import] link failed for ${tx.externalId.slice(0, 8)}:`, (linkErr as Error).message);
@@ -430,21 +439,21 @@ export class CreditCardService {
   }
 
   /**
-   * Vincula uma despesa importada (do cartão, no PESSOAL) a uma despesa
-   * existente em outro projeto (planejada em REFORMA/CASA/CARRO).
+   * Vincula uma despesa importada (do cartão, no PESSOAL) a UMA parcela de uma
+   * despesa planejada em outro projeto (REFORMA/CASA/CARRO).
    *
-   * Efeitos:
-   *  - A despesa alvo vira PAGO, com data igual à da fatura.
-   *  - Os cashFlowEntries da alvo viram PAGO.
-   *  - A despesa importada ganha linkedExpenseId apontando para a alvo.
-   *  - A visão mensal (consolidada) filtrará entries com expense.linkedExpenseId
-   *    para evitar dupla contagem.
+   * Não-destrutivo / reversível (Conciliação por parcela):
+   *  - liquida apenas a parcela `parcelaIndex` do alvo com o valor REAL da fatura;
+   *  - guarda snapshot do planejado (em CrossProjectSettlement) p/ unlink;
+   *  - a fonte recebe `linkedExpenseId` → alvo (dedupe no consolidado PESSOAL);
+   *  - `Expense.valorTotal` do alvo permanece o planejado (valor efetivo é derivado).
    */
   async linkToExpense(
     tenantId: string,
     projectId: string,
     cardExpenseId: string,
     targetExpenseId: string,
+    opts?: { parcelaIndex?: number; realValor?: number },
   ) {
     const source = await this.prisma.expense.findFirst({
       where: { id: cardExpenseId, tenantId, projectId, deletedAt: null },
@@ -453,86 +462,25 @@ export class CreditCardService {
     if (!source.cardLast4) throw new BadRequestException('Despesa não foi importada de cartão');
 
     const paymentDate = source.dataPagamento ?? source.dataInicioParcela ?? source.createdAt;
+    const parcelaIndex = Math.max(0, opts?.parcelaIndex ?? 0);
+    const realValor = opts?.realValor ?? source.valorTotal;
 
-    const result = await this.prisma.$transaction(async (tx) => {
-      // Valida target dentro da transação para evitar race com link concorrente.
-      const target = await tx.expense.findFirst({
-        where: { id: targetExpenseId, tenantId, deletedAt: null },
+    await this.prisma.$transaction(async (tx) => {
+      await this.conciliacao.settleTargetParcela(tx, {
+        tenantId,
+        sourceExpenseId: source.id,
+        targetExpenseId,
+        parcelaIndex,
+        realValor,
       });
-      if (!target) throw new NotFoundException('Despesa alvo não encontrada');
-      if (target.projectId === projectId) {
-        throw new BadRequestException('Alvo deve estar em outro projeto');
-      }
-
-      // Sobrescreve a despesa alvo com os valores/data/parcelas da fonte (comportamento solicitado)
-      const updatedTarget = await tx.expense.update({
-        where: { id: target.id },
-        data: {
-          status: 'PAGO',
-          valor: source.valor,
-          quantidade: source.quantidade,
-          valorTotal: source.valorTotal,
-          quantidadeParcela: source.quantidadeParcela,
-          dataInicioParcela: source.dataInicioParcela ?? null,
-          dataPagamento: source.dataPagamento ?? source.dataInicioParcela ?? paymentDate,
-        },
-      });
-
-      // Regenera as entradas de cashflow para refletir os novos valores e status
-      await tx.cashFlowEntry.updateMany({
-        where: { expenseId: target.id, deletedAt: null },
-        data: { deletedAt: new Date() },
-      });
-
-      const isNeutral = (() => {
-        try {
-          const { isNeutralExpenseType } = require('@reformaflow/domain');
-          return isNeutralExpenseType(updatedTarget.tipoDespesa);
-        } catch {
-          return false;
-        }
-      })();
-
-      if (!isNeutral) {
-        const { buildInstallments, isSinglePaymentForm, ExpenseTypeLabels } = require('@reformaflow/domain');
-        const installments = buildInstallments({
-          valorTotal: updatedTarget.valorTotal,
-          formaPagamento: updatedTarget.formaPagamento,
-          dataPagamento: updatedTarget.dataPagamento,
-          quantidadeParcela: updatedTarget.quantidadeParcela,
-          dataInicioParcela: updatedTarget.dataInicioParcela,
-        });
-
-        const categoria = (ExpenseTypeLabels[updatedTarget.tipoDespesa] ?? updatedTarget.tipoDespesa) as string;
-        const entries = installments.map(({ parcela, valor, data }: { parcela: number; valor: number; data: string }) => ({
-          projectId: updatedTarget.projectId,
-          tenantId,
-          expenseId: updatedTarget.id,
-          tipo: 'DESPESA',
-          categoria,
-          subcategoria: updatedTarget.categoriaMaoDeObra ?? null,
-          ambiente: null,
-          status: 'PAGO',
-          valor,
-          data,
-          formaPagamento: updatedTarget.formaPagamento,
-          parcela: isSinglePaymentForm(updatedTarget.formaPagamento) ? null : parcela,
-        }));
-
-        if (entries.length > 0) await tx.cashFlowEntry.createMany({ data: entries });
-      }
-
-      await tx.expense.update({ where: { id: source.id }, data: { linkedExpenseId: target.id } });
-
-      return { targetId: target.id };
     });
 
-    return { ok: true, sourceId: source.id, targetId: result.targetId, paymentDate };
+    return { ok: true, sourceId: source.id, targetId: targetExpenseId, parcelaIndex, paymentDate };
   }
 
   /**
-   * Desfaz o link entre uma despesa importada e a alvo.
-   * NÃO reverte o status da alvo (ela pode ter outras razões para estar PAGA).
+   * Desfaz o vínculo entre uma despesa importada e o alvo, restaurando o
+   * planejado de TODAS as parcelas que esta fonte havia liquidado (reversível).
    */
   async unlinkExpense(tenantId: string, projectId: string, cardExpenseId: string) {
     const source = await this.prisma.expense.findFirst({
@@ -540,9 +488,9 @@ export class CreditCardService {
     });
     if (!source) throw new NotFoundException('Despesa não encontrada');
     if (!source.linkedExpenseId) return { ok: true, alreadyUnlinked: true };
-    await this.prisma.expense.update({
-      where: { id: source.id },
-      data: { linkedExpenseId: null },
+
+    await this.prisma.$transaction(async (tx) => {
+      await this.conciliacao.unsettleBySource(tx, { tenantId, sourceExpenseId: source.id });
     });
     return { ok: true };
   }

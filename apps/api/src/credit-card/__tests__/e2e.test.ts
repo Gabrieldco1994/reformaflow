@@ -17,6 +17,7 @@
  */
 import { PrismaClient } from '@prisma/client';
 import { CreditCardService } from '../credit-card.service';
+import { ConciliacaoService } from '../../conciliacao/conciliacao.service';
 import { MonthlyOverviewService } from '../../monthly-overview/monthly-overview.service';
 
 const prisma = new PrismaClient();
@@ -31,7 +32,7 @@ function assert(cond: any, msg: string) {
 function header(t: string) { console.log(`\n── ${t}`); }
 
 async function main() {
-  const cardSvc = new CreditCardService(prisma as any);
+  const cardSvc = new CreditCardService(prisma as any, new ConciliacaoService(prisma as any));
   const monthlySvc = new MonthlyOverviewService(prisma as any);
 
   // ───── Setup tenant + projetos ─────────────────────────────

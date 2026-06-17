@@ -39,11 +39,12 @@ export default function BankLinkSuggestionsPanel({ projectId, account, onClose }
 
   useEffect(() => { void load(); }, [load]);
 
-  async function handleLink(expenseId: string, targetId: string) {
+  async function handleLink(expenseId: string, targetId: string, parcelaIndex?: number) {
     setActingOn(expenseId);
     try {
       await api.post(`/projects/${projectId}/bank-accounts/transactions/${expenseId}/link`, {
         targetExpenseId: targetId,
+        ...(parcelaIndex != null ? { parcelaIndex } : {}),
       });
       await load();
     } catch (e) {
@@ -128,7 +129,7 @@ export default function BankLinkSuggestionsPanel({ projectId, account, onClose }
                             </span>
                           </div>
                           <button
-                            onClick={() => handleLink(expense.id, s.expenseId)}
+                            onClick={() => handleLink(expense.id, s.expenseId, s.installmentCurrent ? s.installmentCurrent - 1 : 0)}
                             disabled={actingOn === expense.id}
                             className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-1 disabled:opacity-50"
                           >

@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { CreditCardService } from './credit-card.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 
 function makePrismaMock() {
   return {
@@ -30,6 +31,11 @@ function makePrismaMock() {
       update: jest.fn().mockResolvedValue({}),
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
+    crossProjectSettlement: {
+      upsert: jest.fn().mockResolvedValue({}),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     $transaction: jest.fn(),
   } as any;
 }
@@ -55,7 +61,11 @@ describe('CreditCardService', () => {
   beforeEach(async () => {
     prisma = makePrismaMock();
     const module: TestingModule = await Test.createTestingModule({
-      providers: [CreditCardService, { provide: PrismaService, useValue: prisma }],
+      providers: [
+        CreditCardService,
+        ConciliacaoService,
+        { provide: PrismaService, useValue: prisma },
+      ],
     }).compile();
     service = module.get(CreditCardService);
 
@@ -270,20 +280,31 @@ describe('CreditCardService', () => {
       expect(call.data.tipoDespesa).toBe('INVESTIMENTOS');
     });
 
-    it('decision.link aciona linkToExpense após criar a despesa', async () => {
+    it('decision.link liquida a parcela do alvo via Conciliação (não sobrescreve)', async () => {
       const ofx = buildOfx(ofxFor('20260429', 100, 'LOJA Y', 'LK1'));
-      prisma.expense.findFirst
-        // 1ª: linkToExpense → source lookup (no projeto PESSOAL)
-        .mockResolvedValueOnce({
-          id: 'src1', tenantId: 't1', projectId: 'pessoal1',
-          cardLast4: '1234', dataPagamento: new Date('2026-04-29'),
-          dataInicioParcela: null, createdAt: new Date(), linkedExpenseId: null,
-        })
-        // 2ª: dentro da $transaction → target lookup
-        .mockResolvedValueOnce({
-          id: 'tgt1', tenantId: 't1', projectId: 'reforma1',
-          status: 'PLANEJADO', dataPagamento: null, dataInicioParcela: new Date('2026-04-28'),
-        });
+      // findFirst resolve por id: fonte (PESSOAL) e alvo (REFORMA)
+      prisma.expense.findFirst.mockImplementation(({ where }: any) => {
+        if (where.id === 'src1') {
+          return Promise.resolve({
+            id: 'src1', tenantId: 't1', projectId: 'pessoal1',
+            cardLast4: '1234', valor: 10000, valorTotal: 10000,
+            dataPagamento: new Date('2026-04-29'), dataInicioParcela: null,
+            createdAt: new Date(), linkedExpenseId: null,
+          });
+        }
+        if (where.id === 'tgt1') {
+          return Promise.resolve({
+            id: 'tgt1', tenantId: 't1', projectId: 'reforma1',
+            tipoDespesa: 'METAL_CERAMICA', categoriaMaoDeObra: null, roomId: null,
+            valorTotal: 10000, formaPagamento: 'A_VISTA', dataPagamento: null,
+            quantidadeParcela: null, dataInicioParcela: new Date('2026-04-28'),
+            status: 'PLANEJADO', paidParcelas: null, linkedExpenseId: null, room: null,
+          });
+        }
+        return Promise.resolve(null);
+      });
+      // regen lê as liquidações do alvo
+      prisma.crossProjectSettlement.findMany.mockResolvedValue([{ parcelaIndex: 0, realValor: 10000 }]);
 
       prisma.expense.create.mockResolvedValueOnce({ id: 'src1' });
       const preview = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX');
@@ -298,21 +319,36 @@ describe('CreditCardService', () => {
 
       expect(res.linked).toBe(1);
       expect(res.inserted).toBe(1);
-      expect(prisma.$transaction).toHaveBeenCalled();
+      // núcleo: guardou snapshot do planejado (não sobrescreveu o alvo)
+      expect(prisma.crossProjectSettlement.upsert).toHaveBeenCalled();
+      const upsertArg = prisma.crossProjectSettlement.upsert.mock.calls[0][0];
+      expect(upsertArg.create.plannedValor).toBe(10000);
+      expect(upsertArg.create.realValor).toBe(10000);
     });
 
-    it('decision.link também atualiza alvo já PAGO (re-link)', async () => {
+    it('decision.link funciona com alvo parcelado (liquida só a parcela atual)', async () => {
       const ofx = buildOfx(ofxFor('20260429', 100, 'LOJA Z', 'LK2'));
-      prisma.expense.findFirst
-        .mockResolvedValueOnce({
-          id: 'src2', tenantId: 't1', projectId: 'pessoal1',
-          cardLast4: '1234', dataPagamento: new Date('2026-04-29'),
-          dataInicioParcela: null, createdAt: new Date(), linkedExpenseId: null,
-        })
-        .mockResolvedValueOnce({
-          id: 'tgt2', tenantId: 't1', projectId: 'casa1',
-          status: 'PAGO', dataPagamento: new Date('2026-04-10'), dataInicioParcela: null,
-        });
+      prisma.expense.findFirst.mockImplementation(({ where }: any) => {
+        if (where.id === 'src2') {
+          return Promise.resolve({
+            id: 'src2', tenantId: 't1', projectId: 'pessoal1',
+            cardLast4: '1234', valor: 10000, valorTotal: 10000,
+            dataPagamento: new Date('2026-04-29'), dataInicioParcela: null,
+            createdAt: new Date(), linkedExpenseId: null,
+          });
+        }
+        if (where.id === 'tgt2') {
+          return Promise.resolve({
+            id: 'tgt2', tenantId: 't1', projectId: 'casa1',
+            tipoDespesa: 'METAL_CERAMICA', categoriaMaoDeObra: null, roomId: null,
+            valorTotal: 30000, formaPagamento: 'PARCELADO', dataPagamento: null,
+            quantidadeParcela: 3, dataInicioParcela: new Date('2026-04-29'),
+            status: 'PLANEJADO', paidParcelas: null, linkedExpenseId: null, room: null,
+          });
+        }
+        return Promise.resolve(null);
+      });
+      prisma.crossProjectSettlement.findMany.mockResolvedValue([{ parcelaIndex: 0, realValor: 10000 }]);
 
       prisma.expense.create.mockResolvedValueOnce({ id: 'src2' });
       const preview = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX');
@@ -326,6 +362,10 @@ describe('CreditCardService', () => {
       );
 
       expect(res.linked).toBe(1);
+      // alvo NÃO fechado por inteiro: parcela 0 paga, 2 abertas
+      const targetUpdate = prisma.expense.update.mock.calls.find((c: any[]) => c[0].where.id === 'tgt2');
+      expect(targetUpdate[0].data.status).toBe('PLANEJADO');
+      expect(targetUpdate[0].data.paidParcelas).toBe('[0]');
     });
   });
 });

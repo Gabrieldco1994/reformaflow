@@ -14,6 +14,7 @@
 import { PrismaClient } from '@prisma/client';
 import { BankAccountService } from '../bank-account.service';
 import { MerchantClassifierService } from '../../merchant-classifier/merchant-classifier.service';
+import { ConciliacaoService } from '../../conciliacao/conciliacao.service';
 
 const prisma = new PrismaClient();
 let failures = 0;
@@ -26,7 +27,7 @@ function assert(cond: any, msg: string) {
 function header(t: string) { console.log(`\n── ${t}`); }
 
 async function main() {
-  const svc = new BankAccountService(prisma as any, new MerchantClassifierService(prisma as any));
+  const svc = new BankAccountService(prisma as any, new MerchantClassifierService(prisma as any), new ConciliacaoService(prisma as any));
 
   const tenant = await prisma.tenant.create({ data: { name: 'test-banks-' + Date.now() } });
   const pessoal = await prisma.project.create({

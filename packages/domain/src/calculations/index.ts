@@ -4,6 +4,7 @@ import type { CashFlowEntry, CashFlowEntryComputed } from '../types';
 export * from './expense-installments';
 export * from './card-cash-month';
 export * from './cash-axis';
+export * from './cross-project-settlement';
 
 /**
  * Calcula o saldo acumulado do fluxo de caixa (rolling balance)

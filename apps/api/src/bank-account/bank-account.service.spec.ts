@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { BankAccountService } from './bank-account.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { MerchantClassifierService } from '../merchant-classifier/merchant-classifier.service';
+import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 
 function makePrismaMock() {
   return {
@@ -39,6 +40,11 @@ function makePrismaMock() {
     creditCardStatementImport: { update: jest.fn().mockResolvedValue({}) },
     creditCard: { findMany: jest.fn().mockResolvedValue([]) },
     recurringBill: { create: jest.fn(), findFirst: jest.fn() },
+    crossProjectSettlement: {
+      upsert: jest.fn().mockResolvedValue({}),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     $transaction: jest.fn(),
   } as any;
 }
@@ -81,6 +87,7 @@ describe('BankAccountService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         BankAccountService,
+        ConciliacaoService,
         { provide: PrismaService, useValue: prisma },
         { provide: MerchantClassifierService, useValue: classifier },
       ],
@@ -263,29 +270,35 @@ describe('BankAccountService', () => {
   });
 
   describe('linkToExpense', () => {
-    it('permite re-link quando a despesa alvo já está PAGO', async () => {
-      prisma.expense.findFirst
-        .mockResolvedValueOnce({
-          id: 'src1',
-          tenantId: 't1',
-          projectId: 'pessoal1',
-          bankLast4: '5678',
-          dataPagamento: new Date('2026-04-29'),
-          dataInicioParcela: null,
-          createdAt: new Date('2026-04-29'),
-        })
-        .mockResolvedValueOnce({
-          id: 'tgt1',
-          tenantId: 't1',
-          projectId: 'casa1',
-          status: 'PAGO',
-        });
+    it('liquida a parcela do alvo via Conciliação (reversível, não-destrutivo)', async () => {
+      prisma.expense.findFirst.mockImplementation(({ where }: any) => {
+        if (where.id === 'src1') {
+          return Promise.resolve({
+            id: 'src1', tenantId: 't1', projectId: 'pessoal1',
+            bankLast4: '5678', valor: 50000, valorTotal: 50000,
+            dataPagamento: new Date('2026-04-29'), dataInicioParcela: null,
+            createdAt: new Date('2026-04-29'), linkedExpenseId: null,
+          });
+        }
+        if (where.id === 'tgt1') {
+          return Promise.resolve({
+            id: 'tgt1', tenantId: 't1', projectId: 'casa1',
+            tipoDespesa: 'METAL_CERAMICA', categoriaMaoDeObra: null, roomId: null,
+            valorTotal: 50000, formaPagamento: 'A_VISTA', dataPagamento: null,
+            quantidadeParcela: null, dataInicioParcela: new Date('2026-04-28'),
+            status: 'PLANEJADO', paidParcelas: null, linkedExpenseId: null, room: null,
+          });
+        }
+        return Promise.resolve(null);
+      });
+      prisma.crossProjectSettlement.findMany.mockResolvedValue([{ parcelaIndex: 0, realValor: 50000 }]);
 
       await expect(
         service.linkToExpense('t1', 'pessoal1', 'src1', 'tgt1'),
       ).resolves.toEqual(
         expect.objectContaining({ ok: true, sourceId: 'src1', targetId: 'tgt1' }),
       );
+      expect(prisma.crossProjectSettlement.upsert).toHaveBeenCalled();
     });
   });
 });

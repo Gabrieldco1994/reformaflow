@@ -5,6 +5,7 @@ import {
   LaborCategoryLabels,
   allocateEmpreiteiroExpenses,
   buildMonthlyAccumulated,
+  effectiveValorTotal,
 } from '@reformaflow/domain';
 
 @Injectable()
@@ -85,10 +86,31 @@ export class DashboardService {
     const previsaoSaldo = dinheiroDisponivel + previsaoRecebimentos - jaPaguei - previsaoGastos;
     const saldo = dinheiroDisponivel - jaPaguei;
 
+    // Conciliação cross-project: quando uma parcela do alvo (REFORMA) foi
+    // liquidada pelo valor REAL (cartão/conta pessoal), os resumos por
+    // valorTotal devem refletir o efetivo (planejado + Σ(real − planejado)).
+    // Sem vínculos ativos, Σ delta = 0 (no-op) — zero impacto nos números atuais.
+    const expenseIds = expenses.map((e) => e.id);
+    const settlements = expenseIds.length
+      ? await this.prisma.crossProjectSettlement.findMany({
+          where: { targetExpenseId: { in: expenseIds } },
+        })
+      : [];
+    const settlementsByTarget = new Map<string, { realValor: number; plannedValor: number }[]>();
+    for (const s of settlements) {
+      const arr = settlementsByTarget.get(s.targetExpenseId) ?? [];
+      arr.push({ realValor: s.realValor, plannedValor: s.plannedValor });
+      settlementsByTarget.set(s.targetExpenseId, arr);
+    }
+    const expensesEff = expenses.map((e) => ({
+      ...e,
+      valorTotal: effectiveValorTotal(e.valorTotal, settlementsByTarget.get(e.id) ?? []),
+    }));
+
     // Resumo por Ambiente
     // Aplica rateio: despesas de MAO_DE_OBRA / EMPREITEIRO sem ambiente são
     // distribuídas proporcionalmente entre os ambientes com valor > 0.
-    const expensesForRoomBreakdown = allocateEmpreiteiroExpenses(expenses);
+    const expensesForRoomBreakdown = allocateEmpreiteiroExpenses(expensesEff);
     const byRoomMap = new Map<string, { planejado: number; pago: number }>();
     for (const exp of expensesForRoomBreakdown) {
       const roomName = exp.room?.name ?? 'Sem Ambiente';
@@ -100,7 +122,7 @@ export class DashboardService {
 
     // Resumo por Tipo de Despesa
     const byTypeMap = new Map<string, number>();
-    for (const exp of expenses) {
+    for (const exp of expensesEff) {
       const key = exp.tipoDespesa;
       byTypeMap.set(key, (byTypeMap.get(key) ?? 0) + exp.valorTotal);
     }
@@ -111,7 +133,7 @@ export class DashboardService {
 
     // Resumo por Categoria (Mão de Obra)
     const byCatMap = new Map<string, number>();
-    for (const exp of expenses) {
+    for (const exp of expensesEff) {
       if (exp.categoriaMaoDeObra) {
         const key = exp.categoriaMaoDeObra;
         byCatMap.set(key, (byCatMap.get(key) ?? 0) + exp.valorTotal);

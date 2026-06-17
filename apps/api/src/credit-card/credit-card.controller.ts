@@ -79,7 +79,10 @@ export class CreditCardController {
     @Param('expenseId') expenseId: string,
     @Body() body: LinkToExpenseDto,
   ) {
-    return this.service.linkToExpense(tenantId, projectId, expenseId, body.targetExpenseId);
+    return this.service.linkToExpense(tenantId, projectId, expenseId, body.targetExpenseId, {
+      parcelaIndex: body.parcelaIndex,
+      realValor: body.realValor,
+    });
   }
 
   @Delete('transactions/:expenseId/link')

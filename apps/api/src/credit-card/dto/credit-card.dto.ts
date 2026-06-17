@@ -38,4 +38,8 @@ export class ImportStatementQueryDto {
 
 export class LinkToExpenseDto {
   @IsString() @Length(1, 50) targetExpenseId!: string;
+  /** Parcela 0-based do ALVO a liquidar (default 0). */
+  @IsOptional() @IsInt() @Min(0) @Max(120) parcelaIndex?: number;
+  /** Valor real da parcela em centavos (default: valor da despesa fonte). */
+  @IsOptional() @IsInt() @Min(0) realValor?: number;
 }

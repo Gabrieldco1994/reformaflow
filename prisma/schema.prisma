@@ -187,10 +187,36 @@ model Expense {
   settledBy      Expense?      @relation("ExpenseSettlement")
   cashFlow      CashFlowEntry[]
   markers       FloorPlanMarker[]
+  settlementsAsSource CrossProjectSettlement[] @relation("SettlementSource")
+  settlementsAsTarget CrossProjectSettlement[] @relation("SettlementTarget")
 
   @@index([linkedExpenseId])
   @@index([seriesKey])
   @@map("expenses")
+}
+
+// ─── Conciliação cross-project por parcela ─────────────────
+// Quando uma despesa importada (PESSOAL, cartão/conta) liquida UMA parcela de
+// uma despesa planejada em outro projeto (REFORMA/CASA/CARRO). Não-destrutivo:
+// guarda o valor real (da fatura) e o snapshot do planejado para unlink reversível.
+model CrossProjectSettlement {
+  id              String   @id @default(cuid())
+  tenantId        String   @map("tenant_id")
+  sourceExpenseId String   @map("source_expense_id") // despesa importada (PESSOAL) que liquida
+  targetExpenseId String   @map("target_expense_id") // despesa planejada (outro projeto)
+  parcelaIndex    Int      @map("parcela_index")      // parcela 0-based do ALVO liquidada
+  realValor       Int      @map("real_valor")         // valor real pago (centavos), da fatura
+  plannedValor    Int      @map("planned_valor")      // snapshot do valor planejado da parcela (restore)
+  plannedStatus   String   @map("planned_status")     // snapshot do status original do alvo (PLANEJADO/PAGO)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  source Expense @relation("SettlementSource", fields: [sourceExpenseId], references: [id])
+  target Expense @relation("SettlementTarget", fields: [targetExpenseId], references: [id])
+
+  @@unique([targetExpenseId, parcelaIndex])
+  @@index([sourceExpenseId])
+  @@index([tenantId])
+  @@map("cross_project_settlements")
 }
 
 // ─── Fluxo de Caixa (auto-gerado) ──────────────────────────
