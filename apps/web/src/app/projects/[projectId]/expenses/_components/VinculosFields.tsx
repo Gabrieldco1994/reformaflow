@@ -299,7 +299,11 @@ export function VinculosFields({
                     className="block w-full px-3 py-1.5 text-left hover:bg-orange-50"
                     onClick={() => {
                       onChange({ ...value, linkedExpenseId: opt.exp.id, linkedParcelaIndex: opt.parcelaIndex });
-                      onLinkSelected?.(opt.exp);
+                      onLinkSelected?.({
+                        ...opt.exp,
+                        formaPagamento: opt.parcelaLabel ? 'A_VISTA' : opt.exp.formaPagamento,
+                        dataPagamento: opt.data,
+                      });
                       setSearchOpen(false);
                       setSearch('');
                     }}

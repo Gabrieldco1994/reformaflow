@@ -62,6 +62,8 @@ export default function ExpensesPage() {
   const [formTitulo, setFormTitulo] = useState('');
   const [formFornecedor, setFormFornecedor] = useState('');
   const [formCategoriaMaoDeObra, setFormCategoriaMaoDeObra] = useState('');
+  const [formDataPagamento, setFormDataPagamento] = useState('');
+  const [formDataInicioParcela, setFormDataInicioParcela] = useState('');
 
   // Estado do bloco "Vínculos" do modal de despesa
   const [formVinculos, setFormVinculos] = useState<{ creditCardId: string; bankAccountId: string; linkedExpenseId: string; linkedParcelaIndex?: number | null }>({
@@ -492,6 +494,8 @@ export default function ExpensesPage() {
     setFormTitulo('');
     setFormFornecedor('');
     setFormCategoriaMaoDeObra('');
+    setFormDataPagamento('');
+    setFormDataInicioParcela('');
   }
 
   function openPlanForm() {
@@ -504,6 +508,8 @@ export default function ExpensesPage() {
     setFormTitulo('');
     setFormFornecedor('');
     setFormCategoriaMaoDeObra('');
+    setFormDataPagamento('');
+    setFormDataInicioParcela('');
     setFormVinculos({ creditCardId: '', bankAccountId: '', linkedExpenseId: '', linkedParcelaIndex: null });
     setFormModalOpen(true);
   }
@@ -523,6 +529,8 @@ export default function ExpensesPage() {
     setFormTitulo('');
     setFormFornecedor('');
     setFormCategoriaMaoDeObra('');
+    setFormDataPagamento('');
+    setFormDataInicioParcela('');
     setFormVinculos({ creditCardId: '', bankAccountId: '', linkedExpenseId: '', linkedParcelaIndex: null });
     setFormModalOpen(true);
   }
@@ -542,6 +550,8 @@ export default function ExpensesPage() {
     setFormTitulo(expense.titulo ?? '');
     setFormFornecedor(expense.fornecedor ?? '');
     setFormCategoriaMaoDeObra(expense.categoriaMaoDeObra ?? '');
+    setFormDataPagamento(expense.dataPagamento?.slice(0, 10) ?? '');
+    setFormDataInicioParcela(expense.dataInicioParcela?.slice(0, 10) ?? '');
     setFormVinculos({
       creditCardId: '',
       bankAccountId: '',
@@ -560,11 +570,21 @@ export default function ExpensesPage() {
     categoriaMaoDeObra?: string | null;
     titulo?: string | null;
     fornecedor?: string | null;
+    formaPagamento?: string | null;
+    dataPagamento?: string | null;
+    dataInicioParcela?: string | null;
   }) {
     if (exp.tipoDespesa) setTipoDespesa(exp.tipoDespesa);
     setFormCategoriaMaoDeObra(exp.categoriaMaoDeObra ?? '');
     setFormTitulo((prev) => prev || exp.titulo || '');
     setFormFornecedor((prev) => prev || exp.fornecedor || '');
+    if (exp.formaPagamento) setFormaPagamento(exp.formaPagamento);
+    const forma = exp.formaPagamento ?? formaPagamento;
+    if (isSinglePaymentForm(forma)) {
+      if (exp.dataPagamento) setFormDataPagamento(exp.dataPagamento.slice(0, 10));
+    } else if (exp.dataInicioParcela) {
+      setFormDataInicioParcela(exp.dataInicioParcela.slice(0, 10));
+    }
   }
 
   function openInlineEdit(expense: Expense) {
@@ -1184,6 +1204,10 @@ export default function ExpensesPage() {
         setFornecedor={setFormFornecedor}
         categoriaMaoDeObra={formCategoriaMaoDeObra}
         setCategoriaMaoDeObra={setFormCategoriaMaoDeObra}
+        dataPagamento={formDataPagamento}
+        setDataPagamento={setFormDataPagamento}
+        dataInicioParcela={formDataInicioParcela}
+        setDataInicioParcela={setFormDataInicioParcela}
         formVinculos={formVinculos}
         setFormVinculos={setFormVinculos}
         onLinkSelected={handleLinkSelected}

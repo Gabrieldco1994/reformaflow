@@ -48,6 +48,10 @@ interface ExpenseFormModalProps {
   setFornecedor: (value: string) => void;
   categoriaMaoDeObra: string;
   setCategoriaMaoDeObra: (value: string) => void;
+  dataPagamento: string;
+  setDataPagamento: (value: string) => void;
+  dataInicioParcela: string;
+  setDataInicioParcela: (value: string) => void;
   formVinculos: ExpenseFormVinculos;
   setFormVinculos: (v: ExpenseFormVinculos) => void;
   onLinkSelected?: (exp: {
@@ -55,6 +59,9 @@ interface ExpenseFormModalProps {
     categoriaMaoDeObra?: string | null;
     titulo?: string | null;
     fornecedor?: string | null;
+    formaPagamento?: string | null;
+    dataPagamento?: string | null;
+    dataInicioParcela?: string | null;
   }) => void;
   projectId: string;
   showRooms: boolean;
@@ -86,6 +93,10 @@ export function ExpenseFormModal({
   setFornecedor,
   categoriaMaoDeObra,
   setCategoriaMaoDeObra,
+  dataPagamento,
+  setDataPagamento,
+  dataInicioParcela,
+  setDataInicioParcela,
   formVinculos,
   setFormVinculos,
   onLinkSelected,
@@ -188,7 +199,8 @@ export function ExpenseFormModal({
             label="Data do Pagamento"
             name="dataPagamento"
             type="date"
-            defaultValue={editing?.dataPagamento?.slice(0, 10) ?? ''}
+            value={dataPagamento}
+            onChange={(e) => setDataPagamento(e.target.value)}
           />
         )}
 
@@ -205,7 +217,8 @@ export function ExpenseFormModal({
               label="Data de Início"
               name="dataInicioParcela"
               type="date"
-              defaultValue={editing?.dataInicioParcela?.slice(0, 10) ?? ''}
+              value={dataInicioParcela}
+              onChange={(e) => setDataInicioParcela(e.target.value)}
             />
           </div>
         )}
