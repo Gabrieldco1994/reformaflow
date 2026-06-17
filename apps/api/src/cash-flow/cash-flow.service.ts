@@ -16,7 +16,11 @@ export class CashFlowService {
    * - rollingBalanceRealizado: saldo realizado (apenas PAGO + EM_CAIXA)
    */
   async findAll(tenantId: string, projectId: string) {
-    await this.validateProject(tenantId, projectId);
+    const project = await this.validateProject(tenantId, projectId);
+    const expenseFilter =
+      project.type === 'PESSOAL'
+        ? { deletedAt: null }
+        : { deletedAt: null, linkedExpenseId: null };
 
     const entries = await this.prisma.cashFlowEntry.findMany({
       where: {
@@ -24,7 +28,7 @@ export class CashFlowService {
         deletedAt: null,
         OR: [
           { expenseId: null },
-          { expense: { deletedAt: null, linkedExpenseId: null } },
+          { expense: expenseFilter },
         ],
         // também garante que receipts soft-deleted não vazem
         AND: [
@@ -64,5 +68,6 @@ export class CashFlowService {
       where: { id: projectId, tenantId },
     });
     if (!project) throw new NotFoundException('Projeto não encontrado');
+    return project;
   }
 }
