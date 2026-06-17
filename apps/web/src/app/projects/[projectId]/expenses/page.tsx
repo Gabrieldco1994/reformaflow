@@ -30,7 +30,7 @@ import { MonthlyExpenseView } from './_components/MonthlyExpenseView';
 import { CategoryExpenseView } from './_components/CategoryExpenseView';
 import { UnifiedExpenseView } from './_components/UnifiedExpenseView';
 import { ExpenseViewToggle, type ExpenseViewMode } from './_components/ExpenseViewToggle';
-import { groupExpensesByMes, currentMonthKey, expandExpenseOccurrences } from './_lib/grouping-by-month';
+import { groupExpensesByMes, groupExpensesChrono, currentMonthKey, expandExpenseOccurrences } from './_lib/grouping-by-month';
 import {
   type RemoteProjectMap,
   type PeriodFilter,
@@ -90,7 +90,7 @@ export default function ExpensesPage() {
     if (typeof window === 'undefined') return;
     const key = `expenses:viewMode:${PROJECT_ID}`;
     const saved = window.localStorage.getItem(key);
-    if (saved === 'category' || saved === 'month' || saved === 'project') setViewMode(saved);
+    if (saved === 'category' || saved === 'month' || saved === 'project' || saved === 'general') setViewMode(saved);
   }, [PROJECT_ID]);
 
   React.useEffect(() => {
@@ -322,6 +322,13 @@ export default function ExpensesPage() {
 
   // Visão mensal
   const groupedByMes = useMemo(() => groupExpensesByMes(filteredExpenses), [filteredExpenses]);
+  // Visão "Geral" (extrato cronológico). Usa a MESMA base de dados da visão ativa
+  // (PESSOAL respeita o período selecionado; demais usam o conjunto filtrado),
+  // então o filtro de data é honrado igual às outras visões.
+  const groupedGeneral = useMemo(
+    () => groupExpensesChrono(projectType === 'PESSOAL' ? periodFilteredPersonal : filteredExpenses),
+    [projectType, periodFilteredPersonal, filteredExpenses],
+  );
   useEffect(() => {
     const cur = currentMonthKey();
     setCollapsedMonths(new Set(groupedByMes.filter((g) => g.mesKey !== cur).map((g) => g.mesKey)));
@@ -891,7 +898,42 @@ export default function ExpensesPage() {
         </div>
       ) : (
         <>
-        {projectType === 'PESSOAL' ? (
+        {viewMode === 'general' ? (
+          <MonthlyExpenseView
+            grouped={groupedGeneral}
+            collapsedMonths={collapsedMonths}
+            toggleMonth={(key) => {
+              setCollapsedMonths((prev) => {
+                const next = new Set(prev);
+                if (next.has(key)) next.delete(key);
+                else next.add(key);
+                return next;
+              });
+            }}
+            tipoLabel={tipoLabel}
+            tipoOptions={TIPO_DESPESA_OPTIONS}
+            openEdit={openEdit}
+            onDelete={(id) => deleteMutation.mutate(id)}
+            onToggleStatus={(id, status) => toggleStatusMutation.mutate({ id, status })}
+            onToggleParcela={(id, parcela, paid) => toggleParcelaMutation.mutate({ id, parcela, paid })}
+            onQuickUpdate={(id, valor, data) => {
+              const exp = expenses.find((x) => x.id === id);
+              const qty = exp?.quantidade ?? 1;
+              quickUpdateMutation.mutate({ id, valorTotal: valor, dataPagamento: data, quantidade: qty });
+            }}
+            onQuickCreate={(d) => {
+              createMutation.mutate({
+                tipoDespesa: d.tipoDespesa,
+                valor: d.valor,
+                quantidade: 1,
+                formaPagamento: 'A_VISTA',
+                dataPagamento: d.dataPagamento,
+                status: d.status,
+              } as ExpenseFormData);
+            }}
+            emptyMsg="Nenhuma despesa no período."
+          />
+        ) : projectType === 'PESSOAL' ? (
           <UnifiedExpenseView
             mode={viewMode}
             expenses={periodFilteredPersonal}

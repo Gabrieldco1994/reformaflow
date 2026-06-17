@@ -1,8 +1,8 @@
 'use client';
 import React from 'react';
-import { LayoutGrid, Calendar, Layers } from 'lucide-react';
+import { LayoutGrid, Calendar, Layers, ListOrdered } from 'lucide-react';
 
-export type ExpenseViewMode = 'category' | 'month' | 'project';
+export type ExpenseViewMode = 'category' | 'month' | 'project' | 'general';
 
 interface Props {
   value: ExpenseViewMode;
@@ -40,6 +40,14 @@ export function ExpenseViewToggle({ value, onChange, showProject = false }: Prop
           <Layers className="w-3.5 h-3.5" /> Por projeto
         </button>
       )}
+      <button
+        type="button"
+        onClick={() => onChange('general')}
+        title="Extrato cronológico: o que saiu, quando e quanto"
+        className={`${baseBtn} border-l border-gray-200 ${value === 'general' ? active : inactive}`}
+      >
+        <ListOrdered className="w-3.5 h-3.5" /> Geral
+      </button>
     </div>
   );
 }

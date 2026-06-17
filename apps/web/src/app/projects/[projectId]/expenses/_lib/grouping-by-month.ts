@@ -187,3 +187,50 @@ export function groupExpensesByMes(expenses: Expense[]): GrupoDespesaPorMes[] {
 
   return grouped;
 }
+
+/**
+ * Agrupa TODAS as despesas numa única lista cronológica (visão "Geral"):
+ * expande parcelas em ocorrências, ordena por data (empate por maior valor) e
+ * devolve um único grupo. É o "fluxo de caixa" focado em saídas — o que saiu,
+ * quando e quanto — preservando as ocorrências (parcela k/n) para que as ações
+ * (editar, pagar, copiar) funcionem igual à visão "Mês".
+ */
+export function groupExpensesChrono(expenses: Expense[]): GrupoDespesaPorMes[] {
+  const comData: Occurrence[] = [];
+  const semData: Occurrence[] = [];
+
+  for (const e of expenses) {
+    for (const occ of expandExpenseOccurrences(e)) {
+      if (occ.occDate) comData.push(occ);
+      else semData.push(occ);
+    }
+  }
+
+  comData.sort((a, b) => {
+    if (a.occDate !== b.occDate) return a.occDate < b.occDate ? -1 : 1;
+    return b.occValue - a.occValue;
+  });
+
+  const items = [...comData, ...semData];
+  if (items.length === 0) return [];
+
+  const totalPago = items
+    .filter((e) => e.status === 'PAGO')
+    .reduce((s, e) => s + e.occValue, 0);
+  const totalPlanejado = items
+    .filter((e) => e.status === 'PLANEJADO')
+    .reduce((s, e) => s + e.occValue, 0);
+
+  return [
+    {
+      mesKey: 'geral',
+      mesLabel: 'Todas as despesas · por data',
+      items,
+      total: totalPago + totalPlanejado,
+      totalPago,
+      totalPlanejado,
+      isCurrentMonth: false,
+      isFuture: false,
+    },
+  ];
+}
