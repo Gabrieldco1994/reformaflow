@@ -32,6 +32,8 @@ export interface MonthlyEntry {
   projectId: string;
   projectName: string;
   projectType: string;
+  /** Últimos 4 dígitos do cartão de origem (null = débito de conta). */
+  cardLast4?: string | null;
   /** Despesa PESSOAL vinculada a outro projeto (espelho). Conta no PESSOAL-only; dedup no consolidado. */
   isEspelho?: boolean;
 }
@@ -48,6 +50,14 @@ export interface CaixaConta {
   porMes: Array<{ mes: string; caixa: number }>;
 }
 
+/** Configuração de cartão para derivar o mês de caixa (vencimento). */
+export interface CardConfigDTO {
+  last4: string;
+  nickname: string;
+  closingDay: number | null;
+  dueDay: number | null;
+}
+
 export interface MonthlyOverviewResponse {
   mesAtual: string;
   meses: MonthlyOverviewRow[];
@@ -56,4 +66,5 @@ export interface MonthlyOverviewResponse {
   entries?: MonthlyEntry[];
   projetos: Array<{ id: string; name: string; type: string }>;
   caixa?: CaixaConta;
+  cards?: CardConfigDTO[];
 }

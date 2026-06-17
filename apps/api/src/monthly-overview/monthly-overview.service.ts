@@ -55,7 +55,7 @@ export class MonthlyOverviewService {
           },
         ],
       },
-      include: { expense: { select: { linkedExpenseId: true } } },
+      include: { expense: { select: { linkedExpenseId: true, cardLast4: true } } },
       orderBy: [{ data: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
     });
 
@@ -102,6 +102,7 @@ export class MonthlyOverviewService {
       projectId: e.projectId,
       projectName: projectNameById.get(e.projectId) ?? '',
       projectType: projectTypeById.get(e.projectId) ?? 'OUTROS',
+      cardLast4: e.expense?.cardLast4 ?? null,
       isEspelho: isEspelho(e),
     });
 
@@ -122,6 +123,19 @@ export class MonthlyOverviewService {
 
     const caixa = await this.computeCaixaConta(tenantId, pessoalProjectId);
 
+    // Cartões do tenant (closingDay/dueDay) para derivar o "mês de caixa" das
+    // faturas no cockpit (eixo caixa). Aditivo: não altera meses/caixa existentes.
+    const cardRows = await this.prisma.creditCard.findMany({
+      where: { tenantId, projectId: { in: projectIds }, deletedAt: null },
+      select: { last4: true, nickname: true, closingDay: true, dueDay: true },
+    });
+    const seenLast4 = new Set<string>();
+    const cards = cardRows.filter((c) => {
+      if (seenLast4.has(c.last4)) return false;
+      seenLast4.add(c.last4);
+      return true;
+    });
+
     return {
       mesAtual: currentKey,
       meses: rows,
@@ -130,6 +144,7 @@ export class MonthlyOverviewService {
       entries: allEntries,
       projetos: contributingProjects,
       caixa,
+      cards,
     };
   }
 
