@@ -525,11 +525,11 @@ export default function ExpensesPage() {
   // várias despesas selecionadas.
   const bulkDateMutation = useMutation({
     mutationFn: async ({ ids, dataPagamento }: { ids: string[]; dataPagamento: string }) => {
-      await Promise.all(
-        ids.map((id) =>
-          api.patch(`/projects/${resolveOwnerProjectId(id)}/expenses/${id}`, { dataPagamento }),
-        ),
-      );
+      // Sequencial de propósito: SQLite serializa escritas e PATCHs concorrentes
+      // (Promise.all) podem disparar "database is locked" → 500.
+      for (const id of ids) {
+        await api.patch(`/projects/${resolveOwnerProjectId(id)}/expenses/${id}`, { dataPagamento });
+      }
     },
     onSuccess: (_d, vars) => {
       invalidate();
