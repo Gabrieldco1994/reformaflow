@@ -489,6 +489,26 @@ export default function ExpensesPage() {
     },
   });
 
+  // Alteração de data em bulk (visão Geral): aplica a mesma dataPagamento a
+  // várias despesas selecionadas.
+  const bulkDateMutation = useMutation({
+    mutationFn: async ({ ids, dataPagamento }: { ids: string[]; dataPagamento: string }) => {
+      await Promise.all(
+        ids.map((id) =>
+          api.patch(`/projects/${resolveOwnerProjectId(id)}/expenses/${id}`, { dataPagamento }),
+        ),
+      );
+    },
+    onSuccess: (_d, vars) => {
+      invalidate();
+      toast.success(`Data alterada em ${vars.ids.length} ${vars.ids.length === 1 ? 'despesa' : 'despesas'}`);
+    },
+    onError: (e: Error) => {
+      console.error('[expenses] bulk date failed', e);
+      toast.error(`Erro ao alterar data: ${e.message}`);
+    },
+  });
+
   // Conciliação cross-project por parcela (vínculo manual — Fase 6). Liquida a
   // parcela escolhida do alvo com o valor desta despesa.
   const conciliarMutation = useMutation({
@@ -1128,6 +1148,8 @@ export default function ExpensesPage() {
                 } as ExpenseFormData);
               }}
               emptyMsg="Nenhuma despesa no período."
+              enableBulkDate
+              onBulkDate={(ids, dataPagamento) => bulkDateMutation.mutate({ ids, dataPagamento })}
             />
           </div>
         ) : projectType === 'PESSOAL' ? (

@@ -10,6 +10,10 @@ import {
   Check,
   X,
   Copy,
+  ListChecks,
+  CheckSquare,
+  Square,
+  CalendarClock,
 } from 'lucide-react';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import type { Expense } from '@/types';
@@ -36,6 +40,10 @@ interface Props {
     dataPagamento: string;
     status: 'PAGO' | 'PLANEJADO';
   }) => void;
+  /** Habilita seleção múltipla + alteração de data em bulk (só na visão Geral). */
+  enableBulkDate?: boolean;
+  /** Aplica uma nova data (YYYY-MM-DD) a todas as despesas selecionadas. */
+  onBulkDate?: (ids: string[], dataPagamento: string) => void;
   emptyMsg: string;
 }
 
@@ -75,6 +83,8 @@ function MonthlyExpenseViewImpl({
   onChangeTipo,
   onQuickUpdate,
   onQuickCreate,
+  enableBulkDate = false,
+  onBulkDate,
   emptyMsg,
 }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -88,6 +98,35 @@ function MonthlyExpenseViewImpl({
   const [newStatus, setNewStatus] = useState<'PAGO' | 'PLANEJADO'>('PLANEJADO');
   const [copyingId, setCopyingId] = useState<string | null>(null);
   const [copyData, setCopyData] = useState('');
+  // Seleção múltipla (bulk) por id de despesa.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDate, setBulkDate] = useState('');
+
+  const allVisibleIds = React.useMemo(() => {
+    const s = new Set<string>();
+    for (const g of grouped) for (const it of g.items) s.add(it.id);
+    return s;
+  }, [grouped]);
+  const allSelected = allVisibleIds.size > 0 && selectedIds.size === allVisibleIds.size;
+
+  const toggleSelected = (id: string) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const exitSelectMode = () => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+    setBulkDate('');
+  };
+  const applyBulkDate = () => {
+    if (!bulkDate || selectedIds.size === 0 || !onBulkDate) return;
+    onBulkDate(Array.from(selectedIds), bulkDate);
+    exitSelectMode();
+  };
 
   if (grouped.length === 0) {
     return (
@@ -99,6 +138,58 @@ function MonthlyExpenseViewImpl({
 
   return (
     <div className="space-y-3">
+      {enableBulkDate && (
+        <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 rounded-xl border border-violet-200 bg-violet-50/90 px-3 py-2 backdrop-blur">
+          {!selectMode ? (
+            <button
+              type="button"
+              onClick={() => setSelectMode(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-violet-300 bg-white px-2.5 py-1 text-xs font-medium text-violet-700 hover:bg-violet-100 transition-colors"
+            >
+              <ListChecks className="w-3.5 h-3.5" /> Selecionar para alterar data
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setSelectedIds(allSelected ? new Set() : new Set(allVisibleIds))}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-violet-300 bg-white px-2.5 py-1 text-xs font-medium text-violet-700 hover:bg-violet-100 transition-colors"
+              >
+                {allSelected ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
+                {allSelected ? 'Limpar' : 'Selecionar tudo'}
+              </button>
+              <span className="text-xs font-semibold text-violet-800">
+                {selectedIds.size} {selectedIds.size === 1 ? 'selecionada' : 'selecionadas'}
+              </span>
+              <div className="ml-auto flex items-center gap-2">
+                <CalendarClock className="w-4 h-4 text-violet-600" />
+                <input
+                  type="date"
+                  value={bulkDate}
+                  onChange={(ev) => setBulkDate(ev.target.value)}
+                  className="w-36 rounded border border-violet-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
+                />
+                <button
+                  type="button"
+                  onClick={applyBulkDate}
+                  disabled={!bulkDate || selectedIds.size === 0}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-1 text-xs font-semibold text-white hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  <Check className="w-3.5 h-3.5" /> Aplicar data
+                </button>
+                <button
+                  type="button"
+                  onClick={exitSelectMode}
+                  className="p-1.5 rounded-full hover:bg-violet-100"
+                  title="Cancelar seleção"
+                >
+                  <X className="w-4 h-4 text-violet-700" />
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
       {grouped.map((g) => {
         const collapsed = collapsedMonths.has(g.mesKey);
         const progressPct = g.total > 0 ? (g.totalPago / g.total) * 100 : 0;
@@ -281,6 +372,20 @@ function MonthlyExpenseViewImpl({
                         </div>
                       ) : (
                         <div className="flex items-center gap-3">
+                          {selectMode && (
+                            <button
+                              type="button"
+                              onClick={() => toggleSelected(e.id)}
+                              className="flex-shrink-0 p-0.5 text-violet-600 hover:text-violet-800"
+                              aria-label={selectedIds.has(e.id) ? 'Desmarcar' : 'Marcar'}
+                            >
+                              {selectedIds.has(e.id) ? (
+                                <CheckSquare className="w-4 h-4" />
+                              ) : (
+                                <Square className="w-4 h-4 text-darc-velvet/40" />
+                              )}
+                            </button>
+                          )}
                           <div className="flex-shrink-0 w-9 text-center">
                             {dateStr ? (
                               <>
