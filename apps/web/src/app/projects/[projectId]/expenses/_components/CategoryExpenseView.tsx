@@ -245,16 +245,11 @@ function CategoryExpenseViewImpl({
                       ) : (
                         <div className="flex items-center gap-3">
                           <BulkCheckbox id={e.id} />
-                          <div className="flex-shrink-0 w-9 text-center">
+                          <div className="flex-shrink-0 w-12 text-center">
                             {dateStr ? (
-                              <>
-                                <p className="text-[10px] text-darc-velvet/50 uppercase">
-                                  {formatDateBR(dateStr).slice(3, 6).replace('/', '')}
-                                </p>
-                                <p className="text-base font-semibold text-darc-velvet tabular-nums leading-none">
-                                  {formatDateBR(dateStr).slice(0, 2)}
-                                </p>
-                              </>
+                              <p className="text-sm font-semibold text-darc-velvet tabular-nums">
+                                {formatDateBR(dateStr).slice(0, 5)}
+                              </p>
                             ) : (
                               <p className="text-[10px] text-darc-velvet/40">—</p>
                             )}
