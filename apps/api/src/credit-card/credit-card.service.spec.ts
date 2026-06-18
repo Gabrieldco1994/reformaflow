@@ -222,6 +222,36 @@ describe('CreditCardService', () => {
     });
   });
 
+    it('parcelada: valorTotal = parcela × nº parcelas; cada cashflow = valor da parcela', async () => {
+      // Fatura: "SANTIL 1/6" valendo R$ 484,89 por parcela.
+      // Regressão: o sistema NÃO deve dividir 484,89 por 6 (bug do R$ 80).
+      const ofx = buildOfx(ofxFor('20260610', 484.89, 'SANTIL ELETRO 1/6', 'PARC1'));
+      prisma.expense.findFirst.mockResolvedValue(null);
+      prisma.expense.create.mockClear();
+      prisma.cashFlowEntry.create.mockClear();
+
+      await service.commitImport(
+        't1', 'pessoal1', 'card1',
+        Buffer.from(ofx), 'f.ofx', 'OFX',
+      );
+
+      const created = prisma.expense.create.mock.calls[0][0];
+      expect(created.data.formaPagamento).toBe('PARCELADO');
+      expect(created.data.quantidadeParcela).toBe(6);
+      // total = 484,89 × 6 = 2.909,34 (em centavos)
+      expect(created.data.valorTotal).toBe(48489 * 6);
+      expect(created.data.valor).toBe(48489 * 6);
+
+      // 6 cashFlowEntries, cada um com o valor da PARCELA (484,89), não o total.
+      const cfCalls = prisma.cashFlowEntry.create.mock.calls;
+      expect(cfCalls).toHaveLength(6);
+      for (const [arg] of cfCalls) {
+        expect(arg.data.valor).toBe(48489);
+      }
+      const somaParcelas = cfCalls.reduce((s: number, [arg]: [any]) => s + arg.data.valor, 0);
+      expect(somaParcelas).toBe(created.data.valorTotal);
+    });
+
   describe('commitImport — decisions', () => {
     it('decision.skip ignora a transação (não cria expense)', async () => {
       const ofx = buildOfx(

@@ -657,6 +657,13 @@ export class CreditCardService {
     const installmentLabel = total > 1 ? `${current}/${total}` : null;
     const titulo = `${tx.merchant}${installmentLabel ? ` (${installmentLabel})` : ''}`.slice(0, 200);
 
+    // O valor da linha (tx.amountCents) é o valor de UMA parcela. O total da
+    // compra é parcela × nº de parcelas — gravamos esse total em valor/valorTotal
+    // para que a derivação de parcelas no front (buildInstallments divide
+    // valorTotal por quantidadeParcela) recomponha exatamente o valor da parcela.
+    // Os cashFlowEntries continuam por parcela (tx.amountCents), sem dupla contagem.
+    const valorCompra = total > 1 ? tx.amountCents * total : tx.amountCents;
+
     const expense = await this.prisma.expense.create({
       data: {
         tenantId,
@@ -664,9 +671,9 @@ export class CreditCardService {
         tipoDespesa: expenseType,
         titulo,
         fornecedor: tx.merchant.slice(0, 200),
-        valor: tx.amountCents,
+        valor: valorCompra,
         quantidade: 1,
-        valorTotal: tx.amountCents,
+        valorTotal: valorCompra,
         formaPagamento: total > 1 ? 'PARCELADO' : 'A_VISTA',
         dataPagamento: tx.date,
         quantidadeParcela: total > 1 ? total : null,
