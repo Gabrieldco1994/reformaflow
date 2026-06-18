@@ -509,9 +509,18 @@ export default function ExpensesPage() {
   const quickUpdateMutation = useMutation({
     mutationFn: ({ id, valorTotal, dataPagamento, quantidade }: { id: string; valorTotal: number; dataPagamento: string; quantidade: number }) => {
       const valorUnit = quantidade > 0 ? valorTotal / quantidade : valorTotal;
+      // Parcelada planejada (sem parcela paga): mover também dataInicioParcela,
+      // senão a 1ª parcela continua presa ao mês antigo na visão Mês. Com parcela
+      // paga, só dataPagamento (não resetar paidParcelas).
+      const exp = allExpensesPersonal.find((e) => e.id === id);
+      const n = exp?.quantidadeParcela ?? 1;
+      const isInstallment =
+        (exp?.formaPagamento === 'PARCELADO' || exp?.formaPagamento === 'QUINZENAL') && n > 1;
+      const hasPaidParcela = exp?.status === 'PAGO' || hasAnyPaidParcela(exp?.paidParcelas, n);
       return api.patch(`/projects/${resolveOwnerProjectId(id)}/expenses/${id}`, {
         valor: valorUnit,
         dataPagamento,
+        ...(isInstallment && !hasPaidParcela ? { dataInicioParcela: dataPagamento } : {}),
       });
     },
     onSuccess: invalidate,

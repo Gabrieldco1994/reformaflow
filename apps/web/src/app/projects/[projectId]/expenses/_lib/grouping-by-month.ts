@@ -90,7 +90,11 @@ export function expandExpenseOccurrences(e: Expense): Occurrence[] {
     formaPagamento: e.formaPagamento,
     dataPagamento: e.dataPagamento ? new Date(e.dataPagamento) : null,
     quantidadeParcela: e.quantidadeParcela ?? null,
-    dataInicioParcela: e.dataInicioParcela ? new Date(e.dataInicioParcela) : null,
+    dataInicioParcela: e.dataInicioParcela
+      ? new Date(e.dataInicioParcela)
+      : e.dataPagamento
+        ? new Date(e.dataPagamento)
+        : null,
   });
 
   const paidSet = parsePaidSet(e.paidParcelas, installments.length);
