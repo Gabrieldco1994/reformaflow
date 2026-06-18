@@ -52,6 +52,17 @@ import ImportLauncher from './_components/ImportLauncher';
 
 const toIsoDate = (date: Date) => date.toISOString().slice(0, 10);
 
+/** True se a despesa tem ao menos uma parcela marcada como paga (paidParcelas). */
+function hasAnyPaidParcela(raw: string | null | undefined, total: number): boolean {
+  if (!raw) return false;
+  try {
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) && arr.some((v) => Number.isInteger(v) && v >= 0 && v < total);
+  } catch {
+    return false;
+  }
+}
+
 export default function ExpensesPage() {
   const { projectId: PROJECT_ID, projectType } = useProject();
   const TIPO_DESPESA_OPTIONS = useMemo(() => getExpenseOptions(projectType), [projectType]);
@@ -521,14 +532,28 @@ export default function ExpensesPage() {
     },
   });
 
-  // Alteração de data em bulk (visão Geral): aplica a mesma dataPagamento a
-  // várias despesas selecionadas.
+  // Alteração de data em bulk: aplica a nova data às despesas selecionadas.
+  // - À vista/avulsa: muda `dataPagamento`.
+  // - Parcelada (3x etc.) SEM nenhuma parcela paga: muda também `dataInicioParcela`
+  //   para mover de fato as parcelas (o backend reseta paidParcelas, mas como não
+  //   há parcela paga, é no-op — regra de negócio preservada).
+  // - Parcelada COM parcela(s) paga(s): só `dataPagamento`, para NÃO resetar o
+  //   índice de parcelas pagas.
   const bulkDateMutation = useMutation({
     mutationFn: async ({ ids, dataPagamento }: { ids: string[]; dataPagamento: string }) => {
       // Sequencial de propósito: SQLite serializa escritas e PATCHs concorrentes
       // (Promise.all) podem disparar "database is locked" → 500.
       for (const id of ids) {
-        await api.patch(`/projects/${resolveOwnerProjectId(id)}/expenses/${id}`, { dataPagamento });
+        const exp = allExpensesPersonal.find((e) => e.id === id);
+        const n = exp?.quantidadeParcela ?? 1;
+        const isInstallment =
+          (exp?.formaPagamento === 'PARCELADO' || exp?.formaPagamento === 'QUINZENAL') && n > 1;
+        const hasPaidParcela = exp?.status === 'PAGO' || hasAnyPaidParcela(exp?.paidParcelas, n);
+        const payload: Record<string, string> =
+          isInstallment && !hasPaidParcela
+            ? { dataPagamento, dataInicioParcela: dataPagamento }
+            : { dataPagamento };
+        await api.patch(`/projects/${resolveOwnerProjectId(id)}/expenses/${id}`, payload);
       }
     },
     onSuccess: (_d, vars) => {
