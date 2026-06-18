@@ -60,7 +60,7 @@ export function useExpenseFilters(expenses: Expense[], showRooms: boolean) {
       if (searchText) {
         const s = searchText.toLowerCase();
         const searchable = [
-          exp.titulo, exp.fornecedor, exp.room?.name,
+          exp.id, exp.titulo, exp.fornecedor, exp.room?.name,
           tipoLabel(exp.tipoDespesa), formaLabel(exp.formaPagamento),
         ].filter(Boolean).join(' ').toLowerCase();
         if (!searchable.includes(s)) return false;
