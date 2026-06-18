@@ -52,7 +52,7 @@ function isSkipLine(description: string): boolean {
  *   15/05/2026 REMUNERACAO/SALARIO 12.390,93
  *   01/04 PIX TRANSF JOAO 01/04 -500,00
  */
-function extractTransactionsFromText(
+export function extractBankTransactionsFromText(
   text: string,
   fallbackYear: number,
 ): NormalizedTx[] {
@@ -134,7 +134,7 @@ export async function parseBankPdfStatement(
 ): Promise<ParseResult> {
   const text = await extractPdfText(buffer, password);
   const fallbackYear = inferYearFromText(text) ?? new Date().getUTCFullYear();
-  const raw = extractTransactionsFromText(text, fallbackYear);
+  const raw = extractBankTransactionsFromText(text, fallbackYear);
 
   // Atribui ordinal por bucket (date+merchant+amount) para diferenciar N linhas
   // idênticas no mesmo dia (legítimas) sem reintroduzir duplicação em re-imports.

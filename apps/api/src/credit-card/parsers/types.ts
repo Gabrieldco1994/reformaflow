@@ -12,7 +12,7 @@ export interface NormalizedTx {
 }
 
 export interface ParseResult {
-  source: 'OFX' | 'CSV_NUBANK' | 'CSV_ITAU' | 'CSV_GENERIC' | 'PDF';
+  source: 'OFX' | 'CSV_NUBANK' | 'CSV_ITAU' | 'CSV_GENERIC' | 'PDF' | 'IMAGE';
   transactions: NormalizedTx[];
   totalAmountCents: number;
   periodLabel?: string;       // YYYY-MM da maior densidade

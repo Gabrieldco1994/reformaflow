@@ -156,10 +156,10 @@ export default function ImportBankStatementModal({ projectId, account, onClose, 
           <>
             <div className="space-y-3 mb-4">
               <div>
-                <label className="text-sm text-gray-600">Arquivo (OFX, CSV ou PDF, máx 10MB)</label>
+                <label className="text-sm text-gray-600">Arquivo (OFX, CSV, PDF ou 📷 print/foto, máx 10MB)</label>
                 <input
                   type="file"
-                  accept=".ofx,.csv,.txt,.pdf"
+                  accept=".ofx,.csv,.txt,.pdf,image/png,image/jpeg,image/webp,image/heic,.png,.jpg,.jpeg,.webp,.heic"
                   onChange={(e) => {
                     setFile(e.target.files?.[0] ?? null);
                     setPreview(null);

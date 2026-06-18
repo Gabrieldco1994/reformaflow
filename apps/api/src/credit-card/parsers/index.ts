@@ -1,6 +1,7 @@
 import { parseOfx } from './ofx';
 import { parseCsv } from './csv';
 import { parsePdfStatement, PdfPasswordRequiredError, PdfWrongPasswordError } from './pdf';
+import { detectImageMime, parseImageStatement } from './image-ocr';
 import type { ParseResult } from './types';
 
 export type SourceHint = 'OFX' | 'CSV_NUBANK' | 'CSV_ITAU' | 'CSV_GENERIC' | 'PDF' | 'AUTO';
@@ -31,6 +32,10 @@ export async function parseStatementBuffer(
   fileName?: string,
   password?: string,
 ): Promise<ParseResult> {
+  const imageMime = detectImageMime(buffer);
+  if (imageMime) {
+    return parseImageStatement(buffer, imageMime, cardId);
+  }
   if (hint === 'PDF' || isPdfBuffer(buffer)) {
     return parsePdfStatement(buffer, cardId, password, fileName);
   }
@@ -58,3 +63,4 @@ export * from './types';
 export { parseOfx } from './ofx';
 export { parseCsv } from './csv';
 export { parsePdfStatement, PdfPasswordRequiredError, PdfWrongPasswordError } from './pdf';
+export { ImageOcrError } from './image-ocr';

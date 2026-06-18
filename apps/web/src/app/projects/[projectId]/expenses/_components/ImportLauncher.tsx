@@ -110,7 +110,7 @@ export default function ImportLauncher({ projectId, onImported }: Props) {
             <CreditCard className="w-4 h-4 mt-0.5 text-orange-500 shrink-0" />
             <div>
               <p className="text-sm font-medium text-gray-900">Fatura de cartão</p>
-              <p className="text-xs text-gray-500">PDF ou CSV/OFX da fatura</p>
+              <p className="text-xs text-gray-500">PDF, CSV/OFX ou 📷 print/foto da fatura</p>
             </div>
           </button>
           <button
@@ -120,7 +120,7 @@ export default function ImportLauncher({ projectId, onImported }: Props) {
             <Landmark className="w-4 h-4 mt-0.5 text-orange-500 shrink-0" />
             <div>
               <p className="text-sm font-medium text-gray-900">Extrato bancário</p>
-              <p className="text-xs text-gray-500">OFX/CSV da conta corrente</p>
+              <p className="text-xs text-gray-500">OFX/CSV ou 📷 print/foto do extrato</p>
             </div>
           </button>
         </div>

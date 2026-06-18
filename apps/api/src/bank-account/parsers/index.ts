@@ -1,6 +1,7 @@
 import { parseBankOfx } from './ofx';
 import { parseBankCsv } from './csv';
 import { parseBankPdfStatement, PdfPasswordRequiredError, PdfWrongPasswordError } from './pdf';
+import { detectImageMime, parseImageBankStatement } from '../../credit-card/parsers/image-ocr';
 import type { ParseResult } from '../../credit-card/parsers/types';
 
 export type BankSourceHint = 'OFX' | 'CSV_GENERIC' | 'PDF' | 'AUTO';
@@ -16,6 +17,10 @@ export async function parseBankStatementBuffer(
   fileName?: string,
   password?: string,
 ): Promise<ParseResult> {
+  const imageMime = detectImageMime(buffer);
+  if (imageMime) {
+    return parseImageBankStatement(buffer, imageMime, accountId);
+  }
   if (hint === 'PDF' || isPdfBuffer(buffer)) {
     return parseBankPdfStatement(buffer, accountId, password, fileName);
   }
@@ -28,4 +33,5 @@ export async function parseBankStatementBuffer(
 }
 
 export { PdfPasswordRequiredError, PdfWrongPasswordError };
+export { ImageOcrError } from '../../credit-card/parsers/image-ocr';
 export type { ParseResult } from '../../credit-card/parsers/types';

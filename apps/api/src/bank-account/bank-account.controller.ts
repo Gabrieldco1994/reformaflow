@@ -14,7 +14,7 @@ import {
 import { RequireModule } from '../common/decorators/require-module.decorator';
 import { CurrentTenant } from '../common/decorators/tenant.decorator';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
-import { PdfPasswordRequiredError, PdfWrongPasswordError } from './parsers';
+import { PdfPasswordRequiredError, PdfWrongPasswordError, ImageOcrError } from './parsers';
 
 @RequireModule('bankAccounts')
 @UseInterceptors(TenantInterceptor)
@@ -160,6 +160,9 @@ export class BankAccountController {
       }
       if (err instanceof PdfWrongPasswordError) {
         throw new BadRequestException({ code: 'pdf_wrong_password', message: 'Senha do PDF incorreta.' });
+      }
+      if (err instanceof ImageOcrError) {
+        throw new BadRequestException({ code: 'image_ocr_failed', message: err.message });
       }
       throw err;
     }
