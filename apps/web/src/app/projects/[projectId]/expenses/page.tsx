@@ -30,6 +30,13 @@ import { MonthlyExpenseView } from './_components/MonthlyExpenseView';
 import { CategoryExpenseView } from './_components/CategoryExpenseView';
 import { UnifiedExpenseView } from './_components/UnifiedExpenseView';
 import { ExpenseViewToggle, type ExpenseViewMode } from './_components/ExpenseViewToggle';
+import { ExpenseEixoToggle, type ExpenseEixo } from './_components/ExpenseEixoToggle';
+import { PersonalExpenseKpis } from './_components/PersonalExpenseKpis';
+import { CartoesStrip } from './_components/CartoesStrip';
+import { ContaRealView } from './_components/ContaRealView';
+import { usePersonalCashViews } from './_hooks/usePersonalCashViews';
+import type { PersonalCardInfo } from './_components/PersonalExpenseCard';
+import type { ContaRealCard } from './_lib/conta-real';
 import { groupExpensesByMes, groupExpensesChrono, currentMonthKey, expandExpenseOccurrences } from './_lib/grouping-by-month';
 import {
   type RemoteProjectMap,
@@ -90,6 +97,19 @@ export default function ExpensesPage() {
   const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(new Set());
   // Direção de ordenação da visão "Geral" (extrato por data). Padrão: decrescente.
   const [generalSortDir, setGeneralSortDir] = useState<'asc' | 'desc'>('desc');
+  // Eixo da tela (PESSOAL): competência (Gastos Controle, padrão) × caixa (Conta Real).
+  const [eixo, setEixo] = useState<ExpenseEixo>('competencia');
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const saved = window.localStorage.getItem(`expenses:eixo:${PROJECT_ID}`);
+    if (saved === 'competencia' || saved === 'caixa') setEixo(saved);
+  }, [PROJECT_ID]);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(`expenses:eixo:${PROJECT_ID}`, eixo);
+  }, [eixo, PROJECT_ID]);
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -760,7 +780,7 @@ export default function ExpensesPage() {
   // Cartões/contas/projetos do tenant — usados pela IA de voz para auto-vincular
   // ("no Itaú", "no 5868", "para a reforma").
   const { data: tenantCards = [] } = useQuery<
-    Array<{ id: string; last4: string; nickname?: string | null; brand?: string | null }>
+    Array<{ id: string; last4: string; nickname?: string | null; brand?: string | null; closingDay?: number | null; dueDay?: number | null }>
   >({
     queryKey: ['tenant', 'credit-cards'],
     queryFn: () => api.get('/tenant/credit-cards'),
@@ -807,6 +827,55 @@ export default function ExpensesPage() {
     startVoiceCapture,
     saveVoiceExpense,
   } = voice;
+
+  // Cartões com fechamento/vencimento — para derivar a Conta Real (eixo caixa).
+  const contaRealCards = useMemo<ContaRealCard[]>(
+    () =>
+      tenantCards.map((c) => ({
+        last4: c.last4,
+        label: `${c.nickname || c.brand || 'Cartão'} ••${c.last4}`,
+        closingDay: c.closingDay ?? null,
+        dueDay: c.dueDay ?? null,
+      })),
+    [tenantCards],
+  );
+  const cardInfoByLast4 = useMemo<Map<string, PersonalCardInfo>>(() => {
+    const m = new Map<string, PersonalCardInfo>();
+    for (const c of contaRealCards) {
+      if (!c.last4 || m.has(c.last4)) continue;
+      m.set(c.last4, { label: c.label, closingDay: c.closingDay, dueDay: c.dueDay });
+    }
+    return m;
+  }, [contaRealCards]);
+
+  const isPersonal = projectType === 'PESSOAL';
+  const {
+    gastosControleKpis,
+    cartoesFormacao,
+    selectedContaReal,
+    contaRealAll,
+  } = usePersonalCashViews({
+    filteredExpenses,
+    periodFilteredPersonal,
+    cards: contaRealCards,
+    period,
+  });
+
+  // Conta Real — agregação do período (mês selecionado ou ano todo).
+  const contaRealMonthsToShow = period === 'ALL' ? contaRealAll : selectedContaReal ? [selectedContaReal] : [];
+  const contaRealKpis = useMemo(() => {
+    const agg = contaRealMonthsToShow.reduce(
+      (a, m) => {
+        a.faturasVencendo += m.totalFaturas;
+        a.debitos += m.totalDebitos;
+        a.faltaSair += m.planejado;
+        return a;
+      },
+      { faturasVencendo: 0, debitos: 0, faltaSair: 0 },
+    );
+    return agg;
+  }, [contaRealMonthsToShow]);
+  const faturasVencendoStrip = contaRealMonthsToShow.flatMap((m) => m.faturas);
 
   return (
     <div className="space-y-4">
@@ -858,16 +927,39 @@ export default function ExpensesPage() {
       <>
 
       {/* KPI Cards — cockpit financeiro */}
-      <ExpenseKpiCards
-        projectType={projectType}
-        filteredCount={periodFilteredPersonal.length}
-        filteredPlanejadoCount={periodFilteredPersonal.filter((e) => e.status === 'PLANEJADO').length}
-        filteredPagoCount={periodFilteredPersonal.filter((e) => e.status === 'PAGO').length}
-        totalGeral={totalGeral}
-        totalPlanejado={totalPlanejado}
-        totalPago={totalPago}
-        perProject={kpiPerProject}
-      />
+      {isPersonal ? (
+        <div className="space-y-3">
+          <ExpenseEixoToggle eixo={eixo} onChange={setEixo} />
+          <PersonalExpenseKpis
+            eixo={eixo}
+            gastosControle={gastosControleKpis}
+            contaReal={contaRealKpis}
+          />
+          <CartoesStrip mode={eixo} cartoes={cartoesFormacao} faturas={faturasVencendoStrip} />
+          <ExpenseKpiCards
+            projectType={projectType}
+            filteredCount={periodFilteredPersonal.length}
+            filteredPlanejadoCount={periodFilteredPersonal.filter((e) => e.status === 'PLANEJADO').length}
+            filteredPagoCount={periodFilteredPersonal.filter((e) => e.status === 'PAGO').length}
+            totalGeral={totalGeral}
+            totalPlanejado={totalPlanejado}
+            totalPago={totalPago}
+            perProject={kpiPerProject}
+            onlyPerProject
+          />
+        </div>
+      ) : (
+        <ExpenseKpiCards
+          projectType={projectType}
+          filteredCount={periodFilteredPersonal.length}
+          filteredPlanejadoCount={periodFilteredPersonal.filter((e) => e.status === 'PLANEJADO').length}
+          filteredPagoCount={periodFilteredPersonal.filter((e) => e.status === 'PAGO').length}
+          totalGeral={totalGeral}
+          totalPlanejado={totalPlanejado}
+          totalPago={totalPago}
+          perProject={kpiPerProject}
+        />
+      )}
 
       {/* Search + Filter bar */}
       <ExpenseFiltersBar
@@ -888,9 +980,11 @@ export default function ExpensesPage() {
       />
 
       {/* Toggle de visão (Categoria / Mês / Por projeto) — logo abaixo da busca */}
-      <div className="flex">
-        <ExpenseViewToggle value={viewMode} onChange={setViewMode} showProject={projectType === 'PESSOAL'} />
-      </div>
+      {!(isPersonal && eixo === 'caixa') && (
+        <div className="flex">
+          <ExpenseViewToggle value={viewMode} onChange={setViewMode} showProject={projectType === 'PESSOAL'} />
+        </div>
+      )}
 
       {/* Período (PESSOAL) — filtro de mês / ano todo aplicado nos 3 modos */}
       {projectType === 'PESSOAL' && (
@@ -942,11 +1036,11 @@ export default function ExpensesPage() {
 
           <div className="grid grid-cols-3 gap-2">
             <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600">Pago</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600">{eixo === 'caixa' ? 'Saiu' : 'Pago'}</p>
               <p className="mt-0.5 font-mono text-sm font-bold text-emerald-700 tabular-nums truncate">{formatCurrency(periodTotals.pago / 100)}</p>
             </div>
             <div className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-600">Planejado</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-600">{eixo === 'caixa' ? 'A sair' : 'Planejado'}</p>
               <p className="mt-0.5 font-mono text-sm font-bold text-amber-700 tabular-nums truncate">{formatCurrency(periodTotals.planejado / 100)}</p>
             </div>
             <div className="rounded-md border border-orange-300 bg-orange-100 px-2.5 py-1.5">
@@ -972,7 +1066,16 @@ export default function ExpensesPage() {
         </div>
       ) : (
         <>
-        {viewMode === 'general' ? (
+        {isPersonal && eixo === 'caixa' ? (
+          <ContaRealView
+            months={contaRealMonthsToShow}
+            tipoLabel={tipoLabel}
+            cardInfoByLast4={cardInfoByLast4}
+            openEdit={openEdit}
+            onDelete={(id) => deleteMutation.mutate(id)}
+            onToggleStatus={(id, status) => toggleStatusMutation.mutate({ id, status })}
+          />
+        ) : viewMode === 'general' ? (
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[11px] uppercase tracking-wider text-darc-velvet/50">
@@ -1105,7 +1208,7 @@ export default function ExpensesPage() {
       )}
 
       {/* Botão para adicionar linha rápida (desktop apenas) — não aparece em REFORMA/category pois cada card de categoria tem seu próprio "+ Adicionar despesa rápida em <categoria>" */}
-      {!showNewRow && !editingInlineId && !(projectType !== 'PESSOAL' && viewMode === 'category') && (
+      {!showNewRow && !editingInlineId && !(projectType !== 'PESSOAL' && viewMode === 'category') && !(isPersonal && eixo === 'caixa') && (
         <button onClick={() => { closeInlineEdit(); setShowNewRow(true); }}
           className="hidden md:block w-full border-2 border-dashed border-gray-200 rounded-lg py-2 text-sm text-gray-400 hover:border-blue-300 hover:text-blue-500 transition-colors">
           + Adicionar rápido (linha inline)

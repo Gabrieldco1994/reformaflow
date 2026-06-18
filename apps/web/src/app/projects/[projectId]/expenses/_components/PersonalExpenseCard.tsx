@@ -24,16 +24,11 @@ function parsePaidCount(raw: string | null | undefined, total: number, status: E
   }
 }
 
-function statusTone(status: Expense['status']) {
-  return status === 'PAGO'
-    ? 'bg-emerald-500 text-white'
-    : 'bg-amber-500 text-white';
-}
-
 export default function PersonalExpenseCard({
   expense,
   tipoLabel,
   cardInfoByLast4,
+  cashMode = 'competencia',
   onEdit,
   onDelete,
   onToggleStatus,
@@ -41,6 +36,12 @@ export default function PersonalExpenseCard({
   expense: Expense;
   tipoLabel: (t: string) => string;
   cardInfoByLast4?: Map<string, PersonalCardInfo>;
+  /**
+   * 'competencia' (Gastos Controle): selos de origem/destino —
+   * "→ fatura <mês>" (cartão), "débito" (conta), "planejado".
+   * 'caixa' (Conta Real): selos de conta — "paga"/"a pagar".
+   */
+  cashMode?: 'competencia' | 'caixa';
   onEdit: (e: Expense) => void;
   onDelete: (id: string) => void;
   onToggleStatus: (id: string, next: ExpenseStatus) => void;
@@ -95,14 +96,35 @@ export default function PersonalExpenseCard({
               Conta ••{expense.bankLast4}
             </span>
           )}
-          {venceMes && (
+          {venceMes && cashMode === 'competencia' && expense.cardLast4 && (
             <span className="text-[10px] rounded bg-amber-100 px-1.5 py-0.5 text-amber-900 font-semibold">
-              vence em {venceMes}
+              → fatura {venceMes}
             </span>
           )}
-          <span className={`text-[10px] rounded px-1.5 py-0.5 font-semibold ${statusTone(expense.status)}`}>
-            {expense.status}
-          </span>
+          {cashMode === 'competencia' && expense.cardLast4 && !venceMes && (
+            <span className="text-[10px] rounded bg-amber-100 px-1.5 py-0.5 text-amber-900 font-semibold">
+              → fatura
+            </span>
+          )}
+          {cashMode === 'competencia' && !expense.cardLast4 && expense.status === 'PLANEJADO' && (
+            <span className="text-[10px] rounded bg-gray-100 px-1.5 py-0.5 text-gray-600 font-semibold">
+              planejado
+            </span>
+          )}
+          {cashMode === 'competencia' && !expense.cardLast4 && expense.status === 'PAGO' && (
+            <span className="text-[10px] rounded bg-emerald-100 px-1.5 py-0.5 text-emerald-800 font-semibold">
+              débito
+            </span>
+          )}
+          {cashMode === 'caixa' && (
+            <span
+              className={`text-[10px] rounded px-1.5 py-0.5 font-semibold ${
+                isPago ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+              }`}
+            >
+              {isPago ? 'paga' : 'a pagar'}
+            </span>
+          )}
         </div>
       </div>
 

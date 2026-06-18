@@ -19,6 +19,8 @@ interface ExpenseKpiCardsProps {
   totalPlanejado: number;
   totalPago: number;
   perProject: PerProjectKpi[];
+  /** Renderiza apenas a seção "Por projeto" (os 3 KPIs do topo vêm de outro componente). */
+  onlyPerProject?: boolean;
 }
 
 const TYPE_ACCENT: Record<string, string> = {
@@ -45,12 +47,14 @@ export function ExpenseKpiCards({
   totalPlanejado,
   totalPago,
   perProject,
+  onlyPerProject = false,
 }: ExpenseKpiCardsProps) {
   const pctPago = totalGeral > 0 ? Math.round((totalPago / totalGeral) * 100) : 0;
 
   return (
     <div className="space-y-3">
       {/* Cockpit — 3 KPIs principais (olhando tudo) */}
+      {!onlyPerProject && (
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="rounded-xl border border-gray-200 bg-white p-4">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Total de Despesa</p>
@@ -70,6 +74,7 @@ export function ExpenseKpiCards({
           </p>
         </div>
       </div>
+      )}
 
       {/* Quebra por projeto — visão de cockpit consolidado */}
       {perProject.length > 1 && (
