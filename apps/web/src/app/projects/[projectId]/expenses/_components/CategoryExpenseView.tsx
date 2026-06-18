@@ -15,6 +15,7 @@ import { formatCurrency, formatDateBR } from '@/lib/utils';
 import type { Expense } from '@/types';
 import type { ExpenseCategoryGroup } from '../_hooks/useExpenseFilters';
 import { effectiveDate } from '../_lib/grouping-by-month';
+import { BulkCheckbox } from './BulkDateSelection';
 
 interface Props {
   categorias: ExpenseCategoryGroup[];
@@ -243,6 +244,7 @@ function CategoryExpenseViewImpl({
                         </div>
                       ) : (
                         <div className="flex items-center gap-3">
+                          <BulkCheckbox id={e.id} />
                           <div className="flex-shrink-0 w-9 text-center">
                             {dateStr ? (
                               <>

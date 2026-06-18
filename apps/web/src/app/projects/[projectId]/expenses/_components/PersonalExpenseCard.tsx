@@ -5,6 +5,7 @@ import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { caixaMonthForCardPurchase } from '@reformaflow/domain';
 import type { Expense, ExpenseStatus } from '@/types';
 import { effectiveDate } from '../_lib/grouping-by-month';
+import { BulkCheckbox } from './BulkDateSelection';
 
 export interface PersonalCardInfo {
   label: string;
@@ -68,6 +69,7 @@ export default function PersonalExpenseCard({
 
   return (
     <div className="flex items-center gap-2 px-3 py-2 text-xs border-t border-gray-100 hover:bg-orange-50/40">
+      <BulkCheckbox id={expense.id} />
       <div className="flex-1 min-w-0">
         <div className="font-medium text-gray-900 truncate">
           {expense.titulo || expense.fornecedor || tipoLabel(expense.tipoDespesa)}

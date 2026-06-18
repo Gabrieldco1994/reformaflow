@@ -1,7 +1,7 @@
 'use client';
 import { useProject } from '@/contexts/project-context';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
@@ -27,6 +27,7 @@ import { PayOptionsModal } from './_components/PayOptionsModal';
 import { QuickAddCard } from './_components/QuickAddCard';
 import { CompráveisView } from './_components/CompraveisView';
 import { MonthlyExpenseView } from './_components/MonthlyExpenseView';
+import { BulkDateProvider, BulkDateToolbar } from './_components/BulkDateSelection';
 import { CategoryExpenseView } from './_components/CategoryExpenseView';
 import { UnifiedExpenseView } from './_components/UnifiedExpenseView';
 import { ExpenseViewToggle, type ExpenseViewMode } from './_components/ExpenseViewToggle';
@@ -99,6 +100,23 @@ export default function ExpensesPage() {
   const [generalSortDir, setGeneralSortDir] = useState<'asc' | 'desc'>('desc');
   // Eixo da tela (PESSOAL): competência (Gastos Controle, padrão) × caixa (Conta Real).
   const [eixo, setEixo] = useState<ExpenseEixo>('competencia');
+  // Seleção múltipla para alterar data em bulk (visões Geral, Mês, Categoria).
+  const [bulkSelectMode, setBulkSelectMode] = useState(false);
+  const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDate, setBulkDate] = useState('');
+  const toggleBulkId = useCallback((id: string) => {
+    setBulkSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+  const exitBulkMode = useCallback(() => {
+    setBulkSelectMode(false);
+    setBulkSelectedIds(new Set());
+    setBulkDate('');
+  }, []);
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -365,6 +383,20 @@ export default function ExpensesPage() {
     () => groupExpensesChrono(projectType === 'PESSOAL' ? periodFilteredPersonal : filteredExpenses, generalSortDir),
     [projectType, periodFilteredPersonal, filteredExpenses, generalSortDir],
   );
+  // IDs visíveis na lista ativa (para "selecionar tudo" no bulk de data).
+  const bulkVisibleIds = useMemo(() => {
+    const base = projectType === 'PESSOAL' ? periodFilteredPersonal : filteredExpenses;
+    return new Set(base.map((e) => e.id));
+  }, [projectType, periodFilteredPersonal, filteredExpenses]);
+  const bulkAllSelected = bulkVisibleIds.size > 0 && bulkSelectedIds.size === bulkVisibleIds.size;
+  const applyBulkDate = useCallback(() => {
+    if (!bulkDate || bulkSelectedIds.size === 0) return;
+    bulkDateMutation.mutate(
+      { ids: Array.from(bulkSelectedIds), dataPagamento: bulkDate },
+      { onSuccess: () => exitBulkMode() },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bulkDate, bulkSelectedIds, exitBulkMode]);
   useEffect(() => {
     const cur = currentMonthKey();
     setCollapsedMonths(new Set(groupedByMes.filter((g) => g.mesKey !== cur).map((g) => g.mesKey)));
@@ -1086,6 +1118,20 @@ export default function ExpensesPage() {
         </div>
       ) : (
         <>
+        {!(isPersonal && eixo === 'caixa') && (
+          <BulkDateToolbar
+            selectMode={bulkSelectMode}
+            onEnter={() => setBulkSelectMode(true)}
+            onExit={exitBulkMode}
+            selectedCount={bulkSelectedIds.size}
+            allSelected={bulkAllSelected}
+            onToggleAll={() => setBulkSelectedIds(bulkAllSelected ? new Set() : new Set(bulkVisibleIds))}
+            bulkDate={bulkDate}
+            onBulkDateChange={setBulkDate}
+            onApply={applyBulkDate}
+          />
+        )}
+        <BulkDateProvider value={{ selectMode: bulkSelectMode && !(isPersonal && eixo === 'caixa'), selectedIds: bulkSelectedIds, toggle: toggleBulkId }}>
         {isPersonal && eixo === 'caixa' ? (
           <ContaRealView
             months={contaRealMonthsToShow}
@@ -1148,8 +1194,6 @@ export default function ExpensesPage() {
                 } as ExpenseFormData);
               }}
               emptyMsg="Nenhuma despesa no período."
-              enableBulkDate
-              onBulkDate={(ids, dataPagamento) => bulkDateMutation.mutate({ ids, dataPagamento })}
             />
           </div>
         ) : projectType === 'PESSOAL' ? (
@@ -1228,6 +1272,7 @@ export default function ExpensesPage() {
           emptyMsg="Nenhuma despesa cadastrada."
         />
       )}
+        </BulkDateProvider>
 
       {/* Botão para adicionar linha rápida (desktop apenas) — não aparece em REFORMA/category pois cada card de categoria tem seu próprio "+ Adicionar despesa rápida em <categoria>" */}
       {!showNewRow && !editingInlineId && !(projectType !== 'PESSOAL' && viewMode === 'category') && !(isPersonal && eixo === 'caixa') && (
