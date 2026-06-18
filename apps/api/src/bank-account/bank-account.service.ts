@@ -6,6 +6,7 @@ import type { NormalizedTx } from '../credit-card/parsers/types';
 import { categorize } from '../credit-card/categorizer';
 import { MerchantClassifierService } from '../merchant-classifier/merchant-classifier.service';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
+import { CardInvoiceSettlementService } from '../credit-card/card-invoice-settlement.service';
 import { buildInstallments } from '@reformaflow/domain';
 
 export interface BankImportDecision {
@@ -131,6 +132,7 @@ export class BankAccountService {
     private readonly prisma: PrismaService,
     private readonly merchantClassifier: MerchantClassifierService,
     private readonly conciliacao: ConciliacaoService,
+    private readonly cardSettlement: CardInvoiceSettlementService,
   ) {}
 
   // ─── CRUD contas ─────────────────────────────────────────
@@ -1097,6 +1099,32 @@ export class BankAccountService {
           cardLast4: matchedCard?.last4 ?? cardPaymentInfo.last4 ?? null,
         },
       });
+
+      // Liquidação automática: ao identificar o pagamento da fatura, marca as
+      // compras daquela fatura (importadas como PLANEJADO) como PAGAS. Best-effort:
+      // nunca quebra o import se a liquidação falhar.
+      if (matchedCard) {
+        try {
+          const card = await this.prisma.creditCard.findUnique({
+            where: { id: matchedCard.id },
+            select: { id: true, last4: true, closingDay: true, dueDay: true },
+          });
+          if (card) {
+            await this.cardSettlement.settleInvoice({
+              tenantId,
+              card,
+              amountCents: tx.amountCents,
+              paymentDate: tx.date,
+            });
+          }
+        } catch (settleErr) {
+          console.warn(
+            `[bank-import] settleInvoice falhou (${tx.externalId.slice(0, 8)}):`,
+            (settleErr as Error).message,
+          );
+        }
+      }
+
       return { inserted: false, receiptInserted: false, cardPayment: true, expenseId: e.id };
     }
 

@@ -3,6 +3,7 @@ import { BankAccountService } from './bank-account.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { MerchantClassifierService } from '../merchant-classifier/merchant-classifier.service';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
+import { CardInvoiceSettlementService } from '../credit-card/card-invoice-settlement.service';
 
 function makePrismaMock() {
   return {
@@ -90,6 +91,7 @@ describe('BankAccountService', () => {
         ConciliacaoService,
         { provide: PrismaService, useValue: prisma },
         { provide: MerchantClassifierService, useValue: classifier },
+        CardInvoiceSettlementService,
       ],
     }).compile();
     service = module.get(BankAccountService);

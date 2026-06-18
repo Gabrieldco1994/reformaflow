@@ -593,9 +593,12 @@ export class CreditCardService {
     // parcelas futuras mesmo que a data varie entre faturas.
     const seriesKey = total > 1 ? buildSeriesKey(card.id, tx.merchant, tx.amountCents, total) : null;
 
-    // 1) Tenta SETTLEMENT: se já temos uma Expense desta série com cashFlowEntry
-    //    PLANEJADO/PREVISTO marcado para esta parcela current, só transformamos
-    //    em PAGO em vez de duplicar.
+    // 1) DEDUP de série parcelada: se já existe uma Expense desta série (criada
+    //    a partir de uma fatura anterior, com todas as parcelas geradas como
+    //    PLANEJADO), a reimportação de uma fatura seguinte NÃO cria duplicata nem
+    //    marca a parcela como PAGA. No modelo de caixa real, quem liquida a
+    //    parcela é o PAGAMENTO da fatura no extrato bancário (settleCardInvoice),
+    //    não o reimport. Apenas vinculamos o externalId/importId se faltarem.
     if (seriesKey) {
       const existing = await this.prisma.expense.findFirst({
         // cardLast4 evita colisão entre cartões diferentes do mesmo tenant
@@ -604,40 +607,6 @@ export class CreditCardService {
         orderBy: { createdAt: 'asc' },
       });
       if (existing) {
-        // Caso (a): parcela current ainda PLANEJADO/PREVISTO — settle normal
-        const plannedEntry = await this.prisma.cashFlowEntry.findFirst({
-          where: {
-            tenantId,
-            projectId,
-            expenseId: existing.id,
-            parcela: `${current}/${total}`,
-            status: { in: ['PLANEJADO', 'PREVISTO'] },
-            deletedAt: null,
-          },
-        });
-        if (plannedEntry) {
-          // Valida que o valor da fatura está próximo do planejado (±5% ou R$1)
-          // Evita marcar como PAGO um entry que tenha valor muito diferente
-          // (usuário pode ter editado, ou pode ser duplicidade espúria)
-          const tolerance = Math.max(100, Math.round(plannedEntry.valor * 0.05));
-          if (Math.abs(plannedEntry.valor - tx.amountCents) > tolerance) {
-            // Valor diverge — não settle, cai no caminho normal de criação
-          } else {
-            await this.prisma.cashFlowEntry.update({
-              where: { id: plannedEntry.id },
-              data: { status: 'PAGO', data: tx.date, valor: tx.amountCents },
-            });
-            if (!existing.externalId) {
-              await this.prisma.expense.update({
-                where: { id: existing.id },
-                data: { externalId: tx.externalId, importId },
-              });
-            }
-            return { inserted: false, settled: true, expenseId: existing.id };
-          }
-        }
-        // Caso (b): parcela current JÁ está PAGA (ex.: reconciliação manual de
-        // ciclo irregular). Re-import seria duplicação — IGNORA silenciosamente.
         const anyEntry = await this.prisma.cashFlowEntry.findFirst({
           where: {
             tenantId,
@@ -648,12 +617,22 @@ export class CreditCardService {
           },
         });
         if (anyEntry) {
-          throw new Error('parcela-ja-existente');
+          // Parcela desta série já existe — dedup. Preserva rastreabilidade.
+          if (!existing.externalId) {
+            await this.prisma.expense.update({
+              where: { id: existing.id },
+              data: { externalId: tx.externalId, importId },
+            });
+          }
+          return { inserted: false, settled: true, expenseId: existing.id };
         }
       }
     }
 
-    // 2) Caminho normal: cria Expense + cashFlowEntries (atual PAGO + futuras PLANEJADO)
+    // 2) Caminho normal: cria Expense + cashFlowEntries — TODAS as parcelas
+    //    PLANEJADO. No modelo de caixa real, uma compra de cartão só vira PAGA
+    //    quando o pagamento da respectiva fatura aparece no extrato bancário
+    //    (settleCardInvoice). Até lá, é uma saída planejada.
     const installmentLabel = total > 1 ? `${current}/${total}` : null;
     const titulo = `${tx.merchant}${installmentLabel ? ` (${installmentLabel})` : ''}`.slice(0, 200);
 
@@ -678,7 +657,7 @@ export class CreditCardService {
         dataPagamento: tx.date,
         quantidadeParcela: total > 1 ? total : null,
         dataInicioParcela: total > 1 ? tx.date : null,
-        status: 'PAGO',
+        status: 'PLANEJADO',
         importId,
         externalId: tx.externalId,
         seriesKey,
@@ -697,9 +676,9 @@ export class CreditCardService {
       formaPagamento: 'CARTAO_CREDITO',
     };
 
-    // Parcela atual — PAGO
+    // Parcela atual — PLANEJADO (liquida no pagamento da fatura)
     await this.prisma.cashFlowEntry.create({
-      data: { ...baseCashFlow, data: tx.date, status: 'PAGO', parcela: installmentLabel },
+      data: { ...baseCashFlow, data: tx.date, status: 'PLANEJADO', parcela: installmentLabel },
     });
 
     // Parcelas futuras — PLANEJADO, uma por mês subsequente
