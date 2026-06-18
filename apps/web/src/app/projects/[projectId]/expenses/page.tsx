@@ -34,6 +34,8 @@ import { ExpenseViewToggle, type ExpenseViewMode } from './_components/ExpenseVi
 import { ExpenseEixoToggle, type ExpenseEixo } from './_components/ExpenseEixoToggle';
 import { PersonalExpenseKpis } from './_components/PersonalExpenseKpis';
 import { CartoesStrip } from './_components/CartoesStrip';
+import { OriginFilterStrip, originKeyOf } from './_components/OriginChips';
+import { CategoriaGastoCards } from './_components/CategoriaGastoCards';
 import { ContaRealView } from './_components/ContaRealView';
 import { usePersonalCashViews } from './_hooks/usePersonalCashViews';
 import type { PersonalCardInfo } from './_components/PersonalExpenseCard';
@@ -111,6 +113,8 @@ export default function ExpensesPage() {
   const [generalSortDir, setGeneralSortDir] = useState<'asc' | 'desc'>('desc');
   // Eixo da tela (PESSOAL): competência (Gastos Controle, padrão) × caixa (Conta Real).
   const [eixo, setEixo] = useState<ExpenseEixo>('competencia');
+  /** Filtro por origem (cartão/conta) do strip da visão Gastos Controle. */
+  const [originFilter, setOriginFilter] = useState<string | null>(null);
   // Seleção múltipla para alterar data em bulk (visões Geral, Mês, Categoria).
   const [bulkSelectMode, setBulkSelectMode] = useState(false);
   const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(new Set());
@@ -387,18 +391,45 @@ export default function ExpensesPage() {
 
   // Visão mensal
   const groupedByMes = useMemo(() => groupExpensesByMes(filteredExpenses), [filteredExpenses]);
+
+  // PESSOAL — despesas do período após o filtro por origem (strip de cartões/conta).
+  // Alimenta APENAS as listas (KPIs e o strip usam o conjunto sem filtro de origem,
+  // para que todas as origens permaneçam visíveis e somáveis).
+  const displayPersonal = useMemo<Expense[]>(
+    () => originFilter ? periodFilteredPersonal.filter((e) => originKeyOf(e) === originFilter) : periodFilteredPersonal,
+    [periodFilteredPersonal, originFilter],
+  );
+
+  // Gastos por categoria no mês (respeita o filtro de origem ativo).
+  const categoriaCards = useMemo(() => {
+    const m = new Map<string, { tipo: string; total: number; pago: number; planejado: number; count: number }>();
+    for (const e of displayPersonal) {
+      if (isNeutralExpenseType(e.tipoDespesa)) continue;
+      let row = m.get(e.tipoDespesa);
+      if (!row) {
+        row = { tipo: e.tipoDespesa, total: 0, pago: 0, planejado: 0, count: 0 };
+        m.set(e.tipoDespesa, row);
+      }
+      row.total += e.valorTotal;
+      if (e.status === 'PAGO') row.pago += e.valorTotal;
+      else row.planejado += e.valorTotal;
+      row.count++;
+    }
+    return Array.from(m.values()).sort((a, b) => b.total - a.total);
+  }, [displayPersonal]);
+
   // Visão "Geral" (extrato cronológico). Usa a MESMA base de dados da visão ativa
   // (PESSOAL respeita o período selecionado; demais usam o conjunto filtrado),
   // então o filtro de data é honrado igual às outras visões.
   const groupedGeneral = useMemo(
-    () => groupExpensesChrono(projectType === 'PESSOAL' ? periodFilteredPersonal : filteredExpenses, generalSortDir),
-    [projectType, periodFilteredPersonal, filteredExpenses, generalSortDir],
+    () => groupExpensesChrono(projectType === 'PESSOAL' ? displayPersonal : filteredExpenses, generalSortDir),
+    [projectType, displayPersonal, filteredExpenses, generalSortDir],
   );
   // IDs visíveis na lista ativa (para "selecionar tudo" no bulk de data).
   const bulkVisibleIds = useMemo(() => {
-    const base = projectType === 'PESSOAL' ? periodFilteredPersonal : filteredExpenses;
+    const base = projectType === 'PESSOAL' ? displayPersonal : filteredExpenses;
     return new Set(base.map((e) => e.id));
-  }, [projectType, periodFilteredPersonal, filteredExpenses]);
+  }, [projectType, displayPersonal, filteredExpenses]);
   const bulkAllSelected = bulkVisibleIds.size > 0 && bulkSelectedIds.size === bulkVisibleIds.size;
   const applyBulkDate = useCallback(() => {
     if (!bulkDate || bulkSelectedIds.size === 0) return;
@@ -1021,18 +1052,18 @@ export default function ExpensesPage() {
             gastosControle={gastosControleKpis}
             contaReal={contaRealKpis}
           />
-          <CartoesStrip mode={eixo} cartoes={cartoesFormacao} faturas={faturasVencendoStrip} />
-          <ExpenseKpiCards
-            projectType={projectType}
-            filteredCount={periodFilteredPersonal.length}
-            filteredPlanejadoCount={periodFilteredPersonal.filter((e) => e.status === 'PLANEJADO').length}
-            filteredPagoCount={periodFilteredPersonal.filter((e) => e.status === 'PAGO').length}
-            totalGeral={totalGeral}
-            totalPlanejado={totalPlanejado}
-            totalPago={totalPago}
-            perProject={kpiPerProject}
-            onlyPerProject
-          />
+          {eixo === 'competencia' ? (
+            <>
+              <OriginFilterStrip
+                expenses={periodFilteredPersonal}
+                selected={originFilter}
+                onSelect={setOriginFilter}
+              />
+              <CategoriaGastoCards categorias={categoriaCards} tipoLabel={tipoLabel} />
+            </>
+          ) : (
+            <CartoesStrip mode={eixo} cartoes={cartoesFormacao} faturas={faturasVencendoStrip} />
+          )}
         </div>
       ) : (
         <ExpenseKpiCards
@@ -1233,11 +1264,10 @@ export default function ExpensesPage() {
         ) : projectType === 'PESSOAL' ? (
           <UnifiedExpenseView
             mode={viewMode}
-            expenses={periodFilteredPersonal}
+            expenses={displayPersonal}
             remoteMap={remoteProjectMap}
             selfProjectId={PROJECT_ID}
             selfProjectName={project?.name ?? 'Pessoal'}
-            splitInstallments={false}
             tipoLabel={tipoLabel}
             openEdit={openEdit}
             onDelete={(id) => deleteMutation.mutate(id)}

@@ -82,19 +82,19 @@ export function PersonalExpenseKpis({
   return (
     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
       <Kpi
-        label="No cartão"
+        label="Gastei no cartão"
         value={gastosControle.noCartao}
-        hint="vai pras próximas faturas"
+        hint="compras no cartão neste mês"
         tone="violet"
       />
       <Kpi
-        label="Na conta (à vista)"
+        label="Gastei à vista"
         value={gastosControle.naConta}
         hint="débito direto da conta"
         tone="sky"
       />
       <Kpi
-        label="A confirmar"
+        label="Gasto a vir (planejado)"
         value={gastosControle.aConfirmar}
         hint="planejado, ainda não pago"
         tone="amber"
