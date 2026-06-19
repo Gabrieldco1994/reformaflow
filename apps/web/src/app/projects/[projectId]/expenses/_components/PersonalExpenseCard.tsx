@@ -99,9 +99,9 @@ export default function PersonalExpenseCard({
   ].filter(Boolean).join(' · ');
 
   return (
-    <div className={`group flex items-center gap-3 rounded-2xl border border-darc-linen bg-white px-3 py-2.5 shadow-darc-soft transition-colors hover:border-orange-200 ${isPago ? 'opacity-80' : ''}`}>
+    <div className={`group flex items-center gap-3 rounded-2xl border border-darc-linen bg-white px-3 py-2.5 transition-colors hover:border-orange-200 hover:shadow-darc-soft md:px-4 md:py-3 ${isPago ? 'opacity-80' : ''}`}>
       <BulkCheckbox id={expense.id} />
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-orange-100 text-sm font-bold text-orange-700">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-orange-100 text-sm font-bold text-orange-700 md:h-10 md:w-10">
         {initial}
       </span>
       <button
@@ -134,7 +134,7 @@ export default function PersonalExpenseCard({
       <button
         type="button"
         onClick={() => { if (confirm('Excluir despesa?')) onDelete(expense.id); }}
-        className="shrink-0 rounded-lg p-1.5 text-darc-velvet/30 hover:bg-red-50 hover:text-red-500 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
+        className="shrink-0 rounded-lg p-1.5 text-darc-velvet/30 transition-colors hover:bg-red-50 hover:text-red-500"
         title="Excluir"
       >
         <Trash2 className="w-4 h-4" />

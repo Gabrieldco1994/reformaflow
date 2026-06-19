@@ -78,7 +78,7 @@ export function PersonalExpenseKpis({
       </div>
 
       {/* Mini-stats */}
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-3 gap-2 md:gap-3">
         {isCaixa ? (
           <>
             <Stat label="Faturas" value={contaReal.faturasVencendo} dot="bg-rose-400" />
