@@ -515,6 +515,63 @@ describe('ExpenseService', () => {
     });
   });
 
+  describe('conciliarParcela — realValor default (regressão: fonte parcelada)', () => {
+    it('sem realValor, usa o valor da PARCELA da fonte (não o valorTotal)', async () => {
+      // Fonte parcelada 6x, total R$ 2.909,34 → cada parcela R$ 484,89.
+      prisma.expense.findFirst.mockResolvedValue({
+        id: 'src-1',
+        projectId,
+        tenantId,
+        deletedAt: null,
+        valorTotal: 290934,
+        formaPagamento: 'PARCELADO',
+        quantidadeParcela: 6,
+        dataPagamento: null,
+        dataInicioParcela: new Date('2026-06-10T00:00:00Z'),
+      });
+      const spy = jest
+        .spyOn(service['conciliacao'], 'settleTargetParcela')
+        .mockResolvedValue(undefined as never);
+
+      await service.conciliarParcela(tenantId, projectId, 'src-1', {
+        targetExpenseId: 'tgt-1',
+        parcelaIndex: 0,
+        // realValor OMITIDO de propósito (web não envia)
+      });
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      const arg = spy.mock.calls[0][1];
+      expect(arg.realValor).toBe(48489); // valor da parcela, NÃO 290934 (total)
+      spy.mockRestore();
+    });
+
+    it('respeita realValor explícito quando informado', async () => {
+      prisma.expense.findFirst.mockResolvedValue({
+        id: 'src-2',
+        projectId,
+        tenantId,
+        deletedAt: null,
+        valorTotal: 290934,
+        formaPagamento: 'PARCELADO',
+        quantidadeParcela: 6,
+        dataPagamento: null,
+        dataInicioParcela: new Date('2026-06-10T00:00:00Z'),
+      });
+      const spy = jest
+        .spyOn(service['conciliacao'], 'settleTargetParcela')
+        .mockResolvedValue(undefined as never);
+
+      await service.conciliarParcela(tenantId, projectId, 'src-2', {
+        targetExpenseId: 'tgt-2',
+        parcelaIndex: 1,
+        realValor: 50000,
+      });
+
+      expect(spy.mock.calls[0][1].realValor).toBe(50000);
+      spy.mockRestore();
+    });
+  });
+
   describe('remove', () => {
     it('soft-delete da despesa e das entradas do fluxo de caixa', async () => {
       prisma.expense.findFirst.mockResolvedValue({

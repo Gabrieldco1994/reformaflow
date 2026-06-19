@@ -269,8 +269,24 @@ export class ExpenseService {
     });
     if (!source) throw new NotFoundException('Despesa não encontrada');
 
-    const realValor = params.realValor ?? source.valorTotal;
+    // Valor real da liquidação. Quando não informado pelo chamador, NÃO usar o
+    // valorTotal da fonte (isso infla a parcela do alvo quando a fonte é
+    // parcelada — bug histórico). Deriva o valor da PARCELA correspondente da
+    // fonte: para pagamento único, é o próprio valorTotal (1 parcela); para
+    // parcelada, é valorTotal/n da parcela `parcelaIndex`.
     const parcelaIndex = Math.max(0, params.parcelaIndex ?? 0);
+    let realValor = params.realValor;
+    if (realValor == null) {
+      const sourceSlices = buildInstallments({
+        valorTotal: source.valorTotal,
+        formaPagamento: source.formaPagamento,
+        dataPagamento: source.dataPagamento,
+        quantidadeParcela: source.quantidadeParcela,
+        dataInicioParcela: source.dataInicioParcela,
+      });
+      const slice = sourceSlices[Math.min(parcelaIndex, sourceSlices.length - 1)];
+      realValor = slice?.valor ?? source.valorTotal;
+    }
 
     await this.prisma.$transaction(async (tx) => {
       await this.conciliacao.settleTargetParcela(tx, {
