@@ -54,16 +54,21 @@ export function PersonalExpenseKpis({
     <div className="space-y-3">
       {/* Hero card */}
       <div className="rounded-3xl bg-darc-gradient-dark p-5 text-darc-linen shadow-darc-hero">
-        <div className="flex items-center justify-between">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-darc-linen/60">
-            {isCaixa ? 'Vai sair no mês' : 'Gasto no mês'}
-          </p>
-          <span className="rounded-full bg-white/10 px-2.5 py-0.5 text-[11px] font-semibold text-darc-linen/80">
-            {pctPago}% {isCaixa ? 'pago' : 'pago'}
-          </span>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-darc-linen/60">
+              {isCaixa ? 'Vai sair no mês' : 'Gasto no mês'}
+            </p>
+            <p className="mt-1 text-3xl sm:text-4xl font-bold tabular-nums tracking-tight leading-none">
+              {formatCurrency(total / 100)}
+            </p>
+          </div>
+          <div className="shrink-0 text-right">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-darc-linen/60">Pago</p>
+            <p className="mt-1 text-2xl font-bold tabular-nums leading-none text-orange-300">{pctPago}%</p>
+          </div>
         </div>
-        <p className="mt-1 text-4xl font-bold tabular-nums tracking-tight">{formatCurrency(total / 100)}</p>
-        <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/15">
+        <div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-white/15">
           <div className="h-full rounded-full bg-orange-500 transition-all" style={{ width: `${pctPago}%` }} />
         </div>
         <div className="mt-2 flex items-center justify-between text-[11px] text-darc-linen/70">

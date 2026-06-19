@@ -1,6 +1,6 @@
 'use client';
 
-import { Edit2, Trash2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { caixaMonthForCardPurchase } from '@reformaflow/domain';
 import type { Expense, ExpenseStatus } from '@/types';
@@ -70,107 +70,74 @@ export default function PersonalExpenseCard({
   const titulo = expense.titulo || expense.fornecedor || tipoLabel(expense.tipoDespesa);
   const initial = (titulo.trim()[0] || '?').toUpperCase();
 
+  // Selo único de status (estilo mock): cor por situação.
+  const statusSelo = (() => {
+    if (cashMode === 'caixa') {
+      return isPago
+        ? { txt: 'Paga', cls: 'bg-emerald-100 text-emerald-700' }
+        : { txt: 'A pagar', cls: 'bg-amber-100 text-amber-700' };
+    }
+    if (expense.cardLast4) {
+      return { txt: venceMes ? `Fatura ${venceMes}` : 'No cartão', cls: 'bg-violet-100 text-violet-700' };
+    }
+    return isPago
+      ? { txt: 'Pago', cls: 'bg-emerald-100 text-emerald-700' }
+      : { txt: 'Planejado', cls: 'bg-amber-100 text-amber-700' };
+  })();
+
+  // Linha de meta enxuta (texto leve, sem chips coloridos múltiplos).
+  const origem = expense.cardLast4
+    ? (cardInfo?.label ?? `Cartão ••${expense.cardLast4}`)
+    : expense.bankLast4
+      ? `Conta ••${expense.bankLast4}`
+      : null;
+  const meta = [
+    tipoLabel(expense.tipoDespesa),
+    dt ? formatDateBR(dt).slice(0, 5) : null,
+    parcelasTotais > 1 ? `${parcelasPagas}/${parcelasTotais}x` : null,
+    origem,
+  ].filter(Boolean).join(' · ');
+
   return (
-    <div className="flex items-center gap-2.5 px-3 py-2.5 text-xs border-t border-darc-linen/70 hover:bg-orange-50/40">
+    <div className={`group flex items-center gap-3 rounded-2xl border border-darc-linen bg-white px-3 py-2.5 shadow-darc-soft transition-colors hover:border-orange-200 ${isPago ? 'opacity-80' : ''}`}>
       <BulkCheckbox id={expense.id} />
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-orange-100 text-sm font-bold text-orange-700">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-orange-100 text-sm font-bold text-orange-700">
         {initial}
       </span>
-      <div className="flex-1 min-w-0">
-        <div className="font-semibold text-darc-velvet truncate">
-          {titulo}
-        </div>
-        <div className="text-[10px] text-darc-velvet/50 truncate">
-          {tipoLabel(expense.tipoDespesa)}
-          {expense.room?.name ? ` · ${expense.room.name}` : ''}
-          {dt ? ` · ${formatDateBR(dt)}` : ''}
-        </div>
-        <div className="mt-1 flex flex-wrap gap-1.5">
-          <span className="text-[10px] rounded bg-gray-100 px-1.5 py-0.5 text-gray-700">
-            {expense.formaPagamento}
-          </span>
-          {parcelasTotais > 1 && (
-            <span className="text-[10px] rounded bg-teal-100 px-1.5 py-0.5 text-teal-800 font-semibold">
-              {parcelasPagas}/{parcelasTotais}
-            </span>
-          )}
-          {expense.cardLast4 && (
-            <span className="text-[10px] rounded bg-purple-100 px-1.5 py-0.5 text-purple-800">
-              {cardInfo?.label ?? `Cartão ••${expense.cardLast4}`}
-            </span>
-          )}
-          {!expense.cardLast4 && expense.bankLast4 && (
-            <span className="text-[10px] rounded bg-cyan-100 px-1.5 py-0.5 text-cyan-800">
-              Conta ••{expense.bankLast4}
-            </span>
-          )}
-          {venceMes && cashMode === 'competencia' && expense.cardLast4 && (
-            <span className="text-[10px] rounded bg-amber-100 px-1.5 py-0.5 text-amber-900 font-semibold">
-              → fatura {venceMes}
-            </span>
-          )}
-          {cashMode === 'competencia' && expense.cardLast4 && !venceMes && (
-            <span className="text-[10px] rounded bg-amber-100 px-1.5 py-0.5 text-amber-900 font-semibold">
-              → fatura
-            </span>
-          )}
-          {cashMode === 'competencia' && !expense.cardLast4 && expense.status === 'PLANEJADO' && (
-            <span className="text-[10px] rounded bg-gray-100 px-1.5 py-0.5 text-gray-600 font-semibold">
-              planejado
-            </span>
-          )}
-          {cashMode === 'competencia' && !expense.cardLast4 && expense.status === 'PAGO' && (
-            <span className="text-[10px] rounded bg-emerald-100 px-1.5 py-0.5 text-emerald-800 font-semibold">
-              débito
-            </span>
-          )}
-          {cashMode === 'caixa' && (
-            <span
-              className={`text-[10px] rounded px-1.5 py-0.5 font-semibold ${
-                isPago ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-              }`}
-            >
-              {isPago ? 'paga' : 'a pagar'}
-            </span>
-          )}
-        </div>
-      </div>
-
-      <div className="flex flex-col items-end whitespace-nowrap">
-        <span className="font-mono text-gray-900 text-xs">{formatCurrency(expense.valorTotal / 100)}</span>
-        {parcelasTotais > 1 && (
-          <span className="text-[10px] text-gray-500">
-            {parcelasTotais}x de {formatCurrency(Math.round(expense.valorTotal / parcelasTotais) / 100)}
-          </span>
-        )}
-      </div>
-
-      <button
-        type="button"
-        onClick={(ev) => {
-          ev.stopPropagation();
-          onToggleStatus(expense.id, isPago ? 'PLANEJADO' : 'PAGO');
-        }}
-        title="Alternar status"
-        className={`rounded px-2 py-1 text-[10px] font-semibold ${isPago ? 'bg-emerald-600 text-white' : 'bg-amber-600 text-white'}`}
-      >
-        {isPago ? 'PAGO' : 'PLAN'}
-      </button>
       <button
         type="button"
         onClick={() => onEdit(expense)}
-        className="text-blue-600 hover:bg-blue-50 rounded p-1"
+        className="flex-1 min-w-0 text-left"
         title="Editar"
       >
-        <Edit2 className="w-3.5 h-3.5" />
+        <div className="font-semibold text-sm text-darc-velvet truncate">{titulo}</div>
+        <div className="text-[11px] text-darc-velvet/50 truncate">{meta}</div>
       </button>
+
+      <div className="flex flex-col items-end gap-1 shrink-0">
+        <span className="font-semibold tabular-nums text-sm text-darc-velvet">
+          {formatCurrency(expense.valorTotal / 100)}
+        </span>
+        <button
+          type="button"
+          onClick={(ev) => {
+            ev.stopPropagation();
+            if (cashMode === 'caixa' || !expense.cardLast4) onToggleStatus(expense.id, isPago ? 'PLANEJADO' : 'PAGO');
+          }}
+          title="Alternar status"
+          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusSelo.cls}`}
+        >
+          {statusSelo.txt}
+        </button>
+      </div>
+
       <button
         type="button"
         onClick={() => { if (confirm('Excluir despesa?')) onDelete(expense.id); }}
-        className="text-red-500 hover:bg-red-50 rounded p-1"
+        className="shrink-0 rounded-lg p-1.5 text-darc-velvet/30 hover:bg-red-50 hover:text-red-500 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
         title="Excluir"
       >
-        <Trash2 className="w-3.5 h-3.5" />
+        <Trash2 className="w-4 h-4" />
       </button>
     </div>
   );

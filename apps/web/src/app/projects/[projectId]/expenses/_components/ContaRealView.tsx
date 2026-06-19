@@ -100,13 +100,9 @@ export function ContaRealView({
     <div className="space-y-3">
       {visible.map((m) => (
         <div key={m.mes} className="rounded-xl border-2 border-rose-200 bg-rose-50/30 overflow-hidden">
-          <div className="flex items-center gap-3 px-4 py-2.5 border-b border-rose-100">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 border-b border-rose-100">
             <span className="text-sm font-bold text-gray-900">Vence em {mesLabelFromKey(m.mes)}</span>
             <div className="ml-auto flex items-center gap-2 text-xs">
-              <span className="text-rose-700">Faturas {formatCurrency(m.totalFaturas / 100)}</span>
-              <span className="text-gray-300">·</span>
-              <span className="text-sky-700">Débitos {formatCurrency(m.totalDebitos / 100)}</span>
-              <span className="text-gray-300">=</span>
               <span className="font-mono font-bold text-gray-900">{formatCurrency(m.total / 100)}</span>
             </div>
           </div>
@@ -125,6 +121,7 @@ export function ContaRealView({
                 <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-sky-700 bg-sky-50">
                   Débitos da conta
                 </div>
+                <div className="space-y-1.5 p-1.5">
                 {m.debitos.map((d) => {
                   const display: Expense = {
                     ...d.occ,
@@ -147,6 +144,7 @@ export function ContaRealView({
                     />
                   );
                 })}
+                </div>
               </div>
             )}
           </div>

@@ -1353,13 +1353,14 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
       </>
       )}
 
-      {/* FAB mobile — abre opções de adição (Planejar / Pagar) */}
+      {/* FAB mobile — abre opções de adição. À ESQUERDA para não colidir com o
+          Copiloto (canto inferior direito). Sobe acima da pílula no PESSOAL. */}
       {activeTab === 'despesas' && (
         <button
           type="button"
           onClick={openPayOptions}
           aria-label="Nova despesa"
-          className="md:hidden fixed right-4 bottom-20 z-30 h-14 w-14 rounded-full bg-darc-red text-darc-linen shadow-darc-hero flex items-center justify-center active:scale-95 transition-transform"
+          className={`md:hidden fixed left-4 z-30 h-14 w-14 rounded-full bg-orange-500 text-white shadow-darc-hero flex items-center justify-center active:scale-95 transition-transform ${isPersonal ? 'bottom-24' : 'bottom-20'}`}
         >
           <Plus className="w-6 h-6" />
         </button>

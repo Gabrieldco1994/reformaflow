@@ -161,6 +161,7 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
   const mobilePrimary = visibleNav.slice(0, MOBILE_PRIMARY_COUNT);
   const mobileSecondary = visibleNav.slice(MOBILE_PRIMARY_COUNT);
   const hasMoreSheet = mobileSecondary.length > 0 || isAdmin;
+  const isPersonal = project.type === 'PESSOAL';
 
   return (
     <ProjectProvider value={{ projectId: project.id, projectType: project.type, projectName: project.name }}>
@@ -362,7 +363,8 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
           {children}
         </main>
 
-        {/* Mobile bottom navigation — pílula escura flutuante (mantém laranja no ativo) */}
+        {/* Mobile bottom navigation — pílula escura flutuante (PESSOAL) ou barra branca (demais) */}
+        {isPersonal ? (
         <nav className="md:hidden fixed bottom-3 inset-x-4 z-30 safe-pb">
           <div className="flex items-stretch justify-around gap-1 rounded-full bg-darc-velvet/95 backdrop-blur-md px-2 py-1.5 shadow-darc-hero">
             {mobilePrimary.map((item) => {
@@ -396,6 +398,53 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
             )}
           </div>
         </nav>
+        ) : (
+        <nav className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur-md border-t border-darc-linen safe-pb">
+          <div className="flex items-stretch justify-around px-1 pt-1.5 pb-1">
+            {mobilePrimary.map((item) => {
+              const fullHref = `${basePath}/${item.href}`;
+              const isActive = pathname.startsWith(fullHref);
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.href}
+                  href={fullHref}
+                  className="relative flex flex-col items-center justify-center gap-0.5 flex-1 py-1 rounded-lg active:scale-95 transition-transform"
+                >
+                  <span
+                    className={`relative flex items-center justify-center h-7 w-12 rounded-full transition-colors ${
+                      isActive ? 'bg-darc-linen' : ''
+                    }`}
+                  >
+                    <Icon className={`w-5 h-5 ${isActive ? 'text-darc-red' : 'text-darc-velvet/70'}`} />
+                  </span>
+                  <span
+                    className={`text-[10px] leading-tight font-medium tracking-tight ${
+                      isActive ? 'text-darc-red' : 'text-darc-velvet/70'
+                    }`}
+                  >
+                    {item.label}
+                  </span>
+                </Link>
+              );
+            })}
+            {hasMoreSheet && (
+              <button
+                type="button"
+                onClick={() => setMobileOpen(true)}
+                className="relative flex flex-col items-center justify-center gap-0.5 flex-1 py-1 rounded-lg active:scale-95 transition-transform"
+              >
+                <span className="relative flex items-center justify-center h-7 w-12 rounded-full">
+                  <MoreHorizontal className="w-5 h-5 text-darc-velvet/70" />
+                </span>
+                <span className="text-[10px] leading-tight font-medium tracking-tight text-darc-velvet/70">
+                  Mais
+                </span>
+              </button>
+            )}
+          </div>
+        </nav>
+        )}
       </div>
 
       {/* Copiloto Financeiro (chat flutuante) */}

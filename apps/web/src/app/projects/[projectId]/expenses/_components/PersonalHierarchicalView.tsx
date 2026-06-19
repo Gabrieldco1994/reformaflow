@@ -68,7 +68,7 @@ function TipoBlock({
         <span className="ml-auto font-mono text-gray-900">{formatCurrency(total / 100)}</span>
       </button>
       {open && (
-        <div>
+        <div className="space-y-1.5 p-1.5">
           {itens.map((e) => (
             <ExpenseRow
               key={e.id}
