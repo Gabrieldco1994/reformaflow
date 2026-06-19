@@ -67,14 +67,20 @@ export default function PersonalExpenseCard({
     return `${m}/${String(y).slice(-2)}`;
   })();
 
+  const titulo = expense.titulo || expense.fornecedor || tipoLabel(expense.tipoDespesa);
+  const initial = (titulo.trim()[0] || '?').toUpperCase();
+
   return (
-    <div className="flex items-center gap-2 px-3 py-2 text-xs border-t border-gray-100 hover:bg-orange-50/40">
+    <div className="flex items-center gap-2.5 px-3 py-2.5 text-xs border-t border-darc-linen/70 hover:bg-orange-50/40">
       <BulkCheckbox id={expense.id} />
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-orange-100 text-sm font-bold text-orange-700">
+        {initial}
+      </span>
       <div className="flex-1 min-w-0">
-        <div className="font-medium text-gray-900 truncate">
-          {expense.titulo || expense.fornecedor || tipoLabel(expense.tipoDespesa)}
+        <div className="font-semibold text-darc-velvet truncate">
+          {titulo}
         </div>
-        <div className="text-[10px] text-gray-500 truncate">
+        <div className="text-[10px] text-darc-velvet/50 truncate">
           {tipoLabel(expense.tipoDespesa)}
           {expense.room?.name ? ` · ${expense.room.name}` : ''}
           {dt ? ` · ${formatDateBR(dt)}` : ''}

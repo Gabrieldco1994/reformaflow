@@ -14,37 +14,24 @@ interface ContaReal {
   faltaSair: number;
 }
 
-function Kpi({
-  label,
-  value,
-  hint,
-  tone,
-}: {
-  label: string;
-  value: number;
-  hint: string;
-  tone: 'violet' | 'amber' | 'emerald' | 'sky' | 'rose';
-}) {
-  const tones: Record<string, string> = {
-    violet: 'border-violet-200 bg-violet-50 text-violet-700',
-    amber: 'border-amber-200 bg-amber-50 text-amber-700',
-    emerald: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-    sky: 'border-sky-200 bg-sky-50 text-sky-700',
-    rose: 'border-rose-200 bg-rose-50 text-rose-700',
-  };
+/** Mini-stat (chip) abaixo do hero. */
+function Stat({ label, value, dot }: { label: string; value: number; dot: string }) {
   return (
-    <div className={`rounded-xl border p-4 ${tones[tone]}`}>
-      <p className="text-[11px] font-semibold uppercase tracking-wide opacity-80">{label}</p>
-      <p className="mt-1 text-2xl font-bold tabular-nums">{formatCurrency(value / 100)}</p>
-      <p className="mt-0.5 text-[11px] opacity-70">{hint}</p>
+    <div className="rounded-2xl border border-darc-linen bg-white p-3 shadow-darc-soft">
+      <div className="flex items-center gap-1.5">
+        <span className={`inline-block h-2 w-2 rounded-full ${dot}`} />
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-darc-velvet/60">{label}</p>
+      </div>
+      <p className="mt-1 text-lg font-bold tabular-nums text-darc-velvet">{formatCurrency(value / 100)}</p>
     </div>
   );
 }
 
 /**
- * KPIs (4 cards) da tela de despesas do PESSOAL, dependentes do eixo ativo.
- * - Gastos Controle (competência): No cartão · À vista · A vir · Total.
- * - Conta Real (caixa): Faturas vencendo · Débitos · Falta sair · Total.
+ * Hero card (escuro) + mini-stats da tela de despesas do PESSOAL.
+ * - Gastos Controle: hero = Total (cartão+à vista); stats = cartão · à vista · a vir.
+ * - Conta Real: hero = Total (faturas+débitos); stats = faturas · débitos · falta sair.
+ * Mantém o laranja como acento (barra/realces) sobre o gradiente darc.
  */
 export function PersonalExpenseKpis({
   eixo,
@@ -55,64 +42,52 @@ export function PersonalExpenseKpis({
   gastosControle: GastosControle;
   contaReal: ContaReal;
 }) {
-  if (eixo === 'caixa') {
-    const total = contaReal.faturasVencendo + contaReal.debitos;
-    return (
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Kpi
-          label="Faturas vencendo"
-          value={contaReal.faturasVencendo}
-          hint="cartões que vencem no mês"
-          tone="rose"
-        />
-        <Kpi
-          label="Débitos / à vista"
-          value={contaReal.debitos}
-          hint="saída direta da conta"
-          tone="sky"
-        />
-        <Kpi
-          label="Ainda falta sair"
-          value={contaReal.faltaSair}
-          hint="total do mês − o que já saiu"
-          tone="amber"
-        />
-        <Kpi
-          label="Total"
-          value={total}
-          hint="faturas + débitos do mês"
-          tone="emerald"
-        />
-      </div>
-    );
-  }
-  const totalGasto = gastosControle.noCartao + gastosControle.naConta;
+  const isCaixa = eixo === 'caixa';
+  const total = isCaixa
+    ? contaReal.faturasVencendo + contaReal.debitos
+    : gastosControle.noCartao + gastosControle.naConta;
+  const pendente = isCaixa ? contaReal.faltaSair : gastosControle.aConfirmar;
+  const pago = Math.max(0, total - pendente);
+  const pctPago = total > 0 ? Math.min(100, Math.round((pago / total) * 100)) : 0;
+
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      <Kpi
-        label="Gastei no cartão"
-        value={gastosControle.noCartao}
-        hint="compras no cartão neste mês"
-        tone="violet"
-      />
-      <Kpi
-        label="Gastei à vista"
-        value={gastosControle.naConta}
-        hint="débito direto da conta"
-        tone="sky"
-      />
-      <Kpi
-        label="Gasto a vir (planejado)"
-        value={gastosControle.aConfirmar}
-        hint="planejado, ainda não pago"
-        tone="amber"
-      />
-      <Kpi
-        label="Total"
-        value={totalGasto}
-        hint="cartão + à vista no mês"
-        tone="emerald"
-      />
+    <div className="space-y-3">
+      {/* Hero card */}
+      <div className="rounded-3xl bg-darc-gradient-dark p-5 text-darc-linen shadow-darc-hero">
+        <div className="flex items-center justify-between">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-darc-linen/60">
+            {isCaixa ? 'Vai sair no mês' : 'Gasto no mês'}
+          </p>
+          <span className="rounded-full bg-white/10 px-2.5 py-0.5 text-[11px] font-semibold text-darc-linen/80">
+            {pctPago}% {isCaixa ? 'pago' : 'pago'}
+          </span>
+        </div>
+        <p className="mt-1 text-4xl font-bold tabular-nums tracking-tight">{formatCurrency(total / 100)}</p>
+        <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/15">
+          <div className="h-full rounded-full bg-orange-500 transition-all" style={{ width: `${pctPago}%` }} />
+        </div>
+        <div className="mt-2 flex items-center justify-between text-[11px] text-darc-linen/70">
+          <span>{isCaixa ? 'Já saiu' : 'Pago'} <span className="font-semibold text-darc-linen">{formatCurrency(pago / 100)}</span></span>
+          <span>{isCaixa ? 'Falta sair' : 'A vir'} <span className="font-semibold text-orange-300">{formatCurrency(pendente / 100)}</span></span>
+        </div>
+      </div>
+
+      {/* Mini-stats */}
+      <div className="grid grid-cols-3 gap-2">
+        {isCaixa ? (
+          <>
+            <Stat label="Faturas" value={contaReal.faturasVencendo} dot="bg-rose-400" />
+            <Stat label="Débitos" value={contaReal.debitos} dot="bg-sky-400" />
+            <Stat label="Falta sair" value={contaReal.faltaSair} dot="bg-amber-400" />
+          </>
+        ) : (
+          <>
+            <Stat label="No cartão" value={gastosControle.noCartao} dot="bg-violet-400" />
+            <Stat label="À vista" value={gastosControle.naConta} dot="bg-sky-400" />
+            <Stat label="A vir" value={gastosControle.aConfirmar} dot="bg-amber-400" />
+          </>
+        )}
+      </div>
     </div>
   );
 }

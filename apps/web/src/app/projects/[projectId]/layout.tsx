@@ -362,9 +362,9 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
           {children}
         </main>
 
-        {/* Mobile bottom navigation */}
-        <nav className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur-md border-t border-darc-linen safe-pb">
-          <div className="flex items-stretch justify-around px-1 pt-1.5 pb-1">
+        {/* Mobile bottom navigation — pílula escura flutuante (mantém laranja no ativo) */}
+        <nav className="md:hidden fixed bottom-3 inset-x-4 z-30 safe-pb">
+          <div className="flex items-stretch justify-around gap-1 rounded-full bg-darc-velvet/95 backdrop-blur-md px-2 py-1.5 shadow-darc-hero">
             {mobilePrimary.map((item) => {
               const fullHref = `${basePath}/${item.href}`;
               const isActive = pathname.startsWith(fullHref);
@@ -373,20 +373,12 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
                 <Link
                   key={item.href}
                   href={fullHref}
-                  className="relative flex flex-col items-center justify-center gap-0.5 flex-1 py-1 rounded-lg active:scale-95 transition-transform"
+                  className={`relative flex flex-1 items-center justify-center gap-1.5 rounded-full px-1 py-2 transition-all active:scale-95 ${
+                    isActive ? 'bg-orange-500 text-white shadow-sm' : 'text-darc-linen/80'
+                  }`}
                 >
-                  <span
-                    className={`relative flex items-center justify-center h-7 w-12 rounded-full transition-colors ${
-                      isActive ? 'bg-darc-linen' : ''
-                    }`}
-                  >
-                    <Icon className={`w-5 h-5 ${isActive ? 'text-darc-red' : 'text-darc-velvet/70'}`} />
-                  </span>
-                  <span
-                    className={`text-[10px] leading-tight font-medium tracking-tight ${
-                      isActive ? 'text-darc-red' : 'text-darc-velvet/70'
-                    }`}
-                  >
+                  <Icon className={`w-5 h-5 shrink-0 ${isActive ? 'text-white' : 'text-darc-linen/70'}`} />
+                  <span className={`text-[11px] font-semibold tracking-tight ${isActive ? 'inline' : 'hidden'}`}>
                     {item.label}
                   </span>
                 </Link>
@@ -396,14 +388,10 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
               <button
                 type="button"
                 onClick={() => setMobileOpen(true)}
-                className="relative flex flex-col items-center justify-center gap-0.5 flex-1 py-1 rounded-lg active:scale-95 transition-transform"
+                aria-label="Mais opções"
+                className="relative flex items-center justify-center rounded-full px-3 py-2 text-darc-linen/80 transition-all active:scale-95"
               >
-                <span className="relative flex items-center justify-center h-7 w-12 rounded-full">
-                  <MoreHorizontal className="w-5 h-5 text-darc-velvet/70" />
-                </span>
-                <span className="text-[10px] leading-tight font-medium tracking-tight text-darc-velvet/70">
-                  Mais
-                </span>
+                <MoreHorizontal className="w-5 h-5" />
               </button>
             )}
           </div>
