@@ -368,10 +368,6 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
     return { totalGeral: geral, totalPlanejado: planejado, totalPago: pago };
   }, [periodFilteredPersonal]);
 
-  // Totais do período (só relevantes em PESSOAL) — mesma base por-parcela dos KPIs,
-  // para não divergir dos cards no "Ano todo" com parcelas parcialmente pagas.
-  const periodTotals = { pago: totalPago, planejado: totalPlanejado };
-
   // Quebra por projeto (cockpit) — só faz sentido no Pessoal, que consolida vários projetos.
   // Respeita o período selecionado (mês clicado / ano todo).
   const kpiPerProject = useMemo(() => {
@@ -1156,24 +1152,6 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
             </button>
           </div>
 
-          {/* Totais Pago/Planejado/Total — só na Conta Real (Saiu/A sair). Na
-              visão Gastos Controle os KPIs do topo já cobrem isso. */}
-          {eixo === 'caixa' && (
-          <div className="grid grid-cols-3 gap-2">
-            <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600">Saiu</p>
-              <p className="mt-0.5 font-mono text-sm font-bold text-emerald-700 tabular-nums truncate">{formatCurrency(periodTotals.pago / 100)}</p>
-            </div>
-            <div className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-600">A sair</p>
-              <p className="mt-0.5 font-mono text-sm font-bold text-amber-700 tabular-nums truncate">{formatCurrency(periodTotals.planejado / 100)}</p>
-            </div>
-            <div className="rounded-md border border-orange-300 bg-orange-100 px-2.5 py-1.5">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-orange-700">Total</p>
-              <p className="mt-0.5 font-mono text-sm font-bold text-orange-900 tabular-nums truncate">{formatCurrency((periodTotals.pago + periodTotals.planejado) / 100)}</p>
-            </div>
-          </div>
-          )}
         </div>
       )}
 

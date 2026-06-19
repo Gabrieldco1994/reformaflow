@@ -42,9 +42,9 @@ function Kpi({
 }
 
 /**
- * KPIs (3 cards) da tela de despesas do PESSOAL, dependentes do eixo ativo.
- * - Gastos Controle (competência): No cartão · Na conta · A confirmar.
- * - Conta Real (caixa): Faturas vencendo · Débitos · Ainda falta sair.
+ * KPIs (4 cards) da tela de despesas do PESSOAL, dependentes do eixo ativo.
+ * - Gastos Controle (competência): No cartão · À vista · A vir · Total.
+ * - Conta Real (caixa): Faturas vencendo · Débitos · Falta sair · Total.
  */
 export function PersonalExpenseKpis({
   eixo,
@@ -56,8 +56,9 @@ export function PersonalExpenseKpis({
   contaReal: ContaReal;
 }) {
   if (eixo === 'caixa') {
+    const total = contaReal.faturasVencendo + contaReal.debitos;
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Kpi
           label="Faturas vencendo"
           value={contaReal.faturasVencendo}
@@ -76,11 +77,18 @@ export function PersonalExpenseKpis({
           hint="total do mês − o que já saiu"
           tone="amber"
         />
+        <Kpi
+          label="Total"
+          value={total}
+          hint="faturas + débitos do mês"
+          tone="emerald"
+        />
       </div>
     );
   }
+  const totalGasto = gastosControle.noCartao + gastosControle.naConta;
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <Kpi
         label="Gastei no cartão"
         value={gastosControle.noCartao}
@@ -98,6 +106,12 @@ export function PersonalExpenseKpis({
         value={gastosControle.aConfirmar}
         hint="planejado, ainda não pago"
         tone="amber"
+      />
+      <Kpi
+        label="Total"
+        value={totalGasto}
+        hint="cartão + à vista no mês"
+        tone="emerald"
       />
     </div>
   );
