@@ -1,7 +1,14 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBankAccountDto, UpdateBankAccountDto } from './dto/bank-account.dto';
-import { parseBankStatementBuffer, type BankSourceHint } from './parsers';
+import { parseBankStatementBuffers, type BankSourceHint } from './parsers';
+
+/** Normaliza a entrada (string legada, Buffer único ou array) para Buffer[]. */
+function toBuffers(content: string | Buffer | Buffer[]): Buffer[] {
+  if (Array.isArray(content)) return content;
+  if (typeof content === 'string') return [Buffer.from(content, 'utf-8')];
+  return [content];
+}
 import type { NormalizedTx } from '../credit-card/parsers/types';
 import { categorize } from '../credit-card/categorizer';
 import { MerchantClassifierService } from '../merchant-classifier/merchant-classifier.service';
@@ -206,14 +213,14 @@ export class BankAccountService {
     tenantId: string,
     projectId: string,
     accountId: string,
-    fileContent: string | Buffer,
+    fileContent: string | Buffer | Buffer[],
     fileName: string | undefined,
     source: BankSourceHint,
     password?: string,
   ) {
     const account = await this.findAccount(tenantId, projectId, accountId);
-    const buf = typeof fileContent === 'string' ? Buffer.from(fileContent, 'utf-8') : fileContent;
-    const parsed = await parseBankStatementBuffer(buf, account.id, source, fileName, password);
+    const buffers = toBuffers(fileContent);
+    const parsed = await parseBankStatementBuffers(buffers, account.id, source, fileName, password);
 
     const existing = await this.findExistingExternalIds(
       tenantId,
@@ -374,7 +381,7 @@ export class BankAccountService {
     tenantId: string,
     projectId: string,
     accountId: string,
-    fileContent: string | Buffer,
+    fileContent: string | Buffer | Buffer[],
     fileName: string | undefined,
     source: BankSourceHint,
     periodLabelOverride?: string,
@@ -382,8 +389,8 @@ export class BankAccountService {
     decisions?: BankImportDecision[],
   ) {
     const account = await this.findAccount(tenantId, projectId, accountId);
-    const buf = typeof fileContent === 'string' ? Buffer.from(fileContent, 'utf-8') : fileContent;
-    const parsed = await parseBankStatementBuffer(buf, account.id, source, fileName, password);
+    const buffers = toBuffers(fileContent);
+    const parsed = await parseBankStatementBuffers(buffers, account.id, source, fileName, password);
     const periodLabel = periodLabelOverride ?? parsed.periodLabel ?? new Date().toISOString().slice(0, 7);
 
     const decisionByExt = new Map<string, BankImportDecision>();
@@ -417,7 +424,7 @@ export class BankAccountService {
         periodLabel,
         source: parsed.source,
         fileName: fileName?.slice(0, 200),
-        fileSize: buf.length,
+        fileSize: buffers.reduce((s, b) => s + b.length, 0),
         status: 'COMPLETED',
         inserted: toInsert.length,
         duplicated,

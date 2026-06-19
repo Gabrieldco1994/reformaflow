@@ -2,7 +2,7 @@ import { parseBankOfx } from './ofx';
 import { parseBankCsv } from './csv';
 import { parseBankPdfStatement, PdfPasswordRequiredError, PdfWrongPasswordError } from './pdf';
 import { detectImageMime, parseImageBankStatement } from '../../credit-card/parsers/image-ocr';
-import type { ParseResult } from '../../credit-card/parsers/types';
+import { mergeParseResults, type ParseResult } from '../../credit-card/parsers/types';
 
 export type BankSourceHint = 'OFX' | 'CSV_GENERIC' | 'PDF' | 'AUTO';
 
@@ -30,6 +30,24 @@ export async function parseBankStatementBuffer(
     return parseBankOfx(content, accountId);
   }
   return parseBankCsv(content, accountId);
+}
+
+/**
+ * Versão em lote: parseia N buffers (ex.: múltiplas imagens de extrato) e mescla
+ * num único ParseResult, deduplicando por externalId.
+ */
+export async function parseBankStatementBuffers(
+  buffers: Buffer[],
+  accountId: string,
+  hint: BankSourceHint = 'AUTO',
+  fileName?: string,
+  password?: string,
+): Promise<ParseResult> {
+  const results: ParseResult[] = [];
+  for (const b of buffers) {
+    results.push(await parseBankStatementBuffer(b, accountId, hint, fileName, password));
+  }
+  return mergeParseResults(results);
 }
 
 export { PdfPasswordRequiredError, PdfWrongPasswordError };

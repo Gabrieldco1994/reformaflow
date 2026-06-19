@@ -31,7 +31,7 @@ export interface BankTxState {
 }
 
 export default function ImportBankStatementModal({ projectId, account, onClose, onCommitted }: Props) {
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [source, setSource] = useState('AUTO');
   const [password, setPassword] = useState('');
   const [needsPassword, setNeedsPassword] = useState(false);
@@ -41,7 +41,7 @@ export default function ImportBankStatementModal({ projectId, account, onClose, 
   const [error, setError] = useState<string | null>(null);
   const [txStates, setTxStates] = useState<Record<string, BankTxState>>({});
 
-  const isPdf = !!file && (file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf');
+  const isPdf = files.some((f) => f.name.toLowerCase().endsWith('.pdf') || f.type === 'application/pdf');
 
   function buildUrl(mode: 'preview' | 'commit') {
     const params = new URLSearchParams({ source, mode });
@@ -50,14 +50,14 @@ export default function ImportBankStatementModal({ projectId, account, onClose, 
   }
 
   async function handlePreview() {
-    if (!file) { setError('Selecione um arquivo'); return; }
+    if (files.length === 0) { setError('Selecione um arquivo'); return; }
     setError(null);
     setLoading(true);
     setPreview(null);
     setTxStates({});
     try {
       const fd = new FormData();
-      fd.append('file', file);
+      for (const f of files) fd.append('files', f);
       const res = await api.upload<BankPreviewResult>(buildUrl('preview'), fd);
       setPreview(res);
       const auto: Record<string, BankTxState> = {};
@@ -94,7 +94,7 @@ export default function ImportBankStatementModal({ projectId, account, onClose, 
   }
 
   async function handleCommit() {
-    if (!file || !preview) return;
+    if (files.length === 0 || !preview) return;
     setLoading(true);
     setError(null);
     try {
@@ -102,7 +102,7 @@ export default function ImportBankStatementModal({ projectId, account, onClose, 
         .map((s) => s.decision)
         .filter((d): d is BankImportDecision => !!d && (!!d.action || !!d.overrides));
       const fd = new FormData();
-      fd.append('file', file);
+      for (const f of files) fd.append('files', f);
       fd.append('decisions', JSON.stringify(decisions));
       const res = await api.upload<BankCommitResult>(buildUrl('commit'), fd);
       setCommitResult(res);
@@ -156,12 +156,13 @@ export default function ImportBankStatementModal({ projectId, account, onClose, 
           <>
             <div className="space-y-3 mb-4">
               <div>
-                <label className="text-sm text-gray-600">Arquivo (OFX, CSV, PDF ou 📷 print/foto, máx 10MB)</label>
+                <label className="text-sm text-gray-600">Arquivos (OFX, CSV, PDF ou 📷 até 5 prints/fotos, máx 10MB cada)</label>
                 <input
                   type="file"
+                  multiple
                   accept=".ofx,.csv,.txt,.pdf,image/png,image/jpeg,image/webp,image/heic,.png,.jpg,.jpeg,.webp,.heic"
                   onChange={(e) => {
-                    setFile(e.target.files?.[0] ?? null);
+                    setFiles(Array.from(e.target.files ?? []).slice(0, 5));
                     setPreview(null);
                     setNeedsPassword(false);
                     setPassword('');
@@ -169,6 +170,17 @@ export default function ImportBankStatementModal({ projectId, account, onClose, 
                   }}
                   className="w-full border rounded-lg p-2"
                 />
+                {files.length > 0 && (
+                  <ul className="mt-1.5 space-y-0.5 text-xs text-gray-500">
+                    {files.map((f, i) => (
+                      <li key={i} className="flex items-center gap-1.5 truncate">
+                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-orange-400 shrink-0" />
+                        {f.name}
+                      </li>
+                    ))}
+                    {files.length >= 5 && <li className="text-amber-600">Máximo de 5 arquivos por lote.</li>}
+                  </ul>
+                )}
               </div>
               <div>
                 <label className="text-sm text-gray-600">Formato</label>
@@ -195,7 +207,7 @@ export default function ImportBankStatementModal({ projectId, account, onClose, 
               )}
               <button
                 onClick={handlePreview}
-                disabled={!file || loading}
+                disabled={files.length === 0 || loading}
                 className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}

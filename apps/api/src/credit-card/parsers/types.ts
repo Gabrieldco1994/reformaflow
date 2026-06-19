@@ -19,6 +19,47 @@ export interface ParseResult {
   futureInstallments?: NormalizedTx[]; // parcelas/lançamentos futuros (apenas informativo)
 }
 
+/**
+ * Mescla vários ParseResult (ex.: upload de múltiplas imagens de fatura/extrato
+ * em lote) num único resultado. Deduplica transações por externalId (mesma
+ * imagem enviada 2x, ou linha repetida entre prints sobrepostos) e soma os
+ * totais. Preserva a ordem por data.
+ */
+export function mergeParseResults(results: ParseResult[]): ParseResult {
+  if (results.length === 1) return results[0]!;
+
+  const txByExt = new Map<string, NormalizedTx>();
+  const futByExt = new Map<string, NormalizedTx>();
+  let total = 0;
+  const sources = new Set<string>();
+
+  for (const r of results) {
+    sources.add(r.source);
+    for (const t of r.transactions) {
+      if (!txByExt.has(t.externalId)) txByExt.set(t.externalId, t);
+    }
+    for (const t of r.futureInstallments ?? []) {
+      if (!futByExt.has(t.externalId)) futByExt.set(t.externalId, t);
+    }
+  }
+
+  const transactions = Array.from(txByExt.values()).sort(
+    (a, b) => a.date.getTime() - b.date.getTime(),
+  );
+  const futureInstallments = Array.from(futByExt.values()).sort(
+    (a, b) => a.date.getTime() - b.date.getTime(),
+  );
+  total = transactions.filter((t) => t.amountCents > 0).reduce((s, t) => s + t.amountCents, 0);
+
+  return {
+    source: sources.size === 1 ? (results[0]!.source) : 'IMAGE',
+    transactions,
+    totalAmountCents: total,
+    periodLabel: results.find((r) => r.periodLabel)?.periodLabel,
+    futureInstallments,
+  };
+}
+
 export function makeExternalId(parts: {
   cardId: string;
   date: Date;

@@ -41,7 +41,7 @@ describe('CreditCardController.importStatement — decisions parsing', () => {
     ];
     await controller.importStatement(
       't1', 'p1', 'card1',
-      fakeFile,
+      [fakeFile],
       { mode: 'commit', source: 'OFX' } as any,
       { decisions: JSON.stringify(decisions) },
     );
@@ -53,7 +53,7 @@ describe('CreditCardController.importStatement — decisions parsing', () => {
   it('decisões ausente → repassa undefined', async () => {
     await controller.importStatement(
       't1', 'p1', 'card1',
-      fakeFile,
+      [fakeFile],
       { mode: 'commit', source: 'OFX' } as any,
       undefined,
     );
@@ -66,7 +66,7 @@ describe('CreditCardController.importStatement — decisions parsing', () => {
     await expect(
       controller.importStatement(
         't1', 'p1', 'card1',
-        fakeFile,
+      [fakeFile],
         { mode: 'commit', source: 'OFX' } as any,
         { decisions: '{not-json' },
       ),
@@ -76,7 +76,7 @@ describe('CreditCardController.importStatement — decisions parsing', () => {
   it('decisões JSON não-array → trata como undefined (não lança)', async () => {
     await controller.importStatement(
       't1', 'p1', 'card1',
-      fakeFile,
+      [fakeFile],
       { mode: 'commit', source: 'OFX' } as any,
       { decisions: JSON.stringify({ externalId: 'X', action: 'skip' }) },
     );
@@ -88,7 +88,7 @@ describe('CreditCardController.importStatement — decisions parsing', () => {
   it('modo preview ignora decisions', async () => {
     await controller.importStatement(
       't1', 'p1', 'card1',
-      fakeFile,
+      [fakeFile],
       { mode: 'preview', source: 'OFX' } as any,
       { decisions: JSON.stringify([{ externalId: 'A1', action: 'skip' }]) },
     );

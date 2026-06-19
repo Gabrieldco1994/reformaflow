@@ -31,7 +31,7 @@ describe('BankAccountController.importStatement — decisions parsing', () => {
     ];
     await controller.importStatement(
       't1', 'p1', 'acc1',
-      fakeFile,
+      [fakeFile],
       { mode: 'commit', source: 'OFX' } as any,
       { decisions: JSON.stringify(decisions) },
     );
@@ -44,7 +44,7 @@ describe('BankAccountController.importStatement — decisions parsing', () => {
     await expect(
       controller.importStatement(
         't1', 'p1', 'acc1',
-        fakeFile,
+      [fakeFile],
         { mode: 'commit', source: 'OFX' } as any,
         { decisions: '{broken' },
       ),
@@ -54,7 +54,7 @@ describe('BankAccountController.importStatement — decisions parsing', () => {
   it('modo preview ignora decisions', async () => {
     await controller.importStatement(
       't1', 'p1', 'acc1',
-      fakeFile,
+      [fakeFile],
       { mode: 'preview', source: 'OFX' } as any,
       { decisions: JSON.stringify([{ externalId: 'A', action: 'skip' }]) },
     );

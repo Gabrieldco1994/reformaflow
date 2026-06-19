@@ -3,7 +3,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ExpenseTypeLabels, buildInstallments } from '@reformaflow/domain';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import { CreateCreditCardDto, UpdateCreditCardDto } from './dto/credit-card.dto';
-import { parseStatementBuffer, type SourceHint, type NormalizedTx, type ParseResult } from './parsers';
+import { parseStatementBuffers, type SourceHint, type NormalizedTx, type ParseResult } from './parsers';
+
+/** Normaliza a entrada (string legada, Buffer único ou array) para Buffer[]. */
+function toBuffers(content: string | Buffer | Buffer[]): Buffer[] {
+  if (Array.isArray(content)) return content;
+  if (typeof content === 'string') return [Buffer.from(content, 'utf-8')];
+  return [content];
+}
 
 // Mapeamento de categorias do parser → ExpenseType pessoal
 const PESSOAL_CATEGORY_MAP: Record<string, string> = {
@@ -99,14 +106,14 @@ export class CreditCardService {
     tenantId: string,
     projectId: string,
     cardId: string,
-    fileContent: string | Buffer,
+    fileContent: string | Buffer | Buffer[],
     fileName: string | undefined,
     source: SourceHint,
     password?: string,
   ) {
     const card = await this.findCard(tenantId, projectId, cardId);
-    const buf = typeof fileContent === 'string' ? Buffer.from(fileContent, 'utf-8') : fileContent;
-    const parsed = await parseStatementBuffer(buf, card.id, source, fileName, password);
+    const buffers = toBuffers(fileContent);
+    const parsed = await parseStatementBuffers(buffers, card.id, source, fileName, password);
     const existing = await this.findExistingExternalIds(
       tenantId,
       projectId,
@@ -218,7 +225,7 @@ export class CreditCardService {
     tenantId: string,
     projectId: string,
     cardId: string,
-    fileContent: string | Buffer,
+    fileContent: string | Buffer | Buffer[],
     fileName: string | undefined,
     source: SourceHint,
     periodLabelOverride?: string,
@@ -226,8 +233,8 @@ export class CreditCardService {
     decisions?: ImportDecision[],
   ) {
     const card = await this.findCard(tenantId, projectId, cardId);
-    const buf = typeof fileContent === 'string' ? Buffer.from(fileContent, 'utf-8') : fileContent;
-    const parsed = await parseStatementBuffer(buf, card.id, source, fileName, password);
+    const buffers = toBuffers(fileContent);
+    const parsed = await parseStatementBuffers(buffers, card.id, source, fileName, password);
     const periodLabel = periodLabelOverride ?? parsed.periodLabel ?? new Date().toISOString().slice(0, 7);
 
     // Index decisions por externalId
@@ -259,7 +266,7 @@ export class CreditCardService {
         periodLabel,
         source: parsed.source,
         fileName: fileName?.slice(0, 200),
-        fileSize: buf.length,
+        fileSize: buffers.reduce((s, b) => s + b.length, 0),
         status: 'COMPLETED',
         inserted: toProcess.length,
         duplicated,

@@ -1,8 +1,8 @@
 import {
   Body, Controller, Delete, Get, Param, Patch, Post, Query,
-  UploadedFile, UseInterceptors, BadRequestException,
+  UploadedFiles, UseInterceptors, BadRequestException,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { AnyFilesInterceptor } from '@nestjs/platform-express';
 import { BankAccountService } from './bank-account.service';
 import {
   CreateBankAccountDto,
@@ -124,16 +124,19 @@ export class BankAccountController {
   }
 
   @Post(':id/import-statement')
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
+  @UseInterceptors(AnyFilesInterceptor({ limits: { fileSize: 10 * 1024 * 1024, files: 5 } }))
   async importStatement(
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('id') accountId: string,
-    @UploadedFile() file: Express.Multer.File | undefined,
+    @UploadedFiles() files: Express.Multer.File[] | undefined,
     @Query() query: ImportBankStatementQueryDto,
     @Body() body: { decisions?: string } | undefined,
   ) {
-    if (!file) return { error: 'arquivo ausente' };
+    const list = (files ?? []).slice(0, 5);
+    if (list.length === 0) return { error: 'arquivo ausente' };
+    const buffers = list.map((f) => f.buffer);
+    const fileName = list[0].originalname;
     const source = (query.source ?? 'AUTO') as 'AUTO' | 'OFX' | 'CSV_GENERIC' | 'PDF';
     let decisions: import('./bank-account.service').BankImportDecision[] | undefined;
     if (body?.decisions) {
@@ -147,12 +150,12 @@ export class BankAccountController {
     try {
       if ((query.mode ?? 'preview') === 'commit') {
         return await this.service.commitImport(
-          tenantId, projectId, accountId, file.buffer, file.originalname, source,
+          tenantId, projectId, accountId, buffers, fileName, source,
           query.periodLabel, query.password, decisions,
         );
       }
       return await this.service.previewImport(
-        tenantId, projectId, accountId, file.buffer, file.originalname, source, query.password,
+        tenantId, projectId, accountId, buffers, fileName, source, query.password,
       );
     } catch (err) {
       if (err instanceof PdfPasswordRequiredError) {

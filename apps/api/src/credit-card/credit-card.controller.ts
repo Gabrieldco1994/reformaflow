@@ -1,8 +1,8 @@
 import {
   Body, Controller, Delete, Get, Param, Patch, Post, Query,
-  UploadedFile, UseInterceptors, BadRequestException,
+  UploadedFiles, UseInterceptors, BadRequestException,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { AnyFilesInterceptor } from '@nestjs/platform-express';
 import { CreditCardService } from './credit-card.service';
 import {
   CreateCreditCardDto,
@@ -95,18 +95,21 @@ export class CreditCardController {
   }
 
   @Post(':id/import-statement')
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
+  @UseInterceptors(AnyFilesInterceptor({ limits: { fileSize: 10 * 1024 * 1024, files: 5 } }))
   async importStatement(
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('id') cardId: string,
-    @UploadedFile() file: Express.Multer.File | undefined,
+    @UploadedFiles() files: Express.Multer.File[] | undefined,
     @Query() query: ImportStatementQueryDto,
     @Body() body: { decisions?: string } | undefined,
   ) {
-    if (!file) {
+    const list = (files ?? []).slice(0, 5);
+    if (list.length === 0) {
       return { error: 'arquivo ausente' };
     }
+    const buffers = list.map((f) => f.buffer);
+    const fileName = list[0].originalname;
     const source = (query.source ?? 'AUTO') as any;
     // decisions vêm via multipart field 'decisions' como JSON-string
     let decisions: import('./credit-card.service').ImportDecision[] | undefined;
@@ -119,14 +122,14 @@ export class CreditCardController {
       }
     }
     try {
-      // Passa o Buffer puro para o service (parser PDF precisa de binário)
+      // Passa os Buffers puros para o service (parser PDF/imagem precisa de binário)
       if ((query.mode ?? 'preview') === 'commit') {
         return await this.service.commitImport(
           tenantId,
           projectId,
           cardId,
-          file.buffer,
-          file.originalname,
+          buffers,
+          fileName,
           source,
           query.periodLabel,
           query.password,
@@ -137,8 +140,8 @@ export class CreditCardController {
         tenantId,
         projectId,
         cardId,
-        file.buffer,
-        file.originalname,
+        buffers,
+        fileName,
         source,
         query.password,
       );

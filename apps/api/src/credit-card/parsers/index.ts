@@ -2,7 +2,7 @@ import { parseOfx } from './ofx';
 import { parseCsv } from './csv';
 import { parsePdfStatement, PdfPasswordRequiredError, PdfWrongPasswordError } from './pdf';
 import { detectImageMime, parseImageStatement } from './image-ocr';
-import type { ParseResult } from './types';
+import { mergeParseResults, type ParseResult } from './types';
 
 export type SourceHint = 'OFX' | 'CSV_NUBANK' | 'CSV_ITAU' | 'CSV_GENERIC' | 'PDF' | 'AUTO';
 
@@ -40,6 +40,25 @@ export async function parseStatementBuffer(
     return parsePdfStatement(buffer, cardId, password, fileName);
   }
   return parseStatement(buffer.toString('utf-8'), cardId, hint, fileName);
+}
+
+/**
+ * Versão em lote: parseia N buffers (ex.: múltiplas imagens de fatura) e mescla
+ * num único ParseResult, deduplicando por externalId. Retrocompatível: 1 buffer
+ * equivale a `parseStatementBuffer`.
+ */
+export async function parseStatementBuffers(
+  buffers: Buffer[],
+  cardId: string,
+  hint: SourceHint = 'AUTO',
+  fileName?: string,
+  password?: string,
+): Promise<ParseResult> {
+  const results: ParseResult[] = [];
+  for (const b of buffers) {
+    results.push(await parseStatementBuffer(b, cardId, hint, fileName, password));
+  }
+  return mergeParseResults(results);
 }
 
 function resolveSource(
