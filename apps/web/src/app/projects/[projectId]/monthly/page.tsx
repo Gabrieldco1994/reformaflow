@@ -15,6 +15,7 @@ import MonthView from './_cockpit/MonthView';
 import ExtratoGeral from './_cockpit/ExtratoGeral';
 import YearView from './_cockpit/YearView';
 import EixoToggle, { type Eixo } from './_cockpit/EixoToggle';
+import SaldosWidget from './_cockpit/SaldosWidget';
 
 type View = 'mes' | 'ano';
 
@@ -163,6 +164,8 @@ export default function CockpitPage() {
       </header>
 
       {viewData && !isLoading && <CockpitTop data={viewData} />}
+
+      {viewData && !isLoading && view === 'mes' && <SaldosWidget projectId={projectId} />}
 
       {isLoading && (
         <div className="space-y-4 animate-pulse">
