@@ -77,7 +77,7 @@ export function OriginChips({
 }) {
   if (chips.length === 0) return null;
   return (
-    <div className="flex flex-wrap items-stretch gap-2">
+    <div className="-mx-1 flex items-stretch gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:flex-wrap md:overflow-visible">
       {chips.map((c) => {
         const isActive = selected === c.key;
         const Icon = c.kind === 'CARTAO' ? CreditCard : Landmark;
@@ -86,16 +86,16 @@ export function OriginChips({
             key={c.key}
             type="button"
             onClick={() => onSelect(isActive ? null : c.key)}
-            className={`flex items-center gap-2.5 rounded-xl border px-4 py-2.5 text-left transition-colors ${
+            className={`flex shrink-0 items-center gap-2.5 rounded-2xl border px-4 py-2.5 text-left transition-colors md:shrink ${
               isActive
-                ? 'border-teal-600 bg-teal-600 text-white shadow-sm'
-                : 'border-gray-200 bg-white text-gray-700 hover:border-teal-400 hover:bg-teal-50'
+                ? 'border-orange-500 bg-orange-500 text-white shadow-sm'
+                : 'border-darc-linen bg-white text-darc-velvet hover:border-orange-300 hover:bg-orange-50'
             }`}
           >
-            <Icon className={`h-5 w-5 shrink-0 ${isActive ? 'text-white' : 'text-teal-600'}`} />
+            <Icon className={`h-5 w-5 shrink-0 ${isActive ? 'text-white' : 'text-orange-600'}`} />
             <div className="leading-tight">
-              <div className="text-sm font-semibold">{c.label}</div>
-              <div className={`text-xs font-mono ${isActive ? 'text-teal-50' : 'text-gray-500'}`}>
+              <div className="text-sm font-semibold whitespace-nowrap">{c.label}</div>
+              <div className={`text-xs font-mono whitespace-nowrap ${isActive ? 'text-orange-50' : 'text-darc-velvet/50'}`}>
                 {formatCurrency(c.pago / 100)} pago · {formatCurrency(c.planejado / 100)} plan.
               </div>
             </div>
@@ -106,9 +106,9 @@ export function OriginChips({
         <button
           type="button"
           onClick={() => onSelect(null)}
-          className="self-center rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50"
+          className="shrink-0 self-center rounded-2xl border border-darc-linen bg-white px-4 py-2.5 text-sm font-medium text-darc-velvet/60 hover:bg-gray-50"
         >
-          Limpar filtro
+          Limpar
         </button>
       )}
     </div>

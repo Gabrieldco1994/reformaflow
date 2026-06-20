@@ -32,6 +32,8 @@ import { CategoryExpenseView } from './_components/CategoryExpenseView';
 import { UnifiedExpenseView } from './_components/UnifiedExpenseView';
 import { ExpenseViewToggle, type ExpenseViewMode } from './_components/ExpenseViewToggle';
 import { ExpenseEixoToggle, type ExpenseEixo } from './_components/ExpenseEixoToggle';
+import { PersonalMonthHeader } from './_components/PersonalMonthHeader';
+import { useAuth } from '@/contexts/auth-context';
 import { PersonalExpenseKpis } from './_components/PersonalExpenseKpis';
 import { CartoesStrip } from './_components/CartoesStrip';
 import { OriginFilterStrip, originKeyOf } from './_components/OriginChips';
@@ -67,6 +69,7 @@ function hasAnyPaidParcela(raw: string | null | undefined, total: number): boole
 
 export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) {
   const { projectId: PROJECT_ID, projectType } = useProject();
+  const { user } = useAuth();
   const TIPO_DESPESA_OPTIONS = useMemo(() => getExpenseOptions(projectType), [projectType]);
   const showRooms = projectType === 'REFORMA';
   const showMaoDeObra = projectType === 'REFORMA';
@@ -994,12 +997,22 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
   const faturasVencendoStrip = contaRealMonthsToShow.flatMap((m) => m.faturas);
 
   return (
-    <div className="space-y-4">
+    <div className={`space-y-4 ${isPersonal ? 'mx-auto w-full max-w-3xl' : ''}`}>
       {/* Header with tabs */}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-xl font-bold text-gray-900">{lockedEixo === 'caixa' ? 'Visão Conta' : 'Despesas'}</h1>
-          {lockedEixo !== 'caixa' && (
+          {isPersonal ? (
+            <PersonalMonthHeader
+              title={lockedEixo === 'caixa' ? 'Visão Conta' : 'Despesas'}
+              userName={user?.name}
+              period={period}
+              onPrev={() => navigatePeriod(-1)}
+              onNext={() => navigatePeriod(1)}
+            />
+          ) : (
+            <h1 className="text-xl font-bold text-gray-900">{lockedEixo === 'caixa' ? 'Visão Conta' : 'Despesas'}</h1>
+          )}
+          {!isPersonal && lockedEixo !== 'caixa' && (
           <div className="inline-flex rounded-lg border border-gray-200 text-sm overflow-hidden">
             <button
               onClick={() => setActiveTab('despesas')}
