@@ -80,7 +80,7 @@ export default function MetasPage() {
   const totalGasto = progress.reduce((s, p) => s + p.gastoCents, 0);
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-4">
+    <div className="mx-auto w-full max-w-3xl lg:max-w-5xl space-y-4">
       <div className="flex items-end justify-between gap-3">
         <div>
           <p className="text-[13px] font-medium text-darc-velvet/50">Análise · {periodLabel(mes)}</p>
@@ -112,7 +112,7 @@ export default function MetasPage() {
           action={{ label: 'Criar primeira meta', onClick: () => { setEditing(null); setModalOpen(true); } }}
         />
       ) : (
-        <div className="space-y-2">
+        <div className="grid grid-cols-1 gap-2 lg:grid-cols-2 lg:gap-3">
           {progress.map((item) => (
             <MetaCategoriaCard
               key={item.tipoDespesa}
