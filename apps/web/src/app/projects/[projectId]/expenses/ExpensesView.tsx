@@ -5,7 +5,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
-import { Plus, CreditCard, ShoppingCart, Mic, Calendar, ArrowLeft, ArrowRight, ArrowDownWideNarrow, ArrowUpNarrowWide } from 'lucide-react';
+import { Plus, CreditCard, ShoppingCart, Mic, ArrowDownWideNarrow, ArrowUpNarrowWide } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { Expense, ExpenseFormData, ExpensesPage, Project } from '@/types';
 import { toast } from 'sonner';
@@ -33,6 +33,7 @@ import { UnifiedExpenseView } from './_components/UnifiedExpenseView';
 import { ExpenseViewToggle, type ExpenseViewMode } from './_components/ExpenseViewToggle';
 import { ExpenseEixoToggle, type ExpenseEixo } from './_components/ExpenseEixoToggle';
 import { PersonalMonthHeader } from './_components/PersonalMonthHeader';
+import { PersonalPeriodPicker } from './_components/PersonalPeriodPicker';
 import { useAuth } from '@/contexts/auth-context';
 import { PersonalExpenseKpis } from './_components/PersonalExpenseKpis';
 import { CartoesStrip } from './_components/CartoesStrip';
@@ -48,7 +49,6 @@ import {
   type PeriodFilter,
   inPeriod,
   listPeriods,
-  periodLabel,
   currentPeriod,
   groupPersonalExpenses,
 } from './_lib/personal-hierarchy';
@@ -1117,55 +1117,14 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
         </div>
       )}
 
-      {/* Período (PESSOAL) — filtro de mês / ano todo aplicado nos 3 modos */}
+      {/* Período (PESSOAL) — dropdown de mês / ano todo (nav ◂ ▸ fica no header) */}
       {projectType === 'PESSOAL' && (
-        <div className="flex flex-col gap-2 rounded-lg border border-orange-200 bg-orange-50/60 px-3 py-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <Calendar className="w-4 h-4 text-orange-600" />
-            <span className="text-xs font-semibold text-orange-900">Período:</span>
-            {period !== 'ALL' && (
-              <button
-                type="button"
-                onClick={() => navigatePeriod(-1)}
-                className="rounded p-1 hover:bg-orange-100"
-                title="Mês anterior"
-              >
-                <ArrowLeft className="w-3.5 h-3.5 text-orange-700" />
-              </button>
-            )}
-            <select
-              value={period}
-              onChange={(e) => setPeriod(e.target.value as PeriodFilter)}
-              className="text-xs border border-orange-200 rounded px-2 py-1 bg-white font-medium"
-            >
-              <option value="ALL">Ano todo ({periodYear})</option>
-              {allPeriods.map((p) => (
-                <option key={p} value={p}>{periodLabel(p)}</option>
-              ))}
-              {!allPeriods.includes(currentPeriod()) && (
-                <option value={currentPeriod()}>{periodLabel(currentPeriod())} (sem despesas)</option>
-              )}
-            </select>
-            {period !== 'ALL' && (
-              <button
-                type="button"
-                onClick={() => navigatePeriod(1)}
-                className="rounded p-1 hover:bg-orange-100"
-                title="Próximo mês"
-              >
-                <ArrowRight className="w-3.5 h-3.5 text-orange-700" />
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => setPeriod('ALL')}
-              className={`ml-2 text-xs px-2 py-1 rounded ${period === 'ALL' ? 'bg-orange-500 text-white' : 'bg-white text-orange-700 border border-orange-200 hover:bg-orange-100'}`}
-            >
-              Ano todo
-            </button>
-          </div>
-
-        </div>
+        <PersonalPeriodPicker
+          period={period}
+          periodYear={periodYear}
+          allPeriods={allPeriods}
+          onChange={setPeriod}
+        />
       )}
 
       {isLoading ? (
