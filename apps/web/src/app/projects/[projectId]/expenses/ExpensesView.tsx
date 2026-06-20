@@ -441,6 +441,14 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bulkDate, bulkSelectedIds, exitBulkMode]);
+  const applyBulkPaid = useCallback(() => {
+    if (bulkSelectedIds.size === 0) return;
+    bulkPaidMutation.mutate(
+      { ids: Array.from(bulkSelectedIds) },
+      { onSuccess: () => exitBulkMode() },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bulkSelectedIds, exitBulkMode]);
   useEffect(() => {
     const cur = currentMonthKey();
     setCollapsedMonths(new Set(groupedByMes.filter((g) => g.mesKey !== cur).map((g) => g.mesKey)));
@@ -605,6 +613,24 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
     onError: (e: Error) => {
       console.error('[expenses] bulk date failed', e);
       toast.error(`Erro ao alterar data: ${e.message}`);
+    },
+  });
+
+  const bulkPaidMutation = useMutation({
+    mutationFn: async ({ ids }: { ids: string[] }) => {
+      // Sequencial de propósito: SQLite serializa escritas e PATCHs concorrentes
+      // (Promise.all) podem disparar "database is locked" → 500.
+      for (const id of ids) {
+        await api.patch(`/projects/${resolveOwnerProjectId(id)}/expenses/${id}`, { status: 'PAGO' });
+      }
+    },
+    onSuccess: (_d, vars) => {
+      invalidate();
+      toast.success(`${vars.ids.length} ${vars.ids.length === 1 ? 'despesa marcada' : 'despesas marcadas'} como pago`);
+    },
+    onError: (e: Error) => {
+      console.error('[expenses] bulk paid failed', e);
+      toast.error(`Erro ao marcar como pago: ${e.message}`);
     },
   });
 
@@ -1153,6 +1179,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
             bulkDate={bulkDate}
             onBulkDateChange={setBulkDate}
             onApply={applyBulkDate}
+            onMarkPaid={applyBulkPaid}
           />
         )}
         <BulkDateProvider value={{ selectMode: bulkSelectMode && !(isPersonal && eixo === 'caixa'), selectedIds: bulkSelectedIds, toggle: toggleBulkId }}>

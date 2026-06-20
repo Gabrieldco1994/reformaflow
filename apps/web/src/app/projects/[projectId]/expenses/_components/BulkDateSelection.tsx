@@ -72,6 +72,7 @@ export function BulkDateToolbar({
   bulkDate,
   onBulkDateChange,
   onApply,
+  onMarkPaid,
 }: {
   selectMode: boolean;
   onEnter: () => void;
@@ -82,6 +83,7 @@ export function BulkDateToolbar({
   bulkDate: string;
   onBulkDateChange: (v: string) => void;
   onApply: () => void;
+  onMarkPaid: () => void;
 }) {
   return (
     <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 rounded-xl border border-violet-200 bg-violet-50/90 px-3 py-2 backdrop-blur">
@@ -122,6 +124,15 @@ export function BulkDateToolbar({
             >
               <Check className="w-3.5 h-3.5" /> Aplicar data
             </button>
+            {selectedCount > 0 && (
+              <button
+                type="button"
+                onClick={onMarkPaid}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700 transition-colors"
+              >
+                <Check className="w-3.5 h-3.5" /> Marcar como pago
+              </button>
+            )}
             <button
               type="button"
               onClick={onExit}
