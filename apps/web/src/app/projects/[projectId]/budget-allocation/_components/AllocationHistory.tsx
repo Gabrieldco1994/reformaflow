@@ -4,6 +4,7 @@ import { formatCurrency } from '@/lib/utils';
 import { useMutation } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 
 interface Props {
   allocations: any[];
@@ -14,11 +15,11 @@ export default function AllocationHistory({ allocations, onDelete }: Props) {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/budget-allocations/${id}`),
     onSuccess: () => {
-      alert('Alocação removida com sucesso');
+      toast.success('Alocação removida com sucesso');
       onDelete();
     },
     onError: () => {
-      alert('Erro ao remover alocação');
+      toast.error('Erro ao remover alocação');
     },
   });
 

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { api } from '@/lib/api';
 
 interface Props {
@@ -40,14 +41,14 @@ export default function AllocationForm({ sourceProjectId, onSuccess }: Props) {
   const mutation = useMutation({
     mutationFn: (data: any) => api.post(`/budget-allocations?sourceProjectId=${sourceProjectId}`, data),
     onSuccess: () => {
-      alert('Budget alocado com sucesso!');
+      toast.success('Budget alocado com sucesso!');
       setTargetProjectId('');
       setValor('');
       setDescricao('');
       onSuccess();
     },
     onError: (error: any) => {
-      alert(error.response?.data?.message || 'Erro ao alocar budget');
+      toast.error(error.response?.data?.message || 'Erro ao alocar budget');
     },
   });
 
@@ -56,13 +57,13 @@ export default function AllocationForm({ sourceProjectId, onSuccess }: Props) {
     const valorCents = Math.round(parseFloat(valor) * 100);
     
     if (!targetProjectId || valorCents <= 0) {
-      alert('Preencha todos os campos obrigatórios');
+      toast.error('Preencha todos os campos obrigatórios');
       return;
     }
 
     // Check if trying to allocate more than available
     if (valorCents > availableBudget) {
-      alert(`Valor excede o budget disponível. Disponível: R$ ${(availableBudget / 100).toFixed(2)}`);
+      toast.error(`Valor excede o budget disponível. Disponível: R$ ${(availableBudget / 100).toFixed(2)}`);
       return;
     }
 
