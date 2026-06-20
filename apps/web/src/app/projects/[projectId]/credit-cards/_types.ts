@@ -6,6 +6,10 @@ export interface CardRow {
   last4: string;
   limitTotalCents: number | null;
   limitAvailableCents: number | null;
+  limitUsedCents?: number;
+  limitAvailableComputedCents?: number;
+  limitUsagePercent?: number;
+  currentOpenInvoiceMonth?: string;
   closingDay: number | null;
   dueDay: number | null;
 }

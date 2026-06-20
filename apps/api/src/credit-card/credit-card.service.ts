@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { ExpenseTypeLabels, buildInstallments } from '@reformaflow/domain';
+import { ExpenseTypeLabels, NEUTRAL_EXPENSE_TYPES, buildInstallments, caixaMonthForCardPurchase } from '@reformaflow/domain';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import { CreateCreditCardDto, UpdateCreditCardDto } from './dto/credit-card.dto';
 import { parseStatementBuffers, type SourceHint, type NormalizedTx, type ParseResult } from './parsers';
@@ -51,10 +51,11 @@ export class CreditCardService {
 
   async listCards(tenantId: string, projectId: string) {
     await this.ensureProject(tenantId, projectId);
-    return this.prisma.creditCard.findMany({
+    const cards = await this.prisma.creditCard.findMany({
       where: { tenantId, projectId, deletedAt: null },
       orderBy: { createdAt: 'asc' },
     });
+    return Promise.all(cards.map((card) => this.withLimitUsage(tenantId, projectId, card)));
   }
 
   /** Lista todos os cartões do tenant (independente de projeto). Útil para vínculos cross-project. */
@@ -64,6 +65,79 @@ export class CreditCardService {
       orderBy: [{ projectId: 'asc' }, { createdAt: 'asc' }],
       include: { project: { select: { id: true, name: true, type: true } } },
     });
+  }
+
+  private async withLimitUsage<T extends {
+    last4: string;
+    limitTotalCents: number | null;
+    closingDay: number | null;
+    dueDay: number | null;
+  }>(tenantId: string, projectId: string, card: T) {
+    if (card.limitTotalCents == null) return card;
+
+    const currentOpenInvoiceMonth = this.currentOpenInvoiceMonth(card);
+    const neutral = Array.from(NEUTRAL_EXPENSE_TYPES);
+    const purchases = await this.prisma.expense.findMany({
+      where: {
+        tenantId,
+        projectId,
+        cardLast4: card.last4,
+        deletedAt: null,
+        tipoDespesa: { notIn: neutral },
+      },
+      select: {
+        valorTotal: true,
+        tipoDespesa: true,
+        dataPagamento: true,
+        dataInicioParcela: true,
+        createdAt: true,
+      },
+    });
+
+    // Uso read-only do limite: soma compras não-neutras cujo mês de vencimento
+    // calculado cai no próximo vencimento aberto (>= hoje). Sem schema novo.
+    const limitUsedCents = purchases.reduce((sum, expense) => {
+      if (NEUTRAL_EXPENSE_TYPES.has(expense.tipoDespesa)) return sum;
+      const purchaseDate = expense.dataPagamento ?? expense.dataInicioParcela ?? expense.createdAt;
+      const invoiceMonth = caixaMonthForCardPurchase(purchaseDate, card.closingDay, card.dueDay);
+      return invoiceMonth === currentOpenInvoiceMonth ? sum + expense.valorTotal : sum;
+    }, 0);
+    const limitUsagePercent = card.limitTotalCents > 0
+      ? Math.round((limitUsedCents / card.limitTotalCents) * 100)
+      : (limitUsedCents > 0 ? 100 : 0);
+
+    return {
+      ...card,
+      limitUsedCents,
+      limitAvailableComputedCents: card.limitTotalCents - limitUsedCents,
+      limitUsagePercent,
+      currentOpenInvoiceMonth,
+    };
+  }
+
+  private currentOpenInvoiceMonth(card: { closingDay: number | null; dueDay: number | null }, today = new Date()): string {
+    const year = today.getUTCFullYear();
+    const month = today.getUTCMonth();
+    if (card.closingDay == null || card.dueDay == null) {
+      return this.formatYearMonth(year, month);
+    }
+
+    const todayStart = new Date(Date.UTC(year, month, today.getUTCDate()));
+    const dueThisMonth = this.clampedUtcDate(year, month, card.dueDay);
+    const target = dueThisMonth >= todayStart
+      ? dueThisMonth
+      : this.clampedUtcDate(year, month + 1, card.dueDay);
+    return this.formatYearMonth(target.getUTCFullYear(), target.getUTCMonth());
+  }
+
+  private clampedUtcDate(year: number, monthIndex0: number, day: number): Date {
+    const lastDay = new Date(Date.UTC(year, monthIndex0 + 1, 0)).getUTCDate();
+    return new Date(Date.UTC(year, monthIndex0, Math.min(day, lastDay)));
+  }
+
+  private formatYearMonth(year: number, monthIndex0: number): string {
+    const d = new Date(Date.UTC(year, monthIndex0, 1));
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
   }
 
   async createCard(tenantId: string, projectId: string, dto: CreateCreditCardDto) {

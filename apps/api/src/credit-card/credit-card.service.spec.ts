@@ -6,7 +6,7 @@ import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 function makePrismaMock() {
   return {
     project: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
-    creditCard: { findFirst: jest.fn() },
+    creditCard: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
     creditCardStatementImport: {
       create: jest.fn().mockResolvedValue({ id: 'imp1' }),
       update: jest.fn().mockResolvedValue({}),
@@ -77,12 +77,155 @@ describe('CreditCardService', () => {
       last4: '1234',
       nickname: 'MC Black',
       institution: 'Itau',
+      limitTotalCents: 100000,
+      limitAvailableCents: null,
+      closingDay: 10,
+      dueDay: 25,
     });
 
     // $transaction com callback ou array
     prisma.$transaction.mockImplementation(async (arg: any) => {
       if (typeof arg === 'function') return arg(prisma);
       return Promise.all(arg);
+    });
+  });
+
+  describe('listCards — uso de limite', () => {
+    beforeEach(() => {
+      jest.useFakeTimers().setSystemTime(new Date('2026-06-20T12:00:00.000Z'));
+      prisma.project.findFirst.mockResolvedValue({ id: 'pessoal1', tenantId: 't1' });
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('calcula usado no ciclo aberto atual e ignora despesas neutras', async () => {
+      prisma.creditCard.findMany.mockResolvedValue([
+        {
+          id: 'card1',
+          tenantId: 't1',
+          projectId: 'pessoal1',
+          brand: 'MASTERCARD',
+          last4: '1234',
+          nickname: 'MC Black',
+          institution: 'Itau',
+          limitTotalCents: 100000,
+          limitAvailableCents: null,
+          closingDay: 10,
+          dueDay: 25,
+          createdAt: new Date('2026-01-01'),
+        },
+      ]);
+      prisma.expense.findMany.mockResolvedValue([
+        {
+          valorTotal: 30000,
+          tipoDespesa: 'ALIMENTACAO',
+          dataPagamento: new Date('2026-06-05T00:00:00.000Z'),
+          dataInicioParcela: null,
+          createdAt: new Date('2026-06-05T00:00:00.000Z'),
+        },
+        {
+          valorTotal: 90000,
+          tipoDespesa: 'OUTROS',
+          dataPagamento: new Date('2026-06-10T00:00:00.000Z'),
+          dataInicioParcela: null,
+          createdAt: new Date('2026-06-10T00:00:00.000Z'),
+        },
+        {
+          valorTotal: 10000,
+          tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+          dataPagamento: new Date('2026-06-03T00:00:00.000Z'),
+          dataInicioParcela: null,
+          createdAt: new Date('2026-06-03T00:00:00.000Z'),
+        },
+      ]);
+
+      const result = await service.listCards('t1', 'pessoal1');
+
+      expect(prisma.expense.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({
+          tenantId: 't1',
+          projectId: 'pessoal1',
+          cardLast4: '1234',
+          deletedAt: null,
+          tipoDespesa: { notIn: expect.arrayContaining(['PAGAMENTO_FATURA_CARTAO']) },
+        }),
+      }));
+      expect(result[0]).toMatchObject({
+        limitUsedCents: 30000,
+        limitAvailableComputedCents: 70000,
+        limitUsagePercent: 30,
+        currentOpenInvoiceMonth: '2026-06',
+      });
+    });
+
+    it('usa o próximo vencimento quando o vencimento deste mês já passou', async () => {
+      prisma.creditCard.findMany.mockResolvedValue([
+        {
+          id: 'card1',
+          tenantId: 't1',
+          projectId: 'pessoal1',
+          brand: 'MASTERCARD',
+          last4: '1234',
+          nickname: 'MC Black',
+          institution: 'Itau',
+          limitTotalCents: 100000,
+          limitAvailableCents: null,
+          closingDay: 10,
+          dueDay: 15,
+          createdAt: new Date('2026-01-01'),
+        },
+      ]);
+      prisma.expense.findMany.mockResolvedValue([
+        {
+          valorTotal: 45000,
+          tipoDespesa: 'OUTROS',
+          dataPagamento: new Date('2026-06-10T00:00:00.000Z'),
+          dataInicioParcela: null,
+          createdAt: new Date('2026-06-10T00:00:00.000Z'),
+        },
+        {
+          valorTotal: 25000,
+          tipoDespesa: 'OUTROS',
+          dataPagamento: new Date('2026-06-05T00:00:00.000Z'),
+          dataInicioParcela: null,
+          createdAt: new Date('2026-06-05T00:00:00.000Z'),
+        },
+      ]);
+
+      const result = await service.listCards('t1', 'pessoal1');
+
+      expect(result[0]).toMatchObject({
+        limitUsedCents: 45000,
+        limitAvailableComputedCents: 55000,
+        limitUsagePercent: 45,
+        currentOpenInvoiceMonth: '2026-07',
+      });
+    });
+
+    it('não consulta uso quando o cartão não tem limite total', async () => {
+      prisma.creditCard.findMany.mockResolvedValue([
+        {
+          id: 'card1',
+          tenantId: 't1',
+          projectId: 'pessoal1',
+          brand: 'MASTERCARD',
+          last4: '1234',
+          nickname: 'MC Black',
+          institution: 'Itau',
+          limitTotalCents: null,
+          limitAvailableCents: null,
+          closingDay: 10,
+          dueDay: 25,
+          createdAt: new Date('2026-01-01'),
+        },
+      ]);
+
+      const result = await service.listCards('t1', 'pessoal1');
+
+      expect(prisma.expense.findMany).not.toHaveBeenCalled();
+      expect(result[0]).not.toHaveProperty('limitUsedCents');
     });
   });
 
