@@ -7,6 +7,7 @@ export interface BankAccountRow {
   accountNumber: string | null;
   openingBalanceCents?: number;
   openingBalanceDate?: string | null;
+  balanceCents?: number;
 }
 
 export interface BankCrossExpenseMatch {

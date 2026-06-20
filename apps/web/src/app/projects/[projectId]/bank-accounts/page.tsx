@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
+import { formatCurrency } from '@/lib/utils';
 import { Landmark, Plus, Trash2, Link2, ArrowDownLeft } from 'lucide-react';
 import BankAccountFormModal from './_components/BankAccountFormModal';
 import BankLinkSuggestionsPanel from './_components/BankLinkSuggestionsPanel';
@@ -61,53 +62,69 @@ export default function BankAccountsPage() {
       </p>
 
       {loading ? (
-        <div className="text-gray-500">Carregando…</div>
+        <div className="grid gap-3">
+          {[0, 1].map((item) => (
+            <div key={item} className="rounded-lg border border-darc-linen bg-white p-4">
+              <div className="h-5 w-40 animate-pulse rounded bg-darc-linen/70" />
+              <div className="mt-3 h-4 w-64 animate-pulse rounded bg-darc-linen/50" />
+            </div>
+          ))}
+        </div>
       ) : accounts.length === 0 ? (
         <div className="bg-gray-50 rounded-lg p-12 text-center text-gray-500">
           Nenhuma conta cadastrada. Comece adicionando uma.
         </div>
       ) : (
         <div className="grid gap-3">
-          {accounts.map((a) => (
-            <div key={a.id} className="border rounded-lg p-4 bg-white flex items-center justify-between">
-              <div>
-                <div className="font-semibold">
-                  {a.nickname ?? `${a.institution} ****${a.last4}`}
+          {accounts.map((a) => {
+            const balanceCents = a.balanceCents ?? 0;
+            return (
+              <div key={a.id} className="rounded-lg border border-darc-linen bg-white p-4 flex items-center justify-between gap-4">
+                <div>
+                  <div className="font-semibold text-darc-velvet">
+                    {a.nickname ?? `${a.institution} ****${a.last4}`}
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    {a.institution} · final {a.last4}
+                    {a.agency && <> · ag {a.agency}</>}
+                    {a.accountNumber && <> · cc {a.accountNumber}</>}
+                  </div>
+                  <div className="mt-3">
+                    <div className="text-xs uppercase tracking-wide text-darc-velvet/60">Saldo</div>
+                    <div className={`text-lg font-bold ${balanceCents >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                      {formatCurrency(balanceCents / 100)}
+                    </div>
+                  </div>
                 </div>
-                <div className="text-xs text-gray-500">
-                  {a.institution} · final {a.last4}
-                  {a.agency && <> · ag {a.agency}</>}
-                  {a.accountNumber && <> · cc {a.accountNumber}</>}
+                <div className="flex flex-wrap justify-end gap-2">
+                  <button
+                    onClick={() => setLinksFor(a)}
+                    className="px-3 py-2 text-sm border rounded-lg flex items-center gap-1 hover:bg-gray-50"
+                  >
+                    <Link2 className="w-4 h-4" /> Vincular despesas
+                  </button>
+                  <button
+                    onClick={() => setReceiptLinksFor(a)}
+                    className="px-3 py-2 text-sm border rounded-lg flex items-center gap-1 hover:bg-gray-50"
+                  >
+                    <ArrowDownLeft className="w-4 h-4" /> Vincular recebimentos
+                  </button>
+                  <button
+                    onClick={() => { setEditing(a); setFormOpen(true); }}
+                    className="px-3 py-2 text-sm border rounded-lg hover:bg-gray-50"
+                  >
+                    Editar
+                  </button>
+                  <button
+                    onClick={() => handleDelete(a)}
+                    className="px-3 py-2 text-sm border border-red-200 text-red-600 rounded-lg hover:bg-red-50"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setLinksFor(a)}
-                  className="px-3 py-2 text-sm border rounded-lg flex items-center gap-1 hover:bg-gray-50"
-                >
-                  <Link2 className="w-4 h-4" /> Vincular despesas
-                </button>
-                <button
-                  onClick={() => setReceiptLinksFor(a)}
-                  className="px-3 py-2 text-sm border rounded-lg flex items-center gap-1 hover:bg-gray-50"
-                >
-                  <ArrowDownLeft className="w-4 h-4" /> Vincular recebimentos
-                </button>
-                <button
-                  onClick={() => { setEditing(a); setFormOpen(true); }}
-                  className="px-3 py-2 text-sm border rounded-lg hover:bg-gray-50"
-                >
-                  Editar
-                </button>
-                <button
-                  onClick={() => handleDelete(a)}
-                  className="px-3 py-2 text-sm border border-red-200 text-red-600 rounded-lg hover:bg-red-50"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

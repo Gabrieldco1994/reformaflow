@@ -14,7 +14,7 @@ import { categorize } from '../credit-card/categorizer';
 import { MerchantClassifierService } from '../merchant-classifier/merchant-classifier.service';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import { CardInvoiceSettlementService } from '../credit-card/card-invoice-settlement.service';
-import { buildInstallments } from '@reformaflow/domain';
+import { buildInstallments, NEUTRAL_EXPENSE_TYPES } from '@reformaflow/domain';
 
 export interface BankImportDecision {
   externalId: string;
@@ -146,10 +146,53 @@ export class BankAccountService {
 
   async listAccounts(tenantId: string, projectId: string) {
     await this.ensureProject(tenantId, projectId);
-    return this.prisma.bankAccount.findMany({
+    const accounts = await this.prisma.bankAccount.findMany({
       where: { tenantId, projectId, deletedAt: null },
       orderBy: { createdAt: 'asc' },
     });
+
+    if (accounts.length === 0) return accounts;
+
+    const last4s = Array.from(new Set(accounts.map((account) => account.last4)));
+    const [receipts, expenses] = await Promise.all([
+      this.prisma.receipt.findMany({
+        where: {
+          tenantId,
+          projectId,
+          bankLast4: { in: last4s },
+          status: { in: ['EM_CAIXA', 'PAGO'] },
+          deletedAt: null,
+        },
+        select: { bankLast4: true, valor: true },
+      }),
+      this.prisma.expense.findMany({
+        where: {
+          tenantId,
+          projectId,
+          bankLast4: { in: last4s },
+          status: 'PAGO',
+          tipoDespesa: { notIn: Array.from(NEUTRAL_EXPENSE_TYPES) },
+          deletedAt: null,
+        },
+        select: { bankLast4: true, valorTotal: true },
+      }),
+    ]);
+
+    // Saldo exibido = recebimentos em caixa/pagos da conta − despesas pagas não neutras da conta.
+    const balanceByLast4 = new Map<string, number>();
+    for (const receipt of receipts) {
+      if (!receipt.bankLast4) continue;
+      balanceByLast4.set(receipt.bankLast4, (balanceByLast4.get(receipt.bankLast4) ?? 0) + receipt.valor);
+    }
+    for (const expense of expenses) {
+      if (!expense.bankLast4) continue;
+      balanceByLast4.set(expense.bankLast4, (balanceByLast4.get(expense.bankLast4) ?? 0) - expense.valorTotal);
+    }
+
+    return accounts.map((account) => ({
+      ...account,
+      balanceCents: balanceByLast4.get(account.last4) ?? 0,
+    }));
   }
 
   /** Lista todas as contas do tenant (todos os projetos). Útil para vínculos cross-project. */

@@ -8,7 +8,7 @@ import { CardInvoiceSettlementService } from '../credit-card/card-invoice-settle
 function makePrismaMock() {
   return {
     project: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
-    bankAccount: { findFirst: jest.fn() },
+    bankAccount: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
     bankStatementImport: {
       create: jest.fn().mockResolvedValue({ id: 'bimp1' }),
       update: jest.fn().mockResolvedValue({}),
@@ -108,6 +108,77 @@ describe('BankAccountService', () => {
     prisma.$transaction.mockImplementation(async (arg: any) => {
       if (typeof arg === 'function') return arg(prisma);
       return Promise.all(arg);
+    });
+  });
+
+  describe('listAccounts', () => {
+    it('retorna saldo por conta a partir de recebimentos menos despesas pagas não neutras', async () => {
+      prisma.project.findFirst.mockResolvedValue({ id: 'pessoal1', tenantId: 't1' });
+      prisma.bankAccount.findMany.mockResolvedValue([
+        {
+          id: 'acc1',
+          tenantId: 't1',
+          projectId: 'pessoal1',
+          institution: 'Itau',
+          last4: '5678',
+          nickname: 'Conta Itaú',
+        },
+        {
+          id: 'acc2',
+          tenantId: 't1',
+          projectId: 'pessoal1',
+          institution: 'Nubank',
+          last4: '0001',
+          nickname: 'Nu',
+        },
+      ]);
+      prisma.receipt.findMany.mockResolvedValue([
+        { bankLast4: '5678', valor: 150000 },
+        { bankLast4: '0001', valor: 20000 },
+      ]);
+      prisma.expense.findMany.mockResolvedValue([
+        { bankLast4: '5678', valorTotal: 25000 },
+        { bankLast4: '5678', valorTotal: 10000 },
+      ]);
+
+      const result = await service.listAccounts('t1', 'pessoal1');
+
+      expect(result).toEqual([
+        expect.objectContaining({ id: 'acc1', balanceCents: 115000 }),
+        expect.objectContaining({ id: 'acc2', balanceCents: 20000 }),
+      ]);
+      expect(prisma.receipt.findMany).toHaveBeenCalledWith({
+        where: {
+          tenantId: 't1',
+          projectId: 'pessoal1',
+          bankLast4: { in: ['5678', '0001'] },
+          status: { in: ['EM_CAIXA', 'PAGO'] },
+          deletedAt: null,
+        },
+        select: { bankLast4: true, valor: true },
+      });
+      expect(prisma.expense.findMany).toHaveBeenCalledWith({
+        where: {
+          tenantId: 't1',
+          projectId: 'pessoal1',
+          bankLast4: { in: ['5678', '0001'] },
+          status: 'PAGO',
+          tipoDespesa: { notIn: ['PAGAMENTO_FATURA_CARTAO', 'MOVIMENTACAO_INTERNA'] },
+          deletedAt: null,
+        },
+        select: { bankLast4: true, valorTotal: true },
+      });
+    });
+
+    it('mantém saldo zero quando não há movimentos vinculados', async () => {
+      prisma.project.findFirst.mockResolvedValue({ id: 'pessoal1', tenantId: 't1' });
+      prisma.bankAccount.findMany.mockResolvedValue([
+        { id: 'acc1', tenantId: 't1', projectId: 'pessoal1', institution: 'Itau', last4: '5678', nickname: 'Conta Itaú' },
+      ]);
+
+      const result = await service.listAccounts('t1', 'pessoal1');
+
+      expect(result[0]).toEqual(expect.objectContaining({ id: 'acc1', balanceCents: 0 }));
     });
   });
 
