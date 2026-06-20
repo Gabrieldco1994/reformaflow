@@ -5,6 +5,8 @@ import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { Landmark, Plus, Trash2, Link2, ArrowDownLeft } from 'lucide-react';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { SkeletonList } from '@/components/ui/Skeleton';
 import BankAccountFormModal from './_components/BankAccountFormModal';
 import BankLinkSuggestionsPanel from './_components/BankLinkSuggestionsPanel';
 import BankReceiptLinkPanel from './_components/BankReceiptLinkPanel';
@@ -60,20 +62,18 @@ export default function BankAccountsPage() {
         são detectados automaticamente para evitar dupla contagem. Contas de luz/água/gás/internet
         e IPVA viram <strong>recorrências</strong> nos seus projetos de Casa/Carro automaticamente.
       </p>
-
       {loading ? (
-        <div className="grid gap-3">
-          {[0, 1].map((item) => (
-            <div key={item} className="rounded-lg border border-darc-linen bg-white p-4">
-              <div className="h-5 w-40 animate-pulse rounded bg-darc-linen/70" />
-              <div className="mt-3 h-4 w-64 animate-pulse rounded bg-darc-linen/50" />
-            </div>
-          ))}
-        </div>
+        <SkeletonList rows={2} />
       ) : accounts.length === 0 ? (
-        <div className="bg-gray-50 rounded-lg p-12 text-center text-gray-500">
-          Nenhuma conta cadastrada. Comece adicionando uma.
-        </div>
+        <EmptyState
+          icon={Landmark}
+          title="Nenhuma conta cadastrada"
+          description="Comece adicionando uma conta para importar extratos e acompanhar seu saldo."
+          action={{
+            label: 'Nova conta',
+            onClick: () => { setEditing(null); setFormOpen(true); },
+          }}
+        />
       ) : (
         <div className="grid gap-3">
           {accounts.map((a) => {

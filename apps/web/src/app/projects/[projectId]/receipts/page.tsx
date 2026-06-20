@@ -5,10 +5,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
-import { Plus, Pencil, Trash2, Check, X, ChevronDown, ChevronRight, ChevronUp, Loader2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, Check, X, ChevronDown, ChevronRight, ChevronUp, Loader2, Wallet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { SkeletonList } from '@/components/ui/Skeleton';
 import { Modal } from '@/components/ui/modal';
 import React from 'react';
 import type { Receipt, ReceiptFormData } from '@/types';
@@ -524,7 +526,13 @@ export default function ReceiptsPage() {
       )}
 
       {isLoading ? (
-        <p className="text-gray-500">Carregando...</p>
+        <SkeletonList rows={4} />
+      ) : receipts.length === 0 ? (
+        <EmptyState
+          icon={Wallet}
+          title="Nenhum recebimento ainda"
+          description="Recebimentos cadastrados aparecerão aqui para acompanhar entradas previstas e em caixa."
+        />
       ) : viewMode === 'month' ? (
         <MonthlyView
           grouped={groupedByMes}
@@ -682,7 +690,7 @@ export default function ReceiptsPage() {
       )}
 
       {/* Botão de adicionar linha rápida — só desktop e na view por tipo */}
-      {viewMode === 'type' && !showNewRow && (
+      {viewMode === 'type' && receipts.length > 0 && !showNewRow && (
         <button onClick={() => setShowNewRow(true)}
           className="hidden md:block w-full border-2 border-dashed border-darc-linen rounded-lg py-2 text-sm text-darc-velvet/50 hover:border-darc-red-pastel hover:text-darc-red hover:bg-darc-red-pastel/10 transition-colors">
           + Adicionar rápido (linha inline)

@@ -5,6 +5,8 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { ArrowUpCircle, ArrowDownCircle } from 'lucide-react';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { SkeletonCard, SkeletonList } from '@/components/ui/Skeleton';
 import type { CashFlowEntry } from '@/types';
 import { MobileCashFlowList } from './_components/MobileCashFlowList';
 
@@ -26,7 +28,20 @@ export default function CashFlowPage() {
     queryFn: () => api.get(`/projects/${PROJECT_ID}/cash-flow`),
   });
 
-  if (isLoading) return <div className="text-gray-500">Carregando...</div>;
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <SkeletonCard className="h-16 md:w-64" />
+        <div className="grid gap-3 md:grid-cols-4">
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+        </div>
+        <SkeletonList rows={5} />
+      </div>
+    );
+  }
   if (error) return <div className="text-red-600">Erro ao carregar fluxo de caixa.</div>;
 
   const saldoAtual = entries[entries.length - 1]?.rollingBalance ?? 0;
@@ -101,59 +116,66 @@ export default function CashFlowPage() {
         </div>
       </div>
 
-      {/* Lista mobile */}
-      <MobileCashFlowList entries={entries} />
+      {entries.length === 0 ? (
+        <EmptyState
+          icon={ArrowUpCircle}
+          title="Sem lançamentos no período"
+          description="Recebimentos e despesas aparecerão aqui quando forem cadastrados."
+        />
+      ) : (
+        <>
+          {/* Lista mobile */}
+          <MobileCashFlowList entries={entries} />
 
-      {/* Tabela desktop */}
-      <div className="hidden md:block overflow-x-auto border rounded-lg">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 border-b">
-            <tr>
-              <th className="text-left px-4 py-2 font-medium text-gray-600">Data</th>
-              <th className="text-left px-4 py-2 font-medium text-gray-600">Tipo</th>
-              <th className="text-right px-4 py-2 font-medium text-gray-600">Valor</th>
-              <th className="text-left px-4 py-2 font-medium text-gray-600">Categoria</th>
-              <th className="text-left px-4 py-2 font-medium text-gray-600">Subcategoria</th>
-              <th className="text-left px-4 py-2 font-medium text-gray-600">Ambiente</th>
-              <th className="text-left px-4 py-2 font-medium text-gray-600">Forma Pagto</th>
-              <th className="text-left px-4 py-2 font-medium text-gray-600">Parcela</th>
-              <th className="text-left px-4 py-2 font-medium text-gray-600">Status</th>
-              <th className="text-right px-4 py-2 font-medium text-gray-600" title="Inclui planejados e previstos">Saldo Projetado</th>
-              <th className="text-right px-4 py-2 font-medium text-gray-600" title="Apenas PAGO e EM_CAIXA">Saldo Realizado</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {entries.map((entry) => (
-              <tr key={entry.id} className="hover:bg-gray-50">
-                <td className="px-4 py-2">{entry.data ? formatDateBR(entry.data) : '-'}</td>
-                <td className="px-4 py-2">
-                  {entry.tipo === 'RECEBIMENTO' ? (
-                    <span className="inline-flex items-center gap-1 text-green-700">
-                      <ArrowUpCircle className="w-4 h-4" /> Recebimento
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 text-red-700">
-                      <ArrowDownCircle className="w-4 h-4" /> Despesa
-                    </span>
-                  )}
-                </td>
-                <td className="px-4 py-2 text-right font-medium">{formatCurrency(entry.valor / 100)}</td>
-                <td className="px-4 py-2">{entry.categoria ?? '-'}</td>
-                <td className="px-4 py-2">{entry.subcategoria ?? '-'}</td>
-                <td className="px-4 py-2">{entry.ambiente ?? '-'}</td>
-                <td className="px-4 py-2">{entry.formaPagamento ?? '-'}</td>
-                <td className="px-4 py-2">{entry.parcela ?? '-'}</td>
-                <td className="px-4 py-2"><StatusBadge status={entry.status} /></td>
-                <td className="px-4 py-2 text-right font-semibold">{formatCurrency(entry.rollingBalance / 100)}</td>
-                <td className="px-4 py-2 text-right font-semibold text-emerald-700">{formatCurrency(entry.rollingBalanceRealizado / 100)}</td>
-              </tr>
-            ))}
-            {entries.length === 0 && (
-              <tr><td colSpan={11} className="px-4 py-8 text-center text-gray-400">Nenhuma entrada no fluxo de caixa.</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+          {/* Tabela desktop */}
+          <div className="hidden md:block overflow-x-auto border rounded-lg">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Data</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Tipo</th>
+                  <th className="text-right px-4 py-2 font-medium text-gray-600">Valor</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Categoria</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Subcategoria</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Ambiente</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Forma Pagto</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Parcela</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Status</th>
+                  <th className="text-right px-4 py-2 font-medium text-gray-600" title="Inclui planejados e previstos">Saldo Projetado</th>
+                  <th className="text-right px-4 py-2 font-medium text-gray-600" title="Apenas PAGO e EM_CAIXA">Saldo Realizado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {entries.map((entry) => (
+                  <tr key={entry.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-2">{entry.data ? formatDateBR(entry.data) : '-'}</td>
+                    <td className="px-4 py-2">
+                      {entry.tipo === 'RECEBIMENTO' ? (
+                        <span className="inline-flex items-center gap-1 text-green-700">
+                          <ArrowUpCircle className="w-4 h-4" /> Recebimento
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-red-700">
+                          <ArrowDownCircle className="w-4 h-4" /> Despesa
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2 text-right font-medium">{formatCurrency(entry.valor / 100)}</td>
+                    <td className="px-4 py-2">{entry.categoria ?? '-'}</td>
+                    <td className="px-4 py-2">{entry.subcategoria ?? '-'}</td>
+                    <td className="px-4 py-2">{entry.ambiente ?? '-'}</td>
+                    <td className="px-4 py-2">{entry.formaPagamento ?? '-'}</td>
+                    <td className="px-4 py-2">{entry.parcela ?? '-'}</td>
+                    <td className="px-4 py-2"><StatusBadge status={entry.status} /></td>
+                    <td className="px-4 py-2 text-right font-semibold">{formatCurrency(entry.rollingBalance / 100)}</td>
+                    <td className="px-4 py-2 text-right font-semibold text-emerald-700">{formatCurrency(entry.rollingBalanceRealizado / 100)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </div>
   );
 }

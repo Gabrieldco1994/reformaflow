@@ -5,6 +5,8 @@ import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { CreditCard, Plus, Trash2, Link2 } from 'lucide-react';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { SkeletonList } from '@/components/ui/Skeleton';
 import CardFormModal from './_components/CardFormModal';
 import LinkSuggestionsPanel from './_components/LinkSuggestionsPanel';
 import type { CardRow } from './_types';
@@ -87,11 +89,17 @@ export default function CreditCardsPage() {
       </p>
 
       {loading ? (
-        <div className="text-gray-500">Carregando…</div>
+        <SkeletonList rows={2} />
       ) : cards.length === 0 ? (
-        <div className="bg-gray-50 rounded-lg p-12 text-center text-gray-500">
-          Nenhum cartão cadastrado. Comece adicionando um.
-        </div>
+        <EmptyState
+          icon={CreditCard}
+          title="Nenhum cartão cadastrado"
+          description="Comece adicionando um cartão para importar faturas e acompanhar o limite."
+          action={{
+            label: 'Novo cartão',
+            onClick: () => { setEditing(null); setFormOpen(true); },
+          }}
+        />
       ) : (
         <div className="grid gap-3">
           {cards.map((c) => {
