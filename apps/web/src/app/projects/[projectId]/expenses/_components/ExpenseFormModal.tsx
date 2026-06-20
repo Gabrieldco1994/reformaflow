@@ -1,3 +1,6 @@
+'use client';
+import { useState } from 'react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -107,6 +110,9 @@ export function ExpenseFormModal({
   isPending,
   linkedExpenseDraft,
 }: ExpenseFormModalProps) {
+  const [showAdvanced, setShowAdvanced] = useState(
+    Boolean(editing?.cardLast4 || editing?.bankLast4 || editing?.linkedExpenseId || editing?.link || editing?.imageUrl),
+  );
   // Inclui o tipo ativo nas opções mesmo se ele não pertencer ao conjunto padrão
   // do projeto (ex.: tipo herdado de uma despesa vinculada de outro tipo de projeto).
   const effectiveTipoOptions =
@@ -175,15 +181,6 @@ export function ExpenseFormModal({
         </div>
 
         <Input label="Título da Despesa" name="titulo" value={titulo} onChange={(e) => setTitulo(e.target.value)} />
-        <Input label="Fornecedor" name="fornecedor" value={fornecedor} onChange={(e) => setFornecedor(e.target.value)} />
-        <Input label="Link" name="link" type="text" defaultValue={editing?.link ?? ''} />
-        <Input
-          label="URL da Imagem (opcional)"
-          name="imageUrl"
-          type="text"
-          placeholder="Cole a URL direta da imagem do produto"
-          defaultValue={editing?.imageUrl ?? ''}
-        />
 
         <Select
           label="Forma de Pagamento"
@@ -223,16 +220,39 @@ export function ExpenseFormModal({
           </div>
         )}
 
-        <VinculosFields
-          projectId={projectId}
-          value={formVinculos}
-          onChange={setFormVinculos}
-          onLinkSelected={onLinkSelected}
-          initialCardLast4={editing?.cardLast4 ?? null}
-          initialBankLast4={editing?.bankLast4 ?? null}
-          initialLinkedExpenseId={editing?.linkedExpenseId ?? null}
-          baseDraft={linkedExpenseDraft}
-        />
+        {/* Mais opções — campos avançados recolhidos para reduzir fricção */}
+        <div className="rounded-xl border border-darc-linen">
+          <button
+            type="button"
+            onClick={() => setShowAdvanced((v) => !v)}
+            className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-medium text-darc-velvet/70 hover:bg-orange-50/40"
+          >
+            {showAdvanced ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            Mais opções
+            <span className="text-[11px] font-normal text-darc-velvet/40">fornecedor · link · imagem · cartão/conta</span>
+          </button>
+          <div className={`space-y-4 px-3 pb-3 ${showAdvanced ? '' : 'hidden'}`}>
+            <Input label="Fornecedor" name="fornecedor" value={fornecedor} onChange={(e) => setFornecedor(e.target.value)} />
+            <Input label="Link" name="link" type="text" defaultValue={editing?.link ?? ''} />
+            <Input
+              label="URL da Imagem (opcional)"
+              name="imageUrl"
+              type="text"
+              placeholder="Cole a URL direta da imagem do produto"
+              defaultValue={editing?.imageUrl ?? ''}
+            />
+            <VinculosFields
+              projectId={projectId}
+              value={formVinculos}
+              onChange={setFormVinculos}
+              onLinkSelected={onLinkSelected}
+              initialCardLast4={editing?.cardLast4 ?? null}
+              initialBankLast4={editing?.bankLast4 ?? null}
+              initialLinkedExpenseId={editing?.linkedExpenseId ?? null}
+              baseDraft={linkedExpenseDraft}
+            />
+          </div>
+        </div>
 
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
