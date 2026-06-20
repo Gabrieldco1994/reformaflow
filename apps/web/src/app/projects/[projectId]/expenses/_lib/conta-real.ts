@@ -65,6 +65,17 @@ export interface ContaRealMonth {
   total: number;
 }
 
+export function upcomingContaRealMonths(
+  months: Map<string, ContaRealMonth>,
+  fromMonth: string,
+  count = 6,
+): ContaRealMonth[] {
+  return Array.from(months.values())
+    .filter((m) => m.mes > fromMonth && m.planejado > 0)
+    .sort((a, b) => (a.mes < b.mes ? -1 : 1))
+    .slice(0, count);
+}
+
 function competenciaMonth(dateIso: string): string {
   return dateIso.slice(0, 7);
 }

@@ -42,7 +42,7 @@ import { CategoriaGastoCards } from './_components/CategoriaGastoCards';
 import { ContaRealView } from './_components/ContaRealView';
 import { usePersonalCashViews } from './_hooks/usePersonalCashViews';
 import type { PersonalCardInfo } from './_components/PersonalExpenseCard';
-import type { ContaRealCard } from './_lib/conta-real';
+import { upcomingContaRealMonths, type ContaRealCard } from './_lib/conta-real';
 import { groupExpensesByMes, groupExpensesChrono, currentMonthKey, expandExpenseOccurrences } from './_lib/grouping-by-month';
 import {
   type RemoteProjectMap,
@@ -944,6 +944,20 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
     staleTime: 60_000,
   });
 
+  // Metas por categoria (PESSOAL) — para exibir limite/uso nos cards de categoria do mês.
+  const budgetMes = projectType === 'PESSOAL' && period !== 'ALL' ? period : null;
+  const { data: categoryBudgets = [] } = useQuery<Array<{ id: string; tipoDespesa: string; mes: string | null; valorLimiteCents: number }>>({
+    queryKey: ['category-budgets', PROJECT_ID, budgetMes],
+    queryFn: () => api.get(`/projects/${PROJECT_ID}/category-budgets?mes=${budgetMes}`),
+    enabled: !!budgetMes,
+    staleTime: 30_000,
+  });
+  const limitsByTipo = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const b of categoryBudgets) m.set(b.tipoDespesa, b.valorLimiteCents);
+    return m;
+  }, [categoryBudgets]);
+
   const voice = useVoiceExpense({
     allowedExpenseTypes,
     defaultExpenseType,
@@ -997,6 +1011,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
   const {
     gastosControleKpis,
     cartoesFormacao,
+    contaRealMonths,
     selectedContaReal,
     contaRealAll,
   } = usePersonalCashViews({
@@ -1008,6 +1023,10 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
 
   // Conta Real — agregação do período (mês selecionado ou ano todo).
   const contaRealMonthsToShow = period === 'ALL' ? contaRealAll : selectedContaReal ? [selectedContaReal] : [];
+  const contaRealUpcomingMonths = useMemo(
+    () => (period === 'ALL' ? [] : upcomingContaRealMonths(contaRealMonths, period, 6)),
+    [contaRealMonths, period],
+  );
   const contaRealKpis = useMemo(() => {
     const agg = contaRealMonthsToShow.reduce(
       (a, m) => {
@@ -1099,7 +1118,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
                 selected={originFilter}
                 onSelect={setOriginFilter}
               />
-              <CategoriaGastoCards categorias={categoriaCards} tipoLabel={tipoLabel} />
+              <CategoriaGastoCards categorias={categoriaCards} tipoLabel={tipoLabel} limitsByTipo={limitsByTipo} />
             </>
           ) : (
             <CartoesStrip mode={eixo} cartoes={cartoesFormacao} faturas={faturasVencendoStrip} />
@@ -1186,6 +1205,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
         {isPersonal && eixo === 'caixa' ? (
           <ContaRealView
             months={contaRealMonthsToShow}
+            upcomingMonths={contaRealUpcomingMonths}
             tipoLabel={tipoLabel}
             cardInfoByLast4={cardInfoByLast4}
             openEdit={openEdit}

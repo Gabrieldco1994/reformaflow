@@ -12,7 +12,7 @@ export interface CategoriaGasto {
 }
 
 /** Donut compacto (% sobre o total) — trilha linen, progresso laranja. */
-function Donut({ pct }: { pct: number }) {
+function Donut({ pct, color = '#F27D33' }: { pct: number; color?: string }) {
   const r = 15;
   const c = 2 * Math.PI * r;
   const dash = (Math.min(100, Math.max(0, pct)) / 100) * c;
@@ -20,7 +20,7 @@ function Donut({ pct }: { pct: number }) {
     <svg viewBox="0 0 40 40" className="h-10 w-10 shrink-0 -rotate-90">
       <circle cx="20" cy="20" r={r} fill="none" stroke="#EDDBC2" strokeWidth="4" />
       <circle
-        cx="20" cy="20" r={r} fill="none" stroke="#F27D33" strokeWidth="4"
+        cx="20" cy="20" r={r} fill="none" stroke={color} strokeWidth="4"
         strokeLinecap="round" strokeDasharray={`${dash} ${c}`}
       />
       <text x="20" y="21" transform="rotate(90 20 20)" textAnchor="middle" dominantBaseline="middle"
@@ -37,9 +37,12 @@ function Donut({ pct }: { pct: number }) {
 export function CategoriaGastoCards({
   categorias,
   tipoLabel,
+  limitsByTipo,
 }: {
   categorias: CategoriaGasto[];
   tipoLabel: (t: string) => string;
+  /** Limite mensal (centavos) por tipoDespesa — quando existe meta, o donut e o texto refletem o % do limite. */
+  limitsByTipo?: Map<string, number>;
 }) {
   const [open, setOpen] = useState(false);
   if (categorias.length === 0) return null;
@@ -65,10 +68,17 @@ export function CategoriaGastoCards({
       {open && (
         <div className="divide-y divide-darc-linen/60 border-t border-darc-linen">
           {categorias.map((c) => {
-            const pct = total > 0 ? Math.round((c.total / total) * 100) : 0;
+            const limite = limitsByTipo?.get(c.tipo);
+            // Com meta: % e cor do donut refletem uso do limite; sem meta: % sobre o total do mês.
+            const pct = limite && limite > 0
+              ? Math.round((c.total / limite) * 100)
+              : (total > 0 ? Math.round((c.total / total) * 100) : 0);
+            const donutColor = limite
+              ? (pct >= 100 ? '#DC2626' : pct >= 80 ? '#F59E0B' : '#F27D33')
+              : '#F27D33';
             return (
               <div key={c.tipo} className="flex items-center gap-3 px-4 py-2.5">
-                <Donut pct={pct} />
+                <Donut pct={Math.min(pct, 999)} color={donutColor} />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold text-darc-velvet">{tipoLabel(c.tipo)}</p>
                   <p className="text-[11px] text-darc-velvet/50">
@@ -76,9 +86,12 @@ export function CategoriaGastoCards({
                     {' · '}A vir <span className="font-semibold text-amber-600">{formatCurrency(c.planejado / 100)}</span>
                   </p>
                 </div>
-                <p className="shrink-0 text-sm font-bold text-darc-velvet tabular-nums">
-                  {formatCurrency(c.total / 100)}
-                </p>
+                <div className="shrink-0 text-right">
+                  <p className="text-sm font-bold text-darc-velvet tabular-nums">{formatCurrency(c.total / 100)}</p>
+                  {limite ? (
+                    <p className="text-[10px] text-darc-velvet/40">de {formatCurrency(limite / 100)}</p>
+                  ) : null}
+                </div>
               </div>
             );
           })}

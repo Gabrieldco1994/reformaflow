@@ -1,6 +1,6 @@
 'use client';
-import { useState } from 'react';
-import { ChevronDown, ChevronRight, CreditCard, Landmark } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { ChevronDown, ChevronRight, CreditCard, Landmark, TrendingDown } from 'lucide-react';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import type { Expense, ExpenseStatus } from '@/types';
 import { mesLabelFromKey } from '../_lib/grouping-by-month';
@@ -70,6 +70,45 @@ function FaturaCard({ fatura }: { fatura: FaturaCartao }) {
   );
 }
 
+function ProjecaoFluxo({ months }: { months: ContaRealMonth[] }) {
+  const maxTotal = useMemo(() => Math.max(...months.map((m) => m.planejado), 1), [months]);
+
+  if (months.length === 0) return null;
+
+  return (
+    <aside className="rounded-xl border border-darc/10 bg-gradient-to-br from-white via-rose-50/40 to-sky-50/50 p-3 shadow-sm">
+      <div className="mb-2.5 flex items-center gap-2">
+        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-100 text-orange-700">
+          <TrendingDown className="h-4 w-4" />
+        </span>
+        <div>
+          <h3 className="text-sm font-bold text-gray-900">Próximos meses</h3>
+          <p className="text-[11px] text-gray-500">Total já comprometido por vencimento</p>
+        </div>
+      </div>
+      <div className="space-y-2">
+        {months.map((m) => {
+          const width = Math.max(8, Math.round((m.planejado / maxTotal) * 100));
+          return (
+            <div key={m.mes} className="rounded-lg border border-rose-100 bg-white/80 px-3 py-2">
+              <div className="mb-1.5 flex items-center justify-between gap-3 text-xs">
+                <span className="font-semibold text-darc-velvet">{mesLabelFromKey(m.mes)}</span>
+                <span className="font-mono font-bold text-rose-950">{formatCurrency(m.planejado / 100)}</span>
+              </div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-sky-100">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-rose-400 via-orange-400 to-sky-400"
+                  style={{ width: `${width}%` }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </aside>
+  );
+}
+
 /**
  * Visão "Conta Real" (eixo de caixa): o que SAI da conta no mês — faturas dos
  * cartões (por vencimento, agregadas) + débitos diretos. Não lista as compras
@@ -77,6 +116,7 @@ function FaturaCard({ fatura }: { fatura: FaturaCartao }) {
  */
 export function ContaRealView({
   months,
+  upcomingMonths = [],
   tipoLabel,
   cardInfoByLast4,
   openEdit,
@@ -84,6 +124,7 @@ export function ContaRealView({
   onToggleStatus,
 }: {
   months: ContaRealMonth[];
+  upcomingMonths?: ContaRealMonth[];
   tipoLabel: (t: string) => string;
   cardInfoByLast4: Map<string, PersonalCardInfo>;
   openEdit: (e: Expense) => void;
@@ -93,8 +134,11 @@ export function ContaRealView({
   const visible = months.filter((m) => m.faturas.length > 0 || m.debitos.length > 0);
   if (visible.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-gray-200 bg-white p-8 text-center text-sm text-gray-500">
-        Nada sai da conta neste período.
+      <div className="space-y-3">
+        <div className="rounded-lg border border-dashed border-gray-200 bg-white p-8 text-center text-sm text-gray-500">
+          Nada sai da conta neste período.
+        </div>
+        <ProjecaoFluxo months={upcomingMonths} />
       </div>
     );
   }
@@ -171,6 +215,7 @@ export function ContaRealView({
           </div>
         </div>
       ))}
+      <ProjecaoFluxo months={upcomingMonths} />
     </div>
   );
 }

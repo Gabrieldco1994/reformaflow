@@ -24,6 +24,7 @@ import {
   LogOut,
   MoreHorizontal,
   Gauge,
+  Target,
   X,
   type LucideIcon,
 } from 'lucide-react';
@@ -64,6 +65,7 @@ const FEATURE_NAV: Record<string, NavItem[]> = {
     { href: 'monthly', label: 'Cockpit', icon: Gauge, module: 'monthlyOverview' },
     { href: 'budget-allocation', label: 'Alocação Budget', icon: Wallet, module: 'dashboard' },
     { href: 'expenses', label: 'Despesas', icon: Receipt, module: 'expenses' },
+    { href: 'metas', label: 'Metas', icon: Target, module: 'expenses' },
     { href: 'conta', label: 'Visão Conta', icon: Landmark, module: 'expenses' },
     { href: 'receipts', label: 'Recebimentos', icon: Wallet, module: 'receipts' },
     { href: 'cash-flow', label: 'Fluxo de Caixa', icon: ArrowLeftRight, module: 'cashFlow' },
