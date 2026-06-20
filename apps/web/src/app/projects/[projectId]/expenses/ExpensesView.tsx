@@ -1042,7 +1042,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
   const faturasVencendoStrip = contaRealMonthsToShow.flatMap((m) => m.faturas);
 
   return (
-    <div className={`space-y-4 ${isPersonal ? 'mx-auto w-full max-w-3xl lg:max-w-6xl' : ''}`}>
+    <div className="space-y-4">
       {/* Header with tabs */}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-wrap items-center gap-3">
@@ -1102,7 +1102,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
       ) : (
       <>
 
-      {/* KPI band — largura total (PESSOAL) acima do dashboard; cockpit hero/ministats */}
+      {/* KPI Cards — cockpit financeiro */}
       {isPersonal ? (
         <div className="space-y-3">
           {!lockedEixo && <ExpenseEixoToggle eixo={eixo} onChange={setEixo} />}
@@ -1111,6 +1111,18 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
             gastosControle={gastosControleKpis}
             contaReal={contaRealKpis}
           />
+          {eixo === 'competencia' ? (
+            <>
+              <OriginFilterStrip
+                expenses={periodFilteredPersonal}
+                selected={originFilter}
+                onSelect={setOriginFilter}
+              />
+              <CategoriaGastoCards categorias={categoriaCards} tipoLabel={tipoLabel} limitsByTipo={limitsByTipo} />
+            </>
+          ) : (
+            <CartoesStrip mode={eixo} cartoes={cartoesFormacao} faturas={faturasVencendoStrip} />
+          )}
         </div>
       ) : (
         <ExpenseKpiCards
@@ -1124,28 +1136,6 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
           perProject={kpiPerProject}
         />
       )}
-
-      {/* Dashboard: lista (principal) + cockpit secundário (rail fixo) no desktop; empilha no mobile */}
-      <div className={isPersonal ? 'space-y-4 lg:grid lg:space-y-0 lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-6 lg:items-start' : 'space-y-4'}>
-
-      {isPersonal && (
-      <aside className="space-y-3 lg:order-2 lg:sticky lg:top-4">
-        {eixo === 'competencia' ? (
-          <>
-            <OriginFilterStrip
-              expenses={periodFilteredPersonal}
-              selected={originFilter}
-              onSelect={setOriginFilter}
-            />
-            <CategoriaGastoCards categorias={categoriaCards} tipoLabel={tipoLabel} limitsByTipo={limitsByTipo} />
-          </>
-        ) : (
-          <CartoesStrip mode={eixo} cartoes={cartoesFormacao} faturas={faturasVencendoStrip} />
-        )}
-      </aside>
-      )}
-
-      <main className={isPersonal ? 'space-y-4 min-w-0 lg:order-1' : 'space-y-4 min-w-0'}>
 
       {/* Search + Filter bar */}
       <ExpenseFiltersBar
@@ -1379,8 +1369,6 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
       </>
       )}
 
-      </main>
-      </div>
       </>
       )}
 
