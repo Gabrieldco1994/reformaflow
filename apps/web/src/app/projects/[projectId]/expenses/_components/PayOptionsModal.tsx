@@ -1,4 +1,5 @@
 import { Mic, Zap, CalendarClock } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Modal } from '@/components/ui/modal';
 import { tipoLabel } from '@/lib/expense-options';
@@ -12,6 +13,8 @@ interface PayOptionsModalProps {
   onOpenVoiceModal: () => void;
   /** Abre o formulário detalhado em modo PLANEJAR (despesa futura). */
   onOpenPlanForm?: () => void;
+  /** Slot para o acionador de importação (fatura/extrato). */
+  importSlot?: ReactNode;
   plannedExpenses: Expense[];
   onPay: (id: string) => void;
   payDisabled: boolean;
@@ -28,6 +31,7 @@ export function PayOptionsModal({
   onOpenNewPaidForm,
   onOpenVoiceModal,
   onOpenPlanForm,
+  importSlot,
   plannedExpenses,
   onPay,
   payDisabled,
@@ -67,14 +71,17 @@ export function PayOptionsModal({
           )}
         </div>
 
-        <Button
-          type="button"
-          variant="secondary"
-          className="w-full"
-          onClick={onOpenVoiceModal}
-        >
-          <Mic className="w-4 h-4" /> Lançar por voz
-        </Button>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Button
+            type="button"
+            variant="secondary"
+            className="w-full"
+            onClick={onOpenVoiceModal}
+          >
+            <Mic className="w-4 h-4" /> Lançar por voz
+          </Button>
+          {importSlot && <div className="w-full [&_button]:w-full">{importSlot}</div>}
+        </div>
         <div className="border-t pt-4">
           <p className="text-sm font-medium text-gray-700 mb-2">Marcar planejada como paga:</p>
           {plannedExpenses.length === 0 ? (

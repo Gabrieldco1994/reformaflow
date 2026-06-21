@@ -5,7 +5,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
-import { Plus, CreditCard, ShoppingCart, Mic, ArrowDownWideNarrow, ArrowUpNarrowWide } from 'lucide-react';
+import { Plus, ShoppingCart, ArrowDownWideNarrow, ArrowUpNarrowWide } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { Expense, ExpenseFormData, ExpensesPage, Project } from '@/types';
 import { toast } from 'sonner';
@@ -923,24 +923,8 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
         </div>
         {activeTab === 'despesas' && (
           <div className="flex flex-wrap gap-2 items-center">
-            <Button
-              variant="secondary"
-              onClick={openVoiceModal}
-            >
-              <Mic className="w-4 h-4" /> Lançar por voz
-            </Button>
-            <Button variant="secondary" onClick={openPlanForm}>
-              <Plus className="w-4 h-4" /> Planejar
-            </Button>
-            <ImportLauncher
-              projectId={PROJECT_ID}
-              onImported={() => {
-                queryClient.invalidateQueries({ queryKey: ['expenses', PROJECT_ID] });
-                queryClient.invalidateQueries({ queryKey: ['cash-flow', PROJECT_ID] });
-              }}
-            />
             <Button onClick={openPayOptions}>
-              <CreditCard className="w-4 h-4" /> Pagar
+              <Plus className="w-4 h-4" /> Nova despesa
             </Button>
           </div>
         )}
@@ -960,13 +944,6 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
             gastosControle={gastosControleKpis}
             contaReal={contaRealKpis}
           />
-          <button
-            type="button"
-            onClick={openPayOptions}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white shadow-darc-soft transition-colors hover:bg-orange-600"
-          >
-            <Plus className="h-4 w-4" /> Lançar despesa
-          </button>
           {eixo === 'competencia' ? (
             <>
               <InsightsBanner alerts={budgetAlerts} />
@@ -1282,6 +1259,16 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
         plannedExpenses={plannedExpenses}
         onPay={(id) => payMutation.mutate(id)}
         payDisabled={payMutation.isPending}
+        importSlot={
+          <ImportLauncher
+            projectId={PROJECT_ID}
+            onImported={() => {
+              setPayModalOpen(false);
+              queryClient.invalidateQueries({ queryKey: ['expenses', PROJECT_ID] });
+              queryClient.invalidateQueries({ queryKey: ['cash-flow', PROJECT_ID] });
+            }}
+          />
+        }
       />
 
       {/* Expense Form Modal */}
