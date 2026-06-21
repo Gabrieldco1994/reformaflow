@@ -39,6 +39,7 @@ import { PersonalExpenseKpis } from './_components/PersonalExpenseKpis';
 import { CartoesStrip } from './_components/CartoesStrip';
 import { OriginFilterStrip, originKeyOf } from './_components/OriginChips';
 import { CategoriaGastoCards } from './_components/CategoriaGastoCards';
+import { InsightsBanner, type BudgetAlert } from './_components/InsightsBanner';
 import { ContaRealView } from './_components/ContaRealView';
 import { usePersonalCashViews } from './_hooks/usePersonalCashViews';
 import type { PersonalCardInfo } from './_components/PersonalExpenseCard';
@@ -419,6 +420,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
     }
     return Array.from(m.values()).sort((a, b) => b.total - a.total);
   }, [displayPersonal]);
+
 
   // Visão "Geral" (extrato cronológico). Usa a MESMA base de dados da visão ativa
   // (PESSOAL respeita o período selecionado; demais usam o conjunto filtrado),
@@ -964,6 +966,27 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
     return m;
   }, [categoryBudgets]);
 
+  // Alertas de orçamento (insights): categorias com meta que passaram de 80%.
+  const budgetAlerts = useMemo(() => {
+    if (projectType !== 'PESSOAL') return [] as BudgetAlert[];
+    const out: BudgetAlert[] = [];
+    for (const c of categoriaCards) {
+      const limite = limitsByTipo.get(c.tipo);
+      if (!limite || limite <= 0) continue;
+      const pct = Math.round((c.total / limite) * 100);
+      if (pct < 80) continue;
+      out.push({
+        tipo: c.tipo,
+        label: tipoLabel(c.tipo),
+        gastoCents: c.total,
+        limiteCents: limite,
+        pct,
+        level: pct >= 100 ? 'danger' : 'warning',
+      });
+    }
+    return out.sort((a, b) => b.pct - a.pct);
+  }, [projectType, categoriaCards, limitsByTipo, tipoLabel]);
+
   const voice = useVoiceExpense({
     allowedExpenseTypes,
     defaultExpenseType,
@@ -1119,6 +1142,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
           />
           {eixo === 'competencia' ? (
             <>
+              <InsightsBanner alerts={budgetAlerts} />
               <OriginFilterStrip
                 expenses={periodFilteredPersonal}
                 selected={originFilter}
