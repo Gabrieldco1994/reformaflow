@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -36,6 +36,8 @@ interface ExpenseFormModalProps {
   onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
   editing: Expense | null;
   formStatus: 'PLANEJADO' | 'PAGO';
+  /** Habilita "Despesa fixa (recorrente)" — apenas PESSOAL. */
+  allowRecorrente?: boolean;
   tipoDespesa: string;
   setTipoDespesa: (value: string) => void;
   formaPagamento: string;
@@ -81,6 +83,7 @@ export function ExpenseFormModal({
   onSubmit,
   editing,
   formStatus,
+  allowRecorrente,
   tipoDespesa,
   setTipoDespesa,
   formaPagamento,
@@ -113,6 +116,10 @@ export function ExpenseFormModal({
   const [showAdvanced, setShowAdvanced] = useState(
     Boolean(editing?.cardLast4 || editing?.bankLast4 || editing?.linkedExpenseId || editing?.link || editing?.imageUrl),
   );
+  const [recorrente, setRecorrente] = useState(Boolean(editing?.recorrente));
+  useEffect(() => {
+    if (open) setRecorrente(Boolean(editing?.recorrente));
+  }, [open, editing]);
   // Inclui o tipo ativo nas opções mesmo se ele não pertencer ao conjunto padrão
   // do projeto (ex.: tipo herdado de uma despesa vinculada de outro tipo de projeto).
   const effectiveTipoOptions =
@@ -199,6 +206,36 @@ export function ExpenseFormModal({
             value={dataPagamento}
             onChange={(e) => setDataPagamento(e.target.value)}
           />
+        )}
+
+        {/* Despesa fixa (recorrente mensal) — apenas PESSOAL, pagamento único */}
+        {allowRecorrente && isSinglePaymentForm(formaPagamento) && (
+          <div className="rounded-xl border border-darc-linen p-3">
+            <label className="flex items-center gap-2.5 text-sm font-medium text-darc-velvet cursor-pointer">
+              <input
+                type="checkbox"
+                name="recorrente"
+                checked={recorrente}
+                onChange={(e) => setRecorrente(e.target.checked)}
+                className="h-4 w-4 rounded border-darc-mist text-orange-500 focus:ring-orange-400"
+              />
+              Despesa fixa (repete todo mês)
+            </label>
+            {recorrente && (
+              <div className="mt-3">
+                <Input
+                  key={editing?.id ?? 'new'}
+                  label="Repetir até (opcional)"
+                  name="recorrenciaFim"
+                  type="month"
+                  defaultValue={editing?.recorrenciaFim ? editing.recorrenciaFim.slice(0, 7) : ''}
+                />
+                <p className="mt-1 text-[11px] text-darc-velvet/50">
+                  Deixe em branco para repetir sem data final. Aparece automaticamente em cada mês (sem criar lançamentos).
+                </p>
+              </div>
+            )}
+          </div>
         )}
 
         {(formaPagamento === 'PARCELADO' || formaPagamento === 'QUINZENAL') && (

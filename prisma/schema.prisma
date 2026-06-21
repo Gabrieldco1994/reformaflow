@@ -169,6 +169,8 @@ model Expense {
   quantidadeParcela   Int?     @map("quantidade_parcela") // quando PARCELADO ou QUINZENAL
   dataInicioParcela   DateTime? @map("data_inicio_parcela") // quando PARCELADO ou QUINZENAL
   status              String   @default("PLANEJADO") // PLANEJADO | PAGO
+  recorrente          Boolean  @default(false) // despesa fixa mensal (ocorrência virtual, não gera linhas)
+  recorrenciaFim      DateTime? @map("recorrencia_fim") // último mês da recorrência (null = sem fim)
   paidParcelas        String?  @map("paid_parcelas") // JSON array de índices 0-based de parcelas pagas (PARCELADO/QUINZENAL). null = nenhuma parcial
   plannedExpenseId    String?  @unique @map("planned_expense_id") // ref à despesa planejada que originou esta paga
   settledByExpenseId  String?  @unique @map("settled_by_expense_id") // quando esta planejada foi liquidada por uma paga

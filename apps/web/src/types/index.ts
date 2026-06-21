@@ -105,6 +105,8 @@ export interface Expense {
   quantidadeParcela?: number;
   dataInicioParcela?: string;
   status: ExpenseStatus;
+  recorrente?: boolean; // despesa fixa mensal (ocorrência virtual)
+  recorrenciaFim?: string | null; // último mês da recorrência (ISO) ou null
   paidParcelas?: string | null; // JSON array de índices 0-based de parcelas pagas
   // Vínculos
   cardLast4?: string | null;
@@ -140,6 +142,8 @@ export interface ExpenseFormData {
   quantidadeParcela?: number | null;
   dataInicioParcela?: string | null;
   status: ExpenseStatus;
+  recorrente?: boolean | null;
+  recorrenciaFim?: string | null;
   // Vínculos opcionais
   creditCardId?: string | null;
   bankAccountId?: string | null;

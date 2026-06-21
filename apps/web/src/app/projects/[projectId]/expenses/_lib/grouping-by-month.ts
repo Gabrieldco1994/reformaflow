@@ -1,5 +1,8 @@
 import type { Expense } from '@/types';
-import { buildInstallments } from '@reformaflow/domain';
+import { buildInstallments, buildRecurringOccurrences, isSinglePaymentForm } from '@reformaflow/domain';
+
+/** Horizonte de projeção de despesas fixas (recorrentes) à frente do mês atual. */
+const RECURRING_HORIZON_MONTHS = 12;
 
 const MESES_PT = [
   'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
@@ -68,6 +71,34 @@ export function expandExpenseOccurrences(e: Expense): Occurrence[] {
   const isInstallment =
     (e.formaPagamento === 'PARCELADO' || e.formaPagamento === 'QUINZENAL') &&
     n > 1;
+
+  // Despesa fixa (recorrente mensal): expande em ocorrências virtuais —
+  // uma por mês, do início até `recorrenciaFim` ou o horizonte de projeção.
+  // Só vale para pagamento único; recorrência + parcelamento não se combinam.
+  if (e.recorrente && isSinglePaymentForm(e.formaPagamento)) {
+    const startRaw = effectiveDate(e);
+    if (startRaw) {
+      const dataInicio = new Date(startRaw);
+      const horizon = new Date();
+      horizon.setUTCMonth(horizon.getUTCMonth() + RECURRING_HORIZON_MONTHS);
+      const occs = buildRecurringOccurrences({
+        valorTotal: e.valorTotal,
+        dataInicio,
+        recorrenciaFim: e.recorrenciaFim ? new Date(e.recorrenciaFim) : null,
+        horizonEnd: horizon,
+      });
+      if (occs.length > 0) {
+        return occs.map((o) => ({
+          ...e,
+          occKey: `${e.id}#r${o.index}`,
+          occDate: o.data.toISOString().slice(0, 10),
+          occValue: o.valor,
+          occIndex: o.index + 1,
+          occTotalParcelas: 1,
+        }));
+      }
+    }
+  }
 
   if (!isInstallment) {
     const d = effectiveDate(e) || '';

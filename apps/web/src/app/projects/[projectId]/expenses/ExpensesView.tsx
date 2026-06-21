@@ -830,11 +830,17 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
       data.dataPagamento = nullable('dataPagamento');
       data.quantidadeParcela = null;
       data.dataInicioParcela = null;
+      const isRec = form.get('recorrente') === 'on';
+      data.recorrente = isRec;
+      const fim = nullable('recorrenciaFim'); // input month → 'YYYY-MM'
+      data.recorrenciaFim = isRec && fim ? `${fim}-01` : null;
     } else if (fp === 'PARCELADO' || fp === 'QUINZENAL') {
       const q = Number(form.get('quantidadeParcela'));
       data.quantidadeParcela = q > 0 ? q : null;
       data.dataInicioParcela = nullable('dataInicioParcela');
       data.dataPagamento = null;
+      data.recorrente = false;
+      data.recorrenciaFim = null;
     }
     // Vínculos (cards/contas/cross-project) — '' equivale a null pro backend
     data.creditCardId = formVinculos.creditCardId || null;
@@ -1430,6 +1436,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
         onSubmit={handleSubmit}
         editing={editing}
         formStatus={formStatus}
+        allowRecorrente={isPersonal}
         tipoDespesa={tipoDespesa}
         setTipoDespesa={setTipoDespesa}
         formaPagamento={formaPagamento}

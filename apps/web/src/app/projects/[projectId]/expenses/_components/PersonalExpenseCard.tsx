@@ -110,7 +110,14 @@ export default function PersonalExpenseCard({
         className="flex-1 min-w-0 text-left"
         title="Editar"
       >
-        <div className="font-semibold text-sm text-darc-velvet truncate">{titulo}</div>
+        <div className="flex items-center gap-1.5">
+          <div className="font-semibold text-sm text-darc-velvet truncate">{titulo}</div>
+          {expense.recorrente && (
+            <span className="shrink-0 rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-violet-700">
+              Fixo
+            </span>
+          )}
+        </div>
         <div className="text-[11px] text-darc-velvet/50 truncate">{meta}</div>
       </button>
 

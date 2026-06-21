@@ -112,6 +112,8 @@ export class ExpenseService {
         quantidadeParcela: dto.quantidadeParcela,
         dataInicioParcela: dto.dataInicioParcela ? new Date(dto.dataInicioParcela) : null,
         status: dto.status,
+        recorrente: dto.recorrente ?? false,
+        recorrenciaFim: dto.recorrenciaFim ? new Date(dto.recorrenciaFim) : null,
         cardLast4: links.cardLast4 ?? undefined,
         bankLast4: links.bankLast4 ?? undefined,
         linkedExpenseId: links.linkedExpenseId ?? undefined,
@@ -466,6 +468,13 @@ export class ExpenseService {
               ? null
               : new Date(dto.dataInicioParcela),
         status: dto.status,
+        recorrente: dto.recorrente === undefined ? undefined : !!dto.recorrente,
+        recorrenciaFim:
+          dto.recorrenciaFim === undefined
+            ? undefined
+            : dto.recorrenciaFim === null
+              ? null
+              : new Date(dto.recorrenciaFim),
         ...(resetPaidParcelas ? { paidParcelas: null } : {}),
         cardLast4: links.cardLast4,
         bankLast4: links.bankLast4,

@@ -1,4 +1,4 @@
-import { IsString, IsNumber, IsDateString, IsIn, IsOptional, Min } from 'class-validator';
+import { IsString, IsNumber, IsDateString, IsIn, IsOptional, IsBoolean, Min } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ExpenseType, LaborCategory, ExpenseStatus } from '@reformaflow/domain';
 
@@ -74,6 +74,16 @@ export class CreateExpenseDto {
   @IsString()
   @IsIn(Object.values(ExpenseStatus))
   status!: string;
+
+  @ApiPropertyOptional({ description: 'Despesa fixa mensal (ocorrência virtual, não gera linhas)' })
+  @IsOptional()
+  @IsBoolean()
+  recorrente?: boolean;
+
+  @ApiPropertyOptional({ example: '2026-12-01', description: 'Último mês da recorrência (null = sem fim)' })
+  @IsOptional()
+  @IsDateString()
+  recorrenciaFim?: string | null;
 
   // ─── Vínculos manuais (opcionais) ────────────────────────────
   // Quando informados, o backend popula automaticamente cardLast4/bankLast4
