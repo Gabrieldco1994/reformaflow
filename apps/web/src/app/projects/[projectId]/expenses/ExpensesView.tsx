@@ -1140,6 +1140,13 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
             gastosControle={gastosControleKpis}
             contaReal={contaRealKpis}
           />
+          <button
+            type="button"
+            onClick={openPayOptions}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white shadow-darc-soft transition-colors hover:bg-orange-600"
+          >
+            <Plus className="h-4 w-4" /> Lançar despesa
+          </button>
           {eixo === 'competencia' ? (
             <>
               <InsightsBanner alerts={budgetAlerts} />
@@ -1444,6 +1451,10 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
         open={payModalOpen}
         onClose={() => setPayModalOpen(false)}
         onOpenNewPaidForm={openNewPaidForm}
+        onOpenPlanForm={() => {
+          setPayModalOpen(false);
+          openPlanForm();
+        }}
         onOpenVoiceModal={() => {
           setPayModalOpen(false);
           openVoiceModal();
