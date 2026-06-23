@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { MonthlyOverviewService } from './monthly-overview.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { CardInvoiceSettlementService } from '../credit-card/card-invoice-settlement.service';
 
 /**
  * Fase 1 §3.2 — enriquecimento aditivo do endpoint:
@@ -51,7 +52,11 @@ describe('MonthlyOverviewService.getOverview — enriquecimento de cartão', () 
       receipt: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const module: TestingModule = await Test.createTestingModule({
-      providers: [MonthlyOverviewService, { provide: PrismaService, useValue: prisma }],
+      providers: [
+        MonthlyOverviewService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: CardInvoiceSettlementService, useValue: { settleInvoice: jest.fn().mockResolvedValue({ settledExpenses: 0, settledParcelas: 0 }) } },
+      ],
     }).compile();
     service = module.get<MonthlyOverviewService>(MonthlyOverviewService);
   });

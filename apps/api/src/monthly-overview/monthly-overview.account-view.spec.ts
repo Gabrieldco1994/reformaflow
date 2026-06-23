@@ -1,10 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { MonthlyOverviewService } from './monthly-overview.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { CardInvoiceSettlementService } from '../credit-card/card-invoice-settlement.service';
 
 describe('MonthlyOverviewService.getAccountView', () => {
   let service: MonthlyOverviewService;
   let prisma: any;
+  let settlement: any;
 
   const tenantId = 'tenant-1';
   const projectId = 'pessoal-1';
@@ -22,15 +24,22 @@ describe('MonthlyOverviewService.getAccountView', () => {
         findMany: jest.fn().mockResolvedValue([
           { openingBalanceCents: 100_000, openingBalanceDate: new Date('2025-12-31T00:00:00.000Z') },
         ]),
+        findFirst: jest.fn(),
       },
-      expense: { findMany: jest.fn() },
+      expense: { findMany: jest.fn(), create: jest.fn() },
       receipt: { findMany: jest.fn() },
       cashFlowEntry: { findMany: jest.fn() },
-      creditCard: { findMany: jest.fn() },
+      creditCard: { findMany: jest.fn(), findFirst: jest.fn() },
     };
 
+    settlement = { settleInvoice: jest.fn().mockResolvedValue({ settledExpenses: 0, settledParcelas: 0 }) };
+
     const module: TestingModule = await Test.createTestingModule({
-      providers: [MonthlyOverviewService, { provide: PrismaService, useValue: prisma }],
+      providers: [
+        MonthlyOverviewService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: CardInvoiceSettlementService, useValue: settlement },
+      ],
     }).compile();
 
     service = module.get<MonthlyOverviewService>(MonthlyOverviewService);
@@ -603,5 +612,81 @@ describe('MonthlyOverviewService.getAccountView', () => {
         status: 'paga',
       }),
     );
+  });
+
+  describe('payInvoice', () => {
+    beforeEach(() => {
+      prisma.creditCard.findFirst.mockResolvedValue({
+        id: 'card-1',
+        last4: '1111',
+        nickname: 'Nubank',
+        closingDay: 20,
+        dueDay: 28,
+      });
+      prisma.bankAccount.findFirst.mockResolvedValue({ last4: '4247' });
+      prisma.expense.findMany.mockResolvedValue([]); // nenhuma fatura paga ainda
+      prisma.expense.create.mockResolvedValue({ id: 'pay-1' });
+    });
+
+    it('gera despesa neutra PAGAMENTO_FATURA_CARTAO e liquida o ciclo', async () => {
+      const res: any = await service.payInvoice(tenantId, projectId, {
+        cardLast4: '1111',
+        month: '2026-06',
+        amountCents: 7_000,
+        bankLast4: '4247',
+      });
+
+      expect(prisma.expense.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+            status: 'PAGO',
+            valorTotal: 7_000,
+            bankLast4: '4247',
+            cardLast4: '1111',
+          }),
+        }),
+      );
+      expect(settlement.settleInvoice).toHaveBeenCalledWith(
+        expect.objectContaining({ tenantId, amountCents: 7_000 }),
+      );
+      expect(res.ok).toBe(true);
+      expect(res.paymentExpenseId).toBe('pay-1');
+    });
+
+    it('bloqueia pagamento duplicado no mesmo mês', async () => {
+      prisma.expense.findMany.mockResolvedValue([
+        { dataPagamento: new Date('2026-06-10T00:00:00.000Z'), createdAt: new Date('2026-06-10T00:00:00.000Z') },
+      ]);
+
+      await expect(
+        service.payInvoice(tenantId, projectId, {
+          cardLast4: '1111',
+          month: '2026-06',
+          amountCents: 7_000,
+          bankLast4: '4247',
+        }),
+      ).rejects.toThrow(/já está marcada como paga/i);
+      expect(prisma.expense.create).not.toHaveBeenCalled();
+    });
+
+    it('exige conta de débito e valor válido', async () => {
+      await expect(
+        service.payInvoice(tenantId, projectId, {
+          cardLast4: '1111',
+          month: '2026-06',
+          amountCents: 7_000,
+        }),
+      ).rejects.toThrow(/Conta de débito obrigatória/i);
+
+      await expect(
+        service.payInvoice(tenantId, projectId, {
+          cardLast4: '1111',
+          month: '2026-06',
+          amountCents: 0,
+          bankLast4: '4247',
+        }),
+      ).rejects.toThrow(/Valor da fatura inválido/i);
+    });
   });
 });

@@ -10,7 +10,8 @@ import { currentMonthKey, monthLabelLong } from './_lib';
 import { ContaMonthPicker } from './_components/ContaMonthPicker';
 import { ResumoCards } from './_components/ResumoCards';
 import { CartoesSection } from './_components/CartoesSection';
-import { EntradasSection, SaidasSection } from './_components/MovementsSection';
+import { MovimentacoesSection } from './_components/MovimentacoesSection';
+import { PagarFaturaDialog } from './_components/PagarFaturaDialog';
 import { TicketMedioSection } from './_components/TicketMedioSection';
 import type { AccountViewResponse } from './_types';
 
@@ -36,6 +37,7 @@ export default function ContaPage() {
   const projectId = params.projectId;
   const { projectType } = useProject();
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
+  const [payCardLast4, setPayCardLast4] = useState<string | null>(null);
 
   const { data, isLoading, error } = useQuery<AccountViewResponse>({
     queryKey: ['account-view', projectId, selectedMonth],
@@ -88,14 +90,24 @@ export default function ContaPage() {
             faltaPagarMes={data.faltaPagarMes}
             sobraPrevista={data.sobraPrevista}
           />
-          <CartoesSection cartoes={data.cartoes} />
-          <div className="grid gap-4 xl:grid-cols-2">
-            <SaidasSection items={data.saidas} />
-            <EntradasSection items={data.entradas} />
-          </div>
+          <CartoesSection cartoes={data.cartoes} onPayInvoice={setPayCardLast4} />
+          <MovimentacoesSection data={data} projectId={projectId} onPayInvoice={setPayCardLast4} />
           <TicketMedioSection ticket={data.ticketMedio} currentMonth={data.mesSelecionado} />
         </>
       )}
+
+      {payCardLast4 && data && (() => {
+        const card = data.cartoes.find((c) => c.last4 === payCardLast4);
+        if (!card) return null;
+        return (
+          <PagarFaturaDialog
+            projectId={projectId}
+            card={card}
+            contas={data.contas ?? []}
+            onClose={() => setPayCardLast4(null)}
+          />
+        );
+      })()}
     </div>
   );
 }

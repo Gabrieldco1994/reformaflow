@@ -4,7 +4,13 @@ import { CreditCard } from 'lucide-react';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import type { AccountViewCardSummary } from '../_types';
 
-export function CartoesSection({ cartoes }: { cartoes: AccountViewCardSummary[] }) {
+export function CartoesSection({
+  cartoes,
+  onPayInvoice,
+}: {
+  cartoes: AccountViewCardSummary[];
+  onPayInvoice: (cardLast4: string) => void;
+}) {
   if (cartoes.length === 0) return null;
 
   return (
@@ -64,6 +70,16 @@ export function CartoesSection({ cartoes }: { cartoes: AccountViewCardSummary[] 
                   />
                 </div>
               </div>
+            )}
+
+            {card.status === 'a pagar' && card.faturaAtual > 0 && (
+              <button
+                type="button"
+                onClick={() => onPayInvoice(card.last4)}
+                className="mt-3 inline-flex h-8 w-full items-center justify-center gap-1 rounded-lg bg-emerald-600 text-[12px] font-semibold text-white transition hover:bg-emerald-700"
+              >
+                Pagar fatura
+              </button>
             )}
           </article>
         ))}

@@ -19,6 +19,7 @@ import { PrismaClient } from '@prisma/client';
 import { CreditCardService } from '../credit-card.service';
 import { ConciliacaoService } from '../../conciliacao/conciliacao.service';
 import { MonthlyOverviewService } from '../../monthly-overview/monthly-overview.service';
+import { CardInvoiceSettlementService } from '../card-invoice-settlement.service';
 
 const prisma = new PrismaClient();
 let failures = 0;
@@ -33,7 +34,7 @@ function header(t: string) { console.log(`\n── ${t}`); }
 
 async function main() {
   const cardSvc = new CreditCardService(prisma as any, new ConciliacaoService(prisma as any));
-  const monthlySvc = new MonthlyOverviewService(prisma as any);
+  const monthlySvc = new MonthlyOverviewService(prisma as any, new CardInvoiceSettlementService(prisma as any));
 
   // ───── Setup tenant + projetos ─────────────────────────────
   const tenant = await prisma.tenant.create({ data: { name: 'test-cards-' + Date.now() } });

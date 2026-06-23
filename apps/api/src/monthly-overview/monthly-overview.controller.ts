@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseInterceptors } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { MonthlyOverviewService } from './monthly-overview.service';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
@@ -32,5 +32,24 @@ export class MonthlyOverviewController {
     @Query('month') month?: string,
   ) {
     return this.service.getAccountView(tenantId, projectId, month);
+  }
+
+  @Post('pay-invoice')
+  @ApiOperation({
+    summary: 'Pagar fatura de cartão (gera despesa neutra + liquida o ciclo)',
+  })
+  payInvoice(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Body()
+    body: {
+      cardLast4?: string;
+      month?: string;
+      amountCents?: number;
+      bankLast4?: string;
+      paymentDate?: string;
+    },
+  ) {
+    return this.service.payInvoice(tenantId, projectId, body);
   }
 }

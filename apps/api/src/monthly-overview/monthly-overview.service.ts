@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { CardInvoiceSettlementService } from '../credit-card/card-invoice-settlement.service';
 import {
   buildMonthlyOverview,
   caixaMonthForCardPurchase,
@@ -11,7 +12,10 @@ import {
 
 @Injectable()
 export class MonthlyOverviewService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cardSettlement: CardInvoiceSettlementService,
+  ) {}
 
   async getOverview(tenantId: string, pessoalProjectId: string) {
     const pessoal = await this.prisma.project.findFirst({
@@ -164,7 +168,13 @@ export class MonthlyOverviewService {
     const [accounts, expenses, receipts, entries, cards] = await Promise.all([
       this.prisma.bankAccount.findMany({
         where: { tenantId, projectId, deletedAt: null },
-        select: { openingBalanceCents: true, openingBalanceDate: true },
+        select: {
+          openingBalanceCents: true,
+          openingBalanceDate: true,
+          last4: true,
+          nickname: true,
+          institution: true,
+        },
       }),
       this.prisma.expense.findMany({
         where: { tenantId, projectId, deletedAt: null },
@@ -359,15 +369,26 @@ export class MonthlyOverviewService {
 
     const saidas = [
       ...selectedInvoices.map((invoice) => ({
+        id: null as string | null,
+        kind: 'saida' as const,
         descricao: `Fatura ${invoice.nickname}`,
         data: dueDateIso(mesSelecionado, invoice.dueDay),
         forma: 'cartao',
         valor: invoice.total,
         realizado: invoice.pending === 0,
+        status: invoice.pending === 0 ? 'PAGO' : 'PLANEJADO',
+        cardLast4: invoice.cardLast4,
+        bankLast4: null as string | null,
+        tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+        isInvoice: true,
+        editavel: false,
+        dueMonth: invoice.dueMonth,
       })),
       ...accountExpenseEntries.map((entry) => {
         const expense = entry.expense!;
         return {
+          id: expense.id as string | null,
+          kind: 'saida' as const,
           descricao: expenseDisplayName(expense.tipoDespesa, expense.titulo, expense.fornecedor),
           data: entry.data.toISOString(),
           forma: inferCashForm(
@@ -376,9 +397,16 @@ export class MonthlyOverviewService {
           ),
           valor: entry.valor,
           realizado: entry.status === 'PAGO',
+          status: entry.status,
+          cardLast4: null as string | null,
+          bankLast4: expense.bankLast4,
+          tipoDespesa: expense.tipoDespesa,
+          isInvoice: false,
+          editavel: true,
+          dueMonth: null as string | null,
         };
       }),
-    ].sort((a, b) => a.data.localeCompare(b.data));
+    ].sort((a, b) => b.data.localeCompare(a.data));
 
     const entradas = receipts
       .filter(
@@ -388,12 +416,16 @@ export class MonthlyOverviewService {
           receipt.data >= monthStart &&
           receipt.data < monthEnd,
       )
-      .sort((a, b) => a.data.getTime() - b.data.getTime())
+      .sort((a, b) => b.data.getTime() - a.data.getTime())
       .map((receipt) => ({
+        id: receipt.id as string | null,
+        kind: 'entrada' as const,
         descricao: receipt.descricao?.trim() || receiptTypeLabel(receipt.tipo),
         data: receipt.data.toISOString(),
         tipo: receiptTypeKey(receipt.tipo),
         valor: receipt.valor,
+        bankLast4: receipt.bankLast4,
+        status: 'EM_CAIXA',
       }));
 
     const devoCartaoTotal = sumBy(
@@ -464,6 +496,8 @@ export class MonthlyOverviewService {
         nickname: card.nickname?.trim() || 'Cartao',
         last4: card.last4,
         faturaAtual: invoice.total,
+        faturaPendente: invoice.pending,
+        dueMonth: openInvoiceMonth,
         vencimento: dueDateIso(openInvoiceMonth, card.dueDay),
         status: invoice.pending > 0 ? 'a pagar' : 'paga',
         limiteUsadoPct:
@@ -475,6 +509,13 @@ export class MonthlyOverviewService {
       };
     });
 
+    const contas = accounts
+      .filter((account) => !!account.last4)
+      .map((account) => ({
+        last4: account.last4,
+        nome: account.nickname?.trim() || account.institution || `Conta ${account.last4}`,
+      }));
+
     return {
       mesSelecionado,
       caixaHoje: caixa.hoje,
@@ -484,6 +525,7 @@ export class MonthlyOverviewService {
       sobraPrevista: caixa.hoje - faltaPagarMes + recebimentosPrevistosMes,
       devoCartaoTotal,
       cartoes,
+      contas,
       saidas,
       entradas,
       ticketMedio: {
@@ -527,6 +569,124 @@ export class MonthlyOverviewService {
       }),
     ]);
     return computeCaixaConta(accounts, expenses, receipts);
+  }
+
+  /**
+   * Pagamento manual de fatura de cartão a partir da Visão Conta.
+   *
+   * Gera UMA despesa neutra `PAGAMENTO_FATURA_CARTAO` (PAGO, com `bankLast4` da
+   * conta que debita) — o lado de saída do caixa §10 — e liquida as compras do
+   * ciclo daquela fatura (PLANEJADO → PAGO) via `CardInvoiceSettlementService`.
+   *
+   * Invariantes respeitadas:
+   *  - §0.2 neutralidade: o pagamento não é recontado junto da fatura projetada
+   *    (o tipo neutro é excluído do agregado da fatura e da lista de saídas; a
+   *    fatura projetada some de `faltaPagarMes` porque passa a constar como paga).
+   *  - §0.7 fonte única: o saldo continua derivado de `computeCaixaConta`.
+   */
+  async payInvoice(
+    tenantId: string,
+    projectId: string,
+    dto: {
+      cardLast4?: string;
+      month?: string;
+      amountCents?: number;
+      bankLast4?: string;
+      paymentDate?: string;
+    },
+  ) {
+    await this.ensurePessoalProject(tenantId, projectId);
+
+    const month = normalizeMonthKey(dto.month);
+    if (!dto.cardLast4) throw new BadRequestException('Cartão obrigatório.');
+    if (!dto.bankLast4) throw new BadRequestException('Conta de débito obrigatória.');
+    if (!Number.isInteger(dto.amountCents) || (dto.amountCents ?? 0) <= 0) {
+      throw new BadRequestException('Valor da fatura inválido.');
+    }
+    const amountCents = dto.amountCents as number;
+
+    const card = await this.prisma.creditCard.findFirst({
+      where: { tenantId, projectId, last4: dto.cardLast4, deletedAt: null },
+      select: { id: true, last4: true, nickname: true, closingDay: true, dueDay: true },
+    });
+    if (!card) throw new NotFoundException('Cartão não encontrado.');
+
+    const account = await this.prisma.bankAccount.findFirst({
+      where: { tenantId, projectId, last4: dto.bankLast4, deletedAt: null },
+      select: { last4: true },
+    });
+    if (!account) throw new NotFoundException('Conta de débito não encontrada.');
+
+    // Já paga neste mês? (mesma chave do getAccountView: tipo neutro PAGO com
+    // bankLast4 cujo mês do pagamento === mês de vencimento da fatura).
+    const existing = await this.prisma.expense.findMany({
+      where: {
+        tenantId,
+        projectId,
+        tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+        status: 'PAGO',
+        cardLast4: card.last4,
+        bankLast4: { not: null },
+        deletedAt: null,
+      },
+      select: { dataPagamento: true, createdAt: true },
+    });
+    const alreadyPaid = existing.some(
+      (e) => monthKeyOf(e.dataPagamento ?? e.createdAt) === month,
+    );
+    if (alreadyPaid) {
+      throw new BadRequestException('Esta fatura já está marcada como paga neste mês.');
+    }
+
+    // A detecção de "fatura paga" casa o MÊS do pagamento com o mês de vencimento.
+    // Para garantir coerência, a data efetiva do pagamento fica dentro do mês da
+    // fatura: usa a data escolhida se cair no mês; senão, o dia do vencimento.
+    const chosen = dto.paymentDate ? new Date(dto.paymentDate) : new Date();
+    const effectiveDate =
+      !Number.isNaN(chosen.getTime()) && monthKeyOf(chosen) === month
+        ? chosen
+        : new Date(`${dueDateIso(month, card.dueDay)}T12:00:00.000Z`);
+
+    const payment = await this.prisma.expense.create({
+      data: {
+        tenantId,
+        projectId,
+        tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+        titulo: `Pagamento fatura ${card.nickname?.trim() || card.last4}`,
+        fornecedor: `Fatura ${card.last4}`,
+        valor: amountCents,
+        quantidade: 1,
+        valorTotal: amountCents,
+        formaPagamento: 'A_VISTA',
+        dataPagamento: effectiveDate,
+        status: 'PAGO',
+        bankLast4: account.last4,
+        cardLast4: card.last4,
+      },
+    });
+
+    // Liquida as compras do ciclo (best-effort: nunca desfaz o pagamento se a
+    // liquidação falhar — o pagamento neutro já reflete o caixa).
+    let settled = { settledExpenses: 0, settledParcelas: 0 };
+    try {
+      settled = await this.cardSettlement.settleInvoice({
+        tenantId,
+        card,
+        amountCents,
+        paymentDate: effectiveDate,
+      });
+    } catch {
+      // mantém o pagamento; liquidação das parcelas pode ser refeita por import.
+    }
+
+    return {
+      ok: true,
+      paymentExpenseId: payment.id,
+      cardLast4: card.last4,
+      month,
+      amountCents,
+      ...settled,
+    };
   }
 
   private async ensurePessoalProject(tenantId: string, projectId: string) {
