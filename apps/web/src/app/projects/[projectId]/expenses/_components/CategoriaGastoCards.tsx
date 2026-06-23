@@ -61,11 +61,6 @@ export function CategoriaGastoCards({
         <span className="text-[10px] text-darc-velvet/40">
           {categorias.length} {categorias.length === 1 ? 'categoria' : 'categorias'}
         </span>
-        {!open && (
-          <span className="ml-auto font-bold text-sm text-darc-velvet tabular-nums">
-            {formatCurrency(total / 100)}
-          </span>
-        )}
       </button>
       {open && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-3 p-4 border-t border-darc-linen">
