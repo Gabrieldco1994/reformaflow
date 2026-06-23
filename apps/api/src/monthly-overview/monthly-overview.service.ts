@@ -352,19 +352,19 @@ export class MonthlyOverviewService {
       .filter((invoice) => invoice.dueMonth === mesSelecionado)
       .sort((a, b) => b.total - a.total);
 
-    const accountExpenseEntries = entries
-      .filter((entry) => {
-        if (entry.tipo !== 'DESPESA' || !entry.expense?.bankLast4 || entry.expense.cardLast4) return false;
-        if (isNeutralExpenseType(entry.expense.tipoDespesa)) return false;
-        return isInRange(entry.data, monthStart, monthEnd);
+    const accountExpenseList = expenses
+      .filter((expense) => {
+        if (!expense.bankLast4 || expense.cardLast4) return false;
+        if (isNeutralExpenseType(expense.tipoDespesa)) return false;
+        return isInRange(accountExpenseDate(expense), monthStart, monthEnd);
       })
-      .sort((a, b) => a.data.getTime() - b.data.getTime());
+      .sort((a, b) => accountExpenseDate(a).getTime() - accountExpenseDate(b).getTime());
 
     const faltaPagarMes =
       sumBy(selectedInvoices, (invoice) => invoice.pending) +
       sumBy(
-        accountExpenseEntries.filter((entry) => entry.status !== 'PAGO'),
-        (entry) => entry.valor,
+        accountExpenseList.filter((expense) => expense.status !== 'PAGO'),
+        (expense) => expense.valorTotal,
       );
 
     const saidas = [
@@ -384,28 +384,25 @@ export class MonthlyOverviewService {
         editavel: false,
         dueMonth: invoice.dueMonth,
       })),
-      ...accountExpenseEntries.map((entry) => {
-        const expense = entry.expense!;
-        return {
-          id: expense.id as string | null,
-          kind: 'saida' as const,
-          descricao: expenseDisplayName(expense.tipoDespesa, expense.titulo, expense.fornecedor),
-          data: entry.data.toISOString(),
-          forma: inferCashForm(
-            `${expense.titulo ?? ''} ${expense.fornecedor ?? ''} ${entry.subcategoria ?? ''}`,
-            entry.formaPagamento,
-          ),
-          valor: entry.valor,
-          realizado: entry.status === 'PAGO',
-          status: entry.status,
-          cardLast4: null as string | null,
-          bankLast4: expense.bankLast4,
-          tipoDespesa: expense.tipoDespesa,
-          isInvoice: false,
-          editavel: true,
-          dueMonth: null as string | null,
-        };
-      }),
+      ...accountExpenseList.map((expense) => ({
+        id: expense.id as string | null,
+        kind: 'saida' as const,
+        descricao: expenseDisplayName(expense.tipoDespesa, expense.titulo, expense.fornecedor),
+        data: accountExpenseDate(expense).toISOString(),
+        forma: inferCashForm(
+          `${expense.titulo ?? ''} ${expense.fornecedor ?? ''}`,
+          expense.formaPagamento,
+        ),
+        valor: expense.valorTotal,
+        realizado: expense.status === 'PAGO',
+        status: expense.status,
+        cardLast4: null as string | null,
+        bankLast4: expense.bankLast4,
+        tipoDespesa: expense.tipoDespesa,
+        isInvoice: false,
+        editavel: true,
+        dueMonth: null as string | null,
+      })),
     ].sort((a, b) => b.data.localeCompare(a.data));
 
     const entradas = receipts

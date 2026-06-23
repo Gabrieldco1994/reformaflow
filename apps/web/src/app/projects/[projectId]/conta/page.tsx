@@ -38,6 +38,7 @@ export default function ContaPage() {
   const { projectType } = useProject();
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
   const [payCardLast4, setPayCardLast4] = useState<string | null>(null);
+  const [originFilter, setOriginFilter] = useState<string | null>(null);
 
   const { data, isLoading, error } = useQuery<AccountViewResponse>({
     queryKey: ['account-view', projectId, selectedMonth],
@@ -90,8 +91,20 @@ export default function ContaPage() {
             faltaPagarMes={data.faltaPagarMes}
             sobraPrevista={data.sobraPrevista}
           />
-          <MovimentacoesSection data={data} projectId={projectId} onPayInvoice={setPayCardLast4} />
-          <CartoesSection cartoes={data.cartoes} onPayInvoice={setPayCardLast4} />
+          <CartoesSection
+            cartoes={data.cartoes}
+            contas={data.contas ?? []}
+            selected={originFilter}
+            onSelect={setOriginFilter}
+            onPayInvoice={setPayCardLast4}
+          />
+          <MovimentacoesSection
+            data={data}
+            projectId={projectId}
+            originFilter={originFilter}
+            onClearOrigin={() => setOriginFilter(null)}
+            onPayInvoice={setPayCardLast4}
+          />
           <TicketMedioSection ticket={data.ticketMedio} currentMonth={data.mesSelecionado} />
         </>
       )}

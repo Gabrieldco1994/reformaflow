@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Check, CreditCard, Landmark, Pencil, Trash2, X } from 'lucide-react';
+import { Check, CreditCard, Pencil, Trash2, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { tipoLabel } from '@/lib/expense-options';
@@ -28,16 +28,19 @@ function initialOf(text: string) {
 export function MovimentacoesSection({
   data,
   projectId,
+  originFilter,
+  onClearOrigin,
   onPayInvoice,
 }: {
   data: AccountViewResponse;
   projectId: string;
+  originFilter: string | null;
+  onClearOrigin: () => void;
   onPayInvoice: (cardLast4: string) => void;
 }) {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<Tab>('saidas');
   const [search, setSearch] = useState('');
-  const [originFilter, setOriginFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('todos');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValor, setEditValor] = useState('');
@@ -90,6 +93,8 @@ export function MovimentacoesSection({
     if (bankLast4) return contaByLast4.get(bankLast4)?.nome ?? `Conta ••${bankLast4}`;
     return null;
   };
+
+  const activeIsCard = originFilter != null && cardByLast4.has(originFilter);
 
   const merged = useMemo<AccountViewMovimentacao[]>(() => {
     const list: AccountViewMovimentacao[] = [...data.saidas, ...data.entradas];
@@ -170,13 +175,19 @@ export function MovimentacoesSection({
         ))}
       </div>
 
-      {/* Strip de filtro por cartão/conta (mostra valor da fatura) */}
-      <OriginStrip
-        cartoes={data.cartoes}
-        contas={data.contas ?? []}
-        selected={originFilter}
-        onSelect={setOriginFilter}
-      />
+      {/* Indicador de filtro de origem ativo (vem dos cards acima) */}
+      {originFilter && (
+        <div className="mb-3 flex items-center gap-2 rounded-xl bg-orange-50 px-3 py-2 text-[12px] text-orange-800">
+          <span className="font-semibold">Filtrando por {originLabel(activeIsCard ? originFilter : null, activeIsCard ? null : originFilter)}</span>
+          <button
+            type="button"
+            onClick={onClearOrigin}
+            className="ml-auto font-semibold text-orange-700 hover:text-orange-900"
+          >
+            limpar
+          </button>
+        </div>
+      )}
 
       {/* Busca + status */}
       <div className="mb-3 mt-3 flex flex-wrap items-center gap-2">
@@ -387,85 +398,6 @@ export function MovimentacoesSection({
   );
 }
 
-function OriginStrip({
-  cartoes,
-  contas,
-  selected,
-  onSelect,
-}: {
-  cartoes: AccountViewResponse['cartoes'];
-  contas: NonNullable<AccountViewResponse['contas']>;
-  selected: string | null;
-  onSelect: (last4: string | null) => void;
-}) {
-  if (cartoes.length === 0 && contas.length === 0) return null;
-  return (
-    <div className="-mx-1 flex items-stretch gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] md:flex-wrap md:overflow-visible [&::-webkit-scrollbar]:hidden">
-      {cartoes.map((c) => {
-        const active = selected === c.last4;
-        const paga = c.status === 'paga';
-        return (
-          <button
-            key={`card-${c.last4}`}
-            type="button"
-            onClick={() => onSelect(active ? null : c.last4)}
-            className={`flex shrink-0 items-center gap-2.5 rounded-2xl border px-3.5 py-2 text-left transition-colors md:shrink ${
-              active
-                ? 'border-orange-500 bg-orange-500 text-white shadow-sm'
-                : 'border-darc-linen bg-white text-darc-velvet hover:border-orange-300 hover:bg-orange-50'
-            }`}
-          >
-            <CreditCard className={`h-5 w-5 shrink-0 ${active ? 'text-white' : 'text-orange-600'}`} />
-            <div className="leading-tight">
-              <div className="whitespace-nowrap text-sm font-semibold">
-                {c.nickname} ••{c.last4}
-              </div>
-              <div
-                className={`whitespace-nowrap font-mono text-xs ${active ? 'text-orange-50' : 'text-darc-velvet/50'}`}
-              >
-                {formatCurrency(c.faturaAtual / 100)} · {paga ? 'paga' : 'a pagar'}
-              </div>
-            </div>
-          </button>
-        );
-      })}
-      {contas.map((c) => {
-        const active = selected === c.last4;
-        return (
-          <button
-            key={`bank-${c.last4}`}
-            type="button"
-            onClick={() => onSelect(active ? null : c.last4)}
-            className={`flex shrink-0 items-center gap-2.5 rounded-2xl border px-3.5 py-2 text-left transition-colors md:shrink ${
-              active
-                ? 'border-orange-500 bg-orange-500 text-white shadow-sm'
-                : 'border-darc-linen bg-white text-darc-velvet hover:border-orange-300 hover:bg-orange-50'
-            }`}
-          >
-            <Landmark className={`h-5 w-5 shrink-0 ${active ? 'text-white' : 'text-orange-600'}`} />
-            <div className="leading-tight">
-              <div className="whitespace-nowrap text-sm font-semibold">
-                {c.nome} ••{c.last4}
-              </div>
-              <div className={`whitespace-nowrap text-xs ${active ? 'text-orange-50' : 'text-darc-velvet/50'}`}>
-                conta
-              </div>
-            </div>
-          </button>
-        );
-      })}
-      {selected && (
-        <button
-          type="button"
-          onClick={() => onSelect(null)}
-          className="shrink-0 self-center rounded-2xl border border-darc-linen bg-white px-4 py-2 text-sm font-medium text-darc-velvet/60 hover:bg-gray-50"
-        >
-          Limpar
-        </button>
-      )}
-    </div>
-  );
-}
 
 function FilterPill({
   active,
