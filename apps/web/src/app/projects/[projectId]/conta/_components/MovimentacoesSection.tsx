@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Check, CreditCard, Pencil, Trash2, X } from 'lucide-react';
+import { ArrowDownUp, Check, CreditCard, Pencil, Trash2, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { tipoLabel } from '@/lib/expense-options';
@@ -16,6 +16,7 @@ import type {
 
 type Tab = 'saidas' | 'entradas' | 'tudo';
 type StatusFilter = 'todos' | 'pago' | 'apagar';
+type SortDir = 'desc' | 'asc';
 
 function centsToInput(v: number) {
   return (v / 100).toFixed(2);
@@ -42,6 +43,8 @@ export function MovimentacoesSection({
   const [tab, setTab] = useState<Tab>('saidas');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('todos');
+  const [catFilter, setCatFilter] = useState<string>('todas');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValor, setEditValor] = useState('');
   const [editData, setEditData] = useState('');
@@ -108,9 +111,21 @@ export function MovimentacoesSection({
     return list.sort((a, b) => b.data.localeCompare(a.data));
   }, [data.saidas, data.entradas, data.comprasCartao, activeIsCard, originFilter]);
 
+  const catOptions = useMemo(() => {
+    const set = new Map<string, string>();
+    for (const m of merged) {
+      if (m.kind === 'saida' && !m.isInvoice && m.tipoDespesa) {
+        set.set(m.tipoDespesa, tipoLabel(m.tipoDespesa));
+      }
+    }
+    return Array.from(set.entries())
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [merged]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return merged.filter((m) => {
+    const result = merged.filter((m) => {
       if (tab === 'saidas' && m.kind !== 'saida') return false;
       if (tab === 'entradas' && m.kind !== 'entrada') return false;
 
@@ -125,10 +140,17 @@ export function MovimentacoesSection({
         if (statusFilter === 'apagar' && realizado) return false;
       }
 
+      if (catFilter !== 'todas') {
+        if (m.kind !== 'saida' || m.isInvoice || m.tipoDespesa !== catFilter) return false;
+      }
+
       if (q && !m.descricao.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [merged, tab, originFilter, statusFilter, search]);
+    return result.sort((a, b) =>
+      sortDir === 'desc' ? b.data.localeCompare(a.data) : a.data.localeCompare(b.data),
+    );
+  }, [merged, tab, originFilter, statusFilter, catFilter, sortDir, search]);
 
   const totalSaidas = filtered
     .filter((m): m is AccountViewSaida => m.kind === 'saida')
@@ -207,6 +229,29 @@ export function MovimentacoesSection({
           placeholder="Buscar por descrição…"
           className="h-10 min-w-[180px] flex-1 rounded-xl border border-darc-linen bg-darc-off-white px-3 text-sm text-darc-velvet outline-none focus:border-orange-300"
         />
+        {tab !== 'entradas' && catOptions.length > 0 && (
+          <select
+            value={catFilter}
+            onChange={(e) => setCatFilter(e.target.value)}
+            className="h-10 rounded-xl border border-darc-linen bg-darc-off-white px-3 text-sm font-medium text-darc-velvet outline-none focus:border-orange-300"
+          >
+            <option value="todas">Todas as categorias</option>
+            {catOptions.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        )}
+        <button
+          type="button"
+          onClick={() => setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'))}
+          className="flex h-10 items-center gap-1.5 rounded-xl border border-darc-linen bg-darc-off-white px-3 text-sm font-medium text-darc-velvet transition hover:border-orange-300"
+          title="Ordenar por data"
+        >
+          <ArrowDownUp className="h-3.5 w-3.5" />
+          {sortDir === 'desc' ? 'Mais recentes' : 'Mais antigas'}
+        </button>
         <div className="flex gap-1.5">
           <FilterPill active={statusFilter === 'todos'} onClick={() => setStatusFilter('todos')}>
             todos
