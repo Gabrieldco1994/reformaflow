@@ -2,11 +2,13 @@
 
 import { formatCurrency } from '@/lib/utils';
 
+type Tone = 'emerald' | 'slate' | 'amber' | 'rose';
+
 const SMALL_CARDS: Array<{
   key: 'entrouMes' | 'saiuMes' | 'faltaPagarMes' | 'sobraPrevista';
   title: string;
   help: string;
-  tone: 'emerald' | 'slate' | 'amber';
+  tone: Tone;
 }> = [
   {
     key: 'entrouMes',
@@ -34,9 +36,10 @@ const SMALL_CARDS: Array<{
   },
 ];
 
-function toneClasses(tone: 'emerald' | 'slate' | 'amber') {
+function toneClasses(tone: Tone) {
   if (tone === 'emerald') return 'text-emerald-700 bg-emerald-50 border-emerald-100';
   if (tone === 'amber') return 'text-amber-800 bg-amber-50 border-amber-100';
+  if (tone === 'rose') return 'text-rose-700 bg-rose-50 border-rose-100';
   return 'text-slate-800 bg-slate-50 border-slate-200';
 }
 
@@ -75,18 +78,22 @@ export function ResumoCards({
       </article>
 
       <div className="grid grid-cols-2 gap-3 xl:col-span-8 xl:auto-rows-fr xl:grid-cols-4 xl:gap-4">
-        {SMALL_CARDS.map((card) => (
-          <article
-            key={card.key}
-            className={`rounded-2xl border p-3 shadow-sm xl:flex xl:min-h-full xl:flex-col xl:justify-between xl:p-4 ${toneClasses(card.tone)}`}
-          >
-            <p className="text-[11px] font-semibold leading-4">{card.title}</p>
-            <p className="mt-2 text-lg font-bold tracking-tight xl:text-[22px]">
-              {formatCurrency(values[card.key] / 100)}
-            </p>
-            <p className="mt-2 text-[11px] leading-4 opacity-80 xl:text-xs xl:leading-5">{card.help}</p>
-          </article>
-        ))}
+        {SMALL_CARDS.map((card) => {
+          const value = values[card.key];
+          const tone = card.key === 'sobraPrevista' ? (value < 0 ? 'rose' : 'emerald') : card.tone;
+          return (
+            <article
+              key={card.key}
+              className={`rounded-2xl border p-3 shadow-sm xl:flex xl:min-h-full xl:flex-col xl:justify-between xl:p-4 ${toneClasses(tone)}`}
+            >
+              <p className="text-[11px] font-semibold leading-4">{card.title}</p>
+              <p className="mt-2 text-lg font-bold tracking-tight xl:text-[22px]">
+                {formatCurrency(value / 100)}
+              </p>
+              <p className="mt-2 text-[11px] leading-4 opacity-80 xl:text-xs xl:leading-5">{card.help}</p>
+            </article>
+          );
+        })}
       </div>
     </section>
   );

@@ -51,7 +51,7 @@ export function MovimentacoesSection({
   onPayInvoice: (cardLast4: string) => void;
 }) {
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState<Tab>('tudo');
+  const [tab, setTab] = useState<Tab>('saidas');
   const [search, setSearch] = useState('');
   const [cardFilter, setCardFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('todos');
@@ -156,7 +156,7 @@ export function MovimentacoesSection({
       </div>
 
       <div className="mb-3 inline-flex w-full rounded-xl bg-slate-100 p-1 sm:w-auto">
-        {(['tudo', 'saidas', 'entradas'] as Tab[]).map((t) => (
+        {(['saidas', 'entradas', 'tudo'] as Tab[]).map((t) => (
           <button
             key={t}
             type="button"

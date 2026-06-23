@@ -90,8 +90,8 @@ export default function ContaPage() {
             faltaPagarMes={data.faltaPagarMes}
             sobraPrevista={data.sobraPrevista}
           />
-          <CartoesSection cartoes={data.cartoes} onPayInvoice={setPayCardLast4} />
           <MovimentacoesSection data={data} projectId={projectId} onPayInvoice={setPayCardLast4} />
+          <CartoesSection cartoes={data.cartoes} onPayInvoice={setPayCardLast4} />
           <TicketMedioSection ticket={data.ticketMedio} currentMonth={data.mesSelecionado} />
         </>
       )}
