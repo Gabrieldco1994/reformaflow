@@ -65,6 +65,8 @@ export default function PlanningProjectionTable({
                           ? 'bg-emerald-50 text-emerald-700'
                           : row.source === 'mixed'
                             ? 'bg-sky-50 text-sky-700'
+                            : row.source === 'matrix'
+                              ? 'bg-violet-50 text-violet-700'
                             : 'bg-amber-50 text-amber-700'
                       }`}
                     >
@@ -72,6 +74,8 @@ export default function PlanningProjectionTable({
                         ? 'Lançamentos reais'
                         : row.source === 'mixed'
                           ? 'Misto'
+                          : row.source === 'matrix'
+                            ? 'Matriz'
                           : 'Modelagem'}
                     </span>
                   </td>

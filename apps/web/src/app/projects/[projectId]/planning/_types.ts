@@ -16,7 +16,7 @@ export interface PlanningProjectionRow {
   monthlyBalanceCents: number;
   closingBalanceCents: number;
   targetGapCents: number;
-  source: 'known' | 'modeled' | 'mixed';
+  source: 'known' | 'modeled' | 'mixed' | 'matrix';
 }
 
 export interface PlanningSummary {
@@ -42,4 +42,28 @@ export interface PlanningExpenseTypeRow {
   label: string;
   monthlyCents: number;
   sharePct: number;
+}
+
+export interface PlanningScenario {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  assumptions: PlanningAssumptions;
+  months: string[];
+  incomeByMonthCents: Record<string, number>;
+  expenseByTypeByMonthCents: Record<string, Record<string, number>>;
+  expenseTypeOrder: string[];
+}
+
+export interface PlanningScenarioOption {
+  id: string;
+  name: string;
+}
+
+export interface PlanningMatrixExpenseRow {
+  typeCode: string;
+  label: string;
+  valuesByMonthCents: Record<string, number>;
+  totalCents: number;
 }

@@ -7,7 +7,8 @@ import PlanningSummary from './_components/PlanningSummary';
 import PlanningProjectionChart from './_components/PlanningProjectionChart';
 import PlanningCommitments from './_components/PlanningCommitments';
 import PlanningProjectionTable from './_components/PlanningProjectionTable';
-import PlanningExpenseTypes from './_components/PlanningExpenseTypes';
+import PlanningScenarioToolbar from './_components/PlanningScenarioToolbar';
+import PlanningMatrix from './_components/PlanningMatrix';
 import { usePersonalPlanning } from './_hooks/usePersonalPlanning';
 
 export default function PlanningPage() {
@@ -19,9 +20,22 @@ export default function PlanningPage() {
     projection,
     summary,
     commitments,
-    expenseTypes,
+    scenarios,
+    activeScenarioId,
+    months,
+    incomeByMonthCents,
+    expenseMatrixRows,
+    addableExpenseTypes,
     patchAssumptions,
-    patchExpenseType,
+    createScenario,
+    duplicateScenario,
+    renameScenario,
+    deleteScenario,
+    switchScenario,
+    addMonth,
+    setIncomeForMonth,
+    setExpenseForMonth,
+    addExpenseType,
   } = usePersonalPlanning();
 
   if (!isPersonal) {
@@ -69,8 +83,27 @@ export default function PlanningPage() {
         </div>
       )}
 
+      <PlanningScenarioToolbar
+        scenarios={scenarios}
+        activeScenarioId={activeScenarioId}
+        onSwitchScenario={switchScenario}
+        onCreateScenario={createScenario}
+        onDuplicateScenario={duplicateScenario}
+        onRenameScenario={renameScenario}
+        onDeleteScenario={deleteScenario}
+      />
+
       <PlanningAssumptions assumptions={assumptions} onChange={patchAssumptions} />
-      <PlanningExpenseTypes rows={expenseTypes} onChangeType={patchExpenseType} />
+      <PlanningMatrix
+        months={months}
+        incomeByMonthCents={incomeByMonthCents}
+        expenseRows={expenseMatrixRows}
+        addableExpenseTypes={addableExpenseTypes}
+        onAddMonth={addMonth}
+        onIncomeChange={setIncomeForMonth}
+        onExpenseChange={setExpenseForMonth}
+        onAddExpenseType={addExpenseType}
+      />
       <PlanningSummary summary={summary} />
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
