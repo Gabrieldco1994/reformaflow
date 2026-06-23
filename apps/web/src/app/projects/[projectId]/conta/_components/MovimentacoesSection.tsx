@@ -3,42 +3,26 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Check, CreditCard, Landmark, Pencil, Trash2, Undo2, X } from 'lucide-react';
+import { Check, CreditCard, Landmark, Pencil, Trash2, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { tipoLabel } from '@/lib/expense-options';
-import { entryMeta, movementMeta } from '../_lib';
 import type {
-  AccountViewConta,
   AccountViewEntrada,
   AccountViewMovimentacao,
   AccountViewResponse,
   AccountViewSaida,
 } from '../_types';
 
-type Tab = 'tudo' | 'saidas' | 'entradas';
+type Tab = 'saidas' | 'entradas' | 'tudo';
 type StatusFilter = 'todos' | 'pago' | 'apagar';
 
 function centsToInput(v: number) {
   return (v / 100).toFixed(2);
 }
 
-function OriginBadge({ cardLast4, bankLast4 }: { cardLast4: string | null; bankLast4: string | null }) {
-  if (cardLast4) {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
-        <CreditCard className="h-3 w-3" /> ••{cardLast4}
-      </span>
-    );
-  }
-  if (bankLast4) {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
-        <Landmark className="h-3 w-3" /> ••{bankLast4}
-      </span>
-    );
-  }
-  return null;
+function initialOf(text: string) {
+  return (text.trim()[0] || '?').toUpperCase();
 }
 
 export function MovimentacoesSection({
@@ -53,7 +37,7 @@ export function MovimentacoesSection({
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<Tab>('saidas');
   const [search, setSearch] = useState('');
-  const [cardFilter, setCardFilter] = useState<string | null>(null);
+  const [originFilter, setOriginFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('todos');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValor, setEditValor] = useState('');
@@ -92,8 +76,20 @@ export function MovimentacoesSection({
     onError: (e: Error) => toast.error(`Erro ao salvar: ${e.message}`),
   });
 
-  const cartaoOptions = data.cartoes.map((c) => ({ last4: c.last4, nome: c.nickname }));
-  const contaOptions: AccountViewConta[] = data.contas ?? [];
+  const cardByLast4 = useMemo(
+    () => new Map(data.cartoes.map((c) => [c.last4, c] as const)),
+    [data.cartoes],
+  );
+  const contaByLast4 = useMemo(
+    () => new Map((data.contas ?? []).map((c) => [c.last4, c] as const)),
+    [data.contas],
+  );
+
+  const originLabel = (cardLast4: string | null, bankLast4: string | null) => {
+    if (cardLast4) return cardByLast4.get(cardLast4)?.nickname ?? `Cartão ••${cardLast4}`;
+    if (bankLast4) return contaByLast4.get(bankLast4)?.nome ?? `Conta ••${bankLast4}`;
+    return null;
+  };
 
   const merged = useMemo<AccountViewMovimentacao[]>(() => {
     const list: AccountViewMovimentacao[] = [...data.saidas, ...data.entradas];
@@ -106,9 +102,9 @@ export function MovimentacoesSection({
       if (tab === 'saidas' && m.kind !== 'saida') return false;
       if (tab === 'entradas' && m.kind !== 'entrada') return false;
 
-      if (cardFilter) {
+      if (originFilter) {
         const last4 = m.kind === 'saida' ? m.cardLast4 ?? m.bankLast4 : m.bankLast4;
-        if (last4 !== cardFilter) return false;
+        if (last4 !== originFilter) return false;
       }
 
       if (statusFilter !== 'todos') {
@@ -120,7 +116,7 @@ export function MovimentacoesSection({
       if (q && !m.descricao.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [merged, tab, cardFilter, statusFilter, search]);
+  }, [merged, tab, originFilter, statusFilter, search]);
 
   const totalSaidas = filtered
     .filter((m): m is AccountViewSaida => m.kind === 'saida')
@@ -135,49 +131,62 @@ export function MovimentacoesSection({
     setEditData(item.data.slice(0, 10));
   };
 
-  const filterChips: Array<{ key: string; label: string; last4: string }> = [
-    ...cartaoOptions.map((c) => ({ key: `card-${c.last4}`, label: `${c.nome} ••${c.last4}`, last4: c.last4 })),
-    ...contaOptions.map((c) => ({ key: `bank-${c.last4}`, label: `${c.nome} ••${c.last4}`, last4: c.last4 })),
+  const tabs: Array<{ key: Tab; label: string }> = [
+    { key: 'saidas', label: 'Saídas' },
+    { key: 'entradas', label: 'Entradas' },
+    { key: 'tudo', label: 'Tudo' },
   ];
 
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white p-3 shadow-sm xl:p-5">
+    <section className="rounded-3xl border border-darc-linen bg-white p-3 shadow-darc-soft xl:p-5">
       <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-darc-velvet/50">
             Movimentações do mês
           </p>
-          <h2 className="mt-0.5 text-lg font-bold text-slate-950">Tudo que mexeu na conta</h2>
+          <h2 className="mt-0.5 text-lg font-bold text-darc-velvet">Tudo que mexeu na conta</h2>
         </div>
         <div className="text-right text-[11px] leading-tight">
-          <p className="font-semibold text-emerald-700">+ {formatCurrency(totalEntradas / 100)}</p>
-          <p className="font-semibold text-slate-700">− {formatCurrency(totalSaidas / 100)}</p>
+          <p className="font-semibold text-emerald-600">+ {formatCurrency(totalEntradas / 100)}</p>
+          <p className="font-semibold text-darc-velvet/70">− {formatCurrency(totalSaidas / 100)}</p>
         </div>
       </div>
 
-      <div className="mb-3 inline-flex w-full rounded-xl bg-slate-100 p-1 sm:w-auto">
-        {(['saidas', 'entradas', 'tudo'] as Tab[]).map((t) => (
+      {/* Segmented Saídas | Entradas | Tudo */}
+      <div className="mb-3 inline-flex w-full rounded-2xl bg-darc-cream p-1 sm:w-auto">
+        {tabs.map((t) => (
           <button
-            key={t}
+            key={t.key}
             type="button"
-            onClick={() => setTab(t)}
-            className={`h-9 flex-1 rounded-lg px-4 text-sm font-semibold capitalize transition sm:flex-none ${
-              tab === t ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            onClick={() => setTab(t.key)}
+            className={`h-9 flex-1 rounded-xl px-4 text-sm font-semibold transition sm:flex-none ${
+              tab === t.key
+                ? 'bg-white text-darc-velvet shadow-sm'
+                : 'text-darc-velvet/50 hover:text-darc-velvet/80'
             }`}
           >
-            {t === 'tudo' ? 'Tudo' : t === 'saidas' ? 'Saídas' : 'Entradas'}
+            {t.label}
           </button>
         ))}
       </div>
 
-      <div className="mb-3 space-y-2">
+      {/* Strip de filtro por cartão/conta (mostra valor da fatura) */}
+      <OriginStrip
+        cartoes={data.cartoes}
+        contas={data.contas ?? []}
+        selected={originFilter}
+        onSelect={setOriginFilter}
+      />
+
+      {/* Busca + status */}
+      <div className="mb-3 mt-3 flex flex-wrap items-center gap-2">
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Buscar por descrição…"
-          className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 outline-none focus:border-slate-300"
+          className="h-10 min-w-[180px] flex-1 rounded-xl border border-darc-linen bg-darc-off-white px-3 text-sm text-darc-velvet outline-none focus:border-orange-300"
         />
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex gap-1.5">
           <FilterPill active={statusFilter === 'todos'} onClick={() => setStatusFilter('todos')}>
             todos
           </FilterPill>
@@ -187,171 +196,186 @@ export function MovimentacoesSection({
           <FilterPill active={statusFilter === 'apagar'} onClick={() => setStatusFilter('apagar')}>
             a pagar
           </FilterPill>
-          <span className="mx-1 self-center text-slate-300">|</span>
-          <FilterPill active={cardFilter === null} onClick={() => setCardFilter(null)}>
-            todas origens
-          </FilterPill>
-          {filterChips.map((chip) => (
-            <FilterPill
-              key={chip.key}
-              active={cardFilter === chip.last4}
-              onClick={() => setCardFilter((prev) => (prev === chip.last4 ? null : chip.last4))}
-            >
-              {chip.label}
-            </FilterPill>
-          ))}
         </div>
       </div>
 
       {filtered.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-5 text-center text-sm text-slate-500">
+        <div className="rounded-2xl border border-dashed border-darc-linen bg-darc-off-white p-8 text-center text-sm text-darc-velvet/50">
           Nenhuma movimentação com esses filtros.
         </div>
       ) : (
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           {filtered.map((item) => {
             const isEntrada = item.kind === 'entrada';
-            const meta = isEntrada ? entryMeta(item.tipo) : movementMeta(item.forma);
-            const Icon = meta.icon;
-            const editing = !isEntrada && editingId != null && item.kind === 'saida' && item.id === editingId;
+            const editing =
+              !isEntrada && editingId != null && item.kind === 'saida' && item.id === editingId;
+
+            const titulo =
+              !isEntrada && item.kind === 'saida' && !item.isInvoice
+                ? item.descricao || tipoLabel(item.tipoDespesa)
+                : item.descricao;
+
+            const origem =
+              item.kind === 'saida'
+                ? originLabel(item.cardLast4, item.bankLast4)
+                : originLabel(null, item.bankLast4);
+
+            const meta = [
+              item.kind === 'saida' && !item.isInvoice ? tipoLabel(item.tipoDespesa) : null,
+              formatDateBR(item.data).slice(0, 5),
+              origem,
+            ]
+              .filter(Boolean)
+              .join(' · ');
+
+            const realizado = item.kind === 'saida' ? item.realizado : true;
+            const badge = isEntrada
+              ? { txt: 'Recebido', cls: 'bg-emerald-100 text-emerald-700' }
+              : realizado
+                ? { txt: 'Paga', cls: 'bg-emerald-100 text-emerald-700' }
+                : { txt: 'A pagar', cls: 'bg-amber-100 text-amber-700' };
+
+            const isInvoiceRow = !isEntrada && item.kind === 'saida' && item.isInvoice;
+            const canToggle = !isEntrada && item.kind === 'saida' && item.editavel && !item.isInvoice;
+            const canEdit = canToggle;
 
             return (
               <div
                 key={`${item.kind}-${item.id ?? `${item.descricao}-${item.data}-${item.valor}`}`}
-                className="rounded-2xl border border-slate-100 px-3 py-2.5"
+                className="rounded-2xl border border-darc-linen bg-white transition-colors hover:border-orange-200 hover:shadow-darc-soft"
               >
-                <div className="flex min-h-11 items-center gap-3">
+                <div className="group flex items-center gap-3 px-3 py-2.5 md:px-4 md:py-3">
                   <span
-                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${
-                      isEntrada ? 'bg-emerald-100 text-emerald-700' : (meta as { iconClass?: string }).iconClass ?? 'bg-slate-100 text-slate-700'
+                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold md:h-10 md:w-10 ${
+                      isEntrada
+                        ? 'bg-emerald-100 text-emerald-700'
+                        : isInvoiceRow
+                          ? 'bg-violet-100 text-violet-700'
+                          : 'bg-orange-100 text-orange-700'
                     }`}
                   >
-                    <Icon className="h-4 w-4" />
+                    {isInvoiceRow ? <CreditCard className="h-4 w-4" /> : initialOf(titulo)}
                   </span>
 
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-slate-900">
-                      {!isEntrada && item.kind === 'saida' && !item.isInvoice
-                        ? tipoLabel(item.tipoDespesa) || item.descricao
-                        : item.descricao}
-                    </p>
-                    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-slate-500">
-                      <span>{formatDateBR(item.data)}</span>
-                      {item.kind === 'saida' ? (
-                        <OriginBadge cardLast4={item.cardLast4} bankLast4={item.bankLast4} />
-                      ) : (
-                        <OriginBadge cardLast4={null} bankLast4={item.bankLast4} />
-                      )}
-                      {!isEntrada && item.kind === 'saida' && (
-                        <span
-                          className={`rounded-full px-2 py-0.5 font-semibold ${
-                            item.realizado ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'
-                          }`}
-                        >
-                          {item.realizado ? 'pago' : 'a pagar'}
-                        </span>
-                      )}
-                    </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (canEdit && item.kind === 'saida') startEdit(item);
+                    }}
+                    className="min-w-0 flex-1 text-left"
+                    title={canEdit ? 'Editar' : undefined}
+                  >
+                    <div className="truncate text-sm font-semibold text-darc-velvet">{titulo}</div>
+                    <div className="truncate text-[11px] text-darc-velvet/50">{meta}</div>
+                  </button>
+
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    <span
+                      className={`text-sm font-semibold tabular-nums ${
+                        isEntrada ? 'text-emerald-600' : 'text-darc-velvet'
+                      }`}
+                    >
+                      {isEntrada ? '+' : '−'} {formatCurrency(item.valor / 100)}
+                    </span>
+                    {isInvoiceRow ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (item.kind === 'saida' && !item.realizado && item.cardLast4)
+                            onPayInvoice(item.cardLast4);
+                        }}
+                        disabled={realizado || !(item.kind === 'saida' && item.cardLast4)}
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${badge.cls} ${
+                          !realizado ? 'cursor-pointer hover:brightness-95' : ''
+                        }`}
+                        title={!realizado ? 'Pagar fatura' : undefined}
+                      >
+                        {badge.txt}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          if (canToggle && item.kind === 'saida' && item.id)
+                            toggleStatus.mutate({
+                              id: item.id,
+                              status: realizado ? 'PLANEJADO' : 'PAGO',
+                            });
+                        }}
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${badge.cls}`}
+                        title={canToggle ? 'Alternar status' : undefined}
+                      >
+                        {badge.txt}
+                      </button>
+                    )}
                   </div>
 
-                  <p
-                    className={`shrink-0 text-right text-sm font-bold ${
-                      isEntrada ? 'text-emerald-700' : 'text-slate-950'
-                    }`}
-                  >
-                    {isEntrada ? '+' : '−'} {formatCurrency(item.valor / 100)}
-                  </p>
+                  {canEdit && item.kind === 'saida' && (
+                    <div className="flex shrink-0 items-center gap-0.5">
+                      <button
+                        type="button"
+                        aria-label="Editar"
+                        onClick={() => startEdit(item)}
+                        className="rounded-lg p-1.5 text-darc-velvet/30 transition-colors hover:bg-orange-50 hover:text-orange-500"
+                        title="Editar"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Excluir"
+                        onClick={() => {
+                          if (item.id && confirm('Excluir lançamento?')) removeExpense.mutate(item.id);
+                        }}
+                        className="rounded-lg p-1.5 text-darc-velvet/30 transition-colors hover:bg-red-50 hover:text-red-500"
+                        title="Excluir"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )}
                 </div>
 
-                {!isEntrada && item.kind === 'saida' && (
-                  <div className="mt-2 flex items-center justify-end gap-1.5">
-                    {item.isInvoice ? (
-                      !item.realizado && item.cardLast4 ? (
-                        <button
-                          type="button"
-                          onClick={() => onPayInvoice(item.cardLast4!)}
-                          className="inline-flex h-8 items-center gap-1 rounded-lg bg-emerald-600 px-3 text-[11px] font-semibold text-white transition hover:bg-emerald-700"
-                        >
-                          <Check className="h-3.5 w-3.5" /> Pagar fatura
-                        </button>
-                      ) : (
-                        <span className="text-[10px] text-slate-400">fatura — gerida pelo cartão</span>
-                      )
-                    ) : editing ? (
-                      <div className="flex w-full items-center gap-1.5">
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={editValor}
-                          onChange={(e) => setEditValor(e.target.value)}
-                          className="h-8 w-24 rounded-lg border border-slate-200 px-2 text-xs"
-                        />
-                        <input
-                          type="date"
-                          value={editData}
-                          onChange={(e) => setEditData(e.target.value)}
-                          className="h-8 flex-1 rounded-lg border border-slate-200 px-2 text-xs"
-                        />
-                        <button
-                          type="button"
-                          aria-label="Salvar"
-                          onClick={() =>
-                            item.id &&
-                            quickUpdate.mutate({
-                              id: item.id,
-                              valorTotal: Math.round(parseFloat(editValor || '0') * 100),
-                              dataPagamento: editData,
-                            })
-                          }
-                          className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 text-white"
-                        >
-                          <Check className="h-4 w-4" />
-                        </button>
-                        <button
-                          type="button"
-                          aria-label="Cancelar"
-                          onClick={() => setEditingId(null)}
-                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-500"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      </div>
-                    ) : (
-                      item.editavel && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              item.id &&
-                              toggleStatus.mutate({
-                                id: item.id,
-                                status: item.realizado ? 'PLANEJADO' : 'PAGO',
-                              })
-                            }
-                            className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 px-2.5 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-50"
-                          >
-                            {item.realizado ? <Undo2 className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
-                            {item.realizado ? 'desfazer' : 'marcar pago'}
-                          </button>
-                          <button
-                            type="button"
-                            aria-label="Editar"
-                            onClick={() => startEdit(item)}
-                            className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition hover:bg-slate-50"
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            aria-label="Excluir"
-                            onClick={() => item.id && removeExpense.mutate(item.id)}
-                            className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition hover:bg-rose-50 hover:text-rose-600"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </>
-                      )
-                    )}
+                {editing && item.kind === 'saida' && (
+                  <div className="flex flex-wrap items-center gap-1.5 border-t border-darc-linen bg-darc-off-white px-3 py-2.5">
+                    <label className="text-[10px] font-semibold text-darc-velvet/50">valor</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={editValor}
+                      onChange={(e) => setEditValor(e.target.value)}
+                      className="h-9 w-28 rounded-lg border border-darc-linen bg-white px-2 text-sm"
+                    />
+                    <label className="ml-1 text-[10px] font-semibold text-darc-velvet/50">data</label>
+                    <input
+                      type="date"
+                      value={editData}
+                      onChange={(e) => setEditData(e.target.value)}
+                      className="h-9 flex-1 rounded-lg border border-darc-linen bg-white px-2 text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        item.id &&
+                        quickUpdate.mutate({
+                          id: item.id,
+                          valorTotal: Math.round(parseFloat(editValor || '0') * 100),
+                          dataPagamento: editData,
+                        })
+                      }
+                      className="flex h-9 items-center gap-1 rounded-lg bg-orange-500 px-3 text-xs font-semibold text-white hover:bg-orange-600"
+                    >
+                      <Check className="h-4 w-4" /> salvar
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Cancelar"
+                      onClick={() => setEditingId(null)}
+                      className="flex h-9 w-9 items-center justify-center rounded-lg border border-darc-linen text-darc-velvet/50"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
                   </div>
                 )}
               </div>
@@ -360,6 +384,86 @@ export function MovimentacoesSection({
         </div>
       )}
     </section>
+  );
+}
+
+function OriginStrip({
+  cartoes,
+  contas,
+  selected,
+  onSelect,
+}: {
+  cartoes: AccountViewResponse['cartoes'];
+  contas: NonNullable<AccountViewResponse['contas']>;
+  selected: string | null;
+  onSelect: (last4: string | null) => void;
+}) {
+  if (cartoes.length === 0 && contas.length === 0) return null;
+  return (
+    <div className="-mx-1 flex items-stretch gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] md:flex-wrap md:overflow-visible [&::-webkit-scrollbar]:hidden">
+      {cartoes.map((c) => {
+        const active = selected === c.last4;
+        const paga = c.status === 'paga';
+        return (
+          <button
+            key={`card-${c.last4}`}
+            type="button"
+            onClick={() => onSelect(active ? null : c.last4)}
+            className={`flex shrink-0 items-center gap-2.5 rounded-2xl border px-3.5 py-2 text-left transition-colors md:shrink ${
+              active
+                ? 'border-orange-500 bg-orange-500 text-white shadow-sm'
+                : 'border-darc-linen bg-white text-darc-velvet hover:border-orange-300 hover:bg-orange-50'
+            }`}
+          >
+            <CreditCard className={`h-5 w-5 shrink-0 ${active ? 'text-white' : 'text-orange-600'}`} />
+            <div className="leading-tight">
+              <div className="whitespace-nowrap text-sm font-semibold">
+                {c.nickname} ••{c.last4}
+              </div>
+              <div
+                className={`whitespace-nowrap font-mono text-xs ${active ? 'text-orange-50' : 'text-darc-velvet/50'}`}
+              >
+                {formatCurrency(c.faturaAtual / 100)} · {paga ? 'paga' : 'a pagar'}
+              </div>
+            </div>
+          </button>
+        );
+      })}
+      {contas.map((c) => {
+        const active = selected === c.last4;
+        return (
+          <button
+            key={`bank-${c.last4}`}
+            type="button"
+            onClick={() => onSelect(active ? null : c.last4)}
+            className={`flex shrink-0 items-center gap-2.5 rounded-2xl border px-3.5 py-2 text-left transition-colors md:shrink ${
+              active
+                ? 'border-orange-500 bg-orange-500 text-white shadow-sm'
+                : 'border-darc-linen bg-white text-darc-velvet hover:border-orange-300 hover:bg-orange-50'
+            }`}
+          >
+            <Landmark className={`h-5 w-5 shrink-0 ${active ? 'text-white' : 'text-orange-600'}`} />
+            <div className="leading-tight">
+              <div className="whitespace-nowrap text-sm font-semibold">
+                {c.nome} ••{c.last4}
+              </div>
+              <div className={`whitespace-nowrap text-xs ${active ? 'text-orange-50' : 'text-darc-velvet/50'}`}>
+                conta
+              </div>
+            </div>
+          </button>
+        );
+      })}
+      {selected && (
+        <button
+          type="button"
+          onClick={() => onSelect(null)}
+          className="shrink-0 self-center rounded-2xl border border-darc-linen bg-white px-4 py-2 text-sm font-medium text-darc-velvet/60 hover:bg-gray-50"
+        >
+          Limpar
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -376,8 +480,8 @@ function FilterPill({
     <button
       type="button"
       onClick={onClick}
-      className={`h-7 rounded-full px-3 text-[11px] font-semibold transition ${
-        active ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+      className={`h-9 rounded-full px-3 text-[12px] font-semibold transition ${
+        active ? 'bg-darc-velvet text-white' : 'bg-darc-cream text-darc-velvet/60 hover:bg-darc-linen'
       }`}
     >
       {children}
