@@ -54,28 +54,22 @@ export default function ContaPage() {
 
   return (
     <div className="space-y-4 xl:space-y-5">
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_20rem] xl:items-stretch">
-        <header className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm xl:p-6">
-          <div className="flex items-start gap-4">
-            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-100 text-slate-700 xl:h-12 xl:w-12">
-              <Landmark className="h-5 w-5" />
-            </span>
-            <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                Visão Conta
-              </p>
-              <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-950 xl:text-3xl">
-                {monthLabelLong(selectedMonth)}
-              </h1>
-              <p className="mt-2 max-w-2xl text-sm text-slate-600 xl:text-[15px] xl:leading-6">
-                Quanto você tem, quanto entrou, quanto saiu e quanto ainda vai sair da conta.
-              </p>
-            </div>
+      <header className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm xl:px-4 xl:py-3">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
+            <Landmark className="h-[18px] w-[18px]" />
+          </span>
+          <div className="min-w-0 leading-tight">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+              Visão Conta
+            </p>
+            <h1 className="truncate text-base font-bold tracking-tight text-slate-950 xl:text-lg">
+              {monthLabelLong(selectedMonth)}
+            </h1>
           </div>
-        </header>
-
+        </div>
         <ContaMonthPicker month={selectedMonth} onChange={setSelectedMonth} />
-      </div>
+      </header>
 
       {isLoading && <LoadingBlock />}
 
@@ -93,7 +87,6 @@ export default function ContaPage() {
             saiuMes={data.saiuMes}
             faltaPagarMes={data.faltaPagarMes}
             sobraPrevista={data.sobraPrevista}
-            devoCartaoTotal={data.devoCartaoTotal}
           />
           <CartoesSection cartoes={data.cartoes} />
           <div className="grid gap-4 xl:grid-cols-2">

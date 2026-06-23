@@ -3,11 +3,10 @@
 import { formatCurrency } from '@/lib/utils';
 
 const SMALL_CARDS: Array<{
-  key: 'entrouMes' | 'saiuMes' | 'faltaPagarMes' | 'sobraPrevista' | 'devoCartaoTotal';
+  key: 'entrouMes' | 'saiuMes' | 'faltaPagarMes' | 'sobraPrevista';
   title: string;
   help: string;
   tone: 'emerald' | 'slate' | 'amber';
-  spanTwo?: boolean;
 }> = [
   {
     key: 'entrouMes',
@@ -33,13 +32,6 @@ const SMALL_CARDS: Array<{
     help: 'o que deve ficar na conta no dia 30',
     tone: 'emerald',
   },
-  {
-    key: 'devoCartaoTotal',
-    title: 'Devo de cartão',
-    help: 'soma das faturas em aberto',
-    tone: 'slate',
-    spanTwo: true,
-  },
 ];
 
 function toneClasses(tone: 'emerald' | 'slate' | 'amber') {
@@ -54,21 +46,18 @@ export function ResumoCards({
   saiuMes,
   faltaPagarMes,
   sobraPrevista,
-  devoCartaoTotal,
 }: {
   caixaHoje: number;
   entrouMes: number;
   saiuMes: number;
   faltaPagarMes: number;
   sobraPrevista: number;
-  devoCartaoTotal: number;
 }) {
   const values = {
     entrouMes,
     saiuMes,
     faltaPagarMes,
     sobraPrevista,
-    devoCartaoTotal,
   };
 
   return (
@@ -85,13 +74,11 @@ export function ResumoCards({
         </p>
       </article>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:col-span-8 xl:auto-rows-fr xl:gap-4">
+      <div className="grid grid-cols-2 gap-3 xl:col-span-8 xl:auto-rows-fr xl:grid-cols-4 xl:gap-4">
         {SMALL_CARDS.map((card) => (
           <article
             key={card.key}
-            className={`rounded-2xl border p-3 shadow-sm xl:flex xl:min-h-full xl:flex-col xl:justify-between xl:p-4 ${toneClasses(card.tone)} ${
-              card.spanTwo ? 'col-span-2 lg:col-span-1 xl:col-span-1' : ''
-            }`}
+            className={`rounded-2xl border p-3 shadow-sm xl:flex xl:min-h-full xl:flex-col xl:justify-between xl:p-4 ${toneClasses(card.tone)}`}
           >
             <p className="text-[11px] font-semibold leading-4">{card.title}</p>
             <p className="mt-2 text-lg font-bold tracking-tight xl:text-[22px]">
