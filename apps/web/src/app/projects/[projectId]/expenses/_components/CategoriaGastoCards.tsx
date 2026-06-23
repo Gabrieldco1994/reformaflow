@@ -55,18 +55,20 @@ export function CategoriaGastoCards({
         className="flex w-full items-center gap-2 px-4 py-3 text-left hover:bg-orange-50/40"
       >
         {open ? <ChevronDown className="h-4 w-4 text-darc-velvet/40" /> : <ChevronRight className="h-4 w-4 text-darc-velvet/40" />}
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-darc-velvet/60">
+        <span className="text-xs font-semibold uppercase tracking-wide text-darc-velvet/60">
           Gastos por categoria
         </span>
         <span className="text-[10px] text-darc-velvet/40">
           {categorias.length} {categorias.length === 1 ? 'categoria' : 'categorias'}
         </span>
-        <span className="ml-auto font-bold text-sm text-darc-velvet tabular-nums">
-          {formatCurrency(total / 100)}
-        </span>
+        {!open && (
+          <span className="ml-auto font-bold text-sm text-darc-velvet tabular-nums">
+            {formatCurrency(total / 100)}
+          </span>
+        )}
       </button>
       {open && (
-        <div className="divide-y divide-darc-linen/60 border-t border-darc-linen">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-3 p-4 border-t border-darc-linen">
           {categorias.map((c) => {
             const limite = limitsByTipo?.get(c.tipo);
             // Com meta: % e cor do donut refletem uso do limite; sem meta: % sobre o total do mês.
@@ -77,20 +79,23 @@ export function CategoriaGastoCards({
               ? (pct >= 100 ? '#DC2626' : pct >= 80 ? '#F59E0B' : '#F27D33')
               : '#F27D33';
             return (
-              <div key={c.tipo} className="flex items-center gap-3 px-4 py-2.5">
-                <Donut pct={Math.min(pct, 999)} color={donutColor} />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-darc-velvet">{tipoLabel(c.tipo)}</p>
-                  <p className="text-[11px] text-darc-velvet/50">
-                    Pago <span className="font-semibold text-emerald-600">{formatCurrency(c.pago / 100)}</span>
-                    {' · '}A vir <span className="font-semibold text-amber-600">{formatCurrency(c.planejado / 100)}</span>
-                  </p>
+              <div key={c.tipo} className="rounded-xl border border-darc-linen/60 bg-white p-3 hover:shadow-sm transition-shadow">
+                <div className="flex items-start gap-2">
+                  <Donut pct={Math.min(pct, 999)} color={donutColor} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-darc-velvet leading-tight">{tipoLabel(c.tipo)}</p>
+                    <p className="mt-1 text-base font-bold text-darc-velvet tabular-nums">{formatCurrency(c.total / 100)}</p>
+                    {limite && (
+                      <p className="text-[10px] text-darc-velvet/40">de {formatCurrency(limite / 100)}</p>
+                    )}
+                  </div>
                 </div>
-                <div className="shrink-0 text-right">
-                  <p className="text-sm font-bold text-darc-velvet tabular-nums">{formatCurrency(c.total / 100)}</p>
-                  {limite ? (
-                    <p className="text-[10px] text-darc-velvet/40">de {formatCurrency(limite / 100)}</p>
-                  ) : null}
+                <div className="mt-2 pt-2 border-t border-darc-linen/40">
+                  <p className="text-[10px] text-darc-velvet/50 leading-relaxed">
+                    Pago <span className="font-semibold text-emerald-600">{formatCurrency(c.pago / 100)}</span>
+                    {' · '}
+                    A vir <span className="font-semibold text-amber-600">{formatCurrency(c.planejado / 100)}</span>
+                  </p>
                 </div>
               </div>
             );

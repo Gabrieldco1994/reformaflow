@@ -9,9 +9,9 @@ import {
 } from '../_lib/conta-real';
 
 export interface GastosControleKpis {
-  /** Σ compras de cartão do período (vai pras próximas faturas). */
+  /** Σ compras de cartão PAGAS do período. */
   noCartao: number;
-  /** Σ débitos/à vista direto da conta. */
+  /** Σ débitos/à vista PAGOS direto da conta. */
   naConta: number;
   /** Σ status PLANEJADO (a confirmar). */
   aConfirmar: number;
@@ -60,9 +60,13 @@ export function usePersonalCashViews({
     for (const e of periodFilteredPersonal) {
       if (isNeutralExpenseType(e.tipoDespesa)) continue;
       const v = e.valorTotal;
-      if (e.cardLast4) noCartao += v;
-      else naConta += v;
-      if (e.status === 'PLANEJADO') aConfirmar += v;
+      if (e.status === 'PLANEJADO') {
+        aConfirmar += v;
+      } else {
+        // Apenas valores PAGOS vão para noCartao/naConta
+        if (e.cardLast4) noCartao += v;
+        else naConta += v;
+      }
     }
     return { noCartao, naConta, aConfirmar };
   }, [periodFilteredPersonal]);

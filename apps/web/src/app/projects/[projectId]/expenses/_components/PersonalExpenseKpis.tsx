@@ -17,12 +17,12 @@ interface ContaReal {
 /** Mini-stat (chip) abaixo do hero. */
 function Stat({ label, value, dot }: { label: string; value: number; dot: string }) {
   return (
-    <div className="rounded-2xl border border-darc-linen bg-white p-3 shadow-darc-soft">
+    <div className="rounded-2xl border border-darc-linen bg-white p-4 shadow-darc-soft">
       <div className="flex items-center gap-1.5">
-        <span className={`inline-block h-2 w-2 rounded-full ${dot}`} />
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-darc-velvet/60">{label}</p>
+        <span className={`inline-block h-2.5 w-2.5 rounded-full ${dot}`} />
+        <p className="text-xs font-semibold uppercase tracking-wide text-darc-velvet/60">{label}</p>
       </div>
-      <p className="mt-1 text-lg font-bold tabular-nums text-darc-velvet">{formatCurrency(value / 100)}</p>
+      <p className="mt-2 text-2xl font-bold tabular-nums text-darc-velvet">{formatCurrency(value / 100)}</p>
     </div>
   );
 }
@@ -45,40 +45,40 @@ export function PersonalExpenseKpis({
   const isCaixa = eixo === 'caixa';
   const total = isCaixa
     ? contaReal.faturasVencendo + contaReal.debitos
-    : gastosControle.noCartao + gastosControle.naConta;
+    : gastosControle.noCartao + gastosControle.naConta + gastosControle.aConfirmar;
   const pendente = isCaixa ? contaReal.faltaSair : gastosControle.aConfirmar;
-  const pago = Math.max(0, total - pendente);
+  const pago = isCaixa ? Math.max(0, total - pendente) : gastosControle.noCartao + gastosControle.naConta;
   const pctPago = total > 0 ? Math.min(100, Math.round((pago / total) * 100)) : 0;
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {/* Hero card */}
-      <div className="rounded-3xl bg-darc-gradient-dark p-5 text-darc-linen shadow-darc-hero">
+      <div className="rounded-3xl bg-darc-gradient-dark p-6 text-darc-linen shadow-darc-hero">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-darc-linen/60">
+            <p className="text-xs font-semibold uppercase tracking-[0.15em] text-darc-linen/60">
               {isCaixa ? 'Vai sair no mês' : 'Gasto no mês'}
             </p>
-            <p className="mt-1 text-3xl sm:text-4xl font-bold tabular-nums tracking-tight leading-none">
+            <p className="mt-2 text-4xl sm:text-5xl font-bold tabular-nums tracking-tight leading-none">
               {formatCurrency(total / 100)}
             </p>
           </div>
           <div className="shrink-0 text-right">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-darc-linen/60">Pago</p>
-            <p className="mt-1 text-2xl font-bold tabular-nums leading-none text-orange-300">{pctPago}%</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.15em] text-darc-linen/60">Pago</p>
+            <p className="mt-2 text-3xl font-bold tabular-nums leading-none text-orange-300">{pctPago}%</p>
           </div>
         </div>
-        <div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-white/15">
+        <div className="mt-5 h-2 w-full overflow-hidden rounded-full bg-white/15">
           <div className="h-full rounded-full bg-orange-500 transition-all" style={{ width: `${pctPago}%` }} />
         </div>
-        <div className="mt-2 flex items-center justify-between text-[11px] text-darc-linen/70">
+        <div className="mt-3 flex items-center justify-between text-xs text-darc-linen/70">
           <span>{isCaixa ? 'Já saiu' : 'Pago'} <span className="font-semibold text-darc-linen">{formatCurrency(pago / 100)}</span></span>
           <span>{isCaixa ? 'Falta sair' : 'A vir'} <span className="font-semibold text-orange-300">{formatCurrency(pendente / 100)}</span></span>
         </div>
       </div>
 
       {/* Mini-stats */}
-      <div className="grid grid-cols-3 gap-2 md:gap-3">
+      <div className="grid grid-cols-3 gap-3 md:gap-4">
         {isCaixa ? (
           <>
             <Stat label="Faturas" value={contaReal.faturasVencendo} dot="bg-rose-400" />
