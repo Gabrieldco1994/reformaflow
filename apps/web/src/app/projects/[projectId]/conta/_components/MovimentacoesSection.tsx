@@ -99,6 +99,7 @@ export function MovimentacoesSection({
   };
 
   const activeIsCard = originFilter != null && cardByLast4.has(originFilter);
+  const projetoAtivo = projetoFilter !== 'todos' && projetoFilter !== projectId;
 
   const merged = useMemo<AccountViewMovimentacao[]>(() => {
     let saidas: AccountViewSaida[] = data.saidas;
@@ -107,10 +108,15 @@ export function MovimentacoesSection({
         ...data.saidas.filter((s) => !(s.isInvoice && s.cardLast4 === originFilter)),
         ...data.comprasCartao.filter((c) => c.cardLast4 === originFilter),
       ];
+    } else if (projetoAtivo) {
+      // Filtrando por projeto: as compras de cartão desse projeto estão recolhidas
+      // dentro da fatura. Expande todas as compras (substituindo as faturas) para
+      // que o rótulo de origem e o filtro funcionem.
+      saidas = [...data.saidas.filter((s) => !s.isInvoice), ...data.comprasCartao];
     }
     const list: AccountViewMovimentacao[] = [...saidas, ...data.entradas];
     return list.sort((a, b) => b.data.localeCompare(a.data));
-  }, [data.saidas, data.entradas, data.comprasCartao, activeIsCard, originFilter]);
+  }, [data.saidas, data.entradas, data.comprasCartao, activeIsCard, projetoAtivo, originFilter]);
 
   const catOptions = useMemo(() => {
     const set = new Map<string, string>();
@@ -126,15 +132,15 @@ export function MovimentacoesSection({
 
   const projetoOptions = useMemo(() => {
     const set = new Map<string, string>();
-    for (const m of merged) {
-      if (m.kind === 'saida' && m.projetoOrigem && m.projetoOrigem.type !== 'PESSOAL') {
+    for (const m of [...data.saidas, ...data.comprasCartao]) {
+      if (m.projetoOrigem && m.projetoOrigem.type !== 'PESSOAL') {
         set.set(m.projetoOrigem.id, m.projetoOrigem.name);
       }
     }
     return Array.from(set.entries())
       .map(([value, label]) => ({ value, label }))
       .sort((a, b) => a.label.localeCompare(b.label));
-  }, [merged]);
+  }, [data.saidas, data.comprasCartao]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
