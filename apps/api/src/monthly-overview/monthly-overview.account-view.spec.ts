@@ -370,6 +370,131 @@ describe('MonthlyOverviewService.getAccountView', () => {
     ]);
   });
 
+  it('inclui cobrança neutra no cartão (PgConta/Pix no crédito) na fatura, mas fora do gasto real', async () => {
+    // Card "Latam-like": closing 25, due 1. Compras em 2026-04-30 caem na fatura de 2026-06.
+    prisma.bankAccount.findMany.mockResolvedValue([]);
+    prisma.receipt.findMany.mockResolvedValue([]);
+
+    prisma.expense.findMany.mockResolvedValue([
+      {
+        id: 'exp-real',
+        tenantId,
+        projectId,
+        tipoDespesa: 'OUTROS',
+        titulo: 'Compra real',
+        fornecedor: 'Loja',
+        valorTotal: 1_000,
+        valor: 1_000,
+        formaPagamento: 'A_VISTA',
+        dataPagamento: new Date('2026-04-30T00:00:00.000Z'),
+        dataInicioParcela: null,
+        createdAt: new Date('2026-04-30T00:00:00.000Z'),
+        quantidadeParcela: null,
+        status: 'PLANEJADO',
+        cardLast4: '9999',
+        bankLast4: null,
+      },
+      {
+        // Neutro lançado COMO COBRANÇA no cartão (sem bankLast4): usar este cartão
+        // para pagar a fatura de outro / Pix no crédito. Deve entrar na fatura.
+        id: 'exp-pgconta',
+        tenantId,
+        projectId,
+        tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+        titulo: 'PgConta NU PAGAMENTOS SA',
+        fornecedor: 'NU PAGAMENTOS',
+        valorTotal: 5_000,
+        valor: 5_000,
+        formaPagamento: 'A_VISTA',
+        dataPagamento: new Date('2026-04-30T00:00:00.000Z'),
+        dataInicioParcela: null,
+        createdAt: new Date('2026-04-30T00:00:00.000Z'),
+        quantidadeParcela: null,
+        status: 'PLANEJADO',
+        cardLast4: '9999',
+        bankLast4: null,
+      },
+    ]);
+
+    prisma.cashFlowEntry.findMany.mockResolvedValue([
+      {
+        id: 'cfe-real',
+        tenantId,
+        projectId,
+        tipo: 'DESPESA',
+        valor: 1_000,
+        data: new Date('2026-04-30T00:00:00.000Z'),
+        status: 'PLANEJADO',
+        categoria: 'OUTROS',
+        subcategoria: 'Latam',
+        formaPagamento: 'CARTAO_CREDITO',
+        parcela: null,
+        expense: {
+          id: 'exp-real',
+          tipoDespesa: 'OUTROS',
+          titulo: 'Compra real',
+          fornecedor: 'Loja',
+          cardLast4: '9999',
+          bankLast4: null,
+        },
+        receipt: null,
+      },
+      {
+        id: 'cfe-pgconta',
+        tenantId,
+        projectId,
+        tipo: 'DESPESA',
+        valor: 5_000,
+        data: new Date('2026-04-30T00:00:00.000Z'),
+        status: 'PLANEJADO',
+        categoria: 'PAGAMENTO_FATURA_CARTAO',
+        subcategoria: 'Latam',
+        formaPagamento: 'CARTAO_CREDITO',
+        parcela: null,
+        expense: {
+          id: 'exp-pgconta',
+          tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+          titulo: 'PgConta NU PAGAMENTOS SA',
+          fornecedor: 'NU PAGAMENTOS',
+          cardLast4: '9999',
+          bankLast4: null,
+        },
+        receipt: null,
+      },
+    ]);
+
+    prisma.creditCard.findMany.mockResolvedValue([
+      {
+        id: 'card-latam',
+        tenantId,
+        projectId,
+        nickname: 'Latam',
+        last4: '9999',
+        closingDay: 25,
+        dueDay: 1,
+        limitTotalCents: 100_000,
+        limitAvailableCents: 50_000,
+      },
+    ]);
+
+    const res: any = await service.getAccountView(tenantId, projectId, '2026-06');
+
+    // Fatura espelha o banco: inclui a cobrança neutra (1.000 + 5.000).
+    const fatura = res.saidas.find(
+      (item: any) => item.isInvoice === true && item.cardLast4 === '9999',
+    );
+    expect(fatura).toBeDefined();
+    expect(fatura.valor).toBe(6_000);
+
+    // Gasto real (comprasCartao) NÃO inclui o neutro: só a compra real.
+    const compras9999 = res.comprasCartao.filter((item: any) => item.cardLast4 === '9999');
+    expect(compras9999.reduce((sum: number, item: any) => sum + item.valor, 0)).toBe(1_000);
+    expect(compras9999.some((item: any) => /PgConta/i.test(item.descricao))).toBe(false);
+
+    // Devo de cartão considera a fatura cheia (6.000).
+    expect(res.devoCartaoTotal).toBe(6_000);
+  });
+
   it('calcula ticket médio, variação mensal e média de 6 meses por competência', async () => {
     prisma.bankAccount.findMany.mockResolvedValue([]);
     prisma.receipt.findMany.mockResolvedValue([]);

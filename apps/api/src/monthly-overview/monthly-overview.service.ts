@@ -333,7 +333,12 @@ export class MonthlyOverviewService {
 
     for (const entry of entries) {
       if (entry.tipo !== 'DESPESA' || !entry.expense?.cardLast4) continue;
-      if (isNeutralExpenseType(entry.expense.tipoDespesa)) continue;
+      // Neutros pagos a partir de uma CONTA (bankLast4) liquidam fatura e não entram
+      // em nenhuma fatura. Mas um neutro lançado como COBRANÇA no cartão (cardLast4
+      // setado, sem bankLast4) — ex.: usar este cartão para pagar a fatura de outro
+      // ou "Pix no crédito" — é uma cobrança real na fatura deste cartão e espelha o
+      // valor cobrado pelo banco. Continua neutro no gasto real (cash-axis/comprasCartao).
+      if (isNeutralExpenseType(entry.expense.tipoDespesa) && entry.expense.bankLast4) continue;
 
       const card = cardByLast4.get(entry.expense.cardLast4) ?? null;
       const dueMonth = caixaMonthForCardPurchase(
