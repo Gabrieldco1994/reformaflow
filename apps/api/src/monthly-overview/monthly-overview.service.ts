@@ -2,8 +2,10 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import {
   buildMonthlyOverview,
+  caixaMonthForCardPurchase,
   compareMonths,
   ExpenseTypeLabels,
+  isNeutralExpenseType,
   type MonthlyOverviewEntry,
 } from '@reformaflow/domain';
 
@@ -150,6 +152,351 @@ export class MonthlyOverviewService {
     };
   }
 
+  async getAccountView(tenantId: string, projectId: string, month?: string) {
+    await this.ensurePessoalProject(tenantId, projectId);
+
+    const mesSelecionado = normalizeMonthKey(month);
+    const [monthStart, monthEnd] = monthRange(mesSelecionado);
+    const sixMonthKeys = lastMonthKeys(mesSelecionado, 6);
+    const sixMonthSet = new Set(sixMonthKeys);
+    const today = new Date();
+
+    const [accounts, expenses, receipts, entries, cards] = await Promise.all([
+      this.prisma.bankAccount.findMany({
+        where: { tenantId, projectId, deletedAt: null },
+        select: { openingBalanceCents: true, openingBalanceDate: true },
+      }),
+      this.prisma.expense.findMany({
+        where: { tenantId, projectId, deletedAt: null },
+        select: {
+          id: true,
+          tipoDespesa: true,
+          titulo: true,
+          fornecedor: true,
+          valor: true,
+          valorTotal: true,
+          formaPagamento: true,
+          dataPagamento: true,
+          dataInicioParcela: true,
+          quantidadeParcela: true,
+          status: true,
+          cardLast4: true,
+          bankLast4: true,
+          createdAt: true,
+        },
+      }),
+      this.prisma.receipt.findMany({
+        where: { tenantId, projectId, deletedAt: null },
+        select: {
+          id: true,
+          valor: true,
+          data: true,
+          tipo: true,
+          status: true,
+          descricao: true,
+          bankLast4: true,
+        },
+      }),
+      this.prisma.cashFlowEntry.findMany({
+        where: {
+          tenantId,
+          projectId,
+          deletedAt: null,
+          AND: [
+            {
+              OR: [{ expenseId: null }, { expense: { deletedAt: null } }],
+            },
+            {
+              OR: [{ receiptId: null }, { receipt: { deletedAt: null } }],
+            },
+          ],
+        },
+        include: {
+          expense: {
+            select: {
+              id: true,
+              tipoDespesa: true,
+              titulo: true,
+              fornecedor: true,
+              cardLast4: true,
+              bankLast4: true,
+            },
+          },
+          receipt: {
+            select: {
+              id: true,
+              tipo: true,
+              descricao: true,
+              bankLast4: true,
+            },
+          },
+        },
+        orderBy: [{ data: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+      }),
+      this.prisma.creditCard.findMany({
+        where: { tenantId, projectId, deletedAt: null },
+        select: {
+          nickname: true,
+          last4: true,
+          closingDay: true,
+          dueDay: true,
+          limitTotalCents: true,
+          limitAvailableCents: true,
+        },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      }),
+    ]);
+
+    const caixa = computeCaixaConta(
+      accounts,
+      expenses.filter((expense) => !!expense.bankLast4),
+      receipts.filter((receipt) => !!receipt.bankLast4),
+    );
+
+    const entrouMes = sumBy(
+      receipts.filter(
+        (receipt) =>
+          !!receipt.bankLast4 &&
+          receipt.status === 'EM_CAIXA' &&
+          receipt.data >= monthStart &&
+          receipt.data < monthEnd,
+      ),
+      (receipt) => receipt.valor,
+    );
+
+    const recebimentosPrevistosMes = sumBy(
+      receipts.filter(
+        (receipt) =>
+          !!receipt.bankLast4 &&
+          receipt.status === 'PREVISTO' &&
+          receipt.data >= monthStart &&
+          receipt.data < monthEnd,
+      ),
+      (receipt) => receipt.valor,
+    );
+
+    const saiuMes = sumBy(
+      expenses.filter(
+        (expense) =>
+          !!expense.bankLast4 &&
+          expense.status === 'PAGO' &&
+          isInRange(accountExpenseDate(expense), monthStart, monthEnd),
+      ),
+      (expense) => expense.valorTotal,
+    );
+
+    const cardByLast4 = new Map(cards.map((card) => [card.last4, card] as const));
+    const paidInvoiceKeys = new Set(
+      expenses
+        .filter(
+          (expense) =>
+            expense.tipoDespesa === 'PAGAMENTO_FATURA_CARTAO' &&
+            expense.status === 'PAGO' &&
+            !!expense.bankLast4 &&
+            !!expense.cardLast4,
+        )
+        .map((expense) => `${monthKeyOf(accountExpenseDate(expense))}__${expense.cardLast4}`),
+    );
+    const invoiceByMonthCard = new Map<string, CardInvoiceAggregate>();
+
+    for (const entry of entries) {
+      if (entry.tipo !== 'DESPESA' || !entry.expense?.cardLast4) continue;
+      if (isNeutralExpenseType(entry.expense.tipoDespesa)) continue;
+
+      const card = cardByLast4.get(entry.expense.cardLast4) ?? null;
+      const dueMonth = caixaMonthForCardPurchase(
+        entry.data,
+        card?.closingDay ?? null,
+        card?.dueDay ?? null,
+      );
+      const invoiceKey = `${dueMonth}__${entry.expense.cardLast4}`;
+      let invoice = invoiceByMonthCard.get(invoiceKey);
+      if (!invoice) {
+        invoice = {
+          dueMonth,
+          cardLast4: entry.expense.cardLast4,
+          nickname: card?.nickname?.trim() || `Cartao ${entry.expense.cardLast4}`,
+          dueDay: card?.dueDay ?? null,
+          total: 0,
+          pending: 0,
+          realized: 0,
+        };
+        invoiceByMonthCard.set(invoiceKey, invoice);
+      }
+
+      invoice.total += entry.valor;
+    }
+
+    for (const [invoiceKey, invoice] of invoiceByMonthCard) {
+      if (paidInvoiceKeys.has(invoiceKey)) {
+        invoice.realized = invoice.total;
+        invoice.pending = 0;
+      } else {
+        invoice.realized = 0;
+        invoice.pending = invoice.total;
+      }
+    }
+
+    const invoiceRows = Array.from(invoiceByMonthCard.values());
+    const selectedInvoices = invoiceRows
+      .filter((invoice) => invoice.dueMonth === mesSelecionado)
+      .sort((a, b) => b.total - a.total);
+
+    const accountExpenseEntries = entries
+      .filter((entry) => {
+        if (entry.tipo !== 'DESPESA' || !entry.expense?.bankLast4 || entry.expense.cardLast4) return false;
+        if (isNeutralExpenseType(entry.expense.tipoDespesa)) return false;
+        return isInRange(entry.data, monthStart, monthEnd);
+      })
+      .sort((a, b) => a.data.getTime() - b.data.getTime());
+
+    const faltaPagarMes =
+      sumBy(selectedInvoices, (invoice) => invoice.pending) +
+      sumBy(
+        accountExpenseEntries.filter((entry) => entry.status !== 'PAGO'),
+        (entry) => entry.valor,
+      );
+
+    const saidas = [
+      ...selectedInvoices.map((invoice) => ({
+        descricao: `Fatura ${invoice.nickname}`,
+        data: dueDateIso(mesSelecionado, invoice.dueDay),
+        forma: 'cartao',
+        valor: invoice.total,
+        realizado: invoice.pending === 0,
+      })),
+      ...accountExpenseEntries.map((entry) => {
+        const expense = entry.expense!;
+        return {
+          descricao: expenseDisplayName(expense.tipoDespesa, expense.titulo, expense.fornecedor),
+          data: entry.data.toISOString(),
+          forma: inferCashForm(
+            `${expense.titulo ?? ''} ${expense.fornecedor ?? ''} ${entry.subcategoria ?? ''}`,
+            entry.formaPagamento,
+          ),
+          valor: entry.valor,
+          realizado: entry.status === 'PAGO',
+        };
+      }),
+    ].sort((a, b) => a.data.localeCompare(b.data));
+
+    const entradas = receipts
+      .filter(
+        (receipt) =>
+          !!receipt.bankLast4 &&
+          receipt.status === 'EM_CAIXA' &&
+          receipt.data >= monthStart &&
+          receipt.data < monthEnd,
+      )
+      .sort((a, b) => a.data.getTime() - b.data.getTime())
+      .map((receipt) => ({
+        descricao: receipt.descricao?.trim() || receiptTypeLabel(receipt.tipo),
+        data: receipt.data.toISOString(),
+        tipo: receiptTypeKey(receipt.tipo),
+        valor: receipt.valor,
+      }));
+
+    const devoCartaoTotal = sumBy(
+      invoiceRows.filter((invoice) => invoice.pending > 0),
+      (invoice) => invoice.pending,
+    );
+
+    const ticketByMonth = new Map<string, { total: number; count: number }>();
+    for (const monthKey of sixMonthKeys) {
+      ticketByMonth.set(monthKey, { total: 0, count: 0 });
+    }
+
+    for (const expense of expenses) {
+      if (isNeutralExpenseType(expense.tipoDespesa)) continue;
+      const key = monthKeyOf(purchaseDate(expense));
+      if (!sixMonthSet.has(key)) continue;
+      const acc = ticketByMonth.get(key);
+      if (!acc) continue;
+      acc.total += expense.valorTotal;
+      acc.count += 1;
+    }
+
+    const serie6m = sixMonthKeys.map((key, index) => {
+      const current = ticketByMonth.get(key) ?? { total: 0, count: 0 };
+      const previousKey = index > 0 ? sixMonthKeys[index - 1] : null;
+      const previous = previousKey ? ticketByMonth.get(previousKey) ?? { total: 0, count: 0 } : null;
+      const currentAvg = current.count > 0 ? Math.round(current.total / current.count) : 0;
+      const previousAvg =
+        previous && previous.count > 0 ? Math.round(previous.total / previous.count) : 0;
+      return {
+        mes: key,
+        valor: currentAvg,
+        deltaPct:
+          !previous || previousAvg === 0 ? null : roundPct(((currentAvg - previousAvg) / previousAvg) * 100),
+      };
+    });
+
+    const ticketAtual = ticketByMonth.get(mesSelecionado) ?? { total: 0, count: 0 };
+    const ticketValor = ticketAtual.count > 0 ? Math.round(ticketAtual.total / ticketAtual.count) : 0;
+    const media6mBase = serie6m.filter((item) => item.valor > 0);
+    const media6m =
+      media6mBase.length > 0
+        ? Math.round(media6mBase.reduce((sum, item) => sum + item.valor, 0) / media6mBase.length)
+        : 0;
+    const deltaVsMediaPct = media6m > 0 ? roundPct(((ticketValor - media6m) / media6m) * 100) : null;
+
+    const cartoes = cards.map((card) => {
+      const openInvoiceMonth = currentOpenInvoiceMonth(card, today);
+      const invoice =
+        invoiceByMonthCard.get(`${openInvoiceMonth}__${card.last4}`) ??
+        ({
+          dueMonth: openInvoiceMonth,
+          cardLast4: card.last4,
+          nickname: card.nickname?.trim() || `Cartao ${card.last4}`,
+          dueDay: card.dueDay ?? null,
+          total: 0,
+          pending: 0,
+          realized: 0,
+        } satisfies CardInvoiceAggregate);
+      const canShowLimit =
+        card.limitTotalCents != null && card.limitAvailableCents != null && card.limitTotalCents > 0;
+      const limitTotal = canShowLimit ? card.limitTotalCents! : null;
+      const limitAvailable = canShowLimit ? card.limitAvailableCents! : null;
+      const limiteUsado = canShowLimit
+        ? Math.max(limitTotal! - limitAvailable!, 0)
+        : null;
+      return {
+        nickname: card.nickname?.trim() || 'Cartao',
+        last4: card.last4,
+        faturaAtual: invoice.total,
+        vencimento: dueDateIso(openInvoiceMonth, card.dueDay),
+        status: invoice.pending > 0 ? 'a pagar' : 'paga',
+        limiteUsadoPct:
+          canShowLimit && limiteUsado != null
+            ? Math.round((limiteUsado / limitTotal!) * 100)
+            : null,
+        limiteUsado,
+        limiteTotal: limitTotal,
+      };
+    });
+
+    return {
+      mesSelecionado,
+      caixaHoje: caixa.hoje,
+      entrouMes,
+      saiuMes,
+      faltaPagarMes,
+      sobraPrevista: caixa.hoje - faltaPagarMes + recebimentosPrevistosMes,
+      devoCartaoTotal,
+      cartoes,
+      saidas,
+      entradas,
+      ticketMedio: {
+        valor: ticketValor,
+        nCompras: ticketAtual.count,
+        totalCompras: ticketAtual.total,
+        serie6m,
+        media6m,
+        deltaVsMediaPct,
+      },
+    };
+  }
+
   /**
    * Caixa real da conta corrente — reconciliação §10 do consolidado financeiro:
    *
@@ -180,6 +527,19 @@ export class MonthlyOverviewService {
       }),
     ]);
     return computeCaixaConta(accounts, expenses, receipts);
+  }
+
+  private async ensurePessoalProject(tenantId: string, projectId: string) {
+    const pessoal = await this.prisma.project.findFirst({
+      where: { id: projectId, tenantId, deletedAt: null },
+    });
+    if (!pessoal) throw new NotFoundException('Projeto não encontrado');
+    if (pessoal.type !== 'PESSOAL') {
+      throw new BadRequestException(
+        'Visão consolidada disponível apenas para projetos do tipo PESSOAL',
+      );
+    }
+    return pessoal;
   }
 }
 
@@ -245,4 +605,140 @@ export function computeCaixaConta(
   }
 
   return { hoje: saldoInicial + netRealizado, saldoInicial, temSaldoInicial, porMes };
+}
+
+interface CardInvoiceAggregate {
+  dueMonth: string;
+  cardLast4: string;
+  nickname: string;
+  dueDay: number | null;
+  total: number;
+  pending: number;
+  realized: number;
+}
+
+function normalizeMonthKey(month?: string): string {
+  if (!month) {
+    const now = new Date();
+    return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+  }
+  if (!/^\d{4}-\d{2}$/.test(month)) {
+    throw new BadRequestException('Mês inválido. Use o formato YYYY-MM.');
+  }
+  const [year, monthNumber] = month.split('-').map((value) => parseInt(value, 10));
+  if (!year || !monthNumber || monthNumber < 1 || monthNumber > 12) {
+    throw new BadRequestException('Mês inválido. Use o formato YYYY-MM.');
+  }
+  return `${year}-${String(monthNumber).padStart(2, '0')}`;
+}
+
+function monthRange(monthKey: string): [Date, Date] {
+  const [year, month] = monthKey.split('-').map((value) => parseInt(value, 10));
+  const start = new Date(Date.UTC(year, month - 1, 1));
+  const end = new Date(Date.UTC(year, month, 1));
+  return [start, end];
+}
+
+function lastMonthKeys(endMonthKey: string, count: number): string[] {
+  const [year, month] = endMonthKey.split('-').map((value) => parseInt(value, 10));
+  return Array.from({ length: count }, (_, index) => {
+    const current = new Date(Date.UTC(year, month - count + index, 1));
+    return `${current.getUTCFullYear()}-${String(current.getUTCMonth() + 1).padStart(2, '0')}`;
+  });
+}
+
+function isInRange(date: Date, start: Date, end: Date): boolean {
+  return date >= start && date < end;
+}
+
+function purchaseDate(expense: {
+  dataPagamento: Date | null;
+  dataInicioParcela: Date | null;
+  createdAt: Date;
+}): Date {
+  return expense.dataPagamento ?? expense.dataInicioParcela ?? expense.createdAt;
+}
+
+function accountExpenseDate(expense: { dataPagamento: Date | null; createdAt: Date }): Date {
+  return expense.dataPagamento ?? expense.createdAt;
+}
+
+function dueDateIso(monthKey: string, dueDay: number | null): string {
+  const [year, month] = monthKey.split('-').map((value) => parseInt(value, 10));
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const day = dueDay == null ? 1 : Math.min(Math.max(dueDay, 1), lastDay);
+  return new Date(Date.UTC(year, month - 1, day)).toISOString().slice(0, 10);
+}
+
+function currentOpenInvoiceMonth(
+  card: { closingDay: number | null; dueDay: number | null },
+  today: Date,
+): string {
+  const year = today.getUTCFullYear();
+  const month = today.getUTCMonth();
+  if (card.closingDay == null || card.dueDay == null) {
+    return `${year}-${String(month + 1).padStart(2, '0')}`;
+  }
+
+  const todayStart = new Date(Date.UTC(year, month, today.getUTCDate()));
+  const dueThisMonth = clampedUtcDate(year, month, card.dueDay);
+  const target = dueThisMonth >= todayStart
+    ? dueThisMonth
+    : clampedUtcDate(year, month + 1, card.dueDay);
+  return `${target.getUTCFullYear()}-${String(target.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function clampedUtcDate(year: number, monthIndex0: number, day: number): Date {
+  const lastDay = new Date(Date.UTC(year, monthIndex0 + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(year, monthIndex0, Math.min(day, lastDay)));
+}
+
+function expenseDisplayName(
+  tipoDespesa: string,
+  titulo: string | null,
+  fornecedor: string | null,
+): string {
+  return titulo?.trim() || fornecedor?.trim() || ExpenseTypeLabels[tipoDespesa as keyof typeof ExpenseTypeLabels] || tipoDespesa;
+}
+
+function inferCashForm(rawText: string, formaPagamento: string | null): 'pix' | 'debito' | 'boleto' | 'ted' {
+  const text = rawText.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+  if (/\bPIX\b/.test(text)) return 'pix';
+  if (/\bTED\b|\bDOC\b/.test(text)) return 'ted';
+  if (/\bBOLETO\b|\bCODIGO DE BARRAS\b|\bBARCODE\b/.test(text)) return 'boleto';
+  if (formaPagamento === 'CONTA_CORRENTE') return 'debito';
+  return 'debito';
+}
+
+function receiptTypeKey(tipo: string): string {
+  const normalized = tipo.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return normalized.toLowerCase();
+}
+
+function receiptTypeLabel(tipo: string): string {
+  const labels: Record<string, string> = {
+    SALARIO: 'Salario',
+    ADIANTAMENTO_SALARIO: 'Adiantamento',
+    DECIMO_TERCEIRO: '13 salario',
+    FERIAS: 'Ferias',
+    FREELANCE: 'Freelance',
+    ALUGUEL: 'Aluguel',
+    REEMBOLSO: 'Reembolso',
+    DIVIDENDOS: 'Dividendos',
+    JUROS_RENDA_FIXA: 'Rendimento',
+    RESGATE: 'Resgate',
+    RESTITUICAO_IR: 'Restituicao IR',
+    BONUS: 'Bonus',
+    COMISSAO: 'Comissao',
+    OUTROS: 'Outros',
+  };
+  return labels[tipo] ?? tipo.replace(/_/g, ' ');
+}
+
+function roundPct(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function sumBy<T>(items: T[], pick: (item: T) => number): number {
+  return items.reduce((sum, item) => sum + pick(item), 0);
 }

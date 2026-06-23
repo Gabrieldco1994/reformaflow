@@ -1,4 +1,4 @@
-import { Controller, Get, Param, UseInterceptors } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseInterceptors } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { MonthlyOverviewService } from './monthly-overview.service';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
@@ -20,5 +20,17 @@ export class MonthlyOverviewController {
     @Param('projectId') projectId: string,
   ) {
     return this.service.getOverview(tenantId, projectId);
+  }
+
+  @Get('account-view')
+  @ApiOperation({
+    summary: 'Visão Conta real (caixa) do mês selecionado para projetos PESSOAL',
+  })
+  getAccountView(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Query('month') month?: string,
+  ) {
+    return this.service.getAccountView(tenantId, projectId, month);
   }
 }
