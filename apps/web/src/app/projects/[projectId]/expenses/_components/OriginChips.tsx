@@ -77,25 +77,29 @@ export function OriginChips({
 }) {
   if (chips.length === 0) return null;
   return (
-    <div className="-mx-1 flex items-stretch gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:flex-wrap md:overflow-visible">
+    <div className="-mx-1 flex items-stretch gap-3 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:flex-wrap md:overflow-visible">
       {chips.map((c) => {
         const isActive = selected === c.key;
         const Icon = c.kind === 'CARTAO' ? CreditCard : Landmark;
+        const total = c.pago + c.planejado;
         return (
           <button
             key={c.key}
             type="button"
             onClick={() => onSelect(isActive ? null : c.key)}
-            className={`flex shrink-0 items-center gap-2.5 rounded-2xl border px-4 py-2.5 text-left transition-colors md:shrink ${
+            className={`flex shrink-0 items-center gap-3 rounded-2xl border px-5 py-3.5 text-left transition-all md:shrink ${
               isActive
-                ? 'border-orange-500 bg-orange-500 text-white shadow-sm'
-                : 'border-darc-linen bg-white text-darc-velvet hover:border-orange-300 hover:bg-orange-50'
+                ? 'border-orange-500 bg-orange-500 text-white shadow-md scale-[1.02]'
+                : 'border-darc-linen bg-white text-darc-velvet hover:border-orange-300 hover:bg-orange-50 hover:shadow-sm'
             }`}
           >
-            <Icon className={`h-5 w-5 shrink-0 ${isActive ? 'text-white' : 'text-orange-600'}`} />
+            <Icon className={`h-6 w-6 shrink-0 ${isActive ? 'text-white' : 'text-orange-600'}`} />
             <div className="leading-tight">
-              <div className="text-sm font-semibold whitespace-nowrap">{c.label}</div>
-              <div className={`text-xs font-mono whitespace-nowrap ${isActive ? 'text-orange-50' : 'text-darc-velvet/50'}`}>
+              <div className="text-base font-semibold whitespace-nowrap">{c.label}</div>
+              <div className={`text-sm font-bold tabular-nums whitespace-nowrap mt-0.5 ${isActive ? 'text-white' : 'text-darc-velvet'}`}>
+                {formatCurrency(total / 100)}
+              </div>
+              <div className={`text-sm font-mono whitespace-nowrap mt-0.5 ${isActive ? 'text-orange-50' : 'text-darc-velvet/60'}`}>
                 {formatCurrency(c.pago / 100)} pago · {formatCurrency(c.planejado / 100)} plan.
               </div>
             </div>
@@ -106,7 +110,7 @@ export function OriginChips({
         <button
           type="button"
           onClick={() => onSelect(null)}
-          className="shrink-0 self-center rounded-2xl border border-darc-linen bg-white px-4 py-2.5 text-sm font-medium text-darc-velvet/60 hover:bg-gray-50"
+          className="shrink-0 self-center rounded-2xl border border-darc-linen bg-white px-5 py-3 text-sm font-medium text-darc-velvet/60 hover:bg-gray-50 transition-colors"
         >
           Limpar
         </button>
