@@ -31,6 +31,7 @@ export interface AccountViewSaida {
   isInvoice: boolean;
   editavel: boolean;
   dueMonth: string | null;
+  projetoOrigem: { id: string; name: string; type: string } | null;
 }
 
 export interface AccountViewEntrada {

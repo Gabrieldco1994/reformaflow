@@ -44,6 +44,7 @@ export function MovimentacoesSection({
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('todos');
   const [catFilter, setCatFilter] = useState<string>('todas');
+  const [projetoFilter, setProjetoFilter] = useState<string>('todos');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValor, setEditValor] = useState('');
@@ -123,6 +124,18 @@ export function MovimentacoesSection({
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [merged]);
 
+  const projetoOptions = useMemo(() => {
+    const set = new Map<string, string>();
+    for (const m of merged) {
+      if (m.kind === 'saida' && m.projetoOrigem && m.projetoOrigem.type !== 'PESSOAL') {
+        set.set(m.projetoOrigem.id, m.projetoOrigem.name);
+      }
+    }
+    return Array.from(set.entries())
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [merged]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const result = merged.filter((m) => {
@@ -144,13 +157,19 @@ export function MovimentacoesSection({
         if (m.kind !== 'saida' || m.isInvoice || m.tipoDespesa !== catFilter) return false;
       }
 
+      if (projetoFilter !== 'todos') {
+        const proj = m.kind === 'saida' ? m.projetoOrigem : null;
+        const projId = proj && proj.type !== 'PESSOAL' ? proj.id : projectId;
+        if (projId !== projetoFilter) return false;
+      }
+
       if (q && !m.descricao.toLowerCase().includes(q)) return false;
       return true;
     });
     return result.sort((a, b) =>
       sortDir === 'desc' ? b.data.localeCompare(a.data) : a.data.localeCompare(b.data),
     );
-  }, [merged, tab, originFilter, statusFilter, catFilter, sortDir, search]);
+  }, [merged, tab, originFilter, statusFilter, catFilter, projetoFilter, sortDir, search, projectId]);
 
   const totalSaidas = filtered
     .filter((m): m is AccountViewSaida => m.kind === 'saida')
@@ -243,6 +262,21 @@ export function MovimentacoesSection({
             ))}
           </select>
         )}
+        {projetoOptions.length > 0 && (
+          <select
+            value={projetoFilter}
+            onChange={(e) => setProjetoFilter(e.target.value)}
+            className="h-10 rounded-xl border border-darc-linen bg-darc-off-white px-3 text-sm font-medium text-darc-velvet outline-none focus:border-orange-300"
+          >
+            <option value="todos">Todos os projetos</option>
+            <option value={projectId}>Pessoal</option>
+            {projetoOptions.map((p) => (
+              <option key={p.value} value={p.value}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        )}
         <button
           type="button"
           onClick={() => setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'))}
@@ -304,6 +338,10 @@ export function MovimentacoesSection({
             const isInvoiceRow = !isEntrada && item.kind === 'saida' && item.isInvoice;
             const canToggle = !isEntrada && item.kind === 'saida' && item.editavel && !item.isInvoice;
             const canEdit = canToggle;
+            const projOrigem =
+              item.kind === 'saida' && item.projetoOrigem && item.projetoOrigem.type !== 'PESSOAL'
+                ? item.projetoOrigem
+                : null;
 
             return (
               <div
@@ -331,7 +369,14 @@ export function MovimentacoesSection({
                     className="min-w-0 flex-1 text-left"
                     title={canEdit ? 'Editar' : undefined}
                   >
-                    <div className="truncate text-sm font-semibold text-darc-velvet">{titulo}</div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="truncate text-sm font-semibold text-darc-velvet">{titulo}</span>
+                      {projOrigem && (
+                        <span className="shrink-0 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
+                          {projOrigem.name}
+                        </span>
+                      )}
+                    </div>
                     <div className="truncate text-[11px] text-darc-velvet/50">{meta}</div>
                   </button>
 

@@ -164,7 +164,7 @@ export class MonthlyOverviewService {
     const sixMonthKeys = lastMonthKeys(mesSelecionado, 6);
     const sixMonthSet = new Set(sixMonthKeys);
 
-    const [accounts, expenses, receipts, entries, cards] = await Promise.all([
+    const [accounts, allExpenses, receipts, entries, cards] = await Promise.all([
       this.prisma.bankAccount.findMany({
         where: { tenantId, projectId, deletedAt: null },
         select: {
@@ -176,9 +176,10 @@ export class MonthlyOverviewService {
         },
       }),
       this.prisma.expense.findMany({
-        where: { tenantId, projectId, deletedAt: null },
+        where: { tenantId, deletedAt: null },
         select: {
           id: true,
+          projectId: true,
           tipoDespesa: true,
           titulo: true,
           fornecedor: true,
@@ -192,6 +193,9 @@ export class MonthlyOverviewService {
           cardLast4: true,
           bankLast4: true,
           createdAt: true,
+          linkedExpenseId: true,
+          settledByExpenseId: true,
+          project: { select: { id: true, name: true, type: true } },
         },
       }),
       this.prisma.receipt.findMany({
@@ -229,6 +233,7 @@ export class MonthlyOverviewService {
               fornecedor: true,
               cardLast4: true,
               bankLast4: true,
+              linkedExpenseId: true,
             },
           },
           receipt: {
@@ -255,6 +260,24 @@ export class MonthlyOverviewService {
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       }),
     ]);
+
+    // O PESSOAL é o controlador universal do caixa: carregamos as despesas de
+    // TODOS os projetos do tenant e particionamos. As do PESSOAL alimentam o
+    // caixa/saídas (conta-only, §10); as de outros projetos servem para (a)
+    // rotular a origem dos espelhos e (b) somar o planejado cross-project que
+    // ainda sairá da conta pessoal em "Ainda falta pagar".
+    const expenses = allExpenses.filter((expense) => expense.projectId === projectId);
+    const foreignExpenses = allExpenses.filter((expense) => expense.projectId !== projectId);
+    const foreignById = new Map(foreignExpenses.map((expense) => [expense.id, expense] as const));
+    const linkedTargetIds = new Set(
+      expenses.map((expense) => expense.linkedExpenseId).filter((id): id is string => !!id),
+    );
+    const projetoOrigemFor = (linkedExpenseId: string | null | undefined) => {
+      if (!linkedExpenseId) return null;
+      const target = foreignById.get(linkedExpenseId);
+      if (!target?.project) return null;
+      return { id: target.project.id, name: target.project.name, type: target.project.type };
+    };
 
     const caixa = computeCaixaConta(
       accounts,
@@ -394,17 +417,32 @@ export class MonthlyOverviewService {
           isInvoice: false,
           editavel: true,
           dueMonth,
+          projetoOrigem: projetoOrigemFor(entry.expense!.linkedExpenseId),
         };
       })
       .filter((row) => row.dueMonth === mesSelecionado)
       .sort((a, b) => b.data.localeCompare(a.data));
+
+    // Planejado de outros projetos que ainda sairá da conta pessoal (o PESSOAL é o
+    // consolidador). Deduplicado contra alvos já liquidados por um espelho pessoal
+    // (linkedTargetIds) e contra planejados já liquidados (settledByExpenseId).
+    const foreignPendingList = foreignExpenses
+      .filter((expense) => {
+        if (expense.status === 'PAGO') return false;
+        if (expense.settledByExpenseId) return false;
+        if (linkedTargetIds.has(expense.id)) return false;
+        if (isNeutralExpenseType(expense.tipoDespesa)) return false;
+        return isInRange(purchaseDate(expense), monthStart, monthEnd);
+      })
+      .sort((a, b) => purchaseDate(b).getTime() - purchaseDate(a).getTime());
 
     const faltaPagarMes =
       sumBy(selectedInvoices, (invoice) => invoice.pending) +
       sumBy(
         accountExpenseList.filter((expense) => expense.status !== 'PAGO'),
         (expense) => expense.valorTotal,
-      );
+      ) +
+      sumBy(foreignPendingList, (expense) => expense.valorTotal);
 
     const saidas = [
       ...selectedInvoices.map((invoice) => ({
@@ -422,6 +460,7 @@ export class MonthlyOverviewService {
         isInvoice: true,
         editavel: false,
         dueMonth: invoice.dueMonth,
+        projetoOrigem: null as { id: string; name: string; type: string } | null,
       })),
       ...accountExpenseList.map((expense) => ({
         id: expense.id as string | null,
@@ -441,6 +480,29 @@ export class MonthlyOverviewService {
         isInvoice: false,
         editavel: true,
         dueMonth: null as string | null,
+        projetoOrigem: projetoOrigemFor(expense.linkedExpenseId),
+      })),
+      ...foreignPendingList.map((expense) => ({
+        id: expense.id as string | null,
+        kind: 'saida' as const,
+        descricao: expenseDisplayName(expense.tipoDespesa, expense.titulo, expense.fornecedor),
+        data: purchaseDate(expense).toISOString(),
+        forma: inferCashForm(
+          `${expense.titulo ?? ''} ${expense.fornecedor ?? ''}`,
+          expense.formaPagamento,
+        ),
+        valor: expense.valorTotal,
+        realizado: false,
+        status: expense.status,
+        cardLast4: null as string | null,
+        bankLast4: null as string | null,
+        tipoDespesa: expense.tipoDespesa,
+        isInvoice: false,
+        editavel: false,
+        dueMonth: null as string | null,
+        projetoOrigem: expense.project
+          ? { id: expense.project.id, name: expense.project.name, type: expense.project.type }
+          : null,
       })),
     ].sort((a, b) => b.data.localeCompare(a.data));
 

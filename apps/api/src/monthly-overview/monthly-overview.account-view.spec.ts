@@ -620,6 +620,107 @@ describe('MonthlyOverviewService.getAccountView', () => {
     );
   });
 
+  it('consolida projetos: rotula espelho, deduplica alvo e soma planejado de outro projeto em falta pagar', async () => {
+    prisma.bankAccount.findMany.mockResolvedValue([
+      {
+        openingBalanceCents: 100_000,
+        openingBalanceDate: new Date('2025-12-31T00:00:00.000Z'),
+        last4: '9999',
+        nickname: 'Conta',
+        institution: 'Banco',
+      },
+    ]);
+    prisma.expense.findMany.mockResolvedValue([
+      {
+        id: 'esp-1',
+        tenantId,
+        projectId,
+        tipoDespesa: 'OUTROS',
+        titulo: 'Material reforma',
+        fornecedor: 'Loja',
+        valor: 3_000,
+        valorTotal: 3_000,
+        formaPagamento: 'CONTA_CORRENTE',
+        dataPagamento: new Date('2026-06-10T00:00:00.000Z'),
+        dataInicioParcela: null,
+        quantidadeParcela: null,
+        status: 'PAGO',
+        cardLast4: null,
+        bankLast4: '9999',
+        createdAt: new Date('2026-06-10T00:00:00.000Z'),
+        linkedExpenseId: 'ref-target',
+        settledByExpenseId: null,
+        project: { id: projectId, name: 'Pessoal', type: 'PESSOAL' },
+      },
+      {
+        id: 'ref-target',
+        tenantId,
+        projectId: 'reforma-1',
+        tipoDespesa: 'OUTROS',
+        titulo: 'Material reforma',
+        fornecedor: 'Loja',
+        valor: 3_000,
+        valorTotal: 3_000,
+        formaPagamento: 'A_VISTA',
+        dataPagamento: new Date('2026-06-10T00:00:00.000Z'),
+        dataInicioParcela: null,
+        quantidadeParcela: null,
+        status: 'PLANEJADO',
+        cardLast4: null,
+        bankLast4: null,
+        createdAt: new Date('2026-06-01T00:00:00.000Z'),
+        linkedExpenseId: null,
+        settledByExpenseId: 'esp-1',
+        project: { id: 'reforma-1', name: 'Reforma Ap', type: 'REFORMA' },
+      },
+      {
+        id: 'ref-plan',
+        tenantId,
+        projectId: 'reforma-1',
+        tipoDespesa: 'OUTROS',
+        titulo: 'Pintura',
+        fornecedor: 'Pintor',
+        valor: 5_000,
+        valorTotal: 5_000,
+        formaPagamento: 'A_VISTA',
+        dataPagamento: new Date('2026-06-20T00:00:00.000Z'),
+        dataInicioParcela: null,
+        quantidadeParcela: null,
+        status: 'PLANEJADO',
+        cardLast4: null,
+        bankLast4: null,
+        createdAt: new Date('2026-06-01T00:00:00.000Z'),
+        linkedExpenseId: null,
+        settledByExpenseId: null,
+        project: { id: 'reforma-1', name: 'Reforma Ap', type: 'REFORMA' },
+      },
+    ]);
+    prisma.receipt.findMany.mockResolvedValue([]);
+    prisma.cashFlowEntry.findMany.mockResolvedValue([]);
+    prisma.creditCard.findMany.mockResolvedValue([]);
+
+    const res: any = await service.getAccountView(tenantId, projectId, '2026-06');
+
+    const esp = res.saidas.find((s: any) => s.id === 'esp-1');
+    expect(esp).toBeTruthy();
+    expect(esp.projetoOrigem).toEqual(
+      expect.objectContaining({ type: 'REFORMA', name: 'Reforma Ap' }),
+    );
+
+    expect(res.saidas.some((s: any) => s.id === 'ref-target')).toBe(false);
+
+    const plan = res.saidas.find((s: any) => s.id === 'ref-plan');
+    expect(plan).toBeTruthy();
+    expect(plan.realizado).toBe(false);
+    expect(plan.editavel).toBe(false);
+    expect(plan.projetoOrigem).toEqual(expect.objectContaining({ type: 'REFORMA' }));
+
+    expect(res.faltaPagarMes).toBe(5_000);
+    expect(res.caixaHoje).toBe(97_000);
+    expect(res.saiuMes).toBe(3_000);
+    expect(res.sobraPrevista).toBe(92_000);
+  });
+
   describe('payInvoice', () => {
     beforeEach(() => {
       prisma.creditCard.findFirst.mockResolvedValue({
