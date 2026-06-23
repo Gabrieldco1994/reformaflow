@@ -126,6 +126,9 @@ export function groupPersonalExpenses(
     }
     const g = projects.get(projectKey)!;
     g.itens.push(e);
+    // Neutras (pagamento de fatura, transferência interna) NÃO entram no total —
+    // mesma regra de `totalsOf`. Contá-las duplicaria os itens do cartão.
+    if (isNeutralExpenseType(e.tipoDespesa)) continue;
     if (e.status === 'PAGO') g.totalPago += e.valorTotal;
     else g.totalPlanejado += e.valorTotal;
   }
