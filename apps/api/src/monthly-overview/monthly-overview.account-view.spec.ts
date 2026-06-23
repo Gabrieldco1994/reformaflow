@@ -613,8 +613,9 @@ describe('MonthlyOverviewService.getAccountView', () => {
     ]);
     expect(res.cartoes[0]).toEqual(
       expect.objectContaining({
-        faturaAtual: 0,
-        status: 'paga',
+        faturaAtual: 2_000,
+        status: 'a pagar',
+        vencimento: '2026-07-28',
       }),
     );
   });

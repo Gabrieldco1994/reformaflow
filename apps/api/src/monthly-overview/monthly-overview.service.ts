@@ -163,7 +163,6 @@ export class MonthlyOverviewService {
     const [monthStart, monthEnd] = monthRange(mesSelecionado);
     const sixMonthKeys = lastMonthKeys(mesSelecionado, 6);
     const sixMonthSet = new Set(sixMonthKeys);
-    const today = new Date();
 
     const [accounts, expenses, receipts, entries, cards] = await Promise.all([
       this.prisma.bankAccount.findMany({
@@ -510,7 +509,7 @@ export class MonthlyOverviewService {
     const deltaVsMediaPct = media6m > 0 ? roundPct(((ticketValor - media6m) / media6m) * 100) : null;
 
     const cartoes = cards.map((card) => {
-      const openInvoiceMonth = currentOpenInvoiceMonth(card, today);
+      const openInvoiceMonth = mesSelecionado;
       const invoice =
         invoiceByMonthCard.get(`${openInvoiceMonth}__${card.last4}`) ??
         ({
@@ -866,29 +865,6 @@ function dueDateIso(monthKey: string, dueDay: number | null): string {
   const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
   const day = dueDay == null ? 1 : Math.min(Math.max(dueDay, 1), lastDay);
   return new Date(Date.UTC(year, month - 1, day)).toISOString().slice(0, 10);
-}
-
-function currentOpenInvoiceMonth(
-  card: { closingDay: number | null; dueDay: number | null },
-  today: Date,
-): string {
-  const year = today.getUTCFullYear();
-  const month = today.getUTCMonth();
-  if (card.closingDay == null || card.dueDay == null) {
-    return `${year}-${String(month + 1).padStart(2, '0')}`;
-  }
-
-  const todayStart = new Date(Date.UTC(year, month, today.getUTCDate()));
-  const dueThisMonth = clampedUtcDate(year, month, card.dueDay);
-  const target = dueThisMonth >= todayStart
-    ? dueThisMonth
-    : clampedUtcDate(year, month + 1, card.dueDay);
-  return `${target.getUTCFullYear()}-${String(target.getUTCMonth() + 1).padStart(2, '0')}`;
-}
-
-function clampedUtcDate(year: number, monthIndex0: number, day: number): Date {
-  const lastDay = new Date(Date.UTC(year, monthIndex0 + 1, 0)).getUTCDate();
-  return new Date(Date.UTC(year, monthIndex0, Math.min(day, lastDay)));
 }
 
 function expenseDisplayName(
