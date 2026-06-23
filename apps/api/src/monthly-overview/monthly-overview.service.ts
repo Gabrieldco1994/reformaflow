@@ -360,6 +360,46 @@ export class MonthlyOverviewService {
       })
       .sort((a, b) => accountExpenseDate(a).getTime() - accountExpenseDate(b).getTime());
 
+    const comprasCartao = entries
+      .filter(
+        (entry) =>
+          entry.tipo === 'DESPESA' &&
+          !!entry.expense?.cardLast4 &&
+          !isNeutralExpenseType(entry.expense.tipoDespesa),
+      )
+      .map((entry) => {
+        const cardLast4 = entry.expense!.cardLast4 as string;
+        const card = cardByLast4.get(cardLast4) ?? null;
+        const dueMonth = caixaMonthForCardPurchase(
+          entry.data,
+          card?.closingDay ?? null,
+          card?.dueDay ?? null,
+        );
+        const invoicePaid = paidInvoiceKeys.has(`${dueMonth}__${cardLast4}`);
+        return {
+          id: entry.expense!.id as string | null,
+          kind: 'saida' as const,
+          descricao: expenseDisplayName(
+            entry.expense!.tipoDespesa,
+            entry.expense!.titulo,
+            entry.expense!.fornecedor,
+          ),
+          data: entry.data.toISOString(),
+          forma: 'cartao',
+          valor: entry.valor,
+          realizado: invoicePaid,
+          status: invoicePaid ? 'PAGO' : 'PLANEJADO',
+          cardLast4,
+          bankLast4: null as string | null,
+          tipoDespesa: entry.expense!.tipoDespesa,
+          isInvoice: false,
+          editavel: true,
+          dueMonth,
+        };
+      })
+      .filter((row) => row.dueMonth === mesSelecionado)
+      .sort((a, b) => b.data.localeCompare(a.data));
+
     const faltaPagarMes =
       sumBy(selectedInvoices, (invoice) => invoice.pending) +
       sumBy(
@@ -524,6 +564,7 @@ export class MonthlyOverviewService {
       cartoes,
       contas,
       saidas,
+      comprasCartao,
       entradas,
       ticketMedio: {
         valor: ticketValor,

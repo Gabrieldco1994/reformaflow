@@ -97,9 +97,16 @@ export function MovimentacoesSection({
   const activeIsCard = originFilter != null && cardByLast4.has(originFilter);
 
   const merged = useMemo<AccountViewMovimentacao[]>(() => {
-    const list: AccountViewMovimentacao[] = [...data.saidas, ...data.entradas];
+    let saidas: AccountViewSaida[] = data.saidas;
+    if (activeIsCard) {
+      saidas = [
+        ...data.saidas.filter((s) => !(s.isInvoice && s.cardLast4 === originFilter)),
+        ...data.comprasCartao.filter((c) => c.cardLast4 === originFilter),
+      ];
+    }
+    const list: AccountViewMovimentacao[] = [...saidas, ...data.entradas];
     return list.sort((a, b) => b.data.localeCompare(a.data));
-  }, [data.saidas, data.entradas]);
+  }, [data.saidas, data.entradas, data.comprasCartao, activeIsCard, originFilter]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -179,6 +186,9 @@ export function MovimentacoesSection({
       {originFilter && (
         <div className="mb-3 flex items-center gap-2 rounded-xl bg-orange-50 px-3 py-2 text-[12px] text-orange-800">
           <span className="font-semibold">Filtrando por {originLabel(activeIsCard ? originFilter : null, activeIsCard ? null : originFilter)}</span>
+          {activeIsCard && (
+            <span className="text-orange-600">· compras da fatura</span>
+          )}
           <button
             type="button"
             onClick={onClearOrigin}

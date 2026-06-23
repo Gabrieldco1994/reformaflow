@@ -72,6 +72,7 @@ export interface AccountViewResponse {
   cartoes: AccountViewCardSummary[];
   contas: AccountViewConta[];
   saidas: AccountViewSaida[];
+  comprasCartao: AccountViewSaida[];
   entradas: AccountViewEntrada[];
   ticketMedio: AccountViewTicketMedio;
 }

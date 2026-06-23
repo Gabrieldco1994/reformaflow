@@ -345,6 +345,11 @@ describe('MonthlyOverviewService.getAccountView', () => {
     );
     expect(res.saidas.some((item: any) => /Pagamento fatura/i.test(item.descricao))).toBe(false);
     expect(res.saidas.reduce((sum: number, item: any) => sum + item.valor, 0)).toBe(20_000);
+
+    const comprasNubank = res.comprasCartao.filter((item: any) => item.cardLast4 === '1111');
+    expect(comprasNubank.length).toBeGreaterThan(0);
+    expect(comprasNubank.every((item: any) => item.isInvoice === false)).toBe(true);
+    expect(comprasNubank.reduce((sum: number, item: any) => sum + item.valor, 0)).toBe(7_000);
     expect(prisma.cashFlowEntry.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
