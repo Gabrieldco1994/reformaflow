@@ -1,5 +1,9 @@
 # Cockpit (Pessoal) — Caixa real (§10) + redesign do topo
 
+> **Relacionado:** a lógica de **faturas de cartão, neutros, casamento
+> pagamento→fatura e "cartão paga cartão"** está em
+> [`docs/visao-conta-faturas.md`](./visao-conta-faturas.md).
+>
 > **Status:** IMPLEMENTADO na working tree, **não commitado**. Prod intocado.
 > Este doc é o tracking/handoff: o que mudou, por quê, como validar e o que falta.
 > Autor da 1ª passada: sessão de análise de KPIs (jun/2026).

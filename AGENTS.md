@@ -53,6 +53,7 @@ pnpm --filter @reformaflow/web exec tsc --noEmit # type-check rápido
 
 ## Notas técnicas (consulte quando tocar o módulo)
 
+- **Visão Conta / Faturas de cartão**: regra de neutros, agregação de fatura, casamento pagamento→fatura (`matchPaidInvoices`, por valor+janela) e "cartão paga cartão" (`settlesInvoiceKey` + `computePaidInvoiceKeys`) estão documentados em `docs/visao-conta-faturas.md`. Caixa real §10 em `docs/cockpit-caixa-real.md`.
 - **Gemini 2.5-flash**: thinking tokens contam para `maxOutputTokens`. Usar `16K` + `responseMimeType:'application/json'` (sem `responseSchema`). Repair de JSON truncado já existe em `gemini.service.ts`.
 - **Price compare**: Buscapé via `__NEXT_DATA__` (sem API key). Google CSE retorna 403 (não habilitado).
 - **Floor plans**: `react-zoom-pan-pinch` precisa `disabled={drawingMode}` para permitir desenho.
