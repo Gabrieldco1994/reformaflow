@@ -45,6 +45,7 @@ export default function ContaPage() {
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
   const [viewMode, setViewMode] = useState<'mes' | 'ano'>('mes');
   const [selectedOriginKey, setSelectedOriginKey] = useState<string | null>(null);
+  const [selectedYearMonth, setSelectedYearMonth] = useState<string | null>(null);
   const [payCardLast4, setPayCardLast4] = useState<string | null>(null);
   const [originFilter, setOriginFilter] = useState<string | null>(null);
 
@@ -106,6 +107,7 @@ export default function ContaPage() {
               onClick={() => {
                 setViewMode('mes');
                 setSelectedOriginKey(null);
+                setSelectedYearMonth(null);
               }}
               className={`h-9 rounded-lg px-3 text-xs font-semibold transition ${
                 viewMode === 'mes' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
@@ -137,13 +139,19 @@ export default function ContaPage() {
               <FaturasAnuaisChart
                 data={yearlyData}
                 selectedKey={selectedOriginKey}
-                onSelectKey={setSelectedOriginKey}
+                onSelectKey={(key) => {
+                  setSelectedOriginKey(key);
+                  setSelectedYearMonth(null);
+                }}
+                selectedMonth={selectedYearMonth}
+                onSelectMonth={setSelectedYearMonth}
               />
               {selectedOrigin && (
                 <DespesasRelacionadas
                   origin={selectedOrigin}
                   data={originItems}
                   isLoading={originItemsLoading}
+                  selectedMonth={selectedYearMonth}
                 />
               )}
             </>

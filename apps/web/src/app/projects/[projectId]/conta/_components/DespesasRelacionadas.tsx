@@ -15,21 +15,30 @@ export function DespesasRelacionadas({
   origin,
   data,
   isLoading,
+  selectedMonth,
 }: {
   origin: CardInvoicesYearlyOrigin;
   data: OriginItemsYearlyResponse | undefined;
   isLoading: boolean;
+  selectedMonth: string | null;
 }) {
   const Icon = origin.kind === 'conta' ? Landmark : CreditCard;
 
   // Agrupa itens por mês (vencimento/débito), em ordem cronológica desc.
+  // Se um mês está selecionado (clique na barra), filtra só ele.
   const byMonth = new Map<string, OriginItemsYearlyResponse['items']>();
   for (const item of data?.items ?? []) {
+    if (selectedMonth && item.mes !== selectedMonth) continue;
     const list = byMonth.get(item.mes) ?? [];
     list.push(item);
     byMonth.set(item.mes, list);
   }
   const months = Array.from(byMonth.keys()).sort((a, b) => b.localeCompare(a));
+
+  const filteredTotal = months.reduce(
+    (sum, mes) => sum + byMonth.get(mes)!.reduce((s, item) => s + item.valor, 0),
+    0,
+  );
 
   return (
     <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -43,12 +52,17 @@ export function DespesasRelacionadas({
               Despesas · {origin.nickname} · {origin.last4}
             </p>
             <p className="text-sm text-slate-500">
-              {origin.kind === 'conta' ? 'Débitos da conta' : 'Lançamentos da fatura'} em {data?.year ?? ''}
+              {origin.kind === 'conta' ? 'Débitos da conta' : 'Lançamentos da fatura'}
+              {selectedMonth
+                ? ` · ${MONTH_LABELS[parseInt(selectedMonth.slice(5, 7), 10) - 1]} ${selectedMonth.slice(0, 4)}`
+                : ` em ${data?.year ?? ''}`}
             </p>
           </div>
         </div>
         {data && (
-          <p className="shrink-0 text-base font-bold text-slate-950">{formatCurrency(data.total / 100)}</p>
+          <p className="shrink-0 text-base font-bold text-slate-950">
+            {formatCurrency((selectedMonth ? filteredTotal : data.total) / 100)}
+          </p>
         )}
       </div>
 
@@ -62,7 +76,9 @@ export function DespesasRelacionadas({
 
       {!isLoading && months.length === 0 && (
         <div className="flex h-24 items-center justify-center rounded-xl bg-slate-50 text-sm text-slate-500">
-          Sem despesas registradas nesta origem.
+          {selectedMonth
+            ? 'Sem despesas neste mês para esta origem.'
+            : 'Sem despesas registradas nesta origem.'}
         </div>
       )}
 

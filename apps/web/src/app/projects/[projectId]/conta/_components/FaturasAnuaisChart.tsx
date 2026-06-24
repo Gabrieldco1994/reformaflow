@@ -4,6 +4,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -27,10 +28,14 @@ export function FaturasAnuaisChart({
   data,
   selectedKey,
   onSelectKey,
+  selectedMonth,
+  onSelectMonth,
 }: {
   data: CardInvoicesYearlyResponse;
   selectedKey: string | null;
   onSelectKey: (key: string | null) => void;
+  selectedMonth: string | null;
+  onSelectMonth: (mes: string | null) => void;
 }) {
   // Cor estável por origem (independe do filtro).
   const colorByKey = new Map<string, string>();
@@ -59,6 +64,10 @@ export function FaturasAnuaisChart({
 
   const hasData = totalVisivel > 0;
 
+  const selectedMonthLabel = selectedMonth
+    ? data.months.find((m) => m.mes === selectedMonth)?.label ?? null
+    : null;
+
   return (
     <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -69,6 +78,20 @@ export function FaturasAnuaisChart({
           </p>
           <p className="text-lg font-bold text-slate-950">{formatCurrency(totalVisivel / 100)}</p>
         </div>
+        {selectedKey && (
+          selectedMonthLabel ? (
+            <button
+              type="button"
+              onClick={() => onSelectMonth(null)}
+              className="inline-flex h-7 items-center gap-1.5 rounded-full bg-slate-900 px-2.5 text-[11px] font-semibold text-white"
+            >
+              {selectedMonthLabel} · {data.year}
+              <span className="text-slate-300">✕</span>
+            </button>
+          ) : (
+            <span className="text-[11px] text-slate-400">Clique numa barra para ver o mês</span>
+          )
+        )}
       </div>
 
       {/* Chips de filtro por origem */}
@@ -169,12 +192,32 @@ export function FaturasAnuaisChart({
                   key={origin.key}
                   dataKey={origin.key}
                   name={origin.key}
-                  fill={colorByKey.get(origin.key)}
                   radius={[3, 3, 0, 0]}
                   maxBarSize={selectedKey ? 40 : 28}
-                  onClick={() => onSelectKey(selectedKey === origin.key ? null : origin.key)}
                   cursor="pointer"
-                />
+                  onClick={(barData: { payload?: { mes?: string } }) => {
+                    if (selectedKey) {
+                      // Origem já filtrada: clicar na barra alterna o filtro de mês.
+                      const mes = barData?.payload?.mes ?? null;
+                      onSelectMonth(selectedMonth === mes ? null : mes);
+                    } else {
+                      // Sem origem: clicar seleciona a origem.
+                      onSelectKey(origin.key);
+                    }
+                  }}
+                >
+                  {chartData.map((row) => {
+                    const baseColor = colorByKey.get(origin.key)!;
+                    const dimmed = !!selectedKey && !!selectedMonth && row.mes !== selectedMonth;
+                    return (
+                      <Cell
+                        key={`${origin.key}-${row.mes}`}
+                        fill={baseColor}
+                        fillOpacity={dimmed ? 0.3 : 1}
+                      />
+                    );
+                  })}
+                </Bar>
               ))}
             </BarChart>
           </ResponsiveContainer>
