@@ -19,6 +19,7 @@ describe('MonthlyOverviewService.getAccountView', () => {
         findFirst: jest
           .fn()
           .mockResolvedValue({ id: projectId, tenantId, type: 'PESSOAL', deletedAt: null }),
+        findMany: jest.fn().mockResolvedValue([{ id: projectId, name: 'Pessoal', type: 'PESSOAL' }]),
       },
       bankAccount: {
         findMany: jest.fn().mockResolvedValue([
@@ -495,61 +496,126 @@ describe('MonthlyOverviewService.getAccountView', () => {
     expect(res.devoCartaoTotal).toBe(6_000);
   });
 
-  it('getCardInvoicesYearly agrupa faturas por mês de vencimento e cartão', async () => {
-    // Cartão closing 25, due 1: compra em 2026-04-30 vence em 2026-06; em 2026-05-20 vence em 2026-06 também.
+  it('getCardInvoicesYearly agrupa faturas por mês e inclui conta corrente', async () => {
+    // Cartão closing 25, due 1: compra em 2026-04-30 vence em 2026-06.
     prisma.cashFlowEntry.findMany.mockResolvedValue([
       {
         valor: 10_000,
         data: new Date('2026-04-30T00:00:00.000Z'),
+        status: 'PLANEJADO',
         expense: { cardLast4: '9999', bankLast4: null, tipoDespesa: 'OUTROS' },
       },
       {
         // neutro lançado como cobrança no cartão (sem bankLast4): ENTRA na fatura
         valor: 5_000,
         data: new Date('2026-04-30T00:00:00.000Z'),
+        status: 'PLANEJADO',
         expense: { cardLast4: '9999', bankLast4: null, tipoDespesa: 'PAGAMENTO_FATURA_CARTAO' },
       },
       {
-        // neutro liquidado via conta (bankLast4 set): FORA da fatura
+        // neutro liquidado via conta (bankLast4 set): FORA da fatura E fora da conta
         valor: 7_000,
         data: new Date('2026-04-30T00:00:00.000Z'),
+        status: 'PAGO',
         expense: { cardLast4: '9999', bankLast4: '4247', tipoDespesa: 'PAGAMENTO_FATURA_CARTAO' },
       },
       {
-        // outro cartão, mês de vencimento julho (compra 2026-06-10, closing 25 due 1)
-        valor: 3_000,
-        data: new Date('2026-06-10T00:00:00.000Z'),
-        expense: { cardLast4: '1111', bankLast4: null, tipoDespesa: 'OUTROS' },
+        // gasto da conta corrente em maio (sem cartão): ENTRA na série da conta
+        valor: 2_500,
+        data: new Date('2026-05-10T00:00:00.000Z'),
+        status: 'PAGO',
+        expense: { cardLast4: null, bankLast4: '4247', tipoDespesa: 'MORADIA' },
+      },
+      {
+        // neutro da conta (movimentação interna): FORA
+        valor: 9_000,
+        data: new Date('2026-05-12T00:00:00.000Z'),
+        status: 'PAGO',
+        expense: { cardLast4: null, bankLast4: '4247', tipoDespesa: 'MOVIMENTACAO_INTERNA' },
       },
       {
         // ano diferente: ignorado
         valor: 9_999,
         data: new Date('2025-04-30T00:00:00.000Z'),
+        status: 'PAGO',
         expense: { cardLast4: '9999', bankLast4: null, tipoDespesa: 'OUTROS' },
       },
     ]);
     prisma.creditCard.findMany.mockResolvedValue([
       { nickname: 'Latam', last4: '9999', closingDay: 25, dueDay: 1 },
-      { nickname: 'Nubank', last4: '1111', closingDay: 25, dueDay: 1 },
+    ]);
+    prisma.bankAccount.findMany.mockResolvedValue([
+      { nickname: 'Itau', institution: 'ITAU', last4: '4247' },
     ]);
 
     const res: any = await service.getCardInvoicesYearly(tenantId, projectId, 2026);
 
     expect(res.year).toBe(2026);
     expect(res.months).toHaveLength(12);
-    expect(res.cards.map((c: any) => c.last4)).toEqual(['9999', '1111']);
+    expect(res.origins.map((o: any) => o.key)).toEqual(['card:9999', 'conta:4247']);
+    expect(res.origins.find((o: any) => o.kind === 'conta').nickname).toBe('Itau');
 
     const jun = res.months.find((m: any) => m.mes === '2026-06');
-    expect(jun.porCartao['9999']).toBe(15_000); // 10.000 compra + 5.000 neutro-no-cartão
-    expect(jun.porCartao['1111']).toBe(0);
+    expect(jun.porOrigem['card:9999']).toBe(15_000); // 10.000 compra + 5.000 neutro-no-cartão
+    expect(jun.porOrigem['conta:4247']).toBe(0);
     expect(jun.total).toBe(15_000);
 
-    const jul = res.months.find((m: any) => m.mes === '2026-07');
-    expect(jul.porCartao['1111']).toBe(3_000);
-    expect(jul.total).toBe(3_000);
+    const mai = res.months.find((m: any) => m.mes === '2026-05');
+    expect(mai.porOrigem['conta:4247']).toBe(2_500); // só o gasto não-neutro da conta
+    expect(mai.total).toBe(2_500);
 
-    // Total do ano = soma das faturas (neutro via conta de 7.000 fica de fora).
-    expect(res.totalAno).toBe(18_000);
+    // Total do ano = faturas + conta (neutros via conta de 7.000 e mov. interna 9.000 fora).
+    expect(res.totalAno).toBe(17_500);
+  });
+
+  it('getOriginItemsYearly lista despesas da origem aplicando regra de neutros', async () => {
+    prisma.project.findMany.mockResolvedValue([
+      { id: projectId, name: 'Pessoal', type: 'PESSOAL' },
+    ]);
+    prisma.creditCard.findFirst.mockResolvedValue({ closingDay: 25, dueDay: 1 });
+    prisma.cashFlowEntry.findMany.mockResolvedValue([
+      {
+        valor: 10_000,
+        data: new Date('2026-04-30T00:00:00.000Z'),
+        status: 'PLANEJADO',
+        expense: {
+          tipoDespesa: 'OUTROS',
+          titulo: 'Compra real',
+          fornecedor: 'Loja',
+          cardLast4: '9999',
+          bankLast4: null,
+          linkedExpenseId: null,
+          project: { id: projectId, name: 'Pessoal', type: 'PESSOAL' },
+        },
+      },
+      {
+        valor: 5_000,
+        data: new Date('2026-04-30T00:00:00.000Z'),
+        status: 'PLANEJADO',
+        expense: {
+          tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+          titulo: 'PgConta NU',
+          fornecedor: 'NU',
+          cardLast4: '9999',
+          bankLast4: null,
+          linkedExpenseId: null,
+          project: { id: projectId, name: 'Pessoal', type: 'PESSOAL' },
+        },
+      },
+    ]);
+
+    const res: any = await service.getOriginItemsYearly(tenantId, projectId, {
+      year: 2026,
+      kind: 'card',
+      last4: '9999',
+    });
+
+    expect(res.kind).toBe('card');
+    expect(res.last4).toBe('9999');
+    // Ambos entram (cobrança neutra no cartão conta na fatura); ambos vencem em 2026-06.
+    expect(res.items).toHaveLength(2);
+    expect(res.items.every((i: any) => i.mes === '2026-06')).toBe(true);
+    expect(res.total).toBe(15_000);
   });
 
   it('calcula ticket médio, variação mensal e média de 6 meses por competência', async () => {

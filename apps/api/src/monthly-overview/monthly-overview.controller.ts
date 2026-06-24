@@ -46,6 +46,20 @@ export class MonthlyOverviewController {
     return this.service.getCardInvoicesYearly(tenantId, projectId, year);
   }
 
+  @Get('origin-items-yearly')
+  @ApiOperation({
+    summary: 'Despesas relacionadas a uma origem (cartão/conta) no ano (PESSOAL)',
+  })
+  getOriginItemsYearly(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Query('year') year?: string,
+    @Query('kind') kind?: string,
+    @Query('last4') last4?: string,
+  ) {
+    return this.service.getOriginItemsYearly(tenantId, projectId, { year, kind, last4 });
+  }
+
   @Post('pay-invoice')
   @ApiOperation({
     summary: 'Pagar fatura de cartão (gera despesa neutra + liquida o ciclo)',

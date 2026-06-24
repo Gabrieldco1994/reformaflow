@@ -4,16 +4,17 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
-  Legend,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts';
+import { CreditCard, Landmark } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import type { CardInvoicesYearlyResponse } from '../_types';
 
-const CARD_COLORS = ['#f97316', '#0ea5e9', '#22c55e', '#a855f7', '#ef4444', '#eab308', '#14b8a6', '#6366f1'];
+const CARD_COLORS = ['#f97316', '#0ea5e9', '#22c55e', '#a855f7', '#ef4444', '#eab308'];
+const CONTA_COLORS = ['#0f766e', '#7c3aed', '#b45309'];
 
 function compactBRL(value: number) {
   if (value === 0) return '0';
@@ -22,31 +23,97 @@ function compactBRL(value: number) {
   return value.toLocaleString('pt-BR', { maximumFractionDigits: 0 });
 }
 
-export function FaturasAnuaisChart({ data }: { data: CardInvoicesYearlyResponse }) {
+export function FaturasAnuaisChart({
+  data,
+  selectedKey,
+  onSelectKey,
+}: {
+  data: CardInvoicesYearlyResponse;
+  selectedKey: string | null;
+  onSelectKey: (key: string | null) => void;
+}) {
+  // Cor estável por origem (independe do filtro).
+  const colorByKey = new Map<string, string>();
+  let ci = 0;
+  let ai = 0;
+  for (const origin of data.origins) {
+    colorByKey.set(origin.key, origin.kind === 'conta' ? CONTA_COLORS[ai++ % CONTA_COLORS.length] : CARD_COLORS[ci++ % CARD_COLORS.length]);
+  }
+
+  const visibleOrigins = selectedKey
+    ? data.origins.filter((o) => o.key === selectedKey)
+    : data.origins;
+
   const chartData = data.months.map((month) => {
     const row: Record<string, number | string> = { label: month.label, mes: month.mes };
-    for (const card of data.cards) {
-      row[card.last4] = (month.porCartao[card.last4] ?? 0) / 100;
+    for (const origin of visibleOrigins) {
+      row[origin.key] = (month.porOrigem[origin.key] ?? 0) / 100;
     }
     return row;
   });
 
-  const hasData = data.totalAno > 0;
+  const totalVisivel = data.months.reduce(
+    (sum, month) => sum + visibleOrigins.reduce((s, o) => s + (month.porOrigem[o.key] ?? 0), 0),
+    0,
+  );
+
+  const hasData = totalVisivel > 0;
 
   return (
     <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-            Faturas por cartão · {data.year}
+            {selectedKey ? 'Origem · ' : 'Faturas e conta · '}
+            {data.year}
           </p>
-          <p className="text-lg font-bold text-slate-950">{formatCurrency(data.totalAno / 100)}</p>
+          <p className="text-lg font-bold text-slate-950">{formatCurrency(totalVisivel / 100)}</p>
         </div>
+      </div>
+
+      {/* Chips de filtro por origem */}
+      <div className="flex flex-wrap gap-1.5">
+        <button
+          type="button"
+          onClick={() => onSelectKey(null)}
+          className={`inline-flex h-7 items-center rounded-full px-2.5 text-[11px] font-semibold transition ${
+            selectedKey === null
+              ? 'bg-slate-900 text-white'
+              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+          }`}
+        >
+          Todos
+        </button>
+        {data.origins.map((origin) => {
+          const active = selectedKey === origin.key;
+          const color = colorByKey.get(origin.key);
+          const Icon = origin.kind === 'conta' ? Landmark : CreditCard;
+          return (
+            <button
+              key={origin.key}
+              type="button"
+              onClick={() => onSelectKey(active ? null : origin.key)}
+              className={`inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-semibold transition ${
+                active
+                  ? 'border-transparent text-white'
+                  : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+              }`}
+              style={active ? { backgroundColor: color } : undefined}
+            >
+              <span
+                className="inline-block h-2 w-2 rounded-full"
+                style={{ backgroundColor: active ? '#fff' : color }}
+              />
+              <Icon className="h-3 w-3" />
+              {origin.nickname} · {origin.last4}
+            </button>
+          );
+        })}
       </div>
 
       {!hasData ? (
         <div className="flex h-56 items-center justify-center rounded-xl bg-slate-50 text-sm text-slate-500">
-          Sem faturas registradas em {data.year}.
+          Sem lançamentos em {data.year}.
         </div>
       ) : (
         <div className="h-[320px]">
@@ -71,7 +138,7 @@ export function FaturasAnuaisChart({ data }: { data: CardInvoicesYearlyResponse 
                       {payload
                         .filter((item) => Number(item.value) > 0)
                         .map((item) => {
-                          const card = data.cards.find((c) => c.last4 === item.dataKey);
+                          const origin = data.origins.find((o) => o.key === item.dataKey);
                           return (
                             <div key={item.dataKey as string} className="flex items-center justify-between gap-3">
                               <span className="flex items-center gap-1.5 text-slate-600">
@@ -79,7 +146,7 @@ export function FaturasAnuaisChart({ data }: { data: CardInvoicesYearlyResponse 
                                   className="inline-block h-2 w-2 rounded-full"
                                   style={{ backgroundColor: item.color }}
                                 />
-                                {card ? `${card.nickname} · ${card.last4}` : item.dataKey}
+                                {origin ? `${origin.nickname} · ${origin.last4}` : (item.dataKey as string)}
                               </span>
                               <span className="font-medium text-slate-900">
                                 {formatCurrency(Number(item.value))}
@@ -87,29 +154,26 @@ export function FaturasAnuaisChart({ data }: { data: CardInvoicesYearlyResponse 
                             </div>
                           );
                         })}
-                      <div className="mt-1 flex items-center justify-between gap-3 border-t border-slate-100 pt-1">
-                        <span className="font-semibold text-slate-700">Total</span>
-                        <span className="font-bold text-slate-900">{formatCurrency(total)}</span>
-                      </div>
+                      {payload.length > 1 && (
+                        <div className="mt-1 flex items-center justify-between gap-3 border-t border-slate-100 pt-1">
+                          <span className="font-semibold text-slate-700">Total</span>
+                          <span className="font-bold text-slate-900">{formatCurrency(total)}</span>
+                        </div>
+                      )}
                     </div>
                   );
                 }}
               />
-              <Legend
-                wrapperStyle={{ fontSize: '11px' }}
-                formatter={(value) => {
-                  const card = data.cards.find((c) => c.last4 === value);
-                  return card ? `${card.nickname} · ${card.last4}` : value;
-                }}
-              />
-              {data.cards.map((card, index) => (
+              {visibleOrigins.map((origin) => (
                 <Bar
-                  key={card.last4}
-                  dataKey={card.last4}
-                  name={card.last4}
-                  fill={CARD_COLORS[index % CARD_COLORS.length]}
+                  key={origin.key}
+                  dataKey={origin.key}
+                  name={origin.key}
+                  fill={colorByKey.get(origin.key)}
                   radius={[3, 3, 0, 0]}
-                  maxBarSize={28}
+                  maxBarSize={selectedKey ? 40 : 28}
+                  onClick={() => onSelectKey(selectedKey === origin.key ? null : origin.key)}
+                  cursor="pointer"
                 />
               ))}
             </BarChart>

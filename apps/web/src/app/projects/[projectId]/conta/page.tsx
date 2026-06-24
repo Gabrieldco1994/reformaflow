@@ -14,7 +14,12 @@ import { MovimentacoesSection } from './_components/MovimentacoesSection';
 import { PagarFaturaDialog } from './_components/PagarFaturaDialog';
 import { TicketMedioSection } from './_components/TicketMedioSection';
 import { FaturasAnuaisChart } from './_components/FaturasAnuaisChart';
-import type { AccountViewResponse, CardInvoicesYearlyResponse } from './_types';
+import { DespesasRelacionadas } from './_components/DespesasRelacionadas';
+import type {
+  AccountViewResponse,
+  CardInvoicesYearlyResponse,
+  OriginItemsYearlyResponse,
+} from './_types';
 
 function LoadingBlock() {
   return (
@@ -39,6 +44,7 @@ export default function ContaPage() {
   const { projectType } = useProject();
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
   const [viewMode, setViewMode] = useState<'mes' | 'ano'>('mes');
+  const [selectedOriginKey, setSelectedOriginKey] = useState<string | null>(null);
   const [payCardLast4, setPayCardLast4] = useState<string | null>(null);
   const [originFilter, setOriginFilter] = useState<string | null>(null);
 
@@ -56,6 +62,17 @@ export default function ContaPage() {
     queryFn: () =>
       api.get(`/projects/${projectId}/monthly-overview/card-invoices-yearly?year=${selectedYear}`),
     enabled: !!projectId && viewMode === 'ano',
+  });
+
+  const selectedOrigin = yearlyData?.origins.find((o) => o.key === selectedOriginKey) ?? null;
+
+  const { data: originItems, isLoading: originItemsLoading } = useQuery<OriginItemsYearlyResponse>({
+    queryKey: ['origin-items-yearly', projectId, selectedYear, selectedOrigin?.kind, selectedOrigin?.last4],
+    queryFn: () =>
+      api.get(
+        `/projects/${projectId}/monthly-overview/origin-items-yearly?year=${selectedYear}&kind=${selectedOrigin!.kind}&last4=${selectedOrigin!.last4}`,
+      ),
+    enabled: !!projectId && viewMode === 'ano' && !!selectedOrigin,
   });
 
   if (projectType && projectType !== 'PESSOAL') {
@@ -86,7 +103,10 @@ export default function ContaPage() {
           <div className="flex items-center rounded-xl border border-slate-200 bg-slate-50 p-0.5">
             <button
               type="button"
-              onClick={() => setViewMode('mes')}
+              onClick={() => {
+                setViewMode('mes');
+                setSelectedOriginKey(null);
+              }}
               className={`h-9 rounded-lg px-3 text-xs font-semibold transition ${
                 viewMode === 'mes' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
               }`}
@@ -112,7 +132,22 @@ export default function ContaPage() {
       {viewMode === 'ano' ? (
         <>
           {yearlyLoading && <div className="h-[380px] animate-pulse rounded-2xl bg-slate-100" />}
-          {yearlyData && !yearlyLoading && <FaturasAnuaisChart data={yearlyData} />}
+          {yearlyData && !yearlyLoading && (
+            <>
+              <FaturasAnuaisChart
+                data={yearlyData}
+                selectedKey={selectedOriginKey}
+                onSelectKey={setSelectedOriginKey}
+              />
+              {selectedOrigin && (
+                <DespesasRelacionadas
+                  origin={selectedOrigin}
+                  data={originItems}
+                  isLoading={originItemsLoading}
+                />
+              )}
+            </>
+          )}
         </>
       ) : (
         <>

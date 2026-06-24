@@ -78,7 +78,9 @@ export interface AccountViewResponse {
   ticketMedio: AccountViewTicketMedio;
 }
 
-export interface CardInvoicesYearlyCard {
+export interface CardInvoicesYearlyOrigin {
+  key: string;
+  kind: 'card' | 'conta';
   last4: string;
   nickname: string;
 }
@@ -86,13 +88,31 @@ export interface CardInvoicesYearlyCard {
 export interface CardInvoicesYearlyMonth {
   mes: string;
   label: string;
-  porCartao: Record<string, number>;
+  porOrigem: Record<string, number>;
   total: number;
 }
 
 export interface CardInvoicesYearlyResponse {
   year: number;
-  cards: CardInvoicesYearlyCard[];
+  origins: CardInvoicesYearlyOrigin[];
   months: CardInvoicesYearlyMonth[];
   totalAno: number;
+}
+
+export interface OriginYearlyItem {
+  mes: string;
+  data: string;
+  descricao: string;
+  valor: number;
+  tipoDespesa: string;
+  status: string;
+  projetoOrigem: { id: string; name: string; type: string } | null;
+}
+
+export interface OriginItemsYearlyResponse {
+  year: number;
+  kind: 'card' | 'conta';
+  last4: string;
+  items: OriginYearlyItem[];
+  total: number;
 }
