@@ -195,6 +195,7 @@ export class MonthlyOverviewService {
           createdAt: true,
           linkedExpenseId: true,
           settledByExpenseId: true,
+          settlesInvoiceKey: true,
           project: { select: { id: true, name: true, type: true } },
         },
       }),
@@ -353,29 +354,41 @@ export class MonthlyOverviewService {
       invoice.total += entry.valor;
     }
 
-    // Casa cada pagamento de fatura (PAGAMENTO_FATURA_CARTAO via conta) à fatura do
-    // mesmo cartão POR VALOR dentro de uma janela de mês. Pagamentos de faturas com
-    // vencimento no dia 1 (Nubank/Latam) são feitos no fim do mês anterior; casar só
-    // pelo mês marcaria a fatura errada (a do mês do pagamento, não a do vencimento).
-    const paidInvoiceKeys = matchPaidInvoices(
-      Array.from(invoiceByMonthCard.values()).map((invoice) => ({
-        dueMonth: invoice.dueMonth,
-        cardLast4: invoice.cardLast4,
-        total: invoice.total,
-      })),
-      expenses
-        .filter(
-          (expense) =>
-            expense.tipoDespesa === 'PAGAMENTO_FATURA_CARTAO' &&
-            expense.status === 'PAGO' &&
-            !!expense.bankLast4 &&
-            !!expense.cardLast4,
-        )
-        .map((expense) => ({
-          payMonth: monthKeyOf(accountExpenseDate(expense)),
-          cardLast4: expense.cardLast4 as string,
-          amount: expense.valorTotal,
-        })),
+    // Faturas quitadas por dois mecanismos (ver computePaidInvoiceKeys):
+    //  - implícito: pagamentos via conta do PRÓPRIO cartão, casados por valor+janela
+    //    (faturas que vencem no dia 1 são pagas no mês anterior).
+    //  - explícito: "cartão paga cartão"/PIX com `settlesInvoiceKey` apontando a fatura
+    //    de OUTRO cartão (juros/parciais → soma, não casa por valor). Despesas com
+    //    vínculo explícito saem do casamento implícito para não interferir.
+    const settlementInvoices = Array.from(invoiceByMonthCard.values()).map((invoice) => ({
+      dueMonth: invoice.dueMonth,
+      cardLast4: invoice.cardLast4,
+      total: invoice.total,
+    }));
+    const invoicePayments = expenses.filter(
+      (expense) =>
+        expense.tipoDespesa === 'PAGAMENTO_FATURA_CARTAO' && !!expense.cardLast4,
+    );
+    const implicitPayments = invoicePayments
+      .filter(
+        (expense) =>
+          !expense.settlesInvoiceKey && expense.status === 'PAGO' && !!expense.bankLast4,
+      )
+      .map((expense) => ({
+        payMonth: monthKeyOf(accountExpenseDate(expense)),
+        cardLast4: expense.cardLast4 as string,
+        amount: expense.valorTotal,
+      }));
+    const explicitSettlements = invoicePayments
+      .filter((expense) => !!expense.settlesInvoiceKey)
+      .map((expense) => ({
+        targetKey: settlesInvoiceKeyToInternal(expense.settlesInvoiceKey as string),
+        amount: expense.valorTotal,
+      }));
+    const paidInvoiceKeys = computePaidInvoiceKeys(
+      settlementInvoices,
+      implicitPayments,
+      explicitSettlements,
     );
 
     for (const [invoiceKey, invoice] of invoiceByMonthCard) {
@@ -1084,6 +1097,17 @@ function monthKeyPlus(monthKey: string, n: number): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
+/**
+ * Converte o `settlesInvoiceKey` persistido (`"{cardLast4}:{dueMonth}"`, ex.
+ * `"7259:2026-06"`) na chave interna de fatura (`"{dueMonth}__{cardLast4}"`).
+ * Entradas malformadas viram uma chave inerte que nunca casa com fatura real.
+ */
+function settlesInvoiceKeyToInternal(stored: string): string {
+  const [cardLast4, dueMonth] = stored.split(':');
+  if (!cardLast4 || !dueMonth) return `__invalid__${stored}`;
+  return `${dueMonth}__${cardLast4}`;
+}
+
 export interface InvoiceForMatch {
   dueMonth: string;
   cardLast4: string;
@@ -1145,6 +1169,43 @@ export function matchPaidInvoices(
       matchedDueMonths.add(chosen.dueMonth);
       paid.add(`${chosen.dueMonth}__${cardLast4}`);
     }
+  }
+
+  return paid;
+}
+
+export interface ExplicitSettlement {
+  /** Chave interna da fatura alvo: `${dueMonth}__${cardLast4}`. */
+  targetKey: string;
+  amount: number;
+}
+
+/**
+ * Conjunto de faturas quitadas, unindo dois mecanismos:
+ *  - **implícito**: pagamentos via conta do PRÓPRIO cartão, casados por valor+janela
+ *    (`matchPaidInvoices`) — cobre o caso comum (Nubank/5868/Latam pagos pela conta).
+ *  - **explícito** (`settlesInvoiceKey`): "cartão paga cartão" e PIX direcionados à
+ *    fatura de OUTRO cartão. Como há juros e pagamentos parciais, NÃO casa por valor:
+ *    soma os vínculos por fatura alvo e quita quando cobrem o total. Não infla caixa —
+ *    as cobranças no cartão não têm `bankLast4`.
+ */
+export function computePaidInvoiceKeys(
+  invoices: InvoiceForMatch[],
+  implicitPayments: PaymentForMatch[],
+  explicitSettlements: ExplicitSettlement[],
+): Set<string> {
+  const paid = matchPaidInvoices(invoices, implicitPayments);
+
+  const sumByKey = new Map<string, number>();
+  for (const settlement of explicitSettlements) {
+    sumByKey.set(settlement.targetKey, (sumByKey.get(settlement.targetKey) ?? 0) + settlement.amount);
+  }
+  const totalByKey = new Map<string, number>(
+    invoices.map((invoice) => [`${invoice.dueMonth}__${invoice.cardLast4}`, invoice.total] as const),
+  );
+  for (const [key, sum] of sumByKey) {
+    const total = totalByKey.get(key);
+    if (total != null && sum >= total) paid.add(key);
   }
 
   return paid;

@@ -1,5 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { MonthlyOverviewService, matchPaidInvoices } from './monthly-overview.service';
+import {
+  MonthlyOverviewService,
+  matchPaidInvoices,
+  computePaidInvoiceKeys,
+} from './monthly-overview.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CardInvoiceSettlementService } from '../credit-card/card-invoice-settlement.service';
 
@@ -1113,6 +1117,171 @@ describe('MonthlyOverviewService.getAccountView', () => {
     expect(cardJun.status).toBe('paga');
   });
 
+  it('cartão paga cartão: vínculo explícito quita a fatura do cartão pago sem inflar caixa', async () => {
+    // Latam (7259) junho 15.677,55: pago por (a) cobrança "Itaú" no Nubank 6.492,40
+    // (cartão paga cartão, sem banco) + (b) PIX da conta 9.185,15 (banco 3636).
+    // Nubank (3541) maio 5.347,15: pago pela cobrança "PgConta NU" no Latam 5.597,83.
+    prisma.bankAccount.findMany.mockResolvedValue([
+      { openingBalanceCents: 1_000_000, openingBalanceDate: new Date('2025-12-31T00:00:00.000Z') },
+    ]);
+    prisma.receipt.findMany.mockResolvedValue([]);
+    const baseExp = (over: any) => ({
+      tenantId,
+      projectId,
+      titulo: '',
+      fornecedor: '',
+      valor: over.valorTotal,
+      formaPagamento: 'A_VISTA',
+      dataInicioParcela: null,
+      quantidadeParcela: null,
+      cardLast4: null,
+      bankLast4: null,
+      linkedExpenseId: null,
+      settledByExpenseId: null,
+      settlesInvoiceKey: null,
+      project: { id: projectId, name: 'Pessoal', type: 'PESSOAL' },
+      ...over,
+    });
+    // Compra real que compõe a fatura do Latam junho (closing 25/due 1 → compra 30/04).
+    // A fatura (1.567.755) = compra real (1.007.972) + cobrança PgConta NU (559.783),
+    // espelhando o banco; a PgConta NU também quita o Nubank maio (vínculo explícito).
+    const latamReal = baseExp({
+      id: 'latam-real',
+      tipoDespesa: 'OUTROS',
+      titulo: 'Compra Latam',
+      valorTotal: 1_007_972,
+      dataPagamento: new Date('2026-04-30T00:00:00.000Z'),
+      createdAt: new Date('2026-04-30T00:00:00.000Z'),
+      status: 'PAGO',
+      cardLast4: '7259',
+    });
+    // Compra real que compõe a fatura do Nubank maio (closing 24/due 1 → compra 30/03)
+    const nubankReal = baseExp({
+      id: 'nubank-real',
+      tipoDespesa: 'OUTROS',
+      titulo: 'Compra Nubank',
+      valorTotal: 534_715,
+      dataPagamento: new Date('2026-03-30T00:00:00.000Z'),
+      createdAt: new Date('2026-03-30T00:00:00.000Z'),
+      status: 'PAGO',
+      cardLast4: '3541',
+    });
+    // (a) Cobrança no Nubank que paga o Latam jun (cartão paga cartão, sem banco)
+    const nubankPaysLatam = baseExp({
+      id: 'nubank-pays-latam',
+      tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+      titulo: 'Itaú Unibanco S/A',
+      valorTotal: 649_240,
+      dataPagamento: new Date('2026-06-01T00:00:00.000Z'),
+      createdAt: new Date('2026-06-01T00:00:00.000Z'),
+      status: 'PLANEJADO',
+      cardLast4: '3541',
+      settlesInvoiceKey: '7259:2026-06',
+    });
+    // (b) PIX da conta que paga o resto do Latam jun (banco 3636)
+    const pixPaysLatam = baseExp({
+      id: 'pix-pays-latam',
+      tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+      titulo: 'PIX TRANSF LATAM',
+      valorTotal: 918_515,
+      dataPagamento: new Date('2026-05-18T00:00:00.000Z'),
+      createdAt: new Date('2026-05-18T00:00:00.000Z'),
+      status: 'PAGO',
+      cardLast4: '7259',
+      bankLast4: '3636',
+      settlesInvoiceKey: '7259:2026-06',
+    });
+    // Cobrança no Latam que paga o Nubank maio (cartão paga cartão, com juros)
+    const latamPaysNubank = baseExp({
+      id: 'latam-pays-nubank',
+      tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+      titulo: 'PgConta NU PAGAMENTOS SA',
+      valorTotal: 559_783,
+      dataPagamento: new Date('2026-04-30T00:00:00.000Z'),
+      createdAt: new Date('2026-04-30T00:00:00.000Z'),
+      status: 'PAGO',
+      cardLast4: '7259',
+      settlesInvoiceKey: '3541:2026-05',
+    });
+    prisma.expense.findMany.mockResolvedValue([
+      latamReal,
+      nubankReal,
+      nubankPaysLatam,
+      pixPaysLatam,
+      latamPaysNubank,
+    ]);
+    const cfe = (e: any) => ({
+      id: `cfe-${e.id}`,
+      tenantId,
+      projectId,
+      tipo: 'DESPESA',
+      valor: e.valorTotal,
+      data: e.dataPagamento,
+      status: e.status,
+      categoria: e.tipoDespesa,
+      subcategoria: null,
+      formaPagamento: 'CARTAO_CREDITO',
+      parcela: null,
+      expense: {
+        id: e.id,
+        tipoDespesa: e.tipoDespesa,
+        titulo: e.titulo,
+        fornecedor: e.fornecedor,
+        cardLast4: e.cardLast4,
+        bankLast4: e.bankLast4,
+        linkedExpenseId: null,
+      },
+      receipt: null,
+    });
+    // Mirror: compras reais + cobranças no cartão (sem banco). PIX (com banco) não espelha.
+    prisma.cashFlowEntry.findMany.mockResolvedValue([
+      cfe(latamReal),
+      cfe(nubankReal),
+      cfe(nubankPaysLatam),
+      cfe(latamPaysNubank),
+    ]);
+    prisma.creditCard.findMany.mockResolvedValue([
+      {
+        id: 'card-latam',
+        tenantId,
+        projectId,
+        nickname: 'Latampass',
+        last4: '7259',
+        closingDay: 25,
+        dueDay: 1,
+        limitTotalCents: null,
+        limitAvailableCents: null,
+      },
+      {
+        id: 'card-nubank',
+        tenantId,
+        projectId,
+        nickname: 'Nubank',
+        last4: '3541',
+        closingDay: 24,
+        dueDay: 1,
+        limitTotalCents: null,
+        limitAvailableCents: null,
+      },
+    ]);
+
+    // Latam junho: quitado pela soma 6.492,40 + 9.185,15.
+    const latamJun: any = await service.getAccountView(tenantId, projectId, '2026-06');
+    const latam = latamJun.cartoes.find((c: any) => c.last4 === '7259');
+    expect(latam.faturaAtual).toBe(1_567_755);
+    expect(latam.status).toBe('paga');
+
+    // Nubank maio: quitado pela cobrança no Latam (com juros).
+    const nubankMai: any = await service.getAccountView(tenantId, projectId, '2026-05');
+    const nubank = nubankMai.cartoes.find((c: any) => c.last4 === '3541');
+    expect(nubank.faturaAtual).toBe(534_715);
+    expect(nubank.status).toBe('paga');
+
+    // Caixa: só o PIX real (9.185,15) sai da conta. As cobranças cartão-paga-cartão
+    // (sem banco) NÃO afetam o caixa → sem inflação.
+    expect(latamJun.caixaHoje).toBe(1_000_000 - 918_515);
+  });
+
   describe('payInvoice', () => {
     beforeEach(() => {
       prisma.creditCard.findFirst.mockResolvedValue({
@@ -1250,5 +1419,71 @@ describe('matchPaidInvoices', () => {
   it('sem pagamentos retorna conjunto vazio', () => {
     const invoices = [inv('2026-06', '3541', 442_034)];
     expect(matchPaidInvoices(invoices, []).size).toBe(0);
+  });
+});
+
+describe('computePaidInvoiceKeys', () => {
+  const inv = (dueMonth: string, cardLast4: string, total: number) => ({
+    dueMonth,
+    cardLast4,
+    total,
+  });
+  const pay = (payMonth: string, cardLast4: string, amount: number) => ({
+    payMonth,
+    cardLast4,
+    amount,
+  });
+  const set = (targetKey: string, amount: number) => ({ targetKey, amount });
+
+  it('mantém o casamento implícito por valor quando não há vínculos explícitos', () => {
+    const invoices = [inv('2026-06', '3541', 442_034), inv('2026-07', '3541', 2_401_031)];
+    const implicit = [pay('2026-05', '3541', 442_034), pay('2026-06', '3541', 2_401_033)];
+    const paid = computePaidInvoiceKeys(invoices, implicit, []);
+    expect(paid.has('2026-06__3541')).toBe(true);
+    expect(paid.has('2026-07__3541')).toBe(true);
+  });
+
+  it('quita por vínculo explícito quando a soma cobre o total (cartão paga cartão + juros)', () => {
+    // Nubank maio 5.347,15 pago pela cobrança "PgConta NU" no Latam (5.597,83 com juros).
+    const invoices = [inv('2026-05', '3541', 534_715)];
+    const explicit = [set('2026-05__3541', 559_783)];
+    const paid = computePaidInvoiceKeys(invoices, [], explicit);
+    expect(paid.has('2026-05__3541')).toBe(true);
+    expect(paid.size).toBe(1);
+  });
+
+  it('soma vínculos parciais (cartão + PIX) para quitar a fatura', () => {
+    // Latam junho 15.677,55 = 6.492,40 (cobrança no Nubank) + 9.185,15 (PIX conta).
+    const invoices = [inv('2026-06', '7259', 1_567_755)];
+    const explicit = [set('2026-06__7259', 649_240), set('2026-06__7259', 918_515)];
+    const paid = computePaidInvoiceKeys(invoices, [], explicit);
+    expect(paid.has('2026-06__7259')).toBe(true);
+  });
+
+  it('NÃO quita quando os vínculos explícitos não cobrem o total', () => {
+    const invoices = [inv('2026-06', '7259', 1_567_755)];
+    const explicit = [set('2026-06__7259', 649_240)]; // só parte
+    const paid = computePaidInvoiceKeys(invoices, [], explicit);
+    expect(paid.has('2026-06__7259')).toBe(false);
+    expect(paid.size).toBe(0);
+  });
+
+  it('combina implícito e explícito sem interferência entre faturas', () => {
+    const invoices = [
+      inv('2026-05', '3541', 534_715),
+      inv('2026-06', '7259', 1_567_755),
+      inv('2026-07', '3541', 2_401_031),
+    ];
+    const implicit = [pay('2026-06', '3541', 2_401_033)]; // quita jul por valor
+    const explicit = [
+      set('2026-05__3541', 559_783), // quita maio (juros)
+      set('2026-06__7259', 649_240),
+      set('2026-06__7259', 918_515), // soma quita Latam jun
+    ];
+    const paid = computePaidInvoiceKeys(invoices, implicit, explicit);
+    expect(paid.has('2026-05__3541')).toBe(true);
+    expect(paid.has('2026-06__7259')).toBe(true);
+    expect(paid.has('2026-07__3541')).toBe(true);
+    expect(paid.size).toBe(3);
   });
 });
