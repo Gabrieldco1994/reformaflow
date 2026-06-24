@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { MonthlyOverviewService } from './monthly-overview.service';
+import { MonthlyOverviewService, matchPaidInvoices } from './monthly-overview.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CardInvoiceSettlementService } from '../credit-card/card-invoice-settlement.service';
 
@@ -969,6 +969,150 @@ describe('MonthlyOverviewService.getAccountView', () => {
     expect(res.sobraPrevista).toBe(92_000);
   });
 
+  it('casa pagamento da fatura pelo valor: vencimento dia 1 pago no mês anterior marca a fatura certa', async () => {
+    // Cartão Nubank (closing 24, due 1): a fatura de cada mês é paga no fim do mês
+    // ANTERIOR ao vencimento. Casar só por mês marcaria a fatura errada.
+    prisma.bankAccount.findMany.mockResolvedValue([]);
+    prisma.receipt.findMany.mockResolvedValue([]);
+    const purchaseJun = {
+      // compra 10/05 → fatura vence em junho (2026-06)
+      id: 'buy-jun',
+      tenantId,
+      projectId,
+      tipoDespesa: 'OUTROS',
+      titulo: 'Compra junho',
+      fornecedor: 'Loja',
+      valorTotal: 442_034,
+      valor: 442_034,
+      formaPagamento: 'A_VISTA',
+      dataPagamento: new Date('2026-05-10T00:00:00.000Z'),
+      dataInicioParcela: null,
+      quantidadeParcela: null,
+      status: 'PAGO',
+      cardLast4: '3541',
+      bankLast4: null,
+      createdAt: new Date('2026-05-10T00:00:00.000Z'),
+      linkedExpenseId: null,
+      settledByExpenseId: null,
+      project: { id: projectId, name: 'Pessoal', type: 'PESSOAL' },
+    };
+    const purchaseJul = {
+      // compra 10/06 → fatura vence em julho (2026-07)
+      id: 'buy-jul',
+      tenantId,
+      projectId,
+      tipoDespesa: 'OUTROS',
+      titulo: 'Compra julho',
+      fornecedor: 'Loja',
+      valorTotal: 2_401_031,
+      valor: 2_401_031,
+      formaPagamento: 'A_VISTA',
+      dataPagamento: new Date('2026-06-10T00:00:00.000Z'),
+      dataInicioParcela: null,
+      quantidadeParcela: null,
+      status: 'PAGO',
+      cardLast4: '3541',
+      bankLast4: null,
+      createdAt: new Date('2026-06-10T00:00:00.000Z'),
+      linkedExpenseId: null,
+      settledByExpenseId: null,
+      project: { id: projectId, name: 'Pessoal', type: 'PESSOAL' },
+    };
+    const payJun = {
+      // pago 28/05 (mês anterior ao vencimento) → quita a fatura de junho (442.034)
+      id: 'pay-jun',
+      tenantId,
+      projectId,
+      tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+      titulo: 'PIX QRS NU PAGAMENT28/05',
+      fornecedor: 'NU PAGAMENTOS',
+      valorTotal: 442_034,
+      valor: 442_034,
+      formaPagamento: 'A_VISTA',
+      dataPagamento: new Date('2026-05-28T00:00:00.000Z'),
+      dataInicioParcela: null,
+      quantidadeParcela: null,
+      status: 'PAGO',
+      cardLast4: '3541',
+      bankLast4: '3636',
+      createdAt: new Date('2026-05-28T00:00:00.000Z'),
+      linkedExpenseId: null,
+      settledByExpenseId: null,
+      project: { id: projectId, name: 'Pessoal', type: 'PESSOAL' },
+    };
+    const payJul = {
+      // pago 22/06 (mês anterior ao vencimento) → quita a fatura de julho (2.401.031)
+      // valor 2.401.033 difere por 2 centavos do total da fatura (arredondamento).
+      id: 'pay-jul',
+      tenantId,
+      projectId,
+      tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+      titulo: 'PIX QRS NU PAGAMENT22/06',
+      fornecedor: 'NU PAGAMENTOS',
+      valorTotal: 2_401_033,
+      valor: 2_401_033,
+      formaPagamento: 'A_VISTA',
+      dataPagamento: new Date('2026-06-22T00:00:00.000Z'),
+      dataInicioParcela: null,
+      quantidadeParcela: null,
+      status: 'PAGO',
+      cardLast4: '3541',
+      bankLast4: '3636',
+      createdAt: new Date('2026-06-22T00:00:00.000Z'),
+      linkedExpenseId: null,
+      settledByExpenseId: null,
+      project: { id: projectId, name: 'Pessoal', type: 'PESSOAL' },
+    };
+    prisma.expense.findMany.mockResolvedValue([purchaseJun, purchaseJul, payJun, payJul]);
+    const entryFor = (e: any) => ({
+      id: `cfe-${e.id}`,
+      tenantId,
+      projectId,
+      tipo: 'DESPESA',
+      valor: e.valorTotal,
+      data: e.dataPagamento,
+      status: e.status,
+      categoria: e.tipoDespesa,
+      subcategoria: 'Nubank',
+      formaPagamento: 'CARTAO_CREDITO',
+      parcela: null,
+      expense: {
+        id: e.id,
+        tipoDespesa: e.tipoDespesa,
+        titulo: e.titulo,
+        fornecedor: e.fornecedor,
+        cardLast4: e.cardLast4,
+        bankLast4: e.bankLast4,
+        linkedExpenseId: null,
+      },
+      receipt: null,
+    });
+    prisma.cashFlowEntry.findMany.mockResolvedValue([entryFor(purchaseJun), entryFor(purchaseJul)]);
+    prisma.creditCard.findMany.mockResolvedValue([
+      {
+        id: 'card-nu',
+        tenantId,
+        projectId,
+        nickname: 'Nubank',
+        last4: '3541',
+        closingDay: 24,
+        dueDay: 1,
+        limitTotalCents: null,
+        limitAvailableCents: null,
+      },
+    ]);
+
+    const jul: any = await service.getAccountView(tenantId, projectId, '2026-07');
+    const cardJul = jul.cartoes.find((c: any) => c.last4 === '3541');
+    expect(cardJul.faturaAtual).toBe(2_401_031);
+    expect(cardJul.status).toBe('paga');
+
+    const jun: any = await service.getAccountView(tenantId, projectId, '2026-06');
+    const cardJun = jun.cartoes.find((c: any) => c.last4 === '3541');
+    expect(cardJun.faturaAtual).toBe(442_034);
+    expect(cardJun.status).toBe('paga');
+  });
+
   describe('payInvoice', () => {
     beforeEach(() => {
       prisma.creditCard.findFirst.mockResolvedValue({
@@ -1043,5 +1187,68 @@ describe('MonthlyOverviewService.getAccountView', () => {
         }),
       ).rejects.toThrow(/Valor da fatura inválido/i);
     });
+  });
+});
+
+describe('matchPaidInvoices', () => {
+  const inv = (dueMonth: string, cardLast4: string, total: number) => ({
+    dueMonth,
+    cardLast4,
+    total,
+  });
+  const pay = (payMonth: string, cardLast4: string, amount: number) => ({
+    payMonth,
+    cardLast4,
+    amount,
+  });
+
+  it('casa o pagamento pela proximidade de valor dentro da janela {payMonth, payMonth+1}', () => {
+    // Nubank: junho 4420.34 pago em 2026-05; julho 24010.31 pago em 2026-06 (24010.33).
+    const invoices = [inv('2026-06', '3541', 442_034), inv('2026-07', '3541', 2_401_031)];
+    const payments = [pay('2026-05', '3541', 442_034), pay('2026-06', '3541', 2_401_033)];
+    const paid = matchPaidInvoices(invoices, payments);
+    expect(paid.has('2026-06__3541')).toBe(true);
+    expect(paid.has('2026-07__3541')).toBe(true);
+    expect(paid.size).toBe(2);
+  });
+
+  it('não deixa um pagamento do mês anterior marcar a fatura de menor valor do mesmo mês', () => {
+    // O pagamento de 22/06 (24010.33) NÃO pode marcar junho (4420.34): junho já foi
+    // quitado pelo pagamento de maio; o de junho deve cair em julho.
+    const invoices = [inv('2026-06', '3541', 442_034), inv('2026-07', '3541', 2_401_031)];
+    const payments = [pay('2026-06', '3541', 2_401_033)];
+    const paid = matchPaidInvoices(invoices, payments);
+    expect(paid.has('2026-07__3541')).toBe(true);
+    expect(paid.has('2026-06__3541')).toBe(false);
+    expect(paid.size).toBe(1);
+  });
+
+  it('preserva o casamento no mesmo mês quando o pagamento ocorre no mês do vencimento', () => {
+    const invoices = [inv('2026-06', '1111', 7_000), inv('2026-07', '1111', 2_000)];
+    const payments = [pay('2026-06', '1111', 7_000)];
+    const paid = matchPaidInvoices(invoices, payments);
+    expect(paid.has('2026-06__1111')).toBe(true);
+    expect(paid.has('2026-07__1111')).toBe(false);
+  });
+
+  it('isola por cartão e ignora pagamento sem fatura na janela', () => {
+    const invoices = [inv('2026-06', 'AAAA', 1_000)];
+    const payments = [pay('2026-06', 'BBBB', 1_000), pay('2026-01', 'AAAA', 1_000)];
+    const paid = matchPaidInvoices(invoices, payments);
+    expect(paid.size).toBe(0);
+  });
+
+  it('consome cada fatura uma única vez (dois pagamentos, duas faturas distintas)', () => {
+    const invoices = [inv('2026-06', '9999', 5_000), inv('2026-07', '9999', 5_000)];
+    const payments = [pay('2026-05', '9999', 5_000), pay('2026-06', '9999', 5_000)];
+    const paid = matchPaidInvoices(invoices, payments);
+    expect(paid.has('2026-06__9999')).toBe(true);
+    expect(paid.has('2026-07__9999')).toBe(true);
+    expect(paid.size).toBe(2);
+  });
+
+  it('sem pagamentos retorna conjunto vazio', () => {
+    const invoices = [inv('2026-06', '3541', 442_034)];
+    expect(matchPaidInvoices(invoices, []).size).toBe(0);
   });
 });

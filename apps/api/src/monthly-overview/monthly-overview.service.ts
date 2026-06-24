@@ -318,17 +318,6 @@ export class MonthlyOverviewService {
     );
 
     const cardByLast4 = new Map(cards.map((card) => [card.last4, card] as const));
-    const paidInvoiceKeys = new Set(
-      expenses
-        .filter(
-          (expense) =>
-            expense.tipoDespesa === 'PAGAMENTO_FATURA_CARTAO' &&
-            expense.status === 'PAGO' &&
-            !!expense.bankLast4 &&
-            !!expense.cardLast4,
-        )
-        .map((expense) => `${monthKeyOf(accountExpenseDate(expense))}__${expense.cardLast4}`),
-    );
     const invoiceByMonthCard = new Map<string, CardInvoiceAggregate>();
 
     for (const entry of entries) {
@@ -363,6 +352,31 @@ export class MonthlyOverviewService {
 
       invoice.total += entry.valor;
     }
+
+    // Casa cada pagamento de fatura (PAGAMENTO_FATURA_CARTAO via conta) à fatura do
+    // mesmo cartão POR VALOR dentro de uma janela de mês. Pagamentos de faturas com
+    // vencimento no dia 1 (Nubank/Latam) são feitos no fim do mês anterior; casar só
+    // pelo mês marcaria a fatura errada (a do mês do pagamento, não a do vencimento).
+    const paidInvoiceKeys = matchPaidInvoices(
+      Array.from(invoiceByMonthCard.values()).map((invoice) => ({
+        dueMonth: invoice.dueMonth,
+        cardLast4: invoice.cardLast4,
+        total: invoice.total,
+      })),
+      expenses
+        .filter(
+          (expense) =>
+            expense.tipoDespesa === 'PAGAMENTO_FATURA_CARTAO' &&
+            expense.status === 'PAGO' &&
+            !!expense.bankLast4 &&
+            !!expense.cardLast4,
+        )
+        .map((expense) => ({
+          payMonth: monthKeyOf(accountExpenseDate(expense)),
+          cardLast4: expense.cardLast4 as string,
+          amount: expense.valorTotal,
+        })),
+    );
 
     for (const [invoiceKey, invoice] of invoiceByMonthCard) {
       if (paidInvoiceKeys.has(invoiceKey)) {
@@ -1061,6 +1075,79 @@ export class MonthlyOverviewService {
 /** YYYY-MM em UTC (datas do banco são gravadas em UTC, sem deslocar timezone). */
 function monthKeyOf(d: Date): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+/** Soma `n` meses a uma chave YYYY-MM, normalizando o ano. */
+function monthKeyPlus(monthKey: string, n: number): string {
+  const [year, month] = monthKey.split('-').map((value) => parseInt(value, 10));
+  const d = new Date(Date.UTC(year, month - 1 + n, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+export interface InvoiceForMatch {
+  dueMonth: string;
+  cardLast4: string;
+  total: number;
+}
+export interface PaymentForMatch {
+  payMonth: string;
+  cardLast4: string;
+  amount: number;
+}
+
+/**
+ * Casa pagamentos de fatura (`PAGAMENTO_FATURA_CARTAO` pagos via conta) às faturas
+ * do mesmo cartão. O pagamento de uma fatura é feito no mês do vencimento OU no mês
+ * anterior (faturas que vencem no dia 1 são pagas no fim do mês anterior). Por isso
+ * casamos POR VALOR dentro da janela de mês `{payMonth, payMonth+1}`, processando os
+ * pagamentos em ordem cronológica e consumindo cada fatura uma única vez. Retorna o
+ * conjunto de chaves `${dueMonth}__${cardLast4}` das faturas quitadas.
+ */
+export function matchPaidInvoices(
+  invoices: InvoiceForMatch[],
+  payments: PaymentForMatch[],
+): Set<string> {
+  const paid = new Set<string>();
+
+  const invoicesByCard = new Map<string, InvoiceForMatch[]>();
+  for (const invoice of invoices) {
+    const list = invoicesByCard.get(invoice.cardLast4) ?? [];
+    list.push(invoice);
+    invoicesByCard.set(invoice.cardLast4, list);
+  }
+
+  const paymentsByCard = new Map<string, PaymentForMatch[]>();
+  for (const payment of payments) {
+    const list = paymentsByCard.get(payment.cardLast4) ?? [];
+    list.push(payment);
+    paymentsByCard.set(payment.cardLast4, list);
+  }
+
+  for (const [cardLast4, cardPayments] of paymentsByCard) {
+    const cardInvoices = invoicesByCard.get(cardLast4) ?? [];
+    const matchedDueMonths = new Set<string>();
+    const ordered = [...cardPayments].sort(
+      (a, b) => a.payMonth.localeCompare(b.payMonth) || a.amount - b.amount,
+    );
+    for (const payment of ordered) {
+      const windowMonths = [payment.payMonth, monthKeyPlus(payment.payMonth, 1)];
+      const candidates = cardInvoices.filter(
+        (invoice) =>
+          !matchedDueMonths.has(invoice.dueMonth) && windowMonths.includes(invoice.dueMonth),
+      );
+      if (candidates.length === 0) continue;
+      candidates.sort(
+        (a, b) =>
+          Math.abs(a.total - payment.amount) - Math.abs(b.total - payment.amount) ||
+          a.dueMonth.localeCompare(b.dueMonth),
+      );
+      const chosen = candidates[0];
+      matchedDueMonths.add(chosen.dueMonth);
+      paid.add(`${chosen.dueMonth}__${cardLast4}`);
+    }
+  }
+
+  return paid;
 }
 
 export interface CaixaContaAccount {
