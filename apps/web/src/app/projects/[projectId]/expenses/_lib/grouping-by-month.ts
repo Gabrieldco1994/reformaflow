@@ -34,7 +34,27 @@ export interface GrupoDespesaPorMes {
   isFuture: boolean;
 }
 
-export function effectiveDate(e: Expense): string | null {
+/**
+ * Eixo de datação das despesas:
+ * - 'caixa'       → quando o dinheiro sai (parcelas por vencimento). PADRÃO,
+ *                   comportamento histórico. Usado pela Conta Real.
+ * - 'competencia' → quando a compra foi feita. Quando a despesa tem `dataCompra`
+ *                   conhecida, ela cai UMA vez (valor cheio) no mês da compra,
+ *                   sem espalhar parcelas. Sem `dataCompra`, é idêntico a 'caixa'.
+ *
+ * IMPORTANTE: 'competencia' só altera despesas que TÊM `dataCompra`. Para todas
+ * as demais, o resultado é byte-a-byte igual a 'caixa' — nada muda.
+ */
+export type ExpenseDateAxis = 'caixa' | 'competencia';
+
+export function effectiveDate(
+  e: Expense,
+  axis: ExpenseDateAxis = 'caixa',
+): string | null {
+  if (axis === 'competencia') {
+    const dc = (e as { dataCompra?: string }).dataCompra;
+    if (dc) return dc;
+  }
   return (
     e.dataPagamento ||
     e.dataInicioParcela ||
@@ -66,7 +86,30 @@ function parsePaidSet(raw: string | null | undefined, n: number): Set<number> {
  * Cada ocorrência tem status próprio: paga se a parcela está em `paidParcelas`
  * (ou se a despesa inteira está PAGO).
  */
-export function expandExpenseOccurrences(e: Expense): Occurrence[] {
+export function expandExpenseOccurrences(
+  e: Expense,
+  axis: ExpenseDateAxis = 'caixa',
+): Occurrence[] {
+  // COMPETÊNCIA com data de compra conhecida: a compra inteira cai UMA vez
+  // (valor cheio) no mês da compra — não espalha parcelas. Só vale para o eixo
+  // competência; o eixo caixa (Conta Real) nunca entra aqui. Não afeta despesas
+  // sem `dataCompra` (resultado idêntico ao caminho padrão abaixo).
+  if (axis === 'competencia') {
+    const dc = (e as { dataCompra?: string }).dataCompra;
+    if (dc) {
+      return [
+        {
+          ...e,
+          occKey: e.id,
+          occDate: dc.slice(0, 10),
+          occValue: e.valorTotal,
+          occIndex: 1,
+          occTotalParcelas: 1,
+        },
+      ];
+    }
+  }
+
   const n = e.quantidadeParcela ?? 1;
   const isInstallment =
     (e.formaPagamento === 'PARCELADO' || e.formaPagamento === 'QUINZENAL') &&

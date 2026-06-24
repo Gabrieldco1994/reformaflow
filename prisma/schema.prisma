@@ -168,6 +168,7 @@ model Expense {
   dataPagamento       DateTime? @map("data_pagamento") // quando A_VISTA
   quantidadeParcela   Int?     @map("quantidade_parcela") // quando PARCELADO ou QUINZENAL
   dataInicioParcela   DateTime? @map("data_inicio_parcela") // quando PARCELADO ou QUINZENAL
+  dataCompra          DateTime? @map("data_compra") // COMPETÊNCIA: data real da compra (independe do vencimento/parcela). Usada pelo eixo "Gastos Controle". NÃO afeta a Conta Real (eixo caixa), que deriva o vencimento à parte.
   status              String   @default("PLANEJADO") // PLANEJADO | PAGO
   recorrente          Boolean  @default(false) // despesa fixa mensal (ocorrência virtual, não gera linhas)
   recorrenciaFim      DateTime? @map("recorrencia_fim") // último mês da recorrência (null = sem fim)

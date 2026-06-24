@@ -1,5 +1,5 @@
 import type { Expense } from '@/types';
-import { effectiveDate, expandExpenseOccurrences } from './grouping-by-month';
+import { effectiveDate, expandExpenseOccurrences, type ExpenseDateAxis } from './grouping-by-month';
 import { isNeutralExpenseType } from '@reformaflow/domain';
 
 export interface CrossProjectMeta {
@@ -64,16 +64,21 @@ function originOf(e: Expense): OriginGroup {
 export type PeriodFilter = 'ALL' | string;
 
 /** Conjunto de meses (YYYY-MM) que uma despesa toca: uma por parcela. */
-function expenseMonths(e: Expense): string[] {
+function expenseMonths(e: Expense, axis: ExpenseDateAxis = 'caixa'): string[] {
   const set = new Set<string>();
-  for (const occ of expandExpenseOccurrences(e)) {
+  for (const occ of expandExpenseOccurrences(e, axis)) {
     if (occ.occDate) set.add(occ.occDate.slice(0, 7));
   }
   return Array.from(set);
 }
 
-export function inPeriod(e: Expense, period: PeriodFilter, year: number): boolean {
-  const months = expenseMonths(e);
+export function inPeriod(
+  e: Expense,
+  period: PeriodFilter,
+  year: number,
+  axis: ExpenseDateAxis = 'caixa',
+): boolean {
+  const months = expenseMonths(e, axis);
   if (months.length === 0) return period === 'ALL'; // sem data → só aparece no "ano todo"
   if (period === 'ALL') {
     return months.some((m) => m.slice(0, 4) === String(year));

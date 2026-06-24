@@ -104,6 +104,7 @@ export interface Expense {
   dataPagamento?: string;
   quantidadeParcela?: number;
   dataInicioParcela?: string;
+  dataCompra?: string | null; // COMPETÊNCIA: data real da compra (eixo "Gastos Controle"). Não afeta a Conta Real.
   status: ExpenseStatus;
   recorrente?: boolean; // despesa fixa mensal (ocorrência virtual)
   recorrenciaFim?: string | null; // último mês da recorrência (ISO) ou null

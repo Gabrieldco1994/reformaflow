@@ -291,7 +291,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
         const isInst =
           (e.formaPagamento === 'PARCELADO' || e.formaPagamento === 'QUINZENAL') &&
           (e.quantidadeParcela ?? 1) > 1;
-        for (const occ of expandExpenseOccurrences(e)) {
+        for (const occ of expandExpenseOccurrences(e, 'competencia')) {
           if (!occ.occDate) continue;
           const occDateObj = new Date(occ.occDate);
           if (occDateObj < startDate || occDateObj > endDate) continue;
@@ -313,7 +313,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
     }
 
     if (period === 'ALL') {
-      return filteredExpenses.filter((e) => inPeriod(e, period, periodYear));
+      return filteredExpenses.filter((e) => inPeriod(e, period, periodYear, 'competencia'));
     }
 
     // Mês específico: expande parcelas e mantém só a parcela do mês selecionado,
@@ -326,7 +326,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
       const isInst =
         (e.formaPagamento === 'PARCELADO' || e.formaPagamento === 'QUINZENAL') &&
         (e.quantidadeParcela ?? 1) > 1;
-      for (const occ of expandExpenseOccurrences(e)) {
+      for (const occ of expandExpenseOccurrences(e, 'competencia')) {
         if (!occ.occDate || occ.occDate.slice(0, 7) !== period) continue;
         if (!isInst) {
           out.push(e);
@@ -353,7 +353,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
     let geral = 0, planejado = 0, pago = 0;
     for (const e of periodFilteredPersonal) {
       if (isNeutralExpenseType(e.tipoDespesa)) continue;
-      for (const occ of expandExpenseOccurrences(e)) {
+      for (const occ of expandExpenseOccurrences(e, 'competencia')) {
         geral += occ.occValue;
         if (occ.status === 'PAGO') pago += occ.occValue;
         else planejado += occ.occValue;
