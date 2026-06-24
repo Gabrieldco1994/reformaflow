@@ -77,3 +77,22 @@ export interface AccountViewResponse {
   entradas: AccountViewEntrada[];
   ticketMedio: AccountViewTicketMedio;
 }
+
+export interface CardInvoicesYearlyCard {
+  last4: string;
+  nickname: string;
+}
+
+export interface CardInvoicesYearlyMonth {
+  mes: string;
+  label: string;
+  porCartao: Record<string, number>;
+  total: number;
+}
+
+export interface CardInvoicesYearlyResponse {
+  year: number;
+  cards: CardInvoicesYearlyCard[];
+  months: CardInvoicesYearlyMonth[];
+  totalAno: number;
+}

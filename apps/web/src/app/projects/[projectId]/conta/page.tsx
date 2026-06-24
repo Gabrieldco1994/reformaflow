@@ -13,7 +13,8 @@ import { CartoesSection } from './_components/CartoesSection';
 import { MovimentacoesSection } from './_components/MovimentacoesSection';
 import { PagarFaturaDialog } from './_components/PagarFaturaDialog';
 import { TicketMedioSection } from './_components/TicketMedioSection';
-import type { AccountViewResponse } from './_types';
+import { FaturasAnuaisChart } from './_components/FaturasAnuaisChart';
+import type { AccountViewResponse, CardInvoicesYearlyResponse } from './_types';
 
 function LoadingBlock() {
   return (
@@ -37,14 +38,24 @@ export default function ContaPage() {
   const projectId = params.projectId;
   const { projectType } = useProject();
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
+  const [viewMode, setViewMode] = useState<'mes' | 'ano'>('mes');
   const [payCardLast4, setPayCardLast4] = useState<string | null>(null);
   const [originFilter, setOriginFilter] = useState<string | null>(null);
+
+  const selectedYear = selectedMonth.slice(0, 4);
 
   const { data, isLoading, error } = useQuery<AccountViewResponse>({
     queryKey: ['account-view', projectId, selectedMonth],
     queryFn: () =>
       api.get(`/projects/${projectId}/monthly-overview/account-view?month=${selectedMonth}`),
     enabled: !!projectId,
+  });
+
+  const { data: yearlyData, isLoading: yearlyLoading } = useQuery<CardInvoicesYearlyResponse>({
+    queryKey: ['card-invoices-yearly', projectId, selectedYear],
+    queryFn: () =>
+      api.get(`/projects/${projectId}/monthly-overview/card-invoices-yearly?year=${selectedYear}`),
+    enabled: !!projectId && viewMode === 'ano',
   });
 
   if (projectType && projectType !== 'PESSOAL') {
@@ -67,45 +78,78 @@ export default function ContaPage() {
               Visão Conta
             </p>
             <h1 className="truncate text-base font-bold tracking-tight text-slate-950 xl:text-lg">
-              {monthLabelLong(selectedMonth)}
+              {viewMode === 'ano' ? `Ano ${selectedYear}` : monthLabelLong(selectedMonth)}
             </h1>
           </div>
         </div>
-        <ContaMonthPicker month={selectedMonth} onChange={setSelectedMonth} />
+        <div className="flex shrink-0 items-center gap-2">
+          <div className="flex items-center rounded-xl border border-slate-200 bg-slate-50 p-0.5">
+            <button
+              type="button"
+              onClick={() => setViewMode('mes')}
+              className={`h-9 rounded-lg px-3 text-xs font-semibold transition ${
+                viewMode === 'mes' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              Mês
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('ano')}
+              className={`h-9 rounded-lg px-3 text-xs font-semibold transition ${
+                viewMode === 'ano' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              Ano todo
+            </button>
+          </div>
+          {viewMode === 'mes' && (
+            <ContaMonthPicker month={selectedMonth} onChange={setSelectedMonth} />
+          )}
+        </div>
       </header>
 
-      {isLoading && <LoadingBlock />}
-
-      {error && !isLoading && (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          Não foi possível carregar a Visão Conta agora.
-        </div>
-      )}
-
-      {data && !isLoading && (
+      {viewMode === 'ano' ? (
         <>
-          <ResumoCards
-            caixaHoje={data.caixaHoje}
-            entrouMes={data.entrouMes}
-            saiuMes={data.saiuMes}
-            faltaPagarMes={data.faltaPagarMes}
-            sobraPrevista={data.sobraPrevista}
-          />
-          <CartoesSection
-            cartoes={data.cartoes}
-            contas={data.contas ?? []}
-            selected={originFilter}
-            onSelect={setOriginFilter}
-            onPayInvoice={setPayCardLast4}
-          />
-          <MovimentacoesSection
-            data={data}
-            projectId={projectId}
-            originFilter={originFilter}
-            onClearOrigin={() => setOriginFilter(null)}
-            onPayInvoice={setPayCardLast4}
-          />
-          <TicketMedioSection ticket={data.ticketMedio} currentMonth={data.mesSelecionado} />
+          {yearlyLoading && <div className="h-[380px] animate-pulse rounded-2xl bg-slate-100" />}
+          {yearlyData && !yearlyLoading && <FaturasAnuaisChart data={yearlyData} />}
+        </>
+      ) : (
+        <>
+          {isLoading && <LoadingBlock />}
+
+          {error && !isLoading && (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              Não foi possível carregar a Visão Conta agora.
+            </div>
+          )}
+
+          {data && !isLoading && (
+            <>
+              <ResumoCards
+                caixaHoje={data.caixaHoje}
+                entrouMes={data.entrouMes}
+                saiuMes={data.saiuMes}
+                faltaPagarMes={data.faltaPagarMes}
+                sobraPrevista={data.sobraPrevista}
+              />
+              <CartoesSection
+                cartoes={data.cartoes}
+                contas={data.contas ?? []}
+                selected={originFilter}
+                onSelect={setOriginFilter}
+                onPayInvoice={setPayCardLast4}
+              />
+              <MovimentacoesSection
+                data={data}
+                projectId={projectId}
+                originFilter={originFilter}
+                onClearOrigin={() => setOriginFilter(null)}
+                onPayInvoice={setPayCardLast4}
+              />
+              <TicketMedioSection ticket={data.ticketMedio} currentMonth={data.mesSelecionado} />
+            </>
+          )}
         </>
       )}
 

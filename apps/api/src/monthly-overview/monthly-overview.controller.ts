@@ -34,6 +34,18 @@ export class MonthlyOverviewController {
     return this.service.getAccountView(tenantId, projectId, month);
   }
 
+  @Get('card-invoices-yearly')
+  @ApiOperation({
+    summary: 'Faturas de cada cartão por mês de vencimento ao longo do ano (PESSOAL)',
+  })
+  getCardInvoicesYearly(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Query('year') year?: string,
+  ) {
+    return this.service.getCardInvoicesYearly(tenantId, projectId, year);
+  }
+
   @Post('pay-invoice')
   @ApiOperation({
     summary: 'Pagar fatura de cartão (gera despesa neutra + liquida o ciclo)',

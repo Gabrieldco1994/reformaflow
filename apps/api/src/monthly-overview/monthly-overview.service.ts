@@ -644,6 +644,98 @@ export class MonthlyOverviewService {
   }
 
   /**
+   * Faturas de cada cartão por mês de vencimento ao longo de um ano (Jan–Dez).
+   * Usado pela visão "ano todo" da Visão Conta: gráfico de barras com um mês por
+   * coluna e o total da fatura de cada cartão.
+   *
+   * Mesma regra de agregação da fatura em getAccountView: agrupa por mês de
+   * vencimento (caixaMonthForCardPurchase) e inclui cobranças neutras lançadas
+   * COMO COMPRA no cartão (cardLast4 setado, sem bankLast4 — ex.: "Pix no crédito"
+   * / pagar a fatura de outro cartão), espelhando o banco. Neutros liquidados via
+   * conta (bankLast4 setado) ficam de fora.
+   */
+  async getCardInvoicesYearly(tenantId: string, projectId: string, year?: string | number) {
+    await this.ensurePessoalProject(tenantId, projectId);
+
+    const targetYear = normalizeYear(year);
+
+    const [entries, cards] = await Promise.all([
+      this.prisma.cashFlowEntry.findMany({
+        where: {
+          tenantId,
+          projectId,
+          deletedAt: null,
+          tipo: 'DESPESA',
+          AND: [{ OR: [{ expenseId: null }, { expense: { deletedAt: null } }] }],
+        },
+        select: {
+          valor: true,
+          data: true,
+          expense: {
+            select: { cardLast4: true, bankLast4: true, tipoDespesa: true },
+          },
+        },
+      }),
+      this.prisma.creditCard.findMany({
+        where: { tenantId, projectId, deletedAt: null },
+        select: { nickname: true, last4: true, closingDay: true, dueDay: true },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      }),
+    ]);
+
+    const cardByLast4 = new Map(cards.map((card) => [card.last4, card] as const));
+
+    // Mapa: `${YYYY-MM}__${last4}` -> total em centavos (apenas o ano alvo).
+    const totalsByMonthCard = new Map<string, number>();
+    const cardsWithData = new Set<string>();
+
+    for (const entry of entries) {
+      const cardLast4 = entry.expense?.cardLast4;
+      if (!cardLast4) continue;
+      if (isNeutralExpenseType(entry.expense?.tipoDespesa) && entry.expense?.bankLast4) continue;
+
+      const card = cardByLast4.get(cardLast4) ?? null;
+      const dueMonth = caixaMonthForCardPurchase(
+        entry.data,
+        card?.closingDay ?? null,
+        card?.dueDay ?? null,
+      );
+      if (!dueMonth.startsWith(`${targetYear}-`)) continue;
+
+      const key = `${dueMonth}__${cardLast4}`;
+      totalsByMonthCard.set(key, (totalsByMonthCard.get(key) ?? 0) + entry.valor);
+      cardsWithData.add(cardLast4);
+    }
+
+    // Cartões a exibir: os cadastrados + quaisquer com lançamento no ano (denormalizados).
+    const last4Order = [
+      ...cards.map((card) => card.last4),
+      ...Array.from(cardsWithData).filter((last4) => !cardByLast4.has(last4)),
+    ];
+    const cardsOut = last4Order.map((last4) => ({
+      last4,
+      nickname: cardByLast4.get(last4)?.nickname?.trim() || `Cartão ${last4}`,
+    }));
+
+    const monthLabels = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+    const months = Array.from({ length: 12 }, (_, index) => {
+      const mes = `${targetYear}-${String(index + 1).padStart(2, '0')}`;
+      const porCartao: Record<string, number> = {};
+      let total = 0;
+      for (const card of cardsOut) {
+        const value = totalsByMonthCard.get(`${mes}__${card.last4}`) ?? 0;
+        porCartao[card.last4] = value;
+        total += value;
+      }
+      return { mes, label: monthLabels[index], porCartao, total };
+    });
+
+    const totalAno = months.reduce((sum, month) => sum + month.total, 0);
+
+    return { year: targetYear, cards: cardsOut, months, totalAno };
+  }
+
+  /**
    * Caixa real da conta corrente — reconciliação §10 do consolidado financeiro:
    *
    *   saldo hoje = saldo inicial (das contas) + Σ lançamentos REALIZADOS da conta
@@ -894,6 +986,17 @@ function normalizeMonthKey(month?: string): string {
     throw new BadRequestException('Mês inválido. Use o formato YYYY-MM.');
   }
   return `${year}-${String(monthNumber).padStart(2, '0')}`;
+}
+
+function normalizeYear(year?: string | number): number {
+  if (year === undefined || year === null || year === '') {
+    return new Date().getUTCFullYear();
+  }
+  const parsed = typeof year === 'number' ? year : parseInt(year, 10);
+  if (!Number.isInteger(parsed) || parsed < 2000 || parsed > 2100) {
+    throw new BadRequestException('Ano inválido. Use o formato YYYY (2000–2100).');
+  }
+  return parsed;
 }
 
 function monthRange(monthKey: string): [Date, Date] {

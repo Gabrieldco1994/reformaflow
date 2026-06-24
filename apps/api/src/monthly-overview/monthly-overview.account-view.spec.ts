@@ -495,6 +495,63 @@ describe('MonthlyOverviewService.getAccountView', () => {
     expect(res.devoCartaoTotal).toBe(6_000);
   });
 
+  it('getCardInvoicesYearly agrupa faturas por mês de vencimento e cartão', async () => {
+    // Cartão closing 25, due 1: compra em 2026-04-30 vence em 2026-06; em 2026-05-20 vence em 2026-06 também.
+    prisma.cashFlowEntry.findMany.mockResolvedValue([
+      {
+        valor: 10_000,
+        data: new Date('2026-04-30T00:00:00.000Z'),
+        expense: { cardLast4: '9999', bankLast4: null, tipoDespesa: 'OUTROS' },
+      },
+      {
+        // neutro lançado como cobrança no cartão (sem bankLast4): ENTRA na fatura
+        valor: 5_000,
+        data: new Date('2026-04-30T00:00:00.000Z'),
+        expense: { cardLast4: '9999', bankLast4: null, tipoDespesa: 'PAGAMENTO_FATURA_CARTAO' },
+      },
+      {
+        // neutro liquidado via conta (bankLast4 set): FORA da fatura
+        valor: 7_000,
+        data: new Date('2026-04-30T00:00:00.000Z'),
+        expense: { cardLast4: '9999', bankLast4: '4247', tipoDespesa: 'PAGAMENTO_FATURA_CARTAO' },
+      },
+      {
+        // outro cartão, mês de vencimento julho (compra 2026-06-10, closing 25 due 1)
+        valor: 3_000,
+        data: new Date('2026-06-10T00:00:00.000Z'),
+        expense: { cardLast4: '1111', bankLast4: null, tipoDespesa: 'OUTROS' },
+      },
+      {
+        // ano diferente: ignorado
+        valor: 9_999,
+        data: new Date('2025-04-30T00:00:00.000Z'),
+        expense: { cardLast4: '9999', bankLast4: null, tipoDespesa: 'OUTROS' },
+      },
+    ]);
+    prisma.creditCard.findMany.mockResolvedValue([
+      { nickname: 'Latam', last4: '9999', closingDay: 25, dueDay: 1 },
+      { nickname: 'Nubank', last4: '1111', closingDay: 25, dueDay: 1 },
+    ]);
+
+    const res: any = await service.getCardInvoicesYearly(tenantId, projectId, 2026);
+
+    expect(res.year).toBe(2026);
+    expect(res.months).toHaveLength(12);
+    expect(res.cards.map((c: any) => c.last4)).toEqual(['9999', '1111']);
+
+    const jun = res.months.find((m: any) => m.mes === '2026-06');
+    expect(jun.porCartao['9999']).toBe(15_000); // 10.000 compra + 5.000 neutro-no-cartão
+    expect(jun.porCartao['1111']).toBe(0);
+    expect(jun.total).toBe(15_000);
+
+    const jul = res.months.find((m: any) => m.mes === '2026-07');
+    expect(jul.porCartao['1111']).toBe(3_000);
+    expect(jul.total).toBe(3_000);
+
+    // Total do ano = soma das faturas (neutro via conta de 7.000 fica de fora).
+    expect(res.totalAno).toBe(18_000);
+  });
+
   it('calcula ticket médio, variação mensal e média de 6 meses por competência', async () => {
     prisma.bankAccount.findMany.mockResolvedValue([]);
     prisma.receipt.findMany.mockResolvedValue([]);
