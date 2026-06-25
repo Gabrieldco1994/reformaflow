@@ -17,13 +17,15 @@ export class AgentController {
   @ApiOperation({ summary: 'Conversa com o Copiloto Financeiro (tool-calling)' })
   async chat(
     @CurrentTenant() tenantId: string,
-    @CurrentUser() user: { role: string; allowedProjects?: string[] },
+    @CurrentUser() user: { role: string; allowedProjects?: string[]; allowedModules?: string[] },
     @Body() dto: AgentChatDto,
   ) {
     return this.agent.chat({
       tenantId,
       projectId: dto.projectId ?? null,
       projectScope: accessibleProjectScope(user.role, user.allowedProjects),
+      role: user.role,
+      allowedModules: user.allowedModules,
       messages: dto.messages,
     });
   }

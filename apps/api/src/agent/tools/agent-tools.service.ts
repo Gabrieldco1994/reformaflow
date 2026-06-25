@@ -1,6 +1,15 @@
 import { Injectable } from '@nestjs/common';
+import { ExpenseType, ReceiptType } from '@reformaflow/domain';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TenantFinancialService } from '../../tenant-financial/tenant-financial.service';
+import { ExpenseService } from '../../expense/expense.service';
+import { ReceiptService } from '../../receipt/receipt.service';
+import {
+  isFullAccessRole,
+  projectTypeHasModule,
+  userCanAccessProject,
+} from '../../common/access-rules';
+import type { ModuleSlug } from '../../common/decorators/require-module.decorator';
 import { ToolDef } from '../llm/llm.types';
 
 export interface ToolContext {
@@ -9,6 +18,10 @@ export interface ToolContext {
   projectId?: string | null;
   /** Escopo de projetos acessíveis (null = sem restrição). Aplica ACL por projeto. */
   projectScope?: string[] | null;
+  /** Papel do usuário (ADMIN/OWNER/USER) — usado nas ferramentas de escrita. */
+  role?: string;
+  /** Módulos liberados ao usuário — usado nas ferramentas de escrita. */
+  allowedModules?: string[];
 }
 
 interface ToolHandler {
@@ -28,6 +41,8 @@ export class AgentToolsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly financial: TenantFinancialService,
+    private readonly expenses: ExpenseService,
+    private readonly receipts: ReceiptService,
   ) {
     this.handlers = this.buildHandlers();
   }
@@ -138,6 +153,176 @@ export class AgentToolsService {
           return { fornecedores: await this.financial.getTopSuppliers(ctx.tenantId, limit, ctx.projectScope ?? null) };
         },
       },
+
+      create_expense: {
+        def: {
+          name: 'create_expense',
+          description:
+            'Cadastra uma DESPESA num projeto a partir de linguagem natural. ' +
+            'Use quando o usuário disser que gastou/pagou/comprou algo (ex.: "gastei 250 reais de material na Obramax", "paguei 1.200 ao pintor"). ' +
+            'O valor é em REAIS (será convertido). Se o usuário não indicar o projeto e houver um projeto em foco, use-o; senão chame list_projects e peça para o usuário escolher. ' +
+            'Para vincular a um cartão de crédito ou conta bancária ("comprei no cartão Nubank", "saiu da conta do Itaú"), primeiro chame list_payment_methods para achar o id e passe creditCardId ou bankAccountId. ' +
+            'Confirme valor, projeto e descrição com o usuário antes de criar quando houver ambiguidade.',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: 'Id do projeto (use list_projects para resolver pelo nome). Opcional se há projeto em foco.' },
+              valor: { type: 'number', description: 'Valor unitário em REAIS (ex.: 250.50). Obrigatório.' },
+              quantidade: { type: 'integer', description: 'Quantidade (default 1).' },
+              tipoDespesa: { type: 'string', description: 'Categoria da despesa. Ex.: MATERIAL_CONSTRUCAO, MAO_DE_OBRA, ALIMENTACAO, TRANSPORTE, SAUDE, MORADIA, SUPERMERCADO, LAZER, OUTROS. Use OUTROS se não tiver certeza.' },
+              titulo: { type: 'string', description: 'Descrição curta (ex.: "Cimento e areia").' },
+              fornecedor: { type: 'string', description: 'Nome do fornecedor/loja (ex.: "Obramax").' },
+              data: { type: 'string', description: 'Data da despesa no formato YYYY-MM-DD. Default: hoje. Para parcelado, é a data da 1ª parcela.' },
+              formaPagamento: { type: 'string', enum: ['A_VISTA', 'PARCELADO', 'QUINZENAL', 'PIX', 'PAGAMENTO_CONTA'], description: 'Forma de pagamento (default A_VISTA).' },
+              quantidadeParcela: { type: 'integer', description: 'Número de parcelas (use com formaPagamento=PARCELADO). Ex.: "em 3x" -> 3.' },
+              status: { type: 'string', enum: ['PAGO', 'PLANEJADO'], description: 'PAGO se já foi pago; PLANEJADO se é uma despesa futura/prevista. Default PAGO.' },
+              creditCardId: { type: 'string', description: 'Id do cartão de crédito a vincular (obtido via list_payment_methods).' },
+              bankAccountId: { type: 'string', description: 'Id da conta bancária a vincular (obtido via list_payment_methods).' },
+            },
+            required: ['valor'],
+            additionalProperties: false,
+          },
+        },
+        run: async (ctx, args) => {
+          const project = await this.resolveWritableProject(ctx, args['projectId'], 'expenses');
+          const valor = this.parseMoney(args['valor']);
+          if (valor == null) return { error: 'Informe um valor em reais maior que zero.' };
+
+          const tipoDespesa = this.normalizeEnum(args['tipoDespesa'], ExpenseType, 'OUTROS');
+          const status = this.pickEnumStr(args['status'], ['PAGO', 'PLANEJADO'], 'PAGO');
+          const quantidadeParcela = this.optInt(args['quantidadeParcela'], 2, 60);
+          const formaPagamento = this.pickEnumStr(
+            args['formaPagamento'],
+            ['A_VISTA', 'PARCELADO', 'QUINZENAL', 'PIX', 'PAGAMENTO_CONTA'],
+            quantidadeParcela ? 'PARCELADO' : 'A_VISTA',
+          );
+          const quantidade = this.clampInt(args['quantidade'], 1, 1, 100000);
+          const data = this.optDate(args['data']);
+
+          // Valida vínculos (projeto-alvo do cartão/conta deve estar no escopo do usuário).
+          const creditCardId = await this.resolvePaymentRef(ctx, args['creditCardId'], 'card');
+          const bankAccountId = await this.resolvePaymentRef(ctx, args['bankAccountId'], 'account');
+
+          const parcelado = formaPagamento === 'PARCELADO' || formaPagamento === 'QUINZENAL';
+
+          const created = await this.expenses.create(ctx.tenantId, project.id, {
+            tipoDespesa,
+            valor,
+            quantidade,
+            formaPagamento,
+            status,
+            titulo: this.optStr(args['titulo']),
+            fornecedor: this.optStr(args['fornecedor']),
+            // À vista: a data vira dataPagamento. Parcelado: vira dataInicioParcela.
+            dataPagamento: parcelado ? undefined : data,
+            dataInicioParcela: parcelado ? data : undefined,
+            quantidadeParcela: formaPagamento === 'PARCELADO' ? quantidadeParcela ?? undefined : undefined,
+            creditCardId,
+            bankAccountId,
+          } as any);
+
+          return {
+            ok: true,
+            despesa: {
+              id: created.id,
+              projeto: project.name,
+              tipoDespesa,
+              titulo: created.titulo ?? null,
+              fornecedor: created.fornecedor ?? null,
+              valorTotalCentavos: created.valorTotal,
+              status,
+              formaPagamento,
+              quantidadeParcela: formaPagamento === 'PARCELADO' ? quantidadeParcela ?? null : null,
+              data: data ?? new Date().toISOString().slice(0, 10),
+              cardLast4: created.cardLast4 ?? null,
+              bankLast4: created.bankLast4 ?? null,
+            },
+            mensagem: `Despesa registrada em "${project.name}".`,
+          };
+        },
+      },
+
+      list_payment_methods: {
+        def: {
+          name: 'list_payment_methods',
+          description:
+            'Lista cartões de crédito e contas bancárias disponíveis (id, apelido/instituição, final do número, projeto). ' +
+            'Use para resolver o nome citado pelo usuário ("cartão Nubank", "conta do Itaú") no id correto antes de vincular numa despesa (creditCardId/bankAccountId).',
+          parameters: noParams,
+        },
+        run: async (ctx) => {
+          const scope = ctx.projectScope ?? null;
+          const where = { tenantId: ctx.tenantId, deletedAt: null, ...(scope ? { projectId: { in: scope } } : {}) };
+          const [cards, accounts] = await Promise.all([
+            this.prisma.creditCard.findMany({
+              where,
+              select: { id: true, last4: true, nickname: true, institution: true, project: { select: { name: true } } },
+              orderBy: { createdAt: 'asc' },
+            }),
+            this.prisma.bankAccount.findMany({
+              where,
+              select: { id: true, last4: true, nickname: true, institution: true, project: { select: { name: true } } },
+              orderBy: { createdAt: 'asc' },
+            }),
+          ]);
+          return {
+            cartoes: cards.map((c) => ({ creditCardId: c.id, apelido: c.nickname ?? c.institution ?? null, final: c.last4 ?? null, projeto: c.project?.name ?? null })),
+            contas: accounts.map((a) => ({ bankAccountId: a.id, apelido: a.nickname ?? a.institution ?? null, final: a.last4 ?? null, projeto: a.project?.name ?? null })),
+          };
+        },
+      },
+
+      create_receipt: {
+        def: {
+          name: 'create_receipt',
+          description:
+            'Cadastra um RECEBIMENTO (entrada de dinheiro) num projeto a partir de linguagem natural. ' +
+            'Use quando o usuário disser que recebeu/entrou dinheiro (ex.: "recebi 5 mil de salário", "entrou 800 de freelance"). ' +
+            'O valor é em REAIS. Mesmo critério de projeto do create_expense (foco atual ou list_projects). ' +
+            'Confirme valor e projeto com o usuário quando houver ambiguidade.',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: 'Id do projeto. Opcional se há projeto em foco.' },
+              valor: { type: 'number', description: 'Valor em REAIS (ex.: 5000). Obrigatório.' },
+              data: { type: 'string', description: 'Data no formato YYYY-MM-DD. Default: hoje.' },
+              tipo: { type: 'string', description: 'Tipo do recebimento. Ex.: SALARIO, PAGAMENTO, FREELANCE, ALUGUEL, REEMBOLSO, PIX_RECEBIDO, OUTROS. Use OUTROS se não tiver certeza.' },
+              status: { type: 'string', enum: ['EM_CAIXA', 'PREVISTO'], description: 'EM_CAIXA se o dinheiro já entrou; PREVISTO se é uma entrada futura. Default EM_CAIXA.' },
+            },
+            required: ['valor'],
+            additionalProperties: false,
+          },
+        },
+        run: async (ctx, args) => {
+          const project = await this.resolveWritableProject(ctx, args['projectId'], 'receipts');
+          const valor = this.parseMoney(args['valor']);
+          if (valor == null) return { error: 'Informe um valor em reais maior que zero.' };
+
+          const tipo = this.normalizeEnum(args['tipo'], ReceiptType, 'OUTROS');
+          const status = this.pickEnumStr(args['status'], ['EM_CAIXA', 'PREVISTO'], 'EM_CAIXA');
+          const data = this.optDate(args['data']) ?? new Date().toISOString().slice(0, 10);
+
+          const created = await this.receipts.create(ctx.tenantId, project.id, {
+            valor,
+            data,
+            tipo,
+            status,
+          } as any);
+
+          return {
+            ok: true,
+            recebimento: {
+              id: created.id,
+              projeto: project.name,
+              tipo,
+              valorCentavos: created.valor,
+              data,
+              status,
+            },
+            mensagem: `Recebimento registrado em "${project.name}".`,
+          };
+        },
+      },
     };
   }
 
@@ -145,5 +330,153 @@ export class AgentToolsService {
     const n = Number(value);
     if (!Number.isFinite(n)) return fallback;
     return Math.min(max, Math.max(min, Math.round(n)));
+  }
+
+  /**
+   * Resolve e AUTORIZA o projeto-alvo de uma escrita. Garante:
+   * - projeto existe no tenant;
+   * - usuário tem acesso ao projeto (ACL por projeto);
+   * - o tipo do projeto suporta o módulo (expenses/receipts);
+   * - usuário tem o módulo liberado (salvo full-access).
+   * Lança Error com mensagem amigável (capturada por execute()).
+   */
+  private async resolveWritableProject(
+    ctx: ToolContext,
+    rawProjectId: unknown,
+    module: ModuleSlug,
+  ): Promise<{ id: string; name: string; type: string }> {
+    const projectId =
+      (typeof rawProjectId === 'string' && rawProjectId.trim()) ||
+      ctx.projectId ||
+      '';
+    if (!projectId) {
+      throw new Error(
+        'Não sei em qual projeto registrar. Use list_projects e peça ao usuário para escolher.',
+      );
+    }
+
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, tenantId: ctx.tenantId, deletedAt: null },
+      select: { id: true, name: true, type: true },
+    });
+    if (!project) throw new Error('Projeto não encontrado.');
+
+    if (!userCanAccessProject(ctx.role, ctx.projectScope ?? undefined, project.id)) {
+      throw new Error('Sem permissão para acessar este projeto.');
+    }
+    if (!projectTypeHasModule(project.type, module)) {
+      throw new Error(
+        `Projetos do tipo "${project.type}" não suportam ${module === 'receipts' ? 'recebimentos' : 'despesas'}.`,
+      );
+    }
+    if (!isFullAccessRole(ctx.role)) {
+      const mods = Array.isArray(ctx.allowedModules) ? ctx.allowedModules : [];
+      if (!mods.includes(module)) {
+        throw new Error(
+          `Sem permissão para o módulo de ${module === 'receipts' ? 'recebimentos' : 'despesas'}.`,
+        );
+      }
+    }
+    return project;
+  }
+
+  /**
+   * Converte valor em reais para número > 0, ou null se inválido.
+   * Aceita number (JSON) e string em formato pt-BR ("1.234,56") ou
+   * decimal simples ("250.50"). Heurística para string sem vírgula:
+   * ponto seguido de 3 dígitos no fim = separador de milhar (5.000 -> 5000);
+   * caso contrário o ponto é decimal (250.50 -> 250.5).
+   */
+  private parseMoney(value: unknown): number | null {
+    let n: number;
+    if (typeof value === 'number') {
+      n = value;
+    } else if (typeof value === 'string') {
+      let s = value.trim().replace(/r\$/gi, '').replace(/\s/g, '');
+      if (s.includes(',')) {
+        s = s.replace(/\./g, '').replace(',', '.');
+      } else if (/\.\d{3}$/.test(s) || (s.match(/\./g)?.length ?? 0) > 1) {
+        s = s.replace(/\./g, '');
+      }
+      n = Number(s);
+    } else {
+      return null;
+    }
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return Math.round(n * 100) / 100;
+  }
+
+  /** Inteiro opcional dentro de [min,max]; undefined se ausente/ inválido. */
+  private optInt(value: unknown, min: number, max: number): number | undefined {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return undefined;
+    const r = Math.round(n);
+    if (r < min || r > max) return undefined;
+    return r;
+  }
+
+  /**
+   * Valida um id de cartão/conta para vínculo: precisa existir no tenant e
+   * pertencer a um projeto acessível pelo usuário. Retorna o id ou undefined.
+   */
+  private async resolvePaymentRef(
+    ctx: ToolContext,
+    rawId: unknown,
+    kind: 'card' | 'account',
+  ): Promise<string | undefined> {
+    const id = typeof rawId === 'string' && rawId.trim() ? rawId.trim() : '';
+    if (!id) return undefined;
+    const row =
+      kind === 'card'
+        ? await this.prisma.creditCard.findFirst({
+            where: { id, tenantId: ctx.tenantId, deletedAt: null },
+            select: { projectId: true },
+          })
+        : await this.prisma.bankAccount.findFirst({
+            where: { id, tenantId: ctx.tenantId, deletedAt: null },
+            select: { projectId: true },
+          });
+    if (!row) {
+      throw new Error(kind === 'card' ? 'Cartão não encontrado.' : 'Conta bancária não encontrada.');
+    }
+    if (!userCanAccessProject(ctx.role, ctx.projectScope ?? undefined, row.projectId)) {
+      throw new Error('Sem permissão para usar este meio de pagamento.');
+    }
+    return id;
+  }
+
+  private optStr(value: unknown): string | undefined {
+    return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+  }
+
+  /** Valida YYYY-MM-DD; retorna a string ou undefined. */
+  private optDate(value: unknown): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    const s = value.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return undefined;
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? undefined : s;
+  }
+
+  private pickEnumStr(value: unknown, allowed: string[], fallback: string): string {
+    if (typeof value === 'string') {
+      const up = value.trim().toUpperCase();
+      if (allowed.includes(up)) return up;
+    }
+    return fallback;
+  }
+
+  /** Normaliza para um valor do enum (case-insensitive); usa fallback se inválido. */
+  private normalizeEnum(
+    value: unknown,
+    enumObj: Record<string, string>,
+    fallback: string,
+  ): string {
+    const values = Object.values(enumObj);
+    if (typeof value === 'string') {
+      const up = value.trim().toUpperCase();
+      if (values.includes(up)) return up;
+    }
+    return fallback;
   }
 }

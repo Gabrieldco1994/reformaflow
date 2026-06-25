@@ -7,6 +7,10 @@ export interface AgentChatInput {
   projectId?: string | null;
   /** Escopo de projetos acessíveis (null = sem restrição). */
   projectScope?: string[] | null;
+  /** Papel do usuário — habilita ferramentas de escrita com ACL correta. */
+  role?: string;
+  /** Módulos liberados ao usuário — usado nas ferramentas de escrita. */
+  allowedModules?: string[];
   /** Histórico da conversa (apenas roles user/assistant). */
   messages: { role: 'user' | 'assistant'; content: string }[];
 }
@@ -52,7 +56,13 @@ export class AgentService {
           toolsUsed.push(tc.name);
           const result = await this.tools.execute(
             tc.name,
-            { tenantId: input.tenantId, projectId: input.projectId ?? null, projectScope: input.projectScope ?? null },
+            {
+              tenantId: input.tenantId,
+              projectId: input.projectId ?? null,
+              projectScope: input.projectScope ?? null,
+              role: input.role,
+              allowedModules: input.allowedModules,
+            },
             tc.arguments,
           );
           messages.push({
@@ -100,6 +110,15 @@ export class AgentService {
       '  formate como R$ com separador de milhar e 2 casas (ex.: 150000 -> R$ 1.500,00).',
       '- Seja conciso: prefira frases curtas e listas. Destaque o número principal.',
       '- Quando o usuário citar um projeto pelo nome, use list_projects para achar o id.',
+      '',
+      'CADASTROS (escrita):',
+      '- Você PODE cadastrar despesas (create_expense) e recebimentos (create_receipt) quando o usuário pedir.',
+      '- Valores ditos pelo usuário estão em REAIS — passe em reais para as ferramentas (elas convertem).',
+      '- Extraia da fala: valor, descrição/título, fornecedor, categoria (tipoDespesa), data e forma de pagamento. Ex.: "despesa Obramax 5000, dia 10/06, material de construção, no projeto Reforma Casa" -> create_expense com fornecedor=Obramax, valor=5000, data=2026-06-10, tipoDespesa=MATERIAL_CONSTRUCAO, no projeto resolvido por list_projects.',
+      '- Para vincular a cartão/conta ("no cartão Nubank", "saiu do Itaú"), chame list_payment_methods, ache o id e passe creditCardId/bankAccountId.',
+      '- Antes de criar, confirme em uma frase os dados essenciais (valor, projeto e descrição/tipo) quando houver qualquer ambiguidade; se estiver claro e houver projeto em foco, pode criar direto.',
+      '- Se não souber o projeto e não houver foco, use list_projects e peça para o usuário escolher.',
+      '- Após criar, confirme objetivamente o que foi registrado (valor formatado, projeto, tipo e, se houver, cartão/conta).',
       projectId
         ? `- Contexto atual: o usuário está no projeto de id "${projectId}". Priorize-o quando a pergunta for ambígua.`
         : '- Sem projeto em foco: considere a visão consolidada (todos os projetos).',
