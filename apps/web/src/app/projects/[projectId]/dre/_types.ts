@@ -21,9 +21,18 @@ export interface DreMensal {
   despesaTotal: number;
   margemPct: number;
   entradas: DreLine[];
+  entradasConta: DreLine[];
   saidas: DreGroup[];
   saidasCaixa: DreGroup[];
   guardado: DreLine[];
+  contaCorrente: {
+    caixaHoje: number;
+    entrouMes: number;
+    saiuMes: number;
+    faltaPagarMes: number;
+    sobraPrevista: number;
+    despesaTotal: number;
+  };
 }
 
 export interface DreSerieRow {

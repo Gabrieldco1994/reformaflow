@@ -30,19 +30,24 @@ export function DreMensalView({
   onChangeEixo: (next: DreEixoMensal) => void;
 }) {
   const groups = eixo === 'competencia' ? data.saidas : data.saidasCaixa;
+  const entradas = eixo === 'competencia' ? data.entradas : data.entradasConta;
+  const totalEntradas = eixo === 'competencia' ? data.totalEntrou : data.contaCorrente.entrouMes;
   const totalSaidas = groups.reduce((sum, group) => sum + totalGrupo(group.items), 0);
   const totalGuardado = data.guardado.reduce((sum, item) => sum + item.valor, 0);
+  const receitaTotal = eixo === 'competencia' ? data.receitaTotal : data.contaCorrente.entrouMes;
+  const despesaTotal = eixo === 'competencia' ? data.despesaTotal : data.contaCorrente.despesaTotal;
+  const resumoValue = eixo === 'competencia' ? data.resultado : data.contaCorrente.sobraPrevista;
   const resultadoTone =
-    data.resultado >= 0
+    resumoValue >= 0
       ? 'bg-[#E1F5EE] text-[#1D9E75] border-[#BFE9DA]'
       : 'bg-[#FCEBEB] text-[#D85A30] border-[#F3D0D0]';
 
   const receitaBarPct = 100;
   const despesaBarPct =
-    data.receitaTotal > 0
-      ? Math.min(100, (data.despesaTotal / data.receitaTotal) * 100)
+    receitaTotal > 0
+      ? Math.min(100, (despesaTotal / receitaTotal) * 100)
       : 0;
-  const margemAbs = data.receitaTotal - data.despesaTotal;
+  const margemAbs = receitaTotal - despesaTotal;
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   const toggleGroup = (key: string) => {
@@ -52,34 +57,102 @@ export function DreMensalView({
   return (
     <div className="space-y-4">
       <section className="space-y-3">
-        <article className={`rounded-2xl border p-4 ${resultadoTone}`}>
-          <p className="text-[11px] uppercase tracking-[0.16em] font-semibold">
-            resultado de {data.mes}
-          </p>
-          <p className="mt-2 text-[22px] font-bold leading-none">
-            {formatCurrency(data.resultado / 100)}
-          </p>
-          <p className="mt-2 text-xs opacity-90">{deltaText(data.deltaVsMesAnterior)}</p>
-        </article>
+        {eixo === 'competencia' ? (
+          <>
+            <article className={`rounded-2xl border p-4 ${resultadoTone}`}>
+              <p className="text-[11px] uppercase tracking-[0.16em] font-semibold">
+                resultado de {data.mes}
+              </p>
+              <p className="mt-2 text-[22px] font-bold leading-none">
+                {formatCurrency(data.resultado / 100)}
+              </p>
+              <p className="mt-2 text-xs opacity-90">{deltaText(data.deltaVsMesAnterior)}</p>
+            </article>
 
-        <div className="grid grid-cols-2 gap-3">
-          <article className="rounded-2xl border border-[#BFE9DA] bg-[#E1F5EE] p-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#1D9E75]">
-              entrou
-            </p>
-            <p className="mt-2 text-base font-bold text-[#1D9E75]">
-              {formatCurrency(data.totalEntrou / 100)}
-            </p>
-          </article>
-          <article className="rounded-2xl border border-[#F3D0D0] bg-[#FCEBEB] p-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#D85A30]">
-              saiu + guardou
-            </p>
-            <p className="mt-2 text-base font-bold text-[#D85A30]">
-              {formatCurrency(data.totalSaiuMaisGuardou / 100)}
-            </p>
-          </article>
-        </div>
+            <div className="grid grid-cols-2 gap-3">
+              <article className="rounded-2xl border border-[#BFE9DA] bg-[#E1F5EE] p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#1D9E75]">
+                  entrou
+                </p>
+                <p className="mt-2 text-base font-bold text-[#1D9E75]">
+                  {formatCurrency(data.totalEntrou / 100)}
+                </p>
+              </article>
+              <article className="rounded-2xl border border-[#F3D0D0] bg-[#FCEBEB] p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#D85A30]">
+                  saiu + guardou
+                </p>
+                <p className="mt-2 text-base font-bold text-[#D85A30]">
+                  {formatCurrency(data.totalSaiuMaisGuardou / 100)}
+                </p>
+              </article>
+            </div>
+          </>
+        ) : (
+          <>
+            <article className="rounded-2xl border border-[#BFE9DA] bg-[#E1F5EE] p-4">
+              <p className="text-[11px] uppercase tracking-[0.16em] font-semibold text-[#1D9E75]">
+                tenho na conta hoje
+              </p>
+              <p className="mt-2 text-[22px] font-bold leading-none text-[#1D9E75]">
+                {formatCurrency(data.contaCorrente.caixaHoje / 100)}
+              </p>
+              <p className="mt-2 text-xs text-[#1D9E75]/90">
+                é o dinheiro disponível agora, de verdade, na sua conta
+              </p>
+            </article>
+            <div className="grid grid-cols-2 gap-3">
+              <article className="rounded-2xl border border-[#BFE9DA] bg-[#E1F5EE] p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#1D9E75]">
+                  entrou no mês
+                </p>
+                <p className="mt-2 text-base font-bold text-[#1D9E75]">
+                  {formatCurrency(data.contaCorrente.entrouMes / 100)}
+                </p>
+              </article>
+              <article className="rounded-2xl border border-[#F3D0D0] bg-[#FCEBEB] p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#D85A30]">
+                  saiu no mês
+                </p>
+                <p className="mt-2 text-base font-bold text-[#D85A30]">
+                  {formatCurrency(data.contaCorrente.saiuMes / 100)}
+                </p>
+              </article>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <article className="rounded-2xl border border-[#EFD9B6] bg-[#FAEEDA] p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#BA7517]">
+                  ainda falta pagar
+                </p>
+                <p className="mt-2 text-base font-bold text-[#BA7517]">
+                  {formatCurrency(data.contaCorrente.faltaPagarMes / 100)}
+                </p>
+              </article>
+              <article
+                className={`rounded-2xl border p-3 ${
+                  data.contaCorrente.sobraPrevista >= 0
+                    ? 'border-[#BFE9DA] bg-[#E1F5EE]'
+                    : 'border-[#F3D0D0] bg-[#FCEBEB]'
+                }`}
+              >
+                <p
+                  className={`text-[11px] font-semibold uppercase tracking-[0.12em] ${
+                    data.contaCorrente.sobraPrevista >= 0 ? 'text-[#1D9E75]' : 'text-[#D85A30]'
+                  }`}
+                >
+                  sobra prevista
+                </p>
+                <p
+                  className={`mt-2 text-base font-bold ${
+                    data.contaCorrente.sobraPrevista >= 0 ? 'text-[#1D9E75]' : 'text-[#D85A30]'
+                  }`}
+                >
+                  {formatCurrency(data.contaCorrente.sobraPrevista / 100)}
+                </p>
+              </article>
+            </div>
+          </>
+        )}
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4">
@@ -90,7 +163,7 @@ export function DreMensalView({
           <div>
             <div className="mb-1 flex items-center justify-between text-xs text-[#1D9E75]">
               <span>receita</span>
-              <span className="font-semibold">{formatCurrency(data.receitaTotal / 100)}</span>
+              <span className="font-semibold">{formatCurrency(receitaTotal / 100)}</span>
             </div>
             <div className="h-2 rounded-full bg-[#E1F5EE]">
               <div className="h-2 rounded-full bg-[#1D9E75]" style={{ width: `${receitaBarPct}%` }} />
@@ -99,7 +172,7 @@ export function DreMensalView({
           <div>
             <div className="mb-1 flex items-center justify-between text-xs text-[#D85A30]">
               <span>despesa</span>
-              <span className="font-semibold">{formatCurrency(data.despesaTotal / 100)}</span>
+              <span className="font-semibold">{formatCurrency(despesaTotal / 100)}</span>
             </div>
             <div className="h-2 rounded-full bg-[#FCEBEB]">
               <div className="h-2 rounded-full bg-[#D85A30]" style={{ width: `${despesaBarPct}%` }} />
@@ -107,7 +180,7 @@ export function DreMensalView({
           </div>
         </div>
         <p className="mt-3 text-xs text-slate-600">
-          despesa = {data.margemPct.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% da receita · margem{' '}
+          despesa = {(receitaTotal > 0 ? (despesaTotal / receitaTotal) * 100 : 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% da receita · margem{' '}
           {formatCurrency(margemAbs / 100)}
         </p>
       </section>
@@ -138,7 +211,7 @@ export function DreMensalView({
           <section>
             <h3 className="text-sm font-semibold text-slate-900">O que entrou</h3>
             <div className="mt-2 space-y-2">
-              {data.entradas.map((line) => (
+              {entradas.map((line) => (
                 <div key={`in-${line.label}`} className="flex min-h-11 items-center justify-between rounded-xl border border-[#BFE9DA] bg-[#E1F5EE] px-3 py-2">
                   <div className="flex items-center gap-2 text-sm text-slate-700">
                     <DreIcon name="wallet" className="h-4 w-4 text-[#1D9E75]" />
@@ -149,7 +222,7 @@ export function DreMensalView({
               ))}
             </div>
             <div className="mt-2 rounded-xl border border-[#BFE9DA] bg-[#E1F5EE] px-3 py-2 text-sm font-semibold text-[#1D9E75]">
-              total entradas · {formatCurrency(data.totalEntrou / 100)}
+              total entradas · {formatCurrency(totalEntradas / 100)}
             </div>
           </section>
 
@@ -218,10 +291,18 @@ export function DreMensalView({
           </section>
 
           <section className={`rounded-xl border px-3 py-3 ${resultadoTone}`}>
-            <p className="text-xs font-semibold uppercase tracking-[0.12em]">resultado do mês</p>
-            <p className="mt-1 text-lg font-bold">{formatCurrency(data.resultado / 100)}</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.12em]">
+              {eixo === 'competencia' ? 'resultado do mês' : 'sobra prevista'}
+            </p>
+            <p className="mt-1 text-lg font-bold">
+              {formatCurrency(
+                (eixo === 'competencia' ? data.resultado : data.contaCorrente.sobraPrevista) / 100,
+              )}
+            </p>
             <p className="mt-1 text-xs opacity-90">
-              entradas − saídas − guardado = sobra livre
+              {eixo === 'competencia'
+                ? 'entradas − saídas − guardado = sobra livre'
+                : 'caixa hoje − falta pagar + recebimentos previstos'}
             </p>
           </section>
         </div>

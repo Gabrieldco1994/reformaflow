@@ -727,6 +727,7 @@ export class MonthlyOverviewService {
         select: { last4: true, nickname: true, closingDay: true, dueDay: true },
       }),
     ]);
+    const accountView = await this.getAccountView(tenantId, projectId, mesSelecionado);
 
     const cardByLast4 = new Map<string, { nickname: string; closingDay: number | null; dueDay: number | null }>();
     for (const card of cards) {
@@ -830,25 +831,29 @@ export class MonthlyOverviewService {
       (line) => line.valor,
     );
 
-    const saidasContaBrutas = normalized.filter(
-      (line) => line.kind === 'saida' && line.mesConta === mesSelecionado,
+    const entradasConta = groupLabelValues(
+      accountView.entradas.map((entrada) => ({
+        label: entrada.descricao,
+        valor: entrada.valor,
+      })),
     );
-    const cardInvoices = new Map<string, number>();
-    for (const line of saidasContaBrutas) {
-      if (line.isGuardado) continue;
-      if (!line.cardLast4) continue;
-      cardInvoices.set(line.cardLast4, (cardInvoices.get(line.cardLast4) ?? 0) + line.valor);
-    }
-    const faturasItems = Array.from(cardInvoices.entries())
-      .map(([last4, valor]) => ({
-        label: `Fatura ${(cardByLast4.get(last4)?.nickname ?? 'Cartão')} ••${last4}`,
-        valor,
-      }))
-      .sort((a, b) => b.valor - a.valor);
-    const debitosItems = groupSimpleLines(
-      saidasContaBrutas.filter((line) => !line.isGuardado && !line.cardLast4),
-      (line) => line.group ?? 'Outros',
-      (line) => ({ label: line.group ?? 'Outros' }),
+    const faturasItems = groupLabelValues(
+      accountView.saidas
+        .filter((saida) => saida.isInvoice)
+        .map((saida) => ({
+          label: saida.descricao,
+          valor: saida.valor,
+        })),
+    );
+    const debitosItems = groupLabelValues(
+      accountView.saidas
+        .filter((saida) => !saida.isInvoice)
+        .map((saida) => ({
+          label: saida.projetoOrigem
+            ? `${saida.descricao} · ${saida.projetoOrigem.name}`
+            : saida.descricao,
+          valor: saida.valor,
+        })),
     );
     const saidasCaixa = [
       ...(faturasItems.length > 0
@@ -858,6 +863,14 @@ export class MonthlyOverviewService {
         ? [{ group: 'Débitos automáticos', icon: 'building-bank', color: '#BA7517', items: debitosItems }]
         : []),
     ];
+    const contaCorrenteResumo = {
+      caixaHoje: accountView.caixaHoje,
+      entrouMes: accountView.entrouMes,
+      saiuMes: accountView.saiuMes,
+      faltaPagarMes: accountView.faltaPagarMes,
+      sobraPrevista: accountView.sobraPrevista,
+      despesaTotal: accountView.saiuMes + accountView.faltaPagarMes,
+    };
 
     const resultadoMes = totalEntrou - totalSaiuCompetencia - totalGuardadoMes;
     const resultadoMesAnterior = dreMonthResult(
@@ -1014,9 +1027,11 @@ export class MonthlyOverviewService {
         despesaTotal: totalSaiuCompetencia,
         margemPct: totalEntrou > 0 ? roundPct((totalSaiuCompetencia / totalEntrou) * 100) : 0,
         entradas: entradasMes.map((line) => ({ label: line.label, valor: line.valor })),
+        entradasConta: entradasConta.map((line) => ({ label: line.label, valor: line.valor })),
         saidas: saidasCompetencia,
         saidasCaixa,
         guardado: guardadoMes.map((line) => ({ label: line.label, valor: line.valor })),
+        contaCorrente: contaCorrenteResumo,
       },
       anual: {
         ano: anoSelecionado,
@@ -1760,6 +1775,18 @@ function groupSimpleLines(
     current.valor += line.valor;
   }
   return Array.from(map.values()).sort((a, b) => b.valor - a.valor);
+}
+
+function groupLabelValues(
+  lines: Array<{ label: string; valor: number }>,
+): Array<{ label: string; valor: number }> {
+  const map = new Map<string, number>();
+  for (const line of lines) {
+    map.set(line.label, (map.get(line.label) ?? 0) + line.valor);
+  }
+  return Array.from(map.entries())
+    .map(([label, valor]) => ({ label, valor }))
+    .sort((a, b) => b.valor - a.valor);
 }
 
 function groupDreGroups(lines: DreLine[]): Array<{

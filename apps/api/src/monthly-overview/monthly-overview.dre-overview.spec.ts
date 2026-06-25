@@ -45,6 +45,75 @@ describe('MonthlyOverviewService.getDreOverview', () => {
   });
 
   it('monta mensal/anual sem contar neutros e agrupa fatura em linha única na conta corrente', async () => {
+    jest.spyOn(service, 'getAccountView').mockResolvedValue({
+      mesSelecionado: '2026-06',
+      caixaHoje: 757_629,
+      entrouMes: 10_000,
+      saiuMes: 3_000,
+      faltaPagarMes: 2_500,
+      sobraPrevista: 764_629,
+      devoCartaoTotal: 2_500,
+      cartoes: [],
+      contas: [],
+      saidas: [
+        {
+          id: null,
+          kind: 'saida',
+          descricao: 'Fatura Nubank ••1111',
+          data: '2026-06-20T00:00:00.000Z',
+          forma: 'cartao',
+          valor: 2_500,
+          realizado: false,
+          status: 'PLANEJADO',
+          cardLast4: '1111',
+          bankLast4: null,
+          tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+          isInvoice: true,
+          editavel: false,
+          dueMonth: '2026-06',
+          projetoOrigem: null,
+        },
+        {
+          id: 'exp-jun-moradia',
+          kind: 'saida',
+          descricao: 'Aluguel',
+          data: '2026-06-03T00:00:00.000Z',
+          forma: 'debito',
+          valor: 3_000,
+          realizado: true,
+          status: 'PAGO',
+          cardLast4: null,
+          bankLast4: '4247',
+          tipoDespesa: 'MORADIA',
+          isInvoice: false,
+          editavel: true,
+          dueMonth: null,
+          projetoOrigem: null,
+        },
+      ],
+      comprasCartao: [],
+      entradas: [
+        {
+          id: 'rec-jun',
+          kind: 'entrada',
+          descricao: 'Salário',
+          data: '2026-06-02T00:00:00.000Z',
+          tipo: 'salario',
+          valor: 10_000,
+          bankLast4: '4247',
+          status: 'EM_CAIXA',
+        },
+      ],
+      ticketMedio: {
+        valor: 0,
+        nCompras: 0,
+        totalCompras: 0,
+        serie6m: [],
+        media6m: 0,
+        deltaVsMediaPct: null,
+      },
+    } as any);
+
     prisma.creditCard.findMany.mockResolvedValue([
       { last4: '1111', nickname: 'Nubank', closingDay: 10, dueDay: 20 },
     ]);
@@ -191,8 +260,16 @@ describe('MonthlyOverviewService.getDreOverview', () => {
       throw new Error('Grupo de faturas deveria existir');
     }
     expect(grupoFaturas.items).toHaveLength(1);
-    expect(grupoFaturas.items[0].label).toContain('••1111');
+    expect(grupoFaturas.items[0].label).toContain('Fatura Nubank');
     expect(grupoFaturas.items[0].valor).toBe(2_500);
+    expect(res.mensal.contaCorrente).toEqual({
+      caixaHoje: 757_629,
+      entrouMes: 10_000,
+      saiuMes: 3_000,
+      faltaPagarMes: 2_500,
+      sobraPrevista: 764_629,
+      despesaTotal: 5_500,
+    });
 
     expect(
       res.mensal.saidas.some((group: any) =>
