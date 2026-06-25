@@ -62,6 +62,7 @@ export interface AuthUser {
   role: 'ADMIN' | 'USER' | string;
   tenantId: string;
   allowedModules: string[];
+  allowedProjects: string[];
 }
 
 interface AuthContextValue {
@@ -70,6 +71,7 @@ interface AuthContextValue {
   isAdmin: boolean;
   hasModule: (slug: ModuleSlug) => boolean;
   hasProjectType: (type: string) => boolean;
+  hasProjectAccess: (projectId: string) => boolean;
   login: (username: string, password: string) => Promise<AuthUser>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -115,8 +117,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo<AuthContextValue>(() => {
-    const isAdmin = user?.role === 'ADMIN';
+    const isAdmin = user?.role === 'ADMIN' || user?.role === 'OWNER';
     const allowed = new Set(user?.allowedModules ?? []);
+    const allowedProjects = user?.allowedProjects ?? [];
     return {
       user,
       loading,
@@ -127,6 +130,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const mods = TYPE_MODULES[type] ?? [];
         return mods.some((m) => allowed.has(m));
       },
+      // Acesso por projeto (opt-in): admin sempre; lista vazia = sem restrição;
+      // lista não-vazia = só os projetos liberados.
+      hasProjectAccess: (projectId: string) =>
+        isAdmin || allowedProjects.length === 0 || allowedProjects.includes(projectId),
       login,
       logout,
       refresh,
@@ -145,6 +152,7 @@ export function useAuth(): AuthContextValue {
       isAdmin: false,
       hasModule: () => false,
       hasProjectType: () => false,
+      hasProjectAccess: () => false,
       login: async () => {
         throw new Error('AuthProvider not mounted');
       },

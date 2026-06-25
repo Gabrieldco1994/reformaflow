@@ -8,6 +8,7 @@ import { UsersModule } from './users/users.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { ModulesGuard } from './common/guards/modules.guard';
+import { ProjectAccessGuard } from './common/guards/project-access.guard';
 import { TenantModule } from './tenant/tenant.module';
 import { ProjectModule } from './project/project.module';
 import { ReceiptModule } from './receipt/receipt.module';
@@ -85,6 +86,10 @@ const UPLOADS_DIR = (() => {
     {
       provide: APP_GUARD,
       useClass: ModulesGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: ProjectAccessGuard,
     },
   ],
 })

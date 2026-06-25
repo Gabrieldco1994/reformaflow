@@ -200,12 +200,29 @@ function UserFormModal({
   const [allowedModules, setAllowedModules] = useState<ModuleSlug[]>(
     (user?.allowedModules as ModuleSlug[]) ?? [],
   );
+  const [allowedProjects, setAllowedProjects] = useState<string[]>(
+    user?.allowedProjects ?? [],
+  );
+  const [projects, setProjects] = useState<{ id: string; name: string; type: string }[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .get<{ id: string; name: string; type: string }[]>('/projects')
+      .then(setProjects)
+      .catch(() => setProjects([]));
+  }, []);
 
   function toggleModule(slug: ModuleSlug) {
     setAllowedModules((curr) =>
       curr.includes(slug) ? curr.filter((s) => s !== slug) : [...curr, slug],
+    );
+  }
+
+  function toggleProject(id: string) {
+    setAllowedProjects((curr) =>
+      curr.includes(id) ? curr.filter((p) => p !== id) : [...curr, id],
     );
   }
 
@@ -221,6 +238,7 @@ function UserFormModal({
           password,
           role,
           allowedModules,
+          allowedProjects,
         });
       } else if (user) {
         const payload: Record<string, unknown> = {
@@ -228,6 +246,7 @@ function UserFormModal({
           username,
           role,
           allowedModules,
+          allowedProjects,
         };
         if (password) payload['password'] = password;
         await api.patch(`/users/${user.id}`, payload);
@@ -335,6 +354,39 @@ function UserFormModal({
                   </label>
                 ))}
               </div>
+            </div>
+          )}
+
+          {role === 'USER' && (
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-2">
+                Projetos liberados
+                <span className="ml-1 font-normal text-gray-400">
+                  (nenhum marcado = vê todos os permitidos pelo módulo/tipo)
+                </span>
+              </label>
+              {projects.length === 0 ? (
+                <p className="text-xs text-gray-400">Nenhum projeto disponível.</p>
+              ) : (
+                <div className="grid grid-cols-1 gap-1.5 max-h-48 overflow-y-auto">
+                  {projects.map((p) => (
+                    <label
+                      key={p.id}
+                      className="flex items-center gap-2 text-sm cursor-pointer p-2 rounded hover:bg-gray-50"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={allowedProjects.includes(p.id)}
+                        onChange={() => toggleProject(p.id)}
+                      />
+                      <span className="truncate">{p.name}</span>
+                      <span className="ml-auto text-[10px] uppercase tracking-wide text-gray-400">
+                        {p.type}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 

@@ -106,7 +106,7 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const { user, isAdmin, hasModule, hasProjectType, logout, loading: authLoading } = useAuth();
+  const { user, isAdmin, hasModule, hasProjectType, hasProjectAccess, logout, loading: authLoading } = useAuth();
 
   useEffect(() => {
     api.get<Project>(`/projects/${projectId}`)
@@ -135,6 +135,10 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
       router.replace('/no-permission');
       return;
     }
+    if (!hasProjectAccess(project.id)) {
+      router.replace('/no-permission');
+      return;
+    }
     const basePath = `/projects/${projectId}`;
     if (pathname === basePath) return;
     const slug = pathname.replace(basePath + '/', '').split('/')[0];
@@ -142,7 +146,7 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
     if (current && !hasModule(current.module)) {
       router.replace('/no-permission');
     }
-  }, [authLoading, loading, project, pathname, projectId, navItems, hasModule, hasProjectType, router]);
+  }, [authLoading, loading, project, pathname, projectId, navItems, hasModule, hasProjectType, hasProjectAccess, router]);
 
   async function handleLogout() {
     await logout();

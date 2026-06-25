@@ -39,4 +39,10 @@ export class UpdateUserDto {
   @ArrayUnique()
   @IsIn(MODULE_SLUGS as unknown as string[], { each: true })
   allowedModules?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsString({ each: true })
+  allowedProjects?: string[];
 }

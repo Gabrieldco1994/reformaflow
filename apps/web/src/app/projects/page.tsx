@@ -27,7 +27,7 @@ const TYPE_CONFIG: Record<string, { icon: string; label: string; description: st
 
 export default function ProjectsPage() {
   const router = useRouter();
-  const { hasProjectType, isAdmin, user } = useAuth();
+  const { hasProjectType, hasProjectAccess, isAdmin, user } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -40,8 +40,8 @@ export default function ProjectsPage() {
   }, []);
 
   const visibleProjects = useMemo(
-    () => projects.filter((p) => hasProjectType(p.type)),
-    [projects, hasProjectType],
+    () => projects.filter((p) => hasProjectType(p.type) && hasProjectAccess(p.id)),
+    [projects, hasProjectType, hasProjectAccess],
   );
 
   const allowedTypes = useMemo(

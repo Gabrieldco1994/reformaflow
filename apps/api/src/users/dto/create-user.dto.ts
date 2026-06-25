@@ -14,6 +14,7 @@ export const MODULE_SLUGS = [
   'expenses',
   'receipts',
   'cashFlow',
+  'monthlyOverview',
   'rooms',
   'floorPlans',
   'simulation',
@@ -22,6 +23,8 @@ export const MODULE_SLUGS = [
   'maintenance',
   'reminders',
   'carInfo',
+  'creditCards',
+  'bankAccounts',
   'schedule',
 ] as const;
 
@@ -51,4 +54,10 @@ export class CreateUserDto {
   @ArrayUnique()
   @IsIn(MODULE_SLUGS as unknown as string[], { each: true })
   allowedModules?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsString({ each: true })
+  allowedProjects?: string[];
 }

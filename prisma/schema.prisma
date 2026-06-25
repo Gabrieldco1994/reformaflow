@@ -34,6 +34,7 @@ model User {
   role      String   @default("USER")
   passwordHash    String?  @map("password_hash")
   allowedModules  String   @default("[]") @map("allowed_modules")
+  allowedProjects String   @default("[]") @map("allowed_projects") // IDs de projetos liberados (JSON). Vazio = sem restrição por projeto (vê por tipo/módulo). Não-vazio = só estes projetos.
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")

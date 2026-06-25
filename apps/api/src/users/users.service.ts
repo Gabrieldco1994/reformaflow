@@ -17,6 +17,7 @@ function toPublic(u: {
   role: string;
   tenantId: string;
   allowedModules: string;
+  allowedProjects: string;
   createdAt: Date;
   updatedAt: Date;
 }) {
@@ -27,6 +28,13 @@ function toPublic(u: {
   } catch {
     allowedModules = [];
   }
+  let allowedProjects: string[] = [];
+  try {
+    const parsed = JSON.parse(u.allowedProjects || '[]');
+    if (Array.isArray(parsed)) allowedProjects = parsed;
+  } catch {
+    allowedProjects = [];
+  }
   return {
     id: u.id,
     username: u.username,
@@ -34,6 +42,7 @@ function toPublic(u: {
     role: u.role,
     tenantId: u.tenantId,
     allowedModules,
+    allowedProjects,
     createdAt: u.createdAt,
     updatedAt: u.updatedAt,
   };
@@ -67,6 +76,7 @@ export class UsersService {
         role: dto.role ?? 'USER',
         passwordHash,
         allowedModules: JSON.stringify(dto.allowedModules ?? []),
+        allowedProjects: JSON.stringify(dto.allowedProjects ?? []),
       },
     });
     return toPublic(user);
@@ -91,6 +101,9 @@ export class UsersService {
     if (dto.role !== undefined) data['role'] = dto.role;
     if (dto.allowedModules !== undefined) {
       data['allowedModules'] = JSON.stringify(dto.allowedModules);
+    }
+    if (dto.allowedProjects !== undefined) {
+      data['allowedProjects'] = JSON.stringify(dto.allowedProjects);
     }
     if (dto.password) {
       data['passwordHash'] = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);

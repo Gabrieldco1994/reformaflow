@@ -3,11 +3,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { defaultRooms } from '@reformaflow/domain';
-import { userHasAnyModuleForType } from '../common/access-rules';
+import { userHasAnyModuleForType, userCanAccessProject } from '../common/access-rules';
 
 interface RequestUser {
   role: string;
   allowedModules: string[];
+  allowedProjects?: string[];
 }
 
 @Injectable()
@@ -60,21 +61,26 @@ export class ProjectService {
       orderBy: { createdAt: 'desc' },
     });
 
-    if (!user || user.role === 'ADMIN') return projects;
+    if (!user || user.role === 'ADMIN' || user.role === 'OWNER') return projects;
 
-    return projects.filter((p) =>
-      userHasAnyModuleForType(p.type, user.allowedModules ?? []),
+    return projects.filter(
+      (p) =>
+        userHasAnyModuleForType(p.type, user.allowedModules ?? []) &&
+        userCanAccessProject(user.role, user.allowedProjects, p.id),
     );
   }
 
   async findById(tenantId: string, id: string, user?: RequestUser) {
     const project = await this.findByIdInternal(tenantId, id);
 
-    if (user && user.role !== 'ADMIN') {
+    if (user && user.role !== 'ADMIN' && user.role !== 'OWNER') {
       if (!userHasAnyModuleForType(project.type, user.allowedModules ?? [])) {
         throw new ForbiddenException(
           `Sem permissão para acessar projetos do tipo "${project.type}"`,
         );
+      }
+      if (!userCanAccessProject(user.role, user.allowedProjects, project.id)) {
+        throw new ForbiddenException('Sem permissão para acessar este projeto');
       }
     }
 

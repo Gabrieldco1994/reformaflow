@@ -34,3 +34,25 @@ export function userHasAnyModuleForType(
   const typeMods = TYPE_MODULES[projectType] ?? [];
   return typeMods.some((m) => m !== 'dashboard' && allowedModules.includes(m));
 }
+
+/** Papéis com acesso total (veem todos os projetos, ignoram restrição por projeto). */
+export function isFullAccessRole(role: string | undefined): boolean {
+  return role === 'ADMIN' || role === 'OWNER';
+}
+
+/**
+ * Acesso por PROJETO (independente de módulo/tipo).
+ * - ADMIN/OWNER: sempre.
+ * - allowedProjects vazio: sem restrição (opt-in) — vê como hoje.
+ * - allowedProjects não-vazio: só os projetos listados.
+ */
+export function userCanAccessProject(
+  role: string | undefined,
+  allowedProjects: string[] | undefined,
+  projectId: string,
+): boolean {
+  if (isFullAccessRole(role)) return true;
+  const list = allowedProjects ?? [];
+  if (list.length === 0) return true;
+  return list.includes(projectId);
+}

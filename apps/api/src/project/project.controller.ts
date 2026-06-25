@@ -19,6 +19,7 @@ import { Roles } from '../common/decorators/roles.decorator';
 interface RequestUser {
   role: string;
   allowedModules: string[];
+  allowedProjects?: string[];
 }
 
 @ApiTags('projects')

@@ -40,6 +40,7 @@ export class AuthService {
     role: string;
     tenantId: string;
     allowedModules: string;
+    allowedProjects?: string;
   }) {
     let allowedModules: string[] = [];
     try {
@@ -48,6 +49,13 @@ export class AuthService {
     } catch {
       allowedModules = [];
     }
+    let allowedProjects: string[] = [];
+    try {
+      const parsed = JSON.parse(user.allowedProjects || '[]');
+      if (Array.isArray(parsed)) allowedProjects = parsed;
+    } catch {
+      allowedProjects = [];
+    }
     return {
       id: user.id,
       username: user.username,
@@ -55,6 +63,7 @@ export class AuthService {
       role: user.role,
       tenantId: user.tenantId,
       allowedModules,
+      allowedProjects,
     };
   }
 }
