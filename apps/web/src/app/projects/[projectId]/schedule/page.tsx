@@ -227,22 +227,20 @@ export default function SchedulePage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {hasData && (
-            <>
-              <button
-                onClick={() => setShowAddStage(true)}
-                className="flex items-center gap-1 border border-gray-300 px-3 py-1.5 rounded-lg text-sm text-gray-700 hover:bg-gray-50"
-              >
-                <Plus className="w-4 h-4" /> Etapa
-              </button>
-              <button
-                onClick={() => setShowAddTask(true)}
-                className="flex items-center gap-1 bg-brand-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-brand-700"
-              >
-                <Plus className="w-4 h-4" /> Tarefa
-              </button>
-            </>
-          )}
+          <button
+            onClick={() => setShowAddStage(true)}
+            className="flex items-center gap-1 border border-gray-300 px-3 py-1.5 rounded-lg text-sm text-gray-700 hover:bg-gray-50"
+          >
+            <Plus className="w-4 h-4" /> Etapa
+          </button>
+          <button
+            onClick={() => setShowAddTask(true)}
+            disabled={!hasData}
+            className="flex items-center gap-1 bg-brand-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            title={!hasData ? 'Crie uma etapa primeiro' : 'Nova tarefa'}
+          >
+            <Plus className="w-4 h-4" /> Tarefa
+          </button>
           <button
             onClick={() => setShowImport(true)}
             className="flex items-center gap-1 border border-gray-300 px-3 py-1.5 rounded-lg text-sm text-gray-700 hover:bg-gray-50"
@@ -297,12 +295,31 @@ export default function SchedulePage() {
           <p className="text-sm text-gray-400 mb-4">
             Importe um modelo ou crie etapas e tarefas manualmente
           </p>
-          <button
-            onClick={() => setShowImport(true)}
-            className="flex items-center gap-2 bg-brand-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-brand-700"
-          >
-            <Upload className="w-4 h-4" /> Importar Modelo de Obra
-          </button>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <button
+              onClick={() => setShowAddStage(true)}
+              className="flex items-center gap-2 border border-gray-300 px-4 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-50"
+            >
+              <Plus className="w-4 h-4" /> Criar Etapa
+            </button>
+            <button
+              onClick={() => setShowAddTask(true)}
+              disabled={!hasData}
+              className="flex items-center gap-2 bg-brand-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              title={!hasData ? 'Crie uma etapa primeiro' : 'Nova tarefa'}
+            >
+              <Plus className="w-4 h-4" /> Criar Tarefa
+            </button>
+            <button
+              onClick={() => setShowImport(true)}
+              className="flex items-center gap-2 border border-gray-300 px-4 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-50"
+            >
+              <Upload className="w-4 h-4" /> Importar Modelo de Obra
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-gray-400">
+            Depois da primeira etapa, a opção de criar tarefa fica disponível.
+          </p>
         </div>
       )}
 

@@ -1,5 +1,7 @@
 'use client';
 
+import { useState } from 'react';
+import { ChevronDown } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import type { DreMensal } from '../_types';
 import { DreIcon } from './DreIcon';
@@ -41,6 +43,11 @@ export function DreMensalView({
       ? Math.min(100, (data.despesaTotal / data.receitaTotal) * 100)
       : 0;
   const margemAbs = data.receitaTotal - data.despesaTotal;
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+
+  const toggleGroup = (key: string) => {
+    setExpandedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
 
   return (
     <div className="space-y-4">
@@ -153,23 +160,37 @@ export function DreMensalView({
             <div className="mt-2 space-y-2">
               {groups.map((group) => (
                 <article key={`${group.group}-${group.icon}`} className="rounded-xl border border-[#F3D0D0] bg-[#FCEBEB] p-3">
-                  <div className="flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(`${eixo}-${group.group}`)}
+                    className="flex min-h-11 w-full items-center justify-between gap-2"
+                    aria-expanded={!!expandedGroups[`${eixo}-${group.group}`]}
+                  >
                     <div className="flex items-center gap-2">
                       <DreIcon name={group.icon} className="h-4 w-4 text-[#D85A30]" />
-                      <p className="text-sm font-semibold text-slate-800">{group.group}</p>
+                      <p className="text-left text-sm font-semibold text-slate-800">{group.group}</p>
                     </div>
-                    <p className="text-sm font-semibold text-[#D85A30]">
-                      {formatCurrency(totalGrupo(group.items) / 100)}
-                    </p>
-                  </div>
-                  <div className="mt-2 space-y-1.5">
-                    {group.items.map((item) => (
-                      <div key={`${group.group}-${item.label}`} className="flex min-h-11 items-center justify-between pl-[18px] text-xs text-slate-700">
-                        <span>{item.label}</span>
-                        <span className="font-semibold text-[#D85A30]">{formatCurrency(item.valor / 100)}</span>
-                      </div>
-                    ))}
-                  </div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-semibold text-[#D85A30]">
+                        {formatCurrency(totalGrupo(group.items) / 100)}
+                      </p>
+                      <ChevronDown
+                        className={`h-4 w-4 text-[#D85A30] transition-transform ${
+                          expandedGroups[`${eixo}-${group.group}`] ? 'rotate-180' : ''
+                        }`}
+                      />
+                    </div>
+                  </button>
+                  {expandedGroups[`${eixo}-${group.group}`] && (
+                    <div className="mt-2 space-y-1.5">
+                      {group.items.map((item) => (
+                        <div key={`${group.group}-${item.label}`} className="flex min-h-11 items-center justify-between pl-[18px] text-xs text-slate-700">
+                          <span>{item.label}</span>
+                          <span className="font-semibold text-[#D85A30]">{formatCurrency(item.valor / 100)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </article>
               ))}
             </div>

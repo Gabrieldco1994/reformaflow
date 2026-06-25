@@ -1,5 +1,7 @@
 'use client';
 
+import { useState } from 'react';
+import { ChevronDown } from 'lucide-react';
 import {
   Line,
   LineChart,
@@ -280,29 +282,45 @@ function AnnualTotalSection({
     red: 'text-[#D85A30]',
     amber: 'text-[#BA7517]',
   } as const;
+  const [expanded, setExpanded] = useState(false);
+
   return (
     <div className="mt-2 border-b border-slate-100 pb-2 last:border-b-0">
-      <p className="mb-1 text-sm font-semibold text-slate-900">{title}</p>
-      <table className="w-full table-fixed text-xs">
-        <tbody>
-          {rows.map((row) => (
-            <tr key={`${title}-${row.label}`} className="h-11 border-t border-slate-100">
-              <td className="w-[52%] pr-2">
-                <div className="flex items-center gap-2 text-slate-700">
-                  <DreIcon name={row.icon} className={`h-4 w-4 ${toneClasses[tone]}`} />
-                  <span className="truncate">{row.label}</span>
-                </div>
-              </td>
-              <td className={`w-[24%] text-right font-semibold ${toneClasses[tone]}`}>
-                {formatCurrency(row.total / 100)}
-              </td>
-              <td className="w-[24%] text-right text-slate-500">
-                {formatCurrency(row.mediaMensal / 100)}/mês
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <button
+        type="button"
+        onClick={() => setExpanded((prev) => !prev)}
+        className="flex min-h-11 w-full items-center justify-between gap-2"
+        aria-expanded={expanded}
+      >
+        <p className="text-sm font-semibold text-slate-900">{title}</p>
+        <ChevronDown
+          className={`h-4 w-4 text-slate-500 transition-transform ${
+            expanded ? 'rotate-180' : ''
+          }`}
+        />
+      </button>
+      {expanded && (
+        <table className="w-full table-fixed text-xs">
+          <tbody>
+            {rows.map((row) => (
+              <tr key={`${title}-${row.label}`} className="h-11 border-t border-slate-100">
+                <td className="w-[52%] pr-2">
+                  <div className="flex items-center gap-2 text-slate-700">
+                    <DreIcon name={row.icon} className={`h-4 w-4 ${toneClasses[tone]}`} />
+                    <span className="truncate">{row.label}</span>
+                  </div>
+                </td>
+                <td className={`w-[24%] text-right font-semibold ${toneClasses[tone]}`}>
+                  {formatCurrency(row.total / 100)}
+                </td>
+                <td className="w-[24%] text-right text-slate-500">
+                  {formatCurrency(row.mediaMensal / 100)}/mês
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }
