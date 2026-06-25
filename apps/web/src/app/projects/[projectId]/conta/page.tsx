@@ -208,7 +208,7 @@ export default function ContaPage() {
                 activeQuickFilter={resumoQuickFilter}
                 onQuickFilterSelect={(key) => {
                   setOriginFilter(null);
-                  setResumoQuickFilter((current) => (current === key ? null : key));
+                  setResumoQuickFilter(key);
                 }}
               />
               <CartoesSection

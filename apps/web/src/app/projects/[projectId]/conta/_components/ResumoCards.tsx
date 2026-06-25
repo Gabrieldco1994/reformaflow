@@ -97,44 +97,37 @@ export function ResumoCards({
             : null;
           const filterable = quickFilterKey != null;
           const active = quickFilterKey != null && activeQuickFilter === quickFilterKey;
+          const cardClass = `rounded-2xl border p-3 shadow-sm xl:flex xl:min-h-full xl:flex-col xl:justify-between xl:p-4 ${
+            active ? 'ring-2 ring-orange-400' : ''
+          } ${filterable ? 'cursor-pointer' : ''} ${toneClasses(tone)}`;
           return (
-            <article
-              key={card.key}
-              className={`rounded-2xl border p-3 shadow-sm xl:flex xl:min-h-full xl:flex-col xl:justify-between xl:p-4 ${
-                active ? 'ring-2 ring-orange-400' : ''
-              } ${filterable ? 'cursor-pointer' : ''} ${
-                toneClasses(tone)
-              }`}
-            >
-              {filterable ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (quickFilterKey) onQuickFilterSelect(quickFilterKey);
-                  }}
-                  aria-pressed={active}
-                  className="block w-full text-left"
-                >
-                  <p className="text-[11px] font-semibold leading-4">{card.title}</p>
-                  <p className="mt-2 text-lg font-bold tracking-tight xl:text-[22px]">
-                    {formatCurrency(value / 100)}
-                  </p>
-                  <p className="mt-2 text-[11px] leading-4 opacity-80 xl:text-xs xl:leading-5">
-                    {card.help}
-                  </p>
-                </button>
-              ) : (
-                <>
-                  <p className="text-[11px] font-semibold leading-4">{card.title}</p>
-                  <p className="mt-2 text-lg font-bold tracking-tight xl:text-[22px]">
-                    {formatCurrency(value / 100)}
-                  </p>
-                  <p className="mt-2 text-[11px] leading-4 opacity-80 xl:text-xs xl:leading-5">
-                    {card.help}
-                  </p>
-                </>
-              )}
-            </article>
+            filterable && quickFilterKey ? (
+              <button
+                key={card.key}
+                type="button"
+                onClick={() => onQuickFilterSelect(quickFilterKey)}
+                aria-pressed={active}
+                className={`${cardClass} text-left`}
+              >
+                <p className="text-[11px] font-semibold leading-4">{card.title}</p>
+                <p className="mt-2 text-lg font-bold tracking-tight xl:text-[22px]">
+                  {formatCurrency(value / 100)}
+                </p>
+                <p className="mt-2 text-[11px] leading-4 opacity-80 xl:text-xs xl:leading-5">
+                  {card.help}
+                </p>
+              </button>
+            ) : (
+              <article key={card.key} className={cardClass}>
+                <p className="text-[11px] font-semibold leading-4">{card.title}</p>
+                <p className="mt-2 text-lg font-bold tracking-tight xl:text-[22px]">
+                  {formatCurrency(value / 100)}
+                </p>
+                <p className="mt-2 text-[11px] leading-4 opacity-80 xl:text-xs xl:leading-5">
+                  {card.help}
+                </p>
+              </article>
+            )
           );
         })}
       </div>
