@@ -26,6 +26,7 @@ export const MODULE_SLUGS = [
   'creditCards',
   'bankAccounts',
   'schedule',
+  'financialDashboard',
 ] as const;
 
 export const PROJECT_TYPES = ['REFORMA', 'COMPRA', 'CASA', 'CARRO', 'PESSOAL'] as const;

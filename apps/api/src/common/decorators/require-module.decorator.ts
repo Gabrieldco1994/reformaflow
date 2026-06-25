@@ -18,6 +18,7 @@ export type ModuleSlug =
   | 'schedule'
   | 'monthlyOverview'
   | 'creditCards'
-  | 'bankAccounts';
+  | 'bankAccounts'
+  | 'financialDashboard';
 
 export const RequireModule = (slug: ModuleSlug) => SetMetadata(MODULE_KEY, slug);

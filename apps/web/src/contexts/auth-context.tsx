@@ -26,7 +26,8 @@ export type ModuleSlug =
   | 'carInfo'
   | 'creditCards'
   | 'bankAccounts'
-  | 'schedule';
+  | 'schedule'
+  | 'financialDashboard';
 
 export const ALL_MODULES: { slug: ModuleSlug; label: string }[] = [
   { slug: 'dashboard', label: 'Dashboard' },
@@ -45,6 +46,7 @@ export const ALL_MODULES: { slug: ModuleSlug; label: string }[] = [
   { slug: 'creditCards', label: 'Cartões' },
   { slug: 'bankAccounts', label: 'Contas Bancárias' },
   { slug: 'schedule', label: 'Cronograma' },
+  { slug: 'financialDashboard', label: 'Dashboard Financeiro' },
 ];
 
 export const TYPE_MODULES: Record<string, ModuleSlug[]> = {

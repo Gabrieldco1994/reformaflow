@@ -8,7 +8,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { MODULE_KEY, ModuleSlug } from '../decorators/require-module.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
-import { projectTypeHasModule } from '../access-rules';
+import { projectTypeHasModule, isFullAccessRole } from '../access-rules';
 
 @Injectable()
 export class ModulesGuard implements CanActivate {
@@ -28,7 +28,7 @@ export class ModulesGuard implements CanActivate {
     const { user } = request;
     if (!user) throw new ForbiddenException('Não autenticado');
 
-    const isAdmin = user.role === 'ADMIN';
+    const isAdmin = isFullAccessRole(user.role);
 
     if (!isAdmin) {
       const allowed: string[] = Array.isArray(user.allowedModules)

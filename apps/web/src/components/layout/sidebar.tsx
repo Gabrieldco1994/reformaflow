@@ -80,6 +80,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 p-2 space-y-1">
+        {hasModule('financialDashboard') && (
         <Link
           href="/financeiro"
           title="Visão Geral"
@@ -92,6 +93,7 @@ export function Sidebar() {
           <PieChart className={`w-5 h-5 flex-shrink-0 ${pathname === '/financeiro' ? activeIconColor : 'text-darc-linen/85'}`} />
           <span className="whitespace-nowrap opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200">Visão Geral</span>
         </Link>
+        )}
 
         {visibleItems.map((item) => {
           const isActive = pathname.startsWith(item.href);

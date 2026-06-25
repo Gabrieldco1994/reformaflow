@@ -8,9 +8,11 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { TenantFinancialService } from './tenant-financial.service';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
 import { CurrentTenant } from '../common/decorators/tenant.decorator';
+import { RequireModule } from '../common/decorators/require-module.decorator';
 
 @ApiTags('tenant-financial')
 @ApiBearerAuth()
+@RequireModule('financialDashboard')
 @UseInterceptors(TenantInterceptor)
 @Controller('tenant/financial')
 export class TenantFinancialController {

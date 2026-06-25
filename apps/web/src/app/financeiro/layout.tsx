@@ -8,15 +8,19 @@ import { useAuth } from '@/contexts/auth-context';
 
 export default function FinanceiroLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { user, loading, logout } = useAuth();
+  const { user, loading, logout, hasModule } = useAuth();
 
   useEffect(() => {
     if (!loading && !user) {
       router.replace('/login');
+      return;
     }
-  }, [loading, user, router]);
+    if (!loading && user && !hasModule('financialDashboard')) {
+      router.replace('/projects');
+    }
+  }, [loading, user, hasModule, router]);
 
-  if (loading || !user) {
+  if (loading || !user || !hasModule('financialDashboard')) {
     return (
       <div className="flex h-screen items-center justify-center bg-white">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-darc-red" />
