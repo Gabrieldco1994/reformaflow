@@ -51,6 +51,7 @@ describe('MonthlyOverviewService.getDreOverview', () => {
       entrouMes: 10_000,
       saiuMes: 3_000,
       faltaPagarMes: 2_500,
+      recebimentosPrevistosMes: 10_000,
       sobraPrevista: 764_629,
       devoCartaoTotal: 2_500,
       cartoes: [],
@@ -267,6 +268,7 @@ describe('MonthlyOverviewService.getDreOverview', () => {
       entrouMes: 10_000,
       saiuMes: 3_000,
       faltaPagarMes: 2_500,
+      recebimentosPrevistosMes: 10_000,
       sobraPrevista: 764_629,
       despesaTotal: 5_500,
     });

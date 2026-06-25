@@ -30,6 +30,7 @@ export interface DreMensal {
     entrouMes: number;
     saiuMes: number;
     faltaPagarMes: number;
+    recebimentosPrevistosMes: number;
     sobraPrevista: number;
     despesaTotal: number;
   };

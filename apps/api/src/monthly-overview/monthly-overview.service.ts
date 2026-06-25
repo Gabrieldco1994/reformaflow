@@ -653,6 +653,7 @@ export class MonthlyOverviewService {
       entrouMes,
       saiuMes,
       faltaPagarMes,
+      recebimentosPrevistosMes,
       sobraPrevista: caixa.hoje - faltaPagarMes + recebimentosPrevistosMes,
       devoCartaoTotal,
       cartoes,
@@ -868,6 +869,7 @@ export class MonthlyOverviewService {
       entrouMes: accountView.entrouMes,
       saiuMes: accountView.saiuMes,
       faltaPagarMes: accountView.faltaPagarMes,
+      recebimentosPrevistosMes: accountView.recebimentosPrevistosMes,
       sobraPrevista: accountView.sobraPrevista,
       despesaTotal: accountView.saiuMes + accountView.faltaPagarMes,
     };
@@ -922,11 +924,32 @@ export class MonthlyOverviewService {
         (line) => line.valor,
       );
       const margem = receitas - despesas;
+      const receitasPlanejadas = sumBy(
+        normalized.filter(
+          (line) =>
+            line.kind === 'entrada' &&
+            !line.realizado &&
+            line.mesCompetencia === mes,
+        ),
+        (line) => line.valor,
+      );
+      const despesasPlanejadas = sumBy(
+        normalized.filter(
+          (line) =>
+            line.kind === 'saida' &&
+            !line.realizado &&
+            !line.isGuardado &&
+            line.mesCompetencia === mes,
+        ),
+        (line) => line.valor,
+      );
       return {
         mes,
         monthIndex: index + 1,
         receitas,
+        receitasPlanejadas,
         despesas,
+        despesasPlanejadas,
         guardado,
         resultado: receitas - despesas - guardado,
         margem,
@@ -941,23 +964,20 @@ export class MonthlyOverviewService {
     const resultadoAcumulado = totalEntrouAno - totalSaiuAno - totalGuardadoAno;
     const mediaMensal = realizedUntil > 0 ? Math.round(totalSaiuAno / realizedUntil) : 0;
 
-    const receitaMediaProj = realizedUntil > 0 ? Math.round(totalEntrouAno / realizedUntil) : 0;
-    const despesaMediaProj = realizedUntil > 0 ? Math.round(totalSaiuAno / realizedUntil) : 0;
-
     const serie = monthRows.map((row) => {
       const isFutureProjection = realizedUntil > 0 && row.monthIndex > realizedUntil;
-      const margemProjetada = receitaMediaProj - despesaMediaProj;
+      const receitaProjetada = row.receitas + row.receitasPlanejadas;
+      const despesaProjetada = row.despesas + row.despesasPlanejadas;
+      const margemProjetada = receitaProjetada - despesaProjetada;
       return {
         mes: row.mes,
         receita: isFutureProjection ? null : row.receitas,
         despesa: isFutureProjection ? null : row.despesas,
-        projecaoReceita: isFutureProjection ? receitaMediaProj : null,
-        projecaoDespesa: isFutureProjection ? despesaMediaProj : null,
+        projecaoReceita: receitaProjetada,
+        projecaoDespesa: despesaProjetada,
         margem: isFutureProjection ? null : row.margem,
-        projecaoMargem: isFutureProjection ? margemProjetada : null,
-        isCritical: isFutureProjection
-          ? receitaMediaProj > 0 && despesaMediaProj / receitaMediaProj > 0.9
-          : row.isCritical,
+        projecaoMargem: margemProjetada,
+        isCritical: receitaProjetada > 0 && despesaProjetada / receitaProjetada > 0.9,
       };
     });
 

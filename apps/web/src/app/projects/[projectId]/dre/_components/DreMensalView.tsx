@@ -119,6 +119,14 @@ export function DreMensalView({
                 </p>
               </article>
             </div>
+            <article className="rounded-2xl border border-[#EFD9B6] bg-[#FAEEDA] p-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#BA7517]">
+                recebimentos previstos
+              </p>
+              <p className="mt-2 text-base font-bold text-[#BA7517]">
+                {formatCurrency(data.contaCorrente.recebimentosPrevistosMes / 100)}
+              </p>
+            </article>
             <div className="grid grid-cols-2 gap-3">
               <article className="rounded-2xl border border-[#EFD9B6] bg-[#FAEEDA] p-3">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#BA7517]">
