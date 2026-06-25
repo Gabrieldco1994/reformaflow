@@ -46,6 +46,19 @@ export class MonthlyOverviewController {
     return this.service.getCardInvoicesYearly(tenantId, projectId, year);
   }
 
+  @Get('dre-overview')
+  @ApiOperation({
+    summary: 'DRE pessoal (visão mensal + anual) para projetos PESSOAL',
+  })
+  getDreOverview(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Query('month') month?: string,
+    @Query('year') year?: string,
+  ): Promise<unknown> {
+    return this.service.getDreOverview(tenantId, projectId, { month, year });
+  }
+
   @Get('origin-items-yearly')
   @ApiOperation({
     summary: 'Despesas relacionadas a uma origem (cartão/conta) no ano (PESSOAL)',

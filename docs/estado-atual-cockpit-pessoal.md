@@ -14,6 +14,17 @@ O pacote principal do Cockpit PESSOAL está **concluído e em `main`**.
 
 Também há evoluções posteriores da Visão Conta no `main` (filtros, gráficos anuais por origem/cartão, drill-down e ajustes de edição).
 
+### Incremento recente (DRE pessoal)
+
+- Endpoint: `GET /projects/:projectId/monthly-overview/dre-overview`
+- Tela web: `/projects/[projectId]/dre` (toggle **mensal/anual**)
+- Visão mensal: cards de resultado + mini receita × despesa + DRE por eixo (**Competência / Conta Corrente**)
+- Visão anual: cards de resumo + gráfico com breakpoint + barras mês a mês + totais anuais
+- Invariantes mantidas:
+  - neutros (`PAGAMENTO_FATURA_CARTAO`, `MOVIMENTACAO_INTERNA`) fora de despesa/cashflow;
+  - compra no cartão projetada para mês de conta via `caixaMonthForCardPurchase`;
+  - fatura na Conta Corrente agrupada em linha única por cartão.
+
 ## 2) Fontes de verdade
 
 Antes de iniciar qualquer trabalho nessa área, ler:

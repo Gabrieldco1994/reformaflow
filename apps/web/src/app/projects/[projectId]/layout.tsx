@@ -64,6 +64,7 @@ const FEATURE_NAV: Record<string, NavItem[]> = {
   PESSOAL: [
     { href: 'monthly', label: 'Cockpit', icon: Gauge, module: 'monthlyOverview' },
     { href: 'conta', label: 'Visão Conta', icon: Landmark, module: 'monthlyOverview' },
+    { href: 'dre', label: 'DRE', icon: Target, module: 'monthlyOverview' },
     { href: 'expenses', label: 'Despesas', icon: Receipt, module: 'expenses' },
     { href: 'receipts', label: 'Recebimentos', icon: Wallet, module: 'receipts' },
     { href: 'metas', label: 'Metas', icon: Target, module: 'expenses' },

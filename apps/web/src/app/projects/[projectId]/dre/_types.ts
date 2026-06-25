@@ -1,0 +1,65 @@
+export interface DreLine {
+  label: string;
+  valor: number;
+  sub?: string;
+}
+
+export interface DreGroup {
+  group: string;
+  icon: string;
+  color: string;
+  items: DreLine[];
+}
+
+export interface DreMensal {
+  mes: string;
+  resultado: number;
+  deltaVsMesAnterior: number;
+  totalEntrou: number;
+  totalSaiuMaisGuardou: number;
+  receitaTotal: number;
+  despesaTotal: number;
+  margemPct: number;
+  entradas: DreLine[];
+  saidas: DreGroup[];
+  saidasCaixa: DreGroup[];
+  guardado: DreLine[];
+}
+
+export interface DreSerieRow {
+  mes: string;
+  receita: number | null;
+  despesa: number | null;
+  projecaoReceita: number | null;
+  projecaoDespesa: number | null;
+  margem?: number | null;
+  projecaoMargem?: number | null;
+  isCritical: boolean;
+}
+
+export interface DreTotalAnual {
+  label: string;
+  icon: string;
+  color: string;
+  total: number;
+  mediaMensal: number;
+}
+
+export interface DreAnual {
+  ano: number;
+  ateOMes: string;
+  totalEntrou: number;
+  totalSaiu: number;
+  resultadoAcumulado: number;
+  mediaMensal: number;
+  mesCritico: { mes: string; margem: number };
+  serie: DreSerieRow[];
+  totaisEntradas: DreTotalAnual[];
+  totaisSaidas: DreTotalAnual[];
+  totaisGuardado: DreTotalAnual[];
+}
+
+export interface DreOverviewResponse {
+  mensal: DreMensal;
+  anual: DreAnual;
+}

@@ -6,6 +6,7 @@ import {
   caixaMonthForCardPurchase,
   compareMonths,
   ExpenseTypeLabels,
+  ReceiptTypeLabels,
   isNeutralExpenseType,
   type MonthlyOverviewEntry,
 } from '@reformaflow/domain';
@@ -670,6 +671,372 @@ export class MonthlyOverviewService {
     };
   }
 
+  async getDreOverview(
+    tenantId: string,
+    projectId: string,
+    params?: { month?: string; year?: string | number },
+  ) {
+    await this.ensurePessoalProject(tenantId, projectId);
+
+    const mesSelecionado = normalizeMonthKey(params?.month);
+    const anoSelecionado = normalizeYear(
+      params?.year ?? parseInt(mesSelecionado.slice(0, 4), 10),
+    );
+
+    const projectIds = [projectId];
+
+    const [entries, cards] = await Promise.all([
+      this.prisma.cashFlowEntry.findMany({
+        where: {
+          tenantId,
+          projectId: { in: projectIds },
+          deletedAt: null,
+          budgetAllocationId: null,
+          OR: [{ expenseId: null }, { expense: { deletedAt: null } }],
+          AND: [
+            {
+              OR: [{ receiptId: null }, { receipt: { deletedAt: null, linkedReceiptId: null } }],
+            },
+          ],
+        },
+        include: {
+          expense: {
+            select: {
+              id: true,
+              tipoDespesa: true,
+              titulo: true,
+              fornecedor: true,
+              cardLast4: true,
+              bankLast4: true,
+              linkedExpenseId: true,
+            },
+          },
+          receipt: {
+            select: {
+              id: true,
+              tipo: true,
+              descricao: true,
+              bankLast4: true,
+            },
+          },
+        },
+        orderBy: [{ data: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+      }),
+      this.prisma.creditCard.findMany({
+        where: { tenantId, projectId: { in: projectIds }, deletedAt: null },
+        select: { last4: true, nickname: true, closingDay: true, dueDay: true },
+      }),
+    ]);
+
+    const cardByLast4 = new Map<string, { nickname: string; closingDay: number | null; dueDay: number | null }>();
+    for (const card of cards) {
+      if (cardByLast4.has(card.last4)) continue;
+      cardByLast4.set(card.last4, {
+        nickname: card.nickname?.trim() || `Cartão ${card.last4}`,
+        closingDay: card.closingDay ?? null,
+        dueDay: card.dueDay ?? null,
+      });
+    }
+
+    const normalized: DreLine[] = [];
+    for (const entry of entries) {
+      if (entry.expense?.linkedExpenseId) continue;
+
+      const realized = entry.status === 'PAGO' || entry.status === 'EM_CAIXA';
+      const monthCompetencia = monthKeyOf(entry.data);
+
+      if (entry.tipo === 'RECEBIMENTO') {
+        const sourceLabel = receiptSourceLabel(entry.receipt?.tipo);
+        normalized.push({
+          kind: 'entrada',
+          valor: entry.valor,
+          mesCompetencia: monthCompetencia,
+          mesConta: monthCompetencia,
+          realizado: realized,
+          label:
+            entry.receipt?.descricao?.trim() ||
+            receiptTypeLabel(entry.receipt?.tipo ?? 'OUTROS'),
+          sourceLabel,
+          sourceIcon: receiptSourceIcon(sourceLabel),
+        });
+        continue;
+      }
+
+      if (!entry.expense) continue;
+      const tipoDespesa = entry.expense.tipoDespesa ?? 'OUTROS';
+      if (isNeutralExpenseType(tipoDespesa)) continue;
+
+      const meta = dreExpenseMeta(tipoDespesa);
+      const card = entry.expense.cardLast4
+        ? cardByLast4.get(entry.expense.cardLast4) ?? null
+        : null;
+      const mesConta = entry.expense.cardLast4
+        ? caixaMonthForCardPurchase(
+            entry.data,
+            card?.closingDay ?? null,
+            card?.dueDay ?? null,
+          )
+        : monthCompetencia;
+
+      normalized.push({
+        kind: 'saida',
+        valor: entry.valor,
+        mesCompetencia: monthCompetencia,
+        mesConta,
+        realizado: realized,
+        label: expenseDisplayName(
+          tipoDespesa,
+          entry.expense.titulo,
+          entry.expense.fornecedor,
+        ),
+        group: meta.group,
+        icon: meta.icon,
+        color: meta.color,
+        isGuardado: meta.isGuardado,
+        cardLast4: entry.expense.cardLast4,
+      });
+    }
+
+    const entradasMes = groupSimpleLines(
+      normalized.filter(
+        (line) =>
+          line.kind === 'entrada' &&
+          line.realizado &&
+          line.mesCompetencia === mesSelecionado,
+      ),
+      (line) => line.sourceLabel ?? 'Outros',
+      (line) => ({ label: line.sourceLabel ?? 'Outros', icon: line.sourceIcon ?? 'wallet' }),
+    );
+    const totalEntrou = sumBy(entradasMes, (line) => line.valor);
+
+    const saidasCompetenciaBrutas = normalized.filter(
+      (line) =>
+        line.kind === 'saida' &&
+        line.realizado &&
+        line.mesCompetencia === mesSelecionado,
+    );
+    const guardadoMes = groupSimpleLines(
+      saidasCompetenciaBrutas.filter((line) => line.isGuardado),
+      (line) => line.group ?? 'Guardado',
+      (line) => ({ label: line.group ?? 'Guardado', icon: line.icon ?? 'piggy-bank' }),
+    );
+    const totalGuardadoMes = sumBy(guardadoMes, (line) => line.valor);
+
+    const saidasCompetencia = groupDreGroups(
+      saidasCompetenciaBrutas.filter((line) => !line.isGuardado),
+    );
+    const totalSaiuCompetencia = sumBy(
+      saidasCompetencia.flatMap((group) => group.items),
+      (line) => line.valor,
+    );
+
+    const saidasContaBrutas = normalized.filter(
+      (line) => line.kind === 'saida' && line.mesConta === mesSelecionado,
+    );
+    const cardInvoices = new Map<string, number>();
+    for (const line of saidasContaBrutas) {
+      if (line.isGuardado) continue;
+      if (!line.cardLast4) continue;
+      cardInvoices.set(line.cardLast4, (cardInvoices.get(line.cardLast4) ?? 0) + line.valor);
+    }
+    const faturasItems = Array.from(cardInvoices.entries())
+      .map(([last4, valor]) => ({
+        label: `Fatura ${(cardByLast4.get(last4)?.nickname ?? 'Cartão')} ••${last4}`,
+        valor,
+      }))
+      .sort((a, b) => b.valor - a.valor);
+    const debitosItems = groupSimpleLines(
+      saidasContaBrutas.filter((line) => !line.isGuardado && !line.cardLast4),
+      (line) => line.group ?? 'Outros',
+      (line) => ({ label: line.group ?? 'Outros' }),
+    );
+    const saidasCaixa = [
+      ...(faturasItems.length > 0
+        ? [{ group: 'Faturas de cartão', icon: 'credit-card', color: '#D85A30', items: faturasItems }]
+        : []),
+      ...(debitosItems.length > 0
+        ? [{ group: 'Débitos automáticos', icon: 'building-bank', color: '#BA7517', items: debitosItems }]
+        : []),
+    ];
+
+    const resultadoMes = totalEntrou - totalSaiuCompetencia - totalGuardadoMes;
+    const resultadoMesAnterior = dreMonthResult(
+      normalized,
+      monthKeyPlus(mesSelecionado, -1),
+    );
+    const deltaVsMesAnterior =
+      resultadoMesAnterior === 0
+        ? 0
+        : roundPct(((resultadoMes - resultadoMesAnterior) / Math.abs(resultadoMesAnterior)) * 100);
+
+    const months = Array.from({ length: 12 }, (_, i) => `${anoSelecionado}-${String(i + 1).padStart(2, '0')}`);
+    const now = new Date();
+    const realizedUntil =
+      anoSelecionado < now.getUTCFullYear()
+        ? 12
+        : anoSelecionado === now.getUTCFullYear()
+          ? now.getUTCMonth() + 1
+          : 0;
+
+    const monthRows = months.map((mes, index) => {
+      const receitas = sumBy(
+        normalized.filter(
+          (line) =>
+            line.kind === 'entrada' &&
+            line.realizado &&
+            line.mesCompetencia === mes,
+        ),
+        (line) => line.valor,
+      );
+      const despesas = sumBy(
+        normalized.filter(
+          (line) =>
+            line.kind === 'saida' &&
+            line.realizado &&
+            !line.isGuardado &&
+            line.mesCompetencia === mes,
+        ),
+        (line) => line.valor,
+      );
+      const guardado = sumBy(
+        normalized.filter(
+          (line) =>
+            line.kind === 'saida' &&
+            line.realizado &&
+            line.isGuardado &&
+            line.mesCompetencia === mes,
+        ),
+        (line) => line.valor,
+      );
+      const margem = receitas - despesas;
+      return {
+        mes,
+        monthIndex: index + 1,
+        receitas,
+        despesas,
+        guardado,
+        resultado: receitas - despesas - guardado,
+        margem,
+        isCritical: receitas > 0 && despesas / receitas > 0.9,
+      };
+    });
+
+    const realizedRows = monthRows.filter((row) => row.monthIndex <= realizedUntil);
+    const totalEntrouAno = sumBy(realizedRows, (row) => row.receitas);
+    const totalSaiuAno = sumBy(realizedRows, (row) => row.despesas);
+    const totalGuardadoAno = sumBy(realizedRows, (row) => row.guardado);
+    const resultadoAcumulado = totalEntrouAno - totalSaiuAno - totalGuardadoAno;
+    const mediaMensal = realizedUntil > 0 ? Math.round(totalSaiuAno / realizedUntil) : 0;
+
+    const receitaMediaProj = realizedUntil > 0 ? Math.round(totalEntrouAno / realizedUntil) : 0;
+    const despesaMediaProj = realizedUntil > 0 ? Math.round(totalSaiuAno / realizedUntil) : 0;
+
+    const serie = monthRows.map((row) => {
+      const isFutureProjection = realizedUntil > 0 && row.monthIndex > realizedUntil;
+      const margemProjetada = receitaMediaProj - despesaMediaProj;
+      return {
+        mes: row.mes,
+        receita: isFutureProjection ? null : row.receitas,
+        despesa: isFutureProjection ? null : row.despesas,
+        projecaoReceita: isFutureProjection ? receitaMediaProj : null,
+        projecaoDespesa: isFutureProjection ? despesaMediaProj : null,
+        margem: isFutureProjection ? null : row.margem,
+        projecaoMargem: isFutureProjection ? margemProjetada : null,
+        isCritical: isFutureProjection
+          ? receitaMediaProj > 0 && despesaMediaProj / receitaMediaProj > 0.9
+          : row.isCritical,
+      };
+    });
+
+    const mesCriticoBase = realizedRows.length > 0
+      ? [...realizedRows].sort((a, b) => a.margem - b.margem)[0]
+      : monthRows[0];
+
+    const totaisEntradas = groupAnnualTotals(
+      normalized.filter(
+        (line) =>
+          line.kind === 'entrada' &&
+          line.realizado &&
+          line.mesCompetencia.startsWith(`${anoSelecionado}-`) &&
+          monthNumber(line.mesCompetencia) <= realizedUntil,
+      ),
+      (line) => line.sourceLabel ?? 'Outros',
+      (line) => ({
+        label: line.sourceLabel ?? 'Outros',
+        icon: line.sourceIcon ?? 'wallet',
+        color: '#1D9E75',
+      }),
+      Math.max(realizedUntil, 1),
+    );
+    const totaisSaidas = groupAnnualTotals(
+      normalized.filter(
+        (line) =>
+          line.kind === 'saida' &&
+          line.realizado &&
+          !line.isGuardado &&
+          line.mesCompetencia.startsWith(`${anoSelecionado}-`) &&
+          monthNumber(line.mesCompetencia) <= realizedUntil,
+      ),
+      (line) => line.group ?? 'Outros',
+      (line) => ({
+        label: line.group ?? 'Outros',
+        icon: line.icon ?? 'coins',
+        color: line.color ?? '#D85A30',
+      }),
+      Math.max(realizedUntil, 1),
+    );
+    const totaisGuardado = groupAnnualTotals(
+      normalized.filter(
+        (line) =>
+          line.kind === 'saida' &&
+          line.realizado &&
+          line.isGuardado &&
+          line.mesCompetencia.startsWith(`${anoSelecionado}-`) &&
+          monthNumber(line.mesCompetencia) <= realizedUntil,
+      ),
+      (line) => line.group ?? 'Guardado',
+      (line) => ({
+        label: line.group ?? 'Guardado',
+        icon: line.icon ?? 'piggy-bank',
+        color: '#BA7517',
+      }),
+      Math.max(realizedUntil, 1),
+    );
+
+    return {
+      mensal: {
+        mes: mesSelecionado,
+        resultado: resultadoMes,
+        deltaVsMesAnterior,
+        totalEntrou,
+        totalSaiuMaisGuardou: totalSaiuCompetencia + totalGuardadoMes,
+        receitaTotal: totalEntrou,
+        despesaTotal: totalSaiuCompetencia,
+        margemPct: totalEntrou > 0 ? roundPct((totalSaiuCompetencia / totalEntrou) * 100) : 0,
+        entradas: entradasMes.map((line) => ({ label: line.label, valor: line.valor })),
+        saidas: saidasCompetencia,
+        saidasCaixa,
+        guardado: guardadoMes.map((line) => ({ label: line.label, valor: line.valor })),
+      },
+      anual: {
+        ano: anoSelecionado,
+        ateOMes: `jan–${monthShortLabel(Math.max(realizedUntil, 1))}`,
+        totalEntrou: totalEntrouAno,
+        totalSaiu: totalSaiuAno,
+        resultadoAcumulado,
+        mediaMensal,
+        mesCritico: {
+          mes: mesCriticoBase?.mes ?? `${anoSelecionado}-01`,
+          margem: mesCriticoBase?.margem ?? 0,
+        },
+        serie,
+        totaisEntradas,
+        totaisSaidas,
+        totaisGuardado,
+      },
+    };
+  }
+
   /**
    * Faturas de cartão e gastos de conta corrente por mês, ao longo de um ano.
    * Usado pela visão "ano todo" da Visão Conta: gráfico de barras com um mês por
@@ -1278,6 +1645,239 @@ interface CardInvoiceAggregate {
   total: number;
   pending: number;
   realized: number;
+}
+
+interface DreLine {
+  kind: 'entrada' | 'saida';
+  valor: number;
+  mesCompetencia: string;
+  mesConta: string;
+  realizado: boolean;
+  label: string;
+  sourceLabel?: string;
+  sourceIcon?: string;
+  group?: string;
+  icon?: string;
+  color?: string;
+  isGuardado?: boolean;
+  cardLast4?: string | null;
+}
+
+interface DreSimpleLine {
+  label: string;
+  valor: number;
+  icon?: string;
+}
+
+interface DreAnnualTotal {
+  label: string;
+  icon: string;
+  color: string;
+  total: number;
+  mediaMensal: number;
+}
+
+function dreExpenseMeta(tipoDespesa: string): {
+  group: string;
+  icon: string;
+  color: string;
+  isGuardado: boolean;
+} {
+  if (tipoDespesa === 'INVESTIMENTOS') {
+    return { group: 'Investimentos', icon: 'piggy-bank', color: '#BA7517', isGuardado: true };
+  }
+  if (
+    ['MORADIA', 'CONTAS_UTILIDADES', 'TELEFONE_INTERNET', 'PAGAMENTO_BOLETO'].includes(
+      tipoDespesa,
+    )
+  ) {
+    return { group: 'Moradia', icon: 'home', color: '#D85A30', isGuardado: false };
+  }
+  if (['ALIMENTACAO', 'SUPERMERCADO'].includes(tipoDespesa)) {
+    return { group: 'Alimentação', icon: 'utensils', color: '#D85A30', isGuardado: false };
+  }
+  if (
+    ['TRANSPORTE', 'GASOLINA', 'ESTACIONAMENTO', 'LAVAGEM', 'PIX_ENVIADO', 'TRANSFERENCIA_TED'].includes(
+      tipoDespesa,
+    )
+  ) {
+    return { group: 'Transporte', icon: 'car', color: '#D85A30', isGuardado: false };
+  }
+  if (['SAUDE', 'REEMBOLSO_MEDICO', 'SEGUROS_PESSOAIS'].includes(tipoDespesa)) {
+    return { group: 'Saúde', icon: 'heart', color: '#D85A30', isGuardado: false };
+  }
+  if (['LAZER', 'BELEZA', 'PETS', 'ASSINATURAS'].includes(tipoDespesa)) {
+    return { group: 'Lazer & estilo', icon: 'sparkles', color: '#D85A30', isGuardado: false };
+  }
+  if (tipoDespesa === 'EDUCACAO') {
+    return { group: 'Educação', icon: 'school', color: '#D85A30', isGuardado: false };
+  }
+  if (
+    ['IMPOSTO', 'IMPOSTOS_IOF', 'IMPOSTOS_TAXAS', 'TARIFAS_BANCARIAS', 'CARTAO_CREDITO'].includes(
+      tipoDespesa,
+    )
+  ) {
+    return { group: 'Financeiro', icon: 'coins', color: '#D85A30', isGuardado: false };
+  }
+  return { group: 'Outros', icon: 'coins', color: '#D85A30', isGuardado: false };
+}
+
+function receiptSourceLabel(tipo?: string | null): string {
+  const t = (tipo ?? 'OUTROS').toUpperCase();
+  if (['SALARIO', 'ADIANTAMENTO_SALARIO', 'DECIMO_TERCEIRO', 'FERIAS'].includes(t)) {
+    return 'Salário';
+  }
+  if (['REEMBOLSO', 'PIX_RECEBIDO'].includes(t)) return 'Reembolso';
+  if (['DIVIDENDOS', 'JUROS_RENDA_FIXA', 'POUPANCA', 'ACAO', 'FII', 'CRIPTO'].includes(t)) {
+    return 'Renda variável';
+  }
+  if (['FREELANCE', 'COMISSAO', 'BONUS'].includes(t)) return 'Trabalho extra';
+  return receiptTypeLabel(t);
+}
+
+function receiptSourceIcon(source: string): string {
+  if (source === 'Salário') return 'wallet';
+  if (source === 'Reembolso') return 'refresh';
+  if (source === 'Renda variável') return 'chart-line';
+  if (source === 'Trabalho extra') return 'briefcase';
+  return 'wallet';
+}
+
+function groupSimpleLines(
+  lines: DreLine[],
+  keyBy: (line: DreLine) => string,
+  metaBy: (line: DreLine) => { label: string; icon?: string },
+): DreSimpleLine[] {
+  const map = new Map<string, DreSimpleLine>();
+  for (const line of lines) {
+    const key = keyBy(line);
+    const meta = metaBy(line);
+    const current = map.get(key);
+    if (!current) {
+      map.set(key, { label: meta.label, valor: line.valor, icon: meta.icon });
+      continue;
+    }
+    current.valor += line.valor;
+  }
+  return Array.from(map.values()).sort((a, b) => b.valor - a.valor);
+}
+
+function groupDreGroups(lines: DreLine[]): Array<{
+  group: string;
+  icon: string;
+  color: string;
+  items: Array<{ label: string; valor: number }>;
+}> {
+  const groupMap = new Map<
+    string,
+    {
+      group: string;
+      icon: string;
+      color: string;
+      itemsMap: Map<string, number>;
+    }
+  >();
+
+  for (const line of lines) {
+    const group = line.group ?? 'Outros';
+    const itemLabel = line.label || group;
+    const current = groupMap.get(group);
+    if (!current) {
+      const itemsMap = new Map<string, number>();
+      itemsMap.set(itemLabel, line.valor);
+      groupMap.set(group, {
+        group,
+        icon: line.icon ?? 'coins',
+        color: line.color ?? '#D85A30',
+        itemsMap,
+      });
+      continue;
+    }
+    current.itemsMap.set(itemLabel, (current.itemsMap.get(itemLabel) ?? 0) + line.valor);
+  }
+
+  return Array.from(groupMap.values())
+    .map((group) => ({
+      group: group.group,
+      icon: group.icon,
+      color: group.color,
+      items: Array.from(group.itemsMap.entries())
+        .map(([label, valor]) => ({ label, valor }))
+        .sort((a, b) => b.valor - a.valor),
+    }))
+    .sort(
+      (a, b) =>
+        sumBy(b.items, (item) => item.valor) - sumBy(a.items, (item) => item.valor),
+    );
+}
+
+function groupAnnualTotals(
+  lines: DreLine[],
+  keyBy: (line: DreLine) => string,
+  metaBy: (line: DreLine) => { label: string; icon: string; color: string },
+  monthsBase: number,
+): DreAnnualTotal[] {
+  const map = new Map<string, DreAnnualTotal>();
+  for (const line of lines) {
+    const key = keyBy(line);
+    const meta = metaBy(line);
+    const current = map.get(key);
+    if (!current) {
+      map.set(key, {
+        label: meta.label,
+        icon: meta.icon,
+        color: meta.color,
+        total: line.valor,
+        mediaMensal: Math.round(line.valor / monthsBase),
+      });
+      continue;
+    }
+    current.total += line.valor;
+    current.mediaMensal = Math.round(current.total / monthsBase);
+  }
+  return Array.from(map.values()).sort((a, b) => b.total - a.total);
+}
+
+function dreMonthResult(lines: DreLine[], mes: string): number {
+  const entrou = sumBy(
+    lines.filter(
+      (line) =>
+        line.kind === 'entrada' && line.realizado && line.mesCompetencia === mes,
+    ),
+    (line) => line.valor,
+  );
+  const saiu = sumBy(
+    lines.filter(
+      (line) =>
+        line.kind === 'saida' &&
+        line.realizado &&
+        !line.isGuardado &&
+        line.mesCompetencia === mes,
+    ),
+    (line) => line.valor,
+  );
+  const guardado = sumBy(
+    lines.filter(
+      (line) =>
+        line.kind === 'saida' &&
+        line.realizado &&
+        !!line.isGuardado &&
+        line.mesCompetencia === mes,
+    ),
+    (line) => line.valor,
+  );
+  return entrou - saiu - guardado;
+}
+
+function monthNumber(mes: string): number {
+  return parseInt(mes.split('-')[1] ?? '1', 10);
+}
+
+function monthShortLabel(monthNumberValue: number): string {
+  const date = new Date(Date.UTC(2026, Math.max(1, Math.min(12, monthNumberValue)) - 1, 1));
+  return new Intl.DateTimeFormat('pt-BR', { month: 'short', timeZone: 'UTC' })
+    .format(date)
+    .replace('.', '');
 }
 
 function normalizeMonthKey(month?: string): string {
