@@ -2,6 +2,20 @@
 
 Monorepo Turbo (pnpm): **Next 14 (App Router)** + **NestJS** + **Prisma/SQLite** + Tailwind + React Query + Zustand + recharts + dnd-kit.
 
+## Leitura obrigatória no início de sessão (status real)
+
+1. Ler `docs/estado-atual-cockpit-pessoal.md` (fonte de verdade de status/escopo).
+2. Ler `docs/cockpit-caixa-real.md` e `docs/visao-conta-faturas.md` para regras de negócio.
+3. Confirmar estado do git antes de concluir "falta implementar":
+
+```bash
+git --no-pager branch -vv
+git --no-pager log --oneline -20
+git --no-pager log --oneline --all | grep -E "feat\\(cockpit\\): Fase [1-6]|feat\\(cockpit\\): caixa real"
+```
+
+> Não assumir status por plano antigo/handoff local sem validar no histórico do git.
+
 ## Pré-commit
 
 Há um hook git ativo que roda `tsc --noEmit` em `packages/domain`, `apps/api`, `apps/web`. Ele bloqueia o commit se falhar — não é necessário rodar manualmente. Se mudou `packages/domain/src/`, rode `cd packages/domain && npm run build` antes do commit (o `dist` é consumido pelos apps).
@@ -53,6 +67,7 @@ pnpm --filter @reformaflow/web exec tsc --noEmit # type-check rápido
 
 ## Notas técnicas (consulte quando tocar o módulo)
 
+- **Status consolidado do Cockpit PESSOAL**: ver `docs/estado-atual-cockpit-pessoal.md` antes de qualquer análise de escopo.
 - **Visão Conta / Faturas de cartão**: regra de neutros, agregação de fatura, casamento pagamento→fatura (`matchPaidInvoices`, por valor+janela) e "cartão paga cartão" (`settlesInvoiceKey` + `computePaidInvoiceKeys`) estão documentados em `docs/visao-conta-faturas.md`. Caixa real §10 em `docs/cockpit-caixa-real.md`.
 - **Gemini 2.5-flash**: thinking tokens contam para `maxOutputTokens`. Usar `16K` + `responseMimeType:'application/json'` (sem `responseSchema`). Repair de JSON truncado já existe em `gemini.service.ts`.
 - **Price compare**: Buscapé via `__NEXT_DATA__` (sem API key). Google CSE retorna 403 (não habilitado).

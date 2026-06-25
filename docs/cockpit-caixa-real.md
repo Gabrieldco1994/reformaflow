@@ -4,9 +4,10 @@
 > pagamento→fatura e "cartão paga cartão"** está em
 > [`docs/visao-conta-faturas.md`](./visao-conta-faturas.md).
 >
-> **Status:** IMPLEMENTADO na working tree, **não commitado**. Prod intocado.
-> Este doc é o tracking/handoff: o que mudou, por quê, como validar e o que falta.
-> Autor da 1ª passada: sessão de análise de KPIs (jun/2026).
+> **Status (2026-06-25):** IMPLEMENTADO e mergeado em `main`.
+> Base principal: `feat(cockpit): caixa real (§10) + redesign do topo` (PR #14)
+> e evoluções subsequentes da Visão Conta/Cockpit.
+> Este doc descreve regras, implementação e validação operacional.
 
 ---
 
