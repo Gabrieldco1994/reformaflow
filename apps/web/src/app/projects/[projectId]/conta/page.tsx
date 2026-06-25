@@ -8,7 +8,7 @@ import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
 import { currentMonthKey, monthLabelLong } from './_lib';
 import { ContaMonthPicker } from './_components/ContaMonthPicker';
-import { ResumoCards } from './_components/ResumoCards';
+import { ResumoCards, type ResumoQuickFilterKey } from './_components/ResumoCards';
 import { CartoesSection } from './_components/CartoesSection';
 import { MovimentacoesSection } from './_components/MovimentacoesSection';
 import { PagarFaturaDialog } from './_components/PagarFaturaDialog';
@@ -52,6 +52,7 @@ export default function ContaPage() {
   const [originFilter, setOriginFilter] = useState<string | null>(null);
   const [novaDespesaOpen, setNovaDespesaOpen] = useState(false);
   const [novaReceitaOpen, setNovaReceitaOpen] = useState(false);
+  const [resumoQuickFilter, setResumoQuickFilter] = useState<ResumoQuickFilterKey | null>(null);
 
   // Data padrão dos novos lançamentos: hoje se o mês selecionado for o atual;
   // senão, o dia 1 do mês selecionado (mantém o lançamento no mês em foco).
@@ -204,6 +205,11 @@ export default function ContaPage() {
                 saiuMes={data.saiuMes}
                 faltaPagarMes={data.faltaPagarMes}
                 sobraPrevista={data.sobraPrevista}
+                activeQuickFilter={resumoQuickFilter}
+                onQuickFilterSelect={(key) => {
+                  setOriginFilter(null);
+                  setResumoQuickFilter((current) => (current === key ? null : key));
+                }}
               />
               <CartoesSection
                 cartoes={data.cartoes}
@@ -218,6 +224,8 @@ export default function ContaPage() {
                 originFilter={originFilter}
                 onClearOrigin={() => setOriginFilter(null)}
                 onPayInvoice={setPayCardLast4}
+                summaryQuickFilter={resumoQuickFilter}
+                onClearSummaryQuickFilter={() => setResumoQuickFilter(null)}
               />
               <TicketMedioSection ticket={data.ticketMedio} currentMonth={data.mesSelecionado} />
             </>

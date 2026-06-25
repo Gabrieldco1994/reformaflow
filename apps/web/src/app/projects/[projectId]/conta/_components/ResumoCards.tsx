@@ -3,6 +3,7 @@
 import { formatCurrency } from '@/lib/utils';
 
 type Tone = 'emerald' | 'slate' | 'amber' | 'rose';
+export type ResumoQuickFilterKey = 'entrouMes' | 'saiuMes' | 'faltaPagarMes';
 
 const SMALL_CARDS: Array<{
   key: 'entrouMes' | 'saiuMes' | 'faltaPagarMes' | 'sobraPrevista';
@@ -36,6 +37,12 @@ const SMALL_CARDS: Array<{
   },
 ];
 
+function isQuickFilterKey(
+  key: (typeof SMALL_CARDS)[number]['key'],
+): key is ResumoQuickFilterKey {
+  return key !== 'sobraPrevista';
+}
+
 function toneClasses(tone: Tone) {
   if (tone === 'emerald') return 'text-emerald-700 bg-emerald-50 border-emerald-100';
   if (tone === 'amber') return 'text-amber-800 bg-amber-50 border-amber-100';
@@ -49,12 +56,16 @@ export function ResumoCards({
   saiuMes,
   faltaPagarMes,
   sobraPrevista,
+  activeQuickFilter,
+  onQuickFilterSelect,
 }: {
   caixaHoje: number;
   entrouMes: number;
   saiuMes: number;
   faltaPagarMes: number;
   sobraPrevista: number;
+  activeQuickFilter: ResumoQuickFilterKey | null;
+  onQuickFilterSelect: (key: ResumoQuickFilterKey) => void;
 }) {
   const values = {
     entrouMes,
@@ -81,16 +92,46 @@ export function ResumoCards({
         {SMALL_CARDS.map((card) => {
           const value = values[card.key];
           const tone = card.key === 'sobraPrevista' ? (value < 0 ? 'rose' : 'emerald') : card.tone;
+          const quickFilterKey: ResumoQuickFilterKey | null = isQuickFilterKey(card.key)
+            ? card.key
+            : null;
+          const filterable = quickFilterKey != null;
+          const active = quickFilterKey != null && activeQuickFilter === quickFilterKey;
           return (
             <article
               key={card.key}
-              className={`rounded-2xl border p-3 shadow-sm xl:flex xl:min-h-full xl:flex-col xl:justify-between xl:p-4 ${toneClasses(tone)}`}
+              className={`rounded-2xl border p-3 shadow-sm xl:flex xl:min-h-full xl:flex-col xl:justify-between xl:p-4 ${
+                active ? 'ring-2 ring-orange-400' : ''
+              } ${toneClasses(tone)}`}
             >
-              <p className="text-[11px] font-semibold leading-4">{card.title}</p>
-              <p className="mt-2 text-lg font-bold tracking-tight xl:text-[22px]">
-                {formatCurrency(value / 100)}
-              </p>
-              <p className="mt-2 text-[11px] leading-4 opacity-80 xl:text-xs xl:leading-5">{card.help}</p>
+              {filterable ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (quickFilterKey) onQuickFilterSelect(quickFilterKey);
+                  }}
+                  aria-pressed={active}
+                  className="text-left"
+                >
+                  <p className="text-[11px] font-semibold leading-4">{card.title}</p>
+                  <p className="mt-2 text-lg font-bold tracking-tight xl:text-[22px]">
+                    {formatCurrency(value / 100)}
+                  </p>
+                  <p className="mt-2 text-[11px] leading-4 opacity-80 xl:text-xs xl:leading-5">
+                    {card.help}
+                  </p>
+                </button>
+              ) : (
+                <>
+                  <p className="text-[11px] font-semibold leading-4">{card.title}</p>
+                  <p className="mt-2 text-lg font-bold tracking-tight xl:text-[22px]">
+                    {formatCurrency(value / 100)}
+                  </p>
+                  <p className="mt-2 text-[11px] leading-4 opacity-80 xl:text-xs xl:leading-5">
+                    {card.help}
+                  </p>
+                </>
+              )}
             </article>
           );
         })}

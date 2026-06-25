@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ArrowDownUp, CreditCard, Pencil, Trash2 } from 'lucide-react';
@@ -9,6 +9,7 @@ import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { tipoLabel } from '@/lib/expense-options';
 import { DespesaModal } from './DespesaModal';
 import { ReceitaModal, type ReceitaEditing } from './ReceitaModal';
+import type { ResumoQuickFilterKey } from './ResumoCards';
 import type {
   AccountViewEntrada,
   AccountViewMovimentacao,
@@ -30,12 +31,16 @@ export function MovimentacoesSection({
   originFilter,
   onClearOrigin,
   onPayInvoice,
+  summaryQuickFilter,
+  onClearSummaryQuickFilter,
 }: {
   data: AccountViewResponse;
   projectId: string;
   originFilter: string | null;
   onClearOrigin: () => void;
   onPayInvoice: (cardLast4: string) => void;
+  summaryQuickFilter: ResumoQuickFilterKey | null;
+  onClearSummaryQuickFilter: () => void;
 }) {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<Tab>('saidas');
@@ -46,6 +51,30 @@ export function MovimentacoesSection({
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [editExpenseId, setEditExpenseId] = useState<string | null>(null);
   const [editReceita, setEditReceita] = useState<ReceitaEditing | null>(null);
+
+  useEffect(() => {
+    if (!summaryQuickFilter) return;
+
+    setSearch('');
+    setCatFilter('todas');
+    setProjetoFilter('todos');
+    setSortDir('desc');
+
+    if (summaryQuickFilter === 'entrouMes') {
+      setTab('entradas');
+      setStatusFilter('todos');
+      return;
+    }
+    if (summaryQuickFilter === 'saiuMes') {
+      setTab('saidas');
+      setStatusFilter('pago');
+      return;
+    }
+    if (summaryQuickFilter === 'faltaPagarMes') {
+      setTab('saidas');
+      setStatusFilter('apagar');
+    }
+  }, [summaryQuickFilter]);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['account-view', projectId] });
@@ -142,6 +171,10 @@ export function MovimentacoesSection({
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const result = merged.filter((m) => {
+      if (summaryQuickFilter === 'entrouMes' && m.kind !== 'entrada') return false;
+      if (summaryQuickFilter === 'saiuMes' && (m.kind !== 'saida' || !m.realizado)) return false;
+      if (summaryQuickFilter === 'faltaPagarMes' && (m.kind !== 'saida' || m.realizado)) return false;
+
       if (tab === 'saidas' && m.kind !== 'saida') return false;
       if (tab === 'entradas' && m.kind !== 'entrada') return false;
 
@@ -172,7 +205,27 @@ export function MovimentacoesSection({
     return result.sort((a, b) =>
       sortDir === 'desc' ? b.data.localeCompare(a.data) : a.data.localeCompare(b.data),
     );
-  }, [merged, tab, originFilter, statusFilter, catFilter, projetoFilter, sortDir, search, projectId]);
+  }, [
+    merged,
+    tab,
+    originFilter,
+    statusFilter,
+    catFilter,
+    projetoFilter,
+    sortDir,
+    search,
+    projectId,
+    summaryQuickFilter,
+  ]);
+
+  const summaryQuickFilterLabel =
+    summaryQuickFilter === 'entrouMes'
+      ? 'Entrou no mês'
+      : summaryQuickFilter === 'saiuMes'
+        ? 'Saiu no mês'
+        : summaryQuickFilter === 'faltaPagarMes'
+          ? 'Ainda falta pagar'
+          : null;
 
   const totalSaidas = filtered
     .filter((m): m is AccountViewSaida => m.kind === 'saida')
@@ -217,7 +270,10 @@ export function MovimentacoesSection({
           <button
             key={t.key}
             type="button"
-            onClick={() => setTab(t.key)}
+            onClick={() => {
+              if (summaryQuickFilter) onClearSummaryQuickFilter();
+              setTab(t.key);
+            }}
             className={`h-9 flex-1 rounded-xl px-4 text-sm font-semibold transition sm:flex-none ${
               tab === t.key
                 ? 'bg-white text-darc-velvet shadow-sm'
@@ -240,6 +296,19 @@ export function MovimentacoesSection({
             type="button"
             onClick={onClearOrigin}
             className="ml-auto font-semibold text-orange-700 hover:text-orange-900"
+          >
+            limpar
+          </button>
+        </div>
+      )}
+
+      {summaryQuickFilterLabel && (
+        <div className="mb-3 flex items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2 text-[12px] text-emerald-800">
+          <span className="font-semibold">Filtro rápido: {summaryQuickFilterLabel}</span>
+          <button
+            type="button"
+            onClick={onClearSummaryQuickFilter}
+            className="ml-auto font-semibold text-emerald-700 hover:text-emerald-900"
           >
             limpar
           </button>
@@ -293,13 +362,31 @@ export function MovimentacoesSection({
           {sortDir === 'desc' ? 'Mais recentes' : 'Mais antigas'}
         </button>
         <div className="flex gap-1.5">
-          <FilterPill active={statusFilter === 'todos'} onClick={() => setStatusFilter('todos')}>
+          <FilterPill
+            active={statusFilter === 'todos'}
+            onClick={() => {
+              if (summaryQuickFilter) onClearSummaryQuickFilter();
+              setStatusFilter('todos');
+            }}
+          >
             todos
           </FilterPill>
-          <FilterPill active={statusFilter === 'pago'} onClick={() => setStatusFilter('pago')}>
+          <FilterPill
+            active={statusFilter === 'pago'}
+            onClick={() => {
+              if (summaryQuickFilter) onClearSummaryQuickFilter();
+              setStatusFilter('pago');
+            }}
+          >
             pago
           </FilterPill>
-          <FilterPill active={statusFilter === 'apagar'} onClick={() => setStatusFilter('apagar')}>
+          <FilterPill
+            active={statusFilter === 'apagar'}
+            onClick={() => {
+              if (summaryQuickFilter) onClearSummaryQuickFilter();
+              setStatusFilter('apagar');
+            }}
+          >
             a pagar
           </FilterPill>
         </div>
