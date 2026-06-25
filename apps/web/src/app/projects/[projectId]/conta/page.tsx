@@ -2,7 +2,7 @@
 
 import { useParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { Landmark } from 'lucide-react';
+import { Landmark, ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
 import { useState } from 'react';
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
@@ -15,6 +15,8 @@ import { PagarFaturaDialog } from './_components/PagarFaturaDialog';
 import { TicketMedioSection } from './_components/TicketMedioSection';
 import { FaturasAnuaisChart } from './_components/FaturasAnuaisChart';
 import { DespesasRelacionadas } from './_components/DespesasRelacionadas';
+import { NovaDespesaModal } from './_components/NovaDespesaModal';
+import { NovaReceitaModal } from './_components/NovaReceitaModal';
 import type {
   AccountViewResponse,
   CardInvoicesYearlyResponse,
@@ -48,6 +50,15 @@ export default function ContaPage() {
   const [selectedYearMonth, setSelectedYearMonth] = useState<string | null>(null);
   const [payCardLast4, setPayCardLast4] = useState<string | null>(null);
   const [originFilter, setOriginFilter] = useState<string | null>(null);
+  const [novaDespesaOpen, setNovaDespesaOpen] = useState(false);
+  const [novaReceitaOpen, setNovaReceitaOpen] = useState(false);
+
+  // Data padrão dos novos lançamentos: hoje se o mês selecionado for o atual;
+  // senão, o dia 1 do mês selecionado (mantém o lançamento no mês em foco).
+  const defaultLancamentoData =
+    selectedMonth === currentMonthKey()
+      ? new Date().toISOString().slice(0, 10)
+      : `${selectedMonth}-01`;
 
   const selectedYear = selectedMonth.slice(0, 4);
 
@@ -131,6 +142,24 @@ export default function ContaPage() {
         </div>
       </header>
 
+      {/* Ações rápidas: novos lançamentos manuais */}
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setNovaDespesaOpen(true)}
+          className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
+        >
+          <ArrowDownCircle className="h-4 w-4" /> Nova Despesa
+        </button>
+        <button
+          type="button"
+          onClick={() => setNovaReceitaOpen(true)}
+          className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
+        >
+          <ArrowUpCircle className="h-4 w-4" /> Nova Receita
+        </button>
+      </div>
+
       {viewMode === 'ano' ? (
         <>
           {yearlyLoading && <div className="h-[380px] animate-pulse rounded-2xl bg-slate-100" />}
@@ -208,6 +237,19 @@ export default function ContaPage() {
           />
         );
       })()}
+
+      <NovaDespesaModal
+        open={novaDespesaOpen}
+        onClose={() => setNovaDespesaOpen(false)}
+        projectId={projectId}
+        defaultData={defaultLancamentoData}
+      />
+      <NovaReceitaModal
+        open={novaReceitaOpen}
+        onClose={() => setNovaReceitaOpen(false)}
+        projectId={projectId}
+        defaultData={defaultLancamentoData}
+      />
     </div>
   );
 }
