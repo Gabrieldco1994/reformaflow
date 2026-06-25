@@ -27,7 +27,7 @@ const TYPE_CONFIG: Record<string, { icon: string; label: string; description: st
 
 export default function ProjectsPage() {
   const router = useRouter();
-  const { hasProjectType, hasProjectAccess, isAdmin, user } = useAuth();
+  const { hasProjectType, hasProjectAccess, canCreateProjectType, isAdmin, user } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -45,8 +45,8 @@ export default function ProjectsPage() {
   );
 
   const allowedTypes = useMemo(
-    () => Object.keys(TYPE_CONFIG).filter((t) => hasProjectType(t)),
-    [hasProjectType],
+    () => Object.keys(TYPE_CONFIG).filter((t) => canCreateProjectType(t)),
+    [canCreateProjectType],
   );
 
   const canCreate = !!user && allowedTypes.length > 0;

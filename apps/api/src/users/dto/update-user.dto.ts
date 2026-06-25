@@ -8,7 +8,7 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
-import { MODULE_SLUGS } from './create-user.dto';
+import { MODULE_SLUGS, PROJECT_TYPES } from './create-user.dto';
 
 export class UpdateUserDto {
   @IsOptional()
@@ -45,4 +45,10 @@ export class UpdateUserDto {
   @ArrayUnique()
   @IsString({ each: true })
   allowedProjects?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsIn(PROJECT_TYPES as unknown as string[], { each: true })
+  allowedProjectTypes?: string[];
 }

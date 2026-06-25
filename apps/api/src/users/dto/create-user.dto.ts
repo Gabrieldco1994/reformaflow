@@ -28,6 +28,8 @@ export const MODULE_SLUGS = [
   'schedule',
 ] as const;
 
+export const PROJECT_TYPES = ['REFORMA', 'COMPRA', 'CASA', 'CARRO', 'PESSOAL'] as const;
+
 export class CreateUserDto {
   @IsString()
   @MinLength(1)
@@ -60,4 +62,10 @@ export class CreateUserDto {
   @ArrayUnique()
   @IsString({ each: true })
   allowedProjects?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsIn(PROJECT_TYPES as unknown as string[], { each: true })
+  allowedProjectTypes?: string[];
 }

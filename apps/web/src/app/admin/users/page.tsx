@@ -12,6 +12,14 @@ interface AdminUser extends AuthUser {
   updatedAt?: string;
 }
 
+const PROJECT_TYPE_OPTIONS: { value: string; label: string }[] = [
+  { value: 'REFORMA', label: 'Reforma' },
+  { value: 'COMPRA', label: 'Compra' },
+  { value: 'PESSOAL', label: 'Pessoal' },
+  { value: 'CASA', label: 'Casa' },
+  { value: 'CARRO', label: 'Carro' },
+];
+
 export default function AdminUsersPage() {
   const { user, isAdmin, loading } = useAuth();
   const router = useRouter();
@@ -203,6 +211,9 @@ function UserFormModal({
   const [allowedProjects, setAllowedProjects] = useState<string[]>(
     user?.allowedProjects ?? [],
   );
+  const [allowedProjectTypes, setAllowedProjectTypes] = useState<string[]>(
+    user?.allowedProjectTypes ?? [],
+  );
   const [projects, setProjects] = useState<{ id: string; name: string; type: string }[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -226,6 +237,12 @@ function UserFormModal({
     );
   }
 
+  function toggleProjectType(type: string) {
+    setAllowedProjectTypes((curr) =>
+      curr.includes(type) ? curr.filter((t) => t !== type) : [...curr, type],
+    );
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitting(true);
@@ -239,6 +256,7 @@ function UserFormModal({
           role,
           allowedModules,
           allowedProjects,
+          allowedProjectTypes,
         });
       } else if (user) {
         const payload: Record<string, unknown> = {
@@ -247,6 +265,7 @@ function UserFormModal({
           role,
           allowedModules,
           allowedProjects,
+          allowedProjectTypes,
         };
         if (password) payload['password'] = password;
         await api.patch(`/users/${user.id}`, payload);
@@ -351,6 +370,32 @@ function UserFormModal({
                       onChange={() => toggleModule(m.slug)}
                     />
                     <span>{m.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {role === 'USER' && (
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-2">
+                Tipos que pode criar
+                <span className="ml-1 font-normal text-gray-400">
+                  (nenhum marcado = pode criar os tipos que os módulos permitem)
+                </span>
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {PROJECT_TYPE_OPTIONS.map((t) => (
+                  <label
+                    key={t.value}
+                    className="flex items-center gap-2 text-sm cursor-pointer p-2 rounded hover:bg-gray-50"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={allowedProjectTypes.includes(t.value)}
+                      onChange={() => toggleProjectType(t.value)}
+                    />
+                    <span>{t.label}</span>
                   </label>
                 ))}
               </div>

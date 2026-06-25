@@ -63,6 +63,7 @@ export interface AuthUser {
   tenantId: string;
   allowedModules: string[];
   allowedProjects: string[];
+  allowedProjectTypes: string[];
 }
 
 interface AuthContextValue {
@@ -72,6 +73,7 @@ interface AuthContextValue {
   hasModule: (slug: ModuleSlug) => boolean;
   hasProjectType: (type: string) => boolean;
   hasProjectAccess: (projectId: string) => boolean;
+  canCreateProjectType: (type: string) => boolean;
   login: (username: string, password: string) => Promise<AuthUser>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -120,20 +122,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const isAdmin = user?.role === 'ADMIN' || user?.role === 'OWNER';
     const allowed = new Set(user?.allowedModules ?? []);
     const allowedProjects = user?.allowedProjects ?? [];
+    const allowedProjectTypes = user?.allowedProjectTypes ?? [];
+    const hasProjectType = (type: string) => {
+      if (isAdmin) return true;
+      const mods = TYPE_MODULES[type] ?? [];
+      return mods.some((m) => allowed.has(m));
+    };
     return {
       user,
       loading,
       isAdmin,
       hasModule: (slug: ModuleSlug) => isAdmin || allowed.has(slug),
-      hasProjectType: (type: string) => {
-        if (isAdmin) return true;
-        const mods = TYPE_MODULES[type] ?? [];
-        return mods.some((m) => allowed.has(m));
-      },
+      hasProjectType,
       // Acesso por projeto (opt-in): admin sempre; lista vazia = sem restrição;
       // lista não-vazia = só os projetos liberados.
       hasProjectAccess: (projectId: string) =>
         isAdmin || allowedProjects.length === 0 || allowedProjects.includes(projectId),
+      // Criação por tipo (opt-in): admin sempre; lista de tipos vazia = deriva
+      // dos módulos (como hoje); não-vazia = só os tipos liberados.
+      canCreateProjectType: (type: string) =>
+        isAdmin ||
+        (allowedProjectTypes.length > 0
+          ? allowedProjectTypes.includes(type)
+          : hasProjectType(type)),
       login,
       logout,
       refresh,
@@ -153,6 +164,7 @@ export function useAuth(): AuthContextValue {
       hasModule: () => false,
       hasProjectType: () => false,
       hasProjectAccess: () => false,
+      canCreateProjectType: () => false,
       login: async () => {
         throw new Error('AuthProvider not mounted');
       },

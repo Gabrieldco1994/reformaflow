@@ -35,6 +35,24 @@ export function userHasAnyModuleForType(
   return typeMods.some((m) => m !== 'dashboard' && allowedModules.includes(m));
 }
 
+/**
+ * Pode CRIAR projetos do tipo informado?
+ * - ADMIN/OWNER: sempre.
+ * - allowedProjectTypes não-vazio: só os tipos listados (controle explícito).
+ * - allowedProjectTypes vazio: deriva dos módulos (comportamento atual).
+ */
+export function userCanCreateProjectType(
+  role: string | undefined,
+  allowedProjectTypes: string[] | undefined,
+  allowedModules: string[],
+  projectType: string,
+): boolean {
+  if (isFullAccessRole(role)) return true;
+  const types = allowedProjectTypes ?? [];
+  if (types.length > 0) return types.includes(projectType);
+  return userHasAnyModuleForType(projectType, allowedModules);
+}
+
 /** Papéis com acesso total (veem todos os projetos, ignoram restrição por projeto). */
 export function isFullAccessRole(role: string | undefined): boolean {
   return role === 'ADMIN' || role === 'OWNER';

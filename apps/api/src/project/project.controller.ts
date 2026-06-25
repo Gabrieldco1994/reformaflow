@@ -20,6 +20,7 @@ interface RequestUser {
   role: string;
   allowedModules: string[];
   allowedProjects?: string[];
+  allowedProjectTypes?: string[];
 }
 
 @ApiTags('projects')

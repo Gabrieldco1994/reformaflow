@@ -41,6 +41,7 @@ export class AuthService {
     tenantId: string;
     allowedModules: string;
     allowedProjects?: string;
+    allowedProjectTypes?: string;
   }) {
     let allowedModules: string[] = [];
     try {
@@ -56,6 +57,13 @@ export class AuthService {
     } catch {
       allowedProjects = [];
     }
+    let allowedProjectTypes: string[] = [];
+    try {
+      const parsed = JSON.parse(user.allowedProjectTypes || '[]');
+      if (Array.isArray(parsed)) allowedProjectTypes = parsed;
+    } catch {
+      allowedProjectTypes = [];
+    }
     return {
       id: user.id,
       username: user.username,
@@ -64,6 +72,7 @@ export class AuthService {
       tenantId: user.tenantId,
       allowedModules,
       allowedProjects,
+      allowedProjectTypes,
     };
   }
 }

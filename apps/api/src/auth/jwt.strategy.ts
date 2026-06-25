@@ -53,6 +53,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       allowedProjects = [];
     }
 
+    let allowedProjectTypes: string[] = [];
+    try {
+      const parsed = JSON.parse(user.allowedProjectTypes || '[]');
+      if (Array.isArray(parsed)) allowedProjectTypes = parsed;
+    } catch {
+      allowedProjectTypes = [];
+    }
+
     return {
       id: user.id,
       tenantId: user.tenantId,
@@ -61,6 +69,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       role: user.role,
       allowedModules,
       allowedProjects,
+      allowedProjectTypes,
     };
   }
 }

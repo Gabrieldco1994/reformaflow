@@ -3,12 +3,17 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { defaultRooms } from '@reformaflow/domain';
-import { userHasAnyModuleForType, userCanAccessProject } from '../common/access-rules';
+import {
+  userHasAnyModuleForType,
+  userCanAccessProject,
+  userCanCreateProjectType,
+} from '../common/access-rules';
 
 interface RequestUser {
   role: string;
   allowedModules: string[];
   allowedProjects?: string[];
+  allowedProjectTypes?: string[];
 }
 
 @Injectable()
@@ -16,8 +21,15 @@ export class ProjectService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(tenantId: string, dto: CreateProjectDto, user?: RequestUser) {
-    if (user && user.role !== 'ADMIN') {
-      if (!userHasAnyModuleForType(dto.type, user.allowedModules ?? [])) {
+    if (user && user.role !== 'ADMIN' && user.role !== 'OWNER') {
+      if (
+        !userCanCreateProjectType(
+          user.role,
+          user.allowedProjectTypes,
+          user.allowedModules ?? [],
+          dto.type,
+        )
+      ) {
         throw new ForbiddenException(
           `Sem permissão para criar projetos do tipo "${dto.type}"`,
         );
