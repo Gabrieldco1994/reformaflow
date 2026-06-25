@@ -27,7 +27,7 @@ const TYPE_CONFIG: Record<string, { icon: string; label: string; description: st
 
 export default function ProjectsPage() {
   const router = useRouter();
-  const { hasProjectType, hasProjectAccess, canCreateProjectType, isAdmin, user } = useAuth();
+  const { hasProjectType, hasProjectAccess, canCreateProjectType, hasModule, isAdmin, user } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -155,7 +155,7 @@ export default function ProjectsPage() {
       </div>
 
       {/* Card destaque: Visão Financeira Consolidada */}
-      {visibleProjects.length > 0 && (
+      {visibleProjects.length > 0 && hasModule('financialDashboard') && (
         <Link
           href="/financeiro"
           className="block mb-4 md:mb-6 rounded-2xl bg-gradient-to-br from-darc-velvet to-darc-maroon p-4 md:p-5 text-darc-linen hover:shadow-darc-hero active:scale-[0.99] transition-all"

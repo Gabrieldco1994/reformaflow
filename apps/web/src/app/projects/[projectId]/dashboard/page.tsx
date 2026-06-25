@@ -1,6 +1,7 @@
 'use client';
 
 import { useProject } from '@/contexts/project-context';
+import { useAuth } from '@/contexts/auth-context';
 import { useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
@@ -394,6 +395,7 @@ function ManagementDashboard({ projectId, projectType }: { projectId: string; pr
 export default function DashboardPage() {
   const router = useRouter();
   const { projectId, projectType, projectName } = useProject();
+  const { hasModule } = useAuth();
 
   // PESSOAL usa o Cockpit (rota /monthly) como visão principal — redireciona.
   useEffect(() => {
@@ -409,23 +411,27 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6 md:space-y-8">
+      {hasModule('financialDashboard') && (
       <Link
         href="/financeiro"
         className="hidden md:inline-flex items-center gap-1.5 text-[11px] tracking-[0.18em] uppercase text-darc-velvet/60 hover:text-darc-red transition-colors"
       >
         ← Visão Geral
       </Link>
+      )}
       <header className="hidden md:block -mt-4">
         <p className="text-[10px] tracking-[0.2em] uppercase text-darc-velvet/60">Visão geral do projeto</p>
         <h1 className="font-editorial italic text-3xl text-darc-velvet">{projectName}</h1>
       </header>
       <header className="md:hidden -mt-2">
+        {hasModule('financialDashboard') && (
         <Link
           href="/financeiro"
           className="text-[10px] tracking-[0.18em] uppercase text-darc-velvet/60 hover:text-darc-red"
         >
           ← Visão Geral
         </Link>
+        )}
         <h1 className="font-editorial italic text-2xl text-darc-velvet leading-tight mt-1">{projectName}</h1>
       </header>
       {isFinancial && <FinancialDashboard projectId={projectId} projectType={projectType} />}
