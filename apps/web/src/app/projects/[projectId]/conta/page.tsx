@@ -15,8 +15,8 @@ import { PagarFaturaDialog } from './_components/PagarFaturaDialog';
 import { TicketMedioSection } from './_components/TicketMedioSection';
 import { FaturasAnuaisChart } from './_components/FaturasAnuaisChart';
 import { DespesasRelacionadas } from './_components/DespesasRelacionadas';
-import { NovaDespesaModal } from './_components/NovaDespesaModal';
-import { NovaReceitaModal } from './_components/NovaReceitaModal';
+import { DespesaModal } from './_components/DespesaModal';
+import { ReceitaModal } from './_components/ReceitaModal';
 import type {
   AccountViewResponse,
   CardInvoicesYearlyResponse,
@@ -238,13 +238,13 @@ export default function ContaPage() {
         );
       })()}
 
-      <NovaDespesaModal
+      <DespesaModal
         open={novaDespesaOpen}
         onClose={() => setNovaDespesaOpen(false)}
         projectId={projectId}
         defaultData={defaultLancamentoData}
       />
-      <NovaReceitaModal
+      <ReceitaModal
         open={novaReceitaOpen}
         onClose={() => setNovaReceitaOpen(false)}
         projectId={projectId}

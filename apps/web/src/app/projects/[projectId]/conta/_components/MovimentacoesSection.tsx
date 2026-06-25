@@ -3,10 +3,12 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowDownUp, Check, CreditCard, Pencil, Trash2, X } from 'lucide-react';
+import { ArrowDownUp, CreditCard, Pencil, Trash2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { tipoLabel } from '@/lib/expense-options';
+import { DespesaModal } from './DespesaModal';
+import { ReceitaModal, type ReceitaEditing } from './ReceitaModal';
 import type {
   AccountViewEntrada,
   AccountViewMovimentacao,
@@ -17,10 +19,6 @@ import type {
 type Tab = 'saidas' | 'entradas' | 'tudo';
 type StatusFilter = 'todos' | 'pago' | 'apagar';
 type SortDir = 'desc' | 'asc';
-
-function centsToInput(v: number) {
-  return (v / 100).toFixed(2);
-}
 
 function initialOf(text: string) {
   return (text.trim()[0] || '?').toUpperCase();
@@ -46,14 +44,15 @@ export function MovimentacoesSection({
   const [catFilter, setCatFilter] = useState<string>('todas');
   const [projetoFilter, setProjetoFilter] = useState<string>('todos');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editValor, setEditValor] = useState('');
-  const [editData, setEditData] = useState('');
+  const [editExpenseId, setEditExpenseId] = useState<string | null>(null);
+  const [editReceita, setEditReceita] = useState<ReceitaEditing | null>(null);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['account-view', projectId] });
     queryClient.invalidateQueries({ queryKey: ['expenses', projectId] });
+    queryClient.invalidateQueries({ queryKey: ['receipts', projectId] });
     queryClient.invalidateQueries({ queryKey: ['dashboard', projectId] });
+    queryClient.invalidateQueries({ queryKey: ['cash-flow', projectId] });
   };
 
   const toggleStatus = useMutation({
@@ -72,15 +71,13 @@ export function MovimentacoesSection({
     onError: (e: Error) => toast.error(`Erro ao excluir: ${e.message}`),
   });
 
-  const quickUpdate = useMutation({
-    mutationFn: ({ id, valorTotal, dataPagamento }: { id: string; valorTotal: number; dataPagamento: string }) =>
-      api.patch(`/projects/${projectId}/expenses/${id}`, { valor: valorTotal, dataPagamento }),
+  const removeReceita = useMutation({
+    mutationFn: (id: string) => api.delete(`/projects/${projectId}/receipts/${id}`),
     onSuccess: () => {
-      toast.success('Lançamento atualizado');
-      setEditingId(null);
+      toast.success('Recebimento excluído');
       invalidate();
     },
-    onError: (e: Error) => toast.error(`Erro ao salvar: ${e.message}`),
+    onError: (e: Error) => toast.error(`Erro ao excluir: ${e.message}`),
   });
 
   const cardByLast4 = useMemo(
@@ -184,10 +181,13 @@ export function MovimentacoesSection({
     .filter((m): m is AccountViewEntrada => m.kind === 'entrada')
     .reduce((s, m) => s + m.valor, 0);
 
-  const startEdit = (item: AccountViewSaida) => {
-    setEditingId(item.id);
-    setEditValor(centsToInput(item.valor));
-    setEditData(item.data.slice(0, 10));
+  const openEditExpense = (item: AccountViewSaida) => {
+    if (item.id) setEditExpenseId(item.id);
+  };
+  const openEditReceita = (item: AccountViewEntrada) => {
+    if (item.id) {
+      setEditReceita({ id: item.id, valor: item.valor, data: item.data, tipo: item.tipo, status: item.status });
+    }
   };
 
   const tabs: Array<{ key: Tab; label: string }> = [
@@ -313,8 +313,6 @@ export function MovimentacoesSection({
         <div className="space-y-2">
           {filtered.map((item) => {
             const isEntrada = item.kind === 'entrada';
-            const editing =
-              !isEntrada && editingId != null && item.kind === 'saida' && item.id === editingId;
 
             const titulo =
               !isEntrada && item.kind === 'saida' && !item.isInvoice
@@ -343,7 +341,8 @@ export function MovimentacoesSection({
 
             const isInvoiceRow = !isEntrada && item.kind === 'saida' && item.isInvoice;
             const canToggle = !isEntrada && item.kind === 'saida' && item.editavel && !item.isInvoice;
-            const canEdit = canToggle;
+            // Saída editável (despesa PESSOAL) ou entrada (recebimento) → abre modal completo.
+            const canEdit = canToggle || (isEntrada && !!item.id);
             const projOrigem =
               item.kind === 'saida' && item.projetoOrigem && item.projetoOrigem.type !== 'PESSOAL'
                 ? item.projetoOrigem
@@ -370,7 +369,9 @@ export function MovimentacoesSection({
                   <button
                     type="button"
                     onClick={() => {
-                      if (canEdit && item.kind === 'saida') startEdit(item);
+                      if (!canEdit) return;
+                      if (item.kind === 'saida') openEditExpense(item);
+                      else if (item.kind === 'entrada') openEditReceita(item);
                     }}
                     className="min-w-0 flex-1 text-left"
                     title={canEdit ? 'Editar' : undefined}
@@ -428,12 +429,15 @@ export function MovimentacoesSection({
                     )}
                   </div>
 
-                  {canEdit && item.kind === 'saida' && (
+                  {canEdit && (
                     <div className="flex shrink-0 items-center gap-0.5">
                       <button
                         type="button"
                         aria-label="Editar"
-                        onClick={() => startEdit(item)}
+                        onClick={() => {
+                          if (item.kind === 'saida') openEditExpense(item);
+                          else if (item.kind === 'entrada') openEditReceita(item);
+                        }}
                         className="rounded-lg p-1.5 text-darc-velvet/30 transition-colors hover:bg-orange-50 hover:text-orange-500"
                         title="Editar"
                       >
@@ -443,7 +447,12 @@ export function MovimentacoesSection({
                         type="button"
                         aria-label="Excluir"
                         onClick={() => {
-                          if (item.id && confirm('Excluir lançamento?')) removeExpense.mutate(item.id);
+                          if (!item.id) return;
+                          if (item.kind === 'saida') {
+                            if (confirm('Excluir lançamento?')) removeExpense.mutate(item.id);
+                          } else if (item.kind === 'entrada') {
+                            if (confirm('Excluir recebimento?')) removeReceita.mutate(item.id);
+                          }
                         }}
                         className="rounded-lg p-1.5 text-darc-velvet/30 transition-colors hover:bg-red-50 hover:text-red-500"
                         title="Excluir"
@@ -453,53 +462,24 @@ export function MovimentacoesSection({
                     </div>
                   )}
                 </div>
-
-                {editing && item.kind === 'saida' && (
-                  <div className="flex flex-wrap items-center gap-1.5 border-t border-darc-linen bg-darc-off-white px-3 py-2.5">
-                    <label className="text-[10px] font-semibold text-darc-velvet/50">valor</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={editValor}
-                      onChange={(e) => setEditValor(e.target.value)}
-                      className="h-9 w-28 rounded-lg border border-darc-linen bg-white px-2 text-sm"
-                    />
-                    <label className="ml-1 text-[10px] font-semibold text-darc-velvet/50">data</label>
-                    <input
-                      type="date"
-                      value={editData}
-                      onChange={(e) => setEditData(e.target.value)}
-                      className="h-9 flex-1 rounded-lg border border-darc-linen bg-white px-2 text-sm"
-                    />
-                    <button
-                      type="button"
-                      onClick={() =>
-                        item.id &&
-                        quickUpdate.mutate({
-                          id: item.id,
-                          valorTotal: Math.round(parseFloat(editValor || '0') * 100),
-                          dataPagamento: editData,
-                        })
-                      }
-                      className="flex h-9 items-center gap-1 rounded-lg bg-orange-500 px-3 text-xs font-semibold text-white hover:bg-orange-600"
-                    >
-                      <Check className="h-4 w-4" /> salvar
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="Cancelar"
-                      onClick={() => setEditingId(null)}
-                      className="flex h-9 w-9 items-center justify-center rounded-lg border border-darc-linen text-darc-velvet/50"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                )}
               </div>
             );
           })}
         </div>
       )}
+
+      <DespesaModal
+        open={editExpenseId != null}
+        onClose={() => setEditExpenseId(null)}
+        projectId={projectId}
+        editExpenseId={editExpenseId}
+      />
+      <ReceitaModal
+        open={editReceita != null}
+        onClose={() => setEditReceita(null)}
+        projectId={projectId}
+        editing={editReceita}
+      />
     </section>
   );
 }

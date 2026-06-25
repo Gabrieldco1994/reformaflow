@@ -42,87 +42,151 @@ const STATUS_OPTIONS = [
   { value: 'EM_CAIXA', label: 'Em Caixa' },
 ];
 
-function renderTipoOptions() {
+function renderTipoOptions(extra?: TipoOption) {
   const byGroup = new Map<string, TipoOption[]>();
   for (const o of PESSOAL_TIPO_OPTIONS) {
     const g = o.group ?? 'Outros';
     if (!byGroup.has(g)) byGroup.set(g, []);
     byGroup.get(g)!.push(o);
   }
-  return Array.from(byGroup.entries()).map(([group, opts]) => (
+  const groups = Array.from(byGroup.entries()).map(([group, opts]) => (
     <optgroup key={group} label={group}>
       {opts.map((o) => (
         <option key={o.value} value={o.value}>{o.label}</option>
       ))}
     </optgroup>
   ));
+  // Tipo legado/desconhecido (fora da lista): expõe como opção avulsa para não
+  // perder o valor ao editar.
+  if (extra) {
+    return [
+      <option key={extra.value} value={extra.value}>{extra.label}</option>,
+      ...groups,
+    ];
+  }
+  return groups;
+}
+
+export interface ReceitaEditing {
+  id: string;
+  valor: number; // centavos
+  data: string; // ISO
+  tipo: string;
+  status: string;
 }
 
 /**
- * Modal auto-contido para criar uma Receita (RECEBIMENTO) direto da Visão Conta.
- * Reusa o backend de recebimentos (POST /projects/:id/receipts), que já gera a
- * CashFlowEntry correspondente. Invalida a query da Visão Conta ao salvar.
+ * Modal de Receita (RECEBIMENTO) para a Visão Conta — cria ou edita.
+ * Reusa o backend de recebimentos (POST/PATCH /projects/:id/receipts), que já
+ * gera/atualiza a CashFlowEntry. Invalida a Visão Conta ao salvar.
  */
-export function NovaReceitaModal({
+export function ReceitaModal({
   open,
   onClose,
   projectId,
+  editing,
   defaultData,
 }: {
   open: boolean;
   onClose: () => void;
   projectId: string;
-  /** Data inicial (ISO YYYY-MM-DD) — usa o mês selecionado na tela. */
+  /** Quando presente, abre em modo edição do recebimento. */
+  editing?: ReceitaEditing | null;
+  /** Data inicial (ISO YYYY-MM-DD) para novos lançamentos. */
   defaultData?: string;
 }) {
   const queryClient = useQueryClient();
+  const isEdit = !!editing;
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['account-view', projectId] });
+    queryClient.invalidateQueries({ queryKey: ['receipts', projectId] });
+    queryClient.invalidateQueries({ queryKey: ['dashboard', projectId] });
+    queryClient.invalidateQueries({ queryKey: ['cash-flow', projectId] });
+  };
 
   const createMutation = useMutation({
     mutationFn: (data: { valor: number; data: string; tipo: string; status: string }) =>
       api.post(`/projects/${projectId}/receipts`, data),
     onSuccess: () => {
       toast.success('Recebimento criado');
-      queryClient.invalidateQueries({ queryKey: ['account-view', projectId] });
-      queryClient.invalidateQueries({ queryKey: ['receipts', projectId] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard', projectId] });
-      queryClient.invalidateQueries({ queryKey: ['cash-flow', projectId] });
+      invalidate();
       onClose();
     },
     onError: (e: Error) => toast.error(`Erro ao criar recebimento: ${e.message}`),
   });
 
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { valor: number; data: string; tipo: string; status: string } }) =>
+      api.patch(`/projects/${projectId}/receipts/${id}`, data),
+    onSuccess: () => {
+      toast.success('Recebimento atualizado');
+      invalidate();
+      onClose();
+    },
+    onError: (e: Error) => toast.error(`Erro ao salvar recebimento: ${e.message}`),
+  });
+
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
-    createMutation.mutate({
+    const payload = {
       valor: Number(form.get('valor')),
       data: form.get('data') as string,
       tipo: form.get('tipo') as string,
       status: form.get('status') as string,
-    });
+    };
+    if (isEdit && editing) {
+      updateMutation.mutate({ id: editing.id, data: payload });
+    } else {
+      createMutation.mutate(payload);
+    }
   }
 
+  // O tipo vindo da Visão Conta chega normalizado (minúsculo); reverte para o
+  // valor do enum (maiúsculo) para casar com as opções. Se ainda não existir na
+  // lista, expõe como opção avulsa para preservar o valor original.
+  const editingTipo = editing ? editing.tipo.toUpperCase() : 'SALARIO';
+  const knownTipo = PESSOAL_TIPO_OPTIONS.some((o) => o.value === editingTipo);
+  const extraTipo = isEdit && !knownTipo ? { value: editingTipo, label: editingTipo } : undefined;
+
   return (
-    <Modal open={open} onClose={onClose} title="Nova Receita">
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <Input label="Valor (R$)" name="valor" type="number" step="0.01" min="0" required />
-        <Input label="Data" name="data" type="date" required defaultValue={defaultData ?? ''} />
+    <Modal open={open} onClose={onClose} title={isEdit ? 'Editar Receita' : 'Nova Receita'}>
+      <form key={editing?.id ?? 'new'} onSubmit={handleSubmit} className="space-y-4">
+        <Input
+          label="Valor (R$)"
+          name="valor"
+          type="number"
+          step="0.01"
+          min="0"
+          required
+          defaultValue={editing ? (editing.valor / 100).toFixed(2) : ''}
+        />
+        <Input
+          label="Data"
+          name="data"
+          type="date"
+          required
+          defaultValue={editing?.data ? editing.data.slice(0, 10) : defaultData ?? ''}
+        />
         <div className="space-y-1">
           <label htmlFor="conta-receita-tipo" className="block text-sm font-medium text-gray-700">Tipo</label>
           <select
             id="conta-receita-tipo"
             name="tipo"
             required
-            defaultValue="SALARIO"
+            defaultValue={editingTipo}
             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500"
           >
-            {renderTipoOptions()}
+            {renderTipoOptions(extraTipo)}
           </select>
         </div>
-        <Select label="Status" name="status" options={STATUS_OPTIONS} required defaultValue="EM_CAIXA" />
+        <Select label="Status" name="status" options={STATUS_OPTIONS} required defaultValue={editing?.status ?? 'EM_CAIXA'} />
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
-          <Button type="submit" disabled={createMutation.isPending}>Criar</Button>
+          <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
+            {isEdit ? 'Salvar' : 'Criar'}
+          </Button>
         </div>
       </form>
     </Modal>
