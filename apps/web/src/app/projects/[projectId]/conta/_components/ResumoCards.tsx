@@ -102,7 +102,9 @@ export function ResumoCards({
               key={card.key}
               className={`rounded-2xl border p-3 shadow-sm xl:flex xl:min-h-full xl:flex-col xl:justify-between xl:p-4 ${
                 active ? 'ring-2 ring-orange-400' : ''
-              } ${toneClasses(tone)}`}
+              } ${filterable ? 'cursor-pointer' : ''} ${
+                toneClasses(tone)
+              }`}
             >
               {filterable ? (
                 <button
@@ -111,7 +113,7 @@ export function ResumoCards({
                     if (quickFilterKey) onQuickFilterSelect(quickFilterKey);
                   }}
                   aria-pressed={active}
-                  className="text-left"
+                  className="block w-full text-left"
                 >
                   <p className="text-[11px] font-semibold leading-4">{card.title}</p>
                   <p className="mt-2 text-lg font-bold tracking-tight xl:text-[22px]">
