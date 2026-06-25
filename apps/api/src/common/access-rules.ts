@@ -74,3 +74,18 @@ export function userCanAccessProject(
   if (list.length === 0) return true;
   return list.includes(projectId);
 }
+
+/**
+ * Escopo de projetos visível em agregações cross-project (tenant/*).
+ * - null  => sem restrição (full-access ou allowedProjects vazio): vê tudo.
+ * - array => restringir a esses ids (nunca vazio).
+ */
+export function accessibleProjectScope(
+  role: string | undefined,
+  allowedProjects: string[] | undefined,
+): string[] | null {
+  if (isFullAccessRole(role)) return null;
+  const list = allowedProjects ?? [];
+  if (list.length === 0) return null;
+  return list;
+}

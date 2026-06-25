@@ -27,7 +27,7 @@ const TYPE_CONFIG: Record<string, { icon: string; label: string; description: st
 
 export default function ProjectsPage() {
   const router = useRouter();
-  const { hasProjectType, hasProjectAccess, canCreateProjectType, hasModule, isAdmin, user } = useAuth();
+  const { hasProjectType, hasProjectAccess, canCreateProjectType, hasModule, isAdmin, user, refresh } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -86,6 +86,9 @@ export default function ProjectsPage() {
       setProjects((prev) => [created, ...prev]);
       setShowCreate(false);
       setNewProject({ name: '', type: allowedTypes[0] ?? '', description: '' });
+      // Recarrega o usuário: se restrito, o backend acabou de conceder acesso
+      // ao novo projeto — sem isso o layout redirecionaria para /no-permission.
+      await refresh();
       router.push(`/projects/${created.id}/dashboard`);
     } catch (err) {
       console.error('Erro ao criar projeto:', err);

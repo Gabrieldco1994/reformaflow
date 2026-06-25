@@ -7,6 +7,8 @@ export interface ToolContext {
   tenantId: string;
   /** Projeto em foco quando o chat é aberto dentro de um projeto (opcional). */
   projectId?: string | null;
+  /** Escopo de projetos acessíveis (null = sem restrição). Aplica ACL por projeto. */
+  projectScope?: string[] | null;
 }
 
 interface ToolHandler {
@@ -59,8 +61,9 @@ export class AgentToolsService {
           parameters: noParams,
         },
         run: async (ctx) => {
+          const scope = ctx.projectScope ?? null;
           const projects = await this.prisma.project.findMany({
-            where: { tenantId: ctx.tenantId, deletedAt: null },
+            where: { tenantId: ctx.tenantId, deletedAt: null, ...(scope ? { id: { in: scope } } : {}) },
             select: { id: true, name: true, type: true },
             orderBy: { createdAt: 'asc' },
           });
@@ -75,7 +78,7 @@ export class AgentToolsService {
             'KPIs financeiros consolidados de TODOS os projetos: caixa total, pago no mês/ano/total, previsões de gastos e recebimentos para 30/90 dias, saldo projetado. Valores em centavos.',
           parameters: noParams,
         },
-        run: async (ctx) => this.financial.getOverview(ctx.tenantId),
+        run: async (ctx) => this.financial.getOverview(ctx.tenantId, ctx.projectScope ?? null),
       },
 
       get_by_project: {
@@ -85,7 +88,7 @@ export class AgentToolsService {
             'Breakdown financeiro por projeto: gasto total, planejado restante, recebimentos, saldo e progresso de cada projeto. Valores em centavos.',
           parameters: noParams,
         },
-        run: async (ctx) => ({ projects: await this.financial.getByProject(ctx.tenantId) }),
+        run: async (ctx) => ({ projects: await this.financial.getByProject(ctx.tenantId, ctx.projectScope ?? null) }),
       },
 
       get_expenses_by_category: {
@@ -95,7 +98,7 @@ export class AgentToolsService {
             'Total de despesas agrupado por categoria/tipo, somando todos os projetos. Valores em centavos.',
           parameters: noParams,
         },
-        run: async (ctx) => ({ categorias: await this.financial.getByCategory(ctx.tenantId) }),
+        run: async (ctx) => ({ categorias: await this.financial.getByCategory(ctx.tenantId, ctx.projectScope ?? null) }),
       },
 
       get_upcoming: {
@@ -113,7 +116,7 @@ export class AgentToolsService {
         },
         run: async (ctx, args) => {
           const days = this.clampInt(args['days'], 30, 1, 365);
-          return { dias: days, itens: await this.financial.getUpcoming(ctx.tenantId, days) };
+          return { dias: days, itens: await this.financial.getUpcoming(ctx.tenantId, days, ctx.projectScope ?? null) };
         },
       },
 
@@ -132,7 +135,7 @@ export class AgentToolsService {
         },
         run: async (ctx, args) => {
           const limit = this.clampInt(args['limit'], 5, 1, 20);
-          return { fornecedores: await this.financial.getTopSuppliers(ctx.tenantId, limit) };
+          return { fornecedores: await this.financial.getTopSuppliers(ctx.tenantId, limit, ctx.projectScope ?? null) };
         },
       },
     };

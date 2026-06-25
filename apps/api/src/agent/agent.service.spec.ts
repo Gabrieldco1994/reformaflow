@@ -47,7 +47,7 @@ describe('AgentService (loop de tool-calling)', () => {
     // a ferramenta foi executada com o tenant correto
     expect(tools.execute).toHaveBeenCalledWith(
       'get_financial_overview',
-      { tenantId: 'tenant-1', projectId: null },
+      { tenantId: 'tenant-1', projectId: null, projectScope: null },
       {},
     );
     // o LLM foi chamado 2x (pedido de tool + resposta final)

@@ -2,7 +2,8 @@ import { Controller, Get, UseInterceptors } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CreditCardService } from './credit-card.service';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
-import { CurrentTenant } from '../common/decorators/tenant.decorator';
+import { CurrentTenant, CurrentUser } from '../common/decorators/tenant.decorator';
+import { accessibleProjectScope } from '../common/access-rules';
 
 /**
  * Lista cartões do tenant inteiro (independente de projeto).
@@ -17,7 +18,13 @@ export class CreditCardTenantController {
 
   @Get()
   @ApiOperation({ summary: 'Listar todos os cartões do tenant' })
-  list(@CurrentTenant() tenantId: string) {
-    return this.service.listCardsTenant(tenantId);
+  list(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { role: string; allowedProjects?: string[] },
+  ) {
+    return this.service.listCardsTenant(
+      tenantId,
+      accessibleProjectScope(user.role, user.allowedProjects),
+    );
   }
 }

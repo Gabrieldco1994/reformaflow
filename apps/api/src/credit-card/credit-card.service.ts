@@ -59,9 +59,9 @@ export class CreditCardService {
   }
 
   /** Lista todos os cartões do tenant (independente de projeto). Útil para vínculos cross-project. */
-  async listCardsTenant(tenantId: string) {
+  async listCardsTenant(tenantId: string, scope: string[] | null) {
     return this.prisma.creditCard.findMany({
-      where: { tenantId, deletedAt: null },
+      where: { tenantId, deletedAt: null, ...(scope ? { projectId: { in: scope } } : {}) },
       orderBy: [{ projectId: 'asc' }, { createdAt: 'asc' }],
       include: { project: { select: { id: true, name: true, type: true } } },
     });

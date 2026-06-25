@@ -6,9 +6,11 @@ import {
   Post,
   Req,
   Res,
+  UseGuards,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { Public } from '../common/decorators/public.decorator';
+import { LoginThrottleGuard } from './login-throttle.guard';
 import { CurrentUser } from '../common/decorators/tenant.decorator';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -34,6 +36,7 @@ export class AuthController {
   ) {}
 
   @Public()
+  @UseGuards(LoginThrottleGuard)
   @Post('login')
   @HttpCode(200)
   async login(

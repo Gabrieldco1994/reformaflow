@@ -7,9 +7,11 @@ import {
   userHasAnyModuleForType,
   userCanAccessProject,
   userCanCreateProjectType,
+  isFullAccessRole,
 } from '../common/access-rules';
 
 interface RequestUser {
+  id?: string;
   role: string;
   allowedModules: string[];
   allowedProjects?: string[];
@@ -21,7 +23,7 @@ export class ProjectService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(tenantId: string, dto: CreateProjectDto, user?: RequestUser) {
-    if (user && user.role !== 'ADMIN' && user.role !== 'OWNER') {
+    if (user && !isFullAccessRole(user.role)) {
       if (
         !userCanCreateProjectType(
           user.role,
@@ -64,6 +66,34 @@ export class ProjectService {
       return project.id;
     });
 
+    // Associação direta: se o criador é restrito a projetos específicos,
+    // concede acesso ao projeto recém-criado (senão ele não veria o que criou).
+    // Lê o estado fresco do usuário numa transação para evitar lost-update em
+    // criações concorrentes (o snapshot do request pode estar desatualizado).
+    if (user?.id && !isFullAccessRole(user.role) && (user.allowedProjects ?? []).length > 0) {
+      const userId = user.id;
+      await this.prisma.$transaction(async (tx) => {
+        const fresh = await tx.user.findUnique({
+          where: { id: userId },
+          select: { allowedProjects: true },
+        });
+        if (!fresh) return;
+        let current: string[] = [];
+        try {
+          const parsed = JSON.parse(fresh.allowedProjects || '[]');
+          if (Array.isArray(parsed)) current = parsed;
+        } catch {
+          current = [];
+        }
+        // Lista vazia = sem restrição: não converter em restrita por engano.
+        if (current.length === 0 || current.includes(projectId)) return;
+        await tx.user.update({
+          where: { id: userId },
+          data: { allowedProjects: JSON.stringify([...current, projectId]) },
+        });
+      });
+    }
+
     return this.findByIdInternal(tenantId, projectId);
   }
 
@@ -73,7 +103,7 @@ export class ProjectService {
       orderBy: { createdAt: 'desc' },
     });
 
-    if (!user || user.role === 'ADMIN' || user.role === 'OWNER') return projects;
+    if (!user || isFullAccessRole(user.role)) return projects;
 
     return projects.filter(
       (p) =>
@@ -85,7 +115,7 @@ export class ProjectService {
   async findById(tenantId: string, id: string, user?: RequestUser) {
     const project = await this.findByIdInternal(tenantId, id);
 
-    if (user && user.role !== 'ADMIN' && user.role !== 'OWNER') {
+    if (user && !isFullAccessRole(user.role)) {
       if (!userHasAnyModuleForType(project.type, user.allowedModules ?? [])) {
         throw new ForbiddenException(
           `Sem permissão para acessar projetos do tipo "${project.type}"`,

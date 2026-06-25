@@ -5,6 +5,8 @@ import { ChatMessage, LLM_PROVIDER, LlmProvider } from './llm/llm.types';
 export interface AgentChatInput {
   tenantId: string;
   projectId?: string | null;
+  /** Escopo de projetos acessíveis (null = sem restrição). */
+  projectScope?: string[] | null;
   /** Histórico da conversa (apenas roles user/assistant). */
   messages: { role: 'user' | 'assistant'; content: string }[];
 }
@@ -50,7 +52,7 @@ export class AgentService {
           toolsUsed.push(tc.name);
           const result = await this.tools.execute(
             tc.name,
-            { tenantId: input.tenantId, projectId: input.projectId ?? null },
+            { tenantId: input.tenantId, projectId: input.projectId ?? null, projectScope: input.projectScope ?? null },
             tc.arguments,
           );
           messages.push({

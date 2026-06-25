@@ -62,7 +62,7 @@ describe('TenantFinancialService', () => {
         { valor: 70_000, tipo: 'RECEBIMENTO', status: 'PAGO', data: new Date('2026-05-25') },
       ]);
 
-      const r = await service.getOverview(TENANT);
+      const r = await service.getOverview(TENANT, null);
 
       expect(r.totalProjetos).toBe(3);
       expect(r.caixaTotal).toBe(150_000);
@@ -81,7 +81,7 @@ describe('TenantFinancialService', () => {
       prisma.project.count.mockResolvedValue(0);
       prisma.receipt.findMany.mockResolvedValue([]);
       prisma.cashFlowEntry.findMany.mockResolvedValue([]);
-      const r = await service.getOverview(TENANT);
+      const r = await service.getOverview(TENANT, null);
       expect(r.caixaTotal).toBe(0);
       expect(r.pagoTotal).toBe(0);
       expect(r.previsao30d).toBe(0);
@@ -107,7 +107,7 @@ describe('TenantFinancialService', () => {
         { projectId: 'p2', status: 'EM_CAIXA', valor: 0 },
       ]);
 
-      const r = await service.getByProject(TENANT);
+      const r = await service.getByProject(TENANT, null);
       const p1 = r.find((x) => x.projectId === 'p1')!;
       const p2 = r.find((x) => x.projectId === 'p2')!;
       expect(p1.gastoTotal).toBe(1500);
@@ -122,7 +122,7 @@ describe('TenantFinancialService', () => {
 
     it('retorna lista vazia quando não há projetos', async () => {
       prisma.project.findMany.mockResolvedValue([]);
-      const r = await service.getByProject(TENANT);
+      const r = await service.getByProject(TENANT, null);
       expect(r).toEqual([]);
     });
 
@@ -132,7 +132,7 @@ describe('TenantFinancialService', () => {
       ]);
       prisma.cashFlowEntry.findMany.mockResolvedValue([]);
       prisma.receipt.findMany.mockResolvedValue([]);
-      const r = await service.getByProject(TENANT);
+      const r = await service.getByProject(TENANT, null);
       expect(r[0].progresso).toBe(0);
     });
   });
@@ -149,7 +149,7 @@ describe('TenantFinancialService', () => {
         { projectId: 'p1', tipo: 'RECEBIMENTO', status: 'PREVISTO', valor: 80, data: new Date('2026-05-30') },
       ]);
 
-      const r = await service.getCashFlow(TENANT, 12);
+      const r = await service.getCashFlow(TENANT, 12, null);
       expect(r.length).toBe(12); // 12 meses pré-populados
       const may = r.find((p) => p.mes === '2026-05')!;
       const apr = r.find((p) => p.mes === '2026-04')!;
@@ -169,7 +169,7 @@ describe('TenantFinancialService', () => {
       prisma.cashFlowEntry.findMany.mockResolvedValue([
         { projectId: 'pX-deletado', tipo: 'DESPESA', status: 'PAGO', valor: 9999, data: new Date('2026-05-01') },
       ]);
-      const r = await service.getCashFlow(TENANT, 3);
+      const r = await service.getCashFlow(TENANT, 3, null);
       const may = r.find((p) => p.mes === '2026-05')!;
       expect(may.pago).toBe(0);
     });
@@ -183,7 +183,7 @@ describe('TenantFinancialService', () => {
         { tipoDespesa: 'ELETRODOMESTICO', valorTotal: 10000 },
         { tipoDespesa: 'PINTURA', valorTotal: 200 },
       ]);
-      const r = await service.getByCategory(TENANT);
+      const r = await service.getByCategory(TENANT, null);
       expect(r[0].key).toBe('ELETRODOMESTICO');
       expect(r[0].total).toBe(10000);
       expect(r[1].key).toBe('MARMORE');
@@ -218,7 +218,7 @@ describe('TenantFinancialService', () => {
           receipt: { descricao: 'Pagamento cliente', tipo: 'PAGAMENTO' },
         },
       ]);
-      const r = await service.getUpcoming(TENANT, 30);
+      const r = await service.getUpcoming(TENANT, 30, null);
       expect(r).toHaveLength(2);
       expect(r[0].descricao).toBe('Bancada');
       expect(r[0].projectName).toBe('Reforma');
@@ -239,7 +239,7 @@ describe('TenantFinancialService', () => {
           receipt: null,
         },
       ]);
-      const r = await service.getUpcoming(TENANT, 30);
+      const r = await service.getUpcoming(TENANT, 30, null);
       expect(r).toEqual([]);
     });
   });
@@ -251,7 +251,7 @@ describe('TenantFinancialService', () => {
         { fornecedor: 'POLO MARMORES', valorTotal: 3000, projectId: 'p2', project: { name: 'Casa' } },
         { fornecedor: 'Outro', valorTotal: 500, projectId: 'p1', project: { name: 'Reforma' } },
       ]);
-      const r = await service.getTopSuppliers(TENANT, 10);
+      const r = await service.getTopSuppliers(TENANT, 10, null);
       expect(r[0].total).toBe(5000);
       expect(r[0].count).toBe(2);
       expect(r[0].projetos).toHaveLength(2);
@@ -267,7 +267,7 @@ describe('TenantFinancialService', () => {
           project: { name: 'X' },
         })),
       );
-      const r = await service.getTopSuppliers(TENANT, 5);
+      const r = await service.getTopSuppliers(TENANT, 5, null);
       expect(r).toHaveLength(5);
     });
 
@@ -276,7 +276,7 @@ describe('TenantFinancialService', () => {
         { fornecedor: '  ', valorTotal: 100, projectId: 'p1', project: { name: 'X' } },
         { fornecedor: 'Real', valorTotal: 200, projectId: 'p1', project: { name: 'X' } },
       ]);
-      const r = await service.getTopSuppliers(TENANT, 10);
+      const r = await service.getTopSuppliers(TENANT, 10, null);
       expect(r).toHaveLength(1);
       expect(r[0].fornecedor).toBe('Real');
     });

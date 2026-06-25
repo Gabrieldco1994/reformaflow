@@ -1,6 +1,12 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { isNeutralExpenseType } from '@reformaflow/domain';
+import { userCanAccessProject } from '../common/access-rules';
+
+interface RequestUser {
+  role: string;
+  allowedProjects?: string[];
+}
 import { CreateBudgetAllocationDto } from './dto/create-budget-allocation.dto';
 import { UpdateBudgetAllocationDto } from './dto/update-budget-allocation.dto';
 
@@ -99,7 +105,7 @@ export class BudgetAllocationService {
     });
   }
 
-  async findOne(id: string, tenantId: string) {
+  async findOne(id: string, tenantId: string, user?: RequestUser) {
     const allocation = await this.prisma.budgetAllocation.findFirst({
       where: { id, tenantId, deletedAt: null },
       include: {
@@ -114,11 +120,21 @@ export class BudgetAllocationService {
       throw new NotFoundException('Budget allocation not found');
     }
 
+    // ACL por projeto: a rota usa o id do recurso, então o ProjectAccessGuard
+    // (que só checa projectId/source/target em params/query/body) não cobre.
+    if (user) {
+      const canSource = userCanAccessProject(user.role, user.allowedProjects, allocation.sourceProjectId);
+      const canTarget = userCanAccessProject(user.role, user.allowedProjects, allocation.targetProjectId);
+      if (!canSource || !canTarget) {
+        throw new ForbiddenException('Sem permissão para acessar esta alocação');
+      }
+    }
+
     return allocation;
   }
 
-  async update(id: string, tenantId: string, dto: UpdateBudgetAllocationDto) {
-    const existing = await this.findOne(id, tenantId);
+  async update(id: string, tenantId: string, dto: UpdateBudgetAllocationDto, user?: RequestUser) {
+    const existing = await this.findOne(id, tenantId, user);
 
     // If changing valor, check available budget
     if (dto.valor && dto.valor !== existing.valor) {
@@ -160,8 +176,8 @@ export class BudgetAllocationService {
     return updated;
   }
 
-  async remove(id: string, tenantId: string) {
-    const allocation = await this.findOne(id, tenantId);
+  async remove(id: string, tenantId: string, user?: RequestUser) {
+    const allocation = await this.findOne(id, tenantId, user);
 
     // Soft delete allocation
     await this.prisma.budgetAllocation.update({

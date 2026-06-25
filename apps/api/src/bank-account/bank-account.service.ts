@@ -196,9 +196,9 @@ export class BankAccountService {
   }
 
   /** Lista todas as contas do tenant (todos os projetos). Útil para vínculos cross-project. */
-  async listAccountsTenant(tenantId: string) {
+  async listAccountsTenant(tenantId: string, scope: string[] | null) {
     return this.prisma.bankAccount.findMany({
-      where: { tenantId, deletedAt: null },
+      where: { tenantId, deletedAt: null, ...(scope ? { projectId: { in: scope } } : {}) },
       orderBy: [{ projectId: 'asc' }, { createdAt: 'asc' }],
       include: { project: { select: { id: true, name: true, type: true } } },
     });

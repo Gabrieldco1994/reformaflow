@@ -68,9 +68,14 @@ export interface SupplierRow {
 export class TenantFinancialService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private async listProjects(tenantId: string) {
+  /** where parcial para restringir por projeto em agregações (null = sem filtro). */
+  private scopeWhere(scope: string[] | null) {
+    return scope ? { projectId: { in: scope } } : {};
+  }
+
+  private async listProjects(tenantId: string, scope: string[] | null) {
     return this.prisma.project.findMany({
-      where: { tenantId, deletedAt: null },
+      where: { tenantId, deletedAt: null, ...(scope ? { id: { in: scope } } : {}) },
       select: { id: true, name: true, type: true },
       orderBy: { createdAt: 'asc' },
     });
@@ -88,7 +93,7 @@ export class TenantFinancialService {
     return new Date(d.getFullYear(), 0, 1);
   }
 
-  async getOverview(tenantId: string): Promise<TenantFinancialOverview> {
+  async getOverview(tenantId: string, scope: string[] | null): Promise<TenantFinancialOverview> {
     const now = new Date();
     const startMes = this.startOfMonth(now);
     const startAno = this.startOfYear(now);
@@ -97,13 +102,14 @@ export class TenantFinancialService {
 
     const [receipts, cashFlow, projetosCount] = await Promise.all([
       this.prisma.receipt.findMany({
-        where: { tenantId, deletedAt: null, linkedReceiptId: null },
+        where: { tenantId, deletedAt: null, linkedReceiptId: null, ...this.scopeWhere(scope) },
         select: { valor: true, status: true, data: true },
       }),
       this.prisma.cashFlowEntry.findMany({
         where: {
           tenantId,
           deletedAt: null,
+          ...this.scopeWhere(scope),
           OR: [
             { expenseId: null },
             { expense: { deletedAt: null, linkedExpenseId: null } },
@@ -119,7 +125,7 @@ export class TenantFinancialService {
         },
         select: { valor: true, tipo: true, status: true, data: true },
       }),
-      this.prisma.project.count({ where: { tenantId, deletedAt: null } }),
+      this.prisma.project.count({ where: { tenantId, deletedAt: null, ...(scope ? { id: { in: scope } } : {}) } }),
     ]);
 
     const caixaTotal = receipts
@@ -167,8 +173,8 @@ export class TenantFinancialService {
     };
   }
 
-  async getByProject(tenantId: string): Promise<ProjectBreakdownRow[]> {
-    const projects = await this.listProjects(tenantId);
+  async getByProject(tenantId: string, scope: string[] | null): Promise<ProjectBreakdownRow[]> {
+    const projects = await this.listProjects(tenantId, scope);
     if (projects.length === 0) return [];
 
     const projectIds = projects.map((p) => p.id);
@@ -241,7 +247,7 @@ export class TenantFinancialService {
     return Array.from(byProject.values());
   }
 
-  async getCashFlow(tenantId: string, months: number): Promise<ConsolidatedCashFlowPoint[]> {
+  async getCashFlow(tenantId: string, months: number, scope: string[] | null): Promise<ConsolidatedCashFlowPoint[]> {
     const now = new Date();
     const from = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
 
@@ -251,6 +257,7 @@ export class TenantFinancialService {
           tenantId,
           deletedAt: null,
           data: { gte: from },
+          ...this.scopeWhere(scope),
           OR: [
             { expenseId: null },
             { expense: { deletedAt: null, linkedExpenseId: null } },
@@ -266,7 +273,7 @@ export class TenantFinancialService {
         },
         select: { projectId: true, tipo: true, status: true, valor: true, data: true },
       }),
-      this.listProjects(tenantId),
+      this.listProjects(tenantId, scope),
     ]);
 
     const pointsMap = new Map<string, ConsolidatedCashFlowPoint>();
@@ -327,13 +334,14 @@ export class TenantFinancialService {
     return sorted;
   }
 
-  async getByCategory(tenantId: string): Promise<CategoryRow[]> {
+  async getByCategory(tenantId: string, scope: string[] | null): Promise<CategoryRow[]> {
     const expenses = await this.prisma.expense.findMany({
       where: {
         tenantId,
         deletedAt: null,
         settledByExpenseId: null,
         linkedExpenseId: null,
+        ...this.scopeWhere(scope),
       },
       select: { tipoDespesa: true, valorTotal: true },
     });
@@ -350,10 +358,10 @@ export class TenantFinancialService {
       .sort((a, b) => b.total - a.total);
   }
 
-  async getUpcoming(tenantId: string, days: number): Promise<UpcomingDueRow[]> {
+  async getUpcoming(tenantId: string, days: number, scope: string[] | null): Promise<UpcomingDueRow[]> {
     const now = new Date();
     const until = new Date(now.getTime() + days * 24 * 3600 * 1000);
-    const projects = await this.listProjects(tenantId);
+    const projects = await this.listProjects(tenantId, scope);
     const projMap = new Map(projects.map((p) => [p.id, p]));
 
     const entries = await this.prisma.cashFlowEntry.findMany({
@@ -362,6 +370,7 @@ export class TenantFinancialService {
         deletedAt: null,
         data: { gte: now, lte: until },
         status: { in: ['PLANEJADO', 'PREVISTO'] },
+        ...this.scopeWhere(scope),
         OR: [
           { expenseId: null },
           { expense: { deletedAt: null, linkedExpenseId: null } },
@@ -407,7 +416,7 @@ export class TenantFinancialService {
       .filter((x): x is UpcomingDueRow => x !== null);
   }
 
-  async getTopSuppliers(tenantId: string, limit: number): Promise<SupplierRow[]> {
+  async getTopSuppliers(tenantId: string, limit: number, scope: string[] | null): Promise<SupplierRow[]> {
     const expenses = await this.prisma.expense.findMany({
       where: {
         tenantId,
@@ -415,6 +424,7 @@ export class TenantFinancialService {
         fornecedor: { not: null },
         settledByExpenseId: null,
         linkedExpenseId: null,
+        ...this.scopeWhere(scope),
       },
       select: {
         fornecedor: true,

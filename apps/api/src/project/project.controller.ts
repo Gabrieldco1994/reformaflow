@@ -17,6 +17,7 @@ import { CurrentTenant, CurrentUser } from '../common/decorators/tenant.decorato
 import { Roles } from '../common/decorators/roles.decorator';
 
 interface RequestUser {
+  id?: string;
   role: string;
   allowedModules: string[];
   allowedProjects?: string[];

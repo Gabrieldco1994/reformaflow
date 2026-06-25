@@ -2,7 +2,8 @@ import { Controller, Get, UseInterceptors } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { BankAccountService } from './bank-account.service';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
-import { CurrentTenant } from '../common/decorators/tenant.decorator';
+import { CurrentTenant, CurrentUser } from '../common/decorators/tenant.decorator';
+import { accessibleProjectScope } from '../common/access-rules';
 
 /**
  * Lista contas do tenant inteiro (independente de projeto).
@@ -17,7 +18,13 @@ export class BankAccountTenantController {
 
   @Get()
   @ApiOperation({ summary: 'Listar todas as contas do tenant' })
-  list(@CurrentTenant() tenantId: string) {
-    return this.service.listAccountsTenant(tenantId);
+  list(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { role: string; allowedProjects?: string[] },
+  ) {
+    return this.service.listAccountsTenant(
+      tenantId,
+      accessibleProjectScope(user.role, user.allowedProjects),
+    );
   }
 }

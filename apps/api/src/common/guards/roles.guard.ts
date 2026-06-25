@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Role, ROLES_KEY } from '../decorators/roles.decorator';
+import { isFullAccessRole } from '../access-rules';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -20,6 +21,8 @@ export class RolesGuard implements CanActivate {
 
     const { user } = context.switchToHttp().getRequest();
     if (!user) throw new ForbiddenException('Não autenticado');
+
+    if (isFullAccessRole(user.role)) return true;
 
     if (!required.includes(user.role)) {
       throw new ForbiddenException('Acesso restrito a administradores');

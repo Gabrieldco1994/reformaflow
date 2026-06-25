@@ -49,18 +49,18 @@ export class BudgetAllocationController {
   @Get(':id')
   findOne(@Param('id') id: string, @Req() req: any) {
     const tenantId = req.user.tenantId;
-    return this.budgetAllocationService.findOne(id, tenantId);
+    return this.budgetAllocationService.findOne(id, tenantId, req.user);
   }
 
   @Patch(':id')
   update(@Param('id') id: string, @Body() updateDto: UpdateBudgetAllocationDto, @Req() req: any) {
     const tenantId = req.user.tenantId;
-    return this.budgetAllocationService.update(id, tenantId, updateDto);
+    return this.budgetAllocationService.update(id, tenantId, updateDto, req.user);
   }
 
   @Delete(':id')
   remove(@Param('id') id: string, @Req() req: any) {
     const tenantId = req.user.tenantId;
-    return this.budgetAllocationService.remove(id, tenantId);
+    return this.budgetAllocationService.remove(id, tenantId, req.user);
   }
 }

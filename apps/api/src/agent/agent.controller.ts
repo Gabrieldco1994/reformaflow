@@ -3,7 +3,8 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AgentService } from './agent.service';
 import { AgentChatDto } from './dto/agent-chat.dto';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
-import { CurrentTenant } from '../common/decorators/tenant.decorator';
+import { CurrentTenant, CurrentUser } from '../common/decorators/tenant.decorator';
+import { accessibleProjectScope } from '../common/access-rules';
 
 @ApiTags('agent')
 @ApiBearerAuth()
@@ -14,10 +15,15 @@ export class AgentController {
 
   @Post('chat')
   @ApiOperation({ summary: 'Conversa com o Copiloto Financeiro (tool-calling)' })
-  async chat(@CurrentTenant() tenantId: string, @Body() dto: AgentChatDto) {
+  async chat(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { role: string; allowedProjects?: string[] },
+    @Body() dto: AgentChatDto,
+  ) {
     return this.agent.chat({
       tenantId,
       projectId: dto.projectId ?? null,
+      projectScope: accessibleProjectScope(user.role, user.allowedProjects),
       messages: dto.messages,
     });
   }

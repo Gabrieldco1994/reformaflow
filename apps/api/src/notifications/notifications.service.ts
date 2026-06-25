@@ -35,7 +35,8 @@ export interface DailySummary {
 export class NotificationsService {
   constructor(private prisma: PrismaService) {}
 
-  async getDailySummary(tenantId: string): Promise<DailySummary> {
+  async getDailySummary(tenantId: string, scope: string[] | null): Promise<DailySummary> {
+    const scopeWhere = scope ? { projectId: { in: scope } } : {};
     const now = new Date();
     const startOfToday = new Date(
       now.getFullYear(),
@@ -60,7 +61,7 @@ export class NotificationsService {
     endOfWeek.setHours(23, 59, 59, 999);
 
     const projects = await this.prisma.project.findMany({
-      where: { tenantId, deletedAt: null },
+      where: { tenantId, deletedAt: null, ...(scope ? { id: { in: scope } } : {}) },
       select: { id: true, name: true, type: true },
     });
     const projectMap = new Map(projects.map((p) => [p.id, p]));
@@ -69,6 +70,7 @@ export class NotificationsService {
       where: {
         tenantId,
         deletedAt: null,
+        ...scopeWhere,
         data: { gte: startOfToday, lte: endOfToday },
       },
       include: { expense: { select: { tipoDespesa: true, titulo: true } } },
@@ -109,6 +111,7 @@ export class NotificationsService {
       where: {
         tenantId,
         deletedAt: null,
+        ...scopeWhere,
         data: { gt: endOfToday, lte: endOfWeek },
         status: { in: ['PLANEJADO', 'PREVISTO'] },
       },
@@ -138,6 +141,7 @@ export class NotificationsService {
       where: {
         tenantId,
         deletedAt: null,
+        ...scopeWhere,
         OR: [
           {
             dataInicio: { lte: endOfToday },
@@ -177,6 +181,7 @@ export class NotificationsService {
       where: {
         tenantId,
         deletedAt: null,
+        ...scopeWhere,
         status: 'ATIVO',
         proximoVencimento: { gte: startOfToday, lte: endOfWeek },
       },
@@ -205,6 +210,7 @@ export class NotificationsService {
       where: {
         tenantId,
         deletedAt: null,
+        ...scopeWhere,
         status: 'PENDENTE',
         data: { gte: startOfToday, lte: endOfWeek },
       },
@@ -231,6 +237,7 @@ export class NotificationsService {
       where: {
         tenantId,
         deletedAt: null,
+        ...scopeWhere,
         dataProxima: { gte: startOfToday, lte: endOfWeek },
       },
       orderBy: { dataProxima: 'asc' },

@@ -18,6 +18,15 @@ const cookieExtractor = (req: Request): string | null => {
   return null;
 };
 
+function resolveJwtSecret(): string {
+  const secret = process.env['JWT_SECRET'];
+  if (secret) return secret;
+  if (process.env['NODE_ENV'] === 'production') {
+    throw new Error('JWT_SECRET não definido em produção');
+  }
+  return 'dev-secret-change-me';
+}
+
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(private prisma: PrismaService) {
@@ -27,7 +36,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         ExtractJwt.fromAuthHeaderAsBearerToken(),
       ]),
       ignoreExpiration: false,
-      secretOrKey: process.env['JWT_SECRET'] ?? 'dev-secret-change-me',
+      secretOrKey: resolveJwtSecret(),
     });
   }
 
