@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Bot, Send, X, Sparkles } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useProject } from '@/contexts/project-context';
 
@@ -24,7 +25,32 @@ const TOOL_LABELS: Record<string, string> = {
   get_expenses_by_category: 'por categoria',
   get_upcoming: 'próximos vencimentos',
   get_top_suppliers: 'fornecedores',
+  get_category_taxonomy: 'categorias',
+  get_cashflow_history: 'histórico',
+  get_recurring_bills: 'contas recorrentes',
+  get_account_balances: 'saldos',
+  find_expenses: 'busca de despesas',
+  list_payment_methods: 'cartões/contas',
+  create_expense: 'registrou despesa',
+  create_receipt: 'registrou recebimento',
 };
+
+// Ferramentas que ALTERAM dados — ao usá-las, as telas precisam recarregar.
+const WRITE_TOOLS = new Set(['create_expense', 'create_receipt']);
+
+// Famílias de query (React Query) afetadas por uma escrita do copiloto.
+const INVALIDATE_ON_WRITE = [
+  ['expenses'],
+  ['receipts'],
+  ['cash-flow'],
+  ['dashboard'],
+  ['tenant-financial'],
+  ['cross-project-expenses'],
+  ['monthly-overview'],
+  ['bank-accounts'],
+  ['credit-cards'],
+  ['notifications'],
+];
 
 const SUGGESTIONS = [
   'Quanto tenho em caixa?',
@@ -34,6 +60,7 @@ const SUGGESTIONS = [
 
 export function FinancialAgentWidget() {
   const { projectId } = useProject();
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -61,6 +88,13 @@ export function FinancialAgentWidget() {
         ...prev,
         { role: 'assistant', content: res.reply, toolsUsed: res.toolsUsed },
       ]);
+      // Se o copiloto criou/alterou algo, invalida as listas para a UI refletir
+      // sem o usuário precisar recarregar a página.
+      if (res.toolsUsed?.some((t) => WRITE_TOOLS.has(t))) {
+        for (const queryKey of INVALIDATE_ON_WRITE) {
+          queryClient.invalidateQueries({ queryKey });
+        }
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Erro ao falar com o agente.';
       setMessages((prev) => [
