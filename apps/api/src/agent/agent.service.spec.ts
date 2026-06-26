@@ -10,6 +10,7 @@ const toolDefs: ToolDef[] = [
 function makeTools(overrides: Partial<AgentToolsService> = {}): AgentToolsService {
   return {
     getToolDefs: jest.fn().mockReturnValue(toolDefs),
+    buildPrimer: jest.fn().mockResolvedValue(''),
     execute: jest.fn().mockResolvedValue({ caixaTotal: 150000 }),
     ...overrides,
   } as unknown as AgentToolsService;

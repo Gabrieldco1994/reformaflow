@@ -61,6 +61,42 @@ export class AgentToolsService {
     return Object.values(this.handlers).map((h) => h.def);
   }
 
+  /**
+   * Resumo de contexto injetado no início da conversa para REDUZIR chamadas ao
+   * LLM: com projetos e meios de pagamento já listados, o agente não precisa
+   * chamar list_projects / list_payment_methods antes de registrar algo —
+   * economiza requisições (importante no free tier por-minuto do LLM).
+   */
+  async buildPrimer(ctx: ToolContext): Promise<string> {
+    const scope = ctx.projectScope ?? null;
+    const whereProj = { tenantId: ctx.tenantId, deletedAt: null, ...(scope ? { id: { in: scope } } : {}) };
+    const wherePay = { tenantId: ctx.tenantId, deletedAt: null, ...(scope ? { projectId: { in: scope } } : {}) };
+    const [projects, cards, accounts] = await Promise.all([
+      this.prisma.project.findMany({ where: whereProj, select: { id: true, name: true, type: true }, orderBy: { createdAt: 'asc' } }),
+      this.prisma.creditCard.findMany({ where: wherePay, select: { id: true, nickname: true, institution: true, last4: true }, orderBy: { createdAt: 'asc' } }),
+      this.prisma.bankAccount.findMany({ where: wherePay, select: { id: true, nickname: true, institution: true, last4: true }, orderBy: { createdAt: 'asc' } }),
+    ]);
+    if (projects.length === 0) return '';
+
+    const projLines = projects.map((p) => `  - ${p.name} [${p.type}] id=${p.id}`).join('\n');
+    const cardLines = cards.length
+      ? cards.map((c) => `  - cartão ${c.nickname ?? c.institution} (final ${c.last4}) creditCardId=${c.id}`).join('\n')
+      : '  (nenhum)';
+    const accLines = accounts.length
+      ? accounts.map((a) => `  - conta ${a.nickname ?? a.institution} (final ${a.last4}) bankAccountId=${a.id}`).join('\n')
+      : '  (nenhuma)';
+
+    return [
+      'CONTEXTO DO USUÁRIO (use estes ids diretamente; só chame list_projects/list_payment_methods se algo não estiver aqui):',
+      'Projetos:',
+      projLines,
+      'Cartões:',
+      cardLines,
+      'Contas bancárias:',
+      accLines,
+    ].join('\n');
+  }
+
   async execute(name: string, ctx: ToolContext, args: Record<string, unknown>): Promise<unknown> {
     const handler = this.handlers[name];
     if (!handler) {

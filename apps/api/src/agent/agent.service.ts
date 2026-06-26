@@ -40,8 +40,18 @@ export class AgentService {
     }
 
     const toolDefs = this.tools.getToolDefs();
+    const primer = await this.tools.buildPrimer({
+      tenantId: input.tenantId,
+      projectId: input.projectId ?? null,
+      projectScope: input.projectScope ?? null,
+      role: input.role,
+      allowedModules: input.allowedModules,
+    });
+    const systemContent = primer
+      ? `${this.systemPrompt(input.projectId)}\n\n${primer}`
+      : this.systemPrompt(input.projectId);
     const messages: ChatMessage[] = [
-      { role: 'system', content: this.systemPrompt(input.projectId) },
+      { role: 'system', content: systemContent },
       ...input.messages.map((m) => ({ role: m.role, content: m.content })),
     ];
 
