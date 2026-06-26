@@ -75,6 +75,31 @@ export class CreditCardService {
   }>(tenantId: string, projectId: string, card: T) {
     if (card.limitTotalCents == null) return card;
 
+    const { used: limitUsedCents, month: currentOpenInvoiceMonth } =
+      await this.computeOpenInvoiceUsed(tenantId, projectId, card);
+    const limitUsagePercent = card.limitTotalCents > 0
+      ? Math.round((limitUsedCents / card.limitTotalCents) * 100)
+      : (limitUsedCents > 0 ? 100 : 0);
+
+    return {
+      ...card,
+      limitUsedCents,
+      limitAvailableComputedCents: card.limitTotalCents - limitUsedCents,
+      limitUsagePercent,
+      currentOpenInvoiceMonth,
+    };
+  }
+
+  /**
+   * Fatura aberta (compras não-neutras cujo vencimento cai no próximo
+   * fechamento >= hoje), independente de haver limite configurado.
+   * Fonte única usada por withLimitUsage e por listOpenInvoices.
+   */
+  private async computeOpenInvoiceUsed(
+    tenantId: string,
+    projectId: string,
+    card: { last4: string; closingDay: number | null; dueDay: number | null },
+  ): Promise<{ used: number; month: string }> {
     const currentOpenInvoiceMonth = this.currentOpenInvoiceMonth(card);
     const neutral = Array.from(NEUTRAL_EXPENSE_TYPES);
     const purchases = await this.prisma.expense.findMany({
@@ -94,25 +119,40 @@ export class CreditCardService {
       },
     });
 
-    // Uso read-only do limite: soma compras não-neutras cujo mês de vencimento
-    // calculado cai no próximo vencimento aberto (>= hoje). Sem schema novo.
-    const limitUsedCents = purchases.reduce((sum, expense) => {
+    const used = purchases.reduce((sum, expense) => {
       if (NEUTRAL_EXPENSE_TYPES.has(expense.tipoDespesa)) return sum;
       const purchaseDate = expense.dataPagamento ?? expense.dataInicioParcela ?? expense.createdAt;
       const invoiceMonth = caixaMonthForCardPurchase(purchaseDate, card.closingDay, card.dueDay);
       return invoiceMonth === currentOpenInvoiceMonth ? sum + expense.valorTotal : sum;
     }, 0);
-    const limitUsagePercent = card.limitTotalCents > 0
-      ? Math.round((limitUsedCents / card.limitTotalCents) * 100)
-      : (limitUsedCents > 0 ? 100 : 0);
 
-    return {
-      ...card,
-      limitUsedCents,
-      limitAvailableComputedCents: card.limitTotalCents - limitUsedCents,
-      limitUsagePercent,
-      currentOpenInvoiceMonth,
-    };
+    return { used, month: currentOpenInvoiceMonth };
+  }
+
+  /**
+   * Fatura aberta de cada cartão do projeto, SEMPRE com o valor usado (mesmo
+   * sem limite configurado). Usado por agregações de patrimônio/dívida.
+   */
+  async listOpenInvoices(tenantId: string, projectId: string) {
+    await this.ensureProject(tenantId, projectId);
+    const cards = await this.prisma.creditCard.findMany({
+      where: { tenantId, projectId, deletedAt: null },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, nickname: true, last4: true, limitTotalCents: true, closingDay: true, dueDay: true },
+    });
+    return Promise.all(
+      cards.map(async (card) => {
+        const { used, month } = await this.computeOpenInvoiceUsed(tenantId, projectId, card);
+        return {
+          id: card.id,
+          nickname: card.nickname,
+          last4: card.last4,
+          limitTotalCents: card.limitTotalCents,
+          openInvoiceUsedCents: used,
+          openInvoiceMonth: month,
+        };
+      }),
+    );
   }
 
   private currentOpenInvoiceMonth(card: { closingDay: number | null; dueDay: number | null }, today = new Date()): string {

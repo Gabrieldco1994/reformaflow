@@ -4,6 +4,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { TenantFinancialService } from '../../tenant-financial/tenant-financial.service';
 import { ExpenseService } from '../../expense/expense.service';
 import { ReceiptService } from '../../receipt/receipt.service';
+import { CreditCardService } from '../../credit-card/credit-card.service';
+import { BankAccountService } from '../../bank-account/bank-account.service';
 import {
   isFullAccessRole,
   projectTypeHasModule,
@@ -43,6 +45,8 @@ export class AgentToolsService {
     private readonly financial: TenantFinancialService,
     private readonly expenses: ExpenseService,
     private readonly receipts: ReceiptService,
+    private readonly cards: CreditCardService,
+    private readonly accounts: BankAccountService,
   ) {
     this.handlers = this.buildHandlers();
   }
@@ -178,6 +182,7 @@ export class AgentToolsService {
               status: { type: 'string', enum: ['PAGO', 'PLANEJADO'], description: 'PAGO se já foi pago; PLANEJADO se é uma despesa futura/prevista. Default PAGO.' },
               creditCardId: { type: 'string', description: 'Id do cartão de crédito a vincular (obtido via list_payment_methods).' },
               bankAccountId: { type: 'string', description: 'Id da conta bancária a vincular (obtido via list_payment_methods).' },
+              linkedExpenseId: { type: 'string', description: 'Id de uma despesa de OUTRO projeto para vincular (cross-project, evita dupla contagem). Use find_expenses para localizar a despesa-alvo.' },
             },
             required: ['valor'],
             additionalProperties: false,
@@ -199,9 +204,10 @@ export class AgentToolsService {
           const quantidade = this.clampInt(args['quantidade'], 1, 1, 100000);
           const data = this.optDate(args['data']);
 
-          // Valida vínculos (projeto-alvo do cartão/conta deve estar no escopo do usuário).
+          // Valida vínculos (projeto-alvo do cartão/conta/despesa deve estar no escopo do usuário).
           const creditCardId = await this.resolvePaymentRef(ctx, args['creditCardId'], 'card');
           const bankAccountId = await this.resolvePaymentRef(ctx, args['bankAccountId'], 'account');
+          const linkedExpenseId = await this.resolveLinkedExpense(ctx, args['linkedExpenseId'], project.id);
 
           const parcelado = formaPagamento === 'PARCELADO' || formaPagamento === 'QUINZENAL';
 
@@ -219,6 +225,7 @@ export class AgentToolsService {
             quantidadeParcela: formaPagamento === 'PARCELADO' ? quantidadeParcela ?? undefined : undefined,
             creditCardId,
             bankAccountId,
+            linkedExpenseId,
           } as any);
 
           return {
@@ -236,6 +243,7 @@ export class AgentToolsService {
               data: data ?? new Date().toISOString().slice(0, 10),
               cardLast4: created.cardLast4 ?? null,
               bankLast4: created.bankLast4 ?? null,
+              linkedExpenseId: created.linkedExpenseId ?? null,
             },
             mensagem: `Despesa registrada em "${project.name}".`,
           };
@@ -268,6 +276,172 @@ export class AgentToolsService {
           return {
             cartoes: cards.map((c) => ({ creditCardId: c.id, apelido: c.nickname ?? c.institution ?? null, final: c.last4 ?? null, projeto: c.project?.name ?? null })),
             contas: accounts.map((a) => ({ bankAccountId: a.id, apelido: a.nickname ?? a.institution ?? null, final: a.last4 ?? null, projeto: a.project?.name ?? null })),
+          };
+        },
+      },
+
+      find_expenses: {
+        def: {
+          name: 'find_expenses',
+          description:
+            'Busca despesas existentes (id, projeto, título, fornecedor, valor, data, tipo) — útil para localizar a despesa-alvo de um vínculo cross-project (linkedExpenseId no create_expense). ' +
+            'Filtre por projeto e/ou por um texto (busca em título e fornecedor).',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: 'Restringe a um projeto (opcional).' },
+              query: { type: 'string', description: 'Texto a buscar em título/fornecedor (opcional).' },
+              limit: { type: 'integer', description: 'Máximo de resultados (1 a 25, default 10).' },
+            },
+            additionalProperties: false,
+          },
+        },
+        run: async (ctx, args) => {
+          const scope = ctx.projectScope ?? null;
+          const projectId = this.optStr(args['projectId']);
+          if (projectId && scope && !scope.includes(projectId)) {
+            throw new Error('Sem permissão para acessar este projeto.');
+          }
+          const q = this.optStr(args['query']);
+          const limit = this.clampInt(args['limit'], 10, 1, 25);
+          const where: Record<string, unknown> = {
+            tenantId: ctx.tenantId,
+            deletedAt: null,
+            settledByExpenseId: null,
+            ...(projectId ? { projectId } : scope ? { projectId: { in: scope } } : {}),
+            ...(q ? { OR: [{ titulo: { contains: q } }, { fornecedor: { contains: q } }] } : {}),
+          };
+          const rows = await this.prisma.expense.findMany({
+            where: where as never,
+            select: {
+              id: true, titulo: true, fornecedor: true, valorTotal: true,
+              tipoDespesa: true, dataPagamento: true,
+              project: { select: { name: true } },
+            },
+            orderBy: { createdAt: 'desc' },
+            take: limit,
+          });
+          return {
+            despesas: rows.map((r) => ({
+              expenseId: r.id,
+              projeto: r.project?.name ?? null,
+              titulo: r.titulo ?? null,
+              fornecedor: r.fornecedor ?? null,
+              valorTotalCentavos: r.valorTotal,
+              tipoDespesa: r.tipoDespesa,
+              data: r.dataPagamento ? r.dataPagamento.toISOString().slice(0, 10) : null,
+            })),
+          };
+        },
+      },
+
+      get_cashflow_history: {
+        def: {
+          name: 'get_cashflow_history',
+          description:
+            'Série mensal consolidada (últimos N meses, default 6): por mês retorna pago (despesas), planejado, recebido (entradas) e saldo acumulado. ' +
+            'Use para tendência do patrimônio/caixa, TAXA DE POUPANÇA (recebido − pago no período) e detectar "buracos" futuros. Valores em centavos.',
+          parameters: {
+            type: 'object',
+            properties: {
+              months: { type: 'integer', description: 'Janela em meses (1 a 36, default 6).' },
+            },
+            additionalProperties: false,
+          },
+        },
+        run: async (ctx, args) => {
+          const months = this.clampInt(args['months'], 6, 1, 36);
+          const serie = await this.financial.getCashFlow(ctx.tenantId, months, ctx.projectScope ?? null);
+          const totalRecebido = serie.reduce((s, p) => s + p.recebido, 0);
+          const totalPago = serie.reduce((s, p) => s + p.pago, 0);
+          return {
+            meses: serie.map((p) => ({ mes: p.mes, pago: p.pago, planejado: p.planejado, recebido: p.recebido, previsto: p.previsto, saldoAcumulado: p.saldoAcumulado })),
+            resumo: {
+              meses: months,
+              totalRecebido,
+              totalPago,
+              poupancaPeriodo: totalRecebido - totalPago,
+              taxaPoupancaPercent: totalRecebido > 0 ? Math.round(((totalRecebido - totalPago) / totalRecebido) * 100) : null,
+            },
+          };
+        },
+      },
+
+      get_recurring_bills: {
+        def: {
+          name: 'get_recurring_bills',
+          description:
+            'Lista contas/assinaturas recorrentes ATIVAS (nome, categoria, valor, frequência, próximo vencimento) e o custo MENSAL normalizado total. ' +
+            'Use para "assinaturas que drenam dinheiro", custos fixos e choques anuais (IPVA, seguro, IPTU). Valores em centavos.',
+          parameters: noParams,
+        },
+        run: async (ctx) => {
+          const scope = ctx.projectScope ?? null;
+          const bills = await this.prisma.recurringBill.findMany({
+            where: { tenantId: ctx.tenantId, deletedAt: null, status: 'ATIVO', ...(scope ? { projectId: { in: scope } } : {}) },
+            select: { nome: true, categoria: true, valor: true, frequencia: true, proximoVencimento: true, project: { select: { name: true } } },
+            orderBy: { proximoVencimento: 'asc' },
+          });
+          const perMonthFactor: Record<string, number> = { MENSAL: 1, BIMESTRAL: 1 / 2, TRIMESTRAL: 1 / 3, SEMESTRAL: 1 / 6, ANUAL: 1 / 12 };
+          let custoMensalCentavos = 0;
+          const itens = bills.map((b) => {
+            custoMensalCentavos += Math.round(b.valor * (perMonthFactor[b.frequencia] ?? 1));
+            return {
+              nome: b.nome,
+              categoria: b.categoria,
+              valorCentavos: b.valor,
+              frequencia: b.frequencia,
+              proximoVencimento: b.proximoVencimento ? b.proximoVencimento.toISOString().slice(0, 10) : null,
+              projeto: b.project?.name ?? null,
+            };
+          });
+          return { itens, custoMensalCentavos, custoAnualCentavos: custoMensalCentavos * 12 };
+        },
+      },
+
+      get_account_balances: {
+        def: {
+          name: 'get_account_balances',
+          description:
+            'Componentes de PATRIMÔNIO: saldo de cada conta bancária (movimento de entradas − despesas pagas) e a FATURA ABERTA de cada cartão (dívida atual). ' +
+            'Use para estimar patrimônio líquido (saldos − dívida de cartões) e RESERVA DE EMERGÊNCIA. ' +
+            'IMPORTANTE: investimentos, financiamentos e outros ativos/dívidas NÃO são rastreados aqui — pergunte ao usuário e some manualmente. Valores em centavos.',
+          parameters: noParams,
+        },
+        run: async (ctx) => {
+          const scope = ctx.projectScope ?? null;
+          const projects = await this.prisma.project.findMany({
+            where: { tenantId: ctx.tenantId, deletedAt: null, ...(scope ? { id: { in: scope } } : {}) },
+            select: { id: true, name: true },
+          });
+
+          const contas: { conta: string; projeto: string; saldoCentavos: number }[] = [];
+          const cartoes: { cartao: string; projeto: string; faturaAbertaCentavos: number; limiteCentavos: number | null }[] = [];
+
+          for (const p of projects) {
+            const [accs, cards] = await Promise.all([
+              this.accounts.listAccounts(ctx.tenantId, p.id),
+              this.cards.listOpenInvoices(ctx.tenantId, p.id),
+            ]);
+            for (const a of accs as Array<{ nickname: string; balanceCents?: number }>) {
+              contas.push({ conta: a.nickname, projeto: p.name, saldoCentavos: a.balanceCents ?? 0 });
+            }
+            for (const c of cards) {
+              cartoes.push({ cartao: c.nickname, projeto: p.name, faturaAbertaCentavos: c.openInvoiceUsedCents, limiteCentavos: c.limitTotalCents });
+            }
+          }
+
+          const saldoBancarioTotal = contas.reduce((s, c) => s + c.saldoCentavos, 0);
+          const dividaCartoesTotal = cartoes.reduce((s, c) => s + c.faturaAbertaCentavos, 0);
+          return {
+            contas,
+            cartoes,
+            totais: {
+              saldoBancarioTotalCentavos: saldoBancarioTotal,
+              dividaCartoesTotalCentavos: dividaCartoesTotal,
+              patrimonioParcialCentavos: saldoBancarioTotal - dividaCartoesTotal,
+              observacao: 'Parcial: não inclui investimentos/financiamentos não rastreados. Pergunte ao usuário para completar.',
+            },
           };
         },
       },
@@ -441,6 +615,32 @@ export class AgentToolsService {
     }
     if (!userCanAccessProject(ctx.role, ctx.projectScope ?? undefined, row.projectId)) {
       throw new Error('Sem permissão para usar este meio de pagamento.');
+    }
+    return id;
+  }
+
+  /**
+   * Valida o alvo de um vínculo cross-project (linkedExpenseId): precisa existir
+   * no tenant, ser de OUTRO projeto, e o usuário precisa acessar o projeto-alvo.
+   * Retorna o id ou undefined.
+   */
+  private async resolveLinkedExpense(
+    ctx: ToolContext,
+    rawId: unknown,
+    currentProjectId: string,
+  ): Promise<string | undefined> {
+    const id = typeof rawId === 'string' && rawId.trim() ? rawId.trim() : '';
+    if (!id) return undefined;
+    const row = await this.prisma.expense.findFirst({
+      where: { id, tenantId: ctx.tenantId, deletedAt: null },
+      select: { projectId: true },
+    });
+    if (!row) throw new Error('Despesa para vínculo não encontrada.');
+    if (row.projectId === currentProjectId) {
+      throw new Error('O vínculo cross-project exige uma despesa de OUTRO projeto.');
+    }
+    if (!userCanAccessProject(ctx.role, ctx.projectScope ?? undefined, row.projectId)) {
+      throw new Error('Sem permissão para vincular a essa despesa.');
     }
     return id;
   }

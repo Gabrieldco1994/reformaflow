@@ -10,6 +10,6 @@ import { CardInvoiceSettlementService } from './card-invoice-settlement.service'
   imports: [PrismaModule, ConciliacaoModule],
   controllers: [CreditCardController, CreditCardTenantController],
   providers: [CreditCardService, CardInvoiceSettlementService],
-  exports: [CardInvoiceSettlementService],
+  exports: [CardInvoiceSettlementService, CreditCardService],
 })
 export class CreditCardModule {}

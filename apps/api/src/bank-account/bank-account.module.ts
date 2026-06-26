@@ -11,5 +11,6 @@ import { CreditCardModule } from '../credit-card/credit-card.module';
   imports: [PrismaModule, MerchantClassifierModule, ConciliacaoModule, CreditCardModule],
   controllers: [BankAccountController, BankAccountTenantController],
   providers: [BankAccountService],
+  exports: [BankAccountService],
 })
 export class BankAccountModule {}
