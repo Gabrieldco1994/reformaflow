@@ -26,6 +26,7 @@ interface PrismaMock {
     upsert: AnyFn;
     deleteMany: AnyFn;
     findMany: AnyFn;
+    count: AnyFn;
   };
   $transaction: AnyFn;
 }
@@ -53,6 +54,7 @@ const makePrismaMock = (): PrismaMock => {
       upsert: jest.fn().mockResolvedValue({}),
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       findMany: jest.fn().mockResolvedValue([]),
+      count: jest.fn().mockResolvedValue(0),
     },
     $transaction: jest.fn(),
   } as PrismaMock;
@@ -579,17 +581,53 @@ describe('ExpenseService', () => {
         projectId,
         tenantId,
         deletedAt: null,
+        linkedExpenseId: null,
       });
+      prisma.expense.findMany.mockResolvedValue([]); // sem espelhos
+      prisma.crossProjectSettlement.count.mockResolvedValue(0);
       // $transaction com array de operações
       prisma.$transaction.mockImplementationOnce(async (ops: any) => {
-        // Verifica que recebeu um array de operações (cashFlowEntry + expense + clearLinks)
         expect(Array.isArray(ops)).toBe(true);
         expect(ops.length).toBeGreaterThanOrEqual(2);
         return [];
       });
 
       const result = await service.remove(tenantId, projectId, 'e1');
-      expect(result).toEqual({ deleted: true });
+      expect(result).toEqual({ deleted: true, count: 1 });
+    });
+
+    it('cascateia o par vinculado (espelho -> canônico) quando não há conciliação', async () => {
+      // remove o espelho 'mir' que aponta para o canônico 'canon'
+      prisma.expense.findFirst
+        .mockResolvedValueOnce({ id: 'mir', projectId, tenantId, deletedAt: null, linkedExpenseId: 'canon' }) // a própria
+        .mockResolvedValueOnce({ id: 'canon' }); // o alvo
+      prisma.expense.findMany.mockResolvedValue([]); // sem espelhos apontando para 'mir'
+      prisma.crossProjectSettlement.count.mockResolvedValue(0);
+      let deletedIds: string[] = [];
+      prisma.$transaction.mockImplementationOnce(async (ops: any) => {
+        // a última op é o updateMany de expense com id IN [...]
+        return [];
+      });
+      prisma.expense.updateMany.mockImplementation((args: any) => {
+        if (args?.data?.deletedAt && args?.where?.id?.in) deletedIds = args.where.id.in;
+        return Promise.resolve({ count: 0 });
+      });
+
+      const result = await service.remove(tenantId, projectId, 'mir');
+      expect(result.count).toBe(2);
+      expect(deletedIds.sort()).toEqual(['canon', 'mir']);
+    });
+
+    it('NÃO cascateia quando há conciliação (CrossProjectSettlement)', async () => {
+      prisma.expense.findFirst.mockResolvedValue({
+        id: 'src', projectId, tenantId, deletedAt: null, linkedExpenseId: 'planned',
+      });
+      prisma.expense.findMany.mockResolvedValue([]);
+      prisma.crossProjectSettlement.count.mockResolvedValue(1); // tem settlement
+      prisma.$transaction.mockImplementationOnce(async () => []);
+
+      const result = await service.remove(tenantId, projectId, 'src');
+      expect(result.count).toBe(1); // só a própria, não cascateia o 'planned'
     });
 
     it('lança NotFound quando despesa não existe', async () => {

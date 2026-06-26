@@ -646,26 +646,58 @@ export class ExpenseService {
     });
     if (!expense) throw new NotFoundException('Despesa não encontrada');
 
+    // "Uma coisa só": um vínculo cross-project criado pelo fluxo de obra paga com
+    // caixa pessoal (canônico na obra + espelho no PESSOAL) deve ser excluído como
+    // unidade — apagar um lado apaga o outro. EXCEÇÃO: vínculos de CONCILIAÇÃO
+    // (importação de fatura) têm CrossProjectSettlement e unlink reversível; nesses
+    // NÃO cascateamos (preserva o comportamento de restaurar o planejado).
+    const ids = new Set<string>([id]);
+
+    const involvedInSettlement = async (expenseId: string) =>
+      (await this.prisma.crossProjectSettlement.count({
+        where: { tenantId, OR: [{ sourceExpenseId: expenseId }, { targetExpenseId: expenseId }] },
+      })) > 0;
+
+    if (!(await involvedInSettlement(id))) {
+      // Se esta é um espelho, inclui o canônico-alvo (se ele não for de conciliação).
+      if (expense.linkedExpenseId) {
+        const target = await this.prisma.expense.findFirst({
+          where: { id: expense.linkedExpenseId, tenantId, deletedAt: null },
+          select: { id: true },
+        });
+        if (target && !(await involvedInSettlement(target.id))) ids.add(target.id);
+      }
+      // Inclui os espelhos que apontam para esta (despesas-irmãs no PESSOAL).
+      const mirrors = await this.prisma.expense.findMany({
+        where: { tenantId, linkedExpenseId: id, deletedAt: null },
+        select: { id: true },
+      });
+      for (const m of mirrors) {
+        if (!(await involvedInSettlement(m.id))) ids.add(m.id);
+      }
+    }
+
+    const idArr = [...ids];
     const now = new Date();
 
     await this.prisma.$transaction([
-      // Se esta despesa é alvo de algum link cross-project, limpa o ponteiro
-      // dos sources para não deixar dangling reference.
+      // Limpa ponteiros pendentes de quaisquer OUTRAS despesas que apontem para as
+      // que serão removidas (evita dangling reference).
       this.prisma.expense.updateMany({
-        where: { tenantId, linkedExpenseId: id, deletedAt: null },
+        where: { tenantId, linkedExpenseId: { in: idArr }, id: { notIn: idArr }, deletedAt: null },
         data: { linkedExpenseId: null },
       }),
       this.prisma.cashFlowEntry.updateMany({
-        where: { expenseId: id, deletedAt: null },
+        where: { expenseId: { in: idArr }, deletedAt: null },
         data: { deletedAt: now },
       }),
-      this.prisma.expense.update({
-        where: { id },
+      this.prisma.expense.updateMany({
+        where: { id: { in: idArr }, deletedAt: null },
         data: { deletedAt: now },
       }),
     ]);
 
-    return { deleted: true };
+    return { deleted: true, count: idArr.length };
   }
 
   private async regenerateCashFlow(expenseId: string) {
