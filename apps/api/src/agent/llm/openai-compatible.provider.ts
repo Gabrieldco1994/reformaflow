@@ -56,7 +56,7 @@ export class OpenAiCompatibleProvider implements LlmProvider {
       // Endpoint OpenAI-compatível do Cerebras (free tier generoso, function calling).
       this.baseUrl = process.env['CEREBRAS_BASE_URL'] || 'https://api.cerebras.ai/v1';
       this.apiKey = process.env['CEREBRAS_API_KEY'];
-      defaultModel = 'llama-3.3-70b';
+      defaultModel = 'gpt-oss-120b';
     } else if (provider === 'gemini') {
       // Endpoint OpenAI-compatível do Google Gemini (suporta function calling).
       this.baseUrl =
