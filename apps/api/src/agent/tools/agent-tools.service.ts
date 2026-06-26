@@ -544,6 +544,104 @@ export class AgentToolsService {
           };
         },
       },
+
+      create_obra_expense: {
+        def: {
+          name: 'create_obra_expense',
+          description:
+            'Registra uma despesa de um PROJETO de obra/aquisição (REFORMA/COMPRA/CASA/CARRO) que foi PAGA com dinheiro pessoal. ' +
+            'Cria DOIS lados vinculados, sem duplicar: (1) a despesa no projeto da obra (registro da obra, aparece no controle do projeto e no consolidado) e ' +
+            '(2) um ESPELHO no projeto PESSOAL (registra a saída do caixa, com o cartão/conta usado). ' +
+            'Use SEMPRE que o usuário disser que pagou algo de um projeto de obra com o dinheiro/cartão/conta pessoal ' +
+            '(ex.: "paguei 140 de material da reforma pelo Itaú", "gastei 500 na obra da casa no cartão Nubank"). ' +
+            'Para despesas puramente pessoais (mercado, lazer) use create_expense normal.',
+          parameters: {
+            type: 'object',
+            properties: {
+              obraProjectId: { type: 'string', description: 'Id do projeto da obra/aquisição (REFORMA/COMPRA/CASA/CARRO). Use list_projects para resolver pelo nome.' },
+              pessoalProjectId: { type: 'string', description: 'Id do projeto PESSOAL (caixa). Opcional: se houver apenas um PESSOAL acessível, é resolvido automaticamente.' },
+              valor: { type: 'number', description: 'Valor em REAIS (ex.: 140). Obrigatório.' },
+              tipoDespesa: { type: 'string', description: 'Categoria da despesa (ex.: MATERIAL_CONSTRUCAO, MAO_DE_OBRA, OBRA_REFORMA, OUTROS). Use OUTROS se não tiver certeza.' },
+              titulo: { type: 'string', description: 'Descrição curta (opcional).' },
+              fornecedor: { type: 'string', description: 'Fornecedor/loja (ex.: "Obramax").' },
+              data: { type: 'string', description: 'Data no formato YYYY-MM-DD. Default: hoje.' },
+              creditCardId: { type: 'string', description: 'Cartão usado no pagamento (via list_payment_methods). Vai no espelho pessoal.' },
+              bankAccountId: { type: 'string', description: 'Conta usada no pagamento (via list_payment_methods). Vai no espelho pessoal.' },
+            },
+            required: ['obraProjectId', 'valor'],
+            additionalProperties: false,
+          },
+        },
+        run: async (ctx, args) => {
+          const obra = await this.resolveWritableProject(ctx, args['obraProjectId'], 'expenses');
+          if (obra.type === 'PESSOAL') {
+            return { error: 'O projeto da obra não pode ser PESSOAL. Para despesa pessoal use create_expense.' };
+          }
+          const pessoal = await this.resolvePessoalProject(ctx, args['pessoalProjectId']);
+
+          const valor = this.parseMoney(args['valor']);
+          if (valor == null) return { error: 'Informe um valor em reais maior que zero.' };
+
+          const tipoDespesa = this.normalizeEnum(args['tipoDespesa'], ExpenseType, 'OUTROS');
+          const data = this.optDate(args['data']);
+          const titulo = this.optStr(args['titulo']);
+          const fornecedor = this.optStr(args['fornecedor']);
+          const creditCardId = await this.resolvePaymentRef(ctx, args['creditCardId'], 'card');
+          const bankAccountId = await this.resolvePaymentRef(ctx, args['bankAccountId'], 'account');
+
+          // 1) Canônico na obra (registro do projeto — sem meio de pagamento).
+          const canonico = await this.expenses.create(ctx.tenantId, obra.id, {
+            tipoDespesa,
+            valor,
+            quantidade: 1,
+            formaPagamento: 'A_VISTA',
+            status: 'PAGO',
+            titulo,
+            fornecedor,
+            dataPagamento: data,
+          } as any);
+
+          // 2) Espelho no PESSOAL (saída do caixa) vinculado ao canônico.
+          //    Se falhar, desfaz o canônico para não deixar registro pela metade.
+          let espelho;
+          try {
+            espelho = await this.expenses.create(ctx.tenantId, pessoal.id, {
+              tipoDespesa,
+              valor,
+              quantidade: 1,
+              formaPagamento: 'A_VISTA',
+              status: 'PAGO',
+              titulo,
+              fornecedor,
+              dataPagamento: data,
+              creditCardId,
+              bankAccountId,
+              linkedExpenseId: canonico.id,
+            } as any);
+          } catch (e) {
+            await this.expenses.remove(ctx.tenantId, obra.id, canonico.id).catch(() => undefined);
+            throw e;
+          }
+
+          return {
+            ok: true,
+            obra: {
+              expenseId: canonico.id,
+              projeto: obra.name,
+              tipoDespesa,
+              valorTotalCentavos: canonico.valorTotal,
+            },
+            pessoal: {
+              expenseId: espelho.id,
+              projeto: pessoal.name,
+              vinculadoA: canonico.id,
+              cardLast4: espelho.cardLast4 ?? null,
+              bankLast4: espelho.bankLast4 ?? null,
+            },
+            mensagem: `Registrado: despesa em "${obra.name}" e espelho no caixa "${pessoal.name}" (sem duplicar no consolidado).`,
+          };
+        },
+      },
     };
   }
 
@@ -599,6 +697,49 @@ export class AgentToolsService {
       }
     }
     return project;
+  }
+
+  /**
+   * Resolve o projeto PESSOAL (caixa/fonte da verdade) para o espelho.
+   * - Se rawId informado: valida que é PESSOAL, no tenant e acessível.
+   * - Senão: se houver exatamente UM PESSOAL acessível, usa-o; se o projeto em
+   *   foco for PESSOAL, usa-o; caso contrário, pede para especificar.
+   */
+  private async resolvePessoalProject(
+    ctx: ToolContext,
+    rawId: unknown,
+  ): Promise<{ id: string; name: string; type: string }> {
+    const scope = ctx.projectScope ?? null;
+    const explicit = typeof rawId === 'string' && rawId.trim() ? rawId.trim() : '';
+    if (explicit) {
+      const p = await this.prisma.project.findFirst({
+        where: { id: explicit, tenantId: ctx.tenantId, deletedAt: null },
+        select: { id: true, name: true, type: true },
+      });
+      if (!p) throw new Error('Projeto pessoal não encontrado.');
+      if (p.type !== 'PESSOAL') throw new Error('O projeto de caixa informado não é do tipo PESSOAL.');
+      if (!userCanAccessProject(ctx.role, scope ?? undefined, p.id)) {
+        throw new Error('Sem permissão para acessar o projeto pessoal.');
+      }
+      return p;
+    }
+
+    const pessoais = await this.prisma.project.findMany({
+      where: { tenantId: ctx.tenantId, deletedAt: null, type: 'PESSOAL', ...(scope ? { id: { in: scope } } : {}) },
+      select: { id: true, name: true, type: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (pessoais.length === 0) {
+      throw new Error('Não há projeto PESSOAL para registrar o caixa. Crie um projeto Pessoal primeiro.');
+    }
+    if (pessoais.length === 1) return pessoais[0]!;
+
+    const focused = pessoais.find((p) => p.id === ctx.projectId);
+    if (focused) return focused;
+    const nomes = pessoais.map((p) => `"${p.name}"`).join(', ');
+    throw new Error(
+      `Há mais de um projeto Pessoal (${nomes}). Peça ao usuário para indicar em qual registrar (pessoalProjectId).`,
+    );
   }
 
   /**

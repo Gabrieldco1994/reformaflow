@@ -33,10 +33,11 @@ const TOOL_LABELS: Record<string, string> = {
   list_payment_methods: 'cartões/contas',
   create_expense: 'registrou despesa',
   create_receipt: 'registrou recebimento',
+  create_obra_expense: 'registrou despesa de obra (caixa pessoal)',
 };
 
 // Ferramentas que ALTERAM dados — ao usá-las, as telas precisam recarregar.
-const WRITE_TOOLS = new Set(['create_expense', 'create_receipt']);
+const WRITE_TOOLS = new Set(['create_expense', 'create_receipt', 'create_obra_expense']);
 
 // Famílias de query (React Query) afetadas por uma escrita do copiloto.
 const INVALIDATE_ON_WRITE = [
