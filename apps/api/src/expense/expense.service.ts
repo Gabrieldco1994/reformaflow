@@ -111,6 +111,7 @@ export class ExpenseService {
         dataPagamento: dto.dataPagamento ? new Date(dto.dataPagamento) : null,
         quantidadeParcela: dto.quantidadeParcela,
         dataInicioParcela: dto.dataInicioParcela ? new Date(dto.dataInicioParcela) : null,
+        dataCompra: dto.dataCompra ? new Date(dto.dataCompra) : null,
         status: dto.status,
         recorrente: dto.recorrente ?? false,
         recorrenciaFim: dto.recorrenciaFim ? new Date(dto.recorrenciaFim) : null,
@@ -467,6 +468,12 @@ export class ExpenseService {
             : dto.dataInicioParcela === null
               ? null
               : new Date(dto.dataInicioParcela),
+        dataCompra:
+          dto.dataCompra === undefined
+            ? undefined
+            : dto.dataCompra === null
+              ? null
+              : new Date(dto.dataCompra),
         status: dto.status,
         recorrente: dto.recorrente === undefined ? undefined : !!dto.recorrente,
         recorrenciaFim:
@@ -485,7 +492,94 @@ export class ExpenseService {
 
     await this.regenerateCashFlow(expense.id);
 
+    // "Uma coisa só": se esta despesa faz parte de um par cross-project (canônico
+    // na obra + espelho no PESSOAL, criado pelo fluxo de obra paga com caixa
+    // pessoal), editar um lado deve refletir no outro. Propaga apenas campos da
+    // COMPRA (data, valor, parcelas, status, tipo, título); campos por-lado (meio
+    // de pagamento, sala, ponteiro de vínculo, anexos) NÃO são sincronizados.
+    await this.syncLinkedObraPair(tenantId, id, dto);
+
     return expense;
+  }
+
+  private async syncLinkedObraPair(tenantId: string, sourceId: string, dto: UpdateExpenseDto) {
+    const involvedInSettlement = async (expenseId: string) =>
+      (await this.prisma.crossProjectSettlement.count({
+        where: { tenantId, OR: [{ sourceExpenseId: expenseId }, { targetExpenseId: expenseId }] },
+      })) > 0;
+
+    // Pares de CONCILIAÇÃO (importação de fatura) têm unlink reversível próprio —
+    // não sincronizamos para não interferir no fluxo de conciliação.
+    if (await involvedInSettlement(sourceId)) return;
+
+    const source = await this.prisma.expense.findFirst({
+      where: { id: sourceId, tenantId, deletedAt: null },
+      select: { id: true, linkedExpenseId: true },
+    });
+    if (!source) return;
+
+    const counterpartIds = new Set<string>();
+    if (source.linkedExpenseId) {
+      const target = await this.prisma.expense.findFirst({
+        where: { id: source.linkedExpenseId, tenantId, deletedAt: null },
+        select: { id: true },
+      });
+      if (target && !(await involvedInSettlement(target.id))) counterpartIds.add(target.id);
+    }
+    const mirrors = await this.prisma.expense.findMany({
+      where: { tenantId, linkedExpenseId: sourceId, deletedAt: null },
+      select: { id: true },
+    });
+    for (const m of mirrors ?? []) {
+      if (!(await involvedInSettlement(m.id))) counterpartIds.add(m.id);
+    }
+    if (counterpartIds.size === 0) return;
+
+    const shared: Record<string, unknown> = {};
+    if (dto.tipoDespesa !== undefined) shared.tipoDespesa = dto.tipoDespesa;
+    if (dto.categoriaMaoDeObra !== undefined) shared.categoriaMaoDeObra = dto.categoriaMaoDeObra;
+    if (dto.titulo !== undefined) shared.titulo = dto.titulo;
+    if (dto.fornecedor !== undefined) shared.fornecedor = dto.fornecedor;
+    if (dto.formaPagamento !== undefined) shared.formaPagamento = dto.formaPagamento;
+    if (dto.quantidadeParcela !== undefined) shared.quantidadeParcela = dto.quantidadeParcela;
+    if (dto.status !== undefined) shared.status = dto.status;
+    if (dto.dataPagamento !== undefined)
+      shared.dataPagamento = dto.dataPagamento === null ? null : new Date(dto.dataPagamento);
+    if (dto.dataInicioParcela !== undefined)
+      shared.dataInicioParcela =
+        dto.dataInicioParcela === null ? null : new Date(dto.dataInicioParcela);
+    if (dto.dataCompra !== undefined)
+      shared.dataCompra = dto.dataCompra === null ? null : new Date(dto.dataCompra);
+    if (dto.recorrente !== undefined) shared.recorrente = !!dto.recorrente;
+    if (dto.recorrenciaFim !== undefined)
+      shared.recorrenciaFim = dto.recorrenciaFim === null ? null : new Date(dto.recorrenciaFim);
+
+    const resetPaidParcelas =
+      dto.status !== undefined ||
+      dto.formaPagamento !== undefined ||
+      dto.quantidadeParcela !== undefined ||
+      dto.valor !== undefined ||
+      dto.quantidade !== undefined ||
+      dto.dataInicioParcela !== undefined;
+
+    for (const cid of counterpartIds) {
+      const cp = await this.prisma.expense.findUnique({
+        where: { id: cid },
+        select: { valor: true, quantidade: true },
+      });
+      if (!cp) continue;
+
+      const data: Record<string, unknown> = { ...shared };
+      if (dto.valor !== undefined) data.valor = Math.round(dto.valor * 100);
+      if (dto.quantidade !== undefined) data.quantidade = dto.quantidade;
+      const newValor = (data.valor as number | undefined) ?? cp.valor;
+      const newQtd = (data.quantidade as number | undefined) ?? cp.quantidade;
+      data.valorTotal = newValor * newQtd;
+      if (resetPaidParcelas) data.paidParcelas = null;
+
+      await this.prisma.expense.update({ where: { id: cid }, data });
+      await this.regenerateCashFlow(cid);
+    }
   }
 
   async payPlanned(tenantId: string, projectId: string, id: string, dto: UpdateExpenseDto) {

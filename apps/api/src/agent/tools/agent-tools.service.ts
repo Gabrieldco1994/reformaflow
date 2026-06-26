@@ -259,7 +259,7 @@ export class AgentToolsService {
               tipoDespesa: { type: 'string', description: 'Categoria da despesa. Ex.: MATERIAL_CONSTRUCAO, MAO_DE_OBRA, ALIMENTACAO, TRANSPORTE, SAUDE, MORADIA, SUPERMERCADO, LAZER, OUTROS. Use OUTROS se não tiver certeza.' },
               titulo: { type: 'string', description: 'Descrição curta (ex.: "Cimento e areia").' },
               fornecedor: { type: 'string', description: 'Nome do fornecedor/loja (ex.: "Obramax").' },
-              data: { type: 'string', description: 'Data da despesa no formato YYYY-MM-DD. Default: hoje. Para parcelado, é a data da 1ª parcela.' },
+              data: { type: 'string', description: 'Data REAL da compra (competência) no formato YYYY-MM-DD. Default: hoje. Para cartão, o vencimento da fatura é derivado automaticamente desta data.' },
               formaPagamento: { type: 'string', enum: ['A_VISTA', 'PARCELADO', 'QUINZENAL', 'PIX', 'PAGAMENTO_CONTA'], description: 'Forma de pagamento (default A_VISTA).' },
               quantidadeParcela: { type: 'integer', description: 'Número de parcelas (use com formaPagamento=PARCELADO). Ex.: "em 3x" -> 3.' },
               status: { type: 'string', enum: ['PAGO', 'PLANEJADO'], description: 'PAGO se já foi pago; PLANEJADO se é uma despesa futura/prevista. Default PAGO.' },
@@ -305,6 +305,10 @@ export class AgentToolsService {
             // À vista: a data vira dataPagamento. Parcelado: vira dataInicioParcela.
             dataPagamento: parcelado ? undefined : data,
             dataInicioParcela: parcelado ? data : undefined,
+            // A data informada é a DATA DA COMPRA (competência). Mantida em ambos
+            // os eixos: competência usa dataCompra; o caixa deriva o vencimento
+            // da fatura do cartão a partir dela.
+            dataCompra: data,
             quantidadeParcela: formaPagamento === 'PARCELADO' ? quantidadeParcela ?? undefined : undefined,
             creditCardId,
             bankAccountId,
@@ -600,7 +604,7 @@ export class AgentToolsService {
               tipoDespesa: { type: 'string', description: 'Categoria da despesa (ex.: MATERIAL_CONSTRUCAO, MAO_DE_OBRA, OBRA_REFORMA, OUTROS). Use OUTROS se não tiver certeza.' },
               titulo: { type: 'string', description: 'Descrição curta (opcional).' },
               fornecedor: { type: 'string', description: 'Fornecedor/loja (ex.: "Obramax").' },
-              data: { type: 'string', description: 'Data no formato YYYY-MM-DD. Default: hoje. Para parcelado, é a data da 1ª parcela.' },
+              data: { type: 'string', description: 'Data REAL da compra (competência) no formato YYYY-MM-DD. Default: hoje. Para cartão, o vencimento da fatura é derivado automaticamente desta data.' },
               quantidadeParcela: { type: 'integer', description: 'Número de parcelas quando a compra foi parcelada (ex.: "em 2x"/"duas parcelas" -> 2). Omita para à vista.' },
               creditCardId: { type: 'string', description: 'Cartão usado no pagamento (via list_payment_methods). Vai no espelho pessoal.' },
               bankAccountId: { type: 'string', description: 'Conta usada no pagamento (via list_payment_methods). Vai no espelho pessoal.' },
@@ -627,12 +631,14 @@ export class AgentToolsService {
           const bankAccountId = await this.resolvePaymentRef(ctx, args['bankAccountId'], 'account');
 
           // Parcelamento (propriedade da compra): aplicado igual nos dois lados,
-          // mantendo canônico e espelho consistentes.
+          // mantendo canônico e espelho consistentes. A data informada é a DATA
+          // DA COMPRA (competência); o caixa deriva o vencimento da fatura do
+          // cartão a partir dela.
           const parcelas = this.optInt(args['quantidadeParcela'], 2, 60);
           const formaPagamento = parcelas ? 'PARCELADO' : 'A_VISTA';
           const dateFields = parcelas
-            ? { dataInicioParcela: data, quantidadeParcela: parcelas }
-            : { dataPagamento: data };
+            ? { dataInicioParcela: data, quantidadeParcela: parcelas, dataCompra: data }
+            : { dataPagamento: data, dataCompra: data };
 
           // 1) Canônico na obra (registro do projeto — sem meio de pagamento).
           const canonico = await this.expenses.create(ctx.tenantId, obra.id, {

@@ -142,6 +142,7 @@ export interface ExpenseFormData {
   dataPagamento?: string | null;
   quantidadeParcela?: number | null;
   dataInicioParcela?: string | null;
+  dataCompra?: string | null;
   status: ExpenseStatus;
   recorrente?: boolean | null;
   recorrenciaFim?: string | null;

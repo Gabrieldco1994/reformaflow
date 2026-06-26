@@ -158,6 +158,36 @@ describe('ExpenseService', () => {
       expect(arg.data.dataPagamento).toBeInstanceOf(Date);
       expect(arg.data.dataPagamento.toISOString().slice(0, 10)).toBe('2025-01-15');
     });
+
+    it('persiste dataCompra (competência) quando informada; null quando ausente', async () => {
+      prisma.expense.create.mockResolvedValue({ id: 'e1' });
+      prisma.expense.findUnique.mockResolvedValue(null);
+
+      await service.create(tenantId, projectId, {
+        tipoDespesa: 'MATERIAL_CONSTRUCAO',
+        valor: 50,
+        quantidade: 1,
+        formaPagamento: 'A_VISTA',
+        dataPagamento: '2026-08-05',
+        dataCompra: '2026-06-17',
+        status: 'PAGO',
+      } as any);
+
+      const arg = prisma.expense.create.mock.calls[0]![0];
+      expect(arg.data.dataCompra).toBeInstanceOf(Date);
+      expect(arg.data.dataCompra.toISOString().slice(0, 10)).toBe('2026-06-17');
+
+      prisma.expense.create.mockClear();
+      await service.create(tenantId, projectId, {
+        tipoDespesa: 'MATERIAL_CONSTRUCAO',
+        valor: 50,
+        quantidade: 1,
+        formaPagamento: 'A_VISTA',
+        status: 'PAGO',
+      } as any);
+      const arg2 = prisma.expense.create.mock.calls[0]![0];
+      expect(arg2.data.dataCompra).toBeNull();
+    });
   });
 
   describe('update — undefined vs null em campos de data (regressão)', () => {
@@ -256,6 +286,53 @@ describe('ExpenseService', () => {
       expect(arg.data.valor).toBe(existing.valor); // mantém valor antigo
       expect(arg.data.quantidade).toBe(5);
       expect(arg.data.valorTotal).toBe(existing.valor * 5);
+    });
+  });
+
+  describe('update — sincronização do par vinculado (canônico↔espelho)', () => {
+    it('editar o espelho propaga data/valor para o canônico', async () => {
+      // update() existing = espelho 'mir'; sync source = 'mir'; sync target = 'canon'
+      prisma.expense.findFirst
+        .mockResolvedValueOnce({
+          id: 'mir', projectId, tenantId, deletedAt: null, valor: 10000, quantidade: 1, linkedExpenseId: 'canon',
+        })
+        .mockResolvedValueOnce({ id: 'mir', linkedExpenseId: 'canon' })
+        .mockResolvedValueOnce({ id: 'canon' });
+      prisma.expense.findMany.mockResolvedValue([]); // nenhum espelho aponta p/ 'mir'
+      prisma.crossProjectSettlement.count.mockResolvedValue(0);
+      prisma.expense.update.mockImplementation(async ({ data, where }: any) => ({ id: where.id, ...data }));
+      prisma.expense.findUnique
+        .mockResolvedValueOnce(null) // regenerateCashFlow do principal (early return)
+        .mockResolvedValueOnce({ valor: 20000, quantidade: 1 }) // counterpart p/ valorTotal
+        .mockResolvedValue(null); // regenerateCashFlow do counterpart
+
+      await service.update(tenantId, projectId, 'mir', {
+        valor: 150,
+        dataPagamento: '2026-06-17',
+      } as any);
+
+      const counterpart = prisma.expense.update.mock.calls.find((c: any) => c[0].where.id === 'canon');
+      expect(counterpart).toBeDefined();
+      expect(counterpart![0].data.valor).toBe(15000);
+      expect(counterpart![0].data.valorTotal).toBe(15000);
+      expect(counterpart![0].data.dataPagamento).toBeInstanceOf(Date);
+      expect((counterpart![0].data.dataPagamento as Date).toISOString().slice(0, 10)).toBe('2026-06-17');
+    });
+
+    it('NÃO sincroniza quando o par é de conciliação (CrossProjectSettlement)', async () => {
+      prisma.expense.findFirst.mockResolvedValue({
+        id: 'mir', projectId, tenantId, deletedAt: null, valor: 10000, quantidade: 1, linkedExpenseId: 'canon',
+      });
+      prisma.expense.findMany.mockResolvedValue([]);
+      prisma.crossProjectSettlement.count.mockResolvedValue(1); // tem settlement
+      prisma.expense.update.mockImplementation(async ({ data, where }: any) => ({ id: where.id, ...data }));
+      prisma.expense.findUnique.mockResolvedValue(null);
+
+      await service.update(tenantId, projectId, 'mir', { valor: 150 } as any);
+
+      // Apenas a própria despesa é atualizada; o canônico NÃO é tocado.
+      const counterpart = prisma.expense.update.mock.calls.find((c: any) => c[0].where.id === 'canon');
+      expect(counterpart).toBeUndefined();
     });
   });
 

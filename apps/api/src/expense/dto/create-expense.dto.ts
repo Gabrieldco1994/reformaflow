@@ -70,6 +70,11 @@ export class CreateExpenseDto {
   @IsDateString()
   dataInicioParcela?: string;
 
+  @ApiPropertyOptional({ example: '2026-05-01', description: 'Data real da compra (competência). Independe do vencimento/parcela. Vazio = usa a data de pagamento/início.' })
+  @IsOptional()
+  @IsDateString()
+  dataCompra?: string | null;
+
   @ApiProperty({ enum: Object.values(ExpenseStatus) })
   @IsString()
   @IsIn(Object.values(ExpenseStatus))

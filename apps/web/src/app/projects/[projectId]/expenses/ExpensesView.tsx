@@ -647,6 +647,8 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
       formaPagamento: form.get('formaPagamento') as string,
       status: formStatus,
     };
+    // Data da compra (competência) — independe da forma de pagamento. Vazio = null.
+    data.dataCompra = nullable('dataCompra');
     const fp = data.formaPagamento;
     if (isSinglePaymentForm(fp)) {
       data.dataPagamento = nullable('dataPagamento');

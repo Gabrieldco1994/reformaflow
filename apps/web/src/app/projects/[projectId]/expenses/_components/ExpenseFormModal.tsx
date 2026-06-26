@@ -257,6 +257,19 @@ export function ExpenseFormModal({
           </div>
         )}
 
+        <div>
+          <Input
+            key={`dc-${editing?.id ?? 'new'}`}
+            label="Data da compra (opcional)"
+            name="dataCompra"
+            type="date"
+            defaultValue={editing?.dataCompra ? editing.dataCompra.slice(0, 10) : ''}
+          />
+          <p className="mt-1 text-[11px] text-darc-velvet/50">
+            Quando a compra foi feita (competência). Para cartão, a fatura é calculada a partir desta data. Vazio = usa a data de pagamento.
+          </p>
+        </div>
+
         {/* Mais opções — campos avançados recolhidos para reduzir fricção */}
         <div className="rounded-xl border border-darc-linen">
           <button
