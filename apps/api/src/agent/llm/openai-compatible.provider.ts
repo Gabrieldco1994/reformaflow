@@ -109,7 +109,7 @@ export class OpenAiCompatibleProvider implements LlmProvider {
   private async fetchWithRetry(
     url: string,
     init: RequestInit,
-    maxRetries = 4,
+    maxRetries = 2,
   ): Promise<Response> {
     const RETRIABLE = new Set([429, 500, 503]);
     let attempt = 0;
@@ -127,14 +127,15 @@ export class OpenAiCompatibleProvider implements LlmProvider {
     }
   }
 
-  /** Tempo de espera: Retry-After, ou "retry in Xs" do corpo, ou backoff. Teto 20s. */
+  /** Tempo de espera: Retry-After, ou "retry in Xs" do corpo, ou backoff. Teto 8s
+   * (curto para não estourar o timeout do proxy quando o agente encadeia chamadas). */
   private retryDelayMs(retryAfter: string | null, body: string, attempt: number): number {
-    const cap = 20_000;
+    const cap = 8_000;
     const ra = retryAfter ? Number(retryAfter) : NaN;
     if (Number.isFinite(ra) && ra > 0) return Math.min(ra * 1000 + 500, cap);
     const m = body.match(/retry\s*in\s*([\d.]+)s/i);
     if (m && m[1]) return Math.min(Math.ceil(parseFloat(m[1])) * 1000 + 500, cap);
-    return Math.min(1500 * 2 ** attempt, cap); // 1.5s, 3s, 6s, 12s…
+    return Math.min(1500 * 2 ** attempt, cap); // 1.5s, 3s
   }
 
   private toOpenAiMessage(m: ChatMessage): OpenAiMessage {
