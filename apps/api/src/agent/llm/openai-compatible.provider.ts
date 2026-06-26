@@ -109,31 +109,32 @@ export class OpenAiCompatibleProvider implements LlmProvider {
   private async fetchWithRetry(
     url: string,
     init: RequestInit,
-    maxRetries = 3,
+    maxRetries = 4,
   ): Promise<Response> {
+    const RETRIABLE = new Set([429, 500, 503]);
     let attempt = 0;
     for (;;) {
       const res = await fetch(url, init);
-      if (res.status !== 429 || attempt >= maxRetries) return res;
+      if (!RETRIABLE.has(res.status) || attempt >= maxRetries) return res;
 
       const body = await res.clone().text().catch(() => '');
       const waitMs = this.retryDelayMs(res.headers.get('retry-after'), body, attempt);
       this.logger.warn(
-        `LLM ${this.id} 429 (tentativa ${attempt + 1}/${maxRetries}); aguardando ${Math.round(waitMs / 1000)}s`,
+        `LLM ${this.id} HTTP ${res.status} (tentativa ${attempt + 1}/${maxRetries}); aguardando ${Math.round(waitMs / 1000)}s`,
       );
       await new Promise((r) => setTimeout(r, waitMs));
       attempt += 1;
     }
   }
 
-  /** Tempo de espera: Retry-After, ou "retry in Xs" do corpo, ou backoff. Teto 30s. */
+  /** Tempo de espera: Retry-After, ou "retry in Xs" do corpo, ou backoff. Teto 20s. */
   private retryDelayMs(retryAfter: string | null, body: string, attempt: number): number {
-    const cap = 30_000;
+    const cap = 20_000;
     const ra = retryAfter ? Number(retryAfter) : NaN;
     if (Number.isFinite(ra) && ra > 0) return Math.min(ra * 1000 + 500, cap);
     const m = body.match(/retry\s*in\s*([\d.]+)s/i);
     if (m && m[1]) return Math.min(Math.ceil(parseFloat(m[1])) * 1000 + 500, cap);
-    return Math.min(2000 * 2 ** attempt, cap); // 2s, 4s, 8s…
+    return Math.min(1500 * 2 ** attempt, cap); // 1.5s, 3s, 6s, 12s…
   }
 
   private toOpenAiMessage(m: ChatMessage): OpenAiMessage {

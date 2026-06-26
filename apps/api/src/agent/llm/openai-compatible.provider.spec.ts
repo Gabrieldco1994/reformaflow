@@ -79,15 +79,33 @@ describe('OpenAiCompatibleProvider', () => {
     expect(res.toolCalls).toEqual([]);
   });
 
-  it('lança erro em HTTP não-ok', async () => {
+  it('lança erro em HTTP não-ok (não-retriável)', async () => {
     withEnv({ AGENT_LLM_PROVIDER: 'ollama' });
     const provider = new OpenAiCompatibleProvider();
     (global as unknown as { fetch: typeof fetch }).fetch = jest.fn().mockResolvedValue({
       ok: false,
-      status: 500,
-      text: async () => 'boom',
+      status: 401,
+      text: async () => 'unauthorized',
     }) as unknown as typeof fetch;
 
-    await expect(provider.chat([{ role: 'user', content: 'x' }], [])).rejects.toThrow(/HTTP 500/);
+    await expect(provider.chat([{ role: 'user', content: 'x' }], [])).rejects.toThrow(/HTTP 401/);
+  });
+
+  it('faz retry em 429/503 e desiste após o limite', async () => {
+    withEnv({ AGENT_LLM_PROVIDER: 'ollama' });
+    const provider = new OpenAiCompatibleProvider();
+    const res = {
+      ok: false,
+      status: 429,
+      headers: { get: () => '0' },
+      clone: () => ({ text: async () => 'retry in 0s' }),
+      text: async () => 'retry in 0s',
+    };
+    const fetchMock = jest.fn().mockResolvedValue(res);
+    (global as unknown as { fetch: typeof fetch }).fetch = fetchMock as unknown as typeof fetch;
+
+    await expect(provider.chat([{ role: 'user', content: 'x' }], [])).rejects.toThrow(/HTTP 429/);
+    // 1 chamada inicial + retries
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(1);
   });
 });
