@@ -37,31 +37,45 @@ export class OpenAiCompatibleProvider implements LlmProvider {
   private readonly apiKey: string | undefined;
   private readonly model: string;
 
-  constructor() {
-    const provider = (process.env['AGENT_LLM_PROVIDER'] || 'ollama').toLowerCase();
+  /**
+   * @param idOverride  força o provider (usado ao montar a cadeia de fallback);
+   *                    quando ausente, lê AGENT_LLM_PROVIDER.
+   * @param modelOverride  modelo explícito; quando ausente e idOverride presente,
+   *                    usa o default do provider (não lê AGENT_MODEL, que é do principal).
+   */
+  constructor(idOverride?: string, modelOverride?: string) {
+    const explicit = !!idOverride;
+    const provider = (idOverride || process.env['AGENT_LLM_PROVIDER'] || 'ollama').toLowerCase();
     this.id = provider;
+    let defaultModel: string;
     if (provider === 'groq') {
       this.baseUrl = process.env['GROQ_BASE_URL'] || 'https://api.groq.com/openai/v1';
       this.apiKey = process.env['GROQ_API_KEY'];
-      this.model = process.env['AGENT_MODEL'] || 'llama-3.3-70b-versatile';
+      defaultModel = 'llama-3.3-70b-versatile';
+    } else if (provider === 'cerebras') {
+      // Endpoint OpenAI-compatível do Cerebras (free tier generoso, function calling).
+      this.baseUrl = process.env['CEREBRAS_BASE_URL'] || 'https://api.cerebras.ai/v1';
+      this.apiKey = process.env['CEREBRAS_API_KEY'];
+      defaultModel = 'llama-3.3-70b';
     } else if (provider === 'gemini') {
       // Endpoint OpenAI-compatível do Google Gemini (suporta function calling).
       this.baseUrl =
         process.env['GEMINI_BASE_URL'] ||
         'https://generativelanguage.googleapis.com/v1beta/openai';
       this.apiKey = process.env['GEMINI_API_KEY'] || process.env['GOOGLE_API_KEY'];
-      this.model = process.env['AGENT_MODEL'] || 'gemini-2.5-flash';
+      defaultModel = 'gemini-2.5-flash';
     } else {
       // ollama (default)
       this.baseUrl = process.env['OLLAMA_BASE_URL'] || 'http://localhost:11434/v1';
       this.apiKey = process.env['OLLAMA_API_KEY']; // normalmente não exigido
-      this.model = process.env['AGENT_MODEL'] || 'qwen2.5:7b-instruct';
+      defaultModel = 'qwen2.5:7b-instruct';
     }
+    this.model = modelOverride || (explicit ? defaultModel : process.env['AGENT_MODEL'] || defaultModel);
   }
 
   isConfigured(): boolean {
-    if (this.id === 'groq' || this.id === 'gemini') return !!this.apiKey;
-    return !!this.baseUrl; // ollama não exige chave
+    if (this.id === 'ollama') return !!this.baseUrl; // ollama não exige chave
+    return !!this.apiKey;
   }
 
   async chat(messages: ChatMessage[], tools: ToolDef[]): Promise<LlmChatResult> {
@@ -89,7 +103,11 @@ export class OpenAiCompatibleProvider implements LlmProvider {
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       this.logger.error(`LLM ${this.id} HTTP ${res.status}: ${text.slice(0, 500)}`);
-      throw new Error(`Falha ao chamar o LLM (${this.id}): HTTP ${res.status}`);
+      const err = new Error(`Falha ao chamar o LLM (${this.id}): HTTP ${res.status}`) as Error & {
+        status?: number;
+      };
+      err.status = res.status;
+      throw err;
     }
 
     const data = (await res.json()) as {

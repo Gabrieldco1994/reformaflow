@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { AgentToolsService } from './tools/agent-tools.service';
 import { ChatMessage, LLM_PROVIDER, LlmProvider } from './llm/llm.types';
+import { RateLimitError } from './llm/fallback-llm.provider';
 
 export interface AgentChatInput {
   tenantId: string;
@@ -57,35 +58,43 @@ export class AgentService {
 
     const toolsUsed: string[] = [];
 
-    for (let i = 0; i < MAX_ITERATIONS; i++) {
-      const res = await this.llm.chat(messages, toolDefs);
+    try {
+      for (let i = 0; i < MAX_ITERATIONS; i++) {
+        const res = await this.llm.chat(messages, toolDefs);
 
-      if (res.toolCalls.length > 0) {
-        messages.push({ role: 'assistant', content: res.content || '', toolCalls: res.toolCalls });
-        for (const tc of res.toolCalls) {
-          toolsUsed.push(tc.name);
-          const result = await this.tools.execute(
-            tc.name,
-            {
-              tenantId: input.tenantId,
-              projectId: input.projectId ?? null,
-              projectScope: input.projectScope ?? null,
-              role: input.role,
-              allowedModules: input.allowedModules,
-            },
-            tc.arguments,
-          );
-          messages.push({
-            role: 'tool',
-            toolCallId: tc.id,
-            name: tc.name,
-            content: JSON.stringify(result),
-          });
+        if (res.toolCalls.length > 0) {
+          messages.push({ role: 'assistant', content: res.content || '', toolCalls: res.toolCalls });
+          for (const tc of res.toolCalls) {
+            toolsUsed.push(tc.name);
+            const result = await this.tools.execute(
+              tc.name,
+              {
+                tenantId: input.tenantId,
+                projectId: input.projectId ?? null,
+                projectScope: input.projectScope ?? null,
+                role: input.role,
+                allowedModules: input.allowedModules,
+              },
+              tc.arguments,
+            );
+            messages.push({
+              role: 'tool',
+              toolCallId: tc.id,
+              name: tc.name,
+              content: JSON.stringify(result),
+            });
+          }
+          continue;
         }
-        continue;
-      }
 
-      return { reply: this.ensureReply(res.content), toolsUsed, provider: this.llm.id };
+        return { reply: this.ensureReply(res.content), toolsUsed, provider: this.llm.id };
+      }
+    } catch (e) {
+      if (e instanceof RateLimitError) {
+        // Cota da IA esgotada (free tier) — mensagem clara em vez de 500 genérico.
+        throw new ServiceUnavailableException(e.message);
+      }
+      throw e;
     }
 
     // Atingiu o limite de iterações: força uma resposta final sem ferramentas.

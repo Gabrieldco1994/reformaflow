@@ -98,16 +98,18 @@ export function FinancialAgentWidget() {
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Erro ao falar com o agente.';
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'assistant',
-          content:
-            msg.includes('não configurado') || msg.includes('503')
-              ? 'O agente ainda não está configurado neste ambiente. Defina o provider de LLM (Ollama no dev ou GROQ_API_KEY no prod).'
-              : `Ops, não consegui responder agora. (${msg})`,
-        },
-      ]);
+      const lower = msg.toLowerCase();
+      const isRateLimit = lower.includes('limite de uso') || lower.includes('rate limit');
+      const isNotConfigured = lower.includes('não configurado') || lower.includes('nao configurado');
+      let content: string;
+      if (isRateLimit) {
+        content = '⏳ O limite de uso da IA foi atingido. Tente novamente em alguns minutos.';
+      } else if (isNotConfigured) {
+        content = 'O agente ainda não está configurado neste ambiente.';
+      } else {
+        content = `Ops, não consegui responder agora. (${msg})`;
+      }
+      setMessages((prev) => [...prev, { role: 'assistant', content }]);
     } finally {
       setLoading(false);
     }
