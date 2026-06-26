@@ -1,4 +1,5 @@
 export * from './enums';
+export * from './taxonomy/expense-taxonomy';
 export * from './types';
 export * from './calculations';
 export * from './calculations/schedule-engine';

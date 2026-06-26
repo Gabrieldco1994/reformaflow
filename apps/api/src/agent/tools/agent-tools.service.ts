@@ -1,5 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { ExpenseType, ReceiptType } from '@reformaflow/domain';
+import {
+  ExpenseType,
+  ReceiptType,
+  getExpenseTaxonomy,
+  getTaxonomyTree,
+  EssentialityLabels,
+} from '@reformaflow/domain';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TenantFinancialService } from '../../tenant-financial/tenant-financial.service';
 import { ExpenseService } from '../../expense/expense.service';
@@ -114,10 +120,51 @@ export class AgentToolsService {
         def: {
           name: 'get_expenses_by_category',
           description:
-            'Total de despesas agrupado por categoria/tipo, somando todos os projetos. Valores em centavos.',
+            'Total de despesas por categoria/tipo (todos os projetos no escopo), JÁ CLASSIFICADO pela ontologia: cada categoria vem com grupo-pai e essencialidade (ESSENCIAL/SUPERFLUO/INVESTIMENTO/NEUTRO/PROJETO/INDEFINIDO). ' +
+            'Inclui um resumo por essencialidade — use para "para onde foi meu dinheiro" e "essencial vs supérfluo". Valores em centavos.',
           parameters: noParams,
         },
-        run: async (ctx) => ({ categorias: await this.financial.getByCategory(ctx.tenantId, ctx.projectScope ?? null) }),
+        run: async (ctx) => {
+          const categorias = await this.financial.getByCategory(ctx.tenantId, ctx.projectScope ?? null);
+          const enriquecidas = categorias.map((c) => {
+            const tax = getExpenseTaxonomy(c.key);
+            return {
+              ...c,
+              grupo: tax?.group ?? 'Outros',
+              essencialidade: tax?.essentiality ?? 'INDEFINIDO',
+              essencialidadeLabel: tax?.essentialityLabel ?? EssentialityLabels['INDEFINIDO'],
+            };
+          });
+          const porEssencialidade: Record<string, number> = {};
+          for (const c of enriquecidas) {
+            porEssencialidade[c.essencialidade] = (porEssencialidade[c.essencialidade] ?? 0) + c.total;
+          }
+          return { categorias: enriquecidas, resumoPorEssencialidade: porEssencialidade };
+        },
+      },
+
+      get_category_taxonomy: {
+        def: {
+          name: 'get_category_taxonomy',
+          description:
+            'Ontologia de categorias de despesa: árvore grupo-pai → tipos, com a essencialidade de cada um ' +
+            '(ESSENCIAL, SUPERFLUO, INVESTIMENTO, NEUTRO, PROJETO, INDEFINIDO) e sinônimos. ' +
+            'Use para entender como classificar gastos de forma consistente (essencial × supérfluo), ' +
+            'mapear um termo do usuário ao tipo correto, ou explicar a classificação. Não recebe parâmetros.',
+          parameters: noParams,
+        },
+        run: async () => ({
+          essencialidades: EssentialityLabels,
+          grupos: getTaxonomyTree().map((g) => ({
+            grupo: g.group,
+            tipos: g.types.map((t) => ({
+              tipo: t.type,
+              label: t.label,
+              essencialidade: t.essentiality,
+              sinonimos: t.synonyms,
+            })),
+          })),
+        }),
       },
 
       get_upcoming: {
