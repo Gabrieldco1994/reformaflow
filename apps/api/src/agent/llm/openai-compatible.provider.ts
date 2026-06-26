@@ -81,11 +81,10 @@ export class OpenAiCompatibleProvider implements LlmProvider {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (this.apiKey) headers['Authorization'] = `Bearer ${this.apiKey}`;
 
-    const res = await fetch(`${this.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-    });
+    const res = await this.fetchWithRetry(
+      `${this.baseUrl}/chat/completions`,
+      { method: 'POST', headers, body: JSON.stringify(body) },
+    );
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');
@@ -99,6 +98,42 @@ export class OpenAiCompatibleProvider implements LlmProvider {
     const msg = data.choices?.[0]?.message;
     const toolCalls = this.parseToolCalls(msg?.tool_calls);
     return { content: msg?.content ?? '', toolCalls };
+  }
+
+  /**
+   * fetch com retry em 429 (rate limit). Respeita o tempo sugerido pelo provider
+   * (header Retry-After ou "retry in Xs" no corpo), com teto e backoff. Resolve
+   * o limite de requisições/minuto do free tier (Gemini ~20 RPM) sem falhar a
+   * conversa quando o agente encadeia várias chamadas.
+   */
+  private async fetchWithRetry(
+    url: string,
+    init: RequestInit,
+    maxRetries = 3,
+  ): Promise<Response> {
+    let attempt = 0;
+    for (;;) {
+      const res = await fetch(url, init);
+      if (res.status !== 429 || attempt >= maxRetries) return res;
+
+      const body = await res.clone().text().catch(() => '');
+      const waitMs = this.retryDelayMs(res.headers.get('retry-after'), body, attempt);
+      this.logger.warn(
+        `LLM ${this.id} 429 (tentativa ${attempt + 1}/${maxRetries}); aguardando ${Math.round(waitMs / 1000)}s`,
+      );
+      await new Promise((r) => setTimeout(r, waitMs));
+      attempt += 1;
+    }
+  }
+
+  /** Tempo de espera: Retry-After, ou "retry in Xs" do corpo, ou backoff. Teto 30s. */
+  private retryDelayMs(retryAfter: string | null, body: string, attempt: number): number {
+    const cap = 30_000;
+    const ra = retryAfter ? Number(retryAfter) : NaN;
+    if (Number.isFinite(ra) && ra > 0) return Math.min(ra * 1000 + 500, cap);
+    const m = body.match(/retry\s*in\s*([\d.]+)s/i);
+    if (m && m[1]) return Math.min(Math.ceil(parseFloat(m[1])) * 1000 + 500, cap);
+    return Math.min(2000 * 2 ** attempt, cap); // 2s, 4s, 8s…
   }
 
   private toOpenAiMessage(m: ChatMessage): OpenAiMessage {
