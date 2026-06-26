@@ -24,10 +24,11 @@ interface OpenAiMessage {
  * Provider compatível com a API OpenAI `/chat/completions` (function calling).
  * Cobre tanto Ollama (dev, local) quanto Groq (prod, free tier) — ambos expõem
  * o mesmo formato. Configurado por env:
- *   AGENT_LLM_PROVIDER = 'ollama' | 'groq'
+ *   AGENT_LLM_PROVIDER = 'ollama' | 'groq' | 'gemini'
  *   AGENT_MODEL        = override do modelo
  *   OLLAMA_BASE_URL    = base do ollama (default http://localhost:11434/v1)
  *   GROQ_API_KEY       = chave do Groq (prod)
+ *   GEMINI_API_KEY     = chave do Google Gemini (prod)
  */
 export class OpenAiCompatibleProvider implements LlmProvider {
   readonly id: string;
@@ -43,6 +44,13 @@ export class OpenAiCompatibleProvider implements LlmProvider {
       this.baseUrl = process.env['GROQ_BASE_URL'] || 'https://api.groq.com/openai/v1';
       this.apiKey = process.env['GROQ_API_KEY'];
       this.model = process.env['AGENT_MODEL'] || 'llama-3.3-70b-versatile';
+    } else if (provider === 'gemini') {
+      // Endpoint OpenAI-compatível do Google Gemini (suporta function calling).
+      this.baseUrl =
+        process.env['GEMINI_BASE_URL'] ||
+        'https://generativelanguage.googleapis.com/v1beta/openai';
+      this.apiKey = process.env['GEMINI_API_KEY'] || process.env['GOOGLE_API_KEY'];
+      this.model = process.env['AGENT_MODEL'] || 'gemini-2.5-flash';
     } else {
       // ollama (default)
       this.baseUrl = process.env['OLLAMA_BASE_URL'] || 'http://localhost:11434/v1';
@@ -52,7 +60,7 @@ export class OpenAiCompatibleProvider implements LlmProvider {
   }
 
   isConfigured(): boolean {
-    if (this.id === 'groq') return !!this.apiKey;
+    if (this.id === 'groq' || this.id === 'gemini') return !!this.apiKey;
     return !!this.baseUrl; // ollama não exige chave
   }
 
