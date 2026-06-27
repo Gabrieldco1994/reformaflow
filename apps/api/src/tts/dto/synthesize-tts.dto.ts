@@ -43,4 +43,16 @@ export class SynthesizeTtsDto {
   @Min(1)
   @Max(20)
   steps?: number;
+
+  @ApiPropertyOptional({
+    description: 'Duração máxima alvo do áudio em segundos (modo voz).',
+    default: 120,
+    minimum: 5,
+    maximum: 120,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(5)
+  @Max(120)
+  maxSeconds?: number;
 }

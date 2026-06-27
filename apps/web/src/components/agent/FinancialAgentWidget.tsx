@@ -92,6 +92,7 @@ export function FinancialAgentWidget() {
   const [voiceListening, setVoiceListening] = useState(false);
   const [voiceError, setVoiceError] = useState('');
   const [autoSpeak, setAutoSpeak] = useState(true);
+  const [voiceMode, setVoiceMode] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
@@ -140,7 +141,21 @@ export function FinancialAgentWidget() {
     void speak(idx, last.content);
   }, [autoSpeak, messages]);
 
-  const stopSpeaking = () => {
+  useEffect(() => {
+    if (!open || !voiceMode || !voiceSupported || voiceListening || loading) return;
+    const timer = setTimeout(() => startVoiceCapture(), 250);
+    return () => clearTimeout(timer);
+  }, [open, voiceMode, voiceSupported, voiceListening, loading]);
+
+  const queueNextVoiceTurn = () => {
+    if (!voiceMode || !open || loading) return;
+    const timer = setTimeout(() => {
+      if (!voiceListening) startVoiceCapture();
+    }, 400);
+    return () => clearTimeout(timer);
+  };
+
+  const stopSpeaking = (reason: 'manual' | 'ended' | 'error' = 'manual') => {
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current = null;
@@ -150,6 +165,7 @@ export function FinancialAgentWidget() {
       objectUrlRef.current = null;
     }
     setSpeakingIndex(null);
+    if (reason === 'ended') queueNextVoiceTurn();
   };
 
   const speak = async (index: number, text: string) => {
@@ -166,7 +182,7 @@ export function FinancialAgentWidget() {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, maxSeconds: voiceMode ? 120 : 90 }),
       });
 
       if (!response.ok) {
@@ -183,13 +199,14 @@ export function FinancialAgentWidget() {
       audioRef.current = audio;
       objectUrlRef.current = objectUrl;
       setSpeakingIndex(index);
-      audio.onended = () => stopSpeaking();
-      audio.onerror = () => stopSpeaking();
+      audio.onended = () => stopSpeaking('ended');
+      audio.onerror = () => stopSpeaking('error');
       await audio.play();
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Erro ao reproduzir áudio';
       setTtsError(`${TTS_ERROR_PREFIX} ${msg}`);
       stopSpeaking();
+      if (voiceMode) queueNextVoiceTurn();
     } finally {
       setTtsLoadingIndex(null);
     }
@@ -311,6 +328,19 @@ export function FinancialAgentWidget() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
+                onClick={() => {
+                  setVoiceMode((v) => !v);
+                  setVoiceError('');
+                }}
+                disabled={!voiceSupported}
+                className={`rounded px-2 py-1 text-[10px] border ${
+                  voiceMode ? 'border-white/50 bg-white/20' : 'border-white/20 bg-transparent'
+                } disabled:opacity-50`}
+              >
+                Modo voz: {voiceMode ? 'on' : 'off'}
+              </button>
+              <button
+                type="button"
                 onClick={() => setAutoSpeak((v) => !v)}
                 className={`rounded px-2 py-1 text-[10px] border ${
                   autoSpeak ? 'border-white/50 bg-white/20' : 'border-white/20 bg-transparent'
@@ -402,6 +432,11 @@ export function FinancialAgentWidget() {
             {ttsError && (
               <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
                 {ttsError}
+              </div>
+            )}
+            {voiceMode && (
+              <div className="rounded border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+                Conversa por voz ativa: após a resposta, o microfone reabre automaticamente.
               </div>
             )}
           </div>

@@ -21,6 +21,9 @@ const PCM_BITS = 16;
 const CHANNELS = 1;
 const DEFAULT_CFG = 1.5;
 const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_MAX_SECONDS = 120;
+const MIN_MAX_SECONDS = 5;
+const WORDS_PER_SECOND = 2.6;
 
 @Injectable()
 export class TtsService {
@@ -30,7 +33,8 @@ export class TtsService {
   private readonly timeoutMs = this.resolveTimeoutMs();
 
   async synthesize(dto: SynthesizeTtsDto): Promise<TtsAudioResult> {
-    const text = dto.text.trim();
+    const maxSeconds = this.normalizeMaxSeconds(dto.maxSeconds);
+    const text = this.prepareTextForSpeech(dto.text.trim(), maxSeconds);
     const wsUrl = this.buildStreamUrl(text, dto);
 
     return new Promise<TtsAudioResult>((resolve, reject) => {
@@ -143,6 +147,25 @@ export class TtsService {
 
   protected createSocket(url: string): VibeSocketLike {
     return new WebSocket(url);
+  }
+
+  private prepareTextForSpeech(text: string, maxSeconds: number): string {
+    const normalized = text
+      .replace(/[*_`#>\-]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!normalized) return text;
+
+    const maxWords = Math.max(1, Math.floor(maxSeconds * WORDS_PER_SECOND));
+    const words = normalized.split(' ');
+    if (words.length <= maxWords) return normalized;
+
+    return `${words.slice(0, maxWords).join(' ')} ...`;
+  }
+
+  private normalizeMaxSeconds(value?: number): number {
+    if (typeof value !== 'number' || Number.isNaN(value)) return DEFAULT_MAX_SECONDS;
+    return Math.min(DEFAULT_MAX_SECONDS, Math.max(MIN_MAX_SECONDS, Math.floor(value)));
   }
 
   private resolveTimeoutMs(): number {

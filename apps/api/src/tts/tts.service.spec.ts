@@ -13,11 +13,14 @@ class FakeSocket extends EventEmitter {
 }
 
 class TestableTtsService extends TtsService {
+  lastUrl = '';
+
   constructor(private readonly socketFactory: () => FakeSocket) {
     super();
   }
 
-  protected override createSocket(_url: string): FakeSocket {
+  protected override createSocket(url: string): FakeSocket {
+    this.lastUrl = url;
     return this.socketFactory();
   }
 }
@@ -65,5 +68,29 @@ describe('TtsService', () => {
     });
 
     await expect(promise).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+
+  it('trunca texto para caber no limite de maxSeconds do modo voz', async () => {
+    let socket: FakeSocket | null = null;
+    const service = new TestableTtsService(() => {
+      socket = new FakeSocket();
+      return socket;
+    });
+
+    const longText = Array.from({ length: 500 }, (_, i) => `palavra${i}`).join(' ');
+    const promise = service.synthesize({ text: longText, maxSeconds: 5 });
+
+    process.nextTick(() => {
+      socket?.emit('open');
+      socket?.emit('message', Buffer.from([0x00, 0x00]), true);
+      socket?.emit('close', 1000, Buffer.alloc(0));
+    });
+
+    await promise;
+    const parsed = new URL(service.lastUrl);
+    const decodedText = parsed.searchParams.get('text') ?? '';
+    const wordCount = decodedText.split(' ').filter(Boolean).length;
+
+    expect(wordCount).toBeLessThanOrEqual(14);
   });
 });
