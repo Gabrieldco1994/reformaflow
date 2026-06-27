@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Bot, Send, X, Sparkles } from 'lucide-react';
+import { Bot, Send, X, Sparkles, Volume2, Square, Mic } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useProject } from '@/contexts/project-context';
@@ -59,6 +59,25 @@ const SUGGESTIONS = [
   'Onde estou gastando mais?',
 ];
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+const TTS_ERROR_PREFIX = 'Não consegui gerar áudio agora.';
+
+interface SpeechRecognitionLike {
+  lang: string;
+  interimResults: boolean;
+  maxAlternatives: number;
+  onstart: (() => void) | null;
+  onend: (() => void) | null;
+  onerror: ((event: { error: string }) => void) | null;
+  onresult:
+    | ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void)
+    | null;
+  start: () => void;
+  stop: () => void;
+}
+
+type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
+
 export function FinancialAgentWidget() {
   const { projectId } = useProject();
   const queryClient = useQueryClient();
@@ -66,11 +85,156 @@ export function FinancialAgentWidget() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [speakingIndex, setSpeakingIndex] = useState<number | null>(null);
+  const [ttsLoadingIndex, setTtsLoadingIndex] = useState<number | null>(null);
+  const [ttsError, setTtsError] = useState('');
+  const [voiceSupported, setVoiceSupported] = useState(false);
+  const [voiceListening, setVoiceListening] = useState(false);
+  const [voiceError, setVoiceError] = useState('');
+  const [autoSpeak, setAutoSpeak] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const objectUrlRef = useRef<string | null>(null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const [speechApi, setSpeechApi] = useState<SpeechRecognitionCtor | null>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages, loading]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const win = window as Window & {
+      SpeechRecognition?: SpeechRecognitionCtor;
+      webkitSpeechRecognition?: SpeechRecognitionCtor;
+    };
+    const ctor = win.SpeechRecognition ?? win.webkitSpeechRecognition ?? null;
+    setSpeechApi(() => ctor);
+    setVoiceSupported(Boolean(ctor));
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      try {
+        recognitionRef.current?.stop();
+      } catch {
+        // no-op
+      }
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+        objectUrlRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!autoSpeak || messages.length === 0) return;
+    const idx = messages.length - 1;
+    const last = messages[idx];
+    if (last.role !== 'assistant') return;
+    if (last.content.startsWith(TTS_ERROR_PREFIX)) return;
+    void speak(idx, last.content);
+  }, [autoSpeak, messages]);
+
+  const stopSpeaking = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    }
+    setSpeakingIndex(null);
+  };
+
+  const speak = async (index: number, text: string) => {
+    if (!text.trim()) return;
+    setTtsError('');
+    if (speakingIndex === index) {
+      stopSpeaking();
+      return;
+    }
+
+    setTtsLoadingIndex(index);
+    try {
+      const response = await fetch(`${API_BASE}/tts/synthesize`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ message: `HTTP ${response.status}` }));
+        throw new Error(
+          Array.isArray(error.message) ? error.message.join('; ') : (error.message ?? 'Falha no TTS'),
+        );
+      }
+
+      const blob = await response.blob();
+      stopSpeaking();
+      const objectUrl = URL.createObjectURL(blob);
+      const audio = new Audio(objectUrl);
+      audioRef.current = audio;
+      objectUrlRef.current = objectUrl;
+      setSpeakingIndex(index);
+      audio.onended = () => stopSpeaking();
+      audio.onerror = () => stopSpeaking();
+      await audio.play();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Erro ao reproduzir áudio';
+      setTtsError(`${TTS_ERROR_PREFIX} ${msg}`);
+      stopSpeaking();
+    } finally {
+      setTtsLoadingIndex(null);
+    }
+  };
+
+  const startVoiceCapture = () => {
+    if (!speechApi) {
+      setVoiceError('Seu navegador não suporta captura de voz no chat.');
+      return;
+    }
+
+    setVoiceError('');
+    setTtsError('');
+    try {
+      recognitionRef.current?.stop();
+      const recognition = new speechApi();
+      recognitionRef.current = recognition;
+      recognition.lang = 'pt-BR';
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+      recognition.onstart = () => setVoiceListening(true);
+      recognition.onend = () => setVoiceListening(false);
+      recognition.onerror = (event) => {
+        setVoiceListening(false);
+        if (event.error === 'not-allowed') {
+          setVoiceError('Microfone bloqueado. Permita o acesso para usar voz no chat.');
+          return;
+        }
+        setVoiceError('Não consegui captar sua voz. Tente novamente.');
+      };
+      recognition.onresult = (event) => {
+        const text = event.results[0]?.[0]?.transcript?.trim() ?? '';
+        if (!text) {
+          setVoiceError('Não consegui entender o áudio.');
+          return;
+        }
+        setInput(text);
+        void send(text);
+      };
+      recognition.start();
+    } catch {
+      setVoiceListening(false);
+      setVoiceError('Falha ao iniciar o microfone neste dispositivo.');
+    }
+  };
 
   const send = async (text: string) => {
     const content = text.trim();
@@ -80,6 +244,8 @@ export function FinancialAgentWidget() {
     setMessages(history);
     setInput('');
     setLoading(true);
+    setVoiceError('');
+    setTtsError('');
     try {
       const res = await api.post<AgentResponse>('/agent/chat', {
         projectId,
@@ -142,9 +308,20 @@ export function FinancialAgentWidget() {
                 <p className="text-[10px] text-white/70">Pergunte sobre suas finanças</p>
               </div>
             </div>
-            <button type="button" onClick={() => setOpen(false)} aria-label="Fechar" className="p-1 rounded hover:bg-white/10">
-              <X className="w-4 h-4" />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setAutoSpeak((v) => !v)}
+                className={`rounded px-2 py-1 text-[10px] border ${
+                  autoSpeak ? 'border-white/50 bg-white/20' : 'border-white/20 bg-transparent'
+                }`}
+              >
+                Voz auto: {autoSpeak ? 'on' : 'off'}
+              </button>
+              <button type="button" onClick={() => setOpen(false)} aria-label="Fechar" className="p-1 rounded hover:bg-white/10">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
           </div>
 
           {/* Mensagens */}
@@ -177,6 +354,19 @@ export function FinancialAgentWidget() {
                   }`}
                 >
                   {m.content}
+                  {m.role === 'assistant' && (
+                    <div className="mt-2">
+                      <button
+                        type="button"
+                        onClick={() => speak(i, m.content)}
+                        disabled={ttsLoadingIndex === i}
+                        className="inline-flex items-center gap-1 rounded-full border border-darc-linen px-2 py-0.5 text-[10px] text-darc-velvet/80 hover:bg-darc-linen/30 disabled:opacity-60"
+                      >
+                        {speakingIndex === i ? <Square className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+                        {ttsLoadingIndex === i ? 'Gerando áudio...' : speakingIndex === i ? 'Parar' : 'Ouvir'}
+                      </button>
+                    </div>
+                  )}
                   {m.role === 'assistant' && m.toolsUsed && m.toolsUsed.length > 0 && (
                     <div className="mt-1.5 flex flex-wrap gap-1">
                       {Array.from(new Set(m.toolsUsed)).map((t) => (
@@ -204,6 +394,16 @@ export function FinancialAgentWidget() {
                 </div>
               </div>
             )}
+            {voiceError && (
+              <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                {voiceError}
+              </div>
+            )}
+            {ttsError && (
+              <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                {ttsError}
+              </div>
+            )}
           </div>
 
           {/* Input */}
@@ -221,6 +421,15 @@ export function FinancialAgentWidget() {
               className="flex-1 text-sm border border-darc-linen rounded-full px-3 py-2 focus:outline-none focus:ring-1 focus:ring-darc-velvet/30"
               disabled={loading}
             />
+            <button
+              type="button"
+              onClick={startVoiceCapture}
+              disabled={!voiceSupported || voiceListening || loading}
+              aria-label="Falar com o copiloto"
+              className="p-2 rounded-full border border-darc-linen text-darc-velvet disabled:opacity-40 hover:bg-darc-linen/40 transition-colors"
+            >
+              <Mic className="w-4 h-4" />
+            </button>
             <button
               type="submit"
               disabled={loading || !input.trim()}

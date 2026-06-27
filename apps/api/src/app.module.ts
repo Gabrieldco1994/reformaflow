@@ -33,6 +33,7 @@ import { TenantFinancialModule } from './tenant-financial/tenant-financial.modul
 import { BudgetAllocationModule } from './budget-allocation/budget-allocation.module';
 import { CategoryBudgetModule } from './category-budget/category-budget.module';
 import { AgentModule } from './agent/agent.module';
+import { TtsModule } from './tts/tts.module';
 
 const UPLOADS_DIR = (() => {
   const raw = process.env['UPLOADS_DIR'];
@@ -73,6 +74,7 @@ const UPLOADS_DIR = (() => {
     BudgetAllocationModule,
     CategoryBudgetModule,
     AgentModule,
+    TtsModule,
   ],
   providers: [
     {
