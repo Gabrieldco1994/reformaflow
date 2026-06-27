@@ -3,12 +3,9 @@ import { parseCsv } from './csv';
 import { parsePdfStatement, PdfPasswordRequiredError, PdfWrongPasswordError } from './pdf';
 import { detectImageMime, parseImageStatement } from './image-ocr';
 import { mergeParseResults, type ParseResult } from './types';
+import { isPdfBuffer, parseBuffersAndMerge } from '../../common/parsers/buffer-parser.util';
 
 export type SourceHint = 'OFX' | 'CSV_NUBANK' | 'CSV_ITAU' | 'CSV_GENERIC' | 'PDF' | 'AUTO';
-
-export function isPdfBuffer(buf: Buffer): boolean {
-  return buf.length >= 5 && buf.slice(0, 5).toString('ascii') === '%PDF-';
-}
 
 export function parseStatement(
   content: string,
@@ -54,11 +51,11 @@ export async function parseStatementBuffers(
   fileName?: string,
   password?: string,
 ): Promise<ParseResult> {
-  const results: ParseResult[] = [];
-  for (const b of buffers) {
-    results.push(await parseStatementBuffer(b, cardId, hint, fileName, password));
-  }
-  return mergeParseResults(results);
+  return parseBuffersAndMerge(
+    buffers,
+    (buffer) => parseStatementBuffer(buffer, cardId, hint, fileName, password),
+    mergeParseResults,
+  );
 }
 
 function resolveSource(

@@ -15,7 +15,6 @@
     "@reformaflow/domain": "*",
     "@tanstack/react-query": "^5.59.0",
     "@vercel/speed-insights": "^2.0.0",
-    "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "lucide-react": "^0.447.0",
     "next": "^14.2.0",

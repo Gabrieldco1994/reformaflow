@@ -3,12 +3,9 @@ import { parseBankCsv } from './csv';
 import { parseBankPdfStatement, PdfPasswordRequiredError, PdfWrongPasswordError } from './pdf';
 import { detectImageMime, parseImageBankStatement } from '../../credit-card/parsers/image-ocr';
 import { mergeParseResults, type ParseResult } from '../../credit-card/parsers/types';
+import { isPdfBuffer, parseBuffersAndMerge } from '../../common/parsers/buffer-parser.util';
 
 export type BankSourceHint = 'OFX' | 'CSV_GENERIC' | 'PDF' | 'AUTO';
-
-export function isPdfBuffer(buf: Buffer): boolean {
-  return buf.length >= 5 && buf.slice(0, 5).toString('ascii') === '%PDF-';
-}
 
 export async function parseBankStatementBuffer(
   buffer: Buffer,
@@ -43,11 +40,11 @@ export async function parseBankStatementBuffers(
   fileName?: string,
   password?: string,
 ): Promise<ParseResult> {
-  const results: ParseResult[] = [];
-  for (const b of buffers) {
-    results.push(await parseBankStatementBuffer(b, accountId, hint, fileName, password));
-  }
-  return mergeParseResults(results);
+  return parseBuffersAndMerge(
+    buffers,
+    (buffer) => parseBankStatementBuffer(buffer, accountId, hint, fileName, password),
+    mergeParseResults,
+  );
 }
 
 export { PdfPasswordRequiredError, PdfWrongPasswordError };
