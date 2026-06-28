@@ -5,6 +5,7 @@ import {
   getExpenseTaxonomy,
   getTaxonomyTree,
   EssentialityLabels,
+  isSinglePaymentForm,
 } from '@reformaflow/domain';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TenantFinancialService } from '../../tenant-financial/tenant-financial.service';
@@ -19,6 +20,7 @@ import {
 } from '../../common/access-rules';
 import type { ModuleSlug } from '../../common/decorators/require-module.decorator';
 import { ToolDef } from '../llm/llm.types';
+import { parseSpokenMoney } from './money-parse';
 
 export interface ToolContext {
   tenantId: string;
@@ -254,7 +256,7 @@ export class AgentToolsService {
             type: 'object',
             properties: {
               projectId: { type: 'string', description: 'Id do projeto (use list_projects para resolver pelo nome). Opcional se há projeto em foco.' },
-              valor: { type: 'number', description: 'Valor unitário em REAIS (ex.: 250.50). Obrigatório.' },
+              valor: { type: 'string', description: 'Valor unitário em REAIS, EXATAMENTE como o usuário falou, com a vírgula decimal brasileira. Ex.: "206,96" (duzentos e seis reais e noventa e seis centavos), "1.500,00", "50". A vírgula é separador de centavos — NUNCA a remova nem multiplique o número. Obrigatório.' },
               quantidade: { type: 'integer', description: 'Quantidade (default 1).' },
               tipoDespesa: { type: 'string', description: 'Categoria da despesa. Ex.: MATERIAL_CONSTRUCAO, MAO_DE_OBRA, ALIMENTACAO, TRANSPORTE, SAUDE, MORADIA, SUPERMERCADO, LAZER, OUTROS. Use OUTROS se não tiver certeza.' },
               titulo: { type: 'string', description: 'Descrição curta (ex.: "Cimento e areia").' },
@@ -422,6 +424,83 @@ export class AgentToolsService {
         },
       },
 
+      update_expense: {
+        def: {
+          name: 'update_expense',
+          description:
+            'Atualiza uma despesa JÁ existente pelo id (use o expenseId devolvido por create_expense ou find_expenses). ' +
+            'Use principalmente para COMPLETAR informações que faltaram no cadastro por voz: quando o usuário registrar uma despesa SEM dizer a DATA ou o TIPO, ' +
+            'pergunte e depois chame esta ferramenta para preencher (data e/ou tipoDespesa). Também serve para corrigir valor, título ou fornecedor. ' +
+            'Só envie os campos que mudaram.',
+          parameters: {
+            type: 'object',
+            properties: {
+              expenseId: { type: 'string', description: 'Id da despesa a atualizar. Obrigatório.' },
+              data: { type: 'string', description: 'Data REAL da compra (competência) no formato YYYY-MM-DD.' },
+              tipoDespesa: { type: 'string', description: 'Categoria da despesa (ex.: MATERIAL_CONSTRUCAO, ALIMENTACAO, TRANSPORTE, MORADIA, SUPERMERCADO, OUTROS).' },
+              valor: { type: 'string', description: 'Novo valor unitário em REAIS, exatamente como falado, com vírgula decimal brasileira (ex.: "206,96"). A vírgula é separador de centavos — não remova nem multiplique.' },
+              titulo: { type: 'string', description: 'Nova descrição curta.' },
+              fornecedor: { type: 'string', description: 'Novo fornecedor/loja.' },
+            },
+            required: ['expenseId'],
+            additionalProperties: false,
+          },
+        },
+        run: async (ctx, args) => {
+          const expenseId = this.optStr(args['expenseId']);
+          if (!expenseId) return { error: 'Informe o expenseId da despesa a atualizar.' };
+
+          const existing = await this.prisma.expense.findFirst({
+            where: { id: expenseId, tenantId: ctx.tenantId, deletedAt: null },
+            select: { id: true, projectId: true, formaPagamento: true },
+          });
+          if (!existing) return { error: 'Despesa não encontrada.' };
+
+          // ACL: confirma que o usuário pode escrever no projeto dono da despesa.
+          const project = await this.resolveWritableProject(ctx, existing.projectId, 'expenses');
+
+          const dto: Record<string, unknown> = {};
+          const tipoProvided = this.optStr(args['tipoDespesa']);
+          if (tipoProvided) dto.tipoDespesa = this.normalizeEnum(args['tipoDespesa'], ExpenseType, 'OUTROS');
+          if (args['valor'] !== undefined) {
+            const valor = this.parseMoney(args['valor']);
+            if (valor == null) return { error: 'Informe um valor em reais maior que zero.' };
+            dto.valor = valor;
+          }
+          const titulo = this.optStr(args['titulo']);
+          if (titulo) dto.titulo = titulo;
+          const fornecedor = this.optStr(args['fornecedor']);
+          if (fornecedor) dto.fornecedor = fornecedor;
+
+          const data = this.optDate(args['data']);
+          if (data) {
+            // Competência sempre; data de pagamento conforme a forma da despesa.
+            dto.dataCompra = data;
+            if (isSinglePaymentForm(existing.formaPagamento)) dto.dataPagamento = data;
+            else dto.dataInicioParcela = data;
+          }
+
+          if (Object.keys(dto).length === 0) {
+            return { error: 'Nada para atualizar: informe data, tipoDespesa, valor, título ou fornecedor.' };
+          }
+
+          const updated = await this.expenses.update(ctx.tenantId, project.id, expenseId, dto as never);
+          return {
+            ok: true,
+            despesa: {
+              id: updated.id,
+              projeto: project.name,
+              tipoDespesa: updated.tipoDespesa,
+              titulo: updated.titulo ?? null,
+              fornecedor: updated.fornecedor ?? null,
+              valorTotalCentavos: updated.valorTotal,
+              data: data ?? undefined,
+            },
+            mensagem: 'Despesa atualizada.',
+          };
+        },
+      },
+
       get_cashflow_history: {
         def: {
           name: 'get_cashflow_history',
@@ -545,7 +624,7 @@ export class AgentToolsService {
             type: 'object',
             properties: {
               projectId: { type: 'string', description: 'Id do projeto. Opcional se há projeto em foco.' },
-              valor: { type: 'number', description: 'Valor em REAIS (ex.: 5000). Obrigatório.' },
+              valor: { type: 'string', description: 'Valor em REAIS, EXATAMENTE como o usuário falou, com a vírgula decimal brasileira. Ex.: "5.000,00", "206,96", "50". A vírgula é separador de centavos — NUNCA a remova nem multiplique. Obrigatório.' },
               data: { type: 'string', description: 'Data no formato YYYY-MM-DD. Default: hoje.' },
               tipo: { type: 'string', description: 'Tipo do recebimento. Ex.: SALARIO, PAGAMENTO, FREELANCE, ALUGUEL, REEMBOLSO, PIX_RECEBIDO, OUTROS. Use OUTROS se não tiver certeza.' },
               status: { type: 'string', enum: ['EM_CAIXA', 'PREVISTO'], description: 'EM_CAIXA se o dinheiro já entrou; PREVISTO se é uma entrada futura. Default EM_CAIXA.' },
@@ -600,7 +679,7 @@ export class AgentToolsService {
             properties: {
               obraProjectId: { type: 'string', description: 'Id do projeto da obra/aquisição (REFORMA/COMPRA/CASA/CARRO). Use list_projects para resolver pelo nome.' },
               pessoalProjectId: { type: 'string', description: 'Id do projeto PESSOAL (caixa). Opcional: se houver apenas um PESSOAL acessível, é resolvido automaticamente.' },
-              valor: { type: 'number', description: 'Valor em REAIS (ex.: 140). Obrigatório.' },
+              valor: { type: 'string', description: 'Valor em REAIS, EXATAMENTE como o usuário falou, com a vírgula decimal brasileira. Ex.: "140,00", "206,96", "1.200,50". A vírgula é separador de centavos — NUNCA a remova nem multiplique. Obrigatório.' },
               tipoDespesa: { type: 'string', description: 'Categoria da despesa (ex.: MATERIAL_CONSTRUCAO, MAO_DE_OBRA, OBRA_REFORMA, OUTROS). Use OUTROS se não tiver certeza.' },
               titulo: { type: 'string', description: 'Descrição curta (opcional).' },
               fornecedor: { type: 'string', description: 'Fornecedor/loja (ex.: "Obramax").' },
@@ -803,22 +882,7 @@ export class AgentToolsService {
    * caso contrário o ponto é decimal (250.50 -> 250.5).
    */
   private parseMoney(value: unknown): number | null {
-    let n: number;
-    if (typeof value === 'number') {
-      n = value;
-    } else if (typeof value === 'string') {
-      let s = value.trim().replace(/r\$/gi, '').replace(/\s/g, '');
-      if (s.includes(',')) {
-        s = s.replace(/\./g, '').replace(',', '.');
-      } else if (/\.\d{3}$/.test(s) || (s.match(/\./g)?.length ?? 0) > 1) {
-        s = s.replace(/\./g, '');
-      }
-      n = Number(s);
-    } else {
-      return null;
-    }
-    if (!Number.isFinite(n) || n <= 0) return null;
-    return Math.round(n * 100) / 100;
+    return parseSpokenMoney(value);
   }
 
   /** Inteiro opcional dentro de [min,max]; undefined se ausente/ inválido. */
