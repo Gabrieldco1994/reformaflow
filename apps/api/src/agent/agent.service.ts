@@ -111,7 +111,27 @@ export class AgentService {
 
   private ensureReply(content: string): string {
     const trimmed = (content || '').trim();
-    return trimmed || 'Não consegui gerar uma resposta. Pode reformular a pergunta?';
+    if (!trimmed) return 'Não consegui gerar uma resposta. Pode reformular a pergunta?';
+    return this.normalizeReply(trimmed);
+  }
+
+  private normalizeReply(content: string): string {
+    const noMarkdown = content
+      .replace(/\u00A0/g, ' ')
+      .replace(/\u202F/g, ' ')
+      .replace(/\*\*(.*?)\*\*/g, '$1')
+      .replace(/__(.*?)__/g, '$1')
+      .replace(/`([^`]+)`/g, '$1')
+      .replace(/#{1,6}\s*/g, '')
+      .replace(/(^|\n)\s*[-*•]\s+/g, '$1')
+      .replace(/(^|\n)\s*\d+\.\s+/g, '$1')
+      .replace(/\n+/g, ' ');
+
+    return noMarkdown
+      .replace(/R\$\s*/g, 'R$ ')
+      .replace(/\s+([,.;:!?])/g, '$1')
+      .replace(/[ \t]{2,}/g, ' ')
+      .trim();
   }
 
   private systemPrompt(projectId?: string | null): string {
@@ -125,9 +145,14 @@ export class AgentService {
       'REGRAS GERAIS:',
       '- Responda SEMPRE em português do Brasil, de forma objetiva e amigável.',
       '- Use as ferramentas para obter QUALQUER número. NUNCA invente valores nem datas.',
+      '- Não use Markdown na resposta: evite **negrito**, _itálico_, títulos (#) ou tabelas.',
+      '- Use texto simples e direto, fácil de ouvir no modo voz.',
+      '- Por padrão, responda de forma RESUMIDA (até 3 frases curtas).',
+      '- Evite tópicos/listas; prefira linguagem conversacional natural.',
       '- Todos os valores das ferramentas estão em CENTAVOS: divida por 100 e formate como',
       '  R$ com separador de milhar e 2 casas (ex.: 150000 -> R$ 1.500,00).',
-      '- Seja conciso: destaque o número principal, depois 1-3 bullets de contexto/ação.',
+      '- Sempre escreva moeda no padrão "R$ 1.234,56" (com espaço após R$).',
+      '- Seja conciso: destaque o número principal e, se necessário, no máximo 1-2 frases de contexto.',
       '- Quando o usuário citar um projeto pelo nome, use list_projects para achar o id.',
       '- DESAMBIGUAÇÃO de projeto: se o termo do usuário casar com mais de um projeto, dê peso ao TIPO',
       '  indicado pela linguagem ("reforma"/"obra" -> projeto tipo REFORMA; "carro" -> CARRO; "casa"',

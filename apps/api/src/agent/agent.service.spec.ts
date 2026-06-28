@@ -71,6 +71,39 @@ describe('AgentService (loop de tool-calling)', () => {
     expect(tools.execute).not.toHaveBeenCalled();
   });
 
+  it('normaliza markdown e espaço de moeda para formato legível', async () => {
+    const llm: LlmProvider = {
+      id: 'mock',
+      isConfigured: () => true,
+      chat: jest
+        .fn()
+        .mockResolvedValue({ content: '**Maior gasto:** categoria moradia em R$\u202f181.848,55.', toolCalls: [] }),
+    };
+    const tools = makeTools();
+    const service = new AgentService(llm, tools);
+
+    const res = await service.chat(baseInput);
+
+    expect(res.reply).toBe('Maior gasto: categoria moradia em R$ 181.848,55.');
+  });
+
+  it('remove tópicos e numeração para resposta mais natural de voz', async () => {
+    const llm: LlmProvider = {
+      id: 'mock',
+      isConfigured: () => true,
+      chat: jest.fn().mockResolvedValue({
+        content: '1. **Resumo**\n- Maior gasto: Moradia.\n- Valor: R$181.848,55.',
+        toolCalls: [],
+      }),
+    };
+    const tools = makeTools();
+    const service = new AgentService(llm, tools);
+
+    const res = await service.chat(baseInput);
+
+    expect(res.reply).toBe('Resumo Maior gasto: Moradia. Valor: R$ 181.848,55.');
+  });
+
   it('lança 503 quando o provider não está configurado', async () => {
     const llm: LlmProvider = {
       id: 'groq',
