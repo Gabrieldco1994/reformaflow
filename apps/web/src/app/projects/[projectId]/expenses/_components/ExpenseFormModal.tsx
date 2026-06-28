@@ -75,6 +75,8 @@ interface ExpenseFormModalProps {
   isPending: boolean;
   /** Snapshot dos campos atuais — usado para pré-preencher o modal "criar despesa em outro projeto". */
   linkedExpenseDraft?: LinkedExpenseDraft;
+  /** Abre o modal "Ratear compra" para a despesa em edição (apenas fonte PESSOAL). */
+  onRatear?: () => void;
 }
 
 export function ExpenseFormModal({
@@ -112,6 +114,7 @@ export function ExpenseFormModal({
   roomOptions,
   isPending,
   linkedExpenseDraft,
+  onRatear,
 }: ExpenseFormModalProps) {
   const [showAdvanced, setShowAdvanced] = useState(
     Boolean(editing?.cardLast4 || editing?.bankLast4 || editing?.linkedExpenseId || editing?.link || editing?.imageUrl),
@@ -305,6 +308,11 @@ export function ExpenseFormModal({
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
+          {editing && onRatear && (
+            <Button type="button" variant="ghost" onClick={onRatear} className="mr-auto">
+              Ratear compra
+            </Button>
+          )}
           <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
           <Button type="submit" disabled={isPending}>
             {editing ? 'Salvar' : 'Criar'}

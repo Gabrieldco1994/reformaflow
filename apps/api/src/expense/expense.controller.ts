@@ -14,6 +14,7 @@ import { ExpenseService } from './expense.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
 import { SetParcelaStatusDto } from './dto/set-parcela-status.dto';
+import { RatearDto } from './dto/ratear.dto';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
 import { CurrentTenant } from '../common/decorators/tenant.decorator';
 import { RequireModule } from '../common/decorators/require-module.decorator';
@@ -164,6 +165,27 @@ export class ExpenseController {
     @Param('id') id: string,
   ) {
     return this.service.desconciliar(tenantId, projectId, id);
+  }
+
+  @Post(':id/ratear')
+  @ApiOperation({ summary: 'Rateia esta compra entre várias planejadas de outro projeto' })
+  ratear(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Param('id') id: string,
+    @Body() dto: RatearDto,
+  ) {
+    return this.service.ratear(tenantId, projectId, id, dto.allocations);
+  }
+
+  @Delete(':id/ratear')
+  @ApiOperation({ summary: 'Desfaz o rateio desta compra (reversível)' })
+  desratear(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Param('id') id: string,
+  ) {
+    return this.service.desratear(tenantId, projectId, id);
   }
 
   @Delete(':id')

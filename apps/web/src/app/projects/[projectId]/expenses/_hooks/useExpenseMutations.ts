@@ -246,6 +246,42 @@ export function useExpenseMutations({
     },
   });
 
+  // Rateio: distribui UMA compra (fonte, PESSOAL) entre N planejadas de outro
+  // projeto. A soma das alocações fecha o total da compra (Sobra = 0).
+  const ratearMutation = useMutation({
+    mutationFn: ({
+      sourceId,
+      allocations,
+    }: {
+      sourceId: string;
+      allocations: { targetExpenseId: string; allocation: number }[];
+    }) =>
+      api.post(`/projects/${resolveOwnerProjectId(sourceId)}/expenses/${sourceId}/ratear`, {
+        allocations,
+      }),
+    onSuccess: (_d, vars) => {
+      invalidate();
+      toast.success(`Compra rateada em ${vars.allocations.length} ${vars.allocations.length === 1 ? 'planejada' : 'planejadas'}`);
+    },
+    onError: (e: Error) => {
+      console.error('[expenses] ratear failed', e);
+      toast.error(`Erro ao ratear compra: ${e.message}`);
+    },
+  });
+
+  const desratearMutation = useMutation({
+    mutationFn: ({ sourceId }: { sourceId: string }) =>
+      api.delete(`/projects/${resolveOwnerProjectId(sourceId)}/expenses/${sourceId}/ratear`),
+    onSuccess: () => {
+      invalidate();
+      toast.success('Rateio desfeito');
+    },
+    onError: (e: Error) => {
+      console.error('[expenses] desratear failed', e);
+      toast.error(`Erro ao desfazer rateio: ${e.message}`);
+    },
+  });
+
   return {
     invalidate,
     resolveOwnerProjectId,
@@ -260,5 +296,7 @@ export function useExpenseMutations({
     bulkDateMutation,
     bulkPaidMutation,
     conciliarMutation,
+    ratearMutation,
+    desratearMutation,
   };
 }

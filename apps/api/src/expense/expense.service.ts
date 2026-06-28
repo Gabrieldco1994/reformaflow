@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { ConciliacaoService } from '../conciliacao/conciliacao.service';
+import { ConciliacaoService, RateioItem } from '../conciliacao/conciliacao.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
 import { ExpenseTypeLabels, LaborCategoryLabels, buildInstallments, isSinglePaymentForm, isNeutralExpenseType } from '@reformaflow/domain';
@@ -320,6 +320,51 @@ export class ExpenseService {
       await this.conciliacao.unsettleBySource(tx, { tenantId, sourceExpenseId: source.id });
     });
     return { ok: true };
+  }
+
+  /**
+   * Rateia ESTA compra (source, PESSOAL) entre várias despesas PLANEJADAS de
+   * outro projeto (ex.: compra parcelada na Telhanorte distribuída entre itens
+   * da reforma). Cada alvo recebe o cronograma da fonte escalado à sua alocação.
+   * A soma das alocações deve fechar o total da compra (Sobra = 0).
+   */
+  async ratear(
+    tenantId: string,
+    projectId: string,
+    sourceId: string,
+    allocations: RateioItem[],
+  ) {
+    await this.validateProject(tenantId, projectId);
+    const source = await this.prisma.expense.findFirst({
+      where: { id: sourceId, projectId, tenantId, deletedAt: null },
+    });
+    if (!source) throw new NotFoundException('Despesa não encontrada');
+
+    const result = await this.prisma.$transaction(async (tx) =>
+      this.conciliacao.ratearSource(tx, {
+        tenantId,
+        sourceExpenseId: source.id,
+        allocations,
+      }),
+    );
+    return { ok: true, sourceId: source.id, ...result };
+  }
+
+  /**
+   * Desfaz o rateio desta compra: restaura o planejado de cada alvo e limpa o
+   * espelho da fonte. Reversível e idempotente.
+   */
+  async desratear(tenantId: string, projectId: string, sourceId: string) {
+    await this.validateProject(tenantId, projectId);
+    const source = await this.prisma.expense.findFirst({
+      where: { id: sourceId, projectId, tenantId, deletedAt: null },
+    });
+    if (!source) throw new NotFoundException('Despesa não encontrada');
+
+    const result = await this.prisma.$transaction(async (tx) =>
+      this.conciliacao.unratearSource(tx, { tenantId, sourceExpenseId: source.id }),
+    );
+    return { ok: true, sourceId: source.id, ...result };
   }
 
   async findById(tenantId: string, projectId: string, id: string) {
@@ -802,6 +847,16 @@ export class ExpenseService {
     if (!expense) return;
 
     return this.prisma.$transaction(async (tx) => {
+      // Alvo RATEADO: o caixa é derivado do cronograma da fonte, não do planejado
+      // próprio. Editar o alvo não pode apagar/regenerar errado o caixa do rateio.
+      const rateio = await tx.rateioAllocation.findUnique({
+        where: { targetExpenseId: expenseId },
+      });
+      if (rateio) {
+        await this.conciliacao.regenerateRateioTargetCashflow(tx, expenseId);
+        return;
+      }
+
       // Soft-delete existing entries
       await tx.cashFlowEntry.updateMany({
         where: { expenseId, deletedAt: null },

@@ -196,6 +196,8 @@ model Expense {
   markers       FloorPlanMarker[]
   settlementsAsSource CrossProjectSettlement[] @relation("SettlementSource")
   settlementsAsTarget CrossProjectSettlement[] @relation("SettlementTarget")
+  rateioAsSource RateioAllocation[] @relation("RateioSource")
+  rateioAsTarget RateioAllocation[] @relation("RateioTarget")
 
   @@index([linkedExpenseId])
   @@index([seriesKey])
@@ -242,6 +244,31 @@ model CrossProjectSettlement {
   @@index([sourceExpenseId])
   @@index([tenantId])
   @@map("cross_project_settlements")
+}
+
+// ─── Rateio de compra em N planejadas (cross-project) ──────
+// Uma compra parcelada (fonte, PESSOAL) é distribuída entre várias despesas
+// planejadas (alvos, outro projeto). Cada alvo recebe uma alocação (centavos);
+// a soma das alocações = valorTotal da fonte. O alvo mantém seu valorTotal
+// PLANEJADO imutável — o efetivo é o cronograma da FONTE escalado à alocação.
+// Não-destrutivo e reversível: guarda snapshot de status/paidParcelas do alvo.
+model RateioAllocation {
+  id              String   @id @default(cuid())
+  tenantId        String   @map("tenant_id")
+  sourceExpenseId String   @map("source_expense_id") // compra-fonte (PESSOAL)
+  targetExpenseId String   @map("target_expense_id") // planejada (outro projeto)
+  allocation      Int      // centavos alocados a este alvo
+  plannedStatus   String   @map("planned_status")    // snapshot do status original do alvo
+  plannedPaid     String?  @map("planned_paid")      // snapshot do paidParcelas original (JSON)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  source Expense @relation("RateioSource", fields: [sourceExpenseId], references: [id])
+  target Expense @relation("RateioTarget", fields: [targetExpenseId], references: [id])
+
+  @@unique([targetExpenseId])
+  @@index([sourceExpenseId])
+  @@index([tenantId])
+  @@map("rateio_allocations")
 }
 
 // ─── Fluxo de Caixa (auto-gerado) ──────────────────────────

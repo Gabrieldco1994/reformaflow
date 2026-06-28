@@ -28,6 +28,12 @@ interface PrismaMock {
     findMany: AnyFn;
     count: AnyFn;
   };
+  rateioAllocation: {
+    findUnique: AnyFn;
+    findMany: AnyFn;
+    upsert: AnyFn;
+    delete: AnyFn;
+  };
   $transaction: AnyFn;
 }
 
@@ -55,6 +61,12 @@ const makePrismaMock = (): PrismaMock => {
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       findMany: jest.fn().mockResolvedValue([]),
       count: jest.fn().mockResolvedValue(0),
+    },
+    rateioAllocation: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
+      upsert: jest.fn().mockResolvedValue({}),
+      delete: jest.fn().mockResolvedValue({}),
     },
     $transaction: jest.fn(),
   } as PrismaMock;

@@ -24,6 +24,7 @@ import { ExpenseKpiCards } from './_components/ExpenseKpiCards';
 import { ExpenseFiltersBar } from './_components/ExpenseFiltersBar';
 import { VoiceExpenseModal } from './_components/VoiceExpenseModal';
 import { ExpenseFormModal } from './_components/ExpenseFormModal';
+import { RatearCompraModal } from './_components/RatearCompraModal';
 import { PayOptionsModal } from './_components/PayOptionsModal';
 import { QuickAddCard } from './_components/QuickAddCard';
 import { CompráveisView } from './_components/CompraveisView';
@@ -69,6 +70,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
   const [formModalOpen, setFormModalOpen] = useState(false);
   const [payModalOpen, setPayModalOpen] = useState(false);
   const [editing, setEditing] = useState<Expense | null>(null);
+  const [ratearSource, setRatearSource] = useState<Expense | null>(null);
   const [formStatus, setFormStatus] = useState<'PLANEJADO' | 'PAGO'>('PLANEJADO');
   const [tipoDespesa, setTipoDespesa] = useState('');
   const [formaPagamento, setFormaPagamento] = useState('');
@@ -461,6 +463,8 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
     bulkDateMutation,
     bulkPaidMutation,
     conciliarMutation,
+    ratearMutation,
+    desratearMutation,
   } = useExpenseMutations({
     projectId: PROJECT_ID,
     allExpensesPersonal,
@@ -1318,7 +1322,37 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
           formaPagamento,
           status: formStatus,
         }}
+        onRatear={
+          editingProjectType === 'PESSOAL' && editing
+            ? () => {
+                setRatearSource(editing);
+                closeFormModal();
+              }
+            : undefined
+        }
       />
+
+      {ratearSource && (
+        <RatearCompraModal
+          open={!!ratearSource}
+          onClose={() => setRatearSource(null)}
+          source={ratearSource}
+          ownerProjectId={resolveOwnerProjectId(ratearSource.id)}
+          isPending={ratearMutation.isPending || desratearMutation.isPending}
+          onSubmit={(allocations) =>
+            ratearMutation.mutate(
+              { sourceId: ratearSource.id, allocations },
+              { onSuccess: () => setRatearSource(null) },
+            )
+          }
+          onDesratear={() =>
+            desratearMutation.mutate(
+              { sourceId: ratearSource.id },
+              { onSuccess: () => setRatearSource(null) },
+            )
+          }
+        />
+      )}
     </div>
   );
 }

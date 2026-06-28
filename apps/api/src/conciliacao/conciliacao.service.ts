@@ -23,6 +23,18 @@ export interface SettleParcelaInput {
   realValor: number;
 }
 
+export interface RateioItem {
+  targetExpenseId: string;
+  /** Centavos alocados a esta planejada. */
+  allocation: number;
+}
+
+export interface RatearInput {
+  tenantId: string;
+  sourceExpenseId: string;
+  allocations: RateioItem[];
+}
+
 /**
  * Conciliação cross-project por parcela.
  *
@@ -252,6 +264,197 @@ export class ConciliacaoService {
       data: { linkedExpenseId: null },
     });
 
+    return { targets };
+  }
+
+  // ─── Rateio: 1 compra (fonte) → N planejadas (alvos) ─────────────────────
+  // Cada alvo herda o CRONOGRAMA da fonte escalado à sua alocação (ex.: compra
+  // 10x e alocação de R$ 3.200 => 10 parcelas de R$ 320 nas datas da fonte).
+  // O `valorTotal` do alvo permanece PLANEJADO (imutável); só o caixa é regerado.
+
+  /**
+   * Regenera o caixa de um alvo RATEADO: gera parcelas a partir do cronograma da
+   * FONTE, com valor = alocação dividida em N, mantendo a categoria/ambiente do
+   * ALVO. Status por parcela espelha as parcelas pagas da fonte.
+   */
+  async regenerateRateioTargetCashflow(tx: Tx, targetExpenseId: string): Promise<void> {
+    const target = await tx.expense.findFirst({
+      where: { id: targetExpenseId, deletedAt: null },
+      include: { room: true },
+    });
+    if (!target) return;
+
+    await tx.cashFlowEntry.updateMany({
+      where: { expenseId: targetExpenseId, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
+
+    if (isNeutralExpenseType(target.tipoDespesa)) return;
+
+    const alloc = await tx.rateioAllocation.findUnique({ where: { targetExpenseId } });
+    if (!alloc) return; // sem rateio: o caller deve usar a regeneração planejada
+
+    const source = await tx.expense.findFirst({
+      where: { id: alloc.sourceExpenseId, deletedAt: null },
+    });
+    if (!source) return;
+
+    const slices = buildInstallments({
+      valorTotal: alloc.allocation,
+      formaPagamento: source.formaPagamento,
+      dataPagamento: source.dataPagamento,
+      quantidadeParcela: source.quantidadeParcela,
+      dataInicioParcela: source.dataInicioParcela,
+    });
+    const n = slices.length;
+    const singlePayment = isSinglePaymentForm(source.formaPagamento);
+    const paidSet = new Set(
+      source.status === 'PAGO'
+        ? Array.from({ length: n }, (_, i) => i)
+        : parsePaidParcelas(source.paidParcelas, n),
+    );
+
+    const categoria =
+      ExpenseTypeLabels[target.tipoDespesa as keyof typeof ExpenseTypeLabels] ?? target.tipoDespesa;
+    const subcategoria = target.categoriaMaoDeObra
+      ? LaborCategoryLabels[target.categoriaMaoDeObra as keyof typeof LaborCategoryLabels] ??
+        target.categoriaMaoDeObra
+      : null;
+    const ambiente = target.room?.name ?? null;
+
+    const entries = slices.map((slice, idx) => ({
+      projectId: target.projectId,
+      tenantId: target.tenantId,
+      expenseId: target.id,
+      tipo: 'DESPESA' as const,
+      categoria,
+      subcategoria,
+      ambiente,
+      status: paidSet.has(idx) ? 'PAGO' : 'PLANEJADO',
+      valor: slice.valor,
+      data: slice.data,
+      formaPagamento: source.formaPagamento,
+      parcela: singlePayment ? null : slice.parcela,
+    }));
+    if (entries.length > 0) await tx.cashFlowEntry.createMany({ data: entries });
+  }
+
+  /**
+   * Rateia uma compra (fonte) entre várias planejadas (alvos cross-project).
+   * Idempotente: limpa um rateio anterior da mesma fonte antes de aplicar.
+   * Exige que a soma das alocações feche EXATAMENTE o total da compra (o dedupe
+   * por espelho é tudo-ou-nada; sobra perderia dinheiro no consolidado).
+   */
+  async ratearSource(tx: Tx, input: RatearInput): Promise<{ targets: string[] }> {
+    const { tenantId, sourceExpenseId, allocations } = input;
+
+    const source = await tx.expense.findFirst({
+      where: { id: sourceExpenseId, tenantId, deletedAt: null },
+    });
+    if (!source) throw new NotFoundException('Despesa fonte não encontrada');
+    if (allocations.length === 0) {
+      throw new BadRequestException('Informe ao menos uma planejada para ratear');
+    }
+
+    const conc = await tx.crossProjectSettlement.count({ where: { sourceExpenseId } });
+    if (conc > 0) {
+      throw new BadRequestException('Esta compra já está conciliada por parcela; desfaça antes de ratear.');
+    }
+
+    const total = allocations.reduce((s, a) => s + Math.round(a.allocation), 0);
+    if (total !== source.valorTotal) {
+      throw new BadRequestException(
+        `A soma das alocações (${total}) deve fechar o total da compra (${source.valorTotal}).`,
+      );
+    }
+
+    // limpa rateio anterior desta fonte (snapshots ficam consistentes)
+    await this.unratearSource(tx, { tenantId, sourceExpenseId });
+
+    const targets: string[] = [];
+    for (const item of allocations) {
+      const allocation = Math.round(item.allocation);
+      if (allocation <= 0) throw new BadRequestException('Cada alocação deve ser maior que zero.');
+
+      const target = await tx.expense.findFirst({
+        where: { id: item.targetExpenseId, tenantId, deletedAt: null },
+      });
+      if (!target) throw new BadRequestException(`Despesa alvo ${item.targetExpenseId} não encontrada`);
+      if (target.projectId === source.projectId) {
+        throw new BadRequestException('O rateio liga a compra a planejadas de OUTRO projeto.');
+      }
+      if (isNeutralExpenseType(target.tipoDespesa)) {
+        throw new BadRequestException('Não é possível ratear em uma despesa neutra.');
+      }
+      const tConc = await tx.crossProjectSettlement.count({ where: { targetExpenseId: target.id } });
+      if (tConc > 0) throw new BadRequestException('A planejada já está conciliada por parcela.');
+      const existing = await tx.rateioAllocation.findUnique({ where: { targetExpenseId: target.id } });
+      if (existing && existing.sourceExpenseId !== sourceExpenseId) {
+        throw new BadRequestException('A planejada já está rateada por outra compra.');
+      }
+
+      await tx.rateioAllocation.upsert({
+        where: { targetExpenseId: target.id },
+        create: {
+          tenantId,
+          sourceExpenseId,
+          targetExpenseId: target.id,
+          allocation,
+          plannedStatus: target.status,
+          plannedPaid: target.paidParcelas,
+        },
+        update: { allocation, sourceExpenseId },
+      });
+
+      await tx.expense.update({
+        where: { id: target.id },
+        data: { status: source.status === 'PAGO' ? 'PAGO' : 'PLANEJADO', paidParcelas: null },
+      });
+
+      await this.regenerateRateioTargetCashflow(tx, target.id);
+      targets.push(target.id);
+    }
+
+    // a fonte vira espelho (dedupe no consolidado; permanece no caixa PESSOAL).
+    // Update incondicional: unratearSource pode ter limpado o vínculo no banco e
+    // o `source` em memória está defasado — não dá pra confiar no valor antigo.
+    const firstTarget = targets[0]!;
+    await tx.expense.update({ where: { id: source.id }, data: { linkedExpenseId: firstTarget } });
+
+    return { targets };
+  }
+
+  /**
+   * Desfaz o rateio de uma fonte: restaura status/paidParcelas dos alvos
+   * (snapshot), regenera o caixa PLANEJADO de cada alvo e limpa o espelho da
+   * fonte. Reversível e seguro quando não há rateio (no-op).
+   */
+  async unratearSource(
+    tx: Tx,
+    params: { tenantId: string; sourceExpenseId: string },
+  ): Promise<{ targets: string[] }> {
+    const { tenantId, sourceExpenseId } = params;
+    const rows = await tx.rateioAllocation.findMany({ where: { tenantId, sourceExpenseId } });
+    if (rows.length === 0) return { targets: [] };
+
+    const targets: string[] = [];
+    for (const r of rows) {
+      const target = await tx.expense.findFirst({
+        where: { id: r.targetExpenseId, tenantId, deletedAt: null },
+      });
+      if (target) {
+        await tx.expense.update({
+          where: { id: target.id },
+          data: { status: r.plannedStatus, paidParcelas: r.plannedPaid },
+        });
+      }
+      await tx.rateioAllocation.delete({ where: { targetExpenseId: r.targetExpenseId } });
+      // regen planejada (sem rateio nem settlements → caixa volta ao planejado)
+      if (target) await this.regenerateTargetCashflow(tx, r.targetExpenseId);
+      targets.push(r.targetExpenseId);
+    }
+
+    await tx.expense.update({ where: { id: sourceExpenseId }, data: { linkedExpenseId: null } });
     return { targets };
   }
 }
