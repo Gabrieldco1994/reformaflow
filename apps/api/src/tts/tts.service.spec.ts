@@ -94,3 +94,93 @@ describe('TtsService', () => {
     expect(wordCount).toBeLessThanOrEqual(14);
   });
 });
+
+describe('TtsService.streamSynthesize', () => {
+  it('emite chunks PCM e finaliza com onEnd quando há áudio', (done) => {
+    let socket: FakeSocket | null = null;
+    const service = new TestableTtsService(() => {
+      socket = new FakeSocket();
+      return socket;
+    });
+
+    const chunks: Buffer[] = [];
+    service.streamSynthesize(
+      { text: 'oi streaming' },
+      {
+        onChunk: (chunk) => chunks.push(chunk),
+        onEnd: () => {
+          expect(Buffer.concat(chunks).toString('hex')).toBe('0000ff7f');
+          done();
+        },
+        onError: (error) => done(error),
+      },
+    );
+
+    process.nextTick(() => {
+      socket?.emit('open');
+      socket?.emit('message', JSON.stringify({ type: 'log' }), false);
+      socket?.emit('message', Buffer.from([0x00, 0x00, 0xff, 0x7f]), true);
+      socket?.emit('close', 1000, Buffer.alloc(0));
+    });
+  });
+
+  it('chama onError quando o socket fecha sem áudio (backend ocupado)', (done) => {
+    let socket: FakeSocket | null = null;
+    const service = new TestableTtsService(() => {
+      socket = new FakeSocket();
+      return socket;
+    });
+
+    service.streamSynthesize(
+      { text: 'ocupado' },
+      {
+        onChunk: () => done(new Error('não deveria emitir chunk')),
+        onEnd: () => done(new Error('não deveria finalizar com sucesso')),
+        onError: (error) => {
+          expect(error).toBeInstanceOf(ServiceUnavailableException);
+          done();
+        },
+      },
+    );
+
+    process.nextTick(() => {
+      socket?.emit('open');
+      socket?.emit('close', 1013, Buffer.alloc(0));
+    });
+  });
+
+  it('cancel impede callbacks após o cancelamento', (done) => {
+    let socket: FakeSocket | null = null;
+    const service = new TestableTtsService(() => {
+      socket = new FakeSocket();
+      return socket;
+    });
+
+    let called = false;
+    const handle = service.streamSynthesize(
+      { text: 'cancelar' },
+      {
+        onChunk: () => {
+          called = true;
+        },
+        onEnd: () => {
+          called = true;
+        },
+        onError: () => {
+          called = true;
+        },
+      },
+    );
+
+    handle.cancel();
+
+    process.nextTick(() => {
+      socket?.emit('message', Buffer.from([0x01, 0x02]), true);
+      socket?.emit('close', 1006, Buffer.alloc(0));
+      setTimeout(() => {
+        expect(called).toBe(false);
+        done();
+      }, 10);
+    });
+  });
+});

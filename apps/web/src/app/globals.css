@@ -102,3 +102,85 @@
     letter-spacing: -0.01em;
   }
 }
+
+/* ===== Copiloto — experiência 100% voz ===== */
+@keyframes voice-orb-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
+@keyframes voice-orb-listen {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.13); }
+}
+@keyframes voice-orb-speak {
+  0% { transform: scale(1); }
+  25% { transform: scale(1.09); }
+  50% { transform: scale(0.96); }
+  75% { transform: scale(1.11); }
+  100% { transform: scale(1); }
+}
+@keyframes voice-ring-pulse {
+  0% { transform: scale(0.85); opacity: 0.5; }
+  100% { transform: scale(1.9); opacity: 0; }
+}
+@keyframes voice-spin {
+  to { transform: rotate(360deg); }
+}
+
+.voice-orb {
+  position: relative;
+  width: 11rem;
+  height: 11rem;
+  border-radius: 9999px;
+  border: none;
+  cursor: pointer;
+  background: radial-gradient(circle at 32% 28%, #F6CFF2 0%, #E2366B 42%, #900131 78%, #4F000B 100%);
+  box-shadow: 0 0 60px rgba(226, 54, 107, 0.5), inset 0 0 40px rgba(255, 255, 255, 0.18);
+  animation: voice-orb-breathe 4s ease-in-out infinite;
+  transition: box-shadow 0.3s ease;
+}
+.voice-orb--listening {
+  animation: voice-orb-listen 1.4s ease-in-out infinite;
+  box-shadow: 0 0 85px rgba(226, 54, 107, 0.78), inset 0 0 40px rgba(255, 255, 255, 0.22);
+}
+.voice-orb--speaking {
+  animation: voice-orb-speak 1s ease-in-out infinite;
+  box-shadow: 0 0 95px rgba(242, 125, 51, 0.7), inset 0 0 40px rgba(255, 255, 255, 0.25);
+}
+.voice-orb--thinking { animation: voice-orb-breathe 2s ease-in-out infinite; }
+
+.voice-ring {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 11rem;
+  height: 11rem;
+  border-radius: 9999px;
+  border: 2px solid rgba(246, 207, 242, 0.45);
+  animation: voice-ring-pulse 2.4s ease-out infinite;
+  pointer-events: none;
+}
+.voice-ring--2 { animation-delay: 1.2s; }
+.voice-ring--active { border-color: rgba(226, 54, 107, 0.6); animation-duration: 1.6s; }
+
+.voice-thinking-ring {
+  position: absolute;
+  inset: -14px;
+  margin: auto;
+  width: calc(11rem + 28px);
+  height: calc(11rem + 28px);
+  border-radius: 9999px;
+  border: 3px solid transparent;
+  border-top-color: rgba(246, 207, 242, 0.9);
+  animation: voice-spin 1s linear infinite;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-orb,
+  .voice-orb--listening,
+  .voice-orb--speaking,
+  .voice-orb--thinking,
+  .voice-ring,
+  .voice-thinking-ring { animation: none; }
+}

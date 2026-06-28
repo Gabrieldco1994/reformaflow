@@ -7,6 +7,16 @@ interface TtsAudioResult {
   mimeType: 'audio/wav';
 }
 
+interface TtsStreamHandlers {
+  onChunk: (pcm: Buffer) => void;
+  onEnd: () => void;
+  onError: (error: Error) => void;
+}
+
+interface TtsStreamHandle {
+  cancel: () => void;
+}
+
 type VibeSocketLike = {
   once(event: 'open', cb: () => void): void;
   once(event: 'error', cb: (error: Error) => void): void;
@@ -16,7 +26,7 @@ type VibeSocketLike = {
   terminate(): void;
 };
 
-const VIBEVOICE_SAMPLE_RATE = 24_000;
+export const VIBEVOICE_SAMPLE_RATE = 24_000;
 const PCM_BITS = 16;
 const CHANNELS = 1;
 const DEFAULT_CFG = 1.5;
@@ -33,82 +43,114 @@ export class TtsService {
   private readonly timeoutMs = this.resolveTimeoutMs();
 
   async synthesize(dto: SynthesizeTtsDto): Promise<TtsAudioResult> {
+    return new Promise<TtsAudioResult>((resolve, reject) => {
+      const pcmChunks: Buffer[] = [];
+      this.streamSynthesize(dto, {
+        onChunk: (chunk) => pcmChunks.push(chunk),
+        onEnd: () => {
+          resolve({
+            audio: this.pcm16ToWav(Buffer.concat(pcmChunks)),
+            mimeType: 'audio/wav',
+          });
+        },
+        onError: (error) => reject(error),
+      });
+    });
+  }
+
+  /**
+   * Conecta no VibeVoice e repassa cada chunk PCM16 assim que chega, sem
+   * esperar o áudio inteiro — é o que viabiliza a reprodução em tempo real
+   * (menor latência percebida). Retorna um handle para cancelar (ex: cliente
+   * desconectou).
+   */
+  streamSynthesize(dto: SynthesizeTtsDto, handlers: TtsStreamHandlers): TtsStreamHandle {
     const maxSeconds = this.normalizeMaxSeconds(dto.maxSeconds);
     const text = this.prepareTextForSpeech(dto.text.trim(), maxSeconds);
     const wsUrl = this.buildStreamUrl(text, dto);
 
-    return new Promise<TtsAudioResult>((resolve, reject) => {
-      let settled = false;
-      const pcmChunks: Buffer[] = [];
-      const socket = this.createSocket(wsUrl);
+    let settled = false;
+    let receivedBytes = 0;
+    const socket = this.createSocket(wsUrl);
 
-      const timeout = setTimeout(() => {
+    const timeout = setTimeout(() => {
+      fail(
+        new ServiceUnavailableException(
+          'Timeout ao sintetizar áudio com VibeVoice. Verifique o servidor TTS.',
+        ),
+      );
+    }, this.timeoutMs);
+
+    function fail(error: Error): void {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      try {
         socket.terminate();
-        finishWithError(
-          new ServiceUnavailableException(
-            'Timeout ao sintetizar áudio com VibeVoice. Verifique o servidor TTS.',
-          ),
-        );
-      }, this.timeoutMs);
+      } catch {
+        // socket já encerrado
+      }
+      handlers.onError(error);
+    }
 
-      const finishWithError = (error: Error) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeout);
-        reject(error);
-      };
+    const done = (): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      handlers.onEnd();
+    };
 
-      const finishWithSuccess = () => {
-        if (settled) return;
-        const pcm = Buffer.concat(pcmChunks);
-        if (pcm.length === 0) {
-          finishWithError(
-            new ServiceUnavailableException(
-              'VibeVoice não retornou áudio. Verifique se há voz/preset compatível para PT-BR.',
-            ),
-          );
-          return;
-        }
-
-        settled = true;
-        clearTimeout(timeout);
-
-        resolve({
-          audio: this.pcm16ToWav(pcm),
-          mimeType: 'audio/wav',
-        });
-      };
-
-      socket.once('open', () => {
-        this.logger.debug(`Conectado ao VibeVoice: ${wsUrl}`);
-      });
-
-      socket.on('message', (data, isBinary) => {
-        if (!isBinary) return;
-        if (Buffer.isBuffer(data)) {
-          pcmChunks.push(data);
-          return;
-        }
-        if (Array.isArray(data)) {
-          pcmChunks.push(Buffer.concat(data));
-          return;
-        }
-        pcmChunks.push(Buffer.from(data));
-      });
-
-      socket.once('error', (error) => {
-        this.logger.error(`Erro websocket VibeVoice: ${error.message}`);
-        finishWithError(
-          new ServiceUnavailableException(
-            `Falha ao conectar no VibeVoice (${this.wsUrl}). Detalhe: ${error.message}`,
-          ),
-        );
-      });
-
-      socket.once('close', () => {
-        finishWithSuccess();
-      });
+    socket.once('open', () => {
+      this.logger.debug(`Streaming VibeVoice: ${wsUrl}`);
     });
+
+    socket.on('message', (data, isBinary) => {
+      if (settled || !isBinary) return;
+      const chunk = this.toBuffer(data);
+      if (chunk.length === 0) return;
+      receivedBytes += chunk.length;
+      handlers.onChunk(chunk);
+    });
+
+    socket.once('error', (error) => {
+      this.logger.error(`Erro websocket VibeVoice: ${error.message}`);
+      fail(
+        new ServiceUnavailableException(
+          `Falha ao conectar no VibeVoice (${this.wsUrl}). Detalhe: ${error.message}`,
+        ),
+      );
+    });
+
+    socket.once('close', () => {
+      if (receivedBytes === 0) {
+        fail(
+          new ServiceUnavailableException(
+            'VibeVoice não retornou áudio (servidor ocupado ou voz/preset incompatível). Tente novamente.',
+          ),
+        );
+        return;
+      }
+      done();
+    });
+
+    return {
+      cancel: () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        try {
+          socket.terminate();
+        } catch {
+          // socket já encerrado
+        }
+      },
+    };
+  }
+
+  private toBuffer(data: RawData): Buffer {
+    if (Buffer.isBuffer(data)) return data;
+    if (Array.isArray(data)) return Buffer.concat(data);
+    return Buffer.from(data as ArrayBuffer);
   }
 
   private buildStreamUrl(text: string, dto: SynthesizeTtsDto): string {
@@ -176,4 +218,4 @@ export class TtsService {
   }
 }
 
-export type { TtsAudioResult };
+export type { TtsAudioResult, TtsStreamHandlers, TtsStreamHandle };
