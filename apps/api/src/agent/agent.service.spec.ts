@@ -104,6 +104,23 @@ describe('AgentService (loop de tool-calling)', () => {
     expect(res.reply).toBe('Resumo Maior gasto: Moradia. Valor: R$ 181.848,55.');
   });
 
+  it('remove emojis da resposta (texto e voz)', async () => {
+    const llm: LlmProvider = {
+      id: 'mock',
+      isConfigured: () => true,
+      chat: jest.fn().mockResolvedValue({
+        content: 'Seu maior gasto 💰 foi Moradia 😀, R$ 1.500,00.',
+        toolCalls: [],
+      }),
+    };
+    const service = new AgentService(llm, makeTools());
+
+    const res = await service.chat(baseInput);
+
+    expect(res.reply).toBe('Seu maior gasto foi Moradia, R$ 1.500,00.');
+    expect(res.reply).not.toMatch(/\p{Extended_Pictographic}/u);
+  });
+
   it('lança 503 quando o provider não está configurado', async () => {
     const llm: LlmProvider = {
       id: 'groq',

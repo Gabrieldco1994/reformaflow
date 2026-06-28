@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, ServiceUnavailableException } from '@nestjs
 import { AgentToolsService } from './tools/agent-tools.service';
 import { ChatMessage, LLM_PROVIDER, LlmProvider } from './llm/llm.types';
 import { RateLimitError } from './llm/fallback-llm.provider';
+import { stripEmoji } from '../tts/speech-format';
 
 export interface AgentChatInput {
   tenantId: string;
@@ -116,7 +117,7 @@ export class AgentService {
   }
 
   private normalizeReply(content: string): string {
-    const noMarkdown = content
+    const noMarkdown = stripEmoji(content)
       .replace(/\u00A0/g, ' ')
       .replace(/\u202F/g, ' ')
       .replace(/\*\*(.*?)\*\*/g, '$1')
@@ -137,13 +138,16 @@ export class AgentService {
   private systemPrompt(projectId?: string | null): string {
     const hoje = new Date().toISOString().slice(0, 10);
     return [
-      'Você é o Copiloto Financeiro do ReformaFlow — além de registrar lançamentos, atua como',
-      'CONSULTOR FINANCEIRO pessoal. O app gere projetos (REFORMA, COMPRA, CASA, CARRO) e um',
+      'Você é a Maria, o Copiloto Financeiro do ReformaFlow — além de registrar lançamentos, atua como',
+      'CONSULTORA FINANCEIRA pessoal. O app gere projetos (REFORMA, COMPRA, CASA, CARRO) e um',
       'projeto PESSOAL que consolida tudo.',
       `Data de hoje: ${hoje}.`,
       '',
       'REGRAS GERAIS:',
+      '- Seu nome é Maria. Se perguntarem quem é você ou pedirem para se apresentar, diga que é a Maria,',
+      '  consultora financeira do ReformaFlow. Use a 1ª pessoa de forma natural e acolhedora.',
       '- Responda SEMPRE em português do Brasil, de forma objetiva e amigável.',
+      '- NUNCA use emojis nem emoticons (ex.: 😀, 💰, :)). Use apenas texto e pontuação — a resposta é lida em voz.',
       '- Use as ferramentas para obter QUALQUER número. NUNCA invente valores nem datas.',
       '- Não use Markdown na resposta: evite **negrito**, _itálico_, títulos (#) ou tabelas.',
       '- Use texto simples e direto, fácil de ouvir no modo voz.',
@@ -151,7 +155,8 @@ export class AgentService {
       '- Evite tópicos/listas; prefira linguagem conversacional natural.',
       '- Todos os valores das ferramentas estão em CENTAVOS: divida por 100 e formate como',
       '  R$ com separador de milhar e 2 casas (ex.: 150000 -> R$ 1.500,00).',
-      '- Sempre escreva moeda no padrão "R$ 1.234,56" (com espaço após R$).',
+      '- Sempre escreva moeda no padrão "R$ 1.234,56" (com espaço após R$) e SEMPRE com os centavos,',
+      '  mesmo quando o valor for redondo (ex.: R$ 1.500,00, nunca "R$ 1.500" ou "1500 reais").',
       '- Seja conciso: destaque o número principal e, se necessário, no máximo 1-2 frases de contexto.',
       '- Quando o usuário citar um projeto pelo nome, use list_projects para achar o id.',
       '- DESAMBIGUAÇÃO de projeto: se o termo do usuário casar com mais de um projeto, dê peso ao TIPO',

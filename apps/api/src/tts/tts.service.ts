@@ -1,6 +1,7 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import WebSocket, { type RawData } from 'ws';
 import { SynthesizeTtsDto } from './dto/synthesize-tts.dto';
+import { stripEmoji, verbalizeCurrency } from './speech-format';
 
 interface TtsAudioResult {
   audio: Buffer;
@@ -192,7 +193,10 @@ export class TtsService {
   }
 
   private prepareTextForSpeech(text: string, maxSeconds: number): string {
-    const normalized = text
+    // Verbaliza moeda (lê centavos por extenso) e remove emojis ANTES de limpar
+    // marcação, para o VibeVoice receber texto natural e falável.
+    const spoken = verbalizeCurrency(stripEmoji(text));
+    const normalized = spoken
       .replace(/[*_`#>\-]+/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();

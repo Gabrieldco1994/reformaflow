@@ -93,6 +93,29 @@ describe('TtsService', () => {
 
     expect(wordCount).toBeLessThanOrEqual(14);
   });
+
+  it('verbaliza moeda (com centavos) e remove emoji no texto enviado ao TTS', async () => {
+    let socket: FakeSocket | null = null;
+    const service = new TestableTtsService(() => {
+      socket = new FakeSocket();
+      return socket;
+    });
+
+    const promise = service.synthesize({ text: 'Maior gasto 💰 foi R$ 3.200,50 este mês.' });
+
+    process.nextTick(() => {
+      socket?.emit('open');
+      socket?.emit('message', Buffer.from([0x00, 0x00]), true);
+      socket?.emit('close', 1000, Buffer.alloc(0));
+    });
+
+    await promise;
+    const decodedText = new URL(service.lastUrl).searchParams.get('text') ?? '';
+
+    expect(decodedText).toContain('três mil e duzentos reais e cinquenta centavos');
+    expect(decodedText).not.toContain('R$');
+    expect(decodedText).not.toMatch(/\p{Extended_Pictographic}/u);
+  });
 });
 
 describe('TtsService.streamSynthesize', () => {
