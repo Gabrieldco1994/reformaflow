@@ -21,6 +21,14 @@ api.log
 .agents/
 .copilot/
 
+# External clones / generated planning artifacts (não versionar)
+VibeVoice/
+plans/
+
+# Python caches (deploy/modal)
+__pycache__/
+*.pyc
+
 # Stray TS build artifacts emitted outside dist/ (legit ones: apps/web/next-env.d.ts)
 packages/domain/src/**/*.js
 packages/domain/src/**/*.js.map
