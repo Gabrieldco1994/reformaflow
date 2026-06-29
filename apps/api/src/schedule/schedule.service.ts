@@ -12,6 +12,7 @@ import {
 import {
   recalculateAllTasks,
   calculateScheduleKPIs,
+  sortScheduleByDate,
   type ScheduleDateConfig,
   type TaskForRecalc,
 } from '@reformaflow/domain';
@@ -151,10 +152,13 @@ export class ScheduleService {
       this.getHolidays(projectId, tenantId),
     ]);
 
-    const allTasks = stages.flatMap((s) => s.tasks);
+    // Ordena cronologicamente (tarefas por data; etapas pela 1ª tarefa) em vez
+    // da ordem de inserção — itens novos aparecem no lugar certo das datas/predecessoras.
+    const sortedStages = sortScheduleByDate(stages);
+    const allTasks = sortedStages.flatMap((s) => s.tasks);
     const kpis = calculateScheduleKPIs(allTasks);
 
-    return { config, stages, holidays, kpis };
+    return { config, stages: sortedStages, holidays, kpis };
   }
 
   // ─── Import ───────────────────────────────────────────

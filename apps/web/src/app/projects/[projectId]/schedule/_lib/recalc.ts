@@ -1,6 +1,7 @@
 import {
   recalculateAllTasks,
   calculateScheduleKPIs,
+  sortScheduleByDate,
   type ScheduleDateConfig,
   type TaskForRecalc,
 } from '@reformaflow/domain';
@@ -60,7 +61,7 @@ export function recalcStages(
 
   const byId = new Map(results.map((r) => [r.id, r]));
 
-  return stages.map((s) => ({
+  const withDates = stages.map((s) => ({
     ...s,
     tasks: s.tasks.map((t) => {
       const r = byId.get(t.id);
@@ -72,6 +73,10 @@ export function recalcStages(
       };
     }),
   }));
+
+  // Reordena cronologicamente para refletir datas/predecessoras (mesma regra do backend),
+  // evitando que itens recém-criados ou reagendados fiquem fora de ordem após edições.
+  return sortScheduleByDate(withDates);
 }
 
 export function computeKPIs(stages: ScheduleStage[]): ScheduleKPIs {

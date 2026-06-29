@@ -177,6 +177,78 @@ export function recalculateAllTasks(
   return Array.from(results.values());
 }
 
+// ─── Ordenação cronológica ──────────────────────────────
+// O cronograma é exibido na ordem do campo `ordem` (ordem de inserção).
+// Como as datas já refletem as predecessoras (um sucessor sempre começa
+// após o término da predecessora), ordenar por `dataInicio` posiciona cada
+// tarefa/etapa no seu lugar cronológico — inclusive itens recém-criados,
+// que antes caíam sempre no final.
+
+export interface DatedTaskLike {
+  dataInicio: Date | string | null;
+  dataTermino?: Date | string | null;
+  numero?: number;
+  ordem?: number;
+}
+
+export interface DatedStageLike<T extends DatedTaskLike = DatedTaskLike> {
+  ordem?: number;
+  tasks: T[];
+}
+
+function toTimestamp(value: Date | string | null | undefined): number {
+  if (value == null) return Number.POSITIVE_INFINITY; // sem data → final
+  const t = value instanceof Date ? value.getTime() : new Date(value).getTime();
+  return Number.isNaN(t) ? Number.POSITIVE_INFINITY : t;
+}
+
+/** Comparador de tarefas: dataInicio → dataTermino → numero → ordem. */
+export function compareTasksByDate(a: DatedTaskLike, b: DatedTaskLike): number {
+  const ai = toTimestamp(a.dataInicio);
+  const bi = toTimestamp(b.dataInicio);
+  if (ai !== bi) return ai - bi;
+  const at = toTimestamp(a.dataTermino);
+  const bt = toTimestamp(b.dataTermino);
+  if (at !== bt) return at - bt;
+  const an = a.numero ?? 0;
+  const bn = b.numero ?? 0;
+  if (an !== bn) return an - bn;
+  return (a.ordem ?? 0) - (b.ordem ?? 0);
+}
+
+/** Menor dataInicio entre as tarefas (ou +Infinity se nenhuma tiver data). */
+export function earliestTaskStart(tasks: DatedTaskLike[]): number {
+  let min = Number.POSITIVE_INFINITY;
+  for (const t of tasks) {
+    const ti = toTimestamp(t.dataInicio);
+    if (ti < min) min = ti;
+  }
+  return min;
+}
+
+/** Comparador de etapas: pela primeira tarefa; etapas sem datas vão ao final. */
+export function compareStagesByDate(a: DatedStageLike, b: DatedStageLike): number {
+  const ak = earliestTaskStart(a.tasks);
+  const bk = earliestTaskStart(b.tasks);
+  if (ak !== bk) return ak - bk;
+  return (a.ordem ?? 0) - (b.ordem ?? 0);
+}
+
+/**
+ * Devolve novos arrays de etapas/tarefas ordenados cronologicamente:
+ * tarefas por data de início (predecessoras já refletidas nas datas) e
+ * etapas pela data de início da sua primeira tarefa. Não muta a entrada.
+ */
+export function sortScheduleByDate<
+  T extends DatedTaskLike,
+  S extends DatedStageLike<T>,
+>(stages: S[]): S[] {
+  const withSortedTasks = stages.map(
+    (s) => ({ ...s, tasks: [...s.tasks].sort(compareTasksByDate) }) as S,
+  );
+  return withSortedTasks.sort(compareStagesByDate);
+}
+
 /**
  * Calcula KPIs do cronograma
  */
