@@ -44,10 +44,10 @@ function isQuickFilterKey(
 }
 
 function toneClasses(tone: Tone) {
-  if (tone === 'emerald') return 'text-emerald-700 bg-emerald-50 border-emerald-100';
-  if (tone === 'amber') return 'text-amber-800 bg-amber-50 border-amber-100';
-  if (tone === 'rose') return 'text-rose-700 bg-rose-50 border-rose-100';
-  return 'text-slate-800 bg-slate-50 border-slate-200';
+  if (tone === 'emerald') return 'text-[#1E924A] bg-[#E3F6EA] border-[#BFE6CC]';
+  if (tone === 'amber') return 'text-[#B5803A] bg-[#FBEBDC] border-[#EAD9C0]';
+  if (tone === 'rose') return 'text-[#D92D20] bg-[#FCEBE9] border-[#F2C6C1]';
+  return 'text-lifeone-ink bg-lifeone-surface border-lifeone-hairline';
 }
 
 export function ResumoCards({
@@ -76,14 +76,14 @@ export function ResumoCards({
 
   return (
     <section className="grid gap-3 xl:grid-cols-12 xl:gap-4">
-      <article className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm xl:col-span-4 xl:flex xl:min-h-full xl:flex-col xl:justify-between xl:p-6">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+      <article className="rounded-3xl border border-lifeone-hairline bg-lifeone-card p-4 shadow-lifeone-card xl:col-span-4 xl:flex xl:min-h-full xl:flex-col xl:justify-between xl:p-6">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-lifeone-ink-3">
           Tenho na conta hoje
         </p>
-        <p className="mt-2 text-[26px] font-bold tracking-tight text-slate-950 xl:text-[34px]">
+        <p className="mt-2 text-[26px] font-bold tracking-tight text-lifeone-ink xl:text-[34px] font-geist tabular-nums">
           {formatCurrency(caixaHoje / 100)}
         </p>
-        <p className="mt-2 max-w-sm text-[11px] leading-4 text-slate-500 xl:text-xs xl:leading-5">
+        <p className="mt-2 max-w-sm text-[11px] leading-4 text-lifeone-ink-3 xl:text-xs xl:leading-5">
           é o dinheiro disponível agora, de verdade, na sua conta
         </p>
       </article>
@@ -97,8 +97,8 @@ export function ResumoCards({
             : null;
           const filterable = quickFilterKey != null;
           const active = quickFilterKey != null && activeQuickFilter === quickFilterKey;
-          const cardClass = `rounded-2xl border p-3 shadow-sm xl:flex xl:min-h-full xl:flex-col xl:justify-between xl:p-4 ${
-            active ? 'ring-2 ring-orange-400' : ''
+          const cardClass = `rounded-2xl border p-3 shadow-lifeone-card xl:flex xl:min-h-full xl:flex-col xl:justify-between xl:p-4 ${
+            active ? 'ring-2 ring-lifeone-blue' : ''
           } ${filterable ? 'cursor-pointer' : ''} ${toneClasses(tone)}`;
           return (
             filterable && quickFilterKey ? (
@@ -110,7 +110,7 @@ export function ResumoCards({
                 className={`${cardClass} text-left`}
               >
                 <p className="text-[11px] font-semibold leading-4">{card.title}</p>
-                <p className="mt-2 text-lg font-bold tracking-tight xl:text-[22px]">
+                <p className="mt-2 text-lg font-bold tracking-tight xl:text-[22px] font-geist tabular-nums">
                   {formatCurrency(value / 100)}
                 </p>
                 <p className="mt-2 text-[11px] leading-4 opacity-80 xl:text-xs xl:leading-5">
@@ -120,7 +120,7 @@ export function ResumoCards({
             ) : (
               <article key={card.key} className={cardClass}>
                 <p className="text-[11px] font-semibold leading-4">{card.title}</p>
-                <p className="mt-2 text-lg font-bold tracking-tight xl:text-[22px]">
+                <p className="mt-2 text-lg font-bold tracking-tight xl:text-[22px] font-geist tabular-nums">
                   {formatCurrency(value / 100)}
                 </p>
                 <p className="mt-2 text-[11px] leading-4 opacity-80 xl:text-xs xl:leading-5">

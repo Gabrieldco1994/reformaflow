@@ -250,22 +250,27 @@ export function MovimentacoesSection({
   ];
 
   return (
-    <section className="rounded-3xl border border-darc-linen bg-white p-3 shadow-darc-soft xl:p-5">
+    <section className="rounded-3xl border border-lifeone-hairline bg-lifeone-card p-3 shadow-lifeone-card xl:p-5">
       <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-darc-velvet/50">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-lifeone-ink-3">
             Movimentações do mês
           </p>
-          <h2 className="mt-0.5 text-lg font-bold text-darc-velvet">Tudo que mexeu na conta</h2>
+          <h2
+            className="mt-0.5 text-lg font-bold text-lifeone-ink font-geist not-italic"
+            style={{ fontFamily: "'Geist', var(--font-sans), system-ui, sans-serif", fontStyle: 'normal' }}
+          >
+            Tudo que mexeu na conta
+          </h2>
         </div>
         <div className="text-right text-[11px] leading-tight">
-          <p className="font-semibold text-emerald-600">+ {formatCurrency(totalEntradas / 100)}</p>
-          <p className="font-semibold text-darc-velvet/70">− {formatCurrency(totalSaidas / 100)}</p>
+          <p className="font-semibold text-[#1E924A]">+ {formatCurrency(totalEntradas / 100)}</p>
+          <p className="font-semibold text-lifeone-ink-2">− {formatCurrency(totalSaidas / 100)}</p>
         </div>
       </div>
 
       {/* Segmented Saídas | Entradas | Tudo */}
-      <div className="mb-3 inline-flex w-full rounded-2xl bg-darc-cream p-1 sm:w-auto">
+      <div className="mb-3 inline-flex w-full rounded-2xl bg-lifeone-sidebar p-1 sm:w-auto">
         {tabs.map((t) => (
           <button
             key={t.key}
@@ -276,8 +281,8 @@ export function MovimentacoesSection({
             }}
             className={`h-9 flex-1 rounded-xl px-4 text-sm font-semibold transition sm:flex-none ${
               tab === t.key
-                ? 'bg-white text-darc-velvet shadow-sm'
-                : 'text-darc-velvet/50 hover:text-darc-velvet/80'
+                ? 'bg-lifeone-card text-lifeone-ink shadow-sm'
+                : 'text-lifeone-ink-3 hover:text-lifeone-ink-2'
             }`}
           >
             {t.label}
@@ -287,15 +292,15 @@ export function MovimentacoesSection({
 
       {/* Indicador de filtro de origem ativo (vem dos cards acima) */}
       {originFilter && (
-        <div className="mb-3 flex items-center gap-2 rounded-xl bg-orange-50 px-3 py-2 text-[12px] text-orange-800">
+        <div className="mb-3 flex items-center gap-2 rounded-xl bg-[#E6EFFE] px-3 py-2 text-[12px] text-lifeone-blue">
           <span className="font-semibold">Filtrando por {originLabel(activeIsCard ? originFilter : null, activeIsCard ? null : originFilter)}</span>
           {activeIsCard && (
-            <span className="text-orange-600">· compras da fatura</span>
+            <span className="text-lifeone-blue">· compras da fatura</span>
           )}
           <button
             type="button"
             onClick={onClearOrigin}
-            className="ml-auto font-semibold text-orange-700 hover:text-orange-900"
+            className="ml-auto font-semibold text-lifeone-blue hover:text-[#0857C4]"
           >
             limpar
           </button>
@@ -303,12 +308,12 @@ export function MovimentacoesSection({
       )}
 
       {summaryQuickFilterLabel && (
-        <div className="mb-3 flex items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2 text-[12px] text-emerald-800">
+        <div className="mb-3 flex items-center gap-2 rounded-xl bg-[#E3F6EA] px-3 py-2 text-[12px] text-[#1E924A]">
           <span className="font-semibold">Filtro rápido: {summaryQuickFilterLabel}</span>
           <button
             type="button"
             onClick={onClearSummaryQuickFilter}
-            className="ml-auto font-semibold text-emerald-700 hover:text-emerald-900"
+            className="ml-auto font-semibold text-[#1E924A] hover:text-[#14672F]"
           >
             limpar
           </button>
@@ -321,13 +326,13 @@ export function MovimentacoesSection({
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Buscar por descrição…"
-          className="h-10 min-w-[180px] flex-1 rounded-xl border border-darc-linen bg-darc-off-white px-3 text-sm text-darc-velvet outline-none focus:border-orange-300"
+          className="h-10 min-w-[180px] flex-1 rounded-xl border border-lifeone-hairline bg-lifeone-card px-3 text-sm text-lifeone-ink outline-none focus:border-lifeone-blue"
         />
         {tab !== 'entradas' && catOptions.length > 0 && (
           <select
             value={catFilter}
             onChange={(e) => setCatFilter(e.target.value)}
-            className="h-10 rounded-xl border border-darc-linen bg-darc-off-white px-3 text-sm font-medium text-darc-velvet outline-none focus:border-orange-300"
+            className="h-10 rounded-xl border border-lifeone-hairline bg-lifeone-card px-3 text-sm font-medium text-lifeone-ink outline-none focus:border-lifeone-blue"
           >
             <option value="todas">Todas as categorias</option>
             {catOptions.map((c) => (
@@ -341,7 +346,7 @@ export function MovimentacoesSection({
           <select
             value={projetoFilter}
             onChange={(e) => setProjetoFilter(e.target.value)}
-            className="h-10 rounded-xl border border-darc-linen bg-darc-off-white px-3 text-sm font-medium text-darc-velvet outline-none focus:border-orange-300"
+            className="h-10 rounded-xl border border-lifeone-hairline bg-lifeone-card px-3 text-sm font-medium text-lifeone-ink outline-none focus:border-lifeone-blue"
           >
             <option value="todos">Todos os projetos</option>
             <option value={projectId}>Pessoal</option>
@@ -355,7 +360,7 @@ export function MovimentacoesSection({
         <button
           type="button"
           onClick={() => setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'))}
-          className="flex h-10 items-center gap-1.5 rounded-xl border border-darc-linen bg-darc-off-white px-3 text-sm font-medium text-darc-velvet transition hover:border-orange-300"
+          className="flex h-10 items-center gap-1.5 rounded-xl border border-lifeone-hairline bg-lifeone-card px-3 text-sm font-medium text-lifeone-ink transition hover:border-lifeone-blue"
           title="Ordenar por data"
         >
           <ArrowDownUp className="h-3.5 w-3.5" />
@@ -393,7 +398,7 @@ export function MovimentacoesSection({
       </div>
 
       {filtered.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-darc-linen bg-darc-off-white p-8 text-center text-sm text-darc-velvet/50">
+        <div className="rounded-2xl border border-dashed border-lifeone-hairline bg-lifeone-card p-8 text-center text-sm text-lifeone-ink-3">
           Nenhuma movimentação com esses filtros.
         </div>
       ) : (
@@ -421,10 +426,10 @@ export function MovimentacoesSection({
 
             const realizado = item.kind === 'saida' ? item.realizado : true;
             const badge = isEntrada
-              ? { txt: 'Recebido', cls: 'bg-emerald-100 text-emerald-700' }
+              ? { txt: 'Recebido', cls: 'bg-[#E3F6EA] text-[#1E924A]' }
               : realizado
-                ? { txt: 'Paga', cls: 'bg-emerald-100 text-emerald-700' }
-                : { txt: 'A pagar', cls: 'bg-amber-100 text-amber-700' };
+                ? { txt: 'Paga', cls: 'bg-[#E3F6EA] text-[#1E924A]' }
+                : { txt: 'A pagar', cls: 'bg-[#FBEBDC] text-[#B5803A]' };
 
             const isInvoiceRow = !isEntrada && item.kind === 'saida' && item.isInvoice;
             const canToggle = !isEntrada && item.kind === 'saida' && item.editavel && !item.isInvoice;
@@ -438,16 +443,16 @@ export function MovimentacoesSection({
             return (
               <div
                 key={`${item.kind}-${item.id ?? `${item.descricao}-${item.data}-${item.valor}`}`}
-                className="rounded-2xl border border-darc-linen bg-white transition-colors hover:border-orange-200 hover:shadow-darc-soft"
+                className="rounded-2xl border border-lifeone-hairline bg-lifeone-card transition-colors hover:border-lifeone-blue hover:shadow-lifeone-card"
               >
                 <div className="group flex items-center gap-3 px-3 py-2.5 md:px-4 md:py-3">
                   <span
                     className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold md:h-10 md:w-10 ${
                       isEntrada
-                        ? 'bg-emerald-100 text-emerald-700'
+                        ? 'bg-[#E3F6EA] text-[#1E924A]'
                         : isInvoiceRow
-                          ? 'bg-violet-100 text-violet-700'
-                          : 'bg-orange-100 text-orange-700'
+                          ? 'bg-[#EFE6FA] text-[#7A3FC2]'
+                          : 'bg-[#E6EFFE] text-lifeone-blue'
                     }`}
                   >
                     {isInvoiceRow ? <CreditCard className="h-4 w-4" /> : initialOf(titulo)}
@@ -464,20 +469,20 @@ export function MovimentacoesSection({
                     title={canEdit ? 'Editar' : undefined}
                   >
                     <div className="flex items-center gap-1.5">
-                      <span className="truncate text-sm font-semibold text-darc-velvet">{titulo}</span>
+                      <span className="truncate text-sm font-semibold text-lifeone-ink">{titulo}</span>
                       {projOrigem && (
-                        <span className="shrink-0 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
+                        <span className="shrink-0 rounded-full bg-[#E6EFFE] px-2 py-0.5 text-[10px] font-semibold text-lifeone-blue">
                           {projOrigem.name}
                         </span>
                       )}
                     </div>
-                    <div className="truncate text-[11px] text-darc-velvet/50">{meta}</div>
+                    <div className="truncate text-[11px] text-lifeone-ink-3">{meta}</div>
                   </button>
 
                   <div className="flex shrink-0 flex-col items-end gap-1">
                     <span
-                      className={`text-sm font-semibold tabular-nums ${
-                        isEntrada ? 'text-emerald-600' : 'text-darc-velvet'
+                      className={`text-sm font-semibold tabular-nums font-geist ${
+                        isEntrada ? 'text-[#1E924A]' : 'text-lifeone-ink'
                       }`}
                     >
                       {isEntrada ? '+' : '−'} {formatCurrency(item.valor / 100)}
@@ -525,7 +530,7 @@ export function MovimentacoesSection({
                           if (item.kind === 'saida') openEditExpense(item);
                           else if (item.kind === 'entrada') openEditReceita(item);
                         }}
-                        className="rounded-lg p-1.5 text-darc-velvet/30 transition-colors hover:bg-orange-50 hover:text-orange-500"
+                        className="rounded-lg p-1.5 text-lifeone-ink-4 transition-colors hover:bg-[#E6EFFE] hover:text-lifeone-blue"
                         title="Editar"
                       >
                         <Pencil className="h-4 w-4" />
@@ -541,7 +546,7 @@ export function MovimentacoesSection({
                             if (confirm('Excluir recebimento?')) removeReceita.mutate(item.id);
                           }
                         }}
-                        className="rounded-lg p-1.5 text-darc-velvet/30 transition-colors hover:bg-red-50 hover:text-red-500"
+                        className="rounded-lg p-1.5 text-lifeone-ink-4 transition-colors hover:bg-[#FCEBE9] hover:text-[#D92D20]"
                         title="Excluir"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -586,7 +591,7 @@ function FilterPill({
       type="button"
       onClick={onClick}
       className={`h-9 rounded-full px-3 text-[12px] font-semibold transition ${
-        active ? 'bg-darc-velvet text-white' : 'bg-darc-cream text-darc-velvet/60 hover:bg-darc-linen'
+        active ? 'bg-lifeone-ink text-[#FFFFFF]' : 'bg-lifeone-sidebar text-lifeone-ink-3 hover:bg-lifeone-hairline'
       }`}
     >
       {children}

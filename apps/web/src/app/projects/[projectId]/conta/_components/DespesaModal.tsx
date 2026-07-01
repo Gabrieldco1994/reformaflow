@@ -202,9 +202,9 @@ export function DespesaModal({
     return (
       <Modal open={open} onClose={onClose} title="Editar Despesa">
         <div className="space-y-3 py-2">
-          <div className="h-10 animate-pulse rounded-lg bg-gray-100" />
-          <div className="h-10 animate-pulse rounded-lg bg-gray-100" />
-          <div className="h-24 animate-pulse rounded-lg bg-gray-100" />
+          <div className="h-10 animate-pulse rounded-lg bg-lifeone-surface" />
+          <div className="h-10 animate-pulse rounded-lg bg-lifeone-surface" />
+          <div className="h-24 animate-pulse rounded-lg bg-lifeone-surface" />
         </div>
       </Modal>
     );

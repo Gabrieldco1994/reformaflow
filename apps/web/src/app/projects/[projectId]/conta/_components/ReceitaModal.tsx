@@ -170,13 +170,13 @@ export function ReceitaModal({
           defaultValue={editing?.data ? editing.data.slice(0, 10) : defaultData ?? ''}
         />
         <div className="space-y-1">
-          <label htmlFor="conta-receita-tipo" className="block text-sm font-medium text-gray-700">Tipo</label>
+          <label htmlFor="conta-receita-tipo" className="block text-sm font-medium text-lifeone-ink-2">Tipo</label>
           <select
             id="conta-receita-tipo"
             name="tipo"
             required
             defaultValue={editingTipo}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500"
+            className="w-full rounded-lg border border-lifeone-hairline px-3 py-2 text-sm shadow-lifeone-card focus:border-lifeone-blue focus:ring-1 focus:ring-lifeone-blue"
           >
             {renderTipoOptions(extraTipo)}
           </select>
