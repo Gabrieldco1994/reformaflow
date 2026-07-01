@@ -24,7 +24,7 @@ export function MobileHeader({ project, hasMoreSheet, onOpenMais }: MobileHeader
       </Link>
       <div className="flex items-center gap-2 min-w-0">
         <span className="text-lg flex-shrink-0">{TYPE_ICONS[project.type] ?? '📋'}</span>
-        <span className="font-editorial italic text-base text-darc-velvet truncate">{project.name}</span>
+        <span className="font-geist font-semibold text-base text-lifeone-ink truncate">{project.name}</span>
       </div>
       <div className="flex items-center -mr-2">
         <NotificationsBell variant="light" />

@@ -113,12 +113,12 @@
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
-  /* Tipografia editorial D'arc para títulos hero/marketing */
+  /* Tipografia de títulos hero/marketing → Geist (LifeOne) */
   .font-editorial {
-    font-family: var(--font-display), 'Cormorant Garamond', Georgia, serif;
-    font-style: italic;
-    font-weight: 300;
-    letter-spacing: -0.01em;
+    font-family: 'Geist', var(--font-sans), system-ui, sans-serif;
+    font-style: normal;
+    font-weight: 700;
+    letter-spacing: -0.02em;
   }
 }
 
