@@ -31,14 +31,14 @@ export default function Recomendacoes({
             {equilibrado ? (
               <>
                 No ritmo atual você fecha o mês com{' '}
-                <strong className="text-[var(--ck-pos)] font-mono">{fmtMoney(saldoProjetadoVal)}</strong>, acima de como começou.
+                <strong className="text-[var(--ck-pos)] font-geist tabular-nums">{fmtMoney(saldoProjetadoVal)}</strong>, acima de como começou.
               </>
             ) : (
               <>
                 Projeção de fechar em{' '}
-                <strong className="text-[var(--ck-neg)] font-mono">{fmtMoney(saldoProjetadoVal)}</strong>. Para equilibrar,
+                <strong className="text-[var(--ck-neg)] font-geist tabular-nums">{fmtMoney(saldoProjetadoVal)}</strong>. Para equilibrar,
                 corte{' '}
-                <strong className="text-[var(--ck-alert)] font-mono">{fmtMoney(cortePorDia)}</strong>/dia nos{' '}
+                <strong className="text-[var(--ck-alert)] font-geist tabular-nums">{fmtMoney(cortePorDia)}</strong>/dia nos{' '}
                 {m.diasRestantes} dias restantes.
               </>
             )}
@@ -53,7 +53,7 @@ export default function Recomendacoes({
             />
             <p className="text-xs text-[var(--ck-text)] leading-relaxed">
               Maior gasto variável: <strong>{m.maiorGastoVariavel.categoria}</strong> com{' '}
-              <strong className="font-mono">{fmtMoney(m.maiorGastoVariavel.valor)}</strong>. Vale revisar.
+              <strong className="font-geist tabular-nums">{fmtMoney(m.maiorGastoVariavel.valor)}</strong>. Vale revisar.
             </p>
           </li>
         )}
@@ -67,7 +67,7 @@ export default function Recomendacoes({
                 {contas.map((c, i) => (
                   <li key={i} className="flex justify-between gap-3">
                     <span>dia {c.dia} · {c.nome}</span>
-                    <span className="font-mono tabular-nums text-[var(--ck-neg)]">{fmtMoney(c.valor)}</span>
+                    <span className="font-geist tabular-nums text-[var(--ck-neg)]">{fmtMoney(c.valor)}</span>
                   </li>
                 ))}
               </ul>
@@ -79,7 +79,7 @@ export default function Recomendacoes({
           <Shield className={`w-4 h-4 mt-0.5 shrink-0 ${m.reservaMeses >= m.reservaMeta ? 'text-[var(--ck-pos)]' : 'text-[var(--ck-alert)]'}`} />
           <p className="text-xs text-[var(--ck-text)] leading-relaxed">
             Reserva de emergência:{' '}
-            <strong className="font-mono">{m.reservaMeses.toFixed(1).replace('.', ',')}</strong> de{' '}
+            <strong className="font-geist tabular-nums">{m.reservaMeses.toFixed(1).replace('.', ',')}</strong> de{' '}
             {m.reservaMeta} meses de despesa{' '}
             {m.reservaMeses >= m.reservaMeta ? (
               <span className="text-[var(--ck-pos)]">— meta atingida ✓</span>

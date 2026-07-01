@@ -53,8 +53,8 @@ export default function CockpitPage() {
 
   if (projectType && projectType !== 'PESSOAL') {
     return (
-      <div className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-6 text-center">
-        <p className="text-sm text-darc-velvet">
+      <div className="rounded-2xl bg-lifeone-card shadow-lifeone-card border border-lifeone-hairline p-6 text-center">
+        <p className="text-sm text-lifeone-ink">
           O cockpit financeiro está disponível apenas para projetos do tipo <strong>Pessoal</strong>.
         </p>
       </div>
@@ -83,7 +83,7 @@ export default function CockpitPage() {
   return (
     <div
       style={COCKPIT_THEME}
-      className="rounded-[22px] bg-[var(--ck-bg)] text-[var(--ck-text)] p-4 md:p-6 border border-[var(--ck-border)] shadow-[0_20px_60px_rgba(0,0,0,.35)]"
+      className="rounded-[22px] bg-[var(--ck-bg)] text-[var(--ck-text)] p-4 md:p-6 border border-[var(--ck-border)] shadow-lifeone-card"
     >
       <header className="flex items-center justify-between gap-3 flex-wrap mb-5">
         <div className="flex items-center gap-3">
@@ -92,7 +92,10 @@ export default function CockpitPage() {
           </div>
           <div>
             <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--ck-muted)]">Cockpit financeiro</p>
-            <h1 className="font-display text-xl md:text-2xl text-[var(--ck-text)] leading-tight">
+            <h1
+              className="font-geist not-italic text-xl md:text-2xl text-[var(--ck-text)] leading-tight"
+              style={{ fontFamily: "'Geist', var(--font-sans), system-ui, sans-serif", fontStyle: 'normal' }}
+            >
               {view === 'mes'
                 ? data
                   ? `${mesLongo(month0)} ${monthYear}`
@@ -152,7 +155,7 @@ export default function CockpitPage() {
                 type="button"
                 onClick={() => setView(v)}
                 className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                  view === v ? 'bg-[var(--ck-accent)] text-[#06121a]' : 'text-[var(--ck-muted)] hover:text-[var(--ck-text)]'
+                  view === v ? 'bg-[var(--ck-accent)] text-[#FFFFFF]' : 'text-[var(--ck-muted)] hover:text-[var(--ck-text)]'
                 }`}
               >
                 {v === 'mes' ? 'Mês' : 'Ano'}

@@ -70,7 +70,7 @@ export default function ComprometimentoFuturo({
                   {it.parcela ? ` · ${it.parcela}` : ''}
                   {` · ••${it.cardLast4}`}
                 </span>
-                <span className="font-mono text-[var(--ck-muted)]">{fmtMoney(it.valor)}</span>
+                <span className="font-geist tabular-nums text-[var(--ck-muted)]">{fmtMoney(it.valor)}</span>
               </div>
             ))}
           </div>
