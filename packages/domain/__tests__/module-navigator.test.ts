@@ -57,9 +57,20 @@ describe('getProjectNavModules', () => {
       'receipts',
       'cash-flow',
       'schedule',
+      'pendencias',
       'floor-plans',
       'simulation',
     ]);
+  });
+
+  it('REFORMA nav has a pendencias entry right after schedule with module gate "pendencias"', () => {
+    const nav = getProjectNavModules(ProjectType.REFORMA);
+    const slugs = nav.map((m) => m.slug);
+    const scheduleIdx = slugs.indexOf('schedule');
+    expect(slugs[scheduleIdx + 1]).toBe('pendencias');
+    const pend = nav.find((m) => m.slug === 'pendencias');
+    expect(pend?.module).toBe('pendencias');
+    expect(pend?.label).toBe('Pendências');
   });
 
   it('reproduces legacy FEATURE_NAV ordering for CASA', () => {

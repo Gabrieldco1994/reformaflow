@@ -24,6 +24,7 @@ import { FloorPlanModule } from './floor-plan/floor-plan.module';
 import { RecurringBillModule } from './recurring-bill/recurring-bill.module';
 import { MaintenanceModule } from './maintenance/maintenance.module';
 import { ReminderModule } from './reminder/reminder.module';
+import { PendenciaModule } from './pendencia/pendencia.module';
 import { CarInfoModule } from './car-info/car-info.module';
 import { ScheduleModule } from './schedule/schedule.module';
 import { CreditCardModule } from './credit-card/credit-card.module';
@@ -65,6 +66,7 @@ const UPLOADS_DIR = (() => {
     RecurringBillModule,
     MaintenanceModule,
     ReminderModule,
+    PendenciaModule,
     CarInfoModule,
     ScheduleModule,
     CreditCardModule,
