@@ -45,7 +45,7 @@ export function MaisSheet({
         <div className="flex items-center justify-between px-5 pt-4 pb-2">
           <div>
             <p className="text-[10px] tracking-[0.2em] uppercase text-darc-velvet/60">Mais opções</p>
-            <p className="font-editorial italic text-lg text-darc-velvet">{project.name}</p>
+            <p className="font-geist font-semibold text-lg text-lifeone-ink">{project.name}</p>
           </div>
           <button
             type="button"
