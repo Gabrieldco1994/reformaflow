@@ -95,10 +95,11 @@ function LoginForm() {
 
           <div className="space-y-4">
             <div>
-              <label className="block text-[12px] font-medium text-lifeone-ink-2 mb-1.5">
+              <label htmlFor="login-username" className="block text-[12px] font-medium text-lifeone-ink-2 mb-1.5">
                 Usuário
               </label>
               <input
+                id="login-username"
                 type="text"
                 autoComplete="username"
                 required
@@ -109,10 +110,11 @@ function LoginForm() {
               />
             </div>
             <div>
-              <label className="block text-[12px] font-medium text-lifeone-ink-2 mb-1.5">
+              <label htmlFor="login-password" className="block text-[12px] font-medium text-lifeone-ink-2 mb-1.5">
                 Senha
               </label>
               <input
+                id="login-password"
                 type="password"
                 autoComplete="current-password"
                 required
