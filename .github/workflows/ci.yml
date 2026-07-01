@@ -77,6 +77,24 @@ jobs:
       - name: Run tests
         run: npm --workspace @reformaflow/web run test
 
+  e2e-web:
+    name: E2E Web (Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Build Domain package
+        run: npm --workspace @reformaflow/domain run build
+      - name: Install Playwright browser
+        run: npm --workspace @reformaflow/web exec playwright install --with-deps chromium
+      - name: Run E2E responsive tests
+        run: npm --workspace @reformaflow/web run test:e2e
+
   build-web:
     name: Build Web
     runs-on: ubuntu-latest
