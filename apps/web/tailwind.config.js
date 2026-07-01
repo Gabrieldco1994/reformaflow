@@ -183,6 +183,19 @@ module.exports = {
           over: '#D92D20',    // vermelho
           info: '#0A6CF0',    // azul
         },
+
+        // 'orange'/'yellow' eram acento decorativo do módulo de despesas → azul LifeOne.
+        // (amber é mantido REAL para semântica de aviso/pendência.)
+        orange: {
+          50:  '#EEF4FE', 100: '#D6E5FD', 200: '#AEC9FA', 300: '#7FA9F6',
+          400: '#3B86F2', 500: '#1E7BFF', 600: '#0A6CF0', 700: '#0A5AD0',
+          800: '#0B49A6', 900: '#0C3D82', 950: '#082551',
+        },
+        yellow: {
+          50:  '#EEF4FE', 100: '#D6E5FD', 200: '#AEC9FA', 300: '#7FA9F6',
+          400: '#3B86F2', 500: '#1E7BFF', 600: '#0A6CF0', 700: '#0A5AD0',
+          800: '#0B49A6', 900: '#0C3D82', 950: '#082551',
+        },
       },
       fontFamily: {
         display: ['var(--font-display)', 'Cormorant Garamond', 'Georgia', 'serif'],
