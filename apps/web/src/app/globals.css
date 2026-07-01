@@ -23,40 +23,40 @@
 
 @layer base {
   :root {
-    /* D'arc Studio tokens (CSS custom properties para overrides pontuais) */
-    --darc-velvet: #4F000B;
-    --darc-maroon: #391212;
-    --darc-red: #EB1C24;
-    --darc-raspberry: #900131;
-    --darc-pink: #E2366B;
-    --darc-pink-logo: #F6CFF2;
-    --darc-sunfire: #F27D33;
-    --darc-mist: #BFA4D1;
-    --darc-linen: #EDDBC2;
-    --darc-off-white: #FDFBF6;
+    /* Tokens LifeOne (mapeados sobre as antigas vars --darc-* para não quebrar refs) */
+    --darc-velvet: #1C1C1E;
+    --darc-maroon: #1C1C1E;
+    --darc-red: #0A6CF0;
+    --darc-raspberry: #0A5AD0;
+    --darc-pink: #0A6CF0;
+    --darc-pink-logo: #E6EFFE;
+    --darc-sunfire: #B5803A;
+    --darc-mist: #0A6CF0;
+    --darc-linen: #F4F3F0;
+    --darc-off-white: #FFFFFF;
 
-    --background: var(--darc-linen);
-    --foreground: var(--darc-maroon);
+    --background: #F4F3F0;
+    --foreground: #1C1C1E;
     --radius: 0.5rem;
   }
 
   html, body {
-    background-color: #FDFBF6;
-    color: var(--darc-maroon);
+    background-color: #F4F3F0;
+    color: #1C1C1E;
   }
 
   body {
     @apply antialiased;
-    font-family: var(--font-sans), 'Jost', system-ui, sans-serif;
-    font-weight: 300;
+    font-family: 'Geist', var(--font-sans), 'Jost', system-ui, sans-serif;
+    font-weight: 400;
   }
 
-  /* Hierarquia de títulos usa o serif italiano editorial */
+  /* Títulos: Geist (LifeOne). Substitui o serif italiano editorial legado. */
   h1, h2, h3 {
-    font-family: var(--font-display), 'Cormorant Garamond', Georgia, serif;
-    font-style: italic;
-    font-weight: 300;
-    letter-spacing: -0.01em;
+    font-family: 'Geist', var(--font-sans), system-ui, sans-serif;
+    font-style: normal;
+    font-weight: 700;
+    letter-spacing: -0.02em;
   }
 
   /* Foco com Blue Mist (sistema D'arc) */
@@ -71,24 +71,24 @@
     height: 10px;
   }
   ::-webkit-scrollbar-track {
-    background: rgba(237, 219, 194, 0.4);
+    background: rgba(0, 0, 0, 0.04);
   }
   ::-webkit-scrollbar-thumb {
-    background: rgba(144, 1, 49, 0.35);
+    background: rgba(0, 0, 0, 0.18);
     border-radius: 999px;
     border: 2px solid transparent;
     background-clip: padding-box;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(79, 0, 11, 0.55);
+    background: rgba(0, 0, 0, 0.30);
     background-clip: padding-box;
     border: 2px solid transparent;
   }
 
-  /* Seleção de texto na cor da marca */
+  /* Seleção de texto */
   ::selection {
-    background: var(--darc-pink-logo);
-    color: var(--darc-velvet);
+    background: #CFE0FC;
+    color: #1C1C1E;
   }
 }
 
