@@ -142,68 +142,47 @@ module.exports = {
         'type-carro':   { DEFAULT: '#5E5A52', fill: '#EAE7E1' },
         'type-compra':  { DEFAULT: '#7A3FC2', fill: '#EFE6FA' },
 
-        // Tokens D'arc nomeados (uso preferencial em código novo)
+        // Tokens D'arc → remapeados para a paleta LifeOne (rebrand).
+        // As chaves são mantidas para não quebrar ~1000 usos legados; só os
+        // VALORES mudam, migrando toda a app para o design system claro.
         darc: {
-          velvet:   '#4F000B',
-          maroon:   '#391212',
-          red:      '#EB1C24',
-          'red-bright':  '#DE342E', // brand-red usado nas laterais
-          'red-pastel':  '#F77A82', // hover claro, ainda dentro do vermelho
-          raspberry:'#900131',
-          pink:     '#E2366B',
-          'pink-logo': '#F6CFF2',
-          sunfire:  '#F27D33',
-          mist:     '#BFA4D1',
-          linen:    '#EDDBC2',
-          cream:    '#FAF1E0',
-          'off-white': '#FDFBF6',
+          velvet:   '#1C1C1E', // ink primário (era vinho escuro)
+          maroon:   '#1C1C1E', // ink (bg escuro/sidebar → tinta neutra)
+          red:      '#0A6CF0', // accent/CTA/ativo → azul LifeOne
+          'red-bright':  '#0A6CF0', // sidebar/CTA → azul
+          'red-pastel':  '#3B86F2', // hover claro → azul claro
+          raspberry:'#0A5AD0', // accent mais profundo → azul escuro
+          pink:     '#0A6CF0', // accent → azul
+          'pink-logo': '#E6EFFE', // tinta clara sobre escuro → tint azul
+          sunfire:  '#B5803A', // alerta/quente → âmbar LifeOne
+          mist:     '#8A857C', // secundário/muted → ink-3
+          linen:    '#F4F3F0', // canvas/pill ativo → surface
+          cream:    '#F4F3F0', // bg claro → surface
+          'off-white': '#FFFFFF', // card → branco
         },
 
-        // Brand original (#3b82f6 azul) → vira brand-red da D'arc.
-        // Mantém as chaves para não quebrar usos legados (`bg-brand-600` etc).
-        brand: brandRed,
+        // Escala de marca (bg-brand-600 etc.) → azul LifeOne.
+        brand: {
+          50:  '#EEF4FE',
+          100: '#D6E5FD',
+          200: '#AEC9FA',
+          300: '#7FA9F6',
+          400: '#3B86F2',
+          500: '#1E7BFF',
+          600: '#0A6CF0',
+          700: '#0A5AD0',
+          800: '#0B49A6',
+          900: '#0C3D82',
+          950: '#082551',
+        },
 
-        // Escala de status (mantida, repintada na paleta da marca)
+        // Escala de status semântica LifeOne.
         status: {
-          ok: '#900131',      // raspberry
-          warning: '#F27D33', // sunfire
-          over: '#EB1C24',    // brand-red
-          info: '#BFA4D1',    // blue-mist
+          ok: '#1E924A',      // verde
+          warning: '#B5803A', // âmbar
+          over: '#D92D20',    // vermelho
+          info: '#0A6CF0',    // azul
         },
-
-        // Substitui cores neutras/cinza/preto/branco por tons vinhosos.
-        white: '#FDFBF6',
-        black: '#391212',
-        gray: neutralWine,
-        slate: neutralWine,
-        zinc: neutralWine,
-        neutral: neutralWine,
-        stone: neutralWine,
-
-        // Substitui famílias quentes → sunfire/brand-red
-        orange: sunfire,
-        amber: sunfire,
-        yellow: sunfire,
-
-        // Substitui vermelhos/rosas → brand-red & brand-pink
-        red: brandRed,
-        rose: brandPink,
-        pink: brandPink,
-        fuchsia: brandPink,
-
-        // Substitui verdes/teals → raspberry (success da marca)
-        green: successRaspberry,
-        emerald: successRaspberry,
-        teal: successRaspberry,
-        lime: successRaspberry,
-
-        // Substitui azuis/roxos → blue-mist
-        blue: blueMist,
-        sky: blueMist,
-        cyan: blueMist,
-        indigo: blueMist,
-        violet: blueMist,
-        purple: blueMist,
       },
       fontFamily: {
         display: ['var(--font-display)', 'Cormorant Garamond', 'Georgia', 'serif'],
@@ -224,10 +203,10 @@ module.exports = {
         'lifeone-fab':    '0 6px 14px rgba(10,108,240,.4)',
       },
       backgroundImage: {
-        'darc-gradient-pink':  'linear-gradient(135deg, #F6CFF2 0%, #E2366B 50%, #EB1C24 100%)',
-        'darc-gradient-dark':  'linear-gradient(135deg, #391212 0%, #4F000B 100%)',
-        'darc-gradient-mist':  'linear-gradient(135deg, #BFA4D1 0%, #4F000B 100%)',
-        'darc-gradient-warm':  'linear-gradient(135deg, #EDDBC2 0%, #F27D33 60%, #EB1C24 100%)',
+        'darc-gradient-pink':  'linear-gradient(135deg, #1E7BFF 0%, #0A6CF0 50%, #0A5AD0 100%)',
+        'darc-gradient-dark':  'linear-gradient(135deg, #24303F 0%, #1C1C1E 100%)',
+        'darc-gradient-mist':  'linear-gradient(135deg, #3B86F2 0%, #0A5AD0 100%)',
+        'darc-gradient-warm':  'linear-gradient(135deg, #1E7BFF 0%, #0A6CF0 60%, #0A5AD0 100%)',
       },
     },
   },
