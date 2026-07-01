@@ -8,11 +8,11 @@ import { fmtMoney, fmtMoneyExact, mesCurto } from './format';
 import { buildExtratoDespesas, colorForCategoria, type ExtratoItem } from './derive';
 
 const TYPE_BADGE: Record<string, string> = {
-  REFORMA: 'bg-orange-500/15 text-orange-300',
-  COMPRA: 'bg-purple-500/15 text-purple-300',
-  CASA: 'bg-emerald-500/15 text-emerald-300',
-  CARRO: 'bg-sky-500/15 text-sky-300',
-  PESSOAL: 'bg-white/10 text-[var(--ck-muted)]',
+  REFORMA: 'bg-orange-500/10 text-orange-700',
+  COMPRA: 'bg-purple-500/10 text-purple-700',
+  CASA: 'bg-emerald-500/10 text-emerald-700',
+  CARRO: 'bg-sky-500/10 text-sky-700',
+  PESSOAL: 'bg-[var(--ck-surface-2)] text-[var(--ck-muted)]',
 };
 
 function diaSemana(iso: string): string {
@@ -96,7 +96,7 @@ export default function ExtratoGeral({
                     <span className="text-[11px] uppercase tracking-wider text-[var(--ck-muted)]">
                       Dia {String(dia).padStart(2, '0')} · {diaSemana(lst[0]!.data)}
                     </span>
-                    <span className="text-[11px] font-mono tabular-nums text-[var(--ck-muted)]">
+                    <span className="text-[11px] font-geist tabular-nums text-[var(--ck-muted)]">
                       {fmtMoneyExact(totalDia)}
                     </span>
                   </div>
@@ -115,7 +115,7 @@ export default function ExtratoGeral({
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-sm text-[var(--ck-text)] truncate">{it.descricao}</span>
                             {it.parcela && (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-[var(--ck-muted)] font-mono">
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--ck-surface-2)] text-[var(--ck-muted)] font-geist tabular-nums">
                                 {it.parcela}
                               </span>
                             )}
@@ -138,7 +138,7 @@ export default function ExtratoGeral({
                           </div>
                         </div>
                         <div className="text-right shrink-0">
-                          <p className={`text-sm font-mono tabular-nums font-semibold ${it.realizado ? 'text-[var(--ck-neg)]' : 'text-[var(--ck-muted)]'}`}>
+                          <p className={`text-sm font-geist tabular-nums font-semibold ${it.realizado ? 'text-[var(--ck-neg)]' : 'text-[var(--ck-muted)]'}`}>
                             − {fmtMoneyExact(it.valor)}
                           </p>
                           <p className="text-[10px] text-[var(--ck-muted)] mt-0.5">

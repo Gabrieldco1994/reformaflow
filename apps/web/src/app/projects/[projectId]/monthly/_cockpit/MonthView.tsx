@@ -88,7 +88,7 @@ export default function MonthView({
               <SlidersHorizontal className="w-3.5 h-3.5" />
               Ritmo de gasto diário
             </label>
-            <span className="text-sm font-mono tabular-nums text-[var(--ck-alert)]">{fmtMoney(ritmo)}/dia</span>
+            <span className="text-sm font-geist tabular-nums text-[var(--ck-alert)]">{fmtMoney(ritmo)}/dia</span>
           </div>
           <input
             type="range"

@@ -31,7 +31,7 @@ export default function EixoToggle({
           onClick={() => onChange(o.key)}
           className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
             eixo === o.key
-              ? 'bg-[var(--ck-accent)] text-[#06121a]'
+              ? 'bg-[var(--ck-accent)] text-[#FFFFFF]'
               : 'text-[var(--ck-muted)] hover:text-[var(--ck-text)]'
           }`}
         >

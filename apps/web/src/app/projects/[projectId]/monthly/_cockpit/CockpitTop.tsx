@@ -15,11 +15,11 @@ const TONE_TEXT: Record<Tone, string> = {
   neutral: 'text-[var(--ck-text)]',
 };
 const TONE_STROKE: Record<Tone, string> = {
-  accent: '#6ee7d8',
-  pos: '#4fd1a5',
-  neg: '#ff6b7d',
-  alert: '#ffc14d',
-  neutral: '#8593a8',
+  accent: '#0A6CF0',
+  pos: '#1E924A',
+  neg: '#D92D20',
+  alert: '#B5803A',
+  neutral: '#8A857C',
 };
 
 /** Sparkline SVG leve (sem recharts). Recebe valores em centavos. */
@@ -85,7 +85,7 @@ function HeroCard({
         <span className="text-[var(--ck-muted)]">{icon}</span>
       </div>
       <div className="flex items-end justify-between gap-2">
-        <p className={`font-mono tabular-nums font-bold text-2xl md:text-[26px] leading-none ${TONE_TEXT[tone]}`}>
+        <p className={`font-geist tabular-nums font-bold text-2xl md:text-[26px] leading-none ${TONE_TEXT[tone]}`}>
           {value}
         </p>
         {delta && <Delta value={delta.value} tone={delta.tone} />}

@@ -27,7 +27,7 @@ export default function CategoriasBarras({
                   <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: c.cor }} />
                   {c.categoria}
                 </span>
-                <span className="text-xs font-mono tabular-nums text-[var(--ck-muted)]">
+                <span className="text-xs font-geist tabular-nums text-[var(--ck-muted)]">
                   {fmtMoney(c.valor)}
                   {total > 0 && <span className="ml-1 text-[10px]">({Math.round((c.valor / total) * 100)}%)</span>}
                 </span>

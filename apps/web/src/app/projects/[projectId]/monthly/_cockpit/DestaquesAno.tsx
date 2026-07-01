@@ -46,7 +46,7 @@ export default function DestaquesAno({ y }: { y: YearDerived }) {
               {it.icon}
               {it.label}
             </p>
-            <p className={`font-mono tabular-nums font-bold text-lg mt-1 ${it.tone}`}>{it.value}</p>
+            <p className={`font-geist tabular-nums font-bold text-lg mt-1 ${it.tone}`}>{it.value}</p>
             {it.sub && <p className="text-[11px] text-[var(--ck-muted)] mt-0.5">{it.sub}</p>}
           </div>
         ))}

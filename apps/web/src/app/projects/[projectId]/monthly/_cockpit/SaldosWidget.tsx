@@ -125,7 +125,7 @@ export default function SaldosWidget({ projectId }: { projectId: string }) {
                     <span className="min-w-0 truncate text-xs text-[var(--ck-text)]">
                       {accountName(account)} <span className="text-[var(--ck-muted)]">••{account.last4}</span>
                     </span>
-                    <span className={`shrink-0 font-mono text-xs font-bold tabular-nums ${toneClass}`}>
+                    <span className={`shrink-0 font-geist tabular-nums text-xs font-bold tabular-nums ${toneClass}`}>
                       {fmtMoneyExact(balanceCents)}
                     </span>
                   </div>
@@ -161,11 +161,11 @@ export default function SaldosWidget({ projectId }: { projectId: string }) {
                         {cardName(card)} <span className="text-[var(--ck-muted)]">••{card.last4}</span>
                       </span>
                       {canShowUsage ? (
-                        <span className="shrink-0 font-mono text-[11px] font-semibold tabular-nums text-[var(--ck-muted)]">
+                        <span className="shrink-0 font-geist tabular-nums text-[11px] font-semibold tabular-nums text-[var(--ck-muted)]">
                           {fmtMoneyExact(usedCents)} / {fmtMoneyExact(limitTotalCents)}
                         </span>
                       ) : limitTotalCents != null ? (
-                        <span className="shrink-0 font-mono text-[11px] font-semibold tabular-nums text-[var(--ck-muted)]">
+                        <span className="shrink-0 font-geist tabular-nums text-[11px] font-semibold tabular-nums text-[var(--ck-muted)]">
                           limite {fmtMoneyExact(limitTotalCents)}
                         </span>
                       ) : null}

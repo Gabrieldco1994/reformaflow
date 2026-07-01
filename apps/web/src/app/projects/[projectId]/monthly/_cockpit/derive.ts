@@ -8,14 +8,14 @@ import {
 
 /** Categorias com cor fixa (significado consistente em todo o cockpit). */
 export const CAT_COLORS: Record<string, string> = {
-  Moradia: '#6ee7d8',
-  Alimentação: '#4fd1a5',
-  Transporte: '#ffc14d',
-  Lazer: '#a78bfa',
-  Saúde: '#ff6b7d',
-  Receita: '#4fd1a5',
+  Moradia: '#0A6CF0',
+  Alimentação: '#1E924A',
+  Transporte: '#B5803A',
+  Lazer: '#7A3FC2',
+  Saúde: '#D92D20',
+  Receita: '#1E924A',
 };
-const CAT_PALETTE = ['#6ee7d8', '#4fd1a5', '#ffc14d', '#a78bfa', '#ff6b7d', '#60a5fa', '#f59e0b', '#34d399'];
+const CAT_PALETTE = ['#0A6CF0', '#1E924A', '#B5803A', '#7A3FC2', '#D92D20', '#1E7BFF', '#C2691E', '#0F766E'];
 
 export function colorForCategoria(cat: string, index: number): string {
   return CAT_COLORS[cat] ?? CAT_PALETTE[index % CAT_PALETTE.length]!;

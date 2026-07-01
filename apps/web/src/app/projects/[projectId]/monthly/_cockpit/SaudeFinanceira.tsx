@@ -13,7 +13,7 @@ export default function SaudeFinanceira({ m }: { m: MonthDerived }) {
     <Card title="Saúde financeira">
       <div className="flex items-baseline justify-between gap-2">
         <p className="text-[11px] text-[var(--ck-muted)]">Reserva de emergência</p>
-        <p className={`text-sm font-mono tabular-nums ${atingiu ? 'text-[var(--ck-pos)]' : 'text-[var(--ck-alert)]'}`}>
+        <p className={`text-sm font-geist tabular-nums ${atingiu ? 'text-[var(--ck-pos)]' : 'text-[var(--ck-alert)]'}`}>
           {m.reservaMeses.toFixed(1).replace('.', ',')} / {m.reservaMeta} meses
         </p>
       </div>
@@ -27,7 +27,7 @@ export default function SaudeFinanceira({ m }: { m: MonthDerived }) {
           <>Faltam <strong className="text-[var(--ck-text)]">{faltam.toFixed(1).replace('.', ',')}</strong> meses para a meta.</>
         )}
         {m.despesaMensalMedia > 0 && (
-          <> Despesa média mensal: <span className="font-mono">{fmtMoney(m.despesaMensalMedia)}</span>.</>
+          <> Despesa média mensal: <span className="font-geist tabular-nums">{fmtMoney(m.despesaMensalMedia)}</span>.</>
         )}
       </p>
     </Card>
