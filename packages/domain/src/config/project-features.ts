@@ -14,12 +14,13 @@ export type ProjectFeature =
   | 'maintenance'
   | 'reminders'
   | 'creditCards'
-  | 'bankAccounts';
+  | 'bankAccounts'
+  | 'pendencias';
 
 export const PROJECT_FEATURES: Record<ProjectType, ProjectFeature[]> = {
   [ProjectType.REFORMA]: [
     'expenses', 'receipts', 'cashFlow', 'dashboard',
-    'rooms', 'floorPlans', 'simulation', 'priceCompare',
+    'rooms', 'floorPlans', 'simulation', 'priceCompare', 'pendencias',
   ],
   [ProjectType.COMPRA]: [
     'expenses', 'receipts', 'cashFlow', 'dashboard',

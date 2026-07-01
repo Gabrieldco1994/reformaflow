@@ -13,6 +13,7 @@ import {
   Wrench,
   Bell,
   Car,
+  ListChecks,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -36,6 +37,7 @@ export const NAV_ICONS: Record<string, LucideIcon> = {
   Wrench,
   Bell,
   Car,
+  ListChecks,
 };
 
 /** Fallback icon for any unmapped token (defensive, never crashes). */

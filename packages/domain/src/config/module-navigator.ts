@@ -25,6 +25,7 @@ export const PROJECT_NAV: Record<ProjectType, NavModule[]> = {
     { slug: 'receipts', label: 'Recebimentos', iconName: 'Wallet', module: 'receipts' },
     { slug: 'cash-flow', label: 'Fluxo de Caixa', iconName: 'ArrowLeftRight', module: 'cashFlow' },
     { slug: 'schedule', label: 'Cronograma', iconName: 'CalendarClock', module: 'schedule' },
+    { slug: 'pendencias', label: 'Pendências', iconName: 'ListChecks', module: 'pendencias' },
     { slug: 'floor-plans', label: 'Plantas', iconName: 'Map', module: 'floorPlans' },
     { slug: 'simulation', label: 'Simulação', iconName: 'FlaskConical', module: 'simulation' },
   ],

@@ -18,8 +18,15 @@ describe('hasFeature', () => {
     }
   });
 
-  it('REFORMA não tem features de gestão de bens (CASA/CARRO)', () => {
-    expect(hasFeature(ProjectType.REFORMA, 'recurringBills')).toBe(false);
+  it('REFORMA tem a feature pendencias (Kanban); demais tipos não', () => {
+    expect(hasFeature(ProjectType.REFORMA, 'pendencias')).toBe(true);
+    expect(hasFeature(ProjectType.COMPRA, 'pendencias')).toBe(false);
+    expect(hasFeature(ProjectType.CASA, 'pendencias')).toBe(false);
+    expect(hasFeature(ProjectType.CARRO, 'pendencias')).toBe(false);
+    expect(hasFeature(ProjectType.PESSOAL, 'pendencias')).toBe(false);
+  });
+
+  it('REFORMA não tem features de gestão de bens (CASA/CARRO)', () => {    expect(hasFeature(ProjectType.REFORMA, 'recurringBills')).toBe(false);
     expect(hasFeature(ProjectType.REFORMA, 'maintenance')).toBe(false);
     expect(hasFeature(ProjectType.REFORMA, 'reminders')).toBe(false);
   });

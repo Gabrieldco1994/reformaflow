@@ -12,6 +12,7 @@ export const TYPE_MODULES: Record<string, ModuleSlug[]> = {
     'priceCompare',
     'rooms',
     'creditCards',
+    'pendencias',
   ],
   COMPRA: ['dashboard', 'expenses', 'receipts', 'cashFlow', 'creditCards'],
   PESSOAL: ['dashboard', 'expenses', 'receipts', 'cashFlow', 'creditCards', 'bankAccounts', 'monthlyOverview'],

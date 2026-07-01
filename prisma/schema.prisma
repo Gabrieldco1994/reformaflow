@@ -13,10 +13,10 @@ datasource db {
 }
 
 model Tenant {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   name      String
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
   users    User[]
@@ -26,19 +26,19 @@ model Tenant {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  tenantId  String   @map("tenant_id")
-  externalId String? @unique @map("external_id")
-  username  String
-  name      String
-  role      String   @default("USER")
-  passwordHash    String?  @map("password_hash")
-  allowedModules  String   @default("[]") @map("allowed_modules")
-  allowedProjects String   @default("[]") @map("allowed_projects") // IDs de projetos liberados (JSON). Vazio = sem restrição por projeto (vê por tipo/módulo). Não-vazio = só estes projetos.
-  allowedProjectTypes String @default("[]") @map("allowed_project_types") // Tipos de projeto que o usuário pode CRIAR (JSON). Vazio = sem restrição (deriva dos módulos, como hoje). Não-vazio = só estes tipos.
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  deletedAt DateTime? @map("deleted_at")
+  id                  String    @id @default(cuid())
+  tenantId            String    @map("tenant_id")
+  externalId          String?   @unique @map("external_id")
+  username            String
+  name                String
+  role                String    @default("USER")
+  passwordHash        String?   @map("password_hash")
+  allowedModules      String    @default("[]") @map("allowed_modules")
+  allowedProjects     String    @default("[]") @map("allowed_projects") // IDs de projetos liberados (JSON). Vazio = sem restrição por projeto (vê por tipo/módulo). Não-vazio = só estes projetos.
+  allowedProjectTypes String    @default("[]") @map("allowed_project_types") // Tipos de projeto que o usuário pode CRIAR (JSON). Vazio = sem restrição (deriva dos módulos, como hoje). Não-vazio = só estes tipos.
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+  deletedAt           DateTime? @map("deleted_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
@@ -47,38 +47,39 @@ model User {
 }
 
 model Project {
-  id          String   @id @default(cuid())
-  tenantId    String   @map("tenant_id")
-  type        String   @default("REFORMA") // REFORMA | COMPRA | CASA | CARRO | PESSOAL
+  id          String    @id @default(cuid())
+  tenantId    String    @map("tenant_id")
+  type        String    @default("REFORMA") // REFORMA | COMPRA | CASA | CARRO | PESSOAL
   name        String
   description String?
   startDate   DateTime? @map("start_date")
   endDate     DateTime? @map("end_date")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
   deletedAt   DateTime? @map("deleted_at")
 
-  tenant      Tenant @relation(fields: [tenantId], references: [id])
-  rooms       Room[]
-  receipts    Receipt[]
-  expenses    Expense[]
-  cashFlow    CashFlowEntry[]
-  simulationValues SimulationValue[]
-  simulations      Simulation[]
-  floorPlans       FloorPlan[]
-  recurringBills   RecurringBill[]
-  maintenanceLogs  MaintenanceLog[]
-  reminders        Reminder[]
-  carInfo          CarInfo?
-  scheduleConfig   ScheduleConfig?
-  scheduleStages   ScheduleStage[]
-  scheduleTasks    ScheduleTask[]
-  scheduleHolidays ScheduleHoliday[]
-  creditCards     CreditCard[]
-  bankAccounts    BankAccount[]
+  tenant                  Tenant             @relation(fields: [tenantId], references: [id])
+  rooms                   Room[]
+  receipts                Receipt[]
+  expenses                Expense[]
+  cashFlow                CashFlowEntry[]
+  simulationValues        SimulationValue[]
+  simulations             Simulation[]
+  floorPlans              FloorPlan[]
+  recurringBills          RecurringBill[]
+  maintenanceLogs         MaintenanceLog[]
+  reminders               Reminder[]
+  carInfo                 CarInfo?
+  scheduleConfig          ScheduleConfig?
+  scheduleStages          ScheduleStage[]
+  scheduleTasks           ScheduleTask[]
+  scheduleHolidays        ScheduleHoliday[]
+  creditCards             CreditCard[]
+  bankAccounts            BankAccount[]
   budgetAllocationsSource BudgetAllocation[] @relation("SourceAllocations")
   budgetAllocationsTarget BudgetAllocation[] @relation("TargetAllocations")
-  categoryBudgets CategoryBudget[]
+  categoryBudgets         CategoryBudget[]
+  pendencias              Pendencia[]
 
   @@map("projects")
 }
@@ -93,8 +94,8 @@ model CarInfo {
   anoModelo       Int?     @map("ano_modelo")
   cor             String?
   placa           String?
-  tabelaFipe      Int?     @map("tabela_fipe")   // centavos
-  valorPago       Int?     @map("valor_pago")     // centavos
+  tabelaFipe      Int?     @map("tabela_fipe") // centavos
+  valorPago       Int?     @map("valor_pago") // centavos
   kmAtual         Int?     @map("km_atual")
   kmUltimaRevisao Int?     @map("km_ultima_revisao")
   createdAt       DateTime @default(now()) @map("created_at")
@@ -106,17 +107,18 @@ model CarInfo {
 }
 
 model Room {
-  id        String   @id @default(cuid())
-  projectId String   @map("project_id")
+  id        String    @id @default(cuid())
+  projectId String    @map("project_id")
   name      String
-  order     Int      @default(0)
-  createdAt DateTime @default(now()) @map("created_at")
+  order     Int       @default(0)
+  createdAt DateTime  @default(now()) @map("created_at")
   deletedAt DateTime? @map("deleted_at")
 
-  project  Project   @relation(fields: [projectId], references: [id])
-  expenses Expense[]
-  roomImages RoomImage[]
+  project        Project         @relation(fields: [projectId], references: [id])
+  expenses       Expense[]
+  roomImages     RoomImage[]
   floorPlanRooms FloorPlanRoom[]
+  pendencias     Pendencia[]
 
   @@unique([projectId, name])
   @@map("rooms")
@@ -125,24 +127,24 @@ model Room {
 // ─── Recebimentos ───────────────────────────────────────────
 
 model Receipt {
-  id        String   @id @default(cuid())
-  projectId String   @map("project_id")
-  tenantId  String   @map("tenant_id")
-  valor     Int      // centavos
-  data      DateTime
-  tipo      String   // PAGAMENTO | BONUS | VENDA_ACAO | ORCAMENTO_INICIAL | RENDIMENTO | TRANSFERENCIA | OUTROS
-  status    String   @default("PREVISTO") // PREVISTO | EM_CAIXA
-  descricao String?  // texto livre (descrição do crédito do extrato)
-  importId  String?  @map("import_id") // ref BankStatementImport — opcional
-  externalId String? @map("external_id") // hash idempotente da transação importada
-  bankLast4 String?  @map("bank_last4") // últimos 4 da conta bancária de origem
-  linkedReceiptId String? @map("linked_receipt_id") // quando importado do extrato é vinculado a recebimento planejado de outro projeto (evita dupla contagem)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  deletedAt DateTime? @map("deleted_at")
+  id              String    @id @default(cuid())
+  projectId       String    @map("project_id")
+  tenantId        String    @map("tenant_id")
+  valor           Int // centavos
+  data            DateTime
+  tipo            String // PAGAMENTO | BONUS | VENDA_ACAO | ORCAMENTO_INICIAL | RENDIMENTO | TRANSFERENCIA | OUTROS
+  status          String    @default("PREVISTO") // PREVISTO | EM_CAIXA
+  descricao       String? // texto livre (descrição do crédito do extrato)
+  importId        String?   @map("import_id") // ref BankStatementImport — opcional
+  externalId      String?   @map("external_id") // hash idempotente da transação importada
+  bankLast4       String?   @map("bank_last4") // últimos 4 da conta bancária de origem
+  linkedReceiptId String?   @map("linked_receipt_id") // quando importado do extrato é vinculado a recebimento planejado de outro projeto (evita dupla contagem)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
 
-  project  Project        @relation(fields: [projectId], references: [id])
-  cashFlow CashFlowEntry[]
+  project           Project            @relation(fields: [projectId], references: [id])
+  cashFlow          CashFlowEntry[]
   budgetAllocations BudgetAllocation[]
 
   @@index([projectId, externalId])
@@ -153,51 +155,51 @@ model Receipt {
 // ─── Despesas ───────────────────────────────────────────────
 
 model Expense {
-  id                  String   @id @default(cuid())
-  projectId           String   @map("project_id")
-  tenantId            String   @map("tenant_id")
-  tipoDespesa         String   @map("tipo_despesa") // MATERIAL_CONSTRUCAO | ELETRODOMESTICO | REVESTIMENTO | ILUMINACAO | MARMORE | VIDRACARIA_SERRALHERIA | METAL_CERAMICA | MARCENARIA | MAO_DE_OBRA
-  categoriaMaoDeObra  String?  @map("categoria_mao_de_obra") // EMPREITEIRO | INSTALADOR_PISO | INSTALADOR_MARMORE | PINTOR | ELETRICISTA | VIDRACEIRO | SERRALHEIRO | MARCENEIRO
-  roomId              String?  @map("room_id") // ambiente da casa (opcional)
-  valor               Int      // valor unitário em centavos
-  quantidade          Int      @default(1)
-  valorTotal          Int      @map("valor_total") // calculado server-side: valor * quantidade
-  titulo              String?
-  fornecedor          String?
-  link                String?
-  imageUrl            String?  @map("image_url") // URL direta da imagem do produto (override manual)
-  formaPagamento      String   @map("forma_pagamento") // A_VISTA | PARCELADO | QUINZENAL
-  dataPagamento       DateTime? @map("data_pagamento") // quando A_VISTA
-  quantidadeParcela   Int?     @map("quantidade_parcela") // quando PARCELADO ou QUINZENAL
-  dataInicioParcela   DateTime? @map("data_inicio_parcela") // quando PARCELADO ou QUINZENAL
-  dataCompra          DateTime? @map("data_compra") // COMPETÊNCIA: data real da compra (independe do vencimento/parcela). Usada pelo eixo "Gastos Controle". NÃO afeta a Conta Real (eixo caixa), que deriva o vencimento à parte.
-  status              String   @default("PLANEJADO") // PLANEJADO | PAGO
-  recorrente          Boolean  @default(false) // despesa fixa mensal (ocorrência virtual, não gera linhas)
-  recorrenciaFim      DateTime? @map("recorrencia_fim") // último mês da recorrência (null = sem fim)
-  paidParcelas        String?  @map("paid_parcelas") // JSON array de índices 0-based de parcelas pagas (PARCELADO/QUINZENAL). null = nenhuma parcial
-  plannedExpenseId    String?  @unique @map("planned_expense_id") // ref à despesa planejada que originou esta paga
-  settledByExpenseId  String?  @unique @map("settled_by_expense_id") // quando esta planejada foi liquidada por uma paga
-  importId            String?  @map("import_id") // id da importação de fatura (CreditCardStatementImport) — opcional
-  externalId          String?  @map("external_id") // hash idempotente da transação importada
-  seriesKey           String?  @map("series_key")  // identifica compra parcelada (cardId|merchantNorm|amountPerInstall|total) — para casar parcelas futuras
-  cardLast4           String?  @map("card_last4") // últimos 4 do cartão de origem (denormalizado)
-  bankLast4           String?  @map("bank_last4") // últimos 4 da conta bancária de origem
-  linkedExpenseId     String?  @map("linked_expense_id") // quando importada do cartão é vinculada a despesa de outro projeto (evita dupla contagem)
-  settlesInvoiceKey   String?  @map("settles_invoice_key") // quando esta despesa (cobrança cartão-paga-cartão ou PIX) quita a fatura de OUTRO cartão: "{cardLast4}:{dueMonth}"
-  createdAt           DateTime @default(now()) @map("created_at")
-  updatedAt           DateTime @updatedAt @map("updated_at")
-  deletedAt           DateTime? @map("deleted_at")
+  id                 String    @id @default(cuid())
+  projectId          String    @map("project_id")
+  tenantId           String    @map("tenant_id")
+  tipoDespesa        String    @map("tipo_despesa") // MATERIAL_CONSTRUCAO | ELETRODOMESTICO | REVESTIMENTO | ILUMINACAO | MARMORE | VIDRACARIA_SERRALHERIA | METAL_CERAMICA | MARCENARIA | MAO_DE_OBRA
+  categoriaMaoDeObra String?   @map("categoria_mao_de_obra") // EMPREITEIRO | INSTALADOR_PISO | INSTALADOR_MARMORE | PINTOR | ELETRICISTA | VIDRACEIRO | SERRALHEIRO | MARCENEIRO
+  roomId             String?   @map("room_id") // ambiente da casa (opcional)
+  valor              Int // valor unitário em centavos
+  quantidade         Int       @default(1)
+  valorTotal         Int       @map("valor_total") // calculado server-side: valor * quantidade
+  titulo             String?
+  fornecedor         String?
+  link               String?
+  imageUrl           String?   @map("image_url") // URL direta da imagem do produto (override manual)
+  formaPagamento     String    @map("forma_pagamento") // A_VISTA | PARCELADO | QUINZENAL
+  dataPagamento      DateTime? @map("data_pagamento") // quando A_VISTA
+  quantidadeParcela  Int?      @map("quantidade_parcela") // quando PARCELADO ou QUINZENAL
+  dataInicioParcela  DateTime? @map("data_inicio_parcela") // quando PARCELADO ou QUINZENAL
+  dataCompra         DateTime? @map("data_compra") // COMPETÊNCIA: data real da compra (independe do vencimento/parcela). Usada pelo eixo "Gastos Controle". NÃO afeta a Conta Real (eixo caixa), que deriva o vencimento à parte.
+  status             String    @default("PLANEJADO") // PLANEJADO | PAGO
+  recorrente         Boolean   @default(false) // despesa fixa mensal (ocorrência virtual, não gera linhas)
+  recorrenciaFim     DateTime? @map("recorrencia_fim") // último mês da recorrência (null = sem fim)
+  paidParcelas       String?   @map("paid_parcelas") // JSON array de índices 0-based de parcelas pagas (PARCELADO/QUINZENAL). null = nenhuma parcial
+  plannedExpenseId   String?   @unique @map("planned_expense_id") // ref à despesa planejada que originou esta paga
+  settledByExpenseId String?   @unique @map("settled_by_expense_id") // quando esta planejada foi liquidada por uma paga
+  importId           String?   @map("import_id") // id da importação de fatura (CreditCardStatementImport) — opcional
+  externalId         String?   @map("external_id") // hash idempotente da transação importada
+  seriesKey          String?   @map("series_key") // identifica compra parcelada (cardId|merchantNorm|amountPerInstall|total) — para casar parcelas futuras
+  cardLast4          String?   @map("card_last4") // últimos 4 do cartão de origem (denormalizado)
+  bankLast4          String?   @map("bank_last4") // últimos 4 da conta bancária de origem
+  linkedExpenseId    String?   @map("linked_expense_id") // quando importada do cartão é vinculada a despesa de outro projeto (evita dupla contagem)
+  settlesInvoiceKey  String?   @map("settles_invoice_key") // quando esta despesa (cobrança cartão-paga-cartão ou PIX) quita a fatura de OUTRO cartão: "{cardLast4}:{dueMonth}"
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  deletedAt          DateTime? @map("deleted_at")
 
-  project       Project        @relation(fields: [projectId], references: [id])
-  room          Room?          @relation(fields: [roomId], references: [id])
-  plannedExpense Expense?      @relation("ExpenseSettlement", fields: [plannedExpenseId], references: [id])
-  settledBy      Expense?      @relation("ExpenseSettlement")
-  cashFlow      CashFlowEntry[]
-  markers       FloorPlanMarker[]
+  project             Project                  @relation(fields: [projectId], references: [id])
+  room                Room?                    @relation(fields: [roomId], references: [id])
+  plannedExpense      Expense?                 @relation("ExpenseSettlement", fields: [plannedExpenseId], references: [id])
+  settledBy           Expense?                 @relation("ExpenseSettlement")
+  cashFlow            CashFlowEntry[]
+  markers             FloorPlanMarker[]
   settlementsAsSource CrossProjectSettlement[] @relation("SettlementSource")
   settlementsAsTarget CrossProjectSettlement[] @relation("SettlementTarget")
-  rateioAsSource RateioAllocation[] @relation("RateioSource")
-  rateioAsTarget RateioAllocation[] @relation("RateioTarget")
+  rateioAsSource      RateioAllocation[]       @relation("RateioSource")
+  rateioAsTarget      RateioAllocation[]       @relation("RateioTarget")
 
   @@index([linkedExpenseId])
   @@index([seriesKey])
@@ -205,15 +207,15 @@ model Expense {
 }
 
 model CategoryBudget {
-  id                String    @id @default(cuid())
-  tenantId          String    @map("tenant_id")
-  projectId         String    @map("project_id")
-  tipoDespesa       String    @map("tipo_despesa")
-  mes               String?
-  valorLimiteCents  Int       @map("valor_limite_cents")
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
-  deletedAt         DateTime? @map("deleted_at")
+  id               String    @id @default(cuid())
+  tenantId         String    @map("tenant_id")
+  projectId        String    @map("project_id")
+  tipoDespesa      String    @map("tipo_despesa")
+  mes              String?
+  valorLimiteCents Int       @map("valor_limite_cents")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  deletedAt        DateTime? @map("deleted_at")
 
   project Project @relation(fields: [projectId], references: [id])
 
@@ -231,10 +233,10 @@ model CrossProjectSettlement {
   tenantId        String   @map("tenant_id")
   sourceExpenseId String   @map("source_expense_id") // despesa importada (PESSOAL) que liquida
   targetExpenseId String   @map("target_expense_id") // despesa planejada (outro projeto)
-  parcelaIndex    Int      @map("parcela_index")      // parcela 0-based do ALVO liquidada
-  realValor       Int      @map("real_valor")         // valor real pago (centavos), da fatura
-  plannedValor    Int      @map("planned_valor")      // snapshot do valor planejado da parcela (restore)
-  plannedStatus   String   @map("planned_status")     // snapshot do status original do alvo (PLANEJADO/PAGO)
+  parcelaIndex    Int      @map("parcela_index") // parcela 0-based do ALVO liquidada
+  realValor       Int      @map("real_valor") // valor real pago (centavos), da fatura
+  plannedValor    Int      @map("planned_valor") // snapshot do valor planejado da parcela (restore)
+  plannedStatus   String   @map("planned_status") // snapshot do status original do alvo (PLANEJADO/PAGO)
   createdAt       DateTime @default(now()) @map("created_at")
 
   source Expense @relation("SettlementSource", fields: [sourceExpenseId], references: [id])
@@ -257,9 +259,9 @@ model RateioAllocation {
   tenantId        String   @map("tenant_id")
   sourceExpenseId String   @map("source_expense_id") // compra-fonte (PESSOAL)
   targetExpenseId String   @map("target_expense_id") // planejada (outro projeto)
-  allocation      Int      // centavos alocados a este alvo
-  plannedStatus   String   @map("planned_status")    // snapshot do status original do alvo
-  plannedPaid     String?  @map("planned_paid")      // snapshot do paidParcelas original (JSON)
+  allocation      Int // centavos alocados a este alvo
+  plannedStatus   String   @map("planned_status") // snapshot do status original do alvo
+  plannedPaid     String?  @map("planned_paid") // snapshot do paidParcelas original (JSON)
   createdAt       DateTime @default(now()) @map("created_at")
 
   source Expense @relation("RateioSource", fields: [sourceExpenseId], references: [id])
@@ -274,28 +276,28 @@ model RateioAllocation {
 // ─── Fluxo de Caixa (auto-gerado) ──────────────────────────
 
 model CashFlowEntry {
-  id            String   @id @default(cuid())
-  projectId     String   @map("project_id")
-  tenantId      String   @map("tenant_id")
-  receiptId     String?  @map("receipt_id")
-  expenseId     String?  @map("expense_id")
-  budgetAllocationId String? @map("budget_allocation_id")
-  valor         Int      // centavos
-  tipo          String   // RECEBIMENTO | DESPESA
-  data          DateTime
-  categoria     String   // para recebimento: tipo do recebimento; para despesa: tipoDespesa
-  subcategoria  String?  // para despesa de mão de obra: categoriaMaoDeObra
-  ambiente      String?  // nome do room (denormalizado para exibição)
-  formaPagamento String? @map("forma_pagamento")
-  status        String   // PAGO | PLANEJADO | PREVISTO | EM_CAIXA
-  parcela       String?  // ex: "1/3", "2/3"
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
-  deletedAt     DateTime? @map("deleted_at")
+  id                 String    @id @default(cuid())
+  projectId          String    @map("project_id")
+  tenantId           String    @map("tenant_id")
+  receiptId          String?   @map("receipt_id")
+  expenseId          String?   @map("expense_id")
+  budgetAllocationId String?   @map("budget_allocation_id")
+  valor              Int // centavos
+  tipo               String // RECEBIMENTO | DESPESA
+  data               DateTime
+  categoria          String // para recebimento: tipo do recebimento; para despesa: tipoDespesa
+  subcategoria       String? // para despesa de mão de obra: categoriaMaoDeObra
+  ambiente           String? // nome do room (denormalizado para exibição)
+  formaPagamento     String?   @map("forma_pagamento")
+  status             String // PAGO | PLANEJADO | PREVISTO | EM_CAIXA
+  parcela            String? // ex: "1/3", "2/3"
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  deletedAt          DateTime? @map("deleted_at")
 
-  project  Project  @relation(fields: [projectId], references: [id])
-  receipt  Receipt? @relation(fields: [receiptId], references: [id])
-  expense  Expense? @relation(fields: [expenseId], references: [id])
+  project          Project           @relation(fields: [projectId], references: [id])
+  receipt          Receipt?          @relation(fields: [receiptId], references: [id])
+  expense          Expense?          @relation(fields: [expenseId], references: [id])
   budgetAllocation BudgetAllocation? @relation(fields: [budgetAllocationId], references: [id])
 
   @@index([projectId, data])
@@ -306,14 +308,14 @@ model CashFlowEntry {
 }
 
 model Attachment {
-  id         String   @id @default(cuid())
-  entityType String   @map("entity_type")
-  entityId   String   @map("entity_id")
-  fileName   String   @map("file_name")
-  mimeType   String   @map("mime_type")
+  id         String    @id @default(cuid())
+  entityType String    @map("entity_type")
+  entityId   String    @map("entity_id")
+  fileName   String    @map("file_name")
+  mimeType   String    @map("mime_type")
   url        String
-  uploadedBy String   @map("uploaded_by")
-  createdAt  DateTime @default(now()) @map("created_at")
+  uploadedBy String    @map("uploaded_by")
+  createdAt  DateTime  @default(now()) @map("created_at")
   deletedAt  DateTime? @map("deleted_at")
 
   @@index([entityType, entityId])
@@ -344,8 +346,8 @@ model SimulationValue {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  project    Project      @relation(fields: [projectId], references: [id])
-  simulation Simulation?  @relation(fields: [simulationId], references: [id], onDelete: Cascade)
+  project    Project     @relation(fields: [projectId], references: [id])
+  simulation Simulation? @relation(fields: [simulationId], references: [id], onDelete: Cascade)
 
   @@unique([simulationId, projectId, tenantId, key])
   @@map("simulation_values")
@@ -354,18 +356,18 @@ model SimulationValue {
 // ─── Plantas Baixas ──────────────────────────────────────────
 
 model FloorPlan {
-  id        String   @id @default(cuid())
-  projectId String   @map("project_id")
-  tenantId  String   @map("tenant_id")
-  name      String
-  imageUrl  String   @map("image_url") // path to uploaded image
-  cropBounds String? @map("crop_bounds") // JSON {x,y,width,height} em % — janela útil da imagem
-  order     Int      @default(0)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  deletedAt DateTime? @map("deleted_at")
+  id         String    @id @default(cuid())
+  projectId  String    @map("project_id")
+  tenantId   String    @map("tenant_id")
+  name       String
+  imageUrl   String    @map("image_url") // path to uploaded image
+  cropBounds String?   @map("crop_bounds") // JSON {x,y,width,height} em % — janela útil da imagem
+  order      Int       @default(0)
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  deletedAt  DateTime? @map("deleted_at")
 
-  project Project         @relation(fields: [projectId], references: [id])
+  project Project           @relation(fields: [projectId], references: [id])
   rooms   FloorPlanRoom[]
   markers FloorPlanMarker[]
 
@@ -376,7 +378,7 @@ model FloorPlanMarker {
   id          String   @id @default(cuid())
   floorPlanId String   @map("floor_plan_id")
   expenseId   String   @map("expense_id")
-  bounds      String   // JSON: {x, y, width, height} as percentages of image
+  bounds      String // JSON: {x, y, width, height} as percentages of image
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
@@ -390,8 +392,8 @@ model FloorPlanRoom {
   id          String   @id @default(cuid())
   floorPlanId String   @map("floor_plan_id")
   roomId      String?  @map("room_id") // linked to Room (ambiente)
-  label       String   // display name on the floor plan
-  bounds      String   // JSON: {x, y, width, height} as percentages of image
+  label       String // display name on the floor plan
+  bounds      String // JSON: {x, y, width, height} as percentages of image
   color       String   @default("#3B82F6") // overlay color
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
@@ -418,20 +420,20 @@ model RoomImage {
 // ─── Contas Recorrentes (CASA / CARRO) ──────────────────────
 
 model RecurringBill {
-  id                String   @id @default(cuid())
-  projectId         String   @map("project_id")
-  tenantId          String   @map("tenant_id")
+  id                String    @id @default(cuid())
+  projectId         String    @map("project_id")
+  tenantId          String    @map("tenant_id")
   nome              String
-  valor             Int      // centavos
-  categoria         String   // LUZ | AGUA | INTERNET | IPTU | CONDOMINIO | SEGURO | GAS | TELEFONE | STREAMING | OUTRO
-  frequencia        String   @default("MENSAL") // MENSAL | BIMESTRAL | TRIMESTRAL | SEMESTRAL | ANUAL
-  diaVencimento     Int      @map("dia_vencimento") // 1-31
-  status            String   @default("ATIVO") // ATIVO | PAUSADO
+  valor             Int // centavos
+  categoria         String // LUZ | AGUA | INTERNET | IPTU | CONDOMINIO | SEGURO | GAS | TELEFONE | STREAMING | OUTRO
+  frequencia        String    @default("MENSAL") // MENSAL | BIMESTRAL | TRIMESTRAL | SEMESTRAL | ANUAL
+  diaVencimento     Int       @map("dia_vencimento") // 1-31
+  status            String    @default("ATIVO") // ATIVO | PAUSADO
   ultimoPagamento   DateTime? @map("ultimo_pagamento")
   proximoVencimento DateTime? @map("proximo_vencimento")
   observacoes       String?
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
   deletedAt         DateTime? @map("deleted_at")
 
   project Project @relation(fields: [projectId], references: [id])
@@ -443,20 +445,20 @@ model RecurringBill {
 // ─── Manutenções (CASA / CARRO) ────────────────────────────
 
 model MaintenanceLog {
-  id              String   @id @default(cuid())
-  projectId       String   @map("project_id")
-  tenantId        String   @map("tenant_id")
-  tipo            String   // CASA: PINTURA | IMPERMEABILIZACAO | DEDETIZACAO | LIMPEZA_CAIXA | REVISAO_ELETRICA | REVISAO_HIDRAULICA | OUTRO
-                           // CARRO: TROCA_OLEO | FILTRO_AR | FILTRO_OLEO | FILTRO_COMBUSTIVEL | PNEUS | ALINHAMENTO | BALANCEAMENTO | REVISAO | FREIOS | CORREIA | OUTRO
-  dataRealizada   DateTime @map("data_realizada")
-  dataProxima     DateTime? @map("data_proxima")
-  quilometragem   Int?     // só para CARRO
-  custo           Int?     // centavos
-  fornecedor      String?
-  observacoes     String?
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
-  deletedAt       DateTime? @map("deleted_at")
+  id            String    @id @default(cuid())
+  projectId     String    @map("project_id")
+  tenantId      String    @map("tenant_id")
+  tipo          String // CASA: PINTURA | IMPERMEABILIZACAO | DEDETIZACAO | LIMPEZA_CAIXA | REVISAO_ELETRICA | REVISAO_HIDRAULICA | OUTRO
+  // CARRO: TROCA_OLEO | FILTRO_AR | FILTRO_OLEO | FILTRO_COMBUSTIVEL | PNEUS | ALINHAMENTO | BALANCEAMENTO | REVISAO | FREIOS | CORREIA | OUTRO
+  dataRealizada DateTime  @map("data_realizada")
+  dataProxima   DateTime? @map("data_proxima")
+  quilometragem Int? // só para CARRO
+  custo         Int? // centavos
+  fornecedor    String?
+  observacoes   String?
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  deletedAt     DateTime? @map("deleted_at")
 
   project Project @relation(fields: [projectId], references: [id])
 
@@ -467,17 +469,17 @@ model MaintenanceLog {
 // ─── Lembretes ──────────────────────────────────────────────
 
 model Reminder {
-  id          String   @id @default(cuid())
-  projectId   String   @map("project_id")
-  tenantId    String   @map("tenant_id")
+  id          String    @id @default(cuid())
+  projectId   String    @map("project_id")
+  tenantId    String    @map("tenant_id")
   titulo      String
   descricao   String?
   data        DateTime
-  recorrencia String   @default("UNICA") // UNICA | DIARIA | SEMANAL | MENSAL | ANUAL
-  status      String   @default("PENDENTE") // PENDENTE | CONCLUIDO | ADIADO
-  prioridade  String   @default("MEDIA") // BAIXA | MEDIA | ALTA | URGENTE
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  recorrencia String    @default("UNICA") // UNICA | DIARIA | SEMANAL | MENSAL | ANUAL
+  status      String    @default("PENDENTE") // PENDENTE | CONCLUIDO | ADIADO
+  prioridade  String    @default("MEDIA") // BAIXA | MEDIA | ALTA | URGENTE
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
   deletedAt   DateTime? @map("deleted_at")
 
   project Project @relation(fields: [projectId], references: [id])
@@ -490,15 +492,15 @@ model Reminder {
 // ─── Cronograma de Obra ─────────────────────────────────────────
 
 model ScheduleConfig {
-  id                String   @id @default(cuid())
-  projectId         String   @unique @map("project_id")
-  tenantId          String   @map("tenant_id")
-  dataInicio        DateTime @map("data_inicio")
-  trabalhaDiasUteis Boolean  @default(true) @map("trabalha_dias_uteis")
-  trabalhaSabados   Boolean  @default(false) @map("trabalha_sabados")
+  id                String    @id @default(cuid())
+  projectId         String    @unique @map("project_id")
+  tenantId          String    @map("tenant_id")
+  dataInicio        DateTime  @map("data_inicio")
+  trabalhaDiasUteis Boolean   @default(true) @map("trabalha_dias_uteis")
+  trabalhaSabados   Boolean   @default(false) @map("trabalha_sabados")
   linhaBaseData     DateTime? @map("linha_base_data")
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
   deletedAt         DateTime? @map("deleted_at")
 
   project Project @relation(fields: [projectId], references: [id])
@@ -507,16 +509,16 @@ model ScheduleConfig {
 }
 
 model ScheduleStage {
-  id        String   @id @default(cuid())
-  projectId String   @map("project_id")
-  tenantId  String   @map("tenant_id")
+  id        String    @id @default(cuid())
+  projectId String    @map("project_id")
+  tenantId  String    @map("tenant_id")
   nome      String
   ordem     Int
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
-  project Project @relation(fields: [projectId], references: [id])
+  project Project        @relation(fields: [projectId], references: [id])
   tasks   ScheduleTask[]
 
   @@index([projectId])
@@ -533,7 +535,7 @@ model ScheduleTask {
   duracao             Int       @default(1) // dias
   dataInicio          DateTime? @map("data_inicio")
   dataTermino         DateTime? @map("data_termino")
-  predecessoras       String?   // JSON array de números de tarefas, ex: "[2,3]"
+  predecessoras       String? // JSON array de números de tarefas, ex: "[2,3]"
   valorOrcado         Int?      @map("valor_orcado") // centavos
   custoReal           Int?      @map("custo_real") // centavos
   percentualConcluido Float     @default(0) @map("percentual_concluido")
@@ -544,8 +546,9 @@ model ScheduleTask {
   updatedAt           DateTime  @updatedAt @map("updated_at")
   deletedAt           DateTime? @map("deleted_at")
 
-  stage   ScheduleStage @relation(fields: [stageId], references: [id])
-  project Project       @relation(fields: [projectId], references: [id])
+  stage      ScheduleStage @relation(fields: [stageId], references: [id])
+  project    Project       @relation(fields: [projectId], references: [id])
+  pendencias Pendencia[]
 
   @@index([stageId])
   @@index([projectId])
@@ -553,13 +556,13 @@ model ScheduleTask {
 }
 
 model ScheduleHoliday {
-  id        String   @id @default(cuid())
-  projectId String   @map("project_id")
-  tenantId  String   @map("tenant_id")
+  id        String    @id @default(cuid())
+  projectId String    @map("project_id")
+  tenantId  String    @map("tenant_id")
   nome      String
   data      DateTime
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
   project Project @relation(fields: [projectId], references: [id])
@@ -568,26 +571,52 @@ model ScheduleHoliday {
   @@map("schedule_holidays")
 }
 
+model Pendencia {
+  id             String    @id @default(cuid())
+  projectId      String    @map("project_id")
+  tenantId       String    @map("tenant_id")
+  title          String
+  description    String?
+  status         String    @default("PENDENTE")
+  dueDate        DateTime? @map("due_date")
+  owner          String?
+  roomId         String?   @map("room_id")
+  scheduleTaskId String?   @map("schedule_task_id")
+  order          Int       @default(0)
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  project      Project       @relation(fields: [projectId], references: [id])
+  room         Room?         @relation(fields: [roomId], references: [id])
+  scheduleTask ScheduleTask? @relation(fields: [scheduleTaskId], references: [id])
+
+  @@index([projectId])
+  @@index([roomId])
+  @@index([scheduleTaskId])
+  @@map("pendencias")
+}
+
 // ─── Cartões de crédito (import de fatura OFX/CSV) ─────────
 
 model CreditCard {
-  id                    String   @id @default(cuid())
-  projectId             String   @map("project_id")
-  tenantId              String   @map("tenant_id")
-  institution           String   // ITAU | NUBANC | INTER | BB | CAIXA | OUTROS
-  brand                 String   @default("Outros") // Visa | Mastercard | Elo | Amex | Hipercard | Outros
-  nickname              String
-  last4                 String   // últimos 4 dígitos. NUNCA salvar PAN completo.
-  limitTotalCents       Int?     @map("limit_total_cents")
-  limitAvailableCents   Int?     @map("limit_available_cents")
-  closingDay            Int?     @map("closing_day") // dia do mês do fechamento
-  dueDay                Int?     @map("due_day")     // dia do mês do vencimento
-  notes                 String?
-  createdAt             DateTime @default(now()) @map("created_at")
-  updatedAt             DateTime @updatedAt @map("updated_at")
-  deletedAt             DateTime? @map("deleted_at")
+  id                  String    @id @default(cuid())
+  projectId           String    @map("project_id")
+  tenantId            String    @map("tenant_id")
+  institution         String // ITAU | NUBANC | INTER | BB | CAIXA | OUTROS
+  brand               String    @default("Outros") // Visa | Mastercard | Elo | Amex | Hipercard | Outros
+  nickname            String
+  last4               String // últimos 4 dígitos. NUNCA salvar PAN completo.
+  limitTotalCents     Int?      @map("limit_total_cents")
+  limitAvailableCents Int?      @map("limit_available_cents")
+  closingDay          Int?      @map("closing_day") // dia do mês do fechamento
+  dueDay              Int?      @map("due_day") // dia do mês do vencimento
+  notes               String?
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+  deletedAt           DateTime? @map("deleted_at")
 
-  project Project                    @relation(fields: [projectId], references: [id])
+  project Project                     @relation(fields: [projectId], references: [id])
   imports CreditCardStatementImport[]
 
   @@index([projectId])
@@ -596,22 +625,22 @@ model CreditCard {
 }
 
 model CreditCardStatementImport {
-  id              String   @id @default(cuid())
-  cardId          String   @map("card_id")
-  tenantId        String   @map("tenant_id")
-  periodLabel     String   @map("period_label") // ex: "2026-05" (mês de referência da fatura)
-  source          String   // OFX | CSV_NUBANK | CSV_ITAU | CSV_GENERIC
-  fileName        String?  @map("file_name")
-  fileSize        Int?     @map("file_size")
-  status          String   @default("COMPLETED") // PROCESSING | COMPLETED | FAILED
-  inserted        Int      @default(0)
-  duplicated      Int      @default(0)
-  skipped         Int      @default(0)
-  totalAmountCents Int     @default(0) @map("total_amount_cents")
-  message         String?
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
-  deletedAt       DateTime? @map("deleted_at")
+  id               String    @id @default(cuid())
+  cardId           String    @map("card_id")
+  tenantId         String    @map("tenant_id")
+  periodLabel      String    @map("period_label") // ex: "2026-05" (mês de referência da fatura)
+  source           String // OFX | CSV_NUBANK | CSV_ITAU | CSV_GENERIC
+  fileName         String?   @map("file_name")
+  fileSize         Int?      @map("file_size")
+  status           String    @default("COMPLETED") // PROCESSING | COMPLETED | FAILED
+  inserted         Int       @default(0)
+  duplicated       Int       @default(0)
+  skipped          Int       @default(0)
+  totalAmountCents Int       @default(0) @map("total_amount_cents")
+  message          String?
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  deletedAt        DateTime? @map("deleted_at")
 
   card CreditCard @relation(fields: [cardId], references: [id])
 
@@ -625,22 +654,22 @@ model CreditCardStatementImport {
 // ──────────────────────────────────────────────────────────────
 
 model BankAccount {
-  id              String   @id @default(cuid())
-  projectId       String   @map("project_id")
-  tenantId        String   @map("tenant_id")
-  institution     String   // ITAU | NUBANK | BRADESCO | SANTANDER | BB | CAIXA | INTER | C6 | OUTRO
-  nickname        String
-  agency          String?  // agência (ex: 7057)
-  accountNumber   String?  @map("account_number") // número formatado (ex: 077424-7)
-  last4           String   // últimos 4 dígitos do número (denormalizado, NUNCA o número completo se for sensível)
-  notes           String?
-  openingBalanceCents Int      @default(0) @map("opening_balance_cents") // saldo inicial da conta (centavos) na openingBalanceDate — base da reconciliação §10
+  id                  String    @id @default(cuid())
+  projectId           String    @map("project_id")
+  tenantId            String    @map("tenant_id")
+  institution         String // ITAU | NUBANK | BRADESCO | SANTANDER | BB | CAIXA | INTER | C6 | OUTRO
+  nickname            String
+  agency              String? // agência (ex: 7057)
+  accountNumber       String?   @map("account_number") // número formatado (ex: 077424-7)
+  last4               String // últimos 4 dígitos do número (denormalizado, NUNCA o número completo se for sensível)
+  notes               String?
+  openingBalanceCents Int       @default(0) @map("opening_balance_cents") // saldo inicial da conta (centavos) na openingBalanceDate — base da reconciliação §10
   openingBalanceDate  DateTime? @map("opening_balance_date") // data de referência do saldo inicial (ex.: 31/12 do extrato)
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
-  deletedAt       DateTime? @map("deleted_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+  deletedAt           DateTime? @map("deleted_at")
 
-  project Project                     @relation(fields: [projectId], references: [id])
+  project Project               @relation(fields: [projectId], references: [id])
   imports BankStatementImport[]
 
   @@index([projectId])
@@ -649,22 +678,22 @@ model BankAccount {
 }
 
 model BankStatementImport {
-  id              String   @id @default(cuid())
-  accountId       String   @map("account_id")
-  tenantId        String   @map("tenant_id")
-  periodLabel     String   @map("period_label") // ex: "2026-05" (mês de referência do extrato)
-  source          String   // OFX | CSV_GENERIC | PDF
-  fileName        String?  @map("file_name")
-  fileSize        Int?     @map("file_size")
-  status          String   @default("COMPLETED") // PROCESSING | COMPLETED | FAILED
-  inserted        Int      @default(0)
-  duplicated      Int      @default(0)
-  skipped         Int      @default(0)
-  totalAmountCents Int     @default(0) @map("total_amount_cents") // somatório de débitos (positivo)
-  message         String?
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
-  deletedAt       DateTime? @map("deleted_at")
+  id               String    @id @default(cuid())
+  accountId        String    @map("account_id")
+  tenantId         String    @map("tenant_id")
+  periodLabel      String    @map("period_label") // ex: "2026-05" (mês de referência do extrato)
+  source           String // OFX | CSV_GENERIC | PDF
+  fileName         String?   @map("file_name")
+  fileSize         Int?      @map("file_size")
+  status           String    @default("COMPLETED") // PROCESSING | COMPLETED | FAILED
+  inserted         Int       @default(0)
+  duplicated       Int       @default(0)
+  skipped          Int       @default(0)
+  totalAmountCents Int       @default(0) @map("total_amount_cents") // somatório de débitos (positivo)
+  message          String?
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  deletedAt        DateTime? @map("deleted_at")
 
   account BankAccount @relation(fields: [accountId], references: [id])
 
@@ -678,16 +707,16 @@ model BankStatementImport {
 // normalizado (lowercase, sem datas/números). Compartilhado entre tenants.
 
 model MerchantCategory {
-  id              String   @id @default(cuid())
-  merchantKey     String   @unique @map("merchant_key") // chave normalizada (lowercase, alpha)
-  merchantSample  String   @map("merchant_sample") // exemplo original (para auditoria)
-  category        String   // taxonomia: alimentação | transporte | assinaturas | viagem | saúde | compras | educação | casa | moradia | servicos | beleza | pets | impostos | outros
-  subcategory     String?  // detalhe livre (ex: "restaurante", "posto combustível")
-  source          String   // REGEX | AI | MANUAL
-  confidence      Float    @default(1.0)
-  aiResponse      String?  @map("ai_response") // raw JSON do AI (debug)
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  id             String   @id @default(cuid())
+  merchantKey    String   @unique @map("merchant_key") // chave normalizada (lowercase, alpha)
+  merchantSample String   @map("merchant_sample") // exemplo original (para auditoria)
+  category       String // taxonomia: alimentação | transporte | assinaturas | viagem | saúde | compras | educação | casa | moradia | servicos | beleza | pets | impostos | outros
+  subcategory    String? // detalhe livre (ex: "restaurante", "posto combustível")
+  source         String // REGEX | AI | MANUAL
+  confidence     Float    @default(1.0)
+  aiResponse     String?  @map("ai_response") // raw JSON do AI (debug)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
   @@index([category])
   @@map("merchant_categories")
@@ -696,32 +725,32 @@ model MerchantCategory {
 // ─── Budget Allocation (Envelope Budgeting) ───────────────────
 
 model BudgetAllocation {
-  id                String   @id @default(cuid())
-  tenantId          String   @map("tenant_id")
-  
+  id       String @id @default(cuid())
+  tenantId String @map("tenant_id")
+
   // Source (always PESSOAL project)
-  sourceProjectId   String   @map("source_project_id")
-  sourceReceiptId   String?  @map("source_receipt_id")
-  
+  sourceProjectId String  @map("source_project_id")
+  sourceReceiptId String? @map("source_receipt_id")
+
   // Target (REFORMA, CARRO, CASA, COMPRA)
-  targetProjectId   String   @map("target_project_id")
-  
+  targetProjectId String @map("target_project_id")
+
   // Allocation details
-  valor             Int      // in cents
-  descricao         String?  // "Budget mensal Abril", "Extra reforma banheiro"
-  mes               String   // YYYY-MM (for monthly tracking)
-  dataAlocacao      DateTime @default(now()) @map("data_alocacao")
-  
+  valor        Int // in cents
+  descricao    String? // "Budget mensal Abril", "Extra reforma banheiro"
+  mes          String // YYYY-MM (for monthly tracking)
+  dataAlocacao DateTime @default(now()) @map("data_alocacao")
+
   // Metadata
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
-  deletedAt         DateTime? @map("deleted_at")
-  
-  sourceProject Project  @relation("SourceAllocations", fields: [sourceProjectId], references: [id])
-  sourceReceipt Receipt? @relation(fields: [sourceReceiptId], references: [id])
-  targetProject Project  @relation("TargetAllocations", fields: [targetProjectId], references: [id])
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  sourceProject   Project         @relation("SourceAllocations", fields: [sourceProjectId], references: [id])
+  sourceReceipt   Receipt?        @relation(fields: [sourceReceiptId], references: [id])
+  targetProject   Project         @relation("TargetAllocations", fields: [targetProjectId], references: [id])
   cashFlowEntries CashFlowEntry[]
-  
+
   @@index([tenantId, sourceProjectId])
   @@index([tenantId, targetProjectId])
   @@index([mes])
