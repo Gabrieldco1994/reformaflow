@@ -113,6 +113,35 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        // ── LifeOne design system (handoff tokens) ─────────────────────────
+        // Fonte de verdade do rebrand. Usados explicitamente pelas telas
+        // re-skinadas; convivem com os tokens `darc-*` durante a migração
+        // (os overrides globais de paleta só saem no P6, após grep zero).
+        lifeone: {
+          blue: '#0A6CF0',        // brand accent
+          canvas: '#E7E4DD',      // app canvas
+          surface: '#F4F3F0',     // hub / content surface
+          sidebar: '#ECEAE4',     // sidebar / chip track
+          card: '#FFFFFF',
+          hairline: '#DAD5CC',
+          'hairline-2': '#E0DCD3',
+          'hairline-3': '#ECE8E1',
+          ink: '#1C1C1E',         // text primary
+          'ink-2': '#6E6A63',     // secondary
+          'ink-3': '#8A857C',     // tertiary
+          'ink-4': '#A7A29A',     // faint
+          success: '#1E924A',
+          'success-fill': '#E3F6EA',
+          info: '#EEF2F8',
+          warning: '#B5803A',
+        },
+        // Acentos por tipo de projeto (fill = tint claro)
+        'type-pessoal': { DEFAULT: '#0A6CF0', fill: '#E6EFFE' },
+        'type-reforma': { DEFAULT: '#C2691E', fill: '#FBEBDC' },
+        'type-casa':    { DEFAULT: '#1E924A', fill: '#DEF3E6' },
+        'type-carro':   { DEFAULT: '#5E5A52', fill: '#EAE7E1' },
+        'type-compra':  { DEFAULT: '#7A3FC2', fill: '#EFE6FA' },
+
         // Tokens D'arc nomeados (uso preferencial em código novo)
         darc: {
           velvet:   '#4F000B',
@@ -180,12 +209,19 @@ module.exports = {
         display: ['var(--font-display)', 'Cormorant Garamond', 'Georgia', 'serif'],
         sans: ['var(--font-sans)', 'Jost', 'system-ui', 'sans-serif'],
         mono: ['Courier New', 'ui-monospace', 'monospace'],
+        // LifeOne primary type (opt-in por telas re-skinadas)
+        geist: ['Geist', 'var(--font-sans)', '-apple-system', 'system-ui', 'sans-serif'],
       },
       boxShadow: {
         'darc-soft':  '0 2px 16px rgba(57, 18, 18, 0.10)',
         'darc-med':   '0 4px 28px rgba(57, 18, 18, 0.18)',
         'darc-hero':  '0 8px 40px rgba(79, 0, 11, 0.30)',
         'darc-mist':  '0 4px 20px rgba(191, 164, 209, 0.25)',
+        // LifeOne elevation (handoff)
+        'lifeone-card':   '0 1px 3px rgba(0,0,0,.05)',
+        'lifeone-hover':  '0 6px 18px rgba(0,0,0,.08)',
+        'lifeone-dialog': '0 20px 50px rgba(0,0,0,.25)',
+        'lifeone-fab':    '0 6px 14px rgba(10,108,240,.4)',
       },
       backgroundImage: {
         'darc-gradient-pink':  'linear-gradient(135deg, #F6CFF2 0%, #E2366B 50%, #EB1C24 100%)',

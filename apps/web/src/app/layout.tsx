@@ -21,8 +21,8 @@ const cormorant = Cormorant_Garamond({
 });
 
 export const metadata: Metadata = {
-  title: "D'arc Studio — Gestão de Projetos de Vida",
-  description: 'Controle financeiro, manutenções e lembretes para seus projetos de vida',
+  title: 'LifeOne — SaaS de gestão Financeira e Vida',
+  description: 'Gestão financeira e de vida: controle seus projetos, contas, metas e o dia a dia em um só lugar',
 };
 
 export const viewport: Viewport = {
@@ -39,6 +39,21 @@ export default function RootLayout({
 }) {
   return (
     <html lang="pt-BR" className={`${jost.variable} ${cormorant.variable}`}>
+      <head>
+        {/* LifeOne design system — Geist + Material Symbols (loaded via Google Fonts,
+            per design handoff). Exposed as the `font-geist` Tailwind family; opted
+            into by re-skinned hi-fi screens during the LifeOne migration. */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&display=swap"
+        />
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,300,0,0&display=swap"
+        />
+      </head>
       <body className={jost.className}>
         <Providers>
           <Toaster richColors position="top-right" />
