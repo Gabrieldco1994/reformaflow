@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Bot, Send, X, Sparkles, Volume2, Square, Mic, AudioLines } from 'lucide-react';
 import { streamSpeak, isStreamingTtsSupported, type StreamTtsHandle } from '@/lib/streaming-tts';
+import { useCopilotStore } from '@/stores/copilot-store';
 import { useFinancialAgent } from './useFinancialAgent';
 import { useSpeechRecognition } from './useSpeechRecognition';
 import { VoiceAssistantOverlay } from './VoiceAssistantOverlay';
@@ -37,7 +38,8 @@ export function FinancialAgentWidget() {
   const agent = useFinancialAgent();
   const speech = useSpeechRecognition();
 
-  const [open, setOpen] = useState(false);
+  const open = useCopilotStore((s) => s.open);
+  const setOpen = useCopilotStore((s) => s.setOpen);
   const [voiceOpen, setVoiceOpen] = useState(false);
   const [input, setInput] = useState('');
   const [speakingIndex, setSpeakingIndex] = useState<number | null>(null);
@@ -118,7 +120,7 @@ export function FinancialAgentWidget() {
           type="button"
           onClick={() => setOpen(true)}
           aria-label="Abrir Copiloto Financeiro"
-          className="fixed bottom-20 right-4 md:bottom-6 md:right-6 z-40 flex items-center gap-2 rounded-full bg-darc-velvet text-white shadow-lg px-4 py-3 hover:opacity-90 transition-opacity"
+          className="hidden md:flex fixed bottom-20 right-4 md:bottom-6 md:right-6 z-40 items-center gap-2 rounded-full bg-darc-velvet text-white shadow-lg px-4 py-3 hover:opacity-90 transition-opacity"
         >
           <Sparkles className="w-5 h-5" />
           <span className="hidden sm:inline text-sm font-medium">Copiloto</span>
