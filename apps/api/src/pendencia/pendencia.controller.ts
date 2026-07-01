@@ -1,21 +1,24 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, Headers } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, UseInterceptors } from '@nestjs/common';
 import { PendenciaService } from './pendencia.service';
 import { CreatePendenciaDto, UpdatePendenciaDto, MovePendenciaDto } from './dto/pendencia.dto';
 import { RequireModule } from '../common/decorators/require-module.decorator';
+import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
+import { CurrentTenant } from '../common/decorators/tenant.decorator';
 
+@UseInterceptors(TenantInterceptor)
 @RequireModule('pendencias')
 @Controller('projects/:projectId/pendencias')
 export class PendenciaController {
   constructor(private readonly service: PendenciaService) {}
 
   @Get()
-  findAll(@Headers('x-tenant-id') tenantId: string, @Param('projectId') projectId: string) {
+  findAll(@CurrentTenant() tenantId: string, @Param('projectId') projectId: string) {
     return this.service.findAll(tenantId, projectId);
   }
 
   @Post()
   create(
-    @Headers('x-tenant-id') tenantId: string,
+    @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Body() dto: CreatePendenciaDto,
   ) {
@@ -24,7 +27,7 @@ export class PendenciaController {
 
   @Patch(':id')
   update(
-    @Headers('x-tenant-id') tenantId: string,
+    @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('id') id: string,
     @Body() dto: UpdatePendenciaDto,
@@ -34,7 +37,7 @@ export class PendenciaController {
 
   @Patch(':id/move')
   move(
-    @Headers('x-tenant-id') tenantId: string,
+    @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('id') id: string,
     @Body() dto: MovePendenciaDto,
@@ -44,7 +47,7 @@ export class PendenciaController {
 
   @Delete(':id')
   remove(
-    @Headers('x-tenant-id') tenantId: string,
+    @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('id') id: string,
   ) {
