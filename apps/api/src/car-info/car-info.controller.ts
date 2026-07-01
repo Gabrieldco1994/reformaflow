@@ -1,8 +1,11 @@
-import { Controller, Get, Put, Body, Param, Headers } from '@nestjs/common';
+import { Controller, Get, Put, Body, Param, UseInterceptors } from '@nestjs/common';
 import { CarInfoService } from './car-info.service';
 import { UpsertCarInfoDto } from './dto/car-info.dto';
 import { RequireModule } from '../common/decorators/require-module.decorator';
+import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
+import { CurrentTenant } from '../common/decorators/tenant.decorator';
 
+@UseInterceptors(TenantInterceptor)
 @RequireModule('carInfo')
 @Controller('projects/:projectId/car-info')
 export class CarInfoController {
@@ -10,7 +13,7 @@ export class CarInfoController {
 
   @Get()
   get(
-    @Headers('x-tenant-id') tenantId: string,
+    @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
   ) {
     return this.service.get(tenantId, projectId);
@@ -18,7 +21,7 @@ export class CarInfoController {
 
   @Put()
   upsert(
-    @Headers('x-tenant-id') tenantId: string,
+    @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Body() dto: UpsertCarInfoDto,
   ) {
