@@ -27,6 +27,7 @@ export type ModuleSlug =
   | 'creditCards'
   | 'bankAccounts'
   | 'schedule'
+  | 'pendencias'
   | 'financialDashboard';
 
 export const ALL_MODULES: { slug: ModuleSlug; label: string }[] = [
@@ -46,11 +47,12 @@ export const ALL_MODULES: { slug: ModuleSlug; label: string }[] = [
   { slug: 'creditCards', label: 'Cartões' },
   { slug: 'bankAccounts', label: 'Contas Bancárias' },
   { slug: 'schedule', label: 'Cronograma' },
+  { slug: 'pendencias', label: 'Pendências' },
   { slug: 'financialDashboard', label: 'Dashboard Financeiro' },
 ];
 
 export const TYPE_MODULES: Record<string, ModuleSlug[]> = {
-  REFORMA: ['expenses', 'receipts', 'cashFlow', 'schedule', 'floorPlans', 'simulation', 'priceCompare', 'rooms'],
+  REFORMA: ['expenses', 'receipts', 'cashFlow', 'schedule', 'pendencias', 'floorPlans', 'simulation', 'priceCompare', 'rooms'],
   COMPRA: ['expenses', 'receipts', 'cashFlow'],
   PESSOAL: ['monthlyOverview', 'expenses', 'receipts', 'cashFlow', 'creditCards', 'bankAccounts'],
   CASA: ['recurringBills', 'maintenance', 'reminders', 'expenses'],

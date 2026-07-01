@@ -32,6 +32,7 @@ describe('getMobilePrimary', () => {
     expect(secondary.map((m) => m.slug)).toEqual([
       'cash-flow',
       'schedule',
+      'pendencias',
       'floor-plans',
       'simulation',
     ]);
