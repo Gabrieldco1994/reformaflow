@@ -6,6 +6,28 @@ import { useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 
+function LifeOneLogo() {
+  return (
+    <div className="flex items-center gap-3">
+      <svg width="44" height="44" viewBox="0 0 48 48" fill="none" aria-hidden>
+        <defs>
+          <linearGradient id="lifeoneTileLogin" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
+            <stop stopColor="#1E7BFF" />
+            <stop offset="1" stopColor="#0A5AD0" />
+          </linearGradient>
+        </defs>
+        <rect x="1" y="1" width="46" height="46" rx="13" fill="url(#lifeoneTileLogin)" />
+        <path d="M12 31 L20 23 L27 27 L35 15" fill="none" stroke="#FFFFFF" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx="35" cy="15" r="4.2" fill="#FFFFFF" />
+        <circle cx="35" cy="15" r="2.1" fill="#0A6CF0" />
+      </svg>
+      <span className="font-geist text-[28px] font-bold tracking-[-0.03em] text-lifeone-ink">
+        Life<span className="text-lifeone-blue">One</span>
+      </span>
+    </div>
+  );
+}
+
 function LoginForm() {
   const router = useRouter();
   const search = useSearchParams();
@@ -38,72 +60,95 @@ function LoginForm() {
   }
 
   return (
-    <div
-      className="min-h-screen flex items-center justify-center px-4 relative overflow-hidden"
-      style={{ background: 'linear-gradient(135deg, #F6CFF2 0%, #E2366B 50%, #EB1C24 100%)' }}
-    >
-      <div className="absolute inset-0 opacity-20 pointer-events-none" style={{ background: 'radial-gradient(circle at 20% 80%, #BFA4D1 0%, transparent 50%), radial-gradient(circle at 80% 20%, #F27D33 0%, transparent 50%)' }} />
-      <form
-        onSubmit={handleSubmit}
-        className="relative w-full max-w-sm bg-darc-off-white/95 backdrop-blur-sm p-10 rounded-2xl shadow-darc-hero border border-darc-linen space-y-6"
-      >
-        <div className="text-center">
-          <h1 className="font-editorial text-5xl text-darc-red leading-none">D&apos;arc</h1>
-          <p className="text-[10px] tracking-[0.3em] uppercase text-darc-maroon mt-2 font-medium">Studio</p>
-          <p className="text-sm text-darc-raspberry/80 mt-4 italic">Entre para continuar</p>
+    <div className="min-h-screen grid place-items-center px-4 py-10 relative overflow-x-hidden bg-lifeone-canvas font-geist">
+      {/* Blue accent glows — LifeOne canvas */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        aria-hidden
+        style={{
+          background:
+            'radial-gradient(circle at 15% 15%, rgba(10,108,240,0.10) 0%, transparent 42%), radial-gradient(circle at 85% 85%, rgba(10,108,240,0.08) 0%, transparent 45%)',
+        }}
+      />
+
+      <div className="relative w-full max-w-sm mx-auto min-w-0">
+        <div className="flex flex-col items-center mb-7">
+          <LifeOneLogo />
+          <p className="mt-3 text-[13px] text-lifeone-ink-2 tracking-[-0.01em]">
+            Gestão financeira e de vida, num só lugar
+          </p>
         </div>
 
-        <div className="space-y-4">
-          <div>
-            <label className="block text-[11px] font-medium tracking-wider uppercase text-darc-maroon mb-1.5">
-              Usuário
-            </label>
-            <input
-              type="text"
-              autoComplete="username"
-              required
-              autoFocus
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="w-full px-3 py-2.5 bg-transparent border-b border-darc-linen rounded-none text-sm text-darc-maroon focus:outline-none focus:border-darc-red transition-colors"
-            />
-          </div>
-          <div>
-            <label className="block text-[11px] font-medium tracking-wider uppercase text-darc-maroon mb-1.5">
-              Senha
-            </label>
-            <input
-              type="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-3 py-2.5 bg-transparent border-b border-darc-linen rounded-none text-sm text-darc-maroon focus:outline-none focus:border-darc-red transition-colors"
-            />
-          </div>
-        </div>
-
-        {error && (
-          <div className="text-xs text-darc-linen bg-darc-raspberry rounded-lg px-3 py-2">
-            {error}
-          </div>
-        )}
-
-        <button
-          type="submit"
-          disabled={submitting}
-          className="w-full bg-darc-red hover:bg-darc-raspberry disabled:opacity-50 disabled:cursor-not-allowed text-darc-linen font-medium tracking-wider uppercase py-3 rounded-lg text-xs transition-colors"
+        <form
+          onSubmit={handleSubmit}
+          className="w-full bg-lifeone-card p-8 rounded-[18px] shadow-lifeone-card border border-lifeone-hairline space-y-6"
         >
-          {submitting ? 'Entrando…' : 'Entrar'}
-        </button>
-      </form>
+          <div>
+            <h1
+              className="font-geist not-italic text-[20px] font-bold tracking-[-0.02em] text-lifeone-ink"
+              style={{ fontFamily: "'Geist', var(--font-sans), system-ui, sans-serif", fontStyle: 'normal', fontWeight: 700 }}
+            >
+              Entrar
+            </h1>
+            <p className="text-[13px] text-lifeone-ink-3 mt-0.5">Acesse sua conta para continuar</p>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-[12px] font-medium text-lifeone-ink-2 mb-1.5">
+                Usuário
+              </label>
+              <input
+                type="text"
+                autoComplete="username"
+                required
+                autoFocus
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="w-full px-3.5 py-2.5 bg-lifeone-surface border border-lifeone-hairline rounded-[10px] text-[14px] text-lifeone-ink placeholder:text-lifeone-ink-4 focus:outline-none focus:border-lifeone-blue focus:ring-2 focus:ring-lifeone-blue/25 transition-all"
+              />
+            </div>
+            <div>
+              <label className="block text-[12px] font-medium text-lifeone-ink-2 mb-1.5">
+                Senha
+              </label>
+              <input
+                type="password"
+                autoComplete="current-password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-3.5 py-2.5 bg-lifeone-surface border border-lifeone-hairline rounded-[10px] text-[14px] text-lifeone-ink placeholder:text-lifeone-ink-4 focus:outline-none focus:border-lifeone-blue focus:ring-2 focus:ring-lifeone-blue/25 transition-all"
+              />
+            </div>
+          </div>
+
+          {error && (
+            <div className="text-[13px] text-[#B42318] bg-[#FEF3F2] border border-[#FECDCA] rounded-[10px] px-3 py-2.5">
+              {error}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={submitting}
+            className="w-full bg-lifeone-blue hover:brightness-95 disabled:opacity-50 disabled:cursor-not-allowed text-[#FFFFFF] font-semibold py-3 rounded-[10px] text-[14px] tracking-[-0.01em] shadow-lifeone-card transition-all active:scale-[0.99]"
+          >
+            {submitting ? 'Entrando…' : 'Entrar'}
+          </button>
+        </form>
+
+        <p className="text-center text-[11px] text-lifeone-ink-4 mt-6">
+          LifeOne · SaaS de gestão Financeira e Vida
+        </p>
+      </div>
     </div>
   );
 }
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen" />}>
+    <Suspense fallback={<div className="min-h-screen bg-lifeone-canvas" />}>
       <LoginForm />
     </Suspense>
   );

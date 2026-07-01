@@ -23,6 +23,11 @@ const cormorant = Cormorant_Garamond({
 export const metadata: Metadata = {
   title: 'LifeOne — SaaS de gestão Financeira e Vida',
   description: 'Gestão financeira e de vida: controle seus projetos, contas, metas e o dia a dia em um só lugar',
+  icons: {
+    icon: '/lifeone-mark.svg',
+    shortcut: '/lifeone-mark.svg',
+    apple: '/lifeone-mark.svg',
+  },
 };
 
 export const viewport: Viewport = {

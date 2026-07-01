@@ -1,0 +1,15 @@
+<svg width="200" height="48" viewBox="0 0 200 48" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="LifeOne">
+  <defs>
+    <linearGradient id="lifeoneTileLockup" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1E7BFF"/>
+      <stop offset="1" stop-color="#0A5AD0"/>
+    </linearGradient>
+  </defs>
+  <rect x="1" y="1" width="46" height="46" rx="13" fill="url(#lifeoneTileLockup)"/>
+  <path d="M12 31 L20 23 L27 27 L35 15" fill="none" stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="35" cy="15" r="4.2" fill="#FFFFFF"/>
+  <circle cx="35" cy="15" r="2.1" fill="#0A6CF0"/>
+  <text x="62" y="32" font-family="Geist, -apple-system, system-ui, 'Segoe UI', Arial, sans-serif" font-size="25" font-weight="700" letter-spacing="-0.8">
+    <tspan fill="#1C1C1E">Life</tspan><tspan fill="#0A6CF0">One</tspan>
+  </text>
+</svg>
