@@ -14,8 +14,8 @@ import { CreditCard, Landmark } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import type { CardInvoicesYearlyResponse } from '../_types';
 
-const CARD_COLORS = ['#f97316', '#0ea5e9', '#22c55e', '#a855f7', '#ef4444', '#eab308'];
-const CONTA_COLORS = ['#0f766e', '#7c3aed', '#b45309'];
+const CARD_COLORS = ['#0A6CF0', '#1E924A', '#C2691E', '#7A3FC2', '#D92D20', '#5E5A52'];
+const CONTA_COLORS = ['#0857C4', '#7A3FC2', '#B5803A'];
 
 function compactBRL(value: number) {
   if (value === 0) return '0';
@@ -69,27 +69,27 @@ export function FaturasAnuaisChart({
     : null;
 
   return (
-    <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <section className="space-y-3 rounded-2xl border border-lifeone-hairline bg-lifeone-card p-4 shadow-lifeone-card">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-lifeone-ink-3">
             {selectedKey ? 'Origem · ' : 'Faturas e conta · '}
             {data.year}
           </p>
-          <p className="text-lg font-bold text-slate-950">{formatCurrency(totalVisivel / 100)}</p>
+          <p className="text-lg font-bold text-lifeone-ink font-geist tabular-nums">{formatCurrency(totalVisivel / 100)}</p>
         </div>
         {selectedKey && (
           selectedMonthLabel ? (
             <button
               type="button"
               onClick={() => onSelectMonth(null)}
-              className="inline-flex h-7 items-center gap-1.5 rounded-full bg-slate-900 px-2.5 text-[11px] font-semibold text-white"
+              className="inline-flex h-7 items-center gap-1.5 rounded-full bg-lifeone-ink px-2.5 text-[11px] font-semibold text-[#FFFFFF]"
             >
               {selectedMonthLabel} · {data.year}
-              <span className="text-slate-300">✕</span>
+              <span className="text-lifeone-ink-4">✕</span>
             </button>
           ) : (
-            <span className="text-[11px] text-slate-400">Clique numa barra para ver o mês</span>
+            <span className="text-[11px] text-lifeone-ink-4">Clique numa barra para ver o mês</span>
           )
         )}
       </div>
@@ -101,8 +101,8 @@ export function FaturasAnuaisChart({
           onClick={() => onSelectKey(null)}
           className={`inline-flex h-7 items-center rounded-full px-2.5 text-[11px] font-semibold transition ${
             selectedKey === null
-              ? 'bg-slate-900 text-white'
-              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              ? 'bg-lifeone-ink text-[#FFFFFF]'
+              : 'bg-lifeone-surface text-lifeone-ink-2 hover:bg-lifeone-sidebar'
           }`}
         >
           Todos
@@ -118,8 +118,8 @@ export function FaturasAnuaisChart({
               onClick={() => onSelectKey(active ? null : origin.key)}
               className={`inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-semibold transition ${
                 active
-                  ? 'border-transparent text-white'
-                  : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                  ? 'border-transparent text-[#FFFFFF]'
+                  : 'border-lifeone-hairline bg-lifeone-card text-lifeone-ink-2 hover:border-lifeone-blue'
               }`}
               style={active ? { backgroundColor: color } : undefined}
             >
@@ -135,52 +135,52 @@ export function FaturasAnuaisChart({
       </div>
 
       {!hasData ? (
-        <div className="flex h-56 items-center justify-center rounded-xl bg-slate-50 text-sm text-slate-500">
+        <div className="flex h-56 items-center justify-center rounded-xl bg-lifeone-surface text-sm text-lifeone-ink-3">
           Sem lançamentos em {data.year}.
         </div>
       ) : (
         <div className="h-[320px]">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData} margin={{ top: 8, right: 8, left: -4, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-              <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} stroke="#e2e8f0" />
+              <CartesianGrid strokeDasharray="3 3" stroke="#ECE8E1" vertical={false} />
+              <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#8A857C' }} stroke="#ECE8E1" />
               <YAxis
-                tick={{ fontSize: 11, fill: '#64748b' }}
-                stroke="#e2e8f0"
+                tick={{ fontSize: 11, fill: '#8A857C' }}
+                stroke="#ECE8E1"
                 width={52}
                 tickFormatter={(value) => compactBRL(Number(value))}
               />
               <Tooltip
-                cursor={{ fill: 'rgba(15,23,42,.04)' }}
+                cursor={{ fill: 'rgba(28,28,30,.04)' }}
                 content={({ active, payload, label }) => {
                   if (!active || !payload?.length) return null;
                   const total = payload.reduce((sum, item) => sum + (Number(item.value) || 0), 0);
                   return (
-                    <div className="rounded-xl border border-slate-200 bg-white p-2.5 text-xs shadow-lg">
-                      <p className="mb-1 font-semibold text-slate-900">{label}</p>
+                    <div className="rounded-xl border border-lifeone-hairline bg-lifeone-card p-2.5 text-xs shadow-lifeone-hover">
+                      <p className="mb-1 font-semibold text-lifeone-ink">{label}</p>
                       {payload
                         .filter((item) => Number(item.value) > 0)
                         .map((item) => {
                           const origin = data.origins.find((o) => o.key === item.dataKey);
                           return (
                             <div key={item.dataKey as string} className="flex items-center justify-between gap-3">
-                              <span className="flex items-center gap-1.5 text-slate-600">
+                              <span className="flex items-center gap-1.5 text-lifeone-ink-2">
                                 <span
                                   className="inline-block h-2 w-2 rounded-full"
                                   style={{ backgroundColor: item.color }}
                                 />
                                 {origin ? `${origin.nickname} · ${origin.last4}` : (item.dataKey as string)}
                               </span>
-                              <span className="font-medium text-slate-900">
+                              <span className="font-medium text-lifeone-ink">
                                 {formatCurrency(Number(item.value))}
                               </span>
                             </div>
                           );
                         })}
                       {payload.length > 1 && (
-                        <div className="mt-1 flex items-center justify-between gap-3 border-t border-slate-100 pt-1">
-                          <span className="font-semibold text-slate-700">Total</span>
-                          <span className="font-bold text-slate-900">{formatCurrency(total)}</span>
+                        <div className="mt-1 flex items-center justify-between gap-3 border-t border-lifeone-hairline-3 pt-1">
+                          <span className="font-semibold text-lifeone-ink-2">Total</span>
+                          <span className="font-bold text-lifeone-ink">{formatCurrency(total)}</span>
                         </div>
                       )}
                     </div>

@@ -41,17 +41,17 @@ export function DespesasRelacionadas({
   );
 
   return (
-    <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <section className="space-y-3 rounded-2xl border border-lifeone-hairline bg-lifeone-card p-4 shadow-lifeone-card">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
+          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-lifeone-surface text-lifeone-ink-2">
             <Icon className="h-4 w-4" />
           </span>
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-lifeone-ink-3">
               Despesas · {origin.nickname} · {origin.last4}
             </p>
-            <p className="text-sm text-slate-500">
+            <p className="text-sm text-lifeone-ink-3">
               {origin.kind === 'conta' ? 'Débitos da conta' : 'Lançamentos da fatura'}
               {selectedMonth
                 ? ` · ${MONTH_LABELS[parseInt(selectedMonth.slice(5, 7), 10) - 1]} ${selectedMonth.slice(0, 4)}`
@@ -60,7 +60,7 @@ export function DespesasRelacionadas({
           </div>
         </div>
         {data && (
-          <p className="shrink-0 text-base font-bold text-slate-950">
+          <p className="shrink-0 text-base font-bold text-lifeone-ink font-geist tabular-nums">
             {formatCurrency((selectedMonth ? filteredTotal : data.total) / 100)}
           </p>
         )}
@@ -69,13 +69,13 @@ export function DespesasRelacionadas({
       {isLoading && (
         <div className="space-y-2">
           {Array.from({ length: 4 }).map((_, index) => (
-            <div key={index} className="h-10 animate-pulse rounded-lg bg-slate-100" />
+            <div key={index} className="h-10 animate-pulse rounded-lg bg-lifeone-surface" />
           ))}
         </div>
       )}
 
       {!isLoading && months.length === 0 && (
-        <div className="flex h-24 items-center justify-center rounded-xl bg-slate-50 text-sm text-slate-500">
+        <div className="flex h-24 items-center justify-center rounded-xl bg-lifeone-surface text-sm text-lifeone-ink-3">
           {selectedMonth
             ? 'Sem despesas neste mês para esta origem.'
             : 'Sem despesas registradas nesta origem.'}
@@ -88,35 +88,35 @@ export function DespesasRelacionadas({
             const items = byMonth.get(mes)!;
             const subtotal = items.reduce((sum, item) => sum + item.valor, 0);
             return (
-              <div key={mes} className="overflow-hidden rounded-xl border border-slate-100">
-                <div className="flex items-center justify-between bg-slate-50 px-3 py-1.5">
-                  <span className="text-[11px] font-bold uppercase tracking-wide text-slate-600">
+              <div key={mes} className="overflow-hidden rounded-xl border border-lifeone-hairline-3">
+                <div className="flex items-center justify-between bg-lifeone-surface px-3 py-1.5">
+                  <span className="text-[11px] font-bold uppercase tracking-wide text-lifeone-ink-2">
                     {monthLabel(mes)} · {mes.slice(0, 4)}
                   </span>
-                  <span className="text-xs font-semibold text-slate-700">{formatCurrency(subtotal / 100)}</span>
+                  <span className="text-xs font-semibold text-lifeone-ink-2">{formatCurrency(subtotal / 100)}</span>
                 </div>
-                <ul className="divide-y divide-slate-100">
+                <ul className="divide-y divide-lifeone-hairline-3">
                   {items.map((item, index) => (
                     <li key={`${mes}-${index}`} className="flex items-center justify-between gap-3 px-3 py-2">
                       <div className="min-w-0">
-                        <p className="truncate text-sm text-slate-800">{item.descricao}</p>
-                        <p className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                        <p className="truncate text-sm text-lifeone-ink">{item.descricao}</p>
+                        <p className="flex items-center gap-1.5 text-[11px] text-lifeone-ink-4">
                           {formatDateBR(item.data)}
                           {item.status !== 'PAGO' && (
-                            <span className="rounded-full bg-amber-100 px-1.5 py-px font-medium text-amber-700">
+                            <span className="rounded-full bg-[#FBEBDC] px-1.5 py-px font-medium text-[#B5803A]">
                               {item.status === 'PLANEJADO' ? 'planejado' : item.status.toLowerCase()}
                             </span>
                           )}
                           {item.projetoOrigem && item.projetoOrigem.type !== 'PESSOAL' && (
-                            <span className="rounded-full bg-sky-100 px-1.5 py-px font-medium text-sky-700">
+                            <span className="rounded-full bg-[#E6EFFE] px-1.5 py-px font-medium text-lifeone-blue">
                               {item.projetoOrigem.name}
                             </span>
                           )}
                         </p>
                       </div>
                       <span
-                        className={`shrink-0 text-sm font-semibold tabular-nums ${
-                          item.valor < 0 ? 'text-emerald-600' : 'text-slate-900'
+                        className={`shrink-0 text-sm font-semibold tabular-nums font-geist ${
+                          item.valor < 0 ? 'text-[#1E924A]' : 'text-lifeone-ink'
                         }`}
                       >
                         {formatCurrency(item.valor / 100)}

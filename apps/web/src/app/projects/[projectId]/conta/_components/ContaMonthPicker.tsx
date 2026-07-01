@@ -16,7 +16,7 @@ export function ContaMonthPicker({
         type="button"
         onClick={() => onChange(addMonthKey(month, -1))}
         aria-label="Mês anterior"
-        className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-700 transition hover:bg-slate-100"
+        className="flex h-10 w-10 items-center justify-center rounded-xl border border-lifeone-hairline bg-lifeone-surface text-lifeone-ink-2 transition hover:bg-lifeone-sidebar"
       >
         <ChevronLeft className="h-5 w-5" />
       </button>
@@ -27,14 +27,14 @@ export function ContaMonthPicker({
           value={month}
           onChange={(event) => onChange(event.target.value)}
           aria-label="Selecionar mês"
-          className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-2.5 text-sm font-medium text-slate-700 outline-none ring-0 transition focus:border-slate-300"
+          className="h-10 rounded-xl border border-lifeone-hairline bg-lifeone-surface px-2.5 text-sm font-medium text-lifeone-ink-2 outline-none ring-0 transition focus:border-lifeone-blue"
         />
       </label>
       <button
         type="button"
         onClick={() => onChange(addMonthKey(month, 1))}
         aria-label="Próximo mês"
-        className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-700 transition hover:bg-slate-100"
+        className="flex h-10 w-10 items-center justify-center rounded-xl border border-lifeone-hairline bg-lifeone-surface text-lifeone-ink-2 transition hover:bg-lifeone-sidebar"
       >
         <ChevronRight className="h-5 w-5" />
       </button>

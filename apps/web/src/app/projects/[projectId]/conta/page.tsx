@@ -27,15 +27,15 @@ function LoadingBlock() {
   return (
     <div className="space-y-4 animate-pulse">
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_20rem]">
-        <div className="h-36 rounded-3xl bg-slate-100" />
-        <div className="h-36 rounded-3xl bg-slate-100" />
+        <div className="h-36 rounded-3xl bg-lifeone-surface" />
+        <div className="h-36 rounded-3xl bg-lifeone-surface" />
       </div>
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-6">
         {Array.from({ length: 4 }).map((_, index) => (
-          <div key={index} className="h-28 rounded-2xl bg-slate-100" />
+          <div key={index} className="h-28 rounded-2xl bg-lifeone-surface" />
         ))}
       </div>
-      <div className="h-64 rounded-3xl bg-slate-100" />
+      <div className="h-64 rounded-3xl bg-lifeone-surface" />
     </div>
   );
 }
@@ -90,7 +90,7 @@ export default function ContaPage() {
 
   if (projectType && projectType !== 'PESSOAL') {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-600 shadow-sm">
+      <div className="rounded-2xl border border-lifeone-hairline bg-lifeone-card p-6 text-center text-sm text-lifeone-ink-2 shadow-lifeone-card">
         A Visão Conta está disponível apenas para projetos do tipo <strong>Pessoal</strong>.
       </div>
     );
@@ -98,22 +98,25 @@ export default function ContaPage() {
 
   return (
     <div className="space-y-4 xl:space-y-5">
-      <header className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm xl:px-4 xl:py-3">
+      <header className="flex items-center justify-between gap-3 rounded-2xl border border-lifeone-hairline bg-lifeone-card px-3 py-2.5 shadow-lifeone-card xl:px-4 xl:py-3">
         <div className="flex min-w-0 items-center gap-2.5">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-lifeone-surface text-lifeone-ink-2">
             <Landmark className="h-[18px] w-[18px]" />
           </span>
           <div className="min-w-0 leading-tight">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-lifeone-ink-3">
               Visão Conta
             </p>
-            <h1 className="truncate text-base font-bold tracking-tight text-slate-950 xl:text-lg">
+            <h1
+              className="truncate text-base font-bold tracking-tight text-lifeone-ink xl:text-lg font-geist not-italic"
+              style={{ fontFamily: "'Geist', var(--font-sans), system-ui, sans-serif", fontStyle: 'normal' }}
+            >
               {viewMode === 'ano' ? `Ano ${selectedYear}` : monthLabelLong(selectedMonth)}
             </h1>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <div className="flex items-center rounded-xl border border-slate-200 bg-slate-50 p-0.5">
+          <div className="flex items-center rounded-xl border border-lifeone-hairline bg-lifeone-sidebar p-0.5">
             <button
               type="button"
               onClick={() => {
@@ -122,7 +125,7 @@ export default function ContaPage() {
                 setSelectedYearMonth(null);
               }}
               className={`h-9 rounded-lg px-3 text-xs font-semibold transition ${
-                viewMode === 'mes' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                viewMode === 'mes' ? 'bg-lifeone-card text-lifeone-ink shadow-lifeone-card' : 'text-lifeone-ink-3 hover:text-lifeone-ink-2'
               }`}
             >
               Mês
@@ -131,7 +134,7 @@ export default function ContaPage() {
               type="button"
               onClick={() => setViewMode('ano')}
               className={`h-9 rounded-lg px-3 text-xs font-semibold transition ${
-                viewMode === 'ano' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                viewMode === 'ano' ? 'bg-lifeone-card text-lifeone-ink shadow-lifeone-card' : 'text-lifeone-ink-3 hover:text-lifeone-ink-2'
               }`}
             >
               Ano todo
@@ -148,14 +151,14 @@ export default function ContaPage() {
         <button
           type="button"
           onClick={() => setNovaDespesaOpen(true)}
-          className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
+          className="inline-flex items-center gap-1.5 rounded-xl border border-[#F2C6C1] bg-[#FCEBE9] px-3 py-2 text-sm font-semibold text-[#D92D20] transition hover:bg-[#F8DAD6]"
         >
           <ArrowDownCircle className="h-4 w-4" /> Nova Despesa
         </button>
         <button
           type="button"
           onClick={() => setNovaReceitaOpen(true)}
-          className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
+          className="inline-flex items-center gap-1.5 rounded-xl border border-[#BFE6CC] bg-[#E3F6EA] px-3 py-2 text-sm font-semibold text-[#1E924A] transition hover:bg-[#D2EFDC]"
         >
           <ArrowUpCircle className="h-4 w-4" /> Nova Receita
         </button>
@@ -163,7 +166,7 @@ export default function ContaPage() {
 
       {viewMode === 'ano' ? (
         <>
-          {yearlyLoading && <div className="h-[380px] animate-pulse rounded-2xl bg-slate-100" />}
+          {yearlyLoading && <div className="h-[380px] animate-pulse rounded-2xl bg-lifeone-surface" />}
           {yearlyData && !yearlyLoading && (
             <>
               <FaturasAnuaisChart
@@ -192,7 +195,7 @@ export default function ContaPage() {
           {isLoading && <LoadingBlock />}
 
           {error && !isLoading && (
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            <div className="rounded-2xl border border-[#EAD9C0] bg-[#FBEBDC] p-4 text-sm text-[#B5803A]">
               Não foi possível carregar a Visão Conta agora.
             </div>
           )}
