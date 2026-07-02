@@ -18,13 +18,13 @@ interface ContaReal {
 /** Mini-stat (chip) abaixo do hero. */
 function Stat({ label, value, dot, info }: { label: string; value: number; dot: string; info?: string }) {
   return (
-    <div className="rounded-2xl border border-darc-linen bg-white p-4 shadow-darc-soft">
+    <div className="min-w-0 rounded-2xl border border-darc-linen bg-white p-3 shadow-darc-soft md:p-4">
       <div className="flex items-center gap-1.5">
-        <span className={`inline-block h-2.5 w-2.5 rounded-full ${dot}`} />
-        <p className="text-xs font-semibold uppercase tracking-wide text-darc-velvet/60">{label}</p>
+        <span className={`inline-block h-2.5 w-2.5 rounded-full ${dot} shrink-0`} />
+        <p className="truncate text-[11px] font-semibold uppercase tracking-wide text-darc-velvet/60 md:text-xs">{label}</p>
         {info && <InfoHint text={info} className="text-darc-velvet/50" />}
       </div>
-      <p className="mt-2 text-2xl font-bold tabular-nums text-darc-velvet">{formatCurrency(value / 100)}</p>
+      <p className="mt-2 truncate text-base font-bold leading-tight tabular-nums text-darc-velvet md:text-2xl">{formatCurrency(value / 100)}</p>
     </div>
   );
 }
@@ -88,7 +88,7 @@ export function PersonalExpenseKpis({
       </div>
 
       {/* Mini-stats */}
-      <div className="grid grid-cols-3 gap-3 md:gap-4">
+      <div className="grid grid-cols-3 gap-2 md:gap-4">
         {isCaixa ? (
           <>
             <Stat label="Faturas" value={contaReal.faturasVencendo} dot="bg-rose-400" info="Faturas de cartão que vencem neste mês (o valor que o banco vai cobrar)." />
