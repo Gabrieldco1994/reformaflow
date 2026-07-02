@@ -106,9 +106,9 @@ export default function CockpitPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {view === 'mes' && data && (
-            <div className="inline-flex items-center gap-1 rounded-xl border border-[var(--ck-border)] bg-[var(--ck-surface-2)] p-1">
+            <div className="inline-flex shrink-0 items-center gap-1 rounded-xl border border-[var(--ck-border)] bg-[var(--ck-surface-2)] p-1">
               <button
                 type="button"
                 aria-label="Mês anterior"
@@ -142,14 +142,14 @@ export default function CockpitPage() {
             <select
               value={year}
               onChange={(e) => setSelectedYear(Number(e.target.value))}
-              className="bg-[var(--ck-surface-2)] border border-[var(--ck-border)] text-[var(--ck-text)] text-xs rounded-lg px-2 py-1.5 outline-none"
+              className="bg-[var(--ck-surface-2)] border border-[var(--ck-border)] text-[var(--ck-text)] text-xs rounded-lg px-2 py-1.5 outline-none shrink-0"
             >
               {anos.map((a) => (
                 <option key={a} value={a}>{a}</option>
               ))}
             </select>
           )}
-          <div className="inline-flex rounded-xl border border-[var(--ck-border)] bg-[var(--ck-surface-2)] p-1">
+          <div className="inline-flex shrink-0 rounded-xl border border-[var(--ck-border)] bg-[var(--ck-surface-2)] p-1">
             {(['mes', 'ano'] as View[]).map((v) => (
               <button
                 key={v}

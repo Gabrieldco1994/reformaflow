@@ -23,7 +23,7 @@ export default function EixoToggle({
 }) {
   const extratoAtivo = eixo === 'geral';
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex shrink-0 items-center gap-2">
       <div
         role="group"
         aria-label="Eixo de tempo"
