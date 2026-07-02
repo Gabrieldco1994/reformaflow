@@ -35,6 +35,7 @@ describe('MonthlyOverviewService.getAccountView', () => {
       receipt: { findMany: jest.fn() },
       cashFlowEntry: { findMany: jest.fn() },
       creditCard: { findMany: jest.fn(), findFirst: jest.fn() },
+      bankStatementImport: { findMany: jest.fn().mockResolvedValue([]) },
     };
 
     settlement = { settleInvoice: jest.fn().mockResolvedValue({ settledExpenses: 0, settledParcelas: 0 }) };
@@ -1280,6 +1281,110 @@ describe('MonthlyOverviewService.getAccountView', () => {
     // Caixa: só o PIX real (9.185,15) sai da conta. As cobranças cartão-paga-cartão
     // (sem banco) NÃO afetam o caixa → sem inflação.
     expect(latamJun.caixaHoje).toBe(1_000_000 - 918_515);
+  });
+
+  it('separa contas com mesmo last4 usando importId e prioriza Itaú como conta principal do caixa', async () => {
+    prisma.bankAccount.findMany.mockResolvedValue([
+      {
+        id: 'acc-itau',
+        openingBalanceCents: 100_000,
+        openingBalanceDate: new Date('2025-12-31T00:00:00.000Z'),
+        last4: '3636',
+        nickname: 'Itau',
+        institution: 'ITAU',
+      },
+      {
+        id: 'acc-nubank',
+        openingBalanceCents: 0,
+        openingBalanceDate: null,
+        last4: '3636',
+        nickname: 'Nubank',
+        institution: 'NUBANK',
+      },
+    ]);
+    prisma.bankStatementImport.findMany.mockResolvedValue([{ id: 'imp-nu', accountId: 'acc-nubank' }]);
+    prisma.expense.findMany.mockResolvedValue([
+      {
+        id: 'exp-itau',
+        tenantId,
+        projectId,
+        tipoDespesa: 'ALIMENTACAO',
+        titulo: 'Mercado',
+        fornecedor: 'Mercado',
+        valorTotal: 2_000,
+        valor: 2_000,
+        formaPagamento: 'A_VISTA',
+        dataPagamento: new Date('2026-06-05T00:00:00.000Z'),
+        dataInicioParcela: null,
+        createdAt: new Date('2026-06-05T00:00:00.000Z'),
+        quantidadeParcela: null,
+        status: 'PAGO',
+        cardLast4: null,
+        bankLast4: '3636',
+        importId: null,
+        linkedExpenseId: null,
+        settledByExpenseId: null,
+        settlesInvoiceKey: null,
+        project: { id: projectId, name: 'Pessoal', type: 'PESSOAL' },
+      },
+      {
+        id: 'exp-nubank',
+        tenantId,
+        projectId,
+        tipoDespesa: 'ALIMENTACAO',
+        titulo: 'Compra Nubank',
+        fornecedor: 'Nubank',
+        valorTotal: 7_000,
+        valor: 7_000,
+        formaPagamento: 'A_VISTA',
+        dataPagamento: new Date('2026-06-06T00:00:00.000Z'),
+        dataInicioParcela: null,
+        createdAt: new Date('2026-06-06T00:00:00.000Z'),
+        quantidadeParcela: null,
+        status: 'PAGO',
+        cardLast4: null,
+        bankLast4: '3636',
+        importId: 'imp-nu',
+        linkedExpenseId: null,
+        settledByExpenseId: null,
+        settlesInvoiceKey: null,
+        project: { id: projectId, name: 'Pessoal', type: 'PESSOAL' },
+      },
+    ]);
+    prisma.receipt.findMany.mockResolvedValue([
+      {
+        id: 'rec-itau',
+        tenantId,
+        projectId,
+        valor: 5_000,
+        data: new Date('2026-06-10T00:00:00.000Z'),
+        tipo: 'SALARIO',
+        descricao: 'Receita Itaú',
+        status: 'EM_CAIXA',
+        bankLast4: '3636',
+        importId: null,
+      },
+      {
+        id: 'rec-nubank',
+        tenantId,
+        projectId,
+        valor: 9_000,
+        data: new Date('2026-06-11T00:00:00.000Z'),
+        tipo: 'OUTROS',
+        descricao: 'Receita Nubank',
+        status: 'EM_CAIXA',
+        bankLast4: '3636',
+        importId: 'imp-nu',
+      },
+    ]);
+    prisma.cashFlowEntry.findMany.mockResolvedValue([]);
+    prisma.creditCard.findMany.mockResolvedValue([]);
+
+    const res: any = await service.getAccountView(tenantId, projectId, '2026-06');
+
+    expect(res.caixaHoje).toBe(103_000);
+    expect(res.entrouMes).toBe(5_000);
+    expect(res.saiuMes).toBe(2_000);
   });
 
   describe('payInvoice', () => {

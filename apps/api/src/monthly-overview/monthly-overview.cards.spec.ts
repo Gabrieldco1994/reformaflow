@@ -48,6 +48,7 @@ describe('MonthlyOverviewService.getOverview — enriquecimento de cartão', () 
         ]),
       },
       bankAccount: { findMany: jest.fn().mockResolvedValue([]) },
+      bankStatementImport: { findMany: jest.fn().mockResolvedValue([]) },
       expense: { findMany: jest.fn().mockResolvedValue([]) },
       receipt: { findMany: jest.fn().mockResolvedValue([]) },
     };
