@@ -1,9 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  buildExpenseFormData,
-  buildRatearMixedPayload,
-  detectSingleLinkShortcut,
-} from './wizardPayload';
+import { buildExpenseFormData, buildRatearMixedPayload } from './wizardPayload';
 import {
   makeEmptyWizardDraft,
   type BasketRow,
@@ -129,41 +125,5 @@ describe('buildRatearMixedPayload', () => {
       titulo: 'Piso',
       allocation: 1_000_000, // centavos
     });
-  });
-});
-
-describe('detectSingleLinkShortcut', () => {
-  it('1 EXISTING no valor cheio → shortcut', () => {
-    const basket: BasketRow[] = [
-      { id: 'r0', kind: 'EXISTING', target: { id: 't1' }, allocation: 1_500_000 },
-    ];
-    expect(detectSingleLinkShortcut(basket, 1_500_000)).toEqual({ targetExpenseId: 't1' });
-  });
-
-  it('EXISTING parcial → null', () => {
-    const basket: BasketRow[] = [
-      { id: 'r0', kind: 'EXISTING', target: { id: 't1' }, allocation: 500_000 },
-    ];
-    expect(detectSingleLinkShortcut(basket, 1_500_000)).toBeNull();
-  });
-
-  it('linha NEW → null', () => {
-    const basket: BasketRow[] = [
-      {
-        id: 'r0',
-        kind: 'NEW',
-        allocation: 1_500_000,
-        draft: { targetProjectId: 'p2', valor: '15000' },
-      },
-    ];
-    expect(detectSingleLinkShortcut(basket, 1_500_000)).toBeNull();
-  });
-
-  it('mais de 1 linha → null', () => {
-    const basket: BasketRow[] = [
-      { id: 'r0', kind: 'EXISTING', target: { id: 't1' }, allocation: 1_000_000 },
-      { id: 'r1', kind: 'EXISTING', target: { id: 't2' }, allocation: 500_000 },
-    ];
-    expect(detectSingleLinkShortcut(basket, 1_500_000)).toBeNull();
   });
 });

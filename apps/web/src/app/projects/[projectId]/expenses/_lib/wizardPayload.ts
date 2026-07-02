@@ -103,19 +103,3 @@ export function buildRatearMixedPayload(basket: BasketRow[]): RatearMixedPayload
 
   return { newTargets, existing };
 }
-
-/**
- * Atalho: quando o cesto tem exatamente 1 alvo EXISTENTE que recebe o valor
- * cheio da compra-fonte, basta um `POST /:id/link` simples em vez de ratear.
- * Retorna `{ targetExpenseId }` ou `null` quando não se aplica.
- */
-export function detectSingleLinkShortcut(
-  basket: BasketRow[],
-  totalFonteCents: number,
-): { targetExpenseId: string } | null {
-  if (basket.length !== 1) return null;
-  const row = basket[0];
-  if (row.kind !== 'EXISTING') return null;
-  if (row.allocation !== totalFonteCents) return null;
-  return { targetExpenseId: row.target.id };
-}

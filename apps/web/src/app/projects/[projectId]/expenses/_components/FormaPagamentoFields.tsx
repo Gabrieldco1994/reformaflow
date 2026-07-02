@@ -18,6 +18,17 @@ export interface FormaPagamentoFieldsProps {
   /** Estado local mantido no ExpenseFormModal (não mover para fora). */
   recorrente: boolean;
   setRecorrente: (value: boolean) => void;
+  /**
+   * Campos opcionalmente controlados (wizard). Quando fornecidos, renderizam
+   * controlados; quando ausentes, mantêm `defaultValue`/FormData como o
+   * ExpenseFormModal atual. Aditivos e retrocompatíveis.
+   */
+  quantidadeParcelaValue?: string;
+  onQuantidadeParcelaChange?: (value: string) => void;
+  recorrenciaFimValue?: string;
+  onRecorrenciaFimChange?: (value: string) => void;
+  dataCompraValue?: string;
+  onDataCompraChange?: (value: string) => void;
 }
 
 /**
@@ -36,7 +47,19 @@ export function FormaPagamentoFields({
   editing,
   recorrente,
   setRecorrente,
+  quantidadeParcelaValue,
+  onQuantidadeParcelaChange,
+  recorrenciaFimValue,
+  onRecorrenciaFimChange,
+  dataCompraValue,
+  onDataCompraChange,
 }: FormaPagamentoFieldsProps) {
+  const parcelaControlled =
+    quantidadeParcelaValue !== undefined && onQuantidadeParcelaChange !== undefined;
+  const recFimControlled =
+    recorrenciaFimValue !== undefined && onRecorrenciaFimChange !== undefined;
+  const dataCompraControlled =
+    dataCompraValue !== undefined && onDataCompraChange !== undefined;
   return (
     <>
       <Select
@@ -73,13 +96,23 @@ export function FormaPagamentoFields({
           </label>
           {recorrente && (
             <div className="mt-3">
-              <Input
-                key={editing?.id ?? 'new'}
-                label="Repetir até (opcional)"
-                name="recorrenciaFim"
-                type="month"
-                defaultValue={editing?.recorrenciaFim ? editing.recorrenciaFim.slice(0, 7) : ''}
-              />
+              {recFimControlled ? (
+                <Input
+                  label="Repetir até (opcional)"
+                  name="recorrenciaFim"
+                  type="month"
+                  value={recorrenciaFimValue}
+                  onChange={(e) => onRecorrenciaFimChange?.(e.target.value)}
+                />
+              ) : (
+                <Input
+                  key={editing?.id ?? 'new'}
+                  label="Repetir até (opcional)"
+                  name="recorrenciaFim"
+                  type="month"
+                  defaultValue={editing?.recorrenciaFim ? editing.recorrenciaFim.slice(0, 7) : ''}
+                />
+              )}
               <p className="mt-1 text-[11px] text-darc-velvet/50">
                 Deixe em branco para repetir sem data final. Aparece automaticamente em cada mês (sem criar lançamentos).
               </p>
@@ -90,13 +123,24 @@ export function FormaPagamentoFields({
 
       {(formaPagamento === 'PARCELADO' || formaPagamento === 'QUINZENAL') && (
         <div className="grid grid-cols-2 gap-4">
-          <Input
-            label="Qtd Parcelas"
-            name="quantidadeParcela"
-            type="number"
-            min="1"
-            defaultValue={editing?.quantidadeParcela ?? ''}
-          />
+          {parcelaControlled ? (
+            <Input
+              label="Qtd Parcelas"
+              name="quantidadeParcela"
+              type="number"
+              min="1"
+              value={quantidadeParcelaValue}
+              onChange={(e) => onQuantidadeParcelaChange?.(e.target.value)}
+            />
+          ) : (
+            <Input
+              label="Qtd Parcelas"
+              name="quantidadeParcela"
+              type="number"
+              min="1"
+              defaultValue={editing?.quantidadeParcela ?? ''}
+            />
+          )}
           <Input
             label="Data de Início"
             name="dataInicioParcela"
@@ -108,13 +152,23 @@ export function FormaPagamentoFields({
       )}
 
       <div>
-        <Input
-          key={`dc-${editing?.id ?? 'new'}`}
-          label="Data da compra (opcional)"
-          name="dataCompra"
-          type="date"
-          defaultValue={editing?.dataCompra ? editing.dataCompra.slice(0, 10) : ''}
-        />
+        {dataCompraControlled ? (
+          <Input
+            label="Data da compra (opcional)"
+            name="dataCompra"
+            type="date"
+            value={dataCompraValue}
+            onChange={(e) => onDataCompraChange?.(e.target.value)}
+          />
+        ) : (
+          <Input
+            key={`dc-${editing?.id ?? 'new'}`}
+            label="Data da compra (opcional)"
+            name="dataCompra"
+            type="date"
+            defaultValue={editing?.dataCompra ? editing.dataCompra.slice(0, 10) : ''}
+          />
+        )}
         <p className="mt-1 text-[11px] text-darc-velvet/50">
           Quando a compra foi feita (competência). Para cartão, a fatura é calculada a partir desta data. Vazio = usa a data de pagamento.
         </p>

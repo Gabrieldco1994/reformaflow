@@ -32,6 +32,13 @@ export interface DadosDespesaFieldsProps {
   valorTotal: number;
   titulo: string;
   setTitulo: (value: string) => void;
+  /**
+   * Ambiente controlado (wizard). Quando fornecido, o Select de ambiente é
+   * renderizado controlado; quando ausente, mantém `defaultValue` + FormData
+   * (comportamento original do ExpenseFormModal). Aditivo e retrocompatível.
+   */
+  roomIdValue?: string;
+  onRoomIdChange?: (value: string) => void;
 }
 
 /**
@@ -55,7 +62,10 @@ export function DadosDespesaFields({
   valorTotal,
   titulo,
   setTitulo,
+  roomIdValue,
+  onRoomIdChange,
 }: DadosDespesaFieldsProps) {
+  const roomControlled = roomIdValue !== undefined && onRoomIdChange !== undefined;
   return (
     <>
       <Select
@@ -77,14 +87,23 @@ export function DadosDespesaFields({
         />
       )}
 
-      {showRooms && (
-        <Select
-          label="Ambiente"
-          name="roomId"
-          options={roomOptions}
-          defaultValue={editing?.roomId ?? ''}
-        />
-      )}
+      {showRooms &&
+        (roomControlled ? (
+          <Select
+            label="Ambiente"
+            name="roomId"
+            options={roomOptions}
+            value={roomIdValue}
+            onChange={(e) => onRoomIdChange?.(e.target.value)}
+          />
+        ) : (
+          <Select
+            label="Ambiente"
+            name="roomId"
+            options={roomOptions}
+            defaultValue={editing?.roomId ?? ''}
+          />
+        ))}
 
       <div className="grid grid-cols-2 gap-4">
         <Input
