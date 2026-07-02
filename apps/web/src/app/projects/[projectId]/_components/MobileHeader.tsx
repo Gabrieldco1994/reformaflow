@@ -1,9 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { ArrowLeft, MoreHorizontal } from 'lucide-react';
+import { ChevronLeft, MoreHorizontal } from 'lucide-react';
 import { NotificationsBell } from '@/components/notifications/NotificationsBell';
-import { TYPE_ICONS } from './mobile-nav';
+import { typeAccent, TypeIcon } from '../../_components/type-accent';
 import type { ProjectInfo } from '../_types';
 
 interface MobileHeaderProps {
@@ -13,20 +13,27 @@ interface MobileHeaderProps {
 }
 
 export function MobileHeader({ project, hasMoreSheet, onOpenMais }: MobileHeaderProps) {
+  const accent = typeAccent(project.type);
   return (
-    <header className="md:hidden flex items-center justify-between px-4 h-14 bg-white sticky top-0 z-30 border-b border-darc-linen">
+    <header className="md:hidden flex items-center justify-between gap-2 px-3 h-14 bg-white/90 backdrop-blur-md sticky top-0 z-30 border-b border-darc-linen">
       <Link
         href="/projects"
         aria-label="Voltar para projetos"
-        className="-ml-2 p-2 rounded-full text-darc-velvet/70 hover:bg-darc-linen/60 active:bg-darc-linen transition-colors"
+        className="flex items-center gap-0.5 -ml-1 pl-1 pr-2 py-2 rounded-lg text-darc-velvet/70 text-[13px] font-semibold hover:bg-darc-linen/60 active:bg-darc-linen transition-colors"
       >
-        <ArrowLeft className="w-5 h-5" />
+        <ChevronLeft className="w-[18px] h-[18px]" />
+        Projetos
       </Link>
-      <div className="flex items-center gap-2 min-w-0">
-        <span className="text-lg flex-shrink-0">{TYPE_ICONS[project.type] ?? '📋'}</span>
-        <span className="font-geist font-semibold text-base text-lifeone-ink truncate">{project.name}</span>
-      </div>
-      <div className="flex items-center -mr-2">
+      <span className="flex items-center gap-2 min-w-0 rounded-full bg-white pl-1.5 pr-3 py-1 shadow-lifeone-card">
+        <span
+          className="flex h-6 w-6 items-center justify-center rounded-lg flex-shrink-0"
+          style={{ backgroundColor: accent.fill }}
+        >
+          <TypeIcon type={project.type} className="w-[15px] h-[15px]" style={{ color: accent.color }} />
+        </span>
+        <span className="font-geist font-bold text-[12.5px] text-lifeone-ink truncate">{project.name}</span>
+      </span>
+      <div className="flex items-center -mr-1">
         <NotificationsBell variant="light" />
         {hasMoreSheet ? (
           <button

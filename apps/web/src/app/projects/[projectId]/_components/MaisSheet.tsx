@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { X, Users, LogOut } from 'lucide-react';
+import { typeAccent } from '../../_components/type-accent';
 import { navIcon } from './nav-icons';
 import type { NavModule, ProjectInfo } from '../_types';
 
@@ -17,6 +18,41 @@ interface MaisSheetProps {
   onLogout: () => void;
 }
 
+function GridTile({
+  href,
+  label,
+  Icon,
+  isActive,
+  accent,
+}: {
+  href: string;
+  label: string;
+  Icon: ReturnType<typeof navIcon>;
+  isActive: boolean;
+  accent: { color: string; fill: string };
+}) {
+  return (
+    <Link
+      href={href}
+      className="flex flex-col items-center gap-2 rounded-2xl px-1.5 py-3.5 min-h-[74px] active:scale-95 transition-transform"
+      style={{ backgroundColor: isActive ? accent.fill : '#FFFFFF' }}
+    >
+      <span
+        className="flex h-10 w-10 items-center justify-center rounded-[13px]"
+        style={{ backgroundColor: isActive ? '#FFFFFF' : accent.fill }}
+      >
+        <Icon className="w-5 h-5" style={{ color: accent.color }} />
+      </span>
+      <span
+        className="text-[10.5px] font-semibold leading-tight text-center"
+        style={{ color: isActive ? accent.color : '#4A463F' }}
+      >
+        {label}
+      </span>
+    </Link>
+  );
+}
+
 export function MaisSheet({
   open,
   project,
@@ -28,6 +64,7 @@ export function MaisSheet({
   onClose,
   onLogout,
 }: MaisSheetProps) {
+  const accent = typeAccent(project.type);
   return (
     <>
       {open && (
@@ -38,11 +75,14 @@ export function MaisSheet({
         />
       )}
       <div
-        className={`md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-3xl shadow-darc-hero transition-transform duration-200 ${
+        className={`md:hidden fixed bottom-0 left-0 right-0 z-50 bg-lifeone-surface rounded-t-[26px] shadow-lifeone-dialog transition-transform duration-200 ${
           open ? 'translate-y-0' : 'translate-y-full'
         }`}
       >
-        <div className="flex items-center justify-between px-5 pt-4 pb-2">
+        <div className="flex justify-center pt-2.5">
+          <span className="h-1 w-9 rounded-full bg-darc-velvet/20" aria-hidden />
+        </div>
+        <div className="flex items-center justify-between px-5 pt-2 pb-3">
           <div>
             <p className="text-[10px] tracking-[0.2em] uppercase text-darc-velvet/60">Mais opções</p>
             <p className="font-geist font-semibold text-lg text-lifeone-ink">{project.name}</p>
@@ -56,45 +96,37 @@ export function MaisSheet({
             <X className="w-5 h-5" />
           </button>
         </div>
-        <nav className="px-3 pt-2 pb-3 space-y-1 max-h-[50vh] overflow-y-auto">
-          {secondary.map((item) => {
-            const fullHref = `${basePath}/${item.slug}`;
-            const isActive = pathname.startsWith(fullHref);
-            const Icon = navIcon(item.iconName);
-            return (
-              <Link
-                key={item.slug}
-                href={fullHref}
-                className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${
-                  isActive
-                    ? 'bg-darc-linen text-darc-velvet'
-                    : 'text-darc-velvet/85 hover:bg-darc-linen/40'
-                }`}
-              >
-                <Icon className={`w-5 h-5 flex-shrink-0 ${isActive ? 'text-darc-red' : 'text-darc-velvet/60'}`} />
-                {item.label}
-              </Link>
-            );
-          })}
-          {isAdmin && (
-            <Link
-              href="/admin/users"
-              className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${
-                pathname.startsWith('/admin/users')
-                  ? 'bg-darc-linen text-darc-velvet'
-                  : 'text-darc-velvet/85 hover:bg-darc-linen/40'
-              }`}
-            >
-              <Users className={`w-5 h-5 flex-shrink-0 ${pathname.startsWith('/admin/users') ? 'text-darc-red' : 'text-darc-velvet/60'}`} />
-              Usuários
-            </Link>
-          )}
-        </nav>
-        <div className="px-3 pb-5 pt-2 border-t border-darc-linen safe-pb">
+        <div className="px-4 pt-1 pb-3 max-h-[52vh] overflow-y-auto">
+          <div className="grid grid-cols-4 gap-2.5">
+            {secondary.map((item) => {
+              const fullHref = `${basePath}/${item.slug}`;
+              return (
+                <GridTile
+                  key={item.slug}
+                  href={fullHref}
+                  label={item.label}
+                  Icon={navIcon(item.iconName)}
+                  isActive={pathname.startsWith(fullHref)}
+                  accent={accent}
+                />
+              );
+            })}
+            {isAdmin && (
+              <GridTile
+                href="/admin/users"
+                label="Usuários"
+                Icon={Users}
+                isActive={pathname.startsWith('/admin/users')}
+                accent={accent}
+              />
+            )}
+          </div>
+        </div>
+        <div className="px-4 pb-5 pt-2 border-t border-darc-linen safe-pb">
           {userName && (
             <button
               onClick={onLogout}
-              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-darc-velvet text-darc-pink-logo text-sm font-medium hover:bg-darc-red-bright hover:text-darc-linen transition-colors"
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl bg-darc-velvet text-darc-pink-logo text-sm font-medium hover:bg-darc-red-bright hover:text-darc-linen transition-colors min-h-[52px]"
             >
               <LogOut className="w-4 h-4" />
               Sair ({userName})

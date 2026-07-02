@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { Bot, MoreHorizontal } from 'lucide-react';
 import { useCopilotStore } from '@/stores/copilot-store';
+import { typeAccent } from '../../_components/type-accent';
 import { navIcon } from './nav-icons';
 import { getMobilePrimary } from './mobile-nav';
 import type { NavModule } from '../_types';
@@ -20,10 +21,12 @@ function TabLink({
   item,
   basePath,
   pathname,
+  accent,
 }: {
   item: NavModule;
   basePath: string;
   pathname: string;
+  accent: { color: string; fill: string };
 }) {
   const fullHref = `${basePath}/${item.slug}`;
   const isActive = pathname.startsWith(fullHref);
@@ -34,16 +37,17 @@ function TabLink({
       className="relative flex flex-col items-center justify-center gap-0.5 flex-1 py-1 rounded-lg active:scale-95 transition-transform"
     >
       <span
-        className={`relative flex items-center justify-center h-7 w-12 rounded-full transition-colors ${
-          isActive ? 'bg-darc-linen' : ''
-        }`}
+        className="relative flex items-center justify-center h-7 w-12 rounded-full transition-colors"
+        style={isActive ? { backgroundColor: accent.fill } : undefined}
       >
-        <Icon className={`w-5 h-5 ${isActive ? 'text-darc-red' : 'text-darc-velvet/70'}`} />
+        <Icon
+          className={`w-5 h-5 ${isActive ? '' : 'text-darc-velvet/70'}`}
+          style={isActive ? { color: accent.color } : undefined}
+        />
       </span>
       <span
-        className={`text-[10px] leading-tight font-medium tracking-tight ${
-          isActive ? 'text-darc-red' : 'text-darc-velvet/70'
-        }`}
+        className={`text-[10px] leading-tight font-medium tracking-tight ${isActive ? '' : 'text-darc-velvet/70'}`}
+        style={{ color: isActive ? accent.color : undefined }}
       >
         {item.label}
       </span>
@@ -54,6 +58,7 @@ function TabLink({
 /**
  * Unified mobile bottom tab bar with a fixed 5-slot layout:
  * [tab][tab] · [Maria center] · [tab][Mais]
+ * Active tab pill is tinted with the project-type accent (handoff mobile UX).
  */
 export function MobileTabBar({
   projectType,
@@ -66,13 +71,14 @@ export function MobileTabBar({
   const toggleCopilot = useCopilotStore((s) => s.toggle);
   const { primary, secondary } = getMobilePrimary(projectType, visibleNav);
   const showMais = secondary.length > 0 || isAdmin;
+  const accent = typeAccent(projectType);
 
   return (
     <nav className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur-md border-t border-darc-linen safe-pb">
       <div className="flex items-end justify-around px-1 pt-1.5 pb-1">
         {/* LEFT: primary[0], primary[1] */}
-        {primary[0] && <TabLink item={primary[0]} basePath={basePath} pathname={pathname} />}
-        {primary[1] && <TabLink item={primary[1]} basePath={basePath} pathname={pathname} />}
+        {primary[0] && <TabLink item={primary[0]} basePath={basePath} pathname={pathname} accent={accent} />}
+        {primary[1] && <TabLink item={primary[1]} basePath={basePath} pathname={pathname} accent={accent} />}
 
         {/* CENTER: Maria copiloto */}
         <div className="flex flex-1 items-center justify-center">
@@ -87,7 +93,7 @@ export function MobileTabBar({
         </div>
 
         {/* RIGHT: primary[2], Mais */}
-        {primary[2] && <TabLink item={primary[2]} basePath={basePath} pathname={pathname} />}
+        {primary[2] && <TabLink item={primary[2]} basePath={basePath} pathname={pathname} accent={accent} />}
         {showMais && (
           <button
             type="button"
