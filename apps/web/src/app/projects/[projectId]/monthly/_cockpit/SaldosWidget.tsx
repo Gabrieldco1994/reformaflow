@@ -170,14 +170,24 @@ export default function SaldosWidget({
               icon={<Landmark className="w-3.5 h-3.5" />}
               title="Contas"
             />
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               {accountRows.map(({ account, gasto }) => (
                 <div
                   key={account.id}
-                  className="flex items-center justify-between gap-3 rounded-xl border border-[var(--ck-border)] bg-[var(--ck-surface-2)]/55 px-3 py-2.5"
+                  className="flex items-center justify-between gap-3 rounded-xl border border-[var(--ck-border)] bg-[var(--ck-surface)] px-3 py-2.5 shadow-lifeone-card"
                 >
-                  <span className="min-w-0 truncate text-xs text-[var(--ck-text)]">
-                    {accountName(account)} <span className="text-[var(--ck-muted)]">••{account.last4}</span>
+                  <span className="flex min-w-0 items-center gap-2.5">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--ck-accent)]/10 text-[var(--ck-accent)]">
+                      <Landmark className="h-4 w-4" />
+                    </span>
+                    <span className="min-w-0 leading-tight">
+                      <span className="block truncate text-xs font-semibold text-[var(--ck-text)]">
+                        {accountName(account)}
+                      </span>
+                      <span className="block text-[10px] text-[var(--ck-muted)]">
+                        conta corrente ••{account.last4}
+                      </span>
+                    </span>
                   </span>
                   <span className="shrink-0 font-geist tabular-nums text-sm font-bold text-[var(--ck-neg)]">
                     {fmtMoneyExact(gasto)}

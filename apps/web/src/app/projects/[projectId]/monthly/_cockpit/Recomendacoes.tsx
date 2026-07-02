@@ -5,7 +5,7 @@ import { Card } from './ui';
 import { fmtMoney } from './format';
 import type { MonthDerived } from './derive';
 
-export default function Recomendacoes({
+export function RecomendacoesList({
   m,
   saldoProjetadoVal,
 }: {
@@ -19,8 +19,7 @@ export default function Recomendacoes({
   const contas = [...m.contasFuturas].sort((a, b) => a.dia - b.dia).slice(0, 4);
 
   return (
-    <Card title="Recomendações">
-      <ul className="space-y-3">
+    <ul className="space-y-3">
         <li className="flex gap-2.5">
           {equilibrado ? (
             <TrendingUp className="w-4 h-4 mt-0.5 shrink-0 text-[var(--ck-pos)]" />
@@ -90,6 +89,19 @@ export default function Recomendacoes({
           </p>
         </li>
       </ul>
+  );
+}
+
+export default function Recomendacoes({
+  m,
+  saldoProjetadoVal,
+}: {
+  m: MonthDerived;
+  saldoProjetadoVal: number;
+}) {
+  return (
+    <Card title="Recomendações">
+      <RecomendacoesList m={m} saldoProjetadoVal={saldoProjetadoVal} />
     </Card>
   );
 }

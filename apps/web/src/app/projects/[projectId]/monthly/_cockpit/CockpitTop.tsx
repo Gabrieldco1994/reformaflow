@@ -1,12 +1,13 @@
 'use client';
 
 import { useMemo } from 'react';
-import { Wallet, Scale, Target, ArrowUpRight, ArrowDownRight } from 'lucide-react';
-import type { MonthlyOverviewResponse } from '../_types';
+import { Wallet, Scale, Target, ArrowUpRight, ArrowDownRight, Lightbulb } from 'lucide-react';
+import type { MonthlyOverviewResponse, MonthlyEntry } from '../_types';
 import { Card, type Tone } from './ui';
 import { InfoHint } from '@/components/InfoHint';
 import { fmtMoney, fmtPct, mesLongo } from './format';
-import { deriveCockpitTop } from './derive';
+import { deriveCockpitTop, deriveMonth, saldoProjetado } from './derive';
+import { RecomendacoesList } from './Recomendacoes';
 
 const TONE_TEXT: Record<Tone, string> = {
   accent: 'text-[var(--ck-accent)]',
@@ -96,13 +97,29 @@ function HeroCard({
         {delta && <Delta value={delta.value} tone={delta.tone} />}
       </div>
       {spark && spark.length >= 2 && <Sparkline data={spark} color={TONE_STROKE[tone]} />}
-      {hint && <p className="text-[11px] text-[var(--ck-muted)] leading-snug">{hint}</p>}
+      {hint && <p className="text-[13px] text-[var(--ck-muted)] leading-snug">{hint}</p>}
     </Card>
   );
 }
 
-export default function CockpitTop({ data }: { data: MonthlyOverviewResponse }) {
+export default function CockpitTop({
+  data,
+  monthKey,
+  entries,
+  showRecs = true,
+}: {
+  data: MonthlyOverviewResponse;
+  monthKey?: string;
+  entries?: MonthlyEntry[];
+  /** Renderiza o bloco de recomendações dentro do card do topo (só na visão Mês). */
+  showRecs?: boolean;
+}) {
   const t = useMemo(() => deriveCockpitTop(data), [data]);
+  const recs = useMemo(() => {
+    if (!showRecs) return null;
+    const m = deriveMonth(data, monthKey ?? data.mesAtual, entries);
+    return { m, projetado: saldoProjetado(m, m.ritmoDiario) };
+  }, [showRecs, data, monthKey, entries]);
 
   const caixaTone: Tone = t.caixaValor >= 0 ? 'accent' : 'neg';
   const resultadoTone: Tone = t.resultadoMes >= 0 ? 'pos' : 'neg';
@@ -142,6 +159,15 @@ export default function CockpitTop({ data }: { data: MonthlyOverviewResponse }) 
             </div>
           </div>
         </div>
+        {recs && (
+          <div className="mt-4 border-t border-[var(--ck-border)] pt-4">
+            <p className="mb-2.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--ck-muted)]">
+              <Lightbulb className="h-3.5 w-3.5" />
+              Recomendações
+            </p>
+            <RecomendacoesList m={recs.m} saldoProjetadoVal={recs.projetado} />
+          </div>
+        )}
       </Card>
 
       {/* 3 cards: Caixa · Resultado · Projeção */}
@@ -175,7 +201,12 @@ export default function CockpitTop({ data }: { data: MonthlyOverviewResponse }) 
               ? { value: `${fmtPct(Math.abs(t.resultadoDeltaPct), 0)} vs mês anterior`, tone: t.resultadoDeltaPct >= 0 ? 'pos' : 'neg' }
               : undefined
           }
-          hint={`entrou ${fmtMoney(t.resultadoEntrou)} · saiu ${fmtMoney(t.resultadoGastou)}`}
+          hint={
+            <>
+              entrou <span className="font-semibold text-[var(--ck-pos)]">{fmtMoney(t.resultadoEntrou)}</span>
+              {' · '}saiu <span className="font-semibold text-[var(--ck-neg)]">{fmtMoney(t.resultadoGastou)}</span>
+            </>
+          }
         />
         <HeroCard
           label={`Projeção fim de ${mesNome}`}
@@ -183,7 +214,12 @@ export default function CockpitTop({ data }: { data: MonthlyOverviewResponse }) 
           tone={projTone}
           icon={<Target className="w-4 h-4" />}
           info={`Como o mês deve fechar: caixa de hoje + o que ainda falta receber (${fmtMoney(t.aReceberMes)}) − o que ainda falta pagar (${fmtMoney(t.aPagarMes)}). É uma previsão — inclui contas e faturas que ainda não saíram.`}
-          hint={`a receber ${fmtMoney(t.aReceberMes)} · a pagar ${fmtMoney(t.aPagarMes)}`}
+          hint={
+            <>
+              a receber <span className="font-semibold text-[var(--ck-pos)]">{fmtMoney(t.aReceberMes)}</span>
+              {' · '}a pagar <span className="font-semibold text-[var(--ck-neg)]">{fmtMoney(t.aPagarMes)}</span>
+            </>
+          }
         />
       </div>
     </div>
