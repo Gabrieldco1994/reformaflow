@@ -7,37 +7,16 @@ import { formatCurrency } from '@/lib/utils';
 import { CreditCard, Plus, Trash2, Link2 } from 'lucide-react';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { SkeletonList } from '@/components/ui/Skeleton';
+import { CreditCardVisual } from '@/components/CreditCardVisual';
 import CardFormModal from './_components/CardFormModal';
 import LinkSuggestionsPanel from './_components/LinkSuggestionsPanel';
 import type { CardRow } from './_types';
 
-function limitStatus(percent: number) {
-  if (percent >= 100) {
-    return {
-      label: 'Limite estourado',
-      badgeClass: 'bg-red-100 text-red-700 border-red-200',
-      barClass: 'bg-red-600',
-    };
-  }
-  if (percent >= 80) {
-    return {
-      label: 'Atenção',
-      badgeClass: 'bg-amber-100 text-amber-700 border-amber-200',
-      barClass: 'bg-amber-500',
-    };
-  }
-  if (percent >= 60) {
-    return {
-      label: 'Uso moderado',
-      badgeClass: 'bg-orange-100 text-orange-700 border-orange-200',
-      barClass: 'bg-orange-500',
-    };
-  }
-  return {
-    label: 'Dentro do limite',
-    badgeClass: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-    barClass: 'bg-emerald-500',
-  };
+function limitLabel(percent: number) {
+  if (percent >= 100) return 'Limite estourado';
+  if (percent >= 80) return 'Atenção';
+  if (percent >= 60) return 'Uso moderado';
+  return 'Dentro do limite';
 }
 
 export default function CreditCardsPage() {
@@ -101,66 +80,71 @@ export default function CreditCardsPage() {
           }}
         />
       ) : (
-        <div className="grid gap-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {cards.map((c) => {
             const usedCents = c.limitUsedCents ?? 0;
             const availableCents = c.limitAvailableComputedCents ?? (c.limitTotalCents != null ? c.limitTotalCents - usedCents : 0);
             const usagePercent = c.limitUsagePercent ?? (c.limitTotalCents && c.limitTotalCents > 0 ? Math.round((usedCents / c.limitTotalCents) * 100) : 0);
-            const status = limitStatus(usagePercent);
+            const hasLimit = c.limitTotalCents != null;
 
             return (
-              <div key={c.id} className="border rounded-lg p-4 bg-white flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <div className="min-w-0 flex-1">
-                  <div className="font-semibold">
-                    {c.nickname ?? `${c.brand} ****${c.last4}`}
-                  </div>
-                  <div className="text-xs text-gray-500">
-                    {c.institution} · {c.brand} · final {c.last4}
-                    {c.limitTotalCents != null && (
-                      <> · limite {formatCurrency(c.limitTotalCents / 100)}</>
-                    )}
-                  </div>
-                  {c.limitTotalCents != null && (
-                    <div className="mt-3 max-w-xl">
-                      <div className="mb-1 flex flex-wrap items-center justify-between gap-2 text-xs">
-                        <span className="font-medium text-slate-800">
-                          {formatCurrency(usedCents / 100)} de {formatCurrency(c.limitTotalCents / 100)}
-                        </span>
-                        <span className={`rounded-full border px-2 py-0.5 font-medium ${status.badgeClass}`}>
-                          {status.label}
-                        </span>
+              <div key={c.id} className="flex flex-col gap-2">
+                <CreditCardVisual
+                  last4={c.last4}
+                  nickname={c.nickname ?? c.institution}
+                  brand={c.brand}
+                  topRight={
+                    hasLimit ? (
+                      <span className="rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-semibold text-white backdrop-blur">
+                        {limitLabel(usagePercent)}
+                      </span>
+                    ) : undefined
+                  }
+                  footer={
+                    <div className="flex items-end justify-between gap-2">
+                      <div className="min-w-0">
+                        {hasLimit ? (
+                          <>
+                            <p className="text-[10px] uppercase tracking-wide text-white/60">Disponível</p>
+                            <p className="font-geist text-[18px] font-bold tabular-nums leading-tight">
+                              {formatCurrency(availableCents / 100)}
+                            </p>
+                          </>
+                        ) : (
+                          <p className="text-[11px] uppercase tracking-[0.12em] text-white/60">
+                            {c.institution}
+                          </p>
+                        )}
                       </div>
-                      <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-                        <div
-                          className={`h-full rounded-full ${status.barClass}`}
-                          style={{ width: `${Math.min(Math.max(usagePercent, 0), 100)}%` }}
-                        />
-                      </div>
-                      <div className="mt-1 flex flex-wrap justify-between gap-2 text-xs text-gray-500">
-                        <span>{usagePercent}% usado</span>
-                        <span>disponível {formatCurrency(availableCents / 100)}</span>
-                      </div>
+                      <p className="shrink-0 text-[11px] text-white/70">
+                        {c.closingDay != null ? `fecha dia ${c.closingDay}` : 'fechamento —'}
+                        {' · '}
+                        {c.dueDay != null ? `vence dia ${c.dueDay}` : 'vence —'}
+                      </p>
                     </div>
-                  )}
-                </div>
+                  }
+                  limit={hasLimit ? { pct: usagePercent, used: usedCents, total: c.limitTotalCents } : undefined}
+                />
+
                 <div className="flex gap-2">
                   <button
                     onClick={() => setLinksFor(c)}
-                    className="px-3 py-2 text-sm border rounded-lg flex items-center gap-1 hover:bg-gray-50"
+                    className="flex flex-1 items-center justify-center gap-1 rounded-lg border px-3 py-2 text-sm hover:bg-gray-50"
                   >
-                    <Link2 className="w-4 h-4" /> Vincular
+                    <Link2 className="h-4 w-4" /> Vincular
                   </button>
                   <button
                     onClick={() => { setEditing(c); setFormOpen(true); }}
-                    className="px-3 py-2 text-sm border rounded-lg hover:bg-gray-50"
+                    className="flex-1 rounded-lg border px-3 py-2 text-sm hover:bg-gray-50"
                   >
                     Editar
                   </button>
                   <button
                     onClick={() => handleDelete(c)}
-                    className="px-3 py-2 text-sm border border-red-200 text-red-600 rounded-lg hover:bg-red-50"
+                    aria-label="Excluir cartão"
+                    className="rounded-lg border border-red-200 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Trash2 className="h-4 w-4" />
                   </button>
                 </div>
               </div>
