@@ -1,10 +1,11 @@
 'use client';
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { CreditCard, Landmark } from 'lucide-react';
+import { Landmark } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { isNeutralExpenseType } from '@reformaflow/domain';
+import { pickCardGradient, MiniCardChip } from '@/components/CreditCardVisual';
 import type { Expense } from '@/types';
 
 export interface OriginChip {
@@ -80,8 +81,40 @@ export function OriginChips({
     <div className="-mx-1 flex items-stretch gap-3 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:flex-wrap md:overflow-visible">
       {chips.map((c) => {
         const isActive = selected === c.key;
-        const Icon = c.kind === 'CARTAO' ? CreditCard : Landmark;
         const total = c.pago + c.planejado;
+
+        // Chip de CARTÃO: mini-cartão com gradiente (mesmo visual dos cartões).
+        if (c.kind === 'CARTAO') {
+          return (
+            <button
+              key={c.key}
+              type="button"
+              onClick={() => onSelect(isActive ? null : c.key)}
+              className={`relative flex shrink-0 items-center gap-3 overflow-hidden rounded-2xl px-5 py-3.5 text-left text-white shadow-lifeone-card transition-all md:shrink ${
+                isActive ? 'ring-2 ring-lifeone-blue ring-offset-2 scale-[1.02]' : 'hover:-translate-y-0.5 hover:shadow-lifeone-hover'
+              }`}
+              style={{ backgroundImage: pickCardGradient(c.last4) }}
+            >
+              <span
+                aria-hidden
+                className="pointer-events-none absolute inset-0"
+                style={{ background: 'radial-gradient(120% 80% at 85% 10%, rgba(255,255,255,.16), transparent 55%)' }}
+              />
+              <MiniCardChip className="relative shrink-0" />
+              <div className="relative leading-tight">
+                <div className="whitespace-nowrap text-base font-semibold">{c.label}</div>
+                <div className="mt-0.5 whitespace-nowrap text-sm font-bold tabular-nums">
+                  {formatCurrency(total / 100)}
+                </div>
+                <div className="mt-0.5 whitespace-nowrap font-mono text-sm text-white/70">
+                  {formatCurrency(c.pago / 100)} pago · {formatCurrency(c.planejado / 100)} plan.
+                </div>
+              </div>
+            </button>
+          );
+        }
+
+        // Chip de CONTA (extrato): permanece claro.
         return (
           <button
             key={c.key}
@@ -93,7 +126,7 @@ export function OriginChips({
                 : 'border-darc-linen bg-white text-darc-velvet hover:border-orange-300 hover:bg-orange-50 hover:shadow-sm'
             }`}
           >
-            <Icon className={`h-6 w-6 shrink-0 ${isActive ? 'text-white' : 'text-orange-600'}`} />
+            <Landmark className={`h-6 w-6 shrink-0 ${isActive ? 'text-white' : 'text-orange-600'}`} />
             <div className="leading-tight">
               <div className="text-base font-semibold whitespace-nowrap">{c.label}</div>
               <div className={`text-sm font-bold tabular-nums whitespace-nowrap mt-0.5 ${isActive ? 'text-white' : 'text-darc-velvet'}`}>

@@ -44,6 +44,23 @@ function Contactless() {
   );
 }
 
+/** Chip EMV compacto para mini-cartões (strips/listas densas). */
+export function MiniCardChip({ className }: { className?: string } = {}) {
+  return (
+    <svg width="22" height="16" viewBox="0 0 34 26" fill="none" aria-hidden className={className}>
+      <rect x="0.5" y="0.5" width="33" height="25" rx="5" fill="url(#miniChipG)" stroke="#00000022" />
+      <path d="M12 0.5V25.5M22 0.5V25.5M0.5 8.5H12M22 8.5H33.5M0.5 17.5H12M22 17.5H33.5" stroke="#00000033" strokeWidth="0.8" />
+      <rect x="12" y="8.5" width="10" height="9" rx="2" fill="#00000015" stroke="#00000030" strokeWidth="0.8" />
+      <defs>
+        <linearGradient id="miniChipG" x1="0" y1="0" x2="34" y2="26" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#F2D89B" />
+          <stop offset="1" stopColor="#C39B54" />
+        </linearGradient>
+      </defs>
+    </svg>
+  );
+}
+
 export interface CreditCardVisualProps {
   last4: string;
   nickname?: string | null;

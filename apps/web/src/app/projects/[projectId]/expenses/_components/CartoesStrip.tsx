@@ -1,20 +1,68 @@
 'use client';
-import { CreditCard } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
+import { pickCardGradient, MiniCardChip } from '@/components/CreditCardVisual';
 import type { CartaoFormacao } from '../_hooks/usePersonalCashViews';
 import type { FaturaCartao } from '../_lib/conta-real';
 
 function diaMM(dia: number | null, mes: string): string {
-  if (dia == null) return '—';
+  if (dia == null) return '\u2014';
   const mm = mes.split('-')[1] ?? '';
   return mm ? `${String(dia).padStart(2, '0')}/${mm}` : String(dia).padStart(2, '0');
 }
 
+/** Mini-cartao com o mesmo estilo dos cartoes grandes (gradiente por last4 + chip). */
+function MiniCard({
+  last4,
+  label,
+  value,
+  hint,
+  badge,
+}: {
+  last4: string;
+  label: string;
+  value: string;
+  hint: string;
+  badge?: { text: string; paid: boolean };
+}) {
+  return (
+    <div
+      className="relative flex min-w-[168px] flex-col justify-between gap-2 overflow-hidden rounded-xl p-3 text-white shadow-lifeone-card"
+      style={{ backgroundImage: pickCardGradient(last4) }}
+    >
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{ background: 'radial-gradient(120% 80% at 85% 10%, rgba(255,255,255,.16), transparent 55%)' }}
+      />
+      <div className="relative flex items-center justify-between gap-2">
+        <MiniCardChip />
+        {badge && (
+          <span
+            className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold backdrop-blur ${
+              badge.paid ? 'bg-white/90 text-[#1E924A]' : 'bg-white/15 text-white'
+            }`}
+          >
+            {badge.text}
+          </span>
+        )}
+      </div>
+      <div className="relative leading-tight">
+        <div className="truncate text-[11px] font-medium uppercase tracking-[0.1em] text-white/70">
+          {label} <span className="text-white/50">••{last4}</span>
+        </div>
+        <div className="font-geist text-[15px] font-bold tabular-nums">{value}</div>
+        <div className="mt-0.5 text-[10px] text-white/60">{hint}</div>
+      </div>
+    </div>
+  );
+}
+
 /**
- * Strip de cartões da tela de despesas do PESSOAL. Dois modos:
- * - **competencia**: "fatura em formação" — quanto já foi lançado no ciclo +
+ * Strip de cartoes da tela de despesas do PESSOAL, com visual de mini-cartao
+ * (mesmo gradiente/chip dos cartoes grandes). Dois modos:
+ * - **competencia**: "fatura em formacao" — quanto ja foi lancado no ciclo +
  *   dias de fechamento/vencimento.
- * - **caixa**: "faturas que vencem no mês" — valor da fatura + vence DD/MM +
+ * - **caixa**: "faturas que vencem no mes" — valor da fatura + vence DD/MM +
  *   selo paga/a pagar.
  */
 export function CartoesStrip({
@@ -32,24 +80,15 @@ export function CartoesStrip({
     return (
       <div className="flex flex-wrap gap-2">
         {items.map((c) => (
-          <div
+          <MiniCard
             key={c.last4}
-            className="flex items-center gap-2.5 rounded-xl border border-violet-200 bg-violet-50/60 px-3.5 py-2"
-          >
-            <CreditCard className="h-4 w-4 shrink-0 text-violet-600" />
-            <div className="leading-tight">
-              <div className="text-sm font-semibold text-gray-800">{c.label}</div>
-              <div className="font-mono text-xs text-violet-700">
-                {formatCurrency(c.lancado / 100)}
-                <span className="ml-1 text-[10px] font-normal text-gray-500">em formação</span>
-              </div>
-              <div className="text-[10px] text-gray-500">
-                {c.closingDay != null ? `fecha dia ${c.closingDay}` : 'fechamento —'}
-                {' · '}
-                {c.dueDay != null ? `vence dia ${c.dueDay}` : 'vencimento —'}
-              </div>
-            </div>
-          </div>
+            last4={c.last4}
+            label={c.label}
+            value={formatCurrency(c.lancado / 100)}
+            hint={`${c.closingDay != null ? `fecha ${c.closingDay}` : 'fecha \u2014'} \u00b7 ${
+              c.dueDay != null ? `vence ${c.dueDay}` : 'vence \u2014'
+            } \u00b7 em formacao`}
+          />
         ))}
       </div>
     );
@@ -62,26 +101,14 @@ export function CartoesStrip({
       {items.map((f) => {
         const paga = f.planejado === 0 && f.pago > 0;
         return (
-          <div
+          <MiniCard
             key={`${f.mes}__${f.cardLast4}`}
-            className="flex items-center gap-2.5 rounded-xl border border-rose-200 bg-rose-50/60 px-3.5 py-2"
-          >
-            <CreditCard className="h-4 w-4 shrink-0 text-rose-600" />
-            <div className="leading-tight">
-              <div className="text-sm font-semibold text-gray-800">{f.label}</div>
-              <div className="font-mono text-xs text-rose-700">{formatCurrency(f.valor / 100)}</div>
-              <div className="flex items-center gap-1.5 text-[10px] text-gray-500">
-                vence {diaMM(f.dueDay, f.mes)}
-                <span
-                  className={`rounded px-1.5 py-0.5 font-semibold ${
-                    paga ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                  }`}
-                >
-                  {paga ? 'paga' : 'a pagar'}
-                </span>
-              </div>
-            </div>
-          </div>
+            last4={f.cardLast4}
+            label={f.label}
+            value={formatCurrency(f.valor / 100)}
+            hint={`vence ${diaMM(f.dueDay, f.mes)}`}
+            badge={{ text: paga ? 'paga' : 'a pagar', paid: paga }}
+          />
         );
       })}
     </div>
