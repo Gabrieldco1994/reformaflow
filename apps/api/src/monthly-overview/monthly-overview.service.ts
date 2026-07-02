@@ -569,16 +569,22 @@ export class MonthlyOverviewService {
       (expense) =>
         expense.tipoDespesa === 'PAGAMENTO_FATURA_CARTAO' && !!expense.cardLast4,
     );
-    const implicitPayments = invoicePayments
+    const implicitPaymentsDetailed = invoicePayments
       .filter(
         (expense) =>
           !expense.settlesInvoiceKey && expense.status === 'PAGO' && !!expense.bankLast4,
       )
       .map((expense) => ({
+        expenseId: expense.id,
         payMonth: monthKeyOf(accountExpenseDate(expense)),
         cardLast4: expense.cardLast4 as string,
         amount: expense.valorTotal,
       }));
+    const implicitPayments = implicitPaymentsDetailed.map((payment) => ({
+      payMonth: payment.payMonth,
+      cardLast4: payment.cardLast4,
+      amount: payment.amount,
+    }));
     const explicitSettlements = invoicePayments
       .filter((expense) => !!expense.settlesInvoiceKey)
       .map((expense) => ({
@@ -589,6 +595,10 @@ export class MonthlyOverviewService {
       settlementInvoices,
       implicitPayments,
       explicitSettlements,
+    );
+    const implicitPaymentByInvoice = matchPaidInvoiceExpenseIds(
+      settlementInvoices,
+      implicitPaymentsDetailed,
     );
 
     for (const [invoiceKey, invoice] of invoiceByMonthCard) {
@@ -889,7 +899,7 @@ export class MonthlyOverviewService {
 
     const saidas = [
       ...selectedInvoices.map((invoice) => ({
-        id: null as string | null,
+        id: implicitPaymentByInvoice.get(`${invoice.dueMonth}__${invoice.cardLast4}`) ?? null,
         kind: 'saida' as const,
         descricao: `Fatura ${invoice.nickname}`,
         data: dueDateIso(mesSelecionado, invoice.dueDay),
@@ -901,7 +911,8 @@ export class MonthlyOverviewService {
         bankLast4: null as string | null,
         tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
         isInvoice: true,
-        editavel: false,
+        editavel:
+          (implicitPaymentByInvoice.get(`${invoice.dueMonth}__${invoice.cardLast4}`) ?? null) != null,
         dueMonth: invoice.dueMonth,
         projetoOrigem: null as { id: string; name: string; type: string } | null,
         parcelaIndex: null as number | null,
@@ -2391,6 +2402,9 @@ export interface PaymentForMatch {
   cardLast4: string;
   amount: number;
 }
+interface PaymentForMatchWithExpenseId extends PaymentForMatch {
+  expenseId: string;
+}
 
 /**
  * Casa pagamentos de fatura (`PAGAMENTO_FATURA_CARTAO` pagos via conta) às faturas
@@ -2445,6 +2459,53 @@ export function matchPaidInvoices(
   }
 
   return paid;
+}
+
+function matchPaidInvoiceExpenseIds(
+  invoices: InvoiceForMatch[],
+  payments: PaymentForMatchWithExpenseId[],
+): Map<string, string> {
+  const matched = new Map<string, string>();
+
+  const invoicesByCard = new Map<string, InvoiceForMatch[]>();
+  for (const invoice of invoices) {
+    const list = invoicesByCard.get(invoice.cardLast4) ?? [];
+    list.push(invoice);
+    invoicesByCard.set(invoice.cardLast4, list);
+  }
+
+  const paymentsByCard = new Map<string, PaymentForMatchWithExpenseId[]>();
+  for (const payment of payments) {
+    const list = paymentsByCard.get(payment.cardLast4) ?? [];
+    list.push(payment);
+    paymentsByCard.set(payment.cardLast4, list);
+  }
+
+  for (const [cardLast4, cardPayments] of paymentsByCard) {
+    const cardInvoices = invoicesByCard.get(cardLast4) ?? [];
+    const matchedDueMonths = new Set<string>();
+    const ordered = [...cardPayments].sort(
+      (a, b) => a.payMonth.localeCompare(b.payMonth) || a.amount - b.amount,
+    );
+    for (const payment of ordered) {
+      const windowMonths = [payment.payMonth, monthKeyPlus(payment.payMonth, 1)];
+      const candidates = cardInvoices.filter(
+        (invoice) =>
+          !matchedDueMonths.has(invoice.dueMonth) && windowMonths.includes(invoice.dueMonth),
+      );
+      if (candidates.length === 0) continue;
+      candidates.sort(
+        (a, b) =>
+          Math.abs(a.total - payment.amount) - Math.abs(b.total - payment.amount) ||
+          a.dueMonth.localeCompare(b.dueMonth),
+      );
+      const chosen = candidates[0];
+      matchedDueMonths.add(chosen.dueMonth);
+      matched.set(`${chosen.dueMonth}__${cardLast4}`, payment.expenseId);
+    }
+  }
+
+  return matched;
 }
 
 export interface ExplicitSettlement {
