@@ -1,6 +1,6 @@
 'use client';
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { buildInstallments, isSinglePaymentForm, parsePaidParcelas } from '@reformaflow/domain';
 import { api } from '@/lib/api';
 import { Input } from '@/components/ui/input';
@@ -129,6 +129,27 @@ export function VinculosFields({
   initialLinkedExpenseLabel,
   baseDraft,
 }: Props) {
+  const latestValueRef = useRef(value);
+  const cardPrefillDoneRef = useRef(false);
+  const bankPrefillDoneRef = useRef(false);
+  const linkedPrefillDoneRef = useRef(false);
+
+  useEffect(() => {
+    latestValueRef.current = value;
+  }, [value]);
+
+  useEffect(() => {
+    cardPrefillDoneRef.current = false;
+  }, [initialCardLast4]);
+
+  useEffect(() => {
+    bankPrefillDoneRef.current = false;
+  }, [initialBankLast4]);
+
+  useEffect(() => {
+    linkedPrefillDoneRef.current = false;
+  }, [initialLinkedExpenseId]);
+
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [createdLabel, setCreatedLabel] = useState<string | null>(null);
   const { data: cards = [] } = useQuery<TenantCard[]>({
@@ -145,27 +166,46 @@ export function VinculosFields({
 
   // Pré-seleção por last4 quando temos somente o denormalizado (despesa antiga)
   useEffect(() => {
-    if (!value.creditCardId && initialCardLast4 && cards.length) {
-      const match = cards.find((c) => c.last4 === initialCardLast4);
-      if (match) onChange({ ...value, creditCardId: match.id });
+    if (cardPrefillDoneRef.current) return;
+    if (!initialCardLast4 || cards.length === 0) return;
+    const current = latestValueRef.current;
+    if (current.creditCardId) {
+      cardPrefillDoneRef.current = true;
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cards.length, initialCardLast4]);
+    const match = cards.find((c) => c.last4 === initialCardLast4);
+    if (match) {
+      onChange({ ...current, creditCardId: match.id });
+    }
+    cardPrefillDoneRef.current = true;
+  }, [cards, initialCardLast4, onChange]);
 
   useEffect(() => {
-    if (!value.bankAccountId && initialBankLast4 && accounts.length) {
-      const match = accounts.find((a) => a.last4 === initialBankLast4);
-      if (match) onChange({ ...value, bankAccountId: match.id });
+    if (bankPrefillDoneRef.current) return;
+    if (!initialBankLast4 || accounts.length === 0) return;
+    const current = latestValueRef.current;
+    if (current.bankAccountId) {
+      bankPrefillDoneRef.current = true;
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accounts.length, initialBankLast4]);
+    const match = accounts.find((a) => a.last4 === initialBankLast4);
+    if (match) {
+      onChange({ ...current, bankAccountId: match.id });
+    }
+    bankPrefillDoneRef.current = true;
+  }, [accounts, initialBankLast4, onChange]);
 
   useEffect(() => {
-    if (initialLinkedExpenseId && !value.linkedExpenseId) {
-      onChange({ ...value, linkedExpenseId: initialLinkedExpenseId });
+    if (linkedPrefillDoneRef.current) return;
+    if (!initialLinkedExpenseId) return;
+    const current = latestValueRef.current;
+    if (current.linkedExpenseId) {
+      linkedPrefillDoneRef.current = true;
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialLinkedExpenseId]);
+    onChange({ ...current, linkedExpenseId: initialLinkedExpenseId });
+    linkedPrefillDoneRef.current = true;
+  }, [initialLinkedExpenseId, onChange]);
 
   const cardOptions = useMemo(() => {
     const opts: { value: string; label: string }[] = [{ value: '', label: 'Nenhum' }];
