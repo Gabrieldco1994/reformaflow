@@ -170,6 +170,7 @@ export class MonthlyOverviewService {
       this.prisma.bankAccount.findMany({
         where: { tenantId, projectId, deletedAt: null },
         select: {
+          id: true,
           openingBalanceCents: true,
           openingBalanceDate: true,
           last4: true,
@@ -194,6 +195,7 @@ export class MonthlyOverviewService {
           status: true,
           cardLast4: true,
           bankLast4: true,
+          importId: true,
           createdAt: true,
           linkedExpenseId: true,
           settledByExpenseId: true,
@@ -211,6 +213,7 @@ export class MonthlyOverviewService {
           status: true,
           descricao: true,
           bankLast4: true,
+          importId: true,
         },
       }),
       this.prisma.cashFlowEntry.findMany({
@@ -271,6 +274,16 @@ export class MonthlyOverviewService {
     // ainda sairá da conta pessoal em "Ainda falta pagar".
     const expenses = allExpenses.filter((expense) => expense.projectId === projectId);
     const foreignExpenses = allExpenses.filter((expense) => expense.projectId !== projectId);
+    const primaryAccount = this.pickPrimaryBankAccount(accounts);
+    const importAccountById = await this.getImportAccountMap(
+      tenantId,
+      accounts.map((account) => account.id),
+    );
+    const resolveMovementAccountId = this.buildAccountResolver(
+      accounts,
+      importAccountById,
+      primaryAccount?.id ?? null,
+    );
     const foreignById = new Map(foreignExpenses.map((expense) => [expense.id, expense] as const));
     const linkedTargetIds = new Set(
       expenses.map((expense) => expense.linkedExpenseId).filter((id): id is string => !!id),
@@ -283,15 +296,33 @@ export class MonthlyOverviewService {
     };
 
     const caixa = computeCaixaConta(
-      accounts,
-      expenses.filter((expense) => !!expense.bankLast4),
-      receipts.filter((receipt) => !!receipt.bankLast4),
+      primaryAccount ? [primaryAccount] : accounts,
+      expenses.filter(
+        (expense) =>
+          !!expense.bankLast4 &&
+          resolveMovementAccountId({
+            bankLast4: expense.bankLast4,
+            importId: expense.importId ?? null,
+          }) === (primaryAccount?.id ?? null),
+      ),
+      receipts.filter(
+        (receipt) =>
+          !!receipt.bankLast4 &&
+          resolveMovementAccountId({
+            bankLast4: receipt.bankLast4,
+            importId: receipt.importId ?? null,
+          }) === (primaryAccount?.id ?? null),
+      ),
     );
 
     const entrouMes = sumBy(
       receipts.filter(
         (receipt) =>
           !!receipt.bankLast4 &&
+          resolveMovementAccountId({
+            bankLast4: receipt.bankLast4,
+            importId: receipt.importId ?? null,
+          }) === (primaryAccount?.id ?? null) &&
           receipt.status === 'EM_CAIXA' &&
           receipt.data >= monthStart &&
           receipt.data < monthEnd,
@@ -303,6 +334,10 @@ export class MonthlyOverviewService {
       receipts.filter(
         (receipt) =>
           !!receipt.bankLast4 &&
+          resolveMovementAccountId({
+            bankLast4: receipt.bankLast4,
+            importId: receipt.importId ?? null,
+          }) === (primaryAccount?.id ?? null) &&
           receipt.status === 'PREVISTO' &&
           receipt.data >= monthStart &&
           receipt.data < monthEnd,
@@ -314,6 +349,10 @@ export class MonthlyOverviewService {
       expenses.filter(
         (expense) =>
           !!expense.bankLast4 &&
+          resolveMovementAccountId({
+            bankLast4: expense.bankLast4,
+            importId: expense.importId ?? null,
+          }) === (primaryAccount?.id ?? null) &&
           expense.status === 'PAGO' &&
           isInRange(accountExpenseDate(expense), monthStart, monthEnd),
       ),
@@ -411,6 +450,14 @@ export class MonthlyOverviewService {
     const accountExpenseList = expenses
       .filter((expense) => {
         if (!expense.bankLast4 || expense.cardLast4) return false;
+        if (
+          resolveMovementAccountId({
+            bankLast4: expense.bankLast4,
+            importId: expense.importId ?? null,
+          }) !== (primaryAccount?.id ?? null)
+        ) {
+          return false;
+        }
         if (isNeutralExpenseType(expense.tipoDespesa)) return false;
         return isInRange(accountExpenseDate(expense), monthStart, monthEnd);
       })
@@ -544,6 +591,10 @@ export class MonthlyOverviewService {
       .filter(
         (receipt) =>
           !!receipt.bankLast4 &&
+          resolveMovementAccountId({
+            bankLast4: receipt.bankLast4,
+            importId: receipt.importId ?? null,
+          }) === (primaryAccount?.id ?? null) &&
           receipt.status === 'EM_CAIXA' &&
           receipt.data >= monthStart &&
           receipt.data < monthEnd,
@@ -1342,18 +1393,122 @@ export class MonthlyOverviewService {
     const [accounts, expenses, receipts] = await Promise.all([
       this.prisma.bankAccount.findMany({
         where: { tenantId, projectId, deletedAt: null },
-        select: { openingBalanceCents: true, openingBalanceDate: true },
+        select: {
+          id: true,
+          openingBalanceCents: true,
+          openingBalanceDate: true,
+          last4: true,
+          nickname: true,
+          institution: true,
+        },
       }),
       this.prisma.expense.findMany({
         where: { tenantId, projectId, deletedAt: null, bankLast4: { not: null } },
-        select: { valorTotal: true, status: true, dataPagamento: true, createdAt: true },
+        select: {
+          valorTotal: true,
+          status: true,
+          dataPagamento: true,
+          createdAt: true,
+          bankLast4: true,
+          importId: true,
+        },
       }),
       this.prisma.receipt.findMany({
         where: { tenantId, projectId, deletedAt: null, bankLast4: { not: null } },
-        select: { valor: true, status: true, data: true },
+        select: { valor: true, status: true, data: true, bankLast4: true, importId: true },
       }),
     ]);
-    return computeCaixaConta(accounts, expenses, receipts);
+    const primaryAccount = this.pickPrimaryBankAccount(accounts);
+    const importAccountById = await this.getImportAccountMap(
+      tenantId,
+      accounts.map((account) => account.id),
+    );
+    const resolveMovementAccountId = this.buildAccountResolver(
+      accounts,
+      importAccountById,
+      primaryAccount?.id ?? null,
+    );
+    return computeCaixaConta(
+      primaryAccount ? [primaryAccount] : accounts,
+      expenses.filter(
+        (expense) =>
+          resolveMovementAccountId({
+            bankLast4: expense.bankLast4,
+            importId: expense.importId ?? null,
+          }) === (primaryAccount?.id ?? null),
+      ),
+      receipts.filter(
+        (receipt) =>
+          resolveMovementAccountId({
+            bankLast4: receipt.bankLast4,
+            importId: receipt.importId ?? null,
+          }) === (primaryAccount?.id ?? null),
+      ),
+    );
+  }
+
+  private pickPrimaryBankAccount(
+    accounts: Array<{
+      id: string;
+      openingBalanceCents: number;
+      openingBalanceDate: Date | null;
+      last4: string;
+      nickname: string | null;
+      institution: string;
+    }>,
+  ) {
+    if (accounts.length === 0) return null;
+    const normalize = (value: string | null | undefined) =>
+      (value ?? '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+
+    const itau3636 = accounts.find(
+      (account) =>
+        account.last4 === '3636' &&
+        (normalize(account.institution).includes('itau') ||
+          normalize(account.nickname).includes('itau')),
+    );
+    if (itau3636) return itau3636;
+
+    const withOpening = accounts.find((account) => account.openingBalanceCents !== 0);
+    if (withOpening) return withOpening;
+
+    return accounts[0] ?? null;
+  }
+
+  private async getImportAccountMap(tenantId: string, accountIds: string[]) {
+    if (accountIds.length === 0) return new Map<string, string>();
+    const imports = await this.prisma.bankStatementImport.findMany({
+      where: { tenantId, accountId: { in: accountIds }, deletedAt: null },
+      select: { id: true, accountId: true },
+    });
+    return new Map(imports.map((row) => [row.id, row.accountId] as const));
+  }
+
+  private buildAccountResolver(
+    accounts: Array<{ id: string; last4: string }>,
+    importAccountById: Map<string, string>,
+    fallbackAccountId: string | null,
+  ) {
+    const accountIdsByLast4 = new Map<string, string[]>();
+    for (const account of accounts) {
+      const current = accountIdsByLast4.get(account.last4) ?? [];
+      current.push(account.id);
+      accountIdsByLast4.set(account.last4, current);
+    }
+
+    return (movement: { bankLast4: string | null; importId: string | null }) => {
+      if (!movement.bankLast4) return null;
+      if (movement.importId) {
+        const mapped = importAccountById.get(movement.importId);
+        if (mapped) return mapped;
+      }
+      const candidates = accountIdsByLast4.get(movement.bankLast4) ?? [];
+      if (candidates.length === 1) return candidates[0] ?? null;
+      return fallbackAccountId;
+    };
   }
 
   /**

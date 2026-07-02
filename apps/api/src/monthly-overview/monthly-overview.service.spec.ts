@@ -31,6 +31,7 @@ describe('MonthlyOverviewService.getOverview — espelhos cross-project', () => 
       creditCard: { findMany: jest.fn().mockResolvedValue([]) },
       // §10 computeCaixaConta (pode existir no working tree concorrente) — mocks neutros.
       bankAccount: { findMany: jest.fn().mockResolvedValue([]) },
+      bankStatementImport: { findMany: jest.fn().mockResolvedValue([]) },
       expense: { findMany: jest.fn().mockResolvedValue([]) },
       receipt: { findMany: jest.fn().mockResolvedValue([]) },
     };
