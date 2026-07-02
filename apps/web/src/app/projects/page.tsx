@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/auth-context';
-import { Plus, ChevronRight, LineChart } from 'lucide-react';
+import { Plus, ChevronRight, LineChart, Search } from 'lucide-react';
 import Link from 'next/link';
 import { NotificationsBell } from '@/components/notifications/NotificationsBell';
 import { ProjectHubCard } from './_components/ProjectHubCard';
@@ -28,6 +28,7 @@ export default function ProjectsPage() {
   const [newProject, setNewProject] = useState({ name: '', type: '', description: '' });
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
 
   useEffect(() => {
     loadProjects();
@@ -37,6 +38,19 @@ export default function ProjectsPage() {
     () => projects.filter((p) => hasProjectType(p.type) && hasProjectAccess(p.id)),
     [projects, hasProjectType, hasProjectAccess],
   );
+
+  const filteredProjects = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return visibleProjects;
+    return visibleProjects.filter((p) => {
+      const label = typeAccent(p.type).label.toLowerCase();
+      return (
+        p.name.toLowerCase().includes(q) ||
+        (p.description ?? '').toLowerCase().includes(q) ||
+        label.includes(q)
+      );
+    });
+  }, [visibleProjects, query]);
 
   const allowedTypes = useMemo(
     () => Object.keys(TYPE_ACCENT).filter((t) => canCreateProjectType(t)),
@@ -137,6 +151,20 @@ export default function ProjectsPage() {
           </div>
         </div>
 
+        {/* Busca de projetos */}
+        {visibleProjects.length > 0 && (
+          <div className="mb-4 md:mb-5 flex items-center gap-2.5 rounded-[14px] bg-lifeone-card border border-lifeone-hairline px-4 py-3 shadow-lifeone-card">
+            <Search className="w-[19px] h-[19px] text-lifeone-ink-4 flex-shrink-0" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Buscar projeto…"
+              aria-label="Buscar projeto"
+              className="flex-1 bg-transparent border-0 outline-none text-[15px] text-lifeone-ink placeholder:text-lifeone-ink-4"
+            />
+          </div>
+        )}
+
         {/* Card destaque: Saúde financeira consolidada */}
         {visibleProjects.length > 0 && hasModule('financialDashboard') && (
           <Link
@@ -197,9 +225,16 @@ export default function ProjectsPage() {
           </div>
         ) : (
           <>
+            {/* Sem resultado para a busca */}
+            {filteredProjects.length === 0 && (
+              <div className="text-center py-12 text-lifeone-ink-4 text-[14px]">
+                Nenhum projeto encontrado para “{query}”.
+              </div>
+            )}
+
             {/* Desktop: grade 3 colunas com add-card */}
             <div className="hidden md:grid grid-cols-3 gap-4">
-              {visibleProjects.map((project) => (
+              {filteredProjects.map((project) => (
                 <ProjectHubCard
                   key={project.id}
                   project={project}
@@ -221,7 +256,7 @@ export default function ProjectsPage() {
 
             {/* Mobile: lista de cards */}
             <div className="md:hidden grid gap-2.5">
-              {visibleProjects.map((project) => {
+              {filteredProjects.map((project) => {
                 const accent = typeAccent(project.type);
                 return (
                   <div
