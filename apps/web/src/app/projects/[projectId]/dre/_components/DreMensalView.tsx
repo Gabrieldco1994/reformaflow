@@ -13,6 +13,14 @@ function totalGrupo(items: Array<{ valor: number }>) {
   return items.reduce((sum, item) => sum + item.valor, 0);
 }
 
+/** "2026-07" → "julho de 2026" (rótulo amigável; se o formato não bater, mantém cru). */
+function monthLong(mes: string) {
+  const [year, month] = mes.split('-').map(Number);
+  if (!year || !month) return mes;
+  const d = new Date(Date.UTC(year, month - 1, 1));
+  return new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(d);
+}
+
 function deltaText(delta: number) {
   const rounded = Math.round(delta * 10) / 10;
   if (rounded === 0) return 'estável vs mês anterior';
@@ -62,7 +70,7 @@ export function DreMensalView({
           <>
             <article className={`rounded-2xl border p-4 ${resultadoTone}`}>
               <p className="flex items-center gap-1 text-[11px] uppercase tracking-[0.16em] font-semibold">
-                resultado de {data.mes}
+                resultado de {monthLong(data.mes)}
                 <InfoHint text="Resultado do mês por competência: o que entrou menos o que saiu (e foi guardado), pela data dos lançamentos. Positivo = sobrou; negativo = faltou." />
               </p>
               <p className="mt-2 text-[22px] font-bold leading-none">
