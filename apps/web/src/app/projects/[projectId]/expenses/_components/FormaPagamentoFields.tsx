@@ -72,13 +72,18 @@ export function FormaPagamentoFields({
       />
 
       {isSinglePaymentForm(formaPagamento) && (
-        <Input
-          label="Data do Pagamento"
-          name="dataPagamento"
-          type="date"
-          value={dataPagamento}
-          onChange={(e) => setDataPagamento(e.target.value)}
-        />
+        <div>
+          <Input
+            label="Data do Pagamento"
+            name="dataPagamento"
+            type="date"
+            value={dataPagamento}
+            onChange={(e) => setDataPagamento(e.target.value)}
+          />
+          <p className="mt-1 text-[11px] text-darc-velvet/50">
+            Quando o dinheiro sai da conta (caixa). É esta data que faz a despesa cair no mês.
+          </p>
+        </div>
       )}
 
       {/* Despesa fixa (recorrente mensal) — apenas PESSOAL, pagamento único */}
