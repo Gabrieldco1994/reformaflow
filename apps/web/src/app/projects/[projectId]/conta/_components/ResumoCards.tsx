@@ -1,6 +1,7 @@
 'use client';
 
 import { formatCurrency } from '@/lib/utils';
+import { InfoHint } from '@/components/InfoHint';
 
 type Tone = 'emerald' | 'slate' | 'amber' | 'rose';
 export type ResumoQuickFilterKey = 'entrouMes' | 'saiuMes' | 'faltaPagarMes';
@@ -9,30 +10,35 @@ const SMALL_CARDS: Array<{
   key: 'entrouMes' | 'saiuMes' | 'faltaPagarMes' | 'sobraPrevista';
   title: string;
   help: string;
+  info: string;
   tone: Tone;
 }> = [
   {
     key: 'entrouMes',
     title: 'Entrou no mês',
     help: 'salário e tudo que você recebeu',
+    info: 'Tudo que já entrou na conta neste mês (salário e outros recebimentos efetivados). Clique para filtrar as entradas abaixo.',
     tone: 'emerald',
   },
   {
     key: 'saiuMes',
     title: 'Saiu no mês',
     help: 'tudo que já foi pago até hoje',
+    info: 'Tudo que já saiu da conta neste mês (pagamentos efetivados até hoje). Clique para filtrar as saídas abaixo.',
     tone: 'slate',
   },
   {
     key: 'faltaPagarMes',
     title: 'Ainda falta pagar',
     help: 'faturas e contas até o fim do mês',
+    info: 'O que ainda vai sair até o fim do mês: faturas de cartão e contas em aberto. Clique para filtrar o que falta pagar.',
     tone: 'amber',
   },
   {
     key: 'sobraPrevista',
     title: 'Sobra prevista',
     help: 'o que deve ficar na conta no dia 30',
+    info: 'Previsão do saldo no fim do mês: o que tem hoje + o que ainda entra − o que ainda falta pagar. Negativo = a conta deve fechar no vermelho.',
     tone: 'emerald',
   },
 ];
@@ -77,8 +83,9 @@ export function ResumoCards({
   return (
     <section className="grid gap-3 xl:grid-cols-12 xl:gap-4">
       <article className="rounded-3xl border border-lifeone-hairline bg-lifeone-card p-4 shadow-lifeone-card xl:col-span-4 xl:flex xl:min-h-full xl:flex-col xl:justify-between xl:p-6">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-lifeone-ink-3">
+        <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-lifeone-ink-3">
           Tenho na conta hoje
+          <InfoHint text="O dinheiro disponível de verdade na conta agora, reconciliado com o banco. Compras no cartão só entram aqui quando a fatura é paga." className="text-lifeone-ink-3" />
         </p>
         <p className="mt-2 text-[26px] font-bold tracking-tight text-lifeone-ink xl:text-[34px] font-geist tabular-nums">
           {formatCurrency(caixaHoje / 100)}
@@ -109,7 +116,10 @@ export function ResumoCards({
                 aria-pressed={active}
                 className={`${cardClass} text-left`}
               >
-                <p className="text-[11px] font-semibold leading-4">{card.title}</p>
+                <p className="flex items-center gap-1 text-[11px] font-semibold leading-4">
+                  {card.title}
+                  <InfoHint text={card.info} />
+                </p>
                 <p className="mt-2 text-lg font-bold tracking-tight xl:text-[22px] font-geist tabular-nums">
                   {formatCurrency(value / 100)}
                 </p>
@@ -119,7 +129,10 @@ export function ResumoCards({
               </button>
             ) : (
               <article key={card.key} className={cardClass}>
-                <p className="text-[11px] font-semibold leading-4">{card.title}</p>
+                <p className="flex items-center gap-1 text-[11px] font-semibold leading-4">
+                  {card.title}
+                  <InfoHint text={card.info} />
+                </p>
                 <p className="mt-2 text-lg font-bold tracking-tight xl:text-[22px] font-geist tabular-nums">
                   {formatCurrency(value / 100)}
                 </p>

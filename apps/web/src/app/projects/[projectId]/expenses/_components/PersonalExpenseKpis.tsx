@@ -1,5 +1,6 @@
 'use client';
 import { formatCurrency } from '@/lib/utils';
+import { InfoHint } from '@/components/InfoHint';
 import type { ExpenseEixo } from './ExpenseEixoToggle';
 
 interface GastosControle {
@@ -15,12 +16,13 @@ interface ContaReal {
 }
 
 /** Mini-stat (chip) abaixo do hero. */
-function Stat({ label, value, dot }: { label: string; value: number; dot: string }) {
+function Stat({ label, value, dot, info }: { label: string; value: number; dot: string; info?: string }) {
   return (
     <div className="rounded-2xl border border-darc-linen bg-white p-4 shadow-darc-soft">
       <div className="flex items-center gap-1.5">
         <span className={`inline-block h-2.5 w-2.5 rounded-full ${dot}`} />
         <p className="text-xs font-semibold uppercase tracking-wide text-darc-velvet/60">{label}</p>
+        {info && <InfoHint text={info} className="text-darc-velvet/50" />}
       </div>
       <p className="mt-2 text-2xl font-bold tabular-nums text-darc-velvet">{formatCurrency(value / 100)}</p>
     </div>
@@ -56,8 +58,16 @@ export function PersonalExpenseKpis({
       <div className="rounded-3xl bg-darc-gradient-dark p-6 text-darc-linen shadow-darc-hero">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-[0.15em] text-darc-linen/60">
+            <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.15em] text-darc-linen/60">
               {isCaixa ? 'Vai sair no mês' : 'Gasto no mês'}
+              <InfoHint
+                text={
+                  isCaixa
+                    ? 'Quanto vai efetivamente sair da conta neste mês: faturas de cartão que vencem agora + débitos. A compra no cartão entra no mês em que a fatura vence.'
+                    : 'Quanto você comprou neste mês (competência), pela data da compra: cartão + à vista + a vir. Independe de quando a fatura vai ser paga.'
+                }
+                className="text-darc-linen/60"
+              />
             </p>
             <p className="mt-2 text-4xl sm:text-5xl font-bold tabular-nums tracking-tight leading-none">
               {formatCurrency(total / 100)}
@@ -81,15 +91,15 @@ export function PersonalExpenseKpis({
       <div className="grid grid-cols-3 gap-3 md:gap-4">
         {isCaixa ? (
           <>
-            <Stat label="Faturas" value={contaReal.faturasVencendo} dot="bg-rose-400" />
-            <Stat label="Débitos" value={contaReal.debitos} dot="bg-sky-400" />
-            <Stat label="Falta sair" value={contaReal.faltaSair} dot="bg-amber-400" />
+            <Stat label="Faturas" value={contaReal.faturasVencendo} dot="bg-rose-400" info="Faturas de cartão que vencem neste mês (o valor que o banco vai cobrar)." />
+            <Stat label="Débitos" value={contaReal.debitos} dot="bg-sky-400" info="Saídas direto da conta neste mês (débito, PIX, dinheiro) — sem passar por cartão." />
+            <Stat label="Falta sair" value={contaReal.faltaSair} dot="bg-amber-400" info="Do total que vai sair, quanto ainda não foi pago (faturas/contas em aberto)." />
           </>
         ) : (
           <>
-            <Stat label="No cartão" value={gastosControle.noCartao} dot="bg-violet-400" />
-            <Stat label="À vista" value={gastosControle.naConta} dot="bg-sky-400" />
-            <Stat label="A vir" value={gastosControle.aConfirmar} dot="bg-amber-400" />
+            <Stat label="No cartão" value={gastosControle.noCartao} dot="bg-violet-400" info="Compras feitas no cartão de crédito neste mês (competência), independente de quando a fatura vence." />
+            <Stat label="À vista" value={gastosControle.naConta} dot="bg-sky-400" info="Compras pagas na hora (débito, PIX, dinheiro) neste mês." />
+            <Stat label="A vir" value={gastosControle.aConfirmar} dot="bg-amber-400" info="Despesas planejadas ainda não confirmadas/pagas (parcelas e contas previstas)." />
           </>
         )}
       </div>

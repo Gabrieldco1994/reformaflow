@@ -12,6 +12,7 @@ import {
   YAxis,
 } from 'recharts';
 import { formatCurrency } from '@/lib/utils';
+import { InfoHint } from '@/components/InfoHint';
 import type { DreAnual } from '../_types';
 import { DreIcon } from './DreIcon';
 
@@ -78,24 +79,28 @@ export function DreAnualView({
           value={formatCurrency(data.totalEntrou / 100)}
           sub={data.ateOMes}
           tone="green"
+          info="Tudo que entrou no ano até o mês corrente (receitas acumuladas)."
         />
         <SummaryCard
           label="saiu no ano"
           value={formatCurrency(data.totalSaiu / 100)}
           sub={`média ${formatCurrency(data.mediaMensal / 100)}/mês`}
           tone="red"
+          info="Tudo que saiu no ano (despesas acumuladas), com a média mensal."
         />
         <SummaryCard
           label="resultado acumulado"
           value={formatCurrency(data.resultadoAcumulado / 100)}
           sub="entradas − saídas − guardado"
           tone={data.resultadoAcumulado >= 0 ? 'green' : 'red'}
+          info="Resultado do ano até agora: entradas − saídas − o que foi guardado. Positivo = sobrou no acumulado."
         />
         <SummaryCard
           label="mês mais crítico"
           value={monthShort(data.mesCritico.mes)}
           sub={`margem ${formatCurrency(data.mesCritico.margem / 100)}`}
           tone="amber"
+          info="O mês com a menor margem (resultado mais apertado) do ano."
         />
       </section>
 
@@ -248,11 +253,13 @@ function SummaryCard({
   value,
   sub,
   tone,
+  info,
 }: {
   label: string;
   value: string;
   sub: string;
   tone: 'green' | 'red' | 'amber';
+  info?: string;
 }) {
   const tones = {
     green: 'border-[#BFE9DA] bg-[#E1F5EE] text-[#1D9E75]',
@@ -261,7 +268,10 @@ function SummaryCard({
   } as const;
   return (
     <article className={`rounded-2xl border p-3 ${tones[tone]}`}>
-      <p className="text-[11px] uppercase tracking-[0.12em] font-semibold">{label}</p>
+      <p className="flex items-center gap-1 text-[11px] uppercase tracking-[0.12em] font-semibold">
+        {label}
+        {info && <InfoHint text={info} />}
+      </p>
       <p className="mt-2 text-base font-bold">{value}</p>
       <p className="mt-1 text-xs opacity-80">{sub}</p>
     </article>

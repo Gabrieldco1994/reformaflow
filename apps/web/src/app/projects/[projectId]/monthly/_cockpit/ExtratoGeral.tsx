@@ -53,6 +53,7 @@ export default function ExtratoGeral({
           value={fmtMoney(resumo.totalSaidas)}
           tone="neg"
           icon={<ArrowDownCircle className="w-4 h-4" />}
+          info="Soma de todas as saídas do mês no extrato (realizadas + planejadas), em ordem de data."
           context={`${resumo.qtd} lançamento${resumo.qtd === 1 ? '' : 's'}`}
         />
         <KpiCard
@@ -60,6 +61,7 @@ export default function ExtratoGeral({
           value={fmtMoney(resumo.totalRealizado)}
           tone="alert"
           icon={<Landmark className="w-4 h-4" />}
+          info="Parte das saídas que já foi efetivamente paga."
           context="pagamentos efetivados"
         />
         <KpiCard
@@ -67,6 +69,7 @@ export default function ExtratoGeral({
           value={fmtMoney(resumo.totalPlanejado)}
           tone="neutral"
           icon={<CalendarClock className="w-4 h-4" />}
+          info="Saídas ainda não pagas — parcelas e contas previstas para este mês."
           context="parcelas/contas previstas"
         />
         <KpiCard
@@ -74,6 +77,7 @@ export default function ExtratoGeral({
           value={fmtMoney(resumo.qtd > 0 ? Math.round(resumo.totalSaidas / resumo.qtd) : 0)}
           tone="accent"
           icon={<CreditCard className="w-4 h-4" />}
+          info="Valor médio por lançamento (total de saídas ÷ número de lançamentos)."
           context="por lançamento"
         />
       </div>

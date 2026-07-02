@@ -1,6 +1,7 @@
 'use client';
 
 import type { CSSProperties, ReactNode } from 'react';
+import { InfoHint } from '@/components/InfoHint';
 
 /** Tokens do tema cockpit (LifeOne light). Aplicados via CSS vars no root. */
 export const COCKPIT_THEME = {
@@ -21,11 +22,13 @@ export function Card({
   className = '',
   title,
   hint,
+  info,
 }: {
   children: ReactNode;
   className?: string;
   title?: ReactNode;
   hint?: ReactNode;
+  info?: string;
 }) {
   return (
     <div
@@ -33,7 +36,12 @@ export function Card({
     >
       {(title || hint) && (
         <div className="flex items-baseline justify-between gap-2 mb-3">
-          {title && <h3 className="text-sm font-semibold text-[var(--ck-text)]">{title}</h3>}
+          {title && (
+            <h3 className="flex items-center gap-1.5 text-sm font-semibold text-[var(--ck-text)]">
+              {title}
+              {info && <InfoHint text={info} />}
+            </h3>
+          )}
           {hint && <span className="text-[10px] text-[var(--ck-muted)]">{hint}</span>}
         </div>
       )}
@@ -58,17 +66,22 @@ export function KpiCard({
   context,
   tone = 'neutral',
   icon,
+  info,
 }: {
   label: string;
   value: string;
   context?: ReactNode;
   tone?: Tone;
   icon?: ReactNode;
+  info?: string;
 }) {
   return (
     <Card className="ck-enter">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-[10px] uppercase tracking-wider text-[var(--ck-muted)]">{label}</p>
+        <span className="flex items-center gap-1 min-w-0">
+          <p className="text-[10px] uppercase tracking-wider text-[var(--ck-muted)] truncate">{label}</p>
+          {info && <InfoHint text={info} className="text-[var(--ck-muted)]" />}
+        </span>
         {icon && <span className="text-[var(--ck-muted)]">{icon}</span>}
       </div>
       <p className={`font-geist tabular-nums font-bold text-2xl md:text-[28px] leading-tight mt-1.5 ${TONE_TEXT[tone]}`}>
