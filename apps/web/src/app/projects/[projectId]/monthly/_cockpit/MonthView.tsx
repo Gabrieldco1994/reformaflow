@@ -2,9 +2,9 @@
 
 import { useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { ArrowUpCircle, ArrowDownCircle, SlidersHorizontal } from 'lucide-react';
+import { SlidersHorizontal } from 'lucide-react';
 import type { MonthlyOverviewResponse, MonthlyEntry } from '../_types';
-import { KpiCard, Card } from './ui';
+import { Card } from './ui';
 import { fmtMoney } from './format';
 import { deriveMonth, buildSaldoSeries, saldoProjetado, buildComprometimentoFuturo } from './derive';
 import Recomendacoes from './Recomendacoes';
@@ -42,25 +42,6 @@ export default function MonthView({
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3">
-        <KpiCard
-          label="Entrou no mês"
-          value={fmtMoney(m.entrouRealizado)}
-          tone="pos"
-          icon={<ArrowUpCircle className="w-4 h-4" />}
-          info={`Recebimentos já efetivados neste mês (${fmtMoney(m.entrouRealizado)})${m.entrouPrevisto > 0 ? `. Ainda há ${fmtMoney(m.entrouPrevisto)} previsto a receber.` : '.'} Faz parte do "Resultado do mês" lá em cima.`}
-          context={m.entrouPrevisto > 0 ? `+ ${fmtMoney(m.entrouPrevisto)} previsto` : 'recebimentos efetivados'}
-        />
-        <KpiCard
-          label="Gastei no mês"
-          value={fmtMoney(m.gasteiRealizado)}
-          tone="neg"
-          icon={<ArrowDownCircle className="w-4 h-4" />}
-          info={`Despesas já pagas neste mês (${fmtMoney(m.gasteiRealizado)})${m.gasteiPlanejado > 0 ? `. Ainda há ${fmtMoney(m.gasteiPlanejado)} planejado a pagar.` : '.'} Faz parte do "Resultado do mês" lá em cima.`}
-          context={m.gasteiPlanejado > 0 ? `+ ${fmtMoney(m.gasteiPlanejado)} planejado` : 'só pagamentos efetivados'}
-        />
-      </div>
-
       <Card
         title={m.caixaReal ? 'Fluxo de caixa do mês' : 'Saldo ao longo do mês'}
         hint={m.caixaReal

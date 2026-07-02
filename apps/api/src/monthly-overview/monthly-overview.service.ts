@@ -62,7 +62,7 @@ export class MonthlyOverviewService {
           },
         ],
       },
-      include: { expense: { select: { linkedExpenseId: true, cardLast4: true } } },
+      include: { expense: { select: { linkedExpenseId: true, cardLast4: true, bankLast4: true } } },
       orderBy: [{ data: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
     });
 
@@ -112,6 +112,7 @@ export class MonthlyOverviewService {
       projectName: projectNameById.get(e.projectId) ?? '',
       projectType: projectTypeById.get(e.projectId) ?? 'OUTROS',
       cardLast4: e.expense?.cardLast4 ?? null,
+      bankLast4: e.expense?.bankLast4 ?? null,
       isEspelho: isEspelho(e),
     });
 
