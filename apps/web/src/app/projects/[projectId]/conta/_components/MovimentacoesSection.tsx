@@ -433,8 +433,14 @@ export function MovimentacoesSection({
 
             const isInvoiceRow = !isEntrada && item.kind === 'saida' && item.isInvoice;
             const canToggle = !isEntrada && item.kind === 'saida' && item.editavel && !item.isInvoice;
+            const canEditInvoicePayment =
+              !isEntrada &&
+              item.kind === 'saida' &&
+              item.isInvoice &&
+              item.editavel &&
+              !!item.id;
             // Saída editável (despesa PESSOAL) ou entrada (recebimento) → abre modal completo.
-            const canEdit = canToggle || (isEntrada && !!item.id);
+            const canEdit = canToggle || canEditInvoicePayment || (isEntrada && !!item.id);
             const projOrigem =
               item.kind === 'saida' && item.projetoOrigem && item.projetoOrigem.type !== 'PESSOAL'
                 ? item.projetoOrigem
