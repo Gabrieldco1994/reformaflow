@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { Wallet, Scale, Target, ArrowUpRight, ArrowDownRight, Lightbulb } from 'lucide-react';
+import { Wallet, Scale, Target, ArrowUpRight, ArrowDownRight, Lightbulb, ChevronDown } from 'lucide-react';
 import type { MonthlyOverviewResponse, MonthlyEntry } from '../_types';
 import { Card, type Tone } from './ui';
 import { InfoHint } from '@/components/InfoHint';
@@ -160,13 +160,16 @@ export default function CockpitTop({
           </div>
         </div>
         {recs && (
-          <div className="mt-4 border-t border-[var(--ck-border)] pt-4">
-            <p className="mb-2.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--ck-muted)]">
+          <details className="group mt-4 border-t border-[var(--ck-border)] pt-3">
+            <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--ck-muted)] transition-colors hover:text-[var(--ck-text)] [&::-webkit-details-marker]:hidden">
               <Lightbulb className="h-3.5 w-3.5" />
               Recomendações
-            </p>
-            <RecomendacoesList m={recs.m} saldoProjetadoVal={recs.projetado} />
-          </div>
+              <ChevronDown className="ml-0.5 h-3.5 w-3.5 transition-transform duration-200 group-open:rotate-180" />
+            </summary>
+            <div className="mt-3">
+              <RecomendacoesList m={recs.m} saldoProjetadoVal={recs.projetado} />
+            </div>
+          </details>
         )}
       </Card>
 
