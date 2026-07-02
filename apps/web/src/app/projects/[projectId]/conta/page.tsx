@@ -126,8 +126,8 @@ export default function ContaPage() {
 
   return (
     <div className="space-y-4 xl:space-y-5">
-      <header className="flex items-center justify-between gap-3 rounded-2xl border border-lifeone-hairline bg-lifeone-card px-3 py-2.5 shadow-lifeone-card xl:px-4 xl:py-3">
-        <div className="flex min-w-0 items-center gap-2.5">
+      <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-2xl border border-lifeone-hairline bg-lifeone-card px-3 py-2.5 shadow-lifeone-card xl:flex-nowrap xl:px-4 xl:py-3">
+        <div className="flex min-w-0 flex-1 items-center gap-2.5">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-lifeone-surface text-lifeone-ink-2">
             <Landmark className="h-[18px] w-[18px]" />
           </span>
@@ -144,7 +144,7 @@ export default function ContaPage() {
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <div className="flex items-center rounded-xl border border-lifeone-hairline bg-lifeone-sidebar p-0.5">
+          <div className="flex shrink-0 items-center rounded-xl border border-lifeone-hairline bg-lifeone-sidebar p-0.5">
             <button
               type="button"
               onClick={() => {
