@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ExpenseType,
   PaymentForm,
-  isSinglePaymentForm,
   type ParsedVoiceExpense,
   type VoiceMatchableAccount,
   type VoiceMatchableCard,
@@ -10,6 +9,7 @@ import {
   parseVoiceExpense,
 } from '@reformaflow/domain';
 import type { ExpenseFormData } from '@/types';
+import { voiceParsedToFormData } from '../_lib/voiceExpense';
 
 interface SpeechRecognitionLike {
   lang: string;
@@ -26,8 +26,6 @@ interface SpeechRecognitionLike {
 }
 
 type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
-
-const toIsoDate = (date: Date) => date.toISOString().slice(0, 10);
 
 interface UseVoiceExpenseArgs {
   /** Tipos de despesa permitidos (depende do projectType). */
@@ -205,29 +203,13 @@ export function useVoiceExpense({
 
   const saveVoiceExpense = useCallback(() => {
     if (!voiceData || !voiceData.valor) return;
-    const data: ExpenseFormData = {
-      tipoDespesa: voiceData.tipoDespesa,
-      categoriaMaoDeObra: null,
-      roomId: null,
-      valor: voiceData.valor,
-      quantidade: 1,
-      titulo: voiceData.titulo || null,
-      fornecedor: voiceFornecedor || null,
-      formaPagamento: voiceData.formaPagamento,
-      status: voiceData.status as 'PLANEJADO' | 'PAGO',
-      dataPagamento: null,
-      quantidadeParcela: null,
-      dataInicioParcela: null,
-      creditCardId: voiceData.creditCardId || null,
-      bankAccountId: voiceData.bankAccountId || null,
-      linkedExpenseId: voiceLinkedExpenseId || null,
-    };
-    if (isSinglePaymentForm(voiceData.formaPagamento)) {
-      data.dataPagamento = voiceData.dataReferencia || toIsoDate(new Date());
-    } else {
-      data.quantidadeParcela = voiceData.quantidadeParcela || 1;
-      data.dataInicioParcela = voiceData.dataReferencia || toIsoDate(new Date());
-    }
+    // Paridade voz ⇄ jornada manual: monta o ExpenseFormData pelo MESMO builder
+    // (buildExpenseFormData via voiceParsedToFormData), garantindo idênticas
+    // regras de forma/parcela/status/competência.
+    const data = voiceParsedToFormData(
+      { ...voiceData, valor: voiceData.valor },
+      { fornecedor: voiceFornecedor, linkedExpenseId: voiceLinkedExpenseId },
+    );
     onCreate(data, () => {
       setVoiceModalOpen(false);
       setVoiceTranscript('');
