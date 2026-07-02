@@ -61,6 +61,7 @@ export function ResumoCards({
   entrouMes,
   saiuMes,
   faltaPagarMes,
+  recebimentosPrevistosMes,
   sobraPrevista,
   activeQuickFilter,
   onQuickFilterSelect,
@@ -69,6 +70,7 @@ export function ResumoCards({
   entrouMes: number;
   saiuMes: number;
   faltaPagarMes: number;
+  recebimentosPrevistosMes: number;
   sobraPrevista: number;
   activeQuickFilter: ResumoQuickFilterKey | null;
   onQuickFilterSelect: (key: ResumoQuickFilterKey) => void;
@@ -123,6 +125,11 @@ export function ResumoCards({
                 <p className="mt-2 text-lg font-bold tracking-tight xl:text-[22px] font-geist tabular-nums">
                   {formatCurrency(value / 100)}
                 </p>
+                {card.key === 'entrouMes' && recebimentosPrevistosMes > 0 ? (
+                  <p className="mt-1 text-[11px] font-semibold leading-4 text-[#B5803A]">
+                    + {formatCurrency(recebimentosPrevistosMes / 100)} previsto ainda a entrar
+                  </p>
+                ) : null}
                 <p className="mt-2 text-[11px] leading-4 opacity-80 xl:text-xs xl:leading-5">
                   {card.help}
                 </p>

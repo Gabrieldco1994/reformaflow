@@ -235,6 +235,7 @@ export default function ContaPage() {
                 entrouMes={data.entrouMes}
                 saiuMes={data.saiuMes}
                 faltaPagarMes={data.faltaPagarMes}
+                recebimentosPrevistosMes={data.recebimentosPrevistosMes}
                 sobraPrevista={data.sobraPrevista}
                 activeQuickFilter={resumoQuickFilter}
                 onQuickFilterSelect={(key) => {

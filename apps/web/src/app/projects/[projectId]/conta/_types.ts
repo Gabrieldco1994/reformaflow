@@ -68,6 +68,7 @@ export interface AccountViewResponse {
   entrouMes: number;
   saiuMes: number;
   faltaPagarMes: number;
+  recebimentosPrevistosMes: number;
   sobraPrevista: number;
   devoCartaoTotal: number;
   cartoes: AccountViewCardSummary[];
