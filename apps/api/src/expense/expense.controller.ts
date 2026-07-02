@@ -15,6 +15,7 @@ import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
 import { SetParcelaStatusDto } from './dto/set-parcela-status.dto';
 import { RatearDto } from './dto/ratear.dto';
+import { RatearMixedDto } from './dto/ratear-mixed.dto';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
 import { CurrentTenant } from '../common/decorators/tenant.decorator';
 import { RequireModule } from '../common/decorators/require-module.decorator';
@@ -176,6 +177,17 @@ export class ExpenseController {
     @Body() dto: RatearDto,
   ) {
     return this.service.ratear(tenantId, projectId, id, dto.allocations);
+  }
+
+  @Post(':id/ratear-mixed')
+  @ApiOperation({ summary: 'Cria alvos novos + rateia a compra entre existentes e novos (atômico)' })
+  ratearMixed(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Param('id') id: string,
+    @Body() dto: RatearMixedDto,
+  ) {
+    return this.service.ratearMixed(tenantId, projectId, id, dto);
   }
 
   @Delete(':id/ratear')

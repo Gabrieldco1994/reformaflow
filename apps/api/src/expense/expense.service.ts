@@ -3,7 +3,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ConciliacaoService, RateioItem } from '../conciliacao/conciliacao.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
-import { ExpenseTypeLabels, LaborCategoryLabels, buildInstallments, isSinglePaymentForm, isNeutralExpenseType } from '@reformaflow/domain';
+import { ExpenseTypeLabels, LaborCategoryLabels, buildInstallments, isSinglePaymentForm, isNeutralExpenseType, hasFeature, PaymentForm, ProjectType } from '@reformaflow/domain';
+import { RatearMixedDto } from './dto/ratear-mixed.dto';
 import { Prisma } from '@prisma/client';
 import { fastClassify } from '../bank-account/bank-account.service';
 
@@ -347,6 +348,103 @@ export class ExpenseService {
         allocations,
       }),
     );
+    return { ok: true, sourceId: source.id, ...result };
+  }
+
+  /**
+   * Rateio "mixed": cria N alvos NOVOS nos projetos-destino e rateia a compra
+   * (source) entre eles + alvos EXISTENTES, tudo numa ÚNICA transação atômica.
+   * Se o `ratearSource` falhar (Sobra != 0, alvo neutro/já-rateado etc.), a
+   * transação inteira faz rollback e nenhum alvo novo permanece órfão.
+   *
+   * Não reimplementa o rateio: apenas orquestra a criação dos alvos e delega ao
+   * `ConciliacaoService.ratearSource`, que valida Sobra=0, regenera o cashflow
+   * de cada alvo com o cronograma da fonte e seta o espelho (linkedExpenseId).
+   */
+  async ratearMixed(
+    tenantId: string,
+    projectId: string,
+    sourceId: string,
+    dto: RatearMixedDto,
+  ) {
+    await this.validateProject(tenantId, projectId);
+    const source = await this.prisma.expense.findFirst({
+      where: { id: sourceId, projectId, tenantId, deletedAt: null },
+    });
+    if (!source) throw new NotFoundException('Despesa não encontrada');
+
+    const newTargets = dto.newTargets ?? [];
+    const existing = dto.existing ?? [];
+    if (newTargets.length + existing.length === 0) {
+      throw new BadRequestException('Nada a ratear: informe ao menos um alvo (novo ou existente).');
+    }
+
+    // Valida os projetos-destino dos alvos novos ANTES de abrir a transação:
+    // pertencem ao tenant e possuem o módulo `expenses` (CASA/CARRO também têm;
+    // rejeitamos apenas projetos genuinamente sem o módulo). Reads fora da tx;
+    // as ESCRITAS (create + rateio) acontecem atômicas dentro dela.
+    if (newTargets.length > 0) {
+      const targetProjectIds = [...new Set(newTargets.map((t) => t.targetProjectId))];
+      const projects = await this.prisma.project.findMany({
+        where: { id: { in: targetProjectIds }, tenantId },
+      });
+      const byId = new Map(projects.map((p) => [p.id, p]));
+      for (const pid of targetProjectIds) {
+        const p = byId.get(pid);
+        if (!p) throw new NotFoundException(`Projeto destino ${pid} não encontrado`);
+        if (!hasFeature(p.type as ProjectType, 'expenses')) {
+          throw new BadRequestException(
+            `Projeto destino ${pid} não possui o módulo de despesas — não pode receber rateio.`,
+          );
+        }
+      }
+    }
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const createdTargetIds: string[] = [];
+      const allocations: RateioItem[] = existing.map((e) => ({
+        targetExpenseId: e.targetExpenseId,
+        allocation: e.allocation,
+      }));
+
+      for (const nt of newTargets) {
+        const valorCents = Math.round(nt.valor * 100);
+        const quantidade = nt.quantidade ?? 1;
+        const valorTotal = valorCents * quantidade;
+
+        const created = await tx.expense.create({
+          data: {
+            projectId: nt.targetProjectId,
+            tenantId,
+            tipoDespesa: nt.tipoDespesa,
+            categoriaMaoDeObra: nt.categoriaMaoDeObra,
+            roomId: nt.roomId,
+            valor: valorCents,
+            quantidade,
+            valorTotal,
+            titulo: nt.titulo,
+            fornecedor: nt.fornecedor,
+            formaPagamento: nt.formaPagamento ?? PaymentForm.A_VISTA,
+            // Herda o status da FONTE para coerência do espelho: fonte PAGO → alvo PAGO.
+            status: nt.status ?? source.status,
+          },
+        });
+        createdTargetIds.push(created.id);
+        allocations.push({ targetExpenseId: created.id, allocation: nt.allocation });
+      }
+
+      // Delega ao rateio existente: valida Sobra=0, regenera cashflow dos alvos
+      // (o cashflow base do alvo novo é gerado aqui, a partir do cronograma da
+      // fonte) e seta o espelho. Roda sob o MESMO `tx` → atomicidade real.
+      const rateio = await this.conciliacao.ratearSource(tx, {
+        tenantId,
+        sourceExpenseId: source.id,
+        allocations,
+      });
+
+      return { createdTargetIds, targets: rateio.targets };
+    });
+
     return { ok: true, sourceId: source.id, ...result };
   }
 

@@ -26,6 +26,7 @@ import { VoiceExpenseModal } from './_components/VoiceExpenseModal';
 import { ExpenseFormModal } from './_components/ExpenseFormModal';
 import { RatearCompraModal } from './_components/RatearCompraModal';
 import { PayOptionsModal } from './_components/PayOptionsModal';
+import { NovaDespesaWizard } from './_components/NovaDespesaWizard';
 import { QuickAddCard } from './_components/QuickAddCard';
 import { CompráveisView } from './_components/CompraveisView';
 import { MonthlyExpenseView } from './_components/MonthlyExpenseView';
@@ -69,6 +70,8 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
   const [activeTab, setActiveTab] = useState<'despesas' | 'compraveis'>('despesas');
   const [formModalOpen, setFormModalOpen] = useState(false);
   const [payModalOpen, setPayModalOpen] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardMode, setWizardMode] = useState<'PLANEJAR' | 'PAGA'>('PLANEJAR');
   const [editing, setEditing] = useState<Expense | null>(null);
   const [ratearSource, setRatearSource] = useState<Expense | null>(null);
   const [formStatus, setFormStatus] = useState<'PLANEJADO' | 'PAGO'>('PLANEJADO');
@@ -489,41 +492,8 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
     setFormDataInicioParcela('');
   }
 
-  function openPlanForm() {
-    setFormStatus('PLANEJADO');
-    setEditing(null);
-    setTipoDespesa('');
-    setFormaPagamento('');
-    setValor('');
-    setQuantidade('1');
-    setFormTitulo('');
-    setFormFornecedor('');
-    setFormCategoriaMaoDeObra('');
-    setFormDataPagamento('');
-    setFormDataInicioParcela('');
-    setFormVinculos({ creditCardId: '', bankAccountId: '', linkedExpenseId: '', linkedParcelaIndex: null });
-    setFormModalOpen(true);
-  }
-
   function openPayOptions() {
     setPayModalOpen(true);
-  }
-
-  function openNewPaidForm() {
-    setPayModalOpen(false);
-    setFormStatus('PAGO');
-    setEditing(null);
-    setTipoDespesa('');
-    setFormaPagamento('');
-    setValor('');
-    setQuantidade('1');
-    setFormTitulo('');
-    setFormFornecedor('');
-    setFormCategoriaMaoDeObra('');
-    setFormDataPagamento('');
-    setFormDataInicioParcela('');
-    setFormVinculos({ creditCardId: '', bankAccountId: '', linkedExpenseId: '', linkedParcelaIndex: null });
-    setFormModalOpen(true);
   }
 
   function openEdit(expenseArg: Expense) {
@@ -1253,10 +1223,17 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
       <PayOptionsModal
         open={payModalOpen}
         onClose={() => setPayModalOpen(false)}
-        onOpenNewPaidForm={openNewPaidForm}
+        onOpenNewPaidForm={() => {
+          setPayModalOpen(false);
+          setEditing(null);
+          setWizardMode('PAGA');
+          setWizardOpen(true);
+        }}
         onOpenPlanForm={() => {
           setPayModalOpen(false);
-          openPlanForm();
+          setEditing(null);
+          setWizardMode('PLANEJAR');
+          setWizardOpen(true);
         }}
         onOpenVoiceModal={() => {
           setPayModalOpen(false);
@@ -1275,6 +1252,22 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
             }}
           />
         }
+      />
+
+      <NovaDespesaWizard
+        open={wizardOpen}
+        mode={wizardMode}
+        projectId={PROJECT_ID}
+        projectType={projectType}
+        allowRecorrente={isPersonal}
+        tipoOptions={formTipoOptions}
+        roomOptions={formRoomOptions}
+        showRooms={formShowRooms}
+        plannedExpenses={plannedExpenses}
+        onPay={(id) => payMutation.mutate(id)}
+        payDisabled={payMutation.isPending}
+        onClose={() => setWizardOpen(false)}
+        onCreated={() => invalidate()}
       />
 
       {/* Expense Form Modal */}
