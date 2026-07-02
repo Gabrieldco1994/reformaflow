@@ -48,6 +48,9 @@ export default function MonthView({
           value={fmtMoney(m.saldoAtual)}
           tone={m.saldoAtual >= 0 ? 'accent' : 'neg'}
           icon={<Wallet className="w-4 h-4" />}
+          info={m.caixaReal
+            ? `Saldo real da conta corrente hoje, reconciliado com o banco. O mês começou com ${fmtMoney(m.saldoInicial)}.`
+            : `Saldo estimado pelo fluxo (entradas − saídas). O mês começou com ${fmtMoney(m.saldoInicial)}. Cadastre o saldo inicial para reconciliar com o banco.`}
           context={m.caixaReal
             ? `Reconciliado com o banco · começou o mês com ${fmtMoney(m.saldoInicial)}`
             : `Começou o mês com ${fmtMoney(m.saldoInicial)}`}
@@ -57,6 +60,7 @@ export default function MonthView({
           value={fmtMoney(m.gasteiRealizado)}
           tone="neg"
           icon={<ArrowDownCircle className="w-4 h-4" />}
+          info={`Despesas já pagas neste mês (${fmtMoney(m.gasteiRealizado)})${m.gasteiPlanejado > 0 ? `. Ainda há ${fmtMoney(m.gasteiPlanejado)} planejado a pagar.` : '.'} Só conta o que já saiu de fato.`}
           context={m.gasteiPlanejado > 0 ? `+ ${fmtMoney(m.gasteiPlanejado)} planejado` : 'só pagamentos efetivados'}
         />
         <KpiCard
@@ -64,6 +68,7 @@ export default function MonthView({
           value={fmtMoney(m.entrouRealizado)}
           tone="pos"
           icon={<ArrowUpCircle className="w-4 h-4" />}
+          info={`Recebimentos já efetivados neste mês (${fmtMoney(m.entrouRealizado)})${m.entrouPrevisto > 0 ? `. Ainda há ${fmtMoney(m.entrouPrevisto)} previsto a receber.` : '.'}`}
           context={m.entrouPrevisto > 0 ? `+ ${fmtMoney(m.entrouPrevisto)} previsto` : 'recebimentos efetivados'}
         />
         <KpiCard
@@ -71,6 +76,7 @@ export default function MonthView({
           value={fmtMoney(projetado)}
           tone={projTone}
           icon={<Target className="w-4 h-4" />}
+          info={`Previsão de como o saldo termina o mês, projetando o ritmo de gasto de ${fmtMoney(ritmo)} por dia até o último dia. Ajuste o ritmo no controle abaixo.`}
           context={`no ritmo de ${fmtMoney(ritmo)}/dia`}
         />
       </div>

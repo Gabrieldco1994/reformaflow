@@ -52,24 +52,28 @@ export default function YearView({ data, year }: { data: MonthlyOverviewResponse
           value={fmtMoney(y.receitaAno)}
           tone="pos"
           icon={<ArrowUpCircle className="w-4 h-4" />}
+          info={`Tudo que entrou no ano de ${year} (recebimentos realizados, mês a mês).`}
         />
         <KpiCard
           label={`Despesa ${year}`}
           value={fmtMoney(y.despesaAno)}
           tone="neg"
           icon={<ArrowDownCircle className="w-4 h-4" />}
+          info={`Tudo que saiu no ano de ${year} (despesas realizadas, mês a mês).`}
         />
         <KpiCard
           label="Resultado do ano"
           value={fmtMoney(y.resultadoAno)}
           tone={y.resultadoAno >= 0 ? 'pos' : 'neg'}
           icon={<Scale className="w-4 h-4" />}
+          info={`Receita − despesa do ano. Positivo = você guardou; negativo = gastou mais do que recebeu.`}
         />
         <KpiCard
           label="Taxa de poupança"
           value={fmtPct(y.taxaPoupanca, 1)}
           tone={poupancaTone}
           icon={<PiggyBank className="w-4 h-4" />}
+          info={`Quanto do que entrou você conseguiu guardar (resultado ÷ receita). Referência saudável: ${y.metaPoupanca}%.`}
           context={`meta de referência: ${y.metaPoupanca}%`}
         />
       </div>

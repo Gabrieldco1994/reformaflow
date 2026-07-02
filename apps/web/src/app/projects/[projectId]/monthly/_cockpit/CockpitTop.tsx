@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import { Wallet, Scale, Target, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import type { MonthlyOverviewResponse } from '../_types';
 import { Card, type Tone } from './ui';
+import { InfoHint } from '@/components/InfoHint';
 import { fmtMoney, fmtPct, mesLongo } from './format';
 import { deriveCockpitTop } from './derive';
 
@@ -68,7 +69,7 @@ function Delta({ value, tone }: { value: string; tone: Tone }) {
 
 /** Card grande com valor, contexto, delta opcional e sparkline opcional. */
 function HeroCard({
-  label, value, tone, icon, hint, delta, spark,
+  label, value, tone, icon, hint, delta, spark, info,
 }: {
   label: string;
   value: string;
@@ -77,11 +78,15 @@ function HeroCard({
   hint?: React.ReactNode;
   delta?: { value: string; tone: Tone };
   spark?: number[];
+  info?: string;
 }) {
   return (
     <Card className="ck-enter flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-[10px] uppercase tracking-wider text-[var(--ck-muted)]">{label}</p>
+        <span className="flex items-center gap-1 min-w-0">
+          <p className="text-[10px] uppercase tracking-wider text-[var(--ck-muted)] truncate">{label}</p>
+          {info && <InfoHint text={info} className="text-[var(--ck-muted)]" />}
+        </span>
         <span className="text-[var(--ck-muted)]">{icon}</span>
       </div>
       <div className="flex items-end justify-between gap-2">
@@ -146,6 +151,11 @@ export default function CockpitTop({ data }: { data: MonthlyOverviewResponse }) 
           value={fmtMoney(t.caixaValor)}
           tone={caixaTone}
           icon={<Wallet className="w-4 h-4" />}
+          info={
+            t.caixaReal
+              ? 'Quanto você tem de fato na conta agora, reconciliado com o saldo do banco (saldo inicial + entradas − saídas realizadas). Compras no cartão só entram aqui quando a fatura é paga.'
+              : 'Resultado do fluxo realizado (entradas − saídas já efetivadas). Cadastre o saldo inicial da conta para ver o caixa real do banco.'
+          }
           delta={
             t.caixaDelta !== 0
               ? { value: `${t.caixaDelta > 0 ? '+' : ''}${fmtMoney(t.caixaDelta)} no mês`, tone: t.caixaDelta >= 0 ? 'pos' : 'neg' }
@@ -159,6 +169,7 @@ export default function CockpitTop({ data }: { data: MonthlyOverviewResponse }) 
           value={fmtMoney(t.resultadoMes)}
           tone={resultadoTone}
           icon={<Scale className="w-4 h-4" />}
+          info={`O que já aconteceu neste mês: recebimentos realizados (${fmtMoney(t.resultadoEntrou)}) menos despesas realizadas (${fmtMoney(t.resultadoGastou)}). Só conta o que já foi efetivamente pago/recebido — não inclui o que ainda está por vir.`}
           delta={
             t.resultadoDeltaPct != null
               ? { value: `${fmtPct(Math.abs(t.resultadoDeltaPct), 0)} vs mês anterior`, tone: t.resultadoDeltaPct >= 0 ? 'pos' : 'neg' }
@@ -171,6 +182,7 @@ export default function CockpitTop({ data }: { data: MonthlyOverviewResponse }) 
           value={fmtMoney(t.projecaoMes)}
           tone={projTone}
           icon={<Target className="w-4 h-4" />}
+          info={`Como o mês deve fechar: caixa de hoje + o que ainda falta receber (${fmtMoney(t.aReceberMes)}) − o que ainda falta pagar (${fmtMoney(t.aPagarMes)}). É uma previsão — inclui contas e faturas que ainda não saíram.`}
           hint={`a receber ${fmtMoney(t.aReceberMes)} · a pagar ${fmtMoney(t.aPagarMes)}`}
         />
       </div>

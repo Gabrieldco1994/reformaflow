@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
+import { InfoHint } from '@/components/InfoHint';
 import type { DreMensal } from '../_types';
 import { DreIcon } from './DreIcon';
 
@@ -60,8 +61,9 @@ export function DreMensalView({
         {eixo === 'competencia' ? (
           <>
             <article className={`rounded-2xl border p-4 ${resultadoTone}`}>
-              <p className="text-[11px] uppercase tracking-[0.16em] font-semibold">
+              <p className="flex items-center gap-1 text-[11px] uppercase tracking-[0.16em] font-semibold">
                 resultado de {data.mes}
+                <InfoHint text="Resultado do mês por competência: o que entrou menos o que saiu (e foi guardado), pela data dos lançamentos. Positivo = sobrou; negativo = faltou." />
               </p>
               <p className="mt-2 text-[22px] font-bold leading-none">
                 {formatCurrency(data.resultado / 100)}
@@ -71,16 +73,18 @@ export function DreMensalView({
 
             <div className="grid grid-cols-2 gap-3">
               <article className="rounded-2xl border border-[#BFE9DA] bg-[#E1F5EE] p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#1D9E75]">
+                <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#1D9E75]">
                   entrou
+                  <InfoHint text="Total que entrou no mês por competência (receitas lançadas neste mês)." className="text-[#1D9E75]" />
                 </p>
                 <p className="mt-2 text-base font-bold text-[#1D9E75]">
                   {formatCurrency(data.totalEntrou / 100)}
                 </p>
               </article>
               <article className="rounded-2xl border border-[#F3D0D0] bg-[#FCEBEB] p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#D85A30]">
+                <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#D85A30]">
                   saiu + guardou
+                  <InfoHint text="Total que saiu no mês (despesas) somado ao que foi guardado/reservado, por competência." className="text-[#D85A30]" />
                 </p>
                 <p className="mt-2 text-base font-bold text-[#D85A30]">
                   {formatCurrency(data.totalSaiuMaisGuardou / 100)}
@@ -91,8 +95,9 @@ export function DreMensalView({
         ) : (
           <>
             <article className="rounded-2xl border border-[#BFE9DA] bg-[#E1F5EE] p-4">
-              <p className="text-[11px] uppercase tracking-[0.16em] font-semibold text-[#1D9E75]">
+              <p className="flex items-center gap-1 text-[11px] uppercase tracking-[0.16em] font-semibold text-[#1D9E75]">
                 tenho na conta hoje
+                <InfoHint text="O dinheiro disponível de verdade na conta agora, reconciliado com o banco." className="text-[#1D9E75]" />
               </p>
               <p className="mt-2 text-[22px] font-bold leading-none text-[#1D9E75]">
                 {formatCurrency(data.contaCorrente.caixaHoje / 100)}
@@ -103,16 +108,18 @@ export function DreMensalView({
             </article>
             <div className="grid grid-cols-2 gap-3">
               <article className="rounded-2xl border border-[#BFE9DA] bg-[#E1F5EE] p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#1D9E75]">
+                <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#1D9E75]">
                   entrou no mês
+                  <InfoHint text="Recebimentos que já caíram na conta neste mês (eixo caixa)." className="text-[#1D9E75]" />
                 </p>
                 <p className="mt-2 text-base font-bold text-[#1D9E75]">
                   {formatCurrency(data.contaCorrente.entrouMes / 100)}
                 </p>
               </article>
               <article className="rounded-2xl border border-[#F3D0D0] bg-[#FCEBEB] p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#D85A30]">
+                <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#D85A30]">
                   saiu no mês
+                  <InfoHint text="Pagamentos que já saíram da conta neste mês (eixo caixa)." className="text-[#D85A30]" />
                 </p>
                 <p className="mt-2 text-base font-bold text-[#D85A30]">
                   {formatCurrency(data.contaCorrente.saiuMes / 100)}
@@ -120,8 +127,9 @@ export function DreMensalView({
               </article>
             </div>
             <article className="rounded-2xl border border-[#EFD9B6] bg-[#FAEEDA] p-3">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#BA7517]">
+              <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#BA7517]">
                 recebimentos previstos
+                <InfoHint text="O que ainda deve entrar na conta até o fim do mês (recebimentos previstos, não confirmados)." className="text-[#BA7517]" />
               </p>
               <p className="mt-2 text-base font-bold text-[#BA7517]">
                 {formatCurrency(data.contaCorrente.recebimentosPrevistosMes / 100)}
@@ -129,8 +137,9 @@ export function DreMensalView({
             </article>
             <div className="grid grid-cols-2 gap-3">
               <article className="rounded-2xl border border-[#EFD9B6] bg-[#FAEEDA] p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#BA7517]">
+                <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#BA7517]">
                   ainda falta pagar
+                  <InfoHint text="O que ainda vai sair da conta até o fim do mês: faturas de cartão e contas em aberto." className="text-[#BA7517]" />
                 </p>
                 <p className="mt-2 text-base font-bold text-[#BA7517]">
                   {formatCurrency(data.contaCorrente.faltaPagarMes / 100)}
@@ -144,11 +153,12 @@ export function DreMensalView({
                 }`}
               >
                 <p
-                  className={`text-[11px] font-semibold uppercase tracking-[0.12em] ${
+                  className={`flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${
                     data.contaCorrente.sobraPrevista >= 0 ? 'text-[#1D9E75]' : 'text-[#D85A30]'
                   }`}
                 >
                   sobra prevista
+                  <InfoHint text="Previsão do saldo no fim do mês: caixa hoje − o que falta pagar + recebimentos previstos. Negativo = a conta deve fechar no vermelho." />
                 </p>
                 <p
                   className={`mt-2 text-base font-bold ${
