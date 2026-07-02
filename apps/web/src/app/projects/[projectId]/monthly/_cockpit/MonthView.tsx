@@ -7,7 +7,6 @@ import type { MonthlyOverviewResponse, MonthlyEntry } from '../_types';
 import { Card } from './ui';
 import { fmtMoney } from './format';
 import { deriveMonth, buildSaldoSeries, saldoProjetado, buildComprometimentoFuturo } from './derive';
-import Recomendacoes from './Recomendacoes';
 import CategoriasBarras from './CategoriasBarras';
 import SaudeFinanceira from './SaudeFinanceira';
 import ComprometimentoFuturo from './ComprometimentoFuturo';
@@ -89,10 +88,9 @@ export default function MonthView({
       </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Recomendacoes m={m} saldoProjetadoVal={projetado} />
+        <CategoriasBarras categorias={m.categorias} hint="mês atual" />
         <div className="space-y-4">
           <ComprometimentoFuturo rows={comprometimento} />
-          <CategoriasBarras categorias={m.categorias} hint="mês atual" />
           <SaudeFinanceira m={m} />
         </div>
       </div>
