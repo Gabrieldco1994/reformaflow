@@ -1,5 +1,6 @@
 'use client';
 import { formatCurrency } from '@/lib/utils';
+import { moneyShort } from '@/lib/money';
 import { InfoHint } from '@/components/InfoHint';
 import type { ExpenseEixo } from './ExpenseEixoToggle';
 
@@ -24,7 +25,10 @@ function Stat({ label, value, dot, info }: { label: string; value: number; dot: 
         <p className="truncate text-[11px] font-semibold uppercase tracking-wide text-darc-velvet/60 md:text-xs">{label}</p>
         {info && <InfoHint text={info} className="text-darc-velvet/50" />}
       </div>
-      <p className="mt-2 truncate text-base font-bold leading-tight tabular-nums text-darc-velvet md:text-2xl">{formatCurrency(value / 100)}</p>
+      <p className="mt-2 text-base font-bold leading-tight tabular-nums text-darc-velvet md:text-2xl">
+        <span className="md:hidden">{moneyShort(value)}</span>
+        <span className="hidden md:inline">{formatCurrency(value / 100)}</span>
+      </p>
     </div>
   );
 }
