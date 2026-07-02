@@ -70,7 +70,7 @@ function Delta({ value, tone }: { value: string; tone: Tone }) {
 
 /** Card grande com valor, contexto, delta opcional e sparkline opcional. */
 function HeroCard({
-  label, value, tone, icon, hint, delta, spark, info,
+  label, value, tone, icon, hint, delta, spark, info, emphasis = false,
 }: {
   label: string;
   value: string;
@@ -80,6 +80,8 @@ function HeroCard({
   delta?: { value: string; tone: Tone };
   spark?: number[];
   info?: string;
+  /** Realça o valor no mobile (KPI hero principal, ~30px). Desktop inalterado. */
+  emphasis?: boolean;
 }) {
   return (
     <Card className="ck-enter flex flex-col gap-2">
@@ -91,7 +93,7 @@ function HeroCard({
         <span className="text-[var(--ck-muted)]">{icon}</span>
       </div>
       <div className="flex items-end justify-between gap-2">
-        <p className={`font-geist tabular-nums font-bold text-2xl md:text-[26px] leading-none ${TONE_TEXT[tone]}`}>
+        <p className={`font-geist tabular-nums font-bold ${emphasis ? 'text-[30px]' : 'text-2xl'} md:text-[26px] leading-none ${TONE_TEXT[tone]}`}>
           {value}
         </p>
         {delta && <Delta value={delta.value} tone={delta.tone} />}
@@ -179,6 +181,7 @@ export default function CockpitTop({
           label={t.caixaReal ? 'Caixa (conta corrente)' : 'Resultado realizado'}
           value={fmtMoney(t.caixaValor)}
           tone={caixaTone}
+          emphasis
           icon={<Wallet className="w-4 h-4" />}
           info={
             t.caixaReal
