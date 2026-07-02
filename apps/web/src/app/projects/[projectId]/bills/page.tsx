@@ -308,8 +308,8 @@ function RecorrentesContent({
           <p className="text-gray-400 text-sm mt-1">Adicione suas contas recorrentes (luz, água, internet...)</p>
         </div>
       ) : (
-        <div className="bg-white rounded-xl border overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="bg-white rounded-xl border overflow-x-auto">
+          <table className="w-full min-w-[720px] text-sm">
             <thead className="bg-gray-50">
               <tr>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Conta</th>
