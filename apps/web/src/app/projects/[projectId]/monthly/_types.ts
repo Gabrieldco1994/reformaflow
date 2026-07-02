@@ -37,6 +37,8 @@ export interface MonthlyEntry {
   projectType: string;
   /** Últimos 4 dígitos do cartão de origem (null = débito de conta). */
   cardLast4?: string | null;
+  /** Últimos 4 dígitos da conta bancária de origem (débito/PIX). */
+  bankLast4?: string | null;
   /** Despesa PESSOAL vinculada a outro projeto (espelho). Conta no PESSOAL-only; dedup no consolidado. */
   isEspelho?: boolean;
 }

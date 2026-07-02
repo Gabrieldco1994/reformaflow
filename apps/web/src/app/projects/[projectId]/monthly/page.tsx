@@ -12,6 +12,7 @@ import { COCKPIT_THEME } from './_cockpit/ui';
 import { anosDisponiveis, buildCaixaData } from './_cockpit/derive';
 import CockpitTop from './_cockpit/CockpitTop';
 import MonthView from './_cockpit/MonthView';
+import MonthKpis from './_cockpit/MonthKpis';
 import ExtratoGeral from './_cockpit/ExtratoGeral';
 import YearView from './_cockpit/YearView';
 import EixoToggle, { type Eixo } from './_cockpit/EixoToggle';
@@ -168,7 +169,12 @@ export default function CockpitPage() {
 
       {viewData && !isLoading && <CockpitTop data={viewData} />}
 
-      {viewData && !isLoading && view === 'mes' && <SaldosWidget projectId={projectId} />}
+      {viewData && !isLoading && view === 'mes' && eixo !== 'geral' && (
+        <>
+          <MonthKpis data={viewData} monthKey={monthKey} entries={monthEntries} />
+          <SaldosWidget projectId={projectId} entries={monthEntries ?? []} eixo={eixo} />
+        </>
+      )}
 
       {isLoading && (
         <div className="space-y-4 animate-pulse">

@@ -2,19 +2,22 @@
 
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { CreditCard, Landmark } from 'lucide-react';
 import { api } from '@/lib/api';
 import { pickCardGradient, MiniCardChip } from '@/components/CreditCardVisual';
+import type { MonthlyEntry } from '../_types';
+import type { Eixo } from './EixoToggle';
 import { fmtMoneyExact } from './format';
 import { Card } from './ui';
+import { spendByOrigin } from './spend-by-origin';
 
 interface BankAccountBalance {
   id: string;
   institution: string;
   nickname: string | null;
   last4: string;
-  balanceCents?: number;
 }
 
 interface CreditCardBalance {
@@ -23,15 +26,6 @@ interface CreditCardBalance {
   brand: string;
   nickname: string | null;
   last4: string;
-  limitTotalCents: number | null;
-  limitAvailableCents: number | null;
-  limitUsedCents?: number;
-  limitAvailableComputedCents?: number;
-  limitUsagePercent?: number;
-}
-
-function clampPercent(value: number): number {
-  return Math.max(0, Math.min(100, value));
 }
 
 function accountName(account: BankAccountBalance): string {
@@ -58,7 +52,7 @@ function SectionHeader({ href, icon, title }: { href: string; icon: ReactNode; t
 
 function LoadingSkeleton() {
   return (
-    <Card title="Saldos" hint="contas e cartões" className="ck-enter mb-5">
+    <Card title="Quanto gastei" hint="por cartão e conta" className="ck-enter mb-5">
       <div className="grid gap-4 md:grid-cols-2">
         {[0, 1].map((group) => (
           <div key={group} className="space-y-2 animate-pulse">
@@ -73,7 +67,15 @@ function LoadingSkeleton() {
   );
 }
 
-export default function SaldosWidget({ projectId }: { projectId: string }) {
+export default function SaldosWidget({
+  projectId,
+  entries,
+  eixo,
+}: {
+  projectId: string;
+  entries: MonthlyEntry[];
+  eixo: Eixo;
+}) {
   const bankAccounts = useQuery<BankAccountBalance[]>({
     queryKey: ['bank-accounts', projectId],
     queryFn: () => api.get(`/projects/${projectId}/bank-accounts`),
@@ -86,53 +88,47 @@ export default function SaldosWidget({ projectId }: { projectId: string }) {
     enabled: !!projectId,
   });
 
-  const accounts = bankAccounts.data ?? [];
-  const cards = creditCards.data ?? [];
-  const visibleAccounts = accounts.slice(0, 3);
-  const visibleCards = cards.slice(0, 3);
-  const showAccounts = visibleAccounts.length > 0;
-  const showCards = visibleCards.length > 0;
-  const loading = bankAccounts.isLoading || creditCards.isLoading;
+  const spend = useMemo(() => spendByOrigin(entries), [entries]);
 
+  const cardRows = useMemo(() => {
+    const cards = creditCards.data ?? [];
+    return cards
+      .map((c) => ({ card: c, gasto: spend.cards.get(c.last4) ?? 0 }))
+      .filter((r) => r.gasto > 0)
+      .sort((a, b) => b.gasto - a.gasto);
+  }, [creditCards.data, spend]);
+
+  const accountRows = useMemo(() => {
+    const accounts = bankAccounts.data ?? [];
+    return accounts
+      .map((a) => ({ account: a, gasto: spend.accounts.get(a.last4) ?? 0 }))
+      .filter((r) => r.gasto > 0)
+      .sort((a, b) => b.gasto - a.gasto);
+  }, [bankAccounts.data, spend]);
+
+  const loading = bankAccounts.isLoading || creditCards.isLoading;
   if (loading) return <LoadingSkeleton />;
-  if (!showAccounts && !showCards) return null;
+
+  const showAccounts = accountRows.length > 0;
+  const showCards = cardRows.length > 0;
+  const hint = eixo === 'caixa' ? 'no mês, por vencimento' : 'no mês, por compra';
+
+  if (!showAccounts && !showCards) {
+    return (
+      <Card title="Quanto gastei" hint={hint} className="ck-enter mb-5">
+        <p className="text-[13px] text-[var(--ck-muted)]">Nenhum gasto por cartão ou conta neste mês.</p>
+      </Card>
+    );
+  }
 
   return (
-    <Card title="Saldos" hint="contas e cartões" className="ck-enter mb-5">
+    <Card
+      title="Quanto gastei"
+      hint={hint}
+      info="Quanto foi gasto neste mês em cada cartão e conta, respeitando o filtro de mês e o eixo selecionado (Gastei = por compra; Vai sair = por vencimento). Pagamento de fatura não conta (não é consumo)."
+      className="ck-enter mb-5"
+    >
       <div className="grid gap-4 lg:grid-cols-2">
-        {showAccounts && (
-          <section className="space-y-2">
-            <SectionHeader
-              href={`/projects/${projectId}/bank-accounts`}
-              icon={<Landmark className="w-3.5 h-3.5" />}
-              title="Contas"
-            />
-            <div className="space-y-1.5">
-              {visibleAccounts.map((account) => {
-                const balanceCents = account.balanceCents ?? 0;
-                const toneClass = balanceCents >= 0 ? 'text-[var(--ck-pos)]' : 'text-[var(--ck-neg)]';
-
-                return (
-                  <div
-                    key={account.id}
-                    className="flex items-center justify-between gap-3 rounded-xl border border-[var(--ck-border)] bg-[var(--ck-surface-2)]/55 px-3 py-2"
-                  >
-                    <span className="min-w-0 truncate text-xs text-[var(--ck-text)]">
-                      {accountName(account)} <span className="text-[var(--ck-muted)]">••{account.last4}</span>
-                    </span>
-                    <span className={`shrink-0 font-geist tabular-nums text-xs font-bold tabular-nums ${toneClass}`}>
-                      {fmtMoneyExact(balanceCents)}
-                    </span>
-                  </div>
-                );
-              })}
-              {accounts.length > visibleAccounts.length && (
-                <p className="text-[11px] text-[var(--ck-muted)]">+{accounts.length - visibleAccounts.length} contas em ver</p>
-              )}
-            </div>
-          </section>
-        )}
-
         {showCards && (
           <section className="space-y-2">
             <SectionHeader
@@ -141,61 +137,53 @@ export default function SaldosWidget({ projectId }: { projectId: string }) {
               title="Cartões"
             />
             <div className="space-y-2">
-              {visibleCards.map((card) => {
-                const limitTotalCents = card.limitTotalCents;
-                const usedCents = card.limitUsedCents;
-                const availableCents = card.limitAvailableComputedCents ?? card.limitAvailableCents;
-                const usagePercent = card.limitUsagePercent;
-                const canShowUsage = limitTotalCents != null && usedCents != null && usagePercent != null;
-                const pct = canShowUsage ? clampPercent(usagePercent) : 0;
+              {cardRows.map(({ card, gasto }) => (
+                <div
+                  key={card.id}
+                  className="relative flex items-center justify-between gap-3 overflow-hidden rounded-xl px-3 py-2.5 text-white shadow-lifeone-card"
+                  style={{ backgroundImage: pickCardGradient(card.last4) }}
+                >
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute inset-0"
+                    style={{ background: 'radial-gradient(120% 80% at 85% 10%, rgba(255,255,255,.16), transparent 55%)' }}
+                  />
+                  <span className="relative flex min-w-0 items-center gap-2">
+                    <MiniCardChip />
+                    <span className="min-w-0 truncate text-xs font-medium text-white/90">
+                      {cardName(card)} <span className="text-white/55">••{card.last4}</span>
+                    </span>
+                  </span>
+                  <span className="relative shrink-0 font-geist tabular-nums text-sm font-bold">
+                    {fmtMoneyExact(gasto)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
-                return (
-                  <div
-                    key={card.id}
-                    className="relative overflow-hidden rounded-xl px-3 py-2.5 text-white shadow-lifeone-card"
-                    style={{ backgroundImage: pickCardGradient(card.last4) }}
-                  >
-                    <span
-                      aria-hidden
-                      className="pointer-events-none absolute inset-0"
-                      style={{ background: 'radial-gradient(120% 80% at 85% 10%, rgba(255,255,255,.16), transparent 55%)' }}
-                    />
-                    <div className="relative mb-1.5 flex items-center justify-between gap-3">
-                      <span className="flex min-w-0 items-center gap-2">
-                        <MiniCardChip />
-                        <span className="min-w-0 truncate text-xs font-medium text-white/90">
-                          {cardName(card)} <span className="text-white/55">••{card.last4}</span>
-                        </span>
-                      </span>
-                      {canShowUsage ? (
-                        <span className="shrink-0 font-geist tabular-nums text-[11px] font-semibold text-white/80">
-                          {fmtMoneyExact(usedCents)} / {fmtMoneyExact(limitTotalCents)}
-                        </span>
-                      ) : limitTotalCents != null ? (
-                        <span className="shrink-0 font-geist tabular-nums text-[11px] font-semibold text-white/80">
-                          limite {fmtMoneyExact(limitTotalCents)}
-                        </span>
-                      ) : null}
-                    </div>
-                    {canShowUsage ? (
-                      <div className="relative">
-                        <div className="h-1.5 overflow-hidden rounded-full bg-white/20">
-                          <div className="h-full rounded-full bg-white" style={{ width: `${pct}%` }} />
-                        </div>
-                        <div className="mt-1 flex justify-between gap-2 text-[10px] text-white/70">
-                          <span>{pct}% usado</span>
-                          {availableCents != null && <span>disp. {fmtMoneyExact(availableCents)}</span>}
-                        </div>
-                      </div>
-                    ) : availableCents != null ? (
-                      <p className="relative text-[10px] text-white/70">disponível {fmtMoneyExact(availableCents)}</p>
-                    ) : null}
-                  </div>
-                );
-              })}
-              {cards.length > visibleCards.length && (
-                <p className="text-[11px] text-[var(--ck-muted)]">+{cards.length - visibleCards.length} cartões em ver</p>
-              )}
+        {showAccounts && (
+          <section className="space-y-2">
+            <SectionHeader
+              href={`/projects/${projectId}/bank-accounts`}
+              icon={<Landmark className="w-3.5 h-3.5" />}
+              title="Contas"
+            />
+            <div className="space-y-1.5">
+              {accountRows.map(({ account, gasto }) => (
+                <div
+                  key={account.id}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-[var(--ck-border)] bg-[var(--ck-surface-2)]/55 px-3 py-2.5"
+                >
+                  <span className="min-w-0 truncate text-xs text-[var(--ck-text)]">
+                    {accountName(account)} <span className="text-[var(--ck-muted)]">••{account.last4}</span>
+                  </span>
+                  <span className="shrink-0 font-geist tabular-nums text-sm font-bold text-[var(--ck-neg)]">
+                    {fmtMoneyExact(gasto)}
+                  </span>
+                </div>
+              ))}
             </div>
           </section>
         )}
