@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { Wallet, ArrowUpCircle, ArrowDownCircle, Target, SlidersHorizontal } from 'lucide-react';
+import { ArrowUpCircle, ArrowDownCircle, SlidersHorizontal } from 'lucide-react';
 import type { MonthlyOverviewResponse, MonthlyEntry } from '../_types';
 import { KpiCard, Card } from './ui';
 import { fmtMoney } from './format';
@@ -42,42 +42,22 @@ export default function MonthView({
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 gap-3">
         <KpiCard
-          label={m.caixaReal ? 'Caixa na conta' : 'Saldo atual'}
-          value={fmtMoney(m.saldoAtual)}
-          tone={m.saldoAtual >= 0 ? 'accent' : 'neg'}
-          icon={<Wallet className="w-4 h-4" />}
-          info={m.caixaReal
-            ? `Saldo real da conta corrente hoje, reconciliado com o banco. O mês começou com ${fmtMoney(m.saldoInicial)}.`
-            : `Saldo estimado pelo fluxo (entradas − saídas). O mês começou com ${fmtMoney(m.saldoInicial)}. Cadastre o saldo inicial para reconciliar com o banco.`}
-          context={m.caixaReal
-            ? `Reconciliado com o banco · começou o mês com ${fmtMoney(m.saldoInicial)}`
-            : `Começou o mês com ${fmtMoney(m.saldoInicial)}`}
+          label="Entrou no mês"
+          value={fmtMoney(m.entrouRealizado)}
+          tone="pos"
+          icon={<ArrowUpCircle className="w-4 h-4" />}
+          info={`Recebimentos já efetivados neste mês (${fmtMoney(m.entrouRealizado)})${m.entrouPrevisto > 0 ? `. Ainda há ${fmtMoney(m.entrouPrevisto)} previsto a receber.` : '.'} Faz parte do "Resultado do mês" lá em cima.`}
+          context={m.entrouPrevisto > 0 ? `+ ${fmtMoney(m.entrouPrevisto)} previsto` : 'recebimentos efetivados'}
         />
         <KpiCard
           label="Gastei no mês"
           value={fmtMoney(m.gasteiRealizado)}
           tone="neg"
           icon={<ArrowDownCircle className="w-4 h-4" />}
-          info={`Despesas já pagas neste mês (${fmtMoney(m.gasteiRealizado)})${m.gasteiPlanejado > 0 ? `. Ainda há ${fmtMoney(m.gasteiPlanejado)} planejado a pagar.` : '.'} Só conta o que já saiu de fato.`}
+          info={`Despesas já pagas neste mês (${fmtMoney(m.gasteiRealizado)})${m.gasteiPlanejado > 0 ? `. Ainda há ${fmtMoney(m.gasteiPlanejado)} planejado a pagar.` : '.'} Faz parte do "Resultado do mês" lá em cima.`}
           context={m.gasteiPlanejado > 0 ? `+ ${fmtMoney(m.gasteiPlanejado)} planejado` : 'só pagamentos efetivados'}
-        />
-        <KpiCard
-          label="Entrou no mês"
-          value={fmtMoney(m.entrouRealizado)}
-          tone="pos"
-          icon={<ArrowUpCircle className="w-4 h-4" />}
-          info={`Recebimentos já efetivados neste mês (${fmtMoney(m.entrouRealizado)})${m.entrouPrevisto > 0 ? `. Ainda há ${fmtMoney(m.entrouPrevisto)} previsto a receber.` : '.'}`}
-          context={m.entrouPrevisto > 0 ? `+ ${fmtMoney(m.entrouPrevisto)} previsto` : 'recebimentos efetivados'}
-        />
-        <KpiCard
-          label="Saldo projetado (fim do mês)"
-          value={fmtMoney(projetado)}
-          tone={projTone}
-          icon={<Target className="w-4 h-4" />}
-          info={`Previsão de como o saldo termina o mês, projetando o ritmo de gasto de ${fmtMoney(ritmo)} por dia até o último dia. Ajuste o ritmo no controle abaixo.`}
-          context={`no ritmo de ${fmtMoney(ritmo)}/dia`}
         />
       </div>
 
@@ -115,6 +95,14 @@ export default function MonthView({
               média atual ({fmtMoney(m.ritmoDiario)})
             </button>
             <span>{fmtMoney(maxRitmo)}</span>
+          </div>
+          <div className="mt-3 flex items-center justify-between gap-2 border-t border-[var(--ck-border)] pt-3">
+            <span className="text-[11px] uppercase tracking-wider text-[var(--ck-muted)]">
+              Se manter esse ritmo, termina o mês com
+            </span>
+            <span className={`font-geist tabular-nums text-lg font-bold ${projTone === 'pos' ? 'text-[var(--ck-pos)]' : 'text-[var(--ck-neg)]'}`}>
+              {fmtMoney(projetado)}
+            </span>
           </div>
         </div>
       </Card>
