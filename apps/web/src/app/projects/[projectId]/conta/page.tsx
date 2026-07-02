@@ -1,11 +1,13 @@
 'use client';
 
 import { useParams } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { Landmark, ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
+import type { Expense } from '@/types';
 import { currentMonthKey, monthLabelLong } from './_lib';
 import { ContaMonthPicker } from './_components/ContaMonthPicker';
 import { ResumoCards, type ResumoQuickFilterKey } from './_components/ResumoCards';
@@ -15,7 +17,8 @@ import { PagarFaturaDialog } from './_components/PagarFaturaDialog';
 import { TicketMedioSection } from './_components/TicketMedioSection';
 import { FaturasAnuaisChart } from './_components/FaturasAnuaisChart';
 import { DespesasRelacionadas } from './_components/DespesasRelacionadas';
-import { DespesaModal } from './_components/DespesaModal';
+import { NovaDespesaWizard } from '../expenses/_components/NovaDespesaWizard';
+import { getExpenseOptions } from '../expenses/_types';
 import { ReceitaModal } from './_components/ReceitaModal';
 import type {
   AccountViewResponse,
@@ -62,6 +65,31 @@ export default function ContaPage() {
       : `${selectedMonth}-01`;
 
   const selectedYear = selectedMonth.slice(0, 4);
+
+  const queryClient = useQueryClient();
+  const tipoOptions = useMemo(() => getExpenseOptions('PESSOAL'), []);
+
+  const invalidateConta = () => {
+    for (const key of ['account-view', 'expenses', 'cash-flow', 'dashboard', 'cross-project-expenses']) {
+      queryClient.invalidateQueries({ queryKey: [key, projectId] });
+    }
+  };
+
+  const { data: plannedExpenses = [] } = useQuery<Expense[]>({
+    queryKey: ['expenses', projectId, 'planned'],
+    queryFn: () => api.get(`/projects/${projectId}/expenses/planned`),
+    enabled: !!projectId && novaDespesaOpen,
+  });
+
+  const payMutation = useMutation({
+    mutationFn: (id: string) => api.post(`/projects/${projectId}/expenses/${id}/pay`, {}),
+    onSuccess: () => {
+      toast.success('Despesa paga');
+      invalidateConta();
+      setNovaDespesaOpen(false);
+    },
+    onError: (e: Error) => toast.error(`Erro ao pagar despesa: ${e.message}`),
+  });
 
   const { data, isLoading, error } = useQuery<AccountViewResponse>({
     queryKey: ['account-view', projectId, selectedMonth],
@@ -249,11 +277,20 @@ export default function ContaPage() {
         );
       })()}
 
-      <DespesaModal
+      <NovaDespesaWizard
         open={novaDespesaOpen}
-        onClose={() => setNovaDespesaOpen(false)}
+        mode="PAGA"
         projectId={projectId}
-        defaultData={defaultLancamentoData}
+        projectType="PESSOAL"
+        allowRecorrente
+        tipoOptions={tipoOptions}
+        roomOptions={[]}
+        showRooms={false}
+        plannedExpenses={plannedExpenses}
+        onPay={(id) => payMutation.mutate(id)}
+        payDisabled={payMutation.isPending}
+        onClose={() => setNovaDespesaOpen(false)}
+        onCreated={invalidateConta}
       />
       <ReceitaModal
         open={novaReceitaOpen}

@@ -1239,9 +1239,6 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
           setPayModalOpen(false);
           openVoiceModal();
         }}
-        plannedExpenses={plannedExpenses}
-        onPay={(id) => payMutation.mutate(id)}
-        payDisabled={payMutation.isPending}
         importSlot={
           <ImportLauncher
             projectId={PROJECT_ID}
