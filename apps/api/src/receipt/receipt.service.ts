@@ -9,12 +9,7 @@ export class ReceiptService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(tenantId: string, projectId: string, dto: CreateReceiptDto) {
-    const project = await this.validateProject(tenantId, projectId);
-    const defaultBankLast4 = await this.resolveDefaultBankLast4ForProject(
-      tenantId,
-      projectId,
-      project.type,
-    );
+    await this.validateProject(tenantId, projectId);
 
     return this.prisma.$transaction(async (tx) => {
       const receipt = await tx.receipt.create({
@@ -25,7 +20,6 @@ export class ReceiptService {
           data: new Date(dto.data),
           tipo: dto.tipo,
           status: dto.status,
-          bankLast4: defaultBankLast4 ?? undefined,
         },
       });
 
@@ -60,18 +54,12 @@ export class ReceiptService {
     id: string,
     dto: UpdateReceiptDto,
   ) {
-    const project = await this.validateProject(tenantId, projectId);
+    await this.validateProject(tenantId, projectId);
 
     const existing = await this.prisma.receipt.findFirst({
       where: { id, projectId, tenantId },
     });
     if (!existing) throw new NotFoundException('Recebimento não encontrado');
-    const shouldBackfillBankLast4 =
-      !existing.bankLast4 &&
-      (dto.status === undefined || dto.status === 'EM_CAIXA' || dto.status === 'PREVISTO');
-    const defaultBankLast4 = shouldBackfillBankLast4
-      ? await this.resolveDefaultBankLast4ForProject(tenantId, projectId, project.type)
-      : null;
 
     return this.prisma.$transaction(async (tx) => {
       const receipt = await tx.receipt.update({
@@ -81,7 +69,6 @@ export class ReceiptService {
           ...(dto.data !== undefined && { data: new Date(dto.data) }),
           ...(dto.tipo !== undefined && { tipo: dto.tipo }),
           ...(dto.status !== undefined && { status: dto.status }),
-          ...(defaultBankLast4 ? { bankLast4: defaultBankLast4 } : {}),
         },
       });
 
@@ -148,47 +135,7 @@ export class ReceiptService {
   private async validateProject(tenantId: string, projectId: string) {
     const project = await this.prisma.project.findFirst({
       where: { id: projectId, tenantId },
-      select: { id: true, type: true },
     });
     if (!project) throw new NotFoundException('Projeto não encontrado');
-    return project;
-  }
-
-  private async resolveDefaultBankLast4ForProject(
-    tenantId: string,
-    projectId: string,
-    projectType: string,
-  ): Promise<string | null> {
-    // Recebimentos de PESSOAL alimentam a visão de caixa; em projetos não-pessoais
-    // não inferimos conta padrão automaticamente.
-    if (projectType !== 'PESSOAL') return null;
-
-    const accounts = await this.prisma.bankAccount.findMany({
-      where: { tenantId, projectId, deletedAt: null },
-      select: { last4: true, nickname: true, institution: true },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-    });
-    if (accounts.length === 0) return null;
-
-    const normalized = (v: string | null | undefined) =>
-      (v ?? '')
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .toLowerCase();
-
-    const preferred3636 = accounts.find(
-      (a) =>
-        a.last4 === '3636' &&
-        (normalized(a.institution).includes('itau') || normalized(a.nickname).includes('itau')),
-    );
-    if (preferred3636?.last4) return preferred3636.last4;
-
-    const anyItau = accounts.find(
-      (a) =>
-        normalized(a.institution).includes('itau') || normalized(a.nickname).includes('itau'),
-    );
-    if (anyItau?.last4) return anyItau.last4;
-
-    return accounts.find((a) => !!a.last4)?.last4 ?? null;
   }
 }
