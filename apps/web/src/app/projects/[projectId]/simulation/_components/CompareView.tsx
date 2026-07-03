@@ -145,7 +145,8 @@ export function CompareView({
             <div className="px-3 py-2 bg-green-50 text-green-800">
               <h3 className="font-semibold text-sm">Recebimentos — Comparação</h3>
             </div>
-            <table className="w-full text-xs">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[480px] text-xs">
               <thead className="bg-gray-50 border-b">
                 <tr>
                   <th className="text-left px-3 py-1.5 font-medium text-gray-600">Tipo</th>
@@ -176,6 +177,7 @@ export function CompareView({
                 })}
               </tbody>
             </table>
+            </div>
           </div>
 
           {/* Despesas comparison by ambiente */}
@@ -183,7 +185,8 @@ export function CompareView({
             <div className="px-3 py-2 bg-orange-50 text-orange-800">
               <h3 className="font-semibold text-sm">Despesas por Ambiente — Comparação</h3>
             </div>
-            <table className="w-full text-xs">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[480px] text-xs">
               <thead className="bg-gray-50 border-b">
                 <tr>
                   <th className="text-left px-3 py-1.5 font-medium text-gray-600">Ambiente / Tipo</th>
@@ -235,6 +238,7 @@ export function CompareView({
                 })}
               </tbody>
             </table>
+            </div>
           </div>
         </>
       )}
