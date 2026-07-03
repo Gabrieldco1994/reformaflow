@@ -606,9 +606,10 @@ describe('ExpenseService', () => {
     });
   });
 
-  describe('conciliarParcela — realValor default (regressão: fonte parcelada)', () => {
-    it('sem realValor, usa o valor da PARCELA da fonte (não o valorTotal)', async () => {
-      // Fonte parcelada 6x, total R$ 2.909,34 → cada parcela R$ 484,89.
+  describe('conciliarParcela — realValor default (P4: valorTotal do espelho)', () => {
+    it('sem realValor, usa o valorTotal do ESPELHO (source), não o slice da parcela', async () => {
+      // P4/I10: o espelho representa o pagamento efetivo; o override do alvo deve
+      // CASAR com o valorTotal do espelho no caixa PESSOAL.
       prisma.expense.findFirst.mockResolvedValue({
         id: 'src-1',
         projectId,
@@ -632,7 +633,7 @@ describe('ExpenseService', () => {
 
       expect(spy).toHaveBeenCalledTimes(1);
       const arg = spy.mock.calls[0][1];
-      expect(arg.realValor).toBe(48489); // valor da parcela, NÃO 290934 (total)
+      expect(arg.realValor).toBe(290934); // valorTotal do espelho
       spy.mockRestore();
     });
 

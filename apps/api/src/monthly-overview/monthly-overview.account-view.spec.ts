@@ -35,6 +35,7 @@ describe('MonthlyOverviewService.getAccountView', () => {
       receipt: { findMany: jest.fn() },
       cashFlowEntry: { findMany: jest.fn() },
       creditCard: { findMany: jest.fn(), findFirst: jest.fn() },
+      crossProjectSettlement: { findMany: jest.fn().mockResolvedValue([]) },
       bankStatementImport: { findMany: jest.fn().mockResolvedValue([]) },
     };
 

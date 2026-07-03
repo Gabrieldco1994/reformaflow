@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ArrowLeft, ArrowRight, Zap, CalendarClock } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -21,6 +21,8 @@ import { WizardStepDados } from './WizardStepDados';
 import { WizardStepPagamento } from './WizardStepPagamento';
 import { WizardStepAcao } from './WizardStepAcao';
 import { VinculoBasket } from './VinculoBasket';
+import { QuitarParcelaModal } from '../../conta/_components/QuitarParcelaModal';
+import { suggestParcelaQuitacao } from '../_lib/quitarParcelaCross';
 
 interface Option {
   value: string;
@@ -44,6 +46,30 @@ interface Props {
 }
 
 type PagaChoice = null | 'NOVA' | 'PLANEJADA';
+
+/** Despesa planejada de OUTRO projeto (espelhável no PESSOAL). */
+interface CrossPlannedExpense {
+  id: string;
+  titulo?: string | null;
+  fornecedor?: string | null;
+  tipoDespesa: string;
+  valorTotal: number;
+  formaPagamento?: string | null;
+  dataPagamento?: string | null;
+  dataInicioParcela?: string | null;
+  quantidadeParcela?: number | null;
+  paidParcelas?: string | number[] | null;
+  project?: { id: string; name: string; type: string } | null;
+}
+
+/** Alvo da quitação cross-project a partir do wizard. */
+interface QuitarTarget {
+  foreignExpenseId: string;
+  parcelaIndex: number;
+  valorSugerido: number;
+  descricao: string;
+  dataSugerida: string;
+}
 
 const STEP_LABELS: Record<string, string> = {
   DADOS: 'Dados',
@@ -78,6 +104,7 @@ export function NovaDespesaWizard({
   const [saving, setSaving] = useState(false);
   const [pagaChoice, setPagaChoice] = useState<PagaChoice>(null);
   const [plannedSearch, setPlannedSearch] = useState('');
+  const [quitarTarget, setQuitarTarget] = useState<QuitarTarget | null>(null);
 
   const isReforma = projectType === 'REFORMA';
   const patch = (p: Partial<WizardDraft>) => dispatch({ type: 'SET_DRAFT', patch: p });
@@ -94,10 +121,30 @@ export function NovaDespesaWizard({
   }, [open, mode]);
 
   function invalidateAll() {
-    for (const key of ['expenses', 'cash-flow', 'dashboard', 'cross-project-expenses']) {
+    for (const key of [
+      'expenses',
+      'cash-flow',
+      'dashboard',
+      'cross-project-expenses',
+      'account-view',
+      'monthly-overview',
+    ]) {
       queryClient.invalidateQueries({ queryKey: [key, projectId] });
     }
   }
+
+  // Despesas PLANEJADAS de OUTROS projetos: no PESSOAL elas também são pagáveis,
+  // mas a quitação precisa gerar um espelho conciliado (nunca um status puro,
+  // que faria a parcela sumir da Visão Conta).
+  const isPersonal = projectType === 'PESSOAL';
+  const showPlannedList = mode === 'PAGA' && pagaChoice === 'PLANEJADA';
+  const { data: crossPlanned = [] } = useQuery<CrossPlannedExpense[]>({
+    queryKey: ['cross-project-expenses', projectId, 'planned'],
+    queryFn: () =>
+      api.get(`/projects/${projectId}/expenses/cross-project?status=PLANEJADO&limit=200`),
+    enabled: open && isPersonal && showPlannedList,
+    staleTime: 20_000,
+  });
 
   async function handlePlanejar() {
     if (saving) return;
@@ -149,14 +196,37 @@ export function NovaDespesaWizard({
     });
   }, [plannedExpenses, plannedSearch]);
 
+  const filteredCross = useMemo(() => {
+    const q = plannedSearch.trim().toLowerCase();
+    if (!q) return crossPlanned;
+    return crossPlanned.filter((exp) => {
+      const hay = `${exp.titulo ?? ''} ${exp.fornecedor ?? ''} ${tipoLabel(exp.tipoDespesa)} ${exp.project?.name ?? ''}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [crossPlanned, plannedSearch]);
+
+  // Ao escolher uma planejada de outro projeto, roteia para a QUITAÇÃO (espelho +
+  // conciliar-parcela) — nunca um status puro. Sugere a PRIMEIRA parcela não paga
+  // e o valor da própria parcela (nunca o total), via helper testável.
+  const openQuitarFromCross = (exp: CrossPlannedExpense) => {
+    const { parcelaIndex, valorSugerido, dataSugerida } = suggestParcelaQuitacao(exp);
+    setQuitarTarget({
+      foreignExpenseId: exp.id,
+      parcelaIndex,
+      valorSugerido,
+      descricao: exp.titulo || exp.fornecedor || tipoLabel(exp.tipoDespesa),
+      dataSugerida,
+    });
+  };
+
   if (!open) return null;
 
   // ── Garfo "Despesa paga": escolha inicial (NOVA vs PLANEJADA) ────────────────
   const showFork = mode === 'PAGA' && pagaChoice === null;
-  const showPlannedList = mode === 'PAGA' && pagaChoice === 'PLANEJADA';
   const title = showPlannedList ? 'Pagar despesa planejada' : 'Nova despesa';
 
   return (
+    <>
     <Modal open={open} onClose={onClose} title={title} size="lg">
       {showFork ? (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -194,7 +264,7 @@ export function NovaDespesaWizard({
             value={plannedSearch}
             onChange={(e) => setPlannedSearch(e.target.value)}
           />
-          {filteredPlanned.length === 0 ? (
+          {filteredPlanned.length === 0 && filteredCross.length === 0 ? (
             <p className="text-sm text-gray-400">Nenhuma despesa planejada encontrada.</p>
           ) : (
             <div className="max-h-80 space-y-2 overflow-y-auto">
@@ -212,6 +282,29 @@ export function NovaDespesaWizard({
                   </div>
                   <p className="mt-0.5 text-xs text-gray-500">
                     {exp.fornecedor ?? ''} {exp.room?.name ? `· ${exp.room.name}` : ''}
+                  </p>
+                </button>
+              ))}
+              {filteredCross.map((exp) => (
+                <button
+                  key={exp.id}
+                  type="button"
+                  onClick={() => openQuitarFromCross(exp)}
+                  className="w-full rounded-lg border p-3 text-left transition-colors hover:border-blue-300 hover:bg-blue-50 min-h-[44px]"
+                >
+                  <div className="flex justify-between">
+                    <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
+                      <span className="truncate">{exp.titulo || tipoLabel(exp.tipoDespesa)}</span>
+                      {exp.project?.name && (
+                        <span className="shrink-0 rounded-full bg-[#E6EFFE] px-2 py-0.5 text-[10px] font-semibold text-lifeone-blue">
+                          {exp.project.name}
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-sm font-medium">{formatCurrency(exp.valorTotal / 100)}</span>
+                  </div>
+                  <p className="mt-0.5 text-xs text-gray-500">
+                    {exp.fornecedor ?? ''} · Quitar pela conta pessoal
                   </p>
                 </button>
               ))}
@@ -305,5 +398,23 @@ export function NovaDespesaWizard({
         </div>
       )}
     </Modal>
+      {quitarTarget && (
+        <QuitarParcelaModal
+          projectId={projectId}
+          foreignExpenseId={quitarTarget.foreignExpenseId}
+          parcelaIndex={quitarTarget.parcelaIndex}
+          valorSugerido={quitarTarget.valorSugerido}
+          descricao={quitarTarget.descricao}
+          dataSugerida={quitarTarget.dataSugerida}
+          onClose={() => setQuitarTarget(null)}
+          onDone={() => {
+            setQuitarTarget(null);
+            invalidateAll();
+            onCreated?.();
+            onClose();
+          }}
+        />
+      )}
+    </>
   );
 }

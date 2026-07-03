@@ -32,6 +32,8 @@ export interface AccountViewSaida {
   editavel: boolean;
   dueMonth: string | null;
   projetoOrigem: { id: string; name: string; type: string } | null;
+  parcelaIndex?: number | null;
+  foreignExpenseId?: string | null;
 }
 
 export interface AccountViewEntrada {

@@ -57,6 +57,9 @@ export function useExpenseMutations({
     queryClient.invalidateQueries({ queryKey: ['dashboard', projectId] });
     queryClient.invalidateQueries({ queryKey: ['cash-flow', projectId] });
     queryClient.invalidateQueries({ queryKey: ['cross-project-expenses', projectId] });
+    // Visão Conta / Visão Mês são caixa: qualquer mutação de despesa pode movê-las.
+    queryClient.invalidateQueries({ queryKey: ['account-view', projectId] });
+    queryClient.invalidateQueries({ queryKey: ['monthly-overview', projectId] });
   };
 
   // Na visão consolidada (PESSOAL) as despesas de outros projetos aparecem como itens.

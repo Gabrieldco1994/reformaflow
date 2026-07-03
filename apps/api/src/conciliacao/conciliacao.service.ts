@@ -21,6 +21,8 @@ export interface SettleParcelaInput {
   parcelaIndex: number;
   /** Valor real pago (centavos), vindo da fatura/conta. */
   realValor: number;
+  /** Preenchido pelo settle com o índice EFETIVAMENTE liquidado (clampado). */
+  _effective?: number;
 }
 
 export interface RateioItem {
@@ -52,6 +54,26 @@ export interface RatearInput {
 export class ConciliacaoService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * Soft-delete de um espelho (source) DENTRO de uma transação. Como o
+   * `$transaction` ignora o `$use` de soft-delete do Prisma, marcamos
+   * `deletedAt` na mão — e, crucialmente, também soft-deletamos os
+   * `cashFlowEntry` gerados pelo espelho, senão sobra uma entrada órfã (entry
+   * viva com expense soft-deletado) que vaza para consumidores que não filtram
+   * `expense.deletedAt` (ex.: notifications). Espelha o `remove()` canônico.
+   */
+  private async softDeleteMirror(tx: Tx, sourceExpenseId: string): Promise<void> {
+    const now = new Date();
+    await tx.expense.update({
+      where: { id: sourceExpenseId },
+      data: { deletedAt: now, linkedExpenseId: null },
+    });
+    await tx.cashFlowEntry.updateMany({
+      where: { expenseId: sourceExpenseId, deletedAt: null },
+      data: { deletedAt: now },
+    });
+  }
+
   async settleTargetParcela(tx: Tx, input: SettleParcelaInput): Promise<void> {
     const { tenantId, sourceExpenseId, targetExpenseId, realValor } = input;
 
@@ -68,9 +90,41 @@ export class ConciliacaoService {
       throw new BadRequestException('Alvo deve estar em outro projeto');
     }
 
+    // P5 — neutros nunca são conciliados (nunca viram espelho / cashflow).
+    if (isNeutralExpenseType(target.tipoDespesa)) {
+      throw new BadRequestException('Alvo neutro não pode ser conciliado');
+    }
+    // P5 (fonte) — o espelho é um pagamento REAL; se for neutro, não conta no
+    // caixa PESSOAL e a quitação "some" (money-vanish). Bloqueia na origem.
+    if (isNeutralExpenseType(source.tipoDespesa)) {
+      throw new BadRequestException('Espelho neutro não pode conciliar uma parcela');
+    }
+
+    // E5 — mutex rateio×settle: uma compra rateada não pode ser conciliada por
+    // parcela (simétrico ao guard de ratearSource). Desfaça o rateio antes.
+    const rateioCount = await tx.rateioAllocation.count({ where: { sourceExpenseId } });
+    if (rateioCount > 0) {
+      throw new BadRequestException(
+        'Esta compra já está rateada; desfaça o rateio antes de conciliar por parcela.',
+      );
+    }
+
+    // E5 (simétrico) — o ALVO não pode já ser destino de um rateio. Se fosse,
+    // `regenerateTargetCashflow` (que ignora RateioAllocation) sobrescreveria o
+    // caixa rateado e criaria um 2º espelho ativo apontando ao mesmo alvo →
+    // divergência/dupla contagem. Espelha o guard de ratearSource (:428-429).
+    const targetRateioCount = await tx.rateioAllocation.count({ where: { targetExpenseId } });
+    if (targetRateioCount > 0) {
+      throw new BadRequestException(
+        'Esta planejada já está rateada por uma compra; desfaça o rateio antes de conciliar por parcela.',
+      );
+    }
+
     const n = Math.max(1, target.quantidadeParcela ?? 1);
     const singlePayment = isSinglePaymentForm(target.formaPagamento);
     const parcelaIndex = singlePayment ? 0 : Math.min(Math.max(0, input.parcelaIndex | 0), n - 1);
+    // Expõe o índice efetivamente liquidado (clampado) ao chamador (E2).
+    input._effective = parcelaIndex;
 
     const plannedSlices = buildInstallments({
       valorTotal: target.valorTotal,
@@ -87,6 +141,21 @@ export class ConciliacaoService {
         : parsePaidParcelas(target.paidParcelas, n),
     );
     const plannedStatus = existingPaid.has(parcelaIndex) ? 'PAGO' : 'PLANEJADO';
+
+    // P1/P2 — idempotência do espelho (1 espelho ativo por target+parcela).
+    // Se já existe um settlement nesta parcela apontando para OUTRA source, o
+    // espelho antigo virou órfão → soft-delete + limpar o vínculo. Como
+    // `$transaction` ignora o `$use` de soft-delete, setamos `deletedAt` na mão.
+    // Duplo clique com a MESMA source → nada a desativar (só update de realValor).
+    const existingSettlement = await tx.crossProjectSettlement.findUnique({
+      where: { targetExpenseId_parcelaIndex: { targetExpenseId, parcelaIndex } },
+    });
+    if (
+      existingSettlement?.sourceExpenseId &&
+      existingSettlement.sourceExpenseId !== sourceExpenseId
+    ) {
+      await this.softDeleteMirror(tx, existingSettlement.sourceExpenseId);
+    }
 
     // Snapshot só na criação; em re-import da mesma parcela, atualiza o valor real.
     await tx.crossProjectSettlement.upsert({
@@ -259,10 +328,10 @@ export class ConciliacaoService {
       targets.push(targetExpenseId);
     }
 
-    await tx.expense.update({
-      where: { id: sourceExpenseId },
-      data: { linkedExpenseId: null },
-    });
+    // P6 — o espelho existe só para representar a quitação; ao desconciliar ele
+    // some (Σ espelhos ativos == Σ parcelas quitadas cross-project == 0).
+    // Soft-delete do espelho E das suas entradas de caixa (sem órfã).
+    await this.softDeleteMirror(tx, sourceExpenseId);
 
     return { targets };
   }

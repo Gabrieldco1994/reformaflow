@@ -42,9 +42,13 @@ function makePrismaMock() {
     creditCard: { findMany: jest.fn().mockResolvedValue([]) },
     recurringBill: { create: jest.fn(), findFirst: jest.fn() },
     crossProjectSettlement: {
+      findUnique: jest.fn().mockResolvedValue(null),
       upsert: jest.fn().mockResolvedValue({}),
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       findMany: jest.fn().mockResolvedValue([]),
+    },
+    rateioAllocation: {
+      count: jest.fn().mockResolvedValue(0),
     },
     $transaction: jest.fn(),
   } as any;

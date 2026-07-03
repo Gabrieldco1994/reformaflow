@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { ConciliacaoService, RateioItem } from '../conciliacao/conciliacao.service';
+import { ConciliacaoService, RateioItem, SettleParcelaInput } from '../conciliacao/conciliacao.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
 import { ExpenseTypeLabels, LaborCategoryLabels, buildInstallments, isSinglePaymentForm, isNeutralExpenseType, hasFeature, PaymentForm, ProjectType } from '@reformaflow/domain';
@@ -273,36 +273,33 @@ export class ExpenseService {
     });
     if (!source) throw new NotFoundException('Despesa não encontrada');
 
-    // Valor real da liquidação. Quando não informado pelo chamador, NÃO usar o
-    // valorTotal da fonte (isso infla a parcela do alvo quando a fonte é
-    // parcelada — bug histórico). Deriva o valor da PARCELA correspondente da
-    // fonte: para pagamento único, é o próprio valorTotal (1 parcela); para
-    // parcelada, é valorTotal/n da parcela `parcelaIndex`.
-    const parcelaIndex = Math.max(0, params.parcelaIndex ?? 0);
-    let realValor = params.realValor;
-    if (realValor == null) {
-      const sourceSlices = buildInstallments({
-        valorTotal: source.valorTotal,
-        formaPagamento: source.formaPagamento,
-        dataPagamento: source.dataPagamento,
-        quantidadeParcela: source.quantidadeParcela,
-        dataInicioParcela: source.dataInicioParcela,
-      });
-      const slice = sourceSlices[Math.min(parcelaIndex, sourceSlices.length - 1)];
-      realValor = slice?.valor ?? source.valorTotal;
-    }
+    // P4 — o valor real da liquidação é o valorTotal do ESPELHO (source). O
+    // espelho representa o pagamento efetivo daquela quitação; usar o valorTotal
+    // faz o override do alvo CASAR com o que aparece no caixa PESSOAL (I10).
+    // Quando o chamador informa realValor explícito, ele prevalece.
+    const parcelaIndex = params.parcelaIndex ?? 0;
+    const realValor = params.realValor ?? source.valorTotal;
+
+    // O clamp do índice vive em settleTargetParcela; passamos o índice cru e
+    // lemos de volta o índice EFETIVO (clampado) para o retorno (E2).
+    const settleInput: SettleParcelaInput = {
+      tenantId,
+      sourceExpenseId: source.id,
+      targetExpenseId: params.targetExpenseId,
+      parcelaIndex,
+      realValor,
+    };
 
     await this.prisma.$transaction(async (tx) => {
-      await this.conciliacao.settleTargetParcela(tx, {
-        tenantId,
-        sourceExpenseId: source.id,
-        targetExpenseId: params.targetExpenseId,
-        parcelaIndex,
-        realValor,
-      });
+      await this.conciliacao.settleTargetParcela(tx, settleInput);
     });
 
-    return { ok: true, sourceId: source.id, targetId: params.targetExpenseId, parcelaIndex };
+    return {
+      ok: true,
+      sourceId: source.id,
+      targetId: params.targetExpenseId,
+      parcelaIndex: settleInput._effective ?? parcelaIndex,
+    };
   }
 
   /**

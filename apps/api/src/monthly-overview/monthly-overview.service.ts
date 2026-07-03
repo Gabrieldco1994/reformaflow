@@ -182,7 +182,7 @@ export class MonthlyOverviewService {
     const sixMonthKeys = lastMonthKeys(mesSelecionado, 6);
     const sixMonthSet = new Set(sixMonthKeys);
 
-    const [accounts, allExpenses, receipts, entries, cards] = await Promise.all([
+    const [accounts, allExpenses, receipts, entries, cards, settlements] = await Promise.all([
       this.prisma.bankAccount.findMany({
         where: { tenantId, projectId, deletedAt: null },
         select: {
@@ -282,6 +282,9 @@ export class MonthlyOverviewService {
         },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       }),
+      this.prisma.crossProjectSettlement.findMany({
+        where: { tenantId },
+      }),
     ]);
 
     // O PESSOAL é o controlador universal do caixa: carregamos as despesas de
@@ -332,6 +335,28 @@ export class MonthlyOverviewService {
       if (!target?.project) return null;
       return { id: target.project.id, name: target.project.name, type: target.project.type };
     };
+
+    // P3 — origem POR PARCELA. Cada crossProjectSettlement mapeia (foreign, parcela)
+    // ao espelho que a quitou; a origem (cartão/banco) é derivada do espelho.
+    // Espelhos soft-deletados (P1/P2/P6) já saíram de `allExpenses`, então uma
+    // parcela cujo espelho sumiu não é indevidamente suprimida.
+    const allExpensesById = new Map(allExpenses.map((expense) => [expense.id, expense] as const));
+    type ParcelaOrigin =
+      | { origem: 'card' }
+      | { origem: 'bank'; bankLast4: string | null };
+    const parcelaOriginByForeign = new Map<string, Map<number, ParcelaOrigin>>();
+    const hasSettlements = new Set<string>();
+    for (const s of settlements) {
+      const mirror = allExpensesById.get(s.sourceExpenseId);
+      if (!mirror) continue; // espelho inexistente/soft-deletado → não suprime a parcela
+      hasSettlements.add(s.targetExpenseId);
+      const byIndex = parcelaOriginByForeign.get(s.targetExpenseId) ?? new Map<number, ParcelaOrigin>();
+      const origem: ParcelaOrigin = mirror.cardLast4
+        ? { origem: 'card' }
+        : { origem: 'bank', bankLast4: mirror.bankLast4 ?? null };
+      byIndex.set(s.parcelaIndex, origem);
+      parcelaOriginByForeign.set(s.targetExpenseId, byIndex);
+    }
 
     const caixa = computeCaixaConta(
       primaryAccount ? [primaryAccount] : accounts,
@@ -572,6 +597,57 @@ export class MonthlyOverviewService {
           expense.formaPagamento,
         );
 
+        // P3 — caminho POR PARCELA: o foreign tem ≥1 crossProjectSettlement.
+        // Cada parcela quitada é suprimida (fatura do cartão / espelho bank já a
+        // representam); as demais permanecem pendentes no próprio vencimento (I9),
+        // carregando parcelaIndex + foreignExpenseId para o front abrir a quitação (P7).
+        if (hasSettlements.has(expense.id)) {
+          const parcelaOrigins =
+            parcelaOriginByForeign.get(expense.id) ?? new Map<number, ParcelaOrigin>();
+          const perParcela = buildInstallments({
+            valorTotal: expense.valorTotal,
+            formaPagamento: expense.formaPagamento,
+            quantidadeParcela: expense.quantidadeParcela,
+            dataInicioParcela: expense.dataInicioParcela,
+            dataPagamento: expense.dataPagamento,
+          });
+          let paidByOther: Set<number>;
+          try {
+            const parsed = JSON.parse(expense.paidParcelas ?? '[]');
+            paidByOther = new Set(Array.isArray(parsed) ? (parsed as number[]) : []);
+          } catch {
+            paidByOther = new Set<number>();
+          }
+          return perParcela.flatMap((parcela, index) => {
+            // Parcela quitada cross-project → coberta pela fatura/espelho, não re-emite.
+            if (parcelaOrigins.has(index)) return [];
+            // Parcela já paga por outra via (paidParcelas) → não re-emite.
+            if (paidByOther.has(index)) return [];
+            if (!isInRange(parcela.data, monthStart, monthEnd)) return [];
+            return [
+              {
+                id: `${expense.id}#${index}` as string | null,
+                kind: 'saida' as const,
+                descricao,
+                data: parcela.data.toISOString(),
+                forma,
+                valor: parcela.valor,
+                realizado: false,
+                status: expense.status,
+                cardLast4: null as string | null,
+                bankLast4: null as string | null,
+                tipoDespesa: expense.tipoDespesa,
+                isInvoice: false,
+                editavel: false,
+                dueMonth: null as string | null,
+                projetoOrigem,
+                parcelaIndex: index as number | null,
+                foreignExpenseId: expense.id as string | null,
+              },
+            ];
+          });
+        }
+
         // Foreign paga por cartão: a fatura já cobre → nunca vira saída de conta.
         if (origin.origem === 'card') return [];
 
@@ -595,6 +671,8 @@ export class MonthlyOverviewService {
               editavel: false,
               dueMonth: null as string | null,
               projetoOrigem,
+              parcelaIndex: null as number | null,
+              foreignExpenseId: null as string | null,
             },
           ];
         }
@@ -640,6 +718,8 @@ export class MonthlyOverviewService {
               editavel: false,
               dueMonth: null as string | null,
               projetoOrigem,
+              parcelaIndex: index as number | null,
+              foreignExpenseId: expense.id as string | null,
             },
           ];
         });
@@ -670,6 +750,8 @@ export class MonthlyOverviewService {
         editavel: false,
         dueMonth: invoice.dueMonth,
         projetoOrigem: null as { id: string; name: string; type: string } | null,
+        parcelaIndex: null as number | null,
+        foreignExpenseId: null as string | null,
       })),
       ...accountExpenseList.map((expense) => ({
         id: expense.id as string | null,
@@ -690,6 +772,8 @@ export class MonthlyOverviewService {
         editavel: true,
         dueMonth: null as string | null,
         projetoOrigem: projetoOrigemFor(expense.linkedExpenseId),
+        parcelaIndex: null as number | null,
+        foreignExpenseId: null as string | null,
       })),
       ...foreignPendingItems,
     ].sort((a, b) => b.data.localeCompare(a.data));

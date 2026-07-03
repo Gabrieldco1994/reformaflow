@@ -54,6 +54,7 @@ describe('ConciliacaoService', () => {
         }),
       },
       crossProjectSettlement: {
+        findUnique: jest.fn().mockResolvedValue(null),
         upsert: jest.fn().mockResolvedValue({}),
         deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
         findMany: jest.fn().mockImplementation(({ where }: any) => {
@@ -63,6 +64,9 @@ describe('ConciliacaoService', () => {
           // regen: by targetExpenseId
           return Promise.resolve(opts.settlementsByTarget ?? []);
         }),
+      },
+      rateioAllocation: {
+        count: jest.fn().mockResolvedValue(0),
       },
       cashFlowEntry: {
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),

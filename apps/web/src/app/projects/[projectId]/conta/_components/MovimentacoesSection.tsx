@@ -8,6 +8,7 @@ import { api } from '@/lib/api';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { tipoLabel } from '@/lib/expense-options';
 import { DespesaModal } from './DespesaModal';
+import { QuitarParcelaModal } from './QuitarParcelaModal';
 import { ReceitaModal, type ReceitaEditing } from './ReceitaModal';
 import type { ResumoQuickFilterKey } from './ResumoCards';
 import type {
@@ -51,6 +52,13 @@ export function MovimentacoesSection({
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [editExpenseId, setEditExpenseId] = useState<string | null>(null);
   const [editReceita, setEditReceita] = useState<ReceitaEditing | null>(null);
+  const [quitarTarget, setQuitarTarget] = useState<{
+    foreignExpenseId: string;
+    parcelaIndex: number;
+    valorSugerido: number;
+    descricao: string;
+    dataSugerida: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!summaryQuickFilter) return;
@@ -433,6 +441,14 @@ export function MovimentacoesSection({
 
             const isInvoiceRow = !isEntrada && item.kind === 'saida' && item.isInvoice;
             const canToggle = !isEntrada && item.kind === 'saida' && item.editavel && !item.isInvoice;
+            // Parcela cross-project ainda PENDENTE: não é editável nem toggl-ável;
+            // precisa ser QUITADA (gera espelho + concilia) para não sumir da Visão Conta.
+            const isPendingForeignParcela =
+              item.kind === 'saida' &&
+              !item.isInvoice &&
+              !item.realizado &&
+              item.parcelaIndex != null &&
+              !!item.foreignExpenseId;
             // Saída editável (despesa PESSOAL) ou entrada (recebimento) → abre modal completo.
             const canEdit = canToggle || (isEntrada && !!item.id);
             const projOrigem =
@@ -501,6 +517,26 @@ export function MovimentacoesSection({
                         title={!realizado ? 'Pagar fatura' : undefined}
                       >
                         {badge.txt}
+                      </button>
+                    ) : isPendingForeignParcela ? (
+                      <button
+                        type="button"
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          if (item.kind === 'saida' && item.foreignExpenseId && item.parcelaIndex != null) {
+                            setQuitarTarget({
+                              foreignExpenseId: item.foreignExpenseId,
+                              parcelaIndex: item.parcelaIndex,
+                              valorSugerido: item.valor,
+                              descricao: item.descricao,
+                              dataSugerida: item.data.slice(0, 10),
+                            });
+                          }
+                        }}
+                        className="rounded-full bg-lifeone-blue px-2.5 py-0.5 text-[10px] font-semibold text-white transition hover:brightness-95"
+                        title="Quitar parcela pela conta pessoal"
+                      >
+                        Quitar
                       </button>
                     ) : (
                       <button
@@ -572,6 +608,18 @@ export function MovimentacoesSection({
         projectId={projectId}
         editing={editReceita}
       />
+      {quitarTarget && (
+        <QuitarParcelaModal
+          projectId={projectId}
+          foreignExpenseId={quitarTarget.foreignExpenseId}
+          parcelaIndex={quitarTarget.parcelaIndex}
+          valorSugerido={quitarTarget.valorSugerido}
+          descricao={quitarTarget.descricao}
+          dataSugerida={quitarTarget.dataSugerida}
+          onClose={() => setQuitarTarget(null)}
+          onDone={() => setQuitarTarget(null)}
+        />
+      )}
     </section>
   );
 }
