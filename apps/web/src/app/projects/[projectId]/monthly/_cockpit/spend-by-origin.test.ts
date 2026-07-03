@@ -109,6 +109,31 @@ describe('spendByOrigin', () => {
     }
   });
 
+  it('escopo PESSOAL conta só o projeto pessoal (dedup espelho cross-project)', () => {
+    const entries = [
+      // espelho: compra cross-project vista no cartão pessoal (projeto PESSOAL)
+      entry({ cardLast4: '7259', projectId: 'pessoal', projectType: 'PESSOAL', isEspelho: true, valor: 741534 }),
+      // canônico da MESMA compra no projeto de origem (REFORMA)
+      entry({ cardLast4: '7259', projectId: 'reforma', projectType: 'REFORMA', valor: 741533 }),
+      // gasto pessoal puro no mesmo cartão
+      entry({ cardLast4: '7259', projectId: 'pessoal', projectType: 'PESSOAL', valor: 345027 }),
+    ];
+    // sem escopo: dobra (espelho + canônico + puro)
+    expect(spendByOrigin(entries, { keepCardSettlement: true }).cards.get('7259'))
+      .toBe(741534 + 741533 + 345027);
+    // com escopo PESSOAL: só o projeto pessoal (espelho + puro) = 1.086.561 (= Visão Conta)
+    expect(spendByOrigin(entries, { keepCardSettlement: true, pessoalProjectId: 'pessoal' }).cards.get('7259'))
+      .toBe(741534 + 345027);
+  });
+
+  it('escopo PESSOAL também vale para contas (bankLast4)', () => {
+    const entries = [
+      entry({ bankLast4: '3636', projectId: 'pessoal', projectType: 'PESSOAL', valor: 500 }),
+      entry({ bankLast4: '3636', projectId: 'reforma', projectType: 'REFORMA', valor: 999 }),
+    ];
+    expect(spendByOrigin(entries, { pessoalProjectId: 'pessoal' }).accounts.get('3636')).toBe(500);
+  });
+
   it('prioriza cartão quando ambos presentes (compra no cartão)', () => {
     const { cards, accounts } = spendByOrigin([
       entry({ cardLast4: '1234', bankLast4: '3636', valor: 80 }),

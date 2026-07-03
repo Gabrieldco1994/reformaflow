@@ -89,8 +89,8 @@ export default function SaldosWidget({
   });
 
   const spend = useMemo(
-    () => spendByOrigin(entries, { keepCardSettlement: eixo === 'caixa' }),
-    [entries, eixo],
+    () => spendByOrigin(entries, { keepCardSettlement: eixo === 'caixa', pessoalProjectId: projectId }),
+    [entries, eixo, projectId],
   );
 
   const cardRows = useMemo(() => {

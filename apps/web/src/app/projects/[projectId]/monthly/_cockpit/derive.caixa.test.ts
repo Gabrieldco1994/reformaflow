@@ -114,4 +114,16 @@ describe('buildCaixaData — convergência com a fatura da Visão Conta', () => 
     const junho = caixa.meses.find((m) => m.mes === '2026-06');
     expect(junho?.totalDespesas).toBe(1567755);
   });
+
+  it('escopo PESSOAL dedup espelho cross-project (Vai sair por cartão = Visão Conta)', () => {
+    const espelho = entry({ cardLast4: LATAM, projectId: 'pessoal', projectType: 'PESSOAL', isEspelho: true, valor: 741534, data: '2026-05-10T00:00:00.000Z' });
+    const canonical = entry({ cardLast4: LATAM, projectId: 'reforma', projectType: 'REFORMA', valor: 741533, data: '2026-05-11T00:00:00.000Z' });
+    const puro = entry({ cardLast4: LATAM, projectId: 'pessoal', projectType: 'PESSOAL', valor: 345027, data: '2026-05-12T00:00:00.000Z' });
+    const caixa = buildCaixaData(makeData([espelho, canonical, puro]));
+    const junho = (caixa.entries ?? []).filter((e) => (e.data ?? '').slice(0, 7) === '2026-06');
+    // sem escopo: dobra o espelho
+    expect(spendByOrigin(junho, { keepCardSettlement: true }).cards.get(LATAM)).toBe(741534 + 741533 + 345027);
+    // com escopo PESSOAL: só o projeto pessoal (espelho + puro) = 1.086.561
+    expect(spendByOrigin(junho, { keepCardSettlement: true, pessoalProjectId: 'pessoal' }).cards.get(LATAM)).toBe(741534 + 345027);
+  });
 });

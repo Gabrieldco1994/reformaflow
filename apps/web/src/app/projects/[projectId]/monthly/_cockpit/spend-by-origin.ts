@@ -12,19 +12,26 @@ import { entryIsNeutral, isNeutralAccountSettlement } from './neutral';
  *   cartão"), que é cobrança real na fatura → bate com a Visão Conta (service:372).
  * - **competência ("Gastei", padrão)**: exclui TODO neutro — pagamento de fatura /
  *   movimentação interna não é consumo.
+ *
+ * Escopo PESSOAL (`pessoalProjectId`): quando informado, conta só lançamentos do
+ * projeto PESSOAL — igual à Visão Conta (`getAccountView`, que consulta
+ * `projectId === PESSOAL`). Isso mantém o espelho (lançamento PESSOAL de uma compra
+ * cross-project) e descarta o canônico do outro projeto, evitando dupla contagem no
+ * cartão/conta pessoal.
  */
 export function spendByOrigin(
   entries: MonthlyEntry[],
-  opts: { keepCardSettlement?: boolean } = {},
+  opts: { keepCardSettlement?: boolean; pessoalProjectId?: string } = {},
 ): {
   cards: Map<string, number>;
   accounts: Map<string, number>;
 } {
-  const { keepCardSettlement = false } = opts;
+  const { keepCardSettlement = false, pessoalProjectId } = opts;
   const cards = new Map<string, number>();
   const accounts = new Map<string, number>();
   for (const e of entries) {
     if (e.tipo !== 'DESPESA') continue;
+    if (pessoalProjectId && e.projectId !== pessoalProjectId) continue;
     if (keepCardSettlement ? isNeutralAccountSettlement(e) : entryIsNeutral(e)) continue;
     if (e.cardLast4) {
       cards.set(e.cardLast4, (cards.get(e.cardLast4) ?? 0) + e.valor);

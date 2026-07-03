@@ -20,10 +20,12 @@ export default function MonthView({
   data,
   monthKey,
   entries,
+  projectId,
 }: {
   data: MonthlyOverviewResponse;
   monthKey?: string;
   entries?: MonthlyEntry[];
+  projectId?: string;
 }) {
   const m = useMemo(() => deriveMonth(data, monthKey ?? data.mesAtual, entries), [data, monthKey, entries]);
   const [ritmo, setRitmo] = useState<number>(m.ritmoDiario);
@@ -32,8 +34,8 @@ export default function MonthView({
   const serie = useMemo(() => buildSaldoSeries(m, serieEntries, ritmo), [m, serieEntries, ritmo]);
   const projetado = useMemo(() => saldoProjetado(m, ritmo), [m, ritmo]);
   const comprometimento = useMemo(
-    () => buildComprometimentoFuturo(data, monthKey ?? data.mesAtual, 12),
-    [data, monthKey],
+    () => buildComprometimentoFuturo(data, monthKey ?? data.mesAtual, 12, projectId),
+    [data, monthKey, projectId],
   );
 
   const projTone = projetado >= m.saldoInicial ? 'pos' : 'neg';

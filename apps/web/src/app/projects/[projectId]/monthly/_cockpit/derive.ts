@@ -597,16 +597,22 @@ export interface ComprometimentoMes {
  * Trilha de comprometimento futuro: soma as saídas ainda NÃO realizadas
  * (status != PAGO/EM_CAIXA) de cartão por mês, já no eixo recebido pela tela
  * (`data` pode estar em competência ou caixa, conforme o toggle).
+ *
+ * `pessoalProjectId`: quando informado, conta só lançamentos do projeto PESSOAL
+ * (igual à Visão Conta) — mantém o espelho e descarta o canônico cross-project,
+ * evitando dupla contagem do "cartão paga cartão".
  */
 export function buildComprometimentoFuturo(
   data: MonthlyOverviewResponse,
   fromMonth: string = data.mesAtual,
   maxMonths = 12,
+  pessoalProjectId?: string,
 ): ComprometimentoMes[] {
   const byMonth = new Map<string, ComprometimentoMes>();
 
   for (const e of data.entries ?? []) {
     if (e.tipo !== 'DESPESA') continue;
+    if (pessoalProjectId && e.projectId !== pessoalProjectId) continue;
     if (e.status === 'PAGO' || e.status === 'EM_CAIXA') continue;
     if (!e.cardLast4) continue;
     // Comprometimento futuro é saída de caixa: mantém neutro-no-cartão ("cartão paga
