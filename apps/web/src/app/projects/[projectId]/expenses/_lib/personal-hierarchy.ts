@@ -1,6 +1,6 @@
 import type { Expense } from '@/types';
 import { effectiveDate, expandExpenseOccurrences, type ExpenseDateAxis } from './grouping-by-month';
-import { isNeutralExpenseType } from '@reformaflow/domain';
+import { isNeutralExpenseType, isSinglePaymentForm } from '@reformaflow/domain';
 
 export interface CrossProjectMeta {
   id: string;
@@ -15,6 +15,66 @@ export interface CrossProjectMeta {
 export type RemoteProjectMap = Map<string, CrossProjectMeta>;
 
 export type OriginKind = 'CARTAO' | 'EXTRATO' | 'MANUAL';
+
+/**
+ * Split da base de despesas do projeto PESSOAL (locais + cross-project) em três
+ * saídas usadas para separar o mundo "caixa" (movimentos reais da conta) do
+ * mundo "lista por projeto" (alvo canônico).
+ *
+ * Classificação por FORMA do alvo apontado por `linkedExpenseId`:
+ * - alvo ausente (fora do limit) ou de pagamento único (`isSinglePaymentForm`)
+ *   → `singleTargetIds`: dedup legado; o alvo é REMOVIDO de `mutationsBase`
+ *   (o espelho é o registro canônico à-vista).
+ * - alvo parcelado/quinzenal → `parceladoTargetIds`: o alvo é MANTIDO em
+ *   `mutationsBase` (registro canônico da despesa parcelada); os espelhos também
+ *   permanecem para poderem alimentar a caixa.
+ */
+export interface PersonalExpenseSplit {
+  mutationsBase: Expense[];
+  parceladoTargetIds: Set<string>;
+  singleTargetIds: Set<string>;
+}
+
+export function splitPersonalExpenseBase(local: Expense[], cross: Expense[]): PersonalExpenseSplit {
+  const crossById = new Map<string, Expense>();
+  for (const t of cross) crossById.set(t.id, t);
+
+  const parceladoTargetIds = new Set<string>();
+  const singleTargetIds = new Set<string>();
+
+  for (const e of local) {
+    if (!e.linkedExpenseId) continue;
+    const alvo = crossById.get(e.linkedExpenseId);
+    if (!alvo || isSinglePaymentForm(alvo.formaPagamento)) {
+      singleTargetIds.add(e.linkedExpenseId);
+    } else {
+      parceladoTargetIds.add(e.linkedExpenseId);
+    }
+  }
+
+  // Mantém todos os locais + alvos cross que NÃO são dedup legado (single).
+  const mutationsBase = [...local, ...cross.filter((t) => !singleTargetIds.has(t.id))];
+  return { mutationsBase, parceladoTargetIds, singleTargetIds };
+}
+
+/**
+ * Base para o mundo CAIXA (Conta Real / KPIs de controle / total geral):
+ * remove o ALVO parcelado (registro MANUAL, sem card/bank) — senão duplicaria os
+ * movimentos reais dos espelhos —, mantendo os espelhos.
+ */
+export function toCaixaBase(filtered: Expense[], parceladoTargetIds: Set<string>): Expense[] {
+  return filtered.filter((e) => !parceladoTargetIds.has(e.id));
+}
+
+/**
+ * Base para a LISTA POR PROJETO: remove os ESPELHOS (conta E cartão) do alvo
+ * parcelado; mantém o alvo canônico, os espelhos single (legado) e as demais.
+ */
+export function toDisplayBase(filtered: Expense[], parceladoTargetIds: Set<string>): Expense[] {
+  return filtered.filter(
+    (e) => !(e.linkedExpenseId && parceladoTargetIds.has(e.linkedExpenseId)),
+  );
+}
 
 export interface OriginGroup {
   key: string; // CARTAO:1234 | EXTRATO:5678 | MANUAL

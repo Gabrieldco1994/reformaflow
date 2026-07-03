@@ -55,10 +55,88 @@ import {
   listPeriods,
   currentPeriod,
   groupPersonalExpenses,
+  splitPersonalExpenseBase,
+  toCaixaBase,
+  toDisplayBase,
 } from './_lib/personal-hierarchy';
 import ImportLauncher from './_components/ImportLauncher';
 
 const toIsoDate = (date: Date) => date.toISOString().slice(0, 10);
+
+// Fatia uma base de despesas pelo período selecionado (mês / ano todo / range),
+// expandindo parcelas por competência. Extraído de `periodFilteredPersonal` para
+// ser reutilizado nas DUAS bases (caixa × lista por projeto) sem divergir a lógica.
+function sliceByPeriod(
+  base: Expense[],
+  period: PeriodFilter,
+  periodYear: number,
+  rangeStart: string,
+  rangeEnd: string,
+): Expense[] {
+  // If a range is specified (both start and end), use it to filter occurrences
+  if (rangeStart && rangeEnd) {
+    const out: Expense[] = [];
+    const startDate = new Date(`${rangeStart}-01`);
+    const tmp = new Date(`${rangeEnd}-01`);
+    // move to last day of end month
+    const endDate = new Date(tmp.getFullYear(), tmp.getMonth() + 1, 0);
+    for (const e of base) {
+      const isInst =
+        (e.formaPagamento === 'PARCELADO' || e.formaPagamento === 'QUINZENAL') &&
+        (e.quantidadeParcela ?? 1) > 1;
+      for (const occ of expandExpenseOccurrences(e, 'competencia')) {
+        if (!occ.occDate) continue;
+        const occDateObj = new Date(occ.occDate);
+        if (occDateObj < startDate || occDateObj > endDate) continue;
+        if (!isInst) {
+          out.push(e);
+        } else {
+          out.push({
+            ...e,
+            valorTotal: occ.occValue,
+            quantidadeParcela: 1,
+            dataPagamento: occ.occDate,
+            dataInicioParcela: undefined,
+            status: occ.status,
+          });
+        }
+      }
+    }
+    return out;
+  }
+
+  if (period === 'ALL') {
+    return base.filter((e) => inPeriod(e, period, periodYear, 'competencia'));
+  }
+
+  // Mês específico: expande parcelas e mantém só a parcela do mês selecionado,
+  // com valor, data e status próprios da parcela. IMPORTANTE: a data do slice é
+  // ajustada para a data da ocorrência (dataPagamento) e o parcelamento é zerado,
+  // senão a UnifiedExpenseView reagrupa pela data ORIGINAL (mês de início) e a
+  // parcela "vaza" para o mês errado.
+  const out: Expense[] = [];
+  for (const e of base) {
+    const isInst =
+      (e.formaPagamento === 'PARCELADO' || e.formaPagamento === 'QUINZENAL') &&
+      (e.quantidadeParcela ?? 1) > 1;
+    for (const occ of expandExpenseOccurrences(e, 'competencia')) {
+      if (!occ.occDate || occ.occDate.slice(0, 7) !== period) continue;
+      if (!isInst) {
+        out.push(e);
+      } else {
+        out.push({
+          ...e,
+          valorTotal: occ.occValue,
+          quantidadeParcela: 1,
+          dataPagamento: occ.occDate,
+          dataInicioParcela: undefined,
+          status: occ.status,
+        });
+      }
+    }
+  }
+  return out;
+}
 
 export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) {
   const { projectId: PROJECT_ID, projectType } = useProject();
@@ -200,17 +278,23 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
   }, [crossProjectExpenses]);
 
   // Lista consolidada para PESSOAL: despesas locais + despesas dos outros projetos.
-  // Dedup do vínculo cross-project: se uma despesa própria (espelho) referencia um alvo
-  // de outro projeto, o alvo é removido da lista — o espelho é o registro canônico
-  // (mantém o chip de origem do pagamento) e já é agrupado sob o projeto-alvo via
-  // remoteMap/linkedExpenseId. Assim o total do projeto-alvo não conta em dobro.
-  const allExpensesPersonal = useMemo<Expense[]>(() => {
-    if (projectType !== 'PESSOAL') return expenses;
-    const linkedTargetIds = new Set(
-      expenses.map((e) => e.linkedExpenseId).filter((id): id is string => !!id),
-    );
-    const crossDeduped = crossProjectExpenses.filter((t) => !linkedTargetIds.has(t.id));
-    return [...expenses, ...crossDeduped];
+  // Dedup do vínculo cross-project CLASSIFICADO PELA FORMA DO ALVO:
+  // - alvo à-vista/ausente (single) → removido: o espelho é o registro canônico.
+  // - alvo parcelado/quinzenal → mantido: é o registro canônico da despesa
+  //   parcelada; os espelhos permanecem para alimentar a caixa.
+  // `parceladoTargetIds` separa depois os dois mundos (caixa × lista por projeto).
+  const { allExpensesPersonal, parceladoTargetIds } = useMemo<{
+    allExpensesPersonal: Expense[];
+    parceladoTargetIds: Set<string>;
+  }>(() => {
+    if (projectType !== 'PESSOAL') {
+      return { allExpensesPersonal: expenses, parceladoTargetIds: new Set<string>() };
+    }
+    const split = splitPersonalExpenseBase(expenses, crossProjectExpenses);
+    return {
+      allExpensesPersonal: split.mutationsBase,
+      parceladoTargetIds: split.parceladoTargetIds,
+    };
   }, [projectType, expenses, crossProjectExpenses]);
 
 
@@ -284,73 +368,28 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
     const d = new Date(yy, mm - 1 + delta, 1);
     setPeriod(`${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}`);
   };
+  // Duas bases puras de `filteredExpenses` (só divergem quando PESSOAL, pois
+  // `parceladoTargetIds` é vazio nos demais tipos):
+  // - caixaFiltered: remove o ALVO parcelado (mantém espelhos) → Conta Real/KPIs.
+  // - displayFiltered: remove os ESPELHOS parcelado (mantém o alvo) → lista por projeto.
+  const caixaFiltered = useMemo<Expense[]>(
+    () => (projectType === 'PESSOAL' ? toCaixaBase(filteredExpenses, parceladoTargetIds) : filteredExpenses),
+    [projectType, filteredExpenses, parceladoTargetIds],
+  );
+  const displayFiltered = useMemo<Expense[]>(
+    () => (projectType === 'PESSOAL' ? toDisplayBase(filteredExpenses, parceladoTargetIds) : filteredExpenses),
+    [projectType, filteredExpenses, parceladoTargetIds],
+  );
+
   const periodFilteredPersonal = useMemo<Expense[]>(() => {
-    if (projectType !== 'PESSOAL') return filteredExpenses;
+    if (projectType !== 'PESSOAL') return caixaFiltered;
+    return sliceByPeriod(caixaFiltered, period, periodYear, rangeStart, rangeEnd);
+  }, [projectType, caixaFiltered, period, periodYear, rangeStart, rangeEnd]);
 
-    // If a range is specified (both start and end), use it to filter occurrences
-    if (rangeStart && rangeEnd) {
-      const out: Expense[] = [];
-      const startDate = new Date(`${rangeStart}-01`);
-      const tmp = new Date(`${rangeEnd}-01`);
-      // move to last day of end month
-      const endDate = new Date(tmp.getFullYear(), tmp.getMonth() + 1, 0);
-      for (const e of filteredExpenses) {
-        const isInst =
-          (e.formaPagamento === 'PARCELADO' || e.formaPagamento === 'QUINZENAL') &&
-          (e.quantidadeParcela ?? 1) > 1;
-        for (const occ of expandExpenseOccurrences(e, 'competencia')) {
-          if (!occ.occDate) continue;
-          const occDateObj = new Date(occ.occDate);
-          if (occDateObj < startDate || occDateObj > endDate) continue;
-          if (!isInst) {
-            out.push(e);
-          } else {
-            out.push({
-              ...e,
-              valorTotal: occ.occValue,
-              quantidadeParcela: 1,
-              dataPagamento: occ.occDate,
-              dataInicioParcela: undefined,
-              status: occ.status,
-            });
-          }
-        }
-      }
-      return out;
-    }
-
-    if (period === 'ALL') {
-      return filteredExpenses.filter((e) => inPeriod(e, period, periodYear, 'competencia'));
-    }
-
-    // Mês específico: expande parcelas e mantém só a parcela do mês selecionado,
-    // com valor, data e status próprios da parcela. IMPORTANTE: a data do slice é
-    // ajustada para a data da ocorrência (dataPagamento) e o parcelamento é zerado,
-    // senão a UnifiedExpenseView reagrupa pela data ORIGINAL (mês de início) e a
-    // parcela "vaza" para o mês errado.
-    const out: Expense[] = [];
-    for (const e of filteredExpenses) {
-      const isInst =
-        (e.formaPagamento === 'PARCELADO' || e.formaPagamento === 'QUINZENAL') &&
-        (e.quantidadeParcela ?? 1) > 1;
-      for (const occ of expandExpenseOccurrences(e, 'competencia')) {
-        if (!occ.occDate || occ.occDate.slice(0, 7) !== period) continue;
-        if (!isInst) {
-          out.push(e);
-        } else {
-          out.push({
-            ...e,
-            valorTotal: occ.occValue,
-            quantidadeParcela: 1,
-            dataPagamento: occ.occDate,
-            dataInicioParcela: undefined,
-            status: occ.status,
-          });
-        }
-      }
-    }
-    return out;
-  }, [projectType, filteredExpenses, period, periodYear, rangeStart, rangeEnd]);
+  const periodFilteredDisplay = useMemo<Expense[]>(() => {
+    if (projectType !== 'PESSOAL') return displayFiltered;
+    return sliceByPeriod(displayFiltered, period, periodYear, rangeStart, rangeEnd);
+  }, [projectType, displayFiltered, period, periodYear, rangeStart, rangeEnd]);
 
   // KPIs (excluem tipos neutros — movimentação interna / pagto fatura).
   // Em PESSOAL respeitam o período selecionado (mês clicado / ano todo); nos demais
@@ -374,7 +413,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
   const kpiPerProject = useMemo(() => {
     if (projectType !== 'PESSOAL') return [];
     return groupPersonalExpenses(
-      periodFilteredPersonal,
+      periodFilteredDisplay,
       remoteProjectMap,
       project?.name ?? 'Pessoal',
       PROJECT_ID,
@@ -387,17 +426,21 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
       total: g.totalPlanejado + g.totalPago,
       count: g.itens.length,
     }));
-  }, [projectType, periodFilteredPersonal, remoteProjectMap, project?.name, PROJECT_ID]);
+  }, [projectType, periodFilteredDisplay, remoteProjectMap, project?.name, PROJECT_ID]);
 
-  // Visão mensal
-  const groupedByMes = useMemo(() => groupExpensesByMes(filteredExpenses), [filteredExpenses]);
+  // Visão mensal — usa a base de DISPLAY (alvo canônico expandido por parcela),
+  // NÃO a base crua: `filteredExpenses` contém o alvo parcelado E seus espelhos,
+  // e como `groupExpensesByMes` expande ocorrências, somar os dois dobraria o mês
+  // do espelho (ex.: quinzenal 80k → parcela idx0/idx1 em junho + os 2 PIX de 8k).
+  // Nos demais projetos `displayFiltered === filteredExpenses`.
+  const groupedByMes = useMemo(() => groupExpensesByMes(displayFiltered), [displayFiltered]);
 
   // PESSOAL — despesas do período após o filtro por origem (strip de cartões/conta).
   // Alimenta APENAS as listas (KPIs e o strip usam o conjunto sem filtro de origem,
   // para que todas as origens permaneçam visíveis e somáveis).
   const displayPersonal = useMemo<Expense[]>(
-    () => originFilter ? periodFilteredPersonal.filter((e) => originKeyOf(e) === originFilter) : periodFilteredPersonal,
-    [periodFilteredPersonal, originFilter],
+    () => originFilter ? periodFilteredDisplay.filter((e) => originKeyOf(e) === originFilter) : periodFilteredDisplay,
+    [periodFilteredDisplay, originFilter],
   );
 
   // Gastos por categoria no mês (respeita o filtro de origem ativo).
@@ -842,7 +885,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
     selectedContaReal,
     contaRealAll,
   } = usePersonalCashViews({
-    filteredExpenses,
+    filteredExpenses: caixaFiltered,
     periodFilteredPersonal,
     cards: contaRealCards,
     period,
