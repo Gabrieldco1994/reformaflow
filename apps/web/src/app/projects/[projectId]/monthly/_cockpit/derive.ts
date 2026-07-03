@@ -1,10 +1,10 @@
 import type { MonthlyOverviewResponse, MonthlyOverviewRow, MonthlyEntry } from '../_types';
 import {
   caixaDateForCardPurchase,
-  isNeutralExpenseType,
   buildMonthlyOverview,
   type MonthlyOverviewEntry,
 } from '@reformaflow/domain';
+import { entryIsNeutral, isNeutralAccountSettlement } from './neutral';
 
 /** Categorias com cor fixa (significado consistente em todo o cockpit). */
 export const CAT_COLORS: Record<string, string> = {
@@ -534,8 +534,10 @@ export function deriveCockpitTop(data: MonthlyOverviewResponse): CockpitTopDeriv
  * - despesas de cartão são remapeadas para a data de vencimento da fatura
  *   (via `caixaDateForCardPurchase`, usando closingDay/dueDay de `data.cards`);
  * - débitos de conta e recebimentos permanecem na competência;
- * - categorias neutras (PAGAMENTO_FATURA_CARTAO / MOVIMENTACAO_INTERNA) são
- *   removidas para não dobrar (a fatura projetada já representa a saída).
+ * - neutros pagos PELA CONTA (liquidação de fatura: `isNeutral && bankLast4`) são
+ *   removidos (as compras já contaram nas faturas); mas neutro cobrado NO CARTÃO
+ *   ("cartão paga cartão") é cobrança real na fatura e PERMANECE, remapeado para o
+ *   vencimento — é o que faz o "Vai sair" bater com a Visão Conta (service:372).
  *
  * As linhas mensais (`meses`) são reconstruídas com o MESMO helper de domínio
  * usado no servidor (`buildMonthlyOverview`) — fonte única, sem cálculo novo.
@@ -546,8 +548,8 @@ export function buildCaixaData(data: MonthlyOverviewResponse): MonthlyOverviewRe
   const cardByLast4 = new Map((data.cards ?? []).map((c) => [c.last4, c] as const));
 
   const remap = (e: MonthlyEntry): MonthlyEntry | null => {
-    if (e.tipo === 'DESPESA' && isNeutralExpenseType(e.categoriaCodigo ?? undefined)) {
-      return null; // neutra: fora do eixo de caixa
+    if (e.tipo === 'DESPESA' && isNeutralAccountSettlement(e)) {
+      return null; // liquidação pela conta: fora do eixo de caixa
     }
     if (e.tipo === 'DESPESA' && e.cardLast4) {
       const card = cardByLast4.get(e.cardLast4);
@@ -607,7 +609,10 @@ export function buildComprometimentoFuturo(
     if (e.tipo !== 'DESPESA') continue;
     if (e.status === 'PAGO' || e.status === 'EM_CAIXA') continue;
     if (!e.cardLast4) continue;
-    if (isNeutralExpenseType(e.categoriaCodigo ?? undefined)) continue;
+    // Comprometimento futuro é saída de caixa: mantém neutro-no-cartão ("cartão paga
+    // cartão" pendente = cobrança real na fatura). Só liquidação pela conta é excluída
+    // (mas essas não têm cardLast4, então o filtro acima já as removeu).
+    if (isNeutralAccountSettlement(e)) continue;
 
     const mes = (e.data ?? '').slice(0, 7);
     if (!mes || mes < fromMonth) continue;
@@ -667,19 +672,19 @@ export interface ExtratoMes {
  * (respeitando o filtro de data já aplicado pela página), em ordem cronológica
  * por data da despesa, com acumulado — um "fluxo de caixa" focado em saídas.
  *
- * Regras (coerentes com o eixo "Gastei"/competência):
+ * Regras (coerentes com o eixo "Gastei"/competência — consumo real):
  * - apenas `tipo === 'DESPESA'`;
  * - espelhos cross-project são deduplicados (`isEspelho`) — o registro do
  *   projeto-alvo é o canônico, evitando dupla contagem;
- * - tipos neutros (pagamento de fatura / movimentação interna) ficam de fora,
- *   pois não representam consumo real;
+ * - TODO tipo neutro (pagamento de fatura / movimentação interna, seja no cartão
+ *   ou na conta) fica de fora, pois não representa consumo real;
  * - empates de data mantêm a ordem por maior valor (saída mais relevante antes).
  */
 export function buildExtratoDespesas(entries: MonthlyEntry[]): ExtratoMes {
   const despesas = entries
     .filter((e) => e.tipo === 'DESPESA')
     .filter((e) => !e.isEspelho)
-    .filter((e) => !isNeutralExpenseType(e.categoriaCodigo ?? undefined));
+    .filter((e) => !entryIsNeutral(e));
 
   const ordenadas = [...despesas].sort((a, b) => {
     const da = a.data ?? '';

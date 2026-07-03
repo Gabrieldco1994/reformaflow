@@ -62,7 +62,16 @@ export class MonthlyOverviewService {
           },
         ],
       },
-      include: { expense: { select: { linkedExpenseId: true, cardLast4: true, bankLast4: true } } },
+      include: {
+        expense: {
+          select: {
+            linkedExpenseId: true,
+            cardLast4: true,
+            bankLast4: true,
+            tipoDespesa: true,
+          },
+        },
+      },
       orderBy: [{ data: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
     });
 
@@ -105,6 +114,11 @@ export class MonthlyOverviewService {
         ? ExpenseTypeLabels[e.categoria as keyof typeof ExpenseTypeLabels] ?? e.categoria
         : null,
       categoriaCodigo: e.categoria ?? null,
+      // Enum cru do tipo de despesa (join Expense) — sinal CONFIÁVEL de neutro,
+      // ao contrário de `categoriaCodigo` (gravado ora label ora enum). Espelha a
+      // regra da account-view (service:372) para o cockpit.
+      tipoDespesaCodigo: e.expense?.tipoDespesa ?? null,
+      isNeutral: isNeutralExpenseType(e.expense?.tipoDespesa),
       subcategoria: e.subcategoria,
       parcela: e.parcela,
       formaPagamento: e.formaPagamento,

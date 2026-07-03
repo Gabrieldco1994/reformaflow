@@ -27,8 +27,14 @@ export interface MonthlyEntry {
   status: string;
   valor: number;
   categoria: string | null;
-  /** Código bruto do tipo de despesa (ex.: 'PAGAMENTO_FATURA_CARTAO'), para detecção de neutras. */
+  /** Código bruto do tipo de despesa (ex.: 'PAGAMENTO_FATURA_CARTAO'), para detecção de neutras.
+   *  ATENÇÃO: vem ora como label ora como enum — NÃO usar para decidir neutro. Prefira `isNeutral`. */
   categoriaCodigo?: string | null;
+  /** Enum cru do tipo de despesa (join Expense), sinal confiável para exibição/depuração. */
+  tipoDespesaCodigo?: string | null;
+  /** É tipo neutro (pagamento de fatura / movimentação interna)? Derivado no backend de
+   *  `expense.tipoDespesa` — sinal CONFIÁVEL. Ausente em payloads de backend antigo (fallback no FE). */
+  isNeutral?: boolean;
   subcategoria: string | null;
   parcela?: string | null;
   formaPagamento: string | null;

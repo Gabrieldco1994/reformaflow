@@ -1,24 +1,31 @@
-import { isNeutralExpenseType } from '@reformaflow/domain';
 import type { MonthlyEntry } from '../_types';
+import { entryIsNeutral, isNeutralAccountSettlement } from './neutral';
 
 /**
- * Soma o quanto foi GASTO (despesas, excluindo neutros como pagamento de fatura)
- * por origem — cartão (`cardLast4`) e conta (`bankLast4`) — a partir das entries
- * já filtradas do mês. Como `entries` reflete o eixo ativo (competência ou caixa),
- * o resultado respeita automaticamente "Gastei" vs "Vai sair".
+ * Soma o quanto foi gasto por origem — cartão (`cardLast4`) e conta (`bankLast4`) —
+ * a partir das entries já filtradas do mês. As `entries` refletem o eixo ativo
+ * (competência ou caixa), então o resultado respeita "Gastei" vs "Vai sair".
  *
- * Neutros são excluídos para não dobrar o gasto (o pagamento da fatura não é
- * consumo — as compras do cartão já contam).
+ * Regra de neutro POR EIXO (semântica diferente):
+ * - **caixa ("Vai sair", `keepCardSettlement: true`)**: exclui só a liquidação PELA
+ *   CONTA (`isNeutral && bankLast4`); mantém neutro cobrado NO CARTÃO ("cartão paga
+ *   cartão"), que é cobrança real na fatura → bate com a Visão Conta (service:372).
+ * - **competência ("Gastei", padrão)**: exclui TODO neutro — pagamento de fatura /
+ *   movimentação interna não é consumo.
  */
-export function spendByOrigin(entries: MonthlyEntry[]): {
+export function spendByOrigin(
+  entries: MonthlyEntry[],
+  opts: { keepCardSettlement?: boolean } = {},
+): {
   cards: Map<string, number>;
   accounts: Map<string, number>;
 } {
+  const { keepCardSettlement = false } = opts;
   const cards = new Map<string, number>();
   const accounts = new Map<string, number>();
   for (const e of entries) {
     if (e.tipo !== 'DESPESA') continue;
-    if (isNeutralExpenseType(e.categoriaCodigo)) continue;
+    if (keepCardSettlement ? isNeutralAccountSettlement(e) : entryIsNeutral(e)) continue;
     if (e.cardLast4) {
       cards.set(e.cardLast4, (cards.get(e.cardLast4) ?? 0) + e.valor);
     } else if (e.bankLast4) {

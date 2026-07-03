@@ -96,4 +96,34 @@ describe('MonthlyOverviewService.getOverview — espelhos cross-project', () => 
     const totalDespesasConsolidado = res.meses.reduce((s, r) => s + r.totalDespesas, 0);
     expect(totalDespesasConsolidado).toBe(10000);
   });
+
+  it('expõe isNeutral confiável derivado de expense.tipoDespesa (independe de categoria label)', async () => {
+    prisma.cashFlowEntry.findMany.mockResolvedValue([
+      baseEntry({
+        id: 'cfe-neutro-cartao',
+        projectId: PESSOAL,
+        expenseId: 'e-n',
+        categoria: 'Outros', // label ambíguo — NÃO deve influenciar a detecção de neutro
+        expense: { linkedExpenseId: null, cardLast4: '7259', bankLast4: null, tipoDespesa: 'PAGAMENTO_FATURA_CARTAO' },
+      }),
+      baseEntry({
+        id: 'cfe-comum',
+        projectId: PESSOAL,
+        expenseId: 'e-c',
+        expense: { linkedExpenseId: null, cardLast4: '7259', bankLast4: null, tipoDespesa: 'ALIMENTACAO' },
+      }),
+      baseEntry({ id: 'cfe-receb', projectId: PESSOAL, tipo: 'RECEBIMENTO', expenseId: null, expense: null }),
+    ]);
+
+    const res = await service.getOverview(tenantId, PESSOAL);
+
+    const neutro = res.entries.find((e) => e.id === 'cfe-neutro-cartao');
+    expect(neutro?.isNeutral).toBe(true);
+    expect(neutro?.tipoDespesaCodigo).toBe('PAGAMENTO_FATURA_CARTAO');
+    expect(neutro?.cardLast4).toBe('7259');
+    expect(neutro?.bankLast4).toBeNull();
+
+    expect(res.entries.find((e) => e.id === 'cfe-comum')?.isNeutral).toBe(false);
+    expect(res.entries.find((e) => e.id === 'cfe-receb')?.isNeutral).toBe(false);
+  });
 });
