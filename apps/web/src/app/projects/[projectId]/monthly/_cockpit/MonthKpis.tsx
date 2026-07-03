@@ -34,7 +34,7 @@ export default function MonthKpis({
       <KpiCard
         label="Gastei no mês"
         value={fmtMoney(m.gasteiRealizado)}
-        tone="neg"
+        tone="neutral"
         icon={<ArrowDownCircle className="w-4 h-4" />}
         info={`Despesas já pagas neste mês (${fmtMoney(m.gasteiRealizado)})${m.gasteiPlanejado > 0 ? `. Ainda há ${fmtMoney(m.gasteiPlanejado)} planejado a pagar.` : '.'} Faz parte do "Resultado do mês" lá em cima.`}
         context={m.gasteiPlanejado > 0 ? `+ ${fmtMoney(m.gasteiPlanejado)} planejado` : 'só pagamentos efetivados'}
