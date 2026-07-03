@@ -6,6 +6,7 @@ import { formatCurrency } from '@/lib/utils';
 import { InfoHint } from '@/components/InfoHint';
 import type { DreMensal } from '../_types';
 import { DreIcon } from './DreIcon';
+import { DreMensalDesktop } from './DreMensalDesktop';
 
 export type DreEixoMensal = 'competencia' | 'contaCorrente';
 
@@ -64,7 +65,14 @@ export function DreMensalView({
   };
 
   return (
-    <div className="space-y-4">
+    <>
+      {/* Desktop (lg+): layout otimizado — espinha-equação, cascata e breakdown. */}
+      <div className="hidden lg:block">
+        <DreMensalDesktop data={data} eixo={eixo} onChangeEixo={onChangeEixo} />
+      </div>
+
+      {/* Mobile/tablet: layout empilhado. */}
+      <div className="space-y-4 lg:hidden">
       <section className="space-y-3">
         {eixo === 'competencia' ? (
           <>
@@ -333,6 +341,7 @@ export function DreMensalView({
           </section>
         </div>
       </section>
-    </div>
+      </div>
+    </>
   );
 }
