@@ -1462,6 +1462,135 @@ describe('MonthlyOverviewService.getAccountView', () => {
       ).rejects.toThrow(/Valor da fatura inválido/i);
     });
   });
+
+  describe('getAccountView — parcelas foreign bank-paid (espelho na conta)', () => {
+    const reforma = { id: 'reforma-1', name: 'Reforma', type: 'REFORMA' };
+
+    const base = (over: any) => ({
+      tenantId,
+      tipoDespesa: 'MAO_DE_OBRA',
+      valor: 0,
+      valorTotal: 0,
+      formaPagamento: 'A_VISTA',
+      dataPagamento: null,
+      dataInicioParcela: null,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      quantidadeParcela: null,
+      paidParcelas: null,
+      status: 'PLANEJADO',
+      cardLast4: null,
+      bankLast4: null,
+      linkedExpenseId: null,
+      settledByExpenseId: null,
+      settlesInvoiceKey: null,
+      importId: null,
+      project: null,
+      ...over,
+    });
+
+    beforeEach(() => {
+      prisma.receipt.findMany.mockResolvedValue([]);
+      prisma.cashFlowEntry.findMany.mockResolvedValue([]);
+      prisma.creditCard.findMany.mockResolvedValue([]);
+    });
+
+    it('emite as parcelas FUTURAS não pagas de uma foreign QUINZENAL bank-paid no mês do vencimento', async () => {
+      prisma.expense.findMany.mockResolvedValue([
+        base({ id: 'esp-0', projectId, titulo: 'PIX RMD ENG', fornecedor: 'RMD ENG',
+          valorTotal: 3_000, valor: 3_000, status: 'PAGO', bankLast4: '3636',
+          dataPagamento: new Date('2026-05-24T00:00:00.000Z'), linkedExpenseId: 'foreign-q' }),
+        base({ id: 'esp-1', projectId, titulo: 'PIX RMD ENG', fornecedor: 'RMD ENG',
+          valorTotal: 3_000, valor: 3_000, status: 'PAGO', bankLast4: '3636',
+          dataPagamento: new Date('2026-06-08T00:00:00.000Z'), linkedExpenseId: 'foreign-q' }),
+        base({ id: 'foreign-q', projectId: reforma.id, titulo: 'Infra Eletrica', fornecedor: 'RMD ENG',
+          valorTotal: 12_000, valor: 3_000, formaPagamento: 'QUINZENAL', quantidadeParcela: 4,
+          dataInicioParcela: new Date('2026-05-24T00:00:00.000Z'), paidParcelas: '[0,1]',
+          status: 'PLANEJADO', project: reforma }),
+      ]);
+
+      const res: any = await service.getAccountView(tenantId, projectId, '2026-06');
+
+      const emitida = res.saidas.find(
+        (s: any) => s.descricao === 'Infra Eletrica' && s.status === 'PLANEJADO',
+      );
+      expect(emitida).toBeDefined();
+      expect(emitida.valor).toBe(3_000);
+      expect(emitida.isInvoice).toBe(false);
+      expect(emitida.bankLast4).toBe('3636');
+      expect(emitida.projetoOrigem).toEqual(
+        expect.objectContaining({ id: 'reforma-1', type: 'REFORMA' }),
+      );
+      expect(emitida.data.slice(0, 10)).toBe('2026-06-23');
+
+      const parcelasReforma = res.saidas.filter(
+        (s: any) => s.descricao === 'Infra Eletrica' && s.status === 'PLANEJADO',
+      );
+      expect(parcelasReforma).toHaveLength(1);
+      expect(res.saidas.some((s: any) => s.valor === 12_000)).toBe(false);
+      expect(res.faltaPagarMes).toBe(3_000);
+    });
+
+    it('NÃO emite saída de conta para foreign PARCELADO paga por CARTÃO (evita dupla contagem)', async () => {
+      prisma.creditCard.findMany.mockResolvedValue([
+        { id: 'c-5572', tenantId, projectId, nickname: 'Cartão', last4: '5572',
+          closingDay: 20, dueDay: 28, limitTotalCents: 100_000, limitAvailableCents: 50_000 },
+      ]);
+      prisma.expense.findMany.mockResolvedValue([
+        base({ id: 'esp-card', projectId, titulo: 'Calhas parcela', fornecedor: 'Calhas',
+          valorTotal: 4_000, valor: 4_000, status: 'PLANEJADO', cardLast4: '5572',
+          formaPagamento: 'PARCELADO', quantidadeParcela: 2,
+          dataInicioParcela: new Date('2026-06-10T00:00:00.000Z'), linkedExpenseId: 'foreign-p' }),
+        base({ id: 'foreign-p', projectId: reforma.id, titulo: 'Calhas e Rufos', fornecedor: 'Calhas',
+          valorTotal: 8_000, valor: 4_000, formaPagamento: 'PARCELADO', quantidadeParcela: 2,
+          dataInicioParcela: new Date('2026-06-10T00:00:00.000Z'), status: 'PLANEJADO', project: reforma }),
+      ]);
+
+      const res: any = await service.getAccountView(tenantId, projectId, '2026-06');
+
+      const contaReforma = res.saidas.filter(
+        (s: any) => s.isInvoice === false && s.projetoOrigem?.type === 'REFORMA',
+      );
+      expect(contaReforma).toHaveLength(0);
+      expect(res.saidas.some((s: any) => s.bankLast4 === '5572')).toBe(false);
+    });
+
+    it('mantém excluída a foreign À VISTA quitada por espelho bank (não re-emite)', async () => {
+      prisma.expense.findMany.mockResolvedValue([
+        base({ id: 'esp-av', projectId, titulo: 'PIX à vista', fornecedor: 'Loja',
+          valorTotal: 5_000, valor: 5_000, status: 'PAGO', bankLast4: '3636',
+          dataPagamento: new Date('2026-06-05T00:00:00.000Z'), linkedExpenseId: 'foreign-av' }),
+        base({ id: 'foreign-av', projectId: reforma.id, titulo: 'Material à vista', fornecedor: 'Loja',
+          valorTotal: 5_000, valor: 5_000, formaPagamento: 'A_VISTA', status: 'PLANEJADO',
+          dataPagamento: new Date('2026-06-05T00:00:00.000Z'), project: reforma }),
+      ]);
+
+      const res: any = await service.getAccountView(tenantId, projectId, '2026-06');
+
+      const planejadasReforma = res.saidas.filter(
+        (s: any) => s.projetoOrigem?.type === 'REFORMA' && s.status !== 'PAGO',
+      );
+      expect(planejadasReforma).toHaveLength(0);
+      expect(res.faltaPagarMes).toBe(0);
+    });
+
+    it('preserva o lump (valorTotal) para foreign SEM espelho (não linkada)', async () => {
+      prisma.expense.findMany.mockResolvedValue([
+        base({ id: 'foreign-nl', projectId: reforma.id, titulo: 'Material avulso', fornecedor: 'Obramax',
+          valorTotal: 7_000, valor: 7_000, formaPagamento: 'A_VISTA', status: 'PLANEJADO',
+          dataPagamento: new Date('2026-06-15T00:00:00.000Z'), project: reforma }),
+      ]);
+
+      const res: any = await service.getAccountView(tenantId, projectId, '2026-06');
+
+      const lump = res.saidas.find((s: any) => s.descricao === 'Material avulso');
+      expect(lump).toBeDefined();
+      expect(lump.valor).toBe(7_000);
+      expect(lump.bankLast4).toBeNull();
+      expect(lump.projetoOrigem).toEqual(expect.objectContaining({ type: 'REFORMA' }));
+      expect(lump.data.slice(0, 10)).toBe('2026-06-15');
+      expect(res.faltaPagarMes).toBe(7_000);
+    });
+  });
 });
 
 describe('matchPaidInvoices', () => {

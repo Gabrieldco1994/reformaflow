@@ -2,12 +2,14 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { CardInvoiceSettlementService } from '../credit-card/card-invoice-settlement.service';
 import {
+  buildInstallments,
   buildMonthlyOverview,
   caixaMonthForCardPurchase,
   compareMonths,
   ExpenseTypeLabels,
   ReceiptTypeLabels,
   isNeutralExpenseType,
+  isSinglePaymentForm,
   type MonthlyOverviewEntry,
 } from '@reformaflow/domain';
 
@@ -214,6 +216,7 @@ export class MonthlyOverviewService {
           linkedExpenseId: true,
           settledByExpenseId: true,
           settlesInvoiceKey: true,
+          paidParcelas: true,
           project: { select: { id: true, name: true, type: true } },
         },
       }),
@@ -299,9 +302,30 @@ export class MonthlyOverviewService {
       primaryAccount?.id ?? null,
     );
     const foreignById = new Map(foreignExpenses.map((expense) => [expense.id, expense] as const));
-    const linkedTargetIds = new Set(
-      expenses.map((expense) => expense.linkedExpenseId).filter((id): id is string => !!id),
-    );
+    // Espelhos PESSOAL (expenses com linkedExpenseId) agrupados pelo alvo foreign que
+    // liquidam. Usado para classificar a ORIGEM de pagamento de cada foreign: quitada
+    // por cartão (fatura já cobre), por conta/banco (espelho bank cobre os pagamentos
+    // já feitos, mas parcelas futuras ainda saem da conta), ou sem espelho (lump).
+    const espelhosByForeignId = new Map<string, typeof expenses>();
+    for (const espelho of expenses) {
+      if (!espelho.linkedExpenseId) continue;
+      const bucket = espelhosByForeignId.get(espelho.linkedExpenseId);
+      if (bucket) bucket.push(espelho);
+      else espelhosByForeignId.set(espelho.linkedExpenseId, [espelho]);
+    }
+    type ForeignOrigin =
+      | { origem: 'none' }
+      | { origem: 'card' }
+      | { origem: 'bank'; bankLast4: string | null };
+    const classifyForeignOrigin = (foreignId: string): ForeignOrigin => {
+      const espelhos = espelhosByForeignId.get(foreignId) ?? [];
+      if (espelhos.length === 0) return { origem: 'none' };
+      // Espelho misto (card + bank): prevalece 'card' (segurança — a fatura cobre).
+      if (espelhos.some((e) => !!e.cardLast4)) return { origem: 'card' };
+      const bankEspelho = espelhos.find((e) => !!e.bankLast4);
+      return { origem: 'bank', bankLast4: bankEspelho?.bankLast4 ?? null };
+    };
+
     const projetoOrigemFor = (linkedExpenseId: string | null | undefined) => {
       if (!linkedExpenseId) return null;
       const target = foreignById.get(linkedExpenseId);
@@ -519,17 +543,107 @@ export class MonthlyOverviewService {
       .sort((a, b) => b.data.localeCompare(a.data));
 
     // Planejado de outros projetos que ainda sairá da conta pessoal (o PESSOAL é o
-    // consolidador). Deduplicado contra alvos já liquidados por um espelho pessoal
-    // (linkedTargetIds) e contra planejados já liquidados (settledByExpenseId).
-    const foreignPendingList = foreignExpenses
+    // consolidador). Deduplicado contra planejados já liquidados (settledByExpenseId)
+    // e contra a ORIGEM de pagamento do espelho pessoal (classifyForeignOrigin):
+    //  - card  → a fatura do cartão já cobre; não emite saída de conta (evita dobra).
+    //  - bank à-vista → o espelho bank quitado já aparece em accountExpenseList.
+    //  - bank parcelado/quinzenal → emite as parcelas FUTURAS não pagas (paidParcelas),
+    //    cada uma no mês do próprio vencimento.
+    //  - sem espelho → mantém o lump (valorTotal) na data de compra (comportamento legado).
+    const foreignPendingItems = foreignExpenses
       .filter((expense) => {
         if (expense.status === 'PAGO') return false;
         if (expense.settledByExpenseId) return false;
-        if (linkedTargetIds.has(expense.id)) return false;
         if (isNeutralExpenseType(expense.tipoDespesa)) return false;
-        return isInRange(purchaseDate(expense), monthStart, monthEnd);
+        return true;
       })
-      .sort((a, b) => purchaseDate(b).getTime() - purchaseDate(a).getTime());
+      .flatMap((expense) => {
+        const origin = classifyForeignOrigin(expense.id);
+        const projetoOrigem = expense.project
+          ? { id: expense.project.id, name: expense.project.name, type: expense.project.type }
+          : null;
+        const descricao = expenseDisplayName(
+          expense.tipoDespesa,
+          expense.titulo,
+          expense.fornecedor,
+        );
+        const forma = inferCashForm(
+          `${expense.titulo ?? ''} ${expense.fornecedor ?? ''}`,
+          expense.formaPagamento,
+        );
+
+        // Foreign paga por cartão: a fatura já cobre → nunca vira saída de conta.
+        if (origin.origem === 'card') return [];
+
+        // Foreign sem espelho: mantém o lump legado na data de compra.
+        if (origin.origem === 'none') {
+          if (!isInRange(purchaseDate(expense), monthStart, monthEnd)) return [];
+          return [
+            {
+              id: expense.id as string | null,
+              kind: 'saida' as const,
+              descricao,
+              data: purchaseDate(expense).toISOString(),
+              forma,
+              valor: expense.valorTotal,
+              realizado: false,
+              status: expense.status,
+              cardLast4: null as string | null,
+              bankLast4: null as string | null,
+              tipoDespesa: expense.tipoDespesa,
+              isInvoice: false,
+              editavel: false,
+              dueMonth: null as string | null,
+              projetoOrigem,
+            },
+          ];
+        }
+
+        // origin.origem === 'bank': à-vista já coberta pelo espelho bank em
+        // accountExpenseList → não re-emite.
+        if (isSinglePaymentForm(expense.formaPagamento)) return [];
+
+        // Parcelado/quinzenal bank-paid: emite as parcelas futuras não pagas, cada
+        // uma no mês do próprio vencimento.
+        const parcelas = buildInstallments({
+          valorTotal: expense.valorTotal,
+          formaPagamento: expense.formaPagamento,
+          quantidadeParcela: expense.quantidadeParcela,
+          dataInicioParcela: expense.dataInicioParcela,
+          dataPagamento: expense.dataPagamento,
+        });
+        let paidSet: Set<number>;
+        try {
+          const parsed = JSON.parse(expense.paidParcelas ?? '[]');
+          paidSet = new Set(Array.isArray(parsed) ? (parsed as number[]) : []);
+        } catch {
+          paidSet = new Set<number>();
+        }
+
+        return parcelas.flatMap((parcela, index) => {
+          if (paidSet.has(index)) return [];
+          if (!isInRange(parcela.data, monthStart, monthEnd)) return [];
+          return [
+            {
+              id: `${expense.id}#${index}` as string | null,
+              kind: 'saida' as const,
+              descricao,
+              data: parcela.data.toISOString(),
+              forma,
+              valor: parcela.valor,
+              realizado: false,
+              status: expense.status,
+              cardLast4: null as string | null,
+              bankLast4: origin.bankLast4,
+              tipoDespesa: expense.tipoDespesa,
+              isInvoice: false,
+              editavel: false,
+              dueMonth: null as string | null,
+              projetoOrigem,
+            },
+          ];
+        });
+      });
 
     const faltaPagarMes =
       sumBy(selectedInvoices, (invoice) => invoice.pending) +
@@ -537,7 +651,7 @@ export class MonthlyOverviewService {
         accountExpenseList.filter((expense) => expense.status !== 'PAGO'),
         (expense) => expense.valorTotal,
       ) +
-      sumBy(foreignPendingList, (expense) => expense.valorTotal);
+      sumBy(foreignPendingItems, (item) => item.valor);
 
     const saidas = [
       ...selectedInvoices.map((invoice) => ({
@@ -577,28 +691,7 @@ export class MonthlyOverviewService {
         dueMonth: null as string | null,
         projetoOrigem: projetoOrigemFor(expense.linkedExpenseId),
       })),
-      ...foreignPendingList.map((expense) => ({
-        id: expense.id as string | null,
-        kind: 'saida' as const,
-        descricao: expenseDisplayName(expense.tipoDespesa, expense.titulo, expense.fornecedor),
-        data: purchaseDate(expense).toISOString(),
-        forma: inferCashForm(
-          `${expense.titulo ?? ''} ${expense.fornecedor ?? ''}`,
-          expense.formaPagamento,
-        ),
-        valor: expense.valorTotal,
-        realizado: false,
-        status: expense.status,
-        cardLast4: null as string | null,
-        bankLast4: null as string | null,
-        tipoDespesa: expense.tipoDespesa,
-        isInvoice: false,
-        editavel: false,
-        dueMonth: null as string | null,
-        projetoOrigem: expense.project
-          ? { id: expense.project.id, name: expense.project.name, type: expense.project.type }
-          : null,
-      })),
+      ...foreignPendingItems,
     ].sort((a, b) => b.data.localeCompare(a.data));
 
     const entradas = receipts
