@@ -1,5 +1,5 @@
 import { formatCurrency } from '@/lib/utils';
-import { InfoHint } from '@/components/InfoHint';
+import { KpiTile } from '@/components/KpiTile';
 
 interface PerProjectKpi {
   key: string;
@@ -57,32 +57,30 @@ export function ExpenseKpiCards({
       {/* Cockpit — 3 KPIs principais (olhando tudo) */}
       {!onlyPerProject && (
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="rounded-xl border border-gray-200 bg-white p-4">
-          <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-            Total de Despesa
-            <InfoHint text="Soma de todas as despesas do filtro atual — planejadas + pagas." className="text-gray-400" />
-          </p>
-          <p className="mt-1 text-2xl font-bold text-gray-900 tabular-nums">{formatCurrency(totalGeral / 100)}</p>
-          <p className="mt-0.5 text-[11px] text-gray-400">{filteredCount} {filteredCount === 1 ? 'item' : 'itens'}</p>
-        </div>
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-          <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-amber-600">
-            Planejado
-            <InfoHint text="Despesas ainda não pagas (status Planejado) — o que está previsto para sair." className="text-amber-600" />
-          </p>
-          <p className="mt-1 text-2xl font-bold text-amber-800 tabular-nums">{formatCurrency(totalPlanejado / 100)}</p>
-          <p className="mt-0.5 text-[11px] text-amber-500">{filteredPlanejadoCount} {filteredPlanejadoCount === 1 ? 'item' : 'itens'}</p>
-        </div>
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-          <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-600">
-            Pago
-            <InfoHint text="Despesas já efetivadas (status Pago) — o que de fato saiu." className="text-emerald-600" />
-          </p>
-          <p className="mt-1 text-2xl font-bold text-emerald-800 tabular-nums">{formatCurrency(totalPago / 100)}</p>
-          <p className="mt-0.5 text-[11px] text-emerald-500">
-            {filteredPagoCount} {filteredPagoCount === 1 ? 'item' : 'itens'} · {pctPago}% do total
-          </p>
-        </div>
+        <KpiTile
+          variant="plain"
+          tone="neutral"
+          label="Total de Despesa"
+          info="Soma de todas as despesas do filtro atual — planejadas + pagas."
+          value={formatCurrency(totalGeral / 100)}
+          context={`${filteredCount} ${filteredCount === 1 ? 'item' : 'itens'}`}
+        />
+        <KpiTile
+          variant="tinted"
+          tone="alert"
+          label="Planejado"
+          info="Despesas ainda não pagas (status Planejado) — o que está previsto para sair."
+          value={formatCurrency(totalPlanejado / 100)}
+          context={`${filteredPlanejadoCount} ${filteredPlanejadoCount === 1 ? 'item' : 'itens'}`}
+        />
+        <KpiTile
+          variant="tinted"
+          tone="positive"
+          label="Pago"
+          info="Despesas já efetivadas (status Pago) — o que de fato saiu."
+          value={formatCurrency(totalPago / 100)}
+          context={`${filteredPagoCount} ${filteredPagoCount === 1 ? 'item' : 'itens'} · ${pctPago}% do total`}
+        />
       </div>
       )}
 
