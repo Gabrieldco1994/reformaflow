@@ -2,9 +2,18 @@
 
 import { formatCurrency } from '@/lib/utils';
 import { InfoHint } from '@/components/InfoHint';
+import { KpiTile, type KpiTone } from '@/components/KpiTile';
 
 type Tone = 'emerald' | 'slate' | 'amber' | 'rose';
 export type ResumoQuickFilterKey = 'entrouMes' | 'saiuMes' | 'faltaPagarMes';
+
+/** Mapeia os tones legados da Visão Conta para o tone semântico do KpiTile. */
+const TONE_MAP: Record<Tone, KpiTone> = {
+  emerald: 'positive',
+  slate: 'neutral',
+  amber: 'alert',
+  rose: 'negative',
+};
 
 const SMALL_CARDS: Array<{
   key: 'entrouMes' | 'saiuMes' | 'faltaPagarMes' | 'sobraPrevista';
@@ -47,13 +56,6 @@ function isQuickFilterKey(
   key: (typeof SMALL_CARDS)[number]['key'],
 ): key is ResumoQuickFilterKey {
   return key !== 'sobraPrevista';
-}
-
-function toneClasses(tone: Tone) {
-  if (tone === 'emerald') return 'text-[#1E924A] bg-[#E3F6EA] border-[#BFE6CC]';
-  if (tone === 'amber') return 'text-[#B5803A] bg-[#FBEBDC] border-[#EAD9C0]';
-  if (tone === 'rose') return 'text-[#D92D20] bg-[#FCEBE9] border-[#F2C6C1]';
-  return 'text-lifeone-ink bg-lifeone-surface border-lifeone-hairline';
 }
 
 export function ResumoCards({
@@ -100,54 +102,33 @@ export function ResumoCards({
       <div className="grid grid-cols-2 gap-3 xl:col-span-8 xl:auto-rows-fr xl:grid-cols-4 xl:gap-4">
         {SMALL_CARDS.map((card) => {
           const value = values[card.key];
-          const tone = card.key === 'sobraPrevista' ? (value < 0 ? 'rose' : 'emerald') : card.tone;
+          const tone: KpiTone = card.key === 'sobraPrevista'
+            ? (value < 0 ? 'negative' : 'positive')
+            : TONE_MAP[card.tone];
           const quickFilterKey: ResumoQuickFilterKey | null = isQuickFilterKey(card.key)
             ? card.key
             : null;
-          const filterable = quickFilterKey != null;
           const active = quickFilterKey != null && activeQuickFilter === quickFilterKey;
-          const cardClass = `rounded-2xl border p-3 shadow-lifeone-card xl:flex xl:min-h-full xl:flex-col xl:justify-between xl:p-4 ${
-            active ? 'ring-2 ring-lifeone-blue' : ''
-          } ${filterable ? 'cursor-pointer' : ''} ${toneClasses(tone)}`;
           return (
-            filterable && quickFilterKey ? (
-              <button
-                key={card.key}
-                type="button"
-                onClick={() => onQuickFilterSelect(quickFilterKey)}
-                aria-pressed={active}
-                className={`${cardClass} text-left`}
-              >
-                <p className="flex items-center gap-1 text-[11px] font-semibold leading-4">
-                  {card.title}
-                  <InfoHint text={card.info} />
-                </p>
-                <p className="mt-2 text-lg font-bold tracking-tight xl:text-[22px] font-geist tabular-nums">
-                  {formatCurrency(value / 100)}
-                </p>
-                {card.key === 'entrouMes' && recebimentosPrevistosMes > 0 ? (
+            <KpiTile
+              key={card.key}
+              variant="tinted"
+              tone={tone}
+              label={card.title}
+              info={card.info}
+              value={formatCurrency(value / 100)}
+              context={card.help}
+              className="xl:flex xl:min-h-full xl:flex-col xl:justify-between xl:p-4"
+              active={active}
+              onClick={quickFilterKey ? () => onQuickFilterSelect(quickFilterKey) : undefined}
+              extra={
+                card.key === 'entrouMes' && recebimentosPrevistosMes > 0 ? (
                   <p className="mt-1 text-[11px] font-semibold leading-4 text-[#B5803A]">
                     + {formatCurrency(recebimentosPrevistosMes / 100)} previsto ainda a entrar
                   </p>
-                ) : null}
-                <p className="mt-2 text-[11px] leading-4 opacity-80 xl:text-xs xl:leading-5">
-                  {card.help}
-                </p>
-              </button>
-            ) : (
-              <article key={card.key} className={cardClass}>
-                <p className="flex items-center gap-1 text-[11px] font-semibold leading-4">
-                  {card.title}
-                  <InfoHint text={card.info} />
-                </p>
-                <p className="mt-2 text-lg font-bold tracking-tight xl:text-[22px] font-geist tabular-nums">
-                  {formatCurrency(value / 100)}
-                </p>
-                <p className="mt-2 text-[11px] leading-4 opacity-80 xl:text-xs xl:leading-5">
-                  {card.help}
-                </p>
-              </article>
-            )
+                ) : undefined
+              }
+            />
           );
         })}
       </div>
