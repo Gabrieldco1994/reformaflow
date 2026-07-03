@@ -5,7 +5,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
-import { Plus, ShoppingCart, ArrowDownWideNarrow, ArrowUpNarrowWide } from 'lucide-react';
+import { Plus, ShoppingCart, ArrowDownWideNarrow, ArrowUpNarrowWide, SlidersHorizontal, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { Expense, ExpenseFormData, ExpensesPage, Project } from '@/types';
 import { toast } from 'sonner';
@@ -107,6 +107,8 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
   // View mode: por categoria (legado) ou por mês (nova UX igual recebimentos)
   const [viewMode, setViewMode] = useState<ExpenseViewMode>('category');
+  // Mobile: controles (busca/filtros/visão/período) recolhidos atrás de "Filtrar".
+  const [mobileControlsOpen, setMobileControlsOpen] = useState(false);
   const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(new Set());
   // Direção de ordenação da visão "Geral" (extrato por data). Padrão: decrescente.
   const [generalSortDir, setGeneralSortDir] = useState<'asc' | 'desc'>('desc');
@@ -947,40 +949,62 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
         />
       )}
 
-      {/* Search + Filter bar */}
-      <ExpenseFiltersBar
-        searchText={searchText}
-        onSearchTextChange={setSearchText}
-        showFilters={showFilters}
-        onToggleFilters={() => setShowFilters(!showFilters)}
-        filters={filters}
-        updateFilter={updateFilter}
-        clearFilters={clearFilters}
-        hasActiveFilters={hasActiveFilters}
-        showRooms={showRooms}
-        tipoDespesaOptions={TIPO_DESPESA_OPTIONS}
-        rangeStart={rangeStart}
-        rangeEnd={rangeEnd}
-        onRangeStartChange={setRangeStart}
-        onRangeEndChange={setRangeEnd}
-      />
+      {/* Mobile: botão que revela os controles (busca/filtros/visão/período).
+          Mantém a lista na primeira dobra; no desktop os controles ficam inline. */}
+      <button
+        type="button"
+        onClick={() => setMobileControlsOpen((v) => !v)}
+        className="md:hidden flex w-full items-center justify-between rounded-xl border border-darc-linen bg-white px-4 py-2.5 text-sm font-semibold text-darc-velvet shadow-darc-soft"
+      >
+        <span className="truncate">
+          {viewMode === 'category' ? 'Categoria' : viewMode === 'month' ? 'Mês' : viewMode === 'project' ? 'Por projeto' : 'Geral'}
+          {projectType === 'PESSOAL' && /^\d{4}-\d{2}$/.test(String(period))
+            ? ` · ${['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][parseInt(String(period).slice(5, 7), 10) - 1]}`
+            : ''}
+        </span>
+        <span className="flex items-center gap-1.5 text-darc-velvet/60">
+          <SlidersHorizontal className="w-4 h-4" />
+          Filtrar
+          <ChevronDown className={`w-4 h-4 transition-transform ${mobileControlsOpen ? 'rotate-180' : ''}`} />
+        </span>
+      </button>
 
-      {/* Toggle de visão (Categoria / Mês / Por projeto) — logo abaixo da busca */}
-      {!(isPersonal && eixo === 'caixa') && (
-        <div className="flex">
-          <ExpenseViewToggle value={viewMode} onChange={setViewMode} showProject={projectType === 'PESSOAL'} />
-        </div>
-      )}
-
-      {/* Período (PESSOAL) — dropdown de mês / ano todo (nav ◂ ▸ fica no header) */}
-      {projectType === 'PESSOAL' && (
-        <PersonalPeriodPicker
-          period={period}
-          periodYear={periodYear}
-          allPeriods={allPeriods}
-          onChange={setPeriod}
+      <div className={`${mobileControlsOpen ? 'block' : 'hidden'} md:block space-y-3`}>
+        {/* Search + Filter bar */}
+        <ExpenseFiltersBar
+          searchText={searchText}
+          onSearchTextChange={setSearchText}
+          showFilters={showFilters}
+          onToggleFilters={() => setShowFilters(!showFilters)}
+          filters={filters}
+          updateFilter={updateFilter}
+          clearFilters={clearFilters}
+          hasActiveFilters={hasActiveFilters}
+          showRooms={showRooms}
+          tipoDespesaOptions={TIPO_DESPESA_OPTIONS}
+          rangeStart={rangeStart}
+          rangeEnd={rangeEnd}
+          onRangeStartChange={setRangeStart}
+          onRangeEndChange={setRangeEnd}
         />
-      )}
+
+        {/* Toggle de visão (Categoria / Mês / Por projeto) — logo abaixo da busca */}
+        {!(isPersonal && eixo === 'caixa') && (
+          <div className="flex">
+            <ExpenseViewToggle value={viewMode} onChange={setViewMode} showProject={projectType === 'PESSOAL'} />
+          </div>
+        )}
+
+        {/* Período (PESSOAL) — dropdown de mês / ano todo (nav ◂ ▸ fica no header) */}
+        {projectType === 'PESSOAL' && (
+          <PersonalPeriodPicker
+            period={period}
+            periodYear={periodYear}
+            allPeriods={allPeriods}
+            onChange={setPeriod}
+          />
+        )}
+      </div>
 
       {isLoading ? (
         <div className="space-y-4 animate-pulse">
