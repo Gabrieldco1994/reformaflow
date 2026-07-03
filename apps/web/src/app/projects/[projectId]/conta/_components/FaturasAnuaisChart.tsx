@@ -14,8 +14,10 @@ import { CreditCard, Landmark } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import type { CardInvoicesYearlyResponse } from '../_types';
 
-const CARD_COLORS = ['#0A6CF0', '#1E924A', '#C2691E', '#7A3FC2', '#D92D20', '#5E5A52'];
-const CONTA_COLORS = ['#0857C4', '#7A3FC2', '#B5803A'];
+// Paleta única e perceptualmente distinta: cada origem (conta ou cartão) recebe
+// uma cor claramente diferente da vizinha. O ícone (Landmark/CreditCard) separa
+// conta de fatura, então a cor só precisa distinguir as origens entre si.
+const ORIGIN_COLORS = ['#0A6CF0', '#1E924A', '#C2691E', '#7A3FC2', '#0E9384', '#D92D20', '#B54708', '#5E5A52'];
 
 function compactBRL(value: number) {
   if (value === 0) return '0';
@@ -37,13 +39,11 @@ export function FaturasAnuaisChart({
   selectedMonth: string | null;
   onSelectMonth: (mes: string | null) => void;
 }) {
-  // Cor estável por origem (independe do filtro).
+  // Cor estável por origem (independe do filtro), distinta entre vizinhas.
   const colorByKey = new Map<string, string>();
-  let ci = 0;
-  let ai = 0;
-  for (const origin of data.origins) {
-    colorByKey.set(origin.key, origin.kind === 'conta' ? CONTA_COLORS[ai++ % CONTA_COLORS.length] : CARD_COLORS[ci++ % CARD_COLORS.length]);
-  }
+  data.origins.forEach((origin, idx) => {
+    colorByKey.set(origin.key, ORIGIN_COLORS[idx % ORIGIN_COLORS.length]);
+  });
 
   const visibleOrigins = selectedKey
     ? data.origins.filter((o) => o.key === selectedKey)
@@ -78,7 +78,7 @@ export function FaturasAnuaisChart({
           </p>
           <p className="text-lg font-bold text-lifeone-ink font-geist tabular-nums">{formatCurrency(totalVisivel / 100)}</p>
         </div>
-        {selectedKey && (
+        {selectedKey ? (
           selectedMonthLabel ? (
             <button
               type="button"
@@ -91,6 +91,8 @@ export function FaturasAnuaisChart({
           ) : (
             <span className="text-[11px] text-lifeone-ink-4">Clique numa barra para ver o mês</span>
           )
+        ) : (
+          <span className="hidden text-[11px] text-lifeone-ink-4 sm:inline">Cada barra é um mês · clique numa cor pra isolar a origem</span>
         )}
       </div>
 
@@ -155,31 +157,32 @@ export function FaturasAnuaisChart({
                 content={({ active, payload, label }) => {
                   if (!active || !payload?.length) return null;
                   const total = payload.reduce((sum, item) => sum + (Number(item.value) || 0), 0);
+                  const rows = payload
+                    .filter((item) => Number(item.value) > 0)
+                    .sort((a, b) => Number(b.value) - Number(a.value));
                   return (
                     <div className="rounded-xl border border-lifeone-hairline bg-lifeone-card p-2.5 text-xs shadow-lifeone-hover">
                       <p className="mb-1 font-semibold text-lifeone-ink">{label}</p>
-                      {payload
-                        .filter((item) => Number(item.value) > 0)
-                        .map((item) => {
-                          const origin = data.origins.find((o) => o.key === item.dataKey);
-                          return (
-                            <div key={item.dataKey as string} className="flex items-center justify-between gap-3">
-                              <span className="flex items-center gap-1.5 text-lifeone-ink-2">
-                                <span
-                                  className="inline-block h-2 w-2 rounded-full"
-                                  style={{ backgroundColor: item.color }}
-                                />
-                                {origin ? `${origin.nickname} · ${origin.last4}` : (item.dataKey as string)}
-                              </span>
-                              <span className="font-medium text-lifeone-ink">
-                                {formatCurrency(Number(item.value))}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      {payload.length > 1 && (
+                      {rows.map((item) => {
+                        const origin = data.origins.find((o) => o.key === item.dataKey);
+                        return (
+                          <div key={item.dataKey as string} className="flex items-center justify-between gap-3">
+                            <span className="flex items-center gap-1.5 text-lifeone-ink-2">
+                              <span
+                                className="inline-block h-2 w-2 rounded-full"
+                                style={{ backgroundColor: item.color }}
+                              />
+                              {origin ? `${origin.nickname} · ${origin.last4}` : (item.dataKey as string)}
+                            </span>
+                            <span className="font-medium text-lifeone-ink">
+                              {formatCurrency(Number(item.value))}
+                            </span>
+                          </div>
+                        );
+                      })}
+                      {rows.length > 1 && (
                         <div className="mt-1 flex items-center justify-between gap-3 border-t border-lifeone-hairline-3 pt-1">
-                          <span className="font-semibold text-lifeone-ink-2">Total</span>
+                          <span className="font-semibold text-lifeone-ink-2">Total do mês</span>
                           <span className="font-bold text-lifeone-ink">{formatCurrency(total)}</span>
                         </div>
                       )}
@@ -187,38 +190,43 @@ export function FaturasAnuaisChart({
                   );
                 }}
               />
-              {visibleOrigins.map((origin) => (
-                <Bar
-                  key={origin.key}
-                  dataKey={origin.key}
-                  name={origin.key}
-                  radius={[3, 3, 0, 0]}
-                  maxBarSize={selectedKey ? 40 : 28}
-                  cursor="pointer"
-                  onClick={(barData: { payload?: { mes?: string } }) => {
-                    if (selectedKey) {
-                      // Origem já filtrada: clicar na barra alterna o filtro de mês.
-                      const mes = barData?.payload?.mes ?? null;
-                      onSelectMonth(selectedMonth === mes ? null : mes);
-                    } else {
-                      // Sem origem: clicar seleciona a origem.
-                      onSelectKey(origin.key);
-                    }
-                  }}
-                >
-                  {chartData.map((row) => {
-                    const baseColor = colorByKey.get(origin.key)!;
-                    const dimmed = !!selectedKey && !!selectedMonth && row.mes !== selectedMonth;
-                    return (
-                      <Cell
-                        key={`${origin.key}-${row.mes}`}
-                        fill={baseColor}
-                        fillOpacity={dimmed ? 0.3 : 1}
-                      />
-                    );
-                  })}
-                </Bar>
-              ))}
+              {visibleOrigins.map((origin, idx) => {
+                const isTop = idx === visibleOrigins.length - 1;
+                return (
+                  <Bar
+                    key={origin.key}
+                    dataKey={origin.key}
+                    name={origin.key}
+                    stackId="origens"
+                    radius={isTop ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                    maxBarSize={selectedKey ? 44 : 34}
+                    isAnimationActive={false}
+                    cursor="pointer"
+                    onClick={(barData: { payload?: { mes?: string } }) => {
+                      if (selectedKey) {
+                        // Origem já filtrada: clicar na barra alterna o filtro de mês.
+                        const mes = barData?.payload?.mes ?? null;
+                        onSelectMonth(selectedMonth === mes ? null : mes);
+                      } else {
+                        // Sem origem: clicar num segmento seleciona aquela origem.
+                        onSelectKey(origin.key);
+                      }
+                    }}
+                  >
+                    {chartData.map((row) => {
+                      const baseColor = colorByKey.get(origin.key)!;
+                      const dimmed = !!selectedKey && !!selectedMonth && row.mes !== selectedMonth;
+                      return (
+                        <Cell
+                          key={`${origin.key}-${row.mes}`}
+                          fill={baseColor}
+                          fillOpacity={dimmed ? 0.3 : 1}
+                        />
+                      );
+                    })}
+                  </Bar>
+                );
+              })}
             </BarChart>
           </ResponsiveContainer>
         </div>
