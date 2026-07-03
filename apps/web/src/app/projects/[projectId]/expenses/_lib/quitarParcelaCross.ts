@@ -163,6 +163,47 @@ export function suggestParcelaQuitacao(
   };
 }
 
+/**
+ * Sugere a quitação de uma parcela ESPECÍFICA (índice explícito) de uma despesa
+ * cross-project — usado quando o usuário alterna o status de uma parcela pontual
+ * na lista da Visão Projeto PESSOAL (não a primeira pendente).
+ *
+ * - Pagamento único → índice 0, valor = valorTotal.
+ * - Parcelada/quinzenal → valor/data da parcela pedida (clamp do índice ao range).
+ */
+export function suggestParcelaQuitacaoAt(
+  exp: QuitacaoTargetExpense,
+  parcelaIndex: number,
+  today: Date = new Date(),
+): ParcelaQuitacaoSuggestion {
+  const isoToday = today.toISOString().slice(0, 10);
+  if (isSinglePaymentForm(exp.formaPagamento ?? '')) {
+    return {
+      parcelaIndex: 0,
+      valorSugerido: exp.valorTotal,
+      dataSugerida: (exp.dataPagamento ?? exp.dataInicioParcela ?? isoToday).slice(0, 10),
+    };
+  }
+  const slices = buildInstallments({
+    valorTotal: exp.valorTotal,
+    formaPagamento: exp.formaPagamento as never,
+    dataPagamento: exp.dataPagamento ? new Date(exp.dataPagamento) : null,
+    quantidadeParcela: exp.quantidadeParcela ?? null,
+    dataInicioParcela: exp.dataInicioParcela ? new Date(exp.dataInicioParcela) : null,
+  });
+  const n = Math.max(1, slices.length);
+  const idx = Math.min(Math.max(0, parcelaIndex), n - 1);
+  const slice = slices[idx];
+  return {
+    parcelaIndex: idx,
+    valorSugerido: slice?.valor ?? exp.valorTotal,
+    dataSugerida: (slice?.data instanceof Date
+      ? slice.data.toISOString()
+      : exp.dataInicioParcela ?? isoToday
+    ).slice(0, 10),
+  };
+}
+
 export interface BuildEspelhoQuitacaoInput {
   descricao: string;
   /** Valor da parcela em CENTAVOS (como vem da Visão Conta). */

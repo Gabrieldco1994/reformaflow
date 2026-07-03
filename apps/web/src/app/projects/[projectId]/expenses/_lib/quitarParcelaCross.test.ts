@@ -6,6 +6,7 @@ import {
   buildEspelhoQuitacaoPayload,
   parsePaidParcelaSet,
   suggestParcelaQuitacao,
+  suggestParcelaQuitacaoAt,
 } from './quitarParcelaCross';
 
 /** Factory de uma saída da Visão Conta com defaults sensatos. */
@@ -250,5 +251,62 @@ describe('suggestParcelaQuitacao', () => {
       today,
     );
     expect(s.parcelaIndex).toBe(2);
+  });
+});
+
+describe('suggestParcelaQuitacaoAt', () => {
+  const today = new Date('2026-07-03T12:00:00.000Z');
+
+  it('parcela explícita → usa o índice pedido, valor/data da própria parcela', () => {
+    // Infra real: 80.000 em 10 quinzenais a partir de 2026-06-08 → 8.000/parcela.
+    const s = suggestParcelaQuitacaoAt(
+      {
+        id: 'infra',
+        tipoDespesa: 'MAO_DE_OBRA',
+        valorTotal: 8000000,
+        formaPagamento: 'QUINZENAL',
+        quantidadeParcela: 10,
+        dataInicioParcela: '2026-06-08',
+        paidParcelas: '[0,1,2]',
+      },
+      5,
+    );
+    expect(s.parcelaIndex).toBe(5);
+    expect(s.valorSugerido).toBe(800000); // 8.000, NÃO 80.000
+    // idx5 = 08/06 + 5*15 dias = 22/08.
+    expect(s.dataSugerida).toBe('2026-08-22');
+  });
+
+  it('índice acima do range → clamp na última parcela', () => {
+    const s = suggestParcelaQuitacaoAt(
+      {
+        id: 'z',
+        tipoDespesa: 'MATERIAL',
+        valorTotal: 300000,
+        formaPagamento: 'PARCELADO',
+        quantidadeParcela: 3,
+        dataInicioParcela: '2026-06-08',
+      },
+      99,
+    );
+    expect(s.parcelaIndex).toBe(2);
+    expect(s.valorSugerido).toBe(100000);
+  });
+
+  it('pagamento único → sempre índice 0 e valor total', () => {
+    const s = suggestParcelaQuitacaoAt(
+      {
+        id: 'x',
+        tipoDespesa: 'MATERIAL',
+        valorTotal: 500000,
+        formaPagamento: 'A_VISTA',
+        dataPagamento: '2026-07-10',
+      },
+      4,
+      today,
+    );
+    expect(s.parcelaIndex).toBe(0);
+    expect(s.valorSugerido).toBe(500000);
+    expect(s.dataSugerida).toBe('2026-07-10');
   });
 });

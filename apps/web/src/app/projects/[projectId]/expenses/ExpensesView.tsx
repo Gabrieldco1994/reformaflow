@@ -60,6 +60,8 @@ import {
   toDisplayBase,
 } from './_lib/personal-hierarchy';
 import ImportLauncher from './_components/ImportLauncher';
+import { QuitarParcelaModal } from '../conta/_components/QuitarParcelaModal';
+import { suggestParcelaQuitacao, suggestParcelaQuitacaoAt } from './_lib/quitarParcelaCross';
 
 const toIsoDate = (date: Date) => date.toISOString().slice(0, 10);
 
@@ -522,6 +524,68 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
     setNewRow,
     setPayModalOpen,
   });
+
+  // ── Quitação cross-project via lista de despesas (Visão Projeto PESSOAL) ──
+  // Uma despesa-alvo de OUTRO projeto exibida na lista consolidada do PESSOAL
+  // NÃO pode ter o status alternado "no vazio" (setParcelaStatus no projeto dono):
+  // isso a faz sumir da Visão Conta, pois não gera o espelho/movimento real.
+  // Interceptamos o toggle e roteamos para o mesmo fluxo de quitação da Visão
+  // Conta (cria espelho pago + concilia a parcela).
+  const [quitarTarget, setQuitarTarget] = useState<null | {
+    foreignExpenseId: string;
+    parcelaIndex: number;
+    valorSugerido: number;
+    descricao: string;
+    dataSugerida: string;
+  }>(null);
+
+  const ownerProjectIdOf = useCallback(
+    (id: string): string => {
+      const exp = allExpensesPersonal.find((e) => e.id === id);
+      return exp?.project?.id ?? exp?.projectId ?? PROJECT_ID;
+    },
+    [allExpensesPersonal, PROJECT_ID],
+  );
+
+  const describeExpense = useCallback(
+    (exp: Expense): string =>
+      exp.titulo?.trim() || exp.fornecedor?.trim() || tipoLabel(exp.tipoDespesa),
+    [],
+  );
+
+  const handleToggleStatus = useCallback(
+    (id: string, status: 'PAGO' | 'PLANEJADO') => {
+      const exp = allExpensesPersonal.find((e) => e.id === id);
+      if (exp && ownerProjectIdOf(id) !== PROJECT_ID) {
+        if (status === 'PAGO') {
+          const sug = suggestParcelaQuitacao(exp);
+          setQuitarTarget({ foreignExpenseId: id, ...sug, descricao: describeExpense(exp) });
+        } else {
+          toast.info('Para desfazer uma quitação cross-project, use a Visão Conta.');
+        }
+        return;
+      }
+      toggleStatusMutation.mutate({ id, status });
+    },
+    [allExpensesPersonal, ownerProjectIdOf, PROJECT_ID, describeExpense, toggleStatusMutation],
+  );
+
+  const handleToggleParcela = useCallback(
+    (id: string, parcela: number, paid: boolean) => {
+      const exp = allExpensesPersonal.find((e) => e.id === id);
+      if (exp && ownerProjectIdOf(id) !== PROJECT_ID) {
+        if (paid) {
+          const sug = suggestParcelaQuitacaoAt(exp, parcela);
+          setQuitarTarget({ foreignExpenseId: id, ...sug, descricao: describeExpense(exp) });
+        } else {
+          toast.info('Para desfazer uma quitação cross-project, use a Visão Conta.');
+        }
+        return;
+      }
+      toggleParcelaMutation.mutate({ id, parcela, paid });
+    },
+    [allExpensesPersonal, ownerProjectIdOf, PROJECT_ID, describeExpense, toggleParcelaMutation],
+  );
 
   function closeFormModal() {
     setFormModalOpen(false);
@@ -1087,7 +1151,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
             cardInfoByLast4={cardInfoByLast4}
             openEdit={openEdit}
             onDelete={(id) => deleteMutation.mutate(id)}
-            onToggleStatus={(id, status) => toggleStatusMutation.mutate({ id, status })}
+            onToggleStatus={handleToggleStatus}
           />
         ) : viewMode === 'general' ? (
           <div className="space-y-2">
@@ -1123,8 +1187,8 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
               tipoOptions={TIPO_DESPESA_OPTIONS}
               openEdit={openEdit}
               onDelete={(id) => deleteMutation.mutate(id)}
-              onToggleStatus={(id, status) => toggleStatusMutation.mutate({ id, status })}
-              onToggleParcela={(id, parcela, paid) => toggleParcelaMutation.mutate({ id, parcela, paid })}
+              onToggleStatus={handleToggleStatus}
+              onToggleParcela={handleToggleParcela}
               onChangeTipo={(id, tipoDespesa) => changeTipoMutation.mutate({ id, tipoDespesa })}
               onQuickUpdate={(id, valor, data) => {
                 const exp = expenses.find((x) => x.id === id);
@@ -1154,7 +1218,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
             tipoLabel={tipoLabel}
             openEdit={openEdit}
             onDelete={(id) => deleteMutation.mutate(id)}
-            onToggleStatus={(id, status) => toggleStatusMutation.mutate({ id, status })}
+            onToggleStatus={handleToggleStatus}
           />
         ) : viewMode === 'month' ? (
           <MonthlyExpenseView
@@ -1172,8 +1236,8 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
             tipoOptions={TIPO_DESPESA_OPTIONS}
             openEdit={openEdit}
             onDelete={(id) => deleteMutation.mutate(id)}
-            onToggleStatus={(id, status) => toggleStatusMutation.mutate({ id, status })}
-            onToggleParcela={(id, parcela, paid) => toggleParcelaMutation.mutate({ id, parcela, paid })}
+            onToggleStatus={handleToggleStatus}
+            onToggleParcela={handleToggleParcela}
             onChangeTipo={(id, tipoDespesa) => changeTipoMutation.mutate({ id, tipoDespesa })}
             onQuickUpdate={(id, valor, data) => {
               const exp = expenses.find((x) => x.id === id);
@@ -1200,7 +1264,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
           tipoLabel={tipoLabel}
           openEdit={openEdit}
           onDelete={(id) => deleteMutation.mutate(id)}
-          onToggleStatus={(id, status) => toggleStatusMutation.mutate({ id, status })}
+          onToggleStatus={handleToggleStatus}
           onQuickUpdate={(id, valor, data) => {
             const exp = expenses.find((x) => x.id === id);
             const qty = exp?.quantidade ?? 1;
@@ -1408,6 +1472,21 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
               { onSuccess: () => setRatearSource(null) },
             )
           }
+        />
+      )}
+      {quitarTarget && (
+        <QuitarParcelaModal
+          projectId={PROJECT_ID}
+          foreignExpenseId={quitarTarget.foreignExpenseId}
+          parcelaIndex={quitarTarget.parcelaIndex}
+          valorSugerido={quitarTarget.valorSugerido}
+          descricao={quitarTarget.descricao}
+          dataSugerida={quitarTarget.dataSugerida}
+          onClose={() => setQuitarTarget(null)}
+          onDone={() => {
+            setQuitarTarget(null);
+            invalidate();
+          }}
         />
       )}
     </div>

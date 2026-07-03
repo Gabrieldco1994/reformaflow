@@ -220,13 +220,31 @@ export function useExpenseMutations({
     mutationFn: async ({ ids }: { ids: string[] }) => {
       // Sequencial de propósito: SQLite serializa escritas e PATCHs concorrentes
       // (Promise.all) podem disparar "database is locked" → 500.
+      // Despesas cross-project (alvo de OUTRO projeto exibido no PESSOAL) NÃO podem
+      // ser marcadas PAGO em massa: isso as faz sumir da Visão Conta (não gera o
+      // espelho/movimento). São puladas aqui; o usuário quita cada uma pelo modal.
+      let skipped = 0;
       for (const id of ids) {
-        await api.patch(`/projects/${resolveOwnerProjectId(id)}/expenses/${id}`, { status: 'PAGO' });
+        const owner = resolveOwnerProjectId(id);
+        if (owner !== projectId) {
+          skipped += 1;
+          continue;
+        }
+        await api.patch(`/projects/${owner}/expenses/${id}`, { status: 'PAGO' });
       }
+      return { skipped, total: ids.length };
     },
-    onSuccess: (_d, vars) => {
+    onSuccess: (res) => {
       invalidate();
-      toast.success(`${vars.ids.length} ${vars.ids.length === 1 ? 'despesa marcada' : 'despesas marcadas'} como pago`);
+      const done = res.total - res.skipped;
+      if (done > 0) {
+        toast.success(`${done} ${done === 1 ? 'despesa marcada' : 'despesas marcadas'} como pago`);
+      }
+      if (res.skipped > 0) {
+        toast.info(
+          `${res.skipped} despesa(s) de outro projeto foram ignoradas — quite cada uma pelo botão "Quitar".`,
+        );
+      }
     },
     onError: (e: Error) => {
       console.error('[expenses] bulk paid failed', e);
