@@ -308,7 +308,9 @@ function RecorrentesContent({
           <p className="text-gray-400 text-sm mt-1">Adicione suas contas recorrentes (luz, água, internet...)</p>
         </div>
       ) : (
-        <div className="bg-white rounded-xl border overflow-x-auto">
+        <>
+        {/* Desktop: tabela */}
+        <div className="hidden md:block bg-white rounded-xl border overflow-x-auto">
           <table className="w-full min-w-[720px] text-sm">
             <thead className="bg-gray-50">
               <tr>
@@ -358,6 +360,39 @@ function RecorrentesContent({
             </tbody>
           </table>
         </div>
+
+        {/* Mobile: cards */}
+        <div className="md:hidden space-y-2.5">
+          {bills.map((bill) => {
+            const cat = CATEGORIAS.find((c) => c.value === bill.categoria);
+            const freq = FREQUENCIAS.find((f) => f.value === bill.frequencia);
+            const ativo = bill.status === 'ATIVO';
+            return (
+              <div key={bill.id} className={`rounded-2xl border bg-white p-3.5 shadow-sm ${ativo ? '' : 'opacity-60'}`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-[15px] truncate">{bill.nome}</p>
+                    <p className="text-[12.5px] text-gray-500 mt-0.5">
+                      {cat?.label ?? bill.categoria} · {freq?.label ?? bill.frequencia} · vence dia {bill.diaVencimento}
+                    </p>
+                  </div>
+                  <p className="text-[15px] font-bold font-mono shrink-0">{formatCurrency(bill.valor / 100)}</p>
+                </div>
+                <div className="mt-3 flex items-center justify-between gap-2 border-t pt-3">
+                  <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${ativo ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                    {ativo ? 'Ativa' : 'Pausada'}
+                  </span>
+                  <div className="flex items-center gap-3 text-[13px] font-semibold">
+                    <button onClick={() => toggleStatus(bill)} className="text-brand-600">{ativo ? 'Pausar' : 'Ativar'}</button>
+                    <button onClick={() => startEdit(bill)} className="text-brand-600">Editar</button>
+                    <button onClick={() => handleDelete(bill.id)} className="text-red-500">Excluir</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        </>
       )}
     </div>
   );

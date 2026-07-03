@@ -227,7 +227,9 @@ export function AvulsasTab({ projectId, projectType }: Props) {
           </p>
         </div>
       ) : (
-        <div className="bg-white rounded-xl border overflow-x-auto">
+        <>
+        {/* Desktop: tabela */}
+        <div className="hidden md:block bg-white rounded-xl border overflow-x-auto">
           <table className="w-full min-w-[640px] text-sm">
             <thead className="bg-gray-50">
               <tr>
@@ -291,6 +293,38 @@ export function AvulsasTab({ projectId, projectType }: Props) {
             </tbody>
           </table>
         </div>
+
+        {/* Mobile: cards */}
+        <div className="md:hidden space-y-2.5">
+          {filtered.map((e) => {
+            const ref = e.dataPagamento ?? e.dataInicioParcela;
+            const tipoLabel = tipoOptions.find((o) => o.value === e.tipoDespesa)?.label ?? e.tipoDespesa;
+            const pago = e.status === 'PAGO';
+            return (
+              <div key={e.id} className="rounded-2xl border bg-white p-3.5 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-[15px] truncate">{e.titulo || e.fornecedor || '—'}</p>
+                    <p className="text-[12.5px] text-gray-500 mt-0.5">
+                      {tipoLabel}{ref ? ` · ${formatDateBR(ref)}` : ''}
+                    </p>
+                  </div>
+                  <p className="text-[15px] font-bold font-mono shrink-0">{formatCurrency((e.valorTotal ?? 0) / 100)}</p>
+                </div>
+                <div className="mt-3 flex items-center justify-between gap-2 border-t pt-3">
+                  <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${pago ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                    {pago ? 'Pago' : 'Planejado'}
+                  </span>
+                  <div className="flex items-center gap-3 text-[13px] font-semibold">
+                    <button onClick={() => startEdit(e)} className="text-brand-600">Editar</button>
+                    <button onClick={() => { if (confirm('Excluir esta despesa?')) deleteMutation.mutate(e.id); }} className="text-red-500">Excluir</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        </>
       )}
 
       <Modal

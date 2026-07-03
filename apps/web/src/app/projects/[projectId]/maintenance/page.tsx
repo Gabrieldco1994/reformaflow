@@ -240,7 +240,9 @@ export default function MaintenancePage() {
           <p className="text-gray-400 text-sm mt-1">Registre suas manutenções para acompanhar prazos</p>
         </div>
       ) : (
-        <div className="bg-white rounded-xl border overflow-x-auto">
+        <>
+        {/* Desktop: tabela */}
+        <div className="hidden md:block bg-white rounded-xl border overflow-x-auto">
           <table className="w-full min-w-[640px] text-sm">
             <thead className="bg-gray-50">
               <tr>
@@ -282,6 +284,42 @@ export default function MaintenancePage() {
             </tbody>
           </table>
         </div>
+
+        {/* Mobile: cards */}
+        <div className="md:hidden space-y-2.5">
+          {logs.map((log) => {
+            const typeLabel = types.find((t) => t.value === log.tipo)?.label ?? log.tipo;
+            return (
+              <div key={log.id} className="rounded-2xl border bg-white p-3.5 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-[15px] truncate">{typeLabel}</p>
+                    <p className="text-[12.5px] text-gray-500 mt-0.5">Realizada {formatDate(log.dataRealizada)}</p>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button onClick={() => startEdit(log)} aria-label="Editar" className="p-2 text-gray-400 hover:text-brand-600"><Edit2 className="w-4 h-4" /></button>
+                    <button onClick={() => handleDelete(log.id)} aria-label="Excluir" className="p-2 text-gray-400 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+                  </div>
+                </div>
+                <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px]">
+                  {log.dataProxima && (
+                    <span className={daysUntil(log.dataProxima).color}>
+                      Próxima {formatDate(log.dataProxima)} ({daysUntil(log.dataProxima).text})
+                    </span>
+                  )}
+                  {projectType === 'CARRO' && log.quilometragem != null && (
+                    <span className="text-gray-500 font-mono">{log.quilometragem.toLocaleString()} km</span>
+                  )}
+                  {log.fornecedor && <span className="text-gray-500">{log.fornecedor}</span>}
+                </div>
+                {log.custo ? (
+                  <p className="mt-2 text-[15px] font-bold font-mono">{formatCurrency(log.custo / 100)}</p>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+        </>
       )}
     </div>
   );
