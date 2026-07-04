@@ -287,176 +287,151 @@ describe('MonthlyOverviewService.getDreOverview', () => {
     ).toBe(true);
   });
 
-  describe('anual.saldoAcumuladoSerie (eixo caixa, reconciliado com caixaHoje)', () => {
-    const accountView = {
-      mesSelecionado: '2026-06',
-      caixaHoje: 757_629,
-      entrouMes: 10_000,
-      saiuMes: 3_000,
-      faltaPagarMes: 2_500,
-      recebimentosPrevistosMes: 10_000,
-      sobraPrevista: 764_629,
-      devoCartaoTotal: 2_500,
-      cartoes: [],
-      contas: [],
-      saidas: [],
-      comprasCartao: [],
-      entradas: [],
-      ticketMedio: { valor: 0, nCompras: 0, totalCompras: 0, serie6m: [], media6m: 0, deltaVsMediaPct: null },
-    } as any;
+  describe('anual.saldoAcumuladoSerie (fonte: getAccountView por mês, inclui cross-project)', () => {
+    // beforeEach fixa o relógio em 2026-06-15 => realizedUntil = 6 (junho).
+    const CAIXA_HOJE = 100_000;
+    type MV = { entrou: number; saiu: number; falta: number; receb: number };
 
-    // Fixture base (eixo caixa): mai receb 8000 / desp 7600; jun receb 10000 /
-    // desp 6500 (moradia 3000 + cartão 2500 no mês da fatura + guardado 1000).
-    // Neutro (PAGAMENTO_FATURA_CARTAO) e espelho (linkedExpenseId) são excluídos.
-    const baseCashFlow = [
-      {
-        id: 'rec-may', tipo: 'RECEBIMENTO', valor: 8_000,
-        data: new Date('2026-05-02T00:00:00.000Z'), status: 'EM_CAIXA',
-        expense: null, receipt: { id: 'rec-may', tipo: 'SALARIO', descricao: 'Salário', bankLast4: '4247' },
-      },
-      {
-        id: 'exp-may', tipo: 'DESPESA', valor: 7_600,
-        data: new Date('2026-05-05T00:00:00.000Z'), status: 'PAGO',
-        expense: { id: 'exp-may', tipoDespesa: 'MORADIA', titulo: 'Aluguel', fornecedor: 'Imob', cardLast4: null, bankLast4: '4247', linkedExpenseId: null },
-        receipt: null,
-      },
-      {
-        id: 'rec-jun', tipo: 'RECEBIMENTO', valor: 10_000,
-        data: new Date('2026-06-02T00:00:00.000Z'), status: 'EM_CAIXA',
-        expense: null, receipt: { id: 'rec-jun', tipo: 'SALARIO', descricao: 'Salário', bankLast4: '4247' },
-      },
-      {
-        id: 'exp-jun-moradia', tipo: 'DESPESA', valor: 3_000,
-        data: new Date('2026-06-03T00:00:00.000Z'), status: 'PAGO',
-        expense: { id: 'exp-jun-moradia', tipoDespesa: 'MORADIA', titulo: 'Aluguel', fornecedor: 'Imob', cardLast4: null, bankLast4: '4247', linkedExpenseId: null },
-        receipt: null,
-      },
-      {
-        id: 'exp-jun-card', tipo: 'DESPESA', valor: 2_500,
-        data: new Date('2026-06-04T00:00:00.000Z'), status: 'PAGO',
-        expense: { id: 'exp-jun-card', tipoDespesa: 'ALIMENTACAO', titulo: 'Restaurante', fornecedor: 'Rest', cardLast4: '1111', bankLast4: null, linkedExpenseId: null },
-        receipt: null,
-      },
-      {
-        id: 'exp-jun-guardado', tipo: 'DESPESA', valor: 1_000,
-        data: new Date('2026-06-05T00:00:00.000Z'), status: 'PAGO',
-        expense: { id: 'exp-jun-guardado', tipoDespesa: 'INVESTIMENTOS', titulo: 'Reserva', fornecedor: null, cardLast4: null, bankLast4: '4247', linkedExpenseId: null },
-        receipt: null,
-      },
-      {
-        id: 'exp-jun-neutral', tipo: 'DESPESA', valor: 2_000,
-        data: new Date('2026-06-06T00:00:00.000Z'), status: 'PAGO',
-        expense: { id: 'exp-jun-neutral', tipoDespesa: 'PAGAMENTO_FATURA_CARTAO', titulo: 'Pgto fatura', fornecedor: null, cardLast4: '1111', bankLast4: '4247', linkedExpenseId: null },
-        receipt: null,
-      },
-      {
-        id: 'espelho', tipo: 'DESPESA', valor: 9_999,
-        data: new Date('2026-06-07T00:00:00.000Z'), status: 'PAGO',
-        expense: { id: 'espelho', tipoDespesa: 'MORADIA', titulo: 'Espelho', fornecedor: null, cardLast4: null, bankLast4: '4247', linkedExpenseId: 'target-123' },
-        receipt: null,
-      },
-    ];
+    // Jan..Jun realizados (falta=0 => projetado==realizado no passado);
+    // Ago carrega um DÉBITO CROSS-PROJECT (REFORMA 5_000) dentro de faltaPagar,
+    // além do cartão 3_000 => faltaPagar Ago = 8_000. É a prova do bug.
+    const baseMonthData: Record<string, MV> = {
+      '2026-01': { entrou: 20_000, saiu: 5_000, falta: 0, receb: 0 },
+      '2026-02': { entrou: 10_000, saiu: 8_000, falta: 0, receb: 0 },
+      '2026-03': { entrou: 10_000, saiu: 3_000, falta: 0, receb: 0 },
+      '2026-04': { entrou: 5_000, saiu: 5_000, falta: 0, receb: 0 },
+      '2026-05': { entrou: 8_000, saiu: 2_000, falta: 0, receb: 0 },
+      '2026-06': { entrou: 10_000, saiu: 4_000, falta: 0, receb: 0 },
+      '2026-07': { entrou: 0, saiu: 0, falta: 3_000, receb: 0 },
+      '2026-08': { entrou: 0, saiu: 0, falta: 8_000, receb: 0 }, // 3_000 cartão + 5_000 REFORMA
+      '2026-09': { entrou: 0, saiu: 0, falta: 0, receb: 0 },
+      '2026-10': { entrou: 0, saiu: 0, falta: 0, receb: 0 },
+      '2026-11': { entrou: 0, saiu: 0, falta: 0, receb: 0 },
+      '2026-12': { entrou: 0, saiu: 0, falta: 0, receb: 0 },
+    };
 
-    const runWith = async (entries: any[]) => {
-      jest.spyOn(service, 'getAccountView').mockResolvedValue({ ...accountView });
-      prisma.creditCard.findMany.mockResolvedValue([
-        { last4: '1111', nickname: 'Nubank', closingDay: 10, dueDay: 20 },
-      ]);
-      prisma.cashFlowEntry.findMany.mockResolvedValue(entries);
-      return service.getDreOverview(tenantId, projectId, { month: '2026-06', year: '2026' });
+    const viewFor = (month: string, data: Record<string, MV> = baseMonthData) => {
+      const m = data[month] ?? { entrou: 0, saiu: 0, falta: 0, receb: 0 };
+      return {
+        mesSelecionado: month,
+        caixaHoje: CAIXA_HOJE,
+        entrouMes: m.entrou,
+        saiuMes: m.saiu,
+        faltaPagarMes: m.falta,
+        recebimentosPrevistosMes: m.receb,
+        sobraPrevista: CAIXA_HOJE - m.falta + m.receb,
+        devoCartaoTotal: 0,
+        cartoes: [],
+        contas: [],
+        saidas: [],
+        comprasCartao: [],
+        entradas: [],
+        ticketMedio: { valor: 0, nCompras: 0, totalCompras: 0, serie6m: [], media6m: 0, deltaVsMediaPct: null },
+      } as any;
+    };
+
+    const runAnnual = async (
+      data: Record<string, MV> = baseMonthData,
+      params: { month: string; year: string } = { month: '2026-06', year: '2026' },
+    ) => {
+      const spy = jest
+        .spyOn(service, 'getAccountView')
+        .mockImplementation(async (_t: string, _p: string, month?: string) => viewFor(month as string, data));
+      prisma.creditCard.findMany.mockResolvedValue([]);
+      prisma.cashFlowEntry.findMany.mockResolvedValue([]); // série NÃO folda mais `normalized`
+      const res = await service.getDreOverview(tenantId, projectId, params);
+      return { res, spy };
     };
     const byMes = (res: any, mes: string) =>
       res.anual.saldoAcumuladoSerie.find((r: any) => r.mes === mes);
 
-    it('(a) reconciliação: saldoRealizado do mês corrente == caixaHoje', async () => {
-      const res = await runWith(baseCashFlow);
+    it('(design) chama getAccountView 1x por mês do ano (12x)', async () => {
+      const { spy } = await runAnnual();
+      expect(spy).toHaveBeenCalledTimes(12);
+      for (const m of Object.keys(baseMonthData)) {
+        expect(spy).toHaveBeenCalledWith(tenantId, projectId, m);
+      }
+    });
+
+    it('(a) reconciliação: saldoRealizado do mês corrente == caixaHoje; opening calibrado', async () => {
+      const { res } = await runAnnual();
+      expect(res.anual.caixaHoje).toBe(100_000);
+      expect(res.anual.saldoAcumuladoOpening).toBe(64_000); // 100_000 − ΣnetReal(jan..jun)=36_000
+      expect(byMes(res, '2026-06').saldoRealizado).toBe(100_000);
+      expect(byMes(res, '2026-06').saldoRealizado).toBe(res.mensal.contaCorrente.caixaHoje);
+    });
+
+    it('(b) acúmulo realizado usa entrou−saiu do account-view', async () => {
+      const { res } = await runAnnual();
+      expect(byMes(res, '2026-01').saldoRealizado).toBe(79_000);
+      expect(byMes(res, '2026-03').saldoRealizado).toBe(88_000);
+      expect(byMes(res, '2026-05').saldoRealizado).toBe(94_000);
       const jun = byMes(res, '2026-06');
-      expect(jun.saldoRealizado).toBe(757_629);
-      expect(jun.saldoRealizado).toBe(res.mensal.contaCorrente.caixaHoje);
-      expect(res.anual.caixaHoje).toBe(757_629);
+      expect(jun.recebimentosRealizados).toBe(10_000); // = entrouMes
+      expect(jun.despesasRealizadas).toBe(4_000); // = saiuMes
+      expect(jun.recebimentos).toBe(10_000); // entrou + recebPrev(0)
+      expect(jun.despesas).toBe(4_000); // saiu + falta(0)
     });
 
-    it('(b) saldo inicial = caixaHoje − fluxo realizado líquido jan..mês corrente', async () => {
-      const res = await runWith(baseCashFlow);
-      expect(res.anual.saldoAcumuladoOpening).toBe(753_729);
-      expect(byMes(res, '2026-01').saldoRealizado).toBe(753_729);
-      expect(byMes(res, '2026-04').saldoRealizado).toBe(753_729);
-      expect(byMes(res, '2026-05').saldoRealizado).toBe(754_129); // +400
+    it('(c) CROSS-PROJECT: débito de outro projeto entra em despesas/saldoProjetado do mês futuro', async () => {
+      const { res } = await runAnnual();
+      const ago = byMes(res, '2026-08');
+      expect(ago.saldoRealizado).toBeNull();
+      expect(ago.despesas).toBe(8_000); // 3_000 cartão + 5_000 REFORMA (folding antigo daria 3_000)
+      expect(ago.recebimentos).toBe(0);
+      expect(ago.despesasRealizadas).toBeNull();
+      // Jul projetado 97_000 → Ago 89_000: queda de 8_000, inclui o cross-project.
+      expect(byMes(res, '2026-07').saldoProjetado).toBe(97_000);
+      expect(ago.saldoProjetado).toBe(89_000);
+      expect(byMes(res, '2026-07').saldoProjetado - ago.saldoProjetado).toBe(8_000);
     });
 
-    it('(c) composição realizada mensal no eixo caixa (cartão no mês da fatura)', async () => {
-      const res = await runWith(baseCashFlow);
-      const may = byMes(res, '2026-05');
-      expect(may.recebimentosRealizados).toBe(8_000);
-      expect(may.despesasRealizadas).toBe(7_600);
-      const jun = byMes(res, '2026-06');
-      expect(jun.recebimentosRealizados).toBe(10_000);
-      expect(jun.despesasRealizadas).toBe(6_500); // 3000 + 2500(cartão) + 1000(guardado)
-    });
-
-    it('(f) guardado conta como saída de caixa (incluído em despesas)', async () => {
-      const res = await runWith(baseCashFlow);
-      // Se guardado fosse excluído, seria 5_500 — trava a decisão de eixo caixa.
-      expect(byMes(res, '2026-06').despesas).toBe(6_500);
-      expect(byMes(res, '2026-06').despesasRealizadas).toBe(6_500);
-    });
-
-    it('(e) meses futuros: realizado null, projetado presente', async () => {
-      const res = await runWith(baseCashFlow);
+    it('(d) meses futuros: realizado null, projetado presente e numérico', async () => {
+      const { res } = await runAnnual();
       for (const mes of ['2026-07', '2026-08', '2026-12']) {
         const row = byMes(res, mes);
         expect(row.saldoRealizado).toBeNull();
         expect(row.recebimentosRealizados).toBeNull();
         expect(row.despesasRealizadas).toBeNull();
         expect(typeof row.saldoProjetado).toBe('number');
-        expect(typeof row.recebimentos).toBe('number');
+        expect(typeof row.despesas).toBe('number');
       }
       expect(byMes(res, '2026-06').saldoRealizado).not.toBeNull();
     });
 
-    it('(g) payload serie/mensal existente inalterado (só aditivo)', async () => {
-      const res = await runWith(baseCashFlow);
+    it('(e) sem pendências no passado: projetado == realizado até o mês corrente', async () => {
+      const { res } = await runAnnual();
+      expect(byMes(res, '2026-06').saldoProjetado).toBe(100_000);
+      expect(byMes(res, '2026-06').saldoProjetado).toBe(byMes(res, '2026-06').saldoRealizado);
+    });
+
+    it('(f) overdue no passado NÃO clampa: projetado abaixo do realizado e propaga até dezembro', async () => {
+      const baselineDec = byMes((await runAnnual()).res, '2026-12').saldoProjetado; // 89_000
+      const data = { ...baseMonthData, '2026-01': { entrou: 20_000, saiu: 5_000, falta: 10_000, receb: 0 } };
+      const { res } = await runAnnual(data);
+      expect(byMes(res, '2026-01').saldoRealizado).toBe(79_000); // realizado ignora overdue
+      expect(byMes(res, '2026-01').saldoProjetado).toBe(69_000); // 64_000 + (20_000 − 15_000)
+      expect(byMes(res, '2026-01').saldoProjetado).toBeLessThan(byMes(res, '2026-01').saldoRealizado);
+      expect(byMes(res, '2026-12').saldoProjetado).toBe(baselineDec - 10_000); // propaga, sem clamp
+    });
+
+    it('(g) mensal/competência/serie intactos (só a fonte da série de saldo mudou)', async () => {
+      const { res } = await runAnnual();
       expect(res.anual.serie).toHaveLength(12);
-      expect(res.anual.totalEntrou).toBe(18_000);
-      expect(res.anual.resultadoAcumulado).toBe(3_900);
-      expect(res.mensal.resultado).toBe(3_500);
       expect(res.anual.serie[0]).not.toHaveProperty('saldoRealizado');
+      expect(res.mensal.contaCorrente.caixaHoje).toBe(100_000);
+      expect(res.anual.saldoAcumuladoSerie).toHaveLength(12);
     });
 
-    it('(d) projetado acumula previstos que o realizado omite', async () => {
-      const entries = [
-        ...baseCashFlow,
-        {
-          id: 'exp-jul-previsto', tipo: 'DESPESA', valor: 4_000,
-          data: new Date('2026-07-10T00:00:00.000Z'), status: 'PLANEJADO',
-          expense: { id: 'exp-jul-previsto', tipoDespesa: 'MORADIA', titulo: 'Aluguel jul', fornecedor: 'Imob', cardLast4: null, bankLast4: '4247', linkedExpenseId: null },
-          receipt: null,
-        },
-      ];
-      const res = await runWith(entries);
-      const jul = byMes(res, '2026-07');
-      expect(jul.saldoRealizado).toBeNull();
-      expect(jul.despesas).toBe(4_000);
-      expect(jul.saldoProjetado).toBe(byMes(res, '2026-06').saldoProjetado - 4_000);
-    });
-
-    it('compra no cartão após o fechamento cai no mês da fatura (eixo caixa), não na competência', async () => {
-      const entries = [
-        ...baseCashFlow,
-        {
-          id: 'exp-card-roll', tipo: 'DESPESA', valor: 900,
-          data: new Date('2026-06-15T00:00:00.000Z'), status: 'PAGO',
-          expense: { id: 'exp-card-roll', tipoDespesa: 'ALIMENTACAO', titulo: 'Mercado', fornecedor: 'Mercado', cardLast4: '1111', bankLast4: null, linkedExpenseId: null },
-          receipt: null,
-        },
-      ];
-      const res = await runWith(entries);
-      // fechamento dia 10; compra dia 15 → fatura de julho (mês de caixa)
-      expect(byMes(res, '2026-06').despesas).toBe(6_500);
-      expect(byMes(res, '2026-07').despesas).toBeGreaterThanOrEqual(900);
-      // a serie de competência (intacta) ainda contabiliza em junho → eixos independentes
-      const junComp = res.anual.serie.find((s: any) => s.mes === '2026-06');
-      expect(junComp?.projecaoDespesa).toBeGreaterThanOrEqual(900);
+    it('(h) boundary ano futuro: realizedUntil=0 ⇒ realizado null e opening == caixaHoje', async () => {
+      const data2027: Record<string, MV> = { '2027-01': { entrou: 0, saiu: 0, falta: 2_000, receb: 0 } };
+      const { res } = await runAnnual(data2027, { month: '2027-01', year: '2027' });
+      expect(res.anual.saldoAcumuladoOpening).toBe(100_000); // = caixaHoje
+      for (const row of res.anual.saldoAcumuladoSerie) {
+        expect(row.saldoRealizado).toBeNull();
+        expect(typeof row.saldoProjetado).toBe('number');
+      }
+      expect(byMes(res, '2027-01').saldoProjetado).toBe(98_000); // 100_000 − falta 2_000
     });
   });
 });
