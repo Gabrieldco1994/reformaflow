@@ -3,12 +3,14 @@
 import { useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { ArrowUpCircle, ArrowDownCircle, Scale, PiggyBank } from 'lucide-react';
-import type { MonthlyOverviewResponse } from '../_types';
+import type { MonthlyOverviewResponse, MonthlyEntry } from '../_types';
 import { KpiCard, Card } from './ui';
 import { fmtMoney, fmtPct } from './format';
 import { deriveYear, colorForCategoria, type CategoriaBarra } from './derive';
 import DestaquesAno from './DestaquesAno';
 import CategoriasBarras from './CategoriasBarras';
+import ArvoreGastos from './ArvoreGastos';
+import type { Eixo } from './EixoToggle';
 
 const FluxoCaixaAnualChart = dynamic(() => import('./FluxoCaixaAnualChart'), {
   ssr: false,
@@ -19,8 +21,25 @@ const EvolucaoPatrimonioChart = dynamic(() => import('./EvolucaoPatrimonioChart'
   loading: () => <div className="h-[280px] rounded-xl bg-[var(--ck-surface-2)] animate-pulse" />,
 });
 
-export default function YearView({ data, year }: { data: MonthlyOverviewResponse; year: number }) {
+export default function YearView({
+  data,
+  year,
+  entries,
+  projectId,
+  eixo,
+}: {
+  data: MonthlyOverviewResponse;
+  year: number;
+  entries?: MonthlyEntry[];
+  projectId?: string;
+  eixo?: Eixo;
+}) {
   const y = useMemo(() => deriveYear(data, year), [data, year]);
+
+  const yearEntries = useMemo(
+    () => (entries ?? data.entries ?? []).filter((e) => (e.data ?? '').slice(0, 4) === String(year)),
+    [entries, data.entries, year],
+  );
 
   const categoriasAno = useMemo<CategoriaBarra[]>(() => {
     const acc = new Map<string, number>();
@@ -88,6 +107,16 @@ export default function YearView({ data, year }: { data: MonthlyOverviewResponse
         </Card>
         <CategoriasBarras categorias={categoriasAno} title="Categorias do ano" hint={String(year)} />
       </div>
+
+      {projectId && (
+        <ArvoreGastos
+          projectId={projectId}
+          entries={yearEntries}
+          eixo={eixo ?? 'competencia'}
+          title="Árvore de gastos do ano"
+          hint={`${year} · por origem e tipo`}
+        />
+      )}
 
       <DestaquesAno y={y} />
     </div>

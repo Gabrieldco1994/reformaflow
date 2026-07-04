@@ -10,6 +10,8 @@ import { deriveMonth, buildSaldoSeries, saldoProjetado, buildComprometimentoFutu
 import CategoriasBarras from './CategoriasBarras';
 import SaudeFinanceira from './SaudeFinanceira';
 import ComprometimentoFuturo from './ComprometimentoFuturo';
+import ArvoreGastos from './ArvoreGastos';
+import type { Eixo } from './EixoToggle';
 
 const SaldoMesChart = dynamic(() => import('./SaldoMesChart'), {
   ssr: false,
@@ -21,11 +23,13 @@ export default function MonthView({
   monthKey,
   entries,
   projectId,
+  eixo,
 }: {
   data: MonthlyOverviewResponse;
   monthKey?: string;
   entries?: MonthlyEntry[];
   projectId?: string;
+  eixo?: Eixo;
 }) {
   const m = useMemo(() => deriveMonth(data, monthKey ?? data.mesAtual, entries), [data, monthKey, entries]);
   const [ritmo, setRitmo] = useState<number>(m.ritmoDiario);
@@ -96,6 +100,15 @@ export default function MonthView({
           <SaudeFinanceira m={m} />
         </div>
       </div>
+
+      {projectId && (
+        <ArvoreGastos
+          projectId={projectId}
+          entries={serieEntries}
+          eixo={eixo ?? 'competencia'}
+          hint="mês atual · por origem e tipo"
+        />
+      )}
     </div>
   );
 }

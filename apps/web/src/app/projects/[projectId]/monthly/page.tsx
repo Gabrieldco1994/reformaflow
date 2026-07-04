@@ -204,8 +204,8 @@ export default function CockpitPage() {
         view === 'mes'
           ? eixo === 'geral'
             ? <ExtratoGeral key={`geral-${monthKey}`} entries={monthEntries ?? []} mesIndex0={month0} />
-            : <MonthView key={`${eixo}-${monthKey}`} data={viewData} monthKey={monthKey} entries={monthEntries} projectId={projectId} />
-          : <YearView data={viewData} year={year} />
+            : <MonthView key={`${eixo}-${monthKey}`} data={viewData} monthKey={monthKey} entries={monthEntries} projectId={projectId} eixo={eixo} />
+          : <YearView data={viewData} year={year} projectId={projectId} eixo={eixo} />
       )}
     </div>
   );
