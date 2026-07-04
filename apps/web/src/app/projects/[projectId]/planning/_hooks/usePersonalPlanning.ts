@@ -183,6 +183,24 @@ function sanitizeAssumptions(
   };
 }
 
+/**
+ * Assumptions ZERADAS para um planning novo (botão "+ Novo"): nenhuma receita,
+ * nenhuma despesa, sem metas nem crescimento. Mantém a estrutura (grade de meses
+ * via `monthsAhead` e as linhas de tipo de despesa via `DEFAULT_EXPENSE_TYPE_MAP`,
+ * todas em zero) para o usuário preencher do zero.
+ */
+export function buildEmptyAssumptions(monthsAhead = 12): PlanningAssumptions {
+  return {
+    monthsAhead: clamp(Math.round(monthsAhead), 3, 36),
+    monthlyIncomeCents: 0,
+    monthlyExpenseCents: 0,
+    incomeGrowthPct: 0,
+    expenseGrowthPct: 0,
+    targetMonthlySurplusCents: 0,
+    expenseByTypeCents: { ...DEFAULT_EXPENSE_TYPE_MAP },
+  };
+}
+
 function buildDefaultAssumptions(data: MonthlyOverviewResponse): PlanningAssumptions {
   const sorted = [...data.meses].sort((a, b) => a.mes.localeCompare(b.mes));
   const currentIndex = sorted.findIndex((row) => row.mes === data.mesAtual);
@@ -304,7 +322,7 @@ function withDerivedAssumptions(scenario: PlanningScenario): PlanningScenario {
   return { ...scenario, assumptions };
 }
 
-function createScenarioFromAssumptions(
+export function createScenarioFromAssumptions(
   name: string,
   assumptions: PlanningAssumptions,
   startMonth: string,
@@ -627,9 +645,18 @@ export function usePersonalPlanning(): UsePersonalPlanningResult {
   const createScenario = useCallback(
     (name?: string) => {
       const scenarioName = name?.trim() || `Planning ${scenarios.length + 1}`;
+      // "Novo" nasce ZERADO (nada de herdar os valores do plano ativo — isso é o
+      // que "Duplicar" faz). Reaproveita só a grade de meses (mês inicial +
+      // quantidade) para o planning aparecer alinhado aos demais.
       const source = activeScenario ?? defaultScenario;
-      if (!source) return;
-      const next = cloneScenario(source, scenarioName);
+      const startMonth = source?.months[0] ?? defaultScenario?.months[0];
+      if (!startMonth) return;
+      const monthsAhead = source?.months.length ?? 12;
+      const next = createScenarioFromAssumptions(
+        scenarioName,
+        buildEmptyAssumptions(monthsAhead),
+        startMonth,
+      );
       setScenarios((current) => [...current, next]);
       setActiveScenarioId(next.id);
     },
