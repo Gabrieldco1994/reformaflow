@@ -86,4 +86,25 @@ describe('spendTree', () => {
     const tree = spendTree([entry({ cardLast4: '1234', categoria: null, valor: 90 })]);
     expect(tree.origins[0]!.tipos).toEqual([{ tipo: 'Outros', valor: 90 }]);
   });
+
+  it("modo 'real' (padrão) conta só realizado (PAGO/EM_CAIXA); ignora PLANEJADO", () => {
+    const entries = [
+      entry({ cardLast4: '1234', status: 'PAGO', valor: 300 }),
+      entry({ cardLast4: '1234', status: 'PLANEJADO', valor: 700 }),
+      entry({ bankLast4: '3636', status: 'EM_CAIXA', valor: 50 }),
+    ];
+    const real = spendTree(entries);
+    expect(real.total).toBe(350); // 300 (PAGO) + 50 (EM_CAIXA)
+    expect(real.origins.find((o) => o.last4 === '1234')!.total).toBe(300);
+  });
+
+  it("modo 'realPlus' soma realizado + planejado", () => {
+    const entries = [
+      entry({ cardLast4: '1234', status: 'PAGO', valor: 300 }),
+      entry({ cardLast4: '1234', status: 'PLANEJADO', valor: 700 }),
+    ];
+    const plus = spendTree(entries, { statusMode: 'realPlus' });
+    expect(plus.total).toBe(1000);
+    expect(plus.origins[0]!.total).toBe(1000);
+  });
 });

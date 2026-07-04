@@ -9,7 +9,7 @@ import type { Eixo } from './EixoToggle';
 import { Card } from './ui';
 import { fmtMoney } from './format';
 import { colorForCategoria } from './derive';
-import { spendTree, type SpendTreeOrigin } from './spend-tree';
+import { spendTree, type SpendTreeOrigin, type SpendTreeStatusMode } from './spend-tree';
 
 interface BankAccountDTO {
   id: string;
@@ -80,11 +80,6 @@ export default function ArvoreGastos({
     enabled: !!projectId,
   });
 
-  const tree = useMemo(
-    () => spendTree(entries, { keepCardSettlement: eixo === 'caixa', pessoalProjectId: projectId }),
-    [entries, eixo, projectId],
-  );
-
   const nameOf = useMemo(() => {
     const cardByLast4 = new Map((creditCards.data ?? []).map((c) => [c.last4, c] as const));
     const accByLast4 = new Map((bankAccounts.data ?? []).map((a) => [a.last4, a] as const));
@@ -100,6 +95,16 @@ export default function ArvoreGastos({
 
   // Origens começam expandidas (como no desenho); podem ser recolhidas.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [statusMode, setStatusMode] = useState<SpendTreeStatusMode>('real');
+  const tree = useMemo(
+    () =>
+      spendTree(entries, {
+        keepCardSettlement: eixo === 'caixa',
+        pessoalProjectId: projectId,
+        statusMode,
+      }),
+    [entries, eixo, projectId, statusMode],
+  );
   const toggle = (key: string) =>
     setCollapsed((prev) => {
       const next = new Set(prev);
@@ -110,11 +115,38 @@ export default function ArvoreGastos({
 
   const loading = bankAccounts.isLoading || creditCards.isLoading;
 
+  const modeToggle = (
+    <span className="inline-flex items-center rounded-lg border border-[var(--ck-border)] bg-[var(--ck-surface-2)] p-0.5">
+      {([
+        ['real', 'Realizado'],
+        ['realPlus', 'Realizado + planejado'],
+      ] as [SpendTreeStatusMode, string][]).map(([mode, label]) => (
+        <button
+          key={mode}
+          type="button"
+          onClick={() => setStatusMode(mode)}
+          className={`rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors ${
+            statusMode === mode
+              ? 'bg-[var(--ck-accent)] text-white'
+              : 'text-[var(--ck-muted)] hover:text-[var(--ck-text)]'
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+    </span>
+  );
+
   return (
     <Card
       title={title}
-      hint={hint}
-      info="Como o gasto do mês (ou ano) se distribui: Pessoal → cada cartão/conta → tipo de despesa. Respeita o eixo (Gastei = por compra; Vai sair = por vencimento). Pagamento de fatura não conta."
+      hint={
+        <span className="flex items-center gap-2">
+          {hint && <span className="text-[10px] text-[var(--ck-muted)]">{hint}</span>}
+          {modeToggle}
+        </span>
+      }
+      info="Como o gasto do mês (ou ano) se distribui: Pessoal → cada cartão/conta → tipo de despesa. Respeita o eixo (Gastei = por compra; Vai sair = por vencimento). Pagamento de fatura não conta. Realizado = só o que já saiu (inclui quitações cross-project); Realizado + planejado adiciona as despesas pessoais ainda não pagas."
     >
       {loading ? (
         <div className="h-40 rounded-xl bg-[var(--ck-surface-2)] animate-pulse" />

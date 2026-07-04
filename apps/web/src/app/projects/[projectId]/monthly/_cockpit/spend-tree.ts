@@ -9,6 +9,13 @@ import { entryIsNeutral, isNeutralAccountSettlement } from './neutral';
  * Regras de neutro/eixo e escopo PESSOAL são idênticas ao `spendByOrigin` (ver
  * comentário lá): assim os totais por origem batem exatamente com o widget
  * "Quanto gastei" e com a Visão Conta.
+ *
+ * `statusMode`:
+ * - **'real'** (padrão): só despesas realizadas (PAGO/EM_CAIXA) — dinheiro que
+ *   efetivamente saiu, incluindo espelhos cross-project já quitados.
+ * - **'realPlus'**: realizado + planejado do PESSOAL (despesas ainda não pagas
+ *   que já têm cartão/conta definidos). Parcela cross-project não quitada não
+ *   entra: não tem origem pessoal definida, logo não cabe num ramo por origem.
  */
 
 export interface SpendTreeTipo {
@@ -34,11 +41,23 @@ export interface SpendTree {
   origins: SpendTreeOrigin[];
 }
 
+/** Modo de status: só realizado (dinheiro que saiu) ou realizado + planejado. */
+export type SpendTreeStatusMode = 'real' | 'realPlus';
+
+/** Realizado = despesa efetivamente paga (ou em caixa). Igual ao `isRealized` do derive. */
+function isRealizedStatus(status: string): boolean {
+  return status === 'PAGO' || status === 'EM_CAIXA';
+}
+
 export function spendTree(
   entries: MonthlyEntry[],
-  opts: { keepCardSettlement?: boolean; pessoalProjectId?: string } = {},
+  opts: {
+    keepCardSettlement?: boolean;
+    pessoalProjectId?: string;
+    statusMode?: SpendTreeStatusMode;
+  } = {},
 ): SpendTree {
-  const { keepCardSettlement = false, pessoalProjectId } = opts;
+  const { keepCardSettlement = false, pessoalProjectId, statusMode = 'real' } = opts;
 
   // key `${kind}:${last4}` → agregador da origem.
   const byOrigin = new Map<
@@ -48,6 +67,7 @@ export function spendTree(
 
   for (const e of entries) {
     if (e.tipo !== 'DESPESA') continue;
+    if (statusMode === 'real' && !isRealizedStatus(e.status)) continue;
     if (pessoalProjectId && e.projectId !== pessoalProjectId) continue;
     if (keepCardSettlement ? isNeutralAccountSettlement(e) : entryIsNeutral(e)) continue;
 
