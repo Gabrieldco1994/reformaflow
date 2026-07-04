@@ -1228,6 +1228,73 @@ export class MonthlyOverviewService {
       ? [...realizedRows].sort((a, b) => a.margem - b.margem)[0]
       : monthRows[0];
 
+    // ── Série de saldo acumulado (eixo CAIXA), reconciliada com caixaHoje ──
+    // Aditivo e read-only: reusa o array `normalized` no eixo `mesConta` (cartão
+    // já mapeado ao mês da fatura, neutros/espelho já excluídos) e o escalar
+    // accountView.caixaHoje. NÃO altera nenhuma regra de caixa.
+    //
+    // Duas diferenças propositais vs a `serie` de competência acima:
+    //  1. eixo CAIXA (mesConta) em vez de competência (mesCompetencia);
+    //  2. "guardado" CONTA como saída — porque computeCaixaConta (§10) debita todo
+    //     PAGO da conta, então caixaHoje já reflete o guardado saindo; excluí-lo
+    //     quebraria a reconciliação mês a mês com o saldo real.
+    //
+    // Calibração do saldo inicial: o Saldo Realizado no mês corrente precisa bater
+    // com caixaHoje. Logo, saldoAno0 = caixaHoje − (fluxo realizado líquido do
+    // início do ano até o mês corrente). Essa calibração absorve qualquer offset
+    // sistemático entre o eixo-caixa do `normalized` e computeCaixaConta, cravando
+    // o ponto do mês corrente exatamente em caixaHoje.
+    const netRealizadoCaixa = (line: DreLine) =>
+      line.kind === 'entrada' ? line.valor : -line.valor;
+    const currentMonthKey = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+    const yearStartKey = `${anoSelecionado}-01`;
+    const saldoAno0 =
+      accountView.caixaHoje -
+      sumBy(
+        normalized.filter(
+          (line) =>
+            line.realizado &&
+            line.mesConta >= yearStartKey &&
+            line.mesConta <= currentMonthKey,
+        ),
+        netRealizadoCaixa,
+      );
+
+    let accProjetado = saldoAno0;
+    let accRealizado = saldoAno0;
+    const saldoAcumuladoSerie = months.map((mes, index) => {
+      const monthIndex = index + 1;
+      const isFuture = realizedUntil > 0 && monthIndex > realizedUntil;
+      const linhasMes = normalized.filter((line) => line.mesConta === mes);
+      const recebimentos = sumBy(
+        linhasMes.filter((line) => line.kind === 'entrada'),
+        (line) => line.valor,
+      );
+      const despesas = sumBy(
+        linhasMes.filter((line) => line.kind === 'saida'),
+        (line) => line.valor,
+      );
+      const recebimentosRealizados = sumBy(
+        linhasMes.filter((line) => line.kind === 'entrada' && line.realizado),
+        (line) => line.valor,
+      );
+      const despesasRealizadas = sumBy(
+        linhasMes.filter((line) => line.kind === 'saida' && line.realizado),
+        (line) => line.valor,
+      );
+      accProjetado += recebimentos - despesas;
+      if (!isFuture) accRealizado += recebimentosRealizados - despesasRealizadas;
+      return {
+        mes,
+        recebimentos,
+        despesas,
+        recebimentosRealizados: isFuture ? null : recebimentosRealizados,
+        despesasRealizadas: isFuture ? null : despesasRealizadas,
+        saldoProjetado: accProjetado,
+        saldoRealizado: isFuture ? null : accRealizado,
+      };
+    });
+
     const totaisEntradas = groupAnnualTotals(
       normalized.filter(
         (line) =>
@@ -1308,6 +1375,9 @@ export class MonthlyOverviewService {
           margem: mesCriticoBase?.margem ?? 0,
         },
         serie,
+        caixaHoje: accountView.caixaHoje,
+        saldoAcumuladoOpening: saldoAno0,
+        saldoAcumuladoSerie,
         totaisEntradas,
         totaisSaidas,
         totaisGuardado,
