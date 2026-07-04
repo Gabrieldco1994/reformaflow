@@ -7,7 +7,7 @@ import { ChevronLeft, ChevronRight, FileText } from 'lucide-react';
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
 import { DreMensalView, type DreEixoMensal } from './_components/DreMensalView';
-import { DreAnualView, type DreAnualChartMode } from './_components/DreAnualView';
+import { DreAnualView } from './_components/DreAnualView';
 import type { DreOverviewResponse } from './_types';
 
 type Periodo = 'mensal' | 'anual';
@@ -41,7 +41,6 @@ export default function DrePage() {
   const [periodo, setPeriodo] = useState<Periodo>('mensal');
   const [monthKey, setMonthKey] = useState(currentMonthKey());
   const [eixoMensal, setEixoMensal] = useState<DreEixoMensal>('competencia');
-  const [anualMode, setAnualMode] = useState<DreAnualChartMode>('receitaDespesa');
 
   const year = useMemo(() => Number(monthKey.slice(0, 4)), [monthKey]);
 
@@ -152,11 +151,7 @@ export default function DrePage() {
               onChangeEixo={setEixoMensal}
             />
           ) : (
-            <DreAnualView
-              data={data.anual}
-              mode={anualMode}
-              onChangeMode={setAnualMode}
-            />
+            <DreAnualView data={data.anual} />
           )}
         </>
       )}

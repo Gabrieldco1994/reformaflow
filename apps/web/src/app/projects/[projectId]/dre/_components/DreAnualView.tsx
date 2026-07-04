@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import {
+  CartesianGrid,
+  Legend,
   Line,
   LineChart,
   ReferenceLine,
@@ -12,11 +14,10 @@ import {
   YAxis,
 } from 'recharts';
 import { formatCurrency } from '@/lib/utils';
+import { moneyShort } from '@/lib/money';
 import { InfoHint } from '@/components/InfoHint';
 import type { DreAnual } from '../_types';
 import { DreIcon } from './DreIcon';
-
-export type DreAnualChartMode = 'receitaDespesa' | 'margem';
 
 function monthShort(mes: string) {
   const [year, month] = mes.split('-').map(Number);
@@ -52,24 +53,51 @@ function chartRows(data: DreAnual) {
   }));
 }
 
-export function DreAnualView({
-  data,
-  mode,
-  onChangeMode,
+function saldoRows(data: DreAnual) {
+  return data.saldoAcumuladoSerie.map((row) => ({
+    ...row,
+    mesLabel: monthShort(row.mes),
+  }));
+}
+
+function SaldoTooltip({
+  active,
+  payload,
+  label,
 }: {
-  data: DreAnual;
-  mode: DreAnualChartMode;
-  onChangeMode: (next: DreAnualChartMode) => void;
+  active?: boolean;
+  payload?: { name: string; value: number | null; color: string }[];
+  label?: string;
 }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="rounded-xl border border-lifeone-hairline bg-lifeone-card p-2.5 text-xs shadow-lifeone-hover">
+      <p className="mb-1 font-semibold text-lifeone-ink">{label}</p>
+      {payload
+        .filter((p) => p.value != null)
+        .map((p) => (
+          <div key={p.name} className="flex items-center justify-between gap-3">
+            <span className="flex items-center gap-1.5 text-lifeone-ink-2">
+              <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: p.color }} />
+              {p.name}
+            </span>
+            <span className="font-semibold text-lifeone-ink tabular-nums">
+              {formatCurrency((p.value ?? 0) / 100)}
+            </span>
+          </div>
+        ))}
+    </div>
+  );
+}
+
+export function DreAnualView({ data }: { data: DreAnual }) {
   const rows = chartRows(data);
+  const saldo = saldoRows(data);
   const maxBar = rows.reduce((max, row) => {
     const receita = row.receitaReal ?? row.receitaProj ?? 0;
     const despesa = row.despesaReal ?? row.despesaProj ?? 0;
     return Math.max(max, receita, despesa);
   }, 1);
-
-  const riskRow = rows.find((row) => row.isCritical || (row.margemReal ?? row.margemProj ?? 0) < 600);
-  const riskTone = riskRow ? 'bg-[#FAEEDA] border-[#EFD9B6] text-[#BA7517]' : 'bg-[#E1F5EE] border-[#BFE9DA] text-[#1D9E75]';
 
   return (
     <div className="space-y-4">
@@ -105,105 +133,81 @@ export function DreAnualView({
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4">
-        <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1">
-          <button
-            type="button"
-            onClick={() => onChangeMode('receitaDespesa')}
-            className={`h-11 rounded-lg px-4 text-sm font-semibold ${
-              mode === 'receitaDespesa' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
-            }`}
-          >
-            receita × despesa
-          </button>
-          <button
-            type="button"
-            onClick={() => onChangeMode('margem')}
-            className={`h-11 rounded-lg px-4 text-sm font-semibold ${
-              mode === 'margem' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
-            }`}
-          >
-            margem
-          </button>
-        </div>
+        <h3 className="text-sm font-semibold text-slate-900">Saldo acumulado do fluxo de caixa</h3>
+        <p className="mt-0.5 text-[11px] text-slate-500">
+          <span className="font-semibold">Projetado</span> inclui planejados/previstos; <span className="font-semibold">Realizado</span> considera apenas pagos e em caixa. O ponto de hoje reconcilia com o caixa da Visão Conta.
+        </p>
 
-        <div className="mt-3 h-[180px]">
+        <div className="mt-3 h-[240px]">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-              <XAxis dataKey="mesLabel" tick={{ fontSize: 11, fill: '#64748B' }} axisLine={false} tickLine={false} />
-              <YAxis hide />
-              <Tooltip
-                formatter={(value: number) => formatCurrency((value ?? 0) / 100)}
-                labelFormatter={(label) => `Mês ${label}`}
+            <LineChart data={saldo} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#ECE8E1" vertical={false} />
+              <XAxis dataKey="mesLabel" tick={{ fontSize: 11, fill: '#8A857C' }} axisLine={false} tickLine={false} />
+              <YAxis
+                tick={{ fontSize: 11, fill: '#8A857C' }}
+                width={56}
+                axisLine={false}
+                tickLine={false}
+                tickFormatter={(v: number) => moneyShort(v).replace('R$ ', '')}
               />
-
-              {mode === 'receitaDespesa' ? (
-                <>
-                  <Line
-                    type="monotone"
-                    dataKey="receitaReal"
-                    stroke="#1D9E75"
-                    strokeWidth={2}
-                    dot={{ r: 3, fill: '#1D9E75' }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="despesaReal"
-                    stroke="#D85A30"
-                    strokeWidth={2}
-                    dot={(props) => {
-                      const fill = props.payload?.isCritical ? '#BA7517' : '#D85A30';
-                      return <circle cx={props.cx} cy={props.cy} r={3} fill={fill} />;
-                    }}
-                  />
-                  <Line type="monotone" dataKey="receitaProj" stroke="#1D9E75" strokeWidth={2} strokeDasharray="4 4" dot={false} />
-                  <Line type="monotone" dataKey="despesaProj" stroke="#D85A30" strokeWidth={2} strokeDasharray="4 4" dot={false} />
-                </>
-              ) : (
-                <>
-                  <ReferenceLine y={0} stroke="#BA7517" strokeDasharray="4 4" />
-                  <Line
-                    type="monotone"
-                    dataKey="margemReal"
-                    stroke="#1D9E75"
-                    strokeWidth={2}
-                    dot={(props) => {
-                      const value = Number(props.payload?.margemReal ?? 0);
-                      const fill = value < 600 ? '#BA7517' : '#1D9E75';
-                      return <circle cx={props.cx} cy={props.cy} r={3} fill={fill} />;
-                    }}
-                  />
-                  <Line type="monotone" dataKey="margemProj" stroke="#1D9E75" strokeWidth={2} strokeDasharray="4 4" dot={false} />
-                </>
-              )}
+              <Tooltip content={<SaldoTooltip />} />
+              <Legend wrapperStyle={{ fontSize: 11, paddingTop: 4 }} />
+              <ReferenceLine y={0} stroke="#D8D2C7" strokeWidth={1} />
+              <Line
+                type="monotone"
+                dataKey="recebimentos"
+                name="Recebimentos"
+                isAnimationActive={false}
+                stroke="#1D9E75"
+                strokeWidth={1.5}
+                strokeOpacity={0.5}
+                dot={false}
+              />
+              <Line
+                type="monotone"
+                dataKey="despesas"
+                name="Despesas"
+                isAnimationActive={false}
+                stroke="#D85A30"
+                strokeWidth={1.5}
+                strokeOpacity={0.5}
+                dot={false}
+              />
+              <Line
+                type="monotone"
+                dataKey="saldoProjetado"
+                name="Saldo projetado"
+                isAnimationActive={false}
+                stroke="#8A857C"
+                strokeWidth={2}
+                strokeDasharray="6 4"
+                dot={false}
+              />
+              <Line
+                type="monotone"
+                dataKey="saldoRealizado"
+                name="Saldo realizado"
+                isAnimationActive={false}
+                stroke="#0F6B4D"
+                strokeWidth={3}
+                dot={{ r: 3, fill: '#0F6B4D' }}
+                connectNulls={false}
+              />
             </LineChart>
           </ResponsiveContainer>
         </div>
 
-        <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
-          <span className="inline-flex items-center gap-1">
-            <span className="h-2 w-2 rounded-full bg-[#1D9E75]" /> receita
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <span className="h-2 w-2 rounded-full bg-[#D85A30]" /> despesa
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <span className="h-[2px] w-4 border-t-2 border-dashed border-slate-400" /> projeção
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <span className="h-[2px] w-4 border-t-2 border-dashed border-[#BA7517]" /> breakpoint
-          </span>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-lifeone-hairline-3 pt-3">
+          <p className="text-[11px] text-slate-500">
+            saldo hoje · <span className="font-semibold text-[#0F6B4D]">{formatCurrency(data.caixaHoje / 100)}</span>
+          </p>
+          <p className="text-[11px] text-slate-500">
+            projeção fim do ano ·{' '}
+            <span className="font-semibold text-slate-700">
+              {formatCurrency((saldo[saldo.length - 1]?.saldoProjetado ?? data.caixaHoje) / 100)}
+            </span>
+          </p>
         </div>
-
-        <article className={`mt-3 rounded-xl border px-3 py-2 text-sm ${riskTone}`}>
-          {riskRow ? (
-            <p>
-              atenção em <strong>{monthShort(riskRow.mes)}</strong>: despesas encostando no limite.
-              Reforce corte de custos ou aumento de entradas.
-            </p>
-          ) : (
-            <p>margem anual estável até agora. Mantenha o ritmo atual.</p>
-          )}
-        </article>
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4">

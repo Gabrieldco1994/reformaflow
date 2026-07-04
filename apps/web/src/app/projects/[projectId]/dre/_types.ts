@@ -55,6 +55,16 @@ export interface DreTotalAnual {
   mediaMensal: number;
 }
 
+export interface DreSaldoAcumuladoRow {
+  mes: string;
+  recebimentos: number;
+  despesas: number;
+  recebimentosRealizados: number | null;
+  despesasRealizadas: number | null;
+  saldoProjetado: number;
+  saldoRealizado: number | null;
+}
+
 export interface DreAnual {
   ano: number;
   ateOMes: string;
@@ -64,6 +74,9 @@ export interface DreAnual {
   mediaMensal: number;
   mesCritico: { mes: string; margem: number };
   serie: DreSerieRow[];
+  caixaHoje: number;
+  saldoAcumuladoOpening: number;
+  saldoAcumuladoSerie: DreSaldoAcumuladoRow[];
   totaisEntradas: DreTotalAnual[];
   totaisSaidas: DreTotalAnual[];
   totaisGuardado: DreTotalAnual[];
