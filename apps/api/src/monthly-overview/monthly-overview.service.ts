@@ -1229,59 +1229,45 @@ export class MonthlyOverviewService {
       : monthRows[0];
 
     // ── Série de saldo acumulado (eixo CAIXA), reconciliada com caixaHoje ──
-    // Aditivo e read-only: reusa o array `normalized` no eixo `mesConta` (cartão
-    // já mapeado ao mês da fatura, neutros/espelho já excluídos) e o escalar
-    // accountView.caixaHoje. NÃO altera nenhuma regra de caixa.
+    // Fonte: getAccountView(mês) — a MESMA agregação da Visão Conta, que é o
+    // controlador universal do caixa e INCLUI débitos cross-project (despesas de
+    // outros projetos pagas pela conta pessoal). Read-only; não altera nenhuma
+    // regra de caixa. (O fold anterior sobre `normalized` era PESSOAL/competência
+    // e não enxergava cross-project, subestimando o saldo projetado — bug corrigido.)
     //
-    // Duas diferenças propositais vs a `serie` de competência acima:
-    //  1. eixo CAIXA (mesConta) em vez de competência (mesCompetencia);
-    //  2. "guardado" CONTA como saída — porque computeCaixaConta (§10) debita todo
-    //     PAGO da conta, então caixaHoje já reflete o guardado saindo; excluí-lo
-    //     quebraria a reconciliação mês a mês com o saldo real.
-    //
-    // Calibração do saldo inicial: o Saldo Realizado no mês corrente precisa bater
-    // com caixaHoje. Logo, saldoAno0 = caixaHoje − (fluxo realizado líquido do
-    // início do ano até o mês corrente). Essa calibração absorve qualquer offset
-    // sistemático entre o eixo-caixa do `normalized` e computeCaixaConta, cravando
-    // o ponto do mês corrente exatamente em caixaHoje.
-    const netRealizadoCaixa = (line: DreLine) =>
-      line.kind === 'entrada' ? line.valor : -line.valor;
-    const currentMonthKey = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
-    const yearStartKey = `${anoSelecionado}-01`;
+    // Por mês M:
+    //   netRealizado(M) = entrouMes − saiuMes                         (só pago/em caixa)
+    //   netProjetado(M) = (entrouMes + recebPrevistos) − (saiuMes + faltaPagar)
+    // Calibração: saldoAno0 = caixaHoje − Σ netRealizado(jan..mês corrente),
+    // de modo que o Saldo Realizado do mês corrente == caixaHoje. `caixaHoje` é
+    // constante entre os meses (saldo real de hoje); lemos da view do mês selecionado.
+    const monthlyViews = await Promise.all(
+      months.map((mes) =>
+        mes === mesSelecionado
+          ? Promise.resolve(accountView)
+          : this.getAccountView(tenantId, projectId, mes),
+      ),
+    );
+    const caixaHojeAtual = accountView.caixaHoje;
+    const netRealizadoMes = (view: { entrouMes: number; saiuMes: number }) =>
+      view.entrouMes - view.saiuMes;
     const saldoAno0 =
-      accountView.caixaHoje -
-      sumBy(
-        normalized.filter(
-          (line) =>
-            line.realizado &&
-            line.mesConta >= yearStartKey &&
-            line.mesConta <= currentMonthKey,
-        ),
-        netRealizadoCaixa,
+      caixaHojeAtual -
+      monthlyViews.reduce(
+        (sum, view, index) => (index + 1 <= realizedUntil ? sum + netRealizadoMes(view) : sum),
+        0,
       );
 
     let accProjetado = saldoAno0;
     let accRealizado = saldoAno0;
     const saldoAcumuladoSerie = months.map((mes, index) => {
       const monthIndex = index + 1;
-      const isFuture = realizedUntil > 0 && monthIndex > realizedUntil;
-      const linhasMes = normalized.filter((line) => line.mesConta === mes);
-      const recebimentos = sumBy(
-        linhasMes.filter((line) => line.kind === 'entrada'),
-        (line) => line.valor,
-      );
-      const despesas = sumBy(
-        linhasMes.filter((line) => line.kind === 'saida'),
-        (line) => line.valor,
-      );
-      const recebimentosRealizados = sumBy(
-        linhasMes.filter((line) => line.kind === 'entrada' && line.realizado),
-        (line) => line.valor,
-      );
-      const despesasRealizadas = sumBy(
-        linhasMes.filter((line) => line.kind === 'saida' && line.realizado),
-        (line) => line.valor,
-      );
+      const isFuture = monthIndex > realizedUntil;
+      const view = monthlyViews[index];
+      const recebimentosRealizados = view.entrouMes;
+      const despesasRealizadas = view.saiuMes;
+      const recebimentos = view.entrouMes + view.recebimentosPrevistosMes;
+      const despesas = view.saiuMes + view.faltaPagarMes;
       accProjetado += recebimentos - despesas;
       if (!isFuture) accRealizado += recebimentosRealizados - despesasRealizadas;
       return {
