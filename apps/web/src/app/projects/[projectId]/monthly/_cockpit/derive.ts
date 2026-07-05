@@ -689,10 +689,17 @@ export function deriveCockpitTop(data: MonthlyOverviewResponse): CockpitTopDeriv
       ? ((resultadoMes - resultadoAnterior) / Math.abs(resultadoAnterior)) * 100
       : null;
 
-  // A receber / a pagar do mês corrente (ainda não realizados).
-  const aReceberMes = (aggAtual?.totalRec ?? 0) - resultadoEntrou;
-  const aPagarMes = (aggAtual?.totalDesp ?? 0) - resultadoGastou;
-  const projecaoMes = caixaValor + aReceberMes - aPagarMes;
+  // A receber / a pagar / projeção de fim de mês.
+  //
+  // A projeção "fim do mês" é conceito de CAIXA (§10): o que efetivamente entra/sai
+  // da conta até o fim do mês — fatura vencendo + débitos planejados (inclusive de
+  // outros projetos pagos pela conta pessoal, que só existem como Expense e NÃO estão
+  // nas entries/cashFlow) + parcelas cross vencendo. Por isso vem do backend
+  // (`data.projecao`, mesma fonte da Visão Conta) e é IGUAL nos dois eixos.
+  // Sem `projecao` (payload antigo/erro) cai no cálculo por competência das entries.
+  const aReceberMes = data.projecao?.recebimentosPrevistosMes ?? ((aggAtual?.totalRec ?? 0) - resultadoEntrou);
+  const aPagarMes = data.projecao?.faltaPagarMes ?? ((aggAtual?.totalDesp ?? 0) - resultadoGastou);
+  const projecaoMes = data.projecao?.sobraPrevista ?? (caixaValor + aReceberMes - aPagarMes);
 
   // Fração do mês decorrida (para a barra de progresso do headline).
   const [y, m] = data.mesAtual.split('-').map((n) => parseInt(n, 10));

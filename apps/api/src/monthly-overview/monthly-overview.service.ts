@@ -164,6 +164,27 @@ export class MonthlyOverviewService {
 
     const caixa = await this.computeCaixaConta(tenantId, pessoalProjectId);
 
+    // Projeção de caixa do MÊS CORRENTE (eixo de caixa, §10) — fonte única para o
+    // card "Projeção fim do mês" do cockpit, para casar EXATAMENTE com a Visão Conta.
+    // A projeção é conceito de CAIXA: usa fatura vencendo + débitos planejados (via
+    // Expense/buildInstallments, que o cashFlowEntry das entries NÃO materializa) +
+    // parcelas cross vencendo, não a competência das entries. Aditivo e resiliente:
+    // se falhar, o frontend cai no cálculo por competência (comportamento anterior).
+    let projecao:
+      | { caixaHoje: number; faltaPagarMes: number; recebimentosPrevistosMes: number; sobraPrevista: number }
+      | undefined;
+    try {
+      const av = await this.getAccountView(tenantId, pessoalProjectId, currentKey);
+      projecao = {
+        caixaHoje: av.caixaHoje,
+        faltaPagarMes: av.faltaPagarMes,
+        recebimentosPrevistosMes: av.recebimentosPrevistosMes,
+        sobraPrevista: av.sobraPrevista,
+      };
+    } catch {
+      projecao = undefined;
+    }
+
     // Cartões do tenant (closingDay/dueDay) para derivar o "mês de caixa" das
     // faturas no cockpit (eixo caixa). Aditivo: não altera meses/caixa existentes.
     const cardRows = await this.prisma.creditCard.findMany({
@@ -186,6 +207,7 @@ export class MonthlyOverviewService {
       projetos: contributingProjects,
       caixa,
       cards,
+      projecao,
     };
   }
 

@@ -82,4 +82,13 @@ export interface MonthlyOverviewResponse {
   projetos: Array<{ id: string; name: string; type: string }>;
   caixa?: CaixaConta;
   cards?: CardConfigDTO[];
+  /** Projeção de caixa do MÊS CORRENTE (§10, mesma fonte da Visão Conta). Alimenta o
+   *  card "Projeção fim do mês" no cockpit — conceito de caixa, igual nos dois eixos.
+   *  Ausente em payload antigo/erro → frontend cai no cálculo por competência. */
+  projecao?: {
+    caixaHoje: number;
+    faltaPagarMes: number;
+    recebimentosPrevistosMes: number;
+    sobraPrevista: number;
+  };
 }
