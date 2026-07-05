@@ -93,8 +93,8 @@ export default function ArvoreGastos({
     };
   }, [creditCards.data, bankAccounts.data]);
 
-  // Origens começam expandidas (como no desenho); podem ser recolhidas.
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // Origens começam RECOLHIDAS (só cartões/contas); clique expande os tipos.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [statusMode, setStatusMode] = useState<SpendTreeStatusMode>('real');
   const tree = useMemo(
     () =>
@@ -106,7 +106,7 @@ export default function ArvoreGastos({
     [entries, eixo, projectId, statusMode],
   );
   const toggle = (key: string) =>
-    setCollapsed((prev) => {
+    setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
@@ -170,7 +170,7 @@ export default function ArvoreGastos({
             <div className="flex-1">
               {tree.origins.map((o, oi) => {
                 const key = `${o.kind}:${o.last4}`;
-                const isCollapsed = collapsed.has(key);
+                const isOpen = expanded.has(key);
                 return (
                   <div key={key} className="flex items-stretch py-1.5">
                     <Connector pos={posOf(oi, tree.origins.length)} overhang={6} />
@@ -180,13 +180,14 @@ export default function ArvoreGastos({
                       <button
                         type="button"
                         onClick={() => toggle(key)}
+                        aria-expanded={isOpen}
                         className="w-48 rounded-xl border border-[var(--ck-border)] bg-[var(--ck-surface)] px-3 py-2 text-left shadow-lifeone-card hover:border-[var(--ck-accent)]/50 transition-colors"
                       >
                         <span className="flex items-center gap-1.5">
-                          {isCollapsed ? (
-                            <ChevronRight className="w-3.5 h-3.5 text-[var(--ck-muted)] shrink-0" />
-                          ) : (
+                          {isOpen ? (
                             <ChevronDown className="w-3.5 h-3.5 text-[var(--ck-muted)] shrink-0" />
+                          ) : (
+                            <ChevronRight className="w-3.5 h-3.5 text-[var(--ck-muted)] shrink-0" />
                           )}
                           {o.kind === 'card' ? (
                             <CreditCard className="w-3.5 h-3.5 text-[var(--ck-accent)] shrink-0" />
@@ -200,17 +201,20 @@ export default function ArvoreGastos({
                         <span className="mt-0.5 flex items-baseline justify-between gap-2 pl-5">
                           <span className="text-[10px] text-[var(--ck-muted)]">
                             ••{o.last4} · {pct(o.total, tree.total)}%
+                            {!isOpen && o.tipos.length > 0 && (
+                              <span className="ml-1 text-[var(--ck-accent)]">· {o.tipos.length} tipos</span>
+                            )}
                           </span>
                           <span className="font-geist tabular-nums text-xs font-bold text-[var(--ck-neg)]">
                             {fmtMoney(o.total)}
                           </span>
                         </span>
                       </button>
-                      {!isCollapsed && <span className="w-4 h-px bg-[var(--ck-border)]" aria-hidden />}
+                      {isOpen && <span className="w-4 h-px bg-[var(--ck-border)]" aria-hidden />}
                     </div>
 
                     {/* Tipos de despesa da origem */}
-                    {!isCollapsed && (
+                    {isOpen && (
                       <div className="flex-1 min-w-0 py-0.5">
                         {o.tipos.map((t, ti) => (
                           <div key={t.tipo} className="flex items-stretch py-1">

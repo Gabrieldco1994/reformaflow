@@ -25,6 +25,38 @@ function isRealized(status: string): boolean {
   return status === 'PAGO' || status === 'EM_CAIXA';
 }
 
+/**
+ * Média mensal por tipo de despesa no ano — SÓ despesas pagas (PAGO/EM_CAIXA).
+ *
+ * Denominador = nº de meses do ano que tiveram algum gasto pago (meses ativos),
+ * igual ao padrão de `despesaMensalMedia`. Assim a média se adapta a ano em curso
+ * (só meses decorridos) sem diluir por meses sem movimento. Base consolidada
+ * (todos os projetos, espelho deduplicado; neutros fora) para casar com as barras
+ * de "Categorias do ano". Retorna centavos por tipo (label já amigável).
+ */
+export function mediaMensalPorTipo(
+  entries: MonthlyEntry[],
+  year: number,
+): Map<string, number> {
+  const mesesComGasto = new Set<string>();
+  const totalPorTipo = new Map<string, number>();
+  for (const e of entries) {
+    if (e.tipo !== 'DESPESA') continue;
+    if ((e.data ?? '').slice(0, 4) !== String(year)) continue;
+    if (!isRealized(e.status)) continue;
+    if (e.isEspelho) continue; // consolidado: alvo do projeto é o canônico
+    if (entryIsNeutral(e)) continue;
+    mesesComGasto.add((e.data ?? '').slice(0, 7));
+    const tipo = e.categoria?.trim() || 'Outros';
+    totalPorTipo.set(tipo, (totalPorTipo.get(tipo) ?? 0) + e.valor);
+  }
+  const divisor = Math.max(mesesComGasto.size, 1);
+  const media = new Map<string, number>();
+  for (const [tipo, total] of totalPorTipo) media.set(tipo, Math.round(total / divisor));
+  return media;
+}
+
+
 function dayOfMonth(data: string): number {
   // data é ISO ("2026-06-05T00:00:00.000Z"); pega o dia em UTC sem deslocar timezone.
   const d = data.slice(8, 10);
@@ -81,6 +113,8 @@ export interface CategoriaBarra {
   valor: number; // centavos
   cor: string;
   pct: number; // 0..1 sobre o maior
+  /** Média mensal (centavos) do tipo — só despesas pagas. Opcional (visão Ano). */
+  media?: number;
 }
 
 export interface MonthDerived {

@@ -6,7 +6,7 @@ import { ArrowUpCircle, ArrowDownCircle, Scale, PiggyBank } from 'lucide-react';
 import type { MonthlyOverviewResponse, MonthlyEntry } from '../_types';
 import { KpiCard, Card } from './ui';
 import { fmtMoney, fmtPct } from './format';
-import { deriveYear, colorForCategoria, type CategoriaBarra } from './derive';
+import { deriveYear, colorForCategoria, mediaMensalPorTipo, type CategoriaBarra } from './derive';
 import DestaquesAno from './DestaquesAno';
 import CategoriasBarras from './CategoriasBarras';
 import ArvoreGastos from './ArvoreGastos';
@@ -42,6 +42,7 @@ export default function YearView({
   );
 
   const categoriasAno = useMemo<CategoriaBarra[]>(() => {
+    const media = mediaMensalPorTipo(yearEntries, year);
     const acc = new Map<string, number>();
     for (const r of data.meses) {
       if (!r.mes.startsWith(`${year}-`)) continue;
@@ -58,8 +59,9 @@ export default function YearView({
       valor: c.valor,
       cor: colorForCategoria(c.categoria, i),
       pct: max > 0 ? c.valor / max : 0,
+      media: media.get(c.categoria) ?? 0,
     }));
-  }, [data.meses, year]);
+  }, [data.meses, year, yearEntries]);
 
   const poupancaTone = y.taxaPoupanca >= y.metaPoupanca ? 'pos' : y.taxaPoupanca >= 0 ? 'alert' : 'neg';
 
@@ -105,7 +107,7 @@ export default function YearView({
         <Card title="Evolução do patrimônio" hint={`base: ${fmtMoney(y.patrimonioInicioAno)}`}>
           <EvolucaoPatrimonioChart meses={y.meses} />
         </Card>
-        <CategoriasBarras categorias={categoriasAno} title="Categorias do ano" hint={String(year)} />
+        <CategoriasBarras categorias={categoriasAno} title="Categorias do ano" hint={`${year} · ~média mensal (pagas)`} />
       </div>
 
       {projectId && (

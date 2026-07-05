@@ -28,6 +28,11 @@ export default function CategoriasBarras({
                   {c.categoria}
                 </span>
                 <span className="text-xs font-geist tabular-nums text-[var(--ck-muted)]">
+                  {c.media != null && c.media > 0 && (
+                    <span className="mr-2 text-[10px] text-[var(--ck-muted)]/80">
+                      ~{fmtMoney(c.media)}/mês
+                    </span>
+                  )}
                   {fmtMoney(c.valor)}
                   {total > 0 && <span className="ml-1 text-[10px]">({Math.round((c.valor / total) * 100)}%)</span>}
                 </span>
