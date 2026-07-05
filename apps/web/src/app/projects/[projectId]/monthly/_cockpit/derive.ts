@@ -259,6 +259,10 @@ export function deriveMonth(
 
   const agendadosPorDia = new Map<number, number>();
   const contasFuturas: ContaFutura[] = [];
+  // Categorias do mês agregadas DAS ENTRIES (exclui neutro/espelho no loop abaixo)
+  // — não usar data.meses.porCategoria, que inclui PAGAMENTO_FATURA_CARTAO e
+  // mostraria "pagamento de fatura" como gasto em vez das compras reais do cartão.
+  const categoriaAcc = new Map<string, number>();
 
   for (const e of entries) {
     // Consolidado (deriveMonth não filtra projeto): espelho deduplicado — o registro
@@ -270,6 +274,8 @@ export function deriveMonth(
     const realized = isRealized(e.status);
     const dia = dayOfMonth(e.data);
     if (e.tipo === 'DESPESA') {
+      const tipo = e.categoria?.trim() || 'Outros';
+      categoriaAcc.set(tipo, (categoriaAcc.get(tipo) ?? 0) + e.valor);
       if (realized) {
         gasteiRealizado += e.valor;
         if (!FORMA_FIXA.has(e.formaPagamento ?? '') && dia <= hoje) {
@@ -325,9 +331,12 @@ export function deriveMonth(
   }
   const ritmoDiario = hoje > 0 ? Math.round(variavelRealizadoAteHoje / hoje) : 0;
 
-  // Categorias de despesa do mês corrente (todas, realizado + planejado).
-  const row = data.meses.find((r) => r.mes === mesAtualKey);
-  const cats = (row?.porCategoria ?? []).filter((c) => c.valor > 0);
+  // Categorias de despesa do mês corrente (todas, realizado + planejado), agregadas
+  // das entries acima — SEM neutros (pagamento de fatura / mov. interna) nem espelhos.
+  const cats = Array.from(categoriaAcc.entries())
+    .map(([categoria, valor]) => ({ categoria, valor }))
+    .filter((c) => c.valor > 0)
+    .sort((a, b) => b.valor - a.valor);
   const maxCat = cats.reduce((mx, c) => Math.max(mx, c.valor), 0);
   const categorias: CategoriaBarra[] = cats.map((c, i) => ({
     categoria: c.categoria,

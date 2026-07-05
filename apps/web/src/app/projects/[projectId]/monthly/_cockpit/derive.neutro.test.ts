@@ -77,4 +77,19 @@ describe('cockpit mensal — neutros fora do consumo/resultado', () => {
     const m = deriveMonth(makeData([compra, espelho]), '2026-06', [compra, espelho]);
     expect(m.gasteiRealizado).toBe(400000);
   });
+
+  it('m.categorias (Principais gastos) NÃO inclui pagamento de fatura', () => {
+    const faturaCat = entry({
+      valor: 1000000,
+      categoria: 'Pagamento de fatura',
+      isNeutral: true,
+      tipoDespesaCodigo: 'PAGAMENTO_FATURA_CARTAO',
+    });
+    const compraCartao = entry({ valor: 400000, categoria: 'Alimentação', cardLast4: '1234', tipoDespesaCodigo: 'ALIMENTACAO' });
+    const m = deriveMonth(makeData([compraCartao, faturaCat]), '2026-06', [compraCartao, faturaCat]);
+    const labels = m.categorias.map((c) => c.categoria);
+    expect(labels).toContain('Alimentação'); // compra real do cartão aparece
+    expect(labels).not.toContain('Pagamento de fatura'); // neutro fora
+    expect(m.categorias.find((c) => c.categoria === 'Alimentação')!.valor).toBe(400000);
+  });
 });
