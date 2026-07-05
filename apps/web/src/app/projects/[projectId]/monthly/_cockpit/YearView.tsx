@@ -6,7 +6,7 @@ import { ArrowUpCircle, ArrowDownCircle, Scale, Receipt } from 'lucide-react';
 import type { MonthlyOverviewResponse, MonthlyEntry } from '../_types';
 import { KpiCard, Card } from './ui';
 import { fmtMoney } from './format';
-import { deriveYear, colorForCategoria, categoriasDoAno, ticketMedioGeral, type CategoriaBarra } from './derive';
+import { deriveYear, colorForCategoria, categoriasDoAno, gastoMedioMensal, type CategoriaBarra } from './derive';
 import DestaquesAno from './DestaquesAno';
 import CategoriasBarras from './CategoriasBarras';
 import ArvoreGastos from './ArvoreGastos';
@@ -42,22 +42,11 @@ export default function YearView({
   );
 
   const categoriasAno = useMemo<CategoriaBarra[]>(() => {
+    // TODAS as categorias com valor no ano (o backend truncava top-6/mês; aqui
+    // agrega das entries sem truncar). Seção larga com colunas comporta a lista.
     const full = categoriasDoAno(yearEntries, year);
-    // Mostra as principais e agrega a cauda em "Outras categorias" — assim nada
-    // some (o backend truncava o top-6 POR MÊS, escondendo tipos no ano).
-    const TOP = 8;
-    const head = full.slice(0, TOP);
-    const tail = full.slice(TOP);
-    const rows = [...head];
-    if (tail.length > 0) {
-      rows.push({
-        categoria: `Outras categorias (${tail.length})`,
-        valor: tail.reduce((s, c) => s + c.valor, 0),
-        media: tail.reduce((s, c) => s + c.media, 0),
-      });
-    }
-    const max = rows.reduce((mx, c) => Math.max(mx, c.valor), 0);
-    return rows.map((c, i) => ({
+    const max = full.reduce((mx, c) => Math.max(mx, c.valor), 0);
+    return full.map((c, i) => ({
       categoria: c.categoria,
       valor: c.valor,
       cor: colorForCategoria(c.categoria, i),
@@ -66,7 +55,7 @@ export default function YearView({
     }));
   }, [yearEntries, year]);
 
-  const ticket = useMemo(() => ticketMedioGeral(yearEntries, year), [yearEntries, year]);
+  const gastoMensal = useMemo(() => gastoMedioMensal(yearEntries, year), [yearEntries, year]);
 
   return (
     <div className="space-y-4">
@@ -93,12 +82,12 @@ export default function YearView({
           info={`Receita − despesa do ano (inclui projeção). Positivo = você guardou; negativo = gastou mais do que recebeu. Sem neutros nem espelhos.`}
         />
         <KpiCard
-          label="Ticket médio geral"
-          value={fmtMoney(ticket.valor)}
+          label="Gasto médio mensal"
+          value={fmtMoney(gastoMensal.valor)}
           tone="neutral"
           icon={<Receipt className="w-4 h-4" />}
-          info={`Valor médio por lançamento de despesa realizada no ano: total gasto ÷ nº de lançamentos. Consolidado (sem pagamento de fatura, movimentação interna nem espelhos cross-project, para não duplicar). Cada parcela conta como um lançamento.`}
-          context={`${ticket.count} ${ticket.count === 1 ? 'lançamento' : 'lançamentos'}`}
+          info={`Quanto você gasta por mês, em média: total gasto no ano ÷ nº de meses com gasto. Só despesas REALIZADAS (planejado futuro não conta). Consolidado, sem pagamento de fatura / movimentação interna nem espelhos cross-project.`}
+          context={`${gastoMensal.meses} ${gastoMensal.meses === 1 ? 'mês com gasto' : 'meses com gasto'}`}
         />
       </div>
 
@@ -106,12 +95,16 @@ export default function YearView({
         <FluxoCaixaAnualChart meses={y.meses} />
       </Card>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card title="Evolução do patrimônio" hint={`base: ${fmtMoney(y.patrimonioInicioAno)}`}>
-          <EvolucaoPatrimonioChart meses={y.meses} />
-        </Card>
-        <CategoriasBarras categorias={categoriasAno} title="Categorias do ano" hint={`${year} · ~média mensal (pagas)`} />
-      </div>
+      <Card title="Evolução do patrimônio" hint={`base: ${fmtMoney(y.patrimonioInicioAno)}`}>
+        <EvolucaoPatrimonioChart meses={y.meses} />
+      </Card>
+
+      <CategoriasBarras
+        categorias={categoriasAno}
+        title="Categorias do ano"
+        hint={`${year} · ${categoriasAno.length} ${categoriasAno.length === 1 ? 'categoria' : 'categorias'} · ~média mensal (pagas)`}
+        columns={3}
+      />
 
       {projectId && (
         <ArvoreGastos

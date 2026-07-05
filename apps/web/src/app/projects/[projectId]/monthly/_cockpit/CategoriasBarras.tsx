@@ -8,18 +8,27 @@ export default function CategoriasBarras({
   categorias,
   title = 'Principais gastos',
   hint,
+  columns = 1,
 }: {
   categorias: CategoriaBarra[];
   title?: string;
   hint?: string;
+  /** Nº de colunas no layout (para listas longas em seção larga). */
+  columns?: 1 | 2 | 3;
 }) {
   const total = categorias.reduce((s, c) => s + c.valor, 0);
+  const gridCls =
+    columns === 3
+      ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-3'
+      : columns === 2
+        ? 'grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3'
+        : 'space-y-3';
   return (
     <Card title={title} hint={hint}>
       {categorias.length === 0 ? (
         <p className="text-xs text-[var(--ck-muted)]">Sem gastos por categoria neste período.</p>
       ) : (
-        <div className="space-y-3">
+        <div className={gridCls}>
           {categorias.map((c) => (
             <div key={c.categoria}>
               <div className="flex items-baseline justify-between gap-2 mb-1">

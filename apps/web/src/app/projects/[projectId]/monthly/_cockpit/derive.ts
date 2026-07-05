@@ -87,24 +87,23 @@ export function categoriasDoAno(
 }
 
 /**
- * Ticket médio geral do ano = valor médio por LANÇAMENTO de despesa realizada.
+ * Gasto médio MENSAL do ano = total gasto ÷ nº de meses ativos.
  *
- * `valor` = total gasto ÷ nº de lançamentos; `count` = nº de lançamentos.
+ * `valor` = média por mês; `meses` = nº de meses do ano com algum gasto realizado.
  * Base (evita valores inflados):
  *  - só DESPESA do ano corrente;
- *  - só REALIZADAS (PAGO/EM_CAIXA) — planejado futuro não é compra concretizada;
- *  - consolidado: espelho cross-project deduplicado (`isEspelho` fora; o registro
- *    do projeto-alvo é o canônico) → uma compra conta uma vez;
- *  - neutros fora (`entryIsNeutral`: pagamento de fatura / movimentação interna
- *    não são compra) → não inflam total nem contagem.
- * Cada parcela é um lançamento (grão disponível no fluxo de caixa).
+ *  - só REALIZADAS (PAGO/EM_CAIXA) — planejado futuro não conta;
+ *  - consolidado: espelho cross-project deduplicado (`isEspelho` fora) → conta uma vez;
+ *  - neutros fora (`entryIsNeutral`: pagamento de fatura / movimentação interna).
+ * Denominador = meses com gasto (não dilui por meses sem movimento; adapta a ano
+ * em curso), igual ao padrão de `mediaMensalPorTipo`/reserva.
  */
-export function ticketMedioGeral(
+export function gastoMedioMensal(
   entries: MonthlyEntry[],
   year: number,
-): { valor: number; count: number } {
+): { valor: number; meses: number } {
   let total = 0;
-  let count = 0;
+  const mesesAtivos = new Set<string>();
   for (const e of entries) {
     if (e.tipo !== 'DESPESA') continue;
     if ((e.data ?? '').slice(0, 4) !== String(year)) continue;
@@ -112,9 +111,10 @@ export function ticketMedioGeral(
     if (e.isEspelho) continue;
     if (entryIsNeutral(e)) continue;
     total += e.valor;
-    count += 1;
+    mesesAtivos.add((e.data ?? '').slice(0, 7));
   }
-  return { valor: count > 0 ? Math.round(total / count) : 0, count };
+  const meses = mesesAtivos.size;
+  return { valor: meses > 0 ? Math.round(total / meses) : 0, meses };
 }
 
 

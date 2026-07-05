@@ -167,7 +167,7 @@ export default function CockpitPage() {
         </div>
       </header>
 
-      {viewData && !isLoading && (
+      {viewData && !isLoading && view === 'mes' && (
         <CockpitTop
           data={viewData}
           monthKey={monthKey}
