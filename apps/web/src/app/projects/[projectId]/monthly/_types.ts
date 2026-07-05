@@ -35,6 +35,10 @@ export interface MonthlyEntry {
   /** É tipo neutro (pagamento de fatura / movimentação interna)? Derivado no backend de
    *  `expense.tipoDespesa` — sinal CONFIÁVEL. Ausente em payloads de backend antigo (fallback no FE). */
   isNeutral?: boolean;
+  /** É neutro DE CONSUMO? Superset de `isNeutral` + aporte (INVESTIMENTOS) na despesa e
+   *  resgate (RESGATE) no recebimento. Usado para tirar do consumo/resultado SEM tirar do
+   *  eixo de caixa (§10). Derivado no backend; ausente em payload antigo (fallback no FE). */
+  isNeutralConsumo?: boolean;
   subcategoria: string | null;
   parcela?: string | null;
   formaPagamento: string | null;

@@ -1,5 +1,5 @@
 import type { MonthlyEntry } from '../_types';
-import { entryIsNeutral, isNeutralAccountSettlement } from './neutral';
+import { entryIsConsumptionNeutral, isNeutralAccountSettlement } from './neutral';
 
 /**
  * Soma o quanto foi gasto por origem — cartão (`cardLast4`) e conta (`bankLast4`) —
@@ -32,7 +32,7 @@ export function spendByOrigin(
   for (const e of entries) {
     if (e.tipo !== 'DESPESA') continue;
     if (pessoalProjectId && e.projectId !== pessoalProjectId) continue;
-    if (keepCardSettlement ? isNeutralAccountSettlement(e) : entryIsNeutral(e)) continue;
+    if (keepCardSettlement ? isNeutralAccountSettlement(e) : entryIsConsumptionNeutral(e)) continue;
     if (e.cardLast4) {
       cards.set(e.cardLast4, (cards.get(e.cardLast4) ?? 0) + e.valor);
     } else if (e.bankLast4) {

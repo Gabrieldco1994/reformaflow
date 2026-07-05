@@ -273,6 +273,42 @@ export function isNeutralExpenseType(tipoDespesa: string | null | undefined): bo
   return !!tipoDespesa && NEUTRAL_EXPENSE_TYPES.has(tipoDespesa);
 }
 
+/**
+ * Tipos de despesa "neutros DE CONSUMO": não representam consumo real, MAS — ao
+ * contrário do neutro-de-caixa (settlement) acima — são saída de caixa NOVA e real.
+ *
+ * Superset de {@link NEUTRAL_EXPENSE_TYPES} + `INVESTIMENTOS`. Investir (aporte) não
+ * é gasto (é transferência para a corretora), então sai de despesa/gasto médio/
+ * categorias/resultado; mas o dinheiro SAIU da conta, então o aporte PERMANECE no
+ * eixo de caixa (§10, "Vai sair") — por isso NÃO entra em `NEUTRAL_EXPENSE_TYPES`
+ * (settlement), que sumiria do fluxo de caixa.
+ */
+export const CONSUMPTION_NEUTRAL_EXPENSE_TYPES = new Set<string>([
+  ...NEUTRAL_EXPENSE_TYPES,
+  ExpenseType.INVESTIMENTOS,
+]);
+
+export function isConsumptionNeutralExpenseType(
+  tipoDespesa: string | null | undefined,
+): boolean {
+  return !!tipoDespesa && CONSUMPTION_NEUTRAL_EXPENSE_TYPES.has(tipoDespesa);
+}
+
+/**
+ * Tipos de RECEBIMENTO "neutros de consumo": retorno de principal que não é renda
+ * nova. Simétrico ao aporte (`INVESTIMENTOS`): resgatar é o próprio dinheiro
+ * voltando da corretora → sai da receita/resultado (senão o resultado inflaria),
+ * mas o crédito real ainda entra no caixa da conta.
+ *
+ * MVP = `{RESGATE}`. Rendimentos (JUROS_RENDA_FIXA, DIVIDENDOS, POUPANCA, …) são
+ * ganho REAL e permanecem como receita.
+ */
+export const NEUTRAL_RECEIPT_TYPES = new Set<string>([ReceiptType.RESGATE]);
+
+export function isNeutralReceiptType(tipo: string | null | undefined): boolean {
+  return !!tipo && NEUTRAL_RECEIPT_TYPES.has(tipo);
+}
+
 export const LaborCategoryLabels: Record<LaborCategory, string> = {
   [LaborCategory.EMPREITEIRO]: 'Empreiteiro',
   [LaborCategory.INSTALADOR_PISO]: 'Instalador de Piso',

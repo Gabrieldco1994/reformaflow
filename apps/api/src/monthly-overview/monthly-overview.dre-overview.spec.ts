@@ -251,7 +251,9 @@ describe('MonthlyOverviewService.getDreOverview', () => {
     expect(res.mensal.despesaTotal).toBe(5_500); // moradia + compra no cartão
     expect(res.mensal.guardado).toEqual([{ label: 'Investimentos', valor: 1_000 }]);
     expect(res.mensal.totalSaiuMaisGuardou).toBe(6_500);
-    expect(res.mensal.resultado).toBe(3_500);
+    // Resultado = receita − despesa de consumo. Guardado (investimento) é memo e NÃO
+    // reduz o resultado (investir é transferência, não gasto): 10.000 − 5.500 = 4.500.
+    expect(res.mensal.resultado).toBe(4_500);
 
     const grupoFaturas = res.mensal.saidasCaixa.find(
       (group: any) => group.group === 'Faturas de cartão',
@@ -281,10 +283,57 @@ describe('MonthlyOverviewService.getDreOverview', () => {
 
     expect(res.anual.totalEntrou).toBe(18_000);
     expect(res.anual.totalSaiu).toBe(13_100);
-    expect(res.anual.resultadoAcumulado).toBe(3_900);
+    // resultadoAcumulado = entrou − saiu (guardado 1.000 é memo): 18.000 − 13.100 = 4.900.
+    expect(res.anual.resultadoAcumulado).toBe(4_900);
+    expect(res.anual.totalGuardadoAno).toBe(1_000);
     expect(
       res.anual.serie.some((item: any) => item.mes === '2026-05' && item.isCritical),
     ).toBe(true);
+  });
+
+  it('RESGATE fora da receita (simetria com aporte); rendimento (JUROS_RENDA_FIXA) permanece', () => {
+    jest.spyOn(service, 'getAccountView').mockResolvedValue({
+      mesSelecionado: '2026-06',
+      caixaHoje: 0,
+      entrouMes: 0,
+      saiuMes: 0,
+      faltaPagarMes: 0,
+      recebimentosPrevistosMes: 0,
+      sobraPrevista: 0,
+      devoCartaoTotal: 0,
+      cartoes: [],
+      contas: [],
+      saidas: [],
+      comprasCartao: [],
+      entradas: [],
+      ticketMedio: { valor: 0, nCompras: 0, totalCompras: 0, serie6m: [], media6m: 0, deltaVsMediaPct: null },
+    } as any);
+    prisma.creditCard.findMany.mockResolvedValue([]);
+    prisma.cashFlowEntry.findMany.mockResolvedValue([
+      {
+        id: 'sal', tipo: 'RECEBIMENTO', valor: 10_000,
+        data: new Date('2026-06-02T00:00:00.000Z'), status: 'EM_CAIXA',
+        expense: null, receipt: { id: 'sal', tipo: 'SALARIO', descricao: 'Salário', bankLast4: '4247' },
+      },
+      {
+        id: 'resg', tipo: 'RECEBIMENTO', valor: 5_000,
+        data: new Date('2026-06-10T00:00:00.000Z'), status: 'EM_CAIXA',
+        expense: null, receipt: { id: 'resg', tipo: 'RESGATE', descricao: 'Resgate CDB', bankLast4: '4247' },
+      },
+      {
+        id: 'rend', tipo: 'RECEBIMENTO', valor: 300,
+        data: new Date('2026-06-12T00:00:00.000Z'), status: 'EM_CAIXA',
+        expense: null, receipt: { id: 'rend', tipo: 'JUROS_RENDA_FIXA', descricao: 'Juros', bankLast4: '4247' },
+      },
+    ]);
+
+    return service
+      .getDreOverview(tenantId, projectId, { month: '2026-06', year: '2026' })
+      .then((res) => {
+        // Salário 10.000 + rendimento 300 = 10.300; resgate 5.000 (retorno de principal) fora.
+        expect(res.mensal.totalEntrou).toBe(10_300);
+        expect(res.mensal.resultado).toBe(10_300); // sem despesas neste fixture
+      });
   });
 
   describe('anual.saldoAcumuladoSerie (fonte: getAccountView por mês, inclui cross-project)', () => {

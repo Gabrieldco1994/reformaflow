@@ -1,5 +1,5 @@
 import type { MonthlyEntry } from '../_types';
-import { entryIsNeutral, isNeutralAccountSettlement } from './neutral';
+import { entryIsConsumptionNeutral, isNeutralAccountSettlement } from './neutral';
 
 /**
  * Árvore de gastos do PESSOAL: total → origem de pagamento (cartão/conta) →
@@ -69,7 +69,7 @@ export function spendTree(
     if (e.tipo !== 'DESPESA') continue;
     if (statusMode === 'real' && !isRealizedStatus(e.status)) continue;
     if (pessoalProjectId && e.projectId !== pessoalProjectId) continue;
-    if (keepCardSettlement ? isNeutralAccountSettlement(e) : entryIsNeutral(e)) continue;
+    if (keepCardSettlement ? isNeutralAccountSettlement(e) : entryIsConsumptionNeutral(e)) continue;
 
     let kind: 'card' | 'account';
     let last4: string;

@@ -52,13 +52,24 @@ describe('computeCaixaConta — reconciliação §10', () => {
     expect(r.hoje).toBe(120_000);
   });
 
-  it('sem saldo inicial cadastrado: temSaldoInicial=false e hoje = só o fluxo', () => {
+  it('INVARIANTE I1: aporte (INVESTIMENTOS) PAGO pela conta REDUZ o caixa hoje — neutro-de-consumo NÃO altera §10', () => {
+    // computeCaixaConta é type-agnóstico: soma TODA despesa PAGO da conta como saída,
+    // sem olhar tipoDespesa/neutralidade. Marcar INVESTIMENTOS neutro-de-consumo no
+    // cockpit NÃO pode mudar isto — o dinheiro saiu do checking.
     const r = computeCaixaConta(
-      [{ openingBalanceCents: 0, openingBalanceDate: null }],
+      [{ openingBalanceCents: 20_000_000, openingBalanceDate: d('2026-01-01') }],
+      [{ valorTotal: 11_249_094, status: 'PAGO', dataPagamento: d('2026-06-05'), createdAt: d('2026-06-05') }],
       [],
-      [{ valor: 40_000, status: 'EM_CAIXA', data: d('2026-05-01') }],
     );
-    expect(r.temSaldoInicial).toBe(false);
-    expect(r.hoje).toBe(40_000);
+    expect(r.hoje).toBe(20_000_000 - 11_249_094); // 8.750.906 — caixa CAI
+  });
+
+  it('INVARIANTE: resgate (RESGATE) EM_CAIXA AUMENTA o caixa hoje (crédito real na conta)', () => {
+    const r = computeCaixaConta(
+      [{ openingBalanceCents: 0, openingBalanceDate: d('2026-01-01') }],
+      [],
+      [{ valor: 11_322_065, status: 'EM_CAIXA', data: d('2026-06-20') }],
+    );
+    expect(r.hoje).toBe(11_322_065);
   });
 });

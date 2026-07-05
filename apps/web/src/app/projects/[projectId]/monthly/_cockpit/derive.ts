@@ -4,7 +4,7 @@ import {
   buildMonthlyOverview,
   type MonthlyOverviewEntry,
 } from '@reformaflow/domain';
-import { entryIsNeutral, isNeutralAccountSettlement } from './neutral';
+import { entryIsConsumptionNeutral, isNeutralAccountSettlement } from './neutral';
 
 /** Categorias com cor fixa (significado consistente em todo o cockpit). */
 export const CAT_COLORS: Record<string, string> = {
@@ -45,7 +45,7 @@ export function mediaMensalPorTipo(
     if ((e.data ?? '').slice(0, 4) !== String(year)) continue;
     if (!isRealized(e.status)) continue;
     if (e.isEspelho) continue; // consolidado: alvo do projeto é o canônico
-    if (entryIsNeutral(e)) continue;
+    if (entryIsConsumptionNeutral(e)) continue;
     mesesComGasto.add((e.data ?? '').slice(0, 7));
     const tipo = e.categoria?.trim() || 'Outros';
     totalPorTipo.set(tipo, (totalPorTipo.get(tipo) ?? 0) + e.valor);
@@ -75,7 +75,7 @@ export function categoriasDoAno(
     if (e.tipo !== 'DESPESA') continue;
     if ((e.data ?? '').slice(0, 4) !== String(year)) continue;
     if (e.isEspelho) continue;
-    if (entryIsNeutral(e)) continue;
+    if (entryIsConsumptionNeutral(e)) continue;
     const tipo = e.categoria?.trim() || 'Outros';
     totalPorTipo.set(tipo, (totalPorTipo.get(tipo) ?? 0) + e.valor);
   }
@@ -96,7 +96,8 @@ export function categoriasDoAno(
  *  - só DESPESA do ano corrente;
  *  - só REALIZADAS (PAGO/EM_CAIXA) — planejado futuro não conta;
  *  - consolidado: espelho cross-project deduplicado (`isEspelho` fora) → conta uma vez;
- *  - neutros fora (`entryIsNeutral`: pagamento de fatura / movimentação interna).
+ *  - neutros de consumo fora (`entryIsConsumptionNeutral`: pagamento de fatura /
+ *    movimentação interna / aporte de investimento — não são consumo).
  */
 export function gastoMedioMensal(
   entries: MonthlyEntry[],
@@ -109,7 +110,7 @@ export function gastoMedioMensal(
     if ((e.data ?? '').slice(0, 4) !== String(year)) continue;
     if (!isRealized(e.status)) continue;
     if (e.isEspelho) continue;
-    if (entryIsNeutral(e)) continue;
+    if (entryIsConsumptionNeutral(e)) continue;
     total += e.valor;
     mesesAtivos.add((e.data ?? '').slice(0, 7));
   }
@@ -270,7 +271,7 @@ export function deriveMonth(
     if (e.isEspelho) continue;
     // Neutros (pagamento de fatura / movimentação interna) não são consumo — senão a
     // fatura DOBRA a despesa já contada nas compras do cartão. Fora de gastei/planejado.
-    if (entryIsNeutral(e)) continue;
+    if (entryIsConsumptionNeutral(e)) continue;
     const realized = isRealized(e.status);
     const dia = dayOfMonth(e.data);
     if (e.tipo === 'DESPESA') {
@@ -452,7 +453,7 @@ export function deriveYear(data: MonthlyOverviewResponse, year: number): YearDer
   const netRealizado = new Map<string, number>();
   for (const e of data.entries ?? []) {
     if (e.isEspelho) continue;
-    if (entryIsNeutral(e)) continue;
+    if (entryIsConsumptionNeutral(e)) continue;
     const mes = (e.data ?? '').slice(0, 7);
     if (!mes) continue;
     const real = isRealized(e.status);
@@ -549,7 +550,7 @@ function monthlyAggFromEntries(entries: MonthlyEntry[]): Map<string, MonthAgg> {
   const map = new Map<string, MonthAgg>();
   for (const e of entries) {
     if (e.isEspelho) continue;
-    if (entryIsNeutral(e)) continue;
+    if (entryIsConsumptionNeutral(e)) continue;
     const mes = (e.data ?? '').slice(0, 7);
     if (!mes) continue;
     let a = map.get(mes);
@@ -586,7 +587,7 @@ export function deriveTotals(
     // pessoal; o alvo do outro projeto é filtrado pelo projectType acima).
     if (!onlyPessoal && e.isEspelho) continue;
     // Neutros (fatura / movimentação interna) não são consumo nem renda.
-    if (entryIsNeutral(e)) continue;
+    if (entryIsConsumptionNeutral(e)) continue;
     const realizado = e.status === 'PAGO' || e.status === 'EM_CAIXA';
     if (e.tipo === 'RECEBIMENTO') {
       if (realizado) er += e.valor; else ep += e.valor;
@@ -854,7 +855,7 @@ export function buildExtratoDespesas(entries: MonthlyEntry[]): ExtratoMes {
   const despesas = entries
     .filter((e) => e.tipo === 'DESPESA')
     .filter((e) => !e.isEspelho)
-    .filter((e) => !entryIsNeutral(e));
+    .filter((e) => !entryIsConsumptionNeutral(e));
 
   const ordenadas = [...despesas].sort((a, b) => {
     const da = a.data ?? '';

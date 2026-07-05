@@ -9,6 +9,8 @@ import {
   ExpenseTypeLabels,
   ReceiptTypeLabels,
   isNeutralExpenseType,
+  isConsumptionNeutralExpenseType,
+  isNeutralReceiptType,
   isSinglePaymentForm,
   type MonthlyOverviewEntry,
 } from '@reformaflow/domain';
@@ -73,6 +75,11 @@ export class MonthlyOverviewService {
             tipoDespesa: true,
           },
         },
+        receipt: {
+          select: {
+            tipo: true,
+          },
+        },
       },
       orderBy: [{ data: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
     });
@@ -121,6 +128,14 @@ export class MonthlyOverviewService {
       // regra da account-view (service:372) para o cockpit.
       tipoDespesaCodigo: e.expense?.tipoDespesa ?? null,
       isNeutral: isNeutralExpenseType(e.expense?.tipoDespesa),
+      // Neutro DE CONSUMO (não é consumo/renda, mas é caixa real): inclui aporte
+      // (INVESTIMENTOS) na despesa e resgate (RESGATE) no recebimento. Sinal separado
+      // de `isNeutral` (settlement) — o cockpit usa este para tirar do consumo/resultado
+      // SEM tirar do eixo de caixa (§10). Ver derive.ts / neutral.ts.
+      isNeutralConsumo:
+        e.tipo === 'RECEBIMENTO'
+          ? isNeutralReceiptType(e.receipt?.tipo)
+          : isConsumptionNeutralExpenseType(e.expense?.tipoDespesa),
       subcategoria: e.subcategoria,
       parcela: e.parcela,
       formaPagamento: e.formaPagamento,
@@ -991,6 +1006,10 @@ export class MonthlyOverviewService {
       const monthCompetencia = monthKeyOf(entry.data);
 
       if (entry.tipo === 'RECEBIMENTO') {
+        // Resgate (RESGATE) é retorno de principal, não renda: neutralizado simétrico
+        // ao aporte (INVESTIMENTOS, que fica no bucket "Guardado"). Rendimentos
+        // (JUROS_RENDA_FIXA, DIVIDENDOS, …) são ganho real → permanecem como receita.
+        if (isNeutralReceiptType(entry.receipt?.tipo)) continue;
         const sourceLabel = receiptSourceLabel(entry.receipt?.tipo);
         normalized.push({
           kind: 'entrada',
@@ -1117,7 +1136,10 @@ export class MonthlyOverviewService {
       despesaTotal: accountView.saiuMes + accountView.faltaPagarMes,
     };
 
-    const resultadoMes = totalEntrou - totalSaiuCompetencia - totalGuardadoMes;
+    // Resultado = receita − despesa de consumo. "Guardado" (investimento/aporte) é
+    // transferência, não gasto: fica como memo informativo e NÃO reduz o resultado
+    // (decisão de produto — coerente com o cockpit e com "investir não é despesa").
+    const resultadoMes = totalEntrou - totalSaiuCompetencia;
     const resultadoMesAnterior = dreMonthResult(
       normalized,
       monthKeyPlus(mesSelecionado, -1),
@@ -1194,7 +1216,7 @@ export class MonthlyOverviewService {
         despesas,
         despesasPlanejadas,
         guardado,
-        resultado: receitas - despesas - guardado,
+        resultado: receitas - despesas, // guardado é memo, não reduz o resultado
         margem,
         isCritical: receitas > 0 && despesas / receitas > 0.9,
       };
@@ -1204,7 +1226,7 @@ export class MonthlyOverviewService {
     const totalEntrouAno = sumBy(realizedRows, (row) => row.receitas);
     const totalSaiuAno = sumBy(realizedRows, (row) => row.despesas);
     const totalGuardadoAno = sumBy(realizedRows, (row) => row.guardado);
-    const resultadoAcumulado = totalEntrouAno - totalSaiuAno - totalGuardadoAno;
+    const resultadoAcumulado = totalEntrouAno - totalSaiuAno; // guardado é memo
     const mediaMensal = realizedUntil > 0 ? Math.round(totalSaiuAno / realizedUntil) : 0;
 
     const serie = monthRows.map((row) => {
@@ -1354,6 +1376,7 @@ export class MonthlyOverviewService {
         ateOMes: `jan–${monthShortLabel(Math.max(realizedUntil, 1))}`,
         totalEntrou: totalEntrouAno,
         totalSaiu: totalSaiuAno,
+        totalGuardadoAno, // memo informativo: quanto foi guardado (investido) no ano
         resultadoAcumulado,
         mediaMensal,
         mesCritico: {
@@ -1456,8 +1479,9 @@ export class MonthlyOverviewService {
         key = originKey('card', cardLast4);
         cardsWithData.add(cardLast4);
       } else if (bankLast4) {
-        // Conta corrente: exclui todos os neutros; agrupa pelo mês do débito.
-        if (isNeutralExpenseType(tipo)) continue;
+        // Conta corrente: exclui neutros de consumo (settlement de fatura E aporte de
+        // investimento — nenhum é "gasto da conta"); agrupa pelo mês do débito.
+        if (isConsumptionNeutralExpenseType(tipo)) continue;
         mes = monthKeyOf(entry.data);
         key = originKey('conta', bankLast4);
         accountsWithData.add(bankLast4);
@@ -1593,7 +1617,7 @@ export class MonthlyOverviewService {
         if (isNeutralExpenseType(tipo) && entry.expense?.bankLast4) continue;
         mes = caixaMonthForCardPurchase(entry.data, card?.closingDay ?? null, card?.dueDay ?? null);
       } else {
-        if (isNeutralExpenseType(tipo)) continue;
+        if (isConsumptionNeutralExpenseType(tipo)) continue;
         mes = monthKeyOf(entry.data);
       }
       if (!mes.startsWith(`${targetYear}-`)) continue;
@@ -2306,17 +2330,8 @@ function dreMonthResult(lines: DreLine[], mes: string): number {
     ),
     (line) => line.valor,
   );
-  const guardado = sumBy(
-    lines.filter(
-      (line) =>
-        line.kind === 'saida' &&
-        line.realizado &&
-        !!line.isGuardado &&
-        line.mesCompetencia === mes,
-    ),
-    (line) => line.valor,
-  );
-  return entrou - saiu - guardado;
+  // Guardado (investimento) é memo, não reduz o resultado — coerente com o cockpit.
+  return entrou - saiu;
 }
 
 function monthNumber(mes: string): number {

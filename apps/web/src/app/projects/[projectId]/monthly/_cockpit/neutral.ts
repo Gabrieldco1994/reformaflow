@@ -1,9 +1,9 @@
-import { isNeutralExpenseType } from '@reformaflow/domain';
+import { isNeutralExpenseType, isConsumptionNeutralExpenseType } from '@reformaflow/domain';
 import type { MonthlyEntry } from '../_types';
 
 type NeutralEntry = Pick<
   MonthlyEntry,
-  'isNeutral' | 'bankLast4' | 'tipoDespesaCodigo' | 'categoriaCodigo'
+  'isNeutral' | 'isNeutralConsumo' | 'tipo' | 'bankLast4' | 'tipoDespesaCodigo' | 'categoriaCodigo'
 >;
 
 /**
@@ -17,6 +17,24 @@ type NeutralEntry = Pick<
 export function entryIsNeutral(e: NeutralEntry): boolean {
   if (typeof e.isNeutral === 'boolean') return e.isNeutral;
   return isNeutralExpenseType(e.tipoDespesaCodigo ?? e.categoriaCodigo ?? undefined);
+}
+
+/**
+ * A entry é NEUTRA DE CONSUMO? Superset de `entryIsNeutral`: além de fatura/movimentação
+ * interna, inclui o aporte (INVESTIMENTOS) na despesa e o resgate (RESGATE) no recebimento
+ * — nenhum é consumo/renda, mas o aporte É saída de caixa real (fica no eixo caixa via
+ * `isNeutralAccountSettlement`, que NÃO o inclui). Use nas superfícies de CONSUMO/resultado
+ * (gastei, categorias, gasto médio, resultado); NÃO no eixo de caixa.
+ *
+ * Fonte de verdade: backend `isNeutralConsumo` (cobre despesa E recebimento). Fallback
+ * (backend antigo) usa o enum cru — só cobre despesa; recebimento degrada para não-neutro.
+ */
+export function entryIsConsumptionNeutral(e: NeutralEntry): boolean {
+  // Settlement (fatura / movimentação interna) é SEMPRE neutro de consumo (superset).
+  if (entryIsNeutral(e)) return true;
+  if (typeof e.isNeutralConsumo === 'boolean') return e.isNeutralConsumo;
+  if (e.tipo === 'RECEBIMENTO') return false;
+  return isConsumptionNeutralExpenseType(e.tipoDespesaCodigo ?? e.categoriaCodigo ?? undefined);
 }
 
 /**
