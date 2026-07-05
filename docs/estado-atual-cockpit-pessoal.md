@@ -1,6 +1,6 @@
 # Estado Atual — Cockpit/Visão Conta (PESSOAL)
 
-Atualizado em: **2026-06-25**
+Atualizado em: **2026-07-05**
 
 ## 1) Situação consolidada
 
@@ -13,6 +13,27 @@ O pacote principal do Cockpit PESSOAL está **concluído e em `main`**.
 - `8129c857` (PR #14) — caixa real (§10) + redesign do topo.
 
 Também há evoluções posteriores da Visão Conta no `main` (filtros, gráficos anuais por origem/cartão, drill-down e ajustes de edição).
+
+### Incremento recente (jul/2026)
+
+- `59a10d90` — **INVESTIMENTOS como neutro-de-consumo.** Aporte (`INVESTIMENTOS`)
+  sai do gasto/média/categorias/resultado (não é consumo) mas **permanece no eixo
+  de caixa**; resgate (`RESGATE`) sai da receita, mas rendimentos
+  (`JUROS_RENDA_FIXA`) seguem como receita real. **Invariante I1 preservado:** o
+  "Caixa hoje" da Visão Conta NÃO muda. Ver `docs/visao-conta-faturas.md §10`.
+- `52366139` — **Unificação de KPIs + UX (mês/ano) + Visão Conta "Todos".**
+  - **Dashboard do mês:** faixa `MovimentoMes` (Entrou · Saiu · Total de saídas +
+    ticket) substitui o antigo `MonthKpis` duplicado. Os 4 KPIs do extrato eram
+    redundantes com Resultado/Projeção (ver `docs/cockpit-caixa-real.md §8`).
+  - **Extrato de saídas:** vira só a lista, com toggle **Mês/Ano** e filtros de
+    **tipo de despesa** e **mês**.
+  - **Categorias do ano:** toggle **Realizado / Realizado+planejado** + clique na
+    categoria abre pop-up com as despesas consideradas (mesma base das barras).
+  - **Árvore de gastos do ano:** resumo no topo, **Expandir/Recolher tudo** e
+    ordenação (valor/nome); "Destaques do ano" removido.
+  - **Visão Conta (ano):** opção **Todos** lista todas as despesas de todas as
+    origens com filtros de tipo e mês (`origin-items-yearly?kind=all`, mesmas
+    regras de neutro/mês por origem; total bate com o `totalAno` do gráfico).
 
 ### Incremento recente (DRE pessoal)
 

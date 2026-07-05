@@ -157,3 +157,49 @@ A migration só cria a coluna com **default 0** — o valor precisa ser inserido
   Não é bug do cockpit; é o dado local desatualizado.
 - O API que estava rodando na :3001 era um build antigo (`dist/main`); reiniciar com o código novo
   pra ver o campo `caixa` na resposta.
+
+---
+
+## 8. Dashboard do mês — KPIs unificados (jul/2026, `52366139`)
+
+**Diagnóstico de redundância** (mesmos filtros de consumo em todos → valores
+corretos, mas repetidos). No mês corrente:
+
+| KPI do Extrato | = mesmo número que | Aparecia em |
+|---|---|---|
+| Já saiu (realizado) | "saiu" do *Resultado* = "Gastei" | CockpitTop + MonthKpis (3×) |
+| Ainda vai sair (planejado) | "a pagar" da *Projeção* = "+ planejado" | CockpitTop + MonthKpis (3×) |
+| Total de saídas | Já saiu + Ainda vai sair (soma) | derivado |
+| Ticket médio | único (por lançamento) | só no extrato |
+
+O antigo `MonthKpis` (Entrou/Gastei) também duplicava o *Resultado* do CockpitTop.
+
+**Unificação aplicada:**
+
+- **CockpitTop** (Caixa hoje · Resultado · Projeção) permanece como a visão
+  canônica — a única fonte dos números do mês.
+- **`MovimentoMes`** (novo, substitui `MonthKpis`): faixa única com **Entrou**
+  (realiz.+prev.) · **Saiu** (realiz.+a pagar) · **Total de saídas** (+ ticket/nº
+  lançs). `deriveMonth` ganhou `qtdSaidas` como fonte única do ticket.
+- **`ExtratoGeral`** perde os 4 cards de KPI → vira **só a lista**, com toggle
+  **Mês/Ano** e filtros de **tipo de despesa** e **mês**.
+
+**Regras de consumo** (iguais ao resto do cockpit): exclui espelho cross-project
+(`isEspelho`) e **neutro-de-consumo** (`entryIsConsumptionNeutral` — settlement +
+aporte `INVESTIMENTOS`). Ver `docs/visao-conta-faturas.md §2.1/§10`.
+
+**Nota (inconsistência pré-existente, não alterada):** o CockpitTop
+(`deriveCockpitTop`) sempre deriva o **mês atual** (`data.mesAtual`), enquanto
+`MovimentoMes`/Extrato seguem o mês selecionado. Ao navegar para meses passados/
+futuros os dois blocos podem divergir — comportamento antigo, candidato a
+follow-up (tornar `deriveCockpitTop` month-aware).
+
+### Visão Ano (mesma leva)
+
+- **Categorias do ano** (`CategoriasBarras`): toggle **Realizado /
+  Realizado+planejado** (`categoriasDoAno(..., statusMode)`) e clique na categoria
+  abre `CategoriaDespesasModal` com as despesas consideradas
+  (`despesasDaCategoriaAno`, mesma base das barras).
+- **Árvore de gastos do ano** (`ArvoreGastos`): resumo no topo (total · nº origens),
+  **Expandir/Recolher tudo** e ordenação (valor/nome).
+- **"Destaques do ano"** removido (`DestaquesAno` excluído).

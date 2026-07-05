@@ -51,6 +51,24 @@ if (isNeutralExpenseType(entry.expense.tipoDespesa) && entry.expense.bankLast4) 
 
 Origem: commit `1cc93dc6` (`fix(conta): fatura inclui cobrança neutra no cartão`).
 
+### 2.1 Dois conceitos de neutro (settlement × consumo)
+
+Há **dois** tipos de "neutro", com efeitos diferentes — não confundir:
+
+| Conceito | Enum/helper | Conjunto | Sai do consumo? | Sai do eixo de caixa? |
+|---|---|---|---|---|
+| **Neutro-de-caixa (settlement)** | `isNeutralExpenseType` / `isNeutral` | `PAGAMENTO_FATURA_CARTAO`, `MOVIMENTACAO_INTERNA` | Sim | **Sim** (a saída já está noutro lançamento) |
+| **Neutro-de-consumo** | `isConsumptionNeutralExpenseType` / `isNeutralConsumo` | settlement **∪ `INVESTIMENTOS`** (despesa) e **`RESGATE`** (recebimento) | Sim | **Não** — é saída/entrada de caixa **nova e real** |
+
+- **Aporte (`INVESTIMENTOS`)**: não é consumo → fora do gasto/média/categorias/
+  resultado; mas o dinheiro **saiu da conta** → permanece no eixo de caixa e no §10.
+- **Resgate (`RESGATE`)**: retorno de principal → fora da receita; mas o dinheiro
+  **entrou** → permanece no eixo de caixa. Já **rendimentos** (`JUROS_RENDA_FIXA`)
+  são receita real e **contam**.
+- Fonte única: `packages/domain/src/enums/index.ts`
+  (`CONSUMPTION_NEUTRAL_EXPENSE_TYPES`, `NEUTRAL_RECEIPT_TYPES`).
+- Detalhes e validação em produção: **§10** deste doc.
+
 ---
 
 ## 3. Casamento pagamento → fatura (mesmo cartão, por valor)
@@ -123,10 +141,16 @@ Origem: commit `01affbcb` (`feat(conta): cartão paga cartão quita a fatura do 
   Aplica a regra de neutros (seção 2) na composição de cada fatura.
 - **`getOriginItemsYearly(tenant, project, {year, kind, last4})`** → despesas de uma
   origem agrupadas por mês (para a lista "despesas relacionadas").
+  - **`kind='all'`** (sem `last4`): agrega **todas as origens** do ano num só
+    conjunto, cada item com seu rótulo de `origem` (`{kind,last4,nickname}`).
+    Mesmas regras de neutro/mês por origem — o total bate exatamente com o
+    `totalAno` do `getCardInvoicesYearly`. Alimenta a opção **"Todos"**.
 - **Endpoints:** `GET .../card-invoices-yearly?year` e
-  `GET .../origin-items-yearly?year&kind&last4`.
+  `GET .../origin-items-yearly?year&kind&last4` (ou `kind=all`).
 - **Frontend:** `conta/page.tsx` (toggle Mês/Ano, filtro de origem, clique no mês),
-  `_components/FaturasAnuaisChart.tsx`, `_components/DespesasRelacionadas.tsx`.
+  `_components/FaturasAnuaisChart.tsx`, `_components/DespesasRelacionadas.tsx`,
+  `_components/TodasDespesasAno.tsx` (chip **Todos**: lista todas as despesas com
+  filtros de **tipo de despesa** e **mês**).
 
 Origem: commits `7e901b15` (gráfico), `f7be2bff` (filtro origem + conta + despesas),
 `e41461c7` (clique na barra do mês filtra despesas).
@@ -154,6 +178,8 @@ Ambos são lidos via `cash_flow_entries`, então o gráfico e a fatura funcionam
 4. **Cada fatura quita uma vez:** casamento implícito consome a fatura; explícito soma
    por alvo e marca paga só quando cobre o total.
 5. **Pagamento dia-1 cai no vencimento, não no mês de pagamento** (janela `{m, m+1}`).
+6. **Neutro-de-consumo (aporte/resgate) sai do consumo mas NÃO do caixa** (§2.1/§10):
+   marcar `INVESTIMENTOS` como settlement (erro) infla o "Caixa hoje" em +R$112k.
 
 ---
 
@@ -186,6 +212,8 @@ Acesso: Fly `reformaflow-api` (máquina auto-suspende; `flyctl machine start <id
 | `e41461c7` | Clicar na barra do mês filtra as despesas do mês |
 | `7010b95d` | Casamento pagamento→fatura por valor+janela (`matchPaidInvoices`) |
 | `01affbcb` | Cartão paga cartão quita a fatura paga (`settlesInvoiceKey` + `computePaidInvoiceKeys`) |
+| `59a10d90` | **INVESTIMENTOS como neutro-de-consumo** (aporte fora do gasto, resgate fora da renda, caixa inalterado) — ver §10 |
+| `52366139` | Visão Conta ano ganha opção **Todos** (`origin-items-yearly?kind=all`) com filtros de tipo e mês |
 
 **Correções de dados em prod (com backup, validadas live):**
 - 5572: removido lançamento fantasma 162,36; criadas 6 séries; Acqualeste linkado à planejada.
@@ -195,3 +223,44 @@ Acesso: Fly `reformaflow-api` (máquina auto-suspende; `flyctl machine start <id
   criado PIX 9.185,15 (18/05) que faltava para fechar o Latam jun.
 - Criada entrada **PIX recebido 9.185,15 (18/05)** que cobriu o PIX de saída do Latam →
   `caixaHoje` voltou ao real **R$ 7.576,29**.
+
+---
+
+## 10. INVESTIMENTOS como neutro-de-consumo (jul/2026, `59a10d90`)
+
+**Problema:** aporte/investimento aparecia como "despesa" (inflava gasto médio,
+categorias e resultado) e resgate como "receita" — distorcendo consumo e projeção.
+
+**Decisão do usuário (A+A):** (A) rendimentos seguem como **receita real**; só
+aporte↔resgate viram neutro. (A) resultado = receita − despesa-de-consumo; o
+"guardado" (aporte) vira só informação, **não reduz** o resultado.
+
+**Implementação** (ver §2.1 para os dois conceitos de neutro):
+
+- **Domain** (`enums/index.ts`): `CONSUMPTION_NEUTRAL_EXPENSE_TYPES` (= settlement
+  ∪ `INVESTIMENTOS`), `isConsumptionNeutralExpenseType`; `NEUTRAL_RECEIPT_TYPES`
+  (= `RESGATE`), `isNeutralReceiptType`.
+- **Backend** (`monthly-overview.service.ts`): enrich emite `isNeutralConsumo` por
+  lançamento; ramos de **consumo** (categorias/DRE/yearly conta) usam
+  `isConsumptionNeutralExpenseType`; ramos de **settlement/fatura** seguem com
+  `isNeutralExpenseType`. DRE pula `RESGATE` na receita; resultado sem `− guardado`.
+- **Frontend** (`_cockpit/`): `entryIsConsumptionNeutral` (superset de
+  `entryIsNeutral`); KPIs/gráficos/árvore/extrato de **consumo** trocam para ele;
+  o **eixo de caixa** (`isNeutralAccountSettlement`) permanece intacto.
+
+**Invariante I1 (crítico):** `computeCaixaConta` é type-agnóstico — soma toda
+despesa PAGO com `bankLast4`, **sem olhar neutro**. **Não foi tocado.** Aporte
+continua debitando o caixa; resgate continua creditando.
+
+**Validado contra snapshot de produção (2026):**
+
+| KPI | Antes | Depois |
+|---|---|---|
+| Despesa do ano | 743.589,81 | **631.098,87** |
+| Receita do ano | 611.905 | **499.413,96** (só resgate R$113k saiu) |
+| Gasto médio/mês (÷12) | 44.263,19 | **34.888,95** |
+| Categorias do ano | tinha "Investimentos" | **sem "Investimentos"** |
+| **Caixa hoje (§10)** | 69.016,52 | **69.016,52 — INALTERADO** |
+
+Confirmado live: os 5 lançamentos `INVESTIMENTOS` e os 5 recebimentos `RESGATE`
+emitem `isNeutralConsumo=true`; `caixa.hoje` permaneceu R$ 69.016,52.
