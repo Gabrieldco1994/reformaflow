@@ -51,6 +51,8 @@ export interface MonthlyEntry {
   bankLast4?: string | null;
   /** Despesa PESSOAL vinculada a outro projeto (espelho). Conta no PESSOAL-only; dedup no consolidado. */
   isEspelho?: boolean;
+  /** Id da Expense de origem (null = lançamento manual de cashflow). Para editar o tipo. */
+  expenseId?: string | null;
 }
 
 /** Caixa real da conta corrente (reconciliação §10). Valores em centavos. */
@@ -87,6 +89,8 @@ export interface MonthlyOverviewResponse {
    *  Ausente em payload antigo/erro → frontend cai no cálculo por competência. */
   projecao?: {
     caixaHoje: number;
+    entrouMes: number;
+    saiuMes: number;
     faltaPagarMes: number;
     recebimentosPrevistosMes: number;
     sobraPrevista: number;

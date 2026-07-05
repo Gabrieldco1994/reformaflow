@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Wallet, Scale, Target, ArrowUpRight, ArrowDownRight, Lightbulb, ChevronDown } from 'lucide-react';
+import { Wallet, Target, ArrowUpRight, ArrowDownRight, Lightbulb, ChevronDown } from 'lucide-react';
 import type { MonthlyOverviewResponse, MonthlyEntry } from '../_types';
 import { Card, type Tone } from './ui';
 import { InfoHint } from '@/components/InfoHint';
@@ -127,7 +127,6 @@ export default function CockpitTop({
   const [exact, setExact] = useState(false);
 
   const sobra = t.projecaoMes - t.caixaValor; // a receber − a pagar do mês
-  const resultadoTone: Tone = t.resultadoMes >= 0 ? 'pos' : 'neg';
   const projTone: Tone = sobra >= 0 ? 'pos' : 'alert';
 
   const [, mStr] = t.mesAtualKey.split('-');
@@ -212,32 +211,41 @@ export default function CockpitTop({
         )}
       </Card>
 
-      {/* 2-up compacto: Resultado · Projeção (Caixa virou o herói acima) */}
-      <div className="grid grid-cols-2 gap-3">
+      {/* 3-up: Entrou · Saídas · Projeção (eixo de caixa §10, mês corrente) */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <HeroCard
-          label={`Resultado de ${mesNome}`}
-          value={moneyShort(t.resultadoMes)}
-          tone={resultadoTone}
-          icon={<Scale className="w-4 h-4" />}
-          info={`O que já aconteceu neste mês: recebimentos realizados (${fmtMoney(t.resultadoEntrou)}) menos despesas realizadas (${fmtMoney(t.resultadoGastou)}). Só conta o que já foi efetivamente pago/recebido — não inclui o que ainda está por vir.`}
-          delta={
-            t.resultadoDeltaPct != null
-              ? { value: `${t.resultadoDeltaPct >= 0 ? 'melhorou' : 'piorou'} ${fmtPct(Math.abs(t.resultadoDeltaPct), 0)}`, tone: t.resultadoDeltaPct >= 0 ? 'pos' : 'neg' }
-              : undefined
+          label={`Entrou em ${mesNome}`}
+          value={moneyShort(t.entrouMes)}
+          tone="pos"
+          icon={<ArrowUpRight className="w-4 h-4" />}
+          info={`Recebimentos já efetivados na conta neste mês (${fmtMoney(t.entrouMes)}).${t.aReceberMes > 0 ? ` Ainda falta receber ${fmtMoney(t.aReceberMes)}.` : ''}`}
+          hint={
+            t.aReceberMes > 0 ? (
+              <>a receber <span className="font-semibold text-[var(--ck-pos)]">{fmtMoney(t.aReceberMes)}</span></>
+            ) : (
+              'recebimentos efetivados'
+            )
           }
+        />
+        <HeroCard
+          label={`Saiu em ${mesNome}`}
+          value={moneyShort(t.saidaTotal)}
+          tone="neg"
+          icon={<ArrowDownRight className="w-4 h-4" />}
+          info={`Tudo que sai da conta neste mês (eixo de caixa): pago ${fmtMoney(t.saidaJaSaiu)} (débitos e faturas já pagas) + planejado ${fmtMoney(t.saidaVaiSair)} (fatura vencendo, contas e parcelas previstas). Bate com a Visão Conta.`}
           hint={
             <>
-              entrou <span className="font-semibold text-[var(--ck-pos)]">{fmtMoney(t.resultadoEntrou)}</span>
-              {' · '}saiu <span className="font-semibold text-[var(--ck-neg)]">{fmtMoney(t.resultadoGastou)}</span>
+              pago <span className="font-semibold text-[var(--ck-neg)]">{fmtMoney(t.saidaJaSaiu)}</span>
+              {' · '}planejado <span className="font-semibold text-[var(--ck-alert)]">{fmtMoney(t.saidaVaiSair)}</span>
             </>
           }
         />
         <HeroCard
-          label={`Projeção fim de ${mesNome}`}
+          label="Sobra prevista"
           value={moneyShort(t.projecaoMes)}
           tone={projTone}
           icon={<Target className="w-4 h-4" />}
-          info={`Como o mês deve fechar: caixa de hoje + o que ainda falta receber (${fmtMoney(t.aReceberMes)}) − o que ainda falta pagar (${fmtMoney(t.aPagarMes)}). É uma previsão — inclui contas e faturas que ainda não saíram.`}
+          info={`Como o mês deve fechar: caixa de hoje + o que ainda falta receber (${fmtMoney(t.aReceberMes)}) − o que ainda falta pagar (${fmtMoney(t.aPagarMes)}). Mesma fonte da Visão Conta (§10).`}
           hint={
             <>
               a receber <span className="font-semibold text-[var(--ck-pos)]">{fmtMoney(t.aReceberMes)}</span>

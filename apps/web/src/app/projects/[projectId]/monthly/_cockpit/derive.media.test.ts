@@ -21,8 +21,8 @@ function entry(patch: Partial<MonthlyEntry>): MonthlyEntry {
 }
 
 describe('mediaMensalPorTipo', () => {
-  it('divide o total pago do tipo pelo nº de meses ativos do ano', () => {
-    // Moradia paga em jan (300) e fev (500) → 2 meses ativos → média 400.
+  it('divide o total pago do tipo por 12 (ano cheio, normalizado)', () => {
+    // Moradia paga em jan (300) e fev (500) → 800 / 12 = 67.
     const media = mediaMensalPorTipo(
       [
         entry({ data: '2026-01-10', categoria: 'Moradia', valor: 300 }),
@@ -30,19 +30,19 @@ describe('mediaMensalPorTipo', () => {
       ],
       2026,
     );
-    expect(media.get('Moradia')).toBe(400);
+    expect(media.get('Moradia')).toBe(67); // 800 / 12
   });
 
   it('só conta pagas (ignora PLANEJADO)', () => {
     const media = mediaMensalPorTipo(
       [
-        entry({ data: '2026-01-10', categoria: 'Lazer', status: 'PAGO', valor: 200 }),
+        entry({ data: '2026-01-10', categoria: 'Lazer', status: 'PAGO', valor: 240 }),
         entry({ data: '2026-02-10', categoria: 'Lazer', status: 'PLANEJADO', valor: 900 }),
       ],
       2026,
     );
-    // só jan tem gasto pago → 1 mês ativo → média = 200
-    expect(media.get('Lazer')).toBe(200);
+    // só a paga conta → 240 / 12 = 20
+    expect(media.get('Lazer')).toBe(20);
   });
 
   it('ignora outros anos, espelhos e neutros', () => {
@@ -57,31 +57,31 @@ describe('mediaMensalPorTipo', () => {
           tipoDespesaCodigo: 'PAGAMENTO_FATURA_CARTAO',
           valor: 999,
         }),
-        entry({ data: '2026-01-10', categoria: 'Moradia', valor: 100 }),
+        entry({ data: '2026-01-10', categoria: 'Moradia', valor: 1200 }),
       ],
       2026,
     );
-    expect(media.get('Moradia')).toBe(100);
+    expect(media.get('Moradia')).toBe(100); // 1200 / 12
     expect(media.has('Pagamento de fatura')).toBe(false);
   });
 
-  it('média por mês ativo agrega tipos distintos com denominador comum', () => {
-    // jan: Moradia 300 + Lazer 100; fev: Moradia 300 → meses ativos = 2
+  it('divide sempre por 12 (não por nº de meses ativos)', () => {
+    // jan: Moradia 300 + Lazer 120; fev: Moradia 300 → total Moradia 600, Lazer 120
     const media = mediaMensalPorTipo(
       [
         entry({ data: '2026-01-10', categoria: 'Moradia', valor: 300 }),
-        entry({ data: '2026-01-15', categoria: 'Lazer', valor: 100 }),
+        entry({ data: '2026-01-15', categoria: 'Lazer', valor: 120 }),
         entry({ data: '2026-02-10', categoria: 'Moradia', valor: 300 }),
       ],
       2026,
     );
-    expect(media.get('Moradia')).toBe(300); // 600 / 2
-    expect(media.get('Lazer')).toBe(50); // 100 / 2
+    expect(media.get('Moradia')).toBe(50); // 600 / 12
+    expect(media.get('Lazer')).toBe(10); // 120 / 12
   });
 
   it('categoria nula vira "Outros"', () => {
-    const media = mediaMensalPorTipo([entry({ categoria: null, valor: 80 })], 2026);
-    expect(media.get('Outros')).toBe(80);
+    const media = mediaMensalPorTipo([entry({ categoria: null, valor: 1200 })], 2026);
+    expect(media.get('Outros')).toBe(100); // 1200 / 12
   });
 });
 
@@ -101,7 +101,7 @@ describe('categoriasDoAno', () => {
     expect(cats.find((c) => c.categoria === 'Alimentação')!.valor).toBe(600);
   });
 
-  it('media anexada é só das pagas (Alimentação: 400 paga em 2 meses ativos = 200)', () => {
+  it('media anexada é só das pagas, ÷12 (Alimentação: 400 paga / 12 = 33)', () => {
     const cats = categoriasDoAno(
       [
         entry({ data: '2026-01-10', categoria: 'Moradia', status: 'PAGO', valor: 1000 }),
@@ -110,8 +110,8 @@ describe('categoriasDoAno', () => {
       ],
       2026,
     );
-    // meses ativos (com gasto pago) = jan, fev = 2 → média Alimentação = 400/2 = 200
-    expect(cats.find((c) => c.categoria === 'Alimentação')!.media).toBe(200);
+    // média = só pagas ÷ 12 → Alimentação 400/12 = 33
+    expect(cats.find((c) => c.categoria === 'Alimentação')!.media).toBe(33);
   });
 
   it('exclui espelhos e neutros; ignora outros anos', () => {
@@ -130,7 +130,7 @@ describe('categoriasDoAno', () => {
       ],
       2026,
     );
-    expect(cats).toEqual([{ categoria: 'Moradia', valor: 500, media: 500 }]);
+    expect(cats).toEqual([{ categoria: 'Moradia', valor: 500, media: 42 }]); // 500 / 12
   });
 });
 

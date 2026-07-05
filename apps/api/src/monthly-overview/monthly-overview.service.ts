@@ -145,6 +145,7 @@ export class MonthlyOverviewService {
       cardLast4: e.expense?.cardLast4 ?? null,
       bankLast4: e.expense?.bankLast4 ?? null,
       isEspelho: isEspelho(e),
+      expenseId: e.expenseId ?? null,
     });
 
     // Todas as entries (todos os meses) para permitir navegação de mês no cockpit.
@@ -171,12 +172,14 @@ export class MonthlyOverviewService {
     // parcelas cross vencendo, não a competência das entries. Aditivo e resiliente:
     // se falhar, o frontend cai no cálculo por competência (comportamento anterior).
     let projecao:
-      | { caixaHoje: number; faltaPagarMes: number; recebimentosPrevistosMes: number; sobraPrevista: number }
+      | { caixaHoje: number; entrouMes: number; saiuMes: number; faltaPagarMes: number; recebimentosPrevistosMes: number; sobraPrevista: number }
       | undefined;
     try {
       const av = await this.getAccountView(tenantId, pessoalProjectId, currentKey);
       projecao = {
         caixaHoje: av.caixaHoje,
+        entrouMes: av.entrouMes,
+        saiuMes: av.saiuMes,
         faltaPagarMes: av.faltaPagarMes,
         recebimentosPrevistosMes: av.recebimentosPrevistosMes,
         sobraPrevista: av.sobraPrevista,

@@ -26,19 +26,17 @@ function isRealized(status: string): boolean {
 }
 
 /**
- * Média mensal por tipo de despesa no ano — SÓ despesas pagas (PAGO/EM_CAIXA).
- *
- * Denominador = nº de meses do ano que tiveram algum gasto pago (meses ativos),
- * igual ao padrão de `despesaMensalMedia`. Assim a média se adapta a ano em curso
- * (só meses decorridos) sem diluir por meses sem movimento. Base consolidada
- * (todos os projetos, espelho deduplicado; neutros fora) para casar com as barras
- * de "Categorias do ano". Retorna centavos por tipo (label já amigável).
+ * Média mensal por tipo de despesa no ano — SÓ despesas pagas (PAGO/EM_CAIXA),
+ * SEMPRE dividida por 12 (ano cheio, valor mensal NORMALIZADO), igual ao
+ * `gastoMedioMensal` e ao ticket médio geral — para dar um mensal comparável e
+ * base de projeção. Base consolidada (todos os projetos, espelho deduplicado;
+ * neutros de consumo fora) para casar com as barras de "Categorias do ano".
+ * Retorna centavos por tipo (label já amigável).
  */
 export function mediaMensalPorTipo(
   entries: MonthlyEntry[],
   year: number,
 ): Map<string, number> {
-  const mesesComGasto = new Set<string>();
   const totalPorTipo = new Map<string, number>();
   for (const e of entries) {
     if (e.tipo !== 'DESPESA') continue;
@@ -46,13 +44,11 @@ export function mediaMensalPorTipo(
     if (!isRealized(e.status)) continue;
     if (e.isEspelho) continue; // consolidado: alvo do projeto é o canônico
     if (entryIsConsumptionNeutral(e)) continue;
-    mesesComGasto.add((e.data ?? '').slice(0, 7));
     const tipo = e.categoria?.trim() || 'Outros';
     totalPorTipo.set(tipo, (totalPorTipo.get(tipo) ?? 0) + e.valor);
   }
-  const divisor = Math.max(mesesComGasto.size, 1);
   const media = new Map<string, number>();
-  for (const [tipo, total] of totalPorTipo) media.set(tipo, Math.round(total / divisor));
+  for (const [tipo, total] of totalPorTipo) media.set(tipo, Math.round(total / 12));
   return media;
 }
 
@@ -653,6 +649,13 @@ export interface CockpitTopDerived {
   /** Variação % do resultado vs. mês anterior (null se não dá pra comparar). */
   resultadoDeltaPct: number | null;
 
+  /** Entrou no mês (caixa §10): recebimentos já efetivados na conta neste mês. */
+  entrouMes: number;
+  /** Saídas do mês (caixa §10): já saiu (débitos+faturas pagas) e ainda vai sair. */
+  saidaJaSaiu: number;
+  saidaVaiSair: number;
+  saidaTotal: number;
+
   /** Projeção do fim do mês corrente: caixa + a receber − a pagar (centavos). */
   projecaoMes: number;
   aReceberMes: number;
@@ -701,6 +704,14 @@ export function deriveCockpitTop(data: MonthlyOverviewResponse): CockpitTopDeriv
   const aPagarMes = data.projecao?.faltaPagarMes ?? ((aggAtual?.totalDesp ?? 0) - resultadoGastou);
   const projecaoMes = data.projecao?.sobraPrevista ?? (caixaValor + aReceberMes - aPagarMes);
 
+  // Entrou/Saídas do mês no eixo de CAIXA (§10, mesma fonte da projeção). Fallback
+  // para competência (entries) quando `projecao` ausente. "Já saiu" (saiuMes) inclui
+  // faturas pagas e débitos realizados; "vai sair" = a pagar (faltaPagarMes).
+  const entrouMes = data.projecao?.entrouMes ?? resultadoEntrou;
+  const saidaJaSaiu = data.projecao?.saiuMes ?? resultadoGastou;
+  const saidaVaiSair = aPagarMes;
+  const saidaTotal = saidaJaSaiu + saidaVaiSair;
+
   // Fração do mês decorrida (para a barra de progresso do headline).
   const [y, m] = data.mesAtual.split('-').map((n) => parseInt(n, 10));
   const now = new Date();
@@ -719,6 +730,10 @@ export function deriveCockpitTop(data: MonthlyOverviewResponse): CockpitTopDeriv
     resultadoEntrou,
     resultadoGastou,
     resultadoDeltaPct,
+    entrouMes,
+    saidaJaSaiu,
+    saidaVaiSair,
+    saidaTotal,
     projecaoMes,
     aReceberMes,
     aPagarMes,

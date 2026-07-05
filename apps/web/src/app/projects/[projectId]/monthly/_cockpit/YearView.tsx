@@ -105,7 +105,7 @@ export default function YearView({
       <CategoriasBarras
         categorias={categoriasAno}
         title="Categorias do ano"
-        hint={`${year} · ${categoriasAno.length} ${categoriasAno.length === 1 ? 'categoria' : 'categorias'} · ~média mensal (pagas)`}
+        hint={`${year} · ${categoriasAno.length} ${categoriasAno.length === 1 ? 'categoria' : 'categorias'} · ~média/mês (pagas ÷12)`}
         columns={3}
         headerExtra={
           <span className="inline-flex items-center rounded-lg border border-[var(--ck-border)] bg-[var(--ck-surface-2)] p-0.5">

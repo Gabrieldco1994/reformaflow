@@ -48,12 +48,14 @@ function baseData(patch: Partial<MonthlyOverviewResponse>): MonthlyOverviewRespo
 }
 
 describe('deriveCockpitTop — projeção de fim de mês (eixo de caixa, §10)', () => {
-  it('usa data.projecao (Visão Conta) quando presente — casa a pagar/projeção', () => {
+  it('usa data.projecao (Visão Conta) quando presente — casa a pagar/projeção/saídas', () => {
     // Competência nas entries (22.249) NÃO deve ser usada quando há projecao.
     const data = baseData({
       entries: [entry({ valor: 2_224_902, status: 'PLANEJADO' })],
       projecao: {
         caixaHoje: 6_901_652,
+        entrouMes: 0,
+        saiuMes: 4_412_804,
         faltaPagarMes: 3_759_570,
         recebimentosPrevistosMes: 2_523_200,
         sobraPrevista: 5_665_282,
@@ -63,6 +65,11 @@ describe('deriveCockpitTop — projeção de fim de mês (eixo de caixa, §10)',
     expect(t.aPagarMes).toBe(3_759_570); // 37.595,70 (caixa), não 22.249 (competência)
     expect(t.aReceberMes).toBe(2_523_200); // 25.232,00
     expect(t.projecaoMes).toBe(5_665_282); // 56.652,82 = sobra prevista da Visão Conta
+    // Saídas em caixa (§10)
+    expect(t.entrouMes).toBe(0);
+    expect(t.saidaJaSaiu).toBe(4_412_804); // 44.128,04 (saiuMes)
+    expect(t.saidaVaiSair).toBe(3_759_570); // = a pagar
+    expect(t.saidaTotal).toBe(4_412_804 + 3_759_570); // 81.723,74
   });
 
   it('cai no cálculo por competência quando projecao ausente (payload antigo)', () => {

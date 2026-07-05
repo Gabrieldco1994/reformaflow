@@ -199,7 +199,10 @@ follow-up (tornar `deriveCockpitTop` month-aware).
 - **Categorias do ano** (`CategoriasBarras`): toggle **Realizado /
   Realizado+planejado** (`categoriasDoAno(..., statusMode)`) e clique na categoria
   abre `CategoriaDespesasModal` com as despesas consideradas
-  (`despesasDaCategoriaAno`, mesma base das barras).
+  (`despesasDaCategoriaAno`, mesma base das barras). No modal é possível
+  **reclassificar o tipo de despesa** de cada lançamento (PATCH
+  `/projects/:pid/expenses/:id` com `{ tipoDespesa }`; usa `entry.expenseId` e
+  `entry.projectId`; invalida `monthly-overview`/`account-view`/yearly).
 - **Árvore de gastos do ano** (`ArvoreGastos`): resumo no topo (total · nº origens),
   **Expandir/Recolher tudo** e ordenação (valor/nome).
 - **"Destaques do ano"** removido (`DestaquesAno` excluído).
@@ -242,8 +245,19 @@ verdade já existe e está correta: **`getAccountView`** (a mesma da Visão Cont
 **Validado em produção (2026-07):** `a pagar` R$ 37.595,70 · `a receber`
 R$ 25.232,00 · `projeção` R$ 56.652,82 — idênticos à Visão Conta.
 
-> ⚠️ **Consequência (a resolver):** os KPIs de saída do dashboard (Total de
-> saídas / Já saiu / Ainda vai sair) ainda são **competência** (via
-> `buildExtratoDespesas`/`deriveMonth`) e sofrem a MESMA subcontagem do "a pagar"
-> — o "planejado" ignora despesas sem `cashFlowEntry`. Alinhar com a projeção
-> (caixa/`getAccountView`) é o follow-up natural desta correção.
+> ⚠️ **Consequência (RESOLVIDA em `262940a0`+seguintes):** os KPIs de saída do
+> dashboard foram **alinhados ao eixo de caixa**. O CockpitTop agora mostra 4
+> cards (sem redundância): **Caixa hoje** · **Entrou** (realizado + a receber) ·
+> **Saiu** (pago + planejado, caixa) · **Sobra prevista** — todos de
+> `getAccountView` (§10). Removidos o card "Resultado" (redundante com entrou−saiu)
+> e a faixa `MovimentoMes` (competência, subcontava o planejado). O "Saiu (pago +
+> planejado)" usa `saiuMes`/`faltaPagarMes`; a "Sobra prevista" = `sobraPrevista`.
+> A visão competência ("o que comprei") vive no extrato/categorias/árvore.
+
+## 10. Média por categoria ÷ 12 (jul/2026)
+
+`mediaMensalPorTipo` (a "~média/mês" de cada categoria em "Categorias do ano")
+passou a dividir **sempre por 12** (ano cheio normalizado), igual a
+`gastoMedioMensal` e ao ticket médio geral. Antes dividia pelo nº de **meses
+ativos** (com gasto pago), o que dava um número maior e inconsistente com os
+demais KPIs mensais. Base inalterada: só pagas, espelho/neutro-de-consumo fora.

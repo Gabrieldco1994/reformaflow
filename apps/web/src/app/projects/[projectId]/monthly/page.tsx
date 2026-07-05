@@ -12,7 +12,6 @@ import { COCKPIT_THEME } from './_cockpit/ui';
 import { anosDisponiveis, buildCaixaData } from './_cockpit/derive';
 import CockpitTop from './_cockpit/CockpitTop';
 import MonthView from './_cockpit/MonthView';
-import MovimentoMes from './_cockpit/MovimentoMes';
 import ExtratoGeral from './_cockpit/ExtratoGeral';
 import YearView from './_cockpit/YearView';
 import EixoToggle, { type Eixo } from './_cockpit/EixoToggle';
@@ -177,10 +176,7 @@ export default function CockpitPage() {
       )}
 
       {viewData && !isLoading && view === 'mes' && eixo !== 'geral' && (
-        <>
-          <MovimentoMes data={viewData} monthKey={monthKey} entries={monthEntries} />
-          <SaldosWidget projectId={projectId} entries={monthEntries ?? []} eixo={eixo} />
-        </>
+        <SaldosWidget projectId={projectId} entries={monthEntries ?? []} eixo={eixo} />
       )}
 
       {isLoading && (
