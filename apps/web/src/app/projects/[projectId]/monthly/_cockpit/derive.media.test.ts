@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mediaMensalPorTipo, categoriasDoAno } from './derive';
+import { mediaMensalPorTipo, categoriasDoAno, ticketMedioGeral } from './derive';
 import type { MonthlyEntry } from '../_types';
 
 function entry(patch: Partial<MonthlyEntry>): MonthlyEntry {
@@ -131,5 +131,72 @@ describe('categoriasDoAno', () => {
       2026,
     );
     expect(cats).toEqual([{ categoria: 'Moradia', valor: 500, media: 500 }]);
+  });
+});
+
+describe('ticketMedioGeral', () => {
+  it('média por lançamento de despesa realizada', () => {
+    const t = ticketMedioGeral(
+      [
+        entry({ data: '2026-01-10', valor: 300 }),
+        entry({ data: '2026-02-10', valor: 500 }),
+        entry({ data: '2026-03-10', valor: 100 }),
+      ],
+      2026,
+    );
+    expect(t.count).toBe(3);
+    expect(t.valor).toBe(300); // (300+500+100)/3
+  });
+
+  it('NÃO conta espelho cross-project (dedup): usa só o canônico', () => {
+    const t = ticketMedioGeral(
+      [
+        // canônico da compra no projeto de origem
+        entry({ data: '2026-01-10', projectId: 'reforma', projectType: 'REFORMA', valor: 800 }),
+        // espelho PESSOAL da MESMA compra (quitação) → não conta
+        entry({ data: '2026-01-10', projectId: 'pessoal', isEspelho: true, valor: 800 }),
+        entry({ data: '2026-02-10', valor: 200 }),
+      ],
+      2026,
+    );
+    // só canônico (800) + a outra (200) = 1000 / 2 = 500
+    expect(t.count).toBe(2);
+    expect(t.valor).toBe(500);
+  });
+
+  it('NÃO conta neutros (pagamento de fatura / movimentação interna)', () => {
+    const t = ticketMedioGeral(
+      [
+        entry({ data: '2026-01-10', valor: 400 }),
+        entry({
+          data: '2026-01-10',
+          isNeutral: true,
+          tipoDespesaCodigo: 'PAGAMENTO_FATURA_CARTAO',
+          valor: 100000,
+        }),
+      ],
+      2026,
+    );
+    // fatura gigante (100000) fora → não infla
+    expect(t.count).toBe(1);
+    expect(t.valor).toBe(400);
+  });
+
+  it('NÃO conta planejado (só realizado) nem recebimento nem outro ano', () => {
+    const t = ticketMedioGeral(
+      [
+        entry({ data: '2026-01-10', status: 'PAGO', valor: 300 }),
+        entry({ data: '2026-06-10', status: 'PLANEJADO', valor: 9000 }),
+        entry({ data: '2026-01-10', tipo: 'RECEBIMENTO', status: 'EM_CAIXA', valor: 5000 }),
+        entry({ data: '2025-01-10', status: 'PAGO', valor: 9000 }),
+      ],
+      2026,
+    );
+    expect(t.count).toBe(1);
+    expect(t.valor).toBe(300);
+  });
+
+  it('sem lançamentos → zero (sem divisão por zero)', () => {
+    expect(ticketMedioGeral([], 2026)).toEqual({ valor: 0, count: 0 });
   });
 });

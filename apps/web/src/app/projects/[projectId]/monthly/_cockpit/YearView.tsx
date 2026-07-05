@@ -2,11 +2,11 @@
 
 import { useMemo } from 'react';
 import dynamic from 'next/dynamic';
-import { ArrowUpCircle, ArrowDownCircle, Scale, PiggyBank } from 'lucide-react';
+import { ArrowUpCircle, ArrowDownCircle, Scale, Receipt } from 'lucide-react';
 import type { MonthlyOverviewResponse, MonthlyEntry } from '../_types';
 import { KpiCard, Card } from './ui';
-import { fmtMoney, fmtPct } from './format';
-import { deriveYear, colorForCategoria, categoriasDoAno, type CategoriaBarra } from './derive';
+import { fmtMoney } from './format';
+import { deriveYear, colorForCategoria, categoriasDoAno, ticketMedioGeral, type CategoriaBarra } from './derive';
 import DestaquesAno from './DestaquesAno';
 import CategoriasBarras from './CategoriasBarras';
 import ArvoreGastos from './ArvoreGastos';
@@ -66,7 +66,7 @@ export default function YearView({
     }));
   }, [yearEntries, year]);
 
-  const poupancaTone = y.taxaPoupanca >= y.metaPoupanca ? 'pos' : y.taxaPoupanca >= 0 ? 'alert' : 'neg';
+  const ticket = useMemo(() => ticketMedioGeral(yearEntries, year), [yearEntries, year]);
 
   return (
     <div className="space-y-4">
@@ -76,29 +76,29 @@ export default function YearView({
           value={fmtMoney(y.receitaAno)}
           tone="pos"
           icon={<ArrowUpCircle className="w-4 h-4" />}
-          info={`Tudo que entrou no ano de ${year} (recebimentos realizados, mês a mês).`}
+          info={`Tudo que entra no ano de ${year} — inclui projeção (recebimentos previstos + realizados), consistente com o gráfico anual.`}
         />
         <KpiCard
           label={`Despesa ${year}`}
           value={fmtMoney(y.despesaAno)}
           tone="neg"
           icon={<ArrowDownCircle className="w-4 h-4" />}
-          info={`Tudo que saiu no ano de ${year} (despesas realizadas, mês a mês).`}
+          info={`Tudo que sai no ano de ${year} — inclui projeção (despesas previstas + realizadas). Consolidado, sem pagamento de fatura / movimentação interna (não é consumo) nem espelhos cross-project (não duplica).`}
         />
         <KpiCard
           label="Resultado do ano"
           value={fmtMoney(y.resultadoAno)}
           tone={y.resultadoAno >= 0 ? 'pos' : 'neg'}
           icon={<Scale className="w-4 h-4" />}
-          info={`Receita − despesa do ano. Positivo = você guardou; negativo = gastou mais do que recebeu.`}
+          info={`Receita − despesa do ano (inclui projeção). Positivo = você guardou; negativo = gastou mais do que recebeu. Sem neutros nem espelhos.`}
         />
         <KpiCard
-          label="Taxa de poupança"
-          value={fmtPct(y.taxaPoupanca, 1)}
-          tone={poupancaTone}
-          icon={<PiggyBank className="w-4 h-4" />}
-          info={`Quanto do que entrou você conseguiu guardar (resultado ÷ receita). Referência saudável: ${y.metaPoupanca}%.`}
-          context={`meta de referência: ${y.metaPoupanca}%`}
+          label="Ticket médio geral"
+          value={fmtMoney(ticket.valor)}
+          tone="neutral"
+          icon={<Receipt className="w-4 h-4" />}
+          info={`Valor médio por lançamento de despesa realizada no ano: total gasto ÷ nº de lançamentos. Consolidado (sem pagamento de fatura, movimentação interna nem espelhos cross-project, para não duplicar). Cada parcela conta como um lançamento.`}
+          context={`${ticket.count} ${ticket.count === 1 ? 'lançamento' : 'lançamentos'}`}
         />
       </div>
 

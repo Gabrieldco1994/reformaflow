@@ -86,6 +86,37 @@ export function categoriasDoAno(
     .sort((a, b) => b.valor - a.valor);
 }
 
+/**
+ * Ticket médio geral do ano = valor médio por LANÇAMENTO de despesa realizada.
+ *
+ * `valor` = total gasto ÷ nº de lançamentos; `count` = nº de lançamentos.
+ * Base (evita valores inflados):
+ *  - só DESPESA do ano corrente;
+ *  - só REALIZADAS (PAGO/EM_CAIXA) — planejado futuro não é compra concretizada;
+ *  - consolidado: espelho cross-project deduplicado (`isEspelho` fora; o registro
+ *    do projeto-alvo é o canônico) → uma compra conta uma vez;
+ *  - neutros fora (`entryIsNeutral`: pagamento de fatura / movimentação interna
+ *    não são compra) → não inflam total nem contagem.
+ * Cada parcela é um lançamento (grão disponível no fluxo de caixa).
+ */
+export function ticketMedioGeral(
+  entries: MonthlyEntry[],
+  year: number,
+): { valor: number; count: number } {
+  let total = 0;
+  let count = 0;
+  for (const e of entries) {
+    if (e.tipo !== 'DESPESA') continue;
+    if ((e.data ?? '').slice(0, 4) !== String(year)) continue;
+    if (!isRealized(e.status)) continue;
+    if (e.isEspelho) continue;
+    if (entryIsNeutral(e)) continue;
+    total += e.valor;
+    count += 1;
+  }
+  return { valor: count > 0 ? Math.round(total / count) : 0, count };
+}
+
 
 function dayOfMonth(data: string): number {
   // data é ISO ("2026-06-05T00:00:00.000Z"); pega o dia em UTC sem deslocar timezone.
@@ -385,8 +416,6 @@ export interface YearDerived {
   receitaAno: number;
   despesaAno: number;
   resultadoAno: number;
-  taxaPoupanca: number; // %
-  metaPoupanca: number; // %
   patrimonioInicioAno: number;
   patrimonioFimAno: number;
   crescimentoPatrimonioPct: number | null;
@@ -398,12 +427,33 @@ export interface YearDerived {
 const MESES_CURTO = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
 export function deriveYear(data: MonthlyOverviewResponse, year: number): YearDerived {
-  const byKey = new Map<string, MonthlyOverviewRow>();
-  for (const r of data.meses) byKey.set(r.mes, r);
+  // Agregação POR MÊS a partir das ENTRIES, excluindo espelho (dedup cross-project:
+  // o registro do projeto-alvo é o canônico) e neutros (pagamento de fatura /
+  // movimentação interna — senão a fatura DOBRA a despesa já contada nas compras).
+  // Semântica projetiva: rec/desp somam TODOS os status (previsto + realizado),
+  // coerente com o gráfico anual; o patrimônio parte do líquido REALIZADO antes do
+  // ano e acumula a sobra projetada (previsto + realizado) durante o ano.
+  const recAll = new Map<string, number>();
+  const despAll = new Map<string, number>();
+  const netRealizado = new Map<string, number>();
+  for (const e of data.entries ?? []) {
+    if (e.isEspelho) continue;
+    if (entryIsNeutral(e)) continue;
+    const mes = (e.data ?? '').slice(0, 7);
+    if (!mes) continue;
+    const real = isRealized(e.status);
+    if (e.tipo === 'RECEBIMENTO') {
+      recAll.set(mes, (recAll.get(mes) ?? 0) + e.valor);
+      if (real) netRealizado.set(mes, (netRealizado.get(mes) ?? 0) + e.valor);
+    } else {
+      despAll.set(mes, (despAll.get(mes) ?? 0) + e.valor);
+      if (real) netRealizado.set(mes, (netRealizado.get(mes) ?? 0) - e.valor);
+    }
+  }
 
-  const patrimonioInicioAno = data.meses
-    .filter((r) => r.mes < `${year}-01`)
-    .reduce((s, r) => s + r.saldoMesRealizado, 0);
+  const patrimonioInicioAno = Array.from(netRealizado.entries())
+    .filter(([mes]) => mes < `${year}-01`)
+    .reduce((s, [, v]) => s + v, 0);
 
   const meses: MesAno[] = [];
   let patrimonio = patrimonioInicioAno;
@@ -411,9 +461,8 @@ export function deriveYear(data: MonthlyOverviewResponse, year: number): YearDer
   let despesaAno = 0;
   for (let i = 0; i < 12; i++) {
     const key = `${year}-${String(i + 1).padStart(2, '0')}`;
-    const r = byKey.get(key);
-    const rec = r?.totalRecebimentos ?? 0;
-    const desp = r?.totalDespesas ?? 0;
+    const rec = recAll.get(key) ?? 0;
+    const desp = despAll.get(key) ?? 0;
     const sobra = rec - desp;
     patrimonio += sobra;
     receitaAno += rec;
@@ -430,7 +479,6 @@ export function deriveYear(data: MonthlyOverviewResponse, year: number): YearDer
   }
 
   const resultadoAno = receitaAno - despesaAno;
-  const taxaPoupanca = receitaAno > 0 ? (resultadoAno / receitaAno) * 100 : 0;
 
   const mesesComMovimento = meses.filter((m) => m.rec !== 0 || m.desp !== 0);
   const melhorMes = mesesComMovimento.reduce<MesAno | null>((best, m) => (!best || m.sobra > best.sobra ? m : best), null);
@@ -445,7 +493,7 @@ export function deriveYear(data: MonthlyOverviewResponse, year: number): YearDer
     : null;
 
   return {
-    year, meses, receitaAno, despesaAno, resultadoAno, taxaPoupanca, metaPoupanca: 30,
+    year, meses, receitaAno, despesaAno, resultadoAno,
     patrimonioInicioAno, patrimonioFimAno, crescimentoPatrimonioPct,
     melhorMes, piorMes, sobraMedia,
   };
