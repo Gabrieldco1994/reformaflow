@@ -62,7 +62,10 @@ export default function CockpitPage() {
   }
 
   // Eixo de tempo: competência (default) ou caixa (vencimento da fatura).
-  const viewData = data ? (eixo === 'caixa' ? buildCaixaData(data) : data) : undefined;
+  // Na visão ANO forçamos o eixo de caixa ("Vai sair") e escondemos o toggle —
+  // é a leitura correta do ano (quando o dinheiro sai), sem confundir com competência.
+  const effectiveEixo: Eixo = view === 'ano' ? 'caixa' : eixo;
+  const viewData = data ? (effectiveEixo === 'caixa' ? buildCaixaData(data) : data) : undefined;
 
   // Meses disponíveis (ordenados) para navegação na visão "Mês".
   const mesesDisponiveis = viewData ? viewData.meses.map((r) => r.mes).sort() : [];
@@ -162,7 +165,7 @@ export default function CockpitPage() {
               </button>
             ))}
           </div>
-          {data && <EixoToggle eixo={eixo} onChange={changeEixo} />}
+          {data && view === 'mes' && <EixoToggle eixo={eixo} onChange={changeEixo} />}
         </div>
       </header>
 
@@ -201,7 +204,7 @@ export default function CockpitPage() {
           ? eixo === 'geral'
             ? <ExtratoGeral key={`geral-${monthKey}`} entries={viewData.entries ?? []} monthKey={monthKey} year={monthYear} />
             : <MonthView key={`${eixo}-${monthKey}`} data={viewData} monthKey={monthKey} entries={monthEntries} projectId={projectId} eixo={eixo} />
-          : <YearView data={viewData} year={year} projectId={projectId} eixo={eixo} />
+          : <YearView data={viewData} year={year} projectId={projectId} eixo={effectiveEixo} />
       )}
     </div>
   );
