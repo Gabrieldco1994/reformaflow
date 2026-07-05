@@ -135,49 +135,48 @@ describe('categoriasDoAno', () => {
 });
 
 describe('gastoMedioMensal', () => {
-  it('total realizado ÷ nº de meses com gasto', () => {
+  it('total realizado ÷ 12 (ano cheio, normalizado)', () => {
     const t = gastoMedioMensal(
       [
         entry({ data: '2026-01-10', valor: 300 }),
         entry({ data: '2026-02-10', valor: 500 }),
-        entry({ data: '2026-03-10', valor: 100 }),
+        entry({ data: '2026-03-10', valor: 400 }),
       ],
       2026,
     );
     expect(t.meses).toBe(3);
-    expect(t.valor).toBe(300); // (300+500+100)/3 meses
+    expect(t.valor).toBe(100); // (300+500+400)=1200 / 12
   });
 
-  it('vários lançamentos no mesmo mês contam 1 mês', () => {
+  it('sempre divide por 12, mesmo com poucos meses ativos', () => {
     const t = gastoMedioMensal(
       [
-        entry({ data: '2026-01-10', valor: 300 }),
-        entry({ data: '2026-01-20', valor: 500 }),
+        entry({ data: '2026-01-10', valor: 600 }),
+        entry({ data: '2026-01-20', valor: 600 }),
       ],
       2026,
     );
     expect(t.meses).toBe(1);
-    expect(t.valor).toBe(800); // 800 / 1 mês
+    expect(t.valor).toBe(100); // 1200 / 12 (não / 1)
   });
 
   it('NÃO conta espelho cross-project (dedup): usa só o canônico', () => {
     const t = gastoMedioMensal(
       [
-        entry({ data: '2026-01-10', projectId: 'reforma', projectType: 'REFORMA', valor: 800 }),
-        entry({ data: '2026-01-10', projectId: 'pessoal', isEspelho: true, valor: 800 }),
-        entry({ data: '2026-02-10', valor: 200 }),
+        entry({ data: '2026-01-10', projectId: 'reforma', projectType: 'REFORMA', valor: 1200 }),
+        entry({ data: '2026-01-10', projectId: 'pessoal', isEspelho: true, valor: 1200 }),
+        entry({ data: '2026-02-10', valor: 1200 }),
       ],
       2026,
     );
-    // canônico (800) + a outra (200) = 1000 em 2 meses = 500
-    expect(t.meses).toBe(2);
-    expect(t.valor).toBe(500);
+    // canônico (1200) + a outra (1200) = 2400 / 12 = 200
+    expect(t.valor).toBe(200);
   });
 
   it('NÃO conta neutros (pagamento de fatura / movimentação interna)', () => {
     const t = gastoMedioMensal(
       [
-        entry({ data: '2026-01-10', valor: 400 }),
+        entry({ data: '2026-01-10', valor: 1200 }),
         entry({
           data: '2026-01-10',
           isNeutral: true,
@@ -187,24 +186,20 @@ describe('gastoMedioMensal', () => {
       ],
       2026,
     );
-    // fatura gigante fora; e mês com neutro-only não conta como mês ativo
-    expect(t.meses).toBe(1);
-    expect(t.valor).toBe(400);
+    expect(t.valor).toBe(100); // 1200 / 12; fatura fora
   });
 
   it('NÃO conta planejado (só realizado) nem recebimento nem outro ano', () => {
     const t = gastoMedioMensal(
       [
-        entry({ data: '2026-01-10', status: 'PAGO', valor: 300 }),
+        entry({ data: '2026-01-10', status: 'PAGO', valor: 1200 }),
         entry({ data: '2026-06-10', status: 'PLANEJADO', valor: 9000 }),
         entry({ data: '2026-01-10', tipo: 'RECEBIMENTO', status: 'EM_CAIXA', valor: 5000 }),
         entry({ data: '2025-01-10', status: 'PAGO', valor: 9000 }),
       ],
       2026,
     );
-    // só jan realizado → 1 mês, R$3 = 300
-    expect(t.meses).toBe(1);
-    expect(t.valor).toBe(300);
+    expect(t.valor).toBe(100); // só jan realizado 1200 / 12
   });
 
   it('sem lançamentos → zero (sem divisão por zero)', () => {

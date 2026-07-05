@@ -86,8 +86,8 @@ export default function YearView({
           value={fmtMoney(gastoMensal.valor)}
           tone="neutral"
           icon={<Receipt className="w-4 h-4" />}
-          info={`Quanto você gasta por mês, em média: total gasto no ano ÷ nº de meses com gasto. Só despesas REALIZADAS (planejado futuro não conta). Consolidado, sem pagamento de fatura / movimentação interna nem espelhos cross-project.`}
-          context={`${gastoMensal.meses} ${gastoMensal.meses === 1 ? 'mês com gasto' : 'meses com gasto'}`}
+          info={`Quanto você gasta por mês, em média: total gasto no ano ÷ 12 (ano cheio, valor normalizado para projeção). Só despesas REALIZADAS (planejado futuro não conta). Consolidado, sem pagamento de fatura / movimentação interna nem espelhos cross-project.`}
+          context="total do ano ÷ 12"
         />
       </div>
 

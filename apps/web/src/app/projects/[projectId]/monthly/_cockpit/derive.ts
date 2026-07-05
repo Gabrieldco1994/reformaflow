@@ -87,16 +87,16 @@ export function categoriasDoAno(
 }
 
 /**
- * Gasto médio MENSAL do ano = total gasto ÷ nº de meses ativos.
+ * Gasto médio MENSAL do ano = total gasto ÷ 12.
  *
- * `valor` = média por mês; `meses` = nº de meses do ano com algum gasto realizado.
+ * Sempre divide por 12 (ano cheio), para dar um valor mensal NORMALIZADO e
+ * comparável entre anos — base para projeção. Não usa "meses ativos".
+ * `valor` = média por mês; `meses` = nº de meses com gasto (só informativo).
  * Base (evita valores inflados):
  *  - só DESPESA do ano corrente;
  *  - só REALIZADAS (PAGO/EM_CAIXA) — planejado futuro não conta;
  *  - consolidado: espelho cross-project deduplicado (`isEspelho` fora) → conta uma vez;
  *  - neutros fora (`entryIsNeutral`: pagamento de fatura / movimentação interna).
- * Denominador = meses com gasto (não dilui por meses sem movimento; adapta a ano
- * em curso), igual ao padrão de `mediaMensalPorTipo`/reserva.
  */
 export function gastoMedioMensal(
   entries: MonthlyEntry[],
@@ -113,8 +113,7 @@ export function gastoMedioMensal(
     total += e.valor;
     mesesAtivos.add((e.data ?? '').slice(0, 7));
   }
-  const meses = mesesAtivos.size;
-  return { valor: meses > 0 ? Math.round(total / meses) : 0, meses };
+  return { valor: Math.round(total / 12), meses: mesesAtivos.size };
 }
 
 
