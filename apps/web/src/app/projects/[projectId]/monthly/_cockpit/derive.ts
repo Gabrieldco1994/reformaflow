@@ -265,6 +265,9 @@ export function deriveMonth(
     // Consolidado (deriveMonth não filtra projeto): espelho deduplicado — o registro
     // do projeto-alvo é o canônico, coerente com data.meses (linhas espelho-free).
     if (e.isEspelho) continue;
+    // Neutros (pagamento de fatura / movimentação interna) não são consumo — senão a
+    // fatura DOBRA a despesa já contada nas compras do cartão. Fora de gastei/planejado.
+    if (entryIsNeutral(e)) continue;
     const realized = isRealized(e.status);
     const dia = dayOfMonth(e.data);
     if (e.tipo === 'DESPESA') {
@@ -338,10 +341,13 @@ export function deriveMonth(
   const FIXAS = new Set(['Moradia', 'Mão de Obra', 'Aluguel']);
   const maiorGastoVariavel = categorias.find((c) => !FIXAS.has(c.categoria)) ?? categorias[0] ?? null;
 
-  // Reserva de emergência = saldo atual / despesa mensal média (meses com despesa realizada).
-  const mesesComDespesa = data.meses.filter((r) => r.despesasRealizadas > 0);
+  // Reserva de emergência = saldo atual / despesa mensal média (meses com despesa
+  // realizada). Recomputado das entries excluindo neutros/espelho — `data.meses`
+  // inclui neutros (fatura), o que inflava a média e distorcia a reserva.
+  const aggReserva = monthlyAggFromEntries(data.entries ?? []);
+  const mesesComDespesa = Array.from(aggReserva.values()).filter((a) => a.despReal > 0);
   const despesaMensalMedia = mesesComDespesa.length > 0
-    ? Math.round(mesesComDespesa.reduce((s, r) => s + r.despesasRealizadas, 0) / mesesComDespesa.length)
+    ? Math.round(mesesComDespesa.reduce((s, a) => s + a.despReal, 0) / mesesComDespesa.length)
     : 0;
   const reservaMeses = despesaMensalMedia > 0 ? saldoAtual / despesaMensalMedia : 0;
 
@@ -520,6 +526,42 @@ export interface TotalsDerived {
 }
 
 /**
+ * Agregado mensal a partir das ENTRIES, excluindo espelho (dedup cross-project) e
+ * neutros (pagamento de fatura / movimentação interna — não são consumo nem renda;
+ * senão a fatura dobra a despesa). Fonte única para os números de resultado do
+ * cockpit (mês/ano), coerente com a Visão Conta e o widget "Quanto gastei".
+ */
+interface MonthAgg {
+  totalRec: number;
+  totalDesp: number;
+  recReal: number;
+  despReal: number;
+}
+function monthlyAggFromEntries(entries: MonthlyEntry[]): Map<string, MonthAgg> {
+  const map = new Map<string, MonthAgg>();
+  for (const e of entries) {
+    if (e.isEspelho) continue;
+    if (entryIsNeutral(e)) continue;
+    const mes = (e.data ?? '').slice(0, 7);
+    if (!mes) continue;
+    let a = map.get(mes);
+    if (!a) {
+      a = { totalRec: 0, totalDesp: 0, recReal: 0, despReal: 0 };
+      map.set(mes, a);
+    }
+    const real = isRealized(e.status);
+    if (e.tipo === 'RECEBIMENTO') {
+      a.totalRec += e.valor;
+      if (real) a.recReal += e.valor;
+    } else {
+      a.totalDesp += e.valor;
+      if (real) a.despReal += e.valor;
+    }
+  }
+  return map;
+}
+
+/**
  * Totais do "agora" e projetado. Por padrão considera só o projeto PESSOAL
  * (espelha o consolidado financeiro do extrato+faturas); passe onlyPessoal=false
  * para incluir os demais projetos.
@@ -535,6 +577,8 @@ export function deriveTotals(
     // projeto-alvo é o canônico. No PESSOAL-only o espelho CONTA (a grana saiu da conta
     // pessoal; o alvo do outro projeto é filtrado pelo projectType acima).
     if (!onlyPessoal && e.isEspelho) continue;
+    // Neutros (fatura / movimentação interna) não são consumo nem renda.
+    if (entryIsNeutral(e)) continue;
     const realizado = e.status === 'PAGO' || e.status === 'EM_CAIXA';
     if (e.tipo === 'RECEBIMENTO') {
       if (realizado) er += e.valor; else ep += e.valor;
@@ -591,17 +635,17 @@ export function deriveCockpitTop(data: MonthlyOverviewResponse): CockpitTopDeriv
   const caixaDelta =
     spark.length >= 2 ? spark[spark.length - 1]! - spark[spark.length - 2]! : 0;
 
-  // Mês corrente e anterior a partir das linhas mensais.
-  const sorted = [...data.meses].sort((a, b) => a.mes.localeCompare(b.mes));
-  const idxAtual = sorted.findIndex((r) => r.mes === data.mesAtual);
-  const rowAtual = idxAtual >= 0 ? sorted[idxAtual] : sorted[sorted.length - 1];
-  const rowAnterior = idxAtual > 0 ? sorted[idxAtual - 1] : undefined;
+  // Mês corrente e anterior a partir das ENTRIES (excluindo neutros/espelho) —
+  // `data.meses` inclui neutros (fatura), o que inflava resultado/gastei/a-pagar.
+  const agg = monthlyAggFromEntries(data.entries ?? []);
+  const aggAtual = agg.get(data.mesAtual);
+  const aggAnterior = agg.get(prevMonthKey(data.mesAtual));
 
-  const resultadoEntrou = rowAtual?.recebimentosRealizados ?? 0;
-  const resultadoGastou = rowAtual?.despesasRealizadas ?? 0;
+  const resultadoEntrou = aggAtual?.recReal ?? 0;
+  const resultadoGastou = aggAtual?.despReal ?? 0;
   const resultadoMes = resultadoEntrou - resultadoGastou;
-  const resultadoAnterior = rowAnterior
-    ? rowAnterior.recebimentosRealizados - rowAnterior.despesasRealizadas
+  const resultadoAnterior = aggAnterior
+    ? aggAnterior.recReal - aggAnterior.despReal
     : null;
   const resultadoDeltaPct =
     resultadoAnterior != null && resultadoAnterior !== 0
@@ -609,8 +653,8 @@ export function deriveCockpitTop(data: MonthlyOverviewResponse): CockpitTopDeriv
       : null;
 
   // A receber / a pagar do mês corrente (ainda não realizados).
-  const aReceberMes = (rowAtual?.totalRecebimentos ?? 0) - resultadoEntrou;
-  const aPagarMes = (rowAtual?.totalDespesas ?? 0) - resultadoGastou;
+  const aReceberMes = (aggAtual?.totalRec ?? 0) - resultadoEntrou;
+  const aPagarMes = (aggAtual?.totalDesp ?? 0) - resultadoGastou;
   const projecaoMes = caixaValor + aReceberMes - aPagarMes;
 
   // Fração do mês decorrida (para a barra de progresso do headline).
