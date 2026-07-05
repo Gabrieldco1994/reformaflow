@@ -203,3 +203,47 @@ follow-up (tornar `deriveCockpitTop` month-aware).
 - **Árvore de gastos do ano** (`ArvoreGastos`): resumo no topo (total · nº origens),
   **Expandir/Recolher tudo** e ordenação (valor/nome).
 - **"Destaques do ano"** removido (`DestaquesAno` excluído).
+
+---
+
+## 9. Projeção fim do mês — eixo de caixa, não competência (jul/2026, `262940a0`)
+
+**Bug:** o card **"Projeção fim do mês"** (CockpitTop) mostrava projeção inflada
+(R$ 71.999 vs R$ 56.652,82 real da Visão Conta). O "a pagar" divergia:
+cockpit R$ 22.249 × Visão Conta `faltaPagarMes` R$ 37.595,70.
+
+**Causa raiz:** `deriveCockpitTop` calculava "a pagar" por **competência** sobre
+as `entries` (que vêm de `cashFlowEntry`). Isso:
+
+1. **Ignora despesas planejadas sem `cashFlowEntry`** — planejados futuros (ex.:
+   materiais da REFORMA pagos pela conta pessoal) só existem como `Expense`; a
+   Visão Conta os enxerga via `buildInstallments`, o cockpit não. Em jul/2026 isso
+   somava **R$ 17.419,61** invisíveis ao cockpit.
+2. **Conta compras do mês no cartão** (que só saem numa fatura futura) em vez da
+   **fatura vencendo no mês**.
+
+A "a receber" batia (R$ 25.232) — só a "a pagar"/projeção estavam erradas.
+
+**Correção:** a projeção "fim do mês" é conceito de **caixa** (§10). A fonte de
+verdade já existe e está correta: **`getAccountView`** (a mesma da Visão Conta).
+
+- **Backend** (`getOverview`): passa a expor `projecao` do mês corrente —
+  `{ caixaHoje, faltaPagarMes, recebimentosPrevistosMes, sobraPrevista }` — obtido
+  de `getAccountView(tenant, pessoal, currentKey)`. Envolto em `try/catch`
+  (aditivo/resiliente: se falhar, `projecao` fica `undefined`).
+- **Frontend** (`deriveCockpitTop`): `aPagarMes`/`aReceberMes`/`projecaoMes` usam
+  `data.projecao` quando presente; **fallback** para o cálculo antigo por
+  competência quando ausente (payload antigo). Cobertura: `derive.projecao.test.ts`.
+- **Igual nos dois eixos** (Gastei/Vai sair): projeção é caixa, não muda com o
+  toggle. `buildCaixaData` preserva `data.projecao` via spread.
+
+**`computeCaixaConta` (Caixa hoje) e "Resultado realizado" NÃO foram tocados.**
+
+**Validado em produção (2026-07):** `a pagar` R$ 37.595,70 · `a receber`
+R$ 25.232,00 · `projeção` R$ 56.652,82 — idênticos à Visão Conta.
+
+> ⚠️ **Consequência (a resolver):** os KPIs de saída do dashboard (Total de
+> saídas / Já saiu / Ainda vai sair) ainda são **competência** (via
+> `buildExtratoDespesas`/`deriveMonth`) e sofrem a MESMA subcontagem do "a pagar"
+> — o "planejado" ignora despesas sem `cashFlowEntry`. Alinhar com a projeção
+> (caixa/`getAccountView`) é o follow-up natural desta correção.

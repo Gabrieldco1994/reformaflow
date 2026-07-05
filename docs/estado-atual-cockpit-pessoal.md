@@ -23,8 +23,7 @@ Também há evoluções posteriores da Visão Conta no `main` (filtros, gráfico
   "Caixa hoje" da Visão Conta NÃO muda. Ver `docs/visao-conta-faturas.md §10`.
 - `52366139` — **Unificação de KPIs + UX (mês/ano) + Visão Conta "Todos".**
   - **Dashboard do mês:** faixa `MovimentoMes` (Entrou · Saiu · Total de saídas +
-    ticket) substitui o antigo `MonthKpis` duplicado. Os 4 KPIs do extrato eram
-    redundantes com Resultado/Projeção (ver `docs/cockpit-caixa-real.md §8`).
+    ticket) substitui o antigo `MonthKpis` duplicado (ver `docs/cockpit-caixa-real.md §8`).
   - **Extrato de saídas:** vira só a lista, com toggle **Mês/Ano** e filtros de
     **tipo de despesa** e **mês**.
   - **Categorias do ano:** toggle **Realizado / Realizado+planejado** + clique na
@@ -34,6 +33,12 @@ Também há evoluções posteriores da Visão Conta no `main` (filtros, gráfico
   - **Visão Conta (ano):** opção **Todos** lista todas as despesas de todas as
     origens com filtros de tipo e mês (`origin-items-yearly?kind=all`, mesmas
     regras de neutro/mês por origem; total bate com o `totalAno` do gráfico).
+- `262940a0` — **Projeção fim do mês usa caixa (§10), não competência.** O card
+  "Projeção" mostrava R$ 72 mil (inflado) porque calculava "a pagar" por competência
+  sobre as entries — que ignoram planejados sem `cashFlowEntry` (R$ 17.4k em jul).
+  Agora vem de `getAccountView` (mesma fonte da Visão Conta): projeção R$ 56.652,82.
+  Ver `docs/cockpit-caixa-real.md §9`. ⚠️ Os KPIs de saída do dashboard ainda são
+  competência (mesma subcontagem) — alinhamento é o follow-up.
 
 ### Incremento recente (DRE pessoal)
 

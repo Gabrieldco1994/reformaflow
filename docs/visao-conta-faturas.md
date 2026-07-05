@@ -214,6 +214,7 @@ Acesso: Fly `reformaflow-api` (máquina auto-suspende; `flyctl machine start <id
 | `01affbcb` | Cartão paga cartão quita a fatura paga (`settlesInvoiceKey` + `computePaidInvoiceKeys`) |
 | `59a10d90` | **INVESTIMENTOS como neutro-de-consumo** (aporte fora do gasto, resgate fora da renda, caixa inalterado) — ver §10 |
 | `52366139` | Visão Conta ano ganha opção **Todos** (`origin-items-yearly?kind=all`) com filtros de tipo e mês |
+| `262940a0` | Cockpit: **projeção fim do mês** usa caixa (§10) via `getAccountView`, não competência — casa com a Visão Conta (a pagar R$ 37.595,70 / projeção R$ 56.652,82) |
 
 **Correções de dados em prod (com backup, validadas live):**
 - 5572: removido lançamento fantasma 162,36; criadas 6 séries; Acqualeste linkado à planejada.
