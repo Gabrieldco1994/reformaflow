@@ -69,6 +69,7 @@ export function mediaMensalPorTipo(
 export function categoriasDoAno(
   entries: MonthlyEntry[],
   year: number,
+  statusMode: 'real' | 'realPlus' = 'realPlus',
 ): Array<{ categoria: string; valor: number; media: number }> {
   const totalPorTipo = new Map<string, number>();
   for (const e of entries) {
@@ -76,6 +77,7 @@ export function categoriasDoAno(
     if ((e.data ?? '').slice(0, 4) !== String(year)) continue;
     if (e.isEspelho) continue;
     if (entryIsConsumptionNeutral(e)) continue;
+    if (statusMode === 'real' && !isRealized(e.status)) continue;
     const tipo = e.categoria?.trim() || 'Outros';
     totalPorTipo.set(tipo, (totalPorTipo.get(tipo) ?? 0) + e.valor);
   }
@@ -84,6 +86,28 @@ export function categoriasDoAno(
     .map(([categoria, valor]) => ({ categoria, valor, media: media.get(categoria) ?? 0 }))
     .filter((c) => c.valor > 0)
     .sort((a, b) => b.valor - a.valor);
+}
+
+/**
+ * Despesas de UMA categoria (tipo de despesa) no ano, para o pop-up do gráfico
+ * "Categorias do ano". Mesma base das barras: só DESPESA, espelho deduplicado,
+ * neutro-de-consumo fora. `statusMode==='real'` traz só as pagas (casa com o
+ * valor da barra no modo Realizado); 'realPlus' traz pagas + planejadas.
+ */
+export function despesasDaCategoriaAno(
+  entries: MonthlyEntry[],
+  year: number,
+  categoria: string,
+  statusMode: 'real' | 'realPlus' = 'realPlus',
+): MonthlyEntry[] {
+  return entries
+    .filter((e) => e.tipo === 'DESPESA')
+    .filter((e) => (e.data ?? '').slice(0, 4) === String(year))
+    .filter((e) => !e.isEspelho)
+    .filter((e) => !entryIsConsumptionNeutral(e))
+    .filter((e) => (e.categoria?.trim() || 'Outros') === categoria)
+    .filter((e) => (statusMode === 'real' ? isRealized(e.status) : true))
+    .sort((a, b) => (a.data ?? '').localeCompare(b.data ?? ''));
 }
 
 /**
@@ -194,6 +218,8 @@ export interface MonthDerived {
   gasteiPlanejado: number;
   entrouRealizado: number;
   entrouPrevisto: number;
+  /** Nº de lançamentos de saída contados (exclui neutro-de-consumo/espelho). */
+  qtdSaidas: number;
 
   /** Ritmo diário de gasto variável calculado dos dados (centavos/dia). */
   ritmoDiario: number;
@@ -257,6 +283,7 @@ export function deriveMonth(
   let entrouRealizado = 0;
   let entrouPrevisto = 0;
   let variavelRealizadoAteHoje = 0;
+  let qtdSaidas = 0;
 
   const agendadosPorDia = new Map<number, number>();
   const contasFuturas: ContaFutura[] = [];
@@ -277,6 +304,7 @@ export function deriveMonth(
     if (e.tipo === 'DESPESA') {
       const tipo = e.categoria?.trim() || 'Outros';
       categoriaAcc.set(tipo, (categoriaAcc.get(tipo) ?? 0) + e.valor);
+      qtdSaidas += 1;
       if (realized) {
         gasteiRealizado += e.valor;
         if (!FORMA_FIXA.has(e.formaPagamento ?? '') && dia <= hoje) {
@@ -362,7 +390,7 @@ export function deriveMonth(
 
   return {
     mesAtualKey, year, month0, hoje, diasNoMes, diasRestantes,
-    saldoInicial, saldoAtual, caixaReal, gasteiRealizado, gasteiPlanejado, entrouRealizado, entrouPrevisto,
+    saldoInicial, saldoAtual, caixaReal, gasteiRealizado, gasteiPlanejado, entrouRealizado, entrouPrevisto, qtdSaidas,
     ritmoDiario, agendadosPorDia, contasFuturas,
     categorias, maiorGastoVariavel,
     reservaMeses, reservaMeta: 6, despesaMensalMedia,

@@ -1543,6 +1543,10 @@ export class MonthlyOverviewService {
    * Despesas relacionadas a UMA origem (cartão ou conta corrente) ao longo de um
    * ano — usado para listar abaixo do gráfico quando o usuário filtra por origem.
    * Aplica a MESMA regra de neutros/mês do getCardInvoicesYearly.
+   *
+   * Quando `kind === 'all'`, agrega TODAS as origens (cartões + contas) no ano,
+   * anexando o rótulo de origem (`origem`) em cada item — usado pela opção
+   * "Todos" da Visão Conta (com filtros de tipo de despesa e mês no frontend).
    */
   async getOriginItemsYearly(
     tenantId: string,
@@ -1552,6 +1556,9 @@ export class MonthlyOverviewService {
     await this.ensurePessoalProject(tenantId, projectId);
 
     const targetYear = normalizeYear(params.year);
+    if (params.kind === 'all') {
+      return this.getAllOriginItemsYearly(tenantId, projectId, targetYear);
+    }
     const kind = params.kind === 'conta' ? 'conta' : 'card';
     const last4 = (params.last4 ?? '').trim();
     if (!last4) throw new BadRequestException('Parâmetro last4 é obrigatório.');
@@ -1644,6 +1651,125 @@ export class MonthlyOverviewService {
     const total = items.reduce((sum, item) => sum + item.valor, 0);
 
     return { year: targetYear, kind, last4, items, total };
+  }
+
+  /**
+   * Variante "Todos" do getOriginItemsYearly: agrega TODAS as origens (cartões +
+   * contas) do ano num único conjunto de itens, cada um com seu rótulo de origem.
+   * Mantém EXATAMENTE as mesmas regras de neutro/mês por tipo de origem:
+   *  - cartão: pula settlement liquidado na conta (isNeutralExpenseType && bankLast4);
+   *    mês = vencimento da fatura (caixaMonthForCardPurchase);
+   *  - conta: pula neutro-de-consumo (settlement + aporte); mês = competência do débito.
+   */
+  private async getAllOriginItemsYearly(
+    tenantId: string,
+    projectId: string,
+    targetYear: number,
+  ) {
+    const [cards, accounts, entries] = await Promise.all([
+      this.prisma.creditCard.findMany({
+        where: { tenantId, projectId, deletedAt: null },
+        select: { nickname: true, last4: true, closingDay: true, dueDay: true },
+      }),
+      this.prisma.bankAccount.findMany({
+        where: { tenantId, projectId, deletedAt: null },
+        select: { nickname: true, institution: true, last4: true },
+      }),
+      this.prisma.cashFlowEntry.findMany({
+        where: {
+          tenantId,
+          projectId,
+          deletedAt: null,
+          tipo: 'DESPESA',
+          expense: { deletedAt: null },
+        },
+        select: {
+          valor: true,
+          data: true,
+          status: true,
+          expense: {
+            select: {
+              tipoDespesa: true,
+              titulo: true,
+              fornecedor: true,
+              cardLast4: true,
+              bankLast4: true,
+              linkedExpenseId: true,
+              project: { select: { id: true, name: true, type: true } },
+            },
+          },
+        },
+        orderBy: [{ data: 'desc' }],
+      }),
+    ]);
+
+    const cardByLast4 = new Map(cards.map((c) => [c.last4, c] as const));
+    const accountNamesByLast4 = new Map<string, Set<string>>();
+    for (const account of accounts) {
+      if (!account.last4) continue;
+      const label = account.nickname?.trim() || account.institution?.trim();
+      const set = accountNamesByLast4.get(account.last4) ?? new Set<string>();
+      if (label) set.add(label);
+      accountNamesByLast4.set(account.last4, set);
+    }
+
+    const items: Array<{
+      mes: string;
+      data: string;
+      descricao: string;
+      valor: number;
+      tipoDespesa: string;
+      status: string;
+      projetoOrigem: { id: string; name: string; type: string } | null;
+      origem: { kind: 'card' | 'conta'; last4: string; nickname: string };
+    }> = [];
+
+    for (const entry of entries) {
+      const cardLast4 = entry.expense?.cardLast4;
+      const bankLast4 = entry.expense?.bankLast4;
+      const tipo = entry.expense?.tipoDespesa ?? 'OUTROS';
+
+      let mes: string;
+      let origem: { kind: 'card' | 'conta'; last4: string; nickname: string };
+      if (cardLast4) {
+        if (isNeutralExpenseType(tipo) && bankLast4) continue;
+        const card = cardByLast4.get(cardLast4) ?? null;
+        mes = caixaMonthForCardPurchase(entry.data, card?.closingDay ?? null, card?.dueDay ?? null);
+        origem = { kind: 'card', last4: cardLast4, nickname: card?.nickname?.trim() || `Cartão ${cardLast4}` };
+      } else if (bankLast4) {
+        if (isConsumptionNeutralExpenseType(tipo)) continue;
+        mes = monthKeyOf(entry.data);
+        origem = {
+          kind: 'conta',
+          last4: bankLast4,
+          nickname: Array.from(accountNamesByLast4.get(bankLast4) ?? []).join(' / ') || `Conta ${bankLast4}`,
+        };
+      } else {
+        continue;
+      }
+      if (!mes.startsWith(`${targetYear}-`)) continue;
+
+      const linkedExpenseId = entry.expense?.linkedExpenseId ?? null;
+      const linkedProject = entry.expense?.project ?? null;
+      const projetoOrigem =
+        linkedExpenseId && linkedProject
+          ? { id: linkedProject.id, name: linkedProject.name, type: linkedProject.type }
+          : null;
+
+      items.push({
+        mes,
+        data: entry.data.toISOString(),
+        descricao: expenseDisplayName(tipo, entry.expense?.titulo ?? null, entry.expense?.fornecedor ?? null),
+        valor: entry.valor,
+        tipoDespesa: tipo,
+        status: entry.status,
+        projetoOrigem,
+        origem,
+      });
+    }
+
+    const total = items.reduce((sum, item) => sum + item.valor, 0);
+    return { year: targetYear, kind: 'all' as const, last4: '', items, total };
   }
 
   /**

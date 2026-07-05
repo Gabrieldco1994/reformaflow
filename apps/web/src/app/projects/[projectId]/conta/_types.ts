@@ -110,11 +110,13 @@ export interface OriginYearlyItem {
   tipoDespesa: string;
   status: string;
   projetoOrigem: { id: string; name: string; type: string } | null;
+  /** Presente só na variante "Todos" (kind='all'): origem do lançamento. */
+  origem?: { kind: 'card' | 'conta'; last4: string; nickname: string };
 }
 
 export interface OriginItemsYearlyResponse {
   year: number;
-  kind: 'card' | 'conta';
+  kind: 'card' | 'conta' | 'all';
   last4: string;
   items: OriginYearlyItem[];
   total: number;

@@ -96,6 +96,7 @@ export default function ArvoreGastos({
   // Origens começam RECOLHIDAS (só cartões/contas); clique expande os tipos.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [statusMode, setStatusMode] = useState<SpendTreeStatusMode>('real');
+  const [sortBy, setSortBy] = useState<'valor' | 'nome'>('valor');
   const tree = useMemo(
     () =>
       spendTree(entries, {
@@ -105,6 +106,23 @@ export default function ArvoreGastos({
       }),
     [entries, eixo, projectId, statusMode],
   );
+
+  const origins = useMemo(() => {
+    const list = [...tree.origins];
+    if (sortBy === 'nome') list.sort((a, b) => nameOf(a).localeCompare(nameOf(b), 'pt-BR'));
+    else list.sort((a, b) => b.total - a.total);
+    return list;
+  }, [tree.origins, sortBy, nameOf]);
+
+  const resumo = useMemo(() => {
+    const cartoes = tree.origins.filter((o) => o.kind === 'card').length;
+    const contas = tree.origins.filter((o) => o.kind === 'account').length;
+    return { cartoes, contas };
+  }, [tree.origins]);
+
+  const allKeys = useMemo(() => tree.origins.map((o) => `${o.kind}:${o.last4}`), [tree.origins]);
+  const allOpen = allKeys.length > 0 && allKeys.every((k) => expanded.has(k));
+
   const toggle = (key: string) =>
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -153,97 +171,125 @@ export default function ArvoreGastos({
       ) : tree.origins.length === 0 ? (
         <p className="text-xs text-[var(--ck-muted)]">Sem gastos por origem neste período.</p>
       ) : (
-        <div className="overflow-x-auto pb-1">
-          <div className="flex items-stretch min-w-[560px]">
-            {/* Raiz: Pessoal */}
-            <div className="flex items-center shrink-0">
-              <div className="w-28 rounded-xl bg-[var(--ck-accent)] px-3 py-2.5 text-white shadow-lifeone-card">
-                <p className="text-[10px] uppercase tracking-wider text-white/70">Pessoal</p>
-                <p className="font-geist tabular-nums text-sm font-bold leading-tight">
-                  {fmtMoney(tree.total)}
-                </p>
+        <>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--ck-border)] pb-3">
+            <span className="text-[11px] text-[var(--ck-muted)]">
+              <span className="font-geist tabular-nums font-semibold text-[var(--ck-text)]">{fmtMoney(tree.total)}</span>
+              {' · '}{tree.origins.length} orig{tree.origins.length === 1 ? 'em' : 'ens'}
+              {resumo.cartoes > 0 && ` · ${resumo.cartoes} cartã${resumo.cartoes === 1 ? 'o' : 'es'}`}
+              {resumo.contas > 0 && ` · ${resumo.contas} cont${resumo.contas === 1 ? 'a' : 'as'}`}
+            </span>
+            <span className="flex items-center gap-2">
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as 'valor' | 'nome')}
+                className="bg-[var(--ck-surface-2)] border border-[var(--ck-border)] text-[var(--ck-text)] text-[10px] rounded-lg px-1.5 py-1 outline-none"
+                aria-label="Ordenar origens"
+              >
+                <option value="valor">Maior valor</option>
+                <option value="nome">Nome</option>
+              </select>
+              <button
+                type="button"
+                onClick={() => setExpanded(allOpen ? new Set() : new Set(allKeys))}
+                className="rounded-lg border border-[var(--ck-border)] bg-[var(--ck-surface-2)] px-2 py-1 text-[10px] font-medium text-[var(--ck-muted)] hover:text-[var(--ck-text)] transition-colors"
+              >
+                {allOpen ? 'Recolher tudo' : 'Expandir tudo'}
+              </button>
+            </span>
+          </div>
+          <div className="overflow-x-auto pb-1">
+            <div className="flex items-stretch min-w-[560px]">
+              {/* Raiz: Pessoal */}
+              <div className="flex items-center shrink-0">
+                <div className="w-28 rounded-xl bg-[var(--ck-accent)] px-3 py-2.5 text-white shadow-lifeone-card">
+                  <p className="text-[10px] uppercase tracking-wider text-white/70">Pessoal</p>
+                  <p className="font-geist tabular-nums text-sm font-bold leading-tight">
+                    {fmtMoney(tree.total)}
+                  </p>
+                </div>
+                <span className="w-5 h-px bg-[var(--ck-border)]" aria-hidden />
               </div>
-              <span className="w-5 h-px bg-[var(--ck-border)]" aria-hidden />
-            </div>
 
-            {/* Origens */}
-            <div className="flex-1">
-              {tree.origins.map((o, oi) => {
-                const key = `${o.kind}:${o.last4}`;
-                const isOpen = expanded.has(key);
-                return (
-                  <div key={key} className="flex items-stretch py-1.5">
-                    <Connector pos={posOf(oi, tree.origins.length)} overhang={6} />
+              {/* Origens */}
+              <div className="flex-1">
+                {origins.map((o, oi) => {
+                  const key = `${o.kind}:${o.last4}`;
+                  const isOpen = expanded.has(key);
+                  return (
+                    <div key={key} className="flex items-stretch py-1.5">
+                      <Connector pos={posOf(oi, origins.length)} overhang={6} />
 
-                    {/* Caixa da origem (clicável) */}
-                    <div className="flex items-center shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => toggle(key)}
-                        aria-expanded={isOpen}
-                        className="w-48 rounded-xl border border-[var(--ck-border)] bg-[var(--ck-surface)] px-3 py-2 text-left shadow-lifeone-card hover:border-[var(--ck-accent)]/50 transition-colors"
-                      >
-                        <span className="flex items-center gap-1.5">
-                          {isOpen ? (
-                            <ChevronDown className="w-3.5 h-3.5 text-[var(--ck-muted)] shrink-0" />
-                          ) : (
-                            <ChevronRight className="w-3.5 h-3.5 text-[var(--ck-muted)] shrink-0" />
-                          )}
-                          {o.kind === 'card' ? (
-                            <CreditCard className="w-3.5 h-3.5 text-[var(--ck-accent)] shrink-0" />
-                          ) : (
-                            <Landmark className="w-3.5 h-3.5 text-[var(--ck-accent)] shrink-0" />
-                          )}
-                          <span className="min-w-0 truncate text-xs font-semibold text-[var(--ck-text)]">
-                            {nameOf(o)}
-                          </span>
-                        </span>
-                        <span className="mt-0.5 flex items-baseline justify-between gap-2 pl-5">
-                          <span className="text-[10px] text-[var(--ck-muted)]">
-                            ••{o.last4} · {pct(o.total, tree.total)}%
-                            {!isOpen && o.tipos.length > 0 && (
-                              <span className="ml-1 text-[var(--ck-accent)]">· {o.tipos.length} tipos</span>
+                      {/* Caixa da origem (clicável) */}
+                      <div className="flex items-center shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => toggle(key)}
+                          aria-expanded={isOpen}
+                          className="w-48 rounded-xl border border-[var(--ck-border)] bg-[var(--ck-surface)] px-3 py-2 text-left shadow-lifeone-card hover:border-[var(--ck-accent)]/50 transition-colors"
+                        >
+                          <span className="flex items-center gap-1.5">
+                            {isOpen ? (
+                              <ChevronDown className="w-3.5 h-3.5 text-[var(--ck-muted)] shrink-0" />
+                            ) : (
+                              <ChevronRight className="w-3.5 h-3.5 text-[var(--ck-muted)] shrink-0" />
                             )}
+                            {o.kind === 'card' ? (
+                              <CreditCard className="w-3.5 h-3.5 text-[var(--ck-accent)] shrink-0" />
+                            ) : (
+                              <Landmark className="w-3.5 h-3.5 text-[var(--ck-accent)] shrink-0" />
+                            )}
+                            <span className="min-w-0 truncate text-xs font-semibold text-[var(--ck-text)]">
+                              {nameOf(o)}
+                            </span>
                           </span>
-                          <span className="font-geist tabular-nums text-xs font-bold text-[var(--ck-neg)]">
-                            {fmtMoney(o.total)}
+                          <span className="mt-0.5 flex items-baseline justify-between gap-2 pl-5">
+                            <span className="text-[10px] text-[var(--ck-muted)]">
+                              ••{o.last4} · {pct(o.total, tree.total)}%
+                              {!isOpen && o.tipos.length > 0 && (
+                                <span className="ml-1 text-[var(--ck-accent)]">· {o.tipos.length} tipos</span>
+                              )}
+                            </span>
+                            <span className="font-geist tabular-nums text-xs font-bold text-[var(--ck-neg)]">
+                              {fmtMoney(o.total)}
+                            </span>
                           </span>
-                        </span>
-                      </button>
-                      {isOpen && <span className="w-4 h-px bg-[var(--ck-border)]" aria-hidden />}
-                    </div>
+                        </button>
+                        {isOpen && <span className="w-4 h-px bg-[var(--ck-border)]" aria-hidden />}
+                      </div>
 
-                    {/* Tipos de despesa da origem */}
-                    {isOpen && (
-                      <div className="flex-1 min-w-0 py-0.5">
-                        {o.tipos.map((t, ti) => (
-                          <div key={t.tipo} className="flex items-stretch py-1">
-                            <Connector pos={posOf(ti, o.tipos.length)} overhang={4} />
-                            <div className="flex-1 min-w-0 rounded-lg border border-[var(--ck-border)] bg-[var(--ck-surface-2)] px-2.5 py-1.5">
-                              <div className="flex items-baseline justify-between gap-2">
-                                <span className="flex min-w-0 items-center gap-1.5 text-xs text-[var(--ck-text)]">
-                                  <span
-                                    className="inline-block w-2 h-2 rounded-sm shrink-0"
-                                    style={{ background: colorForCategoria(t.tipo, ti) }}
-                                  />
-                                  <span className="truncate">{t.tipo}</span>
-                                </span>
-                                <span className="shrink-0 font-geist tabular-nums text-xs text-[var(--ck-muted)]">
-                                  {fmtMoney(t.valor)}
-                                  <span className="ml-1 text-[10px]">({pct(t.valor, o.total)}%)</span>
-                                </span>
+                      {/* Tipos de despesa da origem */}
+                      {isOpen && (
+                        <div className="flex-1 min-w-0 py-0.5">
+                          {o.tipos.map((t, ti) => (
+                            <div key={t.tipo} className="flex items-stretch py-1">
+                              <Connector pos={posOf(ti, o.tipos.length)} overhang={4} />
+                              <div className="flex-1 min-w-0 rounded-lg border border-[var(--ck-border)] bg-[var(--ck-surface-2)] px-2.5 py-1.5">
+                                <div className="flex items-baseline justify-between gap-2">
+                                  <span className="flex min-w-0 items-center gap-1.5 text-xs text-[var(--ck-text)]">
+                                    <span
+                                      className="inline-block w-2 h-2 rounded-sm shrink-0"
+                                      style={{ background: colorForCategoria(t.tipo, ti) }}
+                                    />
+                                    <span className="truncate">{t.tipo}</span>
+                                  </span>
+                                  <span className="shrink-0 font-geist tabular-nums text-xs text-[var(--ck-muted)]">
+                                    {fmtMoney(t.valor)}
+                                    <span className="ml-1 text-[10px]">({pct(t.valor, o.total)}%)</span>
+                                  </span>
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
-        </div>
+        </>
       )}
     </Card>
   );

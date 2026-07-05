@@ -12,7 +12,7 @@ import { COCKPIT_THEME } from './_cockpit/ui';
 import { anosDisponiveis, buildCaixaData } from './_cockpit/derive';
 import CockpitTop from './_cockpit/CockpitTop';
 import MonthView from './_cockpit/MonthView';
-import MonthKpis from './_cockpit/MonthKpis';
+import MovimentoMes from './_cockpit/MovimentoMes';
 import ExtratoGeral from './_cockpit/ExtratoGeral';
 import YearView from './_cockpit/YearView';
 import EixoToggle, { type Eixo } from './_cockpit/EixoToggle';
@@ -178,7 +178,7 @@ export default function CockpitPage() {
 
       {viewData && !isLoading && view === 'mes' && eixo !== 'geral' && (
         <>
-          <MonthKpis data={viewData} monthKey={monthKey} entries={monthEntries} />
+          <MovimentoMes data={viewData} monthKey={monthKey} entries={monthEntries} />
           <SaldosWidget projectId={projectId} entries={monthEntries ?? []} eixo={eixo} />
         </>
       )}
@@ -203,7 +203,7 @@ export default function CockpitPage() {
       {viewData && !isLoading && (
         view === 'mes'
           ? eixo === 'geral'
-            ? <ExtratoGeral key={`geral-${monthKey}`} entries={monthEntries ?? []} mesIndex0={month0} />
+            ? <ExtratoGeral key={`geral-${monthKey}`} entries={viewData.entries ?? []} monthKey={monthKey} year={monthYear} />
             : <MonthView key={`${eixo}-${monthKey}`} data={viewData} monthKey={monthKey} entries={monthEntries} projectId={projectId} eixo={eixo} />
           : <YearView data={viewData} year={year} projectId={projectId} eixo={eixo} />
       )}

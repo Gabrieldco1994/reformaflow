@@ -1,14 +1,14 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { ArrowUpCircle, ArrowDownCircle, Scale, Receipt } from 'lucide-react';
 import type { MonthlyOverviewResponse, MonthlyEntry } from '../_types';
 import { KpiCard, Card } from './ui';
 import { fmtMoney } from './format';
 import { deriveYear, colorForCategoria, categoriasDoAno, gastoMedioMensal, type CategoriaBarra } from './derive';
-import DestaquesAno from './DestaquesAno';
 import CategoriasBarras from './CategoriasBarras';
+import CategoriaDespesasModal from './CategoriaDespesasModal';
 import ArvoreGastos from './ArvoreGastos';
 import type { Eixo } from './EixoToggle';
 
@@ -36,6 +36,9 @@ export default function YearView({
 }) {
   const y = useMemo(() => deriveYear(data, year), [data, year]);
 
+  const [catStatusMode, setCatStatusMode] = useState<'real' | 'realPlus'>('realPlus');
+  const [catAberta, setCatAberta] = useState<string | null>(null);
+
   const yearEntries = useMemo(
     () => (entries ?? data.entries ?? []).filter((e) => (e.data ?? '').slice(0, 4) === String(year)),
     [entries, data.entries, year],
@@ -44,7 +47,7 @@ export default function YearView({
   const categoriasAno = useMemo<CategoriaBarra[]>(() => {
     // TODAS as categorias com valor no ano (o backend truncava top-6/mês; aqui
     // agrega das entries sem truncar). Seção larga com colunas comporta a lista.
-    const full = categoriasDoAno(yearEntries, year);
+    const full = categoriasDoAno(yearEntries, year, catStatusMode);
     const max = full.reduce((mx, c) => Math.max(mx, c.valor), 0);
     return full.map((c, i) => ({
       categoria: c.categoria,
@@ -53,7 +56,7 @@ export default function YearView({
       pct: max > 0 ? c.valor / max : 0,
       media: c.media,
     }));
-  }, [yearEntries, year]);
+  }, [yearEntries, year, catStatusMode]);
 
   const gastoMensal = useMemo(() => gastoMedioMensal(yearEntries, year), [yearEntries, year]);
 
@@ -104,6 +107,28 @@ export default function YearView({
         title="Categorias do ano"
         hint={`${year} · ${categoriasAno.length} ${categoriasAno.length === 1 ? 'categoria' : 'categorias'} · ~média mensal (pagas)`}
         columns={3}
+        headerExtra={
+          <span className="inline-flex items-center rounded-lg border border-[var(--ck-border)] bg-[var(--ck-surface-2)] p-0.5">
+            {([
+              ['real', 'Realizado'],
+              ['realPlus', 'Realizado + planejado'],
+            ] as ['real' | 'realPlus', string][]).map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setCatStatusMode(mode)}
+                className={`rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                  catStatusMode === mode
+                    ? 'bg-[var(--ck-accent)] text-white'
+                    : 'text-[var(--ck-muted)] hover:text-[var(--ck-text)]'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </span>
+        }
+        onCategoryClick={setCatAberta}
       />
 
       {projectId && (
@@ -116,7 +141,13 @@ export default function YearView({
         />
       )}
 
-      <DestaquesAno y={y} />
+      <CategoriaDespesasModal
+        categoria={catAberta}
+        entries={yearEntries}
+        year={year}
+        statusMode={catStatusMode}
+        onClose={() => setCatAberta(null)}
+      />
     </div>
   );
 }

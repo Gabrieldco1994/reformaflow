@@ -17,6 +17,7 @@ import { PagarFaturaDialog } from './_components/PagarFaturaDialog';
 import { TicketMedioSection } from './_components/TicketMedioSection';
 import { FaturasAnuaisChart } from './_components/FaturasAnuaisChart';
 import { DespesasRelacionadas } from './_components/DespesasRelacionadas';
+import { TodasDespesasAno } from './_components/TodasDespesasAno';
 import { NovaDespesaWizard } from '../expenses/_components/NovaDespesaWizard';
 import { getExpenseOptions } from '../expenses/_types';
 import { ReceitaModal } from './_components/ReceitaModal';
@@ -116,6 +117,14 @@ export default function ContaPage() {
     enabled: !!projectId && viewMode === 'ano' && !!selectedOrigin,
   });
 
+  // "Todos" (nenhuma origem selecionada): todas as despesas do ano, todas as origens.
+  const { data: allItems, isLoading: allItemsLoading } = useQuery<OriginItemsYearlyResponse>({
+    queryKey: ['origin-items-yearly', projectId, selectedYear, 'all'],
+    queryFn: () =>
+      api.get(`/projects/${projectId}/monthly-overview/origin-items-yearly?year=${selectedYear}&kind=all`),
+    enabled: !!projectId && viewMode === 'ano' && !selectedOriginKey,
+  });
+
   if (projectType && projectType !== 'PESSOAL') {
     return (
       <div className="rounded-2xl border border-lifeone-hairline bg-lifeone-card p-6 text-center text-sm text-lifeone-ink-2 shadow-lifeone-card">
@@ -207,13 +216,15 @@ export default function ContaPage() {
                 selectedMonth={selectedYearMonth}
                 onSelectMonth={setSelectedYearMonth}
               />
-              {selectedOrigin && (
+              {selectedOrigin ? (
                 <DespesasRelacionadas
                   origin={selectedOrigin}
                   data={originItems}
                   isLoading={originItemsLoading}
                   selectedMonth={selectedYearMonth}
                 />
+              ) : (
+                <TodasDespesasAno data={allItems} isLoading={allItemsLoading} year={selectedYear} />
               )}
             </>
           )}
