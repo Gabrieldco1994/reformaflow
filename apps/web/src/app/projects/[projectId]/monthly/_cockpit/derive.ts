@@ -56,6 +56,36 @@ export function mediaMensalPorTipo(
   return media;
 }
 
+/**
+ * Categorias de gasto do ano, COMPLETAS (sem a truncagem top-N por mês que o
+ * backend aplica em `porCategoria`). Agrega direto das entries do ano:
+ *  - só DESPESA; consolidado (espelho deduplicado); neutros fora (pagamento de
+ *    fatura / movimentação interna não são consumo) — mesma base da média;
+ *  - `valor` = total do tipo no ano (realizado + planejado, como o card sempre
+ *    mostrou); `media` = média mensal só das pagas (via `mediaMensalPorTipo`).
+ * Retorna a lista COMPLETA ordenada por valor desc — o consumidor decide quantas
+ * exibir e como agregar a cauda.
+ */
+export function categoriasDoAno(
+  entries: MonthlyEntry[],
+  year: number,
+): Array<{ categoria: string; valor: number; media: number }> {
+  const totalPorTipo = new Map<string, number>();
+  for (const e of entries) {
+    if (e.tipo !== 'DESPESA') continue;
+    if ((e.data ?? '').slice(0, 4) !== String(year)) continue;
+    if (e.isEspelho) continue;
+    if (entryIsNeutral(e)) continue;
+    const tipo = e.categoria?.trim() || 'Outros';
+    totalPorTipo.set(tipo, (totalPorTipo.get(tipo) ?? 0) + e.valor);
+  }
+  const media = mediaMensalPorTipo(entries, year);
+  return Array.from(totalPorTipo.entries())
+    .map(([categoria, valor]) => ({ categoria, valor, media: media.get(categoria) ?? 0 }))
+    .filter((c) => c.valor > 0)
+    .sort((a, b) => b.valor - a.valor);
+}
+
 
 function dayOfMonth(data: string): number {
   // data é ISO ("2026-06-05T00:00:00.000Z"); pega o dia em UTC sem deslocar timezone.

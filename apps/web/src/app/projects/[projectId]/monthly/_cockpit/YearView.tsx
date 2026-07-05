@@ -6,7 +6,7 @@ import { ArrowUpCircle, ArrowDownCircle, Scale, PiggyBank } from 'lucide-react';
 import type { MonthlyOverviewResponse, MonthlyEntry } from '../_types';
 import { KpiCard, Card } from './ui';
 import { fmtMoney, fmtPct } from './format';
-import { deriveYear, colorForCategoria, mediaMensalPorTipo, type CategoriaBarra } from './derive';
+import { deriveYear, colorForCategoria, categoriasDoAno, type CategoriaBarra } from './derive';
 import DestaquesAno from './DestaquesAno';
 import CategoriasBarras from './CategoriasBarras';
 import ArvoreGastos from './ArvoreGastos';
@@ -42,26 +42,29 @@ export default function YearView({
   );
 
   const categoriasAno = useMemo<CategoriaBarra[]>(() => {
-    const media = mediaMensalPorTipo(yearEntries, year);
-    const acc = new Map<string, number>();
-    for (const r of data.meses) {
-      if (!r.mes.startsWith(`${year}-`)) continue;
-      for (const c of r.porCategoria) acc.set(c.categoria, (acc.get(c.categoria) ?? 0) + c.valor);
+    const full = categoriasDoAno(yearEntries, year);
+    // Mostra as principais e agrega a cauda em "Outras categorias" — assim nada
+    // some (o backend truncava o top-6 POR MÊS, escondendo tipos no ano).
+    const TOP = 8;
+    const head = full.slice(0, TOP);
+    const tail = full.slice(TOP);
+    const rows = [...head];
+    if (tail.length > 0) {
+      rows.push({
+        categoria: `Outras categorias (${tail.length})`,
+        valor: tail.reduce((s, c) => s + c.valor, 0),
+        media: tail.reduce((s, c) => s + c.media, 0),
+      });
     }
-    const sorted = Array.from(acc.entries())
-      .map(([categoria, valor]) => ({ categoria, valor }))
-      .filter((c) => c.valor > 0)
-      .sort((a, b) => b.valor - a.valor)
-      .slice(0, 6);
-    const max = sorted.reduce((mx, c) => Math.max(mx, c.valor), 0);
-    return sorted.map((c, i) => ({
+    const max = rows.reduce((mx, c) => Math.max(mx, c.valor), 0);
+    return rows.map((c, i) => ({
       categoria: c.categoria,
       valor: c.valor,
       cor: colorForCategoria(c.categoria, i),
       pct: max > 0 ? c.valor / max : 0,
-      media: media.get(c.categoria) ?? 0,
+      media: c.media,
     }));
-  }, [data.meses, year, yearEntries]);
+  }, [yearEntries, year]);
 
   const poupancaTone = y.taxaPoupanca >= y.metaPoupanca ? 'pos' : y.taxaPoupanca >= 0 ? 'alert' : 'neg';
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mediaMensalPorTipo } from './derive';
+import { mediaMensalPorTipo, categoriasDoAno } from './derive';
 import type { MonthlyEntry } from '../_types';
 
 function entry(patch: Partial<MonthlyEntry>): MonthlyEntry {
@@ -82,5 +82,54 @@ describe('mediaMensalPorTipo', () => {
   it('categoria nula vira "Outros"', () => {
     const media = mediaMensalPorTipo([entry({ categoria: null, valor: 80 })], 2026);
     expect(media.get('Outros')).toBe(80);
+  });
+});
+
+describe('categoriasDoAno', () => {
+  it('lista COMPLETA por valor desc, incluindo planejado (não trunca)', () => {
+    const cats = categoriasDoAno(
+      [
+        entry({ data: '2026-01-10', categoria: 'Moradia', status: 'PAGO', valor: 1000 }),
+        entry({ data: '2026-02-10', categoria: 'Alimentação', status: 'PAGO', valor: 400 }),
+        entry({ data: '2026-03-10', categoria: 'Alimentação', status: 'PLANEJADO', valor: 200 }),
+        entry({ data: '2026-01-10', categoria: 'Lazer', status: 'PAGO', valor: 300 }),
+      ],
+      2026,
+    );
+    // valor inclui planejado (Alimentação 400+200=600); ordenado desc
+    expect(cats.map((c) => c.categoria)).toEqual(['Moradia', 'Alimentação', 'Lazer']);
+    expect(cats.find((c) => c.categoria === 'Alimentação')!.valor).toBe(600);
+  });
+
+  it('media anexada é só das pagas (Alimentação: 400 paga em 2 meses ativos = 200)', () => {
+    const cats = categoriasDoAno(
+      [
+        entry({ data: '2026-01-10', categoria: 'Moradia', status: 'PAGO', valor: 1000 }),
+        entry({ data: '2026-02-10', categoria: 'Alimentação', status: 'PAGO', valor: 400 }),
+        entry({ data: '2026-03-10', categoria: 'Alimentação', status: 'PLANEJADO', valor: 200 }),
+      ],
+      2026,
+    );
+    // meses ativos (com gasto pago) = jan, fev = 2 → média Alimentação = 400/2 = 200
+    expect(cats.find((c) => c.categoria === 'Alimentação')!.media).toBe(200);
+  });
+
+  it('exclui espelhos e neutros; ignora outros anos', () => {
+    const cats = categoriasDoAno(
+      [
+        entry({ data: '2026-01-10', categoria: 'Moradia', valor: 500 }),
+        entry({ data: '2026-01-10', categoria: 'Moradia', isEspelho: true, valor: 999 }),
+        entry({
+          data: '2026-01-10',
+          categoria: 'Pagamento de fatura',
+          isNeutral: true,
+          tipoDespesaCodigo: 'PAGAMENTO_FATURA_CARTAO',
+          valor: 999,
+        }),
+        entry({ data: '2025-01-10', categoria: 'Moradia', valor: 999 }),
+      ],
+      2026,
+    );
+    expect(cats).toEqual([{ categoria: 'Moradia', valor: 500, media: 500 }]);
   });
 });
