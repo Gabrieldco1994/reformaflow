@@ -296,6 +296,68 @@ describe('ConciliacaoService', () => {
 
       // fonte vira espelho
       expect(opts_src_linked(prisma)).toBe('tgt');
+
+      // NOVO: o REGISTRO do alvo passa a refletir o cronograma da fonte
+      // (Parcelado 3x, valorTotal = alocação), e o snapshot guarda o original.
+      const tgtUpd = prisma.expense.update.mock.calls
+        .map((c: any[]) => c[0])
+        .filter((c: any) => c.where.id === 'tgt')
+        .at(-1)!;
+      expect(tgtUpd.data).toMatchObject({
+        formaPagamento: 'PARCELADO',
+        quantidadeParcela: 3,
+        valorTotal: 30000,
+        valor: 30000,
+        quantidade: 1,
+      });
+      expect(createArg).toMatchObject({
+        plannedForma: 'A_VISTA',
+        plannedValorTotal: 25000,
+      });
+    });
+
+    it('overwrite→restore: alvo reflete o cronograma da fonte e volta ao original no desfazer', async () => {
+      const prisma = buildRateioPrisma({
+        source: sourceParcelado({ linkedExpenseId: 'tgt', quantidadeParcela: 10, valorTotal: 100000 }),
+        targets: {
+          tgt: makeTarget({
+            id: 'tgt',
+            formaPagamento: 'A_VISTA',
+            valorTotal: 25000,
+            valor: 25000,
+            quantidade: 1,
+            quantidadeParcela: null,
+            dataInicioParcela: null,
+            dataPagamento: new Date('2026-03-01'),
+          }),
+        },
+      });
+
+      await service.ratearSource(prisma, {
+        tenantId: 't1',
+        sourceExpenseId: 'src',
+        allocations: [{ targetExpenseId: 'tgt', allocation: 100000 }],
+      });
+
+      // após ratear: alvo = Parcelado 10x, valorTotal = alocação
+      expect(prisma._allocStore.get('tgt')).toMatchObject({
+        plannedForma: 'A_VISTA',
+        plannedValorTotal: 25000,
+        plannedDataPagamento: new Date('2026-03-01'),
+      });
+
+      // desfaz: restaura o original (A_VISTA, 25000, dataPagamento)
+      await service.unratearSource(prisma, { tenantId: 't1', sourceExpenseId: 'src' });
+      const restore = prisma.expense.update.mock.calls
+        .map((c: any[]) => c[0])
+        .filter((c: any) => c.where.id === 'tgt')
+        .at(-1)!;
+      expect(restore.data).toMatchObject({
+        formaPagamento: 'A_VISTA',
+        valorTotal: 25000,
+        valor: 25000,
+        quantidadeParcela: null,
+      });
     });
 
     function opts_src_linked(prisma: any): string | null {

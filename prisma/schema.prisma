@@ -262,6 +262,16 @@ model RateioAllocation {
   allocation      Int // centavos alocados a este alvo
   plannedStatus   String   @map("planned_status") // snapshot do status original do alvo
   plannedPaid     String?  @map("planned_paid") // snapshot do paidParcelas original (JSON)
+  // Snapshot do CRONOGRAMA original do alvo (para restaurar no desfazer): quando o
+  // rateio sobrescreve o alvo com o cronograma da fonte (Parcelado Nx + datas + valor
+  // = alocação), estes campos guardam o estado anterior para o unratearSource restaurar.
+  plannedValor          Int?      @map("planned_valor") // valor unitário original (centavos)
+  plannedQuantidade     Int?      @map("planned_quantidade")
+  plannedValorTotal     Int?      @map("planned_valor_total")
+  plannedForma          String?   @map("planned_forma")
+  plannedQtdParcela     Int?      @map("planned_qtd_parcela")
+  plannedDataInicio     DateTime? @map("planned_data_inicio")
+  plannedDataPagamento  DateTime? @map("planned_data_pagamento")
   createdAt       DateTime @default(now()) @map("created_at")
 
   source Expense @relation("RateioSource", fields: [sourceExpenseId], references: [id])

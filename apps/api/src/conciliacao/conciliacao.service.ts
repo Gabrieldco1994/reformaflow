@@ -462,6 +462,7 @@ export class ConciliacaoService {
         throw new BadRequestException('A planejada já está rateada por outra compra.');
       }
 
+      const isSourceParcelado = !isSinglePaymentForm(source.formaPagamento);
       await tx.rateioAllocation.upsert({
         where: { targetExpenseId: target.id },
         create: {
@@ -471,13 +472,35 @@ export class ConciliacaoService {
           allocation,
           plannedStatus: target.status,
           plannedPaid: target.paidParcelas,
+          // Snapshot do CRONOGRAMA original do alvo, para o unratearSource restaurar
+          // depois que o overwrite abaixo o alinhar ao cronograma da fonte.
+          plannedValor: target.valor,
+          plannedQuantidade: target.quantidade,
+          plannedValorTotal: target.valorTotal,
+          plannedForma: target.formaPagamento,
+          plannedQtdParcela: target.quantidadeParcela,
+          plannedDataInicio: target.dataInicioParcela,
+          plannedDataPagamento: target.dataPagamento,
         },
         update: { allocation, sourceExpenseId },
       });
 
+      // Alinha o REGISTRO do alvo ao cronograma da FONTE: valor = alocação,
+      // mesma forma/parcelas/datas da compra. Assim a despesa associada mostra
+      // "Parcelado Nx" (ou à vista) coerente com o caixa, na lista e no consolidado.
       await tx.expense.update({
         where: { id: target.id },
-        data: { status: source.status === 'PAGO' ? 'PAGO' : 'PLANEJADO', paidParcelas: null },
+        data: {
+          status: source.status === 'PAGO' ? 'PAGO' : 'PLANEJADO',
+          paidParcelas: null,
+          valor: allocation,
+          quantidade: 1,
+          valorTotal: allocation,
+          formaPagamento: source.formaPagamento,
+          quantidadeParcela: isSourceParcelado ? source.quantidadeParcela : null,
+          dataInicioParcela: isSourceParcelado ? source.dataInicioParcela : null,
+          dataPagamento: isSourceParcelado ? null : source.dataPagamento,
+        },
       });
 
       await this.regenerateRateioTargetCashflow(tx, target.id);
@@ -514,7 +537,23 @@ export class ConciliacaoService {
       if (target) {
         await tx.expense.update({
           where: { id: target.id },
-          data: { status: r.plannedStatus, paidParcelas: r.plannedPaid },
+          data: {
+            status: r.plannedStatus,
+            paidParcelas: r.plannedPaid,
+            // Restaura o cronograma original do alvo (se houver snapshot — rateios
+            // criados antes desta feature não têm, então mantemos o valor atual).
+            ...(r.plannedValorTotal != null
+              ? {
+                  valor: r.plannedValor ?? r.plannedValorTotal,
+                  quantidade: r.plannedQuantidade ?? 1,
+                  valorTotal: r.plannedValorTotal,
+                  formaPagamento: r.plannedForma ?? 'A_VISTA',
+                  quantidadeParcela: r.plannedQtdParcela,
+                  dataInicioParcela: r.plannedDataInicio,
+                  dataPagamento: r.plannedDataPagamento,
+                }
+              : {}),
+          },
         });
       }
       await tx.rateioAllocation.delete({ where: { targetExpenseId: r.targetExpenseId } });
