@@ -1,13 +1,11 @@
 'use client';
 
 import { useParams } from 'next/navigation';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Landmark, ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
-import type { Expense } from '@/types';
 import { currentMonthKey, monthLabelLong } from './_lib';
 import { ContaMonthPicker } from './_components/ContaMonthPicker';
 import { ResumoCards, type ResumoQuickFilterKey } from './_components/ResumoCards';
@@ -18,8 +16,7 @@ import { TicketMedioSection } from './_components/TicketMedioSection';
 import { FaturasAnuaisChart } from './_components/FaturasAnuaisChart';
 import { DespesasRelacionadas } from './_components/DespesasRelacionadas';
 import { TodasDespesasAno } from './_components/TodasDespesasAno';
-import { NovaDespesaWizard } from '../expenses/_components/NovaDespesaWizard';
-import { getExpenseOptions } from '../expenses/_types';
+import { NovaDespesaLauncher } from '../expenses/_components/NovaDespesaLauncher';
 import { ReceitaModal } from './_components/ReceitaModal';
 import type {
   AccountViewResponse,
@@ -54,7 +51,6 @@ export default function ContaPage() {
   const [selectedYearMonth, setSelectedYearMonth] = useState<string | null>(null);
   const [payCardLast4, setPayCardLast4] = useState<string | null>(null);
   const [originFilter, setOriginFilter] = useState<string | null>(null);
-  const [novaDespesaOpen, setNovaDespesaOpen] = useState(false);
   const [novaReceitaOpen, setNovaReceitaOpen] = useState(false);
   const [resumoQuickFilter, setResumoQuickFilter] = useState<ResumoQuickFilterKey | null>(null);
 
@@ -68,7 +64,6 @@ export default function ContaPage() {
   const selectedYear = selectedMonth.slice(0, 4);
 
   const queryClient = useQueryClient();
-  const tipoOptions = useMemo(() => getExpenseOptions('PESSOAL'), []);
 
   const invalidateConta = () => {
     for (const key of ['account-view', 'expenses', 'cash-flow', 'dashboard', 'cross-project-expenses']) {
@@ -76,21 +71,6 @@ export default function ContaPage() {
     }
   };
 
-  const { data: plannedExpenses = [] } = useQuery<Expense[]>({
-    queryKey: ['expenses', projectId, 'planned'],
-    queryFn: () => api.get(`/projects/${projectId}/expenses/planned`),
-    enabled: !!projectId && novaDespesaOpen,
-  });
-
-  const payMutation = useMutation({
-    mutationFn: (id: string) => api.post(`/projects/${projectId}/expenses/${id}/pay`, {}),
-    onSuccess: () => {
-      toast.success('Despesa paga');
-      invalidateConta();
-      setNovaDespesaOpen(false);
-    },
-    onError: (e: Error) => toast.error(`Erro ao pagar despesa: ${e.message}`),
-  });
 
   const { data, isLoading, error } = useQuery<AccountViewResponse>({
     queryKey: ['account-view', projectId, selectedMonth],
@@ -185,13 +165,20 @@ export default function ContaPage() {
 
       {/* Ações rápidas: novos lançamentos manuais */}
       <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => setNovaDespesaOpen(true)}
-          className="inline-flex items-center gap-1.5 rounded-xl border border-[#F2C6C1] bg-[#FCEBE9] px-3 py-2 text-sm font-semibold text-[#D92D20] transition hover:bg-[#F8DAD6]"
-        >
-          <ArrowDownCircle className="h-4 w-4" /> Nova Despesa
-        </button>
+        <NovaDespesaLauncher
+          projectId={projectId}
+          projectType="PESSOAL"
+          onChanged={invalidateConta}
+          trigger={(open) => (
+            <button
+              type="button"
+              onClick={open}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-[#F2C6C1] bg-[#FCEBE9] px-3 py-2 text-sm font-semibold text-[#D92D20] transition hover:bg-[#F8DAD6]"
+            >
+              <ArrowDownCircle className="h-4 w-4" /> Nova Despesa
+            </button>
+          )}
+        />
         <button
           type="button"
           onClick={() => setNovaReceitaOpen(true)}
@@ -289,21 +276,6 @@ export default function ContaPage() {
         );
       })()}
 
-      <NovaDespesaWizard
-        open={novaDespesaOpen}
-        mode="PAGA"
-        projectId={projectId}
-        projectType="PESSOAL"
-        allowRecorrente={false}
-        tipoOptions={tipoOptions}
-        roomOptions={[]}
-        showRooms={false}
-        plannedExpenses={plannedExpenses}
-        onPay={(id) => payMutation.mutate(id)}
-        payDisabled={payMutation.isPending}
-        onClose={() => setNovaDespesaOpen(false)}
-        onCreated={invalidateConta}
-      />
       <ReceitaModal
         open={novaReceitaOpen}
         onClose={() => setNovaReceitaOpen(false)}
