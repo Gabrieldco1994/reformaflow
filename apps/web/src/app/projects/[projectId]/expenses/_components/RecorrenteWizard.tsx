@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { CalendarRange } from 'lucide-react';
-import { buildRecurrenceDates, type RecurrenceFrequency } from '@reformaflow/domain';
+import { buildRecurrenceDates, hasFeature, type ProjectType, type RecurrenceFrequency } from '@reformaflow/domain';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -31,6 +31,12 @@ interface TenantAccount {
   institution: string;
   last4?: string | null;
   project?: { id: string; name: string; type: string } | null;
+}
+
+interface ProjectLite {
+  id: string;
+  name: string;
+  type: string;
 }
 
 interface Props {
@@ -65,6 +71,7 @@ export function RecorrenteWizard({ open, projectId, tipoOptions, onClose, onCrea
   const [dataFim, setDataFim] = useState('');
   const [creditCardId, setCreditCardId] = useState('');
   const [bankAccountId, setBankAccountId] = useState('');
+  const [obraProjectId, setObraProjectId] = useState('');
 
   const { data: cards = [] } = useQuery<TenantCard[]>({
     queryKey: ['tenant', 'credit-cards'],
@@ -78,6 +85,24 @@ export function RecorrenteWizard({ open, projectId, tipoOptions, onClose, onCrea
     staleTime: 60_000,
     enabled: open,
   });
+  const { data: projects = [] } = useQuery<ProjectLite[]>({
+    queryKey: ['tenant', 'projects'],
+    queryFn: () => api.get('/projects'),
+    staleTime: 60_000,
+    enabled: open,
+  });
+
+  // Projetos de OBRA (não-PESSOAL, com módulo de despesas) — alvo do par cross-project.
+  const obraOptions = useMemo(() => {
+    const opts = [{ value: '', label: 'Só pessoal (sem obra)' }];
+    for (const p of projects) {
+      if (p.id === projectId) continue;
+      if (p.type === 'PESSOAL') continue;
+      if (!hasFeature(p.type as ProjectType, 'expenses')) continue;
+      opts.push({ value: p.id, label: `${p.name} · ${p.type}` });
+    }
+    return opts;
+  }, [projects, projectId]);
 
   const cardOptions = useMemo(() => {
     const opts = [{ value: '', label: 'Nenhum' }];
@@ -128,6 +153,7 @@ export function RecorrenteWizard({ open, projectId, tipoOptions, onClose, onCrea
         dataFim,
         creditCardId: creditCardId || undefined,
         bankAccountId: bankAccountId || undefined,
+        obraProjectId: obraProjectId || undefined,
       }),
     onSuccess: (res) => {
       toast.success(`${res.count} despesa(s) recorrente(s) criada(s)`);
@@ -151,6 +177,7 @@ export function RecorrenteWizard({ open, projectId, tipoOptions, onClose, onCrea
     setDataFim('');
     setCreditCardId('');
     setBankAccountId('');
+    setObraProjectId('');
   }
 
   return (
@@ -212,6 +239,15 @@ export function RecorrenteWizard({ open, projectId, tipoOptions, onClose, onCrea
           />
         </div>
 
+        <div className="border-t pt-3">
+          <Select
+            label="Projeto de obra (opcional — cria par obra + espelho pessoal)"
+            options={obraOptions}
+            value={obraProjectId}
+            onChange={(e) => setObraProjectId(e.target.value)}
+          />
+        </div>
+
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 border-t pt-3">
           <Select
             label="Pago no cartão (opcional)"
@@ -231,6 +267,9 @@ export function RecorrenteWizard({ open, projectId, tipoOptions, onClose, onCrea
           <div className="rounded-xl border border-darc-linen bg-slate-50 px-3 py-2.5 text-sm text-darc-velvet">
             Vai gerar <strong>{preview.count}</strong> despesa{preview.count === 1 ? '' : 's'} planejada
             {preview.count === 1 ? '' : 's'}
+            {obraProjectId && (
+              <> (par obra + espelho pessoal por ocorrência = <strong>{preview.count * 2}</strong> lançamentos)</>
+            )}
             {preview.totalCents > 0 && (
               <> — total de <strong>{fmtMoneyExact(preview.totalCents)}</strong></>
             )}

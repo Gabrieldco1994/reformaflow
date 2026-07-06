@@ -991,5 +991,55 @@ describe('ExpenseService', () => {
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(prisma.expense.create).not.toHaveBeenCalled();
     });
+
+    it('cross-project: gera par canônica(obra) + espelho(pessoal) por ocorrência', async () => {
+      // validateProject(pessoal) na entrada, depois validação da obra, depois
+      // validateProject dentro de cada create (obra e pessoal).
+      prisma.project.findFirst.mockImplementation(async ({ where }: any) => {
+        if (where.id === 'obra-1') return { id: 'obra-1', tenantId, type: 'REFORMA', deletedAt: null };
+        return { id: where.id, tenantId, type: 'PESSOAL', deletedAt: null };
+      });
+      // linkedExpenseId aponta para a canônica (outro projeto) — resolveLinks ok.
+      prisma.expense.findFirst.mockResolvedValue({ projectId: 'obra-1' });
+      prisma.bankAccount.findFirst.mockResolvedValue({ last4: '4321' });
+
+      const res = await service.createRecorrente(tenantId, projectId, {
+        tipoDespesa: 'MAO_DE_OBRA',
+        valor: 2000,
+        frequencia: 'MENSAL',
+        dataInicio: '2026-01-05',
+        dataFim: '2026-03-05',
+        obraProjectId: 'obra-1',
+        bankAccountId: 'acc-1',
+      } as any);
+
+      expect(res.count).toBe(3); // 3 ocorrências
+      expect(res.crossProject).toBe(true);
+      // 2 creates por ocorrência (canônica + espelho) = 6
+      expect(prisma.expense.create).toHaveBeenCalledTimes(6);
+      // o espelho carrega o linkedExpenseId da canônica
+      const espelhoCall = prisma.expense.create.mock.calls[1]![0];
+      expect(espelhoCall.data.linkedExpenseId).toBeTruthy();
+      expect(espelhoCall.data.status).toBe('PLANEJADO');
+    });
+
+    it('cross-project: rejeita obra do tipo PESSOAL', async () => {
+      prisma.project.findFirst.mockImplementation(async ({ where }: any) => ({
+        id: where.id,
+        tenantId,
+        type: 'PESSOAL',
+        deletedAt: null,
+      }));
+      await expect(
+        service.createRecorrente(tenantId, projectId, {
+          tipoDespesa: 'MORADIA',
+          valor: 500,
+          frequencia: 'MENSAL',
+          dataInicio: '2026-01-10',
+          dataFim: '2026-02-10',
+          obraProjectId: 'outro-pessoal',
+        } as any),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
   });
 });

@@ -68,6 +68,15 @@ export class CreateRecorrenteDto {
   @IsDateString()
   dataFim!: string;
 
+  @ApiPropertyOptional({
+    description:
+      'Id de um projeto de OBRA/aquisição (REFORMA/COMPRA/CASA/CARRO). Quando informado, cada ocorrência ' +
+      'gera um PAR vinculado: a despesa canônica na obra + o espelho no PESSOAL (caixa). Sem duplicar.',
+  })
+  @IsOptional()
+  @IsString()
+  obraProjectId?: string;
+
   @ApiPropertyOptional({ description: 'Vincula todas as ocorrências a um cartão de crédito' })
   @IsOptional()
   @IsString()

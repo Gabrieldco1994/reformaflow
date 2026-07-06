@@ -136,6 +136,12 @@ export class ExpenseService {
    * reusa `create` (links de cartão/conta, cashflow, competência) e portanto entra
    * automaticamente em TODOS os KPIs, Visão Conta e cockpit, como qualquer despesa.
    * Editar o valor de uma ocorrência é um PATCH normal (cada uma é independente).
+   *
+   * Cross-project (`obraProjectId`): quando informado, cada ocorrência gera um PAR
+   * vinculado — a despesa CANÔNICA no projeto de obra + o ESPELHO no PESSOAL (com
+   * cartão/conta), ligados por `linkedExpenseId`, sem dupla contagem. Espelha o
+   * padrão de `create_obra_expense`, repetido por ocorrência. Se qualquer criação
+   * falhar, TODAS as já criadas são desfeitas (transação lógica).
    */
   async createRecorrente(tenantId: string, projectId: string, dto: CreateRecorrenteDto) {
     await this.validateProject(tenantId, projectId);
@@ -158,37 +164,103 @@ export class ExpenseService {
       throw new BadRequestException('Período inválido: a data final é anterior à inicial.');
     }
 
+    // Modo cross-project: valida o projeto de obra (deve existir, ser do tenant e
+    // NÃO ser o próprio projeto pessoal informado na URL).
+    const crossProject = dto.obraProjectId && dto.obraProjectId !== projectId;
+    if (crossProject) {
+      const obra = await this.prisma.project.findFirst({
+        where: { id: dto.obraProjectId, tenantId, deletedAt: null },
+        select: { id: true, type: true },
+      });
+      if (!obra) throw new BadRequestException('Projeto de obra não encontrado neste tenant.');
+      if (obra.type === 'PESSOAL') {
+        throw new BadRequestException('O projeto de obra não pode ser PESSOAL. Deixe em branco para recorrência pessoal.');
+      }
+    }
+
     const quantidade = dto.quantidade && dto.quantidade >= 1 ? dto.quantidade : 1;
-    const created: Awaited<ReturnType<typeof this.create>>[] = [];
-    for (const d of dates) {
-      const iso = d.toISOString();
-      const expense = await this.create(tenantId, projectId, {
-        tipoDespesa: dto.tipoDespesa,
-        categoriaMaoDeObra: dto.categoriaMaoDeObra,
-        roomId: dto.roomId,
-        valor: dto.valor,
-        quantidade,
-        titulo: dto.titulo,
-        fornecedor: dto.fornecedor,
-        link: dto.link,
-        imageUrl: dto.imageUrl,
-        formaPagamento: 'A_VISTA',
-        status: 'PLANEJADO',
-        dataPagamento: iso,
-        dataCompra: iso,
-        creditCardId: dto.creditCardId,
-        bankAccountId: dto.bankAccountId,
-      } as CreateExpenseDto);
-      created.push(expense);
+
+    // Rastreia TUDO que foi criado (projectId + id) para rollback total em falha.
+    const createdRefs: Array<{ projectId: string; id: string }> = [];
+    const rollback = async () => {
+      for (const ref of createdRefs.reverse()) {
+        await this.remove(tenantId, ref.projectId, ref.id).catch(() => undefined);
+      }
+    };
+
+    try {
+      for (const d of dates) {
+        const iso = d.toISOString();
+
+        if (crossProject) {
+          // 1) Canônica na obra (sem meio de pagamento) — PLANEJADO.
+          const canonico = await this.create(tenantId, dto.obraProjectId!, {
+            tipoDespesa: dto.tipoDespesa,
+            categoriaMaoDeObra: dto.categoriaMaoDeObra,
+            roomId: dto.roomId,
+            valor: dto.valor,
+            quantidade,
+            titulo: dto.titulo,
+            fornecedor: dto.fornecedor,
+            link: dto.link,
+            imageUrl: dto.imageUrl,
+            formaPagamento: 'A_VISTA',
+            status: 'PLANEJADO',
+            dataPagamento: iso,
+            dataCompra: iso,
+          } as CreateExpenseDto);
+          createdRefs.push({ projectId: dto.obraProjectId!, id: canonico.id });
+
+          // 2) Espelho no PESSOAL (saída do caixa) vinculado à canônica.
+          const espelho = await this.create(tenantId, projectId, {
+            tipoDespesa: dto.tipoDespesa,
+            categoriaMaoDeObra: dto.categoriaMaoDeObra,
+            valor: dto.valor,
+            quantidade,
+            titulo: dto.titulo,
+            fornecedor: dto.fornecedor,
+            formaPagamento: 'A_VISTA',
+            status: 'PLANEJADO',
+            dataPagamento: iso,
+            dataCompra: iso,
+            creditCardId: dto.creditCardId,
+            bankAccountId: dto.bankAccountId,
+            linkedExpenseId: canonico.id,
+          } as CreateExpenseDto);
+          createdRefs.push({ projectId: projectId, id: espelho.id });
+        } else {
+          const expense = await this.create(tenantId, projectId, {
+            tipoDespesa: dto.tipoDespesa,
+            categoriaMaoDeObra: dto.categoriaMaoDeObra,
+            roomId: dto.roomId,
+            valor: dto.valor,
+            quantidade,
+            titulo: dto.titulo,
+            fornecedor: dto.fornecedor,
+            link: dto.link,
+            imageUrl: dto.imageUrl,
+            formaPagamento: 'A_VISTA',
+            status: 'PLANEJADO',
+            dataPagamento: iso,
+            dataCompra: iso,
+            creditCardId: dto.creditCardId,
+            bankAccountId: dto.bankAccountId,
+          } as CreateExpenseDto);
+          createdRefs.push({ projectId: projectId, id: expense.id });
+        }
+      }
+    } catch (e) {
+      await rollback();
+      throw e;
     }
 
     return {
-      count: created.length,
+      count: dates.length,
+      crossProject: !!crossProject,
       frequencia: dto.frequencia,
       dataInicio: dto.dataInicio,
       dataFim: dto.dataFim,
-      ids: created.map((e) => e.id),
-      expenses: created,
+      ids: createdRefs.map((r) => r.id),
     };
   }
 

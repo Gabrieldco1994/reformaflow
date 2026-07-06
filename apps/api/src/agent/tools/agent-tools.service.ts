@@ -347,6 +347,7 @@ export class AgentToolsService {
             'Use quando o usuário disser algo que se repete no tempo (ex.: "todo mês pago 500 de aluguel de jan a dez", "coloca uma mensalidade de 120 da academia até dezembro", "quinzenalmente gasto 300 com a diarista"). ' +
             'Cada ocorrência vira uma despesa futura (PLANEJADO) independente, contada em todos os KPIs. O valor é em REAIS (de CADA ocorrência, não o total). ' +
             'Se o usuário não indicar o projeto e houver um em foco, use-o; senão chame list_projects. Para vincular a cartão/conta use list_payment_methods. ' +
+            'Se a recorrência for de uma OBRA paga com dinheiro pessoal (ex.: "todo mês 2000 de mão de obra da reforma pelo meu cartão"), passe obraProjectId — cada ocorrência vira um par obra + espelho pessoal. ' +
             'Confirme valor, frequência e período com o usuário quando houver ambiguidade.',
           parameters: {
             type: 'object',
@@ -360,6 +361,7 @@ export class AgentToolsService {
               frequencia: { type: 'string', enum: ['MENSAL', 'QUINZENAL'], description: 'MENSAL (todo mês, mesmo dia) ou QUINZENAL (a cada 15 dias).' },
               dataInicio: { type: 'string', description: 'Data da PRIMEIRA ocorrência (YYYY-MM-DD). Obrigatório.' },
               dataFim: { type: 'string', description: 'Data LIMITE da recorrência (YYYY-MM-DD, inclusive). Obrigatório.' },
+              obraProjectId: { type: 'string', description: 'Id de um projeto de OBRA (REFORMA/COMPRA/CASA/CARRO) quando a recorrência é de obra paga pelo dinheiro pessoal — gera par canônica(obra)+espelho(pessoal) por ocorrência. Use list_projects. Omita para recorrência puramente pessoal.' },
               creditCardId: { type: 'string', description: 'Id do cartão a vincular a todas as ocorrências (list_payment_methods).' },
               bankAccountId: { type: 'string', description: 'Id da conta a vincular a todas as ocorrências (list_payment_methods).' },
             },
@@ -384,6 +386,16 @@ export class AgentToolsService {
           const creditCardId = await this.resolvePaymentRef(ctx, args['creditCardId'], 'card');
           const bankAccountId = await this.resolvePaymentRef(ctx, args['bankAccountId'], 'account');
 
+          // Cross-project: resolve o projeto de obra (deve ser acessível e não-PESSOAL).
+          let obraProjectId: string | undefined;
+          if (this.optStr(args['obraProjectId'])) {
+            const obra = await this.resolveWritableProject(ctx, args['obraProjectId'], 'expenses');
+            if (obra.type === 'PESSOAL') {
+              return { error: 'O projeto de obra não pode ser PESSOAL. Omita obraProjectId para recorrência pessoal.' };
+            }
+            obraProjectId = obra.id;
+          }
+
           const result = await this.expenses.createRecorrente(ctx.tenantId, project.id, {
             tipoDespesa,
             valor,
@@ -393,6 +405,7 @@ export class AgentToolsService {
             frequencia,
             dataInicio,
             dataFim,
+            obraProjectId,
             creditCardId,
             bankAccountId,
           } as any);
@@ -401,6 +414,8 @@ export class AgentToolsService {
             ok: true,
             recorrencia: {
               projeto: project.name,
+              obraProjectId: obraProjectId ?? null,
+              crossProject: result.crossProject,
               tipoDespesa,
               frequencia,
               dataInicio,
@@ -408,7 +423,9 @@ export class AgentToolsService {
               ocorrencias: result.count,
               valorCadaOcorrenciaReais: valor,
             },
-            mensagem: `Criei ${result.count} despesa(s) planejada(s) ${frequencia === 'MENSAL' ? 'mensais' : 'quinzenais'} em "${project.name}".`,
+            mensagem: obraProjectId
+              ? `Criei ${result.count} ocorrência(s) ${frequencia === 'MENSAL' ? 'mensais' : 'quinzenais'} da obra (par obra + espelho pessoal por ocorrência).`
+              : `Criei ${result.count} despesa(s) planejada(s) ${frequencia === 'MENSAL' ? 'mensais' : 'quinzenais'} em "${project.name}".`,
           };
         },
       },
