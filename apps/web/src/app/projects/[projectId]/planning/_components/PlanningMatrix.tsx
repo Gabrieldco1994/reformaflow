@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { fmtMoneyExact } from '../../monthly/_cockpit/format';
 import type { PlanningMatrixExpenseRow } from '../_types';
 
@@ -8,11 +8,9 @@ interface PlanningMatrixProps {
   months: string[];
   incomeByMonthCents: Record<string, number>;
   expenseRows: PlanningMatrixExpenseRow[];
-  addableExpenseTypes: Array<{ value: string; label: string }>;
   onAddMonth: () => void;
   onIncomeChange: (monthKey: string, cents: number) => void;
   onExpenseChange: (monthKey: string, typeCode: string, cents: number) => void;
-  onAddExpenseType: (typeCode: string) => void;
 }
 
 const SHORT_MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
@@ -30,43 +28,10 @@ export default function PlanningMatrix({
   months,
   incomeByMonthCents,
   expenseRows,
-  addableExpenseTypes,
   onAddMonth,
   onIncomeChange,
   onExpenseChange,
-  onAddExpenseType,
 }: PlanningMatrixProps) {
-  const [quickMonth, setQuickMonth] = useState(months[0] ?? '');
-  const [quickType, setQuickType] = useState(expenseRows[0]?.typeCode ?? '');
-  const [quickValue, setQuickValue] = useState('');
-  const [newType, setNewType] = useState(addableExpenseTypes[0]?.value ?? '');
-
-  useEffect(() => {
-    if (!months.includes(quickMonth)) {
-      setQuickMonth(months[0] ?? '');
-    }
-  }, [months, quickMonth]);
-
-  useEffect(() => {
-    if (expenseRows.length === 0) {
-      setQuickType('');
-      return;
-    }
-    if (!expenseRows.some((row) => row.typeCode === quickType)) {
-      setQuickType(expenseRows[0]!.typeCode);
-    }
-  }, [expenseRows, quickType]);
-
-  useEffect(() => {
-    if (addableExpenseTypes.length === 0) {
-      setNewType('');
-      return;
-    }
-    if (!addableExpenseTypes.some((option) => option.value === newType)) {
-      setNewType(addableExpenseTypes[0]!.value);
-    }
-  }, [addableExpenseTypes, newType]);
-
   const expenseTotalByMonth = useMemo(() => {
     const totals: Record<string, number> = {};
     for (const monthKey of months) {
@@ -104,87 +69,6 @@ export default function PlanningMatrix({
         >
           + Adicionar mês
         </button>
-      </div>
-
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <div className="rounded-xl border border-darc-linen p-3 space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-darc-velvet/60">
-            Edição rápida
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-            <select
-              value={quickMonth}
-              onChange={(e) => setQuickMonth(e.target.value)}
-              className="rounded-lg border border-darc-linen px-2.5 py-2 text-sm text-darc-velvet bg-white"
-            >
-              {months.map((monthKey) => (
-                <option key={monthKey} value={monthKey}>
-                  {monthLabel(monthKey)}
-                </option>
-              ))}
-            </select>
-            <select
-              value={quickType}
-              onChange={(e) => setQuickType(e.target.value)}
-              className="rounded-lg border border-darc-linen px-2.5 py-2 text-sm text-darc-velvet bg-white sm:col-span-2"
-            >
-              {expenseRows.map((row) => (
-                <option key={row.typeCode} value={row.typeCode}>
-                  {row.label}
-                </option>
-              ))}
-            </select>
-            <input
-              type="number"
-              min={0}
-              step={1}
-              value={quickValue}
-              onChange={(e) => setQuickValue(e.target.value)}
-              placeholder="R$"
-              className="rounded-lg border border-darc-linen px-2.5 py-2 text-sm text-darc-velvet bg-white"
-            />
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              if (!quickMonth || !quickType) return;
-              onExpenseChange(quickMonth, quickType, reaisToCents(Number(quickValue)));
-            }}
-            className="rounded-lg border border-darc-linen px-3 py-2 text-xs font-semibold text-darc-velvet hover:bg-darc-linen/40"
-          >
-            Aplicar valor
-          </button>
-        </div>
-
-        <div className="rounded-xl border border-darc-linen p-3 space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-darc-velvet/60">
-            Adicionar tipo de despesa
-          </p>
-          {addableExpenseTypes.length === 0 ? (
-            <p className="text-sm text-darc-velvet/60">Todos os tipos já estão na matriz.</p>
-          ) : (
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                value={newType}
-                onChange={(e) => setNewType(e.target.value)}
-                className="min-w-[220px] rounded-lg border border-darc-linen px-2.5 py-2 text-sm text-darc-velvet bg-white"
-              >
-                {addableExpenseTypes.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={() => newType && onAddExpenseType(newType)}
-                className="rounded-lg border border-darc-linen px-3 py-2 text-xs font-semibold text-darc-velvet hover:bg-darc-linen/40"
-              >
-                Adicionar linha
-              </button>
-            </div>
-          )}
-        </div>
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-darc-linen">

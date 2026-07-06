@@ -25,7 +25,6 @@ export default function PlanningPage() {
     months,
     incomeByMonthCents,
     expenseMatrixRows,
-    addableExpenseTypes,
     patchAssumptions,
     createScenario,
     duplicateScenario,
@@ -35,7 +34,6 @@ export default function PlanningPage() {
     addMonth,
     setIncomeForMonth,
     setExpenseForMonth,
-    addExpenseType,
   } = usePersonalPlanning();
 
   if (!isPersonal) {
@@ -83,6 +81,8 @@ export default function PlanningPage() {
         </div>
       )}
 
+      <PlanningSummary summary={summary} />
+
       <PlanningScenarioToolbar
         scenarios={scenarios}
         activeScenarioId={activeScenarioId}
@@ -98,13 +98,10 @@ export default function PlanningPage() {
         months={months}
         incomeByMonthCents={incomeByMonthCents}
         expenseRows={expenseMatrixRows}
-        addableExpenseTypes={addableExpenseTypes}
         onAddMonth={addMonth}
         onIncomeChange={setIncomeForMonth}
         onExpenseChange={setExpenseForMonth}
-        onAddExpenseType={addExpenseType}
       />
-      <PlanningSummary summary={summary} />
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <div className="xl:col-span-2">
