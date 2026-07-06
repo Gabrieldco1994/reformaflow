@@ -1,4 +1,4 @@
-import { Mic, Zap, CalendarClock } from 'lucide-react';
+import { Mic, Zap, CalendarClock, CalendarRange } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Modal } from '@/components/ui/modal';
@@ -10,13 +10,16 @@ interface PayOptionsModalProps {
   onOpenVoiceModal: () => void;
   /** Abre o formulário detalhado em modo PLANEJAR (despesa futura). */
   onOpenPlanForm?: () => void;
+  /** Abre a jornada de despesa recorrente (gera N despesas planejadas). */
+  onOpenRecorrenteForm?: () => void;
   /** Slot para o acionador de importação (fatura/extrato). */
   importSlot?: ReactNode;
 }
 
 /**
  * Sheet único de lançamento ("Nova despesa"): consolida os caminhos de
- * entrada — rápido (já paga), planejar (futura), por voz — e a importação.
+ * entrada — rápido (já paga), planejar (futura), recorrente (repete no tempo),
+ * por voz — e a importação.
  * O pagamento de despesas planejadas vive no wizard ("Despesa paga" →
  * "Pagar despesa planejada"), evitando duplicar a lista aqui.
  */
@@ -26,6 +29,7 @@ export function PayOptionsModal({
   onOpenNewPaidForm,
   onOpenVoiceModal,
   onOpenPlanForm,
+  onOpenRecorrenteForm,
   importSlot,
 }: PayOptionsModalProps) {
   return (
@@ -58,6 +62,22 @@ export function PayOptionsModal({
               <span className="min-w-0">
                 <span className="block text-sm font-semibold text-darc-velvet">Planejar</span>
                 <span className="block text-[11px] text-darc-velvet/50">Despesa futura / a pagar</span>
+              </span>
+            </button>
+          )}
+
+          {onOpenRecorrenteForm && (
+            <button
+              type="button"
+              onClick={onOpenRecorrenteForm}
+              className="flex items-center gap-3 rounded-xl border border-purple-200 bg-purple-50 px-4 py-3 text-left transition-colors hover:bg-purple-100"
+            >
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-purple-500 text-white">
+                <CalendarRange className="h-4 w-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-darc-velvet">Despesa recorrente</span>
+                <span className="block text-[11px] text-darc-velvet/50">Repete no tempo — mensal / quinzenal</span>
               </span>
             </button>
           )}

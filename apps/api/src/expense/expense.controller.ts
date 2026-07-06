@@ -13,6 +13,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { ExpenseService } from './expense.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
+import { CreateRecorrenteDto } from './dto/create-recorrente.dto';
 import { SetParcelaStatusDto } from './dto/set-parcela-status.dto';
 import { RatearDto } from './dto/ratear.dto';
 import { RatearMixedDto } from './dto/ratear-mixed.dto';
@@ -36,6 +37,16 @@ export class ExpenseController {
     @Body() dto: CreateExpenseDto,
   ) {
     return this.service.create(tenantId, projectId, dto);
+  }
+
+  @Post('recorrente')
+  @ApiOperation({ summary: 'Criar despesa recorrente (gera N despesas planejadas)' })
+  createRecorrente(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Body() dto: CreateRecorrenteDto,
+  ) {
+    return this.service.createRecorrente(tenantId, projectId, dto);
   }
 
   @Get()

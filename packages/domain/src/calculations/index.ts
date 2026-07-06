@@ -2,6 +2,7 @@ import { CashFlowType, CashFlowStatus, PaymentForm } from '../enums';
 import type { CashFlowEntry, CashFlowEntryComputed } from '../types';
 
 export * from './expense-installments';
+export * from './expense-recurrence';
 export * from './recurring-occurrences';
 export * from './card-cash-month';
 export * from './cash-axis';

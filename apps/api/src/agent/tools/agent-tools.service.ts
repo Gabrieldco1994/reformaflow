@@ -339,6 +339,80 @@ export class AgentToolsService {
         },
       },
 
+      create_recurring_expense: {
+        def: {
+          name: 'create_recurring_expense',
+          description:
+            'Cadastra uma DESPESA RECORRENTE: gera VÁRIAS despesas planejadas (uma por ocorrência) entre uma data inicial e uma final, na frequência mensal ou quinzenal. ' +
+            'Use quando o usuário disser algo que se repete no tempo (ex.: "todo mês pago 500 de aluguel de jan a dez", "coloca uma mensalidade de 120 da academia até dezembro", "quinzenalmente gasto 300 com a diarista"). ' +
+            'Cada ocorrência vira uma despesa futura (PLANEJADO) independente, contada em todos os KPIs. O valor é em REAIS (de CADA ocorrência, não o total). ' +
+            'Se o usuário não indicar o projeto e houver um em foco, use-o; senão chame list_projects. Para vincular a cartão/conta use list_payment_methods. ' +
+            'Confirme valor, frequência e período com o usuário quando houver ambiguidade.',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: 'Id do projeto (list_projects). Opcional se há projeto em foco.' },
+              valor: { type: 'string', description: 'Valor de CADA ocorrência em REAIS, com vírgula decimal brasileira (ex.: "500", "1.200,00"). A vírgula é separador de centavos — nunca a remova. Obrigatório.' },
+              quantidade: { type: 'integer', description: 'Quantidade por ocorrência (default 1).' },
+              tipoDespesa: { type: 'string', description: 'Categoria (ex.: MORADIA, ALIMENTACAO, TRANSPORTE, SAUDE, LAZER, ASSINATURAS, OUTROS). Use OUTROS se incerto.' },
+              titulo: { type: 'string', description: 'Descrição curta (ex.: "Aluguel", "Academia").' },
+              fornecedor: { type: 'string', description: 'Fornecedor/loja (ex.: "Imobiliária X").' },
+              frequencia: { type: 'string', enum: ['MENSAL', 'QUINZENAL'], description: 'MENSAL (todo mês, mesmo dia) ou QUINZENAL (a cada 15 dias).' },
+              dataInicio: { type: 'string', description: 'Data da PRIMEIRA ocorrência (YYYY-MM-DD). Obrigatório.' },
+              dataFim: { type: 'string', description: 'Data LIMITE da recorrência (YYYY-MM-DD, inclusive). Obrigatório.' },
+              creditCardId: { type: 'string', description: 'Id do cartão a vincular a todas as ocorrências (list_payment_methods).' },
+              bankAccountId: { type: 'string', description: 'Id da conta a vincular a todas as ocorrências (list_payment_methods).' },
+            },
+            required: ['valor', 'frequencia', 'dataInicio', 'dataFim'],
+            additionalProperties: false,
+          },
+        },
+        run: async (ctx, args) => {
+          const project = await this.resolveWritableProject(ctx, args['projectId'], 'expenses');
+          const valor = this.parseMoney(args['valor']);
+          if (valor == null) return { error: 'Informe um valor em reais maior que zero.' };
+
+          const frequencia = this.pickEnumStr(args['frequencia'], ['MENSAL', 'QUINZENAL'], 'MENSAL');
+          const dataInicio = this.optDate(args['dataInicio']);
+          const dataFim = this.optDate(args['dataFim']);
+          if (!dataInicio || !dataFim) {
+            return { error: 'Informe dataInicio e dataFim no formato YYYY-MM-DD.' };
+          }
+
+          const tipoDespesa = this.normalizeEnum(args['tipoDespesa'], ExpenseType, 'OUTROS');
+          const quantidade = this.clampInt(args['quantidade'], 1, 1, 100000);
+          const creditCardId = await this.resolvePaymentRef(ctx, args['creditCardId'], 'card');
+          const bankAccountId = await this.resolvePaymentRef(ctx, args['bankAccountId'], 'account');
+
+          const result = await this.expenses.createRecorrente(ctx.tenantId, project.id, {
+            tipoDespesa,
+            valor,
+            quantidade,
+            titulo: this.optStr(args['titulo']),
+            fornecedor: this.optStr(args['fornecedor']),
+            frequencia,
+            dataInicio,
+            dataFim,
+            creditCardId,
+            bankAccountId,
+          } as any);
+
+          return {
+            ok: true,
+            recorrencia: {
+              projeto: project.name,
+              tipoDespesa,
+              frequencia,
+              dataInicio,
+              dataFim,
+              ocorrencias: result.count,
+              valorCadaOcorrenciaReais: valor,
+            },
+            mensagem: `Criei ${result.count} despesa(s) planejada(s) ${frequencia === 'MENSAL' ? 'mensais' : 'quinzenais'} em "${project.name}".`,
+          };
+        },
+      },
+
       list_payment_methods: {
         def: {
           name: 'list_payment_methods',

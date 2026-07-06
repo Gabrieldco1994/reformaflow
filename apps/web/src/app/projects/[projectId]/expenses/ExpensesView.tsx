@@ -27,6 +27,7 @@ import { ExpenseFormModal } from './_components/ExpenseFormModal';
 import { RatearCompraModal } from './_components/RatearCompraModal';
 import { PayOptionsModal } from './_components/PayOptionsModal';
 import { NovaDespesaWizard } from './_components/NovaDespesaWizard';
+import { RecorrenteWizard } from './_components/RecorrenteWizard';
 import { QuickAddCard } from './_components/QuickAddCard';
 import { CompráveisView } from './_components/CompraveisView';
 import { MonthlyExpenseView } from './_components/MonthlyExpenseView';
@@ -152,6 +153,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
   const [payModalOpen, setPayModalOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardMode, setWizardMode] = useState<'PLANEJAR' | 'PAGA'>('PLANEJAR');
+  const [recorrenteOpen, setRecorrenteOpen] = useState(false);
   const [editing, setEditing] = useState<Expense | null>(null);
   const [ratearSource, setRatearSource] = useState<Expense | null>(null);
   const [formStatus, setFormStatus] = useState<'PLANEJADO' | 'PAGO'>('PLANEJADO');
@@ -1366,6 +1368,10 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
           setWizardMode('PLANEJAR');
           setWizardOpen(true);
         }}
+        onOpenRecorrenteForm={isPersonal ? () => {
+          setPayModalOpen(false);
+          setRecorrenteOpen(true);
+        } : undefined}
         onOpenVoiceModal={() => {
           setPayModalOpen(false);
           openVoiceModal();
@@ -1387,7 +1393,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
         mode={wizardMode}
         projectId={PROJECT_ID}
         projectType={projectType}
-        allowRecorrente={isPersonal}
+        allowRecorrente={false}
         tipoOptions={formTipoOptions}
         roomOptions={formRoomOptions}
         showRooms={formShowRooms}
@@ -1395,6 +1401,14 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
         onPay={(id) => payMutation.mutate(id)}
         payDisabled={payMutation.isPending}
         onClose={() => setWizardOpen(false)}
+        onCreated={() => invalidate()}
+      />
+
+      <RecorrenteWizard
+        open={recorrenteOpen}
+        projectId={PROJECT_ID}
+        tipoOptions={formTipoOptions}
+        onClose={() => setRecorrenteOpen(false)}
         onCreated={() => invalidate()}
       />
 

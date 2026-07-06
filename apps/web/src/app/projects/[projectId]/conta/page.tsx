@@ -294,7 +294,7 @@ export default function ContaPage() {
         mode="PAGA"
         projectId={projectId}
         projectType="PESSOAL"
-        allowRecorrente
+        allowRecorrente={false}
         tipoOptions={tipoOptions}
         roomOptions={[]}
         showRooms={false}

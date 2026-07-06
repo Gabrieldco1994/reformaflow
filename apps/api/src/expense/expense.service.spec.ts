@@ -896,4 +896,100 @@ describe('ExpenseService', () => {
       ).rejects.toBeInstanceOf(NotFoundException);
     });
   });
+
+  describe('createRecorrente', () => {
+    beforeEach(() => {
+      // create() usa expense.create + regenerateCashFlow (findUnique). Devolve um id
+      // único por chamada e um expense mínimo para o cashflow não quebrar.
+      let n = 0;
+      prisma.expense.create.mockImplementation(async () => ({ id: `rec-${++n}`, valorTotal: 50000 }));
+      prisma.expense.findUnique.mockImplementation(async ({ where }: any) => ({
+        id: where.id,
+        projectId,
+        tenantId,
+        tipoDespesa: 'MORADIA',
+        categoriaMaoDeObra: null,
+        roomId: null,
+        valor: 50000,
+        quantidade: 1,
+        valorTotal: 50000,
+        formaPagamento: 'A_VISTA',
+        dataPagamento: new Date('2026-01-10'),
+        quantidadeParcela: null,
+        dataInicioParcela: null,
+        status: 'PLANEJADO',
+        cardLast4: null,
+        bankLast4: null,
+        settledByExpenseId: null,
+        room: null,
+      }));
+    });
+
+    it('MENSAL gera uma despesa planejada por mês (início e fim inclusivos)', async () => {
+      const res = await service.createRecorrente(tenantId, projectId, {
+        tipoDespesa: 'MORADIA',
+        valor: 500,
+        frequencia: 'MENSAL',
+        dataInicio: '2026-01-10',
+        dataFim: '2026-04-10',
+      } as any);
+
+      expect(res.count).toBe(4); // jan, fev, mar, abr
+      expect(res.ids).toHaveLength(4);
+      // cada ocorrência é A_VISTA/PLANEJADO
+      const firstCall = prisma.expense.create.mock.calls[0]![0];
+      expect(firstCall.data.formaPagamento).toBe('A_VISTA');
+      expect(firstCall.data.status).toBe('PLANEJADO');
+      expect(firstCall.data.valor).toBe(50000); // 500 reais em centavos
+    });
+
+    it('QUINZENAL gera ocorrências a cada 15 dias', async () => {
+      const res = await service.createRecorrente(tenantId, projectId, {
+        tipoDespesa: 'MORADIA',
+        valor: 300,
+        frequencia: 'QUINZENAL',
+        dataInicio: '2026-01-01',
+        dataFim: '2026-02-15',
+      } as any);
+      expect(res.count).toBe(4); // 01/01, 16/01, 31/01, 15/02
+    });
+
+    it('rejeita frequência inválida', async () => {
+      await expect(
+        service.createRecorrente(tenantId, projectId, {
+          tipoDespesa: 'MORADIA',
+          valor: 500,
+          frequencia: 'SEMANAL',
+          dataInicio: '2026-01-10',
+          dataFim: '2026-04-10',
+        } as any),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('rejeita período com fim antes do início', async () => {
+      await expect(
+        service.createRecorrente(tenantId, projectId, {
+          tipoDespesa: 'MORADIA',
+          valor: 500,
+          frequencia: 'MENSAL',
+          dataInicio: '2026-04-10',
+          dataFim: '2026-01-10',
+        } as any),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('não cria nada quando o projeto não pertence ao tenant', async () => {
+      prisma.project.findFirst.mockResolvedValueOnce(null);
+      await expect(
+        service.createRecorrente(tenantId, projectId, {
+          tipoDespesa: 'MORADIA',
+          valor: 500,
+          frequencia: 'MENSAL',
+          dataInicio: '2026-01-10',
+          dataFim: '2026-04-10',
+        } as any),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.expense.create).not.toHaveBeenCalled();
+    });
+  });
 });

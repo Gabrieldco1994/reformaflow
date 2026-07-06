@@ -3,7 +3,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ConciliacaoService, RateioItem, SettleParcelaInput } from '../conciliacao/conciliacao.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
-import { ExpenseTypeLabels, LaborCategoryLabels, buildInstallments, isSinglePaymentForm, isNeutralExpenseType, hasFeature, PaymentForm, ProjectType } from '@reformaflow/domain';
+import { CreateRecorrenteDto } from './dto/create-recorrente.dto';
+import { ExpenseTypeLabels, LaborCategoryLabels, buildInstallments, buildRecurrenceDates, isRecurrenceFrequency, isSinglePaymentForm, isNeutralExpenseType, hasFeature, PaymentForm, ProjectType, type RecurrenceFrequency } from '@reformaflow/domain';
 import { RatearMixedDto } from './dto/ratear-mixed.dto';
 import { Prisma } from '@prisma/client';
 import { fastClassify } from '../bank-account/bank-account.service';
@@ -126,6 +127,69 @@ export class ExpenseService {
     await this.regenerateCashFlow(expense.id);
 
     return expense;
+  }
+
+  /**
+   * Cria uma DESPESA RECORRENTE: materializa N despesas planejadas independentes
+   * (uma por ocorrência) entre `dataInicio` e `dataFim`, na frequência escolhida
+   * (MENSAL/QUINZENAL). Cada ocorrência é uma despesa À_VISTA/PLANEJADO normal —
+   * reusa `create` (links de cartão/conta, cashflow, competência) e portanto entra
+   * automaticamente em TODOS os KPIs, Visão Conta e cockpit, como qualquer despesa.
+   * Editar o valor de uma ocorrência é um PATCH normal (cada uma é independente).
+   */
+  async createRecorrente(tenantId: string, projectId: string, dto: CreateRecorrenteDto) {
+    await this.validateProject(tenantId, projectId);
+
+    if (!isRecurrenceFrequency(dto.frequencia)) {
+      throw new BadRequestException('Frequência inválida. Use MENSAL ou QUINZENAL.');
+    }
+    const inicio = new Date(dto.dataInicio);
+    const fim = new Date(dto.dataFim);
+    if (Number.isNaN(inicio.getTime()) || Number.isNaN(fim.getTime())) {
+      throw new BadRequestException('Datas de recorrência inválidas.');
+    }
+
+    const dates = buildRecurrenceDates({
+      inicio,
+      fim,
+      frequencia: dto.frequencia as RecurrenceFrequency,
+    });
+    if (dates.length === 0) {
+      throw new BadRequestException('Período inválido: a data final é anterior à inicial.');
+    }
+
+    const quantidade = dto.quantidade && dto.quantidade >= 1 ? dto.quantidade : 1;
+    const created: Awaited<ReturnType<typeof this.create>>[] = [];
+    for (const d of dates) {
+      const iso = d.toISOString();
+      const expense = await this.create(tenantId, projectId, {
+        tipoDespesa: dto.tipoDespesa,
+        categoriaMaoDeObra: dto.categoriaMaoDeObra,
+        roomId: dto.roomId,
+        valor: dto.valor,
+        quantidade,
+        titulo: dto.titulo,
+        fornecedor: dto.fornecedor,
+        link: dto.link,
+        imageUrl: dto.imageUrl,
+        formaPagamento: 'A_VISTA',
+        status: 'PLANEJADO',
+        dataPagamento: iso,
+        dataCompra: iso,
+        creditCardId: dto.creditCardId,
+        bankAccountId: dto.bankAccountId,
+      } as CreateExpenseDto);
+      created.push(expense);
+    }
+
+    return {
+      count: created.length,
+      frequencia: dto.frequencia,
+      dataInicio: dto.dataInicio,
+      dataFim: dto.dataFim,
+      ids: created.map((e) => e.id),
+      expenses: created,
+    };
   }
 
   async findAll(
