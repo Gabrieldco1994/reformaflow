@@ -70,10 +70,18 @@ export function useFinancialAgent() {
 
       let assistant: ChatMessage;
       try {
-        const res = await api.post<AgentResponse>('/agent/chat', {
-          projectId,
-          messages: history.map((m) => ({ role: m.role, content: m.content })),
-        });
+        const res = await api.post<AgentResponse>(
+          '/agent/chat',
+          {
+            projectId,
+            messages: history.map((m) => ({ role: m.role, content: m.content })),
+          },
+          // O agente roda um loop LLM (até 12 iterações) com fallback de provider;
+          // pode passar bem dos 25s padrão. Damos folga para evitar abortar uma
+          // chamada que JÁ está criando a despesa no servidor (o que gerava
+          // duplicatas quando o usuário reenviava após o "timeout").
+          { timeoutMs: 120_000 },
+        );
         assistant = { role: 'assistant', content: res.reply, toolsUsed: res.toolsUsed };
         setMessages((prev) => [...prev, assistant]);
 

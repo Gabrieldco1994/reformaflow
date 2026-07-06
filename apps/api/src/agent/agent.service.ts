@@ -188,6 +188,8 @@ export class AgentService {
       '  linkedExpenseId no create_expense.',
       '- Confirme em 1 frase os dados essenciais quando houver ambiguidade; se claro e houver projeto em foco, crie direto.',
       '- Após criar, confirme objetivamente (valor formatado, projeto, tipo e, se houver, cartão/conta/vínculo).',
+      '- Se um create_expense devolver "duplicadaEvitada": true, NÃO foi criada uma nova — já existia uma idêntica',
+      '  (provável reenvio). Avise o usuário que a despesa JÁ estava registrada (não duplique) e siga em frente.',
       '- VÁRIOS LANÇAMENTOS DE UMA VEZ (lote): quando o usuário pedir várias despesas/recebimentos numa só mensagem,',
       '  crie CADA um e, ao final, dê um RESUMO CLARO: quantos deram certo E, para cada um que FALHOU, diga QUAL',
       '  item e o MOTIVO (ex.: "valor/data ilegível", "categoria inválida"). NUNCA responda só "deu erro" sem dizer',

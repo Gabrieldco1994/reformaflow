@@ -296,14 +296,57 @@ export class AgentToolsService {
 
           const parcelado = formaPagamento === 'PARCELADO' || formaPagamento === 'QUINZENAL';
 
+          // Idempotência: um reenvio do mesmo comando (ex.: usuário achou que deu
+          // "timeout" mas o servidor já havia criado) não pode gerar duplicata.
+          // Procuramos uma despesa idêntica criada nos últimos 5 min e, se existir,
+          // devolvemos ELA em vez de criar outra.
+          const valorCents = Math.round(valor * 100);
+          const titulo = this.optStr(args['titulo']);
+          const fornecedor = this.optStr(args['fornecedor']);
+          const dupWindowStart = new Date(Date.now() - 5 * 60_000);
+          const existing = await this.prisma.expense.findFirst({
+            where: {
+              tenantId: ctx.tenantId,
+              projectId: project.id,
+              deletedAt: null,
+              tipoDespesa,
+              valor: valorCents,
+              valorTotal: valorCents * quantidade,
+              quantidade,
+              formaPagamento,
+              status,
+              titulo: titulo ?? null,
+              fornecedor: fornecedor ?? null,
+              createdAt: { gte: dupWindowStart },
+              ...(data ? { dataCompra: new Date(data) } : {}),
+            },
+            orderBy: { createdAt: 'desc' },
+          });
+          if (existing) {
+            return {
+              ok: true,
+              duplicadaEvitada: true,
+              despesa: {
+                id: existing.id,
+                projeto: project.name,
+                tipoDespesa,
+                titulo: existing.titulo ?? null,
+                fornecedor: existing.fornecedor ?? null,
+                valorTotalCentavos: existing.valorTotal,
+                status,
+                formaPagamento,
+              },
+            };
+          }
+
           const created = await this.expenses.create(ctx.tenantId, project.id, {
             tipoDespesa,
             valor,
             quantidade,
             formaPagamento,
             status,
-            titulo: this.optStr(args['titulo']),
-            fornecedor: this.optStr(args['fornecedor']),
+            titulo,
+            fornecedor,
             // À vista: a data vira dataPagamento. Parcelado: vira dataInicioParcela.
             dataPagamento: parcelado ? undefined : data,
             dataInicioParcela: parcelado ? data : undefined,

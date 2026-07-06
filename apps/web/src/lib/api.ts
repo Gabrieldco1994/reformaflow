@@ -8,9 +8,21 @@ const DEFAULT_HEADERS: Record<string, string> = {
 // levar alguns segundos pra ela acordar. 25s cobre cold-start + margem.
 const REQUEST_TIMEOUT_MS = 25_000;
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+interface RequestExtra {
+  /** Timeout específico em ms (sobrepõe o default de 25s). Ex.: Copilot/LLM. */
+  timeoutMs?: number;
+}
+
+async function request<T>(
+  path: string,
+  options?: RequestInit,
+  extra?: RequestExtra,
+): Promise<T> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(
+    () => controller.abort(),
+    extra?.timeoutMs ?? REQUEST_TIMEOUT_MS,
+  );
   try {
     const res = await fetch(`${API_BASE}${path}`, {
       ...options,
@@ -51,14 +63,15 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  get: <T>(path: string) => request<T>(path),
-  post: <T>(path: string, body: unknown) =>
-    request<T>(path, { method: 'POST', body: JSON.stringify(body) }),
-  patch: <T>(path: string, body: unknown) =>
-    request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
-  put: <T>(path: string, body: unknown) =>
-    request<T>(path, { method: 'PUT', body: JSON.stringify(body) }),
-  delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+  get: <T>(path: string, opts?: RequestExtra) => request<T>(path, undefined, opts),
+  post: <T>(path: string, body: unknown, opts?: RequestExtra) =>
+    request<T>(path, { method: 'POST', body: JSON.stringify(body) }, opts),
+  patch: <T>(path: string, body: unknown, opts?: RequestExtra) =>
+    request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }, opts),
+  put: <T>(path: string, body: unknown, opts?: RequestExtra) =>
+    request<T>(path, { method: 'PUT', body: JSON.stringify(body) }, opts),
+  delete: <T>(path: string, opts?: RequestExtra) =>
+    request<T>(path, { method: 'DELETE' }, opts),
   upload: <T>(path: string, formData: FormData, opts?: { timeoutMs?: number }) => {
     const timeoutMs = opts?.timeoutMs ?? 90_000;
     const controller = new AbortController();
