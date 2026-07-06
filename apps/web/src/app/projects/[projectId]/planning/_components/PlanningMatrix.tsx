@@ -14,6 +14,7 @@ interface PlanningMatrixProps {
   onIncomeChange: (monthKey: string, cents: number) => void;
   onExpenseChange: (monthKey: string, typeCode: string, cents: number) => void;
   onFillWithAverage: (monthKeys: string[]) => void;
+  onClearAll: () => void;
 }
 
 const SHORT_MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
@@ -36,6 +37,7 @@ export default function PlanningMatrix({
   onIncomeChange,
   onExpenseChange,
   onFillWithAverage,
+  onClearAll,
 }: PlanningMatrixProps) {
   const expenseTotalByMonth = useMemo(() => {
     const totals: Record<string, number> = {};
@@ -67,13 +69,30 @@ export default function PlanningMatrix({
             Edite mês a mês as entradas e cada tipo de despesa.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onAddMonth}
-          className="rounded-lg bg-darc-red px-3 py-2 text-xs font-semibold text-white hover:bg-darc-red/90"
-        >
-          + Adicionar mês
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              if (
+                window.confirm(
+                  'Limpar tudo? Isso zera as entradas e todas as despesas de todos os meses deste planning.',
+                )
+              ) {
+                onClearAll();
+              }
+            }}
+            className="rounded-lg border border-darc-linen px-3 py-2 text-xs font-semibold text-darc-velvet/80 hover:bg-slate-50"
+          >
+            Limpar tudo
+          </button>
+          <button
+            type="button"
+            onClick={onAddMonth}
+            className="rounded-lg bg-darc-red px-3 py-2 text-xs font-semibold text-white hover:bg-darc-red/90"
+          >
+            + Adicionar mês
+          </button>
+        </div>
       </div>
 
       <PlanningFillAverage

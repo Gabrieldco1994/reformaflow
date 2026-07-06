@@ -36,6 +36,7 @@ export default function PlanningPage() {
     setIncomeForMonth,
     setExpenseForMonth,
     fillMonthsWithAverage,
+    clearAll,
   } = usePersonalPlanning();
 
   if (!isPersonal) {
@@ -105,6 +106,7 @@ export default function PlanningPage() {
         onIncomeChange={setIncomeForMonth}
         onExpenseChange={setExpenseForMonth}
         onFillWithAverage={fillMonthsWithAverage}
+        onClearAll={clearAll}
       />
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">

@@ -75,6 +75,8 @@ interface UsePersonalPlanningResult {
   averageByCodeCents: Record<string, number>;
   /** Preenche os meses informados com a média histórica de cada categoria. */
   fillMonthsWithAverage: (monthKeys: string[]) => void;
+  /** Zera todas as entradas e despesas do cenário ativo (mantém meses e categorias). */
+  clearAll: () => void;
 }
 
 function addMonths(monthKey: string, delta: number): string {
@@ -325,6 +327,30 @@ function withDerivedAssumptions(scenario: PlanningScenario): PlanningScenario {
   };
 
   return { ...scenario, assumptions };
+}
+
+/**
+ * Zera TODOS os valores de um cenário: entradas e despesas de cada categoria em
+ * todos os meses. Mantém a grade de meses e a ordem/estrutura de categorias
+ * (apenas apaga os números). Os derivados (assumptions) são recomputados.
+ */
+export function clearScenarioValues(scenario: PlanningScenario): PlanningScenario {
+  const incomeByMonthCents: Record<string, number> = {};
+  for (const monthKey of scenario.months) incomeByMonthCents[monthKey] = 0;
+
+  const expenseByTypeByMonthCents: Record<string, Record<string, number>> = {};
+  for (const monthKey of scenario.months) {
+    const row: Record<string, number> = {};
+    for (const typeCode of scenario.expenseTypeOrder) row[typeCode] = 0;
+    expenseByTypeByMonthCents[monthKey] = row;
+  }
+
+  return withDerivedAssumptions({
+    ...scenario,
+    updatedAt: new Date().toISOString(),
+    incomeByMonthCents,
+    expenseByTypeByMonthCents,
+  });
 }
 
 export function createScenarioFromAssumptions(
@@ -884,11 +910,19 @@ export function usePersonalPlanning(): UsePersonalPlanningResult {
     [averageByCodeCents, updateActiveScenario],
   );
 
+  /**
+   * Limpa TODOS os valores do cenário ativo: zera as entradas e as despesas de
+   * cada categoria em todos os meses. Mantém a grade de meses e as categorias da
+   * matriz (estrutura), apenas apaga os números para recomeçar do zero.
+   */
+  const clearAll = useCallback(() => {
+    updateActiveScenario((scenario) => clearScenarioValues(scenario));
+  }, [updateActiveScenario]);
+
   const startBalanceCents = useMemo(
     () => (overview.data ? deriveCockpitTop(overview.data).caixaValor : 0),
     [overview.data],
   );
-
   const projection = useMemo<PlanningProjectionRow[]>(() => {
     if (!activeScenario) return [];
     let runningBalance = startBalanceCents;
@@ -1036,5 +1070,6 @@ export function usePersonalPlanning(): UsePersonalPlanningResult {
     addExpenseType,
     averageByCodeCents,
     fillMonthsWithAverage,
+    clearAll,
   };
 }
