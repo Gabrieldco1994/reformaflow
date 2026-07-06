@@ -39,6 +39,11 @@ Também há evoluções posteriores da Visão Conta no `main` (filtros, gráfico
   Agora vem de `getAccountView` (mesma fonte da Visão Conta): projeção R$ 56.652,82.
   Ver `docs/cockpit-caixa-real.md §9`. ⚠️ Os KPIs de saída do dashboard ainda são
   competência (mesma subcontagem) — alinhamento é o follow-up.
+- `de9f420d` / `94551610` — **Despesa recorrente (mensal/quinzenal).** Novo botão
+  no modal de lançamento gera N despesas planejadas reais (uma por ocorrência),
+  entrando em todos os KPIs sem lógica nova. Modo **cross-project** (obra paga pelo
+  pessoal) gera par canônica+espelho por ocorrência. Cobre UI, Copilot e voz (tool
+  `create_recurring_expense`). Ver `docs/despesa-recorrente.md`.
 
 ### Incremento recente (DRE pessoal)
 
