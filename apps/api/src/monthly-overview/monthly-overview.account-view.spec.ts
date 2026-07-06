@@ -36,6 +36,7 @@ describe('MonthlyOverviewService.getAccountView', () => {
       cashFlowEntry: { findMany: jest.fn() },
       creditCard: { findMany: jest.fn(), findFirst: jest.fn() },
       crossProjectSettlement: { findMany: jest.fn().mockResolvedValue([]) },
+      rateioAllocation: { findMany: jest.fn().mockResolvedValue([]) },
       bankStatementImport: { findMany: jest.fn().mockResolvedValue([]) },
     };
 
@@ -1590,6 +1591,43 @@ describe('MonthlyOverviewService.getAccountView', () => {
       expect(lump.projetoOrigem).toEqual(expect.objectContaining({ type: 'REFORMA' }));
       expect(lump.data.slice(0, 10)).toBe('2026-06-15');
       expect(res.faltaPagarMes).toBe(7_000);
+    });
+
+    it('rateio multi-alvo: suprime TODOS os alvos (fonte cobre) — sem lump nem dupla contagem', async () => {
+      // Fonte PESSOAL no cartão 5572, PARCELADO 2x; rateada entre 2 alvos REFORMA.
+      // Só o 1º alvo recebe linkedExpenseId; sem a supressão por RateioAllocation o
+      // 2º alvo viraria lump (valorTotal na data de compra) e inflaria a projeção.
+      prisma.creditCard.findMany.mockResolvedValue([
+        { id: 'c-5572', tenantId, projectId, nickname: 'Cartão', last4: '5572',
+          closingDay: 20, dueDay: 28, limitTotalCents: 100_000, limitAvailableCents: 50_000 },
+      ]);
+      prisma.rateioAllocation.findMany.mockResolvedValue([
+        { sourceExpenseId: 'src-rat', targetExpenseId: 'tgt-a' },
+        { sourceExpenseId: 'src-rat', targetExpenseId: 'tgt-b' },
+      ]);
+      prisma.expense.findMany.mockResolvedValue([
+        base({ id: 'src-rat', projectId, titulo: 'Compras TelhaNorte', fornecedor: 'TelhaNorte',
+          valorTotal: 8_000, valor: 4_000, status: 'PLANEJADO', cardLast4: '5572',
+          formaPagamento: 'PARCELADO', quantidadeParcela: 2,
+          dataInicioParcela: new Date('2026-06-10T00:00:00.000Z'), linkedExpenseId: 'tgt-a' }),
+        base({ id: 'tgt-a', projectId: reforma.id, titulo: 'Piso', fornecedor: 'TelhaNorte',
+          valorTotal: 5_000, valor: 2_500, formaPagamento: 'PARCELADO', quantidadeParcela: 2,
+          dataInicioParcela: new Date('2026-06-10T00:00:00.000Z'), status: 'PLANEJADO', project: reforma }),
+        base({ id: 'tgt-b', projectId: reforma.id, titulo: 'Areia', fornecedor: 'TelhaNorte',
+          valorTotal: 3_000, valor: 1_500, formaPagamento: 'PARCELADO', quantidadeParcela: 2,
+          dataInicioParcela: new Date('2026-06-10T00:00:00.000Z'), status: 'PLANEJADO', project: reforma }),
+      ]);
+
+      const res: any = await service.getAccountView(tenantId, projectId, '2026-06');
+
+      // Nenhum alvo REFORMA vira saída de conta (a fatura do cartão da fonte cobre).
+      const contaReforma = res.saidas.filter(
+        (s: any) => s.isInvoice === false && s.projetoOrigem?.type === 'REFORMA',
+      );
+      expect(contaReforma).toHaveLength(0);
+      // Especificamente o 2º alvo (não linkado) não pode virar lump.
+      expect(res.saidas.some((s: any) => s.descricao === 'Areia')).toBe(false);
+      expect(res.saidas.some((s: any) => s.valor === 3_000)).toBe(false);
     });
   });
 });

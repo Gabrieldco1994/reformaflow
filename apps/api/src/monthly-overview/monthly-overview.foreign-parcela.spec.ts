@@ -29,6 +29,7 @@ describe('MonthlyOverviewService.getAccountView — origem POR PARCELA (P3) + co
         findFirst: jest.fn(),
       },
       crossProjectSettlement: { findMany: jest.fn().mockResolvedValue([]) }, // NOVA query esperada
+      rateioAllocation: { findMany: jest.fn().mockResolvedValue([]) },
       bankStatementImport: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const module: TestingModule = await Test.createTestingModule({

@@ -222,7 +222,8 @@ export class MonthlyOverviewService {
     const sixMonthKeys = lastMonthKeys(mesSelecionado, 6);
     const sixMonthSet = new Set(sixMonthKeys);
 
-    const [accounts, allExpenses, receipts, entries, cards, settlements] = await Promise.all([
+    const [accounts, allExpenses, receipts, entries, cards, settlements, rateioAllocations] =
+      await Promise.all([
       this.prisma.bankAccount.findMany({
         where: { tenantId, projectId, deletedAt: null },
         select: {
@@ -325,6 +326,10 @@ export class MonthlyOverviewService {
       this.prisma.crossProjectSettlement.findMany({
         where: { tenantId },
       }),
+      this.prisma.rateioAllocation.findMany({
+        where: { tenantId },
+        select: { sourceExpenseId: true, targetExpenseId: true },
+      }),
     ]);
 
     // O PESSOAL é o controlador universal do caixa: carregamos as despesas de
@@ -381,6 +386,20 @@ export class MonthlyOverviewService {
     // Espelhos soft-deletados (P1/P2/P6) já saíram de `allExpenses`, então uma
     // parcela cujo espelho sumiu não é indevidamente suprimida.
     const allExpensesById = new Map(allExpenses.map((expense) => [expense.id, expense] as const));
+
+    // Rateio (distribuição de UMA compra-fonte PESSOAL entre N alvos de outros
+    // projetos): a FONTE representa integralmente a saída de caixa (cartão → a fatura
+    // cobre; banco → aparece em accountExpenseList com suas parcelas). Os alvos são
+    // apenas a distribuição contábil no projeto de destino e NÃO devem virar saída de
+    // conta no PESSOAL — senão dobra. Só o 1º alvo recebe o vínculo `linkedExpenseId`;
+    // sem este conjunto, os demais alvos cairiam no ramo "sem espelho" (lump) e
+    // inflariam a projeção. Suprimimos todos os alvos cuja fonte ainda existe.
+    const rateioTargetIds = new Set<string>();
+    for (const a of rateioAllocations) {
+      if (!allExpensesById.has(a.sourceExpenseId)) continue; // fonte sumiu → não suprime
+      rateioTargetIds.add(a.targetExpenseId);
+    }
+
     type ParcelaOrigin =
       | { origem: 'card' }
       | { origem: 'bank'; bankLast4: string | null };
@@ -623,6 +642,9 @@ export class MonthlyOverviewService {
         return true;
       })
       .flatMap((expense) => {
+        // Alvo de rateio: a compra-fonte PESSOAL já cobre a saída (fatura/conta).
+        // Não re-emite — evita dupla contagem na projeção.
+        if (rateioTargetIds.has(expense.id)) return [];
         const origin = classifyForeignOrigin(expense.id);
         const projetoOrigem = expense.project
           ? { id: expense.project.id, name: expense.project.name, type: expense.project.type }
