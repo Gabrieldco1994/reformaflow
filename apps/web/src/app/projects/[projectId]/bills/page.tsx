@@ -14,6 +14,7 @@ const CATEGORIAS = [
   { value: 'INTERNET', label: 'Internet' },
   { value: 'IPTU', label: 'IPTU' },
   { value: 'CONDOMINIO', label: 'Condomínio' },
+  { value: 'FINANCIAMENTO', label: 'Financiamento' },
   { value: 'SEGURO', label: 'Seguro' },
   { value: 'GAS', label: 'Gás' },
   { value: 'TELEFONE', label: 'Telefone' },

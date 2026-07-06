@@ -106,6 +106,7 @@ const PESSOAL_EXPENSE_TYPES: ExpenseType[] = [
 // recorrências). Cobre contas de consumo, manutenções e imprevistos do lar.
 const CASA_EXPENSE_TYPES: ExpenseType[] = [
   ExpenseType.MORADIA,
+  ExpenseType.FINANCIAMENTO,
   ExpenseType.ALIMENTACAO,
   ExpenseType.SAUDE,
   ExpenseType.LAZER,
