@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mediaMensalPorTipo, categoriasDoAno, gastoMedioMensal } from './derive';
+import { mediaMensalPorTipo, mediaMensalPorCodigo, categoriasDoAno, gastoMedioMensal } from './derive';
 import type { MonthlyEntry } from '../_types';
 
 function entry(patch: Partial<MonthlyEntry>): MonthlyEntry {
@@ -82,6 +82,34 @@ describe('mediaMensalPorTipo', () => {
   it('categoria nula vira "Outros"', () => {
     const media = mediaMensalPorTipo([entry({ categoria: null, valor: 1200 })], 2026);
     expect(media.get('Outros')).toBe(100); // 1200 / 12
+  });
+});
+
+describe('mediaMensalPorCodigo', () => {
+  it('chaveia por tipoDespesaCodigo e divide por 12', () => {
+    const media = mediaMensalPorCodigo(
+      [
+        entry({ data: '2026-01-10', tipoDespesaCodigo: 'MORADIA', valor: 600 }),
+        entry({ data: '2026-02-10', tipoDespesaCodigo: 'MORADIA', valor: 600 }),
+        entry({ data: '2026-01-10', tipoDespesaCodigo: 'ALIMENTACAO', valor: 240 }),
+      ],
+      2026,
+    );
+    expect(media.get('MORADIA')).toBe(100); // 1200 / 12
+    expect(media.get('ALIMENTACAO')).toBe(20); // 240 / 12
+  });
+
+  it('ignora planejado, espelho, neutro-consumo e entradas sem código', () => {
+    const media = mediaMensalPorCodigo(
+      [
+        entry({ data: '2026-01-10', tipoDespesaCodigo: 'MORADIA', status: 'PLANEJADO', valor: 999 }),
+        entry({ data: '2026-01-10', tipoDespesaCodigo: 'MORADIA', isEspelho: true, valor: 999 }),
+        entry({ data: '2026-01-10', tipoDespesaCodigo: undefined, valor: 999 }),
+        entry({ data: '2026-01-10', tipoDespesaCodigo: 'MORADIA', valor: 1200 }),
+      ],
+      2026,
+    );
+    expect(media.get('MORADIA')).toBe(100); // só a paga válida: 1200/12
   });
 });
 

@@ -53,9 +53,33 @@ export function mediaMensalPorTipo(
 }
 
 /**
- * Categorias de gasto do ano, COMPLETAS (sem a truncagem top-N por mês que o
- * backend aplica em `porCategoria`). Agrega direto das entries do ano:
- *  - só DESPESA; consolidado (espelho deduplicado); neutros fora (pagamento de
+ * Média mensal por CÓDIGO de tipo de despesa no ano — mesma regra de
+ * `mediaMensalPorTipo` (só pagas, espelho/neutro-de-consumo fora, ÷12), porém
+ * chaveada pelo `tipoDespesaCodigo` (enum cru), não pelo label. Usado pelo
+ * planning para preencher meses (que trabalha por código de tipo). Entradas sem
+ * `tipoDespesaCodigo` são ignoradas. Retorna centavos por código.
+ */
+export function mediaMensalPorCodigo(
+  entries: MonthlyEntry[],
+  year: number,
+): Map<string, number> {
+  const totalPorCodigo = new Map<string, number>();
+  for (const e of entries) {
+    if (e.tipo !== 'DESPESA') continue;
+    if ((e.data ?? '').slice(0, 4) !== String(year)) continue;
+    if (!isRealized(e.status)) continue;
+    if (e.isEspelho) continue;
+    if (entryIsConsumptionNeutral(e)) continue;
+    const codigo = e.tipoDespesaCodigo?.trim();
+    if (!codigo) continue;
+    totalPorCodigo.set(codigo, (totalPorCodigo.get(codigo) ?? 0) + e.valor);
+  }
+  const media = new Map<string, number>();
+  for (const [codigo, total] of totalPorCodigo) media.set(codigo, Math.round(total / 12));
+  return media;
+}
+
+/**
  *    fatura / movimentação interna não são consumo) — mesma base da média;
  *  - `valor` = total do tipo no ano (realizado + planejado, como o card sempre
  *    mostrou); `media` = média mensal só das pagas (via `mediaMensalPorTipo`).

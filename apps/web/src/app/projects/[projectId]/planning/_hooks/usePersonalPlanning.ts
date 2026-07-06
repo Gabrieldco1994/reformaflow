@@ -11,6 +11,7 @@ import {
   buildCaixaData,
   buildComprometimentoFuturo,
   deriveCockpitTop,
+  mediaMensalPorCodigo,
 } from '../../monthly/_cockpit/derive';
 import { mesCurto } from '../../monthly/_cockpit/format';
 import type {
@@ -70,6 +71,10 @@ interface UsePersonalPlanningResult {
   setIncomeForMonth: (monthKey: string, cents: number) => void;
   setExpenseForMonth: (monthKey: string, typeCode: string, cents: number) => void;
   addExpenseType: (typeCode: string) => void;
+  /** Média mensal (÷12) por código de tipo, dos gastos reais — base do preenchimento. */
+  averageByCodeCents: Record<string, number>;
+  /** Preenche os meses informados com a média histórica de cada categoria. */
+  fillMonthsWithAverage: (monthKeys: string[]) => void;
 }
 
 function addMonths(monthKey: string, delta: number): string {
@@ -824,6 +829,61 @@ export function usePersonalPlanning(): UsePersonalPlanningResult {
   const months = activeScenario?.months ?? [];
   const incomeByMonthCents = activeScenario?.incomeByMonthCents ?? {};
 
+  // Média mensal por CÓDIGO de tipo (÷12), do ano corrente do overview — só gastos
+  // reais (pagas), espelho/neutro-de-consumo fora. Base do "preencher com média".
+  const averageByCodeCents = useMemo<Record<string, number>>(() => {
+    if (!overview.data?.entries?.length) return {};
+    const year = parseInt((overview.data.mesAtual ?? '').slice(0, 4), 10) || new Date().getFullYear();
+    const media = mediaMensalPorCodigo(overview.data.entries, year);
+    const out: Record<string, number> = {};
+    for (const [codigo, cents] of media) {
+      // Só categorias pessoais válidas (exclui neutros e códigos fora do planning).
+      if (isNeutralExpenseType(codigo)) continue;
+      if (!PERSONAL_EXPENSE_LABEL_BY_CODE.has(codigo)) continue;
+      if (cents > 0) out[codigo] = cents;
+    }
+    return out;
+  }, [overview.data]);
+
+  /**
+   * Preenche os meses informados com a média histórica de cada categoria (÷12).
+   * Adiciona ao cenário as categorias que ainda não estão na matriz e sobrescreve
+   * o valor de cada categoria nos meses selecionados. Não toca em outros meses.
+   */
+  const fillMonthsWithAverage = useCallback(
+    (monthKeys: string[]) => {
+      const codes = Object.keys(averageByCodeCents);
+      if (monthKeys.length === 0 || codes.length === 0) return;
+      updateActiveScenario((scenario) => {
+        const targetMonths = monthKeys.filter((m) => scenario.months.includes(m));
+        if (targetMonths.length === 0) return scenario;
+
+        const nextOrder = [...scenario.expenseTypeOrder];
+        for (const code of codes) {
+          if (!nextOrder.includes(code)) nextOrder.push(code);
+        }
+
+        const nextByMonth: Record<string, Record<string, number>> = {
+          ...scenario.expenseByTypeByMonthCents,
+        };
+        for (const monthKey of targetMonths) {
+          const row = { ...(nextByMonth[monthKey] ?? {}) };
+          for (const code of codes) {
+            row[code] = averageByCodeCents[code] ?? 0;
+          }
+          nextByMonth[monthKey] = row;
+        }
+
+        return touchScenario({
+          ...scenario,
+          expenseTypeOrder: nextOrder,
+          expenseByTypeByMonthCents: nextByMonth,
+        });
+      });
+    },
+    [averageByCodeCents, updateActiveScenario],
+  );
+
   const startBalanceCents = useMemo(
     () => (overview.data ? deriveCockpitTop(overview.data).caixaValor : 0),
     [overview.data],
@@ -974,5 +1034,7 @@ export function usePersonalPlanning(): UsePersonalPlanningResult {
     setIncomeForMonth,
     setExpenseForMonth,
     addExpenseType,
+    averageByCodeCents,
+    fillMonthsWithAverage,
   };
 }

@@ -25,6 +25,7 @@ export default function PlanningPage() {
     months,
     incomeByMonthCents,
     expenseMatrixRows,
+    averageByCodeCents,
     patchAssumptions,
     createScenario,
     duplicateScenario,
@@ -34,6 +35,7 @@ export default function PlanningPage() {
     addMonth,
     setIncomeForMonth,
     setExpenseForMonth,
+    fillMonthsWithAverage,
   } = usePersonalPlanning();
 
   if (!isPersonal) {
@@ -98,9 +100,11 @@ export default function PlanningPage() {
         months={months}
         incomeByMonthCents={incomeByMonthCents}
         expenseRows={expenseMatrixRows}
+        averageByCodeCents={averageByCodeCents}
         onAddMonth={addMonth}
         onIncomeChange={setIncomeForMonth}
         onExpenseChange={setExpenseForMonth}
+        onFillWithAverage={fillMonthsWithAverage}
       />
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">

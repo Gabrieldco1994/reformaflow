@@ -3,14 +3,17 @@
 import { useMemo } from 'react';
 import { fmtMoneyExact } from '../../monthly/_cockpit/format';
 import type { PlanningMatrixExpenseRow } from '../_types';
+import PlanningFillAverage from './PlanningFillAverage';
 
 interface PlanningMatrixProps {
   months: string[];
   incomeByMonthCents: Record<string, number>;
   expenseRows: PlanningMatrixExpenseRow[];
+  averageByCodeCents: Record<string, number>;
   onAddMonth: () => void;
   onIncomeChange: (monthKey: string, cents: number) => void;
   onExpenseChange: (monthKey: string, typeCode: string, cents: number) => void;
+  onFillWithAverage: (monthKeys: string[]) => void;
 }
 
 const SHORT_MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
@@ -28,9 +31,11 @@ export default function PlanningMatrix({
   months,
   incomeByMonthCents,
   expenseRows,
+  averageByCodeCents,
   onAddMonth,
   onIncomeChange,
   onExpenseChange,
+  onFillWithAverage,
 }: PlanningMatrixProps) {
   const expenseTotalByMonth = useMemo(() => {
     const totals: Record<string, number> = {};
@@ -70,6 +75,12 @@ export default function PlanningMatrix({
           + Adicionar mês
         </button>
       </div>
+
+      <PlanningFillAverage
+        months={months}
+        averageByCodeCents={averageByCodeCents}
+        onFill={onFillWithAverage}
+      />
 
       <div className="overflow-x-auto rounded-xl border border-darc-linen">
         <table className="min-w-[980px] w-full text-sm">
