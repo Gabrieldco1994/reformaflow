@@ -53,11 +53,17 @@ export function mediaMensalPorTipo(
 }
 
 /**
- * Média mensal por CÓDIGO de tipo de despesa no ano — mesma regra de
- * `mediaMensalPorTipo` (só pagas, espelho/neutro-de-consumo fora, ÷12), porém
- * chaveada pelo `tipoDespesaCodigo` (enum cru), não pelo label. Usado pelo
- * planning para preencher meses (que trabalha por código de tipo). Entradas sem
- * `tipoDespesaCodigo` são ignoradas. Retorna centavos por código.
+ * Média mensal por CÓDIGO de tipo de despesa no ano — chaveada pelo
+ * `tipoDespesaCodigo` (enum cru), não pelo label. Usado pelo planning para
+ * preencher meses (que trabalha por código de tipo).
+ *
+ * ANUALIZADA (compromisso real/mês): inclui parcelas PAGAS **e PLANEJADAS** do
+ * ano (ex.: uma compra parcelada até dezembro conta as parcelas futuras já
+ * agendadas), dividindo por 12. Difere de `mediaMensalPorTipo` (que é só das
+ * pagas), porque aqui o objetivo é estimar o compromisso mensal típico para o
+ * budget — e um parcelamento em curso É um compromisso real, mesmo não pago
+ * ainda. Espelho (dedup cross-project) e neutros de consumo continuam fora.
+ * Entradas sem `tipoDespesaCodigo` são ignoradas. Retorna centavos por código.
  */
 export function mediaMensalPorCodigo(
   entries: MonthlyEntry[],
@@ -67,7 +73,7 @@ export function mediaMensalPorCodigo(
   for (const e of entries) {
     if (e.tipo !== 'DESPESA') continue;
     if ((e.data ?? '').slice(0, 4) !== String(year)) continue;
-    if (!isRealized(e.status)) continue;
+    // Inclui PLANEJADO (compromisso real do ano), diferente da média só-paga.
     if (e.isEspelho) continue;
     if (entryIsConsumptionNeutral(e)) continue;
     const codigo = e.tipoDespesaCodigo?.trim();

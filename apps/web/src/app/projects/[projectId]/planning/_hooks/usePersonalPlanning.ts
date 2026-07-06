@@ -855,8 +855,9 @@ export function usePersonalPlanning(): UsePersonalPlanningResult {
   const months = activeScenario?.months ?? [];
   const incomeByMonthCents = activeScenario?.incomeByMonthCents ?? {};
 
-  // Média mensal por CÓDIGO de tipo (÷12), do ano corrente do overview — só gastos
-  // reais (pagas), espelho/neutro-de-consumo fora. Base do "preencher com média".
+  // Média mensal por CÓDIGO de tipo (÷12), do ano corrente do overview —
+  // ANUALIZADA: inclui parcelas pagas E planejadas do ano (compromisso real),
+  // espelho/neutro-de-consumo fora. Base do "preencher com média".
   const averageByCodeCents = useMemo<Record<string, number>>(() => {
     if (!overview.data?.entries?.length) return {};
     const year = parseInt((overview.data.mesAtual ?? '').slice(0, 4), 10) || new Date().getFullYear();

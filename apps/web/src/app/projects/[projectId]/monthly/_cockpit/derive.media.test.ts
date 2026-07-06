@@ -99,17 +99,36 @@ describe('mediaMensalPorCodigo', () => {
     expect(media.get('ALIMENTACAO')).toBe(20); // 240 / 12
   });
 
-  it('ignora planejado, espelho, neutro-consumo e entradas sem código', () => {
+  it('INCLUI planejado (anualizada: parcela futura do ano é compromisso real)', () => {
+    // Parcelamento até dez: 1 paga (200) + 1 planejada no ano (1000) → (200+1000)/12 = 100.
     const media = mediaMensalPorCodigo(
       [
-        entry({ data: '2026-01-10', tipoDespesaCodigo: 'MORADIA', status: 'PLANEJADO', valor: 999 }),
-        entry({ data: '2026-01-10', tipoDespesaCodigo: 'MORADIA', isEspelho: true, valor: 999 }),
-        entry({ data: '2026-01-10', tipoDespesaCodigo: undefined, valor: 999 }),
-        entry({ data: '2026-01-10', tipoDespesaCodigo: 'MORADIA', valor: 1200 }),
+        entry({ data: '2026-02-10', tipoDespesaCodigo: 'MORADIA', status: 'PAGO', valor: 200 }),
+        entry({ data: '2026-09-10', tipoDespesaCodigo: 'MORADIA', status: 'PLANEJADO', valor: 1000 }),
       ],
       2026,
     );
-    expect(media.get('MORADIA')).toBe(100); // só a paga válida: 1200/12
+    expect(media.get('MORADIA')).toBe(100); // (200 + 1000) / 12
+  });
+
+  it('ignora espelho, neutro-consumo, entradas sem código e outros anos (mas mantém planejado)', () => {
+    const media = mediaMensalPorCodigo(
+      [
+        entry({ data: '2026-01-10', tipoDespesaCodigo: 'MORADIA', isEspelho: true, valor: 999 }),
+        entry({ data: '2026-01-10', tipoDespesaCodigo: undefined, valor: 999 }),
+        entry({
+          data: '2026-01-10',
+          tipoDespesaCodigo: 'PAGAMENTO_FATURA_CARTAO',
+          isNeutral: true,
+          valor: 999,
+        }),
+        entry({ data: '2025-06-10', tipoDespesaCodigo: 'MORADIA', status: 'PLANEJADO', valor: 999 }), // outro ano
+        entry({ data: '2026-01-10', tipoDespesaCodigo: 'MORADIA', status: 'PAGO', valor: 800 }),
+        entry({ data: '2026-07-10', tipoDespesaCodigo: 'MORADIA', status: 'PLANEJADO', valor: 400 }),
+      ],
+      2026,
+    );
+    expect(media.get('MORADIA')).toBe(100); // (800 paga + 400 planejada do ano) / 12
   });
 });
 
