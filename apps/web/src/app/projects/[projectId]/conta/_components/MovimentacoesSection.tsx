@@ -5,7 +5,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ArrowDownUp, CreditCard, Pencil, Trash2 } from 'lucide-react';
 import { api } from '@/lib/api';
-import { formatCurrency, formatDateBR } from '@/lib/utils';
+import { formatCurrency } from '@/lib/utils';
 import { tipoLabel } from '@/lib/expense-options';
 import { DespesaModal } from './DespesaModal';
 import { QuitarParcelaModal } from './QuitarParcelaModal';
@@ -22,8 +22,17 @@ type Tab = 'saidas' | 'entradas' | 'tudo';
 type StatusFilter = 'todos' | 'pago' | 'apagar';
 type SortDir = 'desc' | 'asc';
 
-function initialOf(text: string) {
-  return (text.trim()[0] || '?').toUpperCase();
+const MESES_ABREV = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+
+/** Extrai { dia, mes } de uma data ISO/‑string, em UTC, para o badge do avatar. */
+function dateParts(value: string): { dia: string; mes: string } {
+  const part = (value ?? '').slice(0, 10);
+  const [, m, d] = part.split('-');
+  const mi = parseInt(m ?? '', 10);
+  return {
+    dia: (d ?? '').padStart(2, '0') || '--',
+    mes: mi >= 1 && mi <= 12 ? MESES_ABREV[mi - 1]! : '',
+  };
 }
 
 export function MovimentacoesSection({
@@ -426,7 +435,6 @@ export function MovimentacoesSection({
 
             const meta = [
               item.kind === 'saida' && !item.isInvoice ? tipoLabel(item.tipoDespesa) : null,
-              formatDateBR(item.data).slice(0, 5),
               origem,
             ]
               .filter(Boolean)
@@ -463,7 +471,7 @@ export function MovimentacoesSection({
               >
                 <div className="group flex items-center gap-3 px-3 py-2.5 md:px-4 md:py-3">
                   <span
-                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold md:h-10 md:w-10 ${
+                    className={`flex h-9 w-9 shrink-0 flex-col items-center justify-center rounded-full leading-none md:h-10 md:w-10 ${
                       isEntrada
                         ? 'bg-[#E3F6EA] text-[#1E924A]'
                         : isInvoiceRow
@@ -471,7 +479,16 @@ export function MovimentacoesSection({
                           : 'bg-[#E6EFFE] text-lifeone-blue'
                     }`}
                   >
-                    {isInvoiceRow ? <CreditCard className="h-4 w-4" /> : initialOf(titulo)}
+                    {isInvoiceRow ? (
+                      <CreditCard className="h-4 w-4" />
+                    ) : (
+                      <>
+                        <span className="text-sm font-bold tabular-nums font-geist">{dateParts(item.data).dia}</span>
+                        <span className="text-[8px] font-semibold uppercase tracking-wide opacity-70">
+                          {dateParts(item.data).mes}
+                        </span>
+                      </>
+                    )}
                   </span>
 
                   <button

@@ -133,6 +133,37 @@ describe('AgentService (loop de tool-calling)', () => {
     expect(llm.chat).not.toHaveBeenCalled();
   });
 
+  it('lote parcial: uma criação falha (execute devolve error), o loop continua e responde sem lançar', async () => {
+    // 1ª resposta pede DUAS criações no mesmo turno; a 2ª falha no execute.
+    const llm: LlmProvider = {
+      id: 'mock',
+      isConfigured: () => true,
+      chat: jest
+        .fn()
+        .mockResolvedValueOnce({
+          content: '',
+          toolCalls: [
+            { id: 'c1', name: 'create_expense', arguments: { valor: '22,59' } },
+            { id: 'c2', name: 'create_expense', arguments: { valor: 'ilegível' } },
+          ],
+        })
+        .mockResolvedValueOnce({ content: '1 criada; a outra falhou: valor ilegível.', toolCalls: [] }),
+    };
+    // execute: 1ª ok, 2ª devolve { error } (NÃO lança).
+    const execute = jest
+      .fn()
+      .mockResolvedValueOnce({ ok: true, despesa: { id: 'e1' } })
+      .mockResolvedValueOnce({ error: 'Informe um valor em reais maior que zero.' });
+    const service = new AgentService(llm, makeTools({ execute }));
+
+    const res = await service.chat(baseInput);
+
+    expect(res.reply).toBe('1 criada; a outra falhou: valor ilegível.');
+    expect(execute).toHaveBeenCalledTimes(2);
+    // Não lançou: o erro de uma ferramenta não derruba o lote.
+    expect(res.toolsUsed).toEqual(['create_expense', 'create_expense']);
+  });
+
   it('força resposta final ao atingir o limite de iterações (loop de tools infinito)', async () => {
     const llm: LlmProvider = {
       id: 'mock',
@@ -152,7 +183,7 @@ describe('AgentService (loop de tool-calling)', () => {
     const res = await service.chat(baseInput);
 
     expect(res.reply).toBe('Resposta final forçada.');
-    // 6 iterações com tools + 1 chamada final sem tools
-    expect(llm.chat).toHaveBeenCalledTimes(7);
+    // 12 iterações com tools + 1 chamada final sem tools
+    expect(llm.chat).toHaveBeenCalledTimes(13);
   });
 });

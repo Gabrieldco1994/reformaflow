@@ -23,7 +23,7 @@ export interface AgentChatResult {
   provider: string;
 }
 
-const MAX_ITERATIONS = 6;
+const MAX_ITERATIONS = 12;
 
 @Injectable()
 export class AgentService {
@@ -103,7 +103,7 @@ export class AgentService {
     const final = await this.llm.chat(
       [
         ...messages,
-        { role: 'user', content: 'Responda agora, de forma objetiva, com base nos dados já coletados.' },
+        { role: 'user', content: 'Responda agora, de forma objetiva, com base nos dados já coletados. Se você criou/alterou vários itens, resuma quantos deram certo e, para cada falha, diga qual item e o motivo.' },
       ],
       [],
     );
@@ -188,6 +188,11 @@ export class AgentService {
       '  linkedExpenseId no create_expense.',
       '- Confirme em 1 frase os dados essenciais quando houver ambiguidade; se claro e houver projeto em foco, crie direto.',
       '- Após criar, confirme objetivamente (valor formatado, projeto, tipo e, se houver, cartão/conta/vínculo).',
+      '- VÁRIOS LANÇAMENTOS DE UMA VEZ (lote): quando o usuário pedir várias despesas/recebimentos numa só mensagem,',
+      '  crie CADA um e, ao final, dê um RESUMO CLARO: quantos deram certo E, para cada um que FALHOU, diga QUAL',
+      '  item e o MOTIVO (ex.: "valor/data ilegível", "categoria inválida"). NUNCA responda só "deu erro" sem dizer',
+      '  qual e por quê. Se um item vier com dados confusos (valor e data trocados, categoria estranha), tente',
+      '  interpretar; se não der, crie os demais e peça ao usuário só o dado que faltou para o item problemático.',
       '',
       'CONSULTORIA (diagnóstico) — frameworks e quais ferramentas usar:',
       '- Patrimônio líquido: get_account_balances (saldos − dívida de cartões). É PARCIAL: investimentos,',
