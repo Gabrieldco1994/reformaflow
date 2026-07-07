@@ -18,6 +18,7 @@ import { moneyShort } from '@/lib/money';
 import { InfoHint } from '@/components/InfoHint';
 import type { DreAnual } from '../_types';
 import { DreIcon } from './DreIcon';
+import DespesasPorOrigemChart from './DespesasPorOrigemChart';
 
 function monthShort(mes: string) {
   const [year, month] = mes.split('-').map(Number);
@@ -91,6 +92,7 @@ function SaldoTooltip({
 }
 
 export function DreAnualView({ data }: { data: DreAnual }) {
+  const [saldoMode, setSaldoMode] = useState<'saldo' | 'origem'>('saldo');
   const rows = chartRows(data);
   const saldo = saldoRows(data);
   const maxBar = rows.reduce((max, row) => {
@@ -133,11 +135,54 @@ export function DreAnualView({ data }: { data: DreAnual }) {
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4">
-        <h3 className="text-sm font-semibold text-slate-900">Saldo acumulado do fluxo de caixa</h3>
-        <p className="mt-0.5 text-[11px] text-slate-500">
-          <span className="font-semibold">Projetado</span> inclui planejados/previstos; <span className="font-semibold">Realizado</span> considera apenas pagos e em caixa. O ponto de hoje reconcilia com o caixa da Visão Conta.
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">
+              {saldoMode === 'saldo'
+                ? 'Saldo acumulado do fluxo de caixa'
+                : 'Despesas do mês por origem'}
+            </h3>
+            <p className="mt-0.5 text-[11px] text-slate-500">
+              {saldoMode === 'saldo' ? (
+                <>
+                  <span className="font-semibold">Projetado</span> inclui planejados/previstos;{' '}
+                  <span className="font-semibold">Realizado</span> considera apenas pagos e em caixa. O ponto de hoje reconcilia com o caixa da Visão Conta.
+                </>
+              ) : (
+                <>
+                  Quanto saiu por mês, quebrado por origem (Conta Corrente e cada cartão); inclui planejados. Meses futuros aparecem mais claros (projeção).
+                </>
+              )}
+            </p>
+          </div>
+          <div className="inline-flex shrink-0 rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-[11px] font-semibold">
+            <button
+              type="button"
+              onClick={() => setSaldoMode('saldo')}
+              className={`rounded-md px-2.5 py-1 transition ${
+                saldoMode === 'saldo' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              Saldo
+            </button>
+            <button
+              type="button"
+              onClick={() => setSaldoMode('origem')}
+              className={`rounded-md px-2.5 py-1 transition ${
+                saldoMode === 'origem' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              Por origem
+            </button>
+          </div>
+        </div>
 
+        {saldoMode === 'origem' ? (
+          <div className="mt-3">
+            <DespesasPorOrigemChart data={data.despesasPorOrigem} />
+          </div>
+        ) : (
+        <>
         <div className="mt-3 h-[240px]">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={saldo} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
@@ -208,6 +253,8 @@ export function DreAnualView({ data }: { data: DreAnual }) {
             </span>
           </p>
         </div>
+        </>
+        )}
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4">

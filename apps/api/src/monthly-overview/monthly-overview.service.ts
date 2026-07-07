@@ -1354,6 +1354,47 @@ export class MonthlyOverviewService {
       };
     });
 
+    // ── Deep-dive: despesas do mês por ORIGEM de pagamento (barras empilhadas) ──
+    // Reusa os account-views mensais já carregados. Cada saída é atribuída a:
+    //  - Cartão (nickname/last4) quando é fatura de cartão (isInvoice);
+    //  - Conta Corrente quando é débito direto de conta (bankLast4, não-fatura);
+    //  - Outros quando não há origem identificável (ex.: planejado cross-project
+    //    sem conta/cartão associado).
+    // isFuture segue a mesma convenção do saldo (mês projetado → opacidade reduzida
+    // no gráfico). Inclui realizados E planejados do mês (o total das saídas da view).
+    const CONTA_ORIGEM_LABEL = 'Conta Corrente';
+    const OUTROS_ORIGEM_LABEL = 'Outros';
+    const origemCartaoLabel = (last4: string) =>
+      cardByLast4.get(last4)?.nickname?.trim() || `Cartão ••${last4}`;
+    const despesasPorOrigemSerie = months.map((mes, index) => {
+      const view = monthlyViews[index];
+      const origens: Record<string, number> = {};
+      for (const s of view.saidas) {
+        const key =
+          s.isInvoice && s.cardLast4
+            ? origemCartaoLabel(s.cardLast4)
+            : s.bankLast4 && !s.isInvoice
+              ? CONTA_ORIGEM_LABEL
+              : OUTROS_ORIGEM_LABEL;
+        origens[key] = (origens[key] ?? 0) + s.valor;
+      }
+      return { mes, isFuture: index + 1 > realizedUntil, origens };
+    });
+    // Colunas estáveis (todas as origens vistas no ano), ordenadas:
+    // Conta Corrente primeiro, cartões em ordem alfabética, Outros por último.
+    const origemSet = new Set<string>();
+    for (const row of despesasPorOrigemSerie) {
+      for (const k of Object.keys(row.origens)) origemSet.add(k);
+    }
+    const cartaoOrigemKeys = Array.from(origemSet)
+      .filter((k) => k !== CONTA_ORIGEM_LABEL && k !== OUTROS_ORIGEM_LABEL)
+      .sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    const origensDespesa = [
+      ...(origemSet.has(CONTA_ORIGEM_LABEL) ? [CONTA_ORIGEM_LABEL] : []),
+      ...cartaoOrigemKeys,
+      ...(origemSet.has(OUTROS_ORIGEM_LABEL) ? [OUTROS_ORIGEM_LABEL] : []),
+    ];
+
     const totaisEntradas = groupAnnualTotals(
       normalized.filter(
         (line) =>
@@ -1438,6 +1479,7 @@ export class MonthlyOverviewService {
         caixaHoje: accountView.caixaHoje,
         saldoAcumuladoOpening: saldoAno0,
         saldoAcumuladoSerie,
+        despesasPorOrigem: { origens: origensDespesa, serie: despesasPorOrigemSerie },
         totaisEntradas,
         totaisSaidas,
         totaisGuardado,

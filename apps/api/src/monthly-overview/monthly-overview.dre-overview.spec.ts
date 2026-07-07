@@ -407,6 +407,50 @@ describe('MonthlyOverviewService.getDreOverview', () => {
       });
   });
 
+  it('despesasPorOrigem: quebra por Conta/Cartão/Outros, ordenado, com isFuture', async () => {
+    // Mesma view para todos os meses (mockResolvedValue): 1 fatura de cartão, 1
+    // débito de conta, 1 saída sem origem (Outros).
+    jest.spyOn(service, 'getAccountView').mockResolvedValue({
+      mesSelecionado: '2026-06',
+      caixaHoje: 0,
+      entrouMes: 0,
+      saiuMes: 0,
+      faltaPagarMes: 0,
+      recebimentosPrevistosMes: 0,
+      sobraPrevista: 0,
+      devoCartaoTotal: 0,
+      cartoes: [],
+      contas: [],
+      saidas: [
+        { kind: 'saida', valor: 5_000, isInvoice: true, cardLast4: '1111', bankLast4: null },
+        { kind: 'saida', valor: 3_000, isInvoice: false, cardLast4: null, bankLast4: '4247' },
+        { kind: 'saida', valor: 1_000, isInvoice: false, cardLast4: null, bankLast4: null },
+      ],
+      comprasCartao: [],
+      entradas: [],
+      ticketMedio: { valor: 0, nCompras: 0, totalCompras: 0, serie6m: [], media6m: 0, deltaVsMediaPct: null },
+    } as any);
+    prisma.creditCard.findMany.mockResolvedValue([
+      { last4: '1111', nickname: 'Nubank', closingDay: 20, dueDay: 28 },
+    ]);
+    prisma.cashFlowEntry.findMany.mockResolvedValue([]);
+
+    const res = await service.getDreOverview(tenantId, projectId, { month: '2026-06', year: '2026' });
+    const dpo = res.anual.despesasPorOrigem;
+
+    // Colunas ordenadas: Conta Corrente, cartões (nickname), Outros.
+    expect(dpo.origens).toEqual(['Conta Corrente', 'Nubank', 'Outros']);
+    // 12 meses na série.
+    expect(dpo.serie).toHaveLength(12);
+    // Junho: quebra correta por origem.
+    const jun = dpo.serie.find((r: any) => r.mes === '2026-06')!;
+    expect(jun.origens).toEqual({ 'Nubank': 5_000, 'Conta Corrente': 3_000, 'Outros': 1_000 });
+    expect(jun.isFuture).toBe(false);
+    // Julho (após o mês corrente, systemTime=15/06) é projeção.
+    const jul = dpo.serie.find((r: any) => r.mes === '2026-07')!;
+    expect(jul.isFuture).toBe(true);
+  });
+
   describe('anual.saldoAcumuladoSerie (fonte: getAccountView por mês, inclui cross-project)', () => {
     // beforeEach fixa o relógio em 2026-06-15 => realizedUntil = 6 (junho).
     const CAIXA_HOJE = 100_000;

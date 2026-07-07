@@ -65,6 +65,21 @@ export interface DreSaldoAcumuladoRow {
   saldoRealizado: number | null;
 }
 
+/** Deep-dive: despesas de um mês quebradas por origem de pagamento. */
+export interface DreDespesaOrigemRow {
+  mes: string;
+  /** Mês projetado (futuro) — renderizado com opacidade reduzida. */
+  isFuture: boolean;
+  /** Valor por origem (centavos): "Conta Corrente", "Cartão ••XXXX", "Outros". */
+  origens: Record<string, number>;
+}
+
+export interface DreDespesasPorOrigem {
+  /** Colunas estáveis ordenadas (Conta Corrente, cartões, Outros). */
+  origens: string[];
+  serie: DreDespesaOrigemRow[];
+}
+
 export interface DreAnual {
   ano: number;
   ateOMes: string;
@@ -77,6 +92,7 @@ export interface DreAnual {
   caixaHoje: number;
   saldoAcumuladoOpening: number;
   saldoAcumuladoSerie: DreSaldoAcumuladoRow[];
+  despesasPorOrigem: DreDespesasPorOrigem;
   totaisEntradas: DreTotalAnual[];
   totaisSaidas: DreTotalAnual[];
   totaisGuardado: DreTotalAnual[];
