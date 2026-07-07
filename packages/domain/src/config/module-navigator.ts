@@ -39,6 +39,7 @@ export const PROJECT_NAV: Record<ProjectType, NavModule[]> = {
     { slug: 'monthly', label: 'Cockpit', iconName: 'Gauge', module: 'monthlyOverview' },
     { slug: 'conta', label: 'Visão Conta', iconName: 'Landmark', module: 'monthlyOverview' },
     { slug: 'dre', label: 'DRE', iconName: 'Target', module: 'monthlyOverview' },
+    { slug: 'neutros', label: 'Neutros', iconName: 'Shuffle', module: 'monthlyOverview' },
     { slug: 'expenses', label: 'Despesas', iconName: 'Receipt', module: 'expenses' },
     { slug: 'receipts', label: 'Recebimentos', iconName: 'Wallet', module: 'receipts' },
     { slug: 'metas', label: 'Metas', iconName: 'Target', module: 'expenses' },

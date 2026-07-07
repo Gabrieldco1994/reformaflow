@@ -1644,6 +1644,129 @@ export class MonthlyOverviewService {
    * anexando o rótulo de origem (`origem`) em cada item — usado pela opção
    * "Todos" da Visão Conta (com filtros de tipo de despesa e mês no frontend).
    */
+  /**
+   * Lista TODOS os lançamentos neutros do PESSOAL (entradas e saídas) num ano,
+   * para a visão "Neutros". Neutro = não entra em consumo/renda dos KPIs, mas é
+   * caixa real. Cobre:
+   *  - Despesas com tipo neutro-de-consumo (PAGAMENTO_FATURA_CARTAO,
+   *    MOVIMENTACAO_INTERNA, INVESTIMENTOS, PAGAMENTO_CASA);
+   *  - Recebimentos com tipo neutro (RESGATE, TRANSFERENCIA_PROPRIA).
+   * Cada item carrega o id REAL da Expense/Receipt para editar valor/excluir
+   * pelos endpoints existentes (que já regeneram o cashflow).
+   */
+  async getNeutros(tenantId: string, projectId: string, yearParam?: string | number) {
+    await this.ensurePessoalProject(tenantId, projectId);
+    const year = normalizeYear(yearParam);
+    const [yStart, yEnd] = [
+      new Date(Date.UTC(year, 0, 1)),
+      new Date(Date.UTC(year + 1, 0, 1)),
+    ];
+
+    const [expenses, receipts] = await Promise.all([
+      this.prisma.expense.findMany({
+        where: { tenantId, projectId, deletedAt: null },
+        select: {
+          id: true,
+          tipoDespesa: true,
+          titulo: true,
+          fornecedor: true,
+          valor: true,
+          valorTotal: true,
+          quantidade: true,
+          formaPagamento: true,
+          quantidadeParcela: true,
+          dataPagamento: true,
+          dataInicioParcela: true,
+          dataCompra: true,
+          createdAt: true,
+          status: true,
+          cardLast4: true,
+          bankLast4: true,
+        },
+      }),
+      this.prisma.receipt.findMany({
+        where: { tenantId, projectId, deletedAt: null },
+        select: {
+          id: true,
+          tipo: true,
+          descricao: true,
+          valor: true,
+          data: true,
+          status: true,
+          bankLast4: true,
+        },
+      }),
+    ]);
+
+    const inYear = (d: Date | null) => !!d && d >= yStart && d < yEnd;
+    const expenseDate = (e: {
+      dataPagamento: Date | null;
+      dataInicioParcela: Date | null;
+      dataCompra: Date | null;
+      createdAt: Date;
+    }) => e.dataPagamento ?? e.dataInicioParcela ?? e.dataCompra ?? e.createdAt;
+
+    const saidas = expenses
+      .filter((e) => isConsumptionNeutralExpenseType(e.tipoDespesa))
+      .filter((e) => inYear(expenseDate(e)))
+      .map((e) => ({
+        id: e.id,
+        kind: 'saida' as const,
+        tipo: e.tipoDespesa,
+        tipoLabel:
+          ExpenseTypeLabels[e.tipoDespesa as keyof typeof ExpenseTypeLabels] ?? e.tipoDespesa,
+        descricao:
+          e.titulo?.trim() ||
+          e.fornecedor?.trim() ||
+          ExpenseTypeLabels[e.tipoDespesa as keyof typeof ExpenseTypeLabels] ||
+          e.tipoDespesa,
+        valorTotal: e.valorTotal,
+        valorUnitario: e.valor,
+        quantidade: e.quantidade,
+        data: expenseDate(e).toISOString(),
+        status: e.status,
+        cardLast4: e.cardLast4,
+        bankLast4: e.bankLast4,
+        // Settlement (fatura/movimentação) não gera cashflow; consumo-neutro (aporte)
+        // continua no caixa. Sinaliza para o front explicar o efeito no caixa.
+        afetaCaixa: !isNeutralExpenseType(e.tipoDespesa),
+      }));
+
+    const entradas = receipts
+      .filter((r) => isNeutralReceiptType(r.tipo))
+      .filter((r) => inYear(r.data))
+      .map((r) => ({
+        id: r.id,
+        kind: 'entrada' as const,
+        tipo: r.tipo,
+        tipoLabel: ReceiptTypeLabels[r.tipo as keyof typeof ReceiptTypeLabels] ?? r.tipo,
+        descricao:
+          r.descricao?.trim() ||
+          ReceiptTypeLabels[r.tipo as keyof typeof ReceiptTypeLabels] ||
+          r.tipo,
+        valorTotal: r.valor,
+        valorUnitario: r.valor,
+        quantidade: 1,
+        data: r.data.toISOString(),
+        status: r.status,
+        cardLast4: null as string | null,
+        bankLast4: r.bankLast4,
+        afetaCaixa: true, // resgate/transferência própria são crédito real no caixa
+      }));
+
+    const itens = [...saidas, ...entradas].sort((a, b) => b.data.localeCompare(a.data));
+    const totalEntradas = entradas.reduce((s, i) => s + i.valorTotal, 0);
+    const totalSaidas = saidas.reduce((s, i) => s + i.valorTotal, 0);
+
+    return {
+      year,
+      totalEntradas,
+      totalSaidas,
+      totalLiquido: totalEntradas - totalSaidas,
+      itens,
+    };
+  }
+
   async getOriginItemsYearly(
     tenantId: string,
     projectId: string,

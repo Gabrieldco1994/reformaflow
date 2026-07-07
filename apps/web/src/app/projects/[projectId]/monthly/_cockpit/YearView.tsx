@@ -68,21 +68,24 @@ export default function YearView({
           value={fmtMoney(y.receitaAno)}
           tone="pos"
           icon={<ArrowUpCircle className="w-4 h-4" />}
-          info={`Tudo que entra no ano de ${year} — inclui projeção (recebimentos previstos + realizados), consistente com o gráfico anual.`}
+          info={`Tudo que entra no ano de ${year} — inclui projeção (recebimentos previstos + realizados), consistente com o gráfico anual. Atenção: receitas futuras de ago–dez que você ainda não lançou não aparecem aqui, então o resultado projetado tende a parecer pior que a realidade.`}
+          context="realizado + previsto"
         />
         <KpiCard
           label={`Despesa ${year}`}
           value={fmtMoney(y.despesaAno)}
           tone="neg"
           icon={<ArrowDownCircle className="w-4 h-4" />}
-          info={`Tudo que sai no ano de ${year} — inclui projeção (despesas previstas + realizadas). Consolidado, sem pagamento de fatura / movimentação interna (não é consumo) nem espelhos cross-project (não duplica).`}
+          info={`Tudo que sai no ano de ${year} — inclui projeção (despesas previstas + realizadas). É um cenário: assume que TODOS os planejados até dezembro acontecem (parcelamentos, contratos etc.). Consolidado (todos os projetos), sem pagamento de fatura / movimentação interna (não é consumo) nem espelhos cross-project (não duplica). Para ver só o que já saiu, use o DRE.`}
+          context="realizado + planejado"
         />
         <KpiCard
           label="Resultado do ano"
           value={fmtMoney(y.resultadoAno)}
           tone={y.resultadoAno >= 0 ? 'pos' : 'neg'}
           icon={<Scale className="w-4 h-4" />}
-          info={`Receita − despesa do ano (inclui projeção). Positivo = você guardou; negativo = gastou mais do que recebeu. Sem neutros nem espelhos.`}
+          info={`Receita − despesa do ano, incluindo projeção. É um CENÁRIO, não a foto de hoje: assume que todos os planejados até dezembro acontecem E que nenhuma receita nova de ago–dez foi lançada ainda — por isso costuma parecer mais negativo que a realidade. Para o resultado realizado (o que de fato aconteceu), veja o DRE. Sem neutros nem espelhos.`}
+          context="cenário projetado"
         />
         <KpiCard
           label="Gasto médio mensal"

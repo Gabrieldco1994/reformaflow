@@ -14,6 +14,7 @@ import {
   Bell,
   Car,
   ListChecks,
+  Shuffle,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -38,6 +39,7 @@ export const NAV_ICONS: Record<string, LucideIcon> = {
   Bell,
   Car,
   ListChecks,
+  Shuffle,
 };
 
 /** Fallback icon for any unmapped token (defensive, never crashes). */

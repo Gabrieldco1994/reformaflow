@@ -73,6 +73,18 @@ export class MonthlyOverviewController {
     return this.service.getOriginItemsYearly(tenantId, projectId, { year, kind, last4 });
   }
 
+  @Get('neutros')
+  @ApiOperation({
+    summary: 'Lançamentos neutros (entradas + saídas) do ano para projetos PESSOAL',
+  })
+  getNeutros(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Query('year') year?: string,
+  ) {
+    return this.service.getNeutros(tenantId, projectId, year);
+  }
+
   @Post('pay-invoice')
   @ApiOperation({
     summary: 'Pagar fatura de cartão (gera despesa neutra + liquida o ciclo)',
