@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowDownCircle, ArrowUpCircle, Check, CreditCard, Landmark, Loader2, Pencil, Trash2, X } from 'lucide-react';
+import { ArrowDownCircle, ArrowUpCircle, Check, CreditCard, Landmark, Loader2, Pencil, RotateCcw, Trash2, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import type { NeutroItem } from '../_types';
@@ -81,8 +81,25 @@ export function NeutroRow({
     onError: (e: Error) => toast.error(`Erro ao excluir: ${e.message}`),
   });
 
+  // "Tirar do neutro": reclassifica o tipo para OUTROS (não-neutro), fazendo o
+  // lançamento voltar a ser contabilizado em todos os KPIs/DRE/relatórios. O
+  // backend regenera o cashflow no update; DRE/relatórios filtram neutros em
+  // tempo de leitura. O usuário pode recategorizar depois na visão de despesas/entradas.
+  const unmarkMutation = useMutation({
+    mutationFn: () => {
+      const body = isEntrada ? { tipo: 'OUTROS' } : { tipoDespesa: 'OUTROS' };
+      return api.patch(`/projects/${projectId}/${base}/${item.id}`, body);
+    },
+    onSuccess: () => {
+      toast.success('Voltou a ser contabilizado (categoria: Outros)');
+      invalidateAll();
+    },
+    onError: (e: Error) => toast.error(`Erro ao tirar do neutro: ${e.message}`),
+  });
+
   const saving = updateMutation.isPending;
   const deleting = deleteMutation.isPending;
+  const unmarking = unmarkMutation.isPending;
 
   function confirmEdit() {
     const parsed = Number(valorReais.replace(',', '.'));
@@ -96,6 +113,16 @@ export function NeutroRow({
   function handleDelete() {
     if (window.confirm(`Excluir "${item.descricao}" (${formatCurrency(item.valorTotal / 100)})? Isso remove a ${isEntrada ? 'entrada' : 'despesa'} de verdade.`)) {
       deleteMutation.mutate();
+    }
+  }
+
+  function handleUnmark() {
+    if (
+      window.confirm(
+        `Tirar "${item.descricao}" dos neutros? Ele volta a ser contabilizado em todos os KPIs, DRE e relatórios (categoria "Outros"). Você pode recategorizar depois na visão de ${isEntrada ? 'entradas' : 'despesas'}.`,
+      )
+    ) {
+      unmarkMutation.mutate();
     }
   }
 
@@ -183,6 +210,16 @@ export function NeutroRow({
               <p className="text-[10px] text-lifeone-ink-4">{item.quantidade}× {formatCurrency(item.valorUnitario / 100)}</p>
             )}
           </div>
+          <button
+            type="button"
+            onClick={handleUnmark}
+            disabled={unmarking}
+            className="rounded-lg p-1.5 text-lifeone-ink-4 transition hover:bg-[#E3F6EA] hover:text-[#1E924A] disabled:opacity-50"
+            title="Tirar do neutro (voltar a contabilizar)"
+            aria-label="Tirar do neutro"
+          >
+            {unmarking ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+          </button>
           <button
             type="button"
             onClick={() => setEditing(true)}

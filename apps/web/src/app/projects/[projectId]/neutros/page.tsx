@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, Shuffle } from 'lucide-react';
+import { ChevronLeft, ChevronRight, RotateCcw, Shuffle } from 'lucide-react';
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
@@ -74,7 +74,7 @@ export default function NeutrosPage() {
           </div>
         </div>
         <p className="mt-2 text-[11px] text-slate-500">
-          Transferências, aportes/resgates e pagamentos de fatura — não entram no consumo/renda dos KPIs, mas movimentam o caixa (exceto os marcados <em>fora do caixa</em>). Editar o valor ou excluir aqui reflete direto na despesa/entrada real.
+          Transferências, aportes/resgates e pagamentos de fatura — não entram no consumo/renda dos KPIs, mas movimentam o caixa (exceto os marcados <em>fora do caixa</em>). Editar o valor ou excluir aqui reflete direto na despesa/entrada real. Use <RotateCcw className="inline h-3 w-3 align-[-1px]" /> para <strong>tirar do neutro</strong> e voltar a contabilizar em tudo.
         </p>
       </header>
 
