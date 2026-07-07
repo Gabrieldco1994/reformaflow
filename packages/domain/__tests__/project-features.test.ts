@@ -95,6 +95,7 @@ describe('getExpenseTypesForProject', () => {
   it('CASA tem tipos de despesa específicos (não cai no default REFORMA)', () => {
     const casa = getExpenseTypesForProject(ProjectType.CASA);
     expect(casa).toContain(ExpenseType.MORADIA);
+    expect(casa).toContain(ExpenseType.ELETRODOMESTICO);
     expect(casa).toContain(ExpenseType.ALIMENTACAO);
     expect(casa).toContain(ExpenseType.FINANCIAMENTO);
     expect(casa).toContain(ExpenseType.PAGAMENTO_CASA);
@@ -109,6 +110,12 @@ describe('getExpenseTypesForProject', () => {
     expect(carro).toContain(ExpenseType.TRANSPORTE);
     expect(carro).toContain(ExpenseType.OUTROS);
     expect(carro).not.toContain(ExpenseType.MAO_DE_OBRA);
+  });
+
+  it('PESSOAL inclui Eletrodoméstico (além dos tipos pessoais)', () => {
+    const pessoal = getExpenseTypesForProject(ProjectType.PESSOAL);
+    expect(pessoal).toContain(ExpenseType.ELETRODOMESTICO);
+    expect(pessoal).toContain(ExpenseType.MORADIA);
   });
 
   it('listas não estão vazias', () => {

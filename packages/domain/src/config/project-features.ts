@@ -68,6 +68,7 @@ const COMPRA_EXPENSE_TYPES: ExpenseType[] = [
 const PESSOAL_EXPENSE_TYPES: ExpenseType[] = [
   ExpenseType.CARTAO_CREDITO,
   ExpenseType.MORADIA,
+  ExpenseType.ELETRODOMESTICO,
   ExpenseType.ALIMENTACAO,
   ExpenseType.TRANSPORTE,
   ExpenseType.SAUDE,
@@ -106,6 +107,7 @@ const PESSOAL_EXPENSE_TYPES: ExpenseType[] = [
 // recorrências). Cobre contas de consumo, manutenções e imprevistos do lar.
 const CASA_EXPENSE_TYPES: ExpenseType[] = [
   ExpenseType.MORADIA,
+  ExpenseType.ELETRODOMESTICO,
   ExpenseType.FINANCIAMENTO,
   ExpenseType.PAGAMENTO_CASA,
   ExpenseType.ALIMENTACAO,
