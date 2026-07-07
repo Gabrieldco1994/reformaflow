@@ -105,7 +105,11 @@ export default function CategoriaDespesasModal({
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="truncate text-sm text-gray-900">
-                      {e.subcategoria?.trim() || e.categoria || 'Despesa'}
+                      {e.titulo?.trim() ||
+                        e.fornecedor?.trim() ||
+                        e.subcategoria?.trim() ||
+                        e.categoria ||
+                        'Despesa'}
                     </span>
                     {e.parcela && (
                       <span className="rounded bg-gray-200 px-1.5 py-0.5 text-[10px] font-geist tabular-nums text-gray-600">

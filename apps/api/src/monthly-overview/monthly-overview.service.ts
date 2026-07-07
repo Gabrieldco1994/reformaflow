@@ -73,6 +73,8 @@ export class MonthlyOverviewService {
             cardLast4: true,
             bankLast4: true,
             tipoDespesa: true,
+            titulo: true,
+            fornecedor: true,
           },
         },
         receipt: {
@@ -137,6 +139,8 @@ export class MonthlyOverviewService {
           ? isNeutralReceiptType(e.receipt?.tipo)
           : isConsumptionNeutralExpenseType(e.expense?.tipoDespesa),
       subcategoria: e.subcategoria,
+      titulo: e.expense?.titulo ?? null,
+      fornecedor: e.expense?.fornecedor ?? null,
       parcela: e.parcela,
       formaPagamento: e.formaPagamento,
       projectId: e.projectId,

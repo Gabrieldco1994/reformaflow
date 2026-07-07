@@ -40,6 +40,10 @@ export interface MonthlyEntry {
    *  eixo de caixa (§10). Derivado no backend; ausente em payload antigo (fallback no FE). */
   isNeutralConsumo?: boolean;
   subcategoria: string | null;
+  /** Título da despesa (Expense.titulo), quando houver — para exibir nas linhas. */
+  titulo?: string | null;
+  /** Fornecedor/loja (Expense.fornecedor), fallback de exibição. */
+  fornecedor?: string | null;
   parcela?: string | null;
   formaPagamento: string | null;
   projectId: string;
