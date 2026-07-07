@@ -1556,6 +1556,40 @@ describe('MonthlyOverviewService.getAccountView', () => {
       expect(res.saidas.some((s: any) => s.bankLast4 === '5572')).toBe(false);
     });
 
+    it('foreign PARCELADO coberta por CARTÃO com settlement só na 1ª parcela NÃO vaza as futuras (regressão dupla contagem cross-project)', async () => {
+      // Bug de prod (set/2026): espelho é um PARCELADO de cartão do valor CHEIO (todas as
+      // parcelas caem na fatura mês a mês), mas só a parcela 0 tinha crossProjectSettlement.
+      // O caminho por-parcela então re-emitia as parcelas 1..5 em "falta pagar" — enquanto
+      // a fatura já as continha → dupla contagem. Aqui checamos julho, onde a parcela 1
+      // (não-quitada) cairia: ela NÃO pode virar saída de conta.
+      prisma.creditCard.findMany.mockResolvedValue([
+        { id: 'c-5572', tenantId, projectId, nickname: 'Cartão', last4: '5572',
+          closingDay: 20, dueDay: 28, limitTotalCents: 100_000, limitAvailableCents: 50_000 },
+      ]);
+      prisma.expense.findMany.mockResolvedValue([
+        base({ id: 'esp-full', projectId, titulo: 'Eletrica santil', fornecedor: 'Santil',
+          valorTotal: 6_000, valor: 6_000, status: 'PLANEJADO', cardLast4: '5572',
+          formaPagamento: 'PARCELADO', quantidadeParcela: 6,
+          dataInicioParcela: new Date('2026-06-10T00:00:00.000Z'), linkedExpenseId: 'foreign-set' }),
+        base({ id: 'foreign-set', projectId: reforma.id, titulo: 'Eletrica santil', fornecedor: 'Santil',
+          valorTotal: 6_000, valor: 1_000, formaPagamento: 'PARCELADO', quantidadeParcela: 6,
+          dataInicioParcela: new Date('2026-06-10T00:00:00.000Z'), status: 'PLANEJADO', project: reforma }),
+      ]);
+      prisma.crossProjectSettlement.findMany.mockResolvedValue([
+        { tenantId, targetExpenseId: 'foreign-set', parcelaIndex: 0, sourceExpenseId: 'esp-full',
+          realValor: 1_000, plannedValor: 1_000, plannedStatus: 'PLANEJADO' },
+      ]);
+
+      const res: any = await service.getAccountView(tenantId, projectId, '2026-07');
+
+      // Nenhuma parcela do foreign vaza como saída de conta (a fatura do cartão cobre tudo).
+      expect(res.saidas.some((s: any) => String(s.id).startsWith('foreign-set#'))).toBe(false);
+      const contaReforma = res.saidas.filter(
+        (s: any) => s.isInvoice === false && s.projetoOrigem?.type === 'REFORMA',
+      );
+      expect(contaReforma).toHaveLength(0);
+    });
+
     it('mantém excluída a foreign À VISTA quitada por espelho bank (não re-emite)', async () => {
       prisma.expense.findMany.mockResolvedValue([
         base({ id: 'esp-av', projectId, titulo: 'PIX à vista', fornecedor: 'Loja',

@@ -378,6 +378,22 @@ export class MonthlyOverviewService {
       return { origem: 'bank', bankLast4: bankEspelho?.bankLast4 ?? null };
     };
 
+    // Foreign TOTALMENTE coberto por cartão: a soma dos espelhos de cartão vinculados
+    // cobre o valorTotal do foreign. Nesse caso é um parcelado de cartão do valor cheio
+    // — cada parcela cai na fatura do seu mês (comprasCartao), então NENHUMA parcela do
+    // foreign vira saída de conta, mesmo que só a 1ª tenha crossProjectSettlement.
+    // (Distingue do débito avulso que quita UMA parcela de um foreign maior: aí o cartão
+    // cobre só aquela parcela e as demais seguem pendentes → cai no caminho por-parcela.)
+    // ponytail: usa igualdade de valor (espelho importado == planejado, casa exato nos
+    // dados reais). Se o planejado divergir do valor real cobrado, ajustar p/ tolerância.
+    const isFullyCardCovered = (foreignId: string, foreignValorTotal: number): boolean => {
+      const espelhos = espelhosByForeignId.get(foreignId) ?? [];
+      const cardSum = espelhos
+        .filter((e) => !!e.cardLast4)
+        .reduce((sum, e) => sum + (e.valorTotal ?? 0), 0);
+      return cardSum > 0 && cardSum >= foreignValorTotal;
+    };
+
     const projetoOrigemFor = (linkedExpenseId: string | null | undefined) => {
       if (!linkedExpenseId) return null;
       const target = foreignById.get(linkedExpenseId);
@@ -663,6 +679,14 @@ export class MonthlyOverviewService {
           expense.formaPagamento,
         );
 
+        // Foreign TOTALMENTE coberto por cartão (parcelado de cartão do valor cheio):
+        // a fatura já cobre TODAS as parcelas — cada uma cai na fatura do seu mês (via
+        // comprasCartao do espelho). Nunca vira saída de conta, mesmo que só a 1ª parcela
+        // tenha crossProjectSettlement. Suprime ANTES do caminho por-parcela: senão as
+        // parcelas futuras não-quitadas vazariam para "falta pagar" enquanto a fatura já
+        // as contém → dupla contagem no consolidado/runway (bug do cartão cross-project).
+        if (isFullyCardCovered(expense.id, expense.valorTotal)) return [];
+
         // P3 — caminho POR PARCELA: o foreign tem ≥1 crossProjectSettlement.
         // Cada parcela quitada é suprimida (fatura do cartão / espelho bank já a
         // representam); as demais permanecem pendentes no próprio vencimento (I9),
@@ -714,7 +738,9 @@ export class MonthlyOverviewService {
           });
         }
 
-        // Foreign paga por cartão: a fatura já cobre → nunca vira saída de conta.
+        // Foreign de cartão parcialmente coberto e SEM settlement (link manual legado):
+        // não caiu no supressor de cobertura total nem no caminho por-parcela. A fatura
+        // cobre a parte no cartão → não re-emite como saída de conta (comportamento legado).
         if (origin.origem === 'card') return [];
 
         // Foreign sem espelho (sem cartão/conta/quitação): não há origem de
