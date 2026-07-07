@@ -52,6 +52,7 @@ const PESSOAL_TIPO_OPTIONS: TipoOption[] = [
   { value: 'RESGATE', label: 'Resgate', group: 'Investimentos' },
   // Transferências
   { value: 'ALOCACAO_ORCAMENTO', label: '💰 Alocação de Orçamento', group: 'Transferências' },
+  { value: 'TRANSFERENCIA_PROPRIA', label: 'Transferência própria', group: 'Transferências' },
   // Outros
   { value: 'ALUGUEL', label: 'Aluguel', group: 'Outros' },
   { value: 'REEMBOLSO', label: 'Reembolso', group: 'Outros' },

@@ -45,6 +45,7 @@ describe('neutro-de-consumo — superset com INVESTIMENTOS', () => {
 describe('neutro-de-receita (simetria resgate)', () => {
   it('RESGATE é receita-neutra; rendimentos e salário não', () => {
     expect(isNeutralReceiptType('RESGATE')).toBe(true);
+    expect(isNeutralReceiptType('TRANSFERENCIA_PROPRIA')).toBe(true);
     expect(isNeutralReceiptType('JUROS_RENDA_FIXA')).toBe(false); // rendimento = renda real
     expect(isNeutralReceiptType('DIVIDENDOS')).toBe(false);
     expect(isNeutralReceiptType('SALARIO')).toBe(false);

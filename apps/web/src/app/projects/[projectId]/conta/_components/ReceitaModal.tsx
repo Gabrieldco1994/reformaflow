@@ -29,6 +29,7 @@ const PESSOAL_TIPO_OPTIONS: TipoOption[] = [
   { value: 'CRIPTO', label: 'Criptomoeda', group: 'Investimentos' },
   { value: 'RESGATE', label: 'Resgate', group: 'Investimentos' },
   { value: 'ALOCACAO_ORCAMENTO', label: '💰 Alocação de Orçamento', group: 'Transferências' },
+  { value: 'TRANSFERENCIA_PROPRIA', label: 'Transferência própria', group: 'Transferências' },
   { value: 'ALUGUEL', label: 'Aluguel', group: 'Outros' },
   { value: 'REEMBOLSO', label: 'Reembolso', group: 'Outros' },
   { value: 'RESTITUICAO_IR', label: 'Restituição IR', group: 'Outros' },

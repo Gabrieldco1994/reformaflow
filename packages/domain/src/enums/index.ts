@@ -66,6 +66,10 @@ export enum ReceiptType {
   PRESENTE = 'PRESENTE',
   PIX_RECEBIDO = 'PIX_RECEBIDO',
   ALOCACAO_ORCAMENTO = 'ALOCACAO_ORCAMENTO', // Budget allocation from PESSOAL
+  // Movimentação própria RECEBIDA (transferência entre contas próprias, liberação
+  // de crédito). NÃO é renda nova → neutro de recebimento (sai da receita/resultado,
+  // mas o crédito real permanece no caixa). Simétrico ao RESGATE.
+  TRANSFERENCIA_PROPRIA = 'TRANSFERENCIA_PROPRIA',
   OUTROS = 'OUTROS',
 }
 
@@ -203,6 +207,7 @@ export const ReceiptTypeLabels: Record<ReceiptType, string> = {
   [ReceiptType.PRESENTE]: 'Presente / Doação',
   [ReceiptType.PIX_RECEBIDO]: 'PIX Recebido',
   [ReceiptType.ALOCACAO_ORCAMENTO]: 'Alocação de Orçamento',
+  [ReceiptType.TRANSFERENCIA_PROPRIA]: 'Transferência própria',
   [ReceiptType.OUTROS]: 'Outros',
 };
 
@@ -308,7 +313,10 @@ export function isConsumptionNeutralExpenseType(
  * MVP = `{RESGATE}`. Rendimentos (JUROS_RENDA_FIXA, DIVIDENDOS, POUPANCA, …) são
  * ganho REAL e permanecem como receita.
  */
-export const NEUTRAL_RECEIPT_TYPES = new Set<string>([ReceiptType.RESGATE]);
+export const NEUTRAL_RECEIPT_TYPES = new Set<string>([
+  ReceiptType.RESGATE,
+  ReceiptType.TRANSFERENCIA_PROPRIA,
+]);
 
 export function isNeutralReceiptType(tipo: string | null | undefined): boolean {
   return !!tipo && NEUTRAL_RECEIPT_TYPES.has(tipo);
