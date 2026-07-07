@@ -3,16 +3,17 @@ import { getProjectNavModules, ProjectType, type NavModule } from '@reformaflow/
 import { getMobilePrimary } from './mobile-nav';
 
 describe('getMobilePrimary', () => {
-  it('curates PESSOAL primary to [monthly, conta, expenses] with 8 in secondary (incl. dre)', () => {
+  it('curates PESSOAL primary to [monthly, conta, expenses] with 9 in secondary (incl. dre, neutros)', () => {
     const visible = getProjectNavModules(ProjectType.PESSOAL);
     const { primary, secondary } = getMobilePrimary('PESSOAL', visible);
 
     expect(primary.map((m) => m.slug)).toEqual(['monthly', 'conta', 'expenses']);
 
-    // Full PESSOAL nav has 11 modules → 8 remain in secondary.
-    expect(secondary).toHaveLength(8);
+    // Full PESSOAL nav has 12 modules → 9 remain in secondary.
+    expect(secondary).toHaveLength(9);
     expect(secondary.map((m) => m.slug)).toEqual([
       'dre',
+      'neutros',
       'receipts',
       'metas',
       'planning',

@@ -39,6 +39,7 @@ describe('getProjectNavModules', () => {
       'monthly',
       'conta',
       'dre',
+      'neutros',
       'expenses',
       'receipts',
       'metas',
@@ -98,8 +99,8 @@ describe('getProjectNavModules', () => {
     expect(getProjectNavModules(ProjectType.COMPRA)).toHaveLength(4);
   });
 
-  it('PESSOAL exposes 11 modules', () => {
-    expect(getProjectNavModules(ProjectType.PESSOAL)).toHaveLength(11);
+  it('PESSOAL exposes 12 modules', () => {
+    expect(getProjectNavModules(ProjectType.PESSOAL)).toHaveLength(12);
   });
 
   it('preserves the permission-gate slug used by the web auth-context (metas gates on expenses)', () => {
@@ -126,22 +127,22 @@ describe('getProjectNavModules', () => {
 });
 
 describe('splitMobileNav', () => {
-  it('primary = first 4, secondary = rest (PESSOAL: 4 + 7)', () => {
+  it('primary = first 4, secondary = rest (PESSOAL: 4 + 8)', () => {
     const { primary, secondary } = splitMobileNav(
       getProjectNavModules(ProjectType.PESSOAL),
       4,
     );
     expect(primary).toHaveLength(4);
-    expect(secondary).toHaveLength(7);
+    expect(secondary).toHaveLength(8);
   });
 
-  it('supports a custom primary count of 3 (PESSOAL tab bar leaves a center slot: 3 + 8)', () => {
+  it('supports a custom primary count of 3 (PESSOAL tab bar leaves a center slot: 3 + 9)', () => {
     const { primary, secondary } = splitMobileNav(
       getProjectNavModules(ProjectType.PESSOAL),
       3,
     );
     expect(primary.map((m) => m.slug)).toEqual(['monthly', 'conta', 'dre']);
-    expect(secondary).toHaveLength(8);
+    expect(secondary).toHaveLength(9);
   });
 
   it('type with exactly 4 modules yields empty secondary (no "Mais" needed)', () => {
