@@ -46,8 +46,8 @@ const SMALL_CARDS: Array<{
   {
     key: 'sobraPrevista',
     title: 'Sobra prevista',
-    help: 'o que deve ficar na conta no dia 30',
-    info: 'Previsão do saldo no fim do mês: o que tem hoje + o que ainda entra − o que ainda falta pagar. Negativo = a conta deve fechar no vermelho.',
+    help: 'saldo acumulado no fim do mês',
+    info: 'Saldo projetado ACUMULADO no fim do mês: parte do caixa de hoje e vai somando, mês a mês, o que ainda entra menos o que falta pagar — carregando o que sobrou (ou faltou) dos meses anteriores. É o mesmo ponto do gráfico de projeção logo abaixo. Negativo = a conta fecha no vermelho.',
     tone: 'emerald',
   },
 ];

@@ -101,6 +101,14 @@ export default function ContaPage() {
 
   const selectedOrigin = yearlyData?.origins.find((o) => o.key === selectedOriginKey) ?? null;
 
+  // "Sobra prevista" ACUMULADA: saldo projetado do mês selecionado, lido da mesma
+  // série do runway logo abaixo (carrega o que sobrou/faltou dos meses anteriores,
+  // em vez de recomeçar do caixa de hoje a cada mês). Fallback para a sobra do mês
+  // (não-acumulada, vinda da account-view) quando a série não está disponível —
+  // ex.: ano != atual, quando dreData fica desabilitado.
+  const sobraPrevistaAcumulada = dreData?.anual.saldoAcumuladoSerie.find(
+    (row) => row.mes === selectedMonth,
+  )?.saldoProjetado;
   const { data: originItems, isLoading: originItemsLoading } = useQuery<OriginItemsYearlyResponse>({
     queryKey: ['origin-items-yearly', projectId, selectedYear, selectedOrigin?.kind, selectedOrigin?.last4],
     queryFn: () =>
@@ -247,7 +255,7 @@ export default function ContaPage() {
                 saiuMes={data.saiuMes}
                 faltaPagarMes={data.faltaPagarMes}
                 recebimentosPrevistosMes={data.recebimentosPrevistosMes}
-                sobraPrevista={data.sobraPrevista}
+                sobraPrevista={sobraPrevistaAcumulada ?? data.sobraPrevista}
                 activeQuickFilter={resumoQuickFilter}
                 onQuickFilterSelect={(key) => {
                   setOriginFilter(null);
