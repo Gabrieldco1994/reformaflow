@@ -63,6 +63,9 @@ export interface DreSaldoAcumuladoRow {
   despesasRealizadas: number | null;
   saldoProjetado: number;
   saldoRealizado: number | null;
+  /** Saídas do mês por categoria (tipo de despesa). Chave = código do tipo,
+   *  `__fatura__` para faturas de cartão, `__sem__` sem tipo. Valores em centavos. */
+  despesasPorCategoria?: Record<string, number>;
 }
 
 /** Deep-dive: despesas de um mês quebradas por origem de pagamento. */

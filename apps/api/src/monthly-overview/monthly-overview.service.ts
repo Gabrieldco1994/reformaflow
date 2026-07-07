@@ -1386,6 +1386,14 @@ export class MonthlyOverviewService {
       const despesasRealizadas = view.saiuMes;
       const recebimentos = view.entrouMes + view.recebimentosPrevistosMes;
       const despesas = view.saiuMes + view.faltaPagarMes;
+      // Breakdown das saídas do mês por categoria (tipo de despesa) — mesma
+      // agregação da Visão Conta "por categoria". Fatura de cartão vira bucket
+      // próprio (agrega vários tipos). O front rotula via tipoLabel.
+      const despesasPorCategoria: Record<string, number> = {};
+      for (const s of view.saidas) {
+        const key = s.isInvoice ? '__fatura__' : s.tipoDespesa || '__sem__';
+        despesasPorCategoria[key] = (despesasPorCategoria[key] ?? 0) + s.valor;
+      }
       accProjetado += recebimentos - despesas;
       if (!isFuture) accRealizado += recebimentosRealizados - despesasRealizadas;
       return {
@@ -1396,6 +1404,7 @@ export class MonthlyOverviewService {
         despesasRealizadas: isFuture ? null : despesasRealizadas,
         saldoProjetado: accProjetado,
         saldoRealizado: isFuture ? null : accRealizado,
+        despesasPorCategoria,
       };
     });
 

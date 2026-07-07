@@ -9,6 +9,7 @@ import { api } from '@/lib/api';
 import { currentMonthKey, monthLabelLong } from './_lib';
 import { ContaMonthPicker } from './_components/ContaMonthPicker';
 import { ResumoCards, type ResumoQuickFilterKey } from './_components/ResumoCards';
+import { ProjecaoSaldo } from './_components/ProjecaoSaldo';
 import { CartoesSection } from './_components/CartoesSection';
 import { MovimentacoesSection } from './_components/MovimentacoesSection';
 import { PagarFaturaDialog } from './_components/PagarFaturaDialog';
@@ -23,6 +24,7 @@ import type {
   CardInvoicesYearlyResponse,
   OriginItemsYearlyResponse,
 } from './_types';
+import type { DreOverviewResponse } from '../dre/_types';
 
 function LoadingBlock() {
   return (
@@ -77,6 +79,17 @@ export default function ContaPage() {
     queryFn: () =>
       api.get(`/projects/${projectId}/monthly-overview/account-view?month=${selectedMonth}`),
     enabled: !!projectId,
+  });
+
+  // Runway de caixa (visão da verdade): só faz sentido para o ano corrente,
+  // pois a série é ancorada no caixa real de hoje. Reaproveita a série já
+  // reconciliada do dre-overview (mesmo eixo caixa da Visão Conta).
+  const currentYear = currentMonthKey().slice(0, 4);
+  const { data: dreData } = useQuery<DreOverviewResponse>({
+    queryKey: ['dre-overview', projectId, selectedYear],
+    queryFn: () =>
+      api.get(`/projects/${projectId}/monthly-overview/dre-overview?year=${selectedYear}`),
+    enabled: !!projectId && viewMode === 'mes' && selectedYear === currentYear,
   });
 
   const { data: yearlyData, isLoading: yearlyLoading } = useQuery<CardInvoicesYearlyResponse>({
@@ -241,6 +254,12 @@ export default function ContaPage() {
                   setResumoQuickFilter(key);
                 }}
               />
+              {dreData && (
+                <ProjecaoSaldo
+                  serie={dreData.anual.saldoAcumuladoSerie}
+                  currentMonth={currentMonthKey()}
+                />
+              )}
               <CartoesSection
                 cartoes={data.cartoes}
                 contas={data.contas ?? []}
