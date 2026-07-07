@@ -148,17 +148,24 @@ describe('categoriasDoAno', () => {
     expect(cats.find((c) => c.categoria === 'Alimentação')!.valor).toBe(600);
   });
 
-  it('media anexada é só das pagas, ÷12 (Alimentação: 400 paga / 12 = 33)', () => {
-    const cats = categoriasDoAno(
-      [
-        entry({ data: '2026-01-10', categoria: 'Moradia', status: 'PAGO', valor: 1000 }),
-        entry({ data: '2026-02-10', categoria: 'Alimentação', status: 'PAGO', valor: 400 }),
-        entry({ data: '2026-03-10', categoria: 'Alimentação', status: 'PLANEJADO', valor: 200 }),
-      ],
-      2026,
-    );
-    // média = só pagas ÷ 12 → Alimentação 400/12 = 33
-    expect(cats.find((c) => c.categoria === 'Alimentação')!.media).toBe(33);
+  it('media acompanha o statusMode: realPlus soma planejado, real só pagas (÷12)', () => {
+    const dados = [
+      entry({ data: '2026-01-10', categoria: 'Moradia', status: 'PAGO', valor: 1000 }),
+      entry({ data: '2026-02-10', categoria: 'Alimentação', status: 'PAGO', valor: 400 }),
+      entry({ data: '2026-03-10', categoria: 'Alimentação', status: 'PLANEJADO', valor: 200 }),
+    ];
+    // realPlus (default): média = (pagas + planejadas) ÷ 12 → (400+200)/12 = 50
+    const realPlus = categoriasDoAno(dados, 2026, 'realPlus');
+    expect(realPlus.find((c) => c.categoria === 'Alimentação')!.media).toBe(50);
+    // real: média = só pagas ÷ 12 → 400/12 = 33
+    const real = categoriasDoAno(dados, 2026, 'real');
+    expect(real.find((c) => c.categoria === 'Alimentação')!.media).toBe(33);
+    // consistência: no modo real, média == valor/12
+    const alReal = real.find((c) => c.categoria === 'Alimentação')!;
+    expect(alReal.media).toBe(Math.round(alReal.valor / 12));
+    // consistência: no modo realPlus, média == valor/12
+    const alPlus = realPlus.find((c) => c.categoria === 'Alimentação')!;
+    expect(alPlus.media).toBe(Math.round(alPlus.valor / 12));
   });
 
   it('exclui espelhos e neutros; ignora outros anos', () => {

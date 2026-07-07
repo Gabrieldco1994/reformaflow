@@ -86,9 +86,9 @@ export function mediaMensalPorCodigo(
 }
 
 /**
- *    fatura / movimentação interna não são consumo) — mesma base da média;
- *  - `valor` = total do tipo no ano (realizado + planejado, como o card sempre
- *    mostrou); `media` = média mensal só das pagas (via `mediaMensalPorTipo`).
+ *  - `valor` = total do tipo no ano conforme o `statusMode` (real = só pagas;
+ *    realPlus = pagas + planejadas); `media` = esse mesmo total ÷ 12, para que a
+ *    média acompanhe o modo selecionado (em realPlus soma os planejados também).
  * Retorna a lista COMPLETA ordenada por valor desc — o consumidor decide quantas
  * exibir e como agregar a cauda.
  */
@@ -107,9 +107,8 @@ export function categoriasDoAno(
     const tipo = e.categoria?.trim() || 'Outros';
     totalPorTipo.set(tipo, (totalPorTipo.get(tipo) ?? 0) + e.valor);
   }
-  const media = mediaMensalPorTipo(entries, year);
   return Array.from(totalPorTipo.entries())
-    .map(([categoria, valor]) => ({ categoria, valor, media: media.get(categoria) ?? 0 }))
+    .map(([categoria, valor]) => ({ categoria, valor, media: Math.round(valor / 12) }))
     .filter((c) => c.valor > 0)
     .sort((a, b) => b.valor - a.valor);
 }
