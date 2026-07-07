@@ -717,30 +717,75 @@ export class MonthlyOverviewService {
         // Foreign paga por cartão: a fatura já cobre → nunca vira saída de conta.
         if (origin.origem === 'card') return [];
 
-        // Foreign sem espelho: mantém o lump legado na data de compra.
+        // Foreign sem espelho (sem cartão/conta/quitação): não há origem de
+        // pagamento definida ainda. À vista → lump legado na data de compra.
+        // Parcelada/quinzenal → espalha as parcelas no vencimento de cada uma
+        // (respeita o parcelamento que o usuário configurou na despesa do projeto).
         if (origin.origem === 'none') {
-          if (!isInRange(purchaseDate(expense), monthStart, monthEnd)) return [];
-          return [
-            {
-              id: expense.id as string | null,
-              kind: 'saida' as const,
-              descricao,
-              data: purchaseDate(expense).toISOString(),
-              forma,
-              valor: expense.valorTotal,
-              realizado: false,
-              status: expense.status,
-              cardLast4: null as string | null,
-              bankLast4: null as string | null,
-              tipoDespesa: expense.tipoDespesa,
-              isInvoice: false,
-              editavel: false,
-              dueMonth: null as string | null,
-              projetoOrigem,
-              parcelaIndex: null as number | null,
-              foreignExpenseId: null as string | null,
-            },
-          ];
+          if (isSinglePaymentForm(expense.formaPagamento)) {
+            if (!isInRange(purchaseDate(expense), monthStart, monthEnd)) return [];
+            return [
+              {
+                id: expense.id as string | null,
+                kind: 'saida' as const,
+                descricao,
+                data: purchaseDate(expense).toISOString(),
+                forma,
+                valor: expense.valorTotal,
+                realizado: false,
+                status: expense.status,
+                cardLast4: null as string | null,
+                bankLast4: null as string | null,
+                tipoDespesa: expense.tipoDespesa,
+                isInvoice: false,
+                editavel: false,
+                dueMonth: null as string | null,
+                projetoOrigem,
+                parcelaIndex: null as number | null,
+                foreignExpenseId: null as string | null,
+              },
+            ];
+          }
+
+          const parcelasNone = buildInstallments({
+            valorTotal: expense.valorTotal,
+            formaPagamento: expense.formaPagamento,
+            quantidadeParcela: expense.quantidadeParcela,
+            dataInicioParcela: expense.dataInicioParcela,
+            dataPagamento: expense.dataPagamento,
+          });
+          let paidNone: Set<number>;
+          try {
+            const parsed = JSON.parse(expense.paidParcelas ?? '[]');
+            paidNone = new Set(Array.isArray(parsed) ? (parsed as number[]) : []);
+          } catch {
+            paidNone = new Set<number>();
+          }
+          return parcelasNone.flatMap((parcela, index) => {
+            if (paidNone.has(index)) return [];
+            if (!isInRange(parcela.data, monthStart, monthEnd)) return [];
+            return [
+              {
+                id: `${expense.id}#${index}` as string | null,
+                kind: 'saida' as const,
+                descricao,
+                data: parcela.data.toISOString(),
+                forma,
+                valor: parcela.valor,
+                realizado: false,
+                status: expense.status,
+                cardLast4: null as string | null,
+                bankLast4: null as string | null,
+                tipoDespesa: expense.tipoDespesa,
+                isInvoice: false,
+                editavel: false,
+                dueMonth: null as string | null,
+                projetoOrigem,
+                parcelaIndex: index as number | null,
+                foreignExpenseId: expense.id as string | null,
+              },
+            ];
+          });
         }
 
         // origin.origem === 'bank': à-vista já coberta pelo espelho bank em

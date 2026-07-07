@@ -1593,6 +1593,26 @@ describe('MonthlyOverviewService.getAccountView', () => {
       expect(res.faltaPagarMes).toBe(7_000);
     });
 
+    it('foreign PARCELADO SEM espelho: espalha as parcelas (não lump) — respeita o parcelamento', async () => {
+      // Bug reportado: despesa da reforma parcelada, sem cartão/conta/espelho, aparecia
+      // como lump único (valorTotal) na data de compra, ignorando as parcelas.
+      prisma.expense.findMany.mockResolvedValue([
+        base({ id: 'foreign-parc', projectId: reforma.id, titulo: 'Cola Piso', fornecedor: 'Obramax',
+          valorTotal: 6_000, valor: 1_500, formaPagamento: 'PARCELADO', quantidadeParcela: 4,
+          dataInicioParcela: new Date('2026-06-10T00:00:00.000Z'), status: 'PLANEJADO', project: reforma }),
+      ]);
+
+      const res: any = await service.getAccountView(tenantId, projectId, '2026-06');
+
+      // Em junho deve aparecer só a 1ª parcela (1.500), não o total (6.000).
+      const linhas = res.saidas.filter((s: any) => s.descricao === 'Cola Piso');
+      expect(linhas).toHaveLength(1);
+      expect(linhas[0].valor).toBe(1_500);
+      expect(linhas[0].parcelaIndex).toBe(0);
+      expect(res.saidas.some((s: any) => s.valor === 6_000)).toBe(false);
+      expect(res.faltaPagarMes).toBe(1_500);
+    });
+
     it('rateio multi-alvo: suprime TODOS os alvos (fonte cobre) — sem lump nem dupla contagem', async () => {
       // Fonte PESSOAL no cartão 5572, PARCELADO 2x; rateada entre 2 alvos REFORMA.
       // Só o 1º alvo recebe linkedExpenseId; sem a supressão por RateioAllocation o
