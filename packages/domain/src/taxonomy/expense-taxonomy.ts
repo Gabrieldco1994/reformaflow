@@ -118,6 +118,7 @@ const META: Record<ExpenseType, TaxonomyMeta> = {
   [ExpenseType.MOVIMENTACAO_INTERNA]: { group: ExpenseGroups.TRANSFERENCIAS, essentiality: 'NEUTRO', synonyms: ['transferência própria', 'resgate', 'aplicação interna'] },
   [ExpenseType.TRANSFERENCIA_TED]: { group: ExpenseGroups.TRANSFERENCIAS, essentiality: 'NEUTRO', synonyms: ['ted', 'doc', 'transferência'] },
   [ExpenseType.ESTORNOS_AJUSTES]: { group: ExpenseGroups.TRANSFERENCIAS, essentiality: 'NEUTRO', synonyms: ['estorno', 'ajuste', 'reembolso'] },
+  [ExpenseType.PAGAMENTO_CASA]: { group: ExpenseGroups.TRANSFERENCIAS, essentiality: 'NEUTRO', synonyms: ['pagamento casa', 'aporte casa', 'contribuição casa', 'dinheiro para casa'] },
 
   // ── Ambíguos: dependem do item (classificar pelo título) ──
   [ExpenseType.PIX_ENVIADO]: { group: ExpenseGroups.TRANSFERENCIAS, essentiality: 'INDEFINIDO', synonyms: ['pix'] },

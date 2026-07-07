@@ -107,6 +107,7 @@ const PESSOAL_EXPENSE_TYPES: ExpenseType[] = [
 const CASA_EXPENSE_TYPES: ExpenseType[] = [
   ExpenseType.MORADIA,
   ExpenseType.FINANCIAMENTO,
+  ExpenseType.PAGAMENTO_CASA,
   ExpenseType.ALIMENTACAO,
   ExpenseType.SAUDE,
   ExpenseType.LAZER,

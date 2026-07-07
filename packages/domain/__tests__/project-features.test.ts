@@ -97,6 +97,7 @@ describe('getExpenseTypesForProject', () => {
     expect(casa).toContain(ExpenseType.MORADIA);
     expect(casa).toContain(ExpenseType.ALIMENTACAO);
     expect(casa).toContain(ExpenseType.FINANCIAMENTO);
+    expect(casa).toContain(ExpenseType.PAGAMENTO_CASA);
     expect(casa).toContain(ExpenseType.OUTROS);
     // Não deve conter tipos típicos só de REFORMA
     expect(casa).not.toContain(ExpenseType.MAO_DE_OBRA);

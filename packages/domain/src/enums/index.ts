@@ -132,6 +132,9 @@ export enum ExpenseType {
   ESTORNOS_AJUSTES = 'ESTORNOS_AJUSTES',
   PAGAMENTO_BOLETO = 'PAGAMENTO_BOLETO',
   TRANSFERENCIA_TED = 'TRANSFERENCIA_TED',
+  // CASA — pagamento da casa (aporte para o lar): neutro DE CONSUMO (sai do
+  // gasto/KPIs, mas continua saindo do caixa como o aporte de investimento).
+  PAGAMENTO_CASA = 'PAGAMENTO_CASA',
 }
 
 export enum LaborCategory {
@@ -256,6 +259,7 @@ export const ExpenseTypeLabels: Record<ExpenseType, string> = {
   [ExpenseType.ESTORNOS_AJUSTES]: 'Estornos / Ajustes',
   [ExpenseType.PAGAMENTO_BOLETO]: 'Pagamento / Boleto',
   [ExpenseType.TRANSFERENCIA_TED]: 'Transferência (TED)',
+  [ExpenseType.PAGAMENTO_CASA]: 'Pagamento Casa',
 };
 
 /**
@@ -277,15 +281,16 @@ export function isNeutralExpenseType(tipoDespesa: string | null | undefined): bo
  * Tipos de despesa "neutros DE CONSUMO": não representam consumo real, MAS — ao
  * contrário do neutro-de-caixa (settlement) acima — são saída de caixa NOVA e real.
  *
- * Superset de {@link NEUTRAL_EXPENSE_TYPES} + `INVESTIMENTOS`. Investir (aporte) não
- * é gasto (é transferência para a corretora), então sai de despesa/gasto médio/
- * categorias/resultado; mas o dinheiro SAIU da conta, então o aporte PERMANECE no
- * eixo de caixa (§10, "Vai sair") — por isso NÃO entra em `NEUTRAL_EXPENSE_TYPES`
- * (settlement), que sumiria do fluxo de caixa.
+ * Superset de {@link NEUTRAL_EXPENSE_TYPES} + `INVESTIMENTOS` + `PAGAMENTO_CASA`.
+ * Investir (aporte) e pagar a casa (aporte para o lar) não são gasto/consumo —
+ * saem de despesa/gasto médio/categorias/resultado; mas o dinheiro SAIU da conta,
+ * então PERMANECEM no eixo de caixa (§10, "Vai sair") — por isso NÃO entram em
+ * `NEUTRAL_EXPENSE_TYPES` (settlement), que sumiria do fluxo de caixa.
  */
 export const CONSUMPTION_NEUTRAL_EXPENSE_TYPES = new Set<string>([
   ...NEUTRAL_EXPENSE_TYPES,
   ExpenseType.INVESTIMENTOS,
+  ExpenseType.PAGAMENTO_CASA,
 ]);
 
 export function isConsumptionNeutralExpenseType(
