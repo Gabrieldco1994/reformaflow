@@ -291,6 +291,77 @@ describe('MonthlyOverviewService.getDreOverview', () => {
     ).toBe(true);
   });
 
+  it('PAGAMENTO_CASA é guardado (fora de despesa/resultado/média/categorias, como INVESTIMENTOS)', async () => {
+    jest.spyOn(service, 'getAccountView').mockResolvedValue({
+      mesSelecionado: '2026-06',
+      caixaHoje: 0,
+      entrouMes: 0,
+      saiuMes: 0,
+      faltaPagarMes: 0,
+      recebimentosPrevistosMes: 0,
+      sobraPrevista: 0,
+      devoCartaoTotal: 0,
+      cartoes: [],
+      contas: [],
+      saidas: [],
+      entradas: [],
+    } as any);
+    prisma.creditCard.findMany.mockResolvedValue([]);
+    prisma.cashFlowEntry.findMany.mockResolvedValue([
+      {
+        id: 'rec-jun',
+        tipo: 'RECEBIMENTO',
+        valor: 10_000,
+        data: new Date('2026-06-01T00:00:00.000Z'),
+        status: 'EM_CAIXA',
+        expense: null,
+        receipt: { id: 'rec-jun', tipo: 'SALARIO', descricao: 'Salário', bankLast4: '4247' },
+      },
+      {
+        id: 'desp-moradia',
+        tipo: 'DESPESA',
+        valor: 3_000,
+        data: new Date('2026-06-05T00:00:00.000Z'),
+        status: 'PAGO',
+        expense: {
+          id: 'desp-moradia', tipoDespesa: 'MORADIA', titulo: 'Aluguel',
+          fornecedor: null, cardLast4: null, bankLast4: '4247', linkedExpenseId: null,
+        },
+        receipt: null,
+      },
+      {
+        id: 'desp-casa',
+        tipo: 'DESPESA',
+        valor: 2_000,
+        data: new Date('2026-06-06T00:00:00.000Z'),
+        status: 'PAGO',
+        expense: {
+          id: 'desp-casa', tipoDespesa: 'PAGAMENTO_CASA', titulo: 'Pagamento Casa',
+          fornecedor: null, cardLast4: null, bankLast4: '4247', linkedExpenseId: null,
+        },
+        receipt: null,
+      },
+    ]);
+
+    const res = await service.getDreOverview(tenantId, projectId, {
+      month: '2026-06',
+      year: '2026',
+    });
+
+    // Consumo do mês = só Moradia (Pagamento Casa NÃO conta como despesa).
+    expect(res.mensal.despesaTotal).toBe(3_000);
+    // Pagamento Casa aparece no bucket "guardado" (memo), não nas saídas de consumo.
+    expect(res.mensal.guardado).toEqual([{ label: 'Pagamento Casa', valor: 2_000 }]);
+    expect(res.mensal.saidas.some((g: any) => g.items.some((i: any) => /pagamento casa/i.test(i.label)))).toBe(false);
+    // Resultado NÃO é reduzido pelo Pagamento Casa (guardado é memo): 10.000 − 3.000 = 7.000.
+    expect(res.mensal.resultado).toBe(7_000);
+    // Anual: fora de totalSaiu, resultado e média; entra em totalGuardadoAno.
+    expect(res.anual.totalSaiu).toBe(3_000);
+    expect(res.anual.resultadoAcumulado).toBe(7_000);
+    expect(res.anual.mediaMensal).toBe(500); // 3.000 ÷ 6 meses decorridos (só Moradia)
+    expect(res.anual.totalGuardadoAno).toBe(2_000);
+  });
+
   it('RESGATE fora da receita (simetria com aporte); rendimento (JUROS_RENDA_FIXA) permanece', () => {
     jest.spyOn(service, 'getAccountView').mockResolvedValue({
       mesSelecionado: '2026-06',

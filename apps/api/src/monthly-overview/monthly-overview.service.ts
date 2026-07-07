@@ -2321,6 +2321,13 @@ function dreExpenseMeta(tipoDespesa: string): {
   if (tipoDespesa === 'INVESTIMENTOS') {
     return { group: 'Investimentos', icon: 'piggy-bank', color: '#BA7517', isGuardado: true };
   }
+  // Pagamento Casa: neutro DE CONSUMO (aporte para o lar) — como o investimento,
+  // sai do consumo/resultado/média/categorias e vai para o bucket "guardado"
+  // (dinheiro que saiu do caixa mas não é gasto). Mantém paridade com o cockpit
+  // anual (entryIsConsumptionNeutral).
+  if (tipoDespesa === 'PAGAMENTO_CASA') {
+    return { group: 'Pagamento Casa', icon: 'home', color: '#BA7517', isGuardado: true };
+  }
   if (
     ['MORADIA', 'CONTAS_UTILIDADES', 'TELEFONE_INTERNET', 'PAGAMENTO_BOLETO'].includes(
       tipoDespesa,
