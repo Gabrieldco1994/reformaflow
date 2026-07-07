@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowDownUp, CreditCard, Pencil, Trash2 } from 'lucide-react';
+import { ArrowDownUp, CreditCard, LayoutList, PieChart, Pencil, Trash2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { tipoLabel } from '@/lib/expense-options';
@@ -21,6 +21,7 @@ import type {
 type Tab = 'saidas' | 'entradas' | 'tudo';
 type StatusFilter = 'todos' | 'pago' | 'apagar';
 type SortDir = 'desc' | 'asc';
+type ViewMode = 'lista' | 'categoria';
 
 const MESES_ABREV = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 
@@ -59,6 +60,7 @@ export function MovimentacoesSection({
   const [catFilter, setCatFilter] = useState<string>('todas');
   const [projetoFilter, setProjetoFilter] = useState<string>('todos');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const [viewMode, setViewMode] = useState<ViewMode>('lista');
   const [editExpenseId, setEditExpenseId] = useState<string | null>(null);
   const [editReceita, setEditReceita] = useState<ReceitaEditing | null>(null);
   const [quitarTarget, setQuitarTarget] = useState<{
@@ -251,6 +253,23 @@ export function MovimentacoesSection({
     .filter((m): m is AccountViewEntrada => m.kind === 'entrada')
     .reduce((s, m) => s + m.valor, 0);
 
+  // Agrupa as saídas visíveis por categoria (tipo de despesa) para a visão resumida.
+  const porCategoria = useMemo(() => {
+    const map = new Map<string, { label: string; total: number; count: number; tipo: string | null }>();
+    for (const m of filtered) {
+      if (m.kind !== 'saida') continue;
+      const key = m.isInvoice ? '__fatura__' : m.tipoDespesa || '__sem__';
+      const label = m.isInvoice ? 'Fatura de cartão' : tipoLabel(m.tipoDespesa) || 'Sem categoria';
+      const tipo = m.isInvoice ? null : m.tipoDespesa || null;
+      const cur = map.get(key) ?? { label, total: 0, count: 0, tipo };
+      cur.total += m.valor;
+      cur.count += 1;
+      map.set(key, cur);
+    }
+    return Array.from(map.values()).sort((a, b) => b.total - a.total);
+  }, [filtered]);
+  const categoriaShown = viewMode === 'categoria' && tab !== 'entradas';
+
   const openEditExpense = (item: AccountViewSaida) => {
     if (item.id) setEditExpenseId(item.id);
   };
@@ -383,6 +402,32 @@ export function MovimentacoesSection({
           <ArrowDownUp className="h-3.5 w-3.5" />
           {sortDir === 'desc' ? 'Mais recentes' : 'Mais antigas'}
         </button>
+        {tab !== 'entradas' && (
+          <div className="inline-flex h-10 rounded-xl bg-lifeone-sidebar p-1">
+            <button
+              type="button"
+              onClick={() => setViewMode('lista')}
+              className={`flex items-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition ${
+                viewMode === 'lista' ? 'bg-lifeone-card text-lifeone-ink shadow-sm' : 'text-lifeone-ink-3 hover:text-lifeone-ink-2'
+              }`}
+              title="Ver lançamentos"
+            >
+              <LayoutList className="h-3.5 w-3.5" />
+              Lista
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('categoria')}
+              className={`flex items-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition ${
+                viewMode === 'categoria' ? 'bg-lifeone-card text-lifeone-ink shadow-sm' : 'text-lifeone-ink-3 hover:text-lifeone-ink-2'
+              }`}
+              title="Ver por categoria"
+            >
+              <PieChart className="h-3.5 w-3.5" />
+              Categorias
+            </button>
+          </div>
+        )}
         <div className="flex gap-1.5">
           <FilterPill
             active={statusFilter === 'todos'}
@@ -417,6 +462,35 @@ export function MovimentacoesSection({
       {filtered.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-lifeone-hairline bg-lifeone-card p-8 text-center text-sm text-lifeone-ink-3">
           Nenhuma movimentação com esses filtros.
+        </div>
+      ) : categoriaShown ? (
+        <div className="divide-y divide-lifeone-hairline overflow-hidden rounded-2xl border border-lifeone-hairline bg-lifeone-card">
+          {porCategoria.map((c) => (
+            <button
+              key={c.label}
+              type="button"
+              disabled={!c.tipo}
+              onClick={() => {
+                if (!c.tipo) return;
+                setCatFilter(c.tipo);
+                setViewMode('lista');
+              }}
+              className={`flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition ${
+                c.tipo ? 'hover:bg-lifeone-sidebar' : 'cursor-default'
+              }`}
+              title={c.tipo ? 'Ver lançamentos desta categoria' : undefined}
+            >
+              <span className="min-w-0 flex-1 truncate text-sm font-medium text-lifeone-ink">
+                {c.label}
+                <span className="ml-2 text-[11px] text-lifeone-ink-3">
+                  {c.count} lançamento{c.count === 1 ? '' : 's'}
+                </span>
+              </span>
+              <span className="shrink-0 text-sm font-semibold tabular-nums font-geist text-lifeone-ink">
+                {formatCurrency(c.total / 100)}
+              </span>
+            </button>
+          ))}
         </div>
       ) : (
         <div className="space-y-2">
