@@ -70,8 +70,10 @@ export interface DreDespesaOrigemRow {
   mes: string;
   /** Mês projetado (futuro) — renderizado com opacidade reduzida. */
   isFuture: boolean;
-  /** Valor por origem (centavos): "Conta Corrente", "Cartão ••XXXX", "Outros". */
+  /** Valor por origem (centavos), TOTAL (realizado + planejado). */
   origens: Record<string, number>;
+  /** Valor por origem (centavos), apenas SAÍDAS REALIZADAS (pagas). */
+  origensRealizado: Record<string, number>;
 }
 
 export interface DreDespesasPorOrigem {

@@ -93,6 +93,7 @@ function SaldoTooltip({
 
 export function DreAnualView({ data }: { data: DreAnual }) {
   const [saldoMode, setSaldoMode] = useState<'saldo' | 'origem'>('saldo');
+  const [valorMode, setValorMode] = useState<'projetado' | 'realizado'>('projetado');
   const rows = chartRows(data);
   const saldo = saldoRows(data);
   const maxBar = rows.reduce((max, row) => {
@@ -144,42 +145,73 @@ export function DreAnualView({ data }: { data: DreAnual }) {
             </h3>
             <p className="mt-0.5 text-[11px] text-slate-500">
               {saldoMode === 'saldo' ? (
+                valorMode === 'projetado' ? (
+                  <>
+                    <span className="font-semibold">Projetado</span> inclui planejados/previstos. O ponto de hoje reconcilia com o caixa da Visão Conta.
+                  </>
+                ) : (
+                  <>
+                    <span className="font-semibold">Realizado</span> considera apenas pagos e em caixa (vai até o mês corrente).
+                  </>
+                )
+              ) : valorMode === 'projetado' ? (
                 <>
-                  <span className="font-semibold">Projetado</span> inclui planejados/previstos;{' '}
-                  <span className="font-semibold">Realizado</span> considera apenas pagos e em caixa. O ponto de hoje reconcilia com o caixa da Visão Conta.
+                  Quanto saiu por mês, por origem (Conta Corrente e cada cartão), com a linha do saldo acumulado. Inclui planejados; meses futuros mais claros (projeção).
                 </>
               ) : (
                 <>
-                  Quanto saiu por mês, quebrado por origem (Conta Corrente e cada cartão); inclui planejados. Meses futuros aparecem mais claros (projeção).
+                  Quanto saiu por mês, por origem, só o realizado (pago), com a linha do saldo realizado.
                 </>
               )}
             </p>
           </div>
-          <div className="inline-flex shrink-0 rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-[11px] font-semibold">
-            <button
-              type="button"
-              onClick={() => setSaldoMode('saldo')}
-              className={`rounded-md px-2.5 py-1 transition ${
-                saldoMode === 'saldo' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              Saldo
-            </button>
-            <button
-              type="button"
-              onClick={() => setSaldoMode('origem')}
-              className={`rounded-md px-2.5 py-1 transition ${
-                saldoMode === 'origem' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              Por origem
-            </button>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-[11px] font-semibold">
+              <button
+                type="button"
+                onClick={() => setValorMode('projetado')}
+                className={`rounded-md px-2.5 py-1 transition ${
+                  valorMode === 'projetado' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                Projetado
+              </button>
+              <button
+                type="button"
+                onClick={() => setValorMode('realizado')}
+                className={`rounded-md px-2.5 py-1 transition ${
+                  valorMode === 'realizado' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                Realizado
+              </button>
+            </div>
+            <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-[11px] font-semibold">
+              <button
+                type="button"
+                onClick={() => setSaldoMode('saldo')}
+                className={`rounded-md px-2.5 py-1 transition ${
+                  saldoMode === 'saldo' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                Saldo
+              </button>
+              <button
+                type="button"
+                onClick={() => setSaldoMode('origem')}
+                className={`rounded-md px-2.5 py-1 transition ${
+                  saldoMode === 'origem' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                Por origem
+              </button>
+            </div>
           </div>
         </div>
 
         {saldoMode === 'origem' ? (
           <div className="mt-3">
-            <DespesasPorOrigemChart data={data.despesasPorOrigem} />
+            <DespesasPorOrigemChart data={data.despesasPorOrigem} saldoSerie={data.saldoAcumuladoSerie} mode={valorMode} />
           </div>
         ) : (
         <>
@@ -200,34 +232,38 @@ export function DreAnualView({ data }: { data: DreAnual }) {
               <ReferenceLine y={0} stroke="#D8D2C7" strokeWidth={1} />
               <Line
                 type="monotone"
-                dataKey="recebimentos"
+                dataKey={valorMode === 'realizado' ? 'recebimentosRealizados' : 'recebimentos'}
                 name="Recebimentos"
                 isAnimationActive={false}
                 stroke="#1D9E75"
                 strokeWidth={1.5}
                 strokeOpacity={0.5}
                 dot={false}
+                connectNulls={false}
               />
               <Line
                 type="monotone"
-                dataKey="despesas"
+                dataKey={valorMode === 'realizado' ? 'despesasRealizadas' : 'despesas'}
                 name="Despesas"
                 isAnimationActive={false}
                 stroke="#D85A30"
                 strokeWidth={1.5}
                 strokeOpacity={0.5}
                 dot={false}
+                connectNulls={false}
               />
-              <Line
-                type="monotone"
-                dataKey="saldoProjetado"
-                name="Saldo projetado"
-                isAnimationActive={false}
-                stroke="#8A857C"
-                strokeWidth={2}
-                strokeDasharray="6 4"
-                dot={false}
-              />
+              {valorMode === 'projetado' && (
+                <Line
+                  type="monotone"
+                  dataKey="saldoProjetado"
+                  name="Saldo projetado"
+                  isAnimationActive={false}
+                  stroke="#8A857C"
+                  strokeWidth={2}
+                  strokeDasharray="6 4"
+                  dot={false}
+                />
+              )}
               <Line
                 type="monotone"
                 dataKey="saldoRealizado"

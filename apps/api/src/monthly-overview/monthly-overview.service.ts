@@ -1361,7 +1361,8 @@ export class MonthlyOverviewService {
     //  - Outros quando não há origem identificável (ex.: planejado cross-project
     //    sem conta/cartão associado).
     // isFuture segue a mesma convenção do saldo (mês projetado → opacidade reduzida
-    // no gráfico). Inclui realizados E planejados do mês (o total das saídas da view).
+    // no gráfico). `origens` = total (realizado + planejado); `origensRealizado` =
+    // só as saídas já pagas — o front escolhe qual usar pelo toggle Projetado/Realizado.
     const CONTA_ORIGEM_LABEL = 'Conta Corrente';
     const OUTROS_ORIGEM_LABEL = 'Outros';
     const origemCartaoLabel = (last4: string) =>
@@ -1369,6 +1370,7 @@ export class MonthlyOverviewService {
     const despesasPorOrigemSerie = months.map((mes, index) => {
       const view = monthlyViews[index];
       const origens: Record<string, number> = {};
+      const origensRealizado: Record<string, number> = {};
       for (const s of view.saidas) {
         const key =
           s.isInvoice && s.cardLast4
@@ -1377,8 +1379,9 @@ export class MonthlyOverviewService {
               ? CONTA_ORIGEM_LABEL
               : OUTROS_ORIGEM_LABEL;
         origens[key] = (origens[key] ?? 0) + s.valor;
+        if (s.realizado) origensRealizado[key] = (origensRealizado[key] ?? 0) + s.valor;
       }
-      return { mes, isFuture: index + 1 > realizedUntil, origens };
+      return { mes, isFuture: index + 1 > realizedUntil, origens, origensRealizado };
     });
     // Colunas estáveis (todas as origens vistas no ano), ordenadas:
     // Conta Corrente primeiro, cartões em ordem alfabética, Outros por último.

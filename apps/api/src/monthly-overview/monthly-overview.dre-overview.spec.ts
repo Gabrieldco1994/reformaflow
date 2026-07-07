@@ -422,9 +422,9 @@ describe('MonthlyOverviewService.getDreOverview', () => {
       cartoes: [],
       contas: [],
       saidas: [
-        { kind: 'saida', valor: 5_000, isInvoice: true, cardLast4: '1111', bankLast4: null },
-        { kind: 'saida', valor: 3_000, isInvoice: false, cardLast4: null, bankLast4: '4247' },
-        { kind: 'saida', valor: 1_000, isInvoice: false, cardLast4: null, bankLast4: null },
+        { kind: 'saida', valor: 5_000, isInvoice: true, cardLast4: '1111', bankLast4: null, realizado: false },
+        { kind: 'saida', valor: 3_000, isInvoice: false, cardLast4: null, bankLast4: '4247', realizado: true },
+        { kind: 'saida', valor: 1_000, isInvoice: false, cardLast4: null, bankLast4: null, realizado: false },
       ],
       comprasCartao: [],
       entradas: [],
@@ -442,9 +442,11 @@ describe('MonthlyOverviewService.getDreOverview', () => {
     expect(dpo.origens).toEqual(['Conta Corrente', 'Nubank', 'Outros']);
     // 12 meses na série.
     expect(dpo.serie).toHaveLength(12);
-    // Junho: quebra correta por origem.
+    // Junho: quebra correta por origem (total).
     const jun = dpo.serie.find((r: any) => r.mes === '2026-06')!;
     expect(jun.origens).toEqual({ 'Nubank': 5_000, 'Conta Corrente': 3_000, 'Outros': 1_000 });
+    // Realizado: só a saída paga (Conta Corrente 3.000); as não-pagas ficam de fora.
+    expect(jun.origensRealizado).toEqual({ 'Conta Corrente': 3_000 });
     expect(jun.isFuture).toBe(false);
     // Julho (após o mês corrente, systemTime=15/06) é projeção.
     const jul = dpo.serie.find((r: any) => r.mes === '2026-07')!;
