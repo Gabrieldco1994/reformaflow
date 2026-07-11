@@ -14,6 +14,10 @@ import { ReceiptService } from '../../receipt/receipt.service';
 import { CreditCardService } from '../../credit-card/credit-card.service';
 import { BankAccountService } from '../../bank-account/bank-account.service';
 import {
+  MerchantClassifierService,
+  MERCHANT_TO_EXPENSE_TYPE,
+} from '../../merchant-classifier/merchant-classifier.service';
+import {
   isFullAccessRole,
   projectTypeHasModule,
   userCanAccessProject,
@@ -55,6 +59,7 @@ export class AgentToolsService {
     private readonly receipts: ReceiptService,
     private readonly cards: CreditCardService,
     private readonly accounts: BankAccountService,
+    private readonly merchantClassifier: MerchantClassifierService,
   ) {
     this.handlers = this.buildHandlers();
   }
@@ -278,7 +283,7 @@ export class AgentToolsService {
           const valor = this.parseMoney(args['valor']);
           if (valor == null) return { error: 'Informe um valor em reais maior que zero.' };
 
-          const tipoDespesa = this.normalizeEnum(args['tipoDespesa'], ExpenseType, 'OUTROS');
+          let tipoDespesa = this.normalizeEnum(args['tipoDespesa'], ExpenseType, 'OUTROS');
           const status = this.pickEnumStr(args['status'], ['PAGO', 'PLANEJADO'], 'PAGO');
           const quantidadeParcela = this.optInt(args['quantidadeParcela'], 2, 60);
           const formaPagamento = this.pickEnumStr(
@@ -303,6 +308,20 @@ export class AgentToolsService {
           const valorCents = Math.round(valor * 100);
           const titulo = this.optStr(args['titulo']);
           const fornecedor = this.optStr(args['fornecedor']);
+
+          // Fallback de categorização automática: só entra quando o agente não
+          // conseguiu inferir a categoria (ficou OUTROS) e há algum texto
+          // (título/fornecedor) para classificar. NUNCA sobrepõe uma categoria
+          // que o agente já resolveu para algo diferente de OUTROS.
+          if (tipoDespesa === 'OUTROS' && (titulo || fornecedor)) {
+            const classifyText = titulo || fornecedor || '';
+            const classified = await this.merchantClassifier.classifyBatch([classifyText]);
+            const key = MerchantClassifierService.normalizeKey(classifyText);
+            const suggestion = classified.get(key);
+            const mapped = suggestion ? MERCHANT_TO_EXPENSE_TYPE[suggestion.category] : undefined;
+            if (mapped) tipoDespesa = mapped;
+          }
+
           const dupWindowStart = new Date(Date.now() - 5 * 60_000);
           const existing = await this.prisma.expense.findFirst({
             where: {

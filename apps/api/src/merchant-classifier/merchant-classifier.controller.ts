@@ -1,6 +1,25 @@
 import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { MerchantClassifierService, type MerchantCategory } from './merchant-classifier.service';
+import { MERCHANT_TO_EXPENSE_TYPE } from './merchant-classifier.service';
 import { PrismaService } from '../prisma/prisma.service';
+
+const SUGGEST_MIN_LENGTH = 3;
+
+export interface SuggestCategoryResponse {
+  category: string | null;
+  subcategory: string | null;
+  confidence: number;
+  source: 'REGEX' | 'AI' | 'MANUAL' | 'CACHE';
+  suggestedTipoDespesa: string | null;
+}
+
+const NEUTRAL_SUGGESTION: SuggestCategoryResponse = {
+  category: null,
+  subcategory: null,
+  confidence: 0,
+  source: 'CACHE',
+  suggestedTipoDespesa: null,
+};
 
 @Controller('merchant-categories')
 export class MerchantClassifierController {
@@ -27,5 +46,33 @@ export class MerchantClassifierController {
   @Post('override')
   override(@Body() body: { merchant: string; category: MerchantCategory; subcategory?: string }) {
     return this.svc.setManual(body.merchant, body.category, body.subcategory ?? null);
+  }
+
+  /**
+   * Sugestão de categoria para um único texto (ex.: título/fornecedor digitado no
+   * form de despesa). Retorna resposta neutra sem custo (sem chamar classifyBatch)
+   * quando o texto é curto demais para ser um sinal útil.
+   */
+  @Post('suggest')
+  async suggest(@Body() body: { text: string }): Promise<SuggestCategoryResponse> {
+    const text = (body?.text ?? '').trim();
+    if (text.length < SUGGEST_MIN_LENGTH) {
+      return { ...NEUTRAL_SUGGESTION };
+    }
+
+    const map = await this.svc.classifyBatch([text]);
+    const key = MerchantClassifierService.normalizeKey(text);
+    const result = map.get(key);
+    if (!result) {
+      return { ...NEUTRAL_SUGGESTION };
+    }
+
+    return {
+      category: result.category,
+      subcategory: result.subcategory,
+      confidence: result.confidence,
+      source: result.source,
+      suggestedTipoDespesa: MERCHANT_TO_EXPENSE_TYPE[result.category] ?? null,
+    };
   }
 }

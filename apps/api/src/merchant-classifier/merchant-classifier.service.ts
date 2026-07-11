@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ExpenseType } from '@reformaflow/domain';
 import { PrismaService } from '../prisma/prisma.service';
 
 export const MERCHANT_CATEGORIES = [
@@ -21,6 +22,32 @@ export const MERCHANT_CATEGORIES = [
   'outros',
 ] as const;
 export type MerchantCategory = (typeof MERCHANT_CATEGORIES)[number];
+
+/**
+ * Mapeamento categoria do classifier (IA/regex) → ExpenseType pessoal.
+ * Única fonte da verdade — não duplicar em outros módulos (importar daqui).
+ * Nota: "transferência" mapeia para TRANSFERENCIA_TED (não existe o valor
+ * literal "TRANSFERENCIA" no enum ExpenseType).
+ */
+export const MERCHANT_TO_EXPENSE_TYPE: Record<MerchantCategory, ExpenseType> = {
+  alimentação: ExpenseType.ALIMENTACAO,
+  transporte: ExpenseType.TRANSPORTE,
+  assinaturas: ExpenseType.ASSINATURAS,
+  viagem: ExpenseType.LAZER,
+  saúde: ExpenseType.SAUDE,
+  compras: ExpenseType.OUTROS,
+  educação: ExpenseType.EDUCACAO,
+  casa: ExpenseType.MORADIA,
+  moradia: ExpenseType.MORADIA,
+  servicos: ExpenseType.OUTROS,
+  beleza: ExpenseType.BELEZA,
+  pets: ExpenseType.PETS,
+  impostos: ExpenseType.OUTROS,
+  lazer: ExpenseType.LAZER,
+  investimentos: ExpenseType.OUTROS,
+  transferência: ExpenseType.TRANSFERENCIA_TED,
+  outros: ExpenseType.OUTROS,
+};
 
 export interface ClassifyResult {
   merchant: string;
