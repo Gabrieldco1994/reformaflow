@@ -45,7 +45,9 @@ describe('MobileExpenseControlsSheet', () => {
 
   it('offers project view for PESSOAL without fabricating a room control', () => {
     renderSheet({ projectType: 'PESSOAL', hasRooms: false });
-    expect(screen.getByRole('radio', { name: 'Por projeto' })).toBeInTheDocument();
+    expect(
+      screen.getAllByRole('radio').map((radio) => radio.parentElement?.textContent),
+    ).toEqual(['Categoria', 'Mês', 'Geral', 'Por projeto']);
     expect(screen.queryByRole('textbox', { name: 'Ambiente' })).not.toBeInTheDocument();
   });
 
@@ -65,6 +67,7 @@ describe('MobileExpenseControlsSheet', () => {
     });
     expect(props.onDraftChange).toHaveBeenCalledOnce();
     expect(props.onDraftChange).toHaveBeenCalledWith({ ...draft, q: 'cimento' });
+    expect(draft.q).toBe('');
 
     fireEvent.click(screen.getByRole('button', { name: 'Fechar' }));
     expect(props.onOpenChange).toHaveBeenCalledWith(false);

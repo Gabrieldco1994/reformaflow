@@ -80,5 +80,14 @@ describe('expense query state codec', () => {
     });
     expect(next.get('utm_campaign')).toBe('julho');
     expect(decodeExpenseQuery(next, reformaOptions)).toEqual(state);
+
+    const changed = encodeExpenseQuery(
+      new URLSearchParams('utm_tag=first&utm_tag=second&feature_flag=mobile&q=old'),
+      { ...state, q: 'new' },
+      reformaOptions,
+    );
+    expect(changed.getAll('utm_tag')).toEqual(['first', 'second']);
+    expect(changed.getAll('q')).toEqual(['new']);
+    expect(changed.get('feature_flag')).toBe('mobile');
   });
 });

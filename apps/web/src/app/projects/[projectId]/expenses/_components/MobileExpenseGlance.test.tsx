@@ -16,6 +16,7 @@ describe('MobileExpenseGlance', () => {
 
     fireEvent.click(within(account).getByRole('button', { name: 'Mostrar valor exato' }));
     expect(within(account).getByText('R$ 1.500,50')).toBeInTheDocument();
+    expect(within(card).getByText('R$ 20.696,38')).toBeInTheDocument();
   });
 
   it('distinguishes valid zero from absent data', () => {
@@ -23,9 +24,10 @@ describe('MobileExpenseGlance', () => {
     expect(
       within(screen.getByRole('article', { name: 'No cartão' })).getByText('R$ 0'),
     ).toBeInTheDocument();
-    expect(
-      within(screen.getByRole('article', { name: 'Na conta' })).queryByText('R$ 0'),
-    ).not.toBeInTheDocument();
+    const unavailable = within(screen.getByRole('article', { name: 'Na conta' }));
+    expect(unavailable.queryByText('R$ 0')).not.toBeInTheDocument();
+    expect(unavailable.getByText('—')).toBeInTheDocument();
+    expect(unavailable.queryByRole('button')).not.toBeInTheDocument();
   });
 
   it.each(['loading', 'error'] as const)('does not render monetary values while %s', (status) => {
