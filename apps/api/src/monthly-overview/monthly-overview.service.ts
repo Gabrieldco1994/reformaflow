@@ -15,6 +15,11 @@ import {
   type MonthlyOverviewEntry,
 } from '@reformaflow/domain';
 
+const PROJECTION_STATUS = {
+  OK: 'ok',
+  DEGRADED: 'degraded',
+} as const;
+
 @Injectable()
 export class MonthlyOverviewService {
   constructor(
@@ -22,7 +27,7 @@ export class MonthlyOverviewService {
     private readonly cardSettlement: CardInvoiceSettlementService,
   ) {}
 
-  async getOverview(tenantId: string, pessoalProjectId: string) {
+  async getOverview(tenantId: string, pessoalProjectId: string, month?: string) {
     const pessoal = await this.prisma.project.findFirst({
       where: { id: pessoalProjectId, tenantId, deletedAt: null },
     });
@@ -175,12 +180,24 @@ export class MonthlyOverviewService {
     // Expense/buildInstallments, que o cashFlowEntry das entries NÃO materializa) +
     // parcelas cross vencendo, não a competência das entries. Aditivo e resiliente:
     // se falhar, o frontend cai no cálculo por competência (comportamento anterior).
+    const projectionMonth = normalizeMonthKey(month);
     let projecao:
-      | { caixaHoje: number; entrouMes: number; saiuMes: number; faltaPagarMes: number; recebimentosPrevistosMes: number; sobraPrevista: number }
-      | undefined;
+      | {
+          mes: string;
+          status: typeof PROJECTION_STATUS.OK;
+          caixaHoje: number;
+          entrouMes: number;
+          saiuMes: number;
+          faltaPagarMes: number;
+          recebimentosPrevistosMes: number;
+          sobraPrevista: number;
+        }
+      | { mes: string; status: typeof PROJECTION_STATUS.DEGRADED };
     try {
-      const av = await this.getAccountView(tenantId, pessoalProjectId, currentKey);
+      const av = await this.getAccountView(tenantId, pessoalProjectId, projectionMonth);
       projecao = {
+        mes: projectionMonth,
+        status: PROJECTION_STATUS.OK,
         caixaHoje: av.caixaHoje,
         entrouMes: av.entrouMes,
         saiuMes: av.saiuMes,
@@ -189,7 +206,7 @@ export class MonthlyOverviewService {
         sobraPrevista: av.sobraPrevista,
       };
     } catch {
-      projecao = undefined;
+      projecao = { mes: projectionMonth, status: PROJECTION_STATUS.DEGRADED };
     }
 
     // Cartões do tenant (closingDay/dueDay) para derivar o "mês de caixa" das

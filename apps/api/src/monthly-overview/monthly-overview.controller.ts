@@ -18,8 +18,9 @@ export class MonthlyOverviewController {
   getOverview(
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
+    @Query('month') month?: string,
   ) {
-    return this.service.getOverview(tenantId, projectId);
+    return this.service.getOverview(tenantId, projectId, month);
   }
 
   @Get('account-view')
