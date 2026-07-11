@@ -123,17 +123,20 @@ export function ExpenseFiltersBar({
             </select>
           </div>
 
-          {/* Período entre dois meses (YYYY-MM) - opcional */}
-          <div>
-            <label className="text-[10px] font-medium text-gray-500 block mb-0.5">Período início</label>
-            <input type="month" value={rangeStart ?? ''} onChange={(e) => onRangeStartChange?.(e.target.value)}
-              className="w-full border border-gray-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300" />
-          </div>
-          <div>
-            <label className="text-[10px] font-medium text-gray-500 block mb-0.5">Período fim</label>
-            <input type="month" value={rangeEnd ?? ''} onChange={(e) => onRangeEndChange?.(e.target.value)}
-              className="w-full border border-gray-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300" />
-          </div>
+          {onRangeStartChange && onRangeEndChange && (
+            <>
+              <div>
+                <label className="text-[10px] font-medium text-gray-500 block mb-0.5">Período início</label>
+                <input type="month" value={rangeStart ?? ''} onChange={(e) => onRangeStartChange(e.target.value)}
+                  className="w-full border border-gray-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300" />
+              </div>
+              <div>
+                <label className="text-[10px] font-medium text-gray-500 block mb-0.5">Período fim</label>
+                <input type="month" value={rangeEnd ?? ''} onChange={(e) => onRangeEndChange(e.target.value)}
+                  className="w-full border border-gray-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300" />
+              </div>
+            </>
+          )}
         </div>
       )}
     </>
