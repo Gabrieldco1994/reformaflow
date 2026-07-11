@@ -18,6 +18,7 @@ import EixoToggle, { type Eixo } from "./_cockpit/EixoToggle";
 import SaldosWidget from "./_cockpit/SaldosWidget";
 import MobileCockpitHeader from "./_cockpit/MobileCockpitHeader";
 import MobileMonthCockpit from "./_cockpit/MobileMonthCockpit";
+import { monthlyOverviewPath } from "./_lib/monthly-overview-query";
 
 type View = "mes" | "ano";
 
@@ -63,7 +64,7 @@ export default function CockpitPage() {
 
   const { data, isLoading, error } = useQuery<MonthlyOverviewResponse>({
     queryKey: ["monthly-overview", projectId, selectedMonth],
-    queryFn: () => api.get(`/projects/${projectId}/monthly-overview${selectedMonth ? `?mes=${selectedMonth}` : ""}`),
+    queryFn: () => api.get(monthlyOverviewPath(projectId, selectedMonth)),
     enabled: !!projectId,
   });
 
