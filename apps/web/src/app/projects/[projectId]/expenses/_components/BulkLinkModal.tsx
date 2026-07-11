@@ -6,12 +6,14 @@ import { api } from '@/lib/api';
 import { Modal } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import type { Expense, ExpensesPage } from '@/types';
 import { getExpenseOptions } from '../_types';
 import { selectEligibleForBulkLink } from '../_lib/bulkLinkEligibility';
 import { getBulkLinkTargetProjects, type BulkLinkTargetProject } from '../_lib/bulkLinkTargetOptions';
 import { buildBulkLinkTargetPayload } from '../_lib/bulkLinkPayload';
+import { filterBulkLinkSources } from '../_lib/bulkLinkSearchFilter';
 import { useBulkLinkExecution } from '../_hooks/useBulkLinkExecution';
 
 interface Props {
@@ -68,6 +70,12 @@ export function BulkLinkModal({ open, onClose, currentProjectId, preselectedSour
     setPickedIds(new Set(eligible.map((e) => e.id)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selfSelectMode, open]);
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const visible = useMemo(
+    () => (selfSelectMode ? filterBulkLinkSources(eligible, searchQuery) : eligible),
+    [selfSelectMode, eligible, searchQuery],
+  );
 
   const sources = selfSelectMode ? eligible.filter((e) => pickedIds.has(e.id)) : eligible;
 
@@ -129,6 +137,7 @@ export function BulkLinkModal({ open, onClose, currentProjectId, preselectedSour
     }
     setChoices({});
     setConfirmed(false);
+    setSearchQuery('');
     onClose();
   }
 
@@ -145,8 +154,22 @@ export function BulkLinkModal({ open, onClose, currentProjectId, preselectedSour
           <p className="text-sm text-gray-500">Nenhuma despesa elegível encontrada.</p>
         )}
 
+        {selfSelectMode && eligible.length > 0 && (
+          <Input
+            type="text"
+            placeholder="Buscar por título ou fornecedor..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            disabled={confirmed}
+          />
+        )}
+
+        {selfSelectMode && eligible.length > 0 && visible.length === 0 && (
+          <p className="text-sm text-gray-500">Nenhuma despesa encontrada para "{searchQuery}".</p>
+        )}
+
         <div className="max-h-96 space-y-2 overflow-y-auto">
-          {eligible.map((s) => {
+          {visible.map((s) => {
             const picked = selfSelectMode ? pickedIds.has(s.id) : true;
             const choice = choices[s.id];
             const targetProject = targetProjects.find((p) => p.id === choice?.targetProjectId) ?? null;
