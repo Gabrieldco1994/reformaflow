@@ -153,6 +153,63 @@ describe("MobileMonthCockpit", () => {
     expect(within(cockpit).getByText("R$ 12.345,67")).toBeInTheDocument();
   });
 
+  it("forwards the selected month and keeps its exact canonical values separate from the current-month mini hero", () => {
+    const overview = data({
+      projecao: {
+        status: "canonical",
+        mes: "2026-06",
+        caixaHoje: 1_234_567,
+        entrouMes: 456_789,
+        saiuMes: 123_456,
+        faltaPagarMes: 7_891,
+        recebimentosPrevistosMes: 2_345,
+        sobraPrevista: 987_654,
+      },
+    });
+    renderCockpit({ data: overview, monthKey: "2026-06", entries: [] });
+    expect(screen.getByRole("article", { name: "Entrou" })).toHaveTextContent(
+      "R$ 4,6 mil",
+    );
+    expect(screen.getByRole("article", { name: "Saiu" })).toHaveTextContent(
+      "R$ 1,2 mil",
+    );
+    expect(screen.getByRole("article", { name: "Projeção" })).toHaveTextContent(
+      "R$ 9,9 mil",
+    );
+    const miniHero = screen.getByRole("complementary", {
+      name: "Resumo do mês atual",
+    });
+    expect(miniHero).toHaveTextContent("Julho 2026");
+    expect(miniHero).toHaveTextContent("R$ 12 mil");
+    expect(miniHero).not.toHaveTextContent("R$ 9,9 mil");
+  });
+
+  it("wires each disclosure to its controlled panel and keeps details one interaction away", () => {
+    renderCockpit();
+    for (const name of ["Análise do mês", "Próximas saídas conhecidas"]) {
+      const trigger = screen.getByRole("button", { name });
+      const panelId = trigger.getAttribute("aria-controls");
+      expect(panelId).toBeTruthy();
+      expect(trigger).toHaveAttribute("aria-expanded", "false");
+      expect(document.getElementById(panelId!)).not.toBeInTheDocument();
+      fireEvent.click(trigger);
+      expect(trigger).toHaveAttribute("aria-expanded", "true");
+      expect(document.getElementById(panelId!)).toBeInTheDocument();
+    }
+  });
+
+  it("uses reduced-motion-safe disclosure animation and touch-sized controls", () => {
+    renderCockpit();
+    const disclosure = screen.getByRole("button", { name: "Análise do mês" });
+    expect(disclosure.className).toContain("min-h-[56px]");
+    expect(disclosure.querySelector("svg")?.className.baseVal).toContain(
+      "motion-reduce:transition-none",
+    );
+    expect(
+      screen.getByRole("slider", { name: "Ritmo diário projetado" }).className,
+    ).toContain("min-h-[44px]");
+  });
+
   it("uses the honest fallback label when the account has no opening balance", () => {
     const overview = data({
       caixa: {
