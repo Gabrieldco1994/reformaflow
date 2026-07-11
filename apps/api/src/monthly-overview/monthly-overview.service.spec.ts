@@ -70,7 +70,7 @@ describe('MonthlyOverviewService.getOverview — espelhos cross-project', () => 
     const res = await service.getOverview(tenantId, PESSOAL, '2026-03');
 
     expect(getAccountView).toHaveBeenCalledWith(tenantId, PESSOAL, '2026-03');
-    expect(res.projecao).toEqual({ mes: '2026-03', status: 'ok', ...accountView });
+    expect(res.projecao).toEqual({ mes: '2026-03', status: 'canonical', ...accountView });
     expect(res.mesAtual).toBe('2026-07');
     jest.useRealTimers();
   });

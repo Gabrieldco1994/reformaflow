@@ -16,7 +16,7 @@ import {
 } from '@reformaflow/domain';
 
 const PROJECTION_STATUS = {
-  OK: 'ok',
+  CANONICAL: 'canonical',
   DEGRADED: 'degraded',
 } as const;
 
@@ -184,7 +184,7 @@ export class MonthlyOverviewService {
     let projecao:
       | {
           mes: string;
-          status: typeof PROJECTION_STATUS.OK;
+          status: typeof PROJECTION_STATUS.CANONICAL;
           caixaHoje: number;
           entrouMes: number;
           saiuMes: number;
@@ -197,7 +197,7 @@ export class MonthlyOverviewService {
       const av = await this.getAccountView(tenantId, pessoalProjectId, projectionMonth);
       projecao = {
         mes: projectionMonth,
-        status: PROJECTION_STATUS.OK,
+        status: PROJECTION_STATUS.CANONICAL,
         caixaHoje: av.caixaHoje,
         entrouMes: av.entrouMes,
         saiuMes: av.saiuMes,
