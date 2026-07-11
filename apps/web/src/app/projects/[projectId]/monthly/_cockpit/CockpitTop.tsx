@@ -117,7 +117,7 @@ export default function CockpitTop({
   /** Renderiza o bloco de recomendações dentro do card do topo (só na visão Mês). */
   showRecs?: boolean;
 }) {
-  const t = useMemo(() => deriveCockpitTop(data), [data]);
+  const t = useMemo(() => deriveCockpitTop(data, monthKey ?? data.mesAtual), [data, monthKey]);
   const recs = useMemo(() => {
     if (!showRecs) return null;
     const m = deriveMonth(data, monthKey ?? data.mesAtual, entries);
@@ -196,6 +196,9 @@ export default function CockpitTop({
         </div>
 
         <p className="mt-3 text-[13px] leading-relaxed text-[var(--ck-muted)]">{fechamento}</p>
+        {t.projectionDegraded && (
+          <p className="mt-1 text-[11px] text-[var(--ck-alert)]">Estimativa por lançamentos do mês; projeção da conta indisponível.</p>
+        )}
 
         {recs && (
           <details className="group mt-4 border-t border-[var(--ck-border)] pt-3">

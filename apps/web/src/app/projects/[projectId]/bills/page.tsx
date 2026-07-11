@@ -4,44 +4,13 @@ import { useProject } from '@/contexts/project-context';
 import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
-import { Plus, Pause, Play, Trash2, Edit2 } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import type { ProjectType } from '@reformaflow/domain';
+import { BILL_CATEGORIES, BILL_FREQUENCIES, type RecurringBillRow } from './_display';
+import { RecurringBillsView } from './_components/RecurringBillsView';
 import { AvulsasTab } from './_components/AvulsasTab';
 
-const CATEGORIAS = [
-  { value: 'LUZ', label: 'Luz' },
-  { value: 'AGUA', label: 'Água' },
-  { value: 'INTERNET', label: 'Internet' },
-  { value: 'IPTU', label: 'IPTU' },
-  { value: 'CONDOMINIO', label: 'Condomínio' },
-  { value: 'FINANCIAMENTO', label: 'Financiamento' },
-  { value: 'SEGURO', label: 'Seguro' },
-  { value: 'GAS', label: 'Gás' },
-  { value: 'TELEFONE', label: 'Telefone' },
-  { value: 'STREAMING', label: 'Streaming' },
-  { value: 'OUTRO', label: 'Outro' },
-];
-
-const FREQUENCIAS = [
-  { value: 'MENSAL', label: 'Mensal' },
-  { value: 'BIMESTRAL', label: 'Bimestral' },
-  { value: 'TRIMESTRAL', label: 'Trimestral' },
-  { value: 'SEMESTRAL', label: 'Semestral' },
-  { value: 'ANUAL', label: 'Anual' },
-];
-
-interface RecurringBill {
-  id: string;
-  nome: string;
-  valor: number;
-  categoria: string;
-  frequencia: string;
-  diaVencimento: number;
-  status: string;
-  ultimoPagamento?: string;
-  proximoVencimento?: string;
-  observacoes?: string;
-}
+type RecurringBill = RecurringBillRow;
 
 const emptyBill = {
   nome: '',
@@ -274,14 +243,14 @@ function RecorrentesContent({
                   <label className="text-xs text-gray-500">Categoria</label>
                   <select value={form.categoria} onChange={(e) => setForm((f) => ({ ...f, categoria: e.target.value }))}
                     className="w-full border rounded-lg px-3 py-2">
-                    {CATEGORIAS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                    {BILL_CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="text-xs text-gray-500">Frequência</label>
                   <select value={form.frequencia} onChange={(e) => setForm((f) => ({ ...f, frequencia: e.target.value }))}
                     className="w-full border rounded-lg px-3 py-2">
-                    {FREQUENCIAS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+                    {BILL_FREQUENCIES.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
                   </select>
                 </div>
               </div>
@@ -309,91 +278,12 @@ function RecorrentesContent({
           <p className="text-gray-400 text-sm mt-1">Adicione suas contas recorrentes (luz, água, internet...)</p>
         </div>
       ) : (
-        <>
-        {/* Desktop: tabela */}
-        <div className="hidden md:block bg-white rounded-xl border overflow-x-auto">
-          <table className="w-full min-w-[720px] text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Conta</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Categoria</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-600">Valor</th>
-                <th className="text-center px-4 py-3 font-medium text-gray-600">Frequência</th>
-                <th className="text-center px-4 py-3 font-medium text-gray-600">Vencimento</th>
-                <th className="text-center px-4 py-3 font-medium text-gray-600">Status</th>
-                <th className="text-center px-4 py-3 font-medium text-gray-600">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {bills.map((bill) => {
-                const cat = CATEGORIAS.find((c) => c.value === bill.categoria);
-                const freq = FREQUENCIAS.find((f) => f.value === bill.frequencia);
-                return (
-                  <tr key={bill.id} className={bill.status === 'PAUSADO' ? 'opacity-50' : ''}>
-                    <td className="px-4 py-3 font-medium">{bill.nome}</td>
-                    <td className="px-4 py-3 text-gray-600">{cat?.label ?? bill.categoria}</td>
-                    <td className="px-4 py-3 text-right font-mono">{formatCurrency(bill.valor / 100)}</td>
-                    <td className="px-4 py-3 text-center">{freq?.label ?? bill.frequencia}</td>
-                    <td className="px-4 py-3 text-center">Dia {bill.diaVencimento}</td>
-                    <td className="px-4 py-3 text-center">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                        bill.status === 'ATIVO' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-                      }`}>
-                        {bill.status === 'ATIVO' ? 'Ativo' : 'Pausado'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <button onClick={() => toggleStatus(bill)} className="p-1 text-gray-400 hover:text-brand-600" title={bill.status === 'ATIVO' ? 'Pausar' : 'Ativar'}>
-                          {bill.status === 'ATIVO' ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                        </button>
-                        <button onClick={() => startEdit(bill)} className="p-1 text-gray-400 hover:text-brand-600" title="Editar">
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => handleDelete(bill.id)} className="p-1 text-gray-400 hover:text-red-500" title="Excluir">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Mobile: cards */}
-        <div className="md:hidden space-y-2.5">
-          {bills.map((bill) => {
-            const cat = CATEGORIAS.find((c) => c.value === bill.categoria);
-            const freq = FREQUENCIAS.find((f) => f.value === bill.frequencia);
-            const ativo = bill.status === 'ATIVO';
-            return (
-              <div key={bill.id} className={`rounded-2xl border bg-white p-3.5 shadow-sm ${ativo ? '' : 'opacity-60'}`}>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="font-semibold text-[15px] truncate">{bill.nome}</p>
-                    <p className="text-[12.5px] text-gray-500 mt-0.5">
-                      {cat?.label ?? bill.categoria} · {freq?.label ?? bill.frequencia} · vence dia {bill.diaVencimento}
-                    </p>
-                  </div>
-                  <p className="text-[15px] font-bold font-mono shrink-0">{formatCurrency(bill.valor / 100)}</p>
-                </div>
-                <div className="mt-3 flex items-center justify-between gap-2 border-t pt-3">
-                  <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${ativo ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                    {ativo ? 'Ativa' : 'Pausada'}
-                  </span>
-                  <div className="flex items-center gap-3 text-[13px] font-semibold">
-                    <button onClick={() => toggleStatus(bill)} className="text-brand-600">{ativo ? 'Pausar' : 'Ativar'}</button>
-                    <button onClick={() => startEdit(bill)} className="text-brand-600">Editar</button>
-                    <button onClick={() => handleDelete(bill.id)} className="text-red-500">Excluir</button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        </>
+        <RecurringBillsView
+          bills={bills}
+          onToggleStatus={toggleStatus}
+          onEdit={startEdit}
+          onDelete={handleDelete}
+        />
       )}
     </div>
   );

@@ -58,6 +58,32 @@ describe('MonthlyOverviewService.getOverview — espelhos cross-project', () => 
     ...over,
   });
 
+  it('usa o mês solicitado na projeção sem alterar mesAtual', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-11T12:00:00'));
+    prisma.cashFlowEntry.findMany.mockResolvedValue([]);
+    const accountView = {
+      caixaHoje: 100, entrouMes: 200, saiuMes: 50, faltaPagarMes: 25,
+      recebimentosPrevistosMes: 75, sobraPrevista: 300,
+    };
+    const getAccountView = jest.spyOn(service, 'getAccountView').mockResolvedValue(accountView as any);
+
+    const res = await service.getOverview(tenantId, PESSOAL, '2026-03');
+
+    expect(getAccountView).toHaveBeenCalledWith(tenantId, PESSOAL, '2026-03');
+    expect(res.projecao).toEqual({ mes: '2026-03', status: 'canonical', ...accountView });
+    expect(res.mesAtual).toBe('2026-07');
+    jest.useRealTimers();
+  });
+
+  it('mantém fallback explícito quando a Visão Conta falha', async () => {
+    prisma.cashFlowEntry.findMany.mockResolvedValue([]);
+    jest.spyOn(service, 'getAccountView').mockRejectedValue(new Error('account view unavailable'));
+
+    const res = await service.getOverview(tenantId, PESSOAL, '2026-03');
+
+    expect(res.projecao).toEqual({ mes: '2026-03', status: 'degraded' });
+  });
+
   it('marca isEspelho corretamente e mantém o espelho em entries', async () => {
     prisma.cashFlowEntry.findMany.mockResolvedValue([
       baseEntry({ id: 'cfe-esp', projectId: PESSOAL, expenseId: 'e-esp', expense: { linkedExpenseId: 'e-target' } }),

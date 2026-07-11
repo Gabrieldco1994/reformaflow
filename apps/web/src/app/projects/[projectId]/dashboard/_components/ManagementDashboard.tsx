@@ -1,0 +1,178 @@
+'use client';
+
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/lib/api';
+import { formatCurrency, formatDateBR } from '@/lib/utils';
+import { getProjectAccentColor } from '@/lib/project-colors';
+import {
+  BillCategoryLabels, BillFrequencyLabels,
+  ReminderPriorityLabels,
+} from '@reformaflow/domain';
+import ManagementGlance from './ManagementGlance';
+import ManagementFocus from './ManagementFocus';
+
+export interface Bill { id: string; nome: string; valor: number; categoria: string; frequencia: string; diaVencimento: number; status: string; }
+export interface Maintenance { id: string; tipo: string; dataRealizada: string; dataProxima?: string; custo: number; fornecedor?: string; }
+export interface Reminder { id: string; titulo: string; descricao?: string; data: string; prioridade: string; recorrencia: string; status: string; }
+
+export default function ManagementDashboard({ projectId, projectType }: { projectId: string; projectType: string }) {
+  const { data: bills } = useQuery<Bill[]>({
+    queryKey: ['recurring-bills', projectId],
+    queryFn: () => api.get(`/projects/${projectId}/recurring-bills`),
+  });
+  const { data: maintenance } = useQuery<Maintenance[]>({
+    queryKey: ['maintenance-logs', projectId],
+    queryFn: () => api.get(`/projects/${projectId}/maintenance-logs`),
+  });
+  const { data: reminders } = useQuery<Reminder[]>({
+    queryKey: ['reminders', projectId],
+    queryFn: () => api.get(`/projects/${projectId}/reminders`),
+  });
+
+  const activeBills = (bills ?? []).filter(b => b.status === 'ATIVO');
+  const totalMensal = activeBills.reduce((sum, b) => sum + b.valor, 0);
+
+  const today = new Date();
+  const upcomingMaintenance = (maintenance ?? [])
+    .filter(m => m.dataProxima && new Date(m.dataProxima) >= today)
+    .sort((a, b) => new Date(a.dataProxima!).getTime() - new Date(b.dataProxima!).getTime())
+    .slice(0, 5);
+
+  const pendingReminders = (reminders ?? [])
+    .filter(r => r.status === 'PENDENTE')
+    .sort((a, b) => new Date(a.data).getTime() - new Date(b.data).getTime())
+    .slice(0, 5);
+
+  const overdueBills = activeBills.filter(b => today.getDate() > b.diaVencimento);
+
+  const accentColor = getProjectAccentColor(projectType);
+
+  const kpis: { label: string; value: string; accent: string }[] = [
+    { label: 'Contas Ativas', value: `${activeBills.length}`, accent: accentColor },
+    { label: 'Custo Mensal Estimado', value: formatCurrency(totalMensal / 100), accent: accentColor },
+    { label: 'Manutenções Próximas', value: `${upcomingMaintenance.length}`, accent: accentColor },
+    { label: 'Lembretes Pendentes', value: `${pendingReminders.length}`, accent: accentColor },
+    { label: 'Contas Vencidas', value: `${overdueBills.length}`, accent: overdueBills.length > 0 ? 'bg-darc-red-bright' : accentColor },
+  ];
+
+  return (
+    <div className="space-y-6 md:space-y-8">
+      <div className="md:hidden space-y-4">
+        <ManagementGlance
+          projectId={projectId}
+          totalMensalLabel={formatCurrency(totalMensal / 100)}
+          activeCount={activeBills.length}
+          overdueCount={overdueBills.length}
+          upcomingMaintenanceCount={upcomingMaintenance.length}
+          pendingRemindersCount={pendingReminders.length}
+        />
+        <ManagementFocus
+          projectId={projectId}
+          activeBills={activeBills}
+          upcomingMaintenance={upcomingMaintenance}
+          pendingReminders={pendingReminders}
+          today={today}
+        />
+      </div>
+      <div className="hidden md:grid grid-cols-2 lg:grid-cols-3 gap-4">
+        {kpis.map((kpi) => (
+          <div
+            key={kpi.label}
+            className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-5 relative overflow-hidden"
+          >
+            <span className={`absolute left-0 top-5 bottom-5 w-1 rounded-r-full ${kpi.accent}`} />
+            <p className="text-[11px] tracking-[0.18em] uppercase text-darc-velvet/60 pl-3">{kpi.label}</p>
+            <p className="text-xl lg:text-2xl font-bold text-darc-velvet mt-2 pl-3">{kpi.value}</p>
+          </div>
+        ))}
+      </div>
+
+      <section className="hidden md:block rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5">
+        <h2 className="font-editorial italic text-lg md:text-xl text-darc-velvet mb-3">📋 Contas Recorrentes</h2>
+        {activeBills.length === 0 ? (
+          <p className="text-darc-velvet/60 text-sm">Nenhuma conta cadastrada.</p>
+        ) : (
+          <div className="divide-y divide-darc-linen">
+            {activeBills.map((bill) => {
+              const isOverdue = today.getDate() > bill.diaVencimento;
+              return (
+                <div key={bill.id} className={`flex items-center justify-between gap-3 py-3 ${isOverdue ? 'bg-darc-red-bright/5 -mx-2 px-2 rounded-lg' : ''}`}>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-darc-velvet truncate">
+                      {bill.nome}
+                      {isOverdue && <span className="ml-2 text-xs text-darc-red">⚠ Vencida</span>}
+                    </p>
+                    <p className="text-xs text-darc-velvet/60 mt-0.5">
+                      {BillCategoryLabels[bill.categoria as keyof typeof BillCategoryLabels] ?? bill.categoria}
+                      {' · '}
+                      Dia {bill.diaVencimento}
+                      {' · '}
+                      {BillFrequencyLabels[bill.frequencia as keyof typeof BillFrequencyLabels] ?? bill.frequencia}
+                    </p>
+                  </div>
+                  <span className="text-sm font-bold text-darc-velvet whitespace-nowrap">{formatCurrency(bill.valor / 100)}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <section className="hidden md:block rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5">
+        <h2 className="font-editorial italic text-lg md:text-xl text-darc-velvet mb-3">🔧 Próximas Manutenções</h2>
+        {upcomingMaintenance.length === 0 ? (
+          <p className="text-darc-velvet/60 text-sm">Nenhuma manutenção agendada.</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {upcomingMaintenance.map((m) => {
+              const daysUntil = Math.ceil((new Date(m.dataProxima!).getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+              const accent = daysUntil <= 7 ? 'bg-darc-red-bright' : daysUntil <= 30 ? 'bg-darc-sunfire' : 'bg-darc-mist';
+              return (
+                <div key={m.id} className="rounded-xl bg-darc-linen/40 p-3 relative overflow-hidden">
+                  <span className={`absolute left-0 top-3 bottom-3 w-1 rounded-r-full ${accent}`} />
+                  <p className="font-semibold text-darc-velvet pl-2">{m.tipo}</p>
+                  <p className="text-sm text-darc-velvet/70 mt-1 pl-2">Próxima: {formatDateBR(m.dataProxima!)}</p>
+                  <p className="text-xs text-darc-velvet/60 pl-2">{daysUntil <= 0 ? '⚠ Atrasada!' : `Em ${daysUntil} dias`}</p>
+                  {m.fornecedor && <p className="text-xs text-darc-velvet/50 mt-1 pl-2">📞 {m.fornecedor}</p>}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <section className="hidden md:block rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5">
+        <h2 className="font-editorial italic text-lg md:text-xl text-darc-velvet mb-3">🔔 Lembretes Pendentes</h2>
+        {pendingReminders.length === 0 ? (
+          <p className="text-darc-velvet/60 text-sm">Nenhum lembrete pendente.</p>
+        ) : (
+          <div className="space-y-2">
+            {pendingReminders.map((r) => {
+              const daysUntil = Math.ceil((new Date(r.data).getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+              const priorityColors: Record<string, string> = {
+                URGENTE: 'border-l-darc-red-bright',
+                ALTA: 'border-l-darc-sunfire',
+                MEDIA: 'border-l-darc-pink',
+                BAIXA: 'border-l-darc-mist',
+              };
+              return (
+                <div key={r.id} className={`border-l-4 ${priorityColors[r.prioridade] ?? 'border-l-darc-mist'} bg-darc-linen/40 rounded-r-lg p-3`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-medium text-darc-velvet">{r.titulo}</p>
+                    <span className="text-[10px] uppercase tracking-[0.15em] px-2 py-0.5 rounded-full bg-white border border-darc-linen text-darc-velvet/70">
+                      {ReminderPriorityLabels[r.prioridade as keyof typeof ReminderPriorityLabels] ?? r.prioridade}
+                    </span>
+                  </div>
+                  {r.descricao && <p className="text-sm text-darc-velvet/70 mt-1">{r.descricao}</p>}
+                  <p className="text-xs text-darc-velvet/60 mt-1">
+                    {formatDateBR(r.data)} · {daysUntil <= 0 ? '⚠ Atrasado!' : `Em ${daysUntil} dias`}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}

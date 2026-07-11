@@ -48,7 +48,7 @@ export const ALL_MODULES: { slug: ModuleSlug; label: string }[] = [
   { slug: 'bankAccounts', label: 'Contas Bancárias' },
   { slug: 'schedule', label: 'Cronograma' },
   { slug: 'pendencias', label: 'Pendências' },
-  { slug: 'financialDashboard', label: 'Dashboard Financeiro' },
+  { slug: 'financialDashboard', label: 'Financeiro' },
 ];
 
 export const TYPE_MODULES: Record<string, ModuleSlug[]> = {

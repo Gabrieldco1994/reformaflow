@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, Edit2 } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { ExpenseTypeLabels, getExpenseTypesForProject, isSinglePaymentForm, type ProjectType } from '@reformaflow/domain';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -10,20 +10,11 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Modal } from '@/components/ui/modal';
 import { FORMA_PAGAMENTO_OPTIONS } from '@/lib/expense-options';
-import { formatCurrency, formatDateBR } from '@/lib/utils';
+import { formatCurrency } from '@/lib/utils';
+import { AvulsasView } from './AvulsasView';
+import type { AvulsaRow } from '../_display';
 
-interface Expense {
-  id: string;
-  tipoDespesa: string;
-  titulo?: string | null;
-  fornecedor?: string | null;
-  valorTotal: number;
-  status: 'PLANEJADO' | 'PAGO';
-  formaPagamento: string;
-  dataPagamento?: string | null;
-  dataInicioParcela?: string | null;
-  quantidadeParcela?: number | null;
-}
+type Expense = AvulsaRow;
 
 interface ExpensesPage {
   items: Expense[];
@@ -227,104 +218,14 @@ export function AvulsasTab({ projectId, projectType }: Props) {
           </p>
         </div>
       ) : (
-        <>
-        {/* Desktop: tabela */}
-        <div className="hidden md:block bg-white rounded-xl border overflow-x-auto">
-          <table className="w-full min-w-[640px] text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Data</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Título</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Categoria</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-600">Valor</th>
-                <th className="text-center px-4 py-3 font-medium text-gray-600">Status</th>
-                <th className="text-center px-4 py-3 font-medium text-gray-600">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {filtered.map((e) => {
-                const ref = e.dataPagamento ?? e.dataInicioParcela;
-                const tipoLabel =
-                  tipoOptions.find((o) => o.value === e.tipoDespesa)?.label ?? e.tipoDespesa;
-                return (
-                  <tr key={e.id}>
-                    <td className="px-4 py-3 text-gray-700">{ref ? formatDateBR(ref) : '—'}</td>
-                    <td className="px-4 py-3 font-medium">
-                      {e.titulo || e.fornecedor || '—'}
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">{tipoLabel}</td>
-                    <td className="px-4 py-3 text-right font-mono">
-                      {formatCurrency((e.valorTotal ?? 0) / 100)}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                          e.status === 'PAGO'
-                            ? 'bg-green-100 text-green-700'
-                            : 'bg-amber-100 text-amber-700'
-                        }`}
-                      >
-                        {e.status === 'PAGO' ? 'Pago' : 'Planejado'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <button
-                          onClick={() => startEdit(e)}
-                          className="p-1 text-gray-400 hover:text-brand-600"
-                          title="Editar"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => {
-                            if (confirm('Excluir esta despesa?')) deleteMutation.mutate(e.id);
-                          }}
-                          className="p-1 text-gray-400 hover:text-red-500"
-                          title="Excluir"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Mobile: cards */}
-        <div className="md:hidden space-y-2.5">
-          {filtered.map((e) => {
-            const ref = e.dataPagamento ?? e.dataInicioParcela;
-            const tipoLabel = tipoOptions.find((o) => o.value === e.tipoDespesa)?.label ?? e.tipoDespesa;
-            const pago = e.status === 'PAGO';
-            return (
-              <div key={e.id} className="rounded-2xl border bg-white p-3.5 shadow-sm">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="font-semibold text-[15px] truncate">{e.titulo || e.fornecedor || '—'}</p>
-                    <p className="text-[12.5px] text-gray-500 mt-0.5">
-                      {tipoLabel}{ref ? ` · ${formatDateBR(ref)}` : ''}
-                    </p>
-                  </div>
-                  <p className="text-[15px] font-bold font-mono shrink-0">{formatCurrency((e.valorTotal ?? 0) / 100)}</p>
-                </div>
-                <div className="mt-3 flex items-center justify-between gap-2 border-t pt-3">
-                  <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${pago ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
-                    {pago ? 'Pago' : 'Planejado'}
-                  </span>
-                  <div className="flex items-center gap-3 text-[13px] font-semibold">
-                    <button onClick={() => startEdit(e)} className="text-brand-600">Editar</button>
-                    <button onClick={() => { if (confirm('Excluir esta despesa?')) deleteMutation.mutate(e.id); }} className="text-red-500">Excluir</button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        </>
+        <AvulsasView
+          expenses={filtered}
+          projectType={projectType}
+          onEdit={startEdit}
+          onDelete={(id) => {
+            if (confirm("Excluir esta despesa?")) deleteMutation.mutate(id);
+          }}
+        />
       )}
 
       <Modal
