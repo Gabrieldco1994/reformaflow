@@ -37,8 +37,12 @@ Também há evoluções posteriores da Visão Conta no `main` (filtros, gráfico
   "Projeção" mostrava R$ 72 mil (inflado) porque calculava "a pagar" por competência
   sobre as entries — que ignoram planejados sem `cashFlowEntry` (R$ 17.4k em jul).
   Agora vem de `getAccountView` (mesma fonte da Visão Conta): projeção R$ 56.652,82.
-  Ver `docs/cockpit-caixa-real.md §9`. ⚠️ Os KPIs de saída do dashboard ainda são
-  competência (mesma subcontagem) — alinhamento é o follow-up.
+  Ver `docs/cockpit-caixa-real.md §9`.
+- `8ebb534d`–`42e25258` (#71) — **Topo canônico acompanha o mês selecionado.** A rota
+  do navegador conserva `mes=YYYY-MM`, enquanto a consulta ao overview envia
+  `month=YYYY-MM`. Os valores rotulados pelo mês usam essa seleção; **Caixa hoje**
+  continua sendo o saldo corrente da §10. `projecao` identifica `mes` e `status`
+  (`canonical`/`degraded`), e o fallback por competência aparece como estimativa.
 - `de9f420d` / `94551610` — **Despesa recorrente (mensal/quinzenal).** Novo botão
   no modal de lançamento gera N despesas planejadas reais (uma por ocorrência),
   entrando em todos os KPIs sem lógica nova. Modo **cross-project** (obra paga pelo

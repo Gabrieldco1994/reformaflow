@@ -58,13 +58,16 @@ Há **dois** tipos de "neutro", com efeitos diferentes — não confundir:
 | Conceito | Enum/helper | Conjunto | Sai do consumo? | Sai do eixo de caixa? |
 |---|---|---|---|---|
 | **Neutro-de-caixa (settlement)** | `isNeutralExpenseType` / `isNeutral` | `PAGAMENTO_FATURA_CARTAO`, `MOVIMENTACAO_INTERNA` | Sim | **Sim** (a saída já está noutro lançamento) |
-| **Neutro-de-consumo** | `isConsumptionNeutralExpenseType` / `isNeutralConsumo` | settlement **∪ `INVESTIMENTOS`** (despesa) e **`RESGATE`** (recebimento) | Sim | **Não** — é saída/entrada de caixa **nova e real** |
+| **Neutro-de-consumo** | `isConsumptionNeutralExpenseType` / `isNeutralConsumo` | despesas: settlement **∪ `INVESTIMENTOS` ∪ `PAGAMENTO_CASA`**; recebimentos: **`RESGATE`, `TRANSFERENCIA_PROPRIA`** | Sim | **Não** — é saída/entrada de caixa **nova e real** |
 
 - **Aporte (`INVESTIMENTOS`)**: não é consumo → fora do gasto/média/categorias/
   resultado; mas o dinheiro **saiu da conta** → permanece no eixo de caixa e no §10.
 - **Resgate (`RESGATE`)**: retorno de principal → fora da receita; mas o dinheiro
   **entrou** → permanece no eixo de caixa. Já **rendimentos** (`JUROS_RENDA_FIXA`)
   são receita real e **contam**.
+- **`PAGAMENTO_CASA`** é aporte para o lar, não consumo;
+  **`TRANSFERENCIA_PROPRIA`** movimenta dinheiro próprio, não é renda. Ambos
+  permanecem no caixa real.
 - Fonte única: `packages/domain/src/enums/index.ts`
   (`CONSUMPTION_NEUTRAL_EXPENSE_TYPES`, `NEUTRAL_RECEIPT_TYPES`).
 - Detalhes e validação em produção: **§10** deste doc.
@@ -265,3 +268,9 @@ continua debitando o caixa; resgate continua creditando.
 
 Confirmado live: os 5 lançamentos `INVESTIMENTOS` e os 5 recebimentos `RESGATE`
 emitem `isNeutralConsumo=true`; `caixa.hoje` permaneceu R$ 69.016,52.
+
+> **Duas “sobras”, dois horizontes:** `getAccountView(..., mês).sobraPrevista` é a
+> sobra **daquele mês** usada pelo overview mensal canônico. Na tela Visão Conta, o
+> card de mês futuro prefere o `saldoProjetado` da série anual: runway
+> **acumulado**, carregando sobras ou faltas dos meses anteriores. Se a série não
+> estiver disponível, a tela volta à sobra mensal da account-view.

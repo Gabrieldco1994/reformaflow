@@ -188,11 +188,9 @@ O antigo `MonthKpis` (Entrou/Gastei) também duplicava o *Resultado* do CockpitT
 (`isEspelho`) e **neutro-de-consumo** (`entryIsConsumptionNeutral` — settlement +
 aporte `INVESTIMENTOS`). Ver `docs/visao-conta-faturas.md §2.1/§10`.
 
-**Nota (inconsistência pré-existente, não alterada):** o CockpitTop
-(`deriveCockpitTop`) sempre deriva o **mês atual** (`data.mesAtual`), enquanto
-`MovimentoMes`/Extrato seguem o mês selecionado. Ao navegar para meses passados/
-futuros os dois blocos podem divergir — comportamento antigo, candidato a
-follow-up (tornar `deriveCockpitTop` month-aware).
+**Resolvido em #71:** `deriveCockpitTop` recebe o mês selecionado. Os valores com
+rótulo mensal, comparações e progresso acompanham a seleção; **Caixa hoje** não é
+rebased e continua sendo o saldo corrente reconciliado pela §10.
 
 ### Visão Ano (mesma leva)
 
@@ -230,13 +228,17 @@ A "a receber" batia (R$ 25.232) — só a "a pagar"/projeção estavam erradas.
 **Correção:** a projeção "fim do mês" é conceito de **caixa** (§10). A fonte de
 verdade já existe e está correta: **`getAccountView`** (a mesma da Visão Conta).
 
-- **Backend** (`getOverview`): passa a expor `projecao` do mês corrente —
-  `{ caixaHoje, faltaPagarMes, recebimentosPrevistosMes, sobraPrevista }` — obtido
-  de `getAccountView(tenant, pessoal, currentKey)`. Envolto em `try/catch`
-  (aditivo/resiliente: se falhar, `projecao` fica `undefined`).
-- **Frontend** (`deriveCockpitTop`): `aPagarMes`/`aReceberMes`/`projecaoMes` usam
-  `data.projecao` quando presente; **fallback** para o cálculo antigo por
-  competência quando ausente (payload antigo). Cobertura: `derive.projecao.test.ts`.
+- **Backend** (`getOverview`): `GET /projects/:id/monthly-overview?month=YYYY-MM`
+  calcula a Visão Conta do mês pedido. A URL do navegador usa `mes=YYYY-MM`; o web
+  traduz esse valor para o parâmetro de API `month`. A resposta identifica a fonte:
+  `projecao: { mes, status: canonical, caixaHoje, entrouMes, saiuMes, faltaPagarMes,
+  recebimentosPrevistosMes, sobraPrevista }`; em erro, retorna
+  `{ mes, status: degraded }`.
+- **Frontend** (`deriveCockpitTop`): só aceita a projeção canônica quando `mes`
+  coincide com a seleção e todos os números existem. Caso contrário usa o cálculo
+  antigo por competência e mostra explicitamente **“Estimativa por lançamentos do
+  mês; projeção da conta indisponível.”** Cobertura: `derive.projecao.test.ts` e
+  `derive.month-aware.test.ts`.
 - **Igual nos dois eixos** (Gastei/Vai sair): projeção é caixa, não muda com o
   toggle. `buildCaixaData` preserva `data.projecao` via spread.
 
