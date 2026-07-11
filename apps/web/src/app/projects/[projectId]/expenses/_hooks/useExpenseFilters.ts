@@ -53,6 +53,8 @@ export function useExpenseFilters(
     ...queryState,
     q: '',
     ...EMPTY_FILTERS,
+    rangeStart: '',
+    rangeEnd: '',
   });
 
   const filteredExpenses = useMemo(() => expenses.filter((exp) => {

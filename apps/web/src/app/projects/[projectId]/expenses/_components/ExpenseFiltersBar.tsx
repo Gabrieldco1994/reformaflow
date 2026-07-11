@@ -67,7 +67,7 @@ export function ExpenseFiltersBar({
         </button>
         {hasActiveFilters && (
           <button
-            onClick={() => { clearFilters(); if (onRangeStartChange) onRangeStartChange(''); if (onRangeEndChange) onRangeEndChange(''); }}
+            onClick={clearFilters}
             className="text-xs text-blue-600 hover:text-blue-800 px-2 py-1.5"
           >
             Limpar

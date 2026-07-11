@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Search, X } from 'lucide-react';
 import { FORMA_PAGAMENTO_OPTIONS } from '@/lib/expense-options';
 import type { ExpenseQueryState } from '../_lib/expense-query-state';
@@ -27,22 +27,58 @@ const control = 'min-h-[44px] w-full rounded-xl border border-darc-linen bg-whit
 const label = 'mb-1 block text-[11px] font-semibold text-darc-velvet/70';
 
 export function MobileExpenseControlsSheet({ open, draft, projectType, hasRooms, tipoOptions, onDraftChange, onApply, onOpenChange }: Props) {
+  const dialogRef = useRef<HTMLElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const onOpenChangeRef = useRef(onOpenChange);
+  onOpenChangeRef.current = onOpenChange;
   const set = <K extends keyof ExpenseQueryState>(key: K, value: ExpenseQueryState[K]) => onDraftChange({ ...draft, [key]: value });
   useEffect(() => {
     if (!open) return;
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onOpenChange(false); };
+    const previouslyFocused = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    closeButtonRef.current?.focus();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onOpenChangeRef.current(false);
+        return;
+      }
+      if (event.key !== 'Tab') return;
+
+      const focusable = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+      ) ?? []).filter((element) => !element.hasAttribute('hidden'));
+      if (focusable.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !dialogRef.current?.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !dialogRef.current?.contains(document.activeElement))) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [open, onOpenChange]);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      previouslyFocused?.focus();
+    };
+  }, [open]);
   if (!open) return null;
   const personal = projectType === 'PESSOAL';
   return (
     <div className="md:hidden">
       <button type="button" aria-label="Fechar filtros" onClick={() => onOpenChange(false)} className="fixed inset-0 z-40 bg-darc-velvet/60 backdrop-blur-sm" />
-      <section role="dialog" aria-modal="true" aria-label="Filtros de despesas" className="fixed inset-x-0 bottom-0 z-50 flex max-h-[88dvh] flex-col rounded-t-[26px] bg-lifeone-surface shadow-lifeone-dialog">
+      <section ref={dialogRef} role="dialog" aria-modal="true" aria-label="Filtros de despesas" className="fixed inset-x-0 bottom-0 z-50 flex max-h-[88dvh] flex-col rounded-t-[26px] bg-lifeone-surface shadow-lifeone-dialog">
         <header className="flex items-center justify-between border-b border-darc-linen px-5 py-3">
           <h2 className="font-geist text-lg font-semibold text-lifeone-ink">Filtrar despesas</h2>
-          <button type="button" aria-label="Fechar" onClick={() => onOpenChange(false)} className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full text-darc-velvet/70"><X className="h-5 w-5" /></button>
+          <button ref={closeButtonRef} type="button" aria-label="Fechar" onClick={() => onOpenChange(false)} className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full text-darc-velvet/70"><X className="h-5 w-5" /></button>
         </header>
         <div className="space-y-4 overflow-y-auto px-5 py-4">
           <div><label htmlFor="expense-q" className={label}>Buscar despesas</label><div className="relative"><Search className="absolute left-3 top-3.5 h-4 w-4 text-darc-velvet/40" /><input id="expense-q" type="search" value={draft.q} onChange={(e) => set('q', e.target.value)} className={`${control} pl-9`} /></div></div>

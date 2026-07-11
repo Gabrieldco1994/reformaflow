@@ -266,12 +266,17 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
 
   // Cross-project despesas (PESSOAL): full data com room+project, usado tanto
   // para mostrar como itens próprios quanto para resolver linkedExpenseId via remoteMap.
-  const { data: crossProjectExpenses = [] } = useQuery<Expense[]>({
+  const {
+    data: crossProjectExpensesData,
+    isLoading: isCrossProjectLoading,
+    isError: isCrossProjectError,
+  } = useQuery<Expense[]>({
     queryKey: ['cross-project-expenses', PROJECT_ID, 'unified-view'],
     queryFn: () => api.get(`/projects/${PROJECT_ID}/expenses/cross-project?limit=2000`),
     enabled: projectType === 'PESSOAL',
     staleTime: 60_000,
   });
+  const crossProjectExpenses = crossProjectExpensesData ?? [];
 
   const remoteProjectMap = useMemo<RemoteProjectMap>(() => {
     const m = new Map();
@@ -956,6 +961,13 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
   }, [contaRealCards]);
 
   const isPersonal = projectType === 'PESSOAL';
+  const mobileGlanceStatus = isError || (isPersonal && isCrossProjectError)
+    ? 'error'
+    : isLoading
+      || expensesPage === undefined
+      || (isPersonal && (isCrossProjectLoading || crossProjectExpensesData === undefined))
+      ? 'loading'
+      : 'ready';
   const {
     gastosControleKpis,
     cartoesFormacao,
@@ -1040,12 +1052,12 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
           {!lockedEixo && <ExpenseEixoToggle eixo={eixo} onChange={setEixo} />}
           {eixo === 'competencia' && (
             <MobileExpenseGlance
-              status={isLoading ? 'loading' : isError ? 'error' : 'ready'}
+              status={mobileGlanceStatus}
               noCartao={gastosControleKpis.noCartao}
               naConta={gastosControleKpis.naConta}
             />
           )}
-          <div className="hidden md:block">
+          <div className={eixo === 'competencia' ? 'hidden md:block' : undefined}>
             <PersonalExpenseKpis
               eixo={eixo}
               gastosControle={gastosControleKpis}
