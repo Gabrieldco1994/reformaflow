@@ -11,7 +11,10 @@ function toBuffers(content: string | Buffer | Buffer[]): Buffer[] {
 }
 import type { NormalizedTx } from '../credit-card/parsers/types';
 import { categorize } from '../credit-card/categorizer';
-import { MerchantClassifierService } from '../merchant-classifier/merchant-classifier.service';
+import {
+  MerchantClassifierService,
+  MERCHANT_TO_EXPENSE_TYPE,
+} from '../merchant-classifier/merchant-classifier.service';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import { CardInvoiceSettlementService } from '../credit-card/card-invoice-settlement.service';
 import { buildInstallments, NEUTRAL_EXPENSE_TYPES } from '@reformaflow/domain';
@@ -28,26 +31,8 @@ export interface BankImportDecision {
   };
 }
 
-// Mapeamento categoria → ExpenseType pessoal (mesmo do credit-card)
-const PESSOAL_CATEGORY_MAP: Record<string, string> = {
-  alimentação: 'ALIMENTACAO',
-  transporte: 'TRANSPORTE',
-  assinaturas: 'ASSINATURAS',
-  viagem: 'LAZER',
-  saúde: 'SAUDE',
-  compras: 'OUTROS',
-  educação: 'EDUCACAO',
-  casa: 'MORADIA',
-  moradia: 'MORADIA',
-  servicos: 'OUTROS',
-  beleza: 'BELEZA',
-  pets: 'PETS',
-  impostos: 'OUTROS',
-  lazer: 'LAZER',
-  investimentos: 'OUTROS',
-  transferência: 'TRANSFERENCIA',
-  outros: 'OUTROS',
-};
+// Mapeamento categoria → ExpenseType pessoal — fonte única em merchant-classifier.service.ts.
+const PESSOAL_CATEGORY_MAP: Record<string, string> = MERCHANT_TO_EXPENSE_TYPE;
 
 /**
  * Heurísticas determinísticas para descrições de extrato que IA não distingue bem.

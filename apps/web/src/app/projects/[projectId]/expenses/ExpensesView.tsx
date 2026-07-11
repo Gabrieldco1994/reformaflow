@@ -32,12 +32,14 @@ import { QuickAddCard } from './_components/QuickAddCard';
 import { CompráveisView } from './_components/CompraveisView';
 import { MonthlyExpenseView } from './_components/MonthlyExpenseView';
 import { BulkDateProvider, BulkDateToolbar } from './_components/BulkDateSelection';
+import { BulkLinkModal } from './_components/BulkLinkModal';
 import { CategoryExpenseView } from './_components/CategoryExpenseView';
 import { UnifiedExpenseView } from './_components/UnifiedExpenseView';
 import { ExpenseViewToggle, type ExpenseViewMode } from './_components/ExpenseViewToggle';
 import { ExpenseEixoToggle, type ExpenseEixo } from './_components/ExpenseEixoToggle';
 import { PersonalMonthHeader } from './_components/PersonalMonthHeader';
 import { PersonalPeriodPicker } from './_components/PersonalPeriodPicker';
+import { selectEligibleForBulkLink } from './_lib/bulkLinkEligibility';
 import { useAuth } from '@/contexts/auth-context';
 import { PersonalExpenseKpis } from './_components/PersonalExpenseKpis';
 import { CartoesStrip } from './_components/CartoesStrip';
@@ -205,6 +207,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
   const [bulkSelectMode, setBulkSelectMode] = useState(false);
   const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDate, setBulkDate] = useState('');
+  const [bulkLinkModalOpen, setBulkLinkModalOpen] = useState(false);
   const toggleBulkId = useCallback((id: string) => {
     setBulkSelectedIds((prev) => {
       const next = new Set(prev);
@@ -479,6 +482,15 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
     return new Set(base.map((e) => e.id));
   }, [projectType, displayPersonal, filteredExpenses]);
   const bulkAllSelected = bulkVisibleIds.size > 0 && bulkSelectedIds.size === bulkVisibleIds.size;
+  // Fonte do "Vincular em massa" (só PESSOAL): despesas selecionadas + elegíveis
+  // (sem vínculo prévio, não-neutras) — reusa o mesmo mecanismo de seleção do bulk de data.
+  const bulkLinkSources = useMemo(
+    () =>
+      projectType === 'PESSOAL'
+        ? selectEligibleForBulkLink(expenses.filter((e) => bulkSelectedIds.has(e.id)))
+        : [],
+    [projectType, expenses, bulkSelectedIds],
+  );
   const applyBulkDate = useCallback(() => {
     if (!bulkDate || bulkSelectedIds.size === 0) return;
     bulkDateMutation.mutate(
@@ -1142,6 +1154,13 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
             onBulkDateChange={setBulkDate}
             onApply={applyBulkDate}
             onMarkPaid={applyBulkPaid}
+            extraAction={
+              isPersonal && bulkSelectedIds.size > 0 ? (
+                <Button type="button" size="sm" onClick={() => setBulkLinkModalOpen(true)}>
+                  Vincular em massa
+                </Button>
+              ) : undefined
+            }
           />
         )}
         <BulkDateProvider value={{ selectMode: bulkSelectMode && !(isPersonal && eixo === 'caixa'), selectedIds: bulkSelectedIds, toggle: toggleBulkId }}>
@@ -1488,6 +1507,16 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
           }
         />
       )}
+
+      {isPersonal && (
+        <BulkLinkModal
+          open={bulkLinkModalOpen}
+          onClose={() => setBulkLinkModalOpen(false)}
+          currentProjectId={PROJECT_ID}
+          preselectedSources={bulkLinkSources}
+        />
+      )}
+
       {quitarTarget && (
         <QuitarParcelaModal
           projectId={PROJECT_ID}

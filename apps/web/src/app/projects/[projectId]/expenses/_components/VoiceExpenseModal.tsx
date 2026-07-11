@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Mic } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -18,6 +18,7 @@ import { Modal } from '@/components/ui/modal';
 import { FORMA_PAGAMENTO_OPTIONS } from '@/lib/expense-options';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { CreateLinkedExpenseModal } from './CreateLinkedExpenseModal';
+import { useCategorySuggestion } from '../_hooks/useCategorySuggestion';
 
 interface ExpenseOption {
   value: string;
@@ -105,6 +106,29 @@ export function VoiceExpenseModal({
   // Label exibido para a despesa cross-project escolhida (existente ou recém-criada).
   const [linkedLabel, setLinkedLabel] = useState<string | null>(null);
 
+  // Sugestão de categoria por IA — só aplica quando a voz caiu no fallback 'OUTROS'
+  // (nunca sobrepõe uma inferência confiante já feita pelo parser de voz).
+  const { suggestion: tipoSuggestion } = useCategorySuggestion(
+    voiceData?.titulo ?? '',
+    voiceFornecedor,
+  );
+  const suggestionAppliedRef = useRef(false);
+  useEffect(() => {
+    suggestionAppliedRef.current = false;
+  }, [voiceTranscript]);
+  useEffect(() => {
+    if (
+      voiceData &&
+      !suggestionAppliedRef.current &&
+      voiceData.tipoDespesa === ExpenseType.OUTROS &&
+      tipoSuggestion?.suggestedTipoDespesa
+    ) {
+      suggestionAppliedRef.current = true;
+      setVoiceData({ ...voiceData, tipoDespesa: tipoSuggestion.suggestedTipoDespesa as ExpenseType });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tipoSuggestion?.suggestedTipoDespesa, voiceData]);
+
   const cardOptions = useMemo(() => {
     const opts: { value: string; label: string }[] = [{ value: '', label: 'Nenhum' }];
     for (const c of cards) {
@@ -187,6 +211,11 @@ export function VoiceExpenseModal({
               value={voiceData.tipoDespesa}
               onChange={(e) => setVoiceData({ ...voiceData, tipoDespesa: e.target.value as ExpenseType })}
             />
+            {tipoSuggestion?.suggestedTipoDespesa === voiceData.tipoDespesa && (
+              <span className="inline-block rounded-full bg-darc-maroon/10 px-2 py-0.5 text-[11px] font-medium text-darc-maroon">
+                sugerido por IA
+              </span>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <Input
                 label="Valor (R$)"

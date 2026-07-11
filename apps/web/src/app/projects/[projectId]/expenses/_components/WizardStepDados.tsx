@@ -13,6 +13,7 @@ interface Props {
   tipoOptions: Option[];
   roomOptions: Option[];
   showRooms: boolean;
+  tipoSuggestedByAi?: boolean;
 }
 
 /**
@@ -20,7 +21,14 @@ interface Props {
  * ambiente, valor/quantidade e título. 100% controlado pelo `draft` do reducer —
  * reusa `DadosDespesaFields` no modo controlado (props opcionais aditivas).
  */
-export function WizardStepDados({ draft, patch, tipoOptions, roomOptions, showRooms }: Props) {
+export function WizardStepDados({
+  draft,
+  patch,
+  tipoOptions,
+  roomOptions,
+  showRooms,
+  tipoSuggestedByAi,
+}: Props) {
   const valorTotal = (Number(draft.valor) || 0) * (Number(draft.quantidade) || 0);
   return (
     <DadosDespesaFields
@@ -41,6 +49,7 @@ export function WizardStepDados({ draft, patch, tipoOptions, roomOptions, showRo
       setTitulo={(v) => patch({ titulo: v })}
       roomIdValue={draft.roomId}
       onRoomIdChange={(v) => patch({ roomId: v })}
+      tipoSuggestedByAi={tipoSuggestedByAi}
     />
   );
 }

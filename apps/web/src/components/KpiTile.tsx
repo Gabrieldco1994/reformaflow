@@ -2,57 +2,60 @@
 
 import type { ReactNode } from 'react';
 import { InfoHint } from '@/components/InfoHint';
+import type { ColorTone } from '@/lib/colors';
+import { COLOR_TONE_PALETTE } from '@/lib/colors';
 
 /**
- * Componente único de KPI do app — substitui os três "dialetos" que existiam
- * (cockpit card claro, Visão Conta card tintado, Despesas hero escuro).
+ * Componente único de KPI do app — Fase A Design System.
  *
- * Uma gramática só:
- * - `tone`  — cor SEMÂNTICA única (o que o número significa), não decorativa.
- * - `variant` — como o card se apresenta: `plain` (fundo branco, valor colorido),
- *   `tinted` (fundo/borda tintados do tone) ou `hero` (valor grande).
+ * Substitui os três "dialetos" que existiam (cockpit card claro, Visão Conta
+ * card tintado, Despesas hero escuro) com uma gramática única:
  *
- * Preserva os recursos que cada tela já usava: rótulo + InfoHint, valor,
- * contexto/ajuda, ícone, e modo clicável (quick-filter) com estado ativo.
+ * - `layer`: apresentação por contexto (`glance` = relance compacto,
+ *   `detail` = detalhe completo com centavos)
+ * - `tone`: cor SEMÂNTICA (positive|negative|warning|neutral|accent)
+ * - `variant`: layout (`support` = label+valor compacto, `state` = card tintado,
+ *   `hero` = valor grande com narrativa)
+ *
+ * Preserva recursos: rótulo + InfoHint, valor, contexto, ícone, clicável
+ * (quick-filter), e delta legível.
  */
 
-export type KpiTone = 'neutral' | 'positive' | 'negative' | 'alert' | 'accent';
-export type KpiVariant = 'plain' | 'tinted' | 'hero';
+export type KpiTone = ColorTone | 'alert'; // 'alert' = alias de 'warning' para backwards-compat
+export type KpiVariant = 'plain' | 'tinted' | 'hero' | 'support' | 'state';
+export type KpiLayer = 'glance' | 'detail';
 
-/** Classes de fundo/borda/texto por tone na variante tintada. */
-const TINTED: Record<KpiTone, string> = {
-  positive: 'text-[#1E924A] bg-[#E3F6EA] border-[#BFE6CC]',
-  alert: 'text-[#B5803A] bg-[#FBEBDC] border-[#EAD9C0]',
-  negative: 'text-[#D92D20] bg-[#FCEBE9] border-[#F2C6C1]',
-  accent: 'text-[#0A6CF0] bg-[#E6EFFE] border-[#CFE0FB]',
-  neutral: 'text-lifeone-ink bg-lifeone-surface border-lifeone-hairline',
-};
+function getTintedClasses(tone: KpiTone): string {
+  const normalized = tone === 'alert' ? 'warning' : (tone as ColorTone);
+  const palette = COLOR_TONE_PALETTE[normalized];
+  return `text-[${palette.text}] bg-[${palette.bgLight}] border-[${palette.border}]`;
+}
 
-/** Cor só do valor (variantes plain/hero, fundo branco). */
-const VALUE_COLOR: Record<KpiTone, string> = {
-  positive: 'text-[#1E924A]',
-  alert: 'text-[#B5803A]',
-  negative: 'text-[#D92D20]',
-  accent: 'text-[#0A6CF0]',
-  neutral: 'text-lifeone-ink',
-};
+function getValueColorClass(tone: KpiTone): string {
+  const normalized = tone === 'alert' ? 'warning' : (tone as ColorTone);
+  const palette = COLOR_TONE_PALETTE[normalized];
+  return `text-[${palette.text}]`;
+}
 
 export interface KpiTileProps {
   label: ReactNode;
   value: ReactNode;
   tone?: KpiTone;
   variant?: KpiVariant;
+  layer?: KpiLayer;
   /** Texto de ajuda (ⓘ) ao lado do rótulo. */
   info?: string;
   /** Linha de contexto abaixo do valor. */
   context?: ReactNode;
-  /** Conteúdo extra antes do contexto (ex.: "+ R$ X previsto"). */
+  /** Conteúdo extra antes do contexto. */
   extra?: ReactNode;
   icon?: ReactNode;
   /** Quando presente, o card vira botão (quick-filter). */
   onClick?: () => void;
   active?: boolean;
   className?: string;
+  /** Delta de mudança. */
+  delta?: { value: number; type?: 'cents' | 'percent'; isGood?: boolean };
 }
 
 export function KpiTile({
@@ -60,6 +63,7 @@ export function KpiTile({
   value,
   tone = 'neutral',
   variant = 'plain',
+  layer = 'glance',
   info,
   context,
   extra,
@@ -67,34 +71,56 @@ export function KpiTile({
   onClick,
   active = false,
   className = '',
+  delta,
 }: KpiTileProps) {
-  const isHero = variant === 'hero';
+  // Resolver variante
+  let resolvedVariant = variant;
+  if (variant === 'plain' && tone !== 'neutral' && tone !== 'accent') {
+    resolvedVariant = 'tinted';
+  }
+
+  const isHero = resolvedVariant === 'hero';
+  const isSupport = resolvedVariant === 'support';
+  const isState = resolvedVariant === 'state' || (resolvedVariant === 'tinted' && !isHero);
+
+  // Dimensionamento por variante
+  const labelSize = isSupport ? 'text-[12px]' : isHero ? 'text-[13px]' : 'text-[11px]';
+  const valueSize = isSupport
+    ? 'text-[20px]'
+    : isHero
+      ? 'text-[26px] md:text-[30px]'
+      : 'text-lg md:text-[22px]';
+
   const base =
-    variant === 'tinted'
-      ? `rounded-2xl border p-3 shadow-lifeone-card ${TINTED[tone]}`
+    isState
+      ? `rounded-2xl border p-3 shadow-lifeone-card ${getTintedClasses(tone)}`
       : `rounded-2xl border border-lifeone-hairline bg-lifeone-card p-3 shadow-lifeone-card ${isHero ? 'md:p-4' : ''}`;
+
   const interactive = onClick
     ? `cursor-pointer text-left transition ${active ? 'ring-2 ring-lifeone-blue' : ''}`
     : '';
-  const labelColor = variant === 'tinted' ? '' : 'text-lifeone-ink-3';
-  const valueColor = variant === 'tinted' ? '' : VALUE_COLOR[tone];
-  const valueSize = isHero
-    ? 'text-[26px] md:text-[30px]'
-    : 'text-lg md:text-[22px]';
+
+  const labelColor = isState ? '' : 'text-lifeone-ink-3';
+  const valueColor = isState ? '' : getValueColorClass(tone);
 
   const inner = (
     <>
-      <p className={`flex items-center gap-1 text-[11px] font-semibold leading-4 ${labelColor}`}>
+      <p className={`flex items-center gap-1 font-semibold leading-4 ${labelSize} ${labelColor}`}>
         {icon && <span className="shrink-0">{icon}</span>}
         <span className="min-w-0 truncate">{label}</span>
-        {info && <InfoHint text={info} className={variant === 'tinted' ? undefined : 'text-lifeone-ink-3'} />}
+        {info && <InfoHint text={info} className={isState ? undefined : 'text-lifeone-ink-3'} />}
       </p>
       <p className={`mt-2 font-geist tabular-nums font-bold tracking-tight leading-tight ${valueSize} ${valueColor}`}>
         {value}
       </p>
+      {delta && (
+        <div className="mt-2 text-sm text-lifeone-ink-2">
+          {delta.value > 0 && `+`}{delta.value}{delta.type === 'percent' && `%`}
+        </div>
+      )}
       {extra}
       {context && (
-        <p className={`mt-2 text-[11px] leading-4 ${variant === 'tinted' ? 'opacity-80' : 'text-lifeone-ink-3'}`}>
+        <p className={`mt-2 text-[11px] leading-4 ${isState ? 'opacity-80' : 'text-lifeone-ink-3'}`}>
           {context}
         </p>
       )}
@@ -108,5 +134,5 @@ export function KpiTile({
       </button>
     );
   }
-  return <article className={`${base} ${className}`}>{inner}</article>;
+  return <article className={`${base} ${interactive} ${className}`}>{inner}</article>;
 }
