@@ -3,43 +3,20 @@
 import { useProject } from '@/contexts/project-context';
 import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
-import { formatCurrency, formatDateBR } from '@/lib/utils';
-import { Plus, Trash2, Edit2, Wrench } from 'lucide-react';
+import { formatDateBR } from '@/lib/utils';
+import { Plus, Wrench } from 'lucide-react';
+import { MaintenanceHistoryView } from './_components/MaintenanceHistoryView';
+import { daysUntil, getMaintenanceTypes, type MaintenanceLog } from './_display';
 
-interface MaintenanceLog {
-  id: string;
+interface MaintenanceForm {
   tipo: string;
   dataRealizada: string;
-  dataProxima?: string;
+  dataProxima: string;
   quilometragem?: number;
-  custo?: number;
-  fornecedor?: string;
-  observacoes?: string;
+  custo: number;
+  fornecedor: string;
+  observacoes: string;
 }
-
-const HOUSE_TYPES = [
-  { value: 'PINTURA', label: 'Pintura' },
-  { value: 'IMPERMEABILIZACAO', label: 'Impermeabilização' },
-  { value: 'DEDETIZACAO', label: 'Dedetização' },
-  { value: 'LIMPEZA_CAIXA', label: "Limpeza de Caixa d'Água" },
-  { value: 'REVISAO_ELETRICA', label: 'Revisão Elétrica' },
-  { value: 'REVISAO_HIDRAULICA', label: 'Revisão Hidráulica' },
-  { value: 'OUTRO', label: 'Outro' },
-];
-
-const CAR_TYPES = [
-  { value: 'TROCA_OLEO', label: 'Troca de Óleo' },
-  { value: 'FILTRO_AR', label: 'Filtro de Ar' },
-  { value: 'FILTRO_OLEO', label: 'Filtro de Óleo' },
-  { value: 'FILTRO_COMBUSTIVEL', label: 'Filtro de Combustível' },
-  { value: 'PNEUS', label: 'Pneus' },
-  { value: 'ALINHAMENTO', label: 'Alinhamento' },
-  { value: 'BALANCEAMENTO', label: 'Balanceamento' },
-  { value: 'REVISAO', label: 'Revisão Completa' },
-  { value: 'FREIOS', label: 'Freios' },
-  { value: 'CORREIA', label: 'Correia Dentada' },
-  { value: 'OUTRO', label: 'Outro' },
-];
 
 const emptyForm = {
   tipo: '',
@@ -53,12 +30,13 @@ const emptyForm = {
 
 export default function MaintenancePage() {
   const { projectId, projectType } = useProject();
-  const types = projectType === 'CARRO' ? CAR_TYPES : HOUSE_TYPES;
+  const maintenanceProjectType = projectType === 'CARRO' ? 'CARRO' : 'CASA';
+  const types = getMaintenanceTypes(maintenanceProjectType);
   const [logs, setLogs] = useState<MaintenanceLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState({ ...emptyForm, tipo: types[0]?.value ?? '' });
+  const [form, setForm] = useState<MaintenanceForm>({ ...emptyForm, tipo: types[0]?.value ?? '' });
 
   useEffect(() => { loadLogs(); }, [projectId]);
 
@@ -114,13 +92,6 @@ export default function MaintenancePage() {
 
   function formatDate(d: string) {
     return formatDateBR(d);
-  }
-
-  function daysUntil(d: string) {
-    const diff = Math.ceil((new Date(d).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-    if (diff < 0) return { text: `${Math.abs(diff)}d atrasado`, color: 'text-red-600' };
-    if (diff <= 30) return { text: `em ${diff}d`, color: 'text-amber-600' };
-    return { text: `em ${diff}d`, color: 'text-green-600' };
   }
 
   if (loading) {
@@ -240,86 +211,12 @@ export default function MaintenancePage() {
           <p className="text-gray-400 text-sm mt-1">Registre suas manutenções para acompanhar prazos</p>
         </div>
       ) : (
-        <>
-        {/* Desktop: tabela */}
-        <div className="hidden md:block bg-white rounded-xl border overflow-x-auto">
-          <table className="w-full min-w-[640px] text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Tipo</th>
-                <th className="text-center px-4 py-3 font-medium text-gray-600">Realizada</th>
-                <th className="text-center px-4 py-3 font-medium text-gray-600">Próxima</th>
-                {projectType === 'CARRO' && <th className="text-right px-4 py-3 font-medium text-gray-600">Km</th>}
-                <th className="text-right px-4 py-3 font-medium text-gray-600">Custo</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Fornecedor</th>
-                <th className="text-center px-4 py-3 font-medium text-gray-600">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {logs.map((log) => {
-                const typeLabel = types.find((t) => t.value === log.tipo)?.label ?? log.tipo;
-                return (
-                  <tr key={log.id}>
-                    <td className="px-4 py-3 font-medium">{typeLabel}</td>
-                    <td className="px-4 py-3 text-center">{formatDate(log.dataRealizada)}</td>
-                    <td className="px-4 py-3 text-center">
-                      {log.dataProxima ? (
-                        <span className={daysUntil(log.dataProxima).color}>
-                          {formatDate(log.dataProxima)} ({daysUntil(log.dataProxima).text})
-                        </span>
-                      ) : '—'}
-                    </td>
-                    {projectType === 'CARRO' && <td className="px-4 py-3 text-right font-mono">{log.quilometragem?.toLocaleString() ?? '—'}</td>}
-                    <td className="px-4 py-3 text-right font-mono">{log.custo ? formatCurrency(log.custo / 100) : '—'}</td>
-                    <td className="px-4 py-3">{log.fornecedor ?? '—'}</td>
-                    <td className="px-4 py-3 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <button onClick={() => startEdit(log)} className="p-1 text-gray-400 hover:text-brand-600"><Edit2 className="w-4 h-4" /></button>
-                        <button onClick={() => handleDelete(log.id)} className="p-1 text-gray-400 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Mobile: cards */}
-        <div className="md:hidden space-y-2.5">
-          {logs.map((log) => {
-            const typeLabel = types.find((t) => t.value === log.tipo)?.label ?? log.tipo;
-            return (
-              <div key={log.id} className="rounded-2xl border bg-white p-3.5 shadow-sm">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="font-semibold text-[15px] truncate">{typeLabel}</p>
-                    <p className="text-[12.5px] text-gray-500 mt-0.5">Realizada {formatDate(log.dataRealizada)}</p>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button onClick={() => startEdit(log)} aria-label="Editar" className="p-2 text-gray-400 hover:text-brand-600"><Edit2 className="w-4 h-4" /></button>
-                    <button onClick={() => handleDelete(log.id)} aria-label="Excluir" className="p-2 text-gray-400 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
-                  </div>
-                </div>
-                <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px]">
-                  {log.dataProxima && (
-                    <span className={daysUntil(log.dataProxima).color}>
-                      Próxima {formatDate(log.dataProxima)} ({daysUntil(log.dataProxima).text})
-                    </span>
-                  )}
-                  {projectType === 'CARRO' && log.quilometragem != null && (
-                    <span className="text-gray-500 font-mono">{log.quilometragem.toLocaleString()} km</span>
-                  )}
-                  {log.fornecedor && <span className="text-gray-500">{log.fornecedor}</span>}
-                </div>
-                {log.custo ? (
-                  <p className="mt-2 text-[15px] font-bold font-mono">{formatCurrency(log.custo / 100)}</p>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-        </>
+        <MaintenanceHistoryView
+          logs={logs}
+          projectType={maintenanceProjectType}
+          onEdit={startEdit}
+          onDelete={handleDelete}
+        />
       )}
     </div>
   );
