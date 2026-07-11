@@ -5,12 +5,12 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
-import { Plus, ShoppingCart, ArrowDownWideNarrow, ArrowUpNarrowWide, SlidersHorizontal, ChevronDown } from 'lucide-react';
+import { Plus, ShoppingCart, ArrowDownWideNarrow, ArrowUpNarrowWide, SlidersHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { Expense, ExpenseFormData, ExpensesPage, Project } from '@/types';
 import { toast } from 'sonner';
 
-import { ExpenseType, isNeutralExpenseType, isSinglePaymentForm } from '@reformaflow/domain';
+import { ExpenseType, hasFeature, isNeutralExpenseType, isSinglePaymentForm, type ProjectType } from '@reformaflow/domain';
 import { tipoLabel, formaLabel, catMaoLabel } from '@/lib/expense-options';
 import {
   type InlineNewRow,
@@ -65,6 +65,12 @@ import {
 import ImportLauncher from './_components/ImportLauncher';
 import { QuitarParcelaModal } from '../conta/_components/QuitarParcelaModal';
 import { suggestParcelaQuitacao, suggestParcelaQuitacaoAt } from './_lib/quitarParcelaCross';
+import { useExpenseQueryState } from './_hooks/useExpenseQueryState';
+import { MobileExpenseControlsSheet } from './_components/MobileExpenseControlsSheet';
+import { ActiveExpenseFilterChips } from './_components/ActiveExpenseFilterChips';
+import { MobileExpenseGlance } from './_components/MobileExpenseGlance';
+import { ExpenseMobileFab } from './_components/ExpenseMobileFab';
+import type { ExpenseQueryState } from './_lib/expense-query-state';
 
 const toIsoDate = (date: Date) => date.toISOString().slice(0, 10);
 
@@ -147,7 +153,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
   const { projectId: PROJECT_ID, projectType } = useProject();
   const { user } = useAuth();
   const TIPO_DESPESA_OPTIONS = useMemo(() => getExpenseOptions(projectType), [projectType]);
-  const showRooms = projectType === 'REFORMA';
+  const showRooms = hasFeature(projectType as ProjectType, 'rooms');
   const showMaoDeObra = projectType === 'REFORMA';
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<'despesas' | 'compraveis'>('despesas');
@@ -189,10 +195,12 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
   const [expandedExpenses, setExpandedExpenses] = useState<Set<string>>(new Set());
   // Expand/collapse per category
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
-  // View mode: por categoria (legado) ou por mês (nova UX igual recebimentos)
-  const [viewMode, setViewMode] = useState<ExpenseViewMode>('category');
-  // Mobile: controles (busca/filtros/visão/período) recolhidos atrás de "Filtrar".
+  const { state: expenseQuery, apply: applyExpenseQuery, remove: removeExpenseQuery, clear: clearExpenseQuery } = useExpenseQueryState({ projectId: PROJECT_ID, projectType, hasRooms: showRooms });
+  const viewMode = expenseQuery.view;
+  const setViewMode = (view: ExpenseViewMode) => applyExpenseQuery({ ...expenseQuery, view });
+  // Mobile: o sheet edita uma cópia; fechar descarta e Aplicar publica uma única URL.
   const [mobileControlsOpen, setMobileControlsOpen] = useState(false);
+  const [mobileDraft, setMobileDraft] = useState<ExpenseQueryState>(expenseQuery);
   const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(new Set());
   // Direção de ordenação da visão "Geral" (extrato por data). Padrão: decrescente.
   const [generalSortDir, setGeneralSortDir] = useState<'asc' | 'desc'>('desc');
@@ -202,7 +210,8 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
   const eixo = lockedEixo ?? eixoState;
   const setEixo = setEixoState;
   /** Filtro por origem (cartão/conta) do strip da visão Gastos Controle. */
-  const [originFilter, setOriginFilter] = useState<string | null>(null);
+  const originFilter = expenseQuery.origin || null;
+  const setOriginFilter = (origin: string | null) => applyExpenseQuery({ ...expenseQuery, origin: origin ?? '' });
   // Seleção múltipla para alterar data em bulk (visões Geral, Mês, Categoria).
   const [bulkSelectMode, setBulkSelectMode] = useState(false);
   const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(new Set());
@@ -235,18 +244,6 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
-    const key = `expenses:viewMode:${PROJECT_ID}`;
-    const saved = window.localStorage.getItem(key);
-    if (saved === 'category' || saved === 'month' || saved === 'project' || saved === 'general') setViewMode(saved);
-  }, [PROJECT_ID]);
-
-  React.useEffect(() => {
-    if (typeof window === 'undefined') return;
-    window.localStorage.setItem(`expenses:viewMode:${PROJECT_ID}`, viewMode);
-  }, [viewMode, PROJECT_ID]);
-
-  React.useEffect(() => {
-    if (typeof window === 'undefined') return;
     const saved = window.localStorage.getItem(`expenses:generalSort:${PROJECT_ID}`);
     if (saved === 'asc' || saved === 'desc') setGeneralSortDir(saved);
   }, [PROJECT_ID]);
@@ -256,7 +253,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
     window.localStorage.setItem(`expenses:generalSort:${PROJECT_ID}`, generalSortDir);
   }, [generalSortDir, PROJECT_ID]);
 
-  const { data: expensesPage, isLoading } = useQuery<ExpensesPage>({
+  const { data: expensesPage, isLoading, isError } = useQuery<ExpensesPage>({
     queryKey: ['expenses', PROJECT_ID],
     queryFn: () => api.get(`/projects/${PROJECT_ID}/expenses?pageSize=2000`),
   });
@@ -269,12 +266,17 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
 
   // Cross-project despesas (PESSOAL): full data com room+project, usado tanto
   // para mostrar como itens próprios quanto para resolver linkedExpenseId via remoteMap.
-  const { data: crossProjectExpenses = [] } = useQuery<Expense[]>({
+  const {
+    data: crossProjectExpensesData,
+    isLoading: isCrossProjectLoading,
+    isError: isCrossProjectError,
+  } = useQuery<Expense[]>({
     queryKey: ['cross-project-expenses', PROJECT_ID, 'unified-view'],
     queryFn: () => api.get(`/projects/${PROJECT_ID}/expenses/cross-project?limit=2000`),
     enabled: projectType === 'PESSOAL',
     staleTime: 60_000,
   });
+  const crossProjectExpenses = crossProjectExpensesData ?? [];
 
   const remoteProjectMap = useMemo<RemoteProjectMap>(() => {
     const m = new Map();
@@ -356,14 +358,17 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
     filteredExpenses,
     hasActiveFilters,
     categorias,
-  } = useExpenseFilters(allExpensesPersonal, showRooms);
+  } = useExpenseFilters(allExpensesPersonal, showRooms, expenseQuery, applyExpenseQuery);
 
   // Período (filtro mês específico / ano todo) — só usado quando PESSOAL
   const [periodYear] = useState<number>(() => new Date().getFullYear());
-  const [period, setPeriod] = useState<PeriodFilter>(() => currentPeriod());
+  const period = (expenseQuery.period || currentPeriod()) as PeriodFilter;
+  const setPeriod = (value: PeriodFilter) => applyExpenseQuery({ ...expenseQuery, period: value });
   // Range filter: start and end in format YYYY-MM (optional)
-  const [rangeStart, setRangeStart] = useState<string>('');
-  const [rangeEnd, setRangeEnd] = useState<string>('');
+  const rangeStart = expenseQuery.rangeStart;
+  const rangeEnd = expenseQuery.rangeEnd;
+  const setRangeStart = (value: string) => applyExpenseQuery({ ...expenseQuery, rangeStart: value });
+  const setRangeEnd = (value: string) => applyExpenseQuery({ ...expenseQuery, rangeEnd: value });
 
   const allPeriods = useMemo(
     () => projectType === 'PESSOAL' ? listPeriods(filteredExpenses, periodYear) : [],
@@ -956,6 +961,13 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
   }, [contaRealCards]);
 
   const isPersonal = projectType === 'PESSOAL';
+  const mobileGlanceStatus = isError || (isPersonal && isCrossProjectError)
+    ? 'error'
+    : isLoading
+      || expensesPage === undefined
+      || (isPersonal && (isCrossProjectLoading || crossProjectExpensesData === undefined))
+      ? 'loading'
+      : 'ready';
   const {
     gastosControleKpis,
     cartoesFormacao,
@@ -1021,7 +1033,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
           )}
         </div>
         {activeTab === 'despesas' && (
-          <div className="flex flex-wrap gap-2 items-center">
+          <div className="hidden md:flex flex-wrap gap-2 items-center">
             <Button onClick={openPayOptions}>
               <Plus className="w-4 h-4" /> Nova despesa
             </Button>
@@ -1038,11 +1050,20 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
       {isPersonal ? (
         <div className="space-y-3">
           {!lockedEixo && <ExpenseEixoToggle eixo={eixo} onChange={setEixo} />}
-          <PersonalExpenseKpis
-            eixo={eixo}
-            gastosControle={gastosControleKpis}
-            contaReal={contaRealKpis}
-          />
+          {eixo === 'competencia' && (
+            <MobileExpenseGlance
+              status={mobileGlanceStatus}
+              noCartao={gastosControleKpis.noCartao}
+              naConta={gastosControleKpis.naConta}
+            />
+          )}
+          <div className={eixo === 'competencia' ? 'hidden md:block' : undefined}>
+            <PersonalExpenseKpis
+              eixo={eixo}
+              gastosControle={gastosControleKpis}
+              contaReal={contaRealKpis}
+            />
+          </div>
           {eixo === 'competencia' ? (
             <>
               <InsightsBanner alerts={budgetAlerts} />
@@ -1070,28 +1091,28 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
         />
       )}
 
-      {/* Mobile: botão que revela os controles (busca/filtros/visão/período).
-          Mantém a lista na primeira dobra; no desktop os controles ficam inline. */}
+      {/* Mobile: busca, filtros e visão em um sheet transacional. */}
       <button
         type="button"
-        onClick={() => setMobileControlsOpen((v) => !v)}
-        className="md:hidden flex w-full items-center justify-between rounded-xl border border-darc-linen bg-white px-4 py-2.5 text-sm font-semibold text-darc-velvet shadow-darc-soft"
+        onClick={() => { setMobileDraft(expenseQuery); setMobileControlsOpen(true); }}
+        className="md:hidden flex min-h-[44px] w-full items-center justify-between rounded-xl border border-darc-linen bg-white px-4 py-2.5 text-sm font-semibold text-darc-velvet shadow-darc-soft"
       >
-        <span className="truncate">
-          {viewMode === 'category' ? 'Categoria' : viewMode === 'month' ? 'Mês' : viewMode === 'project' ? 'Por projeto' : 'Geral'}
-          {projectType === 'PESSOAL' && /^\d{4}-\d{2}$/.test(String(period))
-            ? ` · ${['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][parseInt(String(period).slice(5, 7), 10) - 1]}`
-            : ''}
-        </span>
-        <span className="flex items-center gap-1.5 text-darc-velvet/60">
-          <SlidersHorizontal className="w-4 h-4" />
-          Filtrar
-          <ChevronDown className={`w-4 h-4 transition-transform ${mobileControlsOpen ? 'rotate-180' : ''}`} />
-        </span>
+        <span>{viewMode === 'category' ? 'Categoria' : viewMode === 'month' ? 'Mês' : viewMode === 'project' ? 'Por projeto' : 'Geral'}</span>
+        <span className="flex items-center gap-1.5 text-darc-velvet/60"><SlidersHorizontal className="h-4 w-4" />Filtrar</span>
       </button>
+      <ActiveExpenseFilterChips state={expenseQuery} onRemove={removeExpenseQuery} onClear={clearExpenseQuery} />
+      <MobileExpenseControlsSheet
+        open={mobileControlsOpen}
+        draft={mobileDraft}
+        projectType={projectType}
+        hasRooms={showRooms}
+        tipoOptions={TIPO_DESPESA_OPTIONS}
+        onDraftChange={setMobileDraft}
+        onOpenChange={setMobileControlsOpen}
+        onApply={(draft) => { applyExpenseQuery(draft); setMobileControlsOpen(false); }}
+      />
 
-      <div className={`${mobileControlsOpen ? 'block' : 'hidden'} md:block space-y-3`}>
-        {/* Search + Filter bar */}
+      <div className="hidden md:block space-y-3">
         <ExpenseFiltersBar
           searchText={searchText}
           onSearchTextChange={setSearchText}
@@ -1103,28 +1124,15 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
           hasActiveFilters={hasActiveFilters}
           showRooms={showRooms}
           tipoDespesaOptions={TIPO_DESPESA_OPTIONS}
-          rangeStart={rangeStart}
-          rangeEnd={rangeEnd}
-          onRangeStartChange={setRangeStart}
-          onRangeEndChange={setRangeEnd}
+          rangeStart={isPersonal ? rangeStart : undefined}
+          rangeEnd={isPersonal ? rangeEnd : undefined}
+          onRangeStartChange={isPersonal ? setRangeStart : undefined}
+          onRangeEndChange={isPersonal ? setRangeEnd : undefined}
         />
-
-        {/* Toggle de visão (Categoria / Mês / Por projeto) — logo abaixo da busca */}
         {!(isPersonal && eixo === 'caixa') && (
-          <div className="flex">
-            <ExpenseViewToggle value={viewMode} onChange={setViewMode} showProject={projectType === 'PESSOAL'} />
-          </div>
+          <div className="flex"><ExpenseViewToggle value={viewMode} onChange={setViewMode} showProject={isPersonal} /></div>
         )}
-
-        {/* Período (PESSOAL) — dropdown de mês / ano todo (nav ◂ ▸ fica no header) */}
-        {projectType === 'PESSOAL' && (
-          <PersonalPeriodPicker
-            period={period}
-            periodYear={periodYear}
-            allPeriods={allPeriods}
-            onChange={setPeriod}
-          />
-        )}
+        {isPersonal && <PersonalPeriodPicker period={period} periodYear={periodYear} allPeriods={allPeriods} onChange={setPeriod} />}
       </div>
 
       {isLoading ? (
@@ -1334,18 +1342,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
       </>
       )}
 
-      {/* FAB mobile — abre opções de adição. À ESQUERDA para não colidir com o
-          Copiloto (canto inferior direito). Sobe acima da pílula no PESSOAL. */}
-      {activeTab === 'despesas' && (
-        <button
-          type="button"
-          onClick={openPayOptions}
-          aria-label="Nova despesa"
-          className={`md:hidden fixed left-4 z-30 h-14 w-14 rounded-full bg-orange-500 text-white shadow-darc-hero flex items-center justify-center active:scale-95 transition-transform ${isPersonal ? 'bottom-24' : 'bottom-20'}`}
-        >
-          <Plus className="w-6 h-6" />
-        </button>
-      )}
+      <ExpenseMobileFab activeTab={activeTab} onClick={openPayOptions} personal={isPersonal} />
 
       <VoiceExpenseModal
         open={voiceModalOpen}

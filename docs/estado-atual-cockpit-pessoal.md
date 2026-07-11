@@ -1,6 +1,6 @@
 # Estado Atual — Cockpit/Visão Conta (PESSOAL)
 
-Atualizado em: **2026-07-05**
+Atualizado em: **2026-07-11**
 
 ## 1) Situação consolidada
 
@@ -44,6 +44,13 @@ Também há evoluções posteriores da Visão Conta no `main` (filtros, gráfico
   entrando em todos os KPIs sem lógica nova. Modo **cross-project** (obra paga pelo
   pessoal) gera par canônica+espelho por ocorrência. Cobre UI, Copilot e voz (tool
   `create_recurring_expense`). Ver `docs/despesa-recorrente.md`.
+- `674c64a7` (PR #66) — **Quick wins de despesas — Fase A.** Sugestão de
+  categoria por IA no lançamento e ação **Vincular em massa** para despesas
+  cross-project no PESSOAL.
+- `ac794937` (#67) — **Quick wins de despesas — Fase B mobile.** A tela de despesas
+  ganhou resumo compacto **No cartão / À vista** no PESSOAL, filtros e seleção de
+  visão em sheet, chips dos filtros ativos, estado refletido na URL e botão flutuante
+  para criar despesa.
 
 ### Incremento recente (DRE pessoal)
 
