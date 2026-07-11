@@ -53,6 +53,8 @@ describe('deriveCockpitTop — projeção de fim de mês (eixo de caixa, §10)',
     const data = baseData({
       entries: [entry({ valor: 2_224_902, status: 'PLANEJADO' })],
       projecao: {
+        status: 'canonical',
+        mes: '2026-07',
         caixaHoje: 6_901_652,
         entrouMes: 0,
         saiuMes: 4_412_804,

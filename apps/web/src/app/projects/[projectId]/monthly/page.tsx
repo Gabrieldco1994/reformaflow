@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useParams } from "next/navigation";
+import { useState, useEffect, useCallback } from "react";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Gauge, ChevronLeft, ChevronRight } from "lucide-react";
 import { useProject } from "@/contexts/project-context";
@@ -30,11 +30,23 @@ function addMonthKey(key: string, delta: number): string {
 export default function CockpitPage() {
   const params = useParams<{ projectId: string }>();
   const projectId = params.projectId;
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { projectType } = useProject();
   const [view, setView] = useState<View>("mes");
   const [eixo, setEixo] = useState<Eixo>("competencia");
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
-  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(() => searchParams.get("mes"));
+
+  const selectMonth = useCallback((month: string | null) => {
+    setSelectedMonth(month);
+    const next = new URLSearchParams(searchParams.toString());
+    if (month) next.set("mes", month);
+    else next.delete("mes");
+    const query = next.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }, [pathname, router, searchParams]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -50,8 +62,8 @@ export default function CockpitPage() {
   };
 
   const { data, isLoading, error } = useQuery<MonthlyOverviewResponse>({
-    queryKey: ["monthly-overview", projectId],
-    queryFn: () => api.get(`/projects/${projectId}/monthly-overview`),
+    queryKey: ["monthly-overview", projectId, selectedMonth],
+    queryFn: () => api.get(`/projects/${projectId}/monthly-overview${selectedMonth ? `?mes=${selectedMonth}` : ""}`),
     enabled: !!projectId,
   });
 
@@ -110,9 +122,9 @@ export default function CockpitPage() {
           maxMonth={maxMes}
           eixo={eixo}
           onViewChange={setView}
-          onPreviousMonth={() => setSelectedMonth(addMonthKey(monthKey, -1))}
-          onNextMonth={() => setSelectedMonth(addMonthKey(monthKey, 1))}
-          onCurrentMonth={() => setSelectedMonth(null)}
+          onPreviousMonth={() => selectMonth(addMonthKey(monthKey, -1))}
+          onNextMonth={() => selectMonth(addMonthKey(monthKey, 1))}
+          onCurrentMonth={() => selectMonth(null)}
           onYearChange={setSelectedYear}
           onEixoChange={changeEixo}
         />
@@ -192,7 +204,7 @@ export default function CockpitPage() {
                   type="button"
                   aria-label="Mês anterior"
                   disabled={monthKey <= minMes}
-                  onClick={() => setSelectedMonth(addMonthKey(monthKey, -1))}
+                  onClick={() => selectMonth(addMonthKey(monthKey, -1))}
                   className="p-1.5 rounded-lg text-[var(--ck-muted)] enabled:hover:text-[var(--ck-text)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 >
                   <ChevronLeft className="w-4 h-4" />
@@ -200,7 +212,7 @@ export default function CockpitPage() {
                 {monthKey !== data.mesAtual && (
                   <button
                     type="button"
-                    onClick={() => setSelectedMonth(null)}
+                    onClick={() => selectMonth(null)}
                     className="px-2 text-[11px] text-[var(--ck-accent)] hover:underline"
                   >
                     hoje
@@ -210,7 +222,7 @@ export default function CockpitPage() {
                   type="button"
                   aria-label="Próximo mês"
                   disabled={monthKey >= maxMes}
-                  onClick={() => setSelectedMonth(addMonthKey(monthKey, 1))}
+                  onClick={() => selectMonth(addMonthKey(monthKey, 1))}
                   className="p-1.5 rounded-lg text-[var(--ck-muted)] enabled:hover:text-[var(--ck-text)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 >
                   <ChevronRight className="w-4 h-4" />
