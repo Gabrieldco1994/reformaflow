@@ -2,7 +2,7 @@
 
 import { useParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Landmark, ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
+import { Landmark, ArrowDownCircle, ArrowUpCircle, Link2 } from 'lucide-react';
 import { useState } from 'react';
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
@@ -18,6 +18,7 @@ import { FaturasAnuaisChart } from './_components/FaturasAnuaisChart';
 import { DespesasRelacionadas } from './_components/DespesasRelacionadas';
 import { TodasDespesasAno } from './_components/TodasDespesasAno';
 import { NovaDespesaLauncher } from '../expenses/_components/NovaDespesaLauncher';
+import { BulkLinkModal } from '../expenses/_components/BulkLinkModal';
 import { ReceitaModal } from './_components/ReceitaModal';
 import type {
   AccountViewResponse,
@@ -53,6 +54,7 @@ export default function ContaPage() {
   const [selectedYearMonth, setSelectedYearMonth] = useState<string | null>(null);
   const [payCardLast4, setPayCardLast4] = useState<string | null>(null);
   const [originFilter, setOriginFilter] = useState<string | null>(null);
+  const [bulkLinkOpen, setBulkLinkOpen] = useState(false);
   const [novaReceitaOpen, setNovaReceitaOpen] = useState(false);
   const [resumoQuickFilter, setResumoQuickFilter] = useState<ResumoQuickFilterKey | null>(null);
 
@@ -207,6 +209,13 @@ export default function ContaPage() {
         >
           <ArrowUpCircle className="h-4 w-4" /> Nova Receita
         </button>
+        <button
+          type="button"
+          onClick={() => setBulkLinkOpen(true)}
+          className="inline-flex items-center gap-1.5 rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-700 transition hover:bg-gray-50"
+        >
+          <Link2 className="h-4 w-4" /> Vincular em massa
+        </button>
       </div>
 
       {viewMode === 'ano' ? (
@@ -308,6 +317,12 @@ export default function ContaPage() {
         onClose={() => setNovaReceitaOpen(false)}
         projectId={projectId}
         defaultData={defaultLancamentoData}
+      />
+
+      <BulkLinkModal
+        open={bulkLinkOpen}
+        onClose={() => setBulkLinkOpen(false)}
+        currentProjectId={projectId}
       />
     </div>
   );

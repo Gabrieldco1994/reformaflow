@@ -73,6 +73,7 @@ export function BulkDateToolbar({
   onBulkDateChange,
   onApply,
   onMarkPaid,
+  extraAction,
 }: {
   selectMode: boolean;
   onEnter: () => void;
@@ -84,6 +85,8 @@ export function BulkDateToolbar({
   onBulkDateChange: (v: string) => void;
   onApply: () => void;
   onMarkPaid: () => void;
+  /** Ação extra opcional (ex: "Vincular em massa" no PESSOAL), renderizada antes do X de fechar. */
+  extraAction?: React.ReactNode;
 }) {
   return (
     <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 rounded-xl border border-violet-200 bg-violet-50/90 px-3 py-2 backdrop-blur">
@@ -133,6 +136,7 @@ export function BulkDateToolbar({
                 <Check className="w-3.5 h-3.5" /> Marcar como pago
               </button>
             )}
+            {extraAction}
             <button
               type="button"
               onClick={onExit}

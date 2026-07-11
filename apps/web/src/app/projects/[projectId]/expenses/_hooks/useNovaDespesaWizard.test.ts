@@ -125,3 +125,44 @@ describe('novaDespesaReducer — BACK / GO_BASKET', () => {
     expect(s.draft.tipoDespesa).toBe('MATERIAL_CONSTRUCAO');
   });
 });
+
+describe('novaDespesaReducer — APPLY_SUGGESTION / tipoDespesaTouched', () => {
+  it('estado inicial começa com tipoDespesaTouched=false', () => {
+    const s = start();
+    expect(s.tipoDespesaTouched).toBe(false);
+  });
+
+  it('APPLY_SUGGESTION aplica tipoDespesa quando ainda não tocado', () => {
+    let s = start();
+    s = novaDespesaReducer(s, { type: 'APPLY_SUGGESTION', tipoDespesa: 'MAO_DE_OBRA' });
+    expect(s.draft.tipoDespesa).toBe('MAO_DE_OBRA');
+  });
+
+  it('APPLY_SUGGESTION NÃO aplica quando já tocado (usuário mudou manualmente)', () => {
+    let s = start();
+    s = setDraft(s, { tipoDespesa: 'MATERIAL_CONSTRUCAO' }); // marca touched=true
+    s = novaDespesaReducer(s, { type: 'APPLY_SUGGESTION', tipoDespesa: 'MAO_DE_OBRA' });
+    expect(s.draft.tipoDespesa).toBe('MATERIAL_CONSTRUCAO');
+  });
+
+  it('SET_DRAFT com patch de tipoDespesa marca tipoDespesaTouched=true', () => {
+    let s = start();
+    expect(s.tipoDespesaTouched).toBe(false);
+    s = setDraft(s, { tipoDespesa: 'MATERIAL_CONSTRUCAO' });
+    expect(s.tipoDespesaTouched).toBe(true);
+  });
+
+  it('SET_DRAFT sem tipoDespesa no patch NÃO marca touched', () => {
+    let s = start();
+    s = setDraft(s, { valor: '100' });
+    expect(s.tipoDespesaTouched).toBe(false);
+  });
+
+  it('RESET zera tipoDespesaTouched', () => {
+    let s = start();
+    s = setDraft(s, { tipoDespesa: 'MATERIAL_CONSTRUCAO' });
+    expect(s.tipoDespesaTouched).toBe(true);
+    s = novaDespesaReducer(s, { type: 'RESET' });
+    expect(s.tipoDespesaTouched).toBe(false);
+  });
+});

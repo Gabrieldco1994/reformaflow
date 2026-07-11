@@ -39,6 +39,8 @@ export interface DadosDespesaFieldsProps {
    */
   roomIdValue?: string;
   onRoomIdChange?: (value: string) => void;
+  /** Mostra badge "sugerido por IA" junto ao campo Tipo (Feature de categorização automática). */
+  tipoSuggestedByAi?: boolean;
 }
 
 /**
@@ -64,18 +66,26 @@ export function DadosDespesaFields({
   setTitulo,
   roomIdValue,
   onRoomIdChange,
+  tipoSuggestedByAi,
 }: DadosDespesaFieldsProps) {
   const roomControlled = roomIdValue !== undefined && onRoomIdChange !== undefined;
   return (
     <>
-      <Select
-        label="Tipo da Despesa"
-        name="tipoDespesa"
-        options={tipoDespesaOptions}
-        required
-        value={tipoDespesa}
-        onChange={(e) => setTipoDespesa(e.target.value)}
-      />
+      <div className="relative">
+        <Select
+          label="Tipo da Despesa"
+          name="tipoDespesa"
+          options={tipoDespesaOptions}
+          required
+          value={tipoDespesa}
+          onChange={(e) => setTipoDespesa(e.target.value)}
+        />
+        {tipoSuggestedByAi && (
+          <span className="absolute right-0 top-0 rounded-full bg-darc-maroon/10 px-2 py-0.5 text-[11px] font-medium text-darc-maroon">
+            sugerido por IA
+          </span>
+        )}
+      </div>
 
       {tipoDespesa === 'MAO_DE_OBRA' && (
         <Select

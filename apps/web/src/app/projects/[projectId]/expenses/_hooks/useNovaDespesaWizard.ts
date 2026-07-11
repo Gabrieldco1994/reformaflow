@@ -40,6 +40,8 @@ export interface WizardState {
   basket: BasketRow[];
   /** Contador interno monotônico p/ ids determinísticos das linhas do cesto. */
   seq: number;
+  /** true assim que o usuário edita tipoDespesa manualmente — bloqueia sugestões futuras da IA. */
+  tipoDespesaTouched: boolean;
 }
 
 export type WizardAction =
@@ -53,7 +55,8 @@ export type WizardAction =
   | { type: 'BASKET_SET_ALLOC'; id: string; cents: number }
   | { type: 'BASKET_FILL_REMAINING'; id: string }
   | { type: 'BASKET_REMOVE'; id: string }
-  | { type: 'RESET' };
+  | { type: 'RESET' }
+  | { type: 'APPLY_SUGGESTION'; tipoDespesa: string };
 
 const STEP_ORDER: WizardStep[] = ['DADOS', 'PAGAMENTO', 'ACAO', 'CESTO'];
 
@@ -82,7 +85,14 @@ export function makeEmptyWizardDraft(): WizardDraft {
 }
 
 export function makeInitialWizardState(mode: WizardMode = 'PLANEJAR'): WizardState {
-  return { mode, step: 'DADOS', draft: makeEmptyWizardDraft(), basket: [], seq: 0 };
+  return {
+    mode,
+    step: 'DADOS',
+    draft: makeEmptyWizardDraft(),
+    basket: [],
+    seq: 0,
+    tipoDespesaTouched: false,
+  };
 }
 
 // ── Guardas puras ────────────────────────────────────────────────────────────
@@ -135,7 +145,12 @@ export function novaDespesaReducer(state: WizardState, action: WizardAction): Wi
       return makeInitialWizardState(action.mode);
 
     case 'SET_DRAFT':
-      return { ...state, draft: { ...state.draft, ...action.patch } };
+      return {
+        ...state,
+        draft: { ...state.draft, ...action.patch },
+        tipoDespesaTouched:
+          action.patch.tipoDespesa !== undefined ? true : state.tipoDespesaTouched,
+      };
 
     case 'NEXT': {
       const i = STEP_ORDER.indexOf(state.step);
@@ -196,6 +211,10 @@ export function novaDespesaReducer(state: WizardState, action: WizardAction): Wi
 
     case 'RESET':
       return makeInitialWizardState(state.mode);
+
+    case 'APPLY_SUGGESTION':
+      if (state.tipoDespesaTouched) return state;
+      return { ...state, draft: { ...state.draft, tipoDespesa: action.tipoDespesa } };
 
     default:
       return state;

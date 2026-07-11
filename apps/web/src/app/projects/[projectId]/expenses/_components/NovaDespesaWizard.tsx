@@ -17,6 +17,7 @@ import {
   type WizardDraft,
 } from '../_hooks/useNovaDespesaWizard';
 import { buildExpenseFormData, buildRatearMixedPayload } from '../_lib/wizardPayload';
+import { useCategorySuggestion } from '../_hooks/useCategorySuggestion';
 import { WizardStepDados } from './WizardStepDados';
 import { WizardStepPagamento } from './WizardStepPagamento';
 import { WizardStepAcao } from './WizardStepAcao';
@@ -119,6 +120,15 @@ export function NovaDespesaWizard({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, mode]);
+
+  // Sugestão de categoria por IA (título/fornecedor) — editável, nunca sobrepõe escolha manual.
+  const { suggestion: tipoSuggestion } = useCategorySuggestion(state.draft.titulo, state.draft.fornecedor);
+  useEffect(() => {
+    if (tipoSuggestion?.suggestedTipoDespesa) {
+      dispatch({ type: 'APPLY_SUGGESTION', tipoDespesa: tipoSuggestion.suggestedTipoDespesa });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tipoSuggestion?.suggestedTipoDespesa]);
 
   function invalidateAll() {
     for (const key of [
@@ -336,6 +346,11 @@ export function NovaDespesaWizard({
               tipoOptions={tipoOptions}
               roomOptions={roomOptions}
               showRooms={showRooms}
+              tipoSuggestedByAi={
+                !state.tipoDespesaTouched &&
+                !!tipoSuggestion?.suggestedTipoDespesa &&
+                tipoSuggestion.suggestedTipoDespesa === state.draft.tipoDespesa
+              }
             />
           )}
           {state.step === 'PAGAMENTO' && (
