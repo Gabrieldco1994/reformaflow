@@ -43,7 +43,11 @@ export default function MobileMonthCockpit({
       data.mesAtualEntries,
     [data.entries, data.mesAtualEntries, entries, monthKey],
   );
-  const top = useMemo(() => deriveCockpitTop(data), [data]);
+  const top = useMemo(() => deriveCockpitTop(data, monthKey), [data, monthKey]);
+  const currentTop = useMemo(
+    () => deriveCockpitTop(data, data.mesAtual),
+    [data],
+  );
   const month = useMemo(
     () => deriveMonth(data, monthKey, selectedEntries),
     [data, monthKey, selectedEntries],
@@ -85,7 +89,7 @@ export default function MobileMonthCockpit({
       className="min-w-0 space-y-3 md:hidden"
     >
       <p className="text-sm font-medium text-[var(--ck-muted)]">
-        Leitura {AXIS_LABEL[eixo]} · valores canônicos do mês atual no topo
+        Leitura {AXIS_LABEL[eixo]} · valores canônicos de {labelMonth(monthKey)}
       </p>
 
       <MobileMonthHero top={top} />
@@ -160,10 +164,10 @@ export default function MobileMonthCockpit({
         </div>
         <div className="shrink-0 text-right">
           <p className="font-geist text-lg font-bold tabular-nums text-[var(--ck-text)]">
-            {moneyGlance(top.caixaValor)}
+            {moneyGlance(currentTop.caixaValor)}
           </p>
           <p className="text-sm text-[var(--ck-muted)]">
-            {top.caixaReal ? "caixa hoje" : "resultado realizado"}
+            {currentTop.caixaReal ? "caixa hoje" : "resultado realizado"}
           </p>
         </div>
       </aside>

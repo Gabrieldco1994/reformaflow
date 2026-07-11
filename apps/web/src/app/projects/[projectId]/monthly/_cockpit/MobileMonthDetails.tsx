@@ -37,7 +37,7 @@ function DisclosureButton({
         </span>
       </span>
       <ChevronDown
-        className={`h-5 w-5 shrink-0 text-[var(--ck-muted)] transition-transform ${
+        className={`h-5 w-5 shrink-0 text-[var(--ck-muted)] transition-transform motion-reduce:transition-none ${
           expanded ? "rotate-180" : ""
         }`}
       />
