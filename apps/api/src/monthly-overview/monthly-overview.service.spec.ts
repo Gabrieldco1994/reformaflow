@@ -59,6 +59,7 @@ describe('MonthlyOverviewService.getOverview — espelhos cross-project', () => 
   });
 
   it('usa o mês solicitado na projeção sem alterar mesAtual', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-11T12:00:00'));
     prisma.cashFlowEntry.findMany.mockResolvedValue([]);
     const accountView = {
       caixaHoje: 100, entrouMes: 200, saiuMes: 50, faltaPagarMes: 25,
@@ -70,7 +71,8 @@ describe('MonthlyOverviewService.getOverview — espelhos cross-project', () => 
 
     expect(getAccountView).toHaveBeenCalledWith(tenantId, PESSOAL, '2026-03');
     expect(res.projecao).toEqual({ mes: '2026-03', status: 'ok', ...accountView });
-    expect(res.mesAtual).toMatch(/^\d{4}-\d{2}$/);
+    expect(res.mesAtual).toBe('2026-07');
+    jest.useRealTimers();
   });
 
   it('mantém fallback explícito quando a Visão Conta falha', async () => {
