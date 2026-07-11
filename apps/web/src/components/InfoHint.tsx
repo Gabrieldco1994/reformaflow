@@ -12,7 +12,15 @@ const TOOLTIP_WIDTH = 240;
  * `overflow-hidden`. Herda a cor do texto (`text-current`), então funciona tanto
  * em cards claros quanto escuros. O clique não propaga (não dispara ações do card).
  */
-export function InfoHint({ text, className }: { text: string; className?: string }) {
+export function InfoHint({
+  text,
+  className,
+  ariaLabel = 'Ajuda',
+}: {
+  text: string;
+  className?: string;
+  ariaLabel?: string;
+}) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number; below: boolean } | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -51,7 +59,7 @@ export function InfoHint({ text, className }: { text: string; className?: string
       <button
         ref={btnRef}
         type="button"
-        aria-label="Ajuda"
+        aria-label={ariaLabel}
         aria-describedby={open ? id : undefined}
         onMouseEnter={() => setOpen(true)}
         onMouseLeave={() => setOpen(false)}
