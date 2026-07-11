@@ -29,7 +29,7 @@ export const MODULE_SLUGS = [
   'financialDashboard',
 ] as const;
 
-export const PROJECT_TYPES = ['REFORMA', 'COMPRA', 'CASA', 'CARRO', 'PESSOAL'] as const;
+export const PROJECT_TYPES = ['REFORMA', 'COMPRA', 'CASA', 'CARRO', 'PESSOAL', 'PLANTAS'] as const;
 
 export class CreateUserDto {
   @IsString()

@@ -2,12 +2,12 @@
 
 import { useProject } from '@/contexts/project-context';
 import { useAuth } from '@/contexts/auth-context';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { CalendarClock } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { CalendarClock, Check } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { getProjectAccentColor } from '@/lib/project-colors';
@@ -228,8 +228,8 @@ function FinancialDashboard({ projectId, projectType }: { projectId: string; pro
 // ─── Management Dashboard (CASA / CARRO) ────────────────────
 
 interface Bill { id: string; nome: string; valor: number; categoria: string; frequencia: string; diaVencimento: number; status: string; }
-interface Maintenance { id: string; tipo: string; dataRealizada: string; dataProxima?: string; custo: number; fornecedor?: string; }
-interface Reminder { id: string; titulo: string; descricao?: string; data: string; prioridade: string; recorrencia: string; status: string; }
+interface Maintenance { id: string; tipo: string; dataRealizada: string; dataProxima?: string; custo: number; fornecedor?: string; plantId?: string | null; }
+interface Reminder { id: string; titulo: string; descricao?: string; data: string; prioridade: string; recorrencia: string; status: string; plantId?: string | null; }
 
 function ManagementDashboard({ projectId, projectType }: { projectId: string; projectType: string }) {
   const { data: bills } = useQuery<Bill[]>({
@@ -390,6 +390,212 @@ function ManagementDashboard({ projectId, projectType }: { projectId: string; pr
   );
 }
 
+interface PlantTask {
+  id: string;
+  titulo: string;
+  descricao?: string;
+  data: string;
+  origem: 'reminder' | 'maintenance';
+  plantId?: string | null;
+}
+
+interface PlantSummary {
+  id: string;
+  nome: string;
+}
+
+function dayGroupLabel(date: Date, today: Date) {
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diffDays = Math.round((startOfDay(date).getTime() - startOfDay(today).getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays < 0) return 'Atrasadas';
+  if (diffDays === 0) return 'Hoje';
+  if (diffDays === 1) return 'Amanhã';
+  const weekday = date.toLocaleDateString('pt-BR', { weekday: 'long' });
+  return weekday.charAt(0).toUpperCase() + weekday.slice(1);
+}
+
+function PlantDashboard({ projectId }: { projectId: string }) {
+  const queryClient = useQueryClient();
+  const [completingKeys, setCompletingKeys] = useState<Set<string>>(new Set());
+  const { data: maintenance } = useQuery<Maintenance[]>({
+    queryKey: ['maintenance-logs', projectId],
+    queryFn: () => api.get(`/projects/${projectId}/maintenance-logs`),
+  });
+  const { data: reminders } = useQuery<Reminder[]>({
+    queryKey: ['reminders', projectId],
+    queryFn: () => api.get(`/projects/${projectId}/reminders`),
+  });
+  const { data: plants } = useQuery<PlantSummary[]>({
+    queryKey: ['plants', projectId],
+    queryFn: () => api.get(`/projects/${projectId}/plants`),
+  });
+  const plantNameById = useMemo(
+    () => new Map((plants ?? []).map((p) => [p.id, p.nome])),
+    [plants],
+  );
+
+  const today = new Date();
+  const in7Days = new Date(today);
+  in7Days.setDate(today.getDate() + 7);
+
+  const tasks = useMemo<PlantTask[]>(() => {
+    const fromReminders = (reminders ?? [])
+      .filter((r) => r.status === 'PENDENTE')
+      .map((r) => ({
+        id: r.id,
+        titulo: r.titulo,
+        descricao: r.descricao,
+        data: r.data,
+        origem: 'reminder' as const,
+        plantId: r.plantId,
+      }));
+
+    const fromMaintenance = (maintenance ?? [])
+      .filter((m) => m.dataProxima)
+      .map((m) => ({
+        id: m.id,
+        titulo: `Cuidado: ${m.tipo}`,
+        descricao: m.fornecedor,
+        data: m.dataProxima!,
+        origem: 'maintenance' as const,
+        plantId: m.plantId,
+      }));
+
+    return [...fromReminders, ...fromMaintenance]
+      .filter((t) => {
+        const due = new Date(t.data);
+        return due <= in7Days;
+      })
+      .sort((a, b) => new Date(a.data).getTime() - new Date(b.data).getTime());
+  }, [reminders, maintenance, in7Days]);
+
+  const overdueCount = tasks.filter((t) => new Date(t.data) < today).length;
+  const thisWeekCount = tasks.length - overdueCount;
+
+  // Agrupa por dia (Atrasadas / Hoje / Amanhã / dia da semana) preservando a ordem cronológica.
+  const groupedTasks = useMemo(() => {
+    const groups = new Map<string, PlantTask[]>();
+    for (const task of tasks) {
+      const label = dayGroupLabel(new Date(task.data), today);
+      if (!groups.has(label)) groups.set(label, []);
+      groups.get(label)!.push(task);
+    }
+    return Array.from(groups.entries());
+  }, [tasks]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function completeTask(task: PlantTask) {
+    const key = `${task.origem}-${task.id}`;
+    setCompletingKeys((prev) => new Set(prev).add(key));
+    try {
+      if (task.origem === 'reminder') {
+        await api.patch(`/projects/${projectId}/reminders/${task.id}`, { status: 'CONCLUIDO' });
+      } else {
+        await api.patch(`/projects/${projectId}/maintenance-logs/${task.id}`, { dataProxima: null });
+      }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['reminders', projectId] }),
+        queryClient.invalidateQueries({ queryKey: ['maintenance-logs', projectId] }),
+      ]);
+    } finally {
+      setCompletingKeys((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    }
+  }
+
+  return (
+    <div className="space-y-6 md:space-y-8">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-5">
+          <p className="text-[11px] tracking-[0.18em] uppercase text-darc-velvet/60">Atrasadas</p>
+          <p className="text-2xl font-bold text-darc-red mt-2">{overdueCount}</p>
+        </div>
+        <div className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-5">
+          <p className="text-[11px] tracking-[0.18em] uppercase text-darc-velvet/60">Próximos 7 dias</p>
+          <p className="text-2xl font-bold text-darc-velvet mt-2">{thisWeekCount}</p>
+        </div>
+        <Link
+          href={`/projects/${projectId}/plants-ai`}
+          className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-5 hover:border-darc-red transition-colors"
+        >
+          <p className="text-[11px] tracking-[0.18em] uppercase text-darc-velvet/60">IA</p>
+          <p className="text-lg font-semibold text-darc-velvet mt-2">Diagnosticar nova planta</p>
+        </Link>
+      </div>
+
+      <section className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5">
+        <h2 className="font-editorial italic text-lg md:text-xl text-darc-velvet mb-3">📅 Cronograma semanal</h2>
+        {tasks.length === 0 ? (
+          <p className="text-darc-velvet/60 text-sm">Sem tarefas para os próximos 7 dias.</p>
+        ) : (
+          <div className="space-y-5">
+            {groupedTasks.map(([label, groupTasks]) => (
+              <div key={label}>
+                <h3
+                  className={`text-xs font-semibold tracking-[0.14em] uppercase mb-2 ${
+                    label === 'Atrasadas' ? 'text-darc-red' : 'text-darc-velvet/60'
+                  }`}
+                >
+                  {label}
+                </h3>
+                <div className="space-y-2">
+                  {groupTasks.map((task) => {
+                    const due = new Date(task.data);
+                    const isOverdue = due < today;
+                    const key = `${task.origem}-${task.id}`;
+                    const isCompleting = completingKeys.has(key);
+                    return (
+                      <div
+                        key={key}
+                        className={`rounded-xl border p-3 flex items-start gap-3 ${isOverdue ? 'border-darc-red bg-darc-red-bright/5' : 'border-darc-linen bg-darc-linen/40'}`}
+                      >
+                        <button
+                          onClick={() => completeTask(task)}
+                          disabled={isCompleting}
+                          title="Marcar como feita"
+                          className={`group mt-0.5 h-5 w-5 shrink-0 rounded-full border-2 flex items-center justify-center transition-colors ${
+                            isCompleting
+                              ? 'border-darc-velvet/30 bg-darc-velvet/10'
+                              : 'border-darc-velvet/30 hover:border-darc-red hover:bg-darc-red-bright/10'
+                          }`}
+                        >
+                          <Check
+                            className={`h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity ${
+                              isCompleting ? 'text-darc-velvet/40 opacity-100' : 'text-darc-red'
+                            }`}
+                          />
+                        </button>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="font-medium text-darc-velvet">
+                              {task.titulo}
+                              {(plants?.length ?? 0) > 1 && task.plantId && plantNameById.has(task.plantId) && (
+                                <span className="ml-2 text-xs font-normal text-darc-velvet/60">
+                                  🪴 {plantNameById.get(task.plantId)}
+                                </span>
+                              )}
+                            </p>
+                            <span className="text-xs text-darc-velvet/70 whitespace-nowrap">
+                              {formatDateBR(task.data)}
+                            </span>
+                          </div>
+                          {task.descricao && <p className="text-sm text-darc-velvet/70 mt-1">{task.descricao}</p>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
 // ─── Main Dashboard ─────────────────────────────────────────
 
 export default function DashboardPage() {
@@ -408,6 +614,7 @@ export default function DashboardPage() {
 
   const isFinancial = projectType === 'REFORMA' || projectType === 'COMPRA';
   const isManagement = projectType === 'CASA' || projectType === 'CARRO';
+  const isPlants = projectType === 'PLANTAS';
 
   return (
     <div className="space-y-6 md:space-y-8">
@@ -436,6 +643,7 @@ export default function DashboardPage() {
       </header>
       {isFinancial && <FinancialDashboard projectId={projectId} projectType={projectType} />}
       {isManagement && <ManagementDashboard projectId={projectId} projectType={projectType} />}
+      {isPlants && <PlantDashboard projectId={projectId} />}
     </div>
   );
 }

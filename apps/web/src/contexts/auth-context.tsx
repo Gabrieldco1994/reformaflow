@@ -28,7 +28,8 @@ export type ModuleSlug =
   | 'bankAccounts'
   | 'schedule'
   | 'pendencias'
-  | 'financialDashboard';
+  | 'financialDashboard'
+  | 'plantsAi';
 
 export const ALL_MODULES: { slug: ModuleSlug; label: string }[] = [
   { slug: 'dashboard', label: 'Dashboard' },
@@ -49,6 +50,7 @@ export const ALL_MODULES: { slug: ModuleSlug; label: string }[] = [
   { slug: 'schedule', label: 'Cronograma' },
   { slug: 'pendencias', label: 'Pendências' },
   { slug: 'financialDashboard', label: 'Dashboard Financeiro' },
+  { slug: 'plantsAi', label: 'Diagnóstico IA (Plantas)' },
 ];
 
 export const TYPE_MODULES: Record<string, ModuleSlug[]> = {
@@ -57,6 +59,7 @@ export const TYPE_MODULES: Record<string, ModuleSlug[]> = {
   PESSOAL: ['monthlyOverview', 'expenses', 'receipts', 'cashFlow', 'creditCards', 'bankAccounts'],
   CASA: ['recurringBills', 'maintenance', 'reminders', 'expenses'],
   CARRO: ['carInfo', 'recurringBills', 'maintenance', 'reminders', 'expenses'],
+  PLANTAS: ['dashboard', 'maintenance', 'reminders', 'plantsAi'],
 };
 
 export interface AuthUser {

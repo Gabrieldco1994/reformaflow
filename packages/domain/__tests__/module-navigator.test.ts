@@ -17,6 +17,7 @@ describe('getProjectNavModules', () => {
       ProjectType.COMPRA,
       ProjectType.CASA,
       ProjectType.CARRO,
+      ProjectType.PLANTAS,
     ]) {
       expect(getProjectNavModules(t)[0].slug).toBe('dashboard');
     }
@@ -97,6 +98,16 @@ describe('getProjectNavModules', () => {
 
   it('COMPRA exposes exactly 4 modules', () => {
     expect(getProjectNavModules(ProjectType.COMPRA)).toHaveLength(4);
+  });
+
+  it('PLANTAS exposes exactly 5 modules', () => {
+    expect(getProjectNavModules(ProjectType.PLANTAS).map((m) => m.slug)).toEqual([
+      'dashboard',
+      'plants-ai',
+      'plants',
+      'maintenance',
+      'reminders',
+    ]);
   });
 
   it('PESSOAL exposes 12 modules', () => {

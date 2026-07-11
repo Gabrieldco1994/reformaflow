@@ -6,6 +6,7 @@ export enum ProjectType {
   CASA = 'CASA',
   CARRO = 'CARRO',
   PESSOAL = 'PESSOAL',
+  PLANTAS = 'PLANTAS',
 }
 
 export const ProjectTypeLabels: Record<ProjectType, string> = {
@@ -14,6 +15,7 @@ export const ProjectTypeLabels: Record<ProjectType, string> = {
   [ProjectType.CASA]: 'Casa',
   [ProjectType.CARRO]: 'Carro',
   [ProjectType.PESSOAL]: 'Pessoal',
+  [ProjectType.PLANTAS]: 'Plantas',
 };
 
 export const ProjectTypeIcons: Record<ProjectType, string> = {
@@ -22,6 +24,7 @@ export const ProjectTypeIcons: Record<ProjectType, string> = {
   [ProjectType.CASA]: '🏡',
   [ProjectType.CARRO]: '🚗',
   [ProjectType.PESSOAL]: '💰',
+  [ProjectType.PLANTAS]: '🪴',
 };
 
 export const ProjectTypeDescriptions: Record<ProjectType, string> = {
@@ -30,6 +33,7 @@ export const ProjectTypeDescriptions: Record<ProjectType, string> = {
   [ProjectType.CASA]: 'Gerencie contas, manutenções e lembretes da casa',
   [ProjectType.CARRO]: 'Controle manutenções, custos e lembretes do carro',
   [ProjectType.PESSOAL]: 'Controle de despesas e recebimentos pessoais',
+  [ProjectType.PLANTAS]: 'Diagnóstico por IA e cronograma de cuidados para plantas',
 };
 
 export enum UserRole {

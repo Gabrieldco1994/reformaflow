@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import { Wallet, HardHat, Home, Car, ShoppingBag, FolderKanban, type LucideIcon } from 'lucide-react';
+import { Wallet, HardHat, Home, Car, ShoppingBag, Sprout, FolderKanban, type LucideIcon } from 'lucide-react';
 
 export interface TypeAccent {
   color: string;
@@ -16,6 +16,7 @@ export const TYPE_ACCENT: Record<string, TypeAccent> = {
   CASA: { color: '#1E924A', fill: '#DEF3E6', label: 'Casa', description: 'Gerencie contas, manutenções e lembretes da casa', icon: Home },
   CARRO: { color: '#5E5A52', fill: '#EAE7E1', label: 'Carro', description: 'Controle manutenções, custos e lembretes do carro', icon: Car },
   COMPRA: { color: '#7A3FC2', fill: '#EFE6FA', label: 'Compra', description: 'Acompanhe compras grandes (casa, carro, etc.)', icon: ShoppingBag },
+  PLANTAS: { color: '#23824D', fill: '#DDF4E5', label: 'Plantas', description: 'Diagnóstico por IA e cronograma de cuidados para plantas', icon: Sprout },
 };
 
 const FALLBACK: TypeAccent = {

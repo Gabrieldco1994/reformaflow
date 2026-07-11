@@ -48,6 +48,52 @@ export async function compressImage(
   }
 }
 
+export interface ImageQualityCheck {
+  ok: boolean;
+  reason?: string;
+  width: number;
+  height: number;
+}
+
+/**
+ * Checagem client-side rápida antes de gastar uma chamada de IA: resolução
+ * mínima e tamanho de arquivo mínimo (fotos muito pequenas tendem a vir
+ * borradas/sem detalhe suficiente pra diagnóstico de espécie/saúde).
+ *
+ * ponytail: heurística simples (dimensão + bytes), não é blur-detection de
+ * verdade — o Gemini já reporta `qualidadeImagem` no resultado; isso aqui só
+ * evita a chamada quando dá pra saber de antemão que a foto é fraca.
+ */
+export async function checkImageQuality(file: File): Promise<ImageQualityCheck> {
+  const MIN_DIMENSION = 400;
+  const MIN_BYTES = 15 * 1024; // 15kB
+
+  if (!file.type.startsWith('image/')) {
+    return { ok: false, reason: 'Arquivo não é uma imagem', width: 0, height: 0 };
+  }
+  if (file.size < MIN_BYTES) {
+    return { ok: false, reason: 'Arquivo muito pequeno — a foto pode estar com baixa qualidade', width: 0, height: 0 };
+  }
+
+  try {
+    const bitmap = await loadBitmap(file);
+    const width = 'width' in bitmap ? bitmap.width : 0;
+    const height = 'height' in bitmap ? bitmap.height : 0;
+    if (width < MIN_DIMENSION || height < MIN_DIMENSION) {
+      return {
+        ok: false,
+        reason: `Resolução baixa (${width}x${height}px) — tente uma foto mais nítida e próxima da planta`,
+        width,
+        height,
+      };
+    }
+    return { ok: true, width, height };
+  } catch {
+    // se não conseguir ler dimensões, não bloqueia o envio
+    return { ok: true, width: 0, height: 0 };
+  }
+}
+
 async function loadBitmap(file: File): Promise<ImageBitmap | HTMLImageElement> {
   if (typeof createImageBitmap === 'function') {
     try {

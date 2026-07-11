@@ -1,0 +1,84 @@
+{
+  "cases": [
+    {
+      "id": "hf-houseplants-healthy-000",
+      "imagePath": "src/plants-ai/eval-fixtures/images/hf-houseplants-health/hf-healthy-000.jpg",
+      "expected": {
+        "saude": "SAUDAVEL",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "hf-houseplants-healthy-100",
+      "imagePath": "src/plants-ai/eval-fixtures/images/hf-houseplants-health/hf-healthy-100.jpg",
+      "expected": {
+        "saude": "SAUDAVEL",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "hf-houseplants-healthy-200",
+      "imagePath": "src/plants-ai/eval-fixtures/images/hf-houseplants-health/hf-healthy-200.jpg",
+      "expected": {
+        "saude": "SAUDAVEL",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "hf-houseplants-healthy-300",
+      "imagePath": "src/plants-ai/eval-fixtures/images/hf-houseplants-health/hf-healthy-300.jpg",
+      "expected": {
+        "saude": "SAUDAVEL",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "hf-houseplants-healthy-400",
+      "imagePath": "src/plants-ai/eval-fixtures/images/hf-houseplants-health/hf-healthy-400.jpg",
+      "expected": {
+        "saude": "SAUDAVEL",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "hf-houseplants-wilted-000",
+      "imagePath": "src/plants-ai/eval-fixtures/images/hf-houseplants-health/hf-wilted-000.jpg",
+      "expected": {
+        "saude": "ATENCAO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "hf-houseplants-wilted-100",
+      "imagePath": "src/plants-ai/eval-fixtures/images/hf-houseplants-health/hf-wilted-100.jpg",
+      "expected": {
+        "saude": "ATENCAO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "hf-houseplants-wilted-200",
+      "imagePath": "src/plants-ai/eval-fixtures/images/hf-houseplants-health/hf-wilted-200.jpg",
+      "expected": {
+        "saude": "ATENCAO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "hf-houseplants-wilted-300",
+      "imagePath": "src/plants-ai/eval-fixtures/images/hf-houseplants-health/hf-wilted-300.jpg",
+      "expected": {
+        "saude": "ATENCAO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "hf-houseplants-wilted-400",
+      "imagePath": "src/plants-ai/eval-fixtures/images/hf-houseplants-health/hf-wilted-400.jpg",
+      "expected": {
+        "saude": "ATENCAO",
+        "temProblema": true
+      }
+    }
+  ]
+}

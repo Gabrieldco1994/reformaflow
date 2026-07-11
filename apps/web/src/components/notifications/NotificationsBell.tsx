@@ -28,6 +28,7 @@ const PROJECT_DEFAULT_ROUTE: Record<string, string> = {
   PESSOAL: 'monthly',
   CASA: 'dashboard',
   CARRO: 'dashboard',
+  PLANTAS: 'dashboard',
 };
 
 function routeForItem(

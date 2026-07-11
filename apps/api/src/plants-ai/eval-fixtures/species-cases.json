@@ -1,0 +1,229 @@
+{
+  "description": "Casos parciais exclusivos para identificação de espécie.",
+  "cases": [
+    {
+      "id": "kaggle-plant-dataset-01",
+      "imagePath": "apps/api/src/plants-ai/eval-fixtures/images/kaggle-plant-dataset/Anemone_flower.jpeg",
+      "expected": {
+        "especie": "Anemone"
+      },
+      "source": "https://www.kaggle.com/datasets/yousra15b/plant-dataset"
+    },
+    {
+      "id": "kaggle-plant-dataset-02",
+      "imagePath": "apps/api/src/plants-ai/eval-fixtures/images/kaggle-plant-dataset/Hyacinth_flower.jpeg",
+      "expected": {
+        "especie": "Hyacinthus"
+      },
+      "source": "https://www.kaggle.com/datasets/yousra15b/plant-dataset"
+    },
+    {
+      "id": "kaggle-plant-dataset-03",
+      "imagePath": "apps/api/src/plants-ai/eval-fixtures/images/kaggle-plant-dataset/Poinsettia_flower.jpeg",
+      "expected": {
+        "especie": "Euphorbia pulcherrima"
+      },
+      "source": "https://www.kaggle.com/datasets/yousra15b/plant-dataset"
+    },
+    {
+      "id": "kaggle-plant-dataset-04",
+      "imagePath": "apps/api/src/plants-ai/eval-fixtures/images/kaggle-plant-dataset/aeonium.jpeg",
+      "expected": {
+        "especie": "aeonium"
+      },
+      "source": "https://www.kaggle.com/datasets/yousra15b/plant-dataset"
+    },
+    {
+      "id": "kaggle-plant-dataset-05",
+      "imagePath": "apps/api/src/plants-ai/eval-fixtures/images/kaggle-plant-dataset/agapanthus.jpeg",
+      "expected": {
+        "especie": "agapanthus"
+      },
+      "source": "https://www.kaggle.com/datasets/yousra15b/plant-dataset"
+    },
+    {
+      "id": "kaggle-plant-dataset-06",
+      "imagePath": "apps/api/src/plants-ai/eval-fixtures/images/kaggle-plant-dataset/aloe_vera.jpeg",
+      "expected": {
+        "especie": "aloe vera"
+      },
+      "source": "https://www.kaggle.com/datasets/yousra15b/plant-dataset"
+    },
+    {
+      "id": "kaggle-plant-dataset-07",
+      "imagePath": "apps/api/src/plants-ai/eval-fixtures/images/kaggle-plant-dataset/amaryllis_flower.jpeg",
+      "expected": {
+        "especie": "amaryllis"
+      },
+      "source": "https://www.kaggle.com/datasets/yousra15b/plant-dataset"
+    },
+    {
+      "id": "kaggle-plant-dataset-08",
+      "imagePath": "apps/api/src/plants-ai/eval-fixtures/images/kaggle-plant-dataset/buttercup_flower.jpeg",
+      "expected": {
+        "especie": "Ranunculus"
+      },
+      "source": "https://www.kaggle.com/datasets/yousra15b/plant-dataset"
+    },
+    {
+      "id": "kaggle-plant-dataset-09",
+      "imagePath": "apps/api/src/plants-ai/eval-fixtures/images/kaggle-plant-dataset/calathea_lancifolia.jpeg",
+      "expected": {
+        "especie": "calathea lancifolia"
+      },
+      "source": "https://www.kaggle.com/datasets/yousra15b/plant-dataset"
+    },
+    {
+      "id": "kaggle-plant-dataset-10",
+      "imagePath": "apps/api/src/plants-ai/eval-fixtures/images/kaggle-plant-dataset/calathea_orbifolia.jpeg",
+      "expected": {
+        "especie": "calathea orbifolia"
+      },
+      "source": "https://www.kaggle.com/datasets/yousra15b/plant-dataset"
+    },
+    {
+      "id": "kaggle-plant-dataset-11",
+      "imagePath": "apps/api/src/plants-ai/eval-fixtures/images/kaggle-plant-dataset/calendula.jpeg",
+      "expected": {
+        "especie": "calendula"
+      },
+      "source": "https://www.kaggle.com/datasets/yousra15b/plant-dataset"
+    },
+    {
+      "id": "kaggle-plant-dataset-12",
+      "imagePath": "apps/api/src/plants-ai/eval-fixtures/images/kaggle-plant-dataset/daisy.jpeg",
+      "expected": {
+        "especie": "Bellis perennis"
+      },
+      "source": "https://www.kaggle.com/datasets/yousra15b/plant-dataset"
+    },
+    {
+      "id": "kaggle-plant-dataset-13",
+      "imagePath": "apps/api/src/plants-ai/eval-fixtures/images/kaggle-plant-dataset/dracaena_marginata.jpeg",
+      "expected": {
+        "especie": "dracaena marginata"
+      },
+      "source": "https://www.kaggle.com/datasets/yousra15b/plant-dataset"
+    },
+    {
+      "id": "kaggle-plant-dataset-14",
+      "imagePath": "apps/api/src/plants-ai/eval-fixtures/images/kaggle-plant-dataset/epiphyllum_anguliger.jpeg",
+      "expected": {
+        "especie": "epiphyllum anguliger"
+      },
+      "source": "https://www.kaggle.com/datasets/yousra15b/plant-dataset"
+    },
+    {
+      "id": "kaggle-plant-dataset-16",
+      "imagePath": "apps/api/src/plants-ai/eval-fixtures/images/kaggle-plant-dataset/flor_pato.jpeg",
+      "expected": {
+        "especie": "Spathiphyllum wallisii"
+      },
+      "source": "https://www.kaggle.com/datasets/yousra15b/plant-dataset"
+    },
+    {
+      "id": "kaggle-plant-dataset-17",
+      "imagePath": "apps/api/src/plants-ai/eval-fixtures/images/kaggle-plant-dataset/forget_me_not.jpeg",
+      "expected": {
+        "especie": "Myosotis"
+      },
+      "source": "https://www.kaggle.com/datasets/yousra15b/plant-dataset"
+    },
+    {
+      "id": "kaggle-plant-dataset-18",
+      "imagePath": "apps/api/src/plants-ai/eval-fixtures/images/kaggle-plant-dataset/girasol.jpeg",
+      "expected": {
+        "especie": "Helianthus annuus"
+      },
+      "source": "https://www.kaggle.com/datasets/yousra15b/plant-dataset"
+    },
+    {
+      "id": "kaggle-plant-dataset-19",
+      "imagePath": "apps/api/src/plants-ai/eval-fixtures/images/kaggle-plant-dataset/hibiscus_flower.jpeg",
+      "expected": {
+        "especie": "hibiscus"
+      },
+      "source": "https://www.kaggle.com/datasets/yousra15b/plant-dataset"
+    },
+    {
+      "id": "kaggle-plant-dataset-20",
+      "imagePath": "apps/api/src/plants-ai/eval-fixtures/images/kaggle-plant-dataset/impatiens.jpeg",
+      "expected": {
+        "especie": "impatiens"
+      },
+      "source": "https://www.kaggle.com/datasets/yousra15b/plant-dataset"
+    },
+    {
+      "id": "kaggle-plant-dataset-21",
+      "imagePath": "apps/api/src/plants-ai/eval-fixtures/images/kaggle-plant-dataset/jasmine_flower.jpeg",
+      "expected": {
+        "especie": "Jasminum"
+      },
+      "source": "https://www.kaggle.com/datasets/yousra15b/plant-dataset"
+    },
+    {
+      "id": "kaggle-plant-dataset-22",
+      "imagePath": "apps/api/src/plants-ai/eval-fixtures/images/kaggle-plant-dataset/marigold_flower.jpeg",
+      "expected": {
+        "especie": "Tagetes"
+      },
+      "source": "https://www.kaggle.com/datasets/yousra15b/plant-dataset"
+    },
+    {
+      "id": "kaggle-plant-dataset-23",
+      "imagePath": "apps/api/src/plants-ai/eval-fixtures/images/kaggle-plant-dataset/monstera_deliciosa.jpeg",
+      "expected": {
+        "especie": "monstera deliciosa"
+      },
+      "source": "https://www.kaggle.com/datasets/yousra15b/plant-dataset"
+    },
+    {
+      "id": "kaggle-plant-dataset-24",
+      "imagePath": "apps/api/src/plants-ai/eval-fixtures/images/kaggle-plant-dataset/orquideas.jpeg",
+      "expected": {
+        "especie": "Orchidaceae"
+      },
+      "source": "https://www.kaggle.com/datasets/yousra15b/plant-dataset"
+    },
+    {
+      "id": "kaggle-plant-dataset-25",
+      "imagePath": "apps/api/src/plants-ai/eval-fixtures/images/kaggle-plant-dataset/parlor_palm.jpeg",
+      "expected": {
+        "especie": "Chamaedorea elegans"
+      },
+      "source": "https://www.kaggle.com/datasets/yousra15b/plant-dataset"
+    },
+    {
+      "id": "kaggle-plant-dataset-26",
+      "imagePath": "apps/api/src/plants-ai/eval-fixtures/images/kaggle-plant-dataset/petunias.jpeg",
+      "expected": {
+        "especie": "Petunia"
+      },
+      "source": "https://www.kaggle.com/datasets/yousra15b/plant-dataset"
+    },
+    {
+      "id": "kaggle-plant-dataset-27",
+      "imagePath": "apps/api/src/plants-ai/eval-fixtures/images/kaggle-plant-dataset/sansevieria.jpeg",
+      "expected": {
+        "especie": "sansevieria"
+      },
+      "source": "https://www.kaggle.com/datasets/yousra15b/plant-dataset"
+    },
+    {
+      "id": "kaggle-plant-dataset-28",
+      "imagePath": "apps/api/src/plants-ai/eval-fixtures/images/kaggle-plant-dataset/tulipan.jpeg",
+      "expected": {
+        "especie": "Tulipa"
+      },
+      "source": "https://www.kaggle.com/datasets/yousra15b/plant-dataset"
+    },
+    {
+      "id": "kaggle-plant-dataset-29",
+      "imagePath": "apps/api/src/plants-ai/eval-fixtures/images/kaggle-plant-dataset/zinnias.jpeg",
+      "expected": {
+        "especie": "Zinnia"
+      },
+      "source": "https://www.kaggle.com/datasets/yousra15b/plant-dataset"
+    }
+  ]
+}

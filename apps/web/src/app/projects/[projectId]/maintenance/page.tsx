@@ -41,6 +41,15 @@ const CAR_TYPES = [
   { value: 'OUTRO', label: 'Outro' },
 ];
 
+const PLANT_TYPES = [
+  { value: 'REGA', label: 'Rega' },
+  { value: 'ADUBACAO', label: 'Adubação' },
+  { value: 'PODA', label: 'Poda' },
+  { value: 'TROCA_VASO', label: 'Troca de Vaso' },
+  { value: 'TRATAMENTO_PRAGA', label: 'Tratamento de Praga/Doença' },
+  { value: 'OUTRO', label: 'Outro' },
+];
+
 const emptyForm = {
   tipo: '',
   dataRealizada: new Date().toISOString().split('T')[0],
@@ -53,7 +62,7 @@ const emptyForm = {
 
 export default function MaintenancePage() {
   const { projectId, projectType } = useProject();
-  const types = projectType === 'CARRO' ? CAR_TYPES : HOUSE_TYPES;
+  const types = projectType === 'CARRO' ? CAR_TYPES : projectType === 'PLANTAS' ? PLANT_TYPES : HOUSE_TYPES;
   const [logs, setLogs] = useState<MaintenanceLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);

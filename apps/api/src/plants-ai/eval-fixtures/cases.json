@@ -1,0 +1,814 @@
+{
+  "cases": [
+    {
+      "id": "pv-Apple___healthy-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/plantvillage/pv-Apple___healthy-01.jpg",
+      "expected": {
+        "especie": "Apple",
+        "saude": "SAUDAVEL",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "pv-Apple___healthy-02",
+      "imagePath": "src/plants-ai/eval-fixtures/images/plantvillage/pv-Apple___healthy-02.jpg",
+      "expected": {
+        "especie": "Apple",
+        "saude": "SAUDAVEL",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "pv-Apple___healthy-03",
+      "imagePath": "src/plants-ai/eval-fixtures/images/plantvillage/pv-Apple___healthy-03.jpg",
+      "expected": {
+        "especie": "Apple",
+        "saude": "SAUDAVEL",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "pv-Apple___Apple_scab-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/plantvillage/pv-Apple___Apple_scab-01.jpg",
+      "expected": {
+        "especie": "Apple",
+        "saude": "ATENCAO",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "pv-Apple___Apple_scab-02",
+      "imagePath": "src/plants-ai/eval-fixtures/images/plantvillage/pv-Apple___Apple_scab-02.jpg",
+      "expected": {
+        "especie": "Apple",
+        "saude": "ATENCAO",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "pv-Apple___Apple_scab-03",
+      "imagePath": "src/plants-ai/eval-fixtures/images/plantvillage/pv-Apple___Apple_scab-03.jpg",
+      "expected": {
+        "especie": "Apple",
+        "saude": "ATENCAO",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "pv-Blueberry___healthy-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/plantvillage/pv-Blueberry___healthy-01.jpg",
+      "expected": {
+        "especie": "Blueberry",
+        "saude": "SAUDAVEL",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "pv-Blueberry___healthy-02",
+      "imagePath": "src/plants-ai/eval-fixtures/images/plantvillage/pv-Blueberry___healthy-02.jpg",
+      "expected": {
+        "especie": "Blueberry",
+        "saude": "SAUDAVEL",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "pv-Blueberry___healthy-03",
+      "imagePath": "src/plants-ai/eval-fixtures/images/plantvillage/pv-Blueberry___healthy-03.jpg",
+      "expected": {
+        "especie": "Blueberry",
+        "saude": "SAUDAVEL",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "pv-Corn__maize____Common_rust_-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/plantvillage/pv-Corn__maize____Common_rust_-01.jpg",
+      "expected": {
+        "especie": "Corn (maize)",
+        "saude": "ATENCAO",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "pv-Corn__maize____Common_rust_-02",
+      "imagePath": "src/plants-ai/eval-fixtures/images/plantvillage/pv-Corn__maize____Common_rust_-02.jpg",
+      "expected": {
+        "especie": "Corn (maize)",
+        "saude": "ATENCAO",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "pv-Corn__maize____Common_rust_-03",
+      "imagePath": "src/plants-ai/eval-fixtures/images/plantvillage/pv-Corn__maize____Common_rust_-03.jpg",
+      "expected": {
+        "especie": "Corn (maize)",
+        "saude": "ATENCAO",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "pv-Cherry__including_sour____healthy-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/plantvillage/pv-Cherry__including_sour____healthy-01.jpg",
+      "expected": {
+        "especie": "Cherry (including sour)",
+        "saude": "SAUDAVEL",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "pv-Cherry__including_sour____healthy-02",
+      "imagePath": "src/plants-ai/eval-fixtures/images/plantvillage/pv-Cherry__including_sour____healthy-02.jpg",
+      "expected": {
+        "especie": "Cherry (including sour)",
+        "saude": "SAUDAVEL",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "pv-Cherry__including_sour____healthy-03",
+      "imagePath": "src/plants-ai/eval-fixtures/images/plantvillage/pv-Cherry__including_sour____healthy-03.jpg",
+      "expected": {
+        "especie": "Cherry (including sour)",
+        "saude": "SAUDAVEL",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "pv-Cherry__including_sour____Powdery_mildew-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/plantvillage/pv-Cherry__including_sour____Powdery_mildew-01.jpg",
+      "expected": {
+        "especie": "Cherry (including sour)",
+        "saude": "ATENCAO",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "pv-Cherry__including_sour____Powdery_mildew-02",
+      "imagePath": "src/plants-ai/eval-fixtures/images/plantvillage/pv-Cherry__including_sour____Powdery_mildew-02.jpg",
+      "expected": {
+        "especie": "Cherry (including sour)",
+        "saude": "ATENCAO",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "pv-Cherry__including_sour____Powdery_mildew-03",
+      "imagePath": "src/plants-ai/eval-fixtures/images/plantvillage/pv-Cherry__including_sour____Powdery_mildew-03.jpg",
+      "expected": {
+        "especie": "Cherry (including sour)",
+        "saude": "ATENCAO",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "pv-Corn__maize____healthy-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/plantvillage/pv-Corn__maize____healthy-01.jpg",
+      "expected": {
+        "especie": "Corn (maize)",
+        "saude": "SAUDAVEL",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "pv-Corn__maize____healthy-02",
+      "imagePath": "src/plants-ai/eval-fixtures/images/plantvillage/pv-Corn__maize____healthy-02.jpg",
+      "expected": {
+        "especie": "Corn (maize)",
+        "saude": "SAUDAVEL",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "pv-Corn__maize____healthy-03",
+      "imagePath": "src/plants-ai/eval-fixtures/images/plantvillage/pv-Corn__maize____healthy-03.jpg",
+      "expected": {
+        "especie": "Corn (maize)",
+        "saude": "SAUDAVEL",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "indoor-Aloe_Anthracnose-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Aloe_Anthracnose-01.jpeg",
+      "expected": {
+        "especie": "babosa",
+        "saude": "ATENCAO",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "indoor-Aloe_Anthracnose-02",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Aloe_Anthracnose-02.jpeg",
+      "expected": {
+        "especie": "babosa",
+        "saude": "ATENCAO",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "indoor-Aloe_Healthy-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Aloe_Healthy-01.jpeg",
+      "expected": {
+        "especie": "babosa",
+        "saude": "SAUDAVEL",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "indoor-Aloe_Healthy-02",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Aloe_Healthy-02.jpeg",
+      "expected": {
+        "especie": "babosa",
+        "saude": "SAUDAVEL",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "indoor-Aloe_LeafSpot-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Aloe_LeafSpot-01.jpeg",
+      "expected": {
+        "especie": "babosa",
+        "saude": "ATENCAO",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "indoor-Aloe_LeafSpot-02",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Aloe_LeafSpot-02.jpeg",
+      "expected": {
+        "especie": "babosa",
+        "saude": "ATENCAO",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "indoor-Aloe_Rust-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Aloe_Rust-01.jpeg",
+      "expected": {
+        "especie": "babosa",
+        "saude": "ATENCAO",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "indoor-Aloe_Rust-02",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Aloe_Rust-02.jpeg",
+      "expected": {
+        "especie": "babosa",
+        "saude": "ATENCAO",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "indoor-Aloe_Sunburn-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Aloe_Sunburn-01.jpeg",
+      "expected": {
+        "especie": "babosa",
+        "saude": "ATENCAO",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "indoor-Aloe_Sunburn-02",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Aloe_Sunburn-02.jpeg",
+      "expected": {
+        "especie": "babosa",
+        "saude": "ATENCAO",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "indoor-Money_Plant_Bacterial_wilt_disease-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Money_Plant_Bacterial_wilt_disease-01.jpg",
+      "expected": {
+        "especie": "jiboia (money plant/pothos)",
+        "saude": "ATENCAO",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "indoor-Money_Plant_Bacterial_wilt_disease-02",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Money_Plant_Bacterial_wilt_disease-02.jpg",
+      "expected": {
+        "especie": "jiboia (money plant/pothos)",
+        "saude": "ATENCAO",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "indoor-Money_Plant_Healthy-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Money_Plant_Healthy-01.jpg",
+      "expected": {
+        "especie": "jiboia (money plant/pothos)",
+        "saude": "SAUDAVEL",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "indoor-Money_Plant_Healthy-02",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Money_Plant_Healthy-02.jpg",
+      "expected": {
+        "especie": "jiboia (money plant/pothos)",
+        "saude": "SAUDAVEL",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "indoor-Money_Plant_Manganese_Toxicity-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Money_Plant_Manganese_Toxicity-01.jpg",
+      "expected": {
+        "especie": "jiboia (money plant/pothos)",
+        "saude": "ATENCAO",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "indoor-Money_Plant_Manganese_Toxicity-02",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Money_Plant_Manganese_Toxicity-02.jpg",
+      "expected": {
+        "especie": "jiboia (money plant/pothos)",
+        "saude": "ATENCAO",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "indoor-Snake_Plant_Anthracnose-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Snake_Plant_Anthracnose-01.jpg",
+      "expected": {
+        "especie": "espada-de-sao-jorge",
+        "saude": "ATENCAO",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "indoor-Snake_Plant_Anthracnose-02",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Snake_Plant_Anthracnose-02.jpg",
+      "expected": {
+        "especie": "espada-de-sao-jorge",
+        "saude": "ATENCAO",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "indoor-Snake_Plant_Healthy-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Snake_Plant_Healthy-01.jpg",
+      "expected": {
+        "especie": "espada-de-sao-jorge",
+        "saude": "SAUDAVEL",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "indoor-Snake_Plant_Healthy-02",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Snake_Plant_Healthy-02.jpg",
+      "expected": {
+        "especie": "espada-de-sao-jorge",
+        "saude": "SAUDAVEL",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "indoor-Snake_Plant_Leaf_Withering-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Snake_Plant_Leaf_Withering-01.jpg",
+      "expected": {
+        "especie": "espada-de-sao-jorge",
+        "saude": "ATENCAO",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "indoor-Snake_Plant_Leaf_Withering-02",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Snake_Plant_Leaf_Withering-02.jpg",
+      "expected": {
+        "especie": "espada-de-sao-jorge",
+        "saude": "ATENCAO",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "indoor-Spider_Plant_Fungal_leaf_spot-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Spider_Plant_Fungal_leaf_spot-01.jpg",
+      "expected": {
+        "especie": "clorofito",
+        "saude": "ATENCAO",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "indoor-Spider_Plant_Fungal_leaf_spot-02",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Spider_Plant_Fungal_leaf_spot-02.jpg",
+      "expected": {
+        "especie": "clorofito",
+        "saude": "ATENCAO",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "indoor-Spider_Plant_Healthy-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Spider_Plant_Healthy-01.jpg",
+      "expected": {
+        "especie": "clorofito",
+        "saude": "SAUDAVEL",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "indoor-Spider_Plant_Healthy-02",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Spider_Plant_Healthy-02.jpg",
+      "expected": {
+        "especie": "clorofito",
+        "saude": "SAUDAVEL",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "indoor-Spider_Plant_Leaf_Tip_Necrosis-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Spider_Plant_Leaf_Tip_Necrosis-01.jpg",
+      "expected": {
+        "especie": "clorofito",
+        "saude": "ATENCAO",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "indoor-Spider_Plant_Leaf_Tip_Necrosis-02",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Spider_Plant_Leaf_Tip_Necrosis-02.jpg",
+      "expected": {
+        "especie": "clorofito",
+        "saude": "ATENCAO",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "indoor-Cactus_Healthy-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Cactus_Healthy-01.png",
+      "expected": {
+        "especie": "cacto",
+        "saude": "SAUDAVEL",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "indoor-Cactus_Healthy-02",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Cactus_Healthy-02.png",
+      "expected": {
+        "especie": "cacto",
+        "saude": "SAUDAVEL",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "indoor-Cactus_Dactylopius_Opuntia-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Cactus_Dactylopius_Opuntia-01.png",
+      "expected": {
+        "especie": "cacto",
+        "saude": "ATENCAO",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "indoor-Cactus_Dactylopius_Opuntia-02",
+      "imagePath": "src/plants-ai/eval-fixtures/images/indoor-disease/indoor-Cactus_Dactylopius_Opuntia-02.png",
+      "expected": {
+        "especie": "cacto",
+        "saude": "ATENCAO",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": true
+      }
+    },
+    {
+      "id": "hps-african-violet-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/house-plant-species/hps-african-violet-01.jpg",
+      "expected": {
+        "especie": "violeta-africana",
+        "saude": "SAUDAVEL",
+        "riscoPet": "SEGURO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "hps-african-violet-02",
+      "imagePath": "src/plants-ai/eval-fixtures/images/house-plant-species/hps-african-violet-02.jpg",
+      "expected": {
+        "especie": "violeta-africana",
+        "saude": "SAUDAVEL",
+        "riscoPet": "SEGURO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "hps-aloe-vera-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/house-plant-species/hps-aloe-vera-01.jpg",
+      "expected": {
+        "especie": "babosa",
+        "saude": "SAUDAVEL",
+        "riscoPet": "TOXICA",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "hps-aloe-vera-02",
+      "imagePath": "src/plants-ai/eval-fixtures/images/house-plant-species/hps-aloe-vera-02.jpg",
+      "expected": {
+        "especie": "babosa",
+        "saude": "SAUDAVEL",
+        "riscoPet": "TOXICA",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "hps-anthurium-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/house-plant-species/hps-anthurium-01.jpg",
+      "expected": {
+        "especie": "antúrio",
+        "saude": "SAUDAVEL",
+        "riscoPet": "TOXICA",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "hps-anthurium-02",
+      "imagePath": "src/plants-ai/eval-fixtures/images/house-plant-species/hps-anthurium-02.jpg",
+      "expected": {
+        "especie": "antúrio",
+        "saude": "SAUDAVEL",
+        "riscoPet": "TOXICA",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "hps-areca-palm-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/house-plant-species/hps-areca-palm-01.jpg",
+      "expected": {
+        "especie": "palmeira-areca",
+        "saude": "SAUDAVEL",
+        "riscoPet": "SEGURO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "hps-areca-palm-02",
+      "imagePath": "src/plants-ai/eval-fixtures/images/house-plant-species/hps-areca-palm-02.jpg",
+      "expected": {
+        "especie": "palmeira-areca",
+        "saude": "SAUDAVEL",
+        "riscoPet": "SEGURO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "hps-asparagus-fern-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/house-plant-species/hps-asparagus-fern-01.jpg",
+      "expected": {
+        "especie": "aspargo-samambaia",
+        "saude": "SAUDAVEL",
+        "riscoPet": "TOXICA",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "hps-asparagus-fern-02",
+      "imagePath": "src/plants-ai/eval-fixtures/images/house-plant-species/hps-asparagus-fern-02.jpg",
+      "expected": {
+        "especie": "aspargo-samambaia",
+        "saude": "SAUDAVEL",
+        "riscoPet": "TOXICA",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "hps-begonia-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/house-plant-species/hps-begonia-01.jpg",
+      "expected": {
+        "especie": "begônia",
+        "saude": "SAUDAVEL",
+        "riscoPet": "TOXICA",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "hps-begonia-02",
+      "imagePath": "src/plants-ai/eval-fixtures/images/house-plant-species/hps-begonia-02.jpg",
+      "expected": {
+        "especie": "begônia",
+        "saude": "SAUDAVEL",
+        "riscoPet": "TOXICA",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "hps-bird-of-paradise-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/house-plant-species/hps-bird-of-paradise-01.jpg",
+      "expected": {
+        "especie": "ave-do-paraiso",
+        "saude": "SAUDAVEL",
+        "riscoPet": "TOXICA",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "hps-bird-of-paradise-02",
+      "imagePath": "src/plants-ai/eval-fixtures/images/house-plant-species/hps-bird-of-paradise-02.jpg",
+      "expected": {
+        "especie": "ave-do-paraiso",
+        "saude": "SAUDAVEL",
+        "riscoPet": "TOXICA",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "hps-birds-nest-fern-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/house-plant-species/hps-birds-nest-fern-01.jpg",
+      "expected": {
+        "especie": "samambaia-ninho-de-passaro",
+        "saude": "SAUDAVEL",
+        "riscoPet": "SEGURO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "hps-birds-nest-fern-02",
+      "imagePath": "src/plants-ai/eval-fixtures/images/house-plant-species/hps-birds-nest-fern-02.jpg",
+      "expected": {
+        "especie": "samambaia-ninho-de-passaro",
+        "saude": "SAUDAVEL",
+        "riscoPet": "SEGURO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "aspca-white-snakeroot-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/aspca-photos/aspca-white-snakeroot-01.jpg",
+      "expected": {
+        "especie": "erva-branca-de-fumaça",
+        "saude": "SAUDAVEL",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "aspca-aloe-vera-aspca-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/aspca-photos/aspca-aloe-vera-aspca-01.jpg",
+      "expected": {
+        "especie": "babosa",
+        "saude": "SAUDAVEL",
+        "riscoPet": "TOXICA",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "aspca-areca-palm-aspca-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/aspca-photos/aspca-areca-palm-aspca-01.jpg",
+      "expected": {
+        "especie": "palmeira-areca",
+        "saude": "SAUDAVEL",
+        "riscoPet": "SEGURO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "aspca-echeveria-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/aspca-photos/aspca-echeveria-01.jpg",
+      "expected": {
+        "especie": "echeveria",
+        "saude": "SAUDAVEL",
+        "riscoPet": "SEGURO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "aspca-fittonia-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/aspca-photos/aspca-fittonia-01.jpg",
+      "expected": {
+        "especie": "fitônia",
+        "saude": "SAUDAVEL",
+        "riscoPet": "SEGURO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "aspca-galanthus-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/aspca-photos/aspca-galanthus-01.jpg",
+      "expected": {
+        "especie": "furta-neve",
+        "saude": "SAUDAVEL",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "aspca-hibiscus-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/aspca-photos/aspca-hibiscus-01.jpg",
+      "expected": {
+        "especie": "hibisco",
+        "saude": "SAUDAVEL",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "aspca-hoya-carnosa-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/aspca-photos/aspca-hoya-carnosa-01.jpg",
+      "expected": {
+        "especie": "flor-de-cera",
+        "saude": "SAUDAVEL",
+        "riscoPet": "SEGURO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "aspca-maranta-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/aspca-photos/aspca-maranta-01.jpg",
+      "expected": {
+        "especie": "maranta",
+        "saude": "SAUDAVEL",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "aspca-saintpaulia-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/aspca-photos/aspca-saintpaulia-01.jpg",
+      "expected": {
+        "especie": "violeta-africana",
+        "saude": "SAUDAVEL",
+        "riscoPet": "SEGURO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "aspca-schlumbergera-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/aspca-photos/aspca-schlumbergera-01.jpg",
+      "expected": {
+        "especie": "cacto-de-natal",
+        "saude": "SAUDAVEL",
+        "riscoPet": "SEGURO",
+        "temProblema": false
+      }
+    },
+    {
+      "id": "aspca-stromanthe-01",
+      "imagePath": "src/plants-ai/eval-fixtures/images/aspca-photos/aspca-stromanthe-01.jpg",
+      "expected": {
+        "especie": "stromanthe",
+        "saude": "SAUDAVEL",
+        "riscoPet": "DESCONHECIDO",
+        "temProblema": false
+      }
+    }
+  ]
+}

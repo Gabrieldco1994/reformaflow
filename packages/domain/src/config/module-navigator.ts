@@ -64,6 +64,13 @@ export const PROJECT_NAV: Record<ProjectType, NavModule[]> = {
     { slug: 'maintenance', label: 'Manutenções', iconName: 'Wrench', module: 'maintenance' },
     { slug: 'reminders', label: 'Lembretes', iconName: 'Bell', module: 'reminders' },
   ],
+  [ProjectType.PLANTAS]: [
+    { slug: 'dashboard', label: 'Cronograma', iconName: 'CalendarClock', module: 'dashboard' },
+    { slug: 'plants-ai', label: 'Diagnóstico IA', iconName: 'ScanSearch', module: 'plantsAi' },
+    { slug: 'plants', label: 'Minhas Plantas', iconName: 'Sprout', module: 'plantsAi' },
+    { slug: 'maintenance', label: 'Cuidados', iconName: 'Wrench', module: 'maintenance' },
+    { slug: 'reminders', label: 'Lembretes', iconName: 'Bell', module: 'reminders' },
+  ],
 };
 
 /**

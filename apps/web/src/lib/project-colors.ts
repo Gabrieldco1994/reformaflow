@@ -2,7 +2,7 @@
  * Cores por tipo de projeto (barra lateral + ícones)
  */
 
-export type ProjectType = 'REFORMA' | 'COMPRA' | 'CASA' | 'CARRO' | 'PESSOAL';
+export type ProjectType = 'REFORMA' | 'COMPRA' | 'CASA' | 'CARRO' | 'PESSOAL' | 'PLANTAS';
 
 /**
  * Cor da barra lateral (accent) nos KPIs do dashboard
@@ -13,6 +13,7 @@ export const PROJECT_ACCENT_COLORS: Record<ProjectType, string> = {
   CASA: 'bg-teal-500',
   CARRO: 'bg-blue-500',
   PESSOAL: 'bg-purple-500',
+  PLANTAS: 'bg-green-600',
 };
 
 /**
@@ -24,6 +25,7 @@ export const PROJECT_BADGE_COLORS: Record<ProjectType, string> = {
   CASA: 'bg-teal-100 text-teal-700',
   CARRO: 'bg-blue-100 text-blue-700',
   PESSOAL: 'bg-purple-100 text-purple-700',
+  PLANTAS: 'bg-green-100 text-green-700',
 };
 
 /**
@@ -35,6 +37,7 @@ export const PROJECT_PROGRESS_COLORS: Record<ProjectType, string> = {
   CASA: 'bg-teal-500',
   CARRO: 'bg-blue-500',
   PESSOAL: 'bg-purple-500',
+  PLANTAS: 'bg-green-600',
 };
 
 /**

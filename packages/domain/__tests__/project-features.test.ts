@@ -24,6 +24,7 @@ describe('hasFeature', () => {
     expect(hasFeature(ProjectType.CASA, 'pendencias')).toBe(false);
     expect(hasFeature(ProjectType.CARRO, 'pendencias')).toBe(false);
     expect(hasFeature(ProjectType.PESSOAL, 'pendencias')).toBe(false);
+    expect(hasFeature(ProjectType.PLANTAS, 'pendencias')).toBe(false);
   });
 
   it('REFORMA não tem features de gestão de bens (CASA/CARRO)', () => {    expect(hasFeature(ProjectType.REFORMA, 'recurringBills')).toBe(false);
@@ -55,6 +56,16 @@ describe('hasFeature', () => {
     expect(hasFeature(ProjectType.CARRO, 'maintenance')).toBe(true);
     expect(hasFeature(ProjectType.CARRO, 'reminders')).toBe(true);
     expect(hasFeature(ProjectType.CARRO, 'expenses')).toBe(true);
+  });
+
+  it('PLANTAS tem IA + cronograma de cuidados sem módulo financeiro', () => {
+    expect(hasFeature(ProjectType.PLANTAS, 'dashboard')).toBe(true);
+    expect(hasFeature(ProjectType.PLANTAS, 'plantsAi')).toBe(true);
+    expect(hasFeature(ProjectType.PLANTAS, 'maintenance')).toBe(true);
+    expect(hasFeature(ProjectType.PLANTAS, 'reminders')).toBe(true);
+    expect(hasFeature(ProjectType.PLANTAS, 'expenses')).toBe(false);
+    expect(hasFeature(ProjectType.PLANTAS, 'receipts')).toBe(false);
+    expect(hasFeature(ProjectType.PLANTAS, 'cashFlow')).toBe(false);
   });
 });
 

@@ -11,6 +11,7 @@ export const TYPE_ICONS: Record<string, string> = {
   PESSOAL: '💰',
   CASA: '🏡',
   CARRO: '🚗',
+  PLANTAS: '🪴',
 };
 
 /**
