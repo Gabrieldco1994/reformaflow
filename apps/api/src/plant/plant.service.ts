@@ -11,6 +11,22 @@ const UPLOADS_ROOT = (() => {
 })();
 const PLANTS_UPLOADS_DIR = path.join(UPLOADS_ROOT, 'plants');
 
+/**
+ * Raster MIME types accepted for plant photos.
+ *
+ * SVG is intentionally excluded: it is a valid `image/*` type but can embed
+ * JavaScript and cause stored XSS when served back by the CDN/static server.
+ * GIF is excluded because the frontend compressor never produces it.
+ * Extension is canonical and derived from this map — never from originalname.
+ */
+const PLANT_PHOTO_ALLOWED_MIMES: Readonly<Record<string, string>> = {
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+  'image/heic': '.heic',
+  'image/heif': '.heif',
+};
+
 @Injectable()
 export class PlantService {
   constructor(private readonly prisma: PrismaService) {
@@ -63,6 +79,11 @@ export class PlantService {
    * Salva uma foto (buffer) como referência visual da planta, sobrescrevendo
    * a anterior. Usado tanto pelo upload manual (endpoint) quanto pelo fluxo
    * de diagnóstico automático (a foto enviada vira o "retrato" da planta).
+   *
+   * Security: only raster MIME types in PLANT_PHOTO_ALLOWED_MIMES are accepted.
+   * SVG is explicitly blocked (stored-XSS vector). The stored filename extension
+   * is derived from the allow-listed MIME, never from the attacker-controlled
+   * `originalname`.
    */
   async setPhoto(
     tenantId: string,
@@ -71,10 +92,14 @@ export class PlantService {
     file: { buffer: Buffer; mimetype: string; originalname: string },
   ) {
     await this.findById(tenantId, projectId, id);
-    if (!file.mimetype?.startsWith('image/')) {
-      throw new BadRequestException('Envie um arquivo de imagem válido');
+
+    const ext = PLANT_PHOTO_ALLOWED_MIMES[file.mimetype];
+    if (!ext) {
+      throw new BadRequestException(
+        'Formato de imagem não suportado. Envie JPEG, PNG, WebP, HEIC ou HEIF.',
+      );
     }
-    const ext = path.extname(file.originalname) || '.jpg';
+
     const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
     fs.writeFileSync(path.join(PLANTS_UPLOADS_DIR, filename), file.buffer);
     const fotoUrl = `/uploads/plants/${filename}`;
