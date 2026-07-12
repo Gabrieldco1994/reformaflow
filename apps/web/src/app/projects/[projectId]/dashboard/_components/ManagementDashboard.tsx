@@ -3,7 +3,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
-import { getProjectAccentColor } from '@/lib/project-colors';
+import { KpiTile } from '@/components/KpiTile';
+import { moneyGlance } from '@/lib/money';
+import { isBillOverdue } from '@/lib/recurring-bill-status';
 import {
   BillCategoryLabels, BillFrequencyLabels,
   ReminderPriorityLabels,
@@ -43,16 +45,14 @@ export default function ManagementDashboard({ projectId, projectType }: { projec
     .sort((a, b) => new Date(a.data).getTime() - new Date(b.data).getTime())
     .slice(0, 5);
 
-  const overdueBills = activeBills.filter(b => today.getDate() > b.diaVencimento);
+  const overdueBills = activeBills.filter(b => isBillOverdue(b.diaVencimento, today));
 
-  const accentColor = getProjectAccentColor(projectType);
-
-  const kpis: { label: string; value: string; accent: string }[] = [
-    { label: 'Contas Ativas', value: `${activeBills.length}`, accent: accentColor },
-    { label: 'Custo Mensal Estimado', value: formatCurrency(totalMensal / 100), accent: accentColor },
-    { label: 'Manutenções Próximas', value: `${upcomingMaintenance.length}`, accent: accentColor },
-    { label: 'Lembretes Pendentes', value: `${pendingReminders.length}`, accent: accentColor },
-    { label: 'Contas Vencidas', value: `${overdueBills.length}`, accent: overdueBills.length > 0 ? 'bg-darc-red-bright' : accentColor },
+  const kpis: { label: string; value: string; tone: 'positive' | 'negative' | 'neutral' | 'warning' }[] = [
+    { label: 'Contas Ativas', value: `${activeBills.length}`, tone: 'neutral' },
+    { label: 'Custo Mensal Estimado', value: moneyGlance(totalMensal), tone: 'neutral' },
+    { label: 'Manutenções Próximas', value: `${upcomingMaintenance.length}`, tone: 'neutral' },
+    { label: 'Lembretes Pendentes', value: `${pendingReminders.length}`, tone: 'neutral' },
+    { label: 'Contas Vencidas', value: `${overdueBills.length}`, tone: overdueBills.length > 0 ? 'negative' : 'neutral' },
   ];
 
   return (
@@ -76,13 +76,14 @@ export default function ManagementDashboard({ projectId, projectType }: { projec
       </div>
       <div className="hidden md:grid grid-cols-2 lg:grid-cols-3 gap-4">
         {kpis.map((kpi) => (
-          <div
-            key={kpi.label}
-            className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-5 relative overflow-hidden"
-          >
-            <span className={`absolute left-0 top-5 bottom-5 w-1 rounded-r-full ${kpi.accent}`} />
-            <p className="text-[11px] tracking-[0.18em] uppercase text-darc-velvet/60 pl-3">{kpi.label}</p>
-            <p className="text-xl lg:text-2xl font-bold text-darc-velvet mt-2 pl-3">{kpi.value}</p>
+          <div key={kpi.label} role="article" aria-label={kpi.label} className="min-w-0">
+            <KpiTile
+              variant="support"
+              layer="glance"
+              tone={kpi.tone}
+              label={kpi.label}
+              value={kpi.value}
+            />
           </div>
         ))}
       </div>

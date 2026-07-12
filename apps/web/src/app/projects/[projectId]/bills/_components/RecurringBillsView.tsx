@@ -1,6 +1,7 @@
 'use client';
 
 import { Edit2, Pause, Play, Trash2 } from 'lucide-react';
+import { CardActionsMenu, type CardAction } from '@/components/CardActionsMenu';
 import { getRecurringBillDisplay, type RecurringBillRow } from '../_display';
 
 interface RecurringBillsViewProps {
@@ -107,56 +108,54 @@ export function RecurringBillsView({
       </div>
 
       <div className="space-y-2.5 md:hidden">
-        {rows.map((row) => (
-          <article
-            key={row.source.id}
-            aria-label={row.name}
-            className={`rounded-2xl border bg-white p-3.5 shadow-sm ${row.active ? '' : 'opacity-60'}`}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="truncate text-[15px] font-semibold">{row.name}</p>
-                <p className="mt-0.5 text-[12.5px] text-gray-500">
-                  {row.category} · {row.frequency} · vence{' '}
-                  {row.dueDate.toLowerCase()}
+        {rows.map((row) => {
+          const actions: CardAction[] = [
+            {
+              label: row.actionLabel,
+              onClick: () => onToggleStatus(row.source),
+              icon: row.active ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />,
+            },
+            {
+              label: 'Editar',
+              onClick: () => onEdit(row.source),
+              icon: <Edit2 className="h-4 w-4" />,
+            },
+            {
+              label: 'Excluir',
+              onClick: () => onDelete(row.source.id),
+              icon: <Trash2 className="h-4 w-4" />,
+              tone: 'danger',
+            },
+          ];
+          return (
+            <article
+              key={row.source.id}
+              aria-label={row.name}
+              className={`rounded-2xl border bg-white p-3.5 shadow-sm ${row.active ? '' : 'opacity-60'}`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-[15px] font-semibold">{row.name}</p>
+                  <p className="mt-0.5 text-[12.5px] text-gray-500">
+                    {row.category} · {row.frequency} · vence{' '}
+                    {row.dueDate.toLowerCase()}
+                  </p>
+                </div>
+                <p className="shrink-0 font-mono text-[15px] font-bold">
+                  {row.value}
                 </p>
               </div>
-              <p className="shrink-0 font-mono text-[15px] font-bold">
-                {row.value}
-              </p>
-            </div>
-            <div className="mt-3 flex items-center justify-between gap-2 border-t pt-3">
-              <span
-                className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${row.className}`}
-              >
-                {row.label}
-              </span>
-              <div className="flex items-center text-[13px] font-semibold">
-                <button
-                  type="button"
-                  onClick={() => onToggleStatus(row.source)}
-                  className="inline-flex min-h-11 min-w-11 items-center justify-center px-2 text-brand-600"
+              <div className="mt-3 flex items-center justify-between gap-2 border-t pt-3">
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${row.className}`}
                 >
-                  {row.actionLabel}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onEdit(row.source)}
-                  className="inline-flex min-h-11 min-w-11 items-center justify-center px-2 text-brand-600"
-                >
-                  Editar
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onDelete(row.source.id)}
-                  className="inline-flex min-h-11 min-w-11 items-center justify-center px-2 text-red-500"
-                >
-                  Excluir
-                </button>
+                  {row.label}
+                </span>
+                <CardActionsMenu ariaLabel={`Ações ${row.name}`} actions={actions} />
               </div>
-            </div>
-          </article>
-        ))}
+            </article>
+          );
+        })}
       </div>
     </>
   );

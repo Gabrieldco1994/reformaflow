@@ -1,33 +1,19 @@
 'use client';
 import { useProject } from '@/contexts/project-context';
 
-import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
+import React, { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { formatCurrency } from '@/lib/utils';
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
 import type { CashFlowEntry } from '@/types';
 import { CompareView } from './_components/CompareView';
 import { MonthlyProjection } from './_components/MonthlyProjection';
 import { ShoppableSimulationView } from './_components/ShoppableSimulationView';
-import {
-  SAVE_DEBOUNCE_MS,
-  type SimRow,
-  type SimTipo,
-  type SimAmbiente,
-  type SimTipoCard,
-  type MonthlyRow,
-  type SimulationData,
-  type Scenario,
-  type SimValues,
-  type SimMode,
-  type PayConfig,
-} from './_types';
+import { SimulationHero } from './_components/SimulationHero';
+import { useSimulationScenarios } from './_hooks/useSimulationScenarios';
+import type { SimMode } from './_types';
 
 export default function SimulationPage() {
   const { projectId: PROJECT_ID } = useProject();
-  const queryClient = useQueryClient();
-  const [activeScenarioId, setActiveScenarioId] = useState<string | null>(null);
   const [simMode, setSimMode] = useState<SimMode>('simulacao');
 
   // Compare mode state
@@ -38,216 +24,40 @@ export default function SimulationPage() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
 
-  // Load scenarios
-  const { data: scenarios, isLoading: scenariosLoading } = useQuery<Scenario[]>({
-    queryKey: ['simulation-scenarios', PROJECT_ID],
-    queryFn: () => api.get(`/projects/${PROJECT_ID}/simulation/scenarios`),
+  const {
+    scenarios,
+    scenariosLoading,
+    activeScenarioId,
+    data,
+    isLoading,
+    error,
+    createMut,
+    renameMut,
+    deleteMut,
+    duplicateMut,
+    monthlyExcludes,
+    setMonthlyExcludes,
+    monthlyPayConfigs,
+    setMonthlyPayConfigs,
+    monthlyRecDist,
+    setMonthlyRecDist,
+    tipoOverrides,
+    setTipoOverrides,
+    saving,
+    dirty,
+    doSave,
+    scheduleSave,
+    switchScenario,
+  } = useSimulationScenarios({ projectId: PROJECT_ID });
+
+  // Saldo real projetado (rollingBalance do último CashFlowEntry) — mesmo dado
+  // já lido em MonthlyProjection.tsx como read-only, reaproveitado via cache
+  // do React Query (mesma queryKey, sem request extra).
+  const { data: cfEntries = [] } = useQuery<CashFlowEntry[]>({
+    queryKey: ['cash-flow', PROJECT_ID],
+    queryFn: () => api.get(`/projects/${PROJECT_ID}/cash-flow`),
   });
-
-  // Auto-select first scenario
-  // Auto-select first scenario only on initial load (do not auto-switch).
-  useEffect(() => {
-    if (scenarios && scenarios.length > 0 && !activeScenarioId) {
-      setActiveScenarioId(scenarios[0].id);
-    }
-  }, [scenarios, activeScenarioId]);
-
-  // Load simulation data for active scenario
-  const { data, isLoading, error } = useQuery<SimulationData>({
-    queryKey: ['simulation', PROJECT_ID, activeScenarioId],
-    queryFn: () => api.get(`/projects/${PROJECT_ID}/simulation${activeScenarioId ? `?scenarioId=${activeScenarioId}` : ''}`),
-    enabled: !!activeScenarioId,
-  });
-
-  // Scenario mutations
-  const createMut = useMutation({
-    mutationFn: (name: string) => api.post<Scenario>(`/projects/${PROJECT_ID}/simulation/scenarios`, { name }),
-    onSuccess: (newScenario) => {
-      queryClient.invalidateQueries({ queryKey: ['simulation-scenarios', PROJECT_ID] });
-      void switchScenario(newScenario.id);
-    },
-  });
-
-  const renameMut = useMutation({
-    mutationFn: ({ id, name }: { id: string; name: string }) =>
-      api.patch(`/projects/${PROJECT_ID}/simulation/scenarios/${id}`, { name }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['simulation-scenarios', PROJECT_ID] });
-      setRenamingId(null);
-    },
-  });
-
-  const deleteMut = useMutation({
-    mutationFn: (id: string) => api.delete(`/projects/${PROJECT_ID}/simulation/scenarios/${id}`),
-    onSuccess: (_, deletedId) => {
-      queryClient.invalidateQueries({ queryKey: ['simulation-scenarios', PROJECT_ID] });
-      if (activeScenarioId === deletedId) setActiveScenarioId(null);
-    },
-  });
-
-  const duplicateMut = useMutation({
-    mutationFn: ({ id, name }: { id: string; name?: string }) =>
-      api.post<Scenario>(`/projects/${PROJECT_ID}/simulation/scenarios/${id}/duplicate`, { name }),
-    onSuccess: (newScenario) => {
-      queryClient.invalidateQueries({ queryKey: ['simulation-scenarios', PROJECT_ID] });
-      void switchScenario(newScenario.id);
-    },
-  });
-
-  // Sim values state (scoped to active scenario)
-  const [simRecebimentos, setSimRecebimentos] = useState<Record<string, string>>({});
-  const [simDespesas, setSimDespesas] = useState<SimValues>({});
-  // Monthly projection: excludes + payment configs per expense + rec distribution
-  const [monthlyExcludes, setMonthlyExcludes] = useState<Set<string>>(new Set());
-  const [monthlyPayConfigs, setMonthlyPayConfigs] = useState<Record<string, PayConfig>>({});
-  const [monthlyRecDist, setMonthlyRecDist] = useState<Record<string, string>>({});
-  const [tipoOverrides, setTipoOverrides] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState(false);
-  const [dirty, setDirty] = useState(false);
-  const initialized = useRef<string | null>(null);
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const latestRecRef = useRef(simRecebimentos);
-  const latestDespRef = useRef(simDespesas);
-  const latestMonthlyExcludesRef = useRef(monthlyExcludes);
-  const latestMonthlyPayConfigsRef = useRef(monthlyPayConfigs);
-  const latestMonthlyRecDistRef = useRef(monthlyRecDist);
-  const latestTipoOverridesRef = useRef(tipoOverrides);
-  const activeScenarioIdRef = useRef(activeScenarioId);
-
-  // Keep refs in sync with state after each render (the only safe place to mutate refs).
-  // Reading these during render would yield stale values; using useEffect ensures the
-  // pending save (debounced) always sees the latest state.
-  useEffect(() => {
-    latestRecRef.current = simRecebimentos;
-    latestDespRef.current = simDespesas;
-    latestMonthlyExcludesRef.current = monthlyExcludes;
-    latestMonthlyPayConfigsRef.current = monthlyPayConfigs;
-    latestMonthlyRecDistRef.current = monthlyRecDist;
-    latestTipoOverridesRef.current = tipoOverrides;
-    activeScenarioIdRef.current = activeScenarioId;
-  });
-
-  // Load saved values when data or scenario changes
-  useEffect(() => {
-    if (!data?.savedValues || !activeScenarioId) return;
-    if (initialized.current === activeScenarioId) return;
-    initialized.current = activeScenarioId;
-    const rec: Record<string, string> = {};
-    const desp: SimValues = {};
-    const mExcludes = new Set<string>();
-    const mPayConfigs: Record<string, PayConfig> = {};
-    const mRecDist: Record<string, string> = {};
-    const mTipoOver: Record<string, string> = {};
-    for (const [key, val] of Object.entries(data.savedValues)) {
-      if (key.startsWith('rec|')) {
-        rec[key.slice(4)] = val;
-      } else if (key.startsWith('desp|')) {
-        desp[key.slice(5)] = val;
-      } else if (key.startsWith('monthly_excl|')) {
-        if (val === '1') mExcludes.add(key.slice(13));
-      } else if (key.startsWith('monthly_pay|')) {
-        const rest = key.slice(12);
-        const lastPipe = rest.lastIndexOf('|');
-        const id = rest.slice(0, lastPipe);
-        const field = rest.slice(lastPipe + 1);
-        if (!mPayConfigs[id]) mPayConfigs[id] = { mode: 'avista', parcelas: '1', inicio: '', valor: '' };
-        if (field === 'mode') mPayConfigs[id].mode = val;
-        else if (field === 'parcelas') mPayConfigs[id].parcelas = val;
-        else if (field === 'inicio') mPayConfigs[id].inicio = val;
-        else if (field === 'valor') mPayConfigs[id].valor = val;
-        else if (field === 'titulo') mPayConfigs[id].titulo = val;
-        else if (field === 'categoria') mPayConfigs[id].categoria = val;
-        else if (field === 'subcategoria') mPayConfigs[id].subcategoria = val;
-        else if (field === 'ambiente') mPayConfigs[id].ambiente = val;
-        else if (field === 'link') mPayConfigs[id].link = val;
-        else if (field === 'imageUrl') mPayConfigs[id].imageUrl = val;
-      } else if (key.startsWith('monthly_rec|')) {
-        mRecDist[key.slice(12)] = val;
-      } else if (key.startsWith('tipo_over|')) {
-        mTipoOver[key.slice(10)] = val;
-      }
-    }
-    setSimRecebimentos(rec);
-    setSimDespesas(desp);
-    setMonthlyExcludes(mExcludes);
-    setMonthlyPayConfigs(mPayConfigs);
-    setMonthlyRecDist(mRecDist);
-    setTipoOverrides(mTipoOver);
-    setDirty(false);
-  }, [data, activeScenarioId]);
-
-  // Reset initialized when scenario changes so values reload
-  useEffect(() => {
-    initialized.current = null;
-  }, [activeScenarioId]);
-
-  // doSave takes the scenarioId explicitly so a pending debounce can't accidentally
-  // write data from one scenario into another after the user switches scenarios.
-  const doSave = useCallback(async (overrideScenarioId?: string | null) => {
-    const sid = overrideScenarioId ?? activeScenarioIdRef.current;
-    if (!sid) return;
-    const vals: Record<string, string> = {};
-    for (const [k, v] of Object.entries(latestRecRef.current)) vals[`rec|${k}`] = v;
-    for (const [k, v] of Object.entries(latestDespRef.current)) vals[`desp|${k}`] = v;
-    for (const id of latestMonthlyExcludesRef.current) {
-      vals[`monthly_excl|${id}`] = '1';
-    }
-    for (const [id, cfg] of Object.entries(latestMonthlyPayConfigsRef.current)) {
-      vals[`monthly_pay|${id}|mode`] = cfg.mode;
-      vals[`monthly_pay|${id}|parcelas`] = cfg.parcelas;
-      vals[`monthly_pay|${id}|inicio`] = cfg.inicio;
-      if (cfg.valor) vals[`monthly_pay|${id}|valor`] = cfg.valor;
-      if (cfg.titulo) vals[`monthly_pay|${id}|titulo`] = cfg.titulo;
-      if (cfg.categoria) vals[`monthly_pay|${id}|categoria`] = cfg.categoria;
-      if (cfg.subcategoria) vals[`monthly_pay|${id}|subcategoria`] = cfg.subcategoria;
-      if (cfg.ambiente) vals[`monthly_pay|${id}|ambiente`] = cfg.ambiente;
-      if (cfg.link) vals[`monthly_pay|${id}|link`] = cfg.link;
-      if (cfg.imageUrl) vals[`monthly_pay|${id}|imageUrl`] = cfg.imageUrl;
-    }
-    for (const [month, v] of Object.entries(latestMonthlyRecDistRef.current)) {
-      vals[`monthly_rec|${month}`] = v;
-    }
-    for (const [tipoKey, v] of Object.entries(latestTipoOverridesRef.current)) {
-      if (v) vals[`tipo_over|${tipoKey}`] = v;
-    }
-    setSaving(true);
-    try {
-      await api.put(`/projects/${PROJECT_ID}/simulation/scenarios/${sid}/values`, { values: vals });
-      // Only clear dirty if the saved scenario is still the active one. If the user
-      // switched scenarios mid-flight, the new scenario may legitimately be dirty.
-      if (sid === activeScenarioIdRef.current) setDirty(false);
-    } catch (e) {
-      console.error('Erro ao salvar simulação:', e);
-    }
-    setSaving(false);
-  }, [PROJECT_ID]);
-
-  const scheduleSave = useCallback(() => {
-    setDirty(true);
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    // Capture the scenarioId at schedule time. If the user switches scenarios before
-    // the debounce fires, `switchScenario` will flush this pending save first using
-    // the captured id (so we don't write current-state into the wrong scenario).
-    const sid = activeScenarioIdRef.current;
-    saveTimer.current = setTimeout(() => {
-      saveTimer.current = null;
-      void doSave(sid);
-    }, SAVE_DEBOUNCE_MS);
-  }, [doSave]);
-
-  // Flush any pending save synchronously and switch scenarios. This guarantees that
-  // edits to scenario A are persisted before scenario B's data overwrites the local
-  // state. Without this, the pending debounce could fire after the state was reset,
-  // saving B's empty/loaded data back under A's scenarioId (data loss bug).
-  const switchScenario = useCallback(async (newId: string | null) => {
-    if (saveTimer.current) {
-      clearTimeout(saveTimer.current);
-      saveTimer.current = null;
-      const prevId = activeScenarioIdRef.current;
-      if (prevId) await doSave(prevId);
-    }
-    setActiveScenarioId(newId);
-  }, [doSave]);
+  const realProjectedSaldoCents = cfEntries.at(-1)?.rollingBalance;
 
   if (scenariosLoading) return <div className="text-gray-500">Carregando...</div>;
 
@@ -347,13 +157,13 @@ export default function SimulationPage() {
             onChange={(e) => setRenameValue(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && renameValue.trim()) {
-                renameMut.mutate({ id: renamingId, name: renameValue.trim() });
+                renameMut.mutate({ id: renamingId, name: renameValue.trim() }, { onSuccess: () => setRenamingId(null) });
               } else if (e.key === 'Escape') setRenamingId(null);
             }}
             className="border rounded px-2 py-0.5 text-sm flex-1"
           />
           <button
-            onClick={() => renameValue.trim() && renameMut.mutate({ id: renamingId, name: renameValue.trim() })}
+            onClick={() => renameValue.trim() && renameMut.mutate({ id: renamingId, name: renameValue.trim() }, { onSuccess: () => setRenamingId(null) })}
             className="px-2 py-0.5 text-xs bg-blue-600 text-white rounded"
           >
             OK
@@ -395,6 +205,11 @@ export default function SimulationPage() {
 
       {/* ═══ SIMULAÇÃO (unified view) ═══ */}
       {simMode === 'simulacao' && data && (
+        <>
+        <SimulationHero
+          previsaoSaldo={data.kpis.previsaoSaldo}
+          realProjectedSaldoCents={realProjectedSaldoCents}
+        />
         <MonthlyProjection
           projecaoMensal={data.projecaoMensal}
           recebimentosPorTipo={data.recebimentosPorTipo}
@@ -439,6 +254,7 @@ export default function SimulationPage() {
             scheduleSave();
           }}
         />
+        </>
       )}
 
       {/* ═══ COMPARE MODE ═══ */}
