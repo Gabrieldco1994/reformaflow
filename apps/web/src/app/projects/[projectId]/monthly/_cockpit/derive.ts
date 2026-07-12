@@ -693,9 +693,14 @@ export interface CockpitTopDerived {
   mesAtualKey: string;
   /** Fração do mês já decorrida (0..1). */
   pctMesDecorrido: number;
+  projectionSource: 'canonical' | 'competency-fallback';
+  projectionDegraded: boolean;
 }
 
-export function deriveCockpitTop(data: MonthlyOverviewResponse): CockpitTopDerived {
+export function deriveCockpitTop(
+  data: MonthlyOverviewResponse,
+  selectedMonth: string = data.mesAtual,
+): CockpitTopDerived {
   const totals = deriveTotals(data);
   const temSaldo = data.caixa?.temSaldoInicial ?? false;
   const caixaValor = temSaldo ? data.caixa!.hoje : totals.caixaAgora;
@@ -707,8 +712,8 @@ export function deriveCockpitTop(data: MonthlyOverviewResponse): CockpitTopDeriv
   // Mês corrente e anterior a partir das ENTRIES (excluindo neutros/espelho) —
   // `data.meses` inclui neutros (fatura), o que inflava resultado/gastei/a-pagar.
   const agg = monthlyAggFromEntries(data.entries ?? []);
-  const aggAtual = agg.get(data.mesAtual);
-  const aggAnterior = agg.get(prevMonthKey(data.mesAtual));
+  const aggAtual = agg.get(selectedMonth);
+  const aggAnterior = agg.get(prevMonthKey(selectedMonth));
 
   const resultadoEntrou = aggAtual?.recReal ?? 0;
   const resultadoGastou = aggAtual?.despReal ?? 0;
@@ -729,26 +734,34 @@ export function deriveCockpitTop(data: MonthlyOverviewResponse): CockpitTopDeriv
   // nas entries/cashFlow) + parcelas cross vencendo. Por isso vem do backend
   // (`data.projecao`, mesma fonte da Visão Conta) e é IGUAL nos dois eixos.
   // Sem `projecao` (payload antigo/erro) cai no cálculo por competência das entries.
-  const aReceberMes = data.projecao?.recebimentosPrevistosMes ?? ((aggAtual?.totalRec ?? 0) - resultadoEntrou);
-  const aPagarMes = data.projecao?.faltaPagarMes ?? ((aggAtual?.totalDesp ?? 0) - resultadoGastou);
-  const projecaoMes = data.projecao?.sobraPrevista ?? (caixaValor + aReceberMes - aPagarMes);
+  const requiredProjectionFields = ['caixaHoje', 'entrouMes', 'saiuMes', 'faltaPagarMes', 'recebimentosPrevistosMes', 'sobraPrevista'] as const;
+  const canonicalProjection = data.projecao?.status === 'canonical'
+    && data.projecao.mes === selectedMonth
+    && requiredProjectionFields.every((field) => Number.isFinite(data.projecao?.[field]))
+    ? data.projecao
+    : undefined;
+  const projectionSource = canonicalProjection ? 'canonical' : 'competency-fallback';
+  const projectionDegraded = !canonicalProjection;
+  const aReceberMes = canonicalProjection?.recebimentosPrevistosMes ?? ((aggAtual?.totalRec ?? 0) - resultadoEntrou);
+  const aPagarMes = canonicalProjection?.faltaPagarMes ?? ((aggAtual?.totalDesp ?? 0) - resultadoGastou);
+  const projecaoMes = canonicalProjection?.sobraPrevista ?? (caixaValor + aReceberMes - aPagarMes);
 
   // Entrou/Saídas do mês no eixo de CAIXA (§10, mesma fonte da projeção). Fallback
   // para competência (entries) quando `projecao` ausente. "Já saiu" (saiuMes) inclui
   // faturas pagas e débitos realizados; "vai sair" = a pagar (faltaPagarMes).
-  const entrouMes = data.projecao?.entrouMes ?? resultadoEntrou;
-  const saidaJaSaiu = data.projecao?.saiuMes ?? resultadoGastou;
+  const entrouMes = canonicalProjection?.entrouMes ?? resultadoEntrou;
+  const saidaJaSaiu = canonicalProjection?.saiuMes ?? resultadoGastou;
   const saidaVaiSair = aPagarMes;
   const saidaTotal = saidaJaSaiu + saidaVaiSair;
 
   // Fração do mês decorrida (para a barra de progresso do headline).
-  const [y, m] = data.mesAtual.split('-').map((n) => parseInt(n, 10));
+  const [y, m] = selectedMonth.split('-').map((n) => parseInt(n, 10));
   const now = new Date();
   const nowKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const diasNoMes = new Date(Date.UTC(y ?? 1970, m ?? 1, 0)).getUTCDate();
   let pctMesDecorrido = 1;
-  if (data.mesAtual === nowKey) pctMesDecorrido = Math.min(now.getDate() / diasNoMes, 1);
-  else if (data.mesAtual > nowKey) pctMesDecorrido = 0;
+  if (selectedMonth === nowKey) pctMesDecorrido = Math.min(now.getDate() / diasNoMes, 1);
+  else if (selectedMonth > nowKey) pctMesDecorrido = 0;
 
   return {
     caixaValor,
@@ -766,8 +779,10 @@ export function deriveCockpitTop(data: MonthlyOverviewResponse): CockpitTopDeriv
     projecaoMes,
     aReceberMes,
     aPagarMes,
-    mesAtualKey: data.mesAtual,
+    mesAtualKey: selectedMonth,
     pctMesDecorrido,
+    projectionSource,
+    projectionDegraded,
   };
 }
 

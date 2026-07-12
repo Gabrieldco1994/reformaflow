@@ -176,7 +176,7 @@ export default function ProjectsPage() {
                 <LineChart className="w-6 h-6" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[11px] tracking-[0.12em] uppercase text-white/60">Visão Geral</p>
+                <p className="text-[11px] tracking-[0.12em] uppercase text-white/60">Financeiro</p>
                 <p className="text-[18px] md:text-[20px] font-bold tracking-[-0.02em] leading-tight">
                   Saúde financeira consolidada
                 </p>

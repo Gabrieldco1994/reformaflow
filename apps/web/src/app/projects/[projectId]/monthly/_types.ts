@@ -92,6 +92,9 @@ export interface MonthlyOverviewResponse {
    *  card "Projeção fim do mês" no cockpit — conceito de caixa, igual nos dois eixos.
    *  Ausente em payload antigo/erro → frontend cai no cálculo por competência. */
   projecao?: {
+    /** Canonical only when the account-view computation completed for the requested month. */
+    status?: 'canonical' | 'degraded';
+    mes?: string;
     caixaHoje: number;
     entrouMes: number;
     saiuMes: number;
