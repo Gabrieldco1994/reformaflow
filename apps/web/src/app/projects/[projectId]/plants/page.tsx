@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
 import { formatDateBR } from '@/lib/utils';
-import { Sprout, Trash2, Pencil, X, Check } from 'lucide-react';
+import { Sprout, Trash2, Pencil, X, Check, Droplets, HeartPulse } from 'lucide-react';
 
 interface Plant {
   id: string;
@@ -28,6 +28,14 @@ interface DiagnosisHistoryEntry {
   riscoPet: string | null;
 }
 
+interface Reminder {
+  id: string;
+  titulo: string;
+  data: string;
+  status: string;
+  plantId: string | null;
+}
+
 const SAUDE_BADGE: Record<string, string> = {
   SAUDAVEL: 'bg-green-100 text-green-800',
   ATENCAO: 'bg-amber-100 text-amber-800',
@@ -46,6 +54,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 export default function PlantsPage() {
   const { projectId } = useProject();
   const [plants, setPlants] = useState<Plant[]>([]);
+  const [thirstyPlantIds, setThirstyPlantIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -65,8 +74,34 @@ export default function PlantsPage() {
     }
   }
 
+  // "Com sede" = tem lembrete de rega pendente já vencido (hoje ou atrasado).
+  // ponytail: detecta rega pelo prefixo "Regar " do título (mesma convenção de
+  // plants-schedule.ts) em vez de um campo `tipo` dedicado no Reminder.
+  async function loadThirsty() {
+    try {
+      const reminders = await api.get<Reminder[]>(`/projects/${projectId}/reminders`);
+      const today = new Date();
+      const ids = reminders
+        .filter((r) => r.status === 'PENDENTE' && r.titulo.startsWith('Regar ') && new Date(r.data) <= today && r.plantId)
+        .map((r) => r.plantId as string);
+      setThirstyPlantIds(new Set(ids));
+    } catch {
+      setThirstyPlantIds(new Set());
+    }
+  }
+
+  async function markHealthy(id: string) {
+    try {
+      await api.patch(`/projects/${projectId}/plants/${id}`, { ultimaSaude: 'SAUDAVEL' });
+      await loadPlants();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao atualizar saúde');
+    }
+  }
+
   useEffect(() => {
     loadPlants();
+    loadThirsty();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
@@ -181,18 +216,36 @@ export default function PlantsPage() {
                 <>
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-3">
-                      {plant.fotoUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={`${API_BASE}${plant.fotoUrl}`}
-                          alt={plant.nome}
-                          className="h-12 w-12 rounded-full object-cover border border-green-200 shrink-0"
-                        />
-                      ) : (
-                        <div className="h-12 w-12 rounded-full bg-green-50 border border-green-200 flex items-center justify-center shrink-0">
-                          <Sprout className="h-5 w-5 text-green-600" />
-                        </div>
-                      )}
+                      <div className="relative shrink-0">
+                        {plant.fotoUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={`${API_BASE}${plant.fotoUrl}`}
+                            alt={plant.nome}
+                            className="h-12 w-12 rounded-full object-cover border border-green-200"
+                          />
+                        ) : (
+                          <div className="h-12 w-12 rounded-full bg-green-50 border border-green-200 flex items-center justify-center">
+                            <Sprout className="h-5 w-5 text-green-600" />
+                          </div>
+                        )}
+                        {plant.ultimaSaude && plant.ultimaSaude !== 'SAUDAVEL' && (
+                          <span
+                            title={`Saúde: ${plant.ultimaSaude}`}
+                            className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-red-500 border-2 border-white flex items-center justify-center"
+                          >
+                            <HeartPulse className="h-3 w-3 text-white" />
+                          </span>
+                        )}
+                        {thirstyPlantIds.has(plant.id) && (
+                          <span
+                            title="Precisa de água"
+                            className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full bg-sky-500 border-2 border-white flex items-center justify-center"
+                          >
+                            <Droplets className="h-3 w-3 text-white" />
+                          </span>
+                        )}
+                      </div>
                       <div>
                     <p className="font-semibold text-gray-900">{plant.nome}</p>
                       {plant.localizacao && <p className="text-xs text-gray-500 mt-0.5">{plant.localizacao}</p>}
@@ -224,6 +277,11 @@ export default function PlantsPage() {
                     </div>
                     </div>
                     <div className="flex gap-1 shrink-0">
+                      {plant.ultimaSaude && plant.ultimaSaude !== 'SAUDAVEL' && (
+                        <button onClick={() => markHealthy(plant.id)} className="p-1.5 rounded-lg hover:bg-gray-100" title="Marcar como saudável">
+                          <HeartPulse className="h-4 w-4 text-green-600" />
+                        </button>
+                      )}
                       <button onClick={() => startEdit(plant)} className="p-1.5 rounded-lg hover:bg-gray-100" title="Editar">
                         <Pencil className="h-4 w-4 text-gray-500" />
                       </button>
