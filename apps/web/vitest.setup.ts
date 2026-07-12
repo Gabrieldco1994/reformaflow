@@ -14,3 +14,16 @@ if (typeof (globalThis as unknown as { jest?: unknown }).jest === 'undefined') {
     advanceTimersByTime: (ms: number) => vi.advanceTimersByTime(ms),
   };
 }
+
+// jsdom não implementa `ResizeObserver`; `recharts` (via `ResponsiveContainer`)
+// usa isso no efeito de montagem para medir o container. Sem este stub, todo
+// teste que renderiza um gráfico recharts real (não mockado) quebra com
+// "ResizeObserver is not defined" — polyfill mínimo, só o suficiente pro
+// componente montar em jsdom (não simula redimensionamento real).
+if (typeof (globalThis as unknown as { ResizeObserver?: unknown }).ResizeObserver === 'undefined') {
+  (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class ResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
