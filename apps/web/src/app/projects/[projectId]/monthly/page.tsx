@@ -348,7 +348,7 @@ export default function CockpitPage() {
                 projectType={projectType}
                 eixo={eixo}
                 dreMensal={dreOverview?.mensal}
-                runwaySerie={dreOverview?.anual.saldoAcumuladoSerie}
+                runwaySerie={dreOverview?.anual?.saldoAcumuladoSerie}
                 metasProgress={metasProgress}
               />
             )
