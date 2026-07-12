@@ -66,6 +66,8 @@ export class PlantService {
     if (dto.nome !== undefined) data.nome = dto.nome;
     if (dto.localizacao !== undefined) data.localizacao = dto.localizacao;
     if (dto.observacoes !== undefined) data.observacoes = dto.observacoes;
+    // Marcação manual de saúde (ex: "curei ela") — sem precisar nova foto/IA.
+    if (dto.ultimaSaude !== undefined) data.ultimaSaude = dto.ultimaSaude;
     return this.prisma.plant.update({ where: { id }, data });
   }
 

@@ -341,13 +341,13 @@ interface PlantTask {
   titulo: string;
   descricao?: string;
   data: string;
-  origem: "reminder" | "maintenance";
   plantId?: string | null;
 }
 
 interface PlantSummary {
   id: string;
   nome: string;
+  ultimaSaude?: string | null;
 }
 
 function dayGroupLabel(date: Date, today: Date) {
@@ -388,39 +388,51 @@ function PlantDashboard({ projectId }: { projectId: string }) {
   const in7Days = new Date(today);
   in7Days.setDate(today.getDate() + 7);
 
+  // Cronograma semanal: só reminders (regar/checar/tratar). Manutenções viram
+  // seção própria abaixo — mesmo padrão de CASA/CARRO (Próximas Manutenções
+  // separado de Lembretes), evita misturar "o que fazer" com "o que já foi feito".
   const tasks = useMemo<PlantTask[]>(() => {
-    const fromReminders = (reminders ?? [])
+    return (reminders ?? [])
       .filter((r) => r.status === "PENDENTE")
       .map((r) => ({
         id: r.id,
         titulo: r.titulo,
         descricao: r.descricao,
         data: r.data,
-        origem: "reminder" as const,
         plantId: r.plantId,
-      }));
-
-    const fromMaintenance = (maintenance ?? [])
-      .filter((m) => m.dataProxima)
-      .map((m) => ({
-        id: m.id,
-        titulo: `Cuidado: ${m.tipo}`,
-        descricao: m.fornecedor,
-        data: m.dataProxima!,
-        origem: "maintenance" as const,
-        plantId: m.plantId,
-      }));
-
-    return [...fromReminders, ...fromMaintenance]
-      .filter((t) => {
-        const due = new Date(t.data);
-        return due <= in7Days;
-      })
+      }))
+      .filter((t) => new Date(t.data) <= in7Days)
       .sort((a, b) => new Date(a.data).getTime() - new Date(b.data).getTime());
-  }, [reminders, maintenance, in7Days]);
+  }, [reminders, in7Days]);
 
-  const overdueCount = tasks.filter((t) => new Date(t.data) < today).length;
-  const thisWeekCount = tasks.length - overdueCount;
+  const upcomingMaintenance = useMemo(() => {
+    return (maintenance ?? [])
+      .filter((m) => m.dataProxima && new Date(m.dataProxima) >= today)
+      .sort(
+        (a, b) => new Date(a.dataProxima!).getTime() - new Date(b.dataProxima!).getTime(),
+      )
+      .slice(0, 5);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [maintenance]);
+
+  const totalPlantas = plants?.length ?? 0;
+  const plantasDoentes = (plants ?? []).filter(
+    (p) => p.ultimaSaude === "ATENCAO" || p.ultimaSaude === "CRITICA",
+  ).length;
+  // ponytail: detecta "regar" pelo prefixo do título gerado em plants-schedule.ts
+  // ("Regar {planta}") em vez de um campo `tipo` dedicado no Reminder — upgrade
+  // pra um campo estruturado se outros tipos de tarefa precisarem da mesma lógica.
+  const plantasParaRegar = new Set(
+    (reminders ?? [])
+      .filter(
+        (r) =>
+          r.status === "PENDENTE" &&
+          r.titulo.startsWith("Regar ") &&
+          new Date(r.data) <= in7Days &&
+          r.plantId,
+      )
+      .map((r) => r.plantId),
+  ).size;
 
   // Agrupa por dia (Atrasadas / Hoje / Amanhã / dia da semana) preservando a ordem cronológica.
   const groupedTasks = useMemo(() => {
@@ -434,28 +446,16 @@ function PlantDashboard({ projectId }: { projectId: string }) {
   }, [tasks]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function completeTask(task: PlantTask) {
-    const key = `${task.origem}-${task.id}`;
-    setCompletingKeys((prev) => new Set(prev).add(key));
+    setCompletingKeys((prev) => new Set(prev).add(task.id));
     try {
-      if (task.origem === "reminder") {
-        await api.patch(`/projects/${projectId}/reminders/${task.id}`, {
-          status: "CONCLUIDO",
-        });
-      } else {
-        await api.patch(`/projects/${projectId}/maintenance-logs/${task.id}`, {
-          dataProxima: null,
-        });
-      }
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["reminders", projectId] }),
-        queryClient.invalidateQueries({
-          queryKey: ["maintenance-logs", projectId],
-        }),
-      ]);
+      await api.patch(`/projects/${projectId}/reminders/${task.id}`, {
+        status: "CONCLUIDO",
+      });
+      await queryClient.invalidateQueries({ queryKey: ["reminders", projectId] });
     } finally {
       setCompletingKeys((prev) => {
         const next = new Set(prev);
-        next.delete(key);
+        next.delete(task.id);
         return next;
       });
     }
@@ -466,31 +466,28 @@ function PlantDashboard({ projectId }: { projectId: string }) {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-5">
           <p className="text-[11px] tracking-[0.18em] uppercase text-darc-velvet/60">
-            Atrasadas
+            Total de Plantas
           </p>
-          <p className="text-2xl font-bold text-darc-red mt-2">
-            {overdueCount}
+          <p className="text-2xl font-bold text-darc-velvet mt-2">
+            {totalPlantas}
           </p>
         </div>
         <div className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-5">
           <p className="text-[11px] tracking-[0.18em] uppercase text-darc-velvet/60">
-            Próximos 7 dias
+            Plantas Doentes
           </p>
-          <p className="text-2xl font-bold text-darc-velvet mt-2">
-            {thisWeekCount}
+          <p className={`text-2xl font-bold mt-2 ${plantasDoentes > 0 ? "text-darc-red" : "text-darc-velvet"}`}>
+            {plantasDoentes}
           </p>
         </div>
-        <Link
-          href={`/projects/${projectId}/plants-ai`}
-          className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-5 hover:border-darc-red transition-colors"
-        >
+        <div className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-5">
           <p className="text-[11px] tracking-[0.18em] uppercase text-darc-velvet/60">
-            IA
+            Falta Regar na Semana
           </p>
-          <p className="text-lg font-semibold text-darc-velvet mt-2">
-            Diagnosticar nova planta
+          <p className="text-2xl font-bold text-darc-velvet mt-2">
+            {plantasParaRegar}
           </p>
-        </Link>
+        </div>
       </div>
 
       <section className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5">
@@ -518,7 +515,7 @@ function PlantDashboard({ projectId }: { projectId: string }) {
                   {groupTasks.map((task) => {
                     const due = new Date(task.data);
                     const isOverdue = due < today;
-                    const key = `${task.origem}-${task.id}`;
+                    const key = task.id;
                     const isCompleting = completingKeys.has(key);
                     return (
                       <div
@@ -571,6 +568,40 @@ function PlantDashboard({ projectId }: { projectId: string }) {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5">
+        <h2 className="font-editorial italic text-lg md:text-xl text-darc-velvet mb-3">
+          🔧 Próximas Manutenções
+        </h2>
+        {upcomingMaintenance.length === 0 ? (
+          <p className="text-darc-velvet/60 text-sm">Nenhuma manutenção agendada.</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {upcomingMaintenance.map((m) => {
+              const daysUntil = Math.ceil(
+                (new Date(m.dataProxima!).getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
+              );
+              const accent = daysUntil <= 7 ? "bg-darc-red-bright" : daysUntil <= 30 ? "bg-darc-sunfire" : "bg-darc-mist";
+              return (
+                <div key={m.id} className="rounded-xl bg-darc-linen/40 p-3 relative overflow-hidden">
+                  <span className={`absolute left-0 top-3 bottom-3 w-1 rounded-r-full ${accent}`} />
+                  <p className="font-semibold text-darc-velvet pl-2">
+                    {m.tipo}
+                    {(plants?.length ?? 0) > 1 && m.plantId && plantNameById.has(m.plantId) && (
+                      <span className="ml-2 text-xs font-normal text-darc-velvet/60">
+                        🪴 {plantNameById.get(m.plantId)}
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-sm text-darc-velvet/70 mt-1 pl-2">Próxima: {formatDateBR(m.dataProxima!)}</p>
+                  <p className="text-xs text-darc-velvet/60 pl-2">{daysUntil <= 0 ? "⚠ Atrasada!" : `Em ${daysUntil} dias`}</p>
+                  {m.fornecedor && <p className="text-xs text-darc-velvet/50 mt-1 pl-2">📞 {m.fornecedor}</p>}
+                </div>
+              );
+            })}
           </div>
         )}
       </section>
