@@ -221,16 +221,18 @@ test.describe("Monthly cockpit — Phase C mobile relance", () => {
       }
 
       const disclosures = mobile.locator(
-        "button[aria-controls][aria-expanded]",
+        'button[aria-controls^="mobile-cockpit-"][aria-expanded]',
       );
-      expect(await disclosures.count()).toBeGreaterThanOrEqual(2);
+      expect(await disclosures.count()).toBe(3);
       for (let index = 0; index < (await disclosures.count()); index += 1) {
         const disclosure = disclosures.nth(index);
+        const initialState = await disclosure.getAttribute("aria-expanded");
+        const toggledState = initialState === "true" ? "false" : "true";
         await disclosure.focus();
         await page.keyboard.press("Enter");
-        await expect(disclosure).toHaveAttribute("aria-expanded", "true");
+        await expect(disclosure).toHaveAttribute("aria-expanded", toggledState);
         await page.keyboard.press("Enter");
-        await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+        await expect(disclosure).toHaveAttribute("aria-expanded", initialState!);
       }
 
       await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
