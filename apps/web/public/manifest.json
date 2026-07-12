@@ -1,0 +1,17 @@
+{
+  "name": "LifeOne",
+  "short_name": "LifeOne",
+  "description": "Gestão financeira e de vida",
+  "start_url": "/projects",
+  "display": "standalone",
+  "background_color": "#FFFFFF",
+  "theme_color": "#1A1714",
+  "icons": [
+    {
+      "src": "/lifeone-mark.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
