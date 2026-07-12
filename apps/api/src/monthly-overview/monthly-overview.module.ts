@@ -7,5 +7,6 @@ import { CreditCardModule } from '../credit-card/credit-card.module';
   imports: [CreditCardModule],
   controllers: [MonthlyOverviewController],
   providers: [MonthlyOverviewService],
+  exports: [MonthlyOverviewService],
 })
 export class MonthlyOverviewModule {}

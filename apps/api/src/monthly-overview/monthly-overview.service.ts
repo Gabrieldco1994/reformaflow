@@ -2160,6 +2160,16 @@ export class MonthlyOverviewService {
     );
   }
 
+  /**
+   * §10 (Caixa Conta) público — delegador do motor canônico congelado (`computeCaixaConta`).
+   * Fonte ÚNICA do "caixa/saldo em conta" consumida pelos demais motores (tenant-financial).
+   * Não lança para não-PESSOAL (só consulta por projectId), então o chamador DEVE
+   * filtrar por `project.type === 'PESSOAL'` antes de chamar.
+   */
+  async getCaixaConta(tenantId: string, projectId: string) {
+    return this.computeCaixaConta(tenantId, projectId);
+  }
+
   private pickPrimaryBankAccount(
     accounts: Array<{
       id: string;
