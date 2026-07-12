@@ -1,11 +1,20 @@
-'use client';
+"use client";
 
-import Link from 'next/link';
-import { ArrowLeft, Users, LogOut } from 'lucide-react';
-import { NotificationsBell } from '@/components/notifications/NotificationsBell';
-import { navIcon } from './nav-icons';
-import { TYPE_ICONS } from './mobile-nav';
-import type { NavModule, ProjectInfo } from '../_types';
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import {
+  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
+  Users,
+  LogOut,
+} from "lucide-react";
+import { NotificationsBell } from "@/components/notifications/NotificationsBell";
+import { navIcon } from "./nav-icons";
+import { TYPE_ICONS } from "./mobile-nav";
+import type { NavModule, ProjectInfo } from "../_types";
+
+const SIDEBAR_STORAGE_KEY = "lifeone:sidebar:collapsed";
 
 interface DesktopSidebarProps {
   project: ProjectInfo;
@@ -26,34 +35,65 @@ export function DesktopSidebar({
   userName,
   onLogout,
 }: DesktopSidebarProps) {
+  const [collapsed, setCollapsed] = useState(true);
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(SIDEBAR_STORAGE_KEY);
+      if (stored === "true" || stored === "false")
+        setCollapsed(stored === "true");
+    } catch {
+      // The default collapsed state remains usable without storage.
+    }
+  }, []);
+
+  const toggleCollapsed = () => {
+    setCollapsed((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(next));
+      } catch {}
+      return next;
+    });
+  };
+  const labelClass = collapsed ? "sr-only" : "whitespace-nowrap truncate";
+  const itemClass = `flex min-h-11 items-center rounded-lg text-sm font-medium transition-colors ${collapsed ? "justify-center px-2" : "gap-3 px-3"}`;
+
   return (
-    <aside className="group/sidebar hidden md:flex bg-lifeone-sidebar border-r border-lifeone-hairline flex-col overflow-hidden transition-all duration-200 w-16 hover:w-56">
-      {/* Desktop header */}
-      <div className="p-3 border-b border-lifeone-hairline min-h-[56px]">
-        <div className="flex items-center justify-between">
+    <aside
+      className={`relative hidden flex-col border-r border-lifeone-hairline bg-lifeone-sidebar transition-[width] duration-200 md:flex ${collapsed ? "w-16" : "w-56"}`}
+    >
+      <div className="border-b border-lifeone-hairline p-2">
+        <div
+          className={`flex items-center ${collapsed ? "flex-col" : "justify-between"}`}
+        >
           <Link
             href="/projects"
-            className="flex items-center gap-2 text-lifeone-ink-3 hover:text-lifeone-ink transition-colors"
+            title="Projetos"
+            aria-label="Voltar para projetos"
+            className="flex min-h-11 min-w-11 items-center justify-center gap-2 text-lifeone-ink-3 transition-colors hover:text-lifeone-ink"
           >
-            <ArrowLeft className="w-5 h-5 flex-shrink-0" />
-            <span className="text-[10px] tracking-[0.2em] uppercase whitespace-nowrap opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200">
-              Projetos
-            </span>
+            <ArrowLeft className="h-5 w-5 shrink-0" />
+            <span className={labelClass}>Projetos</span>
           </Link>
-          <div className="opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200">
-            <NotificationsBell variant="light" />
-          </div>
+          <NotificationsBell variant="light" className="min-h-11 min-w-11" />
         </div>
-        <div className="flex items-center gap-2 mt-2">
-          <span className="text-xl flex-shrink-0">{TYPE_ICONS[project.type] ?? '📋'}</span>
-          <span className="font-geist font-semibold text-[15px] text-lifeone-ink whitespace-nowrap opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200 truncate">
+        <div
+          className={`mt-1 flex min-h-11 items-center ${collapsed ? "justify-center" : "gap-2 px-2"}`}
+          title={project.name}
+        >
+          <span className="shrink-0 text-xl">
+            {TYPE_ICONS[project.type] ?? "📋"}
+          </span>
+          <span
+            className={`font-geist text-[15px] font-semibold text-lifeone-ink ${labelClass}`}
+          >
             {project.name}
           </span>
         </div>
       </div>
 
-      {/* Nav items */}
-      <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
+      <nav className="flex-1 space-y-1 overflow-y-auto p-2">
         {visibleNav.map((item) => {
           const fullHref = `${basePath}/${item.slug}`;
           const isActive = pathname.startsWith(fullHref);
@@ -63,54 +103,68 @@ export function DesktopSidebar({
               key={item.slug}
               href={fullHref}
               title={item.label}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                isActive
-                  ? 'bg-white text-lifeone-ink shadow-lifeone-card'
-                  : 'text-lifeone-ink-2 hover:bg-white/70'
-              }`}
+              aria-label={item.label}
+              className={`${itemClass} ${isActive ? "bg-white text-lifeone-ink shadow-lifeone-card" : "text-lifeone-ink-2 hover:bg-white/70"}`}
             >
-              <Icon className={`w-5 h-5 flex-shrink-0 ${isActive ? 'text-lifeone-blue' : 'text-lifeone-ink-3'}`} />
-              <span className="whitespace-nowrap opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200">
-                {item.label}
-              </span>
+              <Icon
+                className={`h-5 w-5 shrink-0 ${isActive ? "text-lifeone-blue" : "text-lifeone-ink-3"}`}
+              />
+              <span className={labelClass}>{item.label}</span>
             </Link>
           );
         })}
-
         {isAdmin && (
           <Link
             href="/admin/users"
             title="Usuários"
-            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-              pathname.startsWith('/admin/users')
-                ? 'bg-white text-lifeone-ink shadow-lifeone-card'
-                : 'text-lifeone-ink-2 hover:bg-white/70'
-            }`}
+            aria-label="Usuários"
+            className={`${itemClass} ${pathname.startsWith("/admin/users") ? "bg-white text-lifeone-ink shadow-lifeone-card" : "text-lifeone-ink-2 hover:bg-white/70"}`}
           >
-            <Users className={`w-5 h-5 flex-shrink-0 ${pathname.startsWith('/admin/users') ? 'text-lifeone-blue' : 'text-lifeone-ink-3'}`} />
-            <span className="whitespace-nowrap opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200">
-              Usuários
-            </span>
+            <Users
+              className={`h-5 w-5 shrink-0 ${pathname.startsWith("/admin/users") ? "text-lifeone-blue" : "text-lifeone-ink-3"}`}
+            />
+            <span className={labelClass}>Usuários</span>
           </Link>
         )}
       </nav>
 
-      <div className="p-2 border-t border-lifeone-hairline space-y-1">
+      <div className="space-y-1 border-t border-lifeone-hairline p-2">
         {userName && (
           <button
+            type="button"
             onClick={onLogout}
-            title="Sair"
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-lifeone-ink-2 hover:bg-white/70 transition-colors"
+            title={`Sair (${userName})`}
+            aria-label={`Sair (${userName})`}
+            className={`w-full ${itemClass} text-lifeone-ink-2 hover:bg-white/70`}
           >
-            <LogOut className="w-5 h-5 flex-shrink-0 text-lifeone-ink-3" />
-            <span className="whitespace-nowrap opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200 truncate">
-              Sair ({userName})
-            </span>
+            <LogOut className="h-5 w-5 shrink-0 text-lifeone-ink-3" />
+            <span className={labelClass}>Sair ({userName})</span>
           </button>
         )}
-        <div className="text-[10px] tracking-[0.2em] uppercase text-lifeone-ink-4 whitespace-nowrap opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200 px-3 pt-1">
-          v0.2.0
-        </div>
+        {!collapsed && (
+          <div className="px-3 pt-1 text-[10px] uppercase tracking-[0.2em] text-lifeone-ink-4">
+            v0.2.0
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={toggleCollapsed}
+          aria-expanded={!collapsed}
+          aria-label={
+            collapsed ? "Expandir menu lateral" : "Recolher menu lateral"
+          }
+          title={collapsed ? "Expandir menu lateral" : "Recolher menu lateral"}
+          className={`flex min-h-11 w-full items-center rounded-lg text-lifeone-ink-2 transition-colors hover:bg-white/70 ${collapsed ? "justify-center" : "gap-3 px-3"}`}
+        >
+          {collapsed ? (
+            <ChevronRight className="h-5 w-5" />
+          ) : (
+            <ChevronLeft className="h-5 w-5" />
+          )}
+          <span className={labelClass}>
+            {collapsed ? "Expandir" : "Recolher"}
+          </span>
+        </button>
       </div>
     </aside>
   );

@@ -6,10 +6,33 @@ import type { MonthlyEntry, MonthlyOverviewResponse } from "../_types";
 import type { Eixo } from "./EixoToggle";
 import { buildSaldoSeries, deriveCockpitTop, deriveMonth } from "./derive";
 import { mesLongo } from "./format";
+import MobileCockpitAccordion from "./MobileCockpitAccordion";
 import MobileConsumptionFlow from "./MobileConsumptionFlow";
 import MobileMonthDetails from "./MobileMonthDetails";
 import MobileMonthHero from "./MobileMonthHero";
 import { buildMobileMonthData } from "./mobile-month-data";
+
+type AccordionState = {
+  rhythm: boolean;
+  consumption: boolean;
+  details: boolean;
+};
+
+const DEFAULT_ACCORDIONS: AccordionState = {
+  rhythm: true,
+  consumption: true,
+  details: false,
+};
+
+function isAccordionState(value: unknown): value is AccordionState {
+  if (!value || typeof value !== "object") return false;
+  const state = value as Record<string, unknown>;
+  return (
+    typeof state.rhythm === "boolean" &&
+    typeof state.consumption === "boolean" &&
+    typeof state.details === "boolean"
+  );
+}
 
 const AXIS_LABEL: Record<Eixo, string> = {
   competencia: "por compra",
@@ -61,6 +84,43 @@ export default function MobileMonthCockpit({
     [selectedEntries],
   );
   const [scrubDay, setScrubDay] = useState(month.hoje);
+  const [accordions, setAccordions] =
+    useState<AccordionState>(DEFAULT_ACCORDIONS);
+  const [hydratedAccordionKey, setHydratedAccordionKey] = useState<
+    string | null
+  >(null);
+  const accordionStorageKey = `lifeone:monthly:accordions:${projectId}:${monthKey}`;
+
+  useEffect(() => {
+    let next = DEFAULT_ACCORDIONS;
+    try {
+      const stored = window.localStorage.getItem(accordionStorageKey);
+      if (stored) {
+        const parsed: unknown = JSON.parse(stored);
+        if (isAccordionState(parsed)) next = parsed;
+      }
+    } catch {
+      // Storage can be unavailable; the disclosure state still works in memory.
+    }
+    setAccordions(next);
+    setHydratedAccordionKey(accordionStorageKey);
+  }, [accordionStorageKey]);
+
+  useEffect(() => {
+    if (hydratedAccordionKey !== accordionStorageKey) return;
+    try {
+      window.localStorage.setItem(
+        accordionStorageKey,
+        JSON.stringify(accordions),
+      );
+    } catch {
+      // Keep the current in-memory state when persistence is unavailable.
+    }
+  }, [accordionStorageKey, accordions, hydratedAccordionKey]);
+
+  const toggleAccordion = (key: keyof AccordionState) => {
+    setAccordions((current) => ({ ...current, [key]: !current[key] }));
+  };
 
   useEffect(() => {
     const firstDay = series[0]?.dia ?? 0;
@@ -95,57 +155,78 @@ export default function MobileMonthCockpit({
       <MobileMonthHero top={top} />
 
       {isCurrentMonth && series.length > 0 && (
-        <section
-          aria-label="Leitura do ritmo diário"
-          className="rounded-[18px] border border-[var(--ck-border)] bg-[var(--ck-surface)] p-4 shadow-lifeone-card"
+        <MobileCockpitAccordion
+          id="mobile-cockpit-rhythm"
+          title="Ritmo do mês"
+          open={accordions.rhythm}
+          onToggle={() => toggleAccordion("rhythm")}
         >
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h2 className="text-base font-semibold text-[var(--ck-text)]">
-                Ritmo do mês
-              </h2>
-              <p className="mt-1 text-sm text-[var(--ck-muted)]">
-                Realizado até hoje · projetado depois
-              </p>
+          <section
+            aria-label="Leitura do ritmo diário"
+            className="rounded-[18px] border border-[var(--ck-border)] bg-[var(--ck-surface)] p-4 shadow-lifeone-card"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-[var(--ck-text)]">
+                  Ritmo do mês
+                </h2>
+                <p className="mt-1 text-sm text-[var(--ck-muted)]">
+                  Realizado até hoje · projetado depois
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm font-medium text-[var(--ck-muted)]">
+                  {projected ? "Projetado" : "Realizado"} · dia {scrubDay}
+                </p>
+                <p className="mt-1 font-geist text-base font-bold tabular-nums text-[var(--ck-text)]">
+                  {moneyDetail(scrubValue ?? 0)}
+                </p>
+              </div>
             </div>
-            <div className="text-right">
-              <p className="text-sm font-medium text-[var(--ck-muted)]">
-                {projected ? "Projetado" : "Realizado"} · dia {scrubDay}
-              </p>
-              <p className="mt-1 font-geist text-base font-bold tabular-nums text-[var(--ck-text)]">
-                {moneyDetail(scrubValue ?? 0)}
-              </p>
+
+            <input
+              type="range"
+              aria-label="Ritmo diário projetado"
+              aria-valuetext={`Dia ${scrubDay}, ${projected ? "projetado" : "realizado"}`}
+              min={firstDay}
+              max={lastDay}
+              step={1}
+              value={scrubDay}
+              onChange={(event) => {
+                const next = Number(event.target.value);
+                setScrubDay(Math.max(firstDay, Math.min(lastDay, next)));
+              }}
+              className="mt-2 h-11 min-h-[44px] w-full accent-[var(--ck-accent)] text-sm"
+            />
+
+            <div className="flex items-center justify-between gap-3 text-sm text-[var(--ck-muted)]">
+              <span>Realizado</span>
+              <span>Projetado · inclui cartão</span>
             </div>
-          </div>
-
-          <input
-            type="range"
-            aria-label="Ritmo diário projetado"
-            aria-valuetext={`Dia ${scrubDay}, ${projected ? "projetado" : "realizado"}`}
-            min={firstDay}
-            max={lastDay}
-            step={1}
-            value={scrubDay}
-            onChange={(event) => {
-              const next = Number(event.target.value);
-              setScrubDay(Math.max(firstDay, Math.min(lastDay, next)));
-            }}
-            className="mt-2 h-11 min-h-[44px] w-full accent-[var(--ck-accent)] text-sm"
-          />
-
-          <div className="flex items-center justify-between gap-3 text-sm text-[var(--ck-muted)]">
-            <span>Realizado</span>
-            <span>Projetado · inclui cartão</span>
-          </div>
-          <p className="mt-2 text-sm text-[var(--ck-muted)]">
-            Simulação somente leitura. Mover o dia não altera caixa, projeção ou
-            consumo.
-          </p>
-        </section>
+            <p className="mt-2 text-sm text-[var(--ck-muted)]">
+              Simulação somente leitura. Mover o dia não altera caixa, projeção
+              ou consumo.
+            </p>
+          </section>
+        </MobileCockpitAccordion>
       )}
 
-      <MobileConsumptionFlow data={consumption} />
-      <MobileMonthDetails month={month} isFutureMonth={isFutureMonth} />
+      <MobileCockpitAccordion
+        id="mobile-cockpit-consumption"
+        title="Consumo"
+        open={accordions.consumption}
+        onToggle={() => toggleAccordion("consumption")}
+      >
+        <MobileConsumptionFlow data={consumption} />
+      </MobileCockpitAccordion>
+      <MobileCockpitAccordion
+        id="mobile-cockpit-details"
+        title="Detalhes"
+        open={accordions.details}
+        onToggle={() => toggleAccordion("details")}
+      >
+        <MobileMonthDetails month={month} isFutureMonth={isFutureMonth} />
+      </MobileCockpitAccordion>
 
       <aside
         aria-label="Resumo do mês atual"
