@@ -12,6 +12,16 @@ import { parseJsonWithRepair } from '../common/json-repair';
 import { normalizeDiagnosisCommonNamesFromJbrj } from './jbrj-reference';
 import { PLANTS_AI_GENERATED_BY } from './plants-ai.constants';
 
+/** Sinaliza HTTP 429 (cota diária/por minuto excedida) num modelo específico do Gemini. */
+class GeminiQuotaExceededError extends Error {
+  constructor(
+    public readonly model: string,
+    detail: string,
+  ) {
+    super('Cota do Gemini excedida para o modelo ' + model + ': ' + detail);
+  }
+}
+
 type PlantHealthStatus = 'SAUDAVEL' | 'ATENCAO' | 'CRITICA';
 type PlantPetRisk = 'SEGURO' | 'CAUTELA' | 'TOXICA';
 
@@ -66,7 +76,9 @@ export interface PlantDiagnosisResult {
 @Injectable()
 export class PlantsAiService {
   private readonly apiKey = process.env['GEMINI_API_KEY'];
-  private readonly model = 'gemini-2.5-flash';
+  private readonly model = process.env['PLANTS_AI_MODEL'] ?? 'gemini-2.5-flash';
+  // Usado quando o modelo principal estoura a cota diária (HTTP 429).
+  private readonly fallbackModel = process.env['PLANTS_AI_FALLBACK_MODEL'] ?? 'gemini-2.5-flash-lite';
 
   constructor(
     private readonly prisma: PrismaService,
@@ -107,8 +119,44 @@ export class PlantsAiService {
       throw new ServiceUnavailableException('GEMINI_API_KEY não configurada');
     }
 
-    const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + this.model + ':generateContent?key=' + this.apiKey;
     const prompt = buildPlantDiagnosisPrompt();
+
+    // Tenta primeiro no modelo principal; se a cota diária estourar (429),
+    // cai automaticamente para o modelo de fallback (mais leve, cota separada).
+    let rawText: string | undefined;
+    try {
+      rawText = await this.callGemini(this.model, prompt, file);
+    } catch (err) {
+      if (err instanceof GeminiQuotaExceededError && this.fallbackModel && this.fallbackModel !== this.model) {
+        rawText = await this.callGemini(this.fallbackModel, prompt, file);
+      } else {
+        throw err;
+      }
+    }
+
+    if (!rawText) {
+      throw new ServiceUnavailableException('Gemini retornou resposta vazia');
+    }
+
+    let diagnosis: PlantDiagnosisResult;
+    try {
+      diagnosis = parseJsonWithRepair<PlantDiagnosisResult>(rawText);
+    } catch {
+      throw new ServiceUnavailableException(
+        'Gemini retornou um resultado que não pôde ser interpretado. Tente novamente com outra foto.',
+      );
+    }
+
+    return normalizeDiagnosisCommonNamesFromJbrj(diagnosis);
+  }
+
+  /** Chama a API do Gemini com o modelo informado; lança GeminiQuotaExceededError em 429. */
+  private async callGemini(
+    model: string,
+    prompt: string,
+    file: Express.Multer.File,
+  ): Promise<string | undefined> {
+    const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + this.apiKey;
 
     const response = await fetch(url, {
       method: 'POST',
@@ -138,6 +186,9 @@ export class PlantsAiService {
 
     if (!response.ok) {
       const errorText = await response.text();
+      if (response.status === 429) {
+        throw new GeminiQuotaExceededError(model, errorText.slice(0, 200));
+      }
       throw new ServiceUnavailableException(
         'Falha ao consultar Gemini (' + response.status + '): ' + errorText.slice(0, 200),
       );
@@ -146,21 +197,7 @@ export class PlantsAiService {
     const payload = await response.json() as {
       candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
     };
-    const rawText = payload.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!rawText) {
-      throw new ServiceUnavailableException('Gemini retornou resposta vazia');
-    }
-
-    let diagnosis: PlantDiagnosisResult;
-    try {
-      diagnosis = parseJsonWithRepair<PlantDiagnosisResult>(rawText);
-    } catch {
-      throw new ServiceUnavailableException(
-        'Gemini retornou um resultado que não pôde ser interpretado. Tente novamente com outra foto.',
-      );
-    }
-
-    return normalizeDiagnosisCommonNamesFromJbrj(diagnosis);
+    return payload.candidates?.[0]?.content?.parts?.[0]?.text;
   }
 
   async diagnoseAndSchedule(
