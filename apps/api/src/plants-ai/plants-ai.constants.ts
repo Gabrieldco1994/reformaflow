@@ -1,0 +1,1 @@
+export const PLANTS_AI_GENERATED_BY = 'PLANTS_AI';

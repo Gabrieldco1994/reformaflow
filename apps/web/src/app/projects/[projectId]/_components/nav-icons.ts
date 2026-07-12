@@ -15,6 +15,8 @@ import {
   Car,
   ListChecks,
   Shuffle,
+  ScanSearch,
+  Sprout,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -40,6 +42,8 @@ export const NAV_ICONS: Record<string, LucideIcon> = {
   Car,
   ListChecks,
   Shuffle,
+  ScanSearch,
+  Sprout,
 };
 
 /** Fallback icon for any unmapped token (defensive, never crashes). */

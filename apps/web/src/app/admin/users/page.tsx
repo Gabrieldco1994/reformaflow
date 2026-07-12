@@ -18,6 +18,7 @@ const PROJECT_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: 'PESSOAL', label: 'Pessoal' },
   { value: 'CASA', label: 'Casa' },
   { value: 'CARRO', label: 'Carro' },
+  { value: 'PLANTAS', label: 'Plantas' },
 ];
 
 export default function AdminUsersPage() {

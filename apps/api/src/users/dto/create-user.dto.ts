@@ -9,6 +9,8 @@ import {
   MinLength,
 } from 'class-validator';
 
+export const PLANTS_AI_MODULE_SLUG = 'plantsAi';
+
 export const MODULE_SLUGS = [
   'dashboard',
   'expenses',
@@ -27,9 +29,10 @@ export const MODULE_SLUGS = [
   'bankAccounts',
   'schedule',
   'financialDashboard',
+  PLANTS_AI_MODULE_SLUG,
 ] as const;
 
-export const PROJECT_TYPES = ['REFORMA', 'COMPRA', 'CASA', 'CARRO', 'PESSOAL'] as const;
+export const PROJECT_TYPES = ['REFORMA', 'COMPRA', 'CASA', 'CARRO', 'PESSOAL', 'PLANTAS'] as const;
 
 export class CreateUserDto {
   @IsString()

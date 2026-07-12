@@ -7,9 +7,9 @@ export class CreateProjectDto {
   @MinLength(3)
   name!: string;
 
-  @ApiProperty({ example: 'REFORMA', enum: ['REFORMA', 'COMPRA', 'CASA', 'CARRO', 'PESSOAL'] })
+  @ApiProperty({ example: 'REFORMA', enum: ['REFORMA', 'COMPRA', 'CASA', 'CARRO', 'PESSOAL', 'PLANTAS'] })
   @IsString()
-  @IsIn(['REFORMA', 'COMPRA', 'CASA', 'CARRO', 'PESSOAL'])
+  @IsIn(['REFORMA', 'COMPRA', 'CASA', 'CARRO', 'PESSOAL', 'PLANTAS'])
   type!: string;
 
   @ApiPropertyOptional({ example: 'Reforma completa do apto de 80m²' })

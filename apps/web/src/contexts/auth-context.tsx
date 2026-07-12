@@ -1,4 +1,4 @@
-'use client';
+"use client";
 
 import {
   createContext,
@@ -7,63 +7,83 @@ import {
   useEffect,
   useMemo,
   useState,
-} from 'react';
-import { api } from '@/lib/api';
+} from "react";
+import { api } from "@/lib/api";
 
 export type ModuleSlug =
-  | 'dashboard'
-  | 'expenses'
-  | 'receipts'
-  | 'cashFlow'
-  | 'monthlyOverview'
-  | 'rooms'
-  | 'floorPlans'
-  | 'simulation'
-  | 'priceCompare'
-  | 'recurringBills'
-  | 'maintenance'
-  | 'reminders'
-  | 'carInfo'
-  | 'creditCards'
-  | 'bankAccounts'
-  | 'schedule'
-  | 'pendencias'
-  | 'financialDashboard';
+  | "dashboard"
+  | "expenses"
+  | "receipts"
+  | "cashFlow"
+  | "monthlyOverview"
+  | "rooms"
+  | "floorPlans"
+  | "simulation"
+  | "priceCompare"
+  | "recurringBills"
+  | "maintenance"
+  | "reminders"
+  | "carInfo"
+  | "creditCards"
+  | "bankAccounts"
+  | "schedule"
+  | "pendencias"
+  | "financialDashboard"
+  | "plantsAi";
 
 export const ALL_MODULES: { slug: ModuleSlug; label: string }[] = [
-  { slug: 'dashboard', label: 'Dashboard' },
-  { slug: 'expenses', label: 'Despesas' },
-  { slug: 'receipts', label: 'Recebimentos' },
-  { slug: 'cashFlow', label: 'Fluxo de Caixa' },
-  { slug: 'monthlyOverview', label: 'Visão Mensal' },
-  { slug: 'rooms', label: 'Ambientes' },
-  { slug: 'floorPlans', label: 'Plantas' },
-  { slug: 'simulation', label: 'Simulação' },
-  { slug: 'priceCompare', label: 'Comparar Preços' },
-  { slug: 'recurringBills', label: 'Contas Recorrentes' },
-  { slug: 'maintenance', label: 'Manutenções' },
-  { slug: 'reminders', label: 'Lembretes' },
-  { slug: 'carInfo', label: 'Info Carro' },
-  { slug: 'creditCards', label: 'Cartões' },
-  { slug: 'bankAccounts', label: 'Contas Bancárias' },
-  { slug: 'schedule', label: 'Cronograma' },
-  { slug: 'pendencias', label: 'Pendências' },
-  { slug: 'financialDashboard', label: 'Financeiro' },
+  { slug: "dashboard", label: "Dashboard" },
+  { slug: "expenses", label: "Despesas" },
+  { slug: "receipts", label: "Recebimentos" },
+  { slug: "cashFlow", label: "Fluxo de Caixa" },
+  { slug: "monthlyOverview", label: "Visão Mensal" },
+  { slug: "rooms", label: "Ambientes" },
+  { slug: "floorPlans", label: "Plantas" },
+  { slug: "simulation", label: "Simulação" },
+  { slug: "priceCompare", label: "Comparar Preços" },
+  { slug: "recurringBills", label: "Contas Recorrentes" },
+  { slug: "maintenance", label: "Manutenções" },
+  { slug: "reminders", label: "Lembretes" },
+  { slug: "carInfo", label: "Info Carro" },
+  { slug: "creditCards", label: "Cartões" },
+  { slug: "bankAccounts", label: "Contas Bancárias" },
+  { slug: "schedule", label: "Cronograma" },
+  { slug: "pendencias", label: "Pendências" },
+  { slug: "financialDashboard", label: "Financeiro" },
+  { slug: "plantsAi", label: "Diagnóstico IA (Plantas)" },
 ];
 
 export const TYPE_MODULES: Record<string, ModuleSlug[]> = {
-  REFORMA: ['expenses', 'receipts', 'cashFlow', 'schedule', 'pendencias', 'floorPlans', 'simulation', 'priceCompare', 'rooms'],
-  COMPRA: ['expenses', 'receipts', 'cashFlow'],
-  PESSOAL: ['monthlyOverview', 'expenses', 'receipts', 'cashFlow', 'creditCards', 'bankAccounts'],
-  CASA: ['recurringBills', 'maintenance', 'reminders', 'expenses'],
-  CARRO: ['carInfo', 'recurringBills', 'maintenance', 'reminders', 'expenses'],
+  REFORMA: [
+    "expenses",
+    "receipts",
+    "cashFlow",
+    "schedule",
+    "pendencias",
+    "floorPlans",
+    "simulation",
+    "priceCompare",
+    "rooms",
+  ],
+  COMPRA: ["expenses", "receipts", "cashFlow"],
+  PESSOAL: [
+    "monthlyOverview",
+    "expenses",
+    "receipts",
+    "cashFlow",
+    "creditCards",
+    "bankAccounts",
+  ],
+  CASA: ["recurringBills", "maintenance", "reminders", "expenses"],
+  CARRO: ["carInfo", "recurringBills", "maintenance", "reminders", "expenses"],
+  PLANTAS: ["dashboard", "maintenance", "reminders", "plantsAi"],
 };
 
 export interface AuthUser {
   id: string;
   username: string;
   name: string;
-  role: 'ADMIN' | 'USER' | string;
+  role: "ADMIN" | "USER" | string;
   tenantId: string;
   allowedModules: string[];
   allowedProjects: string[];
@@ -91,7 +111,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      const me = await api.get<AuthUser | null>('/auth/me');
+      const me = await api.get<AuthUser | null>("/auth/me");
       setUser(me);
     } catch {
       setUser(null);
@@ -105,7 +125,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [refresh]);
 
   const login = useCallback(async (username: string, password: string) => {
-    const res = await api.post<{ user: AuthUser }>('/auth/login', {
+    const res = await api.post<{ user: AuthUser }>("/auth/login", {
       username,
       password,
     });
@@ -115,7 +135,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     try {
-      await api.post('/auth/logout', {});
+      await api.post("/auth/logout", {});
     } catch {
       // ignore
     }
@@ -123,7 +143,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo<AuthContextValue>(() => {
-    const isAdmin = user?.role === 'ADMIN' || user?.role === 'OWNER';
+    const isAdmin = user?.role === "ADMIN" || user?.role === "OWNER";
     const allowed = new Set(user?.allowedModules ?? []);
     const allowedProjects = user?.allowedProjects ?? [];
     const allowedProjectTypes = user?.allowedProjectTypes ?? [];
@@ -141,7 +161,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Acesso por projeto (opt-in): admin sempre; lista vazia = sem restrição;
       // lista não-vazia = só os projetos liberados.
       hasProjectAccess: (projectId: string) =>
-        isAdmin || allowedProjects.length === 0 || allowedProjects.includes(projectId),
+        isAdmin ||
+        allowedProjects.length === 0 ||
+        allowedProjects.includes(projectId),
       // Criação por tipo (opt-in): admin sempre; lista de tipos vazia = deriva
       // dos módulos (como hoje); não-vazia = só os tipos liberados.
       canCreateProjectType: (type: string) =>
@@ -170,7 +192,7 @@ export function useAuth(): AuthContextValue {
       hasProjectAccess: () => false,
       canCreateProjectType: () => false,
       login: async () => {
-        throw new Error('AuthProvider not mounted');
+        throw new Error("AuthProvider not mounted");
       },
       logout: async () => {},
       refresh: async () => {},

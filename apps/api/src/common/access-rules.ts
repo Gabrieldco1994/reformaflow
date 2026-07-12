@@ -18,6 +18,7 @@ export const TYPE_MODULES: Record<string, ModuleSlug[]> = {
   PESSOAL: ['dashboard', 'expenses', 'receipts', 'cashFlow', 'creditCards', 'bankAccounts', 'monthlyOverview'],
   CASA: ['dashboard', 'recurringBills', 'maintenance', 'reminders', 'expenses'],
   CARRO: ['dashboard', 'carInfo', 'recurringBills', 'maintenance', 'reminders', 'expenses'],
+  PLANTAS: ['dashboard', 'maintenance', 'reminders', 'plantsAi'],
 };
 
 export function projectTypeHasModule(

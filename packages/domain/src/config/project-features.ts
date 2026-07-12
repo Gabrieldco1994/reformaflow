@@ -15,7 +15,8 @@ export type ProjectFeature =
   | 'reminders'
   | 'creditCards'
   | 'bankAccounts'
-  | 'pendencias';
+  | 'pendencias'
+  | 'plantsAi';
 
 export const PROJECT_FEATURES: Record<ProjectType, ProjectFeature[]> = {
   [ProjectType.REFORMA]: [
@@ -37,6 +38,9 @@ export const PROJECT_FEATURES: Record<ProjectType, ProjectFeature[]> = {
   ],
   [ProjectType.PESSOAL]: [
     'monthlyOverview', 'dashboard', 'expenses', 'receipts', 'cashFlow', 'creditCards', 'bankAccounts',
+  ],
+  [ProjectType.PLANTAS]: [
+    'dashboard', 'maintenance', 'reminders', 'plantsAi',
   ],
 };
 
@@ -138,6 +142,7 @@ export function getExpenseTypesForProject(projectType: ProjectType): ExpenseType
     case ProjectType.PESSOAL: return PESSOAL_EXPENSE_TYPES;
     case ProjectType.CASA: return CASA_EXPENSE_TYPES;
     case ProjectType.CARRO: return CARRO_EXPENSE_TYPES;
+    case ProjectType.PLANTAS: return [];
     default: return REFORMA_EXPENSE_TYPES;
   }
 }

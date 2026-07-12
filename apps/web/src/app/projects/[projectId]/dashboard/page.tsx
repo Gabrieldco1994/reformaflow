@@ -1,35 +1,45 @@
-'use client';
+"use client";
 
-import { useProject } from '@/contexts/project-context';
-import { useAuth } from '@/contexts/auth-context';
-import { useEffect, useMemo } from 'react';
-import dynamic from 'next/dynamic';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { CalendarClock } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
-import { formatCurrency } from '@/lib/utils';
-import { getProjectAccentColor } from '@/lib/project-colors';
-import type { DashboardResponse } from '@/types';
-import ManagementDashboard from './_components/ManagementDashboard';
+import { useProject } from "@/contexts/project-context";
+import { useAuth } from "@/contexts/auth-context";
+import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { CalendarClock, Check } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api";
+import { formatCurrency, formatDateBR } from "@/lib/utils";
+import { getProjectAccentColor } from "@/lib/project-colors";
+import type { DashboardResponse } from "@/types";
+import ManagementDashboard from "./_components/ManagementDashboard";
 
-const DashboardCharts = dynamic(
-  () => import('./_components/DashboardCharts'),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
-        <div className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5 h-[340px] animate-pulse" />
-        <div className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5 h-[340px] animate-pulse" />
-      </div>
-    ),
-  },
-);
+const DashboardCharts = dynamic(() => import("./_components/DashboardCharts"), {
+  ssr: false,
+  loading: () => (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+      <div className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5 h-[340px] animate-pulse" />
+      <div className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5 h-[340px] animate-pulse" />
+    </div>
+  ),
+});
 
 function formatMesLabel(mes: string) {
-  const [y, m] = mes.split('-');
-  const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+  const [y, m] = mes.split("-");
+  const meses = [
+    "Jan",
+    "Fev",
+    "Mar",
+    "Abr",
+    "Mai",
+    "Jun",
+    "Jul",
+    "Ago",
+    "Set",
+    "Out",
+    "Nov",
+    "Dez",
+  ];
   return `${meses[parseInt(m) - 1]}/${y.slice(2)}`;
 }
 
@@ -48,7 +58,10 @@ function FinancialDashboardSkeleton() {
       {/* KPIs desktop (6 cards) */}
       <div className="hidden md:grid grid-cols-2 lg:grid-cols-3 gap-4">
         {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="h-[96px] rounded-2xl bg-white shadow-darc-soft border border-darc-linen" />
+          <div
+            key={i}
+            className="h-[96px] rounded-2xl bg-white shadow-darc-soft border border-darc-linen"
+          />
         ))}
       </div>
       {/* Charts (2x 340px) */}
@@ -64,42 +77,73 @@ function FinancialDashboardSkeleton() {
 
 // ─── Financial Dashboard (REFORMA / COMPRA) ──────────────────
 
-function FinancialDashboard({ projectId, projectType }: { projectId: string; projectType: string }) {
+function FinancialDashboard({
+  projectId,
+  projectType,
+}: {
+  projectId: string;
+  projectType: string;
+}) {
   const { data, isLoading, error } = useQuery<DashboardResponse>({
-    queryKey: ['dashboard', projectId],
+    queryKey: ["dashboard", projectId],
     queryFn: () => api.get(`/projects/${projectId}/dashboard`),
   });
 
-  const despesasChartData = useMemo(() =>
-    (data?.despesasMensal ?? []).map((d) => ({ ...d, mesLabel: formatMesLabel(d.mes) })),
-    [data?.despesasMensal]
+  const despesasChartData = useMemo(
+    () =>
+      (data?.despesasMensal ?? []).map((d) => ({
+        ...d,
+        mesLabel: formatMesLabel(d.mes),
+      })),
+    [data?.despesasMensal],
   );
 
-  const saldoChartData = useMemo(() =>
-    (data?.saldoAcumuladoMensal ?? []).map((d) => ({ ...d, mesLabel: formatMesLabel(d.mes) })),
-    [data?.saldoAcumuladoMensal]
+  const saldoChartData = useMemo(
+    () =>
+      (data?.saldoAcumuladoMensal ?? []).map((d) => ({
+        ...d,
+        mesLabel: formatMesLabel(d.mes),
+      })),
+    [data?.saldoAcumuladoMensal],
   );
 
   if (isLoading) return <FinancialDashboardSkeleton />;
-  if (error) return <div className="text-darc-red">Erro ao carregar dashboard.</div>;
+  if (error)
+    return <div className="text-darc-red">Erro ao carregar dashboard.</div>;
   if (!data) return null;
 
   const accentColor = getProjectAccentColor(projectType);
 
   const kpis: { label: string; value: number; accent: string }[] = [
-    { label: 'Dinheiro Disponível', value: data.kpis.dinheiroDisponivel, accent: accentColor },
-    { label: 'Já Paguei', value: data.kpis.jaPaguei, accent: accentColor },
-    { label: 'Previsão de Gastos', value: data.kpis.previsaoGastos, accent: accentColor },
-    { label: 'Previsão de Recebimentos', value: data.kpis.previsaoRecebimentos, accent: accentColor },
-    { label: 'Previsão de Saldo', value: data.kpis.previsaoSaldo, accent: accentColor },
-    { label: 'Saldo', value: data.kpis.saldo, accent: accentColor },
+    {
+      label: "Dinheiro Disponível",
+      value: data.kpis.dinheiroDisponivel,
+      accent: accentColor,
+    },
+    { label: "Já Paguei", value: data.kpis.jaPaguei, accent: accentColor },
+    {
+      label: "Previsão de Gastos",
+      value: data.kpis.previsaoGastos,
+      accent: accentColor,
+    },
+    {
+      label: "Previsão de Recebimentos",
+      value: data.kpis.previsaoRecebimentos,
+      accent: accentColor,
+    },
+    {
+      label: "Previsão de Saldo",
+      value: data.kpis.previsaoSaldo,
+      accent: accentColor,
+    },
+    { label: "Saldo", value: data.kpis.saldo, accent: accentColor },
   ];
 
-  const showRooms = projectType === 'REFORMA';
+  const showRooms = projectType === "REFORMA";
 
   return (
     <div className="space-y-6 md:space-y-8">
-      {projectType === 'PESSOAL' && (
+      {projectType === "PESSOAL" && (
         <Link
           href={`/projects/${projectId}/monthly`}
           className="flex items-center justify-between gap-3 p-4 rounded-2xl bg-gradient-to-br from-indigo-50 to-rose-50 border border-indigo-100 hover:border-indigo-300 transition-colors group"
@@ -107,7 +151,9 @@ function FinancialDashboard({ projectId, projectType }: { projectId: string; pro
           <div className="flex items-center gap-3">
             <CalendarClock className="w-5 h-5 text-indigo-700 flex-shrink-0" />
             <div>
-              <p className="text-sm font-semibold text-darc-velvet">Visão Mensal Consolidada</p>
+              <p className="text-sm font-semibold text-darc-velvet">
+                Visão Mensal Consolidada
+              </p>
               <p className="text-[11px] text-darc-velvet/70 leading-snug">
                 Gasto, recebido e saldo do mês — agrega Reforma, Casa e Carro
               </p>
@@ -127,9 +173,15 @@ function FinancialDashboard({ projectId, projectType }: { projectId: string; pro
               key={kpi.label}
               className="snap-start flex-shrink-0 w-[78%] rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 relative overflow-hidden"
             >
-              <span className={`absolute left-0 top-4 bottom-4 w-1 rounded-r-full ${kpi.accent}`} />
-              <p className="text-[11px] tracking-[0.18em] uppercase text-darc-velvet/60 pl-3">{kpi.label}</p>
-              <p className="text-2xl font-bold text-darc-velvet mt-2 pl-3">{formatCurrency(kpi.value / 100)}</p>
+              <span
+                className={`absolute left-0 top-4 bottom-4 w-1 rounded-r-full ${kpi.accent}`}
+              />
+              <p className="text-[11px] tracking-[0.18em] uppercase text-darc-velvet/60 pl-3">
+                {kpi.label}
+              </p>
+              <p className="text-2xl font-bold text-darc-velvet mt-2 pl-3">
+                {formatCurrency(kpi.value / 100)}
+              </p>
             </div>
           ))}
         </div>
@@ -140,9 +192,15 @@ function FinancialDashboard({ projectId, projectType }: { projectId: string; pro
             key={kpi.label}
             className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-5 relative overflow-hidden"
           >
-            <span className={`absolute left-0 top-5 bottom-5 w-1 rounded-r-full ${kpi.accent}`} />
-            <p className="text-[11px] tracking-[0.18em] uppercase text-darc-velvet/60 pl-3">{kpi.label}</p>
-            <p className="text-xl lg:text-2xl font-bold text-darc-velvet mt-2 pl-3">{formatCurrency(kpi.value / 100)}</p>
+            <span
+              className={`absolute left-0 top-5 bottom-5 w-1 rounded-r-full ${kpi.accent}`}
+            />
+            <p className="text-[11px] tracking-[0.18em] uppercase text-darc-velvet/60 pl-3">
+              {kpi.label}
+            </p>
+            <p className="text-xl lg:text-2xl font-bold text-darc-velvet mt-2 pl-3">
+              {formatCurrency(kpi.value / 100)}
+            </p>
           </div>
         ))}
       </div>
@@ -152,53 +210,85 @@ function FinancialDashboard({ projectId, projectType }: { projectId: string; pro
         saldoChartData={saldoChartData}
       />
 
-      {showRooms && data.resumoPorAmbiente && data.resumoPorAmbiente.length > 0 && (
-        <section className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5">
-          <h2 className="font-editorial italic text-lg md:text-xl text-darc-velvet mb-3">Resumo por Ambiente</h2>
-          {/* Desktop: tabela */}
-          <div className="hidden md:block overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-darc-linen">
-                  <th className="text-left px-3 py-2 font-medium text-darc-velvet/60 uppercase text-[10px] tracking-[0.18em]">Ambiente</th>
-                  <th className="text-right px-3 py-2 font-medium text-darc-velvet/60 uppercase text-[10px] tracking-[0.18em]">Planejado</th>
-                  <th className="text-right px-3 py-2 font-medium text-darc-velvet/60 uppercase text-[10px] tracking-[0.18em]">Pago</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-darc-linen">
-                {data.resumoPorAmbiente.map((room) => (
-                  <tr key={room.roomName} className="hover:bg-darc-linen/40">
-                    <td className="px-3 py-3 text-darc-velvet">{room.roomName}</td>
-                    <td className="px-3 py-3 text-right text-darc-velvet">{formatCurrency(room.planned / 100)}</td>
-                    <td className="px-3 py-3 text-right font-semibold text-darc-raspberry">{formatCurrency(room.actual / 100)}</td>
+      {showRooms &&
+        data.resumoPorAmbiente &&
+        data.resumoPorAmbiente.length > 0 && (
+          <section className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5">
+            <h2 className="font-editorial italic text-lg md:text-xl text-darc-velvet mb-3">
+              Resumo por Ambiente
+            </h2>
+            {/* Desktop: tabela */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-darc-linen">
+                    <th className="text-left px-3 py-2 font-medium text-darc-velvet/60 uppercase text-[10px] tracking-[0.18em]">
+                      Ambiente
+                    </th>
+                    <th className="text-right px-3 py-2 font-medium text-darc-velvet/60 uppercase text-[10px] tracking-[0.18em]">
+                      Planejado
+                    </th>
+                    <th className="text-right px-3 py-2 font-medium text-darc-velvet/60 uppercase text-[10px] tracking-[0.18em]">
+                      Pago
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {/* Mobile: lista */}
-          <div className="md:hidden space-y-2">
-            {data.resumoPorAmbiente.map((room) => (
-              <div key={room.roomName} className="flex items-center justify-between py-2 border-b border-darc-linen last:border-0">
-                <span className="text-sm font-medium text-darc-velvet">{room.roomName}</span>
-                <div className="text-right">
-                  <p className="text-[10px] uppercase tracking-[0.15em] text-darc-velvet/50">{formatCurrency(room.planned / 100)} planejado</p>
-                  <p className="text-sm font-bold text-darc-raspberry">{formatCurrency(room.actual / 100)}</p>
+                </thead>
+                <tbody className="divide-y divide-darc-linen">
+                  {data.resumoPorAmbiente.map((room) => (
+                    <tr key={room.roomName} className="hover:bg-darc-linen/40">
+                      <td className="px-3 py-3 text-darc-velvet">
+                        {room.roomName}
+                      </td>
+                      <td className="px-3 py-3 text-right text-darc-velvet">
+                        {formatCurrency(room.planned / 100)}
+                      </td>
+                      <td className="px-3 py-3 text-right font-semibold text-darc-raspberry">
+                        {formatCurrency(room.actual / 100)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {/* Mobile: lista */}
+            <div className="md:hidden space-y-2">
+              {data.resumoPorAmbiente.map((room) => (
+                <div
+                  key={room.roomName}
+                  className="flex items-center justify-between py-2 border-b border-darc-linen last:border-0"
+                >
+                  <span className="text-sm font-medium text-darc-velvet">
+                    {room.roomName}
+                  </span>
+                  <div className="text-right">
+                    <p className="text-[10px] uppercase tracking-[0.15em] text-darc-velvet/50">
+                      {formatCurrency(room.planned / 100)} planejado
+                    </p>
+                    <p className="text-sm font-bold text-darc-raspberry">
+                      {formatCurrency(room.actual / 100)}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+              ))}
+            </div>
+          </section>
+        )}
 
       {data.resumoPorTipoDespesa && data.resumoPorTipoDespesa.length > 0 && (
         <section className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5">
-          <h2 className="font-editorial italic text-lg md:text-xl text-darc-velvet mb-3">Resumo por Tipo de Despesa</h2>
+          <h2 className="font-editorial italic text-lg md:text-xl text-darc-velvet mb-3">
+            Resumo por Tipo de Despesa
+          </h2>
           <div className="divide-y divide-darc-linen">
             {data.resumoPorTipoDespesa.map((item) => (
-              <div key={item.label} className="flex items-center justify-between py-2.5">
+              <div
+                key={item.label}
+                className="flex items-center justify-between py-2.5"
+              >
                 <span className="text-sm text-darc-velvet">{item.label}</span>
-                <span className="text-sm font-semibold text-darc-velvet">{formatCurrency(item.total / 100)}</span>
+                <span className="text-sm font-semibold text-darc-velvet">
+                  {formatCurrency(item.total / 100)}
+                </span>
               </div>
             ))}
           </div>
@@ -207,17 +297,283 @@ function FinancialDashboard({ projectId, projectType }: { projectId: string; pro
 
       {data.resumoPorCategoria && data.resumoPorCategoria.length > 0 && (
         <section className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5">
-          <h2 className="font-editorial italic text-lg md:text-xl text-darc-velvet mb-3">Resumo por Categoria</h2>
+          <h2 className="font-editorial italic text-lg md:text-xl text-darc-velvet mb-3">
+            Resumo por Categoria
+          </h2>
           <div className="divide-y divide-darc-linen">
             {data.resumoPorCategoria.map((item) => (
-              <div key={item.label} className="flex items-center justify-between py-2.5">
+              <div
+                key={item.label}
+                className="flex items-center justify-between py-2.5"
+              >
                 <span className="text-sm text-darc-velvet">{item.label}</span>
-                <span className="text-sm font-semibold text-darc-velvet">{formatCurrency(item.total / 100)}</span>
+                <span className="text-sm font-semibold text-darc-velvet">
+                  {formatCurrency(item.total / 100)}
+                </span>
               </div>
             ))}
           </div>
         </section>
       )}
+    </div>
+  );
+}
+
+interface PlantMaintenance {
+  id: string;
+  tipo: string;
+  dataProxima?: string;
+  fornecedor?: string;
+  plantId?: string | null;
+}
+
+interface PlantReminder {
+  id: string;
+  titulo: string;
+  descricao?: string;
+  data: string;
+  status: string;
+  plantId?: string | null;
+}
+
+interface PlantTask {
+  id: string;
+  titulo: string;
+  descricao?: string;
+  data: string;
+  origem: "reminder" | "maintenance";
+  plantId?: string | null;
+}
+
+interface PlantSummary {
+  id: string;
+  nome: string;
+}
+
+function dayGroupLabel(date: Date, today: Date) {
+  const startOfDay = (d: Date) =>
+    new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diffDays = Math.round(
+    (startOfDay(date).getTime() - startOfDay(today).getTime()) /
+      (1000 * 60 * 60 * 24),
+  );
+  if (diffDays < 0) return "Atrasadas";
+  if (diffDays === 0) return "Hoje";
+  if (diffDays === 1) return "Amanhã";
+  const weekday = date.toLocaleDateString("pt-BR", { weekday: "long" });
+  return weekday.charAt(0).toUpperCase() + weekday.slice(1);
+}
+
+function PlantDashboard({ projectId }: { projectId: string }) {
+  const queryClient = useQueryClient();
+  const [completingKeys, setCompletingKeys] = useState<Set<string>>(new Set());
+  const { data: maintenance } = useQuery<PlantMaintenance[]>({
+    queryKey: ["maintenance-logs", projectId],
+    queryFn: () => api.get(`/projects/${projectId}/maintenance-logs`),
+  });
+  const { data: reminders } = useQuery<PlantReminder[]>({
+    queryKey: ["reminders", projectId],
+    queryFn: () => api.get(`/projects/${projectId}/reminders`),
+  });
+  const { data: plants } = useQuery<PlantSummary[]>({
+    queryKey: ["plants", projectId],
+    queryFn: () => api.get(`/projects/${projectId}/plants`),
+  });
+  const plantNameById = useMemo(
+    () => new Map((plants ?? []).map((p) => [p.id, p.nome])),
+    [plants],
+  );
+
+  const today = new Date();
+  const in7Days = new Date(today);
+  in7Days.setDate(today.getDate() + 7);
+
+  const tasks = useMemo<PlantTask[]>(() => {
+    const fromReminders = (reminders ?? [])
+      .filter((r) => r.status === "PENDENTE")
+      .map((r) => ({
+        id: r.id,
+        titulo: r.titulo,
+        descricao: r.descricao,
+        data: r.data,
+        origem: "reminder" as const,
+        plantId: r.plantId,
+      }));
+
+    const fromMaintenance = (maintenance ?? [])
+      .filter((m) => m.dataProxima)
+      .map((m) => ({
+        id: m.id,
+        titulo: `Cuidado: ${m.tipo}`,
+        descricao: m.fornecedor,
+        data: m.dataProxima!,
+        origem: "maintenance" as const,
+        plantId: m.plantId,
+      }));
+
+    return [...fromReminders, ...fromMaintenance]
+      .filter((t) => {
+        const due = new Date(t.data);
+        return due <= in7Days;
+      })
+      .sort((a, b) => new Date(a.data).getTime() - new Date(b.data).getTime());
+  }, [reminders, maintenance, in7Days]);
+
+  const overdueCount = tasks.filter((t) => new Date(t.data) < today).length;
+  const thisWeekCount = tasks.length - overdueCount;
+
+  // Agrupa por dia (Atrasadas / Hoje / Amanhã / dia da semana) preservando a ordem cronológica.
+  const groupedTasks = useMemo(() => {
+    const groups = new Map<string, PlantTask[]>();
+    for (const task of tasks) {
+      const label = dayGroupLabel(new Date(task.data), today);
+      if (!groups.has(label)) groups.set(label, []);
+      groups.get(label)!.push(task);
+    }
+    return Array.from(groups.entries());
+  }, [tasks]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function completeTask(task: PlantTask) {
+    const key = `${task.origem}-${task.id}`;
+    setCompletingKeys((prev) => new Set(prev).add(key));
+    try {
+      if (task.origem === "reminder") {
+        await api.patch(`/projects/${projectId}/reminders/${task.id}`, {
+          status: "CONCLUIDO",
+        });
+      } else {
+        await api.patch(`/projects/${projectId}/maintenance-logs/${task.id}`, {
+          dataProxima: null,
+        });
+      }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["reminders", projectId] }),
+        queryClient.invalidateQueries({
+          queryKey: ["maintenance-logs", projectId],
+        }),
+      ]);
+    } finally {
+      setCompletingKeys((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    }
+  }
+
+  return (
+    <div className="space-y-6 md:space-y-8">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-5">
+          <p className="text-[11px] tracking-[0.18em] uppercase text-darc-velvet/60">
+            Atrasadas
+          </p>
+          <p className="text-2xl font-bold text-darc-red mt-2">
+            {overdueCount}
+          </p>
+        </div>
+        <div className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-5">
+          <p className="text-[11px] tracking-[0.18em] uppercase text-darc-velvet/60">
+            Próximos 7 dias
+          </p>
+          <p className="text-2xl font-bold text-darc-velvet mt-2">
+            {thisWeekCount}
+          </p>
+        </div>
+        <Link
+          href={`/projects/${projectId}/plants-ai`}
+          className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-5 hover:border-darc-red transition-colors"
+        >
+          <p className="text-[11px] tracking-[0.18em] uppercase text-darc-velvet/60">
+            IA
+          </p>
+          <p className="text-lg font-semibold text-darc-velvet mt-2">
+            Diagnosticar nova planta
+          </p>
+        </Link>
+      </div>
+
+      <section className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5">
+        <h2 className="font-editorial italic text-lg md:text-xl text-darc-velvet mb-3">
+          📅 Cronograma semanal
+        </h2>
+        {tasks.length === 0 ? (
+          <p className="text-darc-velvet/60 text-sm">
+            Sem tarefas para os próximos 7 dias.
+          </p>
+        ) : (
+          <div className="space-y-5">
+            {groupedTasks.map(([label, groupTasks]) => (
+              <div key={label}>
+                <h3
+                  className={`text-xs font-semibold tracking-[0.14em] uppercase mb-2 ${
+                    label === "Atrasadas"
+                      ? "text-darc-red"
+                      : "text-darc-velvet/60"
+                  }`}
+                >
+                  {label}
+                </h3>
+                <div className="space-y-2">
+                  {groupTasks.map((task) => {
+                    const due = new Date(task.data);
+                    const isOverdue = due < today;
+                    const key = `${task.origem}-${task.id}`;
+                    const isCompleting = completingKeys.has(key);
+                    return (
+                      <div
+                        key={key}
+                        className={`rounded-xl border p-3 flex items-start gap-3 ${isOverdue ? "border-darc-red bg-darc-red-bright/5" : "border-darc-linen bg-darc-linen/40"}`}
+                      >
+                        <button
+                          onClick={() => completeTask(task)}
+                          disabled={isCompleting}
+                          title="Marcar como feita"
+                          className={`group mt-0.5 h-5 w-5 shrink-0 rounded-full border-2 flex items-center justify-center transition-colors ${
+                            isCompleting
+                              ? "border-darc-velvet/30 bg-darc-velvet/10"
+                              : "border-darc-velvet/30 hover:border-darc-red hover:bg-darc-red-bright/10"
+                          }`}
+                        >
+                          <Check
+                            className={`h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity ${
+                              isCompleting
+                                ? "text-darc-velvet/40 opacity-100"
+                                : "text-darc-red"
+                            }`}
+                          />
+                        </button>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="font-medium text-darc-velvet">
+                              {task.titulo}
+                              {(plants?.length ?? 0) > 1 &&
+                                task.plantId &&
+                                plantNameById.has(task.plantId) && (
+                                  <span className="ml-2 text-xs font-normal text-darc-velvet/60">
+                                    🪴 {plantNameById.get(task.plantId)}
+                                  </span>
+                                )}
+                            </p>
+                            <span className="text-xs text-darc-velvet/70 whitespace-nowrap">
+                              {formatDateBR(task.data)}
+                            </span>
+                          </div>
+                          {task.descricao && (
+                            <p className="text-sm text-darc-velvet/70 mt-1">
+                              {task.descricao}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
@@ -231,43 +587,55 @@ export default function DashboardPage() {
 
   // PESSOAL usa o Cockpit (rota /monthly) como visão principal — redireciona.
   useEffect(() => {
-    if (projectType === 'PESSOAL') {
+    if (projectType === "PESSOAL") {
       router.replace(`/projects/${projectId}/monthly`);
     }
   }, [projectType, projectId, router]);
 
-  if (projectType === 'PESSOAL') return null;
+  if (projectType === "PESSOAL") return null;
 
-  const isFinancial = projectType === 'REFORMA' || projectType === 'COMPRA';
-  const isManagement = projectType === 'CASA' || projectType === 'CARRO';
+  const isFinancial = projectType === "REFORMA" || projectType === "COMPRA";
+  const isManagement = projectType === "CASA" || projectType === "CARRO";
+  const isPlants = projectType === "PLANTAS";
 
   return (
     <div className="space-y-6 md:space-y-8">
-      {hasModule('financialDashboard') && (
-      <Link
-        href="/financeiro"
-        className="hidden md:inline-flex items-center gap-1.5 text-[11px] tracking-[0.18em] uppercase text-darc-velvet/60 hover:text-darc-red transition-colors"
-      >
-        ← Visão Geral
-      </Link>
-      )}
-      <header className="hidden md:block -mt-4">
-        <p className="text-[10px] tracking-[0.2em] uppercase text-darc-velvet/60">Visão geral do projeto</p>
-        <h1 className="font-editorial italic text-3xl text-darc-velvet">{projectName}</h1>
-      </header>
-      <header className="md:hidden -mt-2">
-        {hasModule('financialDashboard') && (
+      {hasModule("financialDashboard") && (
         <Link
           href="/financeiro"
-          className="text-[10px] tracking-[0.18em] uppercase text-darc-velvet/60 hover:text-darc-red"
+          className="hidden md:inline-flex items-center gap-1.5 text-[11px] tracking-[0.18em] uppercase text-darc-velvet/60 hover:text-darc-red transition-colors"
         >
           ← Visão Geral
         </Link>
-        )}
-        <h1 className="font-editorial italic text-2xl text-darc-velvet leading-tight mt-1">{projectName}</h1>
+      )}
+      <header className="hidden md:block -mt-4">
+        <p className="text-[10px] tracking-[0.2em] uppercase text-darc-velvet/60">
+          Visão geral do projeto
+        </p>
+        <h1 className="font-editorial italic text-3xl text-darc-velvet">
+          {projectName}
+        </h1>
       </header>
-      {isFinancial && <FinancialDashboard projectId={projectId} projectType={projectType} />}
-      {isManagement && <ManagementDashboard projectId={projectId} projectType={projectType} />}
+      <header className="md:hidden -mt-2">
+        {hasModule("financialDashboard") && (
+          <Link
+            href="/financeiro"
+            className="text-[10px] tracking-[0.18em] uppercase text-darc-velvet/60 hover:text-darc-red"
+          >
+            ← Visão Geral
+          </Link>
+        )}
+        <h1 className="font-editorial italic text-2xl text-darc-velvet leading-tight mt-1">
+          {projectName}
+        </h1>
+      </header>
+      {isFinancial && (
+        <FinancialDashboard projectId={projectId} projectType={projectType} />
+      )}
+      {isManagement && (
+        <ManagementDashboard projectId={projectId} projectType={projectType} />
+      )}
+      {isPlants && <PlantDashboard projectId={projectId} />}
     </div>
   );
 }

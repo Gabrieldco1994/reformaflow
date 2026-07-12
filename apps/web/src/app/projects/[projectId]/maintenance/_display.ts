@@ -11,7 +11,7 @@ export interface MaintenanceLog {
   observacoes?: string;
 }
 
-export type MaintenanceProjectType = 'CASA' | 'CARRO';
+export type MaintenanceProjectType = 'CASA' | 'CARRO' | 'PLANTAS';
 
 export const HOUSE_TYPES = [
   { value: 'PINTURA', label: 'Pintura' },
@@ -37,8 +37,19 @@ export const CAR_TYPES = [
   { value: 'OUTRO', label: 'Outro' },
 ] as const;
 
+export const PLANT_TYPES = [
+  { value: 'REGA', label: 'Rega' },
+  { value: 'ADUBACAO', label: 'Adubação' },
+  { value: 'PODA', label: 'Poda' },
+  { value: 'TROCA_VASO', label: 'Troca de Vaso' },
+  { value: 'TRATAMENTO_PRAGA', label: 'Tratamento de Praga/Doença' },
+  { value: 'OUTRO', label: 'Outro' },
+] as const;
+
 export function getMaintenanceTypes(projectType: MaintenanceProjectType) {
-  return projectType === 'CARRO' ? CAR_TYPES : HOUSE_TYPES;
+  if (projectType === 'CARRO') return CAR_TYPES;
+  if (projectType === 'PLANTAS') return PLANT_TYPES;
+  return HOUSE_TYPES;
 }
 
 export function daysUntil(date: string) {

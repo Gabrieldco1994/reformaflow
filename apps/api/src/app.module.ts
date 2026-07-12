@@ -35,6 +35,8 @@ import { BudgetAllocationModule } from './budget-allocation/budget-allocation.mo
 import { CategoryBudgetModule } from './category-budget/category-budget.module';
 import { AgentModule } from './agent/agent.module';
 import { TtsModule } from './tts/tts.module';
+import { PlantsAiModule } from './plants-ai/plants-ai.module';
+import { PlantModule } from './plant/plant.module';
 
 const UPLOADS_DIR = (() => {
   const raw = process.env['UPLOADS_DIR'];
@@ -77,6 +79,8 @@ const UPLOADS_DIR = (() => {
     CategoryBudgetModule,
     AgentModule,
     TtsModule,
+    PlantsAiModule,
+    PlantModule,
   ],
   providers: [
     {

@@ -6,7 +6,7 @@ describe('projectTypeHasModule — pendencias gate', () => {
   });
 
   it('non-REFORMA types do NOT have pendencias', () => {
-    for (const t of ['COMPRA', 'CASA', 'CARRO', 'PESSOAL']) {
+    for (const t of ['COMPRA', 'CASA', 'CARRO', 'PESSOAL', 'PLANTAS']) {
       expect(projectTypeHasModule(t, 'pendencias')).toBe(false);
     }
   });

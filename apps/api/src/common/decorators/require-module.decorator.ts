@@ -20,6 +20,7 @@ export type ModuleSlug =
   | 'creditCards'
   | 'bankAccounts'
   | 'financialDashboard'
-  | 'pendencias';
+  | 'pendencias'
+  | 'plantsAi';
 
 export const RequireModule = (slug: ModuleSlug) => SetMetadata(MODULE_KEY, slug);
