@@ -1,10 +1,12 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { Camera, Image as ImageIcon, Loader2, Sprout, X } from 'lucide-react';
+import { Camera, Image as ImageIcon, Loader2, Sprout, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
 import { checkImageQuality } from '@/lib/image-compress';
+import { usePlantInsights } from '../_hooks/usePlantInsights';
+import { PlantInsightsPanel } from './PlantInsightsPanel';
 
 interface DiagnoseAndScheduleResult {
   plantId: string | null;
@@ -20,6 +22,68 @@ interface CreatePlantModalProps {
 
 type Step = 'pick-photo' | 'diagnosing' | 'confirm-name' | 'manual-name';
 
+interface ConfirmNameStepProps {
+  plantId: string;
+  suggestedName: string;
+  manualName: string;
+  setManualName: (name: string) => void;
+  saving: boolean;
+  showInsights: boolean;
+  setShowInsights: (show: boolean) => void;
+  onConfirm: () => void;
+}
+
+function ConfirmNameStep({
+  plantId,
+  suggestedName,
+  manualName,
+  setManualName,
+  saving,
+  showInsights,
+  setShowInsights,
+  onConfirm,
+}: ConfirmNameStepProps) {
+  const { projectId } = useProject();
+  const { data: insights, loading: insightsLoading, error: insightsError } = usePlantInsights(projectId, plantId);
+
+  return (
+    <div className="space-y-3 max-h-96 overflow-y-auto">
+      <p className="text-sm text-gray-700">
+        {suggestedName ? (
+          <>🌱 Identificamos como <strong>{suggestedName}</strong>. Pode ajustar o nome:</>
+        ) : (
+          <>Não conseguimos identificar a espécie, mas a planta já foi criada. Dê um nome pra ela:</>
+        )}
+      </p>
+      <input
+        autoFocus
+        value={manualName || suggestedName}
+        onChange={(e) => setManualName(e.target.value)}
+        placeholder="Nome da planta"
+        className="w-full rounded-lg border px-3 py-2 text-sm"
+      />
+
+      <button
+        onClick={() => setShowInsights(!showInsights)}
+        className="w-full flex items-center justify-between px-3 py-2 rounded-lg border border-gray-200 text-sm hover:bg-gray-50"
+      >
+        <span className="font-medium text-gray-700">Cuidados recomendados</span>
+        {showInsights ? <ChevronUp className="h-4 w-4 text-gray-500" /> : <ChevronDown className="h-4 w-4 text-gray-500" />}
+      </button>
+
+      {showInsights && insights && <PlantInsightsPanel insights={insights} isLoading={insightsLoading} isError={!!insightsError} />}
+
+      <button
+        disabled={saving}
+        onClick={onConfirm}
+        className="w-full px-4 py-2 rounded-lg bg-brand-600 text-white text-sm disabled:opacity-50"
+      >
+        {saving ? 'Salvando...' : 'Concluir'}
+      </button>
+    </div>
+  );
+}
+
 export function CreatePlantModal({ onClose, onCreated }: CreatePlantModalProps) {
   const { projectId } = useProject();
   const [step, setStep] = useState<Step>('pick-photo');
@@ -28,6 +92,7 @@ export function CreatePlantModal({ onClose, onCreated }: CreatePlantModalProps) 
   const [createdPlantId, setCreatedPlantId] = useState<string | null>(null);
   const [manualName, setManualName] = useState('');
   const [saving, setSaving] = useState(false);
+  const [showInsights, setShowInsights] = useState(false);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
@@ -157,30 +222,17 @@ export function CreatePlantModal({ onClose, onCreated }: CreatePlantModalProps) 
           </div>
         )}
 
-        {step === 'confirm-name' && (
-          <div className="space-y-3">
-            <p className="text-sm text-gray-700">
-              {suggestedName ? (
-                <>🌱 Identificamos como <strong>{suggestedName}</strong>. Pode ajustar o nome:</>
-              ) : (
-                <>Não conseguimos identificar a espécie, mas a planta já foi criada. Dê um nome pra ela:</>
-              )}
-            </p>
-            <input
-              autoFocus
-              defaultValue={suggestedName}
-              onChange={(e) => setManualName(e.target.value)}
-              placeholder="Nome da planta"
-              className="w-full rounded-lg border px-3 py-2 text-sm"
-            />
-            <button
-              disabled={saving}
-              onClick={() => confirmName(manualName || suggestedName)}
-              className="w-full px-4 py-2 rounded-lg bg-brand-600 text-white text-sm disabled:opacity-50"
-            >
-              {saving ? 'Salvando...' : 'Concluir'}
-            </button>
-          </div>
+        {step === 'confirm-name' && createdPlantId && (
+          <ConfirmNameStep
+            plantId={createdPlantId}
+            suggestedName={suggestedName}
+            manualName={manualName}
+            setManualName={setManualName}
+            saving={saving}
+            showInsights={showInsights}
+            setShowInsights={setShowInsights}
+            onConfirm={() => confirmName(manualName || suggestedName)}
+          />
         )}
 
         {step === 'manual-name' && (
