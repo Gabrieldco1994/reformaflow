@@ -41,8 +41,9 @@ export class PlantsAiController {
     @UploadedFile() file: Express.Multer.File | undefined,
     @Body('persist') persistRaw?: string,
     @Body('plantId') plantId?: string,
+    @Body('nome') nome?: string,
   ) {
     const persist = persistRaw === undefined ? true : persistRaw !== 'false';
-    return this.service.diagnoseAndSchedule(tenantId, projectId, file, persist, plantId);
+    return this.service.diagnoseAndSchedule(tenantId, projectId, file, persist, plantId, nome);
   }
 }

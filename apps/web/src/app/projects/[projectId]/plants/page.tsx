@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
 import { formatDateBR } from '@/lib/utils';
-import { Sprout, Trash2, Pencil, X, Check, Droplets, HeartPulse } from 'lucide-react';
+import { Sprout, Trash2, Pencil, X, Check, Droplets, HeartPulse, Plus } from 'lucide-react';
+import { CreatePlantModal } from './_components/CreatePlantModal';
 
 interface Plant {
   id: string;
@@ -61,6 +62,7 @@ export default function PlantsPage() {
   const [history, setHistory] = useState<DiagnosisHistoryEntry[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ nome: '', localizacao: '', observacoes: '' });
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   async function loadPlants() {
     setLoading(true);
@@ -150,11 +152,19 @@ export default function PlantsPage() {
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-bold text-gray-900">Minhas Plantas</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Cadastre e acompanhe cada planta: última espécie identificada, saúde e histórico de diagnósticos.
-        </p>
+      <header className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Minhas Plantas</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Cadastre e acompanhe cada planta: última espécie identificada, saúde e histórico de diagnósticos.
+          </p>
+        </div>
+        <button
+          onClick={() => setShowCreateModal(true)}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 text-white text-sm font-medium shrink-0"
+        >
+          <Plus className="h-4 w-4" /> Nova planta
+        </button>
       </header>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
@@ -164,13 +174,13 @@ export default function PlantsPage() {
       ) : plants.length === 0 ? (
         <div className="rounded-2xl border bg-white p-6 text-center">
           <Sprout className="mx-auto h-8 w-8 text-green-600" />
-          <p className="text-sm text-gray-600 mt-2">
-            Nenhuma planta cadastrada ainda. Crie uma direto na tela de{' '}
-            <a href={`/projects/${projectId}/plants-ai`} className="text-brand-600 underline">
-              Diagnóstico IA
-            </a>
-            .
-          </p>
+          <p className="text-sm text-gray-600 mt-2">Nenhuma planta cadastrada ainda.</p>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="mt-3 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 text-white text-sm font-medium"
+          >
+            <Plus className="h-4 w-4" /> Cadastrar primeira planta
+          </button>
         </div>
       ) : (
         <div className="space-y-3">
@@ -321,6 +331,17 @@ export default function PlantsPage() {
             </div>
           ))}
         </div>
+      )}
+
+      {showCreateModal && (
+        <CreatePlantModal
+          onClose={() => setShowCreateModal(false)}
+          onCreated={() => {
+            setShowCreateModal(false);
+            loadPlants();
+            loadThirsty();
+          }}
+        />
       )}
     </div>
   );

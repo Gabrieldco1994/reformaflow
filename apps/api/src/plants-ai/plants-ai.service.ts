@@ -169,6 +169,7 @@ export class PlantsAiService {
     file: Express.Multer.File | undefined,
     persist = true,
     plantId?: string,
+    nome?: string,
   ) {
     if (plantId) {
       const plant = await this.prisma.plant.findFirst({ where: { id: plantId, tenantId, projectId } });
@@ -176,6 +177,18 @@ export class PlantsAiService {
     }
 
     const diagnosis = await this.diagnose(tenantId, projectId, file);
+
+    // Sem plantId: este é o fluxo de "criar planta nova a partir do diagnóstico".
+    // Cria a planta agora (só depois do diagnóstico ter funcionado, pra não deixar
+    // registro órfão se o Gemini falhar) usando o nome dado pelo usuário ou, na
+    // falta dele, o nome popular que a IA identificou.
+    if (!plantId && persist) {
+      const created = await this.plantService.create(tenantId, projectId, {
+        nome: nome?.trim() || diagnosis.especieProvavel?.nomePopular || 'Nova planta',
+      });
+      plantId = created.id;
+    }
+
     const plan = buildPlantSchedule(diagnosis, plantId);
     let persisted: PersistedScheduleResult = { reminders: 0, maintenance: 0, diagnosisLog: false };
 
@@ -275,6 +288,7 @@ export class PlantsAiService {
 
     return {
       diagnosis,
+      plantId: plantId ?? null,
       schedule: {
         suggested: {
           reminders: plan.reminders.length,

@@ -409,5 +409,48 @@ describe('PlantsAiService', () => {
       expect(state.reminders.find((reminder) => reminder.id === 'other-plant-rem-1')?.deletedAt).toBeNull();
       expect(state.maintenanceLogs.find((log) => log.id === 'other-plant-man-1')?.deletedAt).toBeNull();
     });
+
+    it('auto-creates the plant when no plantId is given, so reminders are never orphaned', async () => {
+      const state = createState();
+      const prisma = makePrismaMock(state);
+      const createdPlant = { id: 'auto-created-1', tenantId: TENANT_ID, projectId: PROJECT_ID };
+      const plantService = {
+        setPhoto: jest.fn().mockResolvedValue(undefined),
+        create: jest.fn(async (_tenantId: string, _projectId: string, dto: { nome: string }) => {
+          const plant = { ...createdPlant, nome: dto.nome };
+          state.plants.push(plant);
+          return plant;
+        }),
+      };
+      const service = new PlantsAiService(prisma, plantService as never);
+      const diagnosis = createDiagnosis();
+      jest.spyOn(service, 'diagnose').mockResolvedValue(diagnosis);
+
+      const result = await service.diagnoseAndSchedule(TENANT_ID, PROJECT_ID, createFile(), true, undefined);
+
+      expect(plantService.create).toHaveBeenCalledWith(TENANT_ID, PROJECT_ID, { nome: diagnosis.especieProvavel.nomePopular });
+      expect(result.plantId).toBe(createdPlant.id);
+      expect(activeGeneratedReminders(state, createdPlant.id).length).toBeGreaterThan(0);
+      expect(state.reminders.some((reminder) => reminder.plantId === null)).toBe(false);
+    });
+
+    it('uses the user-given name over the AI-detected one when auto-creating the plant', async () => {
+      const state = createState();
+      const prisma = makePrismaMock(state);
+      const plantService = {
+        setPhoto: jest.fn().mockResolvedValue(undefined),
+        create: jest.fn(async (_tenantId: string, _projectId: string, dto: { nome: string }) => {
+          const plant = { id: 'auto-created-2', tenantId: TENANT_ID, projectId: PROJECT_ID, nome: dto.nome };
+          state.plants.push(plant);
+          return plant;
+        }),
+      };
+      const service = new PlantsAiService(prisma, plantService as never);
+      jest.spyOn(service, 'diagnose').mockResolvedValue(createDiagnosis());
+
+      await service.diagnoseAndSchedule(TENANT_ID, PROJECT_ID, createFile(), true, undefined, 'Jiboia da sala');
+
+      expect(plantService.create).toHaveBeenCalledWith(TENANT_ID, PROJECT_ID, { nome: 'Jiboia da sala' });
+    });
   });
 });
