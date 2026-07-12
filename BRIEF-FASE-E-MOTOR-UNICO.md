@@ -34,6 +34,31 @@ Fazer com que **todo** cálculo de "saldo" em toda a app use o mesmo motor e o m
 
 ---
 
+## 🔄 ADENDO 2026-07-12 — decisões de escopo (SUPERSEDEM os itens acima onde conflitarem)
+
+Fechadas com o Gabriel após diagnóstico do executor (motores são READ-PATH; nenhuma migração de dados):
+
+1. **Wizard/backup/rollback/feature-flag/página admin: CORTADOS (YAGNI).** Alinhar leitura não muta dado.
+   No lugar: (a) **teste de paridade** — mesmo fixture ⇒ `tenant-financial.caixa === computeCaixaConta`
+   e `cash-flow.rollingBalance(PESSOAL) === computeCaixaConta`; (b) **script read-only de validação
+   contra prod** (molde do AUDITORIA-MOTORES-PROD.md) rodado antes/depois do deploy.
+2. **`/financeiro` NÃO vira redirect.** A regra "mesmo número" vale para o CONCEITO saldo/caixa, não
+   para a página. Morre só a definição própria de saldo do tenant-financial (`caixaTotal = Σ receipts
+   EM_CAIXA`): onde exibir "caixa/saldo", o número vem do §10 (PESSOAL do tenant; sem PESSOAL → KPI não
+   aparece). Os breakdowns cross-project (por projeto/categoria/fornecedores) são competência/consumo —
+   legítimos, PERMANECEM.
+3. **cash-flow:** PESSOAL bate 100% com §10 (âncora em `saldoInicial` + regra de espelho canônica —
+   causa provável dos −R$999: exclusão cega de `linkedExpenseId` vs. incluir-e-deduplicar `isEspelho`).
+   Projetos NÃO-PESSOAL mantêm rollingBalance orçamentário (conceito distinto) — só ajustar rótulo da UI
+   para não dizer "saldo".
+4. **Validação local:** dev.db é dataset antigo — NÃO reproduz R$ 63.427,35 e não precisa. Invariante
+   local = PARIDADE entre motores (mesmo número entre si); o valor congelado confere-se em prod via
+   script read-only (jamais escrever em /data/dev.db).
+5. **Critério de aceite final:** para o projeto PESSOAL, `/monthly`, `/conta`, `/cash-flow` e o KPI de
+   caixa do `/financeiro` exibem o MESMO número; suíte inteira verde; testes de paridade no CI.
+
+---
+
 ## ⚠️ Regras de ouro (NÃO quebrar)
 
 1. **§10 é READ-ONLY nesta fase.** Nenhuma mudança em `monthly-overview.service.ts:computeCaixaConta`.
