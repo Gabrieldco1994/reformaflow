@@ -10,4 +10,3 @@ import { PlantsAiService } from './plants-ai.service';
   providers: [PlantsAiService],
 })
 export class PlantsAiModule {}
-

@@ -26,4 +26,3 @@ describe('plants schedule', () => {
     expect(plan.maintenance.every((m) => m.plantId === 'plant-123')).toBe(true);
   });
 });
-

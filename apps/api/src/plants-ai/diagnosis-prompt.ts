@@ -57,7 +57,6 @@ Formato obrigatório:
     "recomendarNovaFoto": true
   }
 }
-
 Regras:
 - Seja conservador na confiança.
 - Se houver incerteza relevante, use "especiesAlternativas".
@@ -72,4 +71,3 @@ Regras:
 - Quando a imagem estiver fraca, marque qualidadeImagem como LIMITADA/RUIM.
 - Resposta em pt-BR.`;
 }
-

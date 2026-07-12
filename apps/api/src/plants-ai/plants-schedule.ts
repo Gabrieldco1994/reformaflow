@@ -11,7 +11,6 @@ export interface SuggestedReminderTask {
   prioridade: ReminderPriority;
   plantId?: string;
 }
-
 export interface SuggestedMaintenanceTask {
   tipo: string;
   dataRealizada: Date;
@@ -92,4 +91,3 @@ export function buildPlantSchedule(
 
   return { reminders, maintenance };
 }
-

@@ -5,7 +5,6 @@ describe('plants-ai eval metrics', () => {
   it('normalizes labels safely', () => {
     expect(normalizeLabel('Costela-de-Adão')).toBe('costela de adao');
   });
-
   it('finds care reference by common or latin name', () => {
     const reference = [
       { latin: 'Epipremnum aureum', common: ['Pothos', 'Devil\'s Ivy'], watering: 'Let dry', ideallight: 'Bright', toleratedlight: 'Low', insects: ['Mealy bug'], diseases: 'N/A' },
@@ -102,4 +101,3 @@ describe('plants-ai eval metrics', () => {
     });
   });
 });
-
