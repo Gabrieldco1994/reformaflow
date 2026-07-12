@@ -12,6 +12,7 @@ import { MobileHeader } from './MobileHeader';
 import { MobileTabBar } from './MobileTabBar';
 import { MaisSheet } from './MaisSheet';
 import { getMobilePrimary } from './mobile-nav';
+import { MobileLaunchSheetContainer } from './mobile-launch/MobileLaunchSheetContainer';
 import type { NavModule, ProjectInfo } from '../_types';
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -22,6 +23,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [project, setProject] = useState<ProjectInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [launchOpen, setLaunchOpen] = useState(false);
   const { user, isAdmin, hasModule, hasProjectType, hasProjectAccess, logout, loading: authLoading } = useAuth();
 
   useEffect(() => {
@@ -33,6 +35,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setMobileOpen(false);
+    setLaunchOpen(false);
   }, [pathname]);
 
   const navItems = useMemo<NavModule[]>(
@@ -117,17 +120,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </main>
 
         <MobileTabBar
-          projectType={project.type}
-          visibleNav={visibleNav}
           basePath={basePath}
           pathname={pathname}
-          isAdmin={isAdmin}
-          onOpenMais={() => setMobileOpen(true)}
+          onOpenLaunch={() => setLaunchOpen(true)}
+        />
+
+        <MobileLaunchSheetContainer
+          projectId={project.id}
+          open={launchOpen}
+          onClose={() => setLaunchOpen(false)}
         />
       </div>
 
-      {/* Copiloto Financeiro (chat flutuante) — montado uma vez no root do shell */}
-      <FinancialAgentWidget />
+      {/* Copiloto Financeiro (desktop). No mobile a rota /maria assume esse papel. */}
+      <div className="hidden lg:block">
+        <FinancialAgentWidget />
+      </div>
     </ProjectProvider>
   );
 }

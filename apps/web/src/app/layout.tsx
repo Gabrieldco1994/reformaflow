@@ -28,6 +28,7 @@ export const metadata: Metadata = {
     shortcut: '/lifeone-mark.svg',
     apple: '/lifeone-mark.svg',
   },
+  manifest: '/manifest.json',
 };
 
 export const viewport: Viewport = {
@@ -35,6 +36,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 5,
   viewportFit: 'cover',
+  themeColor: '#1A1714',
 };
 
 export default function RootLayout({

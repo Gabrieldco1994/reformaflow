@@ -1,10 +1,28 @@
 'use client';
+
+import { useProject } from '@/contexts/project-context';
 import { ExpensesView } from './ExpensesView';
+import { MobileExpensesScreen } from './_components/MobileExpensesScreen';
 
 /**
- * Rota "Despesas" (eixo de competência / Gastos Controle). A Conta Real foi
- * separada para a rota dedicada `/conta` (Visão Conta) no menu lateral.
+ * Desktop mantém a view analítica existente. No mobile (<lg) renderizamos a
+ * superfície "app" simplificada.
  */
 export default function ExpensesPage() {
-  return <ExpensesView lockedEixo="competencia" />;
+  const { projectType } = useProject();
+
+  if (projectType !== 'PESSOAL') {
+    return <ExpensesView lockedEixo="competencia" />;
+  }
+
+  return (
+    <>
+      <div className="lg:hidden">
+        <MobileExpensesScreen />
+      </div>
+      <div className="hidden lg:block">
+        <ExpensesView lockedEixo="competencia" />
+      </div>
+    </>
+  );
 }
