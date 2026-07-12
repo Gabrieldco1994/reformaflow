@@ -1,19 +1,13 @@
 'use client';
 import { Trash2 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
+import { metaProgressTone as tone } from '../_lib/metaTone';
 
 export interface MetaProgress {
   tipoDespesa: string;
   limiteCents: number;
   gastoCents: number;
   pct: number;
-}
-
-/** Cor por % de uso do limite: <80 ok (laranja), <100 atenção (âmbar), >=100 estourado (vermelho). */
-function tone(pct: number) {
-  if (pct >= 100) return { bar: 'bg-red-600', txt: 'text-red-700', label: 'Estourou' };
-  if (pct >= 80) return { bar: 'bg-amber-500', txt: 'text-amber-700', label: 'Atenção' };
-  return { bar: 'bg-orange-500', txt: 'text-orange-700', label: 'No limite' };
 }
 
 export function MetaCategoriaCard({

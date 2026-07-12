@@ -161,6 +161,12 @@ async function openMonthly(page: Page, viewport: ViewportSize) {
     if (path === "/tenant/credit-cards" || path === "/tenant/bank-accounts") {
       return route.fulfill(json([]));
     }
+    if (path === `/projects/${projectId}/monthly-overview/dre-overview`) {
+      return route.fulfill(json({ anual: { saldoAcumuladoSerie: [] } }));
+    }
+    if (path === `/projects/${projectId}/category-budgets/progress`) {
+      return route.fulfill(json([]));
+    }
     return route.fulfill(json([]));
   });
   await page.goto(`/projects/${projectId}/monthly`);

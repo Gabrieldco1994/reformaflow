@@ -7,6 +7,8 @@ import { Gauge, ChevronLeft, ChevronRight } from "lucide-react";
 import { useProject } from "@/contexts/project-context";
 import { api } from "@/lib/api";
 import type { MonthlyOverviewResponse } from "./_types";
+import type { DreOverviewResponse } from "../dre/_types";
+import type { MetaProgress } from "../metas/_components/MetaCategoriaCard";
 import { mesLongo } from "./_cockpit/format";
 import { COCKPIT_THEME } from "./_cockpit/ui";
 import { anosDisponiveis, buildCaixaData } from "./_cockpit/derive";
@@ -66,6 +68,30 @@ export default function CockpitPage() {
     queryKey: ["monthly-overview", projectId, selectedMonth],
     queryFn: () => api.get(monthlyOverviewPath(projectId, selectedMonth)),
     enabled: !!projectId,
+  });
+
+  // DRE mensal + série de saldo acumulado (runway) e progresso de metas do
+  // rail desktop (D1) — mesma fonte usada em `conta/page.tsx` e `metas/page.tsx`.
+  // Precisa ficar antes do early-return abaixo (regra dos hooks).
+  const overviewMonthKey = selectedMonth ?? data?.mesAtual ?? "";
+  const overviewYear =
+    selectedYear ??
+    (overviewMonthKey ? parseInt(overviewMonthKey.slice(0, 4), 10) : new Date().getFullYear());
+
+  const { data: dreOverview } = useQuery<DreOverviewResponse>({
+    queryKey: ["dre-overview", projectId, overviewMonthKey, overviewYear],
+    queryFn: () =>
+      api.get(
+        `/projects/${projectId}/monthly-overview/dre-overview?month=${overviewMonthKey}&year=${overviewYear}`,
+      ),
+    enabled: !!projectId && !!overviewMonthKey,
+  });
+
+  const { data: metasProgress = [] } = useQuery<MetaProgress[]>({
+    queryKey: ["category-budgets", "progress", projectId, overviewMonthKey],
+    queryFn: () =>
+      api.get(`/projects/${projectId}/category-budgets/progress?mes=${overviewMonthKey}`),
+    enabled: !!projectId && !!overviewMonthKey,
   });
 
   if (projectType && projectType !== "PESSOAL") {
@@ -319,7 +345,11 @@ export default function CockpitPage() {
                 monthKey={monthKey}
                 entries={monthEntries}
                 projectId={projectId}
+                projectType={projectType}
                 eixo={eixo}
+                dreMensal={dreOverview?.mensal}
+                runwaySerie={dreOverview?.anual?.saldoAcumuladoSerie}
+                metasProgress={metasProgress}
               />
             )
           ) : (
