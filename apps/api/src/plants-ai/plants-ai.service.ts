@@ -10,9 +10,16 @@ import { buildPlantDiagnosisPrompt } from './diagnosis-prompt';
 import { buildPlantSchedule } from './plants-schedule';
 import { parseJsonWithRepair } from '../common/json-repair';
 import { normalizeDiagnosisCommonNamesFromJbrj } from './jbrj-reference';
+import { PLANTS_AI_GENERATED_BY } from './plants-ai.constants';
 
 type PlantHealthStatus = 'SAUDAVEL' | 'ATENCAO' | 'CRITICA';
 type PlantPetRisk = 'SEGURO' | 'CAUTELA' | 'TOXICA';
+
+type PersistedScheduleResult = {
+  reminders: number;
+  maintenance: number;
+  diagnosisLog: boolean;
+};
 
 export interface PlantDiagnosisResult {
   especieProvavel: {
@@ -66,6 +73,16 @@ export class PlantsAiService {
     private readonly plantService: PlantService,
   ) {}
 
+  private buildGeneratedScheduleFilter(tenantId: string, projectId: string, plantId?: string) {
+    return {
+      tenantId,
+      projectId,
+      plantId: plantId ?? null,
+      generatedBy: PLANTS_AI_GENERATED_BY,
+      deletedAt: null,
+    };
+  }
+
   async diagnose(
     tenantId: string,
     projectId: string,
@@ -90,7 +107,7 @@ export class PlantsAiService {
       throw new ServiceUnavailableException('GEMINI_API_KEY não configurada');
     }
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
+    const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + this.model + ':generateContent?key=' + this.apiKey;
     const prompt = buildPlantDiagnosisPrompt();
 
     const response = await fetch(url, {
@@ -122,7 +139,7 @@ export class PlantsAiService {
     if (!response.ok) {
       const errorText = await response.text();
       throw new ServiceUnavailableException(
-        `Falha ao consultar Gemini (${response.status}): ${errorText.slice(0, 200)}`,
+        'Falha ao consultar Gemini (' + response.status + '): ' + errorText.slice(0, 200),
       );
     }
 
@@ -160,79 +177,99 @@ export class PlantsAiService {
 
     const diagnosis = await this.diagnose(tenantId, projectId, file);
     const plan = buildPlantSchedule(diagnosis, plantId);
-    let persisted = { reminders: 0, maintenance: 0, diagnosisLog: false };
+    let persisted: PersistedScheduleResult = { reminders: 0, maintenance: 0, diagnosisLog: false };
 
     if (persist) {
-      const reminderOps = plan.reminders.map((r) =>
-        this.prisma.reminder.create({
-          data: {
-            tenantId,
-            projectId,
-            plantId: r.plantId,
-            titulo: r.titulo,
-            descricao: r.descricao,
-            data: r.data,
-            recorrencia: r.recorrencia,
-            status: 'PENDENTE',
-            prioridade: r.prioridade,
-          },
-        }),
-      );
-      const maintenanceOps = plan.maintenance.map((m) =>
-        this.prisma.maintenanceLog.create({
-          data: {
-            tenantId,
-            projectId,
-            plantId: m.plantId,
-            tipo: m.tipo,
-            dataRealizada: m.dataRealizada,
-            dataProxima: m.dataProxima,
-            observacoes: m.observacoes,
-          },
-        }),
-      );
-      await this.prisma.$transaction([...reminderOps, ...maintenanceOps]);
-      persisted = {
-        reminders: reminderOps.length,
-        maintenance: maintenanceOps.length,
-        diagnosisLog: false,
-      };
+      const generatedScheduleFilter = this.buildGeneratedScheduleFilter(tenantId, projectId, plantId);
+      persisted = await this.prisma.$transaction(async (tx) => {
+        const deletedAt = new Date();
 
-      if (plantId) {
-        await this.prisma.$transaction([
-          this.prisma.plantDiagnosisLog.create({
-            data: {
-              plantId,
-              projectId,
-              tenantId,
-              especiePopular: diagnosis.especieProvavel?.nomePopular,
-              especieCientifica: diagnosis.especieProvavel?.nomeCientifico,
-              confiancaEspecie: diagnosis.especieProvavel?.confianca,
-              saudeStatus: diagnosis.saude?.status,
-              saudeConfianca: diagnosis.saude?.confianca,
-              riscoPet: diagnosis.pet?.risco,
-              diagnosisJson: JSON.stringify(diagnosis),
-            },
-          }),
-          this.prisma.plant.update({
-            where: { id: plantId },
-            data: {
-              especiePopular: diagnosis.especieProvavel?.nomePopular,
-              especieCientifica: diagnosis.especieProvavel?.nomeCientifico,
-              ultimaSaude: diagnosis.saude?.status,
-              ultimoRiscoPet: diagnosis.pet?.risco,
-              ultimoDiagnosticoEm: new Date(),
-            },
-          }),
-        ]);
-        persisted.diagnosisLog = true;
+        // The transaction callback bypasses Prisma soft-delete middleware, so we must soft-delete manually.
+        await tx.reminder.updateMany({
+          where: generatedScheduleFilter,
+          data: { deletedAt },
+        });
+        await tx.maintenanceLog.updateMany({
+          where: generatedScheduleFilter,
+          data: { deletedAt },
+        });
 
-        // A foto usada no diagnóstico vira o "retrato" da planta na listagem.
-        if (file?.buffer) {
-          await this.plantService
-            .setPhoto(tenantId, projectId, plantId, file)
-            .catch(() => undefined);
+        const reminderResult = plan.reminders.length
+          ? await tx.reminder.createMany({
+              data: plan.reminders.map((reminder) => ({
+                tenantId,
+                projectId,
+                plantId: reminder.plantId ?? null,
+                titulo: reminder.titulo,
+                descricao: reminder.descricao,
+                data: reminder.data,
+                recorrencia: reminder.recorrencia,
+                status: 'PENDENTE',
+                prioridade: reminder.prioridade,
+                generatedBy: PLANTS_AI_GENERATED_BY,
+              })),
+            })
+          : { count: 0 };
+        const maintenanceResult = plan.maintenance.length
+          ? await tx.maintenanceLog.createMany({
+              data: plan.maintenance.map((maintenance) => ({
+                tenantId,
+                projectId,
+                plantId: maintenance.plantId ?? null,
+                tipo: maintenance.tipo,
+                dataRealizada: maintenance.dataRealizada,
+                dataProxima: maintenance.dataProxima,
+                observacoes: maintenance.observacoes,
+                generatedBy: PLANTS_AI_GENERATED_BY,
+              })),
+            })
+          : { count: 0 };
+
+        if (!plantId) {
+          return {
+            reminders: reminderResult.count,
+            maintenance: maintenanceResult.count,
+            diagnosisLog: false,
+          };
         }
+
+        await tx.plantDiagnosisLog.create({
+          data: {
+            plantId,
+            projectId,
+            tenantId,
+            especiePopular: diagnosis.especieProvavel?.nomePopular,
+            especieCientifica: diagnosis.especieProvavel?.nomeCientifico,
+            confiancaEspecie: diagnosis.especieProvavel?.confianca,
+            saudeStatus: diagnosis.saude?.status,
+            saudeConfianca: diagnosis.saude?.confianca,
+            riscoPet: diagnosis.pet?.risco,
+            diagnosisJson: JSON.stringify(diagnosis),
+          },
+        });
+        await tx.plant.update({
+          where: { id: plantId },
+          data: {
+            especiePopular: diagnosis.especieProvavel?.nomePopular,
+            especieCientifica: diagnosis.especieProvavel?.nomeCientifico,
+            ultimaSaude: diagnosis.saude?.status,
+            ultimoRiscoPet: diagnosis.pet?.risco,
+            ultimoDiagnosticoEm: new Date(),
+          },
+        });
+
+        return {
+          reminders: reminderResult.count,
+          maintenance: maintenanceResult.count,
+          diagnosisLog: true,
+        };
+      });
+
+      // A foto usada no diagnóstico vira a foto de listagem da planta.
+      if (plantId && file?.buffer) {
+        await this.plantService
+          .setPhoto(tenantId, projectId, plantId, file)
+          .catch(() => undefined);
       }
     }
 

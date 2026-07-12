@@ -460,6 +460,7 @@ model MaintenanceLog {
   projectId     String    @map("project_id")
   tenantId      String    @map("tenant_id")
   plantId       String?   @map("plant_id") // PLANTAS: vincula a manutenção a uma planta específica
+  generatedBy   String?   @map("generated_by")
   tipo          String // CASA: PINTURA | IMPERMEABILIZACAO | DEDETIZACAO | LIMPEZA_CAIXA | REVISAO_ELETRICA | REVISAO_HIDRAULICA | OUTRO
   // CARRO: TROCA_OLEO | FILTRO_AR | FILTRO_OLEO | FILTRO_COMBUSTIVEL | PNEUS | ALINHAMENTO | BALANCEAMENTO | REVISAO | FREIOS | CORREIA | OUTRO
   // PLANTAS: REGA | ADUBACAO | PODA | TROCA_VASO | TRATAMENTO_PRAGA | OUTRO
@@ -488,6 +489,7 @@ model Reminder {
   projectId   String    @map("project_id")
   tenantId    String    @map("tenant_id")
   plantId     String?   @map("plant_id") // PLANTAS: vincula o lembrete a uma planta específica
+  generatedBy String?   @map("generated_by")
   titulo      String
   descricao   String?
   data        DateTime
