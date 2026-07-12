@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LifeOne App — Lançar · v1 (valor-primeiro, 3 toques)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F6F4EF; --card:#FFFFFF; --surface:#FBFAF7;
+    --ink:#201D19; --ink2:#57524A; --ink3:#8A857C; --line:#EAE6DE;
+    --green:#0F6B4D; --green-soft:#E4F3EC; --red:#D92D20; --red-soft:#FCEBE9;
+    --amber:#B5803A; --amber-soft:#FBF2DF; --blue:#2F5AC8;
+    --hero:#1D1B17; --hero2:#26231D;
+    --r-lg:22px; --r-md:16px;
+    --shadow:0 1px 2px rgba(32,29,25,.04),0 8px 24px rgba(32,29,25,.05);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{font-family:'Inter',-apple-system,system-ui,sans-serif;color:var(--ink);
+    -webkit-font-smoothing:antialiased;font-feature-settings:"cv11"}
+  body{background:#E5E1DA;display:flex;justify-content:center;align-items:flex-start;
+    gap:28px;padding:28px;flex-wrap:wrap;min-height:100vh}
+  .num{font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+  .micro{font-size:11.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3)}
+
+  .phone{width:402px;height:848px;background:var(--bg);border-radius:48px;
+    border:11px solid #131110;overflow:hidden;position:relative;display:flex;
+    flex-direction:column;box-shadow:0 30px 70px rgba(19,17,16,.4)}
+  .screen{flex:1;overflow-y:auto;padding:12px 18px 118px;scrollbar-width:none;position:relative;
+    display:flex;flex-direction:column}
+  .screen::-webkit-scrollbar{display:none}
+  .screen>*{flex-shrink:0}
+
+  .top{display:flex;align-items:center;justify-content:space-between;padding:10px 2px 6px}
+  .title{font-size:22px;font-weight:800;letter-spacing:-.02em}
+  .iconBtn{width:36px;height:36px;border-radius:11px;border:1px solid var(--line);
+    background:#fff;display:grid;place-items:center;color:var(--ink2);cursor:pointer;text-decoration:none}
+
+  /* faixa de impacto ao vivo (mini-herói do lançamento) */
+  .impact{background:linear-gradient(160deg,var(--hero),var(--hero2));border-radius:16px;
+    color:#C9C4BB;padding:12px 16px;font-size:13.5px;line-height:1.5;display:flex;gap:10px;
+    align-items:center;box-shadow:var(--shadow)}
+  .impact b{color:#fff;font-weight:650}
+  .impact .neg{color:#F2A196}
+  .impact svg{flex-shrink:0}
+
+  /* valor gigante */
+  .valWrap{text-align:center;padding:22px 0 6px}
+  .valWrap .micro{display:block;margin-bottom:6px}
+  .val{font-size:56px;font-weight:800;letter-spacing:-.04em;line-height:1;color:var(--ink)}
+  .val.zero{color:var(--ink3)}
+  .val em{font-style:normal;font-size:26px;font-weight:600;color:var(--ink3)}
+  .parcHint{font-size:13px;font-weight:600;color:var(--amber);margin-top:8px;min-height:18px}
+
+  /* origem: chips de 1 toque */
+  .lbl{font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ink3);margin:20px 2px 10px}
+  .srcRow{display:flex;gap:9px}
+  .src{flex:1;border:1.5px solid var(--line);background:#fff;border-radius:16px;padding:14px 6px 12px;
+    text-align:center;cursor:pointer;transition:all .15s;min-height:64px}
+  .src .n{font-size:15px;font-weight:700;letter-spacing:-.01em}
+  .src .s{font-size:11.5px;font-weight:600;color:var(--ink3);margin-top:3px}
+  .src.on{border-color:var(--ink);background:var(--ink);color:#fff}
+  .src.on .s{color:#B7B2A8}
+  .src .chip{display:inline-block;width:8px;height:8px;border-radius:3px;margin-right:5px}
+
+  /* parcelas — só aparece com cartão */
+  .parcBox{max-height:0;overflow:hidden;transition:max-height .3s ease}
+  .parcBox.show{max-height:190px}
+  .parcChips{display:flex;gap:9px}
+  .parcChips button{flex:1;border:1.5px solid var(--line);background:#fff;border-radius:16px;
+    padding:0;font:700 16px Inter;color:var(--ink2);cursor:pointer;min-height:52px}
+  .parcChips button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .faturaHint{font-size:13px;line-height:1.55;color:var(--ink2);font-weight:500;margin-top:12px;
+    padding:12px 14px;border-radius:13px;background:var(--surface);border:1px solid var(--line);
+    display:flex;align-items:flex-start;gap:8px}
+  .faturaHint b{color:var(--ink)}
+  .faturaHint.warn{background:var(--amber-soft);border-color:#EBD9B4;color:#7A5A28}
+  .faturaHint.warn b{color:#7A5A28}
+
+  /* descrição + categoria IA */
+  .desc{display:flex;gap:8px;margin-top:2px}
+  .desc input{flex:1;border:1px solid var(--line);border-radius:14px;padding:13px 15px;
+    font:500 15px Inter;background:#fff;color:var(--ink)}
+  .desc input::placeholder{color:var(--ink3)}
+  .micBtn{border:0;background:var(--green);color:#fff;border-radius:14px;width:48px;
+    display:grid;place-items:center;cursor:pointer;flex-shrink:0}
+  .recent{display:flex;gap:7px;overflow-x:auto;margin-top:8px;scrollbar-width:none}
+  .recent::-webkit-scrollbar{display:none}
+  .recent button{white-space:nowrap;font-size:13.5px;font-weight:600;color:var(--ink2);
+    border:1px solid var(--line);background:#fff;border-radius:99px;padding:11px 16px;cursor:pointer;min-height:42px}
+  .iaCat{display:flex;align-items:center;gap:8px;margin-top:10px;min-height:34px}
+  .iaCat .pill{display:none;align-items:center;gap:6px;background:var(--green-soft);
+    border:1px solid #CBE7D8;color:#0C5A40;font-size:13px;font-weight:700;
+    border-radius:99px;padding:7px 13px;animation:pop .25s}
+  .iaCat.show .pill{display:inline-flex}
+  .iaCat .swap{display:none;font-size:12.5px;font-weight:650;color:var(--ink3);cursor:pointer}
+  .iaCat.show .swap{display:inline}
+  @keyframes pop{from{transform:scale(.85);opacity:0}to{transform:scale(1);opacity:1}}
+
+  /* teclado numérico próprio */
+  .pad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:auto;padding-top:14px}
+  .pad button{border:0;background:#fff;border-radius:14px;padding:15px 0;font:650 22px Inter;
+    color:var(--ink);cursor:pointer;box-shadow:var(--shadow);min-height:54px}
+  .pad button:active{background:#EFECE5}
+  .pad .fn{font-size:16px;color:var(--ink2);background:var(--surface)}
+  .confirm{margin-top:10px;border:0;width:100%;background:var(--green);color:#fff;
+    border-radius:16px;padding:17px;font:750 16.5px Inter;cursor:pointer;
+    box-shadow:0 12px 28px rgba(15,107,77,.35);display:flex;align-items:center;
+    justify-content:center;gap:9px;transition:all .2s}
+  .confirm:disabled{background:#C9C4BB;box-shadow:none}
+
+  /* sucesso */
+  .success{position:absolute;inset:0;background:var(--bg);z-index:40;display:none;
+    flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:32px;text-align:center}
+  .success.show{display:flex}
+  .okDot{width:74px;height:74px;border-radius:50%;background:var(--green-soft);display:grid;
+    place-items:center;animation:pop .35s}
+  .success h2{font-size:21px;font-weight:800;letter-spacing:-.02em}
+  .success p{font-size:14.5px;color:var(--ink2);line-height:1.6;max-width:270px}
+  .success p b{color:var(--ink)}
+  .success .neg{color:var(--red)}
+  .sBtns{display:flex;gap:10px;margin-top:8px}
+  .sBtns button{border:1px solid var(--line);background:#fff;border-radius:13px;
+    padding:12px 18px;font:650 14px Inter;color:var(--ink2);cursor:pointer}
+  .sBtns .pri{background:var(--ink);color:#fff;border-color:var(--ink)}
+
+  .tabbar{position:absolute;left:0;right:0;bottom:0;background:rgba(251,250,247,.94);
+    backdrop-filter:blur(14px);border-top:1px solid var(--line);display:flex;padding:10px 6px 26px;z-index:50}
+  .tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;
+    font-size:10.5px;color:var(--ink3);font-weight:650;text-decoration:none}
+  .tab.on{color:var(--green)}
+  .tab svg{width:22px;height:22px}
+  .tab .raised{width:46px;height:46px;border-radius:16px;background:var(--green);color:#fff;
+    display:grid;place-items:center;margin-top:-26px;box-shadow:0 10px 24px rgba(15,107,77,.4)}
+  .note{max-width:380px;font-size:13px;color:#3a372f;line-height:1.65;background:#fff;
+    border-radius:18px;padding:18px 20px;box-shadow:var(--shadow)}
+  .note b{color:#201D19}
+  @media (max-width:560px){
+    body{padding:0;background:var(--bg);display:block}
+    .phone{width:100%;height:100dvh;border:0;border-radius:0;box-shadow:none}
+    .note{display:none}
+  }
+</style>
+</head>
+<body>
+
+<div class="phone">
+  <div class="screen">
+
+    <div class="top">
+      <div class="title">Lançar</div>
+      <a class="iconBtn" href="cockpit-inovador-c3.html" aria-label="Fechar">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="5" y1="5" x2="19" y2="19"/><line x1="19" y1="5" x2="5" y2="19"/></svg>
+      </a>
+    </div>
+
+    <!-- IMPACTO AO VIVO -->
+    <div class="impact num" id="impact">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#98938A" stroke-width="2" stroke-linecap="round"><path d="M3 17l6-6 4 4 8-9"/></svg>
+      <span>Julho está fechando em <b class="neg">−R$ 1,9 mil</b>. Digite o valor para ver o impacto.</span>
+    </div>
+
+    <!-- VALOR GIGANTE -->
+    <div class="valWrap">
+      <span class="micro" id="valLbl">Quanto?</span>
+      <div class="val zero num" id="val">R$ 0<em>,00</em></div>
+      <div class="parcHint num" id="parcHint"></div>
+    </div>
+
+    <!-- ORIGEM: 1 TOQUE -->
+    <div class="lbl">De onde sai</div>
+    <div class="srcRow" id="srcRow">
+      <div class="src on" data-t="conta"><div class="n"><span class="chip" style="background:#0F6B4D"></span>Conta Itaú</div><div class="s">débito · à vista</div></div>
+      <div class="src" data-t="card" data-card="Mastercard"><div class="n"><span class="chip" style="background:#D97706"></span>Master •5876</div><div class="s">fecha dia 5</div></div>
+      <div class="src" data-t="card" data-card="Personnalité"><div class="n"><span class="chip" style="background:#2F5AC8"></span>Pers. •7777</div><div class="s">sem fechamento</div></div>
+    </div>
+
+    <!-- PARCELAS (só com cartão) -->
+    <div class="parcBox" id="parcBox">
+      <div class="lbl">Em quantas vezes</div>
+      <div class="parcChips" id="parcChips">
+        <button class="on" data-p="1" style="font-size:14.5px">à vista</button>
+        <button data-p="3">3×</button>
+        <button data-p="6">6×</button>
+        <button data-p="12">12×</button>
+      </div>
+      <div class="faturaHint" id="faturaHint"></div>
+    </div>
+
+    <!-- DESCRIÇÃO + CATEGORIA IA -->
+    <div class="lbl">O que foi</div>
+    <div class="desc">
+      <input id="descInput" placeholder="ex.: mercado, uber, farmácia…">
+      <button class="micBtn" id="micBtn" aria-label="Falar">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><line x1="12" y1="18" x2="12" y2="21"/></svg>
+      </button>
+    </div>
+    <div class="recent" id="recent">
+      <button data-d="Mercado Zaffari" data-c="Supermercado">Mercado Zaffari</button>
+      <button data-d="Uber" data-c="Transporte">Uber</button>
+      <button data-d="Farmácia Panvel" data-c="Saúde">Farmácia Panvel</button>
+      <button data-d="iFood" data-c="Alimentação">iFood</button>
+    </div>
+    <div class="iaCat" id="iaCat">
+      <span class="pill"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8Z"/></svg>
+        Maria sugeriu: <b id="catName">—</b></span>
+      <span class="swap">trocar</span>
+    </div>
+
+    <!-- TECLADO + CONFIRMAR -->
+    <div class="pad" id="pad">
+      <button>1</button><button>2</button><button>3</button>
+      <button>4</button><button>5</button><button>6</button>
+      <button>7</button><button>8</button><button>9</button>
+      <button class="fn" data-k="c">limpar</button><button>0</button><button class="fn" data-k="b">⌫</button>
+    </div>
+    <button class="confirm" id="confirm" disabled>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"><path d="M5 12.5l4.2 4.2L19 7"/></svg>
+      Lançar despesa
+    </button>
+  </div>
+
+  <!-- SUCESSO -->
+  <div class="success" id="success">
+    <div class="okDot"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#0F6B4D" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg></div>
+    <h2 id="sTitle">Lançado!</h2>
+    <p class="num" id="sBody"></p>
+    <div class="sBtns">
+      <button id="sUndo">desfazer</button>
+      <button class="pri" id="sMore">lançar outra</button>
+    </div>
+  </div>
+
+  <nav class="tabbar">
+    <a class="tab" href="cockpit-inovador-c3.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 3.5 10v10h6v-6h5v6h6V10Z"/></svg>Hoje</a>
+    <a class="tab on" href="app-lancar.html"><span class="raised"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></span>Lançar</a>
+    <a class="tab" href="app-maria.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5c-1.5 0-2.9-.35-4.1-1L3 21l1.6-4.6A8.5 8.5 0 1 1 21 12Z"/></svg>Maria</a>
+  </nav>
+</div>
+
+<div class="note">
+  <b>App · Lançar — v1 (valor-primeiro, 3 toques)</b> — abra no celular: vira tela cheia.<br><br>
+  <b>1 · Valor primeiro.</b> A tela abre no teclado numérico próprio (teclas grandes,
+  sem teclado do sistema). Digitar já é o 1º toque.<br><br>
+  <b>2 · Origem em 1 toque.</b> Conta Itaú / Mastercard •5876 / Personnalité •7777 (os cartões
+  reais do PESSOAL) como chips. Escolher cartão
+  <b>revela</b> as parcelas (campo condicional — decisão de UX já acordada) e mostra
+  <b>em qual fatura a compra cai</b> e quando vence, usando o closingDay do cartão.<br><br>
+  <b>3 · Categoria pela Maria.</b> Digite "uber" ou toque num recente: a categoria
+  aparece sugerida (merchant-classifier já existe no backend). Aceitar é não fazer nada;
+  trocar é 1 toque.<br><br>
+  <b>4 · Impacto ao vivo.</b> A faixa escura no topo mostra como o fechamento de julho
+  muda com o valor digitado — lançar deixa de ser "cadastrar" e vira "ver a consequência".<br><br>
+  <b>5 · Confirmação otimista.</b> Ao lançar: check, resumo com a fatura de destino e
+  <b>desfazer</b> — sem modal de formulário em nenhum momento.<br><br>
+  Fluxo mínimo: teclar valor → (opcional trocar origem/parcela) → tocar num recente →
+  Lançar. <b>3 toques além do valor.</b>
+</div>
+
+<script>
+  /* estado */
+  let cents=0, parc=1, src={t:'conta'}, cat=null, desc='';
+  /* dados reais: Mastercard •5876 fecha dia 5 e vence dia 12; Personnalité •7777 sem closingDay cadastrado */
+  const fecha={Mastercard:'05 ago','Personnalité':null}, vence={Mastercard:'12 ago','Personnalité':null};
+  const val=document.getElementById('val'), impact=document.getElementById('impact'),
+        parcBox=document.getElementById('parcBox'), parcHint=document.getElementById('parcHint'),
+        faturaHint=document.getElementById('faturaHint'), confirm=document.getElementById('confirm'),
+        iaCat=document.getElementById('iaCat'), catName=document.getElementById('catName'),
+        descInput=document.getElementById('descInput');
+  const BRL=v=>v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+  const CLOSE0=-1900; // fechamento projetado de julho (do cockpit)
+
+  function render(){
+    const v=cents/100;
+    if(cents===0){val.className='val zero num';val.innerHTML='R$ 0<em>,00</em>';}
+    else{val.className='val num';
+      const s=BRL(v).split(',');
+      val.innerHTML=s[0]+'<em>,'+s[1]+'</em>';}
+    /* impacto: à vista pesa no mês; cartão pesa na fatura */
+    if(cents===0){impact.querySelector('span').innerHTML=
+      'Julho está fechando em <b class="neg">−R$ 1,9 mil</b>. Digite o valor para ver o impacto.';}
+    else if(src.t==='conta'){
+      const novo=CLOSE0-v;
+      impact.querySelector('span').innerHTML='Sai da conta hoje → julho fecha em <b class="neg">'
+        +BRL(novo).replace('-','−')+'</b> (era −R$ 1,9 mil).';
+    } else {
+      const per=v/parc;
+      impact.querySelector('span').innerHTML='Não mexe no caixa de julho — <b>'
+        +(parc>1?parc+'× de '+BRL(per):BRL(v))+'</b> na fatura do <b>'+src.card+'</b>'
+        +(vence[src.card]?' que vence '+vence[src.card]:'')+'.';
+    }
+    /* parcelas */
+    parcHint.textContent = (src.t==='card'&&parc>1&&cents)
+      ? parc+'× de '+BRL(cents/100/parc)+(fecha[src.card]?' · última vence em '+({3:'out/26',6:'jan/27',12:'jul/27'})[parc]:'') : '';
+    if(src.t==='card'){
+      const ok=!!fecha[src.card];
+      faturaHint.classList.toggle('warn',!ok);
+      faturaHint.innerHTML = ok
+        ? '<span>💳</span><span>Compra de hoje (11 jul) entra na fatura que fecha <b>'+fecha[src.card]+'</b> e vence <b>'+vence[src.card]+'</b></span>'
+        : '<span>⚠️</span><span><b>Sem dia de fechamento cadastrado</b> — configure o cartão para ver em qual fatura a compra cai</span>';
+    }
+    confirm.disabled = cents===0;
+  }
+
+  /* teclado */
+  document.getElementById('pad').addEventListener('click',e=>{
+    const b=e.target.closest('button'); if(!b)return;
+    if(b.dataset.k==='c')cents=0;
+    else if(b.dataset.k==='b')cents=Math.floor(cents/10);
+    else if(cents<10000000)cents=cents*10+ +b.textContent;
+    render();
+  });
+
+  /* origem */
+  document.getElementById('srcRow').addEventListener('click',e=>{
+    const s=e.target.closest('.src'); if(!s)return;
+    document.querySelectorAll('.src').forEach(x=>x.classList.remove('on'));
+    s.classList.add('on');
+    src = s.dataset.t==='card' ? {t:'card',card:s.dataset.card} : {t:'conta'};
+    parcBox.classList.toggle('show',src.t==='card');
+    if(src.t!=='card')parc=1;
+    render();
+  });
+
+  /* parcelas */
+  document.getElementById('parcChips').addEventListener('click',e=>{
+    const b=e.target.closest('button'); if(!b)return;
+    document.querySelectorAll('#parcChips button').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on'); parc=+b.dataset.p; render();
+  });
+
+  /* categoria IA */
+  const CLASSIFY={mercado:'Supermercado',zaffari:'Supermercado',uber:'Transporte','99':'Transporte',
+    farmacia:'Saúde','farmácia':'Saúde',panvel:'Saúde',ifood:'Alimentação',rest:'Alimentação'};
+  function suggest(text){
+    const t=text.toLowerCase(); cat=null;
+    for(const k in CLASSIFY) if(t.includes(k)){cat=CLASSIFY[k];break;}
+    if(cat){catName.textContent=cat;iaCat.classList.add('show');}
+    else iaCat.classList.remove('show');
+  }
+  descInput.addEventListener('input',e=>{desc=e.target.value;suggest(desc);});
+  document.getElementById('recent').addEventListener('click',e=>{
+    const b=e.target.closest('button'); if(!b)return;
+    desc=b.dataset.d; descInput.value=desc; cat=b.dataset.c;
+    catName.textContent=cat; iaCat.classList.add('show');
+  });
+
+  /* mic — atalho para a Maria */
+  document.getElementById('micBtn').addEventListener('click',()=>{
+    location.href='app-maria.html#lancar';
+  });
+
+  /* confirmar (otimista) */
+  const success=document.getElementById('success');
+  confirm.addEventListener('click',()=>{
+    const v=cents/100;
+    document.getElementById('sBody').innerHTML =
+      '<b>'+(desc||'Despesa')+'</b> · '+(cat?cat+' · ':'')
+      +(src.t==='conta'
+        ? BRL(v)+' na <b>Conta</b>, hoje.<br>Julho agora fecha em <b class="neg">'+BRL(CLOSE0-v).replace('-','−')+'</b>.'
+        : (parc>1?parc+'× de '+BRL(v/parc):BRL(v))+' no <b>'+src.card+'</b>.<br>'
+          +(vence[src.card]?'Cai na fatura que vence <b>'+vence[src.card]+'</b>.':'Fatura a definir (sem fechamento cadastrado).'));
+    success.classList.add('show');
+  });
+  document.getElementById('sUndo').addEventListener('click',()=>success.classList.remove('show'));
+  document.getElementById('sMore').addEventListener('click',()=>{
+    cents=0;parc=1;desc='';descInput.value='';cat=null;iaCat.classList.remove('show');
+    document.querySelectorAll('#parcChips button').forEach((x,i)=>x.classList.toggle('on',i===0));
+    success.classList.remove('show');render();
+  });
+
+  render();
+</script>
+</body>
+</html>

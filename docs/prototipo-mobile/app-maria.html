@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LifeOne App — Maria · v1 (copiloto de primeira classe)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F6F4EF; --card:#FFFFFF; --surface:#FBFAF7;
+    --ink:#201D19; --ink2:#57524A; --ink3:#8A857C; --line:#EAE6DE;
+    --green:#0F6B4D; --green-soft:#E4F3EC; --red:#D92D20; --red-soft:#FCEBE9;
+    --amber:#B5803A; --amber-soft:#FBF2DF; --blue:#2F5AC8;
+    --hero:#1D1B17; --hero2:#26231D;
+    --r-lg:22px; --r-md:16px;
+    --shadow:0 1px 2px rgba(32,29,25,.04),0 8px 24px rgba(32,29,25,.05);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{font-family:'Inter',-apple-system,system-ui,sans-serif;color:var(--ink);
+    -webkit-font-smoothing:antialiased;font-feature-settings:"cv11"}
+  body{background:#E5E1DA;display:flex;justify-content:center;align-items:flex-start;
+    gap:28px;padding:28px;flex-wrap:wrap;min-height:100vh}
+  .num{font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+  .micro{font-size:11.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3)}
+
+  .phone{width:402px;height:848px;background:var(--bg);border-radius:48px;
+    border:11px solid #131110;overflow:hidden;position:relative;display:flex;
+    flex-direction:column;box-shadow:0 30px 70px rgba(19,17,16,.4)}
+  .screen{flex:1;overflow-y:auto;padding:12px 18px 210px;scrollbar-width:none;position:relative}
+  .screen::-webkit-scrollbar{display:none}
+
+  .top{display:flex;align-items:center;gap:11px;padding:10px 2px 12px}
+  .avatar{width:42px;height:42px;border-radius:14px;background:linear-gradient(160deg,var(--hero),var(--hero2));
+    display:grid;place-items:center;color:#fff;position:relative}
+  .avatar::after{content:"";position:absolute;width:10px;height:10px;border-radius:50%;
+    background:var(--green);border:2px solid var(--bg);right:-2px;bottom:-2px}
+  .top h1{font-size:20px;font-weight:800;letter-spacing:-.02em}
+  .top .s{font-size:12px;color:var(--ink3);font-weight:600}
+
+  /* bolhas */
+  .msg{max-width:86%;margin-top:12px;animation:up .3s}
+  @keyframes up{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}
+  .msg.me{margin-left:auto}
+  .msg.me .b{background:var(--ink);color:#fff;border-radius:18px 18px 5px 18px;
+    padding:12px 16px;font-size:15px;line-height:1.5;font-weight:500}
+  .msg.her .b{background:var(--card);border:1px solid var(--line);border-radius:18px 18px 18px 5px;
+    padding:13px 16px;font-size:15px;line-height:1.55;color:var(--ink2);box-shadow:var(--shadow)}
+  .msg.her .b b{color:var(--ink);font-weight:650}
+  .msg.her .b .neg{color:var(--red);font-weight:650}
+  .msg .voice{display:flex;align-items:center;gap:3px;height:16px;margin-bottom:6px;opacity:.6}
+  .msg .voice i{width:3px;border-radius:2px;background:currentColor;display:block}
+
+  /* cartões ricos dentro do chat */
+  .rich{background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);
+    padding:14px 15px;box-shadow:var(--shadow);margin-top:8px}
+  .rich .head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+  .rich .head .t{font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3)}
+  .rich .head .v{font-size:15px;font-weight:750}
+  .row{display:flex;justify-content:space-between;font-size:13.5px;font-weight:600;margin-top:9px;color:var(--ink2)}
+  .row b{color:var(--ink)}
+  .bar{height:7px;border-radius:5px;background:#EFECE5;overflow:hidden;margin-top:4px}
+  .bar i{display:block;height:100%;border-radius:5px;background:var(--ink)}
+  .bar i.g{background:var(--green)}
+
+  .verdict{display:flex;align-items:center;gap:9px;padding:11px 13px;border-radius:13px;
+    background:var(--green-soft);border:1px solid #CBE7D8;margin-top:8px}
+  .verdict.bad{background:var(--red-soft);border-color:#F2C6C1}
+  .verdict .t{font-size:14px;font-weight:700;color:#0C5A40;line-height:1.4}
+  .verdict.bad .t{color:#B3261B}
+  .verdict .s{font-size:12px;color:var(--ink3);font-weight:500;margin-top:1px}
+
+  /* preview de tool-call (lançamento por voz) */
+  .toolCard{border:1.5px dashed #CBE7D8;background:var(--green-soft);border-radius:var(--r-md);
+    padding:14px 15px;margin-top:8px}
+  .toolCard .micro{color:#0C5A40;display:flex;align-items:center;gap:6px}
+  .toolCard .big{font-size:24px;font-weight:800;letter-spacing:-.03em;margin-top:6px}
+  .toolCard .meta{font-size:13px;color:var(--ink2);font-weight:600;margin-top:3px;line-height:1.5}
+  .toolBtns{display:flex;gap:8px;margin-top:12px}
+  .toolBtns button{flex:1;border:0;border-radius:12px;padding:12px;font:700 14px Inter;cursor:pointer;min-height:44px}
+  .toolBtns .ok{background:var(--green);color:#fff}
+  .toolBtns .edit{background:#fff;border:1px solid var(--line);color:var(--ink2)}
+  .toolCard.done{border-style:solid;opacity:.75}
+  .toolCard.done .toolBtns{display:none}
+
+  .cta{display:inline-block;margin-top:9px;font-size:12.5px;font-weight:700;color:var(--green);text-decoration:none}
+
+  /* digitando */
+  .typing{display:inline-flex;gap:4px;padding:14px 16px}
+  .typing i{width:6px;height:6px;border-radius:50%;background:var(--ink3);animation:tp 1s infinite}
+  .typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
+  @keyframes tp{0%,60%,100%{transform:none;opacity:.4}30%{transform:translateY(-4px);opacity:1}}
+
+  /* dock de entrada */
+  .dock{position:absolute;left:0;right:0;bottom:82px;padding:10px 16px 8px;z-index:40;
+    background:linear-gradient(transparent,var(--bg) 26%)}
+  .quick{display:flex;gap:7px;overflow-x:auto;scrollbar-width:none;margin-bottom:9px}
+  .quick::-webkit-scrollbar{display:none}
+  .quick button{white-space:nowrap;font-size:13px;font-weight:600;color:var(--ink2);
+    border:1px solid var(--line);background:#fff;border-radius:99px;padding:10px 15px;cursor:pointer}
+  .askRow{display:flex;gap:8px}
+  .askRow input{flex:1;border:1px solid var(--line);border-radius:16px;padding:14px 16px;
+    font:500 15px Inter;background:#fff;color:var(--ink);box-shadow:var(--shadow)}
+  .askRow input::placeholder{color:var(--ink3)}
+  .mic{border:0;background:var(--green);color:#fff;border-radius:16px;width:52px;height:52px;
+    display:grid;place-items:center;cursor:pointer;flex-shrink:0;transition:all .2s;position:relative}
+  .mic.rec{background:var(--red)}
+  .mic.rec::before{content:"";position:absolute;inset:-6px;border-radius:20px;
+    border:2px solid var(--red);animation:pulse 1.2s infinite}
+  @keyframes pulse{from{transform:scale(.9);opacity:.8}to{transform:scale(1.15);opacity:0}}
+  /* ondas ao gravar */
+  .listen{position:absolute;left:16px;right:76px;bottom:8px;height:52px;border-radius:16px;
+    background:var(--hero);display:none;align-items:center;gap:3px;padding:0 18px;color:#fff}
+  .listen.show{display:flex}
+  .listen i{width:3.5px;border-radius:2px;background:#4A9E78;display:block;animation:wave .7s infinite alternate}
+  @keyframes wave{from{height:6px}to{height:26px}}
+  .listen span{margin-left:10px;font-size:13.5px;font-weight:600;color:#C9C4BB}
+
+  .tabbar{position:absolute;left:0;right:0;bottom:0;background:rgba(251,250,247,.94);
+    backdrop-filter:blur(14px);border-top:1px solid var(--line);display:flex;padding:10px 6px 26px;z-index:50}
+  .tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;
+    font-size:10.5px;color:var(--ink3);font-weight:650;text-decoration:none}
+  .tab.on{color:var(--green)}
+  .tab svg{width:22px;height:22px}
+  .tab .raised{width:46px;height:46px;border-radius:16px;background:var(--green);color:#fff;
+    display:grid;place-items:center;margin-top:-26px;box-shadow:0 10px 24px rgba(15,107,77,.4)}
+  .note{max-width:380px;font-size:13px;color:#3a372f;line-height:1.65;background:#fff;
+    border-radius:18px;padding:18px 20px;box-shadow:var(--shadow)}
+  .note b{color:#201D19}
+  @media (max-width:560px){
+    body{padding:0;background:var(--bg);display:block}
+    .phone{width:100%;height:100dvh;border:0;border-radius:0;box-shadow:none}
+    .note{display:none}
+  }
+</style>
+</head>
+<body>
+
+<div class="phone">
+  <div class="screen" id="screen">
+    <div class="top">
+      <div class="avatar"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5c-1.5 0-2.9-.35-4.1-1L3 21l1.6-4.6A8.5 8.5 0 1 1 21 12Z"/></svg></div>
+      <div><h1>Maria</h1><div class="s">sabe do seu mês inteiro · fala e ouve</div></div>
+    </div>
+
+    <div id="chat">
+      <!-- abertura proativa -->
+      <div class="msg her"><div class="b">Bom dia, Gabriel 👋 Duas coisas do seu radar:
+        a <b>fatura do Mastercard •5876 vence amanhã, dia 12</b> (R$ 2,1 mil, 18% acima da média)
+        e a <b>Cerâmica da obra (R$ 5,4 mil)</b> sai dia 28. Fora isso, julho segue no plano.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- gravação -->
+  <div class="listen" id="listen">
+    <i style="animation-delay:0s"></i><i style="animation-delay:.1s"></i><i style="animation-delay:.2s"></i>
+    <i style="animation-delay:.05s"></i><i style="animation-delay:.15s"></i><i style="animation-delay:.25s"></i>
+    <span>ouvindo… fale a despesa ou a pergunta</span>
+  </div>
+
+  <div class="dock">
+    <div class="quick" id="quick">
+      <button data-q="posso">Posso gastar R$ 500?</button>
+      <button data-q="mercado">Quanto gastei com mercado?</button>
+      <button data-q="lancar">🎙 “45 no mercado no Mastercard”</button>
+      <button data-q="fecho">Como fecho o mês?</button>
+    </div>
+    <div class="askRow">
+      <input id="askInput" placeholder="Pergunte ou lance… “paguei 30 de uber”">
+      <button class="mic" id="mic" aria-label="Falar">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><line x1="12" y1="18" x2="12" y2="21"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <nav class="tabbar">
+    <a class="tab" href="cockpit-inovador-c3.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 3.5 10v10h6v-6h5v6h6V10Z"/></svg>Hoje</a>
+    <a class="tab" href="app-lancar.html"><span class="raised"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></span>Lançar</a>
+    <a class="tab on" href="app-maria.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5c-1.5 0-2.9-.35-4.1-1L3 21l1.6-4.6A8.5 8.5 0 1 1 21 12Z"/></svg>Maria</a>
+  </nav>
+</div>
+
+<div class="note">
+  <b>App · Maria — v1 (copiloto de primeira classe)</b> — abra no celular: vira tela cheia.<br><br>
+  <b>1 · Proativa, não reativa.</b> A conversa abre com a Maria falando primeiro: os 2
+  alertas do radar do mês (fatura fechando, saída grande). O "Maria percebeu" do
+  Cockpit vira o início da conversa.<br><br>
+  <b>2 · Respostas com cartão, não parágrafo.</b> Toque em <i>"Posso gastar R$ 500?"</i>
+  → veredito verde/vermelho com o motivo. <i>"Quanto gastei com mercado?"</i> → mini-card
+  com barras. O chat responde com as mesmas peças visuais do Cockpit — uma língua só.<br><br>
+  <b>3 · Lançar falando, com confirmação.</b> Toque no chip 🎙 ou no microfone: a fala
+  <i>"45 no mercado no Mastercard"</i> vira um <b>cartão de conferência</b> (valor parseado,
+  categoria, fatura de destino) com Confirmar/Editar — nunca lança cego (a tool
+  <code>parseSpokenMoney</code> e o agent já existem no backend; TTS via VibeVoice).<br><br>
+  <b>4 · Continuidade com o app.</b> Cada resposta tem um link de aprofundamento que leva
+  à tela certa ("ver fatura", "abrir no painel completo" = web analítico).<br><br>
+  Tudo aqui é conversa <b>sobre dados que os motores já calculam</b> — a Maria não inventa
+  número: ela lê o monthly-overview e chama as tools existentes.
+</div>
+
+<script>
+  const chat=document.getElementById('chat'), screen=document.getElementById('screen'),
+        listen=document.getElementById('listen'), mic=document.getElementById('mic'),
+        askInput=document.getElementById('askInput');
+  const scroll=()=>screen.scrollTo({top:screen.scrollHeight,behavior:'smooth'});
+  function add(html,cls){const d=document.createElement('div');d.className='msg '+cls;
+    d.innerHTML=html;chat.appendChild(d);scroll();return d;}
+  function her(html,delay=650){
+    const t=add('<div class="b typing"><i></i><i></i><i></i></div>','her');
+    setTimeout(()=>{t.innerHTML=html;scroll();},delay);
+  }
+
+  const ANSWERS={
+    posso:{q:'Posso gastar R$ 500?',a:`<div class="b">Pode — mas por pouco. Com R$ 500 a mais,
+      julho fecha em <b class="neg">−R$ 2,4 mil</b> e o colchão de agosto cai para <b>R$ 4,4 mil</b>.</div>
+      <div class="verdict"><div><div class="t">Cabe, sem quebrar o plano até dezembro.</div>
+      <div class="s num">menor ponto passa a R$ 0,7 mil em dez</div></div></div>
+      <a class="cta" href="cockpit-inovador-c3.html">ver no “Vai dar até dez?” →</a>`},
+    mercado:{q:'Quanto gastei com mercado?',a:`<div class="b">Em julho, <b>R$ 480</b> em Supermercado
+      até agora — <b>32% abaixo</b> da sua média de 6 meses (R$ 705). Melhor mês do semestre.</div>
+      <div class="rich"><div class="head"><span class="t">Supermercado · últimos 3 meses</span>
+      <span class="v num">R$ 480</span></div>
+      <div class="row"><span>mai</span><b class="num">R$ 730</b></div><div class="bar"><i style="width:88%"></i></div>
+      <div class="row"><span>jun</span><b class="num">R$ 640</b></div><div class="bar"><i style="width:77%"></i></div>
+      <div class="row"><span>jul</span><b class="num">R$ 480</b></div><div class="bar"><i class="g" style="width:58%"></i></div></div>
+      <a class="cta" href="#">abrir no painel completo →</a>`},
+    fecho:{q:'Como fecho o mês?',a:`<div class="b">Hoje você tem <b>R$ 6,4 mil</b> em caixa.
+      Até dia 31 ainda saem <b>R$ 8,3 mil</b> (fatura do Mastercard, parcela do sofá e a Cerâmica da obra)
+      → julho fecha em <b class="neg">−R$ 1,9 mil</b>. A obra é o peso: sem ela, fecharia em <b>+R$ 3,5 mil</b>.</div>
+      <a class="cta" href="cockpit-inovador-c3.html">viajar pelo mês no Cockpit →</a>`}
+  };
+
+  function ask(key){
+    const o=ANSWERS[key]; add('<div class="b">'+o.q+'</div>','me'); her(o.a,800);
+  }
+
+  /* lançamento por voz — tool-call com confirmação */
+  function voiceLaunch(){
+    listen.classList.add('show'); mic.classList.add('rec');
+    setTimeout(()=>{
+      listen.classList.remove('show'); mic.classList.remove('rec');
+      add(`<div class="voice"><i style="height:6px"></i><i style="height:14px"></i><i style="height:9px"></i><i style="height:16px"></i><i style="height:7px"></i><i style="height:12px"></i></div>
+        <div class="b">quarenta e cinco no mercado no mastercard</div>`,'me');
+      her(`<div class="b">Entendi assim — confere?</div>
+        <div class="toolCard" id="tc">
+          <span class="micro"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8Z"/></svg> nova despesa</span>
+          <div class="big num">R$ 45,00</div>
+          <div class="meta">Supermercado · cartão <b>Mastercard •5876</b> · hoje, 11 jul<br>cai na fatura que fecha <b>5 ago</b> · vence <b>12 ago</b></div>
+          <div class="toolBtns">
+            <button class="ok" onclick="confirmTool()">Confirmar</button>
+            <button class="edit" onclick="location.href='app-lancar.html'">Editar</button>
+          </div>
+        </div>`,900);
+    },1800);
+  }
+  window.confirmTool=function(){
+    document.getElementById('tc').classList.add('done');
+    her(`<div class="b">Lançado ✓ Supermercado em julho vai a <b class="num">R$ 525</b> —
+      ainda 26% abaixo da média. A próxima fatura do Mastercard (vence 12 ago) começa com <b class="num">R$ 45</b>.</div>`,700);
+  };
+
+  document.getElementById('quick').addEventListener('click',e=>{
+    const b=e.target.closest('button'); if(!b)return;
+    b.dataset.q==='lancar' ? voiceLaunch() : ask(b.dataset.q);
+  });
+  mic.addEventListener('click',voiceLaunch);
+  askInput.addEventListener('keydown',e=>{
+    if(e.key==='Enter'&&askInput.value.trim()){
+      add('<div class="b">'+askInput.value+'</div>','me');
+      her('<div class="b">No app real, esta pergunta vai para o agente (módulo <b>agent</b> já existente) com as tools de despesa, fatura e projeção.</div>');
+      askInput.value='';
+    }
+  });
+  /* veio do botão de mic da tela Lançar */
+  if(location.hash==='#lancar') setTimeout(voiceLaunch,500);
+</script>
+</body>
+</html>

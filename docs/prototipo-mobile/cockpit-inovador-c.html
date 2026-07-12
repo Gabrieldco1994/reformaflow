@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LifeOne — Cockpit Inovador (Proposta C)</title>
+<style>
+  :root{
+    --bg:#F7F5F1; --card:#FFFFFF; --ink:#1F1D1A; --ink2:#5B564E; --ink3:#8A857C;
+    --line:#E9E5DE; --accent:#2F6BFF; --pos:#1E9E6A; --neg:#D64545; --warn:#D69A2D;
+    --hero1:#17151F; --hero2:#232030; --radius:20px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;font-family:'Geist',-apple-system,system-ui,sans-serif}
+  body{background:#DDD9D2;display:flex;justify-content:center;padding:24px;gap:24px;flex-wrap:wrap}
+  .phone{width:402px;height:840px;background:var(--bg);border-radius:44px;border:10px solid #14120F;
+    overflow:hidden;position:relative;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.35)}
+  .screen{flex:1;overflow-y:auto;padding:14px 14px 120px;scrollbar-width:none}
+  .screen::-webkit-scrollbar{display:none}
+  .num{font-variant-numeric:tabular-nums}
+
+  /* header */
+  .top{display:flex;align-items:center;justify-content:space-between;padding:10px 4px 12px}
+  .month{font-weight:700;font-size:17px;display:flex;align-items:center;gap:6px}
+  .month small{color:var(--ink3);font-weight:500}
+  .seg{display:flex;background:#ECE8E1;border-radius:12px;padding:3px}
+  .seg button{border:0;background:transparent;padding:7px 12px;border-radius:9px;font-size:13px;
+    font-weight:600;color:var(--ink3);min-height:32px}
+  .seg button.on{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+  .gear{width:38px;height:38px;border-radius:12px;border:1px solid var(--line);background:#fff;font-size:16px}
+
+  /* hero narrativo */
+  .hero{background:linear-gradient(150deg,var(--hero1),var(--hero2));color:#fff;border-radius:var(--radius);
+    padding:20px 18px 16px;position:relative;overflow:hidden}
+  .hero .label{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#B7B2C6}
+  .hero .big{font-size:44px;font-weight:750;letter-spacing:-.02em;margin-top:4px}
+  .hero .big small{font-size:20px;font-weight:600;color:#B7B2C6}
+  .hero .story{margin-top:10px;font-size:14px;line-height:1.5;color:#D9D5E6}
+  .hero .story b{color:#fff}
+  .hero .story .bad{color:#FF9D9D}
+  .hero .spark{position:absolute;right:14px;top:18px;opacity:.9}
+  .hero .exact{margin-top:12px;font-size:11px;color:#8F89A3}
+  .chipRow{display:flex;gap:8px;margin-top:12px}
+  .chip{flex:1;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);border-radius:14px;
+    padding:9px 12px;color:#fff}
+  .chip .t{font-size:11px;color:#B7B2C6}
+  .chip .v{font-size:17px;font-weight:700;margin-top:2px}
+
+  /* anéis de saúde */
+  .rings{display:flex;gap:10px;margin-top:12px}
+  .ring{flex:1;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    padding:12px 10px;text-align:center}
+  .ring svg{display:block;margin:0 auto}
+  .ring .t{font-size:11px;color:var(--ink3);margin-top:6px}
+  .ring .v{font-size:14px;font-weight:700;margin-top:1px}
+
+  /* stories da Maria */
+  .secTitle{display:flex;justify-content:space-between;align-items:baseline;margin:18px 4px 8px}
+  .secTitle h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);font-weight:700}
+  .secTitle a{font-size:12px;color:var(--accent);text-decoration:none;font-weight:600}
+  .stories{display:flex;gap:10px;overflow-x:auto;padding:2px 2px 6px;scroll-snap-type:x mandatory;scrollbar-width:none}
+  .stories::-webkit-scrollbar{display:none}
+  .story{min-width:78%;scroll-snap-align:start;border-radius:var(--radius);padding:14px 16px;color:#fff;position:relative}
+  .story .who{font-size:11px;opacity:.85;display:flex;align-items:center;gap:6px;font-weight:600}
+  .story .who::before{content:"";width:18px;height:18px;border-radius:50%;background:rgba(255,255,255,.35)}
+  .story p{margin-top:8px;font-size:15px;line-height:1.45;font-weight:600}
+  .story .cta{display:inline-block;margin-top:10px;font-size:12px;font-weight:700;background:rgba(255,255,255,.18);
+    padding:7px 12px;border-radius:10px}
+  .s1{background:linear-gradient(140deg,#B4462E,#D66A3C)}
+  .s2{background:linear-gradient(140deg,#1F6B4E,#2E9E74)}
+  .s3{background:linear-gradient(140deg,#3F3D8F,#5B58C7)}
+
+  /* timeline próximas saídas */
+  .tl{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:6px 14px}
+  .tlItem{display:flex;gap:12px;padding:11px 0;border-bottom:1px solid var(--line);align-items:center}
+  .tlItem:last-child{border-bottom:0}
+  .date{width:40px;text-align:center;flex-shrink:0}
+  .date .d{font-size:16px;font-weight:750}
+  .date .m{font-size:10px;color:var(--ink3);text-transform:uppercase}
+  .tlBody{flex:1;min-width:0}
+  .tlBody .n{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tlBody .s{font-size:11.5px;color:var(--ink3);margin-top:1px}
+  .tlVal{font-size:14px;font-weight:700}
+  .badge{font-size:10px;font-weight:700;padding:3px 7px;border-radius:7px;background:#FBF2DF;color:#8A6512}
+  .today{background:#EDF3FF;margin:0 -14px;padding:11px 14px;border-left:3px solid var(--accent)}
+  .drag{font-size:10.5px;color:var(--ink3);text-align:center;padding:8px 0 4px}
+
+  /* accordions */
+  details{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);margin-top:10px}
+  summary{list-style:none;display:flex;justify-content:space-between;align-items:center;
+    padding:14px 16px;font-size:14px;font-weight:650;min-height:48px;cursor:pointer}
+  summary::-webkit-details-marker{display:none}
+  summary .peek{font-size:13px;color:var(--ink3);font-weight:600}
+  details .body{padding:0 16px 14px;font-size:13px;color:var(--ink2);line-height:1.6}
+  .bar{height:8px;border-radius:6px;background:#ECE8E1;overflow:hidden;margin:6px 0 10px}
+  .bar i{display:block;height:100%;background:var(--ink);border-radius:6px}
+
+  /* pergunte à maria */
+  .ask{display:flex;gap:8px;margin-top:14px}
+  .ask input{flex:1;border:1px solid var(--line);border-radius:14px;padding:12px 14px;font-size:14px;background:#fff}
+  .ask button{border:0;background:var(--ink);color:#fff;border-radius:14px;width:46px;font-size:17px}
+  .quick{display:flex;gap:8px;overflow-x:auto;margin-top:8px;scrollbar-width:none}
+  .quick::-webkit-scrollbar{display:none}
+  .quick span{white-space:nowrap;font-size:12px;font-weight:600;color:var(--ink2);
+    border:1px solid var(--line);background:#fff;border-radius:99px;padding:8px 12px}
+
+  /* fab + tabbar */
+  .fab{position:absolute;right:18px;bottom:96px;width:58px;height:58px;border-radius:19px;border:0;
+    background:var(--accent);color:#fff;font-size:26px;box-shadow:0 10px 24px rgba(47,107,255,.45)}
+  .tabbar{position:absolute;left:0;right:0;bottom:0;height:82px;background:rgba(255,255,255,.92);
+    backdrop-filter:blur(12px);border-top:1px solid var(--line);display:flex;padding-bottom:18px}
+  .tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+    font-size:10px;color:var(--ink3);font-weight:600}
+  .tab .ic{font-size:20px}
+  .tab.on{color:var(--ink)}
+  .note{max-width:402px;font-size:13px;color:#3a372f;line-height:1.6;background:#fff;border-radius:16px;padding:16px}
+</style>
+</head>
+<body>
+
+<div class="phone">
+  <div class="screen">
+
+    <div class="top">
+      <div class="month">Julho <small>2026 ▾</small></div>
+      <div class="seg" id="seg">
+        <button class="on" onclick="setEixo(0,this)">Gastei</button>
+        <button onclick="setEixo(1,this)">Vai sair</button>
+      </div>
+      <button class="gear">⚙︎</button>
+    </div>
+
+    <!-- HERÓI NARRATIVO: número + história do mês num bloco só -->
+    <section class="hero">
+      <svg class="spark" width="92" height="34" viewBox="0 0 92 34" fill="none">
+        <path d="M2 22 L14 18 L26 24 L38 12 L50 16 L62 8 L74 14 L90 6" stroke="#7EE2B8" stroke-width="2.5" stroke-linecap="round"/>
+        <circle cx="90" cy="6" r="3" fill="#7EE2B8"/>
+      </svg>
+      <div class="label" id="heroLabel">Caixa hoje</div>
+      <div class="big num" id="heroVal">R$ 6,4 <small>mil</small></div>
+      <p class="story" id="heroStory">Se nada mudar, julho fecha em <b class="bad">−R$ 1,9 mil</b>.
+        Faltam sair <b>R$ 8,3 mil</b> até o dia 31 — a maior parte é a fatura do Nubank.</p>
+      <div class="chipRow">
+        <div class="chip"><div class="t">Entrou</div><div class="v num">R$ 0</div></div>
+        <div class="chip"><div class="t">Gastei</div><div class="v num">R$ 1,2 mil</div></div>
+        <div class="chip"><div class="t">Resultado</div><div class="v num" style="color:#FF9D9D">−R$ 1,2 mil</div></div>
+      </div>
+      <div class="exact num">toque para ver exato · R$ 6.412,38</div>
+    </section>
+
+    <!-- ANÉIS DE SAÚDE (estilo activity rings) -->
+    <div class="rings">
+      <div class="ring">
+        <svg width="52" height="52" viewBox="0 0 52 52">
+          <circle cx="26" cy="26" r="21" stroke="#ECE8E1" stroke-width="7" fill="none"/>
+          <circle cx="26" cy="26" r="21" stroke="#1E9E6A" stroke-width="7" fill="none" stroke-linecap="round"
+            stroke-dasharray="132" stroke-dashoffset="52" transform="rotate(-90 26 26)"/>
+        </svg>
+        <div class="t">Orçamento usado</div><div class="v num">61%</div>
+      </div>
+      <div class="ring">
+        <svg width="52" height="52" viewBox="0 0 52 52">
+          <circle cx="26" cy="26" r="21" stroke="#ECE8E1" stroke-width="7" fill="none"/>
+          <circle cx="26" cy="26" r="21" stroke="#D69A2D" stroke-width="7" fill="none" stroke-linecap="round"
+            stroke-dasharray="132" stroke-dashoffset="92" transform="rotate(-90 26 26)"/>
+        </svg>
+        <div class="t">Comprometido 3m</div><div class="v num">30%</div>
+      </div>
+      <div class="ring">
+        <svg width="52" height="52" viewBox="0 0 52 52">
+          <circle cx="26" cy="26" r="21" stroke="#ECE8E1" stroke-width="7" fill="none"/>
+          <circle cx="26" cy="26" r="21" stroke="#2F6BFF" stroke-width="7" fill="none" stroke-linecap="round"
+            stroke-dasharray="132" stroke-dashoffset="118" transform="rotate(-90 26 26)"/>
+        </svg>
+        <div class="t">Poupei no ano</div><div class="v num">11%</div>
+      </div>
+    </div>
+
+    <!-- STORIES DA MARIA: insights deslizáveis, 1 por card -->
+    <div class="secTitle"><h2>Maria percebeu</h2><a href="#">ver todos</a></div>
+    <div class="stories">
+      <div class="story s1">
+        <div class="who">Maria · agora</div>
+        <p>A fatura do <b>Nubank fecha em 3 dias</b> — já está em R$ 2,1 mil, 18% acima da média.</p>
+        <span class="cta">Ver fatura →</span>
+      </div>
+      <div class="story s2">
+        <div class="who">Maria · hoje</div>
+        <p>Você gastou <b>32% menos em Mercado</b> que a média dos últimos 6 meses. 👏</p>
+        <span class="cta">Onde gastei →</span>
+      </div>
+      <div class="story s3">
+        <div class="who">Maria · ontem</div>
+        <p>Em <b>outubro</b> as parcelas do sofá acabam: <b>+R$ 640/mês</b> livres dali em diante.</p>
+        <span class="cta">Comprometimento →</span>
+      </div>
+    </div>
+
+    <!-- TIMELINE: o mês como agenda de dinheiro -->
+    <div class="secTitle"><h2>Próximas saídas</h2><a href="#">calendário</a></div>
+    <div class="tl">
+      <div class="tlItem today">
+        <div class="date"><div class="d">11</div><div class="m">hoje</div></div>
+        <div class="tlBody"><div class="n">Internet Claro</div><div class="s">débito automático · Conta</div></div>
+        <div class="tlVal num">R$ 120</div>
+      </div>
+      <div class="tlItem">
+        <div class="date"><div class="d">15</div><div class="m">jul</div></div>
+        <div class="tlBody"><div class="n">Fatura Nubank</div><div class="s">fecha dia 14 · <span class="badge">prevista</span></div></div>
+        <div class="tlVal num">R$ 2,1 mil</div>
+      </div>
+      <div class="tlItem">
+        <div class="date"><div class="d">20</div><div class="m">jul</div></div>
+        <div class="tlBody"><div class="n">Sofá — parcela 4/10</div><div class="s">cartão Itaú</div></div>
+        <div class="tlVal num">R$ 640</div>
+      </div>
+      <div class="tlItem">
+        <div class="date"><div class="d">28</div><div class="m">jul</div></div>
+        <div class="tlBody"><div class="n">Obra — Cerâmica 2/3</div><div class="s">espelho · Reforma Ap 92</div></div>
+        <div class="tlVal num">R$ 5,4 mil</div>
+      </div>
+      <div class="drag">segure e arraste um item para marcar como pago ✓</div>
+    </div>
+
+    <!-- ANÁLISE: profundidade sob toque -->
+    <div class="secTitle"><h2>Análise</h2></div>
+    <details>
+      <summary>Quanto gastei <span class="peek num">R$ 1,2 mil · 3 origens</span></summary>
+      <div class="body">
+        Nubank <b class="num">R$ 610</b><div class="bar"><i style="width:51%"></i></div>
+        Itaú <b class="num">R$ 390</b><div class="bar"><i style="width:33%"></i></div>
+        Conta (à vista) <b class="num">R$ 200</b><div class="bar"><i style="width:16%"></i></div>
+      </div>
+    </details>
+    <details>
+      <summary>Onde gastei <span class="peek">Mercado lidera</span></summary>
+      <div class="body">
+        Mercado <b class="num">R$ 480</b><div class="bar"><i style="width:40%"></i></div>
+        Transporte <b class="num">R$ 310</b><div class="bar"><i style="width:26%"></i></div>
+        Lazer <b class="num">R$ 250</b><div class="bar"><i style="width:21%"></i></div>
+      </div>
+    </details>
+    <details>
+      <summary>Fluxo do mês <span class="peek">gráfico + slider</span></summary>
+      <div class="body">O gráfico de saldo dia a dia atual entra aqui, intacto.</div>
+    </details>
+
+    <!-- PERGUNTE À MARIA -->
+    <div class="ask">
+      <input placeholder="Pergunte à Maria… 'posso gastar R$ 500?'">
+      <button>🎙</button>
+    </div>
+    <div class="quick">
+      <span>Posso gastar R$ 500?</span><span>Quanto falta sair?</span><span>Como fecho o mês?</span><span>Maior gasto da semana</span>
+    </div>
+
+  </div>
+
+  <button class="fab">＋</button>
+  <nav class="tabbar">
+    <div class="tab on"><span class="ic">◉</span>Cockpit</div>
+    <div class="tab"><span class="ic">▤</span>Conta</div>
+    <div class="tab"><span class="ic">☰</span>Despesas</div>
+    <div class="tab"><span class="ic">▦</span>Cartões</div>
+    <div class="tab"><span class="ic">⋯</span>Mais</div>
+  </nav>
+</div>
+
+<div class="note">
+  <b>Proposta C — “o mês como uma história”.</b><br><br>
+  1. <b>Herói narrativo</b>: Caixa hoje + a frase de fechamento num bloco só (mata a duplicação narrativa×cards). Toggle Gastei/Vai sair troca o eixo do herói.<br>
+  2. <b>Anéis de saúde</b>: orçamento, comprometimento futuro e poupança viram 3 anéis de relance (números exatos ao tocar).<br>
+  3. <b>“Maria percebeu”</b>: insights proativos deslizáveis — o diferencial de inovação; cada card tem CTA que abre a camada Foco correspondente.<br>
+  4. <b>Timeline de saídas</b>: o futuro do caixa como agenda (fatura prevista, parcelas, espelhos da obra), com arrastar-para-pagar (dnd-kit já no stack).<br>
+  5. <b>Pergunte à Maria</b>: entrada de voz/texto no fim do relance, com perguntas prontas.<br><br>
+  Tudo é alimentado pelas derivações existentes (derive.ts, monthly-overview, comprometimento) — zero motor novo.
+</div>
+
+<script>
+  const heroData=[
+    {label:'Caixa hoje',val:'R$ 6,4 <small>mil</small>',
+     story:'Se nada mudar, julho fecha em <b class="bad">−R$ 1,9 mil</b>. Faltam sair <b>R$ 8,3 mil</b> até o dia 31 — a maior parte é a fatura do Nubank.'},
+    {label:'Vai sair até 31/07',val:'R$ 8,3 <small>mil</small>',
+     story:'Fatura Nubank <b>R$ 2,1 mil</b> (dia 15), parcelas <b>R$ 640</b>, obra <b>R$ 5,4 mil</b>. Depois disso o caixa fecha em <b class="bad">−R$ 1,9 mil</b>.'}
+  ];
+  function setEixo(i,btn){
+    document.querySelectorAll('#seg button').forEach(b=>b.classList.remove('on'));
+    btn.classList.add('on');
+    document.getElementById('heroLabel').textContent=heroData[i].label;
+    document.getElementById('heroVal').innerHTML=heroData[i].val;
+    document.getElementById('heroStory').innerHTML=heroData[i].story;
+  }
+</script>
+</body>
+</html>

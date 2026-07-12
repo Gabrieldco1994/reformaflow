@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cockpit Relance — opção B (corredor do mês)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --canvas:#E7E4DD; --surface:#F4F3F0; --card:#FFF;
+    --trail:#ECEAE4; --hair:#DAD5CC; --hair2:#ECE8E1;
+    --blue:#0A6CF0; --blue-tint:#E6EFFE;
+    --green:#1E924A; --green-tint:#E3F6EA;
+    --amber:#B5803A; --amber-tint:#F8EFDE;
+    --red:#B5433A; --red-tint:#FAE4E1;
+    --ink:#1C1C1E; --ink2:#6E6A63; --ink3:#8A857C; --ink4:#A7A29A;
+    --shadow:0 1px 3px rgba(0,0,0,.05);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{font-family:'Geist',-apple-system,system-ui,sans-serif;background:var(--canvas);color:var(--ink);
+    letter-spacing:-.01em;-webkit-font-smoothing:antialiased;display:flex;justify-content:center;padding:22px 14px 50px}
+  .wrap{width:100%;max-width:412px}
+  .capt{font-size:11px;color:var(--ink3);text-align:center;margin-bottom:12px;letter-spacing:.02em}
+  .capt b{color:var(--ink2)}
+
+  .phone{background:var(--surface);border-radius:30px;overflow:hidden;border:7px solid #201d19;
+    box-shadow:0 0 0 .5px var(--hair),0 18px 50px rgba(0,0,0,.16);position:relative}
+  .scr{padding:14px 15px 96px;min-height:760px}
+
+  /* app bar */
+  .appbar{display:flex;align-items:center;justify-content:space-between;font-size:12.5px;color:var(--ink2);margin-bottom:12px}
+  .appbar .back{display:flex;align-items:center;gap:2px;font-weight:600}
+  .chip{display:inline-flex;align-items:center;gap:7px;background:#fff;border-radius:999px;padding:5px 12px 5px 6px;box-shadow:var(--shadow);font-weight:700;font-size:12px}
+  .chip .dot{width:22px;height:22px;border-radius:7px;background:var(--blue-tint);display:grid;place-items:center;color:var(--blue);font-size:12px}
+  .bell{font-size:16px;position:relative}
+  .bell b{position:absolute;top:-4px;right:-6px;background:var(--blue);color:#fff;font-size:9px;font-weight:800;border-radius:999px;padding:1px 4px}
+
+  /* controls */
+  .controls{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+  .seg{display:inline-flex;background:var(--trail);border-radius:11px;padding:3px;gap:2px}
+  .seg button{border:0;background:transparent;color:var(--ink2);border-radius:9px;padding:7px 13px;font-size:12.5px;font-weight:600;font-family:inherit;min-height:36px;cursor:pointer;transition:.15s}
+  .seg button.on{background:#fff;color:var(--ink);box-shadow:var(--shadow)}
+  .mnav{margin-left:auto;display:inline-flex;align-items:center;gap:2px;background:#fff;border-radius:11px;padding:3px;box-shadow:var(--shadow)}
+  .mnav button{border:0;background:transparent;width:34px;height:34px;border-radius:8px;font-size:16px;color:var(--ink2);cursor:pointer}
+  .mnav button:hover{background:var(--surface)}
+  .mnav button:disabled{color:var(--ink4);cursor:not-allowed}
+  .mnav .lbl{font-size:12.5px;font-weight:700;padding:0 8px;min-width:78px;text-align:center}
+
+  /* HERO — corredor do mês (signature) */
+  .hero{background:#fff;border-radius:22px;padding:18px 18px 16px;box-shadow:var(--shadow);border:.5px solid var(--hair2);position:relative;overflow:hidden}
+  .hero .band{position:absolute;left:0;top:0;bottom:0;width:5px}
+  .hero.s-green .band{background:var(--green)} .hero.s-amber .band{background:var(--amber)} .hero.s-red .band{background:var(--red)}
+  .hero .status{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;display:inline-flex;align-items:center;gap:6px}
+  .hero.s-green .status{color:var(--green)} .hero.s-amber .status{color:var(--amber)} .hero.s-red .status{color:var(--red)}
+  .hero .q{font-size:13px;color:var(--ink2);margin-top:2px}
+  .hero .big{font-weight:800;letter-spacing:-.035em;font-variant-numeric:tabular-nums;font-size:40px;line-height:1;margin-top:10px;cursor:pointer}
+  .hero.s-green .big{color:var(--green)} .hero.s-amber .big{color:var(--ink)} .hero.s-red .big{color:var(--red)}
+  .hero .biglbl{font-size:12px;color:var(--ink3);margin-top:4px}
+
+  /* runway track */
+  .runway{margin-top:16px}
+  .runway .track{position:relative;height:34px;border-radius:12px;background:linear-gradient(90deg,var(--surface),#fff);border:.5px solid var(--hair2);overflow:hidden}
+  .runway .fill{position:absolute;left:0;top:0;bottom:0;border-radius:12px 0 0 12px;opacity:.16;transition:width .5s cubic-bezier(.2,.8,.2,1)}
+  .hero.s-green .runway .fill{background:var(--green)} .hero.s-amber .runway .fill{background:var(--amber)} .hero.s-red .runway .fill{background:var(--red)}
+  .runway .today{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink);transition:left .5s cubic-bezier(.2,.8,.2,1)}
+  .runway .today::after{content:'hoje';position:absolute;top:-15px;left:50%;transform:translateX(-50%);font-size:9px;font-weight:800;color:var(--ink);white-space:nowrap}
+  .runway .ticks{display:flex;justify-content:space-between;font-size:9.5px;color:var(--ink4);margin-top:6px;font-variant-numeric:tabular-nums}
+  .runway .endlbl{position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:11px;font-weight:800;font-variant-numeric:tabular-nums}
+  .hero.s-green .endlbl{color:var(--green)} .hero.s-amber .endlbl{color:var(--amber)} .hero.s-red .endlbl{color:var(--red)}
+
+  /* apoios */
+  .apoios{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+  .mini{background:#fff;border-radius:15px;padding:12px 13px;box-shadow:var(--shadow);border:.5px solid var(--hair2)}
+  .mini .l{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ink3);display:flex;align-items:center;gap:6px}
+  .mini .v{font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums;font-size:21px;margin-top:5px}
+  .pos{color:var(--green)} .neg{color:var(--red)} .amberc{color:var(--amber)} .muted{color:var(--ink3)}
+  .dotv{width:8px;height:8px;border-radius:999px;display:inline-block}
+
+  /* accordions */
+  .layers{margin-top:14px;display:flex;flex-direction:column;gap:10px}
+  .acc{background:#fff;border-radius:15px;box-shadow:var(--shadow);border:.5px solid var(--hair2);overflow:hidden}
+  .acc>summary{list-style:none;cursor:pointer;padding:14px 15px;display:flex;align-items:center;gap:11px;font-weight:700;font-size:14px}
+  .acc>summary::-webkit-details-marker{display:none}
+  .acc .ic{width:30px;height:30px;border-radius:9px;background:var(--surface);display:grid;place-items:center;font-size:15px;flex:none}
+  .acc .hint{margin-left:auto;font-weight:500;color:var(--ink3);font-size:12px;display:flex;align-items:center;gap:8px}
+  .acc .chev{transition:transform .2s;color:var(--ink4)}
+  .acc[open] .chev{transform:rotate(180deg)}
+  .acc .body{padding:0 15px 15px}
+  .acc .body.pt{padding-top:2px}
+  .alert-dot{width:7px;height:7px;border-radius:999px;background:var(--amber)}
+
+  /* recomendações list */
+  .rec{display:flex;gap:10px;padding:9px 0;font-size:12.5px;color:var(--ink);line-height:1.5;border-top:.5px solid var(--hair2)}
+  .rec:first-child{border-top:0}
+  .rec .ri{flex:none;font-size:14px;margin-top:1px}
+  .rec b{font-variant-numeric:tabular-nums}
+
+  /* quanto gastei rows */
+  .qhead{font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);margin:6px 0 8px;display:flex;align-items:center;gap:6px}
+  .qcard{position:relative;overflow:hidden;border-radius:13px;padding:11px 13px;color:#fff;display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+  .qcard .nm{display:flex;align-items:center;gap:9px;font-size:12.5px;font-weight:600;min-width:0}
+  .qcard .chipmini{width:26px;height:18px;border-radius:4px;background:linear-gradient(135deg,#f4d58d,#c79a3f);flex:none}
+  .qcard .amt{font-weight:800;font-variant-numeric:tabular-nums;font-size:13.5px}
+  .qrow{display:flex;align-items:center;justify-content:space-between;border-radius:13px;padding:11px 13px;background:#fff;border:.5px solid var(--hair2);box-shadow:var(--shadow);margin-bottom:8px}
+  .qrow .nm{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--ink);min-width:0}
+  .qrow .tile{width:28px;height:28px;border-radius:8px;background:var(--blue-tint);display:grid;place-items:center;color:var(--blue);font-size:14px;flex:none}
+  .qrow .amt{font-weight:800;font-variant-numeric:tabular-nums;font-size:13.5px;color:var(--red)}
+  .qhint{font-size:11px;color:var(--ink4);text-align:right;margin-top:-2px}
+
+  /* categorias bars */
+  .catrow{margin-top:11px}
+  .catrow:first-child{margin-top:2px}
+  .cattop{display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:5px}
+  .cattop b{font-variant-numeric:tabular-nums}
+  .catbar{height:8px;border-radius:999px;background:var(--trail);overflow:hidden}
+  .catbar>span{display:block;height:100%;border-radius:999px;transition:width .5s cubic-bezier(.2,.8,.2,1)}
+
+  /* fluxo mini chart + ritmo */
+  .flx svg{width:100%;height:120px;display:block}
+  .ritmo{margin-top:14px;background:var(--surface);border-radius:13px;padding:13px}
+  .ritmo .top{display:flex;justify-content:space-between;align-items:center;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ink3)}
+  .ritmo .val{font-variant-numeric:tabular-nums;color:var(--amber);font-size:14px}
+  input[type=range]{width:100%;margin:10px 0 4px;accent-color:var(--amber)}
+  .ritmo .foot{display:flex;justify-content:space-between;align-items:center;border-top:.5px solid var(--hair);padding-top:11px;margin-top:8px}
+  .ritmo .foot .lab{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink3)}
+  .ritmo .foot .out{font-weight:800;font-variant-numeric:tabular-nums;font-size:18px}
+
+  /* saúde */
+  .saude .line{display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:6px}
+  .saude .bar{height:9px;border-radius:999px;background:var(--trail);overflow:hidden}
+  .saude .bar>span{display:block;height:100%;border-radius:999px;background:var(--amber);transition:width .5s}
+  .saude .cap{font-size:11.5px;color:var(--ink3);margin-top:8px}
+
+  /* tab bar */
+  .tabbar{position:absolute;left:0;right:0;bottom:0;background:rgba(255,255,255,.95);backdrop-filter:blur(12px);border-top:.5px solid var(--hair);display:flex;align-items:flex-end;justify-content:space-around;padding:7px 6px 10px}
+  .tab{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10px;font-weight:600;color:var(--ink3);flex:1}
+  .tab.on{color:var(--blue)}
+  .tab .ti{width:44px;height:26px;border-radius:999px;display:grid;place-items:center;font-size:16px}
+  .tab.on .ti{background:var(--blue-tint)}
+  .maria{width:52px;height:52px;border-radius:999px;background:#201d19;color:#fff;display:grid;place-items:center;font-size:20px;margin-top:-22px;box-shadow:0 6px 16px rgba(0,0,0,.28)}
+
+  .foot-note{font-size:11px;color:var(--ink3);text-align:center;margin-top:14px;line-height:1.6}
+  .foot-note b{color:var(--ink2)}
+  .kbd{background:#EFE9E1;border-radius:5px;padding:1px 6px;font-size:11px;font-weight:700}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="capt"><b>Cockpit · Relance — opção B</b> — “corredor do mês”. Tudo abaixo é <b>navegável</b>: troque de mês, alterne Gastei/Vai sair, abra as camadas, mexa no ritmo, toque no valor.</div>
+
+  <div class="phone">
+    <div class="scr">
+      <!-- app bar -->
+      <div class="appbar">
+        <span class="back">‹ Projetos</span>
+        <span class="chip"><span class="dot">◔</span> Meu Pessoal</span>
+        <span class="bell">🔔<b id="bellN">3</b></span>
+      </div>
+
+      <!-- controls -->
+      <div class="controls">
+        <div class="seg" id="viewSeg">
+          <button class="on" data-v="mes">Mês</button>
+          <button data-v="ano">Ano</button>
+        </div>
+        <div class="mnav">
+          <button id="prevM">‹</button>
+          <span class="lbl" id="monthLbl">Julho 2026</span>
+          <button id="nextM">›</button>
+        </div>
+      </div>
+      <div class="seg" id="eixoSeg" style="margin-bottom:14px">
+        <button class="on" data-e="gastei">Gastei</button>
+        <button data-e="vaisair">Vai sair</button>
+        <button data-e="extrato" style="opacity:.8">☰ Extrato</button>
+      </div>
+
+      <!-- HERO: corredor do mês -->
+      <div class="hero" id="hero">
+        <span class="band"></span>
+        <div class="status" id="statusTxt"><span>●</span> <span id="statusLbl">No caminho</span></div>
+        <div class="q">Como <b id="mesInline">julho</b> deve fechar</div>
+        <div class="big" id="heroBig" title="tocar alterna abreviado / exato">R$ 6,4 mil</div>
+        <div class="biglbl" id="heroLbl">em caixa hoje · toque para ver exato</div>
+
+        <div class="runway">
+          <div class="track">
+            <div class="fill" id="rwFill" style="width:6%"></div>
+            <div class="today" id="rwToday" style="left:6%"></div>
+            <div class="endlbl" id="rwEnd">fecha -R$ 1,9 mil</div>
+          </div>
+          <div class="ticks"><span>dia 1</span><span id="rwMid">hoje · dia 2</span><span id="rwLast">dia 31</span></div>
+        </div>
+      </div>
+
+      <!-- apoios -->
+      <div class="apoios">
+        <div class="mini"><div class="l"><span class="dotv" style="background:var(--green)"></span> Entrou</div><div class="v pos" id="kEntrou">R$ 3,2 mil</div></div>
+        <div class="mini"><div class="l"><span class="dotv" style="background:var(--ink3)"></span> Gastei</div><div class="v" id="kGastei">R$ 2,2 mil</div></div>
+      </div>
+
+      <!-- camadas (accordions) -->
+      <div class="layers">
+        <details class="acc" id="accRec">
+          <summary><span class="ic">💡</span> Recomendações <span class="hint"><span id="recCount">2 alertas</span> <span class="chev">▾</span></span></summary>
+          <div class="body" id="recBody"></div>
+        </details>
+
+        <details class="acc">
+          <summary><span class="ic">🧾</span> Quanto gastei <span class="hint"><span id="qgHint">cartões e conta</span> <span class="chev">▾</span></span></summary>
+          <div class="body pt" id="qgBody"></div>
+        </details>
+
+        <details class="acc">
+          <summary><span class="ic">📈</span> Fluxo do mês <span class="hint">gráfico + ritmo <span class="chev">▾</span></span></summary>
+          <div class="body pt flx">
+            <svg id="flxChart" viewBox="0 0 320 120" preserveAspectRatio="none"></svg>
+            <div class="ritmo">
+              <div class="top"><span>Ritmo de gasto diário</span><span class="val" id="ritmoVal">R$ 54/dia</span></div>
+              <input type="range" id="ritmo" min="0" max="300" value="54">
+              <div class="foot"><span class="lab">Se manter esse ritmo, fecha em</span><span class="out" id="ritmoOut">-R$ 1,9 mil</span></div>
+            </div>
+          </div>
+        </details>
+
+        <details class="acc">
+          <summary><span class="ic">🍩</span> Onde gastei <span class="hint" id="catHint">6 categorias <span class="chev">▾</span></span></summary>
+          <div class="body pt" id="catBody"></div>
+        </details>
+
+        <details class="acc">
+          <summary><span class="ic">🛟</span> Saúde financeira <span class="hint" id="saudeHint">reserva 1,8/6 <span class="chev">▾</span></span></summary>
+          <div class="body pt saude" id="saudeBody"></div>
+        </details>
+      </div>
+    </div>
+
+    <!-- tab bar -->
+    <div class="tabbar">
+      <div class="tab on"><span class="ti">◔</span>Cockpit</div>
+      <div class="tab"><span class="ti">🏛️</span>Conta</div>
+      <div class="maria">🤖</div>
+      <div class="tab"><span class="ti">🧾</span>Despesas</div>
+      <div class="tab"><span class="ti">⋯</span>Mais</div>
+    </div>
+  </div>
+
+  <div class="foot-note">
+    Toque no valor grande para alternar <b>R$ 6,4 mil ⇄ R$ 6.414,00</b>. Alterne <span class="kbd">Gastei</span>/<span class="kbd">Vai sair</span> e veja “Quanto gastei” mudar.<br>
+    Assinatura: o <b>corredor do mês</b> — hoje e o fechamento projetado num só olhar. Mockup de direção, não pixels finais.
+  </div>
+</div>
+
+<script>
+// ---------- dados de teste (3 meses, 3 estados) ----------
+const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+const DATA = {
+  'maio': {
+    label:'Maio 2026', mesNome:'maio', diasNoMes:31, hoje:31, status:'green', statusLbl:'Sobrou no fim',
+    caixa:8420_00, projecao:6980_00, aReceber:0, aPagar:1440_00,
+    entrou:12800_00, gastei:9380_00, ritmoMedio:302,
+    breakdown:{
+      gastei:{ cards:[['Nubank ··3541','#1a1030→#3a1a5c',1980_00],['Itaú Master ··5876','#0b1f3a→#123a6a',1240_00]], conta:[['Itaú ··4247',5160_00]] },
+      vaisair:{ cards:[['Nubank ··3541','#1a1030→#3a1a5c',0]], conta:[['Itaú ··4247',1440_00]] }
+    },
+    cat:[['Moradia',2100_00,'#0A6CF0'],['Alimentação',1980_00,'#1E924A'],['Transporte',720_00,'#B5803A'],['Lazer',540_00,'#8B5CF6'],['Saúde',420_00,'#B5433A'],['Assinaturas',180_00,'#5E5A52']],
+    reserva:2.4,
+    rec:[['✅','No ritmo atual você fecha o mês com <b class="pos">R$ 6.980</b>, acima de como começou.'],
+         ['🟦','Maior gasto: <b>Moradia</b> com <b>R$ 2.100</b>.'],
+         ['🛟','Reserva de emergência: <b>2,4</b> de 6 meses — <span class="amberc">abaixo da meta</span>.']],
+    spark:[5000,5600,6100,6400,6700,6980]
+  },
+  'junho': {
+    label:'Junho 2026', mesNome:'junho', diasNoMes:30, hoje:30, status:'amber', statusLbl:'No limite',
+    caixa:3210_00, projecao:1540_00, aReceber:0, aPagar:1670_00,
+    entrou:11200_00, gastei:10980_00, ritmoMedio:366,
+    breakdown:{
+      gastei:{ cards:[['Itaú Master ··5876','#0b1f3a→#123a6a',3480_00],['Nubank ··3541','#1a1030→#3a1a5c',2260_00]], conta:[['Itaú ··4247',5240_00]] },
+      vaisair:{ cards:[['Itaú Master ··5876','#0b1f3a→#123a6a',1670_00]], conta:[['Itaú ··4247',0]] }
+    },
+    cat:[['Moradia',2100_00,'#0A6CF0'],['Alimentação',2640_00,'#1E924A'],['Saúde',1980_00,'#B5433A'],['Transporte',980_00,'#B5803A'],['Lazer',760_00,'#8B5CF6'],['Assinaturas',180_00,'#5E5A52']],
+    reserva:2.0,
+    rec:[['⚠️','Projeção de fechar em <b class="amberc">R$ 1.540</b>. Para folgar, corte <b class="amberc">R$ 56</b>/dia nos dias restantes.'],
+         ['🟥','Maior gasto: <b>Alimentação</b> com <b>R$ 2.640</b>. Vale revisar.'],
+         ['📅','Contas a vencer: <b>Energia dia 28 · R$ 320</b>.'],
+         ['🛟','Reserva de emergência: <b>2,0</b> de 6 meses — <span class="amberc">abaixo da meta</span>.']],
+    spark:[5000,4600,4100,3700,3400,3210]
+  },
+  'julho': {
+    label:'Julho 2026', mesNome:'julho', diasNoMes:31, hoje:2, status:'red', statusLbl:'Fecha no vermelho',
+    caixa:6414_00, projecao:-1876_00, aReceber:0, aPagar:8290_00,
+    entrou:3200_00, gastei:2210_00, ritmoMedio:54,
+    breakdown:{
+      gastei:{ cards:[['Itaú Master ··5876','#0b1f3a→#123a6a',1158_76],['Nubank ··3541','#1a1030→#3a1a5c',630_00]], conta:[['Itaú ··4247',420_00]] },
+      vaisair:{ cards:[['Itaú Master ··5876','#0b1f3a→#123a6a',1158_76]], conta:[['Itaú ··4247',0]] }
+    },
+    cat:[['Moradia',2100_00,'#0A6CF0'],['Alimentação',1240_00,'#1E924A'],['Transporte',680_00,'#B5803A'],['Lazer',430_00,'#8B5CF6'],['Saúde',260_00,'#B5433A'],['Assinaturas',120_00,'#5E5A52']],
+    reserva:1.8,
+    rec:[['⚠️','Projeção de fechar em <b class="neg">-R$ 1.876</b>. Para equilibrar, corte <b class="amberc">R$ 286</b>/dia nos 29 dias restantes.'],
+         ['🟦','Maior gasto: <b>Moradia</b> com <b>R$ 2.100</b>.'],
+         ['📅','Contas a vencer: <b>Cartão dia 7 · R$ 1.159</b> · <b>Aluguel dia 10 · R$ 2.100</b>.'],
+         ['🛟','Reserva de emergência: <b>1,8</b> de 6 meses — <span class="neg">abaixo da meta</span>.']],
+    spark:[8000,7600,7100,6900,6600,6414]
+  }
+};
+const ORDER = ['maio','junho','julho'];
+let idx = 2;                 // começa em julho
+let eixo = 'gastei';
+let exact = false;
+
+// ---------- helpers ----------
+function abbr(cents){
+  const v = cents/100, a = Math.abs(v);
+  const sign = v<0 ? '-' : '';
+  if(a >= 1000000) return `${sign}R$ ${(a/1000000).toFixed(1).replace('.',',')} mi`;
+  if(a >= 10000)   return `${sign}R$ ${Math.round(a/1000)} mil`;
+  if(a >= 1000)    return `${sign}R$ ${(a/1000).toFixed(1).replace('.',',')} mil`;
+  return `${sign}R$ ${Math.round(a).toLocaleString('pt-BR')}`;
+}
+function exactBRL(cents){
+  const v = cents/100, sign = v<0?'-':'';
+  return `${sign}R$ ${Math.abs(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+}
+const $ = s => document.querySelector(s);
+
+// ---------- render ----------
+function render(){
+  const d = DATA[ORDER[idx]];
+  $('#monthLbl').textContent = d.label;
+  $('#mesInline').textContent = d.mesNome;
+  $('#prevM').disabled = idx===0;
+  $('#nextM').disabled = idx===ORDER.length-1;
+
+  // hero status
+  const hero = $('#hero');
+  hero.className = 'hero s-'+d.status;
+  $('#statusLbl').textContent = d.statusLbl;
+  const sobra = d.projecao - d.caixa; // a receber - a pagar
+  $('#heroBig').textContent = exact ? exactBRL(d.caixa) : abbr(d.caixa);
+  $('#heroLbl').textContent = exact ? 'em caixa hoje · toque para abreviar' : 'em caixa hoje · toque para ver exato';
+
+  // runway
+  const pct = Math.max(4, Math.round(d.hoje/d.diasNoMes*100));
+  $('#rwFill').style.width = pct+'%';
+  $('#rwToday').style.left = pct+'%';
+  $('#rwEnd').textContent = 'fecha '+abbr(d.projecao);
+  $('#rwMid').textContent = 'hoje · dia '+d.hoje;
+  $('#rwLast').textContent = 'dia '+d.diasNoMes;
+
+  // apoios
+  $('#kEntrou').textContent = abbr(d.entrou);
+  $('#kGastei').textContent = abbr(d.gastei);
+
+  // recomendações
+  $('#recCount').textContent = d.rec.length+' alerta'+(d.rec.length>1?'s':'');
+  $('#recBody').innerHTML = d.rec.map(r=>`<div class="rec"><span class="ri">${r[0]}</span><span>${r[1]}</span></div>`).join('');
+  $('#bellN').textContent = d.rec.length;
+
+  // quanto gastei (respeita eixo)
+  renderQG(d);
+
+  // categorias
+  const catTotal = d.cat.reduce((s,c)=>s+c[1],0);
+  $('#catHint').innerHTML = d.cat.length+' categorias <span class="chev">▾</span>';
+  $('#catBody').innerHTML = d.cat.map(c=>{
+    const p = Math.round(c[1]/catTotal*100);
+    return `<div class="catrow"><div class="cattop"><span>${c[0]}</span><b>${exactBRL(c[1])} <span class="muted">(${p}%)</span></b></div><div class="catbar"><span style="width:${p}%;background:${c[2]}"></span></div></div>`;
+  }).join('');
+
+  // fluxo chart + ritmo
+  drawSpark(d.spark);
+  $('#ritmo').value = d.ritmoMedio;
+  $('#ritmoVal').textContent = 'R$ '+d.ritmoMedio+'/dia';
+  recalcRitmo();
+
+  // saúde
+  const rp = Math.round(d.reserva/6*100);
+  $('#saudeHint').innerHTML = `reserva ${d.reserva.toFixed(1).replace('.',',')}/6 <span class="chev">▾</span>`;
+  $('#saudeBody').innerHTML =
+    `<div class="line"><span>Reserva de emergência</span><b>${d.reserva.toFixed(1).replace('.',',')} / 6 meses</b></div>
+     <div class="bar"><span style="width:${rp}%"></span></div>
+     <div class="cap">Faltam ${(6-d.reserva).toFixed(1).replace('.',',')} meses para a meta. Despesa média mensal: ${exactBRL(d.gastei)}.</div>`;
+}
+
+function renderQG(d){
+  const bd = eixo==='vaisair' ? d.breakdown.vaisair : d.breakdown.gastei;
+  $('#qgHint').textContent = eixo==='vaisair' ? 'por vencimento' : 'por compra';
+  let html = '';
+  const cards = bd.cards.filter(c=>c[2]>0).sort((a,b)=>b[2]-a[2]);
+  const contas = bd.conta.filter(c=>c[1]>0).sort((a,b)=>b[1]-a[1]);
+  if(cards.length){
+    html += `<div class="qhead">💳 Cartões</div>`;
+    html += cards.map(c=>`<div class="qcard" style="background:linear-gradient(135deg,${c[1]})"><span class="nm"><span class="chipmini"></span>${c[0]}</span><span class="amt">${exactBRL(c[2])}</span></div>`).join('');
+  }
+  if(contas.length){
+    html += `<div class="qhead" style="margin-top:12px">🏦 Contas</div>`;
+    html += contas.map(c=>`<div class="qrow"><span class="nm"><span class="tile">🏦</span>${c[0]} · conta corrente</span><span class="amt">${exactBRL(c[1])}</span></div>`).join('');
+  }
+  html += `<div class="qhint">${eixo==='vaisair'?'no mês, por vencimento':'no mês, por compra'} · pagamento de fatura não conta</div>`;
+  $('#qgBody').innerHTML = html;
+}
+
+// sparkline / mini fluxo (SVG)
+function drawSpark(series){
+  const w=320,h=120,pad=6, min=Math.min(...series), max=Math.max(...series), span=(max-min)||1;
+  const pts = series.map((v,i)=>{
+    const x = pad + i/(series.length-1)*(w-2*pad);
+    const y = h-pad - (v-min)/span*(h-2*pad);
+    return [x,y];
+  });
+  const line = 'M'+pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' L');
+  const area = `M${pad},${h-pad} L`+pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' L')+` L${w-pad},${h-pad} Z`;
+  const d = DATA[ORDER[idx]];
+  const col = d.status==='green' ? '#1E924A' : d.status==='amber' ? '#B5803A' : '#B5433A';
+  $('#flxChart').innerHTML =
+    `<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${col}" stop-opacity=".22"/><stop offset="100%" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>
+     <path d="${area}" fill="url(#g)"/>
+     <path d="${line}" fill="none" stroke="${col}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>`;
+}
+
+function recalcRitmo(){
+  const d = DATA[ORDER[idx]];
+  const r = +$('#ritmo').value;
+  $('#ritmoVal').textContent = 'R$ '+r+'/dia';
+  const diasRest = d.diasNoMes - d.hoje;
+  const fim = d.caixa + d.aReceber - (r*100)*diasRest - (d.aPagar - Math.min(d.aPagar, r*100*diasRest)*0); // simplificado: caixa - ritmo*dias + recebe
+  // versão simples e legível: projeta caixa - ritmo*diasRest + aReceber
+  const proj = d.caixa + d.aReceber - (r*100)*diasRest;
+  const out = $('#ritmoOut');
+  out.textContent = abbr(proj);
+  out.style.color = proj>=0 ? 'var(--green)' : 'var(--red)';
+}
+
+// ---------- eventos ----------
+$('#prevM').onclick = ()=>{ if(idx>0){idx--; render();} };
+$('#nextM').onclick = ()=>{ if(idx<ORDER.length-1){idx++; render();} };
+$('#heroBig').onclick = ()=>{ exact=!exact; render(); };
+$('#eixoSeg').addEventListener('click', e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  if(b.dataset.e==='extrato'){ alert('Extrato: abriria a lista completa de saídas do mês em ordem de data (camada Detalhe).'); return; }
+  eixo=b.dataset.e;
+  [...$('#eixoSeg').children].forEach(x=>x.classList.toggle('on', x.dataset.e===eixo || (eixo!=='extrato'&&x.dataset.e===eixo)));
+  [...$('#eixoSeg').children].forEach(x=>x.classList.toggle('on', x.dataset.e===eixo));
+  renderQG(DATA[ORDER[idx]]);
+});
+$('#viewSeg').addEventListener('click', e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  [...$('#viewSeg').children].forEach(x=>x.classList.toggle('on', x===b));
+  if(b.dataset.v==='ano') alert('Visão Ano: traria destaques do ano, resultado, taxa de poupança e evolução do patrimônio (fora deste mockup).');
+});
+$('#ritmo').addEventListener('input', recalcRitmo);
+
+render();
+// abre Recomendações por padrão para mostrar a camada
+$('#accRec').open = true;
+</script>
+</body>
+</html>

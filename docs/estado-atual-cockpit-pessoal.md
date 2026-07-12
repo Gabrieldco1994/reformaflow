@@ -1,6 +1,18 @@
 # Estado Atual — Cockpit/Visão Conta (PESSOAL)
 
-Atualizado em: **2026-07-11**
+Atualizado em: **2026-07-12**
+
+## 0) Redesign UX 2026-07 — placar das trilhas
+
+- ✅ **Fases A–D + F-parcial** — PRs #75, #77 (design system, despesas mobile, cockpit estrutural, conta/cartões, sidebar).
+- ✅ **Trilha 1 — Fase C-visual** (cockpit inovador mobile, protótipo c3) — PR #81.
+- ✅ **Trilha 2 — Web analítico D1** (cockpit desktop denso) — PR #82.
+- ✅ **Trilha 3 — Fase G** (3 camadas nos módulos + Simulação) — PR #83.
+- 🔧 **Fidelidade ao protótipo c3** — em execução (branch `fix/cockpit-mobile-v3-fidelidade`): remove aside sticky duplicada e "valores canônicos" da UI, traz "Vai dar até dez?" ao mobile, reordena seções.
+- ⏳ **Trilha 4 — App mobile direto** (Hoje·Lançar·Maria·Despesas como PWA) — brief pronto (`BRIEF-TRILHA4-APP-MOBILE-LANCAR-MARIA.md`), protótipos aprovados em `docs/prototipo-mobile/app-*.html`.
+- ⏳ **Fase E — Motor único** — NÃO iniciada; brief pronto (`BRIEF-FASE-E-MOTOR-UNICO.md`). Auditoria de prod (`AUDITORIA-MOTORES-PROD.md`): tenant-financial diverge +R$ 529k (834%) do §10 canônico; cash-flow diverge −R$ 999. É a maior dívida ativa.
+- Branches `feat/phase-e-*` antigas (month-aware top) são tentativa SUPERSEDIDA — conteúdo já está no main; não confundir com a Fase E do brief.
+- Briefs concluídos arquivados em `docs/archive/redesign-2026-07/`.
 
 ## 1) Situação consolidada
 

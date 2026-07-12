@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LifeOne — Protótipo Mobile-first (antes × depois)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --canvas:#E7E4DD; --surface:#F4F3F0; --card:#FFF;
+    --trail:#ECEAE4; --hair:#DAD5CC; --hair2:#ECE8E1;
+    --blue:#0A6CF0; --blue-tint:#E6EFFE;
+    --green:#1E924A; --green-tint:#E3F6EA;
+    --amber:#B5803A; --amber-tint:#F8EFDE;
+    --red:#B5433A; --red-tint:#FAE4E1;
+    --ink:#1C1C1E; --ink2:#6E6A63; --ink3:#8A857C; --ink4:#A7A29A;
+    --shadow:0 1px 3px rgba(0,0,0,.05);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Geist',-apple-system,system-ui,sans-serif;background:var(--canvas);color:var(--ink);
+    letter-spacing:-.01em;-webkit-font-smoothing:antialiased;padding:28px 16px 60px;line-height:1.45}
+  .page-head{max-width:900px;margin:0 auto 26px}
+  .eyebrow{font-size:12px;font-weight:700;letter-spacing:.14em;color:var(--ink3);text-transform:uppercase}
+  h1{font-size:30px;font-weight:800;letter-spacing:-.03em;margin-top:4px}
+  .lede{font-size:14.5px;color:var(--ink2);max-width:620px;margin-top:8px}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:16px;font-size:12.5px;color:var(--ink2)}
+  .legend b{color:var(--ink)}
+  .tagBefore,.tagAfter{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;padding:3px 9px;border-radius:999px}
+  .tagBefore{background:#EFE9E1;color:#8A7E6B}
+  .tagAfter{background:var(--blue-tint);color:var(--blue)}
+  .sec{max-width:900px;margin:0 auto 40px}
+  .sec-h{display:flex;align-items:baseline;gap:10px;margin-bottom:4px;flex-wrap:wrap}
+  .sec-n{font-size:12px;font-weight:800;color:var(--blue);letter-spacing:.02em}
+  .sec-t{font-size:20px;font-weight:800;letter-spacing:-.02em}
+  .sec-d{font-size:13.5px;color:var(--ink2);margin:6px 0 18px;max-width:640px}
+  .pair{display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:start}
+  @media(max-width:820px){.pair{grid-template-columns:1fr}}
+  .col-label{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px}
+  .phone{width:100%;max-width:390px;margin:0 auto;background:var(--surface);border-radius:26px;
+    box-shadow:0 0 0 .5px var(--hair),0 12px 40px rgba(0,0,0,.10);overflow:hidden;border:6px solid #201d19}
+  .scr{padding:16px 16px 20px;min-height:120px}
+  .scr.tight{padding:14px}
+  .note{font-size:12px;color:var(--ink3);margin-top:10px;padding-left:12px;border-left:2px solid var(--hair);max-width:390px;margin-left:auto;margin-right:auto}
+  .col-after .note{border-color:var(--blue)}
+  .appbar{display:flex;align-items:center;justify-content:space-between;font-size:12.5px;color:var(--ink2);margin-bottom:14px}
+  .chip{display:inline-flex;align-items:center;gap:7px;background:#fff;border-radius:999px;padding:5px 11px 5px 6px;box-shadow:var(--shadow);font-weight:700;font-size:12px}
+  .chip .dot{width:22px;height:22px;border-radius:7px;background:var(--blue-tint);display:grid;place-items:center;color:var(--blue);font-size:13px}
+  .seg{display:inline-flex;background:var(--trail);border-radius:11px;padding:3px;gap:2px}
+  .seg button{border:0;background:transparent;color:var(--ink2);border-radius:9px;padding:7px 13px;font-size:12.5px;font-weight:600;font-family:inherit;min-height:34px;cursor:default}
+  .seg button.on{background:#fff;color:var(--ink);box-shadow:var(--shadow)}
+  .row{display:flex;align-items:center;gap:8px}
+  .spacer{flex:1}
+  .card{background:var(--card);border-radius:18px;padding:16px;box-shadow:var(--shadow);border:.5px solid var(--hair2)}
+  .card+.card,.stack>*+*{margin-top:12px}
+  .klabel{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink3);display:flex;align-items:center;gap:6px}
+  .kval{font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+  .hero .kval{font-size:34px;line-height:1.02;margin-top:8px}
+  .hero .sub{font-size:13px;color:var(--ink2);margin-top:8px}
+  .neg{color:var(--red)} .pos{color:var(--green)} .amberc{color:var(--amber)} .accent{color:var(--blue)} .muted{color:var(--ink3)}
+  .info{width:14px;height:14px;border-radius:999px;border:1.2px solid var(--ink4);color:var(--ink4);font-size:9px;display:inline-grid;place-items:center;font-weight:700}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+  .mini{background:#fff;border-radius:14px;padding:12px;box-shadow:var(--shadow);border:.5px solid var(--hair2);min-width:0}
+  .mini .kval{font-size:20px;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mini.small .kval{font-size:15px}
+  .accordion{background:#fff;border-radius:14px;box-shadow:var(--shadow);border:.5px solid var(--hair2);padding:13px 14px;display:flex;align-items:center;justify-content:space-between;font-weight:700;font-size:13.5px}
+  .accordion .chev{color:var(--ink4)}
+  .accordion .hint{font-weight:500;color:var(--ink3);font-size:12px}
+  .prog{height:7px;border-radius:999px;background:var(--trail);overflow:hidden;margin-top:6px}
+  .prog>span{display:block;height:100%;border-radius:999px;background:var(--blue)}
+  .darkhero{background:linear-gradient(155deg,#232019,#100e0b);color:#F4F3F0;border-radius:20px;padding:18px}
+  .darkhero .klabel{color:rgba(244,243,240,.6)}
+  .darkhero .kval{font-size:30px}
+  .lrow{display:flex;align-items:center;gap:11px;padding:11px 4px;border-top:.5px solid var(--hair2)}
+  .lrow:first-child{border-top:0}
+  .lrow .tile{width:34px;height:34px;border-radius:11px;background:var(--surface);display:grid;place-items:center;font-size:15px;flex:none}
+  .lrow .t{flex:1;min-width:0}
+  .lrow .t b{font-size:14px;font-weight:600;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .lrow .t small{color:var(--ink3);font-size:12px}
+  .lrow .v{font-weight:700;font-variant-numeric:tabular-nums;font-size:14px;flex:none}
+  .billcard{background:#fff;border-radius:14px;padding:13px 14px;box-shadow:var(--shadow);border:.5px solid var(--hair2)}
+  .billcard .top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+  .billcard .name{font-weight:700;font-size:14.5px}
+  .billcard .meta{font-size:12px;color:var(--ink3);margin-top:2px}
+  .billcard .amt{font-weight:800;font-variant-numeric:tabular-nums;font-size:15px}
+  .badge{font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:999px}
+  .badge.on{background:var(--green-tint);color:var(--green)}
+  .badge.off{background:#EFE9E1;color:#8A7E6B}
+  .acts{display:flex;gap:14px;font-size:12.5px;font-weight:600}
+  .acts a{color:var(--blue);text-decoration:none;cursor:default}
+  .acts a.danger{color:var(--red)}
+  .tblwrap{background:#fff;border-radius:14px;border:.5px solid var(--hair2);box-shadow:var(--shadow);overflow:hidden;position:relative}
+  .tbl{width:100%;font-size:12.5px;border-collapse:collapse}
+  .tbl th{text-align:left;color:var(--ink2);font-weight:600;padding:10px;background:#FAF8F4;font-size:11.5px}
+  .tbl td{padding:11px 10px;border-top:.5px solid var(--hair2);white-space:nowrap}
+  .tbl .cut{position:absolute;top:0;right:0;bottom:0;width:26px;background:linear-gradient(90deg,transparent,rgba(0,0,0,.08))}
+  .cutlabel{font-size:10.5px;color:var(--red);margin-top:6px;text-align:right}
+  .filterbtn{display:flex;align-items:center;justify-content:space-between;width:100%;background:#fff;border:.5px solid var(--hair);border-radius:14px;padding:12px 14px;font-size:13.5px;font-weight:600;box-shadow:var(--shadow)}
+  .filterbtn .muted{font-weight:500}
+  .pillrow{display:flex;gap:7px;flex-wrap:wrap}
+  .pill{font-size:12px;font-weight:600;padding:6px 11px;border-radius:999px;background:var(--trail);color:var(--ink2)}
+  .pill.on{background:var(--blue-tint);color:var(--blue)}
+  .fab{position:sticky;bottom:10px;margin:14px 8px 0 auto;width:max-content;background:var(--blue);color:#fff;border-radius:999px;padding:12px 18px;font-weight:700;font-size:14px;box-shadow:0 6px 14px rgba(10,108,240,.4)}
+  .callout{background:var(--blue-tint);border-radius:14px;padding:12px 14px;font-size:12.5px;color:#0A3F8F;display:flex;gap:9px}
+  .callout .i{font-weight:800}
+  .win{display:inline-block;font-size:11px;font-weight:700;color:var(--green);background:var(--green-tint);padding:2px 8px;border-radius:999px;margin-left:6px}
+  code{background:#EFE9E1;border-radius:5px;padding:1px 5px;font-size:12px;font-family:ui-monospace,monospace}
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <div class="eyebrow">LifeOne · Protótipo de design</div>
+  <h1>Mobile-first: antes × depois</h1>
+  <p class="lede">Mockups estáticos com os tokens e valores reais do app. Cada bloco mostra a tela <b>como está</b> ao lado da <b>proposta</b>. Os "estruturais" demonstram o modelo de 3 camadas (relance → foco → detalhe).</p>
+  <div class="legend">
+    <span><span class="tagBefore">Como está</span> comportamento hoje no celular</span>
+    <span><span class="tagAfter">Proposta</span> mobile-first</span>
+  </div>
+</div>
+
+<!-- RÁPIDO 1 -->
+<section class="sec">
+  <div class="sec-h"><span class="sec-n">RÁPIDO 1</span><span class="sec-t">Formatação de moeda consistente + abreviação</span></div>
+  <p class="sec-d">O mesmo Caixa aparece hoje como <code>R$ -205.062</code> (Cockpit, sem centavos, sinal no meio) e <code>-R$ 205.062,38</code> (Conta, com centavos). Proposta: herói abreviado e legível, exato ao tocar; sinal sempre antes do R$.</p>
+  <div class="pair">
+    <div class="col-before">
+      <div class="col-label"><span class="tagBefore">Como está</span></div>
+      <div class="phone"><div class="scr">
+        <div class="card hero"><div class="klabel">Caixa (conta corrente) <span class="info">i</span></div><div class="kval neg">R$ -205.062</div><div class="sub muted">reconciliado com o saldo do banco</div></div>
+        <div class="card hero"><div class="klabel">Tenho na conta hoje <span class="info">i</span></div><div class="kval neg">-R$ 205.062,38</div><div class="sub muted">Visão Conta — mesmo valor, outro formato</div></div>
+      </div></div>
+      <p class="note">Dois formatos e o sinal muda de lugar. A 34px, o número domina e é difícil de ler de relance.</p>
+    </div>
+    <div class="col-after">
+      <div class="col-label"><span class="tagAfter">Proposta</span></div>
+      <div class="phone"><div class="scr">
+        <div class="card hero"><div class="klabel">Caixa hoje <span class="info">i</span></div><div class="kval neg" style="font-size:38px">-R$ 205&thinsp;mil</div><div class="sub"><span class="muted">reconciliado com o banco ·</span> <b>-R$ 205.062,38</b> <span class="muted">(toque)</span></div></div>
+        <div class="callout"><span class="i">✓</span><span>Uma função de moeda por camada: <b>herói</b> abreviado (<code>fmtK</code>), <b>listas/edição</b> com centavos. Sinal sempre antes do R$.</span></div>
+      </div></div>
+      <p class="note">Leitura instantânea; o exato fica a um toque. Reaproveita o <code>fmtK</code> que já existe (hoje só nos gráficos).</p>
+    </div>
+  </div>
+</section>
+
+<!-- RÁPIDO 3 -->
+<section class="sec">
+  <div class="sec-h"><span class="sec-n">RÁPIDO 3</span><span class="sec-t">Delta legível + cor por “bom/ruim”, não por seta</span></div>
+  <p class="sec-d">Hoje: “Resultado -R$ 1.200 · ↑ 57% vs mês anterior” em verde com seta pra cima — num número negativo. Ambíguo. E quase todo gasto é vermelho, o que anestesia o alarme.</p>
+  <div class="pair">
+    <div class="col-before">
+      <div class="col-label"><span class="tagBefore">Como está</span></div>
+      <div class="phone"><div class="scr">
+        <div class="card"><div class="klabel">Resultado de Julho <span class="info">i</span></div>
+          <div class="row" style="justify-content:space-between;align-items:flex-end"><div class="kval neg" style="font-size:26px">R$ -1.200</div><div class="pos" style="font-size:12px;font-weight:700">↗ 57% vs mês anterior</div></div>
+          <div class="sub muted" style="margin-top:6px">entrou <b class="pos">R$ 0</b> · saiu <b class="neg">R$ 1.200</b></div></div>
+        <div class="card"><div class="klabel">Gastei no mês</div><div class="kval neg" style="font-size:26px">R$ 1.200</div></div>
+      </div></div>
+      <p class="note">Seta verde ↑ sobre valor negativo confunde. “Gastei” em vermelho como se fosse erro.</p>
+    </div>
+    <div class="col-after">
+      <div class="col-label"><span class="tagAfter">Proposta</span></div>
+      <div class="phone"><div class="scr">
+        <div class="card"><div class="klabel">Resultado de Julho <span class="info">i</span></div>
+          <div class="row" style="justify-content:space-between;align-items:flex-end"><div class="kval neg" style="font-size:26px">-R$ 1,2&thinsp;mil</div><div class="neg" style="font-size:12px;font-weight:700">piorou 57%</div></div>
+          <div class="sub muted" style="margin-top:6px">entrou <b class="pos">R$ 0</b> · saiu <b>R$ 1,2 mil</b></div></div>
+        <div class="card"><div class="klabel">Gastei no mês</div><div class="kval" style="font-size:26px">R$ 1,2&thinsp;mil</div><div class="sub muted">dentro do previsto</div></div>
+        <div class="callout"><span class="i">✓</span><span>Vermelho só para <b>estado ruim de verdade</b> (saldo/meta/fatura). Gasto normal em tinta neutra; a comparação é que ganha cor.</span></div>
+      </div></div>
+      <p class="note">“piorou 57%” diz o sentido. Gasto neutro; alarme reservado ao que é de fato ruim.</p>
+    </div>
+  </div>
+</section>
+
+<!-- RÁPIDO 2 + ESTRUTURAL Despesas -->
+<section class="sec">
+  <div class="sec-h"><span class="sec-n">RÁPIDO 2 · ESTRUTURAL</span><span class="sec-t">Despesas: controles num sheet, lista primeiro, 2 KPIs no relance</span></div>
+  <p class="sec-d">Hoje empilha ~7 blocos de chrome (hero + 3 mini-KPIs que truncam + categorias + busca + Filtros + 4 abas + período) antes de mostrar um gasto.</p>
+  <div class="pair">
+    <div class="col-before">
+      <div class="col-label"><span class="tagBefore">Como está</span></div>
+      <div class="phone"><div class="scr tight">
+        <div class="darkhero"><div class="klabel">Gasto no mês</div><div class="kval">R$ 59.595,37 <span style="font-size:15px;color:#7FB0F5">11% pago</span></div><div class="prog" style="background:rgba(255,255,255,.15);margin-top:10px"><span style="width:11%"></span></div></div>
+        <div class="grid3" style="margin-top:12px">
+          <div class="mini small"><div class="klabel">No cartão</div><div class="kval">R$ 4.541,…</div></div>
+          <div class="mini small"><div class="klabel">À vista</div><div class="kval">R$ 1.857,…</div></div>
+          <div class="mini small"><div class="klabel">A vir</div><div class="kval">R$ 53.19…</div></div>
+        </div>
+        <div class="accordion" style="margin-top:12px">Gastos por categoria <span class="chev">▾</span></div>
+        <div class="filterbtn" style="margin-top:10px">🔎 Buscar despesas… </div>
+        <div class="pillrow" style="margin-top:10px"><span class="pill on">Categoria</span><span class="pill">Mês</span><span class="pill">Por projeto</span><span class="pill">Geral</span></div>
+        <div class="row" style="margin-top:10px;gap:8px"><span class="pill">Julho 2026 ▾</span><span class="pill">Ano todo</span></div>
+        <div class="muted" style="font-size:12px;margin-top:12px;text-align:center">…a lista de despesas só começa aqui ↓</div>
+      </div></div>
+      <p class="note">Valores truncam. ~7 blocos antes do primeiro gasto — a tela que mais se usa é a que mais faz rolar.</p>
+    </div>
+    <div class="col-after">
+      <div class="col-label"><span class="tagAfter">Proposta</span></div>
+      <div class="phone"><div class="scr tight">
+        <div class="darkhero"><div class="klabel">Gasto no mês · Julho</div><div class="kval">R$ 59,6&thinsp;mil</div><div class="sub" style="color:rgba(244,243,240,.75);font-size:12.5px;margin-top:4px">pago R$ 6,4 mil · a vir R$ 53,2 mil</div><div class="prog" style="background:rgba(255,255,255,.15);margin-top:10px"><span style="width:11%"></span></div></div>
+        <div class="grid2" style="margin-top:12px">
+          <div class="mini"><div class="klabel"><span style="color:#8B5CF6">●</span> No cartão</div><div class="kval">R$ 4,5 mil</div></div>
+          <div class="mini"><div class="klabel"><span class="accent">●</span> À vista</div><div class="kval">R$ 1,9 mil</div></div>
+        </div>
+        <div class="filterbtn" style="margin-top:12px"><span>Categoria · Julho</span><span class="muted">Filtrar ▾</span></div>
+        <div class="stack" style="margin-top:12px">
+          <div class="lrow"><span class="tile">🍽️</span><div class="t"><b>Alimentação</b><small>Itaú ·· 5876 · 05 jul</small></div><span class="v neg">-R$ 67,00</span></div>
+          <div class="lrow"><span class="tile">🏠</span><div class="t"><b>Material p/ Construção</b><small>conta/débito · 1/3</small></div><span class="v neg">-R$ 990,00</span></div>
+          <div class="lrow"><span class="tile">🔁</span><div class="t"><b>Transferência</b><small>Itaú ·· 4247 · 05 jul</small></div><span class="v neg">-R$ 392,25</span></div>
+        </div>
+        <div class="fab">＋ Nova despesa</div>
+      </div></div>
+      <p class="note">2 KPIs (o 3º “A vir” já está no hero), abreviados. Todos os controles num botão <b>Filtrar</b>. Lista na 1ª dobra; FAB no polegar.</p>
+    </div>
+  </div>
+  <div class="callout" style="max-width:640px;margin:14px auto 0"><span class="i">▾</span><span>O botão <b>Filtrar</b> abre um bottom-sheet com as 4 visões (Categoria/Mês/Por projeto/Geral) + período + busca — <b>nada some</b>, só sai da primeira dobra. <span class="win">estrutural</span></span></div>
+</section>
+
+<!-- ESTRUTURAL Cockpit -->
+<section class="sec">
+  <div class="sec-h"><span class="sec-n">ESTRUTURAL</span><span class="sec-t">Cockpit: herói único + análise colapsada (camada Relance)</span></div>
+  <p class="sec-d">Hoje: narrativa em prosa <b>e</b> 3 cards-herói repetem os mesmos números, e a análise (gráfico, categorias, comprometimento, saúde) empilha por ~5 telas. Proposta: fundir a narrativa no herói e colapsar a análise.</p>
+  <div class="pair">
+    <div class="col-before">
+      <div class="col-label"><span class="tagBefore">Como está</span></div>
+      <div class="phone"><div class="scr tight">
+        <div class="appbar"><span>‹ Projetos</span><span class="chip"><span class="dot">◔</span>Meu Pessoal</span><span>🔔</span></div>
+        <div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:12px"><span class="seg"><button>‹</button><button>›</button></span><span class="seg"><button class="on">Mês</button><button>Ano</button></span><span class="seg"><button class="on">Gastei</button><button>Vai sair</button></span></div>
+        <div class="card"><div style="font-size:14px">✍️ <b class="neg">Você tem R$ -205.062 em caixa.</b> <span class="muted">Julho caminha pra fechar em R$ -250.278 — faltam R$ 45.216 a cobrir até o fim do mês.</span></div>
+          <div class="prog" style="margin-top:12px"><span style="width:6%"></span></div>
+          <div class="accordion" style="margin-top:12px;box-shadow:none;border:0;border-top:.5px solid var(--hair2);border-radius:0;padding:12px 0 0">💡 RECOMENDAÇÕES <span class="chev">▾</span></div></div>
+        <div class="card hero"><div class="klabel">Caixa (conta corrente) <span class="info">i</span></div><div class="kval neg">R$ -205.062</div></div>
+        <div class="card hero"><div class="klabel">Resultado de Julho <span class="info">i</span></div><div class="kval neg">R$ -1.200</div></div>
+        <div class="muted" style="font-size:12px;text-align:center;margin-top:10px">…+ Projeção, Entrou/Gastei, Quanto gastei, gráfico, categorias, comprometimento, saúde ↓</div>
+      </div></div>
+      <p class="note">Caixa/Projeção/Falta aparecem <b>2×</b> (prosa + cards). ~6–7 telas de rolagem; hierarquia diluída.</p>
+    </div>
+    <div class="col-after">
+      <div class="col-label"><span class="tagAfter">Proposta</span></div>
+      <div class="phone"><div class="scr tight">
+        <div class="appbar"><span>‹ Projetos</span><span class="chip"><span class="dot">◔</span>Meu Pessoal</span><span>🔔</span></div>
+        <div class="row" style="gap:8px;margin-bottom:12px"><span class="seg"><button class="on">Mês</button><button>Ano</button></span><span class="spacer"></span><span class="filterbtn" style="width:auto;padding:7px 12px;font-size:12.5px">Julho · Gastei ▾</span></div>
+        <div class="card hero"><div class="klabel">Caixa hoje <span class="info">i</span></div><div class="kval neg" style="font-size:38px">-R$ 205&thinsp;mil</div><div class="prog" style="margin-top:10px"><span style="width:6%"></span></div>
+          <div class="sub" style="margin-top:10px">Julho fecha em <b class="amberc">~-R$ 250 mil</b> — faltam <b>R$ 45 mil</b> até dia 31. <span class="muted">6% do mês.</span></div></div>
+        <div class="grid2">
+          <div class="mini"><div class="klabel">Entrou</div><div class="kval pos">R$ 0</div></div>
+          <div class="mini"><div class="klabel">Gastei</div><div class="kval">R$ 1,2 mil</div></div>
+        </div>
+        <div class="stack" style="margin-top:12px">
+          <div class="accordion">💡 Recomendações <span class="hint">2 alertas ▾</span></div>
+          <div class="accordion">Quanto gastei <span class="hint">cartões e conta ▾</span></div>
+          <div class="accordion">Fluxo do mês <span class="hint">gráfico + ritmo ▾</span></div>
+          <div class="accordion">Onde gastei · Saúde <span class="hint">▾</span></div>
+        </div>
+      </div></div>
+      <p class="note">1 herói (Caixa) + a narrativa como legenda + Entrou/Gastei. Toda a análise vira seções recolhidas (camada Foco). 1 controle de período/eixo.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ESTRUTURAL tabelas->cards -->
+<section class="sec">
+  <div class="sec-h"><span class="sec-n">ESTRUTURAL</span><span class="sec-t">Tabelas Casa/Carro → cards no mobile</span></div>
+  <p class="sec-d">Hoje as tabelas rolam na horizontal para não cortar colunas — mas o usuário não sabe que há colunas fora da tela, incluindo as <b>ações</b> (pausar/editar/excluir).</p>
+  <div class="pair">
+    <div class="col-before">
+      <div class="col-label"><span class="tagBefore">Como está</span></div>
+      <div class="phone"><div class="scr">
+        <div class="row" style="justify-content:space-between;margin-bottom:12px"><b style="font-size:18px">Contas</b><span class="seg"><button class="on">Recorrentes</button><button>Avulsas</button></span></div>
+        <div class="tblwrap">
+          <table class="tbl"><thead><tr><th>Conta</th><th>Categoria</th><th>Valor</th><th>Fr…</th></tr></thead>
+          <tbody>
+            <tr><td><b>Conta de Luz</b></td><td>Luz</td><td>R$ 99,87</td><td>…</td></tr>
+            <tr><td><b>Internet/Tel.</b></td><td>Internet</td><td>R$ 150,00</td><td>…</td></tr>
+            <tr><td><b>Gás</b></td><td>Gás</td><td>R$ 40,49</td><td>…</td></tr>
+          </tbody></table>
+          <div class="cut"></div>
+        </div>
+        <div class="cutlabel">→ Frequência, Vencimento, Status e Ações estão fora da tela</div>
+      </div></div>
+      <p class="note">Ações escondidas atrás de scroll horizontal = ações que, na prática, não existem no celular.</p>
+    </div>
+    <div class="col-after">
+      <div class="col-label"><span class="tagAfter">Proposta</span></div>
+      <div class="phone"><div class="scr">
+        <div class="row" style="justify-content:space-between;margin-bottom:6px"><b style="font-size:18px">Contas</b><span class="seg"><button class="on">Recorrentes</button><button>Avulsas</button></span></div>
+        <div class="muted" style="font-size:12.5px;margin-bottom:12px">Total mensal estimado: <b class="accent">R$ 290,36</b></div>
+        <div class="stack">
+          <div class="billcard"><div class="top"><div><div class="name">Conta de Luz</div><div class="meta">Luz · vence dia 10 · mensal</div></div><div class="amt">R$ 99,87</div></div>
+            <div class="row" style="justify-content:space-between;margin-top:11px;padding-top:11px;border-top:.5px solid var(--hair2)"><span class="badge on">Ativa</span><div class="acts"><a>Pausar</a><a>Editar</a><a class="danger">Excluir</a></div></div></div>
+          <div class="billcard"><div class="top"><div><div class="name">Internet / Telefone</div><div class="meta">Internet · vence dia 15 · mensal</div></div><div class="amt">R$ 150,00</div></div>
+            <div class="row" style="justify-content:space-between;margin-top:11px;padding-top:11px;border-top:.5px solid var(--hair2)"><span class="badge on">Ativa</span><div class="acts"><a>Pausar</a><a>Editar</a><a class="danger">Excluir</a></div></div></div>
+          <div class="billcard"><div class="top"><div><div class="name">Gás</div><div class="meta">Gás · vence dia 20 · mensal</div></div><div class="amt">R$ 40,49</div></div>
+            <div class="row" style="justify-content:space-between;margin-top:11px;padding-top:11px;border-top:.5px solid var(--hair2)"><span class="badge off">Pausada</span><div class="acts"><a>Ativar</a><a>Editar</a><a class="danger">Excluir</a></div></div></div>
+        </div>
+      </div></div>
+      <p class="note">Cada conta é um card: valor em destaque, status como chip, ações visíveis. Zero scroll horizontal. No desktop, a tabela permanece.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ESTRUTURAL KPI unificado -->
+<section class="sec">
+  <div class="sec-h"><span class="sec-n">ESTRUTURAL</span><span class="sec-t">Um componente de KPI só (hoje há 3 dialetos)</span></div>
+  <p class="sec-d">Cockpit usa cards claros, Despesas usa hero escuro, Visão Conta usa cards tintados. O usuário reaprende “o que é um número importante” a cada aba. Proposta: 1 componente, 3 variantes + mapa de cor semântica único.</p>
+  <div class="pair">
+    <div class="col-before">
+      <div class="col-label"><span class="tagBefore">Como está — 3 dialetos</span></div>
+      <div class="phone"><div class="scr">
+        <div class="card hero"><div class="klabel">Cockpit — card claro</div><div class="kval neg">R$ -205.062</div></div>
+        <div class="darkhero" style="margin-top:12px"><div class="klabel">Despesas — hero escuro</div><div class="kval">R$ 59.595,37</div></div>
+        <div class="card" style="margin-top:12px;background:var(--green-tint);border-color:#BFE9DA"><div class="klabel" style="color:var(--green)">Conta — card tintado</div><div class="kval pos">R$ 343.484</div></div>
+      </div></div>
+      <p class="note">Três linguagens visuais para a mesma ideia (“KPI”). Custa aprendizado e manutenção.</p>
+    </div>
+    <div class="col-after">
+      <div class="col-label"><span class="tagAfter">Proposta — 1 sistema, variantes</span></div>
+      <div class="phone"><div class="scr">
+        <div class="card hero"><div class="klabel">Herói (variante padrão) <span class="info">i</span></div><div class="kval neg" style="font-size:34px">-R$ 205 mil</div><div class="sub muted">rótulo · contexto · toque = exato</div></div>
+        <div class="grid2" style="margin-top:12px">
+          <div class="mini"><div class="klabel">Apoio</div><div class="kval">R$ 1,9 mil</div></div>
+          <div class="mini"><div class="klabel">Apoio</div><div class="kval pos">R$ 0</div></div>
+        </div>
+        <div class="card" style="margin-top:12px;border-left:3px solid var(--red)"><div class="klabel">Estado (tinta reservada) <span class="info">i</span></div><div class="kval neg" style="font-size:22px">Meta estourada · -R$ 300</div></div>
+        <div class="callout" style="margin-top:12px"><span class="i">✓</span><span>Cor semântica única: <b class="pos">positivo</b> · <b class="neg">negativo</b> · <b class="amberc">alerta</b> · neutro · <b class="accent">accent</b>.</span></div>
+      </div></div>
+      <p class="note">Herói / Apoio / Estado — mesma gramática em todas as abas. Tinta forte só na variante “Estado”.</p>
+    </div>
+  </div>
+</section>
+
+<div class="page-head" style="margin-top:10px">
+  <div class="callout" style="max-width:900px">
+    <span class="i">↳</span>
+    <span><b>Como ler:</b> estes são mockups de direção, não pixels finais — servem para você aprovar o <b>rumo</b>. Depois de escolher, implemento cada um como PR presentation-only (mobile), preservando 100% dos dados/KPIs (nada some: muda de camada). Recomendo aprovar primeiro os <b>Rápidos 1–3</b> e o <b>Cockpit</b>.</span>
+  </div>
+</div>
+
+</body>
+</html>

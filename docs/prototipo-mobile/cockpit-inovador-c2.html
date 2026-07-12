@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LifeOne — Cockpit Proposta C · v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F6F4EF; --card:#FFFFFF; --surface:#FBFAF7;
+    --ink:#201D19; --ink2:#57524A; --ink3:#8A857C; --line:#EAE6DE;
+    --green:#0F6B4D; --green-soft:#E4F3EC; --red:#D92D20; --red-soft:#FCEBE9;
+    --amber:#B5803A; --amber-soft:#FBF2DF; --blue:#2F5AC8;
+    --hero:#1D1B17; --hero2:#26231D;
+    --r-lg:22px; --r-md:16px;
+    --shadow:0 1px 2px rgba(32,29,25,.04),0 8px 24px rgba(32,29,25,.05);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{font-family:'Inter',-apple-system,system-ui,sans-serif;color:var(--ink);
+    -webkit-font-smoothing:antialiased;font-feature-settings:"cv11"}
+  body{background:#E5E1DA;display:flex;justify-content:center;align-items:flex-start;
+    gap:28px;padding:28px;flex-wrap:wrap;min-height:100vh}
+  .num{font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+  .micro{font-size:10.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3)}
+
+  .phone{width:402px;height:848px;background:var(--bg);border-radius:48px;
+    border:11px solid #131110;overflow:hidden;position:relative;display:flex;
+    flex-direction:column;box-shadow:0 30px 70px rgba(19,17,16,.4)}
+  .screen{flex:1;overflow-y:auto;padding:12px 16px 130px;scrollbar-width:none}
+  .screen::-webkit-scrollbar{display:none}
+
+  /* ── header ─────────────────────────── */
+  .top{display:flex;align-items:center;justify-content:space-between;padding:12px 2px 14px}
+  .month{font-size:20px;font-weight:800;letter-spacing:-.02em}
+  .month span{color:var(--ink3);font-weight:500;font-size:15px}
+  .topRight{display:flex;gap:8px;align-items:center}
+  .seg{display:flex;background:#EDEAE3;border-radius:11px;padding:3px}
+  .seg button{border:0;background:transparent;padding:6px 11px;border-radius:8px;
+    font:600 12.5px Inter;color:var(--ink3);cursor:pointer}
+  .seg button.on{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(32,29,25,.14)}
+  .iconBtn{width:36px;height:36px;border-radius:11px;border:1px solid var(--line);
+    background:#fff;display:grid;place-items:center;color:var(--ink2)}
+
+  /* ── herói ─────────────────────────── */
+  .hero{background:linear-gradient(160deg,var(--hero),var(--hero2));border-radius:var(--r-lg);
+    padding:22px 20px 18px;color:#fff;position:relative;overflow:hidden;box-shadow:var(--shadow)}
+  .hero::before{content:"";position:absolute;width:340px;height:340px;border-radius:50%;
+    background:radial-gradient(closest-side,rgba(66,160,120,.22),transparent);top:-170px;right:-110px}
+  .hero .micro{color:#98938A}
+  .hero .big{font-size:46px;font-weight:800;letter-spacing:-.035em;margin-top:6px;line-height:1}
+  .hero .big em{font-style:normal;font-size:22px;font-weight:600;color:#98938A}
+  .hero .story{margin-top:12px;font-size:13.5px;line-height:1.55;color:#C9C4BB;max-width:300px}
+  .hero .story b{color:#fff;font-weight:650}
+  .hero .story .neg{color:#F2A196}
+  .hero .exact{margin-top:14px;font-size:11px;color:#7A756C}
+  .heroChips{display:flex;gap:8px;margin-top:14px;position:relative}
+  .hChip{flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);
+    border-radius:13px;padding:9px 11px}
+  .hChip .t{font-size:10.5px;color:#98938A;font-weight:600}
+  .hChip .v{font-size:14px;font-weight:700;margin-top:3px;letter-spacing:-.01em;white-space:nowrap}
+
+  /* ── card base ─────────────────────── */
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);
+    padding:16px;box-shadow:var(--shadow);margin-top:12px}
+  .cardHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:2px}
+  .link{font-size:12px;font-weight:650;color:var(--green);text-decoration:none}
+
+  /* ── vai dar até dez ───────────────── */
+  .verdict{display:flex;align-items:center;gap:9px;margin-top:10px;padding:10px 12px;
+    border-radius:13px;background:var(--green-soft);border:1px solid #CBE7D8}
+  .verdict svg{flex-shrink:0}
+  .verdict .t{font-size:13.5px;font-weight:700;color:#0C5A40;line-height:1.35}
+  .verdict .s{font-size:11.5px;color:var(--ink3);font-weight:500;margin-top:1px}
+  .chartWrap{margin-top:12px;position:relative}
+  .tip{position:absolute;pointer-events:none;background:var(--ink);color:#fff;
+    font:600 11px Inter;padding:6px 9px;border-radius:9px;opacity:0;transform:translate(-50%,-115%);
+    white-space:nowrap;transition:opacity .12s}
+  .monthPills{display:flex;gap:6px;margin-top:10px}
+  .mp{flex:1;text-align:center;border-radius:10px;padding:6px 2px;background:var(--surface);
+    border:1px solid var(--line)}
+  .mp .m{font-size:9.5px;font-weight:700;letter-spacing:.08em;color:var(--ink3);text-transform:uppercase}
+  .mp .v{font-size:11px;font-weight:700;margin-top:2px}
+  .mp.low{background:var(--amber-soft);border-color:#EBD9B4}
+  .mp.low .v{color:var(--amber)}
+
+  /* ── saúde (anéis) ─────────────────── */
+  .rings{display:flex;justify-content:space-between;margin-top:12px;gap:8px}
+  .ring{flex:1;text-align:center}
+  .ring .t{font-size:10.5px;color:var(--ink3);font-weight:600;margin-top:7px;line-height:1.3}
+  .ring .v{font-size:14px;font-weight:750;margin-top:1px}
+
+  /* ── maria ─────────────────────────── */
+  .stories{display:flex;gap:10px;overflow-x:auto;margin-top:10px;
+    scroll-snap-type:x mandatory;scrollbar-width:none;padding-bottom:2px}
+  .stories::-webkit-scrollbar{display:none}
+  .insight{min-width:82%;scroll-snap-align:start;background:var(--card);border:1px solid var(--line);
+    border-radius:var(--r-md);padding:13px 14px;box-shadow:var(--shadow);display:flex;gap:11px}
+  .dot{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;flex-shrink:0}
+  .d-warn{background:var(--amber-soft);color:var(--amber)}
+  .d-good{background:var(--green-soft);color:var(--green)}
+  .d-info{background:#E9EEFB;color:var(--blue)}
+  .insight p{font-size:13px;line-height:1.5;color:var(--ink2)}
+  .insight b{color:var(--ink);font-weight:650}
+  .insight .cta{display:inline-block;margin-top:6px;font-size:11.5px;font-weight:700;color:var(--green)}
+
+  /* ── timeline ──────────────────────── */
+  .tlItem{display:flex;gap:13px;padding:12px 0;border-bottom:1px solid var(--line);align-items:center}
+  .tlItem:last-of-type{border-bottom:0}
+  .date{width:38px;text-align:center;flex-shrink:0;border-radius:11px;padding:5px 0}
+  .date .d{font-size:15px;font-weight:800;line-height:1.1}
+  .date .m{font-size:9px;font-weight:700;color:var(--ink3);text-transform:uppercase;letter-spacing:.08em}
+  .date.today{background:var(--green-soft)}
+  .date.today .d{color:var(--green)}
+  .tlBody{flex:1;min-width:0}
+  .tlBody .n{font-size:13.5px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tlBody .s{font-size:11px;color:var(--ink3);margin-top:2px;font-weight:500}
+  .tlVal{font-size:13.5px;font-weight:750}
+  .tag{font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:6px;
+    background:var(--amber-soft);color:var(--amber);letter-spacing:.02em}
+  .swipeHint{text-align:center;font-size:10.5px;color:var(--ink3);padding-top:10px;font-weight:500}
+
+  /* ── análise ───────────────────────── */
+  details{background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);
+    margin-top:8px;box-shadow:var(--shadow)}
+  summary{list-style:none;display:flex;justify-content:space-between;align-items:center;
+    padding:14px 16px;font-size:13.5px;font-weight:650;cursor:pointer;min-height:48px}
+  summary::-webkit-details-marker{display:none}
+  summary .peek{font-size:12px;color:var(--ink3);font-weight:600;display:flex;align-items:center;gap:6px}
+  summary .peek::after{content:"›";font-size:15px;color:var(--ink3);transform:rotate(90deg);display:inline-block}
+  details[open] summary .peek::after{transform:rotate(-90deg)}
+  .body{padding:2px 16px 14px;font-size:12.5px;color:var(--ink2)}
+  .row{display:flex;justify-content:space-between;font-weight:600;margin-top:8px}
+  .bar{height:7px;border-radius:5px;background:#EFECE5;overflow:hidden;margin-top:5px}
+  .bar i{display:block;height:100%;border-radius:5px;background:var(--ink)}
+
+  /* ── perguntar ─────────────────────── */
+  .ask{display:flex;gap:8px;margin-top:14px}
+  .ask input{flex:1;border:1px solid var(--line);border-radius:14px;padding:13px 15px;
+    font:500 13.5px Inter;background:#fff;color:var(--ink);box-shadow:var(--shadow)}
+  .ask input::placeholder{color:var(--ink3)}
+  .ask button{border:0;background:var(--ink);color:#fff;border-radius:14px;width:48px;
+    display:grid;place-items:center}
+  .quick{display:flex;gap:7px;overflow-x:auto;margin-top:9px;scrollbar-width:none}
+  .quick::-webkit-scrollbar{display:none}
+  .quick span{white-space:nowrap;font-size:11.5px;font-weight:600;color:var(--ink2);
+    border:1px solid var(--line);background:#fff;border-radius:99px;padding:8px 13px}
+
+  /* ── fab + tabbar ──────────────────── */
+  .fab{position:absolute;right:18px;bottom:100px;width:56px;height:56px;border-radius:18px;
+    border:0;background:var(--green);color:#fff;display:grid;place-items:center;
+    box-shadow:0 12px 28px rgba(15,107,77,.45);cursor:pointer}
+  .tabbar{position:absolute;left:0;right:0;bottom:0;background:rgba(251,250,247,.94);
+    backdrop-filter:blur(14px);border-top:1px solid var(--line);display:flex;
+    padding:10px 6px 26px}
+  .tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;
+    font-size:9.5px;color:var(--ink3);font-weight:650}
+  .tab.on{color:var(--green)}
+  .tab svg{width:21px;height:21px}
+  .note{max-width:380px;font-size:13px;color:#3a372f;line-height:1.65;background:#fff;
+    border-radius:18px;padding:18px 20px;box-shadow:var(--shadow)}
+  .note b{color:#201D19}
+</style>
+</head>
+<body>
+
+<div class="phone">
+  <div class="screen">
+
+    <div class="top">
+      <div class="month">Julho <span>2026</span></div>
+      <div class="topRight">
+        <div class="seg" id="seg">
+          <button class="on" onclick="setEixo(0,this)">Gastei</button>
+          <button onclick="setEixo(1,this)">Vai sair</button>
+        </div>
+        <button class="iconBtn" aria-label="Filtrar">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="7" y1="12" x2="17" y2="12"/><line x1="10" y1="17" x2="14" y2="17"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- HERÓI -->
+    <section class="hero">
+      <div class="micro" id="heroLabel">Caixa hoje</div>
+      <div class="big num" id="heroVal">R$ 6,4 <em>mil</em></div>
+      <p class="story" id="heroStory">Se nada mudar, julho fecha em <b class="neg">−R$ 1,9 mil</b>.
+        Faltam sair <b>R$ 8,3 mil</b> até o dia 31 — a maior parte é a fatura do Nubank.</p>
+      <div class="heroChips">
+        <div class="hChip"><div class="t">Entrou</div><div class="v num">R$ 0</div></div>
+        <div class="hChip"><div class="t">Gastei</div><div class="v num">R$ 1,2 mil</div></div>
+        <div class="hChip"><div class="t">Resultado</div><div class="v num" style="color:#F2A196">−R$ 1,2 mil</div></div>
+      </div>
+      <div class="exact num">toque para ver exato · R$ 6.412,38</div>
+    </section>
+
+    <!-- VAI DAR ATÉ DEZ? (runway, vindo da Visão Conta p/ o relance) -->
+    <section class="card">
+      <div class="cardHead">
+        <span class="micro">Vai dar até dez?</span>
+        <a class="link" href="#">detalhe na Conta</a>
+      </div>
+      <div class="verdict">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0F6B4D" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.5"/><path d="M8.5 12.5l2.4 2.4 4.6-5.3"/></svg>
+        <div>
+          <div class="t">O saldo se mantém positivo até dezembro.</div>
+          <div class="s num">Menor ponto: R$ 1,2 mil em dezembro</div>
+        </div>
+      </div>
+
+      <div class="chartWrap">
+        <svg id="runway" width="100%" viewBox="0 0 340 150" style="display:block">
+          <defs>
+            <linearGradient id="fillG" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#0F6B4D" stop-opacity=".22"/>
+              <stop offset="100%" stop-color="#0F6B4D" stop-opacity=".02"/>
+            </linearGradient>
+          </defs>
+          <!-- grid -->
+          <line x1="14" y1="130" x2="330" y2="130" stroke="#D92D20" stroke-width="1" stroke-dasharray="4 4" opacity=".55"/>
+          <text x="14" y="125" font-size="9" fill="#B5803A" font-family="Inter" font-weight="600">R$ 0</text>
+          <line x1="14" y1="75" x2="330" y2="75" stroke="#EFECE5" stroke-width="1"/>
+          <line x1="14" y1="25" x2="330" y2="25" stroke="#EFECE5" stroke-width="1"/>
+          <!-- área + linha -->
+          <path d="M20 29 L80 53 L140 81 L200 92 L260 83 L320 111 L320 130 L20 130 Z" fill="url(#fillG)"/>
+          <path d="M20 29 L80 53 L140 81 L200 92 L260 83 L320 111" fill="none" stroke="#0F6B4D" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+          <!-- pontos -->
+          <g id="pts" fill="#0F6B4D" stroke="#fff" stroke-width="1.6">
+            <circle cx="20"  cy="29"  r="4" data-l="jul · R$ 6,4 mil"/>
+            <circle cx="80"  cy="53"  r="4" data-l="ago · R$ 4,9 mil"/>
+            <circle cx="140" cy="81"  r="4" data-l="set · R$ 3,1 mil"/>
+            <circle cx="200" cy="92"  r="4" data-l="out · R$ 2,4 mil"/>
+            <circle cx="260" cy="83"  r="4" data-l="nov · R$ 3,0 mil"/>
+            <circle cx="320" cy="111" r="4.6" data-l="dez · R$ 1,2 mil" fill="#B5803A"/>
+          </g>
+          <!-- rótulos diretos: só primeiro e último -->
+          <text x="20" y="17" font-size="10.5" fill="#57524A" font-family="Inter" font-weight="700" class="num">6,4k</text>
+          <text x="320" y="103" font-size="10.5" fill="#B5803A" text-anchor="end" font-family="Inter" font-weight="700" class="num">1,2k</text>
+          <!-- eixo -->
+          <g font-size="9.5" fill="#8A857C" font-family="Inter" font-weight="600" text-anchor="middle">
+            <text x="20" y="148">jul</text><text x="80" y="148">ago</text><text x="140" y="148">set</text>
+            <text x="200" y="148">out</text><text x="260" y="148">nov</text><text x="320" y="148">dez</text>
+          </g>
+        </svg>
+        <div class="tip" id="tip"></div>
+      </div>
+
+      <div class="monthPills num">
+        <div class="mp"><div class="m">ago</div><div class="v">4,9k</div></div>
+        <div class="mp"><div class="m">set</div><div class="v">3,1k</div></div>
+        <div class="mp"><div class="m">out</div><div class="v">2,4k</div></div>
+        <div class="mp"><div class="m">nov</div><div class="v">3,0k</div></div>
+        <div class="mp low"><div class="m">dez</div><div class="v">1,2k</div></div>
+      </div>
+    </section>
+
+    <!-- SAÚDE DO MÊS -->
+    <section class="card">
+      <div class="cardHead"><span class="micro">Saúde do mês</span></div>
+      <div class="rings">
+        <div class="ring">
+          <svg width="58" height="58" viewBox="0 0 58 58">
+            <circle cx="29" cy="29" r="24" stroke="#EFECE5" stroke-width="5.5" fill="none"/>
+            <circle cx="29" cy="29" r="24" stroke="#0F6B4D" stroke-width="5.5" fill="none" stroke-linecap="round"
+              stroke-dasharray="150.8" stroke-dashoffset="58.8" transform="rotate(-90 29 29)"/>
+            <text x="29" y="33" text-anchor="middle" font-size="13" font-weight="750" fill="#201D19" font-family="Inter">61%</text>
+          </svg>
+          <div class="t">Orçamento<br>usado</div>
+        </div>
+        <div class="ring">
+          <svg width="58" height="58" viewBox="0 0 58 58">
+            <circle cx="29" cy="29" r="24" stroke="#EFECE5" stroke-width="5.5" fill="none"/>
+            <circle cx="29" cy="29" r="24" stroke="#B5803A" stroke-width="5.5" fill="none" stroke-linecap="round"
+              stroke-dasharray="150.8" stroke-dashoffset="105.6" transform="rotate(-90 29 29)"/>
+            <text x="29" y="33" text-anchor="middle" font-size="13" font-weight="750" fill="#201D19" font-family="Inter">30%</text>
+          </svg>
+          <div class="t">Comprometido<br>3 meses</div>
+        </div>
+        <div class="ring">
+          <svg width="58" height="58" viewBox="0 0 58 58">
+            <circle cx="29" cy="29" r="24" stroke="#EFECE5" stroke-width="5.5" fill="none"/>
+            <circle cx="29" cy="29" r="24" stroke="#2F5AC8" stroke-width="5.5" fill="none" stroke-linecap="round"
+              stroke-dasharray="150.8" stroke-dashoffset="134.2" transform="rotate(-90 29 29)"/>
+            <text x="29" y="33" text-anchor="middle" font-size="13" font-weight="750" fill="#201D19" font-family="Inter">11%</text>
+          </svg>
+          <div class="t">Poupei<br>no ano</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- MARIA PERCEBEU -->
+    <section style="margin-top:18px">
+      <div class="cardHead" style="padding:0 4px">
+        <span class="micro">Maria percebeu</span><a class="link" href="#">ver todos</a>
+      </div>
+      <div class="stories">
+        <div class="insight">
+          <div class="dot d-warn">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 8v5"/><circle cx="12" cy="16.5" r=".5" fill="currentColor"/><path d="M10.3 3.8 2.9 17a2 2 0 0 0 1.7 3h14.8a2 2 0 0 0 1.7-3L13.7 3.8a2 2 0 0 0-3.4 0Z"/></svg>
+          </div>
+          <div><p>A fatura do <b>Nubank fecha em 3 dias</b> — está em R$ 2,1 mil, 18% acima da sua média.</p><span class="cta">Ver fatura →</span></div>
+        </div>
+        <div class="insight">
+          <div class="dot d-good">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-9"/><path d="M15 6h6v6"/></svg>
+          </div>
+          <div><p>Você gastou <b>32% menos em Mercado</b> que a média dos últimos 6 meses.</p><span class="cta">Onde gastei →</span></div>
+        </div>
+        <div class="insight">
+          <div class="dot d-info">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9.5"/><path d="M12 7v5l3.5 2"/></svg>
+          </div>
+          <div><p>Em <b>outubro</b> as parcelas do sofá acabam: <b>+R$ 640/mês</b> livres dali em diante.</p><span class="cta">Comprometimento →</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- PRÓXIMAS SAÍDAS -->
+    <section class="card">
+      <div class="cardHead"><span class="micro">Próximas saídas</span><a class="link" href="#">calendário</a></div>
+      <div class="tlItem">
+        <div class="date today"><div class="d">11</div><div class="m">hoje</div></div>
+        <div class="tlBody"><div class="n">Internet Claro</div><div class="s">débito automático · Conta</div></div>
+        <div class="tlVal num">R$ 120</div>
+      </div>
+      <div class="tlItem">
+        <div class="date"><div class="d">15</div><div class="m">jul</div></div>
+        <div class="tlBody"><div class="n">Fatura Nubank</div><div class="s">fecha dia 14 · <span class="tag">prevista</span></div></div>
+        <div class="tlVal num">R$ 2,1 mil</div>
+      </div>
+      <div class="tlItem">
+        <div class="date"><div class="d">20</div><div class="m">jul</div></div>
+        <div class="tlBody"><div class="n">Sofá — parcela 4/10</div><div class="s">cartão Itaú</div></div>
+        <div class="tlVal num">R$ 640</div>
+      </div>
+      <div class="tlItem">
+        <div class="date"><div class="d">28</div><div class="m">jul</div></div>
+        <div class="tlBody"><div class="n">Obra — Cerâmica 2/3</div><div class="s">espelho · Reforma Ap 92</div></div>
+        <div class="tlVal num">R$ 5,4 mil</div>
+      </div>
+      <div class="swipeHint">deslize um item para a direita para marcar como pago ✓</div>
+    </section>
+
+    <!-- ANÁLISE -->
+    <section style="margin-top:18px">
+      <div class="cardHead" style="padding:0 4px"><span class="micro">Análise</span></div>
+      <details>
+        <summary>Quanto gastei <span class="peek num">R$ 1,2 mil · 3 origens</span></summary>
+        <div class="body">
+          <div class="row"><span>Nubank</span><b class="num">R$ 610</b></div><div class="bar"><i style="width:51%"></i></div>
+          <div class="row"><span>Itaú</span><b class="num">R$ 390</b></div><div class="bar"><i style="width:33%"></i></div>
+          <div class="row"><span>Conta (à vista)</span><b class="num">R$ 200</b></div><div class="bar"><i style="width:16%"></i></div>
+        </div>
+      </details>
+      <details>
+        <summary>Onde gastei <span class="peek">Mercado lidera</span></summary>
+        <div class="body">
+          <div class="row"><span>Mercado</span><b class="num">R$ 480</b></div><div class="bar"><i style="width:40%"></i></div>
+          <div class="row"><span>Transporte</span><b class="num">R$ 310</b></div><div class="bar"><i style="width:26%"></i></div>
+          <div class="row"><span>Lazer</span><b class="num">R$ 250</b></div><div class="bar"><i style="width:21%"></i></div>
+        </div>
+      </details>
+      <details>
+        <summary>Fluxo do mês <span class="peek">gráfico dia a dia</span></summary>
+        <div class="body" style="padding-top:8px">O gráfico de saldo dia a dia atual (com slider) entra aqui, intacto.</div>
+      </details>
+    </section>
+
+    <!-- PERGUNTE À MARIA -->
+    <div class="ask">
+      <input placeholder="Pergunte à Maria… “posso gastar R$ 500?”">
+      <button aria-label="Falar">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><line x1="12" y1="18" x2="12" y2="21"/></svg>
+      </button>
+    </div>
+    <div class="quick">
+      <span>Posso gastar R$ 500?</span><span>Quanto falta sair?</span><span>Como fecho o mês?</span><span>Maior gasto da semana</span>
+    </div>
+  </div>
+
+  <button class="fab" aria-label="Nova despesa">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+  </button>
+
+  <nav class="tabbar">
+    <div class="tab on">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 3.5 10v10h6v-6h5v6h6V10Z"/></svg>Cockpit
+    </div>
+    <div class="tab">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><rect x="3" y="6" width="18" height="13" rx="3"/><path d="M3 10h18"/></svg>Conta
+    </div>
+    <div class="tab">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="13" y2="18"/></svg>Despesas
+    </div>
+    <div class="tab">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M3 9.5h18"/><path d="M7 15h4"/></svg>Cartões
+    </div>
+    <div class="tab">
+      <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>Mais
+    </div>
+  </nav>
+</div>
+
+<div class="note">
+  <b>Proposta C · v2 — acabamento.</b><br><br>
+  Mudanças sobre a v1: tipografia Inter com números tabulares, uma família de card só
+  (branco + hairline + sombra suave), ícones em traço (fim dos glifos unicode),
+  insights da Maria como cartões elegantes com ícone tintado (fim dos gradientes
+  berrantes), anéis mais finos com % dentro.<br><br>
+  <b>Novo: "Vai dar até dez?" no relance.</b> O runway da Visão Conta
+  (<code>ProjecaoSaldo</code>) ganha versão compacta logo abaixo do herói: veredito
+  (positivo/negativo até dezembro), curva do saldo carregando mês a mês com linha
+  do zero, menor ponto destacado em âmbar e pílulas por mês. Toque num ponto mostra
+  o valor; "detalhe na Conta" abre a versão completa com quebra por categoria.<br><br>
+  Tudo continua alimentado pelos motores existentes (derive.ts, dre-overview §10) —
+  zero cálculo novo.
+</div>
+
+<script>
+  const heroData=[
+    {label:'Caixa hoje',val:'R$ 6,4 <em>mil</em>',
+     story:'Se nada mudar, julho fecha em <b class="neg">−R$ 1,9 mil</b>. Faltam sair <b>R$ 8,3 mil</b> até o dia 31 — a maior parte é a fatura do Nubank.'},
+    {label:'Vai sair até 31/07',val:'R$ 8,3 <em>mil</em>',
+     story:'Fatura Nubank <b>R$ 2,1 mil</b> (dia 15), parcelas <b>R$ 640</b>, obra <b>R$ 5,4 mil</b>. Depois disso o caixa fecha em <b class="neg">−R$ 1,9 mil</b>.'}
+  ];
+  function setEixo(i,btn){
+    document.querySelectorAll('#seg button').forEach(b=>b.classList.remove('on'));
+    btn.classList.add('on');
+    document.getElementById('heroLabel').textContent=heroData[i].label;
+    document.getElementById('heroVal').innerHTML=heroData[i].val;
+    document.getElementById('heroStory').innerHTML=heroData[i].story;
+  }
+  // tooltip do runway
+  const tip=document.getElementById('tip');
+  const svg=document.getElementById('runway');
+  document.querySelectorAll('#pts circle').forEach(c=>{
+    const show=()=>{
+      const r=svg.getBoundingClientRect();
+      const sx=r.width/340;
+      tip.textContent=c.dataset.l;
+      tip.style.left=(c.cx.baseVal.value*sx)+'px';
+      tip.style.top=(c.cy.baseVal.value*sx)+'px';
+      tip.style.opacity=1;
+    };
+    c.addEventListener('pointerenter',show);
+    c.addEventListener('pointerdown',show);
+    c.addEventListener('pointerleave',()=>tip.style.opacity=0);
+  });
+</script>
+</body>
+</html>
