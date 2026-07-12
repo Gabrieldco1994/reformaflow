@@ -137,8 +137,10 @@ D0 (segurança) ──► D1 (signup) ──► D2 (onboarding+seed) ──► D
 - Paralelismo com o que está em voo: nenhum conflito com Trilha 4 (superfícies) e
   baixo com Fase E (D0 toca interceptor/testes; combinar merge order: Fase E antes).
 
-## 4. Decisões que são suas (responder antes do brief da D1)
-1. **Convidado sem cadastro** (1 clique, tenant efêmero) ou **cadastro sempre**? (Recomendo convidado — fricção mínima para "qualquer um testar".)
-2. Demo com **REFORMA incluída** no seed ou só PESSOAL? (Recomendo incluir — é o diferencial cross-project.)
-3. **Maria ligada** na demo (custo Gemini com quota) ou desligada com respostas gravadas? (Recomendo ligada com quota de 30 msgs/dia por tenant.)
-4. Domínio: subdomínio próprio (`demo.…`) ou URL Vercel padrão?
+## 4. Decisões — FECHADAS pelo Gabriel em 2026-07-12
+1. ✅ **Convidado sem cadastro** (1 clique, tenant efêmero com TTL) + cadastro opcional para "salvar" a conta.
+2. ✅ Seed inclui **PESSOAL + REFORMA** (com espelho cross-project).
+3. ✅ **Maria ligada** com quota (30 msgs/dia por tenant; chave Gemini própria da demo).
+4. ✅ Domínio: começar com **URL Vercel padrão** (`reformaflow-demo.vercel.app`); subdomínio próprio quando houver domínio.
+
+**Execução:** fases de código D0–D2 no `BRIEF-FASE-D-DEMO-PUBLICA.md` (raiz). D3 (infra Fly/Vercel) é sessão interativa com o Gabriel.
