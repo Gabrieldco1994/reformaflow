@@ -1,11 +1,28 @@
 'use client';
 
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import type { Expense, ExpenseFormData } from '@/types';
 import type { ExpenseType } from '@reformaflow/domain';
 import { type InlineNewRow, makeEmptyNewRow } from '../_types';
+
+/**
+ * Conjunto canônico de queries a invalidar após QUALQUER mutação de despesa
+ * (create/update/delete/pay/toggle/etc). Extraído para fora do hook para que
+ * outros pontos de mutação de despesa fora de `ExpensesView` (ex.: swipe-to-pay
+ * na Visão Mês) apliquem exatamente o mesmo conjunto, sem divergir — visão
+ * mensal/dashboard/fluxo de caixa dependem todos do mesmo status de despesa.
+ */
+export function invalidateExpenseQueries(queryClient: QueryClient, projectId: string) {
+  queryClient.invalidateQueries({ queryKey: ['expenses', projectId] });
+  queryClient.invalidateQueries({ queryKey: ['dashboard', projectId] });
+  queryClient.invalidateQueries({ queryKey: ['cash-flow', projectId] });
+  queryClient.invalidateQueries({ queryKey: ['cross-project-expenses', projectId] });
+  // Visão Conta / Visão Mês são caixa: qualquer mutação de despesa pode movê-las.
+  queryClient.invalidateQueries({ queryKey: ['account-view', projectId] });
+  queryClient.invalidateQueries({ queryKey: ['monthly-overview', projectId] });
+}
 
 /** True se a despesa tem ao menos uma parcela marcada como paga (paidParcelas). */
 function hasAnyPaidParcela(raw: string | null | undefined, total: number): boolean {
@@ -52,15 +69,7 @@ export function useExpenseMutations({
 }: UseExpenseMutationsParams) {
   const queryClient = useQueryClient();
 
-  const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ['expenses', projectId] });
-    queryClient.invalidateQueries({ queryKey: ['dashboard', projectId] });
-    queryClient.invalidateQueries({ queryKey: ['cash-flow', projectId] });
-    queryClient.invalidateQueries({ queryKey: ['cross-project-expenses', projectId] });
-    // Visão Conta / Visão Mês são caixa: qualquer mutação de despesa pode movê-las.
-    queryClient.invalidateQueries({ queryKey: ['account-view', projectId] });
-    queryClient.invalidateQueries({ queryKey: ['monthly-overview', projectId] });
-  };
+  const invalidate = () => invalidateExpenseQueries(queryClient, projectId);
 
   // Na visão consolidada (PESSOAL) as despesas de outros projetos aparecem como itens.
   // Mutations (editar/excluir/status) precisam apontar para o projeto DONO da despesa,

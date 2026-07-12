@@ -220,20 +220,56 @@ test.describe("Monthly cockpit — Phase C mobile relance", () => {
         expect(metric.fontSize).toBeGreaterThanOrEqual(14);
       }
 
+      // Named accordions (not a magic total): Track C keeps only the two
+      // collapsible disclosures ("Consumo"/"Detalhes") — the extra mobile
+      // sections it ships (scenarios, sankey, maria stories, swipe-to-pay)
+      // are always-visible `region`s, not `aria-expanded` disclosures, so an
+      // exact-count assertion on the disclosure selector would be brittle to
+      // future additions of either kind. Each named disclosure is checked
+      // individually so a future accordion addition is an explicit,
+      // intentional change to this list rather than a silent pass.
+      const disclosureNames = ["Consumo", "Detalhes"] as const;
       const disclosures = mobile.locator(
         'button[aria-controls^="mobile-cockpit-"][aria-expanded]',
       );
-      expect(await disclosures.count()).toBe(3);
-      for (let index = 0; index < (await disclosures.count()); index += 1) {
-        const disclosure = disclosures.nth(index);
+      expect(await disclosures.count()).toBe(disclosureNames.length);
+      for (const name of disclosureNames) {
+        const disclosure = mobile.getByRole("button", { name });
+        await expect(disclosure).toHaveAttribute(
+          "aria-controls",
+          /^mobile-cockpit-/,
+        );
         const initialState = await disclosure.getAttribute("aria-expanded");
         const toggledState = initialState === "true" ? "false" : "true";
         await disclosure.focus();
         await page.keyboard.press("Enter");
         await expect(disclosure).toHaveAttribute("aria-expanded", toggledState);
         await page.keyboard.press("Enter");
-        await expect(disclosure).toHaveAttribute("aria-expanded", initialState!);
+        await expect(disclosure).toHaveAttribute(
+          "aria-expanded",
+          initialState!,
+        );
       }
+
+      // Track C: the new mobile progressive sections (scenarios, swipe to
+      // pay, sankey and "Maria percebeu") ship as always-visible accessible
+      // `region`s alongside the two disclosures above — assert each keeps
+      // its accessible name so the mobile contract stays discoverable by
+      // assistive tech without depending on brittle DOM structure/markup.
+      await expect(
+        mobile.getByRole("region", { name: "Cenários e se…?" }),
+      ).toBeVisible();
+      await expect(
+        mobile.getByRole("region", { name: "Próximas saídas" }),
+      ).toBeVisible();
+      await expect(
+        mobile.getByRole("region", {
+          name: "Para onde foi seu dinheiro este mês",
+        }),
+      ).toBeVisible();
+      await expect(
+        mobile.getByRole("region", { name: "Maria percebeu" }),
+      ).toBeVisible();
 
       await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
       await expect(page.getByTestId("mobile-month-mini-hero")).toBeVisible();

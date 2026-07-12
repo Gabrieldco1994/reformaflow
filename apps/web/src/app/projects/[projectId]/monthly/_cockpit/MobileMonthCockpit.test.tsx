@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   MonthComparison,
@@ -105,15 +106,18 @@ function renderCockpit(
   props: Partial<React.ComponentProps<typeof MobileMonthCockpit>> = {},
 ) {
   const overview = data();
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <MobileMonthCockpit
-      data={overview}
-      monthKey="2026-07"
-      entries={overview.entries}
-      projectId="pessoal-test"
-      eixo="competencia"
-      {...props}
-    />,
+    <QueryClientProvider client={client}>
+      <MobileMonthCockpit
+        data={overview}
+        monthKey="2026-07"
+        entries={overview.entries}
+        projectId="pessoal-test"
+        eixo="competencia"
+        {...props}
+      />
+    </QueryClientProvider>,
   );
 }
 
@@ -141,7 +145,6 @@ describe("MobileMonthCockpit", () => {
       name: "Resumo do mês atual",
     });
     const expected = [
-      ["Ritmo do mês", "true"],
       ["Consumo", "true"],
       ["Detalhes", "false"],
     ] as const;
@@ -158,10 +161,10 @@ describe("MobileMonthCockpit", () => {
     }
   });
 
-  it("omits rhythm outside the current month", () => {
+  it("omits the time-travel scrubber outside the current month, keeps other accordions", () => {
     renderCockpit({ monthKey: "2026-06", entries: [] });
     expect(
-      screen.queryByRole("button", { name: "Ritmo do mês" }),
+      screen.queryByRole("slider", { name: "Ritmo diário projetado" }),
     ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Consumo" })).toBeInTheDocument();
     expect(
@@ -196,9 +199,6 @@ describe("MobileMonthCockpit", () => {
         stored,
       );
       expect(() => renderCockpit()).not.toThrow();
-      expect(
-        screen.getByRole("button", { name: "Ritmo do mês" }),
-      ).toHaveAttribute("aria-expanded", "true");
       expect(screen.getByRole("button", { name: "Consumo" })).toHaveAttribute(
         "aria-expanded",
         "true",
@@ -215,7 +215,7 @@ describe("MobileMonthCockpit", () => {
     const values = ["Entrou", "Saiu", "Projeção"].map(
       (name) => screen.getByRole("article", { name }).textContent,
     );
-    for (const name of ["Ritmo do mês", "Consumo", "Detalhes"]) {
+    for (const name of ["Consumo", "Detalhes"]) {
       fireEvent.click(screen.getByRole("button", { name }));
     }
     expect(
@@ -230,8 +230,9 @@ describe("MobileMonthCockpit", () => {
     const cockpit = screen.getByRole("region", {
       name: "Cockpit mensal mobile",
     });
+    const hero = within(cockpit).getByTestId("mobile-hero-time-travel");
 
-    expect(within(cockpit).getByText("Caixa hoje")).toBeInTheDocument();
+    expect(within(hero).getByText("Caixa hoje")).toBeInTheDocument();
     expect(
       within(cockpit).getByRole("button", { name: "Mostrar valor exato" }),
     ).toHaveTextContent("R$ 12 mil");
@@ -248,7 +249,7 @@ describe("MobileMonthCockpit", () => {
     fireEvent.click(
       within(cockpit).getByRole("button", { name: "Mostrar valor exato" }),
     );
-    expect(within(cockpit).getByText("R$ 12.345,67")).toBeInTheDocument();
+    expect(within(hero).getByText("R$ 12.345,67")).toBeInTheDocument();
   });
 
   it("forwards the selected month and keeps its exact canonical values separate from the current-month mini hero", () => {
@@ -308,14 +309,17 @@ describe("MobileMonthCockpit", () => {
     expect(screen.getAllByText(/inclui cartão/i).length).toBeGreaterThan(0);
 
     const overview = data();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     rerender(
-      <MobileMonthCockpit
-        data={overview}
-        monthKey="2026-06"
-        entries={[]}
-        projectId="pessoal-test"
-        eixo="competencia"
-      />,
+      <QueryClientProvider client={client}>
+        <MobileMonthCockpit
+          data={overview}
+          monthKey="2026-06"
+          entries={[]}
+          projectId="pessoal-test"
+          eixo="competencia"
+        />
+      </QueryClientProvider>,
     );
     expect(
       screen.queryByRole("slider", { name: "Ritmo diário projetado" }),
@@ -383,16 +387,39 @@ describe("MobileMonthCockpit", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("does not fabricate deferred scenarios, Sankey, mutations, or Maria insights", () => {
+  it("wires the C-visual sections without disturbing canonical values", () => {
     renderCockpit();
+    const cockpit = screen.getByRole("region", {
+      name: "Cockpit mensal mobile",
+    });
 
     expect(
-      screen.queryByRole("button", { name: /cenário/i }),
-    ).not.toBeInTheDocument();
+      within(cockpit).getByRole("region", { name: "Cenários e se…?" }),
+    ).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: /pagar/i }),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByText(/sankey/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/maria/i)).not.toBeInTheDocument();
+      within(cockpit).getByRole("region", { name: "Próximas saídas" }),
+    ).toBeInTheDocument();
+    expect(within(cockpit).getByText(/para onde foi/i)).toBeInTheDocument();
+
+    expect(
+      within(cockpit).getByRole("article", { name: "Entrou" }),
+    ).toHaveTextContent("R$ 3 mil");
+    expect(
+      within(cockpit).getByRole("article", { name: "Saiu" }),
+    ).toHaveTextContent("R$ 2 mil");
+    expect(
+      within(cockpit).getByRole("article", { name: "Projeção" }),
+    ).toHaveTextContent("R$ 12 mil");
+    expect(
+      within(cockpit).getByRole("button", { name: "Mostrar valor exato" }),
+    ).toHaveTextContent("R$ 12 mil");
+  });
+
+  it("keeps all six innovations behind the mobile-only class (md:hidden) — desktop unaffected", () => {
+    renderCockpit();
+    const cockpit = screen.getByRole("region", {
+      name: "Cockpit mensal mobile",
+    });
+    expect(cockpit.className).toMatch(/\bmd:hidden\b/);
   });
 });
