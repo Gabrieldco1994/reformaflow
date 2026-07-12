@@ -119,12 +119,110 @@ function renderCockpit(
 
 describe("MobileMonthCockpit", () => {
   beforeEach(() => {
+    localStorage.clear();
+    vi.restoreAllMocks();
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-11T12:00:00-03:00"));
   });
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("keeps both heroes outside the outer accordions and wires their default states", () => {
+    renderCockpit();
+    const cockpit = screen.getByRole("region", {
+      name: "Cockpit mensal mobile",
+    });
+    const hero = within(cockpit).getByRole("button", {
+      name: "Mostrar valor exato",
+    });
+    const miniHero = within(cockpit).getByRole("complementary", {
+      name: "Resumo do mês atual",
+    });
+    const expected = [
+      ["Ritmo do mês", "true"],
+      ["Consumo", "true"],
+      ["Detalhes", "false"],
+    ] as const;
+
+    for (const [name, expanded] of expected) {
+      const trigger = within(cockpit).getByRole("button", { name });
+      const panelId = trigger.getAttribute("aria-controls");
+      expect(panelId).toBeTruthy();
+      expect(trigger).toHaveAttribute("aria-expanded", expanded);
+      expect(trigger.contains(hero)).toBe(false);
+      expect(trigger.contains(miniHero)).toBe(false);
+      if (expanded === "true")
+        expect(document.getElementById(panelId!)).toBeInTheDocument();
+    }
+  });
+
+  it("omits rhythm outside the current month", () => {
+    renderCockpit({ monthKey: "2026-06", entries: [] });
+    expect(
+      screen.queryByRole("button", { name: "Ritmo do mês" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Consumo" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Detalhes" }),
+    ).toBeInTheDocument();
+  });
+
+  it("persists outer accordions per project and month and restores them", () => {
+    const key = "lifeone:monthly:accordions:pessoal-test:2026-07";
+    const first = renderCockpit();
+    fireEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+    expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({
+      details: true,
+    });
+    first.unmount();
+
+    renderCockpit();
+    expect(screen.getByRole("button", { name: "Detalhes" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(
+      localStorage.getItem("lifeone:monthly:accordions:pessoal-test:2026-06"),
+    ).toBeNull();
+  });
+
+  it.each(["not-json", JSON.stringify({ details: true })])(
+    "uses defaults for malformed or partial accordion storage: %s",
+    (stored) => {
+      localStorage.setItem(
+        "lifeone:monthly:accordions:pessoal-test:2026-07",
+        stored,
+      );
+      expect(() => renderCockpit()).not.toThrow();
+      expect(
+        screen.getByRole("button", { name: "Ritmo do mês" }),
+      ).toHaveAttribute("aria-expanded", "true");
+      expect(screen.getByRole("button", { name: "Consumo" })).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
+      expect(screen.getByRole("button", { name: "Detalhes" })).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      );
+    },
+  );
+
+  it("does not change canonical values while outer accordions toggle", () => {
+    renderCockpit();
+    const values = ["Entrou", "Saiu", "Projeção"].map(
+      (name) => screen.getByRole("article", { name }).textContent,
+    );
+    for (const name of ["Ritmo do mês", "Consumo", "Detalhes"]) {
+      fireEvent.click(screen.getByRole("button", { name }));
+    }
+    expect(
+      ["Entrou", "Saiu", "Projeção"].map(
+        (name) => screen.getByRole("article", { name }).textContent,
+      ),
+    ).toEqual(values);
   });
 
   it("keeps canonical hero/support values and reveals the exact hero in one touch", () => {
@@ -184,32 +282,6 @@ describe("MobileMonthCockpit", () => {
     expect(miniHero).not.toHaveTextContent("R$ 9,9 mil");
   });
 
-  it("wires each disclosure to its controlled panel and keeps details one interaction away", () => {
-    renderCockpit();
-    for (const name of ["Análise do mês", "Próximas saídas conhecidas"]) {
-      const trigger = screen.getByRole("button", { name });
-      const panelId = trigger.getAttribute("aria-controls");
-      expect(panelId).toBeTruthy();
-      expect(trigger).toHaveAttribute("aria-expanded", "false");
-      expect(document.getElementById(panelId!)).not.toBeInTheDocument();
-      fireEvent.click(trigger);
-      expect(trigger).toHaveAttribute("aria-expanded", "true");
-      expect(document.getElementById(panelId!)).toBeInTheDocument();
-    }
-  });
-
-  it("uses reduced-motion-safe disclosure animation and touch-sized controls", () => {
-    renderCockpit();
-    const disclosure = screen.getByRole("button", { name: "Análise do mês" });
-    expect(disclosure.className).toContain("min-h-[56px]");
-    expect(disclosure.querySelector("svg")?.className.baseVal).toContain(
-      "motion-reduce:transition-none",
-    );
-    expect(
-      screen.getByRole("slider", { name: "Ritmo diário projetado" }).className,
-    ).toContain("min-h-[44px]");
-  });
-
   it("uses the honest fallback label when the account has no opening balance", () => {
     const overview = data({
       caixa: {
@@ -248,29 +320,6 @@ describe("MobileMonthCockpit", () => {
     expect(
       screen.queryByRole("slider", { name: "Ritmo diário projetado" }),
     ).not.toBeInTheDocument();
-  });
-
-  it("opens analysis in one touch and preserves disclosure state while browsing months", () => {
-    const { rerender } = renderCockpit();
-    const disclosure = screen.getByRole("button", { name: "Análise do mês" });
-    expect(disclosure).toHaveAttribute("aria-expanded", "false");
-
-    fireEvent.click(disclosure);
-    expect(disclosure).toHaveAttribute("aria-expanded", "true");
-
-    const overview = data();
-    rerender(
-      <MobileMonthCockpit
-        data={overview}
-        monthKey="2026-06"
-        entries={[]}
-        projectId="pessoal-test"
-        eixo="competencia"
-      />,
-    );
-    expect(
-      screen.getByRole("button", { name: "Análise do mês" }),
-    ).toHaveAttribute("aria-expanded", "true");
   });
 
   it("does not let scrubbing mutate canonical hero, projection, or realized flow", () => {
@@ -323,6 +372,7 @@ describe("MobileMonthCockpit", () => {
       valor: 45_123,
     });
     renderCockpit({ monthKey: "2026-08", entries: [future] });
+    fireEvent.click(screen.getByRole("button", { name: "Detalhes" }));
 
     expect(
       screen.getByRole("note", { name: "Mês futuro incompleto" }),
