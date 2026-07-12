@@ -9,6 +9,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { SkeletonCard, SkeletonList } from '@/components/ui/Skeleton';
 import type { CashFlowEntry } from '@/types';
 import { MobileCashFlowList } from './_components/MobileCashFlowList';
+import { CashFlowKpiHeader } from './_components/CashFlowKpiHeader';
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
@@ -44,15 +45,6 @@ export default function CashFlowPage() {
   }
   if (error) return <div className="text-red-600">Erro ao carregar fluxo de caixa.</div>;
 
-  const saldoAtual = entries[entries.length - 1]?.rollingBalance ?? 0;
-  const saldoRealizado = entries[entries.length - 1]?.rollingBalanceRealizado ?? 0;
-  const totalReceitas = entries
-    .filter((e) => e.tipo === 'RECEBIMENTO')
-    .reduce((s, e) => s + e.valor, 0);
-  const totalDespesas = entries
-    .filter((e) => e.tipo === 'DESPESA')
-    .reduce((s, e) => s + e.valor, 0);
-
   return (
     <div className="space-y-6">
       {/* Header desktop */}
@@ -66,55 +58,8 @@ export default function CashFlowPage() {
         </h1>
       </div>
 
-      {/* KPIs mobile */}
-      <div className="md:hidden -mx-4 px-4 overflow-x-auto scrollbar-hide">
-        <div className="flex gap-3 min-w-min pb-2">
-          <div
-            className={`min-w-[160px] rounded-2xl shadow-darc-soft border px-4 py-3 ${
-              saldoAtual >= 0
-                ? 'bg-darc-mist/30 border-darc-mist/50'
-                : 'bg-darc-red-pastel/15 border-darc-red-pastel/40'
-            }`}
-          >
-            <p className="text-[10px] uppercase tracking-wider text-darc-velvet/70">Saldo projetado</p>
-            <p
-              className={`font-bold tabular-nums mt-1 ${
-                saldoAtual >= 0 ? 'text-darc-velvet' : 'text-darc-red'
-              }`}
-            >
-              {formatCurrency(saldoAtual / 100)}
-            </p>
-          </div>
-          <div
-            className={`min-w-[160px] rounded-2xl shadow-darc-soft border px-4 py-3 ${
-              saldoRealizado >= 0
-                ? 'bg-emerald-50 border-emerald-200'
-                : 'bg-darc-red-pastel/15 border-darc-red-pastel/40'
-            }`}
-          >
-            <p className="text-[10px] uppercase tracking-wider text-emerald-700/80">Saldo realizado</p>
-            <p
-              className={`font-bold tabular-nums mt-1 ${
-                saldoRealizado >= 0 ? 'text-emerald-700' : 'text-darc-red'
-              }`}
-            >
-              {formatCurrency(saldoRealizado / 100)}
-            </p>
-          </div>
-          <div className="min-w-[140px] rounded-2xl bg-white shadow-darc-soft border border-darc-linen px-4 py-3">
-            <p className="text-[10px] uppercase tracking-wider text-darc-raspberry/80">Receitas</p>
-            <p className="font-bold text-darc-raspberry tabular-nums mt-1">
-              {formatCurrency(totalReceitas / 100)}
-            </p>
-          </div>
-          <div className="min-w-[140px] rounded-2xl bg-white shadow-darc-soft border border-darc-linen px-4 py-3">
-            <p className="text-[10px] uppercase tracking-wider text-darc-red/80">Despesas</p>
-            <p className="font-bold text-darc-red tabular-nums mt-1">
-              {formatCurrency(totalDespesas / 100)}
-            </p>
-          </div>
-        </div>
-      </div>
+      {/* Topo: KPIs canônicos (saldo projetado, saldo realizado, entradas, saídas) */}
+      <CashFlowKpiHeader entries={entries} />
 
       {entries.length === 0 ? (
         <EmptyState

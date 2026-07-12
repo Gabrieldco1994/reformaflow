@@ -153,6 +153,10 @@ async function expectNoHorizontalOverflow(page: Page) {
 }
 
 async function expectTouchTargets(actions: Locator) {
+  // Espera o primeiro alvo aparecer (assinatura auto-retry do Playwright) antes
+  // de tirar a "foto" síncrona com .count() — evita flake de corrida com o
+  // dev server / hidratação sem afrouxar a checagem de tamanho abaixo.
+  await expect(actions.first()).toBeVisible();
   const count = await actions.count();
   expect(count).toBeGreaterThan(0);
   for (let index = 0; index < count; index += 1) {
@@ -160,6 +164,29 @@ async function expectTouchTargets(actions: Locator) {
     expect(box?.width).toBeGreaterThanOrEqual(44);
     expect(box?.height).toBeGreaterThanOrEqual(44);
   }
+}
+
+/**
+ * Cards mobile de bills/maintenance escondem as ações atrás do menu "⋯"
+ * (CardActionsMenu, Fase G). O gatilho tem `aria-label="Ações {nome}"` e
+ * role="button"; os itens revelados são `role="menuitem"` (role explícito,
+ * não casam com getByRole("button")). Este helper abre o menu e valida o
+ * alvo de toque tanto do gatilho quanto de cada item revelado, depois
+ * fecha o menu (Escape) para não vazar estado para as asserções seguintes.
+ */
+async function expectCardMenuTouchTargets(
+  page: Page,
+  card: Locator,
+  ariaLabel: string,
+) {
+  const trigger = card.getByRole("button", { name: ariaLabel });
+  await expectTouchTargets(trigger);
+  await trigger.click();
+  const menu = page.getByRole("menu", { name: ariaLabel });
+  await expect(menu).toBeVisible();
+  await expectTouchTargets(menu.getByRole("menuitem"));
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
 }
 
 async function openBills(page: Page) {
@@ -199,8 +226,10 @@ test.describe("Phase D responsive cards and account hierarchy", () => {
       if (width < 768) {
         await expect(billCard).toBeVisible();
         await expect(page.getByRole("table")).toBeHidden();
-        await expectTouchTargets(
-          billCard.getByRole("button", { name: /Pausar|Editar|Excluir/ }),
+        await expectCardMenuTouchTargets(
+          page,
+          billCard,
+          "Ações Energia Sentinela",
         );
       } else {
         await expect(page.getByRole("table")).toBeVisible();
@@ -231,8 +260,10 @@ test.describe("Phase D responsive cards and account hierarchy", () => {
       if (width < 768) {
         await expect(maintenanceCard).toBeVisible();
         await expect(page.getByRole("table")).toBeHidden();
-        await expectTouchTargets(
-          maintenanceCard.getByRole("button", { name: /Editar|Excluir/ }),
+        await expectCardMenuTouchTargets(
+          page,
+          maintenanceCard,
+          "Ações Troca de Óleo",
         );
       } else {
         await expect(page.getByRole("table")).toBeVisible();

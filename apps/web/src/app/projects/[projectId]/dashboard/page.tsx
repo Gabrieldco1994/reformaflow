@@ -10,9 +10,13 @@ import { CalendarClock, Check } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { formatCurrency, formatDateBR } from "@/lib/utils";
-import { getProjectAccentColor } from "@/lib/project-colors";
 import type { DashboardResponse } from "@/types";
+import type { ProjectType } from "@reformaflow/domain";
+import { hasFeature } from "@reformaflow/domain";
 import ManagementDashboard from "./_components/ManagementDashboard";
+import { resolveDashboardVariant } from "./_lib/resolve-variant";
+import { KpiTile } from "@/components/KpiTile";
+import { moneyGlance } from "@/lib/money";
 
 const DashboardCharts = dynamic(() => import("./_components/DashboardCharts"), {
   ssr: false,
@@ -112,34 +116,36 @@ function FinancialDashboard({
     return <div className="text-darc-red">Erro ao carregar dashboard.</div>;
   if (!data) return null;
 
-  const accentColor = getProjectAccentColor(projectType);
-
-  const kpis: { label: string; value: number; accent: string }[] = [
+  const kpis: { label: string; value: number; tone: 'positive' | 'negative' | 'neutral' }[] = [
     {
       label: "Dinheiro Disponível",
       value: data.kpis.dinheiroDisponivel,
-      accent: accentColor,
+      tone: "neutral",
     },
-    { label: "Já Paguei", value: data.kpis.jaPaguei, accent: accentColor },
+    { label: "Já Paguei", value: data.kpis.jaPaguei, tone: "neutral" },
     {
       label: "Previsão de Gastos",
       value: data.kpis.previsaoGastos,
-      accent: accentColor,
+      tone: "negative",
     },
     {
       label: "Previsão de Recebimentos",
       value: data.kpis.previsaoRecebimentos,
-      accent: accentColor,
+      tone: "positive",
     },
     {
       label: "Previsão de Saldo",
       value: data.kpis.previsaoSaldo,
-      accent: accentColor,
+      tone: data.kpis.previsaoSaldo >= 0 ? "positive" : "negative",
     },
-    { label: "Saldo", value: data.kpis.saldo, accent: accentColor },
+    {
+      label: "Saldo",
+      value: data.kpis.saldo,
+      tone: data.kpis.saldo >= 0 ? "positive" : "negative",
+    },
   ];
 
-  const showRooms = projectType === "REFORMA";
+  const showRooms = hasFeature(projectType as ProjectType, "rooms");
 
   return (
     <div className="space-y-6 md:space-y-8">
@@ -165,42 +171,17 @@ function FinancialDashboard({
         </Link>
       )}
 
-      {/* KPIs — scroll horizontal premium no mobile, grid no desktop */}
-      <div className="md:hidden -mx-4 px-4 overflow-x-auto scrollbar-hide">
-        <div className="flex gap-3 snap-x snap-mandatory">
-          {kpis.map((kpi) => (
-            <div
-              key={kpi.label}
-              className="snap-start flex-shrink-0 w-[78%] rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 relative overflow-hidden"
-            >
-              <span
-                className={`absolute left-0 top-4 bottom-4 w-1 rounded-r-full ${kpi.accent}`}
-              />
-              <p className="text-[11px] tracking-[0.18em] uppercase text-darc-velvet/60 pl-3">
-                {kpi.label}
-              </p>
-              <p className="text-2xl font-bold text-darc-velvet mt-2 pl-3">
-                {formatCurrency(kpi.value / 100)}
-              </p>
-            </div>
-          ))}
-        </div>
-      </div>
-      <div className="hidden md:grid grid-cols-2 lg:grid-cols-3 gap-4">
+      {/* KPIs — grid responsivo com KpiTile canônico */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         {kpis.map((kpi) => (
-          <div
-            key={kpi.label}
-            className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-5 relative overflow-hidden"
-          >
-            <span
-              className={`absolute left-0 top-5 bottom-5 w-1 rounded-r-full ${kpi.accent}`}
+          <div key={kpi.label} role="article" aria-label={kpi.label} className="min-w-0">
+            <KpiTile
+              variant="support"
+              layer="glance"
+              tone={kpi.tone}
+              label={kpi.label}
+              value={moneyGlance(kpi.value)}
             />
-            <p className="text-[11px] tracking-[0.18em] uppercase text-darc-velvet/60 pl-3">
-              {kpi.label}
-            </p>
-            <p className="text-xl lg:text-2xl font-bold text-darc-velvet mt-2 pl-3">
-              {formatCurrency(kpi.value / 100)}
-            </p>
           </div>
         ))}
       </div>
@@ -616,6 +597,8 @@ export default function DashboardPage() {
   const { projectId, projectType, projectName } = useProject();
   const { hasModule } = useAuth();
 
+  const variant = resolveDashboardVariant(projectType as ProjectType);
+
   // PESSOAL usa o Cockpit (rota /monthly) como visão principal — redireciona.
   useEffect(() => {
     if (projectType === "PESSOAL") {
@@ -625,9 +608,9 @@ export default function DashboardPage() {
 
   if (projectType === "PESSOAL") return null;
 
-  const isFinancial = projectType === "REFORMA" || projectType === "COMPRA";
-  const isManagement = projectType === "CASA" || projectType === "CARRO";
-  const isPlants = projectType === "PLANTAS";
+  const isFinancial = variant === "financial";
+  const isManagement = variant === "management";
+  const isPlants = variant === "plants";
 
   return (
     <div className="space-y-6 md:space-y-8">

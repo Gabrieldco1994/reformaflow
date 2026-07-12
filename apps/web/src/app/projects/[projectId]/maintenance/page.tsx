@@ -6,6 +6,8 @@ import { api } from "@/lib/api";
 import { formatDateBR } from "@/lib/utils";
 import { Plus, Wrench } from "lucide-react";
 import { MaintenanceHistoryView } from "./_components/MaintenanceHistoryView";
+import { MaintenanceKpiHeader } from "./_components/MaintenanceKpiHeader";
+import { computeMaintenanceKpis } from "./_lib/kpis";
 import {
   daysUntil,
   getMaintenanceTypes,
@@ -150,6 +152,10 @@ export default function MaintenancePage() {
         >
           <Plus className="w-4 h-4" /> Nova Manutenção
         </button>
+      </div>
+
+      <div className="mb-6">
+        <MaintenanceKpiHeader {...computeMaintenanceKpis(logs, new Date())} />
       </div>
 
       {/* Próximas manutenções */}

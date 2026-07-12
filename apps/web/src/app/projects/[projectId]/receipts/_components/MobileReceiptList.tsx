@@ -81,47 +81,52 @@ function MobileReceiptListImpl({
 
             {!collapsed && (
               <div className="divide-y divide-darc-linen">
-                {g.items.map((r) => (
-                  <div
-                    key={r.id}
-                    className="px-4 py-3 active:bg-darc-linen/40 transition-colors"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium text-darc-velvet leading-snug tabular-nums">
-                          {formatCurrency(r.valor / 100)}
-                        </p>
-                        <p className="text-xs text-darc-velvet/60 mt-1 tabular-nums">
-                          {r.data
-                            ? formatDateBR(r.data)
-                            : '—'}
-                        </p>
+                {g.items.map((r) => {
+                  const canEdit = !r.id.startsWith('alloc-');
+                  return (
+                    <div
+                      key={r.id}
+                      className="px-4 py-3 active:bg-darc-linen/40 transition-colors"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium text-darc-velvet leading-snug tabular-nums">
+                            {formatCurrency(r.valor / 100)}
+                          </p>
+                          <p className="text-xs text-darc-velvet/60 mt-1 tabular-nums">
+                            {r.data
+                              ? formatDateBR(r.data)
+                              : '—'}
+                          </p>
+                        </div>
+                        <div className="flex flex-col items-end gap-1.5">
+                          <StatusBadgeMobile status={r.status} />
+                        </div>
                       </div>
-                      <div className="flex flex-col items-end gap-1.5">
-                        <StatusBadgeMobile status={r.status} />
-                      </div>
-                    </div>
 
-                    <div className="mt-2 flex items-center gap-1 justify-end">
-                      <button
-                        type="button"
-                        onClick={() => openEdit(r)}
-                        aria-label="Editar"
-                        className="p-1.5 rounded-full hover:bg-darc-linen/60 active:bg-darc-linen"
-                      >
-                        <Pencil className="w-4 h-4 text-darc-velvet/70" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onDelete(r.id)}
-                        aria-label="Excluir"
-                        className="p-1.5 rounded-full hover:bg-darc-red-bright/10 active:bg-darc-red-bright/20"
-                      >
-                        <Trash2 className="w-4 h-4 text-darc-red" />
-                      </button>
+                      {canEdit && (
+                        <div className="mt-2 flex items-center gap-1 justify-end">
+                          <button
+                            type="button"
+                            onClick={() => openEdit(r)}
+                            aria-label="Editar"
+                            className="p-1.5 rounded-full hover:bg-darc-linen/60 active:bg-darc-linen"
+                          >
+                            <Pencil className="w-4 h-4 text-darc-velvet/70" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onDelete(r.id)}
+                            aria-label="Excluir"
+                            className="p-1.5 rounded-full hover:bg-darc-red-bright/10 active:bg-darc-red-bright/20"
+                          >
+                            <Trash2 className="w-4 h-4 text-darc-red" />
+                          </button>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

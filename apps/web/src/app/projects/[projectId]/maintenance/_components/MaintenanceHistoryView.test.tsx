@@ -65,8 +65,12 @@ describe("MaintenanceHistoryView", () => {
     expect(card).toHaveTextContent("R$ 789,01");
     expect(card).toHaveTextContent("Oficina Sentinela");
 
-    fireEvent.click(within(card).getByRole("button", { name: "Editar" }));
-    fireEvent.click(within(card).getByRole("button", { name: "Excluir" }));
+    fireEvent.click(within(card).getByRole("button", { name: /Ações/ }));
+    fireEvent.click(within(card).getByRole("menuitem", { name: "Editar" }));
+
+    fireEvent.click(within(card).getByRole("button", { name: /Ações/ }));
+    fireEvent.click(within(card).getByRole("menuitem", { name: "Excluir" }));
+
     expect(onEdit).toHaveBeenCalledWith(log);
     expect(onDelete).toHaveBeenCalledWith("maintenance-sentinel");
   });

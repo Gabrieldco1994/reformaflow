@@ -1,6 +1,7 @@
 'use client';
 
 import { Edit2, Trash2 } from 'lucide-react';
+import { CardActionsMenu, type CardAction } from '@/components/CardActionsMenu';
 import {
   getMaintenanceDisplay,
   type MaintenanceLog,
@@ -99,75 +100,73 @@ export function MaintenanceHistoryView({
       </div>
 
       <div className="space-y-2.5 md:hidden">
-        {rows.map((row) => (
-          <article
-            key={row.source.id}
-            aria-label={row.type}
-            className="rounded-2xl border bg-white p-3.5 shadow-sm"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="truncate text-[15px] font-semibold">{row.type}</p>
-                <p className="mt-0.5 text-[12.5px] text-gray-500">
-                  Realizada {row.completedDate}
-                </p>
+        {rows.map((row) => {
+          const actions: CardAction[] = [
+            {
+              label: 'Editar',
+              onClick: () => onEdit(row.source),
+              icon: <Edit2 className="h-4 w-4" />,
+            },
+            {
+              label: 'Excluir',
+              onClick: () => onDelete(row.source.id),
+              icon: <Trash2 className="h-4 w-4" />,
+              tone: 'danger',
+            },
+          ];
+          return (
+            <article
+              key={row.source.id}
+              aria-label={row.type}
+              className="rounded-2xl border bg-white p-3.5 shadow-sm"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-[15px] font-semibold">{row.type}</p>
+                  <p className="mt-0.5 text-[12.5px] text-gray-500">
+                    Realizada {row.completedDate}
+                  </p>
+                </div>
+                <CardActionsMenu ariaLabel={`Ações ${row.type}`} actions={actions} />
               </div>
-              <div className="flex shrink-0 items-center">
-                <button
-                  type="button"
-                  onClick={() => onEdit(row.source)}
-                  aria-label="Editar"
-                  className="inline-flex h-11 w-11 items-center justify-center text-gray-400 hover:text-brand-600"
-                >
-                  <Edit2 className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onDelete(row.source.id)}
-                  aria-label="Excluir"
-                  className="inline-flex h-11 w-11 items-center justify-center text-gray-400 hover:text-red-500"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-            <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-t pt-3 text-[13px]">
-              <div>
-                <dt className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
-                  Próxima
-                </dt>
-                <dd className={row.nextColor}>
-                  {row.nextDate}
-                  {row.nextText ? ` (${row.nextText})` : ''}
-                </dd>
-              </div>
-              {isCar && (
+              <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-t pt-3 text-[13px]">
                 <div>
                   <dt className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
-                    Km
+                    Próxima
                   </dt>
-                  <dd className="font-mono text-gray-600">
-                    {row.mileage === '—' ? row.mileage : `${row.mileage} km`}
+                  <dd className={row.nextColor}>
+                    {row.nextDate}
+                    {row.nextText ? ` (${row.nextText})` : ''}
                   </dd>
                 </div>
-              )}
-              <div>
-                <dt className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
-                  Custo
-                </dt>
-                <dd className="font-mono font-semibold text-gray-900">
-                  {row.cost}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
-                  Fornecedor
-                </dt>
-                <dd className="text-gray-600">{row.supplier}</dd>
-              </div>
-            </dl>
-          </article>
-        ))}
+                {isCar && (
+                  <div>
+                    <dt className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
+                      Km
+                    </dt>
+                    <dd className="font-mono text-gray-600">
+                      {row.mileage === '—' ? row.mileage : `${row.mileage} km`}
+                    </dd>
+                  </div>
+                )}
+                <div>
+                  <dt className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
+                    Custo
+                  </dt>
+                  <dd className="font-mono font-semibold text-gray-900">
+                    {row.cost}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
+                    Fornecedor
+                  </dt>
+                  <dd className="text-gray-600">{row.supplier}</dd>
+                </div>
+              </dl>
+            </article>
+          );
+        })}
       </div>
     </>
   );

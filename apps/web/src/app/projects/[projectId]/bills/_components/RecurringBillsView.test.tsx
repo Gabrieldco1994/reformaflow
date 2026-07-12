@@ -82,10 +82,17 @@ describe("RecurringBillsView", () => {
     expect(insurance).toHaveTextContent(/(?:vence )?dia 29/i);
     expect(insurance).toHaveTextContent("Pausada");
 
-    fireEvent.click(within(energy).getByRole("button", { name: "Pausar" }));
-    fireEvent.click(within(energy).getByRole("button", { name: "Editar" }));
-    fireEvent.click(within(energy).getByRole("button", { name: "Excluir" }));
-    fireEvent.click(within(insurance).getByRole("button", { name: "Ativar" }));
+    fireEvent.click(within(energy).getByRole("button", { name: "Ações Energia Sentinela" }));
+    fireEvent.click(within(energy).getByRole("menuitem", { name: "Pausar" }));
+
+    fireEvent.click(within(energy).getByRole("button", { name: "Ações Energia Sentinela" }));
+    fireEvent.click(within(energy).getByRole("menuitem", { name: "Editar" }));
+
+    fireEvent.click(within(energy).getByRole("button", { name: "Ações Energia Sentinela" }));
+    fireEvent.click(within(energy).getByRole("menuitem", { name: "Excluir" }));
+
+    fireEvent.click(within(insurance).getByRole("button", { name: "Ações Seguro Sentinela" }));
+    fireEvent.click(within(insurance).getByRole("menuitem", { name: "Ativar" }));
 
     expect(onToggleStatus).toHaveBeenNthCalledWith(1, bills[0]);
     expect(onToggleStatus).toHaveBeenNthCalledWith(2, bills[1]);

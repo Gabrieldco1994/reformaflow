@@ -3,12 +3,13 @@
 import { useProject } from '@/contexts/project-context';
 import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
-import { formatCurrency } from '@/lib/utils';
 import { Plus } from 'lucide-react';
 import type { ProjectType } from '@reformaflow/domain';
 import { BILL_CATEGORIES, BILL_FREQUENCIES, type RecurringBillRow } from './_display';
 import { RecurringBillsView } from './_components/RecurringBillsView';
 import { AvulsasTab } from './_components/AvulsasTab';
+import { BillsKpiHeader } from './_components/BillsKpiHeader';
+import { computeBillsKpis } from './_lib/kpis';
 
 type RecurringBill = RecurringBillRow;
 
@@ -85,18 +86,7 @@ export default function BillsPage() {
     setShowForm(true);
   }
 
-  const totalMensal = bills
-    .filter((b) => b.status === 'ATIVO')
-    .reduce((sum, b) => {
-      const multiplier: Record<string, number> = {
-        MENSAL: 1,
-        BIMESTRAL: 0.5,
-        TRIMESTRAL: 1 / 3,
-        SEMESTRAL: 1 / 6,
-        ANUAL: 1 / 12,
-      };
-      return sum + b.valor * (multiplier[b.frequencia] ?? 1);
-    }, 0);
+  const billsKpis = computeBillsKpis(bills, new Date());
 
   return (
     <div className="space-y-4">
@@ -127,13 +117,9 @@ export default function BillsPage() {
             </button>
           </div>
         </div>
-        {activeTab === 'recorrentes' && (
-          <div className="text-sm text-gray-500">
-            Total mensal estimado:{' '}
-            <span className="font-semibold text-brand-700">{formatCurrency(totalMensal / 100)}</span>
-          </div>
-        )}
       </div>
+
+      {activeTab === 'recorrentes' && <BillsKpiHeader {...billsKpis} />}
 
       {activeTab === 'avulsas' ? (
         <AvulsasTab projectId={projectId} projectType={projectType as ProjectType} />
