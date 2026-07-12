@@ -6,6 +6,8 @@ import { api } from '@/lib/api';
 import { formatDateBR } from '@/lib/utils';
 import { Sprout, Trash2, Pencil, X, Check, Droplets, HeartPulse, Plus } from 'lucide-react';
 import { CreatePlantModal } from './_components/CreatePlantModal';
+import { PlantInsightsPanel } from './_components/PlantInsightsPanel';
+import { usePlantInsights } from './_hooks/usePlantInsights';
 
 interface Plant {
   id: string;
@@ -52,6 +54,27 @@ const PET_BADGE: Record<string, string> = {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
+interface PlantInsightsCardSectionProps {
+  plantId: string;
+  isExpanded: boolean;
+  onToggle: () => void;
+}
+
+function PlantInsightsCardSection({ plantId, isExpanded, onToggle }: PlantInsightsCardSectionProps) {
+  const { projectId } = useProject();
+  const { data, loading, error } = usePlantInsights(projectId, plantId);
+
+  return (
+    <>
+      <button onClick={onToggle} className="text-xs text-brand-600 underline mt-3">
+        {isExpanded ? 'Ocultar diagnóstico' : 'Mostrar diagnóstico'}
+      </button>
+      {isExpanded && data && <div className="mt-2 border-t pt-3"><PlantInsightsPanel insights={data} isLoading={loading} isError={!!error} /></div>}
+      {isExpanded && !data && !loading && <div className="mt-2 border-t pt-3"><p className="text-xs text-gray-500">Nenhum diagnóstico disponível</p></div>}
+    </>
+  );
+}
+
 export default function PlantsPage() {
   const { projectId } = useProject();
   const [plants, setPlants] = useState<Plant[]>([]);
@@ -59,6 +82,7 @@ export default function PlantsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedInsightsId, setExpandedInsightsId] = useState<string | null>(null);
   const [history, setHistory] = useState<DiagnosisHistoryEntry[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ nome: '', localizacao: '', observacoes: '' });
@@ -148,6 +172,10 @@ export default function PlantsPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao remover');
     }
+  }
+
+  function toggleInsights(id: string) {
+    setExpandedInsightsId(expandedInsightsId === id ? null : id);
   }
 
   return (
@@ -326,6 +354,8 @@ export default function PlantsPage() {
                       )}
                     </div>
                   )}
+
+                  <PlantInsightsCardSection plantId={plant.id} isExpanded={expandedInsightsId === plant.id} onToggle={() => toggleInsights(plant.id)} />
                 </>
               )}
             </div>

@@ -335,4 +335,53 @@ export class PlantsAiService {
       },
     };
   }
+
+  async getPlantInsights(tenantId: string, projectId: string, plantId: string) {
+    const plant = await this.prisma.plant.findFirst({
+      where: { id: plantId, tenantId, projectId },
+      select: { id: true },
+    });
+    if (!plant) throw new NotFoundException('Planta não encontrada');
+
+    // ponytail: fetch latest diagnosis log (by createdAt DESC limit 1), not all logs
+    const latestDiagnosis = await this.prisma.plantDiagnosisLog.findFirst({
+      where: { plantId, tenantId, projectId },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    let diagnosis: PlantDiagnosisResult | null = null;
+    let lastDiagnosisDate: Date | undefined;
+    if (latestDiagnosis?.diagnosisJson) {
+      try {
+        diagnosis = JSON.parse(latestDiagnosis.diagnosisJson) as PlantDiagnosisResult;
+        lastDiagnosisDate = latestDiagnosis.createdAt;
+      } catch {
+        // malformed JSON, skip
+      }
+    }
+
+    const filter = { plantId, tenantId, projectId, deletedAt: null };
+    const [reminders, maintenance] = await Promise.all([
+      this.prisma.reminder.findMany({ where: filter, orderBy: { data: 'asc' } }),
+      this.prisma.maintenanceLog.findMany({ where: filter, orderBy: { dataProxima: 'asc' } }),
+    ]);
+
+    return {
+      diagnosis,
+      cuidadoAgendado: {
+        reminders: reminders.map((r) => ({
+          titulo: r.titulo,
+          data: r.data,
+          status: r.status,
+          prioridade: r.prioridade,
+        })),
+        maintenance: maintenance.map((m) => ({
+          tipo: m.tipo,
+          dataRealizada: m.dataRealizada,
+          custo: m.custo ?? 0,
+        })),
+      },
+      lastDiagnosisDate,
+    };
+  }
 }

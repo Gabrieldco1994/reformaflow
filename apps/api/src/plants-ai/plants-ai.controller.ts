@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Get,
   Param,
   Post,
   UploadedFile,
@@ -45,5 +46,15 @@ export class PlantsAiController {
   ) {
     const persist = persistRaw === undefined ? true : persistRaw !== 'false';
     return this.service.diagnoseAndSchedule(tenantId, projectId, file, persist, plantId, nome);
+  }
+
+  @Get(':plantId/insights')
+  @ApiOperation({ summary: 'Obter diagnóstico e cronograma de cuidados de uma planta' })
+  getPlantInsights(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Param('plantId') plantId: string,
+  ) {
+    return this.service.getPlantInsights(tenantId, projectId, plantId);
   }
 }
