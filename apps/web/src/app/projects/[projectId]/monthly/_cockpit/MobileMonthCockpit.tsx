@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { moneyGlance } from "@/lib/money";
 import type { MonthlyEntry, MonthlyOverviewResponse } from "../_types";
+import type { DreSaldoAcumuladoRow } from "../../dre/_types";
 import { buildMariaStories } from "../_lib/insights";
-import ScenarioChips from "../_components/ScenarioChips";
 import SwipeToPay from "../_components/SwipeToPay";
 import type { Eixo } from "./EixoToggle";
 import {
@@ -22,6 +22,7 @@ import MobileCockpitAccordion from "./MobileCockpitAccordion";
 import MobileConsumptionFlow from "./MobileConsumptionFlow";
 import MobileMonthDetails from "./MobileMonthDetails";
 import { buildMobileMonthData } from "./mobile-month-data";
+import MobileRunway from "./MobileRunway";
 import SankeyParaOndeFoi from "./SankeyParaOndeFoi";
 
 type AccordionState = {
@@ -30,7 +31,7 @@ type AccordionState = {
 };
 
 const DEFAULT_ACCORDIONS: AccordionState = {
-  consumption: true,
+  consumption: false,
   details: false,
 };
 
@@ -46,12 +47,6 @@ function isAccordionState(value: unknown): value is AccordionState {
 /** Limiar de rolagem (px) a partir do qual a cápsula-resumo aparece fixa no topo. */
 const CAPSULE_SCROLL_THRESHOLD = 240;
 
-const AXIS_LABEL: Record<Eixo, string> = {
-  competencia: "por compra",
-  caixa: "por vencimento",
-  geral: "extrato",
-};
-
 function labelMonth(monthKey: string): string {
   const [year, month] = monthKey.split("-");
   const monthIndex = Number.parseInt(month ?? "1", 10) - 1;
@@ -63,13 +58,15 @@ export default function MobileMonthCockpit({
   monthKey,
   entries,
   projectId,
-  eixo,
+  runwaySerie,
 }: {
   data: MonthlyOverviewResponse;
   monthKey: string;
   entries?: MonthlyEntry[];
   projectId: string;
   eixo: Eixo;
+  /** Série anual de saldo acumulado (`dre-overview`) — mesma do `RunwayScenario` desktop. */
+  runwaySerie?: DreSaldoAcumuladoRow[];
 }) {
   const selectedEntries = useMemo(
     () =>
@@ -146,16 +143,18 @@ export default function MobileMonthCockpit({
     setScenarioDelta(0);
   }, [monthKey]);
 
-  // Inovação #5 (Mini-herói cápsula): puramente presentacional — a detecção de
-  // rolagem vive aqui, o componente só decide o que renderizar a partir de `visible`.
-  const [capsuleVisible, setCapsuleVisible] = useState(false);
+  // Inovação #5 (Mini-herói cápsula): no mês corrente a cápsula surge por
+  // rolagem; ao consultar OUTRO mês fica sempre visível para não perder o caixa
+  // de hoje de vista. Puramente presentacional — só decide `visible`.
+  const [scrolledPastHero, setScrolledPastHero] = useState(false);
   useEffect(() => {
     const onScroll = () => {
-      setCapsuleVisible(window.scrollY > CAPSULE_SCROLL_THRESHOLD);
+      setScrolledPastHero(window.scrollY > CAPSULE_SCROLL_THRESHOLD);
     };
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+  const capsuleVisible = viewingAnotherMonth || scrolledPastHero;
 
   // Inovação #6 (Maria percebeu): insights por regra pura, zero chamada de IA nesta
   // fase — reaproveita dados já calculados por `deriveMonth`/`buildComprometimentoFuturo`.
@@ -204,13 +203,8 @@ export default function MobileMonthCockpit({
       data-project-id={projectId}
       className="min-w-0 space-y-3 md:hidden"
     >
-      <p className="text-sm font-medium text-[var(--ck-muted)]">
-        Leitura {AXIS_LABEL[eixo]} · valores canônicos de {labelMonth(monthKey)}
-      </p>
-
-      {/* Inovação #1: herói escuro com "viagem no tempo" — absorve o herói canônico
-          (I1 preservado) e o slider diário que antes vivia dentro do acordeão "Ritmo
-          do mês". Só oferece a viagem no tempo no mês corrente. */}
+      {/* Herói escuro com "viagem no tempo": absorve o herói canônico e o slider
+          diário. A viagem no tempo só aparece no mês corrente. */}
       <HeroTimeTravel
         top={top}
         series={series}
@@ -220,43 +214,30 @@ export default function MobileMonthCockpit({
         scenarioDelta={scenarioDelta}
       />
 
-      {/* Inovação #2: cenários "E se…?" — chips controlados que deformam ao vivo a
-          curva projetada mostrada acima (função pura `applyScenario`), nunca o
-          headline canônico. Só faz sentido enquanto há viagem no tempo ativa. */}
-      {isCurrentMonth && series.length > 0 && (
-        <section
-          aria-label="Cenários e se…?"
-          className="rounded-[18px] border border-[var(--ck-border)] bg-[var(--ck-surface)] p-4 shadow-lifeone-card"
-        >
-          <p className="text-sm font-medium text-[var(--ck-muted)]">
-            E se, por dia, eu…
-          </p>
-          <div className="mt-2">
-            <ScenarioChips
-              selectedDelta={scenarioDelta}
-              onChange={setScenarioDelta}
-            />
-          </div>
-          <p className="mt-2 text-sm text-[var(--ck-muted)]">
-            Simulação: desliza a curva projetada do herói acima. Não altera
-            nenhum lançamento.
-          </p>
-        </section>
+      {/* "Vai dar até dez?": veredito + curva de 6 meses + cenários "E se…?"
+          integrados. Os chips deformam ao vivo a curva projetada do herói acima
+          (mesmo scenarioDelta), nunca o headline canônico. */}
+      {runwaySerie && (
+        <MobileRunway
+          serie={runwaySerie}
+          currentMonth={monthKey}
+          scenarioDelta={scenarioDelta}
+          onScenarioChange={setScenarioDelta}
+        />
       )}
 
-      {/* Inovação #6: "Maria percebeu" — insights por regra pura (sem IA nesta
-          fase), derivados de dados já calculados. */}
-      <MariaStories insights={mariaInsights} />
-
-      {/* Inovação #3: Sankey "Para onde foi" — mesma fonte de `CategoriasBarras`. */}
+      {/* Sankey "Para onde foi" — mesma fonte de CategoriasBarras. */}
       <SankeyParaOndeFoi
         categorias={month.categorias}
         entrouTotal={top.entrouMes}
       />
 
-      {/* Inovação #4: deslizar-para-pagar — reusa o endpoint EXISTENTE de marcar
-          pago (via `resolveSwipeToPayTarget`/I2, I4); mês futuro fica de fora
-          (somente leitura, mesma regra da nota "Mês futuro incompleto"). */}
+      {/* "Maria percebeu" — insights por regra pura (sem IA nesta fase),
+          derivados de dados já calculados. */}
+      <MariaStories insights={mariaInsights} />
+
+      {/* Deslizar-para-pagar — reusa o endpoint existente de marcar pago; mês
+          futuro fica de fora (somente leitura, regra da nota "Mês futuro incompleto"). */}
       {!isFutureMonth && (
         <section
           aria-label="Próximas saídas"
@@ -291,38 +272,15 @@ export default function MobileMonthCockpit({
         <MobileMonthDetails month={month} isFutureMonth={isFutureMonth} />
       </MobileCockpitAccordion>
 
-      <aside
-        aria-label="Resumo do mês atual"
-        data-testid="mobile-month-mini-hero"
-        className="sticky bottom-2 z-20 flex min-h-[56px] items-center justify-between gap-3 rounded-2xl border border-[var(--ck-border)] bg-[var(--ck-surface)]/95 px-4 py-2 shadow-lifeone-hover backdrop-blur"
-      >
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-[var(--ck-text)]">
-            Mês atual · {labelMonth(data.mesAtual)}
-          </p>
-          {viewingAnotherMonth && (
-            <p className="truncate text-sm text-[var(--ck-muted)]">
-              Enquanto você consulta {labelMonth(monthKey)}
-            </p>
-          )}
-        </div>
-        <div className="shrink-0 text-right">
-          <p className="font-geist text-lg font-bold tabular-nums text-[var(--ck-text)]">
-            {moneyGlance(currentTop.caixaValor)}
-          </p>
-          <p className="text-sm text-[var(--ck-muted)]">
-            {currentTop.caixaReal ? "caixa hoje" : "resultado realizado"}
-          </p>
-        </div>
-      </aside>
-
-      {/* Inovação #5: mini-herói cápsula — mesmo número canônico da aside acima,
-          só que fixo no topo depois que o usuário rola além do herói (I1: nunca
-          uma segunda fonte de verdade). */}
+      {/* Mini-herói cápsula: número canônico do MÊS ATUAL fixo no topo. No mês
+          corrente surge por rolagem; ao consultar outro mês fica sempre visível e
+          carrega o aviso "consultando <mês>" (papel da antiga aside, removida). */}
       <MiniHeroCapsule
         visible={capsuleVisible}
         value={moneyGlance(currentTop.caixaValor)}
         label={currentTop.caixaReal ? "Caixa hoje" : "Resultado realizado"}
+        monthLabel={labelMonth(data.mesAtual)}
+        consultingLabel={viewingAnotherMonth ? labelMonth(monthKey) : undefined}
       />
     </section>
   );
