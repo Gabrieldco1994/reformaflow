@@ -11,6 +11,9 @@ import { resolveSwipeToPayTarget, type SwipeToPayTarget } from "../_lib/swipe-to
 
 type RowState = "idle" | "confirming" | "confirmed" | "undoing";
 
+/** Relance: nº de saídas visíveis antes do link "ver todas". */
+const MAX_VISIBLE = 6;
+
 /**
  * Lista de "marcar como pago" por swipe (inovação #4). Cada linha só ganha o
  * controle quando `resolveSwipeToPayTarget` a considera elegível (I4) — a
@@ -96,19 +99,38 @@ export default function SwipeToPay({
     );
   }
 
+  // Relance, não extrato: mostra as próximas por data e esconde o resto atrás
+  // de "ver todas" (a lista completa vive na tela de Despesas).
+  const sorted = [...entries].sort((a, b) =>
+    (a.data ?? "").localeCompare(b.data ?? ""),
+  );
+  const visible = sorted.slice(0, MAX_VISIBLE);
+  const hiddenCount = sorted.length - visible.length;
+  const fmtDia = (iso?: string) => {
+    if (!iso) return null;
+    const [, m, d] = iso.slice(0, 10).split("-");
+    return d && m ? `dia ${Number(d)}/${Number(m)}` : null;
+  };
+
   return (
     <ul className="space-y-2">
-      {entries.map((entry) => {
+      {visible.map((entry) => {
         const target = resolveSwipeToPayTarget(entry, viewingProjectId);
         const state = target ? (rowStates[target.expenseId] ?? "idle") : "idle";
         const description = entry.titulo ?? entry.categoria ?? "Despesa";
+        const dia = fmtDia(entry.data);
         return (
           <li
             key={entry.id}
             className="flex items-center justify-between gap-3 rounded-xl bg-[var(--ck-surface-2)] p-3 text-sm"
           >
-            <span className="min-w-0 truncate text-[var(--ck-text)]">
-              {description}
+            <span className="min-w-0 text-[var(--ck-text)]">
+              <span className="block truncate">{description}</span>
+              {dia && (
+                <span className="mt-0.5 block text-xs text-[var(--ck-muted)]">
+                  {dia}
+                </span>
+              )}
             </span>
             <span className="shrink-0 font-geist font-semibold tabular-nums text-[var(--ck-neg)]">
               {moneyDetail(entry.valor)}
@@ -131,6 +153,16 @@ export default function SwipeToPay({
           </li>
         );
       })}
+      {hiddenCount > 0 && (
+        <li>
+          <a
+            href={`/projects/${viewingProjectId}/expenses`}
+            className="flex min-h-[44px] items-center justify-center rounded-xl border border-dashed border-[var(--ck-border)] text-sm font-semibold text-[var(--ck-accent)]"
+          >
+            ver todas as saídas ({entries.length}) →
+          </a>
+        </li>
+      )}
     </ul>
   );
 }
