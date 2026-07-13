@@ -10,6 +10,7 @@ Atualizado em: **2026-07-13**
 - ✅ **Trilha 3 — Fase G** (3 camadas nos módulos + Simulação) — PR #83.
 - ✅ **Fidelidade ao protótipo c3** — PR #89 (remove aside duplicada e "valores canônicos", traz "Vai dar até dez?" ao mobile, reordena, Consumo fechado).
 - ✅ **Legibilidade mobile pós-QA** — PR #90 (passe v3 de legibilidade no cockpit mobile).
+- ✅ **Herói mobile c3 escuro (fidelidade final)** — gradiente `#1D1B17→#26231D`, glow por saúde do mês e narrativa em prosa, preservando números canônicos + toggle + slider + linhas Entrou/Saiu/Projeção em 1 linha (2026-07-13).
 - ✅ **Trilha 4 — App mobile** — PR #84 (casca 3 abas + PWA + Lançar + Despesas) e #87 (Maria; o #86 foi mergeado na base errada e resgatado). **QA pós-merge achou 5 bugs — todos RESOLVIDOS no PR #91**: navegação até Despesas (link no Hoje + tab), pill "Maria sugeriu: <tipo>" sempre visível no Lançar (fim do OUTROS silencioso), origens só do projeto atual (conta vs cartão), carteira física de cartões e polish (FAB verde/formatos). Specs E2E reescritos contra a UI enviada.
 - ✅ **Navegação contextual do projeto** — PR #93 (nav mobile por projeto).
 - ✅ **Fase E — Motor único** — PR #88 conforme adendo: `getCaixaConta` público, tenant-financial e cash-flow lendo §10, `motor-unico-parity.spec.ts`, `scripts/validate-motores-prod.mjs`. §10 intocado. **PENDENTE: rodar o script contra prod** (`RF_TOKEN=<jwt> node scripts/validate-motores-prod.mjs`, esperado R$ 63.427,35 nas 4 telas).
