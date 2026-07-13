@@ -51,6 +51,11 @@ export class CashFlowService {
       include: { expense: { select: { titulo: true, fornecedor: true } } },
     });
 
+    // Contrato (#96): rollingBalance/rollingBalanceRealizado são FLUXO ORÇAMENTÁRIO
+    // acumulado DESDE ZERO — não é saldo bancário e NÃO ancora no §10 (computeCaixaConta).
+    // No PESSOAL o saldo real é o §10, exibido no headline; estas séries são a projeção
+    // de fluxo. Rótulos de UI dizem "fluxo", nunca "saldo". Reancorar no §10 seria a
+    // Entrega 3 (deliberadamente não feita — divergência é intencional).
     const projected = calculateRollingBalance(entries);
     const realized = calculateRollingBalanceRealizado(entries);
 

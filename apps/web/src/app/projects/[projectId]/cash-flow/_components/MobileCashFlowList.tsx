@@ -88,7 +88,7 @@ function MobileCashFlowListImpl({ entries }: Props) {
                           {isReceita ? '+' : '−'} {formatCurrency(entry.valor / 100)}
                         </p>
                         <p className="text-[10px] text-darc-velvet/50 tabular-nums mt-0.5">
-                          saldo {formatCurrency(entry.rollingBalance / 100)}
+                          fluxo {formatCurrency(entry.rollingBalance / 100)}
                         </p>
                       </div>
                     </div>
