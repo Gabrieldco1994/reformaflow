@@ -43,7 +43,7 @@ describe("PlantsPage plant profile form", () => {
     apiPatchMock.mockReset();
     apiPatchMock.mockResolvedValue({});
   });
-  it("combines labeled editable data and read-only AI diagnosis, preserving the PATCH contract", async () => {
+  it("shows AI diagnosis without editing and preserves the manual PATCH contract", async () => {
     mockRequests({
       cuidados: {
         rega: "Uma vez por semana",
@@ -57,17 +57,27 @@ describe("PlantsPage plant profile form", () => {
       problemasPossiveis: [],
     });
     render(<PlantsPage />);
-    fireEvent.click(await screen.findByRole("button", { name: "Editar" }));
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Ver diagnóstico e cuidados",
+      }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Diagnóstico e cuidados" }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Uma vez por semana")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Nome")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Editar" }));
     expect(
       screen.getByRole("heading", { name: "Dados da planta" }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "Diagnóstico e cuidados" }),
     ).toBeInTheDocument();
+    expect(screen.getByText("Uma vez por semana")).toBeInTheDocument();
     expect(screen.getByLabelText("Nome")).toHaveValue("Jiboia");
     expect(screen.getByLabelText("Localização")).toHaveValue("Sala");
     expect(screen.getByLabelText("Observações")).toHaveValue("Perto da janela");
-    expect(await screen.findByText("Uma vez por semana")).toBeInTheDocument();
     expect(
       screen.queryByDisplayValue("Uma vez por semana"),
     ).not.toBeInTheDocument();
@@ -89,10 +99,15 @@ describe("PlantsPage plant profile form", () => {
   it("guides the user when the plant has no diagnosis", async () => {
     mockRequests(null);
     render(<PlantsPage />);
-    fireEvent.click(await screen.findByRole("button", { name: "Editar" }));
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Ver diagnóstico e cuidados",
+      }),
+    );
     expect(
       await screen.findByText(/adicione uma foto e faça um diagnóstico/i),
     ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Editar" }));
     expect(screen.getByRole("button", { name: "Salvar" })).toBeEnabled();
   });
 });

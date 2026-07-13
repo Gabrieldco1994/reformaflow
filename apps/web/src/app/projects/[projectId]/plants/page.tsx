@@ -82,8 +82,6 @@ function PlantProfileForm({
   onSave,
   onCancel,
 }: PlantProfileFormProps) {
-  const { projectId } = useProject();
-  const { data, loading, error } = usePlantInsights(projectId, plantId);
   const fieldClass =
     "w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-600 focus-visible:ring-offset-2";
   return (
@@ -127,48 +125,6 @@ function PlantProfileForm({
           />
         </label>
       </section>
-      <section
-        aria-labelledby={`plant-insights-${plantId}`}
-        className="rounded-xl bg-green-50/60 p-3 sm:p-4"
-      >
-        <div className="mb-3 flex items-start gap-2">
-          <Sprout
-            className="mt-0.5 h-4 w-4 shrink-0 text-green-600"
-            aria-hidden="true"
-          />
-          <div>
-            <h2
-              id={`plant-insights-${plantId}`}
-              className="font-semibold text-gray-900"
-            >
-              Diagnóstico e cuidados
-            </h2>
-            <p className="text-xs text-gray-500">
-              Informações geradas pelo diagnóstico, disponíveis somente para
-              leitura.
-            </p>
-          </div>
-        </div>
-        {loading && (
-          <p className="py-4 text-center text-sm text-gray-500">
-            Carregando diagnóstico...
-          </p>
-        )}
-        {error && (
-          <p role="alert" className="py-4 text-center text-sm text-red-600">
-            Erro ao carregar diagnóstico. Tente novamente mais tarde.
-          </p>
-        )}
-        {!loading && !error && data?.diagnosis && (
-          <PlantInsightsPanel insights={data} />
-        )}
-        {!loading && !error && !data?.diagnosis && (
-          <p className="rounded-lg border border-dashed border-green-200 bg-white p-4 text-sm text-gray-600">
-            Esta planta ainda não tem diagnóstico. Adicione uma foto e faça um
-            diagnóstico para receber orientações de cuidados.
-          </p>
-        )}
-      </section>
       <div className="flex flex-wrap gap-2">
         <button
           onClick={onSave}
@@ -187,6 +143,57 @@ function PlantProfileForm({
   );
 }
 
+function PlantInsightsSection({ plantId }: { plantId: string }) {
+  const { projectId } = useProject();
+  const { data, loading, error } = usePlantInsights(projectId, plantId);
+
+  return (
+    <section
+      id={`plant-insights-section-${plantId}`}
+      aria-labelledby={`plant-insights-${plantId}`}
+      className="mt-4 rounded-xl bg-green-50/60 p-3 sm:p-4"
+    >
+      <div className="mb-3 flex items-start gap-2">
+        <Sprout
+          className="mt-0.5 h-4 w-4 shrink-0 text-green-600"
+          aria-hidden="true"
+        />
+        <div>
+          <h2
+            id={`plant-insights-${plantId}`}
+            className="font-semibold text-gray-900"
+          >
+            Diagnóstico e cuidados
+          </h2>
+          <p className="text-xs text-gray-500">
+            Informações geradas pelo diagnóstico, disponíveis somente para
+            leitura.
+          </p>
+        </div>
+      </div>
+      {loading && (
+        <p className="py-4 text-center text-sm text-gray-500">
+          Carregando diagnóstico...
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="py-4 text-center text-sm text-red-600">
+          Erro ao carregar diagnóstico. Tente novamente mais tarde.
+        </p>
+      )}
+      {!loading && !error && data?.diagnosis && (
+        <PlantInsightsPanel insights={data} />
+      )}
+      {!loading && !error && !data?.diagnosis && (
+        <p className="rounded-lg border border-dashed border-green-200 bg-white p-4 text-sm text-gray-600">
+          Esta planta ainda não tem diagnóstico. Adicione uma foto e faça um
+          diagnóstico para receber orientações de cuidados.
+        </p>
+      )}
+    </section>
+  );
+}
+
 export default function PlantsPage() {
   const { projectId } = useProject();
   const [plants, setPlants] = useState<Plant[]>([]);
@@ -196,6 +203,7 @@ export default function PlantsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [insightsId, setInsightsId] = useState<string | null>(null);
   const [history, setHistory] = useState<DiagnosisHistoryEntry[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({
@@ -497,6 +505,24 @@ export default function PlantsPage() {
                     </div>
                   )}
                 </>
+              )}
+              <button
+                type="button"
+                onClick={() =>
+                  setInsightsId((current) =>
+                    current === plant.id ? null : plant.id,
+                  )
+                }
+                aria-expanded={insightsId === plant.id}
+                aria-controls={`plant-insights-section-${plant.id}`}
+                className="mt-4 text-sm font-medium text-brand-600 underline"
+              >
+                {insightsId === plant.id
+                  ? "Ocultar diagnóstico e cuidados"
+                  : "Ver diagnóstico e cuidados"}
+              </button>
+              {insightsId === plant.id && (
+                <PlantInsightsSection plantId={plant.id} />
               )}
             </div>
           ))}
