@@ -84,6 +84,9 @@ describe('TenantFinancialService', () => {
       expect(r.recebimento90d).toBe(60_000);
       expect(r.saldoProjetado30d).toBe(CAIXA_10 + 60_000 - 25_000);
       expect(r.saldoProjetado90d).toBe(CAIXA_10 + 60_000 - 65_000);
+      // Contrato "motor único, não Σreceipts": getOverview NÃO consulta receipts.
+      // Se alguém reintroduzir a query de receipts (comportamento antigo), isto pega.
+      expect(prisma.receipt.findMany).not.toHaveBeenCalled();
     });
 
     it('sem projeto PESSOAL no escopo → caixaTotal e saldoProjetado null; §10 não é chamado', async () => {
@@ -102,6 +105,53 @@ describe('TenantFinancialService', () => {
       expect(r.saldoProjetado90d).toBeNull();
       expect(r.totalProjetos).toBe(1);
       expect(monthly.getCaixaConta).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getOverview — escopo (o filtro de projetos precisa chegar às queries)', () => {
+    it('escopo inclui PESSOAL → caixaTotal === §10; where escopado nas duas queries', async () => {
+      const scope = ['pessoal-1', 'reforma-1'];
+      monthly.getCaixaConta.mockResolvedValue({
+        hoje: 6_342_735, saldoInicial: 0, temSaldoInicial: true, porMes: [],
+      });
+      prisma.project.findMany.mockResolvedValue([
+        { id: 'pessoal-1', name: 'Pessoal', type: 'PESSOAL' },
+        { id: 'reforma-1', name: 'Reforma', type: 'REFORMA' },
+      ]);
+      prisma.cashFlowEntry.findMany.mockResolvedValue([]);
+
+      const r = await service.getOverview(TENANT, scope);
+
+      expect(r.caixaTotal).toBe(6_342_735);
+      expect(monthly.getCaixaConta).toHaveBeenCalledWith(TENANT, 'pessoal-1');
+      // Sem o escopo nas queries, o /financeiro filtrado vazaria outros projetos.
+      expect(prisma.project.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ id: { in: scope } }) }),
+      );
+      expect(prisma.cashFlowEntry.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ projectId: { in: scope } }) }),
+      );
+    });
+
+    it('escopo exclui PESSOAL → caixaTotal/saldoProjetado null; §10 não chamado; where escopado', async () => {
+      const scope = ['reforma-1'];
+      prisma.project.findMany.mockResolvedValue([
+        { id: 'reforma-1', name: 'Reforma', type: 'REFORMA' },
+      ]);
+      prisma.cashFlowEntry.findMany.mockResolvedValue([]);
+
+      const r = await service.getOverview(TENANT, scope);
+
+      expect(r.caixaTotal).toBeNull();
+      expect(r.saldoProjetado30d).toBeNull();
+      expect(r.saldoProjetado90d).toBeNull();
+      expect(monthly.getCaixaConta).not.toHaveBeenCalled();
+      expect(prisma.project.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ id: { in: scope } }) }),
+      );
+      expect(prisma.cashFlowEntry.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ projectId: { in: scope } }) }),
+      );
     });
   });
 

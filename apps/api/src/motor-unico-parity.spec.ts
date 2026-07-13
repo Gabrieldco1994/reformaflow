@@ -91,17 +91,27 @@ describe('Motor Único — paridade §10 entre os consumidores (mesmo fixture, s
     expect(r.hoje).toBe(ORACLE.hoje);
   });
 
+  // Tela /monthly: caixa.hoje sai do MESMO método privado (computeCaixaConta) que o
+  // delegador — prova explícita de que a 3ª tela do §10 converge no mesmo fixture.
+  it('monthly.getOverview.caixa.hoje === §10 (tela /monthly)', async () => {
+    const overview = await monthly.getOverview(TENANT, PESSOAL);
+    expect(overview.caixa.hoje).toBe(ORACLE.hoje);
+  });
+
   it('tenant-financial.caixaTotal === §10 (motor consolidado do /financeiro)', async () => {
     const overview = await tenantFinancial.getOverview(TENANT, null);
     expect(overview.caixaTotal).toBe(ORACLE.hoje);
   });
 
-  it('tenant-financial.caixaTotal === getCaixaConta.hoje === §10 (paridade do motor único)', async () => {
-    const [caixa, overview] = await Promise.all([
+  it('tenant-financial.caixaTotal === getCaixaConta.hoje === monthly.getOverview.caixa.hoje === §10 (paridade do motor único)', async () => {
+    const [caixa, overview, monthlyOverview] = await Promise.all([
       monthly.getCaixaConta(TENANT, PESSOAL),
       tenantFinancial.getOverview(TENANT, null),
+      monthly.getOverview(TENANT, PESSOAL),
     ]);
+    // As três telas do §10 (delegador, /financeiro, /monthly) convergem no MESMO número.
     expect(overview.caixaTotal).toBe(caixa.hoje);
+    expect(monthlyOverview.caixa.hoje).toBe(caixa.hoje);
     expect(caixa.hoje).toBe(ORACLE.hoje);
   });
 });
