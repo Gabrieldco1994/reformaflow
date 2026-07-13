@@ -216,6 +216,21 @@ function makePrismaMock(state: MockState) {
         }
         return results;
       }),
+      findFirst: jest.fn(async ({ where, orderBy }: any) => {
+        let results = state.diagnosisLogs.filter((log: any) => matchesWhere(log, where));
+        if (orderBy) {
+          const orderKey = Object.keys(orderBy)[0];
+          const orderDir = orderBy[orderKey];
+          results.sort((a: any, b: any) => {
+            const aVal = a[orderKey];
+            const bVal = b[orderKey];
+            if (aVal < bVal) return orderDir === 'asc' ? -1 : 1;
+            if (aVal > bVal) return orderDir === 'asc' ? 1 : -1;
+            return 0;
+          });
+        }
+        return results[0] ?? null;
+      }),
     },
     __txUnsupported: Promise.resolve([]),
   };

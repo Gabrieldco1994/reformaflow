@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { TenantFinancialService } from './tenant-financial.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { MonthlyOverviewService } from '../monthly-overview/monthly-overview.service';
 
 const TENANT = 'tenant-1';
 const NOW = new Date('2026-05-15T12:00:00Z');
@@ -20,14 +21,17 @@ function makePrismaMock() {
 describe('TenantFinancialService', () => {
   let service: TenantFinancialService;
   let prisma: ReturnType<typeof makePrismaMock>;
+  let monthly: { getCaixaConta: jest.Mock };
 
   beforeEach(async () => {
     jest.useFakeTimers().setSystemTime(NOW);
     prisma = makePrismaMock();
+    monthly = { getCaixaConta: jest.fn() };
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
         TenantFinancialService,
         { provide: PrismaService, useValue: prisma },
+        { provide: MonthlyOverviewService, useValue: monthly },
       ],
     }).compile();
     service = moduleRef.get(TenantFinancialService);
@@ -35,37 +39,42 @@ describe('TenantFinancialService', () => {
 
   afterEach(() => jest.useRealTimers());
 
-  describe('getOverview', () => {
-    it('agrega caixa, pago YTD/mês, previsões 30d/90d e saldo projetado', async () => {
-      prisma.project.count.mockResolvedValue(3);
+  describe('getOverview — caixa vem do §10 (motor único), não Σ receipts', () => {
+    const PESSOAL = 'pessoal-1';
+    const CAIXA_10 = 6_342_735; // §10 do PESSOAL (mock do motor canônico)
+
+    it('caixaTotal === §10; saldoProjetado deriva do §10 (não de Σ receipts EM_CAIXA)', async () => {
+      monthly.getCaixaConta.mockResolvedValue({
+        hoje: CAIXA_10, saldoInicial: 1_428_597, temSaldoInicial: true, porMes: [],
+      });
+      prisma.project.findMany.mockResolvedValue([
+        { id: PESSOAL, name: 'Pessoal', type: 'PESSOAL' },
+        { id: 'reforma-1', name: 'Reforma', type: 'REFORMA' },
+        { id: 'casa-1', name: 'Casa', type: 'CASA' },
+      ]);
+      // Σ receipts EM_CAIXA = 150_000 de propósito (valor ANTIGO de caixaTotal):
+      // se alguém reintroduzir a soma de receipts, o assert §10 pega a regressão.
       prisma.receipt.findMany.mockResolvedValue([
         { valor: 100_000, status: 'EM_CAIXA', data: new Date('2026-04-01') },
         { valor: 50_000, status: 'EM_CAIXA', data: new Date('2026-03-01') },
         { valor: 200_000, status: 'PREVISTO', data: new Date('2026-06-01') },
       ]);
       prisma.cashFlowEntry.findMany.mockResolvedValue([
-        // Pago no mês corrente (Mai/2026)
         { valor: 30_000, tipo: 'DESPESA', status: 'PAGO', data: new Date('2026-05-10') },
-        // Pago YTD mas não no mês
         { valor: 20_000, tipo: 'DESPESA', status: 'PAGO', data: new Date('2026-01-15') },
-        // Pago em ano passado
         { valor: 15_000, tipo: 'DESPESA', status: 'PAGO', data: new Date('2025-12-15') },
-        // Planejado dentro de 30d
         { valor: 25_000, tipo: 'DESPESA', status: 'PLANEJADO', data: new Date('2026-05-20') },
-        // Planejado entre 30-90d (entra só em 90d)
         { valor: 40_000, tipo: 'DESPESA', status: 'PLANEJADO', data: new Date('2026-07-10') },
-        // Planejado fora 90d
         { valor: 99_999, tipo: 'DESPESA', status: 'PLANEJADO', data: new Date('2026-12-31') },
-        // Recebimento previsto em 30d
         { valor: 60_000, tipo: 'RECEBIMENTO', status: 'PREVISTO', data: new Date('2026-05-25') },
-        // Recebimento PAGO não conta como previsão
         { valor: 70_000, tipo: 'RECEBIMENTO', status: 'PAGO', data: new Date('2026-05-25') },
       ]);
 
       const r = await service.getOverview(TENANT, null);
 
+      expect(r.caixaTotal).toBe(CAIXA_10); // §10, não 150_000
+      expect(monthly.getCaixaConta).toHaveBeenCalledWith(TENANT, PESSOAL);
       expect(r.totalProjetos).toBe(3);
-      expect(r.caixaTotal).toBe(150_000);
       expect(r.pagoMesAtual).toBe(30_000);
       expect(r.pagoYTD).toBe(50_000); // 30k + 20k
       expect(r.pagoTotal).toBe(65_000); // 30k + 20k + 15k
@@ -73,18 +82,104 @@ describe('TenantFinancialService', () => {
       expect(r.previsao90d).toBe(65_000); // 25k + 40k
       expect(r.recebimento30d).toBe(60_000);
       expect(r.recebimento90d).toBe(60_000);
-      expect(r.saldoProjetado30d).toBe(150_000 + 60_000 - 25_000);
-      expect(r.saldoProjetado90d).toBe(150_000 + 60_000 - 65_000);
+      expect(r.saldoProjetado30d).toBe(CAIXA_10 + 60_000 - 25_000);
+      expect(r.saldoProjetado90d).toBe(CAIXA_10 + 60_000 - 65_000);
+      // Contrato "motor único, não Σreceipts": getOverview NÃO consulta receipts.
+      // Se alguém reintroduzir a query de receipts (comportamento antigo), isto pega.
+      expect(prisma.receipt.findMany).not.toHaveBeenCalled();
     });
 
-    it('retorna zeros quando não há dados', async () => {
-      prisma.project.count.mockResolvedValue(0);
-      prisma.receipt.findMany.mockResolvedValue([]);
+    it('sem projeto PESSOAL no escopo → caixaTotal e saldoProjetado null; §10 não é chamado', async () => {
+      prisma.project.findMany.mockResolvedValue([
+        { id: 'reforma-1', name: 'Reforma', type: 'REFORMA' },
+      ]);
+      prisma.receipt.findMany.mockResolvedValue([
+        { valor: 999_999, status: 'EM_CAIXA', data: new Date('2026-04-01') },
+      ]);
       prisma.cashFlowEntry.findMany.mockResolvedValue([]);
+
       const r = await service.getOverview(TENANT, null);
-      expect(r.caixaTotal).toBe(0);
-      expect(r.pagoTotal).toBe(0);
-      expect(r.previsao30d).toBe(0);
+
+      expect(r.caixaTotal).toBeNull();
+      expect(r.saldoProjetado30d).toBeNull();
+      expect(r.saldoProjetado90d).toBeNull();
+      expect(r.totalProjetos).toBe(1);
+      expect(monthly.getCaixaConta).not.toHaveBeenCalled();
+    });
+
+    it('múltiplos PESSOAL no escopo → caixaTotal soma o §10 de TODOS (consolidado, sem omitir conta)', async () => {
+      // /financeiro é a visão CONSOLIDADA: com 2 projetos PESSOAL o caixa é a SOMA
+      // dos §10, nunca só o mais antigo (senão a 2ª conta some do total). Blinda a
+      // regressão de "find(primeiro PESSOAL)" que omitia silenciosamente contas.
+      monthly.getCaixaConta.mockImplementation((_t: string, projectId: string) =>
+        Promise.resolve({
+          hoje: projectId === 'pessoal-1' ? 6_342_735 : 1_000_000,
+          saldoInicial: 0,
+          temSaldoInicial: true,
+          porMes: [],
+        }),
+      );
+      prisma.project.findMany.mockResolvedValue([
+        { id: 'pessoal-1', name: 'Pessoal A', type: 'PESSOAL' },
+        { id: 'pessoal-2', name: 'Pessoal B', type: 'PESSOAL' },
+        { id: 'reforma-1', name: 'Reforma', type: 'REFORMA' },
+      ]);
+      prisma.cashFlowEntry.findMany.mockResolvedValue([]);
+
+      const r = await service.getOverview(TENANT, null);
+
+      expect(r.caixaTotal).toBe(6_342_735 + 1_000_000);
+      expect(r.saldoProjetado30d).toBe(6_342_735 + 1_000_000); // base consolidada, sem deltas
+      expect(monthly.getCaixaConta).toHaveBeenCalledWith(TENANT, 'pessoal-1');
+      expect(monthly.getCaixaConta).toHaveBeenCalledWith(TENANT, 'pessoal-2');
+      expect(monthly.getCaixaConta).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('getOverview — escopo (o filtro de projetos precisa chegar às queries)', () => {
+    it('escopo inclui PESSOAL → caixaTotal === §10; where escopado nas duas queries', async () => {
+      const scope = ['pessoal-1', 'reforma-1'];
+      monthly.getCaixaConta.mockResolvedValue({
+        hoje: 6_342_735, saldoInicial: 0, temSaldoInicial: true, porMes: [],
+      });
+      prisma.project.findMany.mockResolvedValue([
+        { id: 'pessoal-1', name: 'Pessoal', type: 'PESSOAL' },
+        { id: 'reforma-1', name: 'Reforma', type: 'REFORMA' },
+      ]);
+      prisma.cashFlowEntry.findMany.mockResolvedValue([]);
+
+      const r = await service.getOverview(TENANT, scope);
+
+      expect(r.caixaTotal).toBe(6_342_735);
+      expect(monthly.getCaixaConta).toHaveBeenCalledWith(TENANT, 'pessoal-1');
+      // Sem o escopo nas queries, o /financeiro filtrado vazaria outros projetos.
+      expect(prisma.project.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ id: { in: scope } }) }),
+      );
+      expect(prisma.cashFlowEntry.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ projectId: { in: scope } }) }),
+      );
+    });
+
+    it('escopo exclui PESSOAL → caixaTotal/saldoProjetado null; §10 não chamado; where escopado', async () => {
+      const scope = ['reforma-1'];
+      prisma.project.findMany.mockResolvedValue([
+        { id: 'reforma-1', name: 'Reforma', type: 'REFORMA' },
+      ]);
+      prisma.cashFlowEntry.findMany.mockResolvedValue([]);
+
+      const r = await service.getOverview(TENANT, scope);
+
+      expect(r.caixaTotal).toBeNull();
+      expect(r.saldoProjetado30d).toBeNull();
+      expect(r.saldoProjetado90d).toBeNull();
+      expect(monthly.getCaixaConta).not.toHaveBeenCalled();
+      expect(prisma.project.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ id: { in: scope } }) }),
+      );
+      expect(prisma.cashFlowEntry.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ projectId: { in: scope } }) }),
+      );
     });
   });
 

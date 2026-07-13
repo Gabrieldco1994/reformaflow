@@ -12,7 +12,7 @@ export function KpiCards({ data }: Props) {
     { term: 'Resultado', definition: 'diferença entre o que entrou e o que saiu no período; não representa sozinho o saldo bancário.' },
     { term: 'Projeção', definition: 'estimativa de fechamento: caixa atual + valores a receber − valores ainda a pagar.' },
   ];
-  const kpis: { label: string; value: number; accent: string; hint?: string }[] = [
+  const rawKpis: { label: string; value: number | null; accent: string; hint?: string }[] = [
     { label: 'Caixa', value: data.caixaTotal, accent: 'bg-emerald-500', hint: 'Em conta hoje' },
     { label: 'Pago no Mês', value: data.pagoMesAtual, accent: 'bg-darc-raspberry', hint: 'Mês corrente' },
     { label: 'Previsto (30 dias)', value: data.previsao30d, accent: 'bg-darc-sunfire', hint: 'Despesas planejadas' },
@@ -20,6 +20,11 @@ export function KpiCards({ data }: Props) {
     { label: 'Pago no Ano', value: data.pagoYTD, accent: 'bg-darc-pink-logo', hint: 'YTD' },
     { label: 'Projeção (90d)', value: data.saldoProjetado90d, accent: 'bg-darc-red-bright', hint: 'Próximo trimestre' },
   ];
+  // Caixa/Projeção vêm do §10 do projeto PESSOAL do tenant. Tenant sem PESSOAL ⇒
+  // esses valores chegam null e os KPIs correspondentes somem (sem "R$ 0" falso).
+  const kpis = rawKpis.filter(
+    (kpi): kpi is { label: string; value: number; accent: string; hint?: string } => kpi.value !== null,
+  );
 
   return (
     <div className="space-y-3">

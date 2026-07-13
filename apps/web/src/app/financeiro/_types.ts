@@ -1,7 +1,7 @@
 export type ProjectType = 'REFORMA' | 'COMPRA' | 'CASA' | 'CARRO' | 'PESSOAL';
 
 export interface TenantFinancialOverview {
-  caixaTotal: number;
+  caixaTotal: number | null;
   pagoMesAtual: number;
   pagoYTD: number;
   pagoTotal: number;
@@ -9,8 +9,8 @@ export interface TenantFinancialOverview {
   previsao90d: number;
   recebimento30d: number;
   recebimento90d: number;
-  saldoProjetado30d: number;
-  saldoProjetado90d: number;
+  saldoProjetado30d: number | null;
+  saldoProjetado90d: number | null;
   totalProjetos: number;
 }
 

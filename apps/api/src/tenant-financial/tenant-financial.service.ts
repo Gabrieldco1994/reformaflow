@@ -1,11 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { MonthlyOverviewService } from '../monthly-overview/monthly-overview.service';
 import { ExpenseTypeLabels } from '@reformaflow/domain';
 
 type ProjectType = 'REFORMA' | 'COMPRA' | 'CASA' | 'CARRO' | 'PESSOAL';
 
 export interface TenantFinancialOverview {
-  caixaTotal: number;
+  caixaTotal: number | null;
   pagoMesAtual: number;
   pagoYTD: number;
   pagoTotal: number;
@@ -13,8 +14,8 @@ export interface TenantFinancialOverview {
   previsao90d: number;
   recebimento30d: number;
   recebimento90d: number;
-  saldoProjetado30d: number;
-  saldoProjetado90d: number;
+  saldoProjetado30d: number | null;
+  saldoProjetado90d: number | null;
   totalProjetos: number;
 }
 
@@ -66,7 +67,10 @@ export interface SupplierRow {
 
 @Injectable()
 export class TenantFinancialService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly monthly: MonthlyOverviewService,
+  ) {}
 
   /** where parcial para restringir por projeto em agregações (null = sem filtro). */
   private scopeWhere(scope: string[] | null) {
@@ -100,11 +104,8 @@ export class TenantFinancialService {
     const in30 = new Date(now.getTime() + 30 * 24 * 3600 * 1000);
     const in90 = new Date(now.getTime() + 90 * 24 * 3600 * 1000);
 
-    const [receipts, cashFlow, projetosCount] = await Promise.all([
-      this.prisma.receipt.findMany({
-        where: { tenantId, deletedAt: null, linkedReceiptId: null, ...this.scopeWhere(scope) },
-        select: { valor: true, status: true, data: true },
-      }),
+    const [projects, cashFlow] = await Promise.all([
+      this.listProjects(tenantId, scope),
       this.prisma.cashFlowEntry.findMany({
         where: {
           tenantId,
@@ -125,12 +126,23 @@ export class TenantFinancialService {
         },
         select: { valor: true, tipo: true, status: true, data: true },
       }),
-      this.prisma.project.count({ where: { tenantId, deletedAt: null, ...(scope ? { id: { in: scope } } : {}) } }),
     ]);
 
-    const caixaTotal = receipts
-      .filter((r) => r.status === 'EM_CAIXA')
-      .reduce((s, r) => s + r.valor, 0);
+    // Motor único (§10): o caixa/saldo em conta vem do(s) projeto(s) PESSOAL no
+    // escopo (delegador `getCaixaConta`), NÃO de Σ receipts EM_CAIXA. /financeiro
+    // é a visão CONSOLIDADA ("todos os projetos juntos"), então somamos o §10 de
+    // TODOS os PESSOAL do escopo — nunca omitir silenciosamente uma conta se o
+    // tenant tiver mais de um PESSOAL (ex.: por usuário no multiusuário). Com um
+    // único PESSOAL (realidade atual) a soma-de-um é idêntica ao §10. Sem PESSOAL
+    // no escopo ⇒ o KPI de caixa some (null): o tenant não tem conta consolidada.
+    const pessoalProjects = projects.filter((p) => p.type === 'PESSOAL');
+    let caixaTotal: number | null = null;
+    if (pessoalProjects.length > 0) {
+      const caixas = await Promise.all(
+        pessoalProjects.map((p) => this.monthly.getCaixaConta(tenantId, p.id)),
+      );
+      caixaTotal = caixas.reduce((sum, c) => sum + c.hoje, 0);
+    }
 
     let pagoMesAtual = 0;
     let pagoYTD = 0;
@@ -167,9 +179,9 @@ export class TenantFinancialService {
       previsao90d,
       recebimento30d,
       recebimento90d,
-      saldoProjetado30d: caixaTotal + recebimento30d - previsao30d,
-      saldoProjetado90d: caixaTotal + recebimento90d - previsao90d,
-      totalProjetos: projetosCount,
+      saldoProjetado30d: caixaTotal === null ? null : caixaTotal + recebimento30d - previsao30d,
+      saldoProjetado90d: caixaTotal === null ? null : caixaTotal + recebimento90d - previsao90d,
+      totalProjetos: projects.length,
     };
   }
 

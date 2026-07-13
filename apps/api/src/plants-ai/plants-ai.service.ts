@@ -363,7 +363,7 @@ export class PlantsAiService {
     const filter = { plantId, tenantId, projectId, deletedAt: null };
     const [reminders, maintenance] = await Promise.all([
       this.prisma.reminder.findMany({ where: filter, orderBy: { data: 'asc' } }),
-      this.prisma.maintenanceLog.findMany({ where: filter, orderBy: { dataProxima: 'asc' } }),
+      this.prisma.maintenanceLog.findMany({ where: filter, orderBy: { dataRealizada: 'desc' } }),
     ]);
 
     return {
