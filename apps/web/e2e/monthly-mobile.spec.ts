@@ -290,15 +290,8 @@ test.describe("Monthly cockpit — Phase C mobile relance", () => {
         expect(metric.fontSize).toBeGreaterThanOrEqual(14);
       }
 
-      // Named accordions (not a magic total): Track C keeps only the two
-      // collapsible disclosures ("Consumo"/"Detalhes") — the extra mobile
-      // sections it ships (scenarios, sankey, maria stories, swipe-to-pay)
-      // are always-visible `region`s, not `aria-expanded` disclosures, so an
-      // exact-count assertion on the disclosure selector would be brittle to
-      // future additions of either kind. Each named disclosure is checked
-      // individually so a future accordion addition is an explicit,
-      // intentional change to this list rather than a silent pass.
-      const disclosureNames = ["Consumo", "Detalhes"] as const;
+      // Mobile simplificado: só "Consumo" fica como disclosure.
+      const disclosureNames = ["Consumo"] as const;
       const disclosures = mobile.locator(
         'button[aria-controls^="mobile-cockpit-"][aria-expanded]',
       );
@@ -321,22 +314,9 @@ test.describe("Monthly cockpit — Phase C mobile relance", () => {
         );
       }
 
-      // Track C: the new mobile progressive sections ship as always-visible
-      // accessible `region`s alongside the two disclosures above — assert each
-      // keeps its accessible name so the mobile contract stays discoverable by
-      // assistive tech without depending on brittle DOM structure/markup. The
-      // "E se…?" scenarios were merged into the "Vai dar até dez?" runway card
-      // (fidelidade v3, #89/#90), so that is the region that owns them now.
+      // Contrato atual: runway + maria permanecem sempre visíveis.
       await expect(
         mobile.getByRole("region", { name: "Vai dar até dez?" }),
-      ).toBeVisible();
-      await expect(
-        mobile.getByRole("region", { name: "Próximas saídas" }),
-      ).toBeVisible();
-      await expect(
-        mobile.getByRole("region", {
-          name: "Para onde foi seu dinheiro este mês",
-        }),
       ).toBeVisible();
       await expect(
         mobile.getByRole("region", { name: "Maria percebeu" }),
