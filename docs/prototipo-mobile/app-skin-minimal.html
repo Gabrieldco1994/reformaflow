@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LifeOne — Skin Minimal · wireframe (Hoje · Agenda · Insights)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap" rel="stylesheet">
+<style>
+  /* ══ TOKENS — extraídos do reference ══ */
+  :root{
+    --bg:#EEF0F3;            /* fundo da tela (cinza frio claro) */
+    --card:#FFFFFF;
+    --card-soft:#F6F7F9;     /* card secundário / linhas internas */
+    --ink:#111214;           /* quase-preto */
+    --ink2:#5B6068;
+    --ink3:#9AA0A8;
+    --hair:#E8EAEE;
+    --pos:#16A34A; --pos-soft:#E9F7EE;
+    --neg:#EF4444; --neg-soft:#FDEDED;
+    --r-xl:28px; --r-lg:20px; --r-md:14px;
+    --shadow:0 1px 2px rgba(17,18,20,.03),0 12px 32px rgba(17,18,20,.06);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{font-family:'Inter',-apple-system,system-ui,sans-serif;color:var(--ink);
+    -webkit-font-smoothing:antialiased;font-feature-settings:"cv11"}
+  body{background:#DDE0E5;display:flex;justify-content:center;align-items:flex-start;
+    gap:26px;padding:30px;flex-wrap:wrap;min-height:100vh}
+  .num{font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+
+  .phone{width:390px;height:844px;background:var(--bg);border-radius:52px;
+    border:10px solid #0B0C0D;overflow:hidden;position:relative;display:flex;
+    flex-direction:column;box-shadow:0 34px 80px rgba(11,12,13,.35)}
+  .status{display:flex;justify-content:space-between;align-items:center;
+    padding:16px 28px 4px;font-size:14px;font-weight:650}
+  .screen{flex:1;overflow-y:auto;padding:8px 20px 120px;scrollbar-width:none}
+  .screen::-webkit-scrollbar{display:none}
+
+  /* header de saudação (tela Hoje) */
+  .hello h1{font-size:26px;font-weight:750;letter-spacing:-.03em;margin-top:10px}
+  .hello p{font-size:14px;color:var(--ink3);font-weight:500;margin-top:3px}
+  .hello{display:flex;justify-content:space-between;align-items:flex-start}
+  .bell{width:44px;height:44px;border-radius:50%;background:var(--card);display:grid;
+    place-items:center;box-shadow:var(--shadow);color:var(--ink)}
+  /* header de página interna */
+  .pageTop{display:flex;justify-content:space-between;align-items:center;padding-top:8px}
+  .circleBtn{width:44px;height:44px;border-radius:50%;background:var(--card);display:grid;
+    place-items:center;box-shadow:var(--shadow);color:var(--ink)}
+  .pageTitle{font-size:26px;font-weight:750;letter-spacing:-.03em;margin:18px 2px 4px}
+
+  /* faixa de 3 números (como "3 clients · 2 due · 5 in queue") */
+  .strip{display:flex;background:linear-gradient(180deg,#E7E9ED,#EDEFF2);border-radius:var(--r-lg);
+    margin-top:16px;padding:14px 4px}
+  .strip div{flex:1;text-align:center}
+  .strip div+div{border-left:1px solid #DDE0E5}
+  .strip .v{font-size:22px;font-weight:750;letter-spacing:-.02em}
+  .strip .k{font-size:12px;color:var(--ink2);font-weight:500;margin-top:2px}
+
+  .secHead{display:flex;justify-content:space-between;align-items:baseline;margin:22px 2px 10px}
+  .secHead h2{font-size:16px;font-weight:700;letter-spacing:-.01em}
+  .secHead a{font-size:13px;font-weight:600;color:var(--ink2);text-decoration:none}
+
+  /* carteira como "clients": cartões-retrato */
+  .wallet{display:flex;gap:10px}
+  .wcard{flex:1;border-radius:var(--r-lg);overflow:hidden;position:relative;height:118px;
+    display:flex;flex-direction:column;justify-content:flex-end;padding:10px;color:#fff;
+    box-shadow:var(--shadow)}
+  .wcard.master{background:linear-gradient(150deg,#2A2D33,#4A4F58)}
+  .wcard.pers{background:linear-gradient(150deg,#101318,#2B3648)}
+  .wcard.conta{background:linear-gradient(150deg,#0E4F3A,#1B8A66)}
+  .wcard .chip{position:absolute;top:10px;left:10px;width:22px;height:16px;border-radius:4px;
+    background:linear-gradient(140deg,#E8CC7A,#B98F3E)}
+  .wcard .n{font-size:13px;font-weight:700}
+  .wcard .s{font-size:11px;opacity:.75;font-weight:500;margin-top:1px}
+  .addCard{border:1.5px dashed #C9CDD4;border-radius:var(--r-lg);min-height:48px;margin-top:10px;
+    display:flex;align-items:center;justify-content:center;gap:7px;font-size:14px;font-weight:600;
+    color:var(--ink2);background:transparent}
+
+  /* lembrete (como "Cara's Reel approval due") */
+  .remind{background:var(--card);border-radius:var(--r-lg);padding:14px;display:flex;gap:12px;
+    align-items:center;box-shadow:var(--shadow)}
+  .remind .ic{width:42px;height:42px;border-radius:12px;background:var(--neg-soft);display:grid;
+    place-items:center;font-size:17px;flex-shrink:0}
+  .remind .n{font-size:14.5px;font-weight:650;letter-spacing:-.01em}
+  .remind .s{font-size:12.5px;color:var(--ink3);font-weight:500;margin-top:2px}
+
+  /* upcoming: cards de imagem → aqui viram cards de saída com valor grande */
+  .upRow{display:flex;gap:10px;overflow-x:auto;scrollbar-width:none;padding-bottom:4px}
+  .upRow::-webkit-scrollbar{display:none}
+  .up{min-width:172px;border-radius:var(--r-lg);background:var(--card);box-shadow:var(--shadow);
+    padding:14px}
+  .up .tag{display:inline-block;font-size:10.5px;font-weight:700;padding:4px 9px;border-radius:99px;
+    background:var(--ink);color:#fff}
+  .up .tag.soft{background:var(--card-soft);color:var(--ink2)}
+  .up .v{font-size:20px;font-weight:750;letter-spacing:-.02em;margin-top:12px}
+  .up .n{font-size:13px;font-weight:600;color:var(--ink2);margin-top:2px}
+  .up .s{font-size:11.5px;color:var(--ink3);font-weight:500;margin-top:1px}
+
+  /* ══ AGENDA (tela 2 — como o Calendar) ══ */
+  .calCard{background:var(--card);border-radius:var(--r-xl);box-shadow:var(--shadow);
+    padding:16px;margin-top:14px}
+  .calNav{display:flex;align-items:center;gap:8px}
+  .calNav .arrows{display:flex;gap:2px}
+  .calNav .arrows button{width:30px;height:30px;border:0;background:transparent;color:var(--ink2);
+    font-size:15px;cursor:pointer}
+  .calNav .range{flex:1;display:flex;align-items:center;gap:7px;font-size:13.5px;font-weight:650}
+  .calNav .today{border:1px solid var(--hair);background:var(--card);border-radius:12px;
+    padding:8px 14px;font-size:13px;font-weight:650;color:var(--ink)}
+  .seg{display:flex;gap:8px;margin-top:14px}
+  .seg button{flex:1;border:0;border-radius:99px;padding:12px;font:650 14px Inter;cursor:pointer}
+  .seg .on{background:var(--ink);color:#fff}
+  .seg .off{background:var(--card-soft);color:var(--ink2)}
+  .week{display:flex;margin-top:16px}
+  .day{flex:1;text-align:center}
+  .day .w{font-size:11.5px;color:var(--ink3);font-weight:600}
+  .day .d{font-size:15px;font-weight:650;margin-top:10px;width:38px;height:38px;line-height:38px;
+    border-radius:50%;margin-left:auto;margin-right:auto;position:relative}
+  .day.sel .d{background:var(--ink);color:#fff;outline:3px solid var(--bg);
+    box-shadow:0 0 0 5px var(--ink)}
+  .day .dot{width:4px;height:4px;border-radius:50%;background:var(--neg);margin:4px auto 0}
+  .day .dot.none{background:transparent}
+
+  .actList{background:var(--card);border-radius:var(--r-xl);box-shadow:var(--shadow);
+    margin-top:14px;padding:8px}
+  .actHead{display:flex;align-items:center;justify-content:center;gap:8px;padding:14px;
+    font-size:14.5px;font-weight:650;border-bottom:1px solid var(--hair)}
+  .act{display:flex;gap:12px;align-items:center;background:var(--card-soft);border-radius:var(--r-md);
+    padding:13px;margin:8px 6px}
+  .act .ic{width:38px;height:38px;border-radius:50%;background:var(--card);display:grid;
+    place-items:center;box-shadow:var(--shadow);font-size:15px;flex-shrink:0}
+  .act .n{font-size:14px;font-weight:650;letter-spacing:-.01em}
+  .act .s{font-size:12px;color:var(--ink3);font-weight:500;margin-top:2px}
+
+  /* ══ INSIGHTS (tela 3) ══ */
+  .tiles{display:grid;grid-template-columns:calc(50% - 6px) calc(50% - 6px);gap:12px;margin-top:14px}
+  .tile{min-width:0;overflow:hidden;background:var(--card);border-radius:var(--r-lg);box-shadow:var(--shadow);padding:16px 14px 14px}
+  .tile .k{font-size:12.5px;color:var(--ink2);font-weight:550}
+  .tile .v{font-size:26px;font-weight:750;letter-spacing:-.03em;margin-top:6px;white-space:nowrap}
+  .tile .d{font-size:12px;font-weight:600;margin-top:6px}
+  .tile .d.up{color:var(--pos)} .tile .d.down{color:var(--neg)} .tile .d.mut{color:var(--ink3);font-weight:500}
+  .topList{background:var(--card);border-radius:var(--r-xl);box-shadow:var(--shadow);padding:6px;margin-top:12px}
+  .top{display:flex;gap:12px;align-items:center;padding:12px 10px}
+  .top+.top{border-top:1px solid var(--hair)}
+  .top .ph{width:52px;height:52px;border-radius:14px;flex-shrink:0;display:grid;place-items:center;
+    font-size:20px;background:var(--card-soft)}
+  .top .bd{flex:1;min-width:0}
+  .top .n{font-size:14px;font-weight:650;letter-spacing:-.01em;line-height:1.3}
+  .top .s{font-size:12px;color:var(--ink3);font-weight:500;margin-top:2px}
+  .top .vv{text-align:right;flex-shrink:0}
+  .top .v{font-size:14.5px;font-weight:750}
+  .top .u{font-size:11px;color:var(--ink3);font-weight:500;margin-top:1px}
+
+  /* ══ TAB BAR flutuante (pílula + botão "+") ══ */
+  .dock{position:absolute;left:0;right:0;bottom:0;padding:0 18px 14px;z-index:40}
+  .dockRow{display:flex;gap:10px;align-items:center}
+  .tabbar{flex:1;display:flex;background:var(--card);border-radius:99px;box-shadow:var(--shadow);
+    padding:8px}
+  .tab{flex:1;display:grid;place-items:center;height:48px;border-radius:99px;color:var(--ink3)}
+  .tab.on{background:var(--ink);color:#fff}
+  .plus{width:64px;height:64px;border-radius:50%;background:var(--card);box-shadow:var(--shadow);
+    display:grid;place-items:center;color:var(--ink);flex-shrink:0}
+  .homebar{width:130px;height:5px;border-radius:3px;background:#0B0C0D;margin:10px auto 0}
+
+  .note{max-width:390px;font-size:13px;color:#3a3f46;line-height:1.65;background:#fff;
+    border-radius:18px;padding:18px 20px;box-shadow:var(--shadow)}
+  .note b{color:#111214}
+  @media (max-width:560px){
+    body{padding:0;background:var(--bg);display:block}
+    .phone{width:100%;height:100dvh;border:0;border-radius:0;box-shadow:none;margin-bottom:12px}
+    .note{display:none}
+  }
+</style>
+</head>
+<body>
+
+<!-- ══════════ TELA 1 · HOJE ══════════ -->
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▪▪▪ ⌾ ▮</span></div>
+  <div class="screen">
+    <div class="hello">
+      <div><h1>Bom dia, Gabriel!</h1><p>Hoje, 13 de julho</p></div>
+      <div class="bell"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8"/><path d="M10.3 21a2 2 0 0 0 3.4 0"/></svg></div>
+    </div>
+
+    <div class="strip num">
+      <div><div class="v">R$ 6,4 mil</div><div class="k">caixa hoje</div></div>
+      <div><div class="v">2</div><div class="k">vencem hoje</div></div>
+      <div><div class="v">5</div><div class="k">parcelas ativas</div></div>
+    </div>
+
+    <div class="secHead"><h2>Carteira</h2><a href="#">Gerenciar ›</a></div>
+    <div class="wallet">
+      <div class="wcard master"><span class="chip"></span><div class="n">Master ·5876</div><div class="s">fecha dia 5</div></div>
+      <div class="wcard pers"><span class="chip"></span><div class="n">Pers. ·7777</div><div class="s">configurar</div></div>
+      <div class="wcard conta"><span class="chip"></span><div class="n">Conta Itaú</div><div class="s">corrente</div></div>
+    </div>
+    <button class="addCard">+ Adicionar</button>
+
+    <div class="secHead"><h2>Lembretes</h2></div>
+    <div class="remind">
+      <div class="ic">💳</div>
+      <div><div class="n">Fatura do Master vence</div><div class="s">Hoje · R$ 2.100,00</div></div>
+    </div>
+
+    <div class="secHead"><h2>Próximas saídas</h2><a href="#">Ver todas ›</a></div>
+    <div class="upRow num">
+      <div class="up"><span class="tag">dia 20</span><div class="v">R$ 640</div><div class="n">Sofá — parcela</div><div class="s">4/10 · Personnalité</div></div>
+      <div class="up"><span class="tag soft">dia 28</span><div class="v">R$ 5,4 mil</div><div class="n">Cerâmica obra</div><div class="s">2/3 · espelho Reforma</div></div>
+      <div class="up"><span class="tag soft">dia 30</span><div class="v">R$ 120</div><div class="n">Internet Claro</div><div class="s">débito automático</div></div>
+    </div>
+  </div>
+
+  <div class="dock"><div class="dockRow">
+    <nav class="tabbar">
+      <span class="tab on"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 3.5 10v10h6v-6h5v6h6V10Z"/></svg></span>
+      <span class="tab"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><rect x="3" y="5" width="18" height="15" rx="4"/><path d="M3 10h18"/></svg></span>
+      <span class="tab"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13l4-4 4 3 5-6 5 5"/><path d="M3 20h18"/></svg></span>
+      <span class="tab"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5c-1.5 0-2.9-.35-4.1-1L3 21l1.6-4.6A8.5 8.5 0 1 1 21 12Z"/></svg></span>
+    </nav>
+    <span class="plus"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></span>
+  </div><div class="homebar"></div></div>
+</div>
+
+<!-- ══════════ TELA 2 · AGENDA DO MÊS ══════════ -->
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▪▪▪ ⌾ ▮</span></div>
+  <div class="screen">
+    <div class="pageTop">
+      <span class="circleBtn"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></span>
+      <span class="circleBtn"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="7" y1="12" x2="17" y2="12"/><line x1="10" y1="17" x2="14" y2="17"/></svg></span>
+    </div>
+    <h1 class="pageTitle">Agenda</h1>
+
+    <div class="calCard">
+      <div class="calNav">
+        <span class="arrows"><button>‹</button><button>›</button></span>
+        <span class="range">🗓 Jul 2026 — Ago 2026</span>
+        <span class="today">Hoje</span>
+      </div>
+      <div class="seg"><button class="on">Semana</button><button class="off">Mês</button></div>
+      <div class="week">
+        <div class="day"><div class="w">Qua</div><div class="d">8</div><div class="dot none"></div></div>
+        <div class="day"><div class="w">Qui</div><div class="d">9</div><div class="dot none"></div></div>
+        <div class="day"><div class="w">Sex</div><div class="d">10</div><div class="dot"></div></div>
+        <div class="day sel"><div class="w">Sáb</div><div class="d">13</div><div class="dot none"></div></div>
+        <div class="day"><div class="w">Dom</div><div class="d">14</div><div class="dot"></div></div>
+        <div class="day"><div class="w">Seg</div><div class="d">15</div><div class="dot none"></div></div>
+        <div class="day"><div class="w">Ter</div><div class="d">16</div><div class="dot none"></div></div>
+      </div>
+    </div>
+
+    <div class="actList">
+      <div class="actHead">+ O que sai nesta semana</div>
+      <div class="act">
+        <span class="ic">💳</span>
+        <div><div class="n">Fatura Master · R$ 2.100</div><div class="s">vence sáb 13 · casada com o PIX de sexta</div></div>
+      </div>
+      <div class="act">
+        <span class="ic">📄</span>
+        <div><div class="n">Internet Claro · R$ 120</div><div class="s">débito automático · Conta Itaú</div></div>
+      </div>
+      <div class="act">
+        <span class="ic">🧱</span>
+        <div><div class="n">Cerâmica obra 2/3 · R$ 5,4 mil</div><div class="s">espelho · Reforma Ap 92 · dia 28</div></div>
+      </div>
+    </div>
+
+    <div style="margin-top:14px;border-radius:var(--r-xl);overflow:hidden;height:150px;
+      background:linear-gradient(150deg,#23262B,#3A4048);box-shadow:var(--shadow);
+      display:flex;align-items:flex-start;padding:16px;color:#fff">
+      <div><div style="font-size:12px;opacity:.7;font-weight:600">PROJEÇÃO DO MÊS</div>
+        <div class="num" style="font-size:24px;font-weight:750;letter-spacing:-.02em">fecha em −R$ 1,9 mil</div></div>
+    </div>
+  </div>
+
+  <div class="dock"><div class="dockRow">
+    <nav class="tabbar">
+      <span class="tab on"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 3.5 10v10h6v-6h5v6h6V10Z"/></svg></span>
+      <span class="tab"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><rect x="3" y="5" width="18" height="15" rx="4"/><path d="M3 10h18"/></svg></span>
+      <span class="tab"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13l4-4 4 3 5-6 5 5"/><path d="M3 20h18"/></svg></span>
+      <span class="tab"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5c-1.5 0-2.9-.35-4.1-1L3 21l1.6-4.6A8.5 8.5 0 1 1 21 12Z"/></svg></span>
+    </nav>
+    <span class="plus"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></span>
+  </div><div class="homebar"></div></div>
+</div>
+
+<!-- ══════════ TELA 3 · INSIGHTS (Despesas) ══════════ -->
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▪▪▪ ⌾ ▮</span></div>
+  <div class="screen">
+    <div class="pageTop">
+      <span class="circleBtn"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></span>
+      <span class="circleBtn"><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></span>
+    </div>
+    <h1 class="pageTitle">Insights</h1>
+
+    <div class="tiles num">
+      <div class="tile"><div class="k">Gastei de verdade</div><div class="v">R$ 6,4 mil</div>
+        <div class="d down">+18% vs. mês passado</div></div>
+      <div class="tile"><div class="k">Supermercado</div><div class="v">R$ 480</div>
+        <div class="d up">−32% vs. média</div></div>
+      <div class="tile"><div class="k">No cartão</div><div class="v">R$ 990</div>
+        <div class="d mut">vai pra fatura de ago</div></div>
+      <div class="tile"><div class="k">Guardado</div><div class="v">R$ 3,0 mil</div>
+        <div class="d up">+R$ 3,0 mil este mês</div></div>
+    </div>
+
+    <div class="secHead" style="margin-top:20px"><h2>Maiores gastos do mês</h2></div>
+    <div class="topList">
+      <div class="top">
+        <span class="ph">🧱</span>
+        <div class="bd"><div class="n">Cerâmica obra 2/3</div><div class="s">Espelho · Reforma Ap 92 · dia 2</div></div>
+        <div class="vv num"><div class="v">R$ 5,4 mil</div><div class="u">84% do mês</div></div>
+      </div>
+      <div class="top">
+        <span class="ph">🛋️</span>
+        <div class="bd"><div class="n">Sofá — parcela 4/10</div><div class="s">Casa · Personnalité · dia 9</div></div>
+        <div class="vv num"><div class="v">R$ 640</div><div class="u">10% do mês</div></div>
+      </div>
+      <div class="top">
+        <span class="ph">🛒</span>
+        <div class="bd"><div class="n">Mercado Zaffari</div><div class="s">Supermercado · Master ·5876 · dia 11</div></div>
+        <div class="vv num"><div class="v">R$ 187</div><div class="u">3% do mês</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="dock"><div class="dockRow">
+    <nav class="tabbar">
+      <span class="tab"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 3.5 10v10h6v-6h5v6h6V10Z"/></svg></span>
+      <span class="tab"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><rect x="3" y="5" width="18" height="15" rx="4"/><path d="M3 10h18"/></svg></span>
+      <span class="tab on"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13l4-4 4 3 5-6 5 5"/><path d="M3 20h18"/></svg></span>
+      <span class="tab"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5c-1.5 0-2.9-.35-4.1-1L3 21l1.6-4.6A8.5 8.5 0 1 1 21 12Z"/></svg></span>
+    </nav>
+    <span class="plus"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></span>
+  </div><div class="homebar"></div></div>
+</div>
+
+<div class="note">
+  <b>Skin Minimal — wireframe de re-estilização (CSS-only)</b><br><br>
+  Mesmo esqueleto de negócio já validado (Hoje · vencimentos · Despesas/Insights ·
+  carteira · Maria na tab), com a linguagem visual do reference aprovado:<br><br>
+  <b>Cores:</b> fundo #EEF0F3, cards brancos, preto #111214 como única cor de ação,
+  verde/vermelho SÓ para deltas.
+  <b>Formas:</b> raio 28/20, sombras difusas, botões-pílula, círculos para ícones de topo.
+  <b>Tipo:</b> Inter, títulos 26px −3% tracking, números grandes tabulares, hierarquia
+  por peso (750/650/500), sem uppercase espaçado.
+  <b>Tab bar:</b> pílula flutuante com aba ativa em preto + botão "+" circular separado
+  (= o Lançar).<br><br>
+  Regras mantidas do nosso sistema: valor monetário sempre em linha própria/nowrap;
+  alvos ≥44px; nada de funcionalidade nova — é pele sobre o que já existe.
+</div>
+
+</body>
+</html>
