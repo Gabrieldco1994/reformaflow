@@ -3,9 +3,11 @@
 // serviços REAIS. Cadeia canônica:
 //   - getCaixaConta            → §10 (delegador; fonte do tenant-financial / /financeiro)
 //   - tenant-financial.caixaTotal → deve ser IDÊNTICO a getCaixaConta.hoje
-// A fonte que /monthly, /conta e /cash-flow renderizam (getAccountView.caixaHoje e
-// getOverview.caixa.hoje) já está pinada no §10 por monthly-overview.account-view.spec.ts
-// e monthly-overview.service.spec.ts (fixtures completos) — e é o MESMO computeCaixaConta.
+// Escopo: este spec pina o HEADLINE de caixa (getAccountView.caixaHoje e
+// getOverview.caixa.hoje) que /monthly, /conta e /cash-flow renderizam — já coberto por
+// monthly-overview.account-view.spec.ts e monthly-overview.service.spec.ts (fixtures
+// completos), o MESMO computeCaixaConta. NÃO cobre o saldo por-linha (rollingBalance) do
+// CashFlowService, que hoje é orçamentário e não ancora no §10 (ver issue #96).
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   MonthlyOverviewService,
@@ -22,27 +24,32 @@ const TENANT = 'tenant-1';
 const PESSOAL = 'pessoal-1';
 const D = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
 
-// UM fixture de conta PESSOAL — o oracle §10 é a fonte única da verdade.
+// Fixture PESSOAL com DUAS contas — a primária é eleita pela ÂNCORA do saldo inicial
+// (openingBalanceDate/cents), não por instituição. acc2 é isca SEM âncora: o §10 NÃO
+// deve elegê-la (regressão do literal '3636' morto). Movimentos são da conta primária.
 const accounts = [
   { id: 'acc1', openingBalanceCents: 1_000_000, openingBalanceDate: D('2025-12-31'),
-    last4: '3636', nickname: 'Itau', institution: 'Itau' },
+    last4: '0001', nickname: 'Conta Principal', institution: 'Banco X' },
+  { id: 'acc2', openingBalanceCents: 0, openingBalanceDate: null,
+    last4: '0002', nickname: 'Conta Isca', institution: 'Banco Y' },
 ];
 const expenses = [
   { valorTotal: 250_000, status: 'PAGO', dataPagamento: D('2026-02-10'), createdAt: D('2026-02-10'),
-    bankLast4: '3636', importId: null }, // −R$2.500 realizado
+    bankLast4: '0001', importId: null }, // −R$2.500 realizado
   { valorTotal: 900_000, status: 'PLANEJADO', dataPagamento: D('2026-07-01'), createdAt: D('2026-06-01'),
-    bankLast4: '3636', importId: null }, // futuro → §10 ignora
+    bankLast4: '0001', importId: null }, // futuro → §10 ignora
 ];
 const receipts = [
-  { valor: 300_000, status: 'EM_CAIXA', data: D('2026-03-01'), bankLast4: '3636', importId: null }, // +R$3.000
-  { valor: 500_000, status: 'PREVISTO', data: D('2026-06-30'), bankLast4: '3636', importId: null }, // §10 ignora
+  { valor: 300_000, status: 'EM_CAIXA', data: D('2026-03-01'), bankLast4: '0001', importId: null }, // +R$3.000
+  { valor: 500_000, status: 'PREVISTO', data: D('2026-06-30'), bankLast4: '0001', importId: null }, // §10 ignora
 ];
 
+// Oracle = §10 primary-only (conta ancorada acc1); a isca acc2 fica de fora por construção.
 const ORACLE = computeCaixaConta(
-  accounts as unknown as CaixaContaAccount[],
+  [accounts[0]] as unknown as CaixaContaAccount[],
   expenses as unknown as CaixaContaExpense[],
   receipts as unknown as CaixaContaReceipt[],
-); // hoje = 1_050_000
+); // hoje = 1_000_000 − 250_000 + 300_000 = 1_050_000
 
 describe('Motor Único — paridade §10 entre os consumidores (mesmo fixture, serviços reais)', () => {
   let monthly: MonthlyOverviewService;

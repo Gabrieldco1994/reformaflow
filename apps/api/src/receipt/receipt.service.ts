@@ -161,30 +161,16 @@ export class ReceiptService {
 
     const accounts = await this.prisma.bankAccount.findMany({
       where: { tenantId, projectId, deletedAt: null },
-      select: { last4: true, nickname: true, institution: true },
+      select: { last4: true, openingBalanceCents: true, openingBalanceDate: true },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
     if (accounts.length === 0) return null;
 
-    const normalized = (v: string | null | undefined) =>
-      (v ?? '')
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .toLowerCase();
-
-    const preferred3636 = accounts.find(
-      (a) =>
-        a.last4 === '3636' &&
-        (normalized(a.institution).includes('itau') || normalized(a.nickname).includes('itau')),
+    // Mesma âncora do §10 (pickPrimaryBankAccount): receita sem banco explícito é
+    // atribuída à conta primária (a que tem saldo inicial configurado), senão à primeira.
+    const anchored = accounts.find(
+      (a) => a.openingBalanceDate != null || a.openingBalanceCents !== 0,
     );
-    if (preferred3636?.last4) return preferred3636.last4;
-
-    const anyItau = accounts.find(
-      (a) =>
-        normalized(a.institution).includes('itau') || normalized(a.nickname).includes('itau'),
-    );
-    if (anyItau?.last4) return anyItau.last4;
-
-    return accounts.find((a) => !!a.last4)?.last4 ?? null;
+    return anchored?.last4 ?? accounts.find((a) => !!a.last4)?.last4 ?? null;
   }
 }

@@ -2181,24 +2181,16 @@ export class MonthlyOverviewService {
     }>,
   ) {
     if (accounts.length === 0) return null;
-    const normalize = (value: string | null | undefined) =>
-      (value ?? '')
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .toLowerCase();
 
-    const itau3636 = accounts.find(
-      (account) =>
-        account.last4 === '3636' &&
-        (normalize(account.institution).includes('itau') ||
-          normalize(account.nickname).includes('itau')),
+    // Conta primária = a âncora do saldo inicial do §10: aquela cujo saldo inicial
+    // foi configurado (openingBalanceDate/openingBalanceCents). É de onde o §10
+    // reconcilia o caixa; sem âncora, cai na primeira conta (ordem determinística).
+    // ponytail: heurística por âncora, não por instituição. Se um dia houver >1 conta
+    // ancorada no mesmo PESSOAL, promover a um BankAccount.isPrimary explícito.
+    const anchored = accounts.find(
+      (account) => account.openingBalanceDate != null || account.openingBalanceCents !== 0,
     );
-    if (itau3636) return itau3636;
-
-    const withOpening = accounts.find((account) => account.openingBalanceCents !== 0);
-    if (withOpening) return withOpening;
-
-    return accounts[0] ?? null;
+    return anchored ?? accounts[0] ?? null;
   }
 
   private async getImportAccountMap(tenantId: string, accountIds: string[]) {
