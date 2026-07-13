@@ -185,6 +185,7 @@ export default function CockpitPage() {
                 entries={monthEntries ?? []}
                 projectId={projectId}
                 eixo={eixo}
+                runwaySerie={dreOverview?.anual?.saldoAcumuladoSerie}
               />
             )
           ) : (

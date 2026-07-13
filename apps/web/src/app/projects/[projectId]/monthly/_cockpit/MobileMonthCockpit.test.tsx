@@ -7,7 +7,18 @@ import type {
   MonthlyOverviewResponse,
   MonthlyOverviewRow,
 } from "../_types";
+import type { DreSaldoAcumuladoRow } from "../../dre/_types";
 import MobileMonthCockpit from "./MobileMonthCockpit";
+
+const RUNWAY: DreSaldoAcumuladoRow[] = Array.from({ length: 6 }, (_, index) => ({
+  mes: `2026-${String(index + 7).padStart(2, "0")}`,
+  recebimentos: 0,
+  despesas: 0,
+  recebimentosRealizados: null,
+  despesasRealizadas: null,
+  saldoProjetado: 1_200_000 - index * 100_000,
+  saldoRealizado: null,
+}));
 
 const comparison: MonthComparison = {
   current: null,
@@ -115,6 +126,7 @@ function renderCockpit(
         entries={overview.entries}
         projectId="pessoal-test"
         eixo="competencia"
+        runwaySerie={RUNWAY}
         {...props}
       />
     </QueryClientProvider>,
@@ -141,11 +153,9 @@ describe("MobileMonthCockpit", () => {
     const hero = within(cockpit).getByRole("button", {
       name: "Mostrar valor exato",
     });
-    const miniHero = within(cockpit).getByRole("complementary", {
-      name: "Resumo do mês atual",
-    });
+    const miniHero = within(cockpit).getByTestId("mini-hero-capsule");
     const expected = [
-      ["Consumo", "true"],
+      ["Consumo", "false"],
       ["Detalhes", "false"],
     ] as const;
 
@@ -156,8 +166,6 @@ describe("MobileMonthCockpit", () => {
       expect(trigger).toHaveAttribute("aria-expanded", expanded);
       expect(trigger.contains(hero)).toBe(false);
       expect(trigger.contains(miniHero)).toBe(false);
-      if (expanded === "true")
-        expect(document.getElementById(panelId!)).toBeInTheDocument();
     }
   });
 
@@ -201,7 +209,7 @@ describe("MobileMonthCockpit", () => {
       expect(() => renderCockpit()).not.toThrow();
       expect(screen.getByRole("button", { name: "Consumo" })).toHaveAttribute(
         "aria-expanded",
-        "true",
+        "false",
       );
       expect(screen.getByRole("button", { name: "Detalhes" })).toHaveAttribute(
         "aria-expanded",
@@ -275,9 +283,7 @@ describe("MobileMonthCockpit", () => {
     expect(screen.getByRole("article", { name: "Projeção" })).toHaveTextContent(
       "R$ 9,9 mil",
     );
-    const miniHero = screen.getByRole("complementary", {
-      name: "Resumo do mês atual",
-    });
+    const miniHero = screen.getByTestId("mini-hero-capsule");
     expect(miniHero).toHaveTextContent("Julho 2026");
     expect(miniHero).toHaveTextContent("R$ 12 mil");
     expect(miniHero).not.toHaveTextContent("R$ 9,9 mil");
@@ -353,6 +359,7 @@ describe("MobileMonthCockpit", () => {
         (name) => within(cockpit).getByRole("article", { name }).textContent,
       ),
     ).toEqual(canonical);
+    fireEvent.click(within(cockpit).getByRole("button", { name: "Consumo" }));
     expect(
       within(cockpit).getByRole("article", { name: "Consumo realizado" }),
     ).toHaveTextContent("R$ 2 mil");
@@ -361,9 +368,7 @@ describe("MobileMonthCockpit", () => {
   it("keeps the current-month mini hero identifiable while another month is open", () => {
     renderCockpit({ monthKey: "2026-06", entries: [] });
 
-    const miniHero = screen.getByRole("complementary", {
-      name: "Resumo do mês atual",
-    });
+    const miniHero = screen.getByTestId("mini-hero-capsule");
     expect(miniHero).toHaveTextContent("Julho 2026");
     expect(miniHero).toHaveTextContent("R$ 12 mil");
   });
@@ -387,32 +392,60 @@ describe("MobileMonthCockpit", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("wires the C-visual sections without disturbing canonical values", () => {
+  it("uses the passed six-month runway, integrates scenarios and delta, and keeps the canonical hero unchanged", () => {
     renderCockpit();
-    const cockpit = screen.getByRole("region", {
-      name: "Cockpit mensal mobile",
+    const runway = screen.getByRole("region", { name: "Vai dar até dez?" });
+    const heroBefore = screen.getByRole("button", { name: "Mostrar valor exato" }).textContent;
+
+    expect(within(runway).getAllByTestId(/runway-month/)).toHaveLength(6);
+    expect(within(runway).getByRole("group", { name: "Cenários e se…?" })).toBeInTheDocument();
+    fireEvent.click(within(runway).getByRole("button", { name: "gastar +500" }));
+    expect(within(runway).getByTestId("scenario-delta")).toHaveTextContent("-R$ 500");
+    expect(screen.getByRole("button", { name: "Mostrar valor exato" })).toHaveTextContent(heroBefore ?? "");
+    expect(screen.queryByText(/desliza a curva projetada do herói acima/i)).not.toBeInTheDocument();
+    expect(screen.getAllByRole("group", { name: "Cenários e se…?" })).toHaveLength(1);
+  });
+
+  it("does not render an empty runway card when fewer than six months are available", () => {
+    renderCockpit({ runwaySerie: RUNWAY.slice(0, 5) });
+    expect(screen.queryByRole("region", { name: "Vai dar até dez?" })).not.toBeInTheDocument();
+  });
+
+  it("renders sections in the required mobile reading order", () => {
+    renderCockpit();
+    const sections = [
+      screen.getByTestId("mobile-hero-time-travel"),
+      screen.getByRole("region", { name: "Vai dar até dez?" }),
+      screen.getByRole("region", { name: /para onde foi/i }),
+      screen.getByRole("region", { name: /maria percebeu/i }),
+      screen.getByRole("region", { name: "Próximas saídas" }),
+      screen.getByRole("button", { name: "Consumo" }),
+      screen.getByRole("button", { name: "Detalhes" }),
+    ];
+    sections.slice(1).forEach((section, index) => {
+      expect(sections[index]!.compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
+  });
 
-    expect(
-      within(cockpit).getByRole("region", { name: "Cenários e se…?" }),
-    ).toBeInTheDocument();
-    expect(
-      within(cockpit).getByRole("region", { name: "Próximas saídas" }),
-    ).toBeInTheDocument();
-    expect(within(cockpit).getByText(/para onde foi/i)).toBeInTheDocument();
+  it("removes the sticky aside and internal implementation jargon", () => {
+    renderCockpit();
+    expect(screen.queryByRole("complementary", { name: "Resumo do mês atual" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/valores canônicos|client-side|inovação/i)).not.toBeInTheDocument();
+  });
 
-    expect(
-      within(cockpit).getByRole("article", { name: "Entrou" }),
-    ).toHaveTextContent("R$ 3 mil");
-    expect(
-      within(cockpit).getByRole("article", { name: "Saiu" }),
-    ).toHaveTextContent("R$ 2 mil");
-    expect(
-      within(cockpit).getByRole("article", { name: "Projeção" }),
-    ).toHaveTextContent("R$ 12 mil");
-    expect(
-      within(cockpit).getByRole("button", { name: "Mostrar valor exato" }),
-    ).toHaveTextContent("R$ 12 mil");
+  it("always puts the other-month warning in the capsule while current-month visibility stays scroll-driven", () => {
+    const other = renderCockpit({ monthKey: "2026-06", entries: [] });
+    const capsule = screen.getByTestId("mini-hero-capsule");
+    expect(capsule).toHaveTextContent("Julho 2026");
+    expect(capsule).toHaveTextContent(/consultando junho 2026/i);
+    other.unmount();
+
+    renderCockpit();
+    const currentCapsule = screen.getByTestId("mini-hero-capsule");
+    expect(currentCapsule).toHaveAttribute("aria-hidden", "true");
+    Object.defineProperty(window, "scrollY", { configurable: true, value: 300 });
+    fireEvent.scroll(window);
+    expect(currentCapsule).toHaveAttribute("aria-hidden", "false");
   });
 
   it("keeps all six innovations behind the mobile-only class (md:hidden) — desktop unaffected", () => {
