@@ -5,6 +5,7 @@ import { Card } from './ui';
 import { fmtMoney, mesCurto } from './format';
 import type { ComprometimentoMes } from './derive';
 import { NovaDespesaLauncher } from '../../expenses/_components/NovaDespesaLauncher';
+import { useCopilotStore } from '@/stores/copilot-store';
 
 function labelMes(key: string): string {
   const [y, m] = key.split('-').map((n) => Number.parseInt(n, 10));
@@ -85,11 +86,19 @@ export function DesktopRail({
             <Sparkles className="h-3.5 w-3.5" /> Maria
           </>
         }
-        hint="em breve"
+        hint="copiloto"
       >
         <p className="text-xs text-[var(--ck-muted)]">
-          O assistente Maria vai responder perguntas sobre seu orçamento numa próxima versão.
+          Pergunte sobre o mês, lance despesas por texto ou voz — a Maria lê os
+          mesmos números deste cockpit.
         </p>
+        <button
+          type="button"
+          onClick={() => useCopilotStore.getState().setOpen(true)}
+          className="mt-2 flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-[var(--ck-text)] px-3 text-sm font-semibold text-[var(--ck-bg)] transition-opacity hover:opacity-90"
+        >
+          <Sparkles className="h-4 w-4" /> Conversar com a Maria
+        </button>
       </Card>
     </div>
   );

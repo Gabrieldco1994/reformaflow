@@ -10,6 +10,17 @@ function labelMes(key: string): string {
   return `${mesCurto((m || 1) - 1)}/${String(y || 0).slice(-2)}`;
 }
 
+/**
+ * Rótulo curto do eixo: "Jul/26" não cabe sob 12 barras (~32px cada) e os
+ * textos colidiam. Só o mês; o ano aparece na 1ª barra e em cada janeiro
+ * (vira o marcador de virada de ano). Tooltip/`title` mantém o rótulo cheio.
+ */
+function labelEixo(key: string, index: number): string {
+  const [y, m] = key.split('-').map((n) => Number.parseInt(n, 10));
+  const mes = mesCurto((m || 1) - 1);
+  return index === 0 || m === 1 ? `${mes}/${String(y || 0).slice(-2)}` : mes;
+}
+
 export default function ComprometimentoFuturo({
   rows,
 }: {
@@ -27,7 +38,7 @@ export default function ComprometimentoFuturo({
       hint="parcelas/lançamentos planejados por mês de saída (eixo atual)"
     >
       <div className="grid grid-cols-6 md:grid-cols-12 gap-2 items-end">
-        {rows.map((r) => {
+        {rows.map((r, index) => {
           const pct = max > 0 ? r.total / max : 0;
           const active = selected?.mes === r.mes;
           return (
@@ -46,8 +57,8 @@ export default function ComprometimentoFuturo({
                   style={{ height: `${Math.max(4, Math.round(pct * 100))}%` }}
                 />
               </div>
-              <span className={`text-[10px] ${active ? 'text-[var(--ck-text)] font-semibold' : 'text-[var(--ck-muted)]'}`}>
-                {labelMes(r.mes)}
+              <span className={`whitespace-nowrap text-[10px] ${active ? 'text-[var(--ck-text)] font-semibold' : 'text-[var(--ck-muted)]'}`}>
+                {labelEixo(r.mes, index)}
               </span>
             </button>
           );

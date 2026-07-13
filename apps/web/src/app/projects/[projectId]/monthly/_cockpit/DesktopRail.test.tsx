@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { DesktopRail } from './DesktopRail';
+import { useCopilotStore } from '@/stores/copilot-store';
 import type { ComprometimentoMes } from './derive';
 
 // Isola o contrato do rail do fluxo interno (queries/mutations) do launcher,
@@ -27,12 +28,13 @@ describe('DesktopRail', () => {
     expect(screen.getByRole('button', { name: 'Lançar agora' })).toBeInTheDocument();
   });
 
-  it('bloco Maria é estático (sem LLM): submit não dispara nenhuma chamada de rede', () => {
+  it('bloco Maria abre o Copiloto existente sem disparar nenhuma chamada de rede', () => {
     const fetchSpy = vi.spyOn(global, 'fetch');
     render(<DesktopRail projectId="p1" projectType="PESSOAL" comprometimento={[]} />);
-    expect(screen.getByText(/em breve/i)).toBeInTheDocument();
-    const input = screen.queryByRole('textbox', { name: /maria/i });
-    if (input) fireEvent.change(input, { target: { value: 'oi' } });
+    const cta = screen.getByRole('button', { name: /conversar com a maria/i });
+    fireEvent.click(cta);
+    // Abrir o painel é estado local (zustand) — nenhuma chamada de LLM/rede aqui.
+    expect(useCopilotStore.getState().open).toBe(true);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
