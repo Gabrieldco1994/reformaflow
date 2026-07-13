@@ -145,7 +145,7 @@ describe("MobileMonthCockpit", () => {
     vi.useRealTimers();
   });
 
-  it("keeps both heroes outside the outer accordions and wires their default states", () => {
+  it("keeps both heroes outside the outer accordion and wires its default state", () => {
     renderCockpit();
     const cockpit = screen.getByRole("region", {
       name: "Cockpit mensal mobile",
@@ -154,10 +154,7 @@ describe("MobileMonthCockpit", () => {
       name: "Mostrar valor exato",
     });
     const miniHero = within(cockpit).getByTestId("mini-hero-capsule");
-    const expected = [
-      ["Consumo", "false"],
-      ["Detalhes", "false"],
-    ] as const;
+    const expected = [["Consumo", "false"]] as const;
 
     for (const [name, expanded] of expected) {
       const trigger = within(cockpit).getByRole("button", { name });
@@ -169,28 +166,25 @@ describe("MobileMonthCockpit", () => {
     }
   });
 
-  it("omits the time-travel scrubber outside the current month, keeps other accordions", () => {
+  it("omits the time-travel scrubber outside the current month, keeps consumption accordion", () => {
     renderCockpit({ monthKey: "2026-06", entries: [] });
     expect(
       screen.queryByRole("slider", { name: "Ritmo diário projetado" }),
     ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Consumo" })).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Detalhes" }),
-    ).toBeInTheDocument();
   });
 
   it("persists outer accordions per project and month and restores them", () => {
     const key = "lifeone:monthly:accordions:pessoal-test:2026-07";
     const first = renderCockpit();
-    fireEvent.click(screen.getByRole("button", { name: "Detalhes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Consumo" }));
     expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({
-      details: true,
+      consumption: true,
     });
     first.unmount();
 
     renderCockpit();
-    expect(screen.getByRole("button", { name: "Detalhes" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Consumo" })).toHaveAttribute(
       "aria-expanded",
       "true",
     );
@@ -211,10 +205,6 @@ describe("MobileMonthCockpit", () => {
         "aria-expanded",
         "false",
       );
-      expect(screen.getByRole("button", { name: "Detalhes" })).toHaveAttribute(
-        "aria-expanded",
-        "false",
-      );
     },
   );
 
@@ -223,7 +213,7 @@ describe("MobileMonthCockpit", () => {
     const values = ["Entrou", "Saiu", "Projeção"].map(
       (name) => screen.getByRole("article", { name }).textContent,
     );
-    for (const name of ["Consumo", "Detalhes"]) {
+    for (const name of ["Consumo"]) {
       fireEvent.click(screen.getByRole("button", { name }));
     }
     expect(
@@ -373,7 +363,7 @@ describe("MobileMonthCockpit", () => {
     expect(miniHero).toHaveTextContent("R$ 12 mil");
   });
 
-  it("marks known future entries as incomplete and read-only", () => {
+  it("keeps future month without swipe-to-pay section", () => {
     const future = entry({
       id: "known-future",
       data: "2026-08-20T12:00:00.000Z",
@@ -381,12 +371,7 @@ describe("MobileMonthCockpit", () => {
       valor: 45_123,
     });
     renderCockpit({ monthKey: "2026-08", entries: [future] });
-    fireEvent.click(screen.getByRole("button", { name: "Detalhes" }));
-
-    expect(
-      screen.getByRole("note", { name: "Mês futuro incompleto" }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("R$ 451,23")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Próximas saídas" })).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /pagar/i }),
     ).not.toBeInTheDocument();
@@ -416,11 +401,8 @@ describe("MobileMonthCockpit", () => {
     const sections = [
       screen.getByTestId("mobile-hero-time-travel"),
       screen.getByRole("region", { name: "Vai dar até dez?" }),
-      screen.getByRole("region", { name: /para onde foi/i }),
       screen.getByRole("region", { name: /maria percebeu/i }),
-      screen.getByRole("region", { name: "Próximas saídas" }),
       screen.getByRole("button", { name: "Consumo" }),
-      screen.getByRole("button", { name: "Detalhes" }),
     ];
     sections.slice(1).forEach((section, index) => {
       expect(sections[index]!.compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

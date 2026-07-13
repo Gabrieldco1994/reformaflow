@@ -1,6 +1,7 @@
 'use client';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { moneyDetail } from '@/lib/money';
 import { FORMA_PAGAMENTO_OPTIONS } from '@/lib/expense-options';
 import { isSinglePaymentForm } from '@reformaflow/domain';
 import type { Expense } from '@/types';
@@ -29,6 +30,7 @@ export interface FormaPagamentoFieldsProps {
   onRecorrenciaFimChange?: (value: string) => void;
   dataCompraValue?: string;
   onDataCompraChange?: (value: string) => void;
+  valorTotalCents?: number;
 }
 
 /**
@@ -53,6 +55,7 @@ export function FormaPagamentoFields({
   onRecorrenciaFimChange,
   dataCompraValue,
   onDataCompraChange,
+  valorTotalCents,
 }: FormaPagamentoFieldsProps) {
   const parcelaControlled =
     quantidadeParcelaValue !== undefined && onQuantidadeParcelaChange !== undefined;
@@ -60,6 +63,11 @@ export function FormaPagamentoFields({
     recorrenciaFimValue !== undefined && onRecorrenciaFimChange !== undefined;
   const dataCompraControlled =
     dataCompraValue !== undefined && onDataCompraChange !== undefined;
+  const parcelas = Number.parseInt(quantidadeParcelaValue ?? '', 10);
+  const parcelaCents =
+    Number.isFinite(parcelas) && parcelas > 0 && (valorTotalCents ?? 0) > 0
+      ? Math.round((valorTotalCents ?? 0) / parcelas)
+      : null;
   return (
     <>
       <Select
@@ -127,7 +135,8 @@ export function FormaPagamentoFields({
       )}
 
       {(formaPagamento === 'PARCELADO' || formaPagamento === 'QUINZENAL') && (
-        <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-4">
           {parcelaControlled ? (
             <Input
               label="Qtd Parcelas"
@@ -153,6 +162,15 @@ export function FormaPagamentoFields({
             value={dataInicioParcela}
             onChange={(e) => setDataInicioParcela(e.target.value)}
           />
+          </div>
+          {parcelaCents !== null && (
+          <p className="text-[11px] text-darc-velvet/60">
+            Cada {formaPagamento === 'QUINZENAL' ? 'quinzena' : 'parcela'}:{" "}
+            <strong className="font-semibold text-darc-velvet">
+              {moneyDetail(parcelaCents)}
+            </strong>
+          </p>
+          )}
         </div>
       )}
 

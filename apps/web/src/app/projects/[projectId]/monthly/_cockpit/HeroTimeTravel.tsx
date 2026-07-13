@@ -82,10 +82,10 @@ export default function HeroTimeTravel({
           <div className="flex items-start justify-between gap-3">
             <div>
               <h2 className="text-base font-semibold text-[var(--ck-text)]">
-                Ritmo do mês
+                Projeção diária de caixa
               </h2>
               <p className="mt-1 text-sm text-[var(--ck-muted)]">
-                Realizado até hoje · projetado depois
+                Arraste para ver o saldo dia a dia
               </p>
             </div>
             <div className="shrink-0 text-right">

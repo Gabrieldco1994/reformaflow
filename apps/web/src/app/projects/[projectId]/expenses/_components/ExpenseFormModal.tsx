@@ -164,6 +164,7 @@ export function ExpenseFormModal({
           editing={editing}
           recorrente={recorrente}
           setRecorrente={setRecorrente}
+          valorTotalCents={valorTotal}
         />
 
         {/* Mais opções — campos avançados recolhidos para reduzir fricção */}
