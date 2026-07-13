@@ -68,7 +68,7 @@ describe("HeroTimeTravel", () => {
 
   it("scrubbing to today (index 0 / m.hoje) shows realizado, not projetado", () => {
     renderHero();
-    expect(screen.getByText(/Realizado · dia 1/)).toBeInTheDocument();
+    expect(screen.getByText(/dia 1 · realizado/)).toBeInTheDocument();
   });
 
   it("tone turns negative exactly when the scrubbed value is < 0, not <= 0", () => {
@@ -161,7 +161,7 @@ describe("HeroTimeTravel", () => {
     );
     // Day 3 is the second future day — accumulates one delta step.
     expect(screen.getByTestId("hero-time-travel-value")).toHaveTextContent(
-      "R$ 499,00",
+      "R$ 499",
     );
   });
 });

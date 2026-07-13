@@ -43,8 +43,16 @@ function cardTitle(insight: MariaInsight): string {
 function cardDetail(insight: MariaInsight): string {
   switch (insight.kind) {
     case "categoria-alta":
-    case "categoria-economia":
-      return `${fmtMoney(insight.valorMes)} · ${fmtPct(Math.abs(insight.deltaPct) * 100)} vs. média de ${fmtMoney(insight.valorMedia)}`;
+    case "categoria-economia": {
+      // Acima de 3× a média, o percentual vira ruído ("2113%") — troca por
+      // múltiplo legível; abaixo disso o % continua sendo a leitura natural.
+      const ratio = Math.abs(insight.deltaPct);
+      const delta =
+        ratio >= 3
+          ? `${(ratio + 1).toFixed(0)}× a média`
+          : `${fmtPct(ratio * 100)} vs. média`;
+      return `${fmtMoney(insight.valorMes)} · ${delta} de ${fmtMoney(insight.valorMedia)}`;
+    }
     case "parcela-fim": {
       const [, month] = insight.mes.split("-");
       const monthIndex = Number.parseInt(month ?? "1", 10) - 1;

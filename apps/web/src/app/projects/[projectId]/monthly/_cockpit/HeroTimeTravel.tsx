@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { moneyDetail } from "@/lib/money";
+import { moneyDetail, moneyGlance } from "@/lib/money";
 import { applyScenario } from "../_lib/scenarios";
 import type { CockpitTopDerived, DiaSaldo } from "./derive";
 import MobileMonthHero from "./MobileMonthHero";
@@ -88,17 +88,18 @@ export default function HeroTimeTravel({
                 Realizado até hoje · projetado depois
               </p>
             </div>
-            <div className="text-right">
-              <p className="text-sm font-medium text-[var(--ck-muted)]">
-                {projected ? "Projetado" : "Realizado"} · dia {scrubDay}
+            <div className="shrink-0 text-right">
+              <p className="whitespace-nowrap text-xs font-medium text-[var(--ck-muted)]">
+                dia {scrubDay} · {projected ? "projetado" : "realizado"}
               </p>
               <p
                 data-testid="hero-time-travel-value"
-                className={`mt-1 font-geist text-base font-bold tabular-nums ${
+                title={moneyDetail(scrubValue ?? 0)}
+                className={`mt-1 whitespace-nowrap font-geist text-base font-bold tabular-nums ${
                   negative ? "text-[var(--ck-neg)]" : "text-[var(--ck-text)]"
                 }`}
               >
-                {moneyDetail(scrubValue ?? 0)}
+                {moneyGlance(scrubValue ?? 0)}
               </p>
             </div>
           </div>
@@ -118,14 +119,10 @@ export default function HeroTimeTravel({
             className="mt-2 h-11 min-h-[44px] w-full accent-[var(--ck-accent)] text-sm"
           />
 
-          <div className="flex items-center justify-between gap-3 text-sm text-[var(--ck-muted)]">
+          <div className="flex items-center justify-between gap-3 text-xs text-[var(--ck-muted)]">
             <span>Realizado</span>
-            <span>Projetado · inclui cartão</span>
+            <span>Projetado · inclui cartão · só leitura</span>
           </div>
-          <p className="mt-2 text-sm text-[var(--ck-muted)]">
-            Simulação somente leitura. Mover o dia não altera caixa, projeção
-            ou consumo.
-          </p>
         </section>
       )}
     </div>
