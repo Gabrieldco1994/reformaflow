@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { api } from "@/lib/api";
+import { userHasAnyModuleForType } from "@reformaflow/domain";
 
 export type ModuleSlug =
   | "dashboard"
@@ -52,32 +53,6 @@ export const ALL_MODULES: { slug: ModuleSlug; label: string }[] = [
   { slug: "financialDashboard", label: "Financeiro" },
   { slug: "plantsAi", label: "Diagnóstico IA (Plantas)" },
 ];
-
-export const TYPE_MODULES: Record<string, ModuleSlug[]> = {
-  REFORMA: [
-    "expenses",
-    "receipts",
-    "cashFlow",
-    "schedule",
-    "pendencias",
-    "floorPlans",
-    "simulation",
-    "priceCompare",
-    "rooms",
-  ],
-  COMPRA: ["expenses", "receipts", "cashFlow"],
-  PESSOAL: [
-    "monthlyOverview",
-    "expenses",
-    "receipts",
-    "cashFlow",
-    "creditCards",
-    "bankAccounts",
-  ],
-  CASA: ["recurringBills", "maintenance", "reminders", "expenses"],
-  CARRO: ["carInfo", "recurringBills", "maintenance", "reminders", "expenses"],
-  PLANTAS: ["dashboard", "maintenance", "reminders", "plantsAi"],
-};
 
 export interface AuthUser {
   id: string;
@@ -147,10 +122,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const allowed = new Set(user?.allowedModules ?? []);
     const allowedProjects = user?.allowedProjects ?? [];
     const allowedProjectTypes = user?.allowedProjectTypes ?? [];
+    // Same gate the API enforces: owning only the universal `dashboard` module
+    // must not grant a project type. Shared predicate = client/server can't drift (#98).
     const hasProjectType = (type: string) => {
       if (isAdmin) return true;
-      const mods = TYPE_MODULES[type] ?? [];
-      return mods.some((m) => allowed.has(m));
+      return userHasAnyModuleForType(type, user?.allowedModules ?? []);
     };
     return {
       user,
