@@ -29,7 +29,6 @@ Se mudou `prisma/schema.prisma`: **backup obrigatório** `cp prisma/dev.db prism
 - `apps/api/` — NestJS, porta **3001**, DB `prisma/dev.db`. Módulos principais: expense, cash-flow, dashboard, simulation, floor-plan, room, price-compare, car-info, recurring-bill, maintenance, reminder, schedule, receipt, project, tenant. Cockpit PESSOAL/financeiro: monthly-overview, tenant-financial, conciliacao, credit-card, bank-account, budget-allocation, category-budget. Assistente Maria: agent, tts, merchant-classifier. Infra: auth, users, common, prisma, notifications, link-preview.
 - `apps/web/` — Next.js, porta **3000**. Rotas dinâmicas em `src/app/projects/[projectId]/...` (cockpit em `.../monthly`).
 - `packages/domain/` — enums + regras (`ExpenseTypeLabels`, `ProjectType`, `getExpenseTypesForProject`, `PROJECT_FEATURES`, `hasFeature`). **Barrel only**: importar via `@reformaflow/domain`. Após mudar, `npm run build`.
-- `packages/config/` — TS configs compartilhados.
 
 ## Comandos
 
@@ -53,6 +52,7 @@ cd packages/domain && npx vitest run              # testes domínio (vitest, __t
 | CASA | dashboard, recurringBills, maintenance, reminders, **expenses** (avulsas) |
 | CARRO | dashboard, recurringBills, maintenance, reminders, **expenses** (avulsas) |
 | PESSOAL | monthlyOverview, dashboard, expenses, receipts, cashFlow, creditCards, bankAccounts |
+| PLANTAS | dashboard, maintenance, reminders, plantsAi |
 
 > `carInfo` **não** é uma feature de `PROJECT_FEATURES` — é um endpoint/módulo 1:1 com `Project` (`PUT` + upsert), específico de CARRO. CASA e CARRO compartilham o mesmo conjunto (recurringBills/maintenance/reminders/expenses); CARRO só acrescenta o registro `carInfo`. Como CASA/CARRO têm `expenses`, suas despesas planejadas podem ser alvo de vínculo/rateio cross-project a partir do PESSOAL.
 
@@ -66,7 +66,7 @@ cd packages/domain && npx vitest run              # testes domínio (vitest, __t
 
 1. **NUNCA** `prisma migrate reset` / `db push --force-reset` / `rm prisma/dev.db` — há dados reais. Backup antes de migration.
 2. CSS Tailwind é frágil — confirme classes antes de remover; não faça swaps em massa.
-3. `prisma.service.ts` aplica soft-delete via `$use` (delete → update `deletedAt`). Modelos sem `deletedAt` precisam estar em `modelsWithoutSoftDelete` (atualmente: `SimulationValue`, `Simulation`, `FloorPlanRoom`, `RoomImage`, `FloorPlanMarker`, `CarInfo`, `MerchantCategory`, `CrossProjectSettlement`, `RateioAllocation`). Modelo novo sem `deletedAt` → atualizar essa lista na mesma mudança.
+3. `prisma.service.ts` aplica soft-delete via `$use` (delete → update `deletedAt`). Modelos sem `deletedAt` precisam estar em `modelsWithoutSoftDelete` (atualmente: `SimulationValue`, `Simulation`, `FloorPlanRoom`, `RoomImage`, `FloorPlanMarker`, `CarInfo`, `MerchantCategory`, `CrossProjectSettlement`, `RateioAllocation`, `PlantDiagnosisLog`). Modelo novo sem `deletedAt` → atualizar essa lista na mesma mudança.
 4. `$transaction` ignora `$use` — em tx, retornar id e chamar `findById` fora.
 5. `nest build`/`tsc` às vezes geram `.js`/`.d.ts` dentro de `apps/*/src/app` → "Duplicate page". Limpar: `find apps/*/src -name 'page.js' -delete`.
 6. `CarInfo` é 1:1 com `Project` → endpoint usa `PUT` + Prisma `upsert`.

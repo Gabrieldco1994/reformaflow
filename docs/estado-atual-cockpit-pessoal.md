@@ -1,6 +1,6 @@
 # Estado Atual — Cockpit/Visão Conta (PESSOAL)
 
-Atualizado em: **2026-07-12**
+Atualizado em: **2026-07-13**
 
 ## 0) Redesign UX 2026-07 — placar das trilhas
 
@@ -9,9 +9,12 @@ Atualizado em: **2026-07-12**
 - ✅ **Trilha 2 — Web analítico D1** (cockpit desktop denso) — PR #82.
 - ✅ **Trilha 3 — Fase G** (3 camadas nos módulos + Simulação) — PR #83.
 - ✅ **Fidelidade ao protótipo c3** — PR #89 (remove aside duplicada e "valores canônicos", traz "Vai dar até dez?" ao mobile, reordena, Consumo fechado).
-- ✅ **Trilha 4 — App mobile** — PR #84 (casca 3 abas + PWA + Lançar + Despesas) e #87 (Maria; o #86 foi mergeado na base errada e resgatado). **QA pós-merge achou 5 bugs pendentes** (Prompt E): navegação até Despesas inexistente, Lançar sem seletor de tipo (cai em OUTROS silencioso), origens de outros projetos no sheet, carteira de cartões ausente, polish (FAB/formatos).
+- ✅ **Legibilidade mobile pós-QA** — PR #90 (passe v3 de legibilidade no cockpit mobile).
+- ✅ **Trilha 4 — App mobile** — PR #84 (casca 3 abas + PWA + Lançar + Despesas) e #87 (Maria; o #86 foi mergeado na base errada e resgatado). **QA pós-merge achou 5 bugs — todos RESOLVIDOS no PR #91**: navegação até Despesas (link no Hoje + tab), pill "Maria sugeriu: <tipo>" sempre visível no Lançar (fim do OUTROS silencioso), origens só do projeto atual (conta vs cartão), carteira física de cartões e polish (FAB verde/formatos). Specs E2E reescritos contra a UI enviada.
+- ✅ **Navegação contextual do projeto** — PR #93 (nav mobile por projeto).
 - ✅ **Fase E — Motor único** — PR #88 conforme adendo: `getCaixaConta` público, tenant-financial e cash-flow lendo §10, `motor-unico-parity.spec.ts`, `scripts/validate-motores-prod.mjs`. §10 intocado. **PENDENTE: rodar o script contra prod** (`RF_TOKEN=<jwt> node scripts/validate-motores-prod.mjs`, esperado R$ 63.427,35 nas 4 telas).
-- 🔴 **CI E2E vermelho no main**: `monthly-mobile.spec.ts:193` e `expenses-mobile.spec.ts:160` desatualizados pelos merges #84/#89 — merges entraram com CI failure (gate ignorado). Corrigir junto do Prompt E.
+- ✅ **CI E2E do main** — resolvido no PR #91: os specs mobile (`monthly-mobile.spec.ts`, `expenses-mobile.spec.ts`) foram reescritos contra a UI das Trilhas 3/4; suíte verde (Domain 181 · API 455 · Web unit 473 · E2E 21 pass / 13 skip).
+- 🔎 **Auditoria técnica 2026-07-13** (architect + QA, main @ a62d064f): baseline verde (1.130 testes, 0 falhas), mas ficaram abertas — **#94** (§10 elege conta primária por literal `3636`, CRITICAL), **#95** (paridade em prod não validada + validador fora do CI — engloba o PENDENTE da Fase E acima), **#96** (cash-flow não ancora no `openingBalance` do §10), **#97** (`motor-unico-parity.spec` com claim falso/tautológico) e **#98** (feature-gating em 4 mapas divergentes).
 - Deploy: web (Vercel) e API (Fly, job `Deploy API to Fly` verde) acompanham o main automaticamente.
 - Branches `feat/phase-e-*` antigas (month-aware top) são tentativa SUPERSEDIDA — conteúdo já está no main; não confundir com a Fase E do brief.
 - Briefs concluídos arquivados em `docs/archive/redesign-2026-07/`.
