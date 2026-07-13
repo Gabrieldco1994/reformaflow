@@ -131,15 +131,120 @@ async function openExpenses(page: Page, viewport: ViewportSize) {
       );
     if (path === `/projects/${projectId}/category-budgets`)
       return route.fulfill(json([]));
+    // A MobileExpensesScreen (nova superfície mobile) lê a lista de
+    // /monthly-overview/origin-items-yearly (não de /expenses, que só a tabela
+    // desktop consome) e a carteira de /monthly-overview/account-view.
+    if (
+      path === `/projects/${projectId}/monthly-overview/origin-items-yearly`
+    )
+      return route.fulfill(
+        json({
+          year: 2026,
+          kind: "all",
+          last4: "",
+          total: 47480,
+          items: [
+            {
+              mes: "2026-07",
+              data: "2026-07-05",
+              descricao: "Compra no cartão",
+              valor: 12990,
+              tipoDespesa: "ALIMENTACAO",
+              status: "PAGO",
+              projetoOrigem: null,
+              origem: {
+                kind: "card",
+                last4: "5876",
+                nickname: "Itaú Mastercard",
+              },
+            },
+            {
+              mes: "2026-07",
+              data: "2026-07-10",
+              descricao: "Conta paga à vista",
+              valor: 4500,
+              tipoDespesa: "MORADIA",
+              status: "PAGO",
+              projetoOrigem: null,
+              origem: {
+                kind: "conta",
+                last4: "4247",
+                nickname: "Itaú Personnalité",
+              },
+            },
+            {
+              mes: "2026-07",
+              data: "2026-07-20",
+              descricao: "Plano de viagem",
+              valor: 30000,
+              tipoDespesa: "LAZER",
+              status: "PLANEJADO",
+              projetoOrigem: null,
+            },
+          ],
+        }),
+      );
+    if (path === `/projects/${projectId}/monthly-overview/account-view`)
+      return route.fulfill(
+        json({
+          mesSelecionado: "2026-07",
+          caixaHoje: 0,
+          entrouMes: 0,
+          saiuMes: 17490,
+          faltaPagarMes: 0,
+          recebimentosPrevistosMes: 0,
+          sobraPrevista: 0,
+          devoCartaoTotal: 12990,
+          cartoes: [
+            {
+              nickname: "Itaú Mastercard",
+              last4: "5876",
+              faturaAtual: 12990,
+              faturaPendente: 12990,
+              dueMonth: "2026-07",
+              vencimento: "2026-07-17",
+              status: "a pagar",
+              limiteUsadoPct: null,
+              limiteUsado: null,
+              limiteTotal: null,
+            },
+          ],
+          contas: [{ last4: "4247", nome: "Itaú Personnalité" }],
+          saidas: [],
+          comprasCartao: [],
+          entradas: [],
+          ticketMedio: {
+            valor: 0,
+            nCompras: 0,
+            totalCompras: 0,
+            serie6m: [],
+            media6m: 0,
+            deltaVsMediaPct: null,
+          },
+        }),
+      );
+    // Cadastro dos cartões do PROJETO ATUAL (closingDay real → status da fatura).
+    if (path === `/projects/${projectId}/credit-cards`)
+      return route.fulfill(
+        json([
+          {
+            id: "card-5876",
+            last4: "5876",
+            nickname: "Itaú Mastercard",
+            brand: "MASTERCARD",
+            institution: "Itaú",
+            closingDay: 10,
+            dueDay: 17,
+          },
+        ]),
+      );
     return route.fulfill(json([]));
   });
   await page.goto(`/projects/${projectId}/expenses?period=ALL&view=general`);
-  await expect(page.getByRole("heading", { name: "Despesas" })).toBeVisible();
+  // Ambas as árvores (mobile `lg:hidden` + desktop `hidden lg:block`) ficam no
+  // DOM; filtramos por visibilidade para casar com o breakpoint em teste.
   await expect(
-    page.getByText("Compra no cartão", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByText("Plano de viagem", { exact: true }),
+    page.getByRole("heading", { name: "Despesas" }).filter({ visible: true }),
   ).toBeVisible();
 }
 
@@ -166,54 +271,48 @@ test.describe("Expenses — phase-AB mobile quick wins", () => {
       );
       await openExpenses(page, viewport);
       await expectNoHorizontalOverflow(page);
-      const cta = page.getByRole("button", {
-        name: "Nova despesa",
-        exact: true,
-      });
-      await expect(cta).toHaveCount(1);
-      const ctaBox = await cta.boundingBox();
-      expect(ctaBox?.width).toBe(56);
-      expect(ctaBox?.height).toBe(56);
-      expect(await cta.evaluate((el) => getComputedStyle(el).position)).toBe(
-        "fixed",
+
+      // Resumo "Gastei de verdade" com quebra por origem (mobile screen).
+      await expect(
+        page.getByText(/Gastei de verdade/i).filter({ visible: true }),
+      ).toBeVisible();
+      await expect(
+        page.getByText("No cartão", { exact: true }).filter({ visible: true }),
+      ).toBeVisible();
+      await expect(
+        page
+          .getByText("Saiu da conta", { exact: true })
+          .filter({ visible: true }),
+      ).toBeVisible();
+
+      // bug 4: carteira de cartões "físicos" — gradiente + •••• last4 + badge
+      // de fatura (status derivado do cadastro real via card-wallet-status).
+      await expect(
+        page.getByText("Carteira · faturas espelham o banco"),
+      ).toBeVisible();
+      await expect(page.getByText("•••• 5876")).toBeVisible();
+      await expect(page.getByText("fatura aberta")).toBeVisible();
+
+      // A despesa do cartão aparece na lista mobile (agrupada por dia).
+      await expect(
+        page
+          .getByText("Compra no cartão", { exact: true })
+          .filter({ visible: true }),
+      ).toBeVisible();
+
+      // Piso v3.1: chips de filtro com alvo ≥44px + toggle de neutros presente.
+      const todosChip = page
+        .getByRole("button", { name: "Todos", exact: true })
+        .filter({ visible: true });
+      await expect(todosChip).toBeVisible();
+      expect((await todosChip.boundingBox())?.height).toBeGreaterThanOrEqual(
+        44,
       );
-
-      const filterTrigger = page.getByRole("button", { name: /Filtrar/ });
-      await expect(filterTrigger).toBeVisible();
-      const triggerStyle = await filterTrigger.evaluate((el) => {
-        const style = getComputedStyle(el);
-        return {
-          height: el.getBoundingClientRect().height,
-          fontSize: parseFloat(style.fontSize),
-        };
-      });
-      expect(triggerStyle.height).toBeGreaterThanOrEqual(44);
-      expect(triggerStyle.fontSize).toBeGreaterThanOrEqual(14);
       await expect(
-        page.getByRole("article", { name: "No cartão" }),
+        page
+          .getByText("Mostrar neutros", { exact: true })
+          .filter({ visible: true }),
       ).toBeVisible();
-      await expect(
-        page.getByRole("article", { name: "Na conta" }),
-      ).toBeVisible();
-
-      await filterTrigger.click();
-      const sheet = page.getByRole("dialog", { name: "Filtros de despesas" });
-      await expect(sheet).toBeVisible();
-      expect(
-        await sheet
-          .getByLabel("Buscar despesas")
-          .evaluate((el) => el.getBoundingClientRect().height),
-      ).toBeGreaterThanOrEqual(44);
-      await page.keyboard.press("Escape");
-      await expect(sheet).toBeHidden();
-
-      await cta.click();
-      await expect(
-        page.getByText("Despesa paga", { exact: true }),
-      ).toBeVisible();
-      await page.getByRole("button", { name: /^Planejar/ }).click();
-      await expect(page.getByRole("spinbutton").first()).toBeVisible();
-      await expect(page.getByRole("button", { name: "Avançar" })).toBeVisible();
     });
   }
 
@@ -224,6 +323,12 @@ test.describe("Expenses — phase-AB mobile quick wins", () => {
     );
     await openExpenses(page, { width: 1280, height: 800 });
     await expectNoHorizontalOverflow(page);
+    // A tabela desktop (única árvore visível em ≥lg) continua listando a despesa.
+    await expect(
+      page
+        .getByText("Compra no cartão", { exact: true })
+        .filter({ visible: true }),
+    ).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Nova despesa", exact: true }),
     ).toHaveCount(1);
