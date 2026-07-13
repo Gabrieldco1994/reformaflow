@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { moneyGlance } from "@/lib/money";
 import type { MonthlyEntry, MonthlyOverviewResponse } from "../_types";
 import type { DreSaldoAcumuladoRow } from "../../dre/_types";
@@ -231,6 +232,17 @@ export default function MobileMonthCockpit({
         categorias={month.categorias}
         entrouTotal={top.entrouMes}
       />
+
+      {/* Entrada para a tela de Despesas (mobile) — o app-despesas é alcançado a
+          partir do "Hoje", como no protótipo (não há 4ª aba). */}
+      <Link
+        href={`/projects/${projectId}/expenses`}
+        aria-label="Ver todas as despesas"
+        className="flex min-h-[44px] items-center justify-between rounded-[18px] border border-[var(--ck-border)] bg-[var(--ck-surface)] px-4 py-3 text-sm font-semibold text-[var(--ck-text)] shadow-lifeone-card active:scale-[0.99]"
+      >
+        <span>Ver todas as despesas</span>
+        <span aria-hidden>→</span>
+      </Link>
 
       {/* "Maria percebeu" — insights por regra pura (sem IA nesta fase),
           derivados de dados já calculados. */}
