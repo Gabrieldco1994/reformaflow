@@ -1,22 +1,22 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
 import dynamic from 'next/dynamic';
-import { SlidersHorizontal } from 'lucide-react';
+import { SlidersHorizontal, Target } from 'lucide-react';
 import type { MonthlyOverviewResponse, MonthlyEntry } from '../_types';
-import type { DreMensal, DreSaldoAcumuladoRow } from '../../dre/_types';
+import type { DreSaldoAcumuladoRow } from '../../dre/_types';
 import type { MetaProgress } from '../../metas/_components/MetaCategoriaCard';
-import { Card } from './ui';
+import { tipoLabel } from '@/lib/expense-options';
+import { metaProgressTone } from '../../metas/_lib/metaTone';
+import { Card, Progress } from './ui';
 import { fmtMoney } from './format';
 import { deriveMonth, buildSaldoSeries, saldoProjetado, buildComprometimentoFuturo } from './derive';
 import CategoriasBarras from './CategoriasBarras';
-import SaudeFinanceira from './SaudeFinanceira';
 import ComprometimentoFuturo from './ComprometimentoFuturo';
 import ArvoreGastos from './ArvoreGastos';
 import { DesktopRail } from './DesktopRail';
 import { RunwayScenario } from './RunwayScenario';
-import { DreGlance } from './DreGlance';
-import { MetasGlance } from './MetasGlance';
 import type { Eixo } from './EixoToggle';
 
 const SaldoMesChart = dynamic(() => import('./SaldoMesChart'), {
@@ -31,7 +31,6 @@ export default function MonthView({
   projectId,
   projectType,
   eixo,
-  dreMensal,
   runwaySerie,
   metasProgress = [],
 }: {
@@ -42,8 +41,6 @@ export default function MonthView({
   /** Usado só pelo `DesktopRail` (opções de despesa do launcher); cockpit é PESSOAL-only. */
   projectType?: string;
   eixo?: Eixo;
-  /** DRE mensal já buscado por `page.tsx` (mesmo `dre-overview` do RunwayScenario) — sem query própria aqui. */
-  dreMensal?: DreMensal;
   /** Série anual de saldo acumulado (`dre-overview`), para o "E se...?" do runway desktop. */
   runwaySerie?: DreSaldoAcumuladoRow[];
   /** Progresso de metas por categoria (`category-budgets/progress`), já buscado por `page.tsx`. */
@@ -63,6 +60,11 @@ export default function MonthView({
   const projTone = projetado >= m.saldoInicial ? 'pos' : 'neg';
   const maxRitmo = Math.max(m.ritmoDiario * 3, 30000); // teto do slider (centavos/dia)
   const currentMonth = monthKey ?? data.mesAtual;
+  const atingiuReserva = m.reservaMeses >= m.reservaMeta;
+  const faltamReserva = Math.max(0, m.reservaMeta - m.reservaMeses);
+  const progressoReserva = m.reservaMeta > 0 ? m.reservaMeses / m.reservaMeta : 0;
+  const metasVisiveis = metasProgress.slice(0, 4);
+  const metasRestantes = metasProgress.length - metasVisiveis.length;
 
   return (
     <div className={projectId ? 'lg:grid lg:grid-cols-3 lg:items-start lg:gap-4' : ''}>
@@ -111,28 +113,95 @@ export default function MonthView({
               </span>
             </div>
           </div>
+          {runwaySerie && runwaySerie.length > 0 && (
+            <div className="mt-4 border-t border-[var(--ck-border)] pt-4">
+              <RunwayScenario serie={runwaySerie} currentMonth={currentMonth} />
+            </div>
+          )}
         </Card>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <CategoriasBarras categorias={m.categorias} hint="mês atual" />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="space-y-4 lg:col-span-2">
+            <CategoriasBarras categorias={m.categorias} hint="mês atual" />
+            {projectId && (
+              <ArvoreGastos
+                projectId={projectId}
+                entries={serieEntries}
+                eixo={eixo ?? 'competencia'}
+                hint="mês atual · por origem e tipo"
+              />
+            )}
+          </div>
           <div className="space-y-4">
             <ComprometimentoFuturo rows={comprometimento} />
-            <SaudeFinanceira m={m} />
+            {projectId && (
+              <Card title="Saúde financeira e metas do mês">
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                  <section aria-label="Saúde financeira" className="space-y-2">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <p className="text-[11px] text-[var(--ck-muted)]">Reserva de emergência</p>
+                      <p className={`text-sm font-geist tabular-nums ${atingiuReserva ? 'text-[var(--ck-pos)]' : 'text-[var(--ck-alert)]'}`}>
+                        {m.reservaMeses.toFixed(1).replace('.', ',')} / {m.reservaMeta} meses
+                      </p>
+                    </div>
+                    <Progress value={progressoReserva} tone={atingiuReserva ? 'pos' : 'alert'} />
+                    <p className="text-[11px] text-[var(--ck-muted)]">
+                      {atingiuReserva ? (
+                        <span className="text-[var(--ck-pos)]">Meta de {m.reservaMeta} meses atingida.</span>
+                      ) : (
+                        <>Faltam <strong className="text-[var(--ck-text)]">{faltamReserva.toFixed(1).replace('.', ',')}</strong> meses para a meta.</>
+                      )}
+                    </p>
+                  </section>
+
+                  <section aria-label="Metas do mês" className="space-y-2">
+                    {metasProgress.length === 0 ? (
+                      <div className="flex flex-col items-center gap-2 py-1 text-center">
+                        <Target className="h-5 w-5 text-[var(--ck-muted)]" />
+                        <p className="text-xs text-[var(--ck-muted)]">Nenhuma meta definida ainda para este mês.</p>
+                        <Link
+                          href={`/projects/${projectId}/metas`}
+                          className="text-xs font-semibold text-[var(--ck-accent)] hover:underline"
+                        >
+                          Criar metas
+                        </Link>
+                      </div>
+                    ) : (
+                      <>
+                        <ul className="space-y-2">
+                          {metasVisiveis.map((item) => {
+                            const tone = metaProgressTone(item.pct);
+                            return (
+                              <li key={item.tipoDespesa} className="flex items-center justify-between gap-2 text-xs">
+                                <span className="min-w-0 truncate text-[var(--ck-text)]">{tipoLabel(item.tipoDespesa)}</span>
+                                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${tone.txt} bg-[var(--ck-surface-2)]`}>
+                                  {item.pct}% · {tone.label}
+                                </span>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                        <div className="flex items-center justify-between gap-2 pt-1">
+                          {metasRestantes > 0 ? (
+                            <span className="text-[11px] text-[var(--ck-muted)]">+{metasRestantes}</span>
+                          ) : (
+                            <span />
+                          )}
+                          <Link
+                            href={`/projects/${projectId}/metas`}
+                            className="text-xs font-semibold text-[var(--ck-accent)] hover:underline"
+                          >
+                            Ver metas
+                          </Link>
+                        </div>
+                      </>
+                    )}
+                  </section>
+                </div>
+              </Card>
+            )}
           </div>
         </div>
-
-        {dreMensal && projectId && <DreGlance data={dreMensal} projectId={projectId} />}
-
-        {projectId && <MetasGlance progress={metasProgress} projectId={projectId} />}
-
-        {projectId && (
-          <ArvoreGastos
-            projectId={projectId}
-            entries={serieEntries}
-            eixo={eixo ?? 'competencia'}
-            hint="mês atual · por origem e tipo"
-          />
-        )}
       </div>
 
       {projectId && (
@@ -142,9 +211,6 @@ export default function MonthView({
             projectType={projectType ?? 'PESSOAL'}
             comprometimento={comprometimento}
           />
-          {runwaySerie && runwaySerie.length > 0 && (
-            <RunwayScenario serie={runwaySerie} currentMonth={currentMonth} />
-          )}
         </div>
       )}
     </div>

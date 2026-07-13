@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { RunwayScenario } from './RunwayScenario';
 import type { DreSaldoAcumuladoRow } from '../../dre/_types';
 
@@ -41,33 +41,11 @@ describe('RunwayScenario', () => {
     projectedMonths.length = 0;
   });
 
-  it('sem input preenchido, mostra a série original sem alerta de crossover', () => {
+  it('repassa série original para ProjecaoSaldo e não renderiza simulador "E se..."', () => {
     render(<RunwayScenario serie={SERIE} currentMonth="2026-07" />);
     expect(screen.getByTestId('runway-projecao-saldo-stub')).toBeInTheDocument();
     expect(projectedMonths.at(-1)).toBe('2026-07');
     expect(projectedSeries.at(-1)?.map((row) => row.saldoProjetado)).toEqual([500_000, 300_000, 100_000]);
-  });
-
-  it('"e se eu gastar R$1.000 a mais por mês?" deforma cumulativamente e o mês corrente NÃO muda', () => {
-    render(<RunwayScenario serie={SERIE} currentMonth="2026-07" />);
-    fireEvent.change(screen.getByLabelText(/quanto a mais por mês/i), { target: { value: '1000' } });
-
-    expect(projectedSeries.at(-1)?.map((row) => row.saldoProjetado)).toEqual([500_000, 200_000, -100_000]);
-  });
-
-  it('"e se eu gastar R$500 a MENOS por mês?" (valor negativo) melhora a curva', () => {
-    render(<RunwayScenario serie={SERIE} currentMonth="2026-07" />);
-    fireEvent.change(screen.getByLabelText(/quanto a mais por mês/i), { target: { value: '-500' } });
-
-    expect(projectedSeries.at(-1)?.map((row) => row.saldoProjetado)).toEqual([500_000, 350_000, 200_000]);
-  });
-
-  it('voltar o input pra 0 restaura os valores originais (round-trip)', () => {
-    render(<RunwayScenario serie={SERIE} currentMonth="2026-07" />);
-    const input = screen.getByLabelText(/quanto a mais por mês/i);
-    fireEvent.change(input, { target: { value: '1000' } });
-    fireEvent.change(input, { target: { value: '0' } });
-
-    expect(projectedSeries.at(-1)?.map((row) => row.saldoProjetado)).toEqual([500_000, 300_000, 100_000]);
+    expect(screen.queryByText(/e se eu gastar/i)).not.toBeInTheDocument();
   });
 });

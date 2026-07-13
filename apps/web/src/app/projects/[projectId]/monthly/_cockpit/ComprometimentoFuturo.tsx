@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Card } from './ui';
 import { fmtMoney, mesCurto } from './format';
 import type { ComprometimentoMes } from './derive';
@@ -26,9 +26,44 @@ export default function ComprometimentoFuturo({
 }: {
   rows: ComprometimentoMes[];
 }) {
-  const [selectedMes, setSelectedMes] = useState<string | null>(rows[0]?.mes ?? null);
-  const max = useMemo(() => rows.reduce((mx, r) => Math.max(mx, r.total), 0), [rows]);
-  const selected = rows.find((r) => r.mes === selectedMes) ?? rows[0];
+  const cards = useMemo(
+    () => Array.from(new Set(rows.flatMap((row) => row.itens.map((item) => item.cardLast4)))).sort(),
+    [rows],
+  );
+  const [selectedCard, setSelectedCard] = useState<string | null>(cards[0] ?? null);
+  const filteredRows = useMemo(() => {
+    if (!selectedCard) return rows;
+    return rows
+      .map((row) => {
+        const itens = row.itens.filter((item) => item.cardLast4 === selectedCard);
+        const total = itens.reduce((sum, item) => sum + item.valor, 0);
+        return { ...row, itens, total };
+      })
+      .filter((row) => row.itens.length > 0);
+  }, [rows, selectedCard]);
+  const [selectedMes, setSelectedMes] = useState<string | null>(filteredRows[0]?.mes ?? null);
+
+  useEffect(() => {
+    if (cards.length > 0 && selectedCard && !cards.includes(selectedCard)) {
+      setSelectedCard(cards[0]);
+    }
+    if (!selectedCard && cards.length > 0) {
+      setSelectedCard(cards[0]);
+    }
+  }, [cards, selectedCard]);
+
+  useEffect(() => {
+    if (filteredRows.length === 0) {
+      setSelectedMes(null);
+      return;
+    }
+    if (!selectedMes || !filteredRows.some((row) => row.mes === selectedMes)) {
+      setSelectedMes(filteredRows[0].mes);
+    }
+  }, [filteredRows, selectedMes]);
+
+  const max = useMemo(() => filteredRows.reduce((mx, r) => Math.max(mx, r.total), 0), [filteredRows]);
+  const selected = filteredRows.find((r) => r.mes === selectedMes) ?? filteredRows[0];
 
   if (rows.length === 0) return null;
 
@@ -37,8 +72,27 @@ export default function ComprometimentoFuturo({
       title="Comprometimento futuro (cartão)"
       hint="parcelas/lançamentos planejados por mês de saída (eixo atual)"
     >
+      {cards.length > 1 && (
+        <div className="mb-3 flex flex-wrap gap-2">
+          {cards.map((card) => (
+            <button
+              key={card}
+              type="button"
+              onClick={() => setSelectedCard(card)}
+              className={`min-h-[44px] rounded-full border px-3 text-xs font-semibold transition-colors ${
+                selectedCard === card
+                  ? 'border-[var(--ck-accent)] bg-[var(--ck-accent)] text-white'
+                  : 'border-[var(--ck-border)] bg-[var(--ck-surface-2)] text-[var(--ck-muted)] hover:text-[var(--ck-text)]'
+              }`}
+            >
+              ••{card}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="grid grid-cols-6 md:grid-cols-12 gap-2 items-end">
-        {rows.map((r, index) => {
+        {filteredRows.map((r, index) => {
           const pct = max > 0 ? r.total / max : 0;
           const active = selected?.mes === r.mes;
           return (
@@ -69,7 +123,7 @@ export default function ComprometimentoFuturo({
         <div className="mt-3 rounded-xl border border-[var(--ck-border)] bg-[var(--ck-surface-2)] p-3">
           <div className="flex items-center justify-between gap-2">
             <p className="text-xs text-[var(--ck-muted)]">
-              {labelMes(selected.mes)} · {selected.itens.length} itens
+              {labelMes(selected.mes)} · {selected.itens.length} itens{selectedCard ? ` · ••${selectedCard}` : ''}
             </p>
             <p className="text-sm font-semibold text-amber-400">{fmtMoney(selected.total)}</p>
           </div>
