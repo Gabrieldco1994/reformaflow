@@ -28,6 +28,9 @@ export function CashFlowKpiHeader({ entries, isPessoal = false, caixaReal = null
   // PESSOAL: o número da verdade é o caixa real do §10 (idêntico a /conta e /monthly).
   // Os rolling* daqui são somas desde zero e NÃO representam o saldo bancário.
   if (isPessoal) {
+    // caixaReal null ⇒ §10 ainda carregando (para PESSOAL é sempre um número quando
+    // resolve). Mostra "—" em vez de "R$ 0" para não exibir um saldo enganoso no flash.
+    const carregando = caixaReal === null;
     const saldoConta = caixaReal ?? 0;
     return (
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -35,10 +38,10 @@ export function CashFlowKpiHeader({ entries, isPessoal = false, caixaReal = null
           <KpiTile
             variant="support"
             layer="glance"
-            tone={saldoConta >= 0 ? 'positive' : 'negative'}
+            tone={carregando ? 'neutral' : saldoConta >= 0 ? 'positive' : 'negative'}
             label="Saldo em conta"
             info="Dinheiro disponível de verdade na conta hoje (§10), reconciliado — mesma fonte da Visão Conta e da Visão Geral."
-            value={moneyGlance(saldoConta)}
+            value={carregando ? '—' : moneyGlance(saldoConta)}
           />
         </div>
         <div role="article" aria-label="Entradas" className="min-w-0">

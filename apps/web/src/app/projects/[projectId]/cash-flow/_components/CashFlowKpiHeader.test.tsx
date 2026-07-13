@@ -49,8 +49,11 @@ describe('CashFlowKpiHeader — PESSOAL (saldo do §10)', () => {
     expect(screen.getByRole('article', { name: /Entradas/ })).toHaveTextContent('R$ 1 mil');
     expect(screen.getByRole('article', { name: /Saídas/ })).toHaveTextContent('R$ 500');
   });
-  it('caixaReal null → saldo em conta 0 (sem crash)', () => {
+  it('caixaReal null (§10 carregando) → mostra "—", nunca "R$ 0" enganoso', () => {
     render(<CashFlowKpiHeader entries={[]} isPessoal caixaReal={null} />);
-    expect(screen.getByRole('article', { name: /Saldo em conta/ })).toHaveTextContent('R$ 0');
+    const saldo = screen.getByRole('article', { name: /Saldo em conta/ });
+    expect(saldo).toHaveTextContent('—');
+    // Não pode piscar "R$ 0" antes do §10 resolver (saldo enganoso numa tela de decisão).
+    expect(saldo).not.toHaveTextContent('R$ 0');
   });
 });

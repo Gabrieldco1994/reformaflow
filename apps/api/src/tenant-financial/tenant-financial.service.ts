@@ -128,13 +128,21 @@ export class TenantFinancialService {
       }),
     ]);
 
-    // Motor único (§10): o caixa/saldo em conta vem do projeto PESSOAL no escopo
-    // (delegador `getCaixaConta`), NÃO de Σ receipts EM_CAIXA. Sem PESSOAL no
-    // escopo ⇒ o KPI de caixa some (null) — o tenant não tem conta consolidada.
-    const pessoal = projects.find((p) => p.type === 'PESSOAL');
-    const caixaTotal = pessoal
-      ? (await this.monthly.getCaixaConta(tenantId, pessoal.id)).hoje
-      : null;
+    // Motor único (§10): o caixa/saldo em conta vem do(s) projeto(s) PESSOAL no
+    // escopo (delegador `getCaixaConta`), NÃO de Σ receipts EM_CAIXA. /financeiro
+    // é a visão CONSOLIDADA ("todos os projetos juntos"), então somamos o §10 de
+    // TODOS os PESSOAL do escopo — nunca omitir silenciosamente uma conta se o
+    // tenant tiver mais de um PESSOAL (ex.: por usuário no multiusuário). Com um
+    // único PESSOAL (realidade atual) a soma-de-um é idêntica ao §10. Sem PESSOAL
+    // no escopo ⇒ o KPI de caixa some (null): o tenant não tem conta consolidada.
+    const pessoalProjects = projects.filter((p) => p.type === 'PESSOAL');
+    let caixaTotal: number | null = null;
+    if (pessoalProjects.length > 0) {
+      const caixas = await Promise.all(
+        pessoalProjects.map((p) => this.monthly.getCaixaConta(tenantId, p.id)),
+      );
+      caixaTotal = caixas.reduce((sum, c) => sum + c.hoje, 0);
+    }
 
     let pagoMesAtual = 0;
     let pagoYTD = 0;

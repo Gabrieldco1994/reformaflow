@@ -106,6 +106,34 @@ describe('TenantFinancialService', () => {
       expect(r.totalProjetos).toBe(1);
       expect(monthly.getCaixaConta).not.toHaveBeenCalled();
     });
+
+    it('múltiplos PESSOAL no escopo → caixaTotal soma o §10 de TODOS (consolidado, sem omitir conta)', async () => {
+      // /financeiro é a visão CONSOLIDADA: com 2 projetos PESSOAL o caixa é a SOMA
+      // dos §10, nunca só o mais antigo (senão a 2ª conta some do total). Blinda a
+      // regressão de "find(primeiro PESSOAL)" que omitia silenciosamente contas.
+      monthly.getCaixaConta.mockImplementation((_t: string, projectId: string) =>
+        Promise.resolve({
+          hoje: projectId === 'pessoal-1' ? 6_342_735 : 1_000_000,
+          saldoInicial: 0,
+          temSaldoInicial: true,
+          porMes: [],
+        }),
+      );
+      prisma.project.findMany.mockResolvedValue([
+        { id: 'pessoal-1', name: 'Pessoal A', type: 'PESSOAL' },
+        { id: 'pessoal-2', name: 'Pessoal B', type: 'PESSOAL' },
+        { id: 'reforma-1', name: 'Reforma', type: 'REFORMA' },
+      ]);
+      prisma.cashFlowEntry.findMany.mockResolvedValue([]);
+
+      const r = await service.getOverview(TENANT, null);
+
+      expect(r.caixaTotal).toBe(6_342_735 + 1_000_000);
+      expect(r.saldoProjetado30d).toBe(6_342_735 + 1_000_000); // base consolidada, sem deltas
+      expect(monthly.getCaixaConta).toHaveBeenCalledWith(TENANT, 'pessoal-1');
+      expect(monthly.getCaixaConta).toHaveBeenCalledWith(TENANT, 'pessoal-2');
+      expect(monthly.getCaixaConta).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe('getOverview — escopo (o filtro de projetos precisa chegar às queries)', () => {
