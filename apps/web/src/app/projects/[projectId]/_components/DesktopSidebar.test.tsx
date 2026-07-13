@@ -69,6 +69,46 @@ describe("DesktopSidebar", () => {
     expect(screen.getByText("Usuários")).toBeInTheDocument();
   });
 
+  it("uses exact route segments for PLANTAS active state", () => {
+    const visibleNav = getProjectNavModules(ProjectType.PLANTAS);
+    const plantProps = {
+      ...props,
+      project: { id: "p1", name: "Minhas plantas", type: ProjectType.PLANTAS },
+      visibleNav,
+    };
+    const activeLabels = () =>
+      screen
+        .getAllByRole("link")
+        .filter((link) => link.getAttribute("aria-current") === "page")
+        .map((link) => link.getAttribute("aria-label"));
+    const { rerender } = render(
+      <DesktopSidebar {...plantProps} pathname={`${basePath}/plants-ai`} />,
+    );
+
+    expect(
+      screen.getByRole("link", { name: "Diagnóstico IA" }),
+    ).toHaveAttribute("aria-current", "page");
+    expect(
+      screen.getByRole("link", { name: "Minhas Plantas" }),
+    ).not.toHaveAttribute("aria-current");
+    expect(activeLabels()).toEqual(["Diagnóstico IA"]);
+
+    rerender(
+      <DesktopSidebar
+        {...plantProps}
+        pathname={`${basePath}/plants/plant-1`}
+      />,
+    );
+
+    expect(
+      screen.getByRole("link", { name: "Diagnóstico IA" }),
+    ).not.toHaveAttribute("aria-current");
+    expect(
+      screen.getByRole("link", { name: "Minhas Plantas" }),
+    ).toHaveAttribute("aria-current", "page");
+    expect(activeLabels()).toEqual(["Minhas Plantas"]);
+  });
+
   it("is collapsed by default and expands only through its explicit accessible toggle", () => {
     const { container } = render(<DesktopSidebar {...props} />);
     const sidebar = container.querySelector("aside");

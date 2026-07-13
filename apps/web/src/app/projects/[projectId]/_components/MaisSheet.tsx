@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { X, Users, LogOut } from 'lucide-react';
 import { typeAccent } from '../../_components/type-accent';
 import { navIcon } from './nav-icons';
+import { isPathActive } from './mobile-nav';
 import type { NavModule, ProjectInfo } from '../_types';
 
 interface MaisSheetProps {
@@ -34,6 +35,7 @@ function GridTile({
   return (
     <Link
       href={href}
+      aria-current={isActive ? 'page' : undefined}
       className="flex flex-col items-center gap-2 rounded-2xl px-1.5 py-3.5 min-h-[74px] active:scale-95 transition-transform"
       style={{ backgroundColor: isActive ? accent.fill : '#FFFFFF' }}
     >
@@ -106,7 +108,7 @@ export function MaisSheet({
                   href={fullHref}
                   label={item.label}
                   Icon={navIcon(item.iconName)}
-                  isActive={pathname.startsWith(fullHref)}
+                  isActive={isPathActive(pathname, fullHref)}
                   accent={accent}
                 />
               );
@@ -116,7 +118,7 @@ export function MaisSheet({
                 href="/admin/users"
                 label="Usuários"
                 Icon={Users}
-                isActive={pathname.startsWith('/admin/users')}
+                isActive={isPathActive(pathname, '/admin/users')}
                 accent={accent}
               />
             )}
