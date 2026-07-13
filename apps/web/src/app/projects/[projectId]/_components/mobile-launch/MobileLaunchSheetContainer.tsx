@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
+import { useProject } from '@/contexts/project-context';
 import { invalidateExpenseQueries } from '../../expenses/_hooks/useExpenseMutations';
 import { currentMonthKey } from '../../conta/_lib';
 import type { AccountViewResponse, OriginItemsYearlyResponse } from '../../conta/_types';
@@ -20,19 +21,24 @@ type CreatedExpense = { id: string };
 
 export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) {
   const queryClient = useQueryClient();
+  const { projectType } = useProject();
   const month = currentMonthKey();
   const year = month.slice(0, 4);
 
+  // Origens só do PROJETO ATUAL: CreditCard/BankAccount têm projectId no schema,
+  // então os endpoints /tenant/* (tenant-wide) traziam cartões/contas de outros
+  // projetos. Os project-scoped retornam a entidade completa (id, nickname, last4,
+  // closingDay, dueDay) — cada label vem do nickname da própria entidade.
   const { data: accounts = [] } = useQuery<LaunchAccountOption[]>({
-    queryKey: ['tenant', 'bank-accounts'],
-    queryFn: () => api.get('/tenant/bank-accounts'),
+    queryKey: ['project', projectId, 'bank-accounts'],
+    queryFn: () => api.get(`/projects/${projectId}/bank-accounts`),
     enabled: open,
     staleTime: 60_000,
   });
 
   const { data: cards = [] } = useQuery<LaunchCardOption[]>({
-    queryKey: ['tenant', 'credit-cards'],
-    queryFn: () => api.get('/tenant/credit-cards'),
+    queryKey: ['project', projectId, 'credit-cards'],
+    queryFn: () => api.get(`/projects/${projectId}/credit-cards`),
     enabled: open,
     staleTime: 60_000,
   });
@@ -80,7 +86,9 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
   const recentDescriptions = useMemo(() => {
     const unique = new Set<string>();
     for (const item of yearlyItems?.items ?? []) {
-      const label = item.descricao?.trim();
+      // Remove sufixo cru de parcela ("Sofá — parcela 4/10" → "Sofá") para o chip
+      // não vazar "4/10" nem duplicar a mesma compra parcelada.
+      const label = item.descricao?.replace(/\s*[—–-]?\s*(parcela\s*)?\d+\s*\/\s*\d+\s*$/i, '').trim();
       if (!label) continue;
       unique.add(label);
       if (unique.size >= 8) break;
@@ -97,6 +105,7 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
       accounts={accounts}
       cards={cards}
       recentDescriptions={recentDescriptions}
+      projectType={projectType}
       projectedBalanceCents={accountView?.sobraPrevista ?? null}
     />
   );

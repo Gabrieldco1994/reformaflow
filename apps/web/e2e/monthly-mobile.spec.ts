@@ -161,8 +161,72 @@ async function openMonthly(page: Page, viewport: ViewportSize) {
     if (path === "/tenant/credit-cards" || path === "/tenant/bank-accounts") {
       return route.fulfill(json([]));
     }
+    // Origens do sheet "Lançar" são SÓ do projeto atual (project-scoped),
+    // não os endpoints /tenant/* (tenant-wide). Só disparam com o sheet aberto.
+    if (path === `/projects/${projectId}/bank-accounts`) {
+      return route.fulfill(
+        json([
+          {
+            id: "acc-4247",
+            nickname: "Itaú Personnalité",
+            institution: "Itaú",
+            last4: "4247",
+          },
+        ]),
+      );
+    }
+    if (path === `/projects/${projectId}/credit-cards`) {
+      return route.fulfill(
+        json([
+          {
+            id: "card-5876",
+            nickname: "Itaú Mastercard",
+            brand: "MASTERCARD",
+            last4: "5876",
+            closingDay: 10,
+            dueDay: 17,
+          },
+        ]),
+      );
+    }
+    // Maria categoriza a despesa na tela a partir da descrição.
+    if (path === "/merchant-categories/suggest") {
+      return route.fulfill(
+        json({
+          category: "Alimentação",
+          subcategory: null,
+          confidence: 0.92,
+          source: "merchant",
+          suggestedTipoDespesa: "ALIMENTACAO",
+        }),
+      );
+    }
     if (path === `/projects/${projectId}/monthly-overview/dre-overview`) {
-      return route.fulfill(json({ anual: { saldoAcumuladoSerie: [] } }));
+      // MobileRunway ("Vai dar até dez?") só renderiza com ≥6 meses à frente do
+      // mês corrente na série de saldo acumulado (eixo caixa §10).
+      const runwayRow = (mes: string, saldoProjetado: number) => ({
+        mes,
+        recebimentos: 500_000,
+        despesas: 200_000,
+        recebimentosRealizados: null,
+        despesasRealizadas: null,
+        saldoProjetado,
+        saldoRealizado: null,
+      });
+      return route.fulfill(
+        json({
+          anual: {
+            saldoAcumuladoSerie: [
+              runwayRow("2026-07", 1_159_560),
+              runwayRow("2026-08", 1_050_000),
+              runwayRow("2026-09", 940_000),
+              runwayRow("2026-10", 830_000),
+              runwayRow("2026-11", 720_000),
+              runwayRow("2026-12", 610_000),
+            ],
+          },
+        }),
+      );
     }
     if (path === `/projects/${projectId}/category-budgets/progress`) {
       return route.fulfill(json([]));
@@ -257,13 +321,14 @@ test.describe("Monthly cockpit — Phase C mobile relance", () => {
         );
       }
 
-      // Track C: the new mobile progressive sections (scenarios, swipe to
-      // pay, sankey and "Maria percebeu") ship as always-visible accessible
-      // `region`s alongside the two disclosures above — assert each keeps
-      // its accessible name so the mobile contract stays discoverable by
-      // assistive tech without depending on brittle DOM structure/markup.
+      // Track C: the new mobile progressive sections ship as always-visible
+      // accessible `region`s alongside the two disclosures above — assert each
+      // keeps its accessible name so the mobile contract stays discoverable by
+      // assistive tech without depending on brittle DOM structure/markup. The
+      // "E se…?" scenarios were merged into the "Vai dar até dez?" runway card
+      // (fidelidade v3, #89/#90), so that is the region that owns them now.
       await expect(
-        mobile.getByRole("region", { name: "Cenários e se…?" }),
+        mobile.getByRole("region", { name: "Vai dar até dez?" }),
       ).toBeVisible();
       await expect(
         mobile.getByRole("region", { name: "Próximas saídas" }),
@@ -277,8 +342,17 @@ test.describe("Monthly cockpit — Phase C mobile relance", () => {
         mobile.getByRole("region", { name: "Maria percebeu" }),
       ).toBeVisible();
 
-      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-      await expect(page.getByTestId("mobile-month-mini-hero")).toBeVisible();
+      // bug 1 (nav): a tela mobile de Despesas precisa ter uma entrada a partir
+      // do cockpit (o link vive na área de consumo/Sankey do "Hoje").
+      await expect(
+        mobile.getByRole("link", { name: "Ver todas as despesas" }),
+      ).toHaveAttribute("href", `/projects/${projectId}/expenses`);
+
+      // A mini-hero capsule (leitura de relance do caixa) fica fixa no topo do
+      // cockpit — revelada por rolagem no mês corrente, sempre visível em outro
+      // mês. O comportamento de scroll é coberto por MiniHeroCapsule.test.tsx;
+      // aqui garantimos que ela é montada no cockpit mobile.
+      await expect(page.getByTestId("mini-hero-capsule")).toBeVisible();
       expect(mutations).toEqual([]);
     });
   }
@@ -295,5 +369,66 @@ test.describe("Monthly cockpit — Phase C mobile relance", () => {
     await expect(page.getByTestId("desktop-monthly-legacy")).toBeVisible();
     await expect(page.getByTestId("mobile-month-cockpit")).toBeHidden();
     expect(mutations).toEqual([]);
+  });
+
+  // O FAB "Lançar" e o sheet de lançamento vivem no AppShell (global a todas as
+  // rotas do projeto), então o cockpit é uma superfície válida para exercê-los.
+  test("Lançar: FAB verde, origens do projeto atual e pill de tipo sempre visível", async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== "desktop",
+      "viewport is explicitly owned by this spec",
+    );
+    const mutations = await openMonthly(page, { width: 390, height: 844 });
+
+    // bug 5: FAB verde (--green #0F6B4D = rgb(15,107,77)), nunca preto.
+    const fab = page.getByRole("button", { name: "Lançar", exact: true });
+    await expect(fab).toBeVisible();
+    expect(
+      await fab.evaluate((el) => getComputedStyle(el).backgroundColor),
+    ).toBe("rgb(15, 107, 77)");
+
+    await fab.click();
+    await expect(page.getByRole("heading", { name: "Lançar" })).toBeVisible();
+
+    // bug 3: origens SÓ do projeto atual (2), label = nickname da própria
+    // entidade + last4, conta e cartão visualmente distintos (dot verde x âmbar).
+    const origins = page.locator('button[aria-label^="Origem "]');
+    await expect(origins).toHaveCount(2);
+    const account = page.getByRole("button", {
+      name: "Origem Itaú Personnalité",
+    });
+    const card = page.getByRole("button", {
+      name: "Origem Itaú Mastercard •5876",
+    });
+    await expect(account).toBeVisible();
+    await expect(card).toBeVisible();
+    expect(
+      await account
+        .locator("span[aria-hidden]")
+        .first()
+        .evaluate((el) => getComputedStyle(el).backgroundColor),
+    ).toBe("rgb(15, 107, 77)");
+    expect(
+      await card
+        .locator("span[aria-hidden]")
+        .first()
+        .evaluate((el) => getComputedStyle(el).backgroundColor),
+    ).toBe("rgb(217, 119, 6)");
+
+    // bug 2: ao digitar a descrição, a Maria categoriza NA TELA — pill sempre
+    // visível — e "trocar" abre o seletor com getExpenseOptions(PESSOAL).
+    await page
+      .getByPlaceholder("ex.: mercado, uber, farmácia")
+      .fill("Compra no mercado");
+    await expect(page.getByText(/Maria sugeriu:\s*Alimentação/)).toBeVisible();
+    await page.getByRole("button", { name: "trocar" }).click();
+    await expect(
+      page.getByRole("button", { name: "Moradia", exact: true }),
+    ).toBeVisible();
+
+    // presentation-only: abrir e preencher o sheet não escreve despesa nenhuma.
+    expect(mutations.filter((m) => m.includes("/expenses"))).toEqual([]);
   });
 });

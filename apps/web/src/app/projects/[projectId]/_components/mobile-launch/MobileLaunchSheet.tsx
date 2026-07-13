@@ -3,7 +3,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Sparkles, X } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
+import { moneyGlance } from '@/lib/money';
+import { tipoLabel } from '@/lib/expense-options';
 import { useCategorySuggestion } from '../../expenses/_hooks/useCategorySuggestion';
+import { getExpenseOptions } from '../../expenses/_types';
 import { faturaDestino } from '../../_lib/fatura-destino';
 import type { LaunchAccountOption, LaunchCardOption, LaunchPayload } from './types';
 
@@ -27,6 +30,7 @@ interface Props {
   accounts: LaunchAccountOption[];
   cards: LaunchCardOption[];
   recentDescriptions: string[];
+  projectType: string;
   projectedBalanceCents?: number | null;
 }
 
@@ -44,6 +48,7 @@ export function MobileLaunchSheet({
   accounts,
   cards,
   recentDescriptions,
+  projectType,
   projectedBalanceCents,
 }: Props) {
   const origins = useMemo<OriginOption[]>(() => {
@@ -70,16 +75,27 @@ export function MobileLaunchSheet({
   const [description, setDescription] = useState('');
   const [originKey, setOriginKey] = useState('');
   const [parcelas, setParcelas] = useState(1);
+  const [tipoOverride, setTipoOverride] = useState<string | null>(null);
+  const [showTypePicker, setShowTypePicker] = useState(false);
+
+  const typeOptions = useMemo(() => getExpenseOptions(projectType), [projectType]);
 
   const cents = Number.parseInt(digits || '0', 10);
   const selectedOrigin = origins.find((origin) => origin.key === originKey) ?? null;
   const { suggestion } = useCategorySuggestion(description, description);
+
+  // Tipo efetivo que SERÁ lançado — sempre visível ao usuário na pill.
+  // Sem sugestão da Maria e sem override → "OUTROS", mas mostrado, nunca silencioso.
+  const effectiveTipo = tipoOverride ?? suggestion?.suggestedTipoDespesa ?? 'OUTROS';
+  const isSuggested = !tipoOverride && !!suggestion?.suggestedTipoDespesa;
 
   useEffect(() => {
     if (!open) return;
     setDigits('');
     setDescription('');
     setParcelas(1);
+    setTipoOverride(null);
+    setShowTypePicker(false);
     setOriginKey(origins[0]?.key ?? '');
   }, [open, origins]);
 
@@ -98,7 +114,7 @@ export function MobileLaunchSheet({
     if (!selectedOrigin || launchDisabled) return;
 
     const payload: LaunchPayload = {
-      tipoDespesa: suggestion?.suggestedTipoDespesa ?? 'OUTROS',
+      tipoDespesa: effectiveTipo,
       valor: cents / 100,
       quantidade: 1,
       titulo: description.trim() || 'Despesa',
@@ -129,7 +145,7 @@ export function MobileLaunchSheet({
 
         <div className="rounded-2xl bg-darc-velvet px-4 py-3 text-sm text-white/85">
           <p>
-            Fechamento previsto: <strong className="text-white">{formatCurrency(projected / 100)}</strong>
+            Fechamento previsto: <strong className="text-white">{moneyGlance(projected)}</strong>
           </p>
         </div>
 
@@ -155,7 +171,13 @@ export function MobileLaunchSheet({
                   : 'border-darc-linen bg-white text-darc-velvet'
               }`}
             >
-              <p className="text-[13px] font-semibold">{origin.label}</p>
+              <p className="flex items-center gap-1.5 text-[13px] font-semibold">
+                <span
+                  aria-hidden
+                  className={`inline-block h-2 w-2 shrink-0 rounded-[3px] ${origin.kind === 'account' ? 'bg-[#0F6B4D]' : 'bg-[#D97706]'}`}
+                />
+                {origin.label}
+              </p>
               <p className={`text-[11px] ${origin.key === originKey ? 'text-white/70' : 'text-darc-velvet/60'}`}>{origin.hint}</p>
             </button>
           ))}
@@ -200,15 +222,49 @@ export function MobileLaunchSheet({
               key={item}
               type="button"
               onClick={() => setDescription(item)}
-              className="min-h-[42px] rounded-full border border-darc-linen bg-white px-4 text-xs font-semibold text-darc-velvet/75"
+              className="inline-flex min-h-[42px] shrink-0 items-center rounded-full border border-darc-linen bg-white px-4 text-xs font-semibold text-darc-velvet/75"
             >
-              {item}
+              <span className="block max-w-[150px] truncate">{item}</span>
             </button>
           ))}
         </div>
-        {suggestion?.category && (
-          <div className="mt-2 inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
-            <Sparkles className="h-3.5 w-3.5" /> Maria sugeriu: {suggestion.category}
+        {description.trim() && (
+          <div className="mt-3">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-[#CBE7D8] bg-[#E4F3EC] px-3 py-1.5 text-xs font-bold text-[#0C5A40]">
+                <Sparkles className="h-3.5 w-3.5" />
+                {isSuggested ? 'Maria sugeriu' : 'Tipo'}: {tipoLabel(effectiveTipo)}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowTypePicker((value) => !value)}
+                aria-expanded={showTypePicker}
+                className="inline-flex min-h-[44px] items-center px-1 text-xs font-semibold text-darc-velvet/60 underline underline-offset-2"
+              >
+                trocar
+              </button>
+            </div>
+            {showTypePicker && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {typeOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => {
+                      setTipoOverride(option.value);
+                      setShowTypePicker(false);
+                    }}
+                    className={`min-h-[44px] rounded-full border px-3 text-xs font-semibold ${
+                      effectiveTipo === option.value
+                        ? 'border-[#0F6B4D] bg-[#E4F3EC] text-[#0C5A40]'
+                        : 'border-darc-linen bg-white text-darc-velvet/75'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -250,7 +306,7 @@ export function MobileLaunchSheet({
           type="button"
           disabled={launchDisabled}
           onClick={handleLaunch}
-          className="mt-4 flex min-h-[52px] w-full items-center justify-center rounded-2xl bg-emerald-700 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-darc-linen"
+          className="mt-4 flex min-h-[52px] w-full items-center justify-center rounded-2xl bg-[#0F6B4D] text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-darc-linen"
         >
           {launching ? 'Lançando...' : 'Lançar despesa'}
         </button>

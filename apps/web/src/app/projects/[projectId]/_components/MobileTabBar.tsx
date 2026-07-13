@@ -32,7 +32,7 @@ export function MobileTabBar({ basePath, pathname, onOpenLaunch }: MobileTabBarP
           type="button"
           aria-label="Lançar"
           onClick={onOpenLaunch}
-          className="-mt-6 flex h-14 w-14 items-center justify-center rounded-full bg-darc-velvet text-darc-pink-logo shadow-darc-hero transition-transform active:scale-95"
+          className="-mt-6 flex h-14 w-14 items-center justify-center rounded-full bg-[#0F6B4D] text-white shadow-darc-hero transition-transform active:scale-95"
         >
           <Plus className="h-6 w-6" />
         </button>
