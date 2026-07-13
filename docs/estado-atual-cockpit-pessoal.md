@@ -8,9 +8,11 @@ Atualizado em: **2026-07-12**
 - ✅ **Trilha 1 — Fase C-visual** (cockpit inovador mobile, protótipo c3) — PR #81.
 - ✅ **Trilha 2 — Web analítico D1** (cockpit desktop denso) — PR #82.
 - ✅ **Trilha 3 — Fase G** (3 camadas nos módulos + Simulação) — PR #83.
-- 🔧 **Fidelidade ao protótipo c3** — em execução (branch `fix/cockpit-mobile-v3-fidelidade`): remove aside sticky duplicada e "valores canônicos" da UI, traz "Vai dar até dez?" ao mobile, reordena seções.
-- ⏳ **Trilha 4 — App mobile direto** (Hoje·Lançar·Maria·Despesas como PWA) — brief pronto (`BRIEF-TRILHA4-APP-MOBILE-LANCAR-MARIA.md`), protótipos aprovados em `docs/prototipo-mobile/app-*.html`.
-- ⏳ **Fase E — Motor único** — NÃO iniciada; brief pronto (`BRIEF-FASE-E-MOTOR-UNICO.md`). Auditoria de prod (`AUDITORIA-MOTORES-PROD.md`): tenant-financial diverge +R$ 529k (834%) do §10 canônico; cash-flow diverge −R$ 999. É a maior dívida ativa.
+- ✅ **Fidelidade ao protótipo c3** — PR #89 (remove aside duplicada e "valores canônicos", traz "Vai dar até dez?" ao mobile, reordena, Consumo fechado).
+- ✅ **Trilha 4 — App mobile** — PR #84 (casca 3 abas + PWA + Lançar + Despesas) e #87 (Maria; o #86 foi mergeado na base errada e resgatado). **QA pós-merge achou 5 bugs pendentes** (Prompt E): navegação até Despesas inexistente, Lançar sem seletor de tipo (cai em OUTROS silencioso), origens de outros projetos no sheet, carteira de cartões ausente, polish (FAB/formatos).
+- ✅ **Fase E — Motor único** — PR #88 conforme adendo: `getCaixaConta` público, tenant-financial e cash-flow lendo §10, `motor-unico-parity.spec.ts`, `scripts/validate-motores-prod.mjs`. §10 intocado. **PENDENTE: rodar o script contra prod** (`RF_TOKEN=<jwt> node scripts/validate-motores-prod.mjs`, esperado R$ 63.427,35 nas 4 telas).
+- 🔴 **CI E2E vermelho no main**: `monthly-mobile.spec.ts:193` e `expenses-mobile.spec.ts:160` desatualizados pelos merges #84/#89 — merges entraram com CI failure (gate ignorado). Corrigir junto do Prompt E.
+- Deploy: web (Vercel) e API (Fly, job `Deploy API to Fly` verde) acompanham o main automaticamente.
 - Branches `feat/phase-e-*` antigas (month-aware top) são tentativa SUPERSEDIDA — conteúdo já está no main; não confundir com a Fase E do brief.
 - Briefs concluídos arquivados em `docs/archive/redesign-2026-07/`.
 
