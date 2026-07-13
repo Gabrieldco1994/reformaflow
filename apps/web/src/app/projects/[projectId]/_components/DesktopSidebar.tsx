@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { NotificationsBell } from "@/components/notifications/NotificationsBell";
 import { navIcon } from "./nav-icons";
-import { TYPE_ICONS } from "./mobile-nav";
+import { isPathActive, TYPE_ICONS } from "./mobile-nav";
 import type { NavModule, ProjectInfo } from "../_types";
 
 const SIDEBAR_STORAGE_KEY = "lifeone:sidebar:collapsed";
@@ -58,6 +58,8 @@ export function DesktopSidebar({
   };
   const labelClass = collapsed ? "sr-only" : "whitespace-nowrap truncate";
   const itemClass = `flex min-h-11 items-center rounded-lg text-sm font-medium transition-colors ${collapsed ? "justify-center px-2" : "gap-3 px-3"}`;
+  const adminHref = "/admin/users";
+  const isAdminActive = isPathActive(pathname, adminHref);
 
   return (
     <aside
@@ -96,7 +98,7 @@ export function DesktopSidebar({
       <nav className="flex-1 space-y-1 overflow-y-auto p-2">
         {visibleNav.map((item) => {
           const fullHref = `${basePath}/${item.slug}`;
-          const isActive = pathname.startsWith(fullHref);
+          const isActive = isPathActive(pathname, fullHref);
           const Icon = navIcon(item.iconName);
           return (
             <Link
@@ -104,6 +106,7 @@ export function DesktopSidebar({
               href={fullHref}
               title={item.label}
               aria-label={item.label}
+              aria-current={isActive ? "page" : undefined}
               className={`${itemClass} ${isActive ? "bg-white text-lifeone-ink shadow-lifeone-card" : "text-lifeone-ink-2 hover:bg-white/70"}`}
             >
               <Icon
@@ -115,13 +118,14 @@ export function DesktopSidebar({
         })}
         {isAdmin && (
           <Link
-            href="/admin/users"
+            href={adminHref}
             title="Usuários"
             aria-label="Usuários"
-            className={`${itemClass} ${pathname.startsWith("/admin/users") ? "bg-white text-lifeone-ink shadow-lifeone-card" : "text-lifeone-ink-2 hover:bg-white/70"}`}
+            aria-current={isAdminActive ? "page" : undefined}
+            className={`${itemClass} ${isAdminActive ? "bg-white text-lifeone-ink shadow-lifeone-card" : "text-lifeone-ink-2 hover:bg-white/70"}`}
           >
             <Users
-              className={`h-5 w-5 shrink-0 ${pathname.startsWith("/admin/users") ? "text-lifeone-blue" : "text-lifeone-ink-3"}`}
+              className={`h-5 w-5 shrink-0 ${isAdminActive ? "text-lifeone-blue" : "text-lifeone-ink-3"}`}
             />
             <span className={labelClass}>Usuários</span>
           </Link>

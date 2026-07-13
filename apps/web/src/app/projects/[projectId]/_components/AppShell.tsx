@@ -5,7 +5,7 @@ import { useParams, usePathname, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { ProjectProvider } from '@/contexts/project-context';
 import { useAuth, type ModuleSlug } from '@/contexts/auth-context';
-import { getProjectNavModules, type ProjectType } from '@reformaflow/domain';
+import { getProjectNavModules, ProjectType } from '@reformaflow/domain';
 import { FinancialAgentWidget } from '@/components/agent/FinancialAgentWidget';
 import { DesktopSidebar } from './DesktopSidebar';
 import { MobileHeader } from './MobileHeader';
@@ -81,8 +81,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   const basePath = `/projects/${projectId}`;
-  const { secondary } = getMobilePrimary(project.type, visibleNav);
-  const hasMoreSheet = secondary.length > 0 || isAdmin;
+  const { primary, secondary } = getMobilePrimary(project.type, visibleNav);
+  const canLaunch = visibleNav.some((item) => item.module === 'expenses');
+  const hasMoreSheet = secondary.length > 0 || isAdmin || Boolean(user?.name);
 
   return (
     <ProjectProvider value={{ projectId: project.id, projectType: project.type, projectName: project.name }}>
@@ -122,14 +123,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <MobileTabBar
           basePath={basePath}
           pathname={pathname}
+          projectType={project.type as ProjectType}
+          primary={primary}
+          canLaunch={canLaunch}
           onOpenLaunch={() => setLaunchOpen(true)}
         />
 
-        <MobileLaunchSheetContainer
-          projectId={project.id}
-          open={launchOpen}
-          onClose={() => setLaunchOpen(false)}
-        />
+        {project.type === ProjectType.PESSOAL && canLaunch && (
+          <div className="md:hidden">
+            <MobileLaunchSheetContainer
+              projectId={project.id}
+              open={launchOpen}
+              onClose={() => setLaunchOpen(false)}
+            />
+          </div>
+        )}
       </div>
 
       {/* Copiloto Financeiro (desktop). No mobile a rota /maria assume esse papel. */}

@@ -38,9 +38,10 @@ módulos (abas) ficam disponíveis:
 | **CARRO** | Gestão do carro | Dashboard, Carro (dados), Contas recorrentes, Manutenção, Lembretes, Despesas |
 | **COMPRA** | Acompanhar uma compra grande (casa, carro etc.) | Dashboard, Despesas, Recebimentos, Fluxo de Caixa |
 
-> A lista de módulos por tipo vive em `packages/domain/src/config/project-features.ts`.
-> Módulos que não cabem na barra inferior do celular vão para a aba **"Mais"** —
-> nunca somem.
+> Os módulos e sua ordem de navegação por tipo vivem em
+> `packages/domain/src/config/module-navigator.ts`.
+> No celular, os módulos autorizados que não ficam na barra inferior são abertos
+> pelo botão **"Mais"** do cabeçalho — nunca somem.
 
 Um projeto **PESSOAL** é o **controlador universal do caixa**: é dele que se pode
 alocar orçamento para os outros projetos (Budget) e vincular despesas de outros
@@ -138,22 +139,22 @@ Ao entrar num projeto, aparece a **casca** comum a todos os módulos:
 
 - **Cabeçalho:** botão **"‹ Projetos"** (volta ao Hub), **chip do projeto** (ícone
   colorido + nome), **sino de notificações** e, no celular, o botão **"Mais"**.
-- **Barra inferior (celular):** mostra os **módulos primários** do tipo + o botão
-  central **"Maria"** (copiloto) + **"Mais"**. O item ativo fica destacado com a
-  **cor do tipo do projeto**.
-  - Módulos primários do **PESSOAL**: Cockpit, Visão Conta, Despesas. Os demais
-    módulos vão para a aba "Mais".
-  - Nos outros tipos, os primeiros módulos da navegação são os primários.
-- **Aba "Mais":** painel que abre de baixo com uma **grade de todos os outros
-  módulos** do projeto + (se for admin) atalho **"Usuários"** + botão **"Sair"**.
-- **Sidebar (desktop):** mesma navegação em coluna lateral.
+- **Barra inferior (celular):**
+  - No **PESSOAL**, mostra **"Hoje"**, **"Lançar"** no centro e **"Maria"**.
+  - Nos demais tipos, mostra os três primeiros módulos autorizados para a pessoa,
+    conforme a ordem de navegação do tipo.
+  - O item ativo usa a **cor de destaque do tipo do projeto**.
+- **Painel "Mais" (celular):** abre pelo botão do cabeçalho e reúne os demais
+  módulos autorizados + (se for admin) atalho **"Usuários"** + botão **"Sair"**.
+- **Sidebar (telas médias ou maiores):** apresenta a navegação autorizada em coluna
+  lateral.
 - **Permissões:** só aparecem os módulos que o usuário tem liberados; um módulo
   bloqueado por permissão nunca aparece na barra nem no "Mais".
 
-### 3.4 Copiloto "Maria" (botão central da barra)
-Assistente financeiro em chat flutuante. Abre/fecha pelo botão central escuro da
-barra inferior. Serve para tirar dúvidas e receber orientações sobre as finanças
-do usuário.
+### 3.4 Copiloto "Maria"
+No projeto **PESSOAL**, o atalho **"Maria"** da barra inferior abre o assistente
+financeiro em tela própria. Ele serve para tirar dúvidas e receber
+orientações sobre as finanças do usuário.
 
 ### 3.5 Notificações (sino)
 Mostra avisos e pendências do sistema. O contador no sino indica quantos itens não
