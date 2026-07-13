@@ -523,6 +523,12 @@ export function MovimentacoesSection({
 
             const isInvoiceRow = !isEntrada && item.kind === 'saida' && item.isInvoice;
             const canToggle = !isEntrada && item.kind === 'saida' && item.editavel && !item.isInvoice;
+            const canEditInvoicePayment =
+              !isEntrada &&
+              item.kind === 'saida' &&
+              item.isInvoice &&
+              item.editavel &&
+              !!item.id;
             // Parcela cross-project ainda PENDENTE: não é editável nem toggl-ável;
             // precisa ser QUITADA (gera espelho + concilia) para não sumir da Visão Conta.
             const isPendingForeignParcela =
@@ -532,7 +538,7 @@ export function MovimentacoesSection({
               item.parcelaIndex != null &&
               !!item.foreignExpenseId;
             // Saída editável (despesa PESSOAL) ou entrada (recebimento) → abre modal completo.
-            const canEdit = canToggle || (isEntrada && !!item.id);
+            const canEdit = canToggle || canEditInvoicePayment || (isEntrada && !!item.id);
             const projOrigem =
               item.kind === 'saida' && item.projetoOrigem && item.projetoOrigem.type !== 'PESSOAL'
                 ? item.projetoOrigem

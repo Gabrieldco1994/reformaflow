@@ -346,9 +346,11 @@ describe('MonthlyOverviewService.getAccountView', () => {
     const fatura = res.saidas.find((item: any) => item.forma === 'cartao');
     expect(fatura).toEqual(
       expect.objectContaining({
+        id: 'exp-fatura-pagamento',
         descricao: 'Fatura Nubank',
         valor: 7_000,
         realizado: true,
+        editavel: true,
       }),
     );
     expect(res.saidas.some((item: any) => /Pagamento fatura/i.test(item.descricao))).toBe(false);
