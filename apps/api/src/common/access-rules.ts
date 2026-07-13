@@ -1,41 +1,15 @@
-import { ModuleSlug } from './decorators/require-module.decorator';
+import {
+  TYPE_MODULES,
+  projectTypeHasModule,
+  userHasAnyModuleForType,
+} from '@reformaflow/domain';
 
-export const TYPE_MODULES: Record<string, ModuleSlug[]> = {
-  REFORMA: [
-    'dashboard',
-    'expenses',
-    'receipts',
-    'cashFlow',
-    'schedule',
-    'floorPlans',
-    'simulation',
-    'priceCompare',
-    'rooms',
-    'creditCards',
-    'pendencias',
-  ],
-  COMPRA: ['dashboard', 'expenses', 'receipts', 'cashFlow', 'creditCards'],
-  PESSOAL: ['dashboard', 'expenses', 'receipts', 'cashFlow', 'creditCards', 'bankAccounts', 'monthlyOverview'],
-  CASA: ['dashboard', 'recurringBills', 'maintenance', 'reminders', 'expenses'],
-  CARRO: ['dashboard', 'carInfo', 'recurringBills', 'maintenance', 'reminders', 'expenses'],
-  PLANTAS: ['dashboard', 'maintenance', 'reminders', 'plantsAi'],
-};
-
-export function projectTypeHasModule(
-  projectType: string,
-  slug: ModuleSlug,
-): boolean {
-  const allowed = TYPE_MODULES[projectType];
-  return Array.isArray(allowed) && allowed.includes(slug);
-}
-
-export function userHasAnyModuleForType(
-  projectType: string,
-  allowedModules: string[],
-): boolean {
-  const typeMods = TYPE_MODULES[projectType] ?? [];
-  return typeMods.some((m) => m !== 'dashboard' && allowedModules.includes(m));
-}
+// The per-project-type module gate now lives in @reformaflow/domain
+// (config/type-modules). Re-exported here so existing API importers keep their
+// import path unchanged AND the enforcing server gate (modules.guard →
+// projectTypeHasModule) shares ONE map with the web (auth-context →
+// userHasAnyModuleForType) — they can no longer drift apart (#98).
+export { TYPE_MODULES, projectTypeHasModule, userHasAnyModuleForType };
 
 /**
  * Pode CRIAR projetos do tipo informado?
