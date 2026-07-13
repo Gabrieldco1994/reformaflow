@@ -37,6 +37,7 @@ export default function YearView({
   const y = useMemo(() => deriveYear(data, year), [data, year]);
 
   const [catStatusMode, setCatStatusMode] = useState<'real' | 'realPlus'>('realPlus');
+  const [fluxoMode, setFluxoMode] = useState<'mensal' | 'acumuladaReal' | 'acumuladaRealPlus'>('mensal');
   const [catAberta, setCatAberta] = useState<string | null>(null);
 
   const yearEntries = useMemo(
@@ -97,8 +98,35 @@ export default function YearView({
         />
       </div>
 
-      <Card title="Fluxo de caixa mensal" hint="meses claros = projeção">
-        <FluxoCaixaAnualChart meses={y.meses} />
+      <Card
+        title={(
+          <div className="flex min-w-0 items-center gap-2">
+            <span>Fluxo de caixa mensal</span>
+            <span className="inline-flex items-center rounded-lg border border-[var(--ck-border)] bg-[var(--ck-surface-2)] p-0.5">
+              {([
+                ['mensal', 'Mensal'],
+                ['acumuladaReal', 'Acumulada real'],
+                ['acumuladaRealPlus', 'Real + planejada'],
+              ] as const).map(([mode, label]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setFluxoMode(mode)}
+                  className={`rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                    fluxoMode === mode
+                      ? 'bg-[var(--ck-accent)] text-white'
+                      : 'text-[var(--ck-muted)] hover:text-[var(--ck-text)]'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </span>
+          </div>
+        )}
+        hint="meses claros = projeção"
+      >
+        <FluxoCaixaAnualChart meses={y.meses} mode={fluxoMode} />
       </Card>
 
       <Card title="Evolução do patrimônio" hint={`base: ${fmtMoney(y.patrimonioInicioAno)}`}>

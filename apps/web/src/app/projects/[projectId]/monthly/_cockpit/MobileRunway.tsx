@@ -136,14 +136,14 @@ export default function MobileRunway({
         </svg>
       </div>
 
-      <div className="mt-3 grid grid-cols-6 gap-1">
+      <div className="mt-3 flex snap-x gap-2 overflow-x-auto pb-1">
         {deformed.map((row) => {
           const neg = row.saldoProjetado < 0;
           return (
             <div
               key={row.mes}
               data-testid={`runway-month-${row.mes}`}
-              className={`rounded-lg border px-1 py-1.5 text-center ${
+              className={`min-w-[84px] snap-start rounded-lg border px-2 py-1.5 text-center ${
                 neg
                   ? "border-[var(--ck-neg)]/40 bg-[var(--ck-neg)]/10"
                   : "border-[var(--ck-border)] bg-[var(--ck-surface-2)]"

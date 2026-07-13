@@ -359,6 +359,7 @@ export function NovaDespesaWizard({
               patch={patch}
               allowRecorrente={allowRecorrente}
               enabled={state.step === 'PAGAMENTO'}
+              totalCents={totals.totalFonteCents}
             />
           )}
           {state.step === 'ACAO' && (

@@ -5,8 +5,7 @@ import { mesLongo } from "./format";
 export type MobileCockpitView = "mes" | "ano";
 
 const AXIS_OPTIONS: Array<{ value: Eixo; label: string }> = [
-  { value: "competencia", label: "Gastei" },
-  { value: "caixa", label: "Vai sair" },
+  { value: "caixa", label: "Caixa" },
   { value: "geral", label: "Extrato" },
 ];
 
@@ -135,7 +134,7 @@ export default function MobileCockpitHeader({
         <div
           role="group"
           aria-label="Eixo de tempo"
-          className="grid grid-cols-3 rounded-xl border border-[var(--ck-border)] bg-[var(--ck-surface)] p-1"
+          className="grid grid-cols-2 rounded-xl border border-[var(--ck-border)] bg-[var(--ck-surface)] p-1"
         >
           {AXIS_OPTIONS.map((option) => (
             <button

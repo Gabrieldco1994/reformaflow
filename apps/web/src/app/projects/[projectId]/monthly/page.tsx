@@ -38,7 +38,7 @@ export default function CockpitPage() {
   const searchParams = useSearchParams();
   const { projectType } = useProject();
   const [view, setView] = useState<View>("mes");
-  const [eixo, setEixo] = useState<Eixo>("competencia");
+  const [eixo, setEixo] = useState<Eixo>("caixa");
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(() => searchParams.get("mes"));
 
@@ -54,8 +54,14 @@ export default function CockpitPage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const saved = window.localStorage.getItem("cockpit-eixo");
-    if (saved === "competencia" || saved === "caixa" || saved === "geral")
-      setEixo(saved);
+    if (saved === "geral") {
+      setEixo("geral");
+      return;
+    }
+    if (saved === "competencia" || saved === "caixa") {
+      setEixo("caixa");
+      return;
+    }
   }, []);
 
   const changeEixo = (e: Eixo) => {
