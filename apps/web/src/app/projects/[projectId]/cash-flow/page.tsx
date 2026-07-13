@@ -23,10 +23,20 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export default function CashFlowPage() {
-  const { projectId: PROJECT_ID } = useProject();
+  const { projectId: PROJECT_ID, projectType } = useProject();
+  const isPessoal = projectType === 'PESSOAL';
   const { data: entries = [], isLoading, error } = useQuery<CashFlowEntry[]>({
     queryKey: ['cash-flow', PROJECT_ID],
     queryFn: () => api.get(`/projects/${PROJECT_ID}/cash-flow`),
+  });
+
+  // PESSOAL: o saldo da verdade vem do §10 (account-view.caixaHoje), a MESMA fonte
+  // de /conta e /monthly — garante paridade entre as telas. caixaHoje é ponto-no-tempo
+  // (movimentos realizados), então independe do mês; buscamos sem `month`.
+  const { data: accountView } = useQuery<{ caixaHoje: number }>({
+    queryKey: ['account-view', PROJECT_ID],
+    queryFn: () => api.get(`/projects/${PROJECT_ID}/monthly-overview/account-view`),
+    enabled: isPessoal,
   });
 
   if (isLoading) {
@@ -58,8 +68,12 @@ export default function CashFlowPage() {
         </h1>
       </div>
 
-      {/* Topo: KPIs canônicos (saldo projetado, saldo realizado, entradas, saídas) */}
-      <CashFlowKpiHeader entries={entries} />
+      {/* Topo: KPIs canônicos. PESSOAL ⇒ headline é o caixa real do §10. */}
+      <CashFlowKpiHeader
+        entries={entries}
+        isPessoal={isPessoal}
+        caixaReal={accountView?.caixaHoje ?? null}
+      />
 
       {entries.length === 0 ? (
         <EmptyState
@@ -86,8 +100,8 @@ export default function CashFlowPage() {
                   <th className="text-left px-4 py-2 font-medium text-gray-600">Forma Pagto</th>
                   <th className="text-left px-4 py-2 font-medium text-gray-600">Parcela</th>
                   <th className="text-left px-4 py-2 font-medium text-gray-600">Status</th>
-                  <th className="text-right px-4 py-2 font-medium text-gray-600" title="Inclui planejados e previstos">Saldo Projetado</th>
-                  <th className="text-right px-4 py-2 font-medium text-gray-600" title="Apenas PAGO e EM_CAIXA">Saldo Realizado</th>
+                  <th className="text-right px-4 py-2 font-medium text-gray-600" title="Fluxo orçamentário acumulado — inclui planejados e previstos. Não é saldo bancário.">Fluxo Projetado</th>
+                  <th className="text-right px-4 py-2 font-medium text-gray-600" title="Fluxo orçamentário acumulado — apenas PAGO e EM_CAIXA. Não é saldo bancário.">Fluxo Realizado</th>
                 </tr>
               </thead>
               <tbody className="divide-y">

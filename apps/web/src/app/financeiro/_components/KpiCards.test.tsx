@@ -44,3 +44,24 @@ describe('financial glossary', () => {
     expect(trigger).not.toHaveAttribute('aria-describedby');
   });
 });
+
+describe('KpiCards — caixa do §10 (PESSOAL do tenant)', () => {
+  it('mostra Caixa e Projeções quando o §10 existe', () => {
+    render(<KpiCards data={overview} />);
+    // hint "Em conta hoje" é exclusivo do tile Caixa (o rótulo "Caixa" também vive no glossário).
+    expect(screen.getAllByText('Em conta hoje').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Projeção (30d)').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Projeção (90d)').length).toBeGreaterThan(0);
+  });
+
+  it('esconde Caixa e Projeções quando não há PESSOAL (§10 null), sem "R$ 0" falso', () => {
+    const semPessoal = { ...overview, caixaTotal: null, saldoProjetado30d: null, saldoProjetado90d: null };
+    render(<KpiCards data={semPessoal as any} />);
+    expect(screen.queryByText('Em conta hoje')).not.toBeInTheDocument();
+    expect(screen.queryByText('Projeção (30d)')).not.toBeInTheDocument();
+    expect(screen.queryByText('Projeção (90d)')).not.toBeInTheDocument();
+    // KPIs não derivados do §10 permanecem visíveis.
+    expect(screen.getAllByText('Pago no Mês').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Previsto (30 dias)').length).toBeGreaterThan(0);
+  });
+});
