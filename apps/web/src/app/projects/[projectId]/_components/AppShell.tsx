@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useParams, usePathname, useRouter } from 'next/navigation';
+import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { ProjectProvider } from '@/contexts/project-context';
 import { useAuth, type ModuleSlug } from '@/contexts/auth-context';
@@ -18,6 +18,7 @@ import type { NavModule, ProjectInfo } from '../_types';
 export function AppShell({ children }: { children: React.ReactNode }) {
   const params = useParams();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const router = useRouter();
   const projectId = params.projectId as string;
   const [project, setProject] = useState<ProjectInfo | null>(null);
@@ -37,6 +38,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setMobileOpen(false);
     setLaunchOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    if (!project) return;
+    window.localStorage.setItem('rf_last_project_id', project.id);
+  }, [project]);
 
   const navItems = useMemo<NavModule[]>(
     () => (project ? getProjectNavModules(project.type as ProjectType) : []),
@@ -72,6 +78,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     router.replace('/login');
   }
 
+  const projectType = project?.type as ProjectType | undefined;
+  const supportsMobileCockpit = projectType
+    ? hasFeature(projectType, 'monthlyOverview')
+    : false;
+  const canLaunch =
+    supportsMobileCockpit && visibleNav.some((item) => item.module === 'expenses');
+
+  useEffect(() => {
+    if (!canLaunch) return;
+    if (searchParams.get('launch') !== '1') return;
+    setLaunchOpen(true);
+  }, [canLaunch, searchParams]);
+
   if (loading || !project) {
     return (
       <div className="flex h-screen items-center justify-center bg-white">
@@ -81,11 +100,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   const basePath = `/projects/${projectId}`;
-  const projectType = project.type as ProjectType;
+  const resolvedProjectType = project.type as ProjectType;
   const { primary, secondary } = getMobilePrimary(project.type, visibleNav);
-  const supportsMobileCockpit = hasFeature(projectType, 'monthlyOverview');
-  const canLaunch =
-    supportsMobileCockpit && visibleNav.some((item) => item.module === 'expenses');
   const hasMoreSheet = secondary.length > 0 || isAdmin || Boolean(user?.name);
 
   return (
@@ -126,7 +142,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <MobileTabBar
           basePath={basePath}
           pathname={pathname}
-          projectType={projectType}
+          projectType={resolvedProjectType}
           primary={primary}
           canLaunch={canLaunch}
           onOpenLaunch={() => setLaunchOpen(true)}

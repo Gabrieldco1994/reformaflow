@@ -37,11 +37,11 @@ function LoginForm() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const rawNext = search.get('next') || '/';
+  const rawNext = search.get('next') || '/app';
   const next = (() => {
-    if (!rawNext.startsWith('/')) return '/';
-    if (rawNext.startsWith('/login')) return '/';
-    if (rawNext.startsWith('/no-permission')) return '/';
+    if (!rawNext.startsWith('/')) return '/app';
+    if (rawNext.startsWith('/login')) return '/app';
+    if (rawNext.startsWith('/no-permission')) return '/app';
     return rawNext;
   })();
 

@@ -28,6 +28,10 @@ interface CreditCardBalance {
   last4: string;
 }
 
+export function dedupeByLast4<T extends { last4: string }>(items: T[]): T[] {
+  return Array.from(new Map(items.map((item) => [item.last4, item])).values());
+}
+
 function accountName(account: BankAccountBalance): string {
   return account.nickname?.trim() || account.institution;
 }
@@ -73,12 +77,14 @@ export default function SaldosWidget({
   eixo,
   selectedCardLast4,
   onSelectCard,
+  className,
 }: {
   projectId: string;
   entries: MonthlyEntry[];
   eixo: Eixo;
   selectedCardLast4?: string | null;
   onSelectCard?: (cardLast4: string | null) => void;
+  className?: string;
 }) {
   const [internalSelectedCard, setInternalSelectedCard] = useState<string | null>(null);
   const selectedCard = selectedCardLast4 !== undefined ? selectedCardLast4 : internalSelectedCard;
@@ -107,7 +113,7 @@ export default function SaldosWidget({
   );
 
   const cardRows = useMemo(() => {
-    const cards = creditCards.data ?? [];
+    const cards = dedupeByLast4(creditCards.data ?? []);
     return cards
       .map((c) => ({ card: c, gasto: spend.cards.get(c.last4) ?? 0 }))
       .filter((r) => r.gasto > 0)
@@ -130,7 +136,7 @@ export default function SaldosWidget({
   }, [cardRows, selectedCard, selectedCardLast4, onSelectCard]);
 
   const accountRows = useMemo(() => {
-    const accounts = bankAccounts.data ?? [];
+    const accounts = dedupeByLast4(bankAccounts.data ?? []);
     return accounts
       .map((a) => ({ account: a, gasto: spend.accounts.get(a.last4) ?? 0 }))
       .filter((r) => r.gasto > 0)
@@ -143,10 +149,13 @@ export default function SaldosWidget({
   const showAccounts = accountRows.length > 0;
   const showCards = cardRows.length > 0;
   const hint = eixo === 'caixa' ? 'no mês, por vencimento' : 'no mês, por compra';
+  const totalCards = filteredCardRows.reduce((sum, row) => sum + row.gasto, 0);
+  const totalAccounts = accountRows.reduce((sum, row) => sum + row.gasto, 0);
+  const totalGeral = totalCards + totalAccounts;
 
   if (!showAccounts && !showCards) {
     return (
-      <Card title="Quanto gastei" hint={hint} className="ck-enter mb-5">
+      <Card title="Quanto gastei" hint={hint} className={`ck-enter h-full ${className ?? ''}`.trim()}>
         <p className="text-[13px] text-[var(--ck-muted)]">Nenhum gasto por cartão ou conta neste mês.</p>
       </Card>
     );
@@ -157,11 +166,11 @@ export default function SaldosWidget({
       title="Quanto gastei"
       hint={hint}
       info="Quanto foi gasto neste mês em cada cartão e conta, respeitando o filtro de mês e o eixo selecionado (Gastei = por compra; Vai sair = por vencimento). Pagamento de fatura não conta (não é consumo)."
-      className="ck-enter mb-5"
+      className={`ck-enter h-full ${className ?? ''}`.trim()}
     >
       <div className="grid gap-4 lg:grid-cols-2">
         {showCards && (
-          <section className="space-y-2">
+          <section className="flex h-full flex-col gap-2">
             <SectionHeader href={`/projects/${projectId}/credit-cards`} icon={<CreditCard className="w-3.5 h-3.5" />} title="Cartões" />
             {cardRows.length > 1 && (
               <div className="flex flex-wrap gap-2">
@@ -192,7 +201,7 @@ export default function SaldosWidget({
                 ))}
               </div>
             )}
-            <div className="space-y-2">
+            <div className="flex-1 space-y-2">
               {filteredCardRows.length === 0 ? (
                 <p className="text-xs text-[var(--ck-muted)]">Nenhum gasto no cartão selecionado neste mês.</p>
               ) : (
@@ -224,13 +233,13 @@ export default function SaldosWidget({
         )}
 
         {showAccounts && (
-          <section className="space-y-2">
+          <section className="flex h-full flex-col gap-2">
             <SectionHeader
               href={`/projects/${projectId}/bank-accounts`}
               icon={<Landmark className="w-3.5 h-3.5" />}
               title="Contas"
             />
-            <div className="space-y-2">
+            <div className="flex-1 space-y-2">
               {accountRows.map(({ account, gasto }) => (
                 <div
                   key={account.id}
@@ -257,6 +266,20 @@ export default function SaldosWidget({
             </div>
           </section>
         )}
+      </div>
+      <div className="mt-4 grid gap-2 border-t border-[var(--ck-border)] pt-3 sm:grid-cols-3">
+        <div className="rounded-lg bg-[var(--ck-surface-2)] px-3 py-2">
+          <p className="text-[10px] uppercase tracking-[0.16em] text-[var(--ck-muted)]">Cartões</p>
+          <p className="font-geist tabular-nums text-sm font-semibold text-[var(--ck-text)]">{fmtMoneyExact(totalCards)}</p>
+        </div>
+        <div className="rounded-lg bg-[var(--ck-surface-2)] px-3 py-2">
+          <p className="text-[10px] uppercase tracking-[0.16em] text-[var(--ck-muted)]">Contas</p>
+          <p className="font-geist tabular-nums text-sm font-semibold text-[var(--ck-text)]">{fmtMoneyExact(totalAccounts)}</p>
+        </div>
+        <div className="rounded-lg bg-[var(--ck-surface-2)] px-3 py-2">
+          <p className="text-[10px] uppercase tracking-[0.16em] text-[var(--ck-muted)]">Total</p>
+          <p className="font-geist tabular-nums text-sm font-semibold text-[var(--ck-text)]">{fmtMoneyExact(totalGeral)}</p>
+        </div>
       </div>
     </Card>
   );
