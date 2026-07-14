@@ -11,22 +11,32 @@ import {
 // userHasAnyModuleForType) — they can no longer drift apart (#98).
 export { TYPE_MODULES, projectTypeHasModule, userHasAnyModuleForType };
 
-/**
- * Pode CRIAR projetos do tipo informado?
- * - ADMIN/OWNER: sempre.
- * - allowedProjectTypes não-vazio: só os tipos listados (controle explícito).
- * - allowedProjectTypes vazio: deriva dos módulos (comportamento atual).
- */
-export function userCanCreateProjectType(
+/** User authorization requires an explicit type grant and a module for that type. */
+export function userCanAccessProjectType(
   role: string | undefined,
   allowedProjectTypes: string[] | undefined,
   allowedModules: string[],
   projectType: string,
 ): boolean {
   if (isFullAccessRole(role)) return true;
-  const types = allowedProjectTypes ?? [];
-  if (types.length > 0) return types.includes(projectType);
-  return userHasAnyModuleForType(projectType, allowedModules);
+  const types = Array.isArray(allowedProjectTypes) ? allowedProjectTypes : [];
+  return (
+    types.includes(projectType) &&
+    userHasAnyModuleForType(projectType, allowedModules)
+  );
+}
+
+export const userCanCreateProjectType = userCanAccessProjectType;
+
+/** Returns the explicitly granted types that still have a corresponding module. */
+export function accessibleProjectTypes(
+  role: string | undefined,
+  allowedProjectTypes: string[] | undefined,
+  allowedModules: string[],
+): string[] | null {
+  if (isFullAccessRole(role)) return null;
+  const types = Array.isArray(allowedProjectTypes) ? allowedProjectTypes : [];
+  return types.filter((type) => userHasAnyModuleForType(type, allowedModules));
 }
 
 /** Papéis com acesso total (veem todos os projetos, ignoram restrição por projeto). */
@@ -64,4 +74,39 @@ export function accessibleProjectScope(
   const list = allowedProjects ?? [];
   if (list.length === 0) return null;
   return list;
+}
+
+interface ProjectScopeReader {
+  project: {
+    findMany(args: {
+      where: Record<string, unknown>;
+      select: { id: true };
+    }): Promise<Array<{ id: string }>>;
+  };
+}
+
+/** Resolves aggregate visibility to concrete IDs, including type revocations. */
+export async function resolveAccessibleProjectScope(
+  prisma: ProjectScopeReader,
+  tenantId: string,
+  role: string | undefined,
+  allowedProjects: string[] | undefined,
+  allowedProjectTypes: string[] | undefined,
+  allowedModules: string[],
+): Promise<string[] | null> {
+  if (isFullAccessRole(role)) return null;
+  const types =
+    accessibleProjectTypes(role, allowedProjectTypes, allowedModules) ?? [];
+  if (types.length === 0) return [];
+  const projectIds = Array.isArray(allowedProjects) ? allowedProjects : [];
+  const projects = await prisma.project.findMany({
+    where: {
+      tenantId,
+      deletedAt: null,
+      type: { in: types },
+      ...(projectIds.length > 0 ? { id: { in: projectIds } } : {}),
+    },
+    select: { id: true },
+  });
+  return projects.map((project) => project.id);
 }

@@ -2,8 +2,12 @@ import { Controller, Get, UseInterceptors } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CreditCardService } from './credit-card.service';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
-import { CurrentTenant, CurrentUser } from '../common/decorators/tenant.decorator';
-import { accessibleProjectScope } from '../common/access-rules';
+import {
+  CurrentTenant,
+  CurrentUser,
+} from '../common/decorators/tenant.decorator';
+import { resolveAccessibleProjectScope } from '../common/access-rules';
+import { PrismaService } from '../prisma/prisma.service';
 
 /**
  * Lista cartões do tenant inteiro (independente de projeto).
@@ -14,17 +18,31 @@ import { accessibleProjectScope } from '../common/access-rules';
 @UseInterceptors(TenantInterceptor)
 @Controller('tenant/credit-cards')
 export class CreditCardTenantController {
-  constructor(private readonly service: CreditCardService) {}
+  constructor(
+    private readonly service: CreditCardService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'Listar todos os cartões do tenant' })
-  list(
+  async list(
     @CurrentTenant() tenantId: string,
-    @CurrentUser() user: { role: string; allowedProjects?: string[] },
+    @CurrentUser()
+    user: {
+      role: string;
+      allowedProjects?: string[];
+      allowedProjectTypes?: string[];
+      allowedModules?: string[];
+    },
   ) {
-    return this.service.listCardsTenant(
+    const scope = await resolveAccessibleProjectScope(
+      this.prisma,
       tenantId,
-      accessibleProjectScope(user.role, user.allowedProjects),
+      user.role,
+      user.allowedProjects,
+      user.allowedProjectTypes,
+      user.allowedModules ?? [],
     );
+    return this.service.listCardsTenant(tenantId, scope);
   }
 }

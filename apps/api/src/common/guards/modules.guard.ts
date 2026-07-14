@@ -8,7 +8,11 @@ import {
 import { Reflector } from '@nestjs/core';
 import { MODULE_KEY, ModuleSlug } from '../decorators/require-module.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
-import { projectTypeHasModule, isFullAccessRole } from '../access-rules';
+import {
+  projectTypeHasModule,
+  isFullAccessRole,
+  userCanAccessProjectType,
+} from '../access-rules';
 
 @Injectable()
 export class ModulesGuard implements CanActivate {
@@ -48,6 +52,17 @@ export class ModulesGuard implements CanActivate {
         select: { type: true },
       });
       if (!project) throw new NotFoundException('Projeto não encontrado');
+      if (
+        !isAdmin &&
+        !userCanAccessProjectType(
+          user.role,
+          user.allowedProjectTypes,
+          user.allowedModules ?? [],
+          project.type,
+        )
+      ) {
+        throw new ForbiddenException('Sem permissão para este tipo de projeto');
+      }
       if (!projectTypeHasModule(project.type, required)) {
         throw new ForbiddenException(
           `Módulo "${required}" não disponível em projetos do tipo "${project.type}"`,
