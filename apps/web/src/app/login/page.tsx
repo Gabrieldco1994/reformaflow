@@ -2,31 +2,12 @@
 
 export const dynamic = 'force-dynamic';
 
-import { useState, Suspense } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { useAuth } from '@/contexts/auth-context';
-
-function LifeOneLogo() {
-  return (
-    <div className="flex items-center gap-3">
-      <svg width="44" height="44" viewBox="0 0 48 48" fill="none" aria-hidden>
-        <defs>
-          <linearGradient id="lifeoneTileLogin" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
-            <stop stopColor="#1E7BFF" />
-            <stop offset="1" stopColor="#0A5AD0" />
-          </linearGradient>
-        </defs>
-        <rect x="1" y="1" width="46" height="46" rx="13" fill="url(#lifeoneTileLogin)" />
-        <path d="M12 31 L20 23 L27 27 L35 15" fill="none" stroke="#FFFFFF" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
-        <circle cx="35" cy="15" r="4.2" fill="#FFFFFF" />
-        <circle cx="35" cy="15" r="2.1" fill="#0A6CF0" />
-      </svg>
-      <span className="font-geist text-[28px] font-bold tracking-[-0.03em] text-lifeone-ink">
-        Life<span className="text-lifeone-blue">One</span>
-      </span>
-    </div>
-  );
-}
+import { LifeOneLogo } from '@/components/LifeOneLogo';
+import { api } from '@/lib/api';
 
 function LoginForm() {
   const router = useRouter();
@@ -36,6 +17,15 @@ function LoginForm() {
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [registerEnabled, setRegisterEnabled] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    api.get<{ registerEnabled: boolean }>('/auth/config')
+      .then((config) => { if (active) setRegisterEnabled(config.registerEnabled === true); })
+      .catch(() => { if (active) setRegisterEnabled(false); });
+    return () => { active = false; };
+  }, []);
 
   const rawNext = search.get('next') || '/app';
   const next = (() => {
@@ -138,6 +128,15 @@ function LoginForm() {
           >
             {submitting ? 'Entrando…' : 'Entrar'}
           </button>
+
+          {registerEnabled && (
+            <div className="border-t border-lifeone-hairline pt-5 text-center">
+              <p className="text-[13px] text-lifeone-ink-3">Ainda não usa a LifeOne?</p>
+              <Link href="/register" className="mt-2 inline-flex min-h-11 items-center justify-center rounded-[10px] px-4 text-[14px] font-semibold text-lifeone-blue hover:bg-lifeone-info">
+                Criar minha conta
+              </Link>
+            </div>
+          )}
         </form>
 
         <p className="text-center text-[11px] text-lifeone-ink-4 mt-6">

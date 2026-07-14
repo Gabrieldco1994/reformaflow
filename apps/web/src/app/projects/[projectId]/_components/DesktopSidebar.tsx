@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Users,
+  Settings,
   LogOut,
 } from "lucide-react";
 import { NotificationsBell } from "@/components/notifications/NotificationsBell";
@@ -60,6 +61,7 @@ export function DesktopSidebar({
   const itemClass = `flex min-h-11 items-center rounded-lg text-sm font-medium transition-colors ${collapsed ? "justify-center px-2" : "gap-3 px-3"}`;
   const adminHref = "/admin/users";
   const isAdminActive = isPathActive(pathname, adminHref);
+  const settingsHref = "/settings";
 
   return (
     <aside
@@ -116,6 +118,17 @@ export function DesktopSidebar({
             </Link>
           );
         })}
+        {!isAdmin && (
+          <Link
+            href={settingsHref}
+            title="Configurações"
+            aria-label="Configurações"
+            className={`${itemClass} text-lifeone-ink-2 hover:bg-white/70`}
+          >
+            <Settings className="h-5 w-5 shrink-0 text-lifeone-ink-3" />
+            <span className={labelClass}>Configurações</span>
+          </Link>
+        )}
         {isAdmin && (
           <Link
             href={adminHref}

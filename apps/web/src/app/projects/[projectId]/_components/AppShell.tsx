@@ -39,10 +39,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setLaunchOpen(false);
   }, [pathname]);
 
+  const canAccessProject = Boolean(
+    project && hasProjectType(project.type) && hasProjectAccess(project.id),
+  );
+
   useEffect(() => {
-    if (!project) return;
+    if (authLoading || !project || !canAccessProject) return;
     window.localStorage.setItem('rf_last_project_id', project.id);
-  }, [project]);
+  }, [authLoading, canAccessProject, project]);
 
   const navItems = useMemo<NavModule[]>(
     () => (project ? getProjectNavModules(project.type as ProjectType) : []),
@@ -91,7 +95,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setLaunchOpen(true);
   }, [canLaunch, searchParams]);
 
-  if (loading || !project) {
+  if (authLoading || loading || !project || !canAccessProject) {
     return (
       <div className="flex h-screen items-center justify-center bg-white">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-darc-red"></div>
