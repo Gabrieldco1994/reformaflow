@@ -15,12 +15,15 @@ datasource db {
 model Tenant {
   id        String    @id @default(cuid())
   name      String
+  expiresAt DateTime? @map("expires_at")
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
   users    User[]
   projects Project[]
+  agentDailyQuotas AgentDailyQuota[]
+  demoSeeds DemoSeed[]
 
   @@map("tenants")
 }
@@ -32,6 +35,7 @@ model User {
   username            String
   name                String
   role                String    @default("USER")
+  isGuest             Boolean   @default(false) @map("is_guest")
   passwordHash        String?   @map("password_hash")
   allowedModules      String    @default("[]") @map("allowed_modules")
   allowedProjects     String    @default("[]") @map("allowed_projects") // IDs de projetos liberados (JSON). Vazio = sem restrição por projeto (vê por tipo/módulo). Não-vazio = só estes projetos.
@@ -44,6 +48,38 @@ model User {
 
   @@unique([tenantId, username])
   @@map("users")
+}
+
+model AgentDailyQuota {
+  id        String    @id @default(cuid())
+  tenantId  String    @map("tenant_id")
+  dayKey    String    @map("day_key")
+  count     Int       @default(0)
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, dayKey])
+  @@map("agent_daily_quotas")
+}
+
+model DemoSeed {
+  id               String    @id @default(cuid())
+  tenantId         String    @unique @map("tenant_id")
+  version          Int
+  status           String
+  personalProjectId String?   @map("personal_project_id")
+  reformaProjectId  String?   @map("reforma_project_id")
+  errorMessage     String?   @map("error_message")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  deletedAt        DateTime? @map("deleted_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@map("demo_seeds")
 }
 
 model Project {

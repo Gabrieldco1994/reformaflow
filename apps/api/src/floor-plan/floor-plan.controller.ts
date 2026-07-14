@@ -43,107 +43,119 @@ export class FloorPlanController {
   @Get(':id')
   async findOne(
     @Param('id') id: string,
+    @Param('projectId') projectId: string,
     @CurrentTenant() tenantId: string,
   ) {
-    return this.service.findOne(id, tenantId);
+    return this.service.findOne(id, projectId, tenantId);
   }
 
   @Post(':id/reanalyze')
   async reanalyze(
     @Param('id') id: string,
+    @Param('projectId') projectId: string,
     @CurrentTenant() tenantId: string,
   ) {
-    return this.service.reanalyze(id, tenantId);
+    return this.service.reanalyze(id, projectId, tenantId);
   }
 
   @Patch(':id')
   async update(
     @Param('id') id: string,
+    @Param('projectId') projectId: string,
     @CurrentTenant() tenantId: string,
     @Body() body: { name?: string; cropBounds?: string | null },
   ) {
-    return this.service.update(id, tenantId, body);
+    return this.service.update(id, projectId, tenantId, body);
   }
 
   @Delete(':id')
   async delete(
     @Param('id') id: string,
+    @Param('projectId') projectId: string,
     @CurrentTenant() tenantId: string,
   ) {
-    return this.service.delete(id, tenantId);
+    return this.service.delete(id, projectId, tenantId);
   }
 
   // Floor plan room markers
   @Post(':id/rooms')
   async createRoom(
     @Param('id') floorPlanId: string,
+    @Param('projectId') projectId: string,
     @CurrentTenant() tenantId: string,
     @Body() body: { label: string; bounds: string; color?: string; roomId?: string },
   ) {
-    return this.service.createRoom(floorPlanId, tenantId, body);
+    return this.service.createRoom(floorPlanId, projectId, tenantId, body);
   }
 
   @Patch('rooms/:roomMarkerId')
   async updateRoom(
     @Param('roomMarkerId') roomMarkerId: string,
+    @Param('projectId') projectId: string,
     @CurrentTenant() tenantId: string,
     @Body()
     body: { label?: string; bounds?: string; color?: string; roomId?: string | null },
   ) {
-    return this.service.updateRoom(roomMarkerId, tenantId, body);
+    return this.service.updateRoom(roomMarkerId, projectId, tenantId, body);
   }
 
   @Delete('rooms/:roomMarkerId')
   async deleteRoom(
     @Param('roomMarkerId') roomMarkerId: string,
+    @Param('projectId') projectId: string,
     @CurrentTenant() tenantId: string,
   ) {
-    return this.service.deleteRoom(roomMarkerId, tenantId);
+    return this.service.deleteRoom(roomMarkerId, projectId, tenantId);
   }
 
   // Room images
   @Post('room-images/:roomId')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 15 * 1024 * 1024 } }))
   async addRoomImage(
+    @Param('projectId') projectId: string,
     @Param('roomId') roomId: string,
     @CurrentTenant() tenantId: string,
     @UploadedFile() file: Express.Multer.File,
     @Body('caption') caption?: string,
   ) {
-    return this.service.addRoomImage(roomId, tenantId, file, caption);
+    return this.service.addRoomImage(projectId, roomId, tenantId, file, caption);
   }
 
   @Get('room-images/:roomId')
   async getRoomImages(
+    @Param('projectId') projectId: string,
     @Param('roomId') roomId: string,
     @CurrentTenant() tenantId: string,
   ) {
-    return this.service.getRoomImages(roomId, tenantId);
+    return this.service.getRoomImages(projectId, roomId, tenantId);
   }
 
   @Delete('room-images/image/:imageId')
   async deleteRoomImage(
+    @Param('projectId') projectId: string,
     @Param('imageId') imageId: string,
     @CurrentTenant() tenantId: string,
   ) {
-    return this.service.deleteRoomImage(imageId, tenantId);
+    return this.service.deleteRoomImage(projectId, imageId, tenantId);
   }
 
   // Markers (Raio-X)
   @Post(':id/markers')
   async createMarker(
     @Param('id') floorPlanId: string,
+    @Param('projectId') projectId: string,
     @CurrentTenant() tenantId: string,
     @Body() body: { expenseId: string; bounds: string },
   ) {
-    return this.service.createMarker(floorPlanId, tenantId, body);
+    return this.service.createMarker(floorPlanId, projectId, tenantId, body);
   }
 
   @Delete('markers/:markerId')
   async deleteMarker(
     @Param('markerId') markerId: string,
+    @Param('projectId') projectId: string,
     @CurrentTenant() tenantId: string,
   ) {
-    return this.service.deleteMarker(markerId, tenantId);
+    return this.service.deleteMarker(markerId, projectId, tenantId);
   }
 }
