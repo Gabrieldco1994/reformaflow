@@ -73,12 +73,14 @@ export default function SaldosWidget({
   eixo,
   selectedCardLast4,
   onSelectCard,
+  className,
 }: {
   projectId: string;
   entries: MonthlyEntry[];
   eixo: Eixo;
   selectedCardLast4?: string | null;
   onSelectCard?: (cardLast4: string | null) => void;
+  className?: string;
 }) {
   const [internalSelectedCard, setInternalSelectedCard] = useState<string | null>(null);
   const selectedCard = selectedCardLast4 !== undefined ? selectedCardLast4 : internalSelectedCard;
@@ -146,7 +148,7 @@ export default function SaldosWidget({
 
   if (!showAccounts && !showCards) {
     return (
-      <Card title="Quanto gastei" hint={hint} className="ck-enter mb-5">
+      <Card title="Quanto gastei" hint={hint} className={`ck-enter h-full ${className ?? ''}`.trim()}>
         <p className="text-[13px] text-[var(--ck-muted)]">Nenhum gasto por cartão ou conta neste mês.</p>
       </Card>
     );
@@ -157,7 +159,7 @@ export default function SaldosWidget({
       title="Quanto gastei"
       hint={hint}
       info="Quanto foi gasto neste mês em cada cartão e conta, respeitando o filtro de mês e o eixo selecionado (Gastei = por compra; Vai sair = por vencimento). Pagamento de fatura não conta (não é consumo)."
-      className="ck-enter mb-5"
+      className={`ck-enter h-full ${className ?? ''}`.trim()}
     >
       <div className="grid gap-4 lg:grid-cols-2">
         {showCards && (

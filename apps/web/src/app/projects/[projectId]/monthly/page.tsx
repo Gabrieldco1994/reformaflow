@@ -312,18 +312,20 @@ export default function CockpitPage() {
         )}
 
         {viewData && !isLoading && view === "mes" && eixo !== "geral" && (
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-5 items-start">
+          <div className="mb-5 grid grid-cols-1 items-stretch gap-4 xl:grid-cols-2">
             <SaldosWidget
               projectId={projectId}
               entries={monthEntries ?? []}
               eixo={eixo}
               selectedCardLast4={selectedCardLast4}
               onSelectCard={setSelectedCardLast4}
+              className="h-full"
             />
             <ComprometimentoFuturo
               rows={comprometimentoRows}
               selectedCardLast4={selectedCardLast4}
               onSelectCard={setSelectedCardLast4}
+              className="h-full"
             />
           </div>
         )}
@@ -367,6 +369,7 @@ export default function CockpitPage() {
                 projectId={projectId}
                 projectType={projectType}
                 eixo={eixo}
+                runwaySerie={dreOverview?.anual?.saldoAcumuladoSerie}
                 metasProgress={metasProgress}
               />
             )
