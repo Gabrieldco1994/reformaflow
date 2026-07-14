@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import dynamic from 'next/dynamic';
 import { SlidersHorizontal, Target } from 'lucide-react';
 import type { MonthlyOverviewResponse, MonthlyEntry } from '../_types';
 import type { DreSaldoAcumuladoRow } from '../../dre/_types';
@@ -14,21 +13,15 @@ import { fmtMoney } from './format';
 import { deriveMonth, buildSaldoSeries, saldoProjetado } from './derive';
 import CategoriasBarras from './CategoriasBarras';
 import ArvoreGastos from './ArvoreGastos';
-import { DesktopRail } from './DesktopRail';
 import { RunwayScenario } from './RunwayScenario';
 import type { Eixo } from './EixoToggle';
-
-const SaldoMesChart = dynamic(() => import('./SaldoMesChart'), {
-  ssr: false,
-  loading: () => <div className="h-[280px] rounded-xl bg-[var(--ck-surface-2)] animate-pulse" />,
-});
+const ChartSkeleton = () => <div className="h-[320px] rounded-xl bg-[var(--ck-surface-2)] animate-pulse" />;
 
 export default function MonthView({
   data,
   monthKey,
   entries,
   projectId,
-  projectType,
   eixo,
   runwaySerie,
   metasProgress = [],
@@ -37,8 +30,6 @@ export default function MonthView({
   monthKey?: string;
   entries?: MonthlyEntry[];
   projectId?: string;
-  /** Usado só pelo `DesktopRail` (opções de despesa do launcher); cockpit é PESSOAL-only. */
-  projectType?: string;
   eixo?: Eixo;
   /** Série anual de saldo acumulado (`dre-overview`) para a visão "vai até dezembro". */
   runwaySerie?: DreSaldoAcumuladoRow[];
@@ -70,7 +61,20 @@ export default function MonthView({
             ? `começa no caixa real · inclui cartão (ainda não debitado)`
             : `dia ${m.hoje} de ${m.diasNoMes}`}
         >
-          <SaldoMesChart serie={serie} hoje={m.hoje} />
+          <div suppressHydrationWarning>
+            {typeof window === 'undefined' ? (
+              <ChartSkeleton />
+            ) : (
+              <RunwayScenario
+                dailySerie={serie}
+                hoje={m.hoje}
+                runwaySerie={runwaySerie}
+                currentMonth={currentMonth}
+                ritmo={ritmo}
+                ritmoBase={m.ritmoDiario}
+              />
+            )}
+          </div>
           <div className="mt-4 rounded-xl border border-[var(--ck-border)] bg-[var(--ck-surface-2)] p-3">
             <div className="flex items-center justify-between gap-2 mb-2">
               <label className="text-[11px] uppercase tracking-wider text-[var(--ck-muted)] flex items-center gap-1.5">
@@ -108,18 +112,12 @@ export default function MonthView({
               </span>
             </div>
           </div>
-          {runwaySerie && runwaySerie.length > 0 && (
-            <div className="mt-4 border-t border-[var(--ck-border)] pt-4">
-              <RunwayScenario serie={runwaySerie} currentMonth={currentMonth} />
-            </div>
-          )}
         </Card>
         {projectId && (
-          <div className="flex h-full flex-col gap-4">
-            <DesktopRail projectId={projectId} projectType={projectType ?? 'PESSOAL'} />
-            <Card className="flex-1" title="Saúde financeira e metas do mês">
-              <div className="grid grid-cols-1 gap-4">
-                <section aria-label="Saúde financeira" className="space-y-2">
+          <Card title="Saúde financeira e metas do mês">
+            <div className="grid grid-cols-1 gap-4">
+              <section aria-label="Saúde financeira" className="space-y-2">
+                <div className="rounded-xl border border-[var(--ck-border)] bg-[var(--ck-surface-2)] p-3">
                   <div className="flex items-baseline justify-between gap-2">
                     <p className="text-[11px] text-[var(--ck-muted)]">Reserva de emergência</p>
                     <p className={`text-sm font-geist tabular-nums ${atingiuReserva ? 'text-[var(--ck-pos)]' : 'text-[var(--ck-alert)]'}`}>
@@ -134,11 +132,13 @@ export default function MonthView({
                       <>Faltam <strong className="text-[var(--ck-text)]">{faltamReserva.toFixed(1).replace('.', ',')}</strong> meses para a meta.</>
                     )}
                   </p>
-                </section>
+                </div>
+              </section>
 
-                <section aria-label="Metas do mês" className="space-y-2">
+              <section aria-label="Metas do mês" className="space-y-2">
+                <div className="rounded-xl border border-[var(--ck-border)] bg-[var(--ck-surface-2)] p-3">
                   {metasProgress.length === 0 ? (
-                    <div className="flex flex-col items-center gap-2 py-1 text-center">
+                    <div className="flex flex-col items-center gap-2 py-1 text-center min-h-[132px] justify-center">
                       <Target className="h-5 w-5 text-[var(--ck-muted)]" />
                       <p className="text-xs text-[var(--ck-muted)]">Nenhuma meta definida ainda para este mês.</p>
                       <Link
@@ -178,10 +178,10 @@ export default function MonthView({
                       </div>
                     </>
                   )}
-                </section>
-              </div>
-            </Card>
-          </div>
+                </div>
+              </section>
+            </div>
+          </Card>
         )}
       </div>
 
