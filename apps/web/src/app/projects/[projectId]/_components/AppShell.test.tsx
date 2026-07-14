@@ -121,6 +121,35 @@ describe("AppShell mobile navigation orchestration", () => {
     mocks.logout.mockResolvedValue(undefined);
   });
 
+  it("blocks direct navigation when the project type objective was revoked", async () => {
+    mocks.apiGet.mockResolvedValue(project(ProjectType.CARRO));
+    mocks.hasModule.mockReturnValue(true);
+    mocks.hasProjectType.mockReturnValue(false);
+
+    render(<AppShell>Conteúdo revogado</AppShell>);
+
+    await screen.findByText("Conteúdo revogado");
+    await vi.waitFor(() => {
+      expect(mocks.router.replace).toHaveBeenCalledWith("/no-permission");
+    });
+    expect(mocks.hasProjectType).toHaveBeenCalledWith(ProjectType.CARRO);
+  });
+
+  it("blocks a forged direct module URL even for an otherwise permitted project", async () => {
+    mocks.pathname = "/projects/project-1/expenses";
+    mocks.apiGet.mockResolvedValue(project(ProjectType.CASA));
+    mocks.hasModule.mockImplementation(
+      (module: string) => module !== "expenses",
+    );
+
+    render(<AppShell>Despesas diretas</AppShell>);
+
+    await screen.findByText("Despesas diretas");
+    await vi.waitFor(() => {
+      expect(mocks.router.replace).toHaveBeenCalledWith("/no-permission");
+    });
+  });
+
   it("splits the permission-filtered REFORMA modules and omits the personal launch sheet", async () => {
     mocks.apiGet.mockResolvedValue(project(ProjectType.REFORMA));
     mocks.hasModule.mockImplementation(
@@ -180,8 +209,9 @@ describe("AppShell mobile navigation orchestration", () => {
     expect(launcher).toHaveAttribute("data-project-id", "project-1");
     expect(launcher).toHaveAttribute("data-open", "false");
     expect(hasAncestorWithClass(launcher, "md:hidden")).toBe(true);
-    expect(screen.getByText("Conteúdo").closest("[data-ui-skin]"))
-      .toHaveAttribute("data-ui-skin", "pessoal-minimal");
+    expect(
+      screen.getByText("Conteúdo").closest("[data-ui-skin]"),
+    ).toHaveAttribute("data-ui-skin", "pessoal-minimal");
   });
 
   it("does not scope the minimal skin to a REFORMA project", async () => {
