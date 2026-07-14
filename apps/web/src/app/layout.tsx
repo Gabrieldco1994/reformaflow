@@ -7,7 +7,7 @@ import { Toaster } from 'sonner';
 
 const inter = Inter({
   subsets: ["latin"],
-  variable: "--font-pessoal-minimal",
+  variable: "--font-minimal",
   display: "swap",
 });
 

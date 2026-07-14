@@ -16,6 +16,7 @@ export const TYPE_ICONS: Record<string, string> = {
 };
 
 const PESSOAL_PRIMARY_SLUG = 'monthly';
+const PESSOAL_DOCK_SLUGS = new Set(['monthly', 'expenses']);
 
 function isProjectType(value: string): value is ProjectType {
   return Object.values(ProjectType).includes(value as ProjectType);
@@ -42,7 +43,9 @@ export function getMobilePrimary(
     hasMonthlyOverviewFeature
       ? visibleNav.filter((module) => module.slug === PESSOAL_PRIMARY_SLUG)
       : splitMobileNav(visibleNav, 3).primary;
-  const primarySlugs = new Set(primary.map((module) => module.slug));
+  const primarySlugs = hasMonthlyOverviewFeature
+    ? PESSOAL_DOCK_SLUGS
+    : new Set(primary.map((module) => module.slug));
   const secondary = visibleNav.filter(
     (module) => !primarySlugs.has(module.slug),
   );

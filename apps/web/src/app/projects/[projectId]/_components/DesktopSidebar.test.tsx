@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { getProjectNavModules, ProjectType } from "@reformaflow/domain";
 import { DesktopSidebar } from "./DesktopSidebar";
 
@@ -34,13 +34,14 @@ describe("DesktopSidebar", () => {
     localStorage.clear();
     vi.restoreAllMocks();
   });
-  it("renders the visible nav labels", () => {
-    const visibleNav = getProjectNavModules(ProjectType.REFORMA);
+  it("preserves supplied row order and marks only the owning route current", () => {
+    const canonical = getProjectNavModules(ProjectType.REFORMA);
+    const visibleNav = [canonical[3], canonical[0], canonical[1]];
     render(
       <DesktopSidebar
         project={{ id: "p1", name: "Casa Nova", type: "REFORMA" }}
         basePath={basePath}
-        pathname={`${basePath}/dashboard`}
+        pathname={`${basePath}/dashboard/detail`}
         visibleNav={visibleNav}
         isAdmin={false}
         userName="Ana"
@@ -48,9 +49,22 @@ describe("DesktopSidebar", () => {
       />,
     );
 
-    for (const item of visibleNav) {
-      expect(screen.getByText(item.label)).toBeInTheDocument();
-    }
+    const links = within(screen.getByRole("navigation")).getAllByRole("link");
+    expect(
+      links.map((link) => [
+        link.getAttribute("aria-label"),
+        link.getAttribute("href"),
+      ]),
+    ).toEqual([
+      ["Fluxo de Caixa", `${basePath}/cash-flow`],
+      ["Dashboard", `${basePath}/dashboard`],
+      ["Despesas", `${basePath}/expenses`],
+    ]);
+    expect(
+      links
+        .filter((link) => link.getAttribute("aria-current") === "page")
+        .map((link) => link.getAttribute("aria-label")),
+    ).toEqual(["Dashboard"]);
     expect(screen.getByText("Casa Nova")).toBeInTheDocument();
   });
 
