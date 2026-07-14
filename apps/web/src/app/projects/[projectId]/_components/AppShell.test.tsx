@@ -128,10 +128,10 @@ describe("AppShell mobile navigation orchestration", () => {
 
     render(<AppShell>Conteúdo revogado</AppShell>);
 
-    await screen.findByText("Conteúdo revogado");
     await vi.waitFor(() => {
       expect(mocks.router.replace).toHaveBeenCalledWith("/no-permission");
     });
+    expect(screen.queryByText("Conteúdo revogado")).not.toBeInTheDocument();
     expect(mocks.hasProjectType).toHaveBeenCalledWith(ProjectType.CARRO);
   });
 

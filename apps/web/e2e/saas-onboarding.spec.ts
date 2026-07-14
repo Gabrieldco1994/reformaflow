@@ -58,35 +58,31 @@ test("CTA to fresh session and explicitly named first project", async ({
   );
 
   await page.goto("/login");
-  await page.getByRole("link", { name: /criar conta/i }).click();
+  await page.getByRole("link", { name: /criar minha conta/i }).click();
   await expect(page).toHaveURL(/\/register$/);
 
-  await page.getByLabel(/tenant/i).fill("Acme");
-  await page.getByLabel(/nome da pessoa/i).fill("Maria");
+  await page.getByLabel(/nome do seu espaço/i).fill("Acme");
+  await page.getByLabel(/^seu nome$/i).fill("Maria");
   await page.getByLabel(/usuário/i).fill("Maria.Silva");
-  await page.getByLabel(/^senha$/i).fill("segredo");
-  await page.getByLabel(/confirmar senha/i).fill("segredo");
-  await page.getByRole("checkbox", { name: /CASA/i }).check();
+  await page.getByLabel(/^senha$/i).fill("segredo123");
+  await page.getByLabel(/confirmar senha/i).fill("segredo123");
+  await page.getByRole("checkbox", { name: /^Cuidar da casa/i }).check();
   await page.getByRole("button", { name: /criar conta/i }).click();
 
-  await expect(page).toHaveURL(/\/projects$/);
+  await expect(page).toHaveURL(/\/projects\?onboarding=1$/);
   expect(registerBodies).toEqual([
     {
       tenantName: "Acme",
       ownerName: "Maria",
       username: "Maria.Silva",
-      password: "segredo",
-      confirmationPassword: "segredo",
-      objectives: ["CASA"],
+      password: "segredo123",
+      projectTypes: ["CASA"],
     },
   ]);
   expect(projectBodies).toEqual([]);
 
-  await page.getByRole("button", { name: "Criar Projeto" }).click();
-  await page.getByLabel("Nome").fill("Minha Casa");
-  await page
-    .getByRole("button", { name: "Criar Projeto", exact: true })
-    .click();
+  await page.getByLabel("Nome", { exact: true }).fill("Minha Casa");
+  await page.getByRole("button", { name: "Criar Projeto" }).first().click();
   expect(projectBodies).toEqual([
     { name: "Minha Casa", type: "CASA", description: "" },
   ]);

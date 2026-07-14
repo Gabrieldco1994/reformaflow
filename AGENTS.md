@@ -26,7 +26,7 @@ Se mudou `prisma/schema.prisma`: **backup obrigatório** `cp prisma/dev.db prism
 
 ## Layout
 
-- `apps/api/` — NestJS, porta **3001**, DB `prisma/dev.db`. Módulos principais: expense, cash-flow, dashboard, simulation, floor-plan, room, price-compare, car-info, recurring-bill, maintenance, reminder, schedule, receipt, project, tenant. Cockpit PESSOAL/financeiro: monthly-overview, tenant-financial, conciliacao, credit-card, bank-account, budget-allocation, category-budget. Assistente Maria: agent, tts, merchant-classifier. Infra: auth, users, common, prisma, notifications, link-preview.
+- `apps/api/` — NestJS, porta **3001**, DB `prisma/dev.db`. Módulos principais: expense, cash-flow, dashboard, simulation, floor-plan, room, price-compare, car-info, recurring-bill, maintenance, reminder, schedule, receipt, project, tenant. Cockpit PESSOAL/financeiro: monthly-overview, tenant-financial, conciliacao, credit-card, bank-account, budget-allocation, category-budget. Assistente Maria: agent, tts, merchant-classifier. Infra: auth, users, common, prisma, notifications, link-preview, demo.
 - `apps/web/` — Next.js, porta **3000**. Rotas dinâmicas em `src/app/projects/[projectId]/...` (cockpit em `.../monthly`).
 - `packages/domain/` — enums + regras (`ExpenseTypeLabels`, `ProjectType`, `getExpenseTypesForProject`, `PROJECT_FEATURES`, `hasFeature`). **Barrel only**: importar via `@reformaflow/domain`. Após mudar, `npm run build`.
 
@@ -55,6 +55,8 @@ cd packages/domain && npx vitest run              # testes domínio (vitest, __t
 | PLANTAS | dashboard, maintenance, reminders, plantsAi |
 
 > `carInfo` **não** é uma feature de `PROJECT_FEATURES` — é um endpoint/módulo 1:1 com `Project` (`PUT` + upsert), específico de CARRO. CASA e CARRO compartilham o mesmo conjunto (recurringBills/maintenance/reminders/expenses); CARRO só acrescenta o registro `carInfo`. Como CASA/CARRO têm `expenses`, suas despesas planejadas podem ser alvo de vínculo/rateio cross-project a partir do PESSOAL.
+>
+> `TYPE_MODULES` (`packages/domain/src/config/type-modules.ts`) é o mapa de **autorização** compartilhado entre API e contexto de autenticação. `PROJECT_FEATURES` continua sendo o mapa de **capacidade/exposição do produto**. Não trocar um pelo outro.
 
 ## Convenções
 
@@ -88,4 +90,4 @@ cd packages/domain && npx vitest run              # testes domínio (vitest, __t
 
 ## Variáveis de ambiente
 
-`DATABASE_URL`, `GOOGLE_API_KEY` (Gemini), `GOOGLE_SEARCH_ENGINE_ID` (opcional). Portas: web 3000, api 3001.
+`DATABASE_URL`, `GOOGLE_API_KEY` (Gemini), `GOOGLE_SEARCH_ENGINE_ID` (opcional), `AUTH_ENABLE_REGISTER`, `AUTH_ENABLE_GUEST`, `APP_MODE` e `ALLOW_TENANT_OVERRIDE`. Em produção, mantenha `ALLOW_TENANT_OVERRIDE="0"`. Portas: web 3000, api 3001.

@@ -4,7 +4,11 @@ describe("tenant financial objective scope", () => {
   function harness(projectRows: any[], cashRows: any[]) {
     const prisma: any = {
       project: { findMany: jest.fn().mockResolvedValue(projectRows) },
-      cashFlowEntry: { findMany: jest.fn().mockResolvedValue(cashRows) },
+      cashFlowEntry: {
+        findMany: jest.fn().mockImplementation(({ where }: any) =>
+          where.projectId?.in?.length === 0 ? Promise.resolve([]) : Promise.resolve(cashRows),
+        ),
+      },
       receipt: { findMany: jest.fn() },
       expense: { findMany: jest.fn() },
     };

@@ -127,7 +127,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const updateObjectives = useCallback(async (projectTypes: ProjectType[]) => {
-    await api.patch("/users/me/objectives", { projectTypes });
+    await api.patch("/auth/objectives", { projectTypes });
     const freshUser = await api.get<AuthUser>("/auth/me");
     setUser(freshUser);
   }, []);

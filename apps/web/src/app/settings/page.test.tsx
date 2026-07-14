@@ -1,10 +1,15 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import SettingsPage from "./page";
 
-const mocks = vi.hoisted(() => ({ updateObjectives: vi.fn() }));
+const mocks = vi.hoisted(() => ({ updateObjectives: vi.fn(), replace: vi.fn() }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: mocks.replace }),
+}));
 vi.mock("@/contexts/auth-context", () => ({
   useAuth: () => ({
+    loading: false,
     user: {
       id: "u1",
       role: "USER",
@@ -15,25 +20,13 @@ vi.mock("@/contexts/auth-context", () => ({
   }),
 }));
 
-const routes = import.meta.glob<{ default: React.ComponentType }>(
-  "./page.tsx",
-  {
-    eager: true,
-  },
-);
-const SettingsPage = routes["./page.tsx"]?.default;
-const SettingsRoute = SettingsPage as React.ComponentType;
-
 describe("/settings authenticated objectives route contract", () => {
   it("exists as an explicit self-service settings page", () => {
-    expect(
-      SettingsPage,
-      "missing apps/web/src/app/settings/page.tsx",
-    ).toBeDefined();
+    expect(SettingsPage).toBeDefined();
   });
 });
 
-describe.runIf(Boolean(SettingsPage))(
+describe(
   "self objective settings behavior",
   () => {
     beforeEach(() => {
@@ -45,12 +38,12 @@ describe.runIf(Boolean(SettingsPage))(
 
     it("initializes from fresh user objectives and saves only the canonical selection", async () => {
       const browser = userEvent.setup();
-      render(<SettingsRoute />);
+      render(<SettingsPage />);
 
-      expect(screen.getByRole("checkbox", { name: /CASA/i })).toBeChecked();
-      expect(screen.getByRole("checkbox", { name: /CARRO/i })).toBeChecked();
-      await browser.click(screen.getByRole("checkbox", { name: /CARRO/i }));
-      await browser.click(screen.getByRole("checkbox", { name: /PLANTAS/i }));
+      expect(screen.getByRole("checkbox", { name: /^Cuidar da casa/i })).toBeChecked();
+      expect(screen.getByRole("checkbox", { name: /^Cuidar do carro/i })).toBeChecked();
+      await browser.click(screen.getByRole("checkbox", { name: /^Cuidar do carro/i }));
+      await browser.click(screen.getByRole("checkbox", { name: /^Cuidar das minhas plantas/i }));
       await browser.click(screen.getByRole("button", { name: /salvar/i }));
 
       await waitFor(() =>
@@ -61,9 +54,9 @@ describe.runIf(Boolean(SettingsPage))(
 
     it("does not submit an empty objective set", async () => {
       const browser = userEvent.setup();
-      render(<SettingsRoute />);
-      await browser.click(screen.getByRole("checkbox", { name: /CASA/i }));
-      await browser.click(screen.getByRole("checkbox", { name: /CARRO/i }));
+      render(<SettingsPage />);
+      await browser.click(screen.getByRole("checkbox", { name: /^Cuidar da casa/i }));
+      await browser.click(screen.getByRole("checkbox", { name: /^Cuidar do carro/i }));
       await browser.click(screen.getByRole("button", { name: /salvar/i }));
 
       expect(mocks.updateObjectives).not.toHaveBeenCalled();
@@ -72,7 +65,7 @@ describe.runIf(Boolean(SettingsPage))(
     it("keeps the form retryable after a failed update", async () => {
       mocks.updateObjectives.mockRejectedValue(new Error("network"));
       const browser = userEvent.setup();
-      render(<SettingsRoute />);
+      render(<SettingsPage />);
       await browser.click(screen.getByRole("button", { name: /salvar/i }));
 
       await waitFor(() =>

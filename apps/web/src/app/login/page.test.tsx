@@ -41,7 +41,7 @@ describe("/login signup discovery and redirect", () => {
     render(<LoginPage />);
 
     expect(
-      await screen.findByRole("link", { name: /criar conta/i }),
+      await screen.findByRole("link", { name: /criar minha conta/i }),
     ).toHaveAttribute("href", "/register");
     expect(apiGetMock).toHaveBeenCalledWith("/auth/config");
   });

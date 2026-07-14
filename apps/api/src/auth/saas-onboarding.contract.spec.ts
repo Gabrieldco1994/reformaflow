@@ -10,7 +10,6 @@ type Input = {
   ownerName: string;
   username: string;
   password: string;
-  passwordConfirmation: string;
   projectTypes: string[];
 };
 const valid: Input = {
@@ -18,7 +17,6 @@ const valid: Input = {
   ownerName: " Maria ",
   username: "Maria.Silva",
   password: "segredo123",
-  passwordConfirmation: "segredo123",
   projectTypes: ["CASA", "PESSOAL"],
 };
 const registerDto = (input: Partial<Input> = {}) =>
@@ -59,9 +57,9 @@ describe("self-service registration contract", () => {
     expect(await validate(registerDto({ projectTypes: [projectType] }))).toEqual([]);
   });
 
-  it("requires matching password confirmation at the server boundary", async () => {
-    const errors = await validate(registerDto({ passwordConfirmation: "outraSenha" }));
-    expect(errors.map((error) => error.property)).toContain("passwordConfirmation");
+  it("enforces the same minimum password length as the public form", async () => {
+    const errors = await validate(registerDto({ password: "curta12" }));
+    expect(errors.map((error) => error.property)).toContain("password");
   });
 
   it("creates exactly one tenant and one USER atomically, derives permissions, and creates no project", async () => {

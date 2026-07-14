@@ -24,21 +24,23 @@ describe("canonical objective authorization", () => {
     expect(derive(TYPES)).toEqual({
       allowedProjectTypes: [...TYPES],
       allowedModules: [
+        "dashboard",
         "expenses",
         "receipts",
         "cashFlow",
-        "dashboard",
-        "rooms",
+        "schedule",
         "floorPlans",
         "simulation",
         "priceCompare",
+        "rooms",
+        "creditCards",
         "pendencias",
         "recurringBills",
         "maintenance",
         "reminders",
-        "monthlyOverview",
-        "creditCards",
+        "carInfo",
         "bankAccounts",
+        "monthlyOverview",
         "plantsAi",
       ],
     });
@@ -54,6 +56,7 @@ describe("canonical objective authorization", () => {
         "maintenance",
         "reminders",
         "expenses",
+        "carInfo",
       ],
     });
     expect(new Set(result.allowedModules).size).toBe(

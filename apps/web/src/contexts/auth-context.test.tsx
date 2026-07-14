@@ -39,10 +39,9 @@ type OnboardingAuth = ReturnType<typeof useAuth> & {
     ownerName: string;
     username: string;
     password: string;
-    confirmationPassword: string;
-    objectives: string[];
-  }) => Promise<AuthUser>;
-  updateObjectives: (objectives: string[]) => Promise<AuthUser>;
+    projectTypes: string[];
+  }, idempotencyKey: string) => Promise<AuthUser>;
+  updateObjectives: (projectTypes: string[]) => Promise<void>;
 };
 
 function Probe() {
@@ -64,10 +63,9 @@ function Probe() {
               tenantName: "Acme",
               ownerName: "Maria",
               username: "maria",
-              password: "segredo",
-              confirmationPassword: "segredo",
-              objectives: ["CASA"],
-            })
+              password: "segredo1",
+              projectTypes: ["CASA"],
+            }, "idem-1")
           }
         >
           Register
@@ -107,11 +105,9 @@ describe("AuthProvider SaaS session contract", () => {
     expect(screen.getByTestId("carro-access")).toHaveTextContent("false");
   });
 
-  it("registers once and replaces the response with a fresh /auth/me session", async () => {
-    const stale = { ...user, allowedProjectTypes: [], allowedModules: [] };
-    const fresh = { ...user, allowedProjectTypes: ["CASA"] };
-    apiMocks.get.mockResolvedValueOnce(null).mockResolvedValueOnce(fresh);
-    apiMocks.post.mockResolvedValue({ user: stale });
+  it("registers once and installs the canonical response session", async () => {
+    apiMocks.get.mockResolvedValueOnce(null);
+    apiMocks.post.mockResolvedValue({ user });
     const browser = userEvent.setup();
 
     render(
@@ -125,17 +121,20 @@ describe("AuthProvider SaaS session contract", () => {
     );
     await browser.click(screen.getByRole("button", { name: "Register" }));
 
-    await waitFor(() => expect(apiMocks.get).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(apiMocks.post).toHaveBeenCalledTimes(1));
     expect(apiMocks.post).toHaveBeenCalledTimes(1);
-    expect(apiMocks.post).toHaveBeenCalledWith("/auth/register", {
-      tenantName: "Acme",
-      ownerName: "Maria",
-      username: "maria",
-      password: "segredo",
-      confirmationPassword: "segredo",
-      objectives: ["CASA"],
-    });
-    expect(screen.getByTestId("user")).toHaveTextContent(JSON.stringify(fresh));
+    expect(apiMocks.post).toHaveBeenCalledWith(
+      "/auth/register",
+      {
+        tenantName: "Acme",
+        ownerName: "Maria",
+        username: "maria",
+        password: "segredo1",
+        projectTypes: ["CASA"],
+      },
+      { headers: { "Idempotency-Key": "idem-1" } },
+    );
+    expect(screen.getByTestId("user")).toHaveTextContent(JSON.stringify(user));
   });
 
   it("updates objectives and refreshes authorization immediately", async () => {
@@ -164,7 +163,7 @@ describe("AuthProvider SaaS session contract", () => {
     await waitFor(() => expect(apiMocks.get).toHaveBeenCalledTimes(2));
     expect(apiMocks.patch).toHaveBeenCalledTimes(1);
     expect(apiMocks.patch).toHaveBeenCalledWith("/auth/objectives", {
-      objectives: ["PLANTAS"],
+      projectTypes: ["PLANTAS"],
     });
     expect(screen.getByTestId("user")).toHaveTextContent(JSON.stringify(fresh));
   });
