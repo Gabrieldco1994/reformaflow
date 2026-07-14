@@ -34,7 +34,7 @@ export default function ComprometimentoFuturo({
     () => Array.from(new Set(rows.flatMap((row) => row.itens.map((item) => item.cardLast4)))).sort(),
     [rows],
   );
-  const [internalSelectedCard, setInternalSelectedCard] = useState<string | null>(cards[0] ?? null);
+  const [internalSelectedCard, setInternalSelectedCard] = useState<string | null>(null);
   const selectedCard = selectedCardLast4 !== undefined ? selectedCardLast4 : internalSelectedCard;
   const setSelectedCard = (card: string | null) => {
     if (selectedCardLast4 === undefined) {
@@ -55,11 +55,8 @@ export default function ComprometimentoFuturo({
   const [selectedMes, setSelectedMes] = useState<string | null>(filteredRows[0]?.mes ?? null);
 
   useEffect(() => {
-    if (cards.length > 0 && selectedCard && !cards.includes(selectedCard)) {
-      setSelectedCard(cards[0]);
-    }
-    if (!selectedCard && cards.length > 0) {
-      setSelectedCard(cards[0]);
+    if (selectedCard && !cards.includes(selectedCard)) {
+      setSelectedCard(null);
     }
   }, [cards, selectedCard]);
 
