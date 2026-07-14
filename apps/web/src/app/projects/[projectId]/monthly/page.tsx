@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Gauge, ChevronLeft, ChevronRight } from "lucide-react";
+import { Gauge, ChevronLeft, ChevronRight, PlusCircle } from "lucide-react";
 import { useProject } from "@/contexts/project-context";
 import { api } from "@/lib/api";
 import type { MonthlyOverviewResponse } from "./_types";
@@ -22,6 +22,7 @@ import SaldosWidget from "./_cockpit/SaldosWidget";
 import MobileCockpitHeader from "./_cockpit/MobileCockpitHeader";
 import MobileMonthCockpit from "./_cockpit/MobileMonthCockpit";
 import { monthlyOverviewPath } from "./_lib/monthly-overview-query";
+import { NovaDespesaLauncher } from "../expenses/_components/NovaDespesaLauncher";
 
 type View = "mes" | "ano";
 
@@ -218,20 +219,40 @@ export default function CockpitPage() {
               <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--ck-muted)]">
                 Cockpit financeiro
               </p>
-              <h1
-                className="font-geist not-italic text-xl md:text-2xl text-[var(--ck-text)] leading-tight"
-                style={{
-                  fontFamily:
-                    "'Geist', var(--font-sans), system-ui, sans-serif",
-                  fontStyle: "normal",
-                }}
-              >
-                {view === "mes"
-                  ? data
-                    ? `${mesLongo(month0)} ${monthYear}`
-                    : "Visão do mês"
-                  : `Ano ${year}`}
-              </h1>
+              <div className="flex items-center gap-2">
+                <h1
+                  className="font-geist not-italic text-xl md:text-2xl text-[var(--ck-text)] leading-tight"
+                  style={{
+                    fontFamily:
+                      "'Geist', var(--font-sans), system-ui, sans-serif",
+                    fontStyle: "normal",
+                  }}
+                >
+                  {view === "mes"
+                    ? data
+                      ? `${mesLongo(month0)} ${monthYear}`
+                      : "Visão do mês"
+                    : `Ano ${year}`}
+                </h1>
+                {view === "mes" && (
+                  <div className="inline-flex items-center gap-1">
+                    <NovaDespesaLauncher
+                      projectId={projectId}
+                      projectType={projectType ?? "PESSOAL"}
+                      trigger={(open) => (
+                        <button
+                          type="button"
+                          aria-label="Lançar agora"
+                          onClick={open}
+                          className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg border border-[var(--ck-border)] bg-[var(--ck-surface)] text-[var(--ck-accent)] transition-colors hover:bg-[var(--ck-surface-2)]"
+                        >
+                          <PlusCircle className="h-4 w-4" />
+                        </button>
+                      )}
+                    />
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -367,7 +388,6 @@ export default function CockpitPage() {
                 monthKey={monthKey}
                 entries={monthEntries}
                 projectId={projectId}
-                projectType={projectType}
                 eixo={eixo}
                 runwaySerie={dreOverview?.anual?.saldoAcumuladoSerie}
                 metasProgress={metasProgress}

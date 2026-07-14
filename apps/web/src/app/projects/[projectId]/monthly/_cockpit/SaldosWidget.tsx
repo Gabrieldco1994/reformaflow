@@ -145,6 +145,9 @@ export default function SaldosWidget({
   const showAccounts = accountRows.length > 0;
   const showCards = cardRows.length > 0;
   const hint = eixo === 'caixa' ? 'no mês, por vencimento' : 'no mês, por compra';
+  const totalCards = filteredCardRows.reduce((sum, row) => sum + row.gasto, 0);
+  const totalAccounts = accountRows.reduce((sum, row) => sum + row.gasto, 0);
+  const totalGeral = totalCards + totalAccounts;
 
   if (!showAccounts && !showCards) {
     return (
@@ -163,7 +166,7 @@ export default function SaldosWidget({
     >
       <div className="grid gap-4 lg:grid-cols-2">
         {showCards && (
-          <section className="space-y-2">
+          <section className="flex h-full flex-col gap-2">
             <SectionHeader href={`/projects/${projectId}/credit-cards`} icon={<CreditCard className="w-3.5 h-3.5" />} title="Cartões" />
             {cardRows.length > 1 && (
               <div className="flex flex-wrap gap-2">
@@ -194,7 +197,7 @@ export default function SaldosWidget({
                 ))}
               </div>
             )}
-            <div className="space-y-2">
+            <div className="flex-1 space-y-2">
               {filteredCardRows.length === 0 ? (
                 <p className="text-xs text-[var(--ck-muted)]">Nenhum gasto no cartão selecionado neste mês.</p>
               ) : (
@@ -226,13 +229,13 @@ export default function SaldosWidget({
         )}
 
         {showAccounts && (
-          <section className="space-y-2">
+          <section className="flex h-full flex-col gap-2">
             <SectionHeader
               href={`/projects/${projectId}/bank-accounts`}
               icon={<Landmark className="w-3.5 h-3.5" />}
               title="Contas"
             />
-            <div className="space-y-2">
+            <div className="flex-1 space-y-2">
               {accountRows.map(({ account, gasto }) => (
                 <div
                   key={account.id}
@@ -259,6 +262,20 @@ export default function SaldosWidget({
             </div>
           </section>
         )}
+      </div>
+      <div className="mt-4 grid gap-2 border-t border-[var(--ck-border)] pt-3 sm:grid-cols-3">
+        <div className="rounded-lg bg-[var(--ck-surface-2)] px-3 py-2">
+          <p className="text-[10px] uppercase tracking-[0.16em] text-[var(--ck-muted)]">Cartões</p>
+          <p className="font-geist tabular-nums text-sm font-semibold text-[var(--ck-text)]">{fmtMoneyExact(totalCards)}</p>
+        </div>
+        <div className="rounded-lg bg-[var(--ck-surface-2)] px-3 py-2">
+          <p className="text-[10px] uppercase tracking-[0.16em] text-[var(--ck-muted)]">Contas</p>
+          <p className="font-geist tabular-nums text-sm font-semibold text-[var(--ck-text)]">{fmtMoneyExact(totalAccounts)}</p>
+        </div>
+        <div className="rounded-lg bg-[var(--ck-surface-2)] px-3 py-2">
+          <p className="text-[10px] uppercase tracking-[0.16em] text-[var(--ck-muted)]">Total</p>
+          <p className="font-geist tabular-nums text-sm font-semibold text-[var(--ck-text)]">{fmtMoneyExact(totalGeral)}</p>
+        </div>
       </div>
     </Card>
   );
