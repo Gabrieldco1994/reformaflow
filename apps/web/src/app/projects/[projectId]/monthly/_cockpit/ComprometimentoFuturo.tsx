@@ -78,12 +78,14 @@ export default function ComprometimentoFuturo({
 
   if (rows.length === 0) return null;
 
+  const showCardFilterChips = selectedCardLast4 === undefined && cards.length > 1;
+
   return (
     <Card
       title="Comprometimento futuro (cartão)"
       hint="parcelas/lançamentos planejados por mês de saída (eixo atual)"
     >
-      {cards.length > 1 && (
+      {showCardFilterChips && (
         <div className="mb-3 flex flex-wrap gap-2">
           {cards.map((card) => (
             <button
@@ -102,33 +104,41 @@ export default function ComprometimentoFuturo({
         </div>
       )}
 
-      <div className="grid grid-cols-6 md:grid-cols-12 gap-2 items-end">
-        {filteredRows.map((r, index) => {
-          const pct = max > 0 ? r.total / max : 0;
-          const active = selected?.mes === r.mes;
-          return (
-            <button
-              key={r.mes}
-              type="button"
-              onClick={() => setSelectedMes(r.mes)}
-              className="group flex flex-col items-center gap-1"
-              title={`${labelMes(r.mes)} · ${fmtMoney(r.total)}`}
-            >
-              <div className="w-full h-24 md:h-28 rounded-md border border-[var(--ck-border)] bg-[var(--ck-surface-2)] relative overflow-hidden">
-                <div
-                  className={`absolute bottom-0 inset-x-0 transition-all ${
-                    active ? 'bg-amber-500' : 'bg-amber-400/90 group-hover:bg-amber-500/95'
-                  }`}
-                  style={{ height: `${Math.max(4, Math.round(pct * 100))}%` }}
-                />
-              </div>
-              <span className={`whitespace-nowrap text-[10px] ${active ? 'text-[var(--ck-text)] font-semibold' : 'text-[var(--ck-muted)]'}`}>
-                {labelEixo(r.mes, index)}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+      {filteredRows.length === 0 ? (
+        <p className="rounded-xl border border-[var(--ck-border)] bg-[var(--ck-surface-2)] px-3 py-2 text-xs text-[var(--ck-muted)]">
+          Sem comprometimento para o cartão selecionado neste mês.
+        </p>
+      ) : (
+        <div className="-mx-1 overflow-x-auto px-1">
+          <div className="flex min-w-[360px] items-end gap-2">
+            {filteredRows.map((r, index) => {
+              const pct = max > 0 ? r.total / max : 0;
+              const active = selected?.mes === r.mes;
+              return (
+                <button
+                  key={r.mes}
+                  type="button"
+                  onClick={() => setSelectedMes(r.mes)}
+                  className="group flex w-9 shrink-0 flex-col items-center gap-1"
+                  title={`${labelMes(r.mes)} · ${fmtMoney(r.total)}`}
+                >
+                  <div className="relative h-24 w-full overflow-hidden rounded-md border border-[var(--ck-border)] bg-[var(--ck-surface-2)] md:h-28">
+                    <div
+                      className={`absolute inset-x-0 bottom-0 transition-all ${
+                        active ? 'bg-amber-500' : 'bg-amber-400/90 group-hover:bg-amber-500/95'
+                      }`}
+                      style={{ height: `${Math.max(4, Math.round(pct * 100))}%` }}
+                    />
+                  </div>
+                  <span className={`whitespace-nowrap text-[10px] ${active ? 'text-[var(--ck-text)] font-semibold' : 'text-[var(--ck-muted)]'}`}>
+                    {labelEixo(r.mes, index)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {selected && (
         <div className="mt-3 rounded-xl border border-[var(--ck-border)] bg-[var(--ck-surface-2)] p-3">
