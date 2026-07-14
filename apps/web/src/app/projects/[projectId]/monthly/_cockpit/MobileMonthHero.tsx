@@ -38,7 +38,6 @@ export default function MobileMonthHero({ top }: { top: CockpitTopDerived }) {
         : "positive";
   const presentation = HERO_STATE[state];
   const progress = Math.max(3, Math.min(100, top.pctMesDecorrido * 100));
-  const saldoPrevisto = Math.max(0, top.saidaTotal - top.saidaJaSaiu);
 
   return (
     <section
@@ -68,7 +67,7 @@ export default function MobileMonthHero({ top }: { top: CockpitTopDerived }) {
           aria-label={exact ? "Ocultar valor exato" : "Mostrar valor exato"}
           aria-pressed={exact}
           onClick={() => setExact((current) => !current)}
-          className="mt-1 min-h-[44px] max-w-full text-left font-geist text-[44px] font-extrabold leading-none tracking-[-0.035em] text-[#F6F3EE]"
+          className="mt-1 min-h-[44px] max-w-full text-left font-geist text-[40px] font-extrabold leading-none tracking-[-0.035em] text-[#F6F3EE] sm:text-[44px]"
         >
           {exact ? moneyDetail(top.caixaValor) : moneyGlance(top.caixaValor)}
         </button>
@@ -78,7 +77,7 @@ export default function MobileMonthHero({ top }: { top: CockpitTopDerived }) {
           <b className={state === "negative" ? "text-[#F2A196]" : "text-[#F6F3EE]"}>
             {moneyGlance(top.projecaoMes)}
           </b>
-          . Faltam sair <b className="text-[#F6F3EE]">{moneyGlance(saldoPrevisto)}</b>.
+.
         </p>
 
         <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/15">

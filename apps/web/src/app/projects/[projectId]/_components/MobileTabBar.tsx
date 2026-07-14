@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { Home, MessageCircle, Plus } from 'lucide-react';
-import { ProjectType, type NavModule } from '@reformaflow/domain';
+import { hasFeature, ProjectType, type NavModule } from '@reformaflow/domain';
 import { typeAccent } from '../../_components/type-accent';
 import { isPathActive } from './mobile-nav';
 import { navIcon } from './nav-icons';
@@ -20,7 +20,7 @@ const BAR_CLASS =
   'fixed inset-x-0 bottom-0 z-30 border-t border-darc-linen bg-white/95 backdrop-blur-md safe-pb md:hidden';
 
 function tabClass(active: boolean) {
-  return `flex min-h-11 flex-1 flex-col items-center justify-center gap-1 py-1 text-[11px] font-semibold transition-colors ${
+  return `flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-1 px-1 py-1 text-[11px] font-semibold leading-tight transition-colors ${
     active ? 'text-darc-velvet' : 'text-darc-velvet/60'
   }`;
 }
@@ -33,7 +33,7 @@ export function MobileTabBar({
   canLaunch = false,
   onOpenLaunch,
 }: MobileTabBarProps) {
-  if (projectType === ProjectType.PESSOAL) {
+  if (hasFeature(projectType, 'monthlyOverview')) {
     const todayHref = `${basePath}/monthly`;
     const mariaHref = `${basePath}/maria`;
     const canViewToday = primary.some((module) => module.slug === 'monthly');
@@ -50,7 +50,7 @@ export function MobileTabBar({
               className={tabClass(todayActive)}
             >
               <Home className="h-5 w-5" />
-              <span>Hoje</span>
+              <span className="max-w-full truncate">Hoje</span>
             </Link>
           )}
 
@@ -71,7 +71,7 @@ export function MobileTabBar({
             className={tabClass(mariaActive)}
           >
             <MessageCircle className="h-5 w-5" />
-            <span>Maria</span>
+            <span className="max-w-full truncate">Maria</span>
           </Link>
         </div>
       </nav>
@@ -99,7 +99,7 @@ export function MobileTabBar({
               style={active ? { color: accent.color } : undefined}
             >
               <Icon className="h-5 w-5" />
-              <span>{module.label}</span>
+              <span className="max-w-full truncate">{module.label}</span>
             </Link>
           );
         })}

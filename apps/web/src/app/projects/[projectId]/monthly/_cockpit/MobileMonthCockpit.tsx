@@ -123,7 +123,6 @@ export default function MobileMonthCockpit({
     setAccordions((current) => ({ ...current, [key]: !current[key] }));
   };
 
-  const isCurrentMonth = monthKey === data.mesAtual;
   const viewingAnotherMonth = monthKey !== data.mesAtual;
 
   // Inovação #2 (Cenários "E se…?"): delta em centavos aplicado client-side sobre a
@@ -187,7 +186,7 @@ export default function MobileMonthCockpit({
         series={series}
         hoje={month.hoje}
         diasNoMes={month.diasNoMes}
-        showTimeTravel={isCurrentMonth && series.length > 0}
+        showTimeTravel={false}
         scenarioDelta={scenarioDelta}
       />
 
