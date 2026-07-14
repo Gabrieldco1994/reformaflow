@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { Suspense, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 
@@ -23,7 +23,7 @@ function resolveTargetPath(projectId: string, screen: string | null): string {
   }
 }
 
-export default function AppEntryPage() {
+function AppEntryContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const screen = searchParams.get('screen');
@@ -62,5 +62,19 @@ export default function AppEntryPage() {
     <div className="min-h-screen bg-white flex items-center justify-center">
       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-darc-red" />
     </div>
+  );
+}
+
+export default function AppEntryPage() {
+  return (
+    <Suspense
+      fallback={
+    <div className="min-h-screen bg-white flex items-center justify-center">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-darc-red" />
+    </div>
+      }
+    >
+      <AppEntryContent />
+    </Suspense>
   );
 }
