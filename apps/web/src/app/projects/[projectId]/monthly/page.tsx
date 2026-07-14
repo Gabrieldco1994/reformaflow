@@ -41,6 +41,7 @@ export default function CockpitPage() {
   const [eixo, setEixo] = useState<Eixo>("caixa");
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(() => searchParams.get("mes"));
+  const [selectedCardLast4, setSelectedCardLast4] = useState<string | null>(null);
 
   const selectMonth = useCallback((month: string | null) => {
     setSelectedMonth(month);
@@ -312,6 +313,8 @@ export default function CockpitPage() {
             projectId={projectId}
             entries={monthEntries ?? []}
             eixo={eixo}
+            selectedCardLast4={selectedCardLast4}
+            onSelectCard={setSelectedCardLast4}
           />
         )}
 
@@ -356,6 +359,8 @@ export default function CockpitPage() {
                 eixo={eixo}
                 runwaySerie={dreOverview?.anual?.saldoAcumuladoSerie}
                 metasProgress={metasProgress}
+                selectedCardLast4={selectedCardLast4}
+                onSelectCard={setSelectedCardLast4}
               />
             )
           ) : (

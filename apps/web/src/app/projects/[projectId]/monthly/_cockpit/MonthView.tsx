@@ -33,6 +33,8 @@ export default function MonthView({
   eixo,
   runwaySerie,
   metasProgress = [],
+  selectedCardLast4,
+  onSelectCard,
 }: {
   data: MonthlyOverviewResponse;
   monthKey?: string;
@@ -45,6 +47,8 @@ export default function MonthView({
   runwaySerie?: DreSaldoAcumuladoRow[];
   /** Progresso de metas por categoria (`category-budgets/progress`), já buscado por `page.tsx`. */
   metasProgress?: MetaProgress[];
+  selectedCardLast4?: string | null;
+  onSelectCard?: (cardLast4: string | null) => void;
 }) {
   const m = useMemo(() => deriveMonth(data, monthKey ?? data.mesAtual, entries), [data, monthKey, entries]);
   const [ritmo, setRitmo] = useState<number>(m.ritmoDiario);
@@ -121,6 +125,13 @@ export default function MonthView({
         </Card>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="lg:col-span-3">
+            <ComprometimentoFuturo
+              rows={comprometimento}
+              selectedCardLast4={selectedCardLast4}
+              onSelectCard={onSelectCard}
+            />
+          </div>
           <div className="space-y-4 lg:col-span-2">
             <CategoriasBarras categorias={m.categorias} hint="mês atual" />
             {projectId && (
@@ -133,7 +144,6 @@ export default function MonthView({
             )}
           </div>
           <div className="space-y-4">
-            <ComprometimentoFuturo rows={comprometimento} />
             {projectId && (
               <Card title="Saúde financeira e metas do mês">
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
