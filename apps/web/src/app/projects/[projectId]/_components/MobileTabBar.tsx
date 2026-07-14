@@ -34,10 +34,14 @@ export function MobileTabBar({
   onOpenLaunch,
 }: MobileTabBarProps) {
   if (hasFeature(projectType, 'monthlyOverview')) {
+    const ExpensesIcon = navIcon('expenses');
     const todayHref = `${basePath}/monthly`;
+    const expensesHref = `${basePath}/expenses`;
     const mariaHref = `${basePath}/maria`;
     const canViewToday = primary.some((module) => module.slug === 'monthly');
+    const canViewExpenses = canLaunch;
     const todayActive = isPathActive(pathname, todayHref);
+    const expensesActive = isPathActive(pathname, expensesHref);
     const mariaActive = isPathActive(pathname, mariaHref);
 
     return (
@@ -51,6 +55,17 @@ export function MobileTabBar({
             >
               <Home className="h-5 w-5" />
               <span className="max-w-full truncate">Hoje</span>
+            </Link>
+          )}
+
+          {canViewExpenses && (
+            <Link
+              href={expensesHref}
+              aria-current={expensesActive ? 'page' : undefined}
+              className={tabClass(expensesActive)}
+            >
+              <ExpensesIcon className="h-5 w-5" />
+              <span className="max-w-full truncate">Despesas</span>
             </Link>
           )}
 
