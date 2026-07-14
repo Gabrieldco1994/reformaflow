@@ -36,7 +36,9 @@ export function middleware(req: NextRequest) {
   if (!token) {
     const url = req.nextUrl.clone();
     url.pathname = '/login';
-    url.searchParams.set('next', pathname);
+    // ponytail: preserve canonical in-app screen/query through login
+    url.search = '';
+    url.searchParams.set('next', `${pathname}${req.nextUrl.search}`);
     return NextResponse.redirect(url);
   }
 
