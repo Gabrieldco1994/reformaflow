@@ -10,6 +10,7 @@ import { NotificationsBell } from '@/components/notifications/NotificationsBell'
 import { ProjectHubCard } from './_components/ProjectHubCard';
 import { CreateProjectModal } from './_components/CreateProjectModal';
 import { TYPE_ACCENT, typeAccent, TypeIcon } from './_components/type-accent';
+import { getProjectHomePath } from './_lib/project-home-route';
 
 interface Project {
   id: string;
@@ -97,7 +98,7 @@ export default function ProjectsPage() {
       // Recarrega o usuário: se restrito, o backend acabou de conceder acesso
       // ao novo projeto — sem isso o layout redirecionaria para /no-permission.
       await refresh();
-      router.push(`/projects/${created.id}/dashboard`);
+      router.push(getProjectHomePath(created.id, created.type));
     } catch (err) {
       console.error('Erro ao criar projeto:', err);
       setCreateError(err instanceof Error ? err.message : 'Erro ao criar projeto');
@@ -239,7 +240,7 @@ export default function ProjectsPage() {
                   key={project.id}
                   project={project}
                   isAdmin={isAdmin}
-                  onOpen={() => router.push(`/projects/${project.id}/dashboard`)}
+                  onOpen={() => router.push(getProjectHomePath(project.id, project.type))}
                   onDelete={(e) => { e.stopPropagation(); handleDelete(project.id); }}
                 />
               ))}
@@ -261,7 +262,7 @@ export default function ProjectsPage() {
                 return (
                   <div
                     key={project.id}
-                    onClick={() => router.push(`/projects/${project.id}/dashboard`)}
+                    onClick={() => router.push(getProjectHomePath(project.id, project.type))}
                     className="flex items-center gap-3 px-3.5 py-3 rounded-[14px] bg-lifeone-card border border-lifeone-hairline shadow-lifeone-card active:scale-[0.99] transition-all"
                   >
                     <span

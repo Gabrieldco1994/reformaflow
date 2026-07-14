@@ -1,25 +1,42 @@
 'use client';
 
+import { hasFeature, type ProjectType } from '@reformaflow/domain';
 import { Suspense, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
+import { getProjectHomePath, isKnownProjectType } from '../projects/_lib/project-home-route';
 
 interface Project {
   id: string;
   type: string;
 }
 
-function resolveTargetPath(projectId: string, screen: string | null): string {
+function hasTypeFeature(projectType: string, feature: Parameters<typeof hasFeature>[1]): boolean {
+  if (!isKnownProjectType(projectType)) return false;
+  return hasFeature(projectType as ProjectType, feature);
+}
+
+function resolveTargetPath(project: Project, screen: string | null): string {
+  const homePath = getProjectHomePath(project.id, project.type);
+
   switch (screen) {
     case 'despesas':
-      return `/projects/${projectId}/expenses`;
+      return hasTypeFeature(project.type, 'expenses')
+        ? `/projects/${project.id}/expenses`
+        : homePath;
     case 'maria':
-      return `/projects/${projectId}/maria`;
+      return hasTypeFeature(project.type, 'monthlyOverview')
+        ? `/projects/${project.id}/maria`
+        : homePath;
     case 'lancar':
-      return `/projects/${projectId}/monthly?launch=1`;
+      return hasTypeFeature(project.type, 'monthlyOverview') && hasTypeFeature(project.type, 'expenses')
+        ? `/projects/${project.id}/monthly?launch=1`
+        : homePath;
     case 'hoje':
     default:
-      return `/projects/${projectId}/monthly`;
+      return hasTypeFeature(project.type, 'monthlyOverview')
+        ? `/projects/${project.id}/monthly`
+        : homePath;
   }
 }
 
@@ -46,7 +63,7 @@ function AppEntryContent() {
         const pessoal = projects.find((project) => project.type === 'PESSOAL');
         const chosen = fromLast ?? pessoal ?? projects[0];
 
-        router.replace(resolveTargetPath(chosen.id, screen));
+        router.replace(resolveTargetPath(chosen, screen));
       } catch {
         if (!cancelled) router.replace('/projects');
       }
