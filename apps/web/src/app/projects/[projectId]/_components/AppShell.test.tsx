@@ -21,6 +21,7 @@ vi.mock("next/navigation", () => ({
   useParams: () => ({ projectId: "project-1" }),
   usePathname: () => mocks.pathname,
   useRouter: () => mocks.router,
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 vi.mock("@/contexts/auth-context", () => ({
