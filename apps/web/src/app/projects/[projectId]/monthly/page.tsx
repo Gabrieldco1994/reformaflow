@@ -11,9 +11,10 @@ import type { DreOverviewResponse } from "../dre/_types";
 import type { MetaProgress } from "../metas/_components/MetaCategoriaCard";
 import { mesLongo } from "./_cockpit/format";
 import { COCKPIT_THEME } from "./_cockpit/ui";
-import { anosDisponiveis, buildCaixaData } from "./_cockpit/derive";
+import { anosDisponiveis, buildCaixaData, buildComprometimentoFuturo } from "./_cockpit/derive";
 import CockpitTop from "./_cockpit/CockpitTop";
 import MonthView from "./_cockpit/MonthView";
+import ComprometimentoFuturo from "./_cockpit/ComprometimentoFuturo";
 import ExtratoGeral from "./_cockpit/ExtratoGeral";
 import YearView from "./_cockpit/YearView";
 import EixoToggle, { type Eixo } from "./_cockpit/EixoToggle";
@@ -77,8 +78,7 @@ export default function CockpitPage() {
     enabled: !!projectId,
   });
 
-  // DRE mensal + série de saldo acumulado (runway) e progresso de metas do
-  // rail desktop (D1) — mesma fonte usada em `conta/page.tsx` e `metas/page.tsx`.
+  // DRE mensal para série de runway mobile e progresso de metas.
   // Precisa ficar antes do early-return abaixo (regra dos hooks).
   const overviewMonthKey = selectedMonth ?? data?.mesAtual ?? "";
   const overviewYear =
@@ -136,6 +136,9 @@ export default function CockpitPage() {
   const monthEntries = viewData?.entries
     ? viewData.entries.filter((e) => (e.data ?? "").slice(0, 7) === monthKey)
     : undefined;
+  const comprometimentoRows = viewData
+    ? buildComprometimentoFuturo(viewData, monthKey ?? viewData.mesAtual, 12, projectId)
+    : [];
 
   const anos = viewData ? anosDisponiveis(viewData) : [monthYear];
   const year = selectedYear ?? monthYear;
@@ -309,13 +312,20 @@ export default function CockpitPage() {
         )}
 
         {viewData && !isLoading && view === "mes" && eixo !== "geral" && (
-          <SaldosWidget
-            projectId={projectId}
-            entries={monthEntries ?? []}
-            eixo={eixo}
-            selectedCardLast4={selectedCardLast4}
-            onSelectCard={setSelectedCardLast4}
-          />
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-5 items-start">
+            <SaldosWidget
+              projectId={projectId}
+              entries={monthEntries ?? []}
+              eixo={eixo}
+              selectedCardLast4={selectedCardLast4}
+              onSelectCard={setSelectedCardLast4}
+            />
+            <ComprometimentoFuturo
+              rows={comprometimentoRows}
+              selectedCardLast4={selectedCardLast4}
+              onSelectCard={setSelectedCardLast4}
+            />
+          </div>
         )}
 
         {isLoading && (
@@ -357,10 +367,7 @@ export default function CockpitPage() {
                 projectId={projectId}
                 projectType={projectType}
                 eixo={eixo}
-                runwaySerie={dreOverview?.anual?.saldoAcumuladoSerie}
                 metasProgress={metasProgress}
-                selectedCardLast4={selectedCardLast4}
-                onSelectCard={setSelectedCardLast4}
               />
             )
           ) : (
