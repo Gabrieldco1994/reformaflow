@@ -25,10 +25,12 @@ export default function ComprometimentoFuturo({
   rows,
   selectedCardLast4,
   onSelectCard,
+  className,
 }: {
   rows: ComprometimentoMes[];
   selectedCardLast4?: string | null;
   onSelectCard?: (cardLast4: string | null) => void;
+  className?: string;
 }) {
   const cards = useMemo(
     () => Array.from(new Set(rows.flatMap((row) => row.itens.map((item) => item.cardLast4)))).sort(),
@@ -79,6 +81,7 @@ export default function ComprometimentoFuturo({
 
   return (
     <Card
+      className={className}
       title="Comprometimento futuro (cartão)"
       hint="parcelas/lançamentos planejados por mês de saída (eixo atual)"
     >
@@ -106,8 +109,8 @@ export default function ComprometimentoFuturo({
           Sem comprometimento para o cartão selecionado neste mês.
         </p>
       ) : (
-        <div className="-mx-1 overflow-x-auto px-1">
-          <div className="flex min-w-[360px] items-end gap-2">
+        <div className="-mx-1 overflow-x-auto px-1 lg:overflow-visible">
+          <div className="flex min-w-[320px] items-end gap-2 lg:min-w-0 lg:justify-between">
             {filteredRows.map((r, index) => {
               const pct = max > 0 ? r.total / max : 0;
               const active = selected?.mes === r.mes;
@@ -116,7 +119,7 @@ export default function ComprometimentoFuturo({
                   key={r.mes}
                   type="button"
                   onClick={() => setSelectedMes(r.mes)}
-                  className="group flex w-9 shrink-0 flex-col items-center gap-1"
+                  className="group flex w-8 shrink-0 flex-col items-center gap-1 lg:w-7"
                   title={`${labelMes(r.mes)} · ${fmtMoney(r.total)}`}
                 >
                   <div className="relative h-24 w-full overflow-hidden rounded-md border border-[var(--ck-border)] bg-[var(--ck-surface-2)] md:h-28">

@@ -23,7 +23,7 @@ export function DesktopRail({
           <Sparkles className="h-3.5 w-3.5" /> Ações rápidas
         </>
       }
-      hint="lançar + maria"
+      hint="lançar · maria"
     >
       <NovaDespesaLauncher
         projectId={projectId}
@@ -32,20 +32,19 @@ export function DesktopRail({
           <button
             type="button"
             onClick={open}
-            className="flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-xl bg-[var(--ck-accent)] px-3 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
+            className="flex min-h-[40px] w-full items-center justify-center gap-1.5 rounded-xl bg-[var(--ck-accent)] px-3 py-2 text-sm font-semibold text-white transition hover:opacity-90"
           >
             <PlusCircle className="h-4 w-4" /> Lançar agora
           </button>
         )}
       />
-      <p className="text-xs text-[var(--ck-muted)]">
-        Pergunte sobre o mês, lance despesas por texto ou voz — a Maria lê os
-        mesmos números deste cockpit.
+      <p className="mt-2 text-[11px] text-[var(--ck-muted)]">
+        Maria usa os mesmos números deste cockpit.
       </p>
       <button
         type="button"
         onClick={() => useCopilotStore.getState().setOpen(true)}
-        className="mt-2 flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-[var(--ck-text)] px-3 text-sm font-semibold text-[var(--ck-bg)] transition-opacity hover:opacity-90"
+        className="mt-2 flex min-h-[40px] w-full items-center justify-center gap-2 rounded-xl bg-[var(--ck-text)] px-3 py-2 text-sm font-semibold text-[var(--ck-bg)] transition-opacity hover:opacity-90"
       >
         <Sparkles className="h-4 w-4" /> Conversar com a Maria
       </button>
