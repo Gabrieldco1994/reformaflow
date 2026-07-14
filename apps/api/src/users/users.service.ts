@@ -72,7 +72,7 @@ export class UsersService {
   async create(tenantId: string, dto: CreateUserDto) {
     const username = dto.username.toLowerCase().trim();
     const existing = await this.prisma.user.findFirst({
-      where: { tenantId, username },
+      where: { username, deletedAt: null },
     });
     if (existing) throw new BadRequestException('Usuário já cadastrado');
 
@@ -102,7 +102,7 @@ export class UsersService {
       const username = dto.username.toLowerCase().trim();
       if (username !== user.username) {
         const dupe = await this.prisma.user.findFirst({
-          where: { tenantId, username, NOT: { id } },
+          where: { username, deletedAt: null, NOT: { id } },
         });
         if (dupe) throw new BadRequestException('Usuário já cadastrado');
       }
