@@ -17,7 +17,7 @@ function row(patch: Partial<DreSaldoAcumuladoRow>): DreSaldoAcumuladoRow {
 }
 
 describe('RunwayScenario', () => {
-  it('renders merged chart without legacy "E se..." simulator copy', () => {
+  it('renderiza o gráfico unificado sem o simulador legado "E se..."', () => {
     render(
       <RunwayScenario
         dailySerie={[
