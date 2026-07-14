@@ -326,11 +326,15 @@ export function deriveMonth(
     if (entryIsConsumptionNeutral(e)) continue;
     const realized = isRealized(e.status);
     const dia = dayOfMonth(e.data);
+    // No mês corrente, lançamentos datados após "hoje" entram como projeção, mesmo
+    // que venham marcados como realizados (ex.: compra no cartão remapeada para
+    // vencimento no eixo de caixa). Em meses passados, `hoje=diasNoMes`, então não muda.
+    const realizedByDate = realized && dia <= hoje;
     if (e.tipo === 'DESPESA') {
       const tipo = e.categoria?.trim() || 'Outros';
       categoriaAcc.set(tipo, (categoriaAcc.get(tipo) ?? 0) + e.valor);
       qtdSaidas += 1;
-      if (realized) {
+      if (realizedByDate) {
         gasteiRealizado += e.valor;
         if (!FORMA_FIXA.has(e.formaPagamento ?? '') && dia <= hoje) {
           variavelRealizadoAteHoje += e.valor;
@@ -347,7 +351,7 @@ export function deriveMonth(
         });
       }
     } else {
-      if (realized) {
+      if (realizedByDate) {
         entrouRealizado += e.valor;
       } else {
         entrouPrevisto += e.valor;
@@ -440,6 +444,19 @@ export function buildSaldoSeries(m: MonthDerived, entries: MonthlyEntry[], ritmo
   for (let dia = 1; dia <= m.hoje; dia++) {
     running += realizadoPorDia.get(dia) ?? 0;
     serie.push({ dia, realizado: running, projetado: dia === m.hoje ? running : null });
+  }
+
+  // Quando a visão está em caixa real (§10), o ponto "Hoje" da série precisa bater
+  // com o saldo canônico reconciliado (`saldoAtual`), evitando divergência visual.
+  if (m.caixaReal && m.hoje > 0) {
+    const delta = m.saldoAtual - running;
+    if (delta !== 0) {
+      for (const row of serie) {
+        if (row.realizado !== null) row.realizado += delta;
+        if (row.projetado !== null) row.projetado += delta;
+      }
+      running += delta;
+    }
   }
 
   // Projeção de hoje+1 até fim do mês.
