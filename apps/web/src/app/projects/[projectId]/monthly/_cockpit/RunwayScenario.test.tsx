@@ -37,5 +37,6 @@ describe('RunwayScenario', () => {
 
     expect(document.querySelector('.recharts-responsive-container')).toBeInTheDocument();
     expect(screen.queryByText(/e se eu gastar/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/projeção dezembro/i)).toBeInTheDocument();
   });
 });
