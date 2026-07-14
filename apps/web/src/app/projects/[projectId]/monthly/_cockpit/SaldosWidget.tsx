@@ -28,6 +28,10 @@ interface CreditCardBalance {
   last4: string;
 }
 
+export function dedupeByLast4<T extends { last4: string }>(items: T[]): T[] {
+  return Array.from(new Map(items.map((item) => [item.last4, item])).values());
+}
+
 function accountName(account: BankAccountBalance): string {
   return account.nickname?.trim() || account.institution;
 }
@@ -109,7 +113,7 @@ export default function SaldosWidget({
   );
 
   const cardRows = useMemo(() => {
-    const cards = creditCards.data ?? [];
+    const cards = dedupeByLast4(creditCards.data ?? []);
     return cards
       .map((c) => ({ card: c, gasto: spend.cards.get(c.last4) ?? 0 }))
       .filter((r) => r.gasto > 0)
@@ -132,7 +136,7 @@ export default function SaldosWidget({
   }, [cardRows, selectedCard, selectedCardLast4, onSelectCard]);
 
   const accountRows = useMemo(() => {
-    const accounts = bankAccounts.data ?? [];
+    const accounts = dedupeByLast4(bankAccounts.data ?? []);
     return accounts
       .map((a) => ({ account: a, gasto: spend.accounts.get(a.last4) ?? 0 }))
       .filter((r) => r.gasto > 0)

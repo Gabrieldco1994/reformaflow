@@ -14,6 +14,7 @@ const PUBLIC_PATHS = [
   '/favicon.ico',
   '/api',
   '/prototype/agent-monitor',
+  '/skin-mobile-base.css',
 ];
 
 export function middleware(req: NextRequest) {
