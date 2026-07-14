@@ -23,14 +23,25 @@ function labelEixo(key: string, index: number): string {
 
 export default function ComprometimentoFuturo({
   rows,
+  selectedCardLast4,
+  onSelectCard,
 }: {
   rows: ComprometimentoMes[];
+  selectedCardLast4?: string | null;
+  onSelectCard?: (cardLast4: string | null) => void;
 }) {
   const cards = useMemo(
     () => Array.from(new Set(rows.flatMap((row) => row.itens.map((item) => item.cardLast4)))).sort(),
     [rows],
   );
-  const [selectedCard, setSelectedCard] = useState<string | null>(cards[0] ?? null);
+  const [internalSelectedCard, setInternalSelectedCard] = useState<string | null>(cards[0] ?? null);
+  const selectedCard = selectedCardLast4 !== undefined ? selectedCardLast4 : internalSelectedCard;
+  const setSelectedCard = (card: string | null) => {
+    if (selectedCardLast4 === undefined) {
+      setInternalSelectedCard(card);
+    }
+    onSelectCard?.(card);
+  };
   const filteredRows = useMemo(() => {
     if (!selectedCard) return rows;
     return rows
