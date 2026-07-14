@@ -294,15 +294,11 @@ describe("MobileMonthCockpit", () => {
     expect(screen.queryByText("Caixa hoje")).not.toBeInTheDocument();
   });
 
-  it("offers the scrubber only for the current month with honest simulation language", () => {
+  it("does not render the fluxo do mês scrubber in current or other months", () => {
     const { rerender } = renderCockpit();
-    const scrubber = screen.getByRole("slider", {
-      name: "Ritmo diário projetado",
-    });
-    expect(scrubber).toBeInTheDocument();
-    expect(screen.getAllByText(/realizado/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/projetado/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/inclui cartão/i).length).toBeGreaterThan(0);
+    expect(
+      screen.queryByRole("slider", { name: "Ritmo diário projetado" }),
+    ).not.toBeInTheDocument();
 
     const overview = data();
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -317,12 +313,13 @@ describe("MobileMonthCockpit", () => {
         />
       </QueryClientProvider>,
     );
+
     expect(
       screen.queryByRole("slider", { name: "Ritmo diário projetado" }),
     ).not.toBeInTheDocument();
   });
 
-  it("does not let scrubbing mutate canonical hero, projection, or realized flow", () => {
+  it("keeps canonical hero and consumption values stable without the fluxo block", () => {
     renderCockpit();
     const cockpit = screen.getByRole("region", {
       name: "Cockpit mensal mobile",
@@ -334,12 +331,7 @@ describe("MobileMonthCockpit", () => {
       name: "Mostrar valor exato",
     }).textContent;
 
-    fireEvent.change(
-      within(cockpit).getByRole("slider", { name: "Ritmo diário projetado" }),
-      {
-        target: { value: "0" },
-      },
-    );
+    fireEvent.click(within(cockpit).getByRole("button", { name: "Consumo" }));
 
     expect(
       within(cockpit).getByRole("button", { name: "Mostrar valor exato" }),
@@ -349,7 +341,6 @@ describe("MobileMonthCockpit", () => {
         (name) => within(cockpit).getByRole("article", { name }).textContent,
       ),
     ).toEqual(canonical);
-    fireEvent.click(within(cockpit).getByRole("button", { name: "Consumo" }));
     expect(
       within(cockpit).getByRole("article", { name: "Consumo realizado" }),
     ).toHaveTextContent("R$ 2 mil");
@@ -409,10 +400,12 @@ describe("MobileMonthCockpit", () => {
     });
   });
 
-  it("removes the sticky aside and internal implementation jargon", () => {
+  it("removes sticky aside, fluxo do mês and vai sair copy from mobile cockpit", () => {
     renderCockpit();
     expect(screen.queryByRole("complementary", { name: "Resumo do mês atual" })).not.toBeInTheDocument();
     expect(screen.queryByText(/valores canônicos|client-side|inovação/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/fluxo do mês/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/vai sair/i)).not.toBeInTheDocument();
   });
 
   it("always puts the other-month warning in the capsule while current-month visibility stays scroll-driven", () => {
@@ -430,7 +423,7 @@ describe("MobileMonthCockpit", () => {
     expect(currentCapsule).toHaveAttribute("aria-hidden", "false");
   });
 
-  it("keeps all six innovations behind the mobile-only class (md:hidden) — desktop unaffected", () => {
+  it("keeps the mobile cockpit behind the mobile-only class (md:hidden) — desktop unaffected", () => {
     renderCockpit();
     const cockpit = screen.getByRole("region", {
       name: "Cockpit mensal mobile",

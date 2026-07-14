@@ -1,4 +1,5 @@
 import {
+  hasFeature,
   ProjectType,
   splitMobileNav,
   type NavModule,
@@ -16,6 +17,10 @@ export const TYPE_ICONS: Record<string, string> = {
 
 const PESSOAL_PRIMARY_SLUG = 'monthly';
 
+function isProjectType(value: string): value is ProjectType {
+  return Object.values(ProjectType).includes(value as ProjectType);
+}
+
 export interface MobileNavSplit {
   primary: NavModule[];
   secondary: NavModule[];
@@ -31,8 +36,10 @@ export function getMobilePrimary(
   type: string,
   visibleNav: NavModule[],
 ): MobileNavSplit {
+  const hasMonthlyOverviewFeature =
+    isProjectType(type) && hasFeature(type, 'monthlyOverview');
   const primary =
-    type === ProjectType.PESSOAL
+    hasMonthlyOverviewFeature
       ? visibleNav.filter((module) => module.slug === PESSOAL_PRIMARY_SLUG)
       : splitMobileNav(visibleNav, 3).primary;
   const primarySlugs = new Set(primary.map((module) => module.slug));

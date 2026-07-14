@@ -5,7 +5,7 @@ import { useParams, usePathname, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { ProjectProvider } from '@/contexts/project-context';
 import { useAuth, type ModuleSlug } from '@/contexts/auth-context';
-import { getProjectNavModules, ProjectType } from '@reformaflow/domain';
+import { getProjectNavModules, hasFeature, ProjectType } from '@reformaflow/domain';
 import { FinancialAgentWidget } from '@/components/agent/FinancialAgentWidget';
 import { DesktopSidebar } from './DesktopSidebar';
 import { MobileHeader } from './MobileHeader';
@@ -81,8 +81,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   const basePath = `/projects/${projectId}`;
+  const projectType = project.type as ProjectType;
   const { primary, secondary } = getMobilePrimary(project.type, visibleNav);
-  const canLaunch = visibleNav.some((item) => item.module === 'expenses');
+  const supportsMobileCockpit = hasFeature(projectType, 'monthlyOverview');
+  const canLaunch =
+    supportsMobileCockpit && visibleNav.some((item) => item.module === 'expenses');
   const hasMoreSheet = secondary.length > 0 || isAdmin || Boolean(user?.name);
 
   return (
@@ -123,13 +126,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <MobileTabBar
           basePath={basePath}
           pathname={pathname}
-          projectType={project.type as ProjectType}
+          projectType={projectType}
           primary={primary}
           canLaunch={canLaunch}
           onOpenLaunch={() => setLaunchOpen(true)}
         />
 
-        {project.type === ProjectType.PESSOAL && canLaunch && (
+        {supportsMobileCockpit && canLaunch && (
           <div className="md:hidden">
             <MobileLaunchSheetContainer
               projectId={project.id}
