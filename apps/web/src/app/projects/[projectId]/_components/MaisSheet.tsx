@@ -36,17 +36,17 @@ function GridTile({
     <Link
       href={href}
       aria-current={isActive ? 'page' : undefined}
-      className="flex flex-col items-center gap-2 rounded-2xl px-1.5 py-3.5 min-h-[74px] active:scale-95 transition-transform"
+      className="pessoal-minimal-more-tile flex flex-col items-center gap-2 rounded-2xl px-1.5 py-3.5 min-h-[74px] active:scale-95 transition-transform"
       style={{ backgroundColor: isActive ? accent.fill : '#FFFFFF' }}
     >
       <span
-        className="flex h-10 w-10 items-center justify-center rounded-[13px]"
+        className="pessoal-minimal-more-icon flex h-10 w-10 items-center justify-center rounded-[13px]"
         style={{ backgroundColor: isActive ? '#FFFFFF' : accent.fill }}
       >
         <Icon className="w-5 h-5" style={{ color: accent.color }} />
       </span>
       <span
-        className="text-[10.5px] font-semibold leading-tight text-center"
+        className="pessoal-minimal-more-label text-[10.5px] font-semibold leading-tight text-center"
         style={{ color: isActive ? accent.color : '#4A463F' }}
       >
         {label}
@@ -71,13 +71,13 @@ export function MaisSheet({
     <>
       {open && (
         <div
-          className="md:hidden fixed inset-0 bg-darc-velvet/60 backdrop-blur-sm z-40"
+          className="pessoal-minimal-backdrop md:hidden fixed inset-0 bg-darc-velvet/60 backdrop-blur-sm z-40"
           onClick={onClose}
           aria-hidden
         />
       )}
       <div
-        className={`md:hidden fixed bottom-0 left-0 right-0 z-50 bg-lifeone-surface rounded-t-[26px] shadow-lifeone-dialog transition-transform duration-200 ${
+        className={`pessoal-minimal-more-sheet md:hidden fixed bottom-0 left-0 right-0 z-50 bg-lifeone-surface rounded-t-[26px] shadow-lifeone-dialog transition-transform duration-200 ${
           open ? 'translate-y-0' : 'translate-y-full'
         }`}
       >
@@ -93,7 +93,7 @@ export function MaisSheet({
             type="button"
             onClick={onClose}
             aria-label="Fechar"
-            className="p-2 rounded-full text-darc-velvet/70 hover:bg-darc-linen/60"
+            className="flex min-h-11 min-w-11 items-center justify-center rounded-full text-darc-velvet/70 hover:bg-darc-linen/60"
           >
             <X className="w-5 h-5" />
           </button>

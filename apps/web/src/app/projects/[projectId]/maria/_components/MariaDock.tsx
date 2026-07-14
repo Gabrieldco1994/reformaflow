@@ -22,7 +22,7 @@ interface Props {
 
 export function MariaDock({ input, onInputChange, onSubmit, onMic, listening, micSupported, disabled }: Props) {
   return (
-    <div className="sticky bottom-0 z-10 -mx-4 bg-gradient-to-t from-lifeone-surface via-lifeone-surface/95 to-transparent px-4 pb-2 pt-3">
+    <div className="pessoal-minimal-maria-dock sticky bottom-0 z-10 -mx-4 bg-gradient-to-t from-lifeone-surface via-lifeone-surface/95 to-transparent px-4 pb-2 pt-3">
       <div className="mb-2 flex gap-1.5 overflow-x-auto pb-1">
         {MARIA_SUGGESTIONS.map((s) => (
           <button

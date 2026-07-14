@@ -106,7 +106,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <ProjectProvider value={{ projectId: project.id, projectType: project.type, projectName: project.name }}>
-      <div className="flex flex-col md:flex-row h-screen bg-white">
+      <div
+        data-ui-skin={resolvedProjectType === ProjectType.PESSOAL ? "pessoal-minimal" : undefined}
+        className="pessoal-minimal-shell flex h-screen flex-col bg-white md:flex-row"
+      >
         <MobileHeader
           project={project}
           hasMoreSheet={hasMoreSheet}
@@ -135,7 +138,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           onLogout={handleLogout}
         />
 
-        <main className="font-platform-content flex-1 overflow-y-auto p-4 md:p-6 bg-white pb-24 md:pb-6">
+        <main className="pessoal-minimal-main font-platform-content flex-1 overflow-y-auto bg-white p-4 pb-24 md:p-6 md:pb-6">
           {children}
         </main>
 

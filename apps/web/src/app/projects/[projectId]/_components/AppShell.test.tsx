@@ -180,6 +180,18 @@ describe("AppShell mobile navigation orchestration", () => {
     expect(launcher).toHaveAttribute("data-project-id", "project-1");
     expect(launcher).toHaveAttribute("data-open", "false");
     expect(hasAncestorWithClass(launcher, "md:hidden")).toBe(true);
+    expect(screen.getByText("Conteúdo").closest("[data-ui-skin]"))
+      .toHaveAttribute("data-ui-skin", "pessoal-minimal");
+  });
+
+  it("does not scope the minimal skin to a REFORMA project", async () => {
+    mocks.apiGet.mockResolvedValue(project(ProjectType.REFORMA));
+    mocks.hasModule.mockReturnValue(true);
+
+    render(<AppShell>Conteúdo reforma</AppShell>);
+
+    const content = await screen.findByText("Conteúdo reforma");
+    expect(content.closest("[data-ui-skin]")).toBeNull();
   });
 
   it("keeps Mais reachable for a named non-admin with no secondary modules", async () => {
