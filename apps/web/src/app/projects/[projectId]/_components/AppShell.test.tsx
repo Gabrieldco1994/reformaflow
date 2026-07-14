@@ -1,10 +1,11 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import { ProjectType, type NavModule } from "@reformaflow/domain";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectInfo } from "../_types";
 import { AppShell } from "./AppShell";
 
 const mocks = vi.hoisted(() => ({
+  projectId: "project-1",
   pathname: "/projects/project-1/dashboard",
   apiGet: vi.fn(),
   hasModule: vi.fn(),
@@ -17,8 +18,27 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/api", () => ({ api: { get: mocks.apiGet } }));
 
+vi.mock("@/contexts/project-context", () => ({
+  ProjectProvider: ({
+    value,
+    children,
+  }: {
+    value: { projectId: string; projectType: string; projectName: string };
+    children: React.ReactNode;
+  }) => (
+    <section
+      data-testid="project-provider"
+      data-project-id={value.projectId}
+      data-project-type={value.projectType}
+      data-project-name={value.projectName}
+    >
+      {children}
+    </section>
+  ),
+}));
+
 vi.mock("next/navigation", () => ({
-  useParams: () => ({ projectId: "project-1" }),
+  useParams: () => ({ projectId: mocks.projectId }),
   usePathname: () => mocks.pathname,
   useRouter: () => mocks.router,
   useSearchParams: () => new URLSearchParams(),
@@ -49,13 +69,22 @@ vi.mock("./MobileHeader", () => ({
 
 vi.mock("./MobileTabBar", () => ({
   MobileTabBar: ({
+    basePath,
+    projectType,
     primary,
     canLaunch,
   }: {
+    basePath: string;
+    projectType: ProjectType;
     primary: NavModule[];
     canLaunch: boolean;
   }) => (
-    <ol data-testid="primary-nav" data-can-launch={String(canLaunch)}>
+    <ol
+      data-testid="primary-nav"
+      data-base-path={basePath}
+      data-project-type={projectType}
+      data-can-launch={String(canLaunch)}
+    >
       {primary.map((item) => (
         <li key={item.slug}>{item.label}</li>
       ))}
@@ -89,11 +118,28 @@ vi.mock("./mobile-launch/MobileLaunchSheetContainer", () => ({
   ),
 }));
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 const project = (type: ProjectType): ProjectInfo => ({
   id: "project-1",
   name: "Projeto teste",
   type,
 });
+
+const PROJECT_SKIN_MATRIX = [
+  { type: ProjectType.PESSOAL, color: "#0A6CF0", fill: "#E6EFFE" },
+  { type: ProjectType.REFORMA, color: "#C2691E", fill: "#FBEBDC" },
+  { type: ProjectType.COMPRA, color: "#7A3FC2", fill: "#EFE6FA" },
+  { type: ProjectType.CASA, color: "#1E924A", fill: "#DEF3E6" },
+  { type: ProjectType.CARRO, color: "#5E5A52", fill: "#EAE7E1" },
+  { type: ProjectType.PLANTAS, color: "#23824D", fill: "#DDF4E5" },
+] as const;
 
 function renderedLabels(container: HTMLElement) {
   return within(container)
@@ -115,6 +161,7 @@ function hasAncestorWithClass(element: HTMLElement, className: string) {
 describe("AppShell mobile navigation orchestration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.projectId = "project-1";
     mocks.pathname = "/projects/project-1/dashboard";
     mocks.hasProjectType.mockReturnValue(true);
     mocks.hasProjectAccess.mockReturnValue(true);
@@ -211,17 +258,122 @@ describe("AppShell mobile navigation orchestration", () => {
     expect(hasAncestorWithClass(launcher, "md:hidden")).toBe(true);
     expect(
       screen.getByText("Conteúdo").closest("[data-ui-skin]"),
-    ).toHaveAttribute("data-ui-skin", "pessoal-minimal");
+    ).toHaveAttribute("data-ui-skin", "minimal");
   });
 
-  it("does not scope the minimal skin to a REFORMA project", async () => {
-    mocks.apiGet.mockResolvedValue(project(ProjectType.REFORMA));
+  it.each(PROJECT_SKIN_MATRIX)(
+    "scopes the one minimal skin and canonical accent for $type",
+    async ({ type, color, fill }) => {
+      mocks.apiGet.mockResolvedValue(project(type));
+      mocks.hasModule.mockReturnValue(true);
+
+      render(<AppShell>Conteúdo {type}</AppShell>);
+
+      const content = await screen.findByText(`Conteúdo ${type}`);
+      const shell = content.closest("[data-ui-skin]");
+      expect(shell).toHaveAttribute("data-ui-skin", "minimal");
+      expect(shell).toHaveStyle({
+        "--project-accent": color,
+        "--project-accent-soft": fill,
+      });
+    },
+  );
+
+
+  it("keeps a newer REFORMA project authoritative when an older PESSOAL request resolves last", async () => {
+    const pessoalRequest = deferred<ProjectInfo>();
+    const reformaRequest = deferred<ProjectInfo>();
+    mocks.projectId = "personal-old";
+    mocks.pathname = "/projects/personal-old/monthly";
+    mocks.hasModule.mockReturnValue(true);
+    mocks.apiGet.mockImplementation((path: string) => {
+      if (path === "/projects/personal-old") return pessoalRequest.promise;
+      if (path === "/projects/reforma-new") return reformaRequest.promise;
+      throw new Error(`Unexpected API path: ${path}`);
+    });
+
+    const { rerender } = render(<AppShell>Conteúdo atual</AppShell>);
+
+    mocks.projectId = "reforma-new";
+    mocks.pathname = "/projects/reforma-new/dashboard";
+    rerender(<AppShell>Conteúdo atual</AppShell>);
+    await act(async () => {
+      reformaRequest.resolve({
+        id: "reforma-new",
+        name: "Reforma atual",
+        type: ProjectType.REFORMA,
+      });
+    });
+
+    const shell = (await screen.findByText("Conteúdo atual")).closest(
+      "[data-ui-skin]",
+    );
+    expect(shell).toHaveAttribute("data-project-type", ProjectType.REFORMA);
+    expect(shell).toHaveStyle({
+      "--project-accent": "#C2691E",
+      "--project-accent-soft": "#FBEBDC",
+    });
+    expect(screen.getByTestId("project-provider")).toHaveAttribute(
+      "data-project-id",
+      "reforma-new",
+    );
+    expect(screen.getByTestId("project-provider")).toHaveAttribute(
+      "data-project-type",
+      ProjectType.REFORMA,
+    );
+    expect(screen.getByTestId("primary-nav")).toHaveAttribute(
+      "data-base-path",
+      "/projects/reforma-new",
+    );
+    expect(screen.getByTestId("primary-nav")).toHaveAttribute(
+      "data-project-type",
+      ProjectType.REFORMA,
+    );
+    expect(renderedLabels(screen.getByTestId("primary-nav"))).toEqual([
+      "Dashboard",
+      "Despesas",
+      "Recebimentos",
+    ]);
+    expect(screen.queryByTestId("mobile-launch-sheet")).not.toBeInTheDocument();
+
+    await act(async () => {
+      pessoalRequest.resolve({
+        id: "personal-old",
+        name: "Pessoal antigo",
+        type: ProjectType.PESSOAL,
+      });
+    });
+
+    expect(shell).toHaveAttribute("data-project-type", ProjectType.REFORMA);
+    expect(screen.getByTestId("project-provider")).toHaveAttribute(
+      "data-project-id",
+      "reforma-new",
+    );
+    expect(screen.getByTestId("primary-nav")).toHaveAttribute(
+      "data-base-path",
+      "/projects/reforma-new",
+    );
+    expect(renderedLabels(screen.getByTestId("primary-nav"))).toEqual([
+      "Dashboard",
+      "Despesas",
+      "Recebimentos",
+    ]);
+    expect(screen.queryByTestId("mobile-launch-sheet")).not.toBeInTheDocument();
+    expect(mocks.router.push).not.toHaveBeenCalled();
+    expect(mocks.router.replace).not.toHaveBeenCalled();
+  });
+
+  it("renders a minimal neutral project-loading shell", () => {
+    mocks.apiGet.mockReturnValue(new Promise(() => undefined));
     mocks.hasModule.mockReturnValue(true);
 
-    render(<AppShell>Conteúdo reforma</AppShell>);
+    render(<AppShell>Conteúdo</AppShell>);
 
-    const content = await screen.findByText("Conteúdo reforma");
-    expect(content.closest("[data-ui-skin]")).toBeNull();
+    const loading = screen.getByRole("status");
+    expect(loading).toHaveAttribute("data-ui-loading", "minimal-neutral");
+    expect(loading).toHaveClass("bg-[#eef0f3]");
+    expect(loading).not.toHaveClass("bg-white");
+    expect(loading.querySelector(".border-darc-red")).not.toBeInTheDocument();
   });
 
   it("keeps Mais reachable for a named non-admin with no secondary modules", async () => {

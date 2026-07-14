@@ -6,7 +6,9 @@ import { MobileHeader } from "./MobileHeader";
 vi.mock("next/link", () => ({
   __esModule: true,
   default: ({ href, children, ...rest }: React.ComponentProps<"a">) => (
-    <a href={href} {...rest}>{children}</a>
+    <a href={href} {...rest}>
+      {children}
+    </a>
   ),
 }));
 
@@ -28,10 +30,10 @@ describe("MobileHeader", () => {
       "data-mobile-header",
       "minimal",
     );
-    expect(screen.getByRole("link", { name: "Voltar para projetos" })).toHaveClass(
-      "min-h-11",
-      "min-w-11",
-    );
+    expect(screen.getByRole("banner")).toHaveClass("safe-pt");
+    expect(
+      screen.getByRole("link", { name: "Voltar para projetos" }),
+    ).toHaveClass("min-h-11", "min-w-11");
     expect(screen.getByRole("button", { name: "Mais opções" })).toHaveClass(
       "min-h-11",
       "min-w-11",
@@ -42,17 +44,36 @@ describe("MobileHeader", () => {
     );
   });
 
-  it("keeps the existing header contract for non-PESSOAL projects", () => {
+  it.each([
+    ProjectType.REFORMA,
+    ProjectType.COMPRA,
+    ProjectType.CASA,
+    ProjectType.CARRO,
+    ProjectType.PLANTAS,
+  ])("uses the minimal header and 44px action targets for %s", (type) => {
     render(
       <MobileHeader
-        project={{ id: "r1", name: "Reforma", type: ProjectType.REFORMA }}
+        project={{ id: "project-1", name: "Projeto teste", type }}
         hasMoreSheet
         onOpenMais={vi.fn()}
       />,
     );
 
-    expect(screen.getByRole("banner")).not.toHaveAttribute(
+    expect(screen.getByRole("banner")).toHaveAttribute(
       "data-mobile-header",
+      "minimal",
+    );
+    expect(screen.getByRole("banner")).toHaveClass("safe-pt");
+    expect(
+      screen.getByRole("link", { name: "Voltar para projetos" }),
+    ).toHaveClass("min-h-11", "min-w-11");
+    expect(screen.getByRole("button", { name: "Mais opções" })).toHaveClass(
+      "min-h-11",
+      "min-w-11",
+    );
+    expect(screen.getByTestId("notification-action")).toHaveClass(
+      "min-h-11",
+      "min-w-11",
     );
   });
 });

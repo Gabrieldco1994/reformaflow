@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { getProjectNavModules, ProjectType } from "@reformaflow/domain";
-import { typeAccent } from "../../_components/type-accent";
 import { MobileTabBar } from "./MobileTabBar";
 import { getMobilePrimary } from "./mobile-nav";
 
@@ -45,26 +44,31 @@ const NON_PERSONAL_MATRIX = [
     type: ProjectType.REFORMA,
     labels: ["Dashboard", "Despesas", "Recebimentos"],
     slugs: ["dashboard", "expenses", "receipts"],
+    accent: "#C2691E",
   },
   {
     type: ProjectType.COMPRA,
     labels: ["Dashboard", "Despesas", "Recebimentos"],
     slugs: ["dashboard", "expenses", "receipts"],
+    accent: "#7A3FC2",
   },
   {
     type: ProjectType.CASA,
     labels: ["Dashboard", "Contas", "Despesas"],
     slugs: ["dashboard", "bills", "expenses"],
+    accent: "#1E924A",
   },
   {
     type: ProjectType.CARRO,
     labels: ["Dashboard", "Meu Carro", "Contas"],
     slugs: ["dashboard", "car-info", "bills"],
+    accent: "#5E5A52",
   },
   {
     type: ProjectType.PLANTAS,
     labels: ["Cronograma", "Diagnóstico IA", "Minhas Plantas"],
     slugs: ["dashboard", "plants-ai", "plants"],
+    accent: "#23824D",
   },
 ] as const;
 
@@ -182,7 +186,7 @@ describe("MobileTabBar", () => {
 
   it.each(NON_PERSONAL_MATRIX)(
     "renders the permission-filtered $type primary modules with project links and active accent",
-    ({ type, labels, slugs }) => {
+    ({ type, labels, slugs, accent }) => {
       const activeIndex = 1;
       renderTabBar({
         projectType: type,
@@ -199,7 +203,9 @@ describe("MobileTabBar", () => {
       });
 
       expect(links[activeIndex]).toHaveAttribute("aria-current", "page");
-      expect(links[activeIndex]).toHaveStyle({ color: typeAccent(type).color });
+      expect(links[activeIndex]).toHaveClass("minimal-tab-link--active");
+      expect(links[activeIndex]).not.toHaveAttribute("style");
+      expect(accent).toMatch(/^#[0-9A-F]{6}$/);
       expect(
         screen.queryByRole("link", { name: "Hoje" }),
       ).not.toBeInTheDocument();

@@ -6,13 +6,14 @@ import {
   ArrowLeft,
   ChevronLeft,
   ChevronRight,
-  Users,
   Settings,
   LogOut,
+  Users,
 } from "lucide-react";
 import { NotificationsBell } from "@/components/notifications/NotificationsBell";
+import { TypeIcon } from "../../_components/type-accent";
+import { isPathActive } from "./mobile-nav";
 import { navIcon } from "./nav-icons";
-import { isPathActive, TYPE_ICONS } from "./mobile-nav";
 import type { NavModule, ProjectInfo } from "../_types";
 
 const SIDEBAR_STORAGE_KEY = "lifeone:sidebar:collapsed";
@@ -58,16 +59,16 @@ export function DesktopSidebar({
     });
   };
   const labelClass = collapsed ? "sr-only" : "whitespace-nowrap truncate";
-  const itemClass = `flex min-h-11 items-center rounded-lg text-sm font-medium transition-colors ${collapsed ? "justify-center px-2" : "gap-3 px-3"}`;
+  const itemClass = `minimal-sidebar-item flex min-h-11 items-center rounded-[14px] text-sm font-medium transition-colors ${collapsed ? "justify-center px-2" : "gap-3 px-3"}`;
   const adminHref = "/admin/users";
   const isAdminActive = isPathActive(pathname, adminHref);
   const settingsHref = "/settings";
 
   return (
     <aside
-      className={`relative hidden flex-col border-r border-lifeone-hairline bg-lifeone-sidebar transition-[width] duration-200 md:flex ${collapsed ? "w-16" : "w-56"}`}
+      className={`minimal-sidebar relative hidden flex-col border-r transition-[width] duration-200 md:flex ${collapsed ? "w-16" : "w-56"}`}
     >
-      <div className="border-b border-lifeone-hairline p-2">
+      <div className="minimal-sidebar-header border-b p-2">
         <div
           className={`flex items-center ${collapsed ? "flex-col" : "justify-between"}`}
         >
@@ -75,22 +76,25 @@ export function DesktopSidebar({
             href="/projects"
             title="Projetos"
             aria-label="Voltar para projetos"
-            className="flex min-h-11 min-w-11 items-center justify-center gap-2 text-lifeone-ink-3 transition-colors hover:text-lifeone-ink"
+            className="minimal-sidebar-control flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-[14px] transition-colors"
           >
             <ArrowLeft className="h-5 w-5 shrink-0" />
             <span className={labelClass}>Projetos</span>
           </Link>
-          <NotificationsBell variant="light" className="min-h-11 min-w-11" />
+          <NotificationsBell
+            variant="light"
+            className="minimal-sidebar-control min-h-11 min-w-11 rounded-[14px]"
+          />
         </div>
         <div
           className={`mt-1 flex min-h-11 items-center ${collapsed ? "justify-center" : "gap-2 px-2"}`}
           title={project.name}
         >
-          <span className="shrink-0 text-xl">
-            {TYPE_ICONS[project.type] ?? "📋"}
+          <span className="minimal-sidebar-project-mark flex h-9 w-9 shrink-0 items-center justify-center rounded-[14px]">
+            <TypeIcon type={project.type} className="h-5 w-5" />
           </span>
           <span
-            className={`font-geist text-[15px] font-semibold text-lifeone-ink ${labelClass}`}
+            className={`font-geist text-[15px] font-semibold ${labelClass}`}
           >
             {project.name}
           </span>
@@ -109,11 +113,9 @@ export function DesktopSidebar({
               title={item.label}
               aria-label={item.label}
               aria-current={isActive ? "page" : undefined}
-              className={`${itemClass} ${isActive ? "bg-white text-lifeone-ink shadow-lifeone-card" : "text-lifeone-ink-2 hover:bg-white/70"}`}
+              className={itemClass}
             >
-              <Icon
-                className={`h-5 w-5 shrink-0 ${isActive ? "text-lifeone-blue" : "text-lifeone-ink-3"}`}
-              />
+              <Icon className="minimal-sidebar-icon h-5 w-5 shrink-0" />
               <span className={labelClass}>{item.label}</span>
             </Link>
           );
@@ -135,26 +137,24 @@ export function DesktopSidebar({
             title="Usuários"
             aria-label="Usuários"
             aria-current={isAdminActive ? "page" : undefined}
-            className={`${itemClass} ${isAdminActive ? "bg-white text-lifeone-ink shadow-lifeone-card" : "text-lifeone-ink-2 hover:bg-white/70"}`}
+            className={itemClass}
           >
-            <Users
-              className={`h-5 w-5 shrink-0 ${isAdminActive ? "text-lifeone-blue" : "text-lifeone-ink-3"}`}
-            />
+            <Users className="minimal-sidebar-icon h-5 w-5 shrink-0" />
             <span className={labelClass}>Usuários</span>
           </Link>
         )}
       </nav>
 
-      <div className="space-y-1 border-t border-lifeone-hairline p-2">
+      <div className="minimal-sidebar-footer space-y-1 border-t p-2">
         {userName && (
           <button
             type="button"
             onClick={onLogout}
             title={`Sair (${userName})`}
             aria-label={`Sair (${userName})`}
-            className={`w-full ${itemClass} text-lifeone-ink-2 hover:bg-white/70`}
+            className={`minimal-sidebar-control w-full ${itemClass}`}
           >
-            <LogOut className="h-5 w-5 shrink-0 text-lifeone-ink-3" />
+            <LogOut className="h-5 w-5 shrink-0" />
             <span className={labelClass}>Sair ({userName})</span>
           </button>
         )}
@@ -171,7 +171,7 @@ export function DesktopSidebar({
             collapsed ? "Expandir menu lateral" : "Recolher menu lateral"
           }
           title={collapsed ? "Expandir menu lateral" : "Recolher menu lateral"}
-          className={`flex min-h-11 w-full items-center rounded-lg text-lifeone-ink-2 transition-colors hover:bg-white/70 ${collapsed ? "justify-center" : "gap-3 px-3"}`}
+          className={`minimal-sidebar-control flex min-h-11 w-full items-center rounded-[14px] transition-colors ${collapsed ? "justify-center" : "gap-3 px-3"}`}
         >
           {collapsed ? (
             <ChevronRight className="h-5 w-5" />

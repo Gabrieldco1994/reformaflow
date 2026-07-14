@@ -73,13 +73,18 @@ function json(body: unknown) {
 }
 
 async function mockApi(page: Page) {
+  const mutations: string[] = [];
   await page
     .context()
     .addCookies([
       { name: "rf_token", value: "phase-d", url: "http://localhost:3013" },
     ]);
   await page.route("http://localhost:3001/**", async (route) => {
-    const path = new URL(route.request().url()).pathname;
+    const request = route.request();
+    if (request.method() !== "GET") {
+      mutations.push(`${request.method()} ${request.url()}`);
+    }
+    const path = new URL(request.url()).pathname;
     if (path === "/auth/me") {
       return route.fulfill(
         json({
@@ -142,6 +147,7 @@ async function mockApi(page: Page) {
     }
     return route.fulfill(json([]));
   });
+  return mutations;
 }
 
 async function expectNoHorizontalOverflow(page: Page) {
@@ -218,9 +224,52 @@ test.describe("Phase D responsive cards and account hierarchy", () => {
         "this spec owns its exact boundaries",
       );
       await page.setViewportSize({ width, height: 900 });
-      await mockApi(page);
+      const mutations = await mockApi(page);
 
       await openBills(page);
+      await expect(page.locator('[data-ui-skin="minimal"]')).toHaveCount(1);
+      const mobileMore = page.getByRole("button", { name: "Mais opções" });
+      const desktopToggle = page.getByRole("button", {
+        name: /Expandir|Recolher menu lateral/,
+      });
+      if (width < 768) {
+        await expect(mobileMore).toBeVisible();
+        await expect(desktopToggle).toBeHidden();
+        const mobileHeader = page.locator('[data-mobile-header="minimal"]');
+        await expect(mobileHeader).toHaveClass(/safe-pt/);
+        expect(
+          await mobileHeader.evaluate((element) =>
+            Number.parseFloat(getComputedStyle(element).paddingTop),
+          ),
+        ).toBeGreaterThan(0);
+      } else {
+        await expect(mobileMore).toBeHidden();
+        await expect(desktopToggle).toBeVisible();
+      }
+
+      const activeNav =
+        width < 768
+          ? page
+              .getByRole("navigation", { name: "Navegação principal" })
+              .getByRole("link", { name: "Contas", exact: true })
+          : page
+              .locator("aside")
+              .getByRole("link", { name: "Contas", exact: true });
+      await expect(activeNav).toHaveAttribute("aria-current", "page");
+      const activeColors = await activeNav.evaluate((link) => ({
+        label: getComputedStyle(link.querySelector("span")!).color,
+        icon: getComputedStyle(link.querySelector("svg")!).color,
+      }));
+      expect(activeColors).toEqual({
+        label: "rgb(17, 18, 20)",
+        icon: "rgb(30, 146, 74)",
+      });
+
+      const routeAndBodyFonts = await page.evaluate(() => ({
+        route: getComputedStyle(document.querySelector("main")!).fontFamily,
+        body: getComputedStyle(document.body).fontFamily,
+      }));
+      expect(routeAndBodyFonts.route).toBe(routeAndBodyFonts.body);
       await expectNoHorizontalOverflow(page);
       const billCard = page.getByRole("article", { name: "Energia Sentinela" });
       if (width < 768) {
@@ -306,6 +355,14 @@ test.describe("Phase D responsive cards and account hierarchy", () => {
           [...boxes.map((box) => box!.x)].sort((a, b) => a - b),
         );
       }
+
+      await page.goto("/projects");
+      await expect(
+        page.getByRole("heading", { name: "Meus Projetos" }),
+      ).toBeVisible();
+      await expect(page.locator("[data-ui-skin]")).toHaveCount(0);
+      await expectNoHorizontalOverflow(page);
+      expect(mutations).toEqual([]);
     });
   }
 });
