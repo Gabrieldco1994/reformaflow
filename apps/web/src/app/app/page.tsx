@@ -4,16 +4,58 @@ import { hasFeature, type ProjectType } from '@reformaflow/domain';
 import { Suspense, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
-import { getProjectHomePath, isKnownProjectType } from '../projects/_lib/project-home-route';
+import {
+  getProjectHomePath,
+  isKnownProjectType,
+} from '../projects/_lib/project-home-route';
 
 interface Project {
   id: string;
   type: string;
 }
 
-function hasTypeFeature(projectType: string, feature: Parameters<typeof hasFeature>[1]): boolean {
+type AppScreen = 'hoje' | 'despesas' | 'maria' | 'lancar';
+
+function hasTypeFeature(
+  projectType: string,
+  feature: Parameters<typeof hasFeature>[1],
+): boolean {
   if (!isKnownProjectType(projectType)) return false;
   return hasFeature(projectType as ProjectType, feature);
+}
+
+function supportsScreen(project: Project, screen: string | null): boolean {
+  const normalized: AppScreen =
+    screen === 'despesas' || screen === 'maria' || screen === 'lancar'
+      ? screen
+      : 'hoje';
+
+  if (normalized === 'despesas') {
+    return hasTypeFeature(project.type, 'expenses');
+  }
+
+  return hasTypeFeature(project.type, 'monthlyOverview');
+}
+
+function pickProjectForScreen(
+  projects: Project[],
+  screen: string | null,
+  lastProjectId: string | null,
+): Project {
+  const fromLast = lastProjectId
+    ? projects.find((project) => project.id === lastProjectId)
+    : undefined;
+  if (fromLast && supportsScreen(fromLast, screen)) return fromLast;
+
+  const pessoal = projects.find((project) => project.type === 'PESSOAL');
+  if (pessoal && supportsScreen(pessoal, screen)) return pessoal;
+
+  const firstMatching = projects.find((project) =>
+    supportsScreen(project, screen),
+  );
+  if (firstMatching) return firstMatching;
+
+  return fromLast ?? projects[0];
 }
 
 function resolveTargetPath(project: Project, screen: string | null): string {
@@ -29,7 +71,7 @@ function resolveTargetPath(project: Project, screen: string | null): string {
         ? `/projects/${project.id}/maria`
         : homePath;
     case 'lancar':
-      return hasTypeFeature(project.type, 'monthlyOverview') && hasTypeFeature(project.type, 'expenses')
+      return hasTypeFeature(project.type, 'monthlyOverview')
         ? `/projects/${project.id}/monthly?launch=1`
         : homePath;
     case 'hoje':
@@ -59,9 +101,7 @@ function AppEntryContent() {
         }
 
         const lastProjectId = window.localStorage.getItem('rf_last_project_id');
-        const fromLast = projects.find((project) => project.id === lastProjectId);
-        const pessoal = projects.find((project) => project.type === 'PESSOAL');
-        const chosen = fromLast ?? pessoal ?? projects[0];
+        const chosen = pickProjectForScreen(projects, screen, lastProjectId);
 
         router.replace(resolveTargetPath(chosen, screen));
       } catch {
@@ -86,9 +126,9 @@ export default function AppEntryPage() {
   return (
     <Suspense
       fallback={
-    <div className="min-h-screen bg-white flex items-center justify-center">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-darc-red" />
-    </div>
+        <div className="min-h-screen bg-white flex items-center justify-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-darc-red" />
+        </div>
       }
     >
       <AppEntryContent />
