@@ -73,6 +73,7 @@ cd packages/domain && npx vitest run              # testes domínio (vitest, __t
 7. Em `FloorPlanRoom.reanalyze`, use `deleteMany({where})` simples — FK cascade cuida do resto (não há soft-delete nesse modelo).
 8. **API NestJS morre se o shell que iniciou fechar.** Use `./start-api.sh` ou `bash` async detached.
 9. **EMU bloqueia `gh`/`git push` no repo pessoal.** Solução: `unset GH_TOKEN && gh auth switch -u Gabrieldco1994` antes de operações no GitHub.
+10. **NUNCA apagar `apps/web/src/app/prototype/agent-monitor/**` nem `tools/agent-monitor/**`.** É a página de monitoramento de agentes em produção (`/prototype/agent-monitor`, pública no `middleware.ts`), não um protótipo descartável apesar do nome da pasta. Já foi apagada sem querer por um checkpoint automático de sessão — se algum diff/checkout/limpeza remover esses arquivos, restaure antes de commitar.
 
 ## Notas técnicas (consulte quando tocar o módulo)
 

@@ -1,0 +1,25 @@
+{
+  "updatedAt": "2026-07-13T22:00:00.000Z",
+  "agents": [
+    {
+      "agentId": "demo-d0-backend",
+      "name": "backend-expert",
+      "kind": "agent",
+      "status": "running",
+      "task": "Implementando PR-D0 multi-tenant",
+      "updatedAt": "2026-07-13T22:00:00.000Z",
+      "detail": "cross-tenant.spec.ts em execução",
+      "sessionId": "8428bf3d-a40d-4f53-8e10-7e3992fe6da4"
+    },
+    {
+      "agentId": "demo-d0-qa",
+      "name": "qa-engineer",
+      "kind": "subagent",
+      "status": "idle",
+      "task": "Aguardando novo diff",
+      "updatedAt": "2026-07-13T21:58:00.000Z",
+      "sessionId": "8428bf3d-a40d-4f53-8e10-7e3992fe6da4",
+      "parentAgentId": "demo-d0-backend"
+    }
+  ]
+}
