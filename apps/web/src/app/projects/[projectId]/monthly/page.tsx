@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Gauge, ChevronLeft, ChevronRight, PlusCircle, Sparkles } from "lucide-react";
+import { Gauge, ChevronLeft, ChevronRight, PlusCircle } from "lucide-react";
 import { useProject } from "@/contexts/project-context";
 import { api } from "@/lib/api";
 import type { MonthlyOverviewResponse } from "./_types";
@@ -23,7 +23,6 @@ import MobileCockpitHeader from "./_cockpit/MobileCockpitHeader";
 import MobileMonthCockpit from "./_cockpit/MobileMonthCockpit";
 import { monthlyOverviewPath } from "./_lib/monthly-overview-query";
 import { NovaDespesaLauncher } from "../expenses/_components/NovaDespesaLauncher";
-import { useCopilotStore } from "@/stores/copilot-store";
 
 type View = "mes" | "ano";
 
@@ -251,14 +250,6 @@ export default function CockpitPage() {
                         </button>
                       )}
                     />
-                    <button
-                      type="button"
-                      aria-label="Conversar com a Maria"
-                      onClick={() => useCopilotStore.getState().setOpen(true)}
-                      className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg border border-[var(--ck-border)] bg-[var(--ck-surface)] text-[var(--ck-accent)] transition-colors hover:bg-[var(--ck-surface-2)]"
-                    >
-                      <Sparkles className="h-4 w-4" />
-                    </button>
                   </div>
                 )}
               </div>
