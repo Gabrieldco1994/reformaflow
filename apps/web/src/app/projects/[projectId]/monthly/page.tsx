@@ -147,7 +147,7 @@ export default function CockpitPage() {
   return (
     <div
       style={COCKPIT_THEME}
-      className="rounded-[22px] bg-[var(--ck-bg)] text-[var(--ck-text)] p-4 md:p-6 border border-[var(--ck-border)] shadow-lifeone-card"
+      className="pessoal-minimal-cockpit rounded-[22px] bg-[var(--ck-bg)] text-[var(--ck-text)] p-4 md:p-6 border border-[var(--ck-border)] shadow-lifeone-card"
     >
       <div className="md:hidden">
         <MobileCockpitHeader

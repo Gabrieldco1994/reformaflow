@@ -47,7 +47,7 @@ export default function MobileCockpitHeader({
   onEixoChange: (eixo: Eixo) => void;
 }) {
   return (
-    <header className="mb-4 space-y-3">
+    <header className="pessoal-minimal-page-header mb-4 space-y-3">
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2.5">
           <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-[var(--ck-border)] bg-[var(--ck-surface)] text-[var(--ck-accent)]">

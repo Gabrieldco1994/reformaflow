@@ -18,7 +18,7 @@ export default function MobileCockpitAccordion({
 }) {
   const panelId = `${id}-panel`;
   return (
-    <section className="overflow-hidden rounded-[18px] border border-[var(--ck-border)] bg-[var(--ck-surface)] shadow-lifeone-card">
+    <section className="minimal-card overflow-hidden rounded-[18px] border border-[var(--ck-border)] bg-[var(--ck-surface)] shadow-lifeone-card">
       <button
         type="button"
         aria-expanded={open}
