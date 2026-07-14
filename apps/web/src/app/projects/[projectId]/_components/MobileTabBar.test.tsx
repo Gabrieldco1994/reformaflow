@@ -69,17 +69,21 @@ const NON_PERSONAL_MATRIX = [
 ] as const;
 
 describe("MobileTabBar", () => {
-  it("preserves exactly Hoje, Lançar and Maria for PESSOAL with the green FAB", () => {
+  it("preserves Hoje, Despesas, Lançar and Maria for PESSOAL with the green FAB", () => {
     renderTabBar({ canLaunch: true });
 
     const links = screen.getAllByRole("link");
     const launch = screen.getByRole("button", { name: "Lançar" });
     const today = screen.getByRole("link", { name: "Hoje" });
 
-    expect(links).toHaveLength(2);
+    expect(links).toHaveLength(3);
     expect(today).toHaveAttribute("href", `${basePath}/monthly`);
     expect(today).toHaveAttribute("aria-current", "page");
     expect(today).toHaveClass("min-h-11");
+    expect(screen.getByRole("link", { name: "Despesas" })).toHaveAttribute(
+      "href",
+      `${basePath}/expenses`,
+    );
     expect(launch).toHaveClass("bg-[#0F6B4D]", "text-white");
     expect(screen.getByRole("link", { name: "Maria" })).toHaveAttribute(
       "href",
@@ -89,12 +93,16 @@ describe("MobileTabBar", () => {
     expect(screen.getByRole("navigation")).not.toHaveClass("lg:hidden");
   });
 
-  it("omits Hoje when PESSOAL monthly permission is absent", () => {
+  it("omits Hoje when PESSOAL monthly permission is absent and keeps Despesas/Maria", () => {
     renderTabBar({ primary: [], canLaunch: true });
 
     expect(
       screen.queryByRole("link", { name: "Hoje" }),
     ).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Despesas" })).toHaveAttribute(
+      "href",
+      `${basePath}/expenses`,
+    );
     expect(screen.getByRole("button", { name: "Lançar" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Maria" })).toHaveAttribute(
       "href",
@@ -109,6 +117,9 @@ describe("MobileTabBar", () => {
       "href",
       `${basePath}/monthly`,
     );
+    expect(
+      screen.queryByRole("link", { name: "Despesas" }),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Lançar" }),
     ).not.toBeInTheDocument();
@@ -126,6 +137,21 @@ describe("MobileTabBar", () => {
     await user.click(screen.getByRole("button", { name: "Lançar" }));
 
     expect(onOpenLaunch).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks Despesas as active on the expenses route for PESSOAL", () => {
+    renderTabBar({
+      pathname: `${basePath}/expenses`,
+      canLaunch: true,
+    });
+
+    expect(screen.getByRole("link", { name: "Despesas" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(screen.getByRole("link", { name: "Hoje" })).not.toHaveAttribute(
+      "aria-current",
+    );
   });
 
   it.each(NON_PERSONAL_MATRIX)(
