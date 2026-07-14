@@ -353,7 +353,7 @@ test.describe("Monthly cockpit — Phase C mobile relance", () => {
 
   // O FAB "Lançar" e o sheet de lançamento vivem no AppShell (global a todas as
   // rotas do projeto), então o cockpit é uma superfície válida para exercê-los.
-  test("Lançar: FAB verde, origens do projeto atual e pill de tipo sempre visível", async ({
+  test("Lançar: FAB minimal, origens do projeto atual e pill de tipo sempre visível", async ({
     page,
   }, testInfo) => {
     test.skip(
@@ -362,12 +362,12 @@ test.describe("Monthly cockpit — Phase C mobile relance", () => {
     );
     const mutations = await openMonthly(page, { width: 390, height: 844 });
 
-    // bug 5: FAB verde (--green #0F6B4D = rgb(15,107,77)), nunca preto.
+    // O Skin Minimal usa o botão branco separado do dock.
     const fab = page.getByRole("button", { name: "Lançar", exact: true });
     await expect(fab).toBeVisible();
     expect(
       await fab.evaluate((el) => getComputedStyle(el).backgroundColor),
-    ).toBe("rgb(15, 107, 77)");
+    ).toBe("rgb(255, 255, 255)");
 
     await fab.click();
     await expect(page.getByRole("heading", { name: "Lançar" })).toBeVisible();
