@@ -11,19 +11,16 @@ import {
 // userHasAnyModuleForType) — they can no longer drift apart (#98).
 export { TYPE_MODULES, projectTypeHasModule, userHasAnyModuleForType };
 
-/** User authorization requires an explicit type grant and a module for that type. */
+/** User authorization by project type with legacy fallback for empty grants. */
 export function userCanAccessProjectType(
   role: string | undefined,
   allowedProjectTypes: string[] | undefined,
   allowedModules: string[],
   projectType: string,
 ): boolean {
-  if (isFullAccessRole(role)) return true;
-  const types = Array.isArray(allowedProjectTypes) ? allowedProjectTypes : [];
-  return (
-    types.includes(projectType) &&
-    userHasAnyModuleForType(projectType, allowedModules)
-  );
+  const types = accessibleProjectTypes(role, allowedProjectTypes, allowedModules);
+  if (types === null) return true;
+  return types.includes(projectType);
 }
 
 export const userCanCreateProjectType = userCanAccessProjectType;
@@ -36,6 +33,13 @@ export function accessibleProjectTypes(
 ): string[] | null {
   if (isFullAccessRole(role)) return null;
   const types = Array.isArray(allowedProjectTypes) ? allowedProjectTypes : [];
+  // ponytail: legacy users can have both arrays empty; keep permissive behavior.
+  if (types.length === 0) {
+    if (!Array.isArray(allowedModules) || allowedModules.length === 0) return null;
+    return Object.keys(TYPE_MODULES).filter((type) =>
+      userHasAnyModuleForType(type, allowedModules),
+    );
+  }
   return types.filter((type) => userHasAnyModuleForType(type, allowedModules));
 }
 
@@ -95,15 +99,14 @@ export async function resolveAccessibleProjectScope(
   allowedModules: string[],
 ): Promise<string[] | null> {
   if (isFullAccessRole(role)) return null;
-  const types =
-    accessibleProjectTypes(role, allowedProjectTypes, allowedModules) ?? [];
-  if (types.length === 0) return [];
+  const types = accessibleProjectTypes(role, allowedProjectTypes, allowedModules);
+  if (types !== null && types.length === 0) return [];
   const projectIds = Array.isArray(allowedProjects) ? allowedProjects : [];
   const projects = await prisma.project.findMany({
     where: {
       tenantId,
       deletedAt: null,
-      type: { in: types },
+      ...(types !== null ? { type: { in: types } } : {}),
       ...(projectIds.length > 0 ? { id: { in: projectIds } } : {}),
     },
     select: { id: true },

@@ -1,8 +1,40 @@
-import { projectTypeHasModule } from './access-rules';
+import {
+  accessibleProjectTypes,
+  projectTypeHasModule,
+  userCanAccessProjectType,
+} from './access-rules';
 
 describe('projectTypeHasModule — pendencias gate', () => {
   it('REFORMA has the pendencias module', () => {
     expect(projectTypeHasModule('REFORMA', 'pendencias')).toBe(true);
+  });
+
+  describe('userCanAccessProjectType', () => {
+    it('allows legacy users with empty allowedProjectTypes and empty allowedModules', () => {
+      expect(userCanAccessProjectType('USER', [], [], 'PESSOAL')).toBe(true);
+      expect(userCanAccessProjectType('USER', undefined, [], 'REFORMA')).toBe(true);
+    });
+
+    it('keeps explicit type restriction when allowedProjectTypes is provided', () => {
+      expect(
+        userCanAccessProjectType('USER', ['PESSOAL'], ['monthlyOverview'], 'PESSOAL'),
+      ).toBe(true);
+      expect(
+        userCanAccessProjectType('USER', ['PESSOAL'], ['monthlyOverview'], 'REFORMA'),
+      ).toBe(false);
+    });
+  });
+
+  describe('accessibleProjectTypes', () => {
+    it('returns null (no type restriction) for legacy empty grants', () => {
+      expect(accessibleProjectTypes('USER', [], [])).toBeNull();
+    });
+
+    it('derives types from modules when types are empty but modules exist', () => {
+      expect(accessibleProjectTypes('USER', [], ['monthlyOverview'])).toEqual([
+        'PESSOAL',
+      ]);
+    });
   });
 
   it('non-REFORMA types do NOT have pendencias', () => {
