@@ -296,12 +296,18 @@ movimentações abaixo.
 
 **Cartões e Contas (carrossel):**
 - Cada **cartão** aparece com visual realista do banco, **fatura atual**, **vence
-  em** e botão **"Pagar fatura"** (ou pílula **"✓ Paga"**). Clicar num cartão
-  filtra as movimentações por ele.
+  em** e status (**A pagar / Parcial / ✓ Paga**). Clicar num cartão filtra as
+  movimentações por ele.
+- Quando a fatura está parcial, o card mostra **"R$ pago de R$ total"**.
+- Cartões com intervenção manual exibem o indicador **"Ajuste manual"**.
 - Cada **conta bancária** aparece como tile (instituição, final, saldo). Clicável
   para filtrar.
 - **Pagar fatura** abre um diálogo (conta de débito + data) e registra um
   **lançamento neutro**: reduz o caixa, mas não é um novo gasto. Recalcula os KPIs.
+- **Ajustar fatura…** abre formulário com valor (+/−), motivo e nota. O ajuste muda
+  o espelho da fatura (valor bancário) sem virar consumo/caixa.
+- **Marcar quitada com resíduo…** registra o resíduo declarado (com nota) e fecha a
+  fatura mesmo com diferença de centavos/contestação.
 
 **Movimentações:**
 - Abas **Saídas / Entradas / Tudo**.
@@ -309,6 +315,7 @@ movimentações abaixo.
   descrição.
 - Lista de lançamentos com ícone, descrição, data e valor (verde = entrada,
   escuro = saída). Estado vazio quando não há itens.
+- Nas linhas de fatura, há ações rápidas **Ajustar** e **Resíduo**, além do status.
 
 **Ticket médio:** valor médio por lançamento, com barras de apoio.
 

@@ -119,6 +119,7 @@ model Project {
   categoryBudgets         CategoryBudget[]
   pendencias              Pendencia[]
   plants                  Plant[]
+  invoiceAdjustments      InvoiceAdjustment[]
 
   @@map("projects")
 }
@@ -754,6 +755,26 @@ model CreditCardStatementImport {
   @@index([cardId])
   @@index([tenantId])
   @@map("credit_card_imports")
+}
+
+model InvoiceAdjustment {
+  id          String                  @id @default(cuid())
+  projectId   String                  @map("project_id")
+  tenantId    String                  @map("tenant_id")
+  cardLast4   String                  @map("card_last4")
+  dueMonth    String                  @map("due_month")
+  amountCents Int                     @map("amount_cents")
+  reason      String
+  note        String?
+  createdAt   DateTime                @default(now()) @map("created_at")
+  updatedAt   DateTime                @updatedAt @map("updated_at")
+  deletedAt   DateTime?               @map("deleted_at")
+
+  project Project @relation(fields: [projectId], references: [id])
+
+  @@index([tenantId, projectId, dueMonth])
+  @@index([tenantId, projectId, cardLast4, dueMonth])
+  @@map("invoice_adjustments")
 }
 
 // ──────────────────────────────────────────────────────────────

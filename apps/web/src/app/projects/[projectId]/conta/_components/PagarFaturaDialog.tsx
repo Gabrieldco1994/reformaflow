@@ -47,7 +47,7 @@ export function PagarFaturaDialog({
         paymentDate: data,
       }),
     onSuccess: () => {
-      toast.success(`Fatura ${card.nickname} marcada como paga`);
+      toast.success(`Pagamento da fatura ${card.nickname} registrado`);
       queryClient.invalidateQueries({ queryKey: ['account-view', projectId] });
       queryClient.invalidateQueries({ queryKey: ['expenses', projectId] });
       queryClient.invalidateQueries({ queryKey: ['dashboard', projectId] });
@@ -104,7 +104,7 @@ export function PagarFaturaDialog({
                 className="mt-1 h-11 w-full rounded-xl border border-lifeone-hairline bg-lifeone-card px-3 text-sm text-lifeone-ink outline-none focus:border-lifeone-blue"
               />
               <span className="mt-1 block text-[10px] text-lifeone-ink-4">
-                fatura atual: {formatCurrency(card.faturaAtual / 100)}
+                pendente: {formatCurrency(card.faturaPendente / 100)} · total: {formatCurrency(card.faturaAtual / 100)}
               </span>
             </label>
 

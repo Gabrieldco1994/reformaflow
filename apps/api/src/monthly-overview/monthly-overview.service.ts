@@ -243,7 +243,7 @@ export class MonthlyOverviewService {
     const sixMonthKeys = lastMonthKeys(mesSelecionado, 6);
     const sixMonthSet = new Set(sixMonthKeys);
 
-    const [accounts, allExpenses, receipts, entries, cards, settlements, rateioAllocations] =
+    const [accounts, allExpenses, receipts, entries, cards, settlements, rateioAllocations, invoiceAdjustments] =
       await Promise.all([
       this.prisma.bankAccount.findMany({
         where: { tenantId, projectId, deletedAt: null },
@@ -350,6 +350,16 @@ export class MonthlyOverviewService {
       this.prisma.rateioAllocation.findMany({
         where: { tenantId },
         select: { sourceExpenseId: true, targetExpenseId: true },
+      }),
+      this.prisma.invoiceAdjustment.findMany({
+        where: { tenantId, projectId, deletedAt: null },
+        select: {
+          id: true,
+          cardLast4: true,
+          dueMonth: true,
+          amountCents: true,
+          reason: true,
+        },
       }),
     ]);
 
@@ -547,6 +557,10 @@ export class MonthlyOverviewService {
           total: 0,
           pending: 0,
           realized: 0,
+          paidAmount: 0,
+          residualDeclared: 0,
+          adjustmentAmount: 0,
+          hasManualIntervention: false,
         };
         invoiceByMonthCard.set(invoiceKey, invoice);
       }
@@ -554,12 +568,26 @@ export class MonthlyOverviewService {
       invoice.total += entry.valor;
     }
 
+    const adjustmentByInvoice = new Map<string, number>();
+    const residualByInvoice = new Map<string, number>();
+    const hasManualInterventionByInvoice = new Set<string>();
+    for (const adj of invoiceAdjustments) {
+      const key = `${adj.dueMonth}__${adj.cardLast4}`;
+      hasManualInterventionByInvoice.add(key);
+      if (adj.reason === 'QUITACAO_RESIDUO') {
+        residualByInvoice.set(key, (residualByInvoice.get(key) ?? 0) + Math.max(adj.amountCents, 0));
+        continue;
+      }
+      adjustmentByInvoice.set(key, (adjustmentByInvoice.get(key) ?? 0) + adj.amountCents);
+    }
+    for (const [invoiceKey, invoice] of invoiceByMonthCard) {
+      invoice.total += adjustmentByInvoice.get(invoiceKey) ?? 0;
+    }
+
     // Faturas quitadas por dois mecanismos (ver computePaidInvoiceKeys):
-    //  - implícito: pagamentos via conta do PRÓPRIO cartão, casados por valor+janela
-    //    (faturas que vencem no dia 1 são pagas no mês anterior).
-    //  - explícito: "cartão paga cartão"/PIX com `settlesInvoiceKey` apontando a fatura
-    //    de OUTRO cartão (juros/parciais → soma, não casa por valor). Despesas com
-    //    vínculo explícito saem do casamento implícito para não interferir.
+    //  - implícito: pagamentos via conta do PRÓPRIO cartão, somados por fatura por
+    //    janela {mês do pagamento, mês+1} e com tolerância para quitação integral.
+    //  - explícito: `settlesInvoiceKey` soma pagamentos direcionados à fatura alvo.
     const settlementInvoices = Array.from(invoiceByMonthCard.values()).map((invoice) => ({
       dueMonth: invoice.dueMonth,
       cardLast4: invoice.cardLast4,
@@ -591,24 +619,33 @@ export class MonthlyOverviewService {
         targetKey: settlesInvoiceKeyToInternal(expense.settlesInvoiceKey as string),
         amount: expense.valorTotal,
       }));
-    const paidInvoiceKeys = computePaidInvoiceKeys(
+    const settlementTotals = computeInvoiceSettlementTotals(
       settlementInvoices,
       implicitPayments,
       explicitSettlements,
+      residualByInvoice,
     );
+    const paidInvoiceKeys = settlementTotals.paidInvoiceKeys;
     const implicitPaymentByInvoice = matchPaidInvoiceExpenseIds(
       settlementInvoices,
       implicitPaymentsDetailed,
     );
 
     for (const [invoiceKey, invoice] of invoiceByMonthCard) {
-      if (paidInvoiceKeys.has(invoiceKey)) {
-        invoice.realized = invoice.total;
+      const paidAmount = settlementTotals.paidAmountByInvoice.get(invoiceKey) ?? 0;
+      const residualDeclared = residualByInvoice.get(invoiceKey) ?? 0;
+      const required = Math.max(invoice.total - residualDeclared, 0);
+      if (paidAmount >= required) {
+        invoice.realized = Math.min(invoice.total, paidAmount + residualDeclared);
         invoice.pending = 0;
       } else {
-        invoice.realized = 0;
-        invoice.pending = invoice.total;
+        invoice.realized = Math.min(invoice.total, paidAmount);
+        invoice.pending = Math.max(invoice.total - paidAmount, 0);
       }
+      invoice.paidAmount = paidAmount;
+      invoice.residualDeclared = residualDeclared;
+      invoice.adjustmentAmount = adjustmentByInvoice.get(invoiceKey) ?? 0;
+      invoice.hasManualIntervention = hasManualInterventionByInvoice.has(invoiceKey);
     }
 
     const invoiceRows = Array.from(invoiceByMonthCard.values());
@@ -906,7 +943,7 @@ export class MonthlyOverviewService {
         forma: 'cartao',
         valor: invoice.total,
         realizado: invoice.pending === 0,
-        status: invoice.pending === 0 ? 'PAGO' : 'PLANEJADO',
+        status: invoice.pending === 0 ? 'PAGO' : invoice.paidAmount > 0 ? 'PARCIAL' : 'PLANEJADO',
         cardLast4: invoice.cardLast4,
         bankLast4: null as string | null,
         tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
@@ -914,6 +951,10 @@ export class MonthlyOverviewService {
         editavel:
           (implicitPaymentByInvoice.get(`${invoice.dueMonth}__${invoice.cardLast4}`) ?? null) != null,
         dueMonth: invoice.dueMonth,
+        invoicePaidAmount: invoice.paidAmount,
+        invoiceResidualDeclared: invoice.residualDeclared,
+        invoiceHasManualIntervention: invoice.hasManualIntervention,
+        invoiceAdjustmentAmount: invoice.adjustmentAmount,
         projetoOrigem: null as { id: string; name: string; type: string } | null,
         parcelaIndex: null as number | null,
         foreignExpenseId: null as string | null,
@@ -1023,6 +1064,10 @@ export class MonthlyOverviewService {
           total: 0,
           pending: 0,
           realized: 0,
+          paidAmount: 0,
+          residualDeclared: 0,
+          adjustmentAmount: 0,
+          hasManualIntervention: false,
         } satisfies CardInvoiceAggregate);
       const canShowLimit =
         card.limitTotalCents != null && card.limitAvailableCents != null && card.limitTotalCents > 0;
@@ -1036,9 +1081,13 @@ export class MonthlyOverviewService {
         last4: card.last4,
         faturaAtual: invoice.total,
         faturaPendente: invoice.pending,
+        faturaPaga: invoice.paidAmount,
+        residualDeclarado: invoice.residualDeclared,
+        possuiIntervencaoManual: invoice.hasManualIntervention,
+        ajusteManualTotal: invoice.adjustmentAmount,
         dueMonth: openInvoiceMonth,
         vencimento: dueDateIso(openInvoiceMonth, card.dueDay),
-        status: invoice.pending > 0 ? 'a pagar' : 'paga',
+        status: invoice.pending === 0 ? 'paga' : invoice.paidAmount > 0 ? 'parcial' : 'a pagar',
         limiteUsadoPct:
           canShowLimit && limiteUsado != null
             ? Math.round((limiteUsado / limitTotal!) * 100)
@@ -1617,7 +1666,7 @@ export class MonthlyOverviewService {
 
     const targetYear = normalizeYear(year);
 
-    const [entries, cards, accounts] = await Promise.all([
+    const [entries, cards, accounts, invoiceAdjustments] = await Promise.all([
       this.prisma.cashFlowEntry.findMany({
         where: {
           tenantId,
@@ -1643,6 +1692,16 @@ export class MonthlyOverviewService {
         where: { tenantId, projectId, deletedAt: null },
         select: { nickname: true, institution: true, last4: true },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      }),
+      this.prisma.invoiceAdjustment.findMany({
+        where: {
+          tenantId,
+          projectId,
+          deletedAt: null,
+          dueMonth: { startsWith: `${targetYear}-` },
+          reason: { not: 'QUITACAO_RESIDUO' },
+        },
+        select: { dueMonth: true, cardLast4: true, amountCents: true },
       }),
     ]);
 
@@ -1696,6 +1755,13 @@ export class MonthlyOverviewService {
       if (!mes.startsWith(`${targetYear}-`)) continue;
       const mapKey = `${mes}__${key}`;
       totalsByMonthOrigin.set(mapKey, (totalsByMonthOrigin.get(mapKey) ?? 0) + entry.valor);
+    }
+
+    for (const adjustment of invoiceAdjustments) {
+      const key = originKey('card', adjustment.cardLast4);
+      const mapKey = `${adjustment.dueMonth}__${key}`;
+      totalsByMonthOrigin.set(mapKey, (totalsByMonthOrigin.get(mapKey) ?? 0) + adjustment.amountCents);
+      cardsWithData.add(adjustment.cardLast4);
     }
 
     // Origens a exibir: cartões cadastrados (+ denormalizados com dado), depois
@@ -2283,35 +2349,30 @@ export class MonthlyOverviewService {
     });
     if (!account) throw new NotFoundException('Conta de débito não encontrada.');
 
-    // Já paga neste mês? (mesma chave do getAccountView: tipo neutro PAGO com
-    // bankLast4 cujo mês do pagamento === mês de vencimento da fatura).
-    const existing = await this.prisma.expense.findMany({
+    const parsedPaymentDate = dto.paymentDate ? new Date(dto.paymentDate) : new Date();
+    if (Number.isNaN(parsedPaymentDate.getTime())) {
+      throw new BadRequestException('Data de pagamento inválida.');
+    }
+
+    // Idempotência por payload exato (cartão + conta + valor + data).
+    const existing = await this.prisma.expense.findFirst({
       where: {
         tenantId,
         projectId,
         tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
         status: 'PAGO',
         cardLast4: card.last4,
-        bankLast4: { not: null },
+        bankLast4: account.last4,
+        valorTotal: amountCents,
+        dataPagamento: parsedPaymentDate,
         deletedAt: null,
       },
-      select: { dataPagamento: true, createdAt: true },
+      select: { id: true },
     });
-    const alreadyPaid = existing.some(
-      (e) => monthKeyOf(e.dataPagamento ?? e.createdAt) === month,
-    );
-    if (alreadyPaid) {
-      throw new BadRequestException('Esta fatura já está marcada como paga neste mês.');
+    if (existing) {
+      throw new BadRequestException('Este pagamento já foi registrado.');
     }
-
-    // A detecção de "fatura paga" casa o MÊS do pagamento com o mês de vencimento.
-    // Para garantir coerência, a data efetiva do pagamento fica dentro do mês da
-    // fatura: usa a data escolhida se cair no mês; senão, o dia do vencimento.
-    const chosen = dto.paymentDate ? new Date(dto.paymentDate) : new Date();
-    const effectiveDate =
-      !Number.isNaN(chosen.getTime()) && monthKeyOf(chosen) === month
-        ? chosen
-        : new Date(`${dueDateIso(month, card.dueDay)}T12:00:00.000Z`);
+    const effectiveDate = parsedPaymentDate;
 
     const payment = await this.prisma.expense.create({
       data: {
@@ -2353,6 +2414,63 @@ export class MonthlyOverviewService {
       amountCents,
       ...settled,
     };
+  }
+
+  async createInvoiceAdjustment(
+    tenantId: string,
+    projectId: string,
+    dto: {
+      cardLast4?: string;
+      dueMonth?: string;
+      amountCents?: number;
+      reason?: string;
+      note?: string;
+    },
+  ) {
+    await this.ensurePessoalProject(tenantId, projectId);
+    if (!dto.cardLast4) throw new BadRequestException('Cartão obrigatório.');
+    const dueMonth = normalizeMonthKey(dto.dueMonth);
+    if (!dto.reason) throw new BadRequestException('Motivo obrigatório.');
+    if (!Number.isInteger(dto.amountCents) || dto.amountCents === 0) {
+      throw new BadRequestException('Valor do ajuste inválido.');
+    }
+
+    const reason = dto.reason as InvoiceAdjustmentReasonValue;
+    if (!INVOICE_ADJUSTMENT_REASONS.has(reason)) {
+      throw new BadRequestException('Motivo de ajuste inválido.');
+    }
+    if (reason === 'QUITACAO_RESIDUO' && (dto.amountCents ?? 0) < 0) {
+      throw new BadRequestException('Resíduo declarado deve ser positivo.');
+    }
+
+    const card = await this.prisma.creditCard.findFirst({
+      where: { tenantId, projectId, last4: dto.cardLast4, deletedAt: null },
+      select: { last4: true },
+    });
+    if (!card) throw new NotFoundException('Cartão não encontrado.');
+
+    return this.prisma.invoiceAdjustment.create({
+      data: {
+        tenantId,
+        projectId,
+        cardLast4: card.last4,
+        dueMonth,
+        amountCents: dto.amountCents as number,
+        reason,
+        note: dto.note?.trim() || null,
+      },
+    });
+  }
+
+  async deleteInvoiceAdjustment(tenantId: string, projectId: string, id: string) {
+    await this.ensurePessoalProject(tenantId, projectId);
+    const row = await this.prisma.invoiceAdjustment.findFirst({
+      where: { id, tenantId, projectId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!row) throw new NotFoundException('Ajuste de fatura não encontrado.');
+    await this.prisma.invoiceAdjustment.delete({ where: { id } });
+    return { ok: true };
   }
 
   private async ensurePessoalProject(tenantId: string, projectId: string) {
@@ -2406,59 +2524,35 @@ interface PaymentForMatchWithExpenseId extends PaymentForMatch {
   expenseId: string;
 }
 
+type InvoiceAdjustmentReasonValue =
+  | 'JUROS_ROTATIVO'
+  | 'IOF'
+  | 'ESTORNO'
+  | 'CONTESTACAO'
+  | 'OUTRO'
+  | 'QUITACAO_RESIDUO';
+
+const INVOICE_ADJUSTMENT_REASONS = new Set<InvoiceAdjustmentReasonValue>([
+  'JUROS_ROTATIVO',
+  'IOF',
+  'ESTORNO',
+  'CONTESTACAO',
+  'OUTRO',
+  'QUITACAO_RESIDUO',
+]);
+
 /**
  * Casa pagamentos de fatura (`PAGAMENTO_FATURA_CARTAO` pagos via conta) às faturas
  * do mesmo cartão. O pagamento de uma fatura é feito no mês do vencimento OU no mês
  * anterior (faturas que vencem no dia 1 são pagas no fim do mês anterior). Por isso
- * casamos POR VALOR dentro da janela de mês `{payMonth, payMonth+1}`, processando os
- * pagamentos em ordem cronológica e consumindo cada fatura uma única vez. Retorna o
- * conjunto de chaves `${dueMonth}__${cardLast4}` das faturas quitadas.
+ * casamos POR VALOR dentro da janela de mês `{payMonth, payMonth+1}` e só quitamos
+ * quando a diferença absoluta respeita a tolerância (R$2 ou 0,5%).
  */
 export function matchPaidInvoices(
   invoices: InvoiceForMatch[],
   payments: PaymentForMatch[],
 ): Set<string> {
-  const paid = new Set<string>();
-
-  const invoicesByCard = new Map<string, InvoiceForMatch[]>();
-  for (const invoice of invoices) {
-    const list = invoicesByCard.get(invoice.cardLast4) ?? [];
-    list.push(invoice);
-    invoicesByCard.set(invoice.cardLast4, list);
-  }
-
-  const paymentsByCard = new Map<string, PaymentForMatch[]>();
-  for (const payment of payments) {
-    const list = paymentsByCard.get(payment.cardLast4) ?? [];
-    list.push(payment);
-    paymentsByCard.set(payment.cardLast4, list);
-  }
-
-  for (const [cardLast4, cardPayments] of paymentsByCard) {
-    const cardInvoices = invoicesByCard.get(cardLast4) ?? [];
-    const matchedDueMonths = new Set<string>();
-    const ordered = [...cardPayments].sort(
-      (a, b) => a.payMonth.localeCompare(b.payMonth) || a.amount - b.amount,
-    );
-    for (const payment of ordered) {
-      const windowMonths = [payment.payMonth, monthKeyPlus(payment.payMonth, 1)];
-      const candidates = cardInvoices.filter(
-        (invoice) =>
-          !matchedDueMonths.has(invoice.dueMonth) && windowMonths.includes(invoice.dueMonth),
-      );
-      if (candidates.length === 0) continue;
-      candidates.sort(
-        (a, b) =>
-          Math.abs(a.total - payment.amount) - Math.abs(b.total - payment.amount) ||
-          a.dueMonth.localeCompare(b.dueMonth),
-      );
-      const chosen = candidates[0];
-      matchedDueMonths.add(chosen.dueMonth);
-      paid.add(`${chosen.dueMonth}__${cardLast4}`);
-    }
-  }
-
-  return paid;
+  return computeInvoiceSettlementTotals(invoices, payments, []).paidInvoiceKeys;
 }
 
 function matchPaidInvoiceExpenseIds(
@@ -2466,46 +2560,28 @@ function matchPaidInvoiceExpenseIds(
   payments: PaymentForMatchWithExpenseId[],
 ): Map<string, string> {
   const matched = new Map<string, string>();
-
-  const invoicesByCard = new Map<string, InvoiceForMatch[]>();
-  for (const invoice of invoices) {
-    const list = invoicesByCard.get(invoice.cardLast4) ?? [];
-    list.push(invoice);
-    invoicesByCard.set(invoice.cardLast4, list);
-  }
-
-  const paymentsByCard = new Map<string, PaymentForMatchWithExpenseId[]>();
-  for (const payment of payments) {
-    const list = paymentsByCard.get(payment.cardLast4) ?? [];
-    list.push(payment);
-    paymentsByCard.set(payment.cardLast4, list);
-  }
-
-  for (const [cardLast4, cardPayments] of paymentsByCard) {
-    const cardInvoices = invoicesByCard.get(cardLast4) ?? [];
-    const matchedDueMonths = new Set<string>();
-    const ordered = [...cardPayments].sort(
-      (a, b) => a.payMonth.localeCompare(b.payMonth) || a.amount - b.amount,
-    );
-    for (const payment of ordered) {
-      const windowMonths = [payment.payMonth, monthKeyPlus(payment.payMonth, 1)];
-      const candidates = cardInvoices.filter(
-        (invoice) =>
-          !matchedDueMonths.has(invoice.dueMonth) && windowMonths.includes(invoice.dueMonth),
-      );
-      if (candidates.length === 0) continue;
-      candidates.sort(
-        (a, b) =>
-          Math.abs(a.total - payment.amount) - Math.abs(b.total - payment.amount) ||
-          a.dueMonth.localeCompare(b.dueMonth),
-      );
-      const chosen = candidates[0];
-      matchedDueMonths.add(chosen.dueMonth);
-      matched.set(`${chosen.dueMonth}__${cardLast4}`, payment.expenseId);
+  const paidAmountByInvoice = computeInvoiceSettlementTotals(invoices, payments, []).paidAmountByInvoice;
+  const singleByInvoice = new Map<string, string>();
+  const countByInvoice = new Map<string, number>();
+  const assignments = assignImplicitPayments(invoices, payments);
+  for (const { payment, invoiceKey } of assignments) {
+    const key = invoiceKey;
+    const amount = paidAmountByInvoice.get(key) ?? 0;
+    if (amount <= 0) continue;
+    countByInvoice.set(key, (countByInvoice.get(key) ?? 0) + 1);
+    if (!singleByInvoice.has(key)) {
+      singleByInvoice.set(key, payment.expenseId);
     }
   }
-
+  for (const [key, expenseId] of singleByInvoice) {
+    if ((countByInvoice.get(key) ?? 0) === 1) matched.set(key, expenseId);
+  }
   return matched;
+}
+
+interface InvoiceSettlementTotals {
+  paidInvoiceKeys: Set<string>;
+  paidAmountByInvoice: Map<string, number>;
 }
 
 export interface ExplicitSettlement {
@@ -2527,22 +2603,89 @@ export function computePaidInvoiceKeys(
   invoices: InvoiceForMatch[],
   implicitPayments: PaymentForMatch[],
   explicitSettlements: ExplicitSettlement[],
+  residualByInvoice: Map<string, number> = new Map(),
 ): Set<string> {
-  const paid = matchPaidInvoices(invoices, implicitPayments);
+  return computeInvoiceSettlementTotals(
+    invoices,
+    implicitPayments,
+    explicitSettlements,
+    residualByInvoice,
+  ).paidInvoiceKeys;
+}
 
-  const sumByKey = new Map<string, number>();
-  for (const settlement of explicitSettlements) {
-    sumByKey.set(settlement.targetKey, (sumByKey.get(settlement.targetKey) ?? 0) + settlement.amount);
-  }
+function computeInvoiceSettlementTotals(
+  invoices: InvoiceForMatch[],
+  implicitPayments: PaymentForMatch[],
+  explicitSettlements: ExplicitSettlement[],
+  residualByInvoice: Map<string, number> = new Map(),
+): InvoiceSettlementTotals {
+  const paidInvoiceKeys = new Set<string>();
+  const paidAmountByInvoice = new Map<string, number>();
   const totalByKey = new Map<string, number>(
     invoices.map((invoice) => [`${invoice.dueMonth}__${invoice.cardLast4}`, invoice.total] as const),
   );
-  for (const [key, sum] of sumByKey) {
-    const total = totalByKey.get(key);
-    if (total != null && sum >= total) paid.add(key);
+
+  const implicitAssignments = assignImplicitPayments(invoices, implicitPayments);
+  for (const { invoiceKey, payment } of implicitAssignments) {
+    const key = invoiceKey;
+    paidAmountByInvoice.set(key, (paidAmountByInvoice.get(key) ?? 0) + payment.amount);
   }
 
-  return paid;
+  for (const settlement of explicitSettlements) {
+    paidAmountByInvoice.set(
+      settlement.targetKey,
+      (paidAmountByInvoice.get(settlement.targetKey) ?? 0) + settlement.amount,
+    );
+  }
+
+  for (const [key, total] of totalByKey) {
+    const paid = paidAmountByInvoice.get(key) ?? 0;
+    const tolerance = invoiceMatchTolerance(total);
+    const residual = residualByInvoice.get(key) ?? 0;
+    const required = Math.max(total - residual, 0);
+    if (paid >= required || Math.abs(total - paid) <= tolerance) {
+      paidInvoiceKeys.add(key);
+    }
+  }
+
+  return { paidInvoiceKeys, paidAmountByInvoice };
+}
+
+function assignImplicitPayments<T extends PaymentForMatch>(
+  invoices: InvoiceForMatch[],
+  payments: T[],
+): Array<{ payment: T; invoiceKey: string }> {
+  const assignments: Array<{ payment: T; invoiceKey: string }> = [];
+  const paidByKey = new Map<string, number>();
+  const orderedPayments = [...payments].sort(
+    (a, b) => a.payMonth.localeCompare(b.payMonth) || a.amount - b.amount,
+  );
+  for (const payment of orderedPayments) {
+    const windowMonths = [payment.payMonth, monthKeyPlus(payment.payMonth, 1)];
+    const candidates = invoices.filter(
+      (invoice) => invoice.cardLast4 === payment.cardLast4 && windowMonths.includes(invoice.dueMonth),
+    );
+    if (candidates.length === 0) continue;
+    candidates.sort((a, b) => {
+      const keyA = `${a.dueMonth}__${a.cardLast4}`;
+      const keyB = `${b.dueMonth}__${b.cardLast4}`;
+      const remA = Math.max(a.total - (paidByKey.get(keyA) ?? 0), 0);
+      const remB = Math.max(b.total - (paidByKey.get(keyB) ?? 0), 0);
+      return (
+        Math.abs(remA - payment.amount) - Math.abs(remB - payment.amount) ||
+        a.dueMonth.localeCompare(b.dueMonth)
+      );
+    });
+    const chosen = candidates[0];
+    const invoiceKey = `${chosen.dueMonth}__${chosen.cardLast4}`;
+    assignments.push({ payment, invoiceKey });
+    paidByKey.set(invoiceKey, (paidByKey.get(invoiceKey) ?? 0) + payment.amount);
+  }
+  return assignments;
+}
+
+function invoiceMatchTolerance(total: number): number {
+  return Math.max(200, Math.round(total * 0.005));
 }
 
 export interface CaixaContaAccount {
@@ -2612,6 +2755,10 @@ interface CardInvoiceAggregate {
   total: number;
   pending: number;
   realized: number;
+  paidAmount: number;
+  residualDeclared: number;
+  adjustmentAmount: number;
+  hasManualIntervention: boolean;
 }
 
 interface DreLine {
