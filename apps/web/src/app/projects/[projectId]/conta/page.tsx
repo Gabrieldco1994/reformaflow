@@ -356,6 +356,7 @@ export default function ContaPage() {
         open={bulkLinkOpen}
         onClose={() => setBulkLinkOpen(false)}
         currentProjectId={projectId}
+        defaultMonth={selectedMonth}
       />
     </div>
   );
