@@ -2,6 +2,7 @@
 
 import { X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 interface ModalProps {
   open: boolean;
@@ -62,7 +63,9 @@ export function Modal({
       ? `w-full ${sizeMap[size]} max-h-[92vh] rounded-t-3xl transition-transform duration-300 ${mounted ? 'translate-y-0' : 'translate-y-full'}`
       : `w-full ${sizeMap[size]} max-h-[92vh] rounded-t-3xl md:rounded-2xl md:mx-4 transition-all duration-300 ${mounted ? 'translate-y-0 md:opacity-100 md:scale-100' : 'translate-y-full md:translate-y-0 md:opacity-0 md:scale-95'}`;
 
-  return (
+  // ponytail: portal garante que fixed inset-0 seja relativo ao viewport mesmo
+  // quando o Modal é aninhado dentro de outro overflow-y-auto
+  return createPortal(
     <div
       ref={overlayRef}
       className={`fixed inset-0 ${zIndex ?? 'z-50'} flex ${containerClasses} bg-darc-velvet/85 backdrop-blur-sm transition-opacity duration-200 ${mounted ? 'opacity-100' : 'opacity-0'}`}
@@ -90,6 +93,7 @@ export function Modal({
         </div>
         <div className="px-5 py-5">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

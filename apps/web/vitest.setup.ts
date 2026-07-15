@@ -27,3 +27,11 @@ if (typeof (globalThis as unknown as { ResizeObserver?: unknown }).ResizeObserve
     disconnect() {}
   };
 }
+
+// ponytail: createPortal renderiza no document.body em runtime, mas em testes unitários
+// isso quebra container.querySelector (conteúdo não está mais no container do render).
+// Mock global para renderizar inline — mantém o comportamento de produção intacto.
+vi.mock('react-dom', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-dom')>();
+  return { ...actual, createPortal: (node: unknown) => node };
+});
