@@ -3,7 +3,9 @@
 import { useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
-import { X, Upload, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { Upload, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { Modal } from '@/components/ui/modal';
+import { Button } from '@/components/ui/button';
 import type { BankAccountRow, BankPreviewResult, BankCommitResult } from '../_types';
 import { BankPreviewTxRow } from './BankPreviewTxRow';
 
@@ -141,14 +143,13 @@ export default function ImportBankStatementModal({ projectId, account, onClose, 
   }, [preview, txStates]);
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg w-full max-w-4xl max-h-[92vh] overflow-y-auto p-6">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-bold">
-            Importar extrato — {account.nickname ?? `${account.institution} ****${account.last4}`}
-          </h2>
-          <button onClick={onClose}><X className="w-5 h-5" /></button>
-        </div>
+    <Modal
+      open
+      onClose={onClose}
+      title={`Importar extrato — ${account.nickname ?? `${account.institution} ****${account.last4}`}`}
+      size="xl"
+      variant="center"
+    >
 
         {commitResult ? (
           <CommittedView result={commitResult} onClose={onCommitted} />
@@ -205,14 +206,15 @@ export default function ImportBankStatementModal({ projectId, account, onClose, 
                   />
                 </div>
               )}
-              <button
+              <Button
                 onClick={handlePreview}
                 disabled={files.length === 0 || loading}
-                className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg disabled:opacity-50 flex items-center justify-center gap-2"
+                className="w-full"
+                variant="secondary"
               >
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                 {loading ? 'Processando…' : 'Pré-visualizar'}
-              </button>
+              </Button>
             </div>
 
             {error && (
@@ -224,7 +226,7 @@ export default function ImportBankStatementModal({ projectId, account, onClose, 
 
             {preview && (
               <div className="mt-4">
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3 text-sm">
+                <div className="rounded-xl bg-blue-50 border border-blue-200 p-3 mb-3 text-sm">
                   <div>
                     <strong>{preview.total}</strong> transações ·
                     <strong> {preview.totalDebits ?? 0}</strong> débitos ·
@@ -241,15 +243,15 @@ export default function ImportBankStatementModal({ projectId, account, onClose, 
                   </div>
                 </div>
 
-                <div className="border rounded-lg overflow-hidden">
-                  <div className="bg-gray-50 px-3 py-2 text-xs font-medium text-gray-700 flex gap-2">
+                <div className="border rounded-xl overflow-hidden">
+                  <div className="bg-gray-50 px-3 py-2 text-xs font-medium text-gray-700 hidden sm:flex gap-2">
                     <span className="w-7"></span>
                     <span className="flex-1">Descrição / Data</span>
                     <span className="w-32 text-right">Valor</span>
                     <span className="w-44">Categoria</span>
                     <span className="w-12"></span>
                   </div>
-                  <div className="max-h-[55vh] overflow-y-auto">
+                  <div className="max-h-[45vh] overflow-y-auto divide-y divide-gray-100">
                     {preview.preview.map((tx) => (
                       <BankPreviewTxRow
                         key={tx.externalId}
@@ -263,22 +265,19 @@ export default function ImportBankStatementModal({ projectId, account, onClose, 
                 </div>
 
                 <div className="flex justify-end gap-2 mt-4">
-                  <button onClick={onClose} className="px-4 py-2 border rounded-lg">Cancelar</button>
-                  <button
+                  <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+                  <Button
                     onClick={handleCommit}
                     disabled={loading || (counts.willCreate + counts.willLink === 0)}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2 disabled:opacity-50"
                   >
-                    {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                    {loading ? 'Importando…' : 'Confirmar importação'}
-                  </button>
+                    {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Importando…</> : <><Upload className="w-4 h-4" /> Confirmar importação</>}
+                  </Button>
                 </div>
               </div>
             )}
           </>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -296,9 +295,7 @@ function CommittedView({ result, onClose }: { result: BankCommitResult; onClose:
         {!!result.skipped && <p><strong>{result.skipped}</strong> ignoradas pelo usuário</p>}
         <p className="text-sm text-gray-500 mt-2">Período: {result.periodLabel}</p>
       </div>
-      <button onClick={onClose} className="mt-6 px-6 py-2 bg-blue-600 text-white rounded-lg">
-        Fechar
-      </button>
+      <Button onClick={onClose} className="mt-6">Fechar</Button>
     </div>
   );
 }
