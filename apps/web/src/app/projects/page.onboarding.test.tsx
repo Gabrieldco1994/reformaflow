@@ -105,6 +105,6 @@ describe("first project onboarding", () => {
       description: "",
     });
     expect(mocks.refresh).toHaveBeenCalledTimes(1);
-    expect(mocks.push).toHaveBeenCalledWith("/projects/casa-1/dashboard");
+    expect(mocks.push).toHaveBeenCalledWith("/projects/casa-1/apoio");
   });
 });

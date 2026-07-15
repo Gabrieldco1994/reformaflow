@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Gauge, ChevronLeft, ChevronRight, PlusCircle } from "lucide-react";
+import { Gauge, ChevronLeft, ChevronRight, PlusCircle, Compass } from "lucide-react";
+import Link from "next/link";
 import { useProject } from "@/contexts/project-context";
 import { api } from "@/lib/api";
 import type { MonthlyOverviewResponse } from "./_types";
@@ -151,6 +152,7 @@ export default function CockpitPage() {
     >
       <div className="md:hidden">
         <MobileCockpitHeader
+          projectId={projectId}
           view={view}
           monthKey={monthKey}
           year={year}
@@ -257,6 +259,14 @@ export default function CockpitPage() {
           </div>
 
           <div className="flex flex-wrap items-center justify-end gap-2">
+            <Link
+              href={`/projects/${projectId}/apoio`}
+              aria-label="Solicitar apoio"
+              title="Solicitar apoio"
+              className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg border border-[var(--ck-border)] bg-[var(--ck-surface)] text-[var(--ck-accent)] transition-colors hover:bg-[var(--ck-surface-2)]"
+            >
+              <Compass className="h-4 w-4" />
+            </Link>
             {view === "mes" && data && (
               <div className="inline-flex shrink-0 items-center gap-1 rounded-xl border border-[var(--ck-border)] bg-[var(--ck-surface-2)] p-1">
                 <button
