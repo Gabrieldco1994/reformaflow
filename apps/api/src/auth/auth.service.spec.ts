@@ -187,4 +187,24 @@ describe('AuthService signup/guest/claim', () => {
       }),
     );
   });
+
+  it('validateUser registra último login', async () => {
+    const passwordHash = await bcrypt.hash('12345678', 10);
+    prisma.user.findFirst.mockResolvedValue({
+      id: 'u-1',
+      username: 'owner',
+      tenant: { deletedAt: null },
+      isGuest: false,
+      passwordHash,
+    });
+    prisma.user.update.mockResolvedValue({});
+
+    const out = await service.validateUser('Owner', '12345678');
+
+    expect(out.id).toBe('u-1');
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'u-1' },
+      data: { lastLoginAt: expect.any(Date) },
+    });
+  });
 });

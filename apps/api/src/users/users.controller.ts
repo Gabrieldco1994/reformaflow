@@ -33,8 +33,12 @@ export class UsersController {
   }
 
   @Post()
-  create(@CurrentTenant() tenantId: string, @Body() dto: CreateUserDto) {
-    return this.users.create(tenantId, dto);
+  create(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() requester: { id: string },
+    @Body() dto: CreateUserDto,
+  ) {
+    return this.users.create(tenantId, dto, requester.id);
   }
 
   @Patch(':id')
