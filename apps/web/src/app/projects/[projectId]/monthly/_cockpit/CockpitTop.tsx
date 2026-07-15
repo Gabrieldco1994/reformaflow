@@ -1,7 +1,9 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Wallet, Target, ArrowUpRight, ArrowDownRight, Lightbulb, ChevronDown } from 'lucide-react';
+import Link from 'next/link';
+import { useParams } from 'next/navigation';
+import { Wallet, Target, ArrowUpRight, ArrowDownRight, Lightbulb, ChevronDown, AlertCircle } from 'lucide-react';
 import type { MonthlyOverviewResponse, MonthlyEntry } from '../_types';
 import { Card, type Tone } from './ui';
 import { InfoHint } from '@/components/InfoHint';
@@ -117,6 +119,7 @@ export default function CockpitTop({
   /** Renderiza o bloco de recomendações dentro do card do topo (só na visão Mês). */
   showRecs?: boolean;
 }) {
+  const params = useParams<{ projectId: string }>();
   const t = useMemo(() => deriveCockpitTop(data, monthKey ?? data.mesAtual), [data, monthKey]);
   const recs = useMemo(() => {
     if (!showRecs) return null;
@@ -175,6 +178,19 @@ export default function CockpitTop({
         >
           {caixaBig}
         </button>
+
+        {/* Degraded-state banner: no saldo inicial → deep-link to bank-account edit */}
+        {!t.caixaReal && (
+          <Link
+            href={`/projects/${params.projectId}/bank-accounts?focus=openingBalance`}
+            className="mt-3 flex items-start gap-2 rounded-[10px] border border-[#FECDCA] bg-[#FEF3F2] px-3 py-2.5 text-left transition-colors hover:bg-[#FEE4E2]"
+          >
+            <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-[#B42318]" />
+            <span className="text-[12px] leading-relaxed text-[#7A271A]">
+              Caixa mostrando só o fluxo — <span className="font-semibold">defina o saldo inicial</span> para bater com o banco.
+            </span>
+          </Link>
+        )}
 
         {/* trilha do mês: hoje + fechamento projetado num só olhar */}
         <div className="mt-4">

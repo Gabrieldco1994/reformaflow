@@ -20,13 +20,14 @@
 5. Compras no cartão sem `bankLast4` **não** entram no caixa da conta.
 6. Itens futuros (`PLANEJADO`/`PREVISTO`) **não** entram no `caixa.hoje`.
 7. `caixa.hoje` vem do backend (`computeCaixaConta`) e é independente do mês selecionado na UI.
-8. Quando `caixa.temSaldoInicial=false`, a UI deve rotular como "Resultado realizado" (não "Caixa").
+8. Quando `caixa.temSaldoInicial=false`, a UI deve rotular como "Resultado realizado" (não "Caixa") e exibir banner com deep-link para cadastrar o saldo inicial.
 9. A projeção de fim do mês no cockpit usa a fonte canônica de conta (`data.projecao` / `getAccountView`) antes de qualquer fallback por competência.
 10. **I1:** `computeCaixaConta` é type-agnóstico: toda despesa `PAGO` com `bankLast4` reduz caixa, inclusive `INVESTIMENTOS` (neutro-de-consumo).
 11. **I2:** `RESGATE` `EM_CAIXA` com `bankLast4` aumenta caixa real.
 12. **I3:** `getCaixaConta` deve delegar para `computeCaixaConta` sem divergência numérica.
 13. **I4:** `caixa.porMes` é série acumulada a partir de `saldoInicial` e só com realizados. ⚠️ não blindado por teste dedicado com codinome I4.
 14. **I5:** fallback por competência nunca pode sobrescrever `caixa.hoje` reconciliado quando `temSaldoInicial=true`. ⚠️ não blindado por teste dedicado com codinome I5.
+15. **Regra de domicílio das contas fixas:** tudo que debita da conta bancária pessoal se lança como despesa (recorrente ou avulsa) no projeto **PESSOAL**. Projetos CASA/CARRO guardam manutenção, lembretes e despesas do bem — `recurringBills` de CASA/CARRO NÃO entram no caixa consolidado. Espelho automático entre CASA/CARRO → PESSOAL é explicitamente **deferido** (decisão de produto, não implementar sem nova deliberação).
 
 ## Referência de implementação
 

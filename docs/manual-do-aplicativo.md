@@ -124,6 +124,24 @@ O **rateio** permite dividir uma despesa entre vários destinos.
 - **Ação "Entrar":** valida as credenciais; em sucesso, leva para o Hub (Meus
   Projetos); em erro, mostra mensagem de credencial inválida.
 
+### 3.1b Registro (`/register`)
+- **Propósito:** criar uma nova conta (tenant + usuário).
+- **Campos:** nome do espaço, nome do usuário, usuário (login), senha,
+  confirmação de senha, objetivos (seletor de tipos de projeto).
+- **Ação "Criar conta e continuar":**
+  - Se PESSOAL está entre os objetivos: redireciona para o **fluxo de setup guiado** (`/onboarding/pessoal-setup`).
+  - Caso contrário: redireciona para o Hub com modal de criar projeto aberto.
+
+### 3.1c Onboarding "do zero" (`/onboarding/pessoal-setup`)
+Fluxo guiado para novos usuários que escolheram PESSOAL. Stepper de 4 passos:
+
+1. **Projeto:** cria automaticamente o projeto PESSOAL (nome editável, padrão "Minha vida financeira").
+2. **Conta bancária:** banco, apelido, últimos 4 dígitos, e o campo-herói **"Quanto você tem na conta hoje?"** (saldo inicial + data=hoje). É a base do Caixa Real no cockpit. **Pular é possível**, mas exibe aviso explícito: "sem isso, o Caixa mostrado não será o saldo do banco".
+3. **Cartão de crédito (opcional):** banco, bandeira, últimos 4, dia de fechamento e dia de vencimento. Microcopy explica por quê ("é o que permite prever sua fatura").
+4. **Pronto:** redirect automático para o Cockpit do PESSOAL.
+
+O critério central: quem segue o caminho feliz vê, no primeiro minuto, um Caixa que é o saldo real digitado.
+
 ### 3.2 Hub — Meus Projetos (`/projects`)
 Ponto de entrada depois do login. Lista todos os projetos que o usuário pode ver.
 
@@ -201,6 +219,9 @@ A tela-mãe do PESSOAL. Responde "como está meu mês?".
 **Hero do topo:**
 - Semáforo de fechamento (**No caminho / No limite / Fecha no vermelho**) baseado na projeção de caixa do mês.
 - Valor principal mostra **Caixa hoje** (ou **Resultado realizado** quando não há saldo inicial cadastrado).
+- **Banner de estado degradado:** quando `temSaldoInicial=false`, aparece um aviso
+  persistente "Caixa mostrando só o fluxo — defina o saldo inicial para bater com o
+  banco" que leva diretamente à edição da conta bancária.
 - **Barra de progresso do mês** + frase narrativa de fechamento.
 - **Dropdown "Recomendações"** (minimizado por padrão): dicas automáticas —
   projeção de fechamento e quanto cortar por dia para equilibrar, maior gasto
@@ -407,6 +428,9 @@ Gestão dos cartões de crédito.
 - **Card por cartão:** visual realista do banco, final, bandeira, instituição,
   **fechamento** e **vencimento**, e (quando há limite/uso) status
   **DENTRO / ATENÇÃO / ESTOURADO** com barra de uso (usado/disponível/limite).
+- **Badge "configurar" (deep-link):** cartões sem `closingDay` mostram badge
+  vermelho "configurar" na carteira (tela Despesas e Visão Conta). Ao tocar,
+  navega direto para o formulário de edição do cartão com foco no fechamento.
 - **Ações por cartão:** **Vincular despesas** (+ painel de sugestões de vínculo),
   **Editar**, **Excluir** (com confirmação).
 - **Importação de fatura:** ao importar, é possível **marcar a despesa planejada
@@ -423,6 +447,8 @@ Gestão das contas.
 - **Card por conta:** instituição, **final**, **agência**, **conta**, **saldo**;
   configuração de **saldo inicial** (base do caixa real §10). Ações: **Vincular
   despesas**, **Vincular recebimentos**, **Editar**, **Excluir** (confirmação).
+- **Deep-link do cockpit:** quando o cockpit exibe o banner de estado degradado
+  (sem saldo inicial), leva para esta tela com o formulário de edição aberto.
 - **Estado vazio:** "Nenhuma conta cadastrada".
 
 ### 4.9 Metas (`/metas`)
@@ -550,6 +576,10 @@ Contas fixas (luz, água, internet, gás…) e avulsas.
 - **"Total mensal estimado"** somando as recorrentes.
 - **Botão "Nova conta recorrente":** Nome da conta, Categoria, Valor, Frequência,
   Vencimento, Status.
+- **Dica contextual (hint):** ao criar uma conta em CASA/CARRO, aparece um aviso
+  não-bloqueante: "Esta conta é debitada da sua conta pessoal? Para ela contar no
+  seu caixa, lance como despesa recorrente no PESSOAL." Motivo: `recurringBills` de
+  CASA/CARRO rastreiam o bem, mas NÃO alimentam o caixa consolidado (§10).
 - **Tabela** (Conta, Categoria, Valor, Frequência, Vencimento, Status, ações):
   editar, **pausar/ativar**, excluir. No celular, a tabela rola horizontalmente
   para não cortar colunas/ações.

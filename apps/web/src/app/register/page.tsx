@@ -7,6 +7,7 @@ import { LifeOneLogo } from '@/components/LifeOneLogo';
 import { ObjectiveSelector } from '@/components/objectives/ObjectiveSelector';
 import type { ObjectiveType } from '@/components/objectives/objective-options';
 import { useAuth } from '@/contexts/auth-context';
+import { ProjectType } from '@reformaflow/domain';
 import { ApiResponseError } from '@/lib/api';
 
 const fieldClass =
@@ -71,7 +72,12 @@ export default function RegisterPage() {
         },
         idempotencyKey.current,
       );
-      router.replace('/projects?onboarding=1');
+      // Guided "do zero" flow when PESSOAL is among selected types
+      if (projectTypes.includes(ProjectType.PESSOAL)) {
+        router.replace('/onboarding/pessoal-setup');
+      } else {
+        router.replace('/projects?onboarding=1');
+      }
     } catch (caught) {
       if (caught instanceof ApiResponseError) idempotencyKey.current = newIdempotencyKey();
       setError(caught instanceof Error ? caught.message : 'Não foi possível criar sua conta. Tente novamente.');
