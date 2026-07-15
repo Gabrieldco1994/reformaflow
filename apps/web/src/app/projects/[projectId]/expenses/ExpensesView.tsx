@@ -74,6 +74,13 @@ import type { ExpenseQueryState } from './_lib/expense-query-state';
 import { centsToReais, reaisToCents } from './_lib/money';
 
 const toIsoDate = (date: Date) => date.toISOString().slice(0, 10);
+const todayBrtIsoDate = () =>
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
 
 // Fatia uma base de despesas pelo período selecionado (mês / ano todo / range),
 // expandindo parcelas por competência. Extraído de `periodFilteredPersonal` para
@@ -715,7 +722,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
       status: row.status as 'PLANEJADO' | 'PAGO',
     };
     if (isSinglePaymentForm(fp)) {
-      data.dataPagamento = row.dataPagamento || (defaultDateIfMissing ? new Date().toISOString().slice(0, 10) : null);
+      data.dataPagamento = row.dataPagamento || (defaultDateIfMissing ? todayBrtIsoDate() : null);
       data.quantidadeParcela = null;
       data.dataInicioParcela = null;
     } else if (fp === 'PARCELADO' || fp === 'QUINZENAL') {

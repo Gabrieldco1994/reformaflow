@@ -58,6 +58,12 @@ describe('caixaMonthForCardPurchase', () => {
   it('aceita string ISO como data de compra', () => {
     expect(caixaMonthForCardPurchase('2026-03-05T00:00:00.000Z', 10, 20)).toBe('2026-03');
   });
+
+  it('respeita Date com hora (não só meia-noite)', () => {
+    // 23:59 no BRT = 02:59 UTC do dia seguinte (dia 10 em UTC).
+    // A função usa dia UTC, portanto cai na próxima fatura.
+    expect(caixaMonthForCardPurchase(new Date('2026-06-09T23:59:00-03:00'), 10, 20)).toBe('2026-07');
+  });
 });
 
 describe('caixaDateForCardPurchase', () => {

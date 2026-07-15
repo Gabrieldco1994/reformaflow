@@ -1,4 +1,5 @@
 import { PaymentForm } from '../enums';
+import { todayLocalDateUtc } from './local-date-utc';
 
 export type InstallmentPaymentForm =
   | typeof PaymentForm.A_VISTA
@@ -73,7 +74,7 @@ export function buildInstallments(input: InstallmentInput): InstallmentEntry[] {
       {
         parcela: '1/1',
         valor: valorTotal,
-        data: dataPagamento ?? new Date(),
+        data: dataPagamento ?? todayLocalDateUtc('America/Sao_Paulo'),
       },
     ];
   }
@@ -81,7 +82,7 @@ export function buildInstallments(input: InstallmentInput): InstallmentEntry[] {
   const n = Math.max(quantidadeParcela ?? 1, 1);
   const baseValue = Math.floor(valorTotal / n);
   const remainder = valorTotal - baseValue * n;
-  const startDate = dataInicioParcela ?? new Date();
+  const startDate = dataInicioParcela ?? todayLocalDateUtc('America/Sao_Paulo');
   const isQuinzenal = formaPagamento === PaymentForm.QUINZENAL;
 
   return Array.from({ length: n }, (_, i) => {

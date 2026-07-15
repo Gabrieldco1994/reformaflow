@@ -12,6 +12,7 @@ import {
   isConsumptionNeutralExpenseType,
   isNeutralReceiptType,
   isSinglePaymentForm,
+  todayLocalDateUtc,
   type MonthlyOverviewEntry,
 } from '@reformaflow/domain';
 
@@ -19,6 +20,7 @@ const PROJECTION_STATUS = {
   CANONICAL: 'canonical',
   DEGRADED: 'degraded',
 } as const;
+const FINANCIAL_TIME_ZONE = 'America/Sao_Paulo';
 
 @Injectable()
 export class MonthlyOverviewService {
@@ -3006,7 +3008,7 @@ function monthShortLabel(monthNumberValue: number): string {
 
 function normalizeMonthKey(month?: string): string {
   if (!month) {
-    const now = new Date();
+    const now = todayLocalDateUtc(FINANCIAL_TIME_ZONE);
     return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
   }
   if (!/^\d{4}-\d{2}$/.test(month)) {
@@ -3021,7 +3023,7 @@ function normalizeMonthKey(month?: string): string {
 
 function normalizeYear(year?: string | number): number {
   if (year === undefined || year === null || year === '') {
-    return new Date().getUTCFullYear();
+    return todayLocalDateUtc(FINANCIAL_TIME_ZONE).getUTCFullYear();
   }
   const parsed = typeof year === 'number' ? year : parseInt(year, 10);
   if (!Number.isInteger(parsed) || parsed < 2000 || parsed > 2100) {
@@ -3054,11 +3056,15 @@ function purchaseDate(expense: {
   dataInicioParcela: Date | null;
   createdAt: Date;
 }): Date {
-  return expense.dataPagamento ?? expense.dataInicioParcela ?? expense.createdAt;
+  return (
+    expense.dataPagamento
+    ?? expense.dataInicioParcela
+    ?? todayLocalDateUtc(FINANCIAL_TIME_ZONE, expense.createdAt)
+  );
 }
 
 function accountExpenseDate(expense: { dataPagamento: Date | null; createdAt: Date }): Date {
-  return expense.dataPagamento ?? expense.createdAt;
+  return expense.dataPagamento ?? todayLocalDateUtc(FINANCIAL_TIME_ZONE, expense.createdAt);
 }
 
 function dueDateIso(monthKey: string, dueDay: number | null): string {

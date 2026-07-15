@@ -5,6 +5,7 @@ export * from './expense-installments';
 export * from './expense-recurrence';
 export * from './recurring-occurrences';
 export * from './card-cash-month';
+export * from './local-date-utc';
 export * from './cash-axis';
 export * from './cross-project-settlement';
 
