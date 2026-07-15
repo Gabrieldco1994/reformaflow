@@ -10,12 +10,16 @@ export function CartoesSection({
   selected,
   onSelect,
   onPayInvoice,
+  onAdjustInvoice,
+  onSettleWithResidual,
 }: {
   cartoes: AccountViewCardSummary[];
   contas: AccountViewConta[];
   selected: string | null;
   onSelect: (last4: string | null) => void;
   onPayInvoice: (cardLast4: string) => void;
+  onAdjustInvoice: (cardLast4: string) => void;
+  onSettleWithResidual: (cardLast4: string) => void;
 }) {
   if (cartoes.length === 0 && contas.length === 0) return null;
 
@@ -44,6 +48,8 @@ export function CartoesSection({
             active={selected === card.last4}
             onSelect={onSelect}
             onPayInvoice={onPayInvoice}
+            onAdjustInvoice={onAdjustInvoice}
+            onSettleWithResidual={onSettleWithResidual}
           />
         ))}
 

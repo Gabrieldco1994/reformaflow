@@ -13,6 +13,7 @@ import { ProjecaoSaldo } from './_components/ProjecaoSaldo';
 import { CartoesSection } from './_components/CartoesSection';
 import { MovimentacoesSection } from './_components/MovimentacoesSection';
 import { PagarFaturaDialog } from './_components/PagarFaturaDialog';
+import { InvoiceInterventionDialog } from './_components/InvoiceInterventionDialog';
 import { TicketMedioSection } from './_components/TicketMedioSection';
 import { FaturasAnuaisChart } from './_components/FaturasAnuaisChart';
 import { DespesasRelacionadas } from './_components/DespesasRelacionadas';
@@ -53,6 +54,8 @@ export default function ContaPage() {
   const [selectedOriginKey, setSelectedOriginKey] = useState<string | null>(null);
   const [selectedYearMonth, setSelectedYearMonth] = useState<string | null>(null);
   const [payCardLast4, setPayCardLast4] = useState<string | null>(null);
+  const [adjustCardLast4, setAdjustCardLast4] = useState<string | null>(null);
+  const [residualCardLast4, setResidualCardLast4] = useState<string | null>(null);
   const [originFilter, setOriginFilter] = useState<string | null>(null);
   const [bulkLinkOpen, setBulkLinkOpen] = useState(false);
   const [novaReceitaOpen, setNovaReceitaOpen] = useState(false);
@@ -283,6 +286,8 @@ export default function ContaPage() {
                 selected={originFilter}
                 onSelect={setOriginFilter}
                 onPayInvoice={setPayCardLast4}
+                onAdjustInvoice={setAdjustCardLast4}
+                onSettleWithResidual={setResidualCardLast4}
               />
               <MovimentacoesSection
                 data={data}
@@ -290,6 +295,8 @@ export default function ContaPage() {
                 originFilter={originFilter}
                 onClearOrigin={() => setOriginFilter(null)}
                 onPayInvoice={setPayCardLast4}
+                onAdjustInvoice={setAdjustCardLast4}
+                onSettleWithResidual={setResidualCardLast4}
                 summaryQuickFilter={resumoQuickFilter}
                 onClearSummaryQuickFilter={() => setResumoQuickFilter(null)}
               />
@@ -308,6 +315,32 @@ export default function ContaPage() {
             card={card}
             contas={data.contas ?? []}
             onClose={() => setPayCardLast4(null)}
+          />
+        );
+      })()}
+
+      {adjustCardLast4 && data && (() => {
+        const card = data.cartoes.find((c) => c.last4 === adjustCardLast4);
+        if (!card) return null;
+        return (
+          <InvoiceInterventionDialog
+            projectId={projectId}
+            card={card}
+            mode="adjust"
+            onClose={() => setAdjustCardLast4(null)}
+          />
+        );
+      })()}
+
+      {residualCardLast4 && data && (() => {
+        const card = data.cartoes.find((c) => c.last4 === residualCardLast4);
+        if (!card) return null;
+        return (
+          <InvoiceInterventionDialog
+            projectId={projectId}
+            card={card}
+            mode="residual"
+            onClose={() => setResidualCardLast4(null)}
           />
         );
       })()}
