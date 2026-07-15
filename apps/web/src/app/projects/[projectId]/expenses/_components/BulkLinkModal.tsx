@@ -15,6 +15,9 @@ import { getBulkLinkTargetProjects, type BulkLinkTargetProject } from '../_lib/b
 import { buildBulkLinkTargetPayload } from '../_lib/bulkLinkPayload';
 import { filterBulkLinkSources } from '../_lib/bulkLinkSearchFilter';
 import { useBulkLinkExecution } from '../_hooks/useBulkLinkExecution';
+import { currentMonthKey } from '../_lib/grouping-by-month';
+
+type SourceFilter = 'all' | 'card' | 'bank';
 
 interface Props {
   open: boolean;
@@ -27,6 +30,8 @@ interface Props {
    * Visão Conta).
    */
   preselectedSources?: Expense[];
+  /** Mês inicial do filtro no selfSelectMode (formato YYYY-MM). Padrão: mês atual. */
+  defaultMonth?: string;
 }
 
 interface RowChoice {
@@ -41,9 +46,17 @@ interface RowChoice {
  * só escolhe projeto destino + categoria por linha; título/valor/data são
  * copiados automaticamente da fonte.
  */
-export function BulkLinkModal({ open, onClose, currentProjectId, preselectedSources }: Props) {
+export function BulkLinkModal({ open, onClose, currentProjectId, preselectedSources, defaultMonth }: Props) {
   const queryClient = useQueryClient();
   const selfSelectMode = preselectedSources === undefined;
+
+  const [monthFilter, setMonthFilter] = useState(defaultMonth ?? currentMonthKey());
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
+
+  // Sync month when prop changes (e.g. user navigates months and reopens)
+  useEffect(() => {
+    if (defaultMonth) setMonthFilter(defaultMonth);
+  }, [defaultMonth]);
 
   const { data: projects = [] } = useQuery<BulkLinkTargetProject[]>({
     queryKey: ['tenant', 'projects'],
@@ -59,10 +72,19 @@ export function BulkLinkModal({ open, onClose, currentProjectId, preselectedSour
     staleTime: 20_000,
   });
 
-  const eligible = useMemo(
-    () => (selfSelectMode ? selectEligibleForBulkLink(expensesPage?.items ?? []) : preselectedSources ?? []),
-    [selfSelectMode, expensesPage, preselectedSources],
-  );
+  const eligible = useMemo(() => {
+    const base = selfSelectMode
+      ? selectEligibleForBulkLink(expensesPage?.items ?? [])
+      : (preselectedSources ?? []);
+    if (!selfSelectMode) return base;
+    return base.filter((e) => {
+      const date = e.dataPagamento ?? e.dataCompra ?? '';
+      if (date.slice(0, 7) !== monthFilter) return false;
+      if (sourceFilter === 'card') return !!e.cardLast4;
+      if (sourceFilter === 'bank') return !!e.bankLast4;
+      return true;
+    });
+  }, [selfSelectMode, expensesPage, preselectedSources, monthFilter, sourceFilter]);
 
   const [pickedIds, setPickedIds] = useState<Set<string>>(new Set());
   useEffect(() => {
@@ -138,6 +160,8 @@ export function BulkLinkModal({ open, onClose, currentProjectId, preselectedSour
     setChoices({});
     setConfirmed(false);
     setSearchQuery('');
+    setPickedIds(new Set());
+    setSourceFilter('all');
     onClose();
   }
 
@@ -149,6 +173,31 @@ export function BulkLinkModal({ open, onClose, currentProjectId, preselectedSour
           destino escolhido. Título, valor e data são copiados automaticamente — escolha só o
           projeto e a categoria.
         </p>
+
+        {selfSelectMode && (
+          <div className="flex flex-col gap-2" aria-label="Filtros">
+            <input
+              type="month"
+              value={monthFilter}
+              onChange={(e) => { setMonthFilter(e.target.value); setPickedIds(new Set()); }}
+              disabled={confirmed}
+              className="rounded-md border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-darc-maroon disabled:opacity-50"
+            />
+            <div className="flex gap-1">
+              {(['all', 'card', 'bank'] as SourceFilter[]).map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  disabled={confirmed}
+                  onClick={() => { setSourceFilter(f); setPickedIds(new Set()); }}
+                  className={`rounded-full border px-3 py-0.5 text-xs font-medium transition-colors disabled:opacity-50 ${sourceFilter === f ? 'border-darc-maroon bg-darc-maroon text-white' : 'border-gray-300 text-gray-600 hover:border-gray-400'}`}
+                >
+                  {f === 'all' ? 'Todos' : f === 'card' ? 'Cartão' : 'Banco'}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {eligible.length === 0 && (
           <p className="text-sm text-gray-500">Nenhuma despesa elegível encontrada.</p>
