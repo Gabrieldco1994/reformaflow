@@ -36,9 +36,7 @@ export function accessibleProjectTypes(
   // ponytail: legacy users can have both arrays empty; keep permissive behavior.
   if (types.length === 0) {
     if (!Array.isArray(allowedModules) || allowedModules.length === 0) return null;
-    return Object.keys(TYPE_MODULES).filter((type) =>
-      userHasAnyModuleForType(type, allowedModules),
-    );
+    return [];
   }
   return types.filter((type) => userHasAnyModuleForType(type, allowedModules));
 }

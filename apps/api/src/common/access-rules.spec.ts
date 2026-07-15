@@ -30,10 +30,8 @@ describe('projectTypeHasModule — pendencias gate', () => {
       expect(accessibleProjectTypes('USER', [], [])).toBeNull();
     });
 
-    it('derives types from modules when types are empty but modules exist', () => {
-      expect(accessibleProjectTypes('USER', [], ['monthlyOverview'])).toEqual([
-        'PESSOAL',
-      ]);
+    it('returns empty types when types are empty but modules exist', () => {
+      expect(accessibleProjectTypes('USER', [], ['monthlyOverview'])).toEqual([]);
     });
   });
 
