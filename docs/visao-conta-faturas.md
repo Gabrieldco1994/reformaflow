@@ -7,6 +7,7 @@
 > funções puras `matchPaidInvoices` / `computePaidInvoiceKeys`).
 > **Testes:** `apps/api/src/monthly-overview/monthly-overview.account-view.spec.ts`.
 > Complementa `docs/cockpit-caixa-real.md` (caixa real §10).
+> Política de timezone/data: `docs/politica-datas-timezone.md`.
 > **Status (2026-06-25):** regras ativas em `main` (inclui commits `1cc93dc6`,
 > `7010b95d`, `01affbcb`, `7e901b15`, `f7be2bff`, `e41461c7`).
 

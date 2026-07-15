@@ -1,9 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { buildInstallments, isSinglePaymentForm, PaymentForm } from '../src';
 
 const utc = (y: number, m: number, d: number) => new Date(Date.UTC(y, m - 1, d));
 
 describe('buildInstallments', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('A_VISTA retorna 1 entrada com o valor total na dataPagamento', () => {
     const data = utc(2026, 5, 15);
     const out = buildInstallments({
@@ -15,17 +19,31 @@ describe('buildInstallments', () => {
     expect(out[0]).toEqual({ parcela: '1/1', valor: 12345, data });
   });
 
-  it('A_VISTA sem data usa "agora"', () => {
-    const before = Date.now();
+  it('A_VISTA sem data usa o dia-calendário BRT (meia-noite UTC)', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-10T02:59:00.000Z')); // 23:59 do dia 09 no BRT
     const out = buildInstallments({
       valorTotal: 100,
       formaPagamento: PaymentForm.A_VISTA,
     });
-    const after = Date.now();
     expect(out).toHaveLength(1);
     expect(out[0]?.parcela).toBe('1/1');
-    expect(out[0]?.data.getTime()).toBeGreaterThanOrEqual(before);
-    expect(out[0]?.data.getTime()).toBeLessThanOrEqual(after);
+    expect(out[0]?.data.toISOString()).toBe('2026-06-09T00:00:00.000Z');
+  });
+
+  it('QUINZENAL sem data de início usa o dia-calendário BRT como base', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-02-01T02:59:00.000Z')); // 31/01 23:59 BRT
+    const out = buildInstallments({
+      valorTotal: 300,
+      formaPagamento: PaymentForm.QUINZENAL,
+      quantidadeParcela: 3,
+    });
+    expect(out.map((p) => p.data.toISOString().slice(0, 10))).toEqual([
+      '2026-01-31',
+      '2026-02-15',
+      '2026-03-02',
+    ]);
   });
 
   it('PARCELADO 3x distribui em centavos com remainder na última parcela', () => {
