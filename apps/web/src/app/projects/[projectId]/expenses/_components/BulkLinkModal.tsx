@@ -67,7 +67,7 @@ export function BulkLinkModal({ open, onClose, currentProjectId, preselectedSour
   const [pickedIds, setPickedIds] = useState<Set<string>>(new Set());
   useEffect(() => {
     if (!selfSelectMode) return;
-    setPickedIds(new Set(eligible.map((e) => e.id)));
+    setPickedIds(new Set()); // ponytail: começa vazio, usuário seleciona o que quer
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selfSelectMode, open]);
 
