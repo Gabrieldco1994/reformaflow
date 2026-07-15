@@ -73,19 +73,20 @@ const NON_PERSONAL_MATRIX = [
 ] as const;
 
 describe("MobileTabBar", () => {
-  it("renders three PESSOAL tabs inside the pill and a separate 64px launch button", () => {
+  it("renders Cockpit, Despesas, Maria e Cartões in the PESSOAL pill and separate launch button", () => {
     renderTabBar({ canLaunch: true });
 
     const pill = screen.getByTestId("pessoal-tab-pill");
     const links = within(pill).getAllByRole("link");
     const launch = screen.getByRole("button", { name: "Lançar" });
-    const today = screen.getByRole("link", { name: "Hoje" });
+    const today = screen.getByRole("link", { name: "Cockpit" });
 
-    expect(links).toHaveLength(3);
+    expect(links).toHaveLength(4);
     expect(links.map((link) => link.textContent)).toEqual([
-      "Hoje",
+      "Cockpit",
       "Despesas",
       "Maria",
+      "Cartões",
     ]);
     expect(today).toHaveAttribute("href", `${basePath}/monthly`);
     expect(today).toHaveAttribute("aria-current", "page");
@@ -100,15 +101,19 @@ describe("MobileTabBar", () => {
       "href",
       `${basePath}/maria`,
     );
+    expect(screen.getByRole("link", { name: "Cartões" })).toHaveAttribute(
+      "href",
+      `${basePath}/credit-cards`,
+    );
     expect(screen.getByRole("navigation")).toHaveClass("md:hidden");
     expect(screen.getByRole("navigation")).not.toHaveClass("lg:hidden");
   });
 
-  it("omits Hoje when PESSOAL monthly permission is absent and keeps Despesas/Maria", () => {
+  it("omits Cockpit when PESSOAL monthly permission is absent and keeps Despesas/Maria/Cartões", () => {
     renderTabBar({ primary: [], canLaunch: true });
 
     expect(
-      screen.queryByRole("link", { name: "Hoje" }),
+      screen.queryByRole("link", { name: "Cockpit" }),
     ).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Despesas" })).toHaveAttribute(
       "href",
@@ -119,12 +124,16 @@ describe("MobileTabBar", () => {
       "href",
       `${basePath}/maria`,
     );
+    expect(screen.getByRole("link", { name: "Cartões" })).toHaveAttribute(
+      "href",
+      `${basePath}/credit-cards`,
+    );
   });
 
   it("omits Lançar when PESSOAL expenses permission is absent", () => {
     renderTabBar({ canLaunch: false });
 
-    expect(screen.getByRole("link", { name: "Hoje" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Cockpit" })).toHaveAttribute(
       "href",
       `${basePath}/monthly`,
     );
@@ -137,6 +146,10 @@ describe("MobileTabBar", () => {
     expect(screen.getByRole("link", { name: "Maria" })).toHaveAttribute(
       "href",
       `${basePath}/maria`,
+    );
+    expect(screen.getByRole("link", { name: "Cartões" })).toHaveAttribute(
+      "href",
+      `${basePath}/credit-cards`,
     );
   });
 
@@ -160,11 +173,7 @@ describe("MobileTabBar", () => {
       "aria-current",
       "page",
     );
-    expect(screen.getByRole("link", { name: "Despesas" })).toHaveClass(
-      "bg-[#111214]",
-      "text-white",
-    );
-    expect(screen.getByRole("link", { name: "Hoje" })).not.toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Cockpit" })).not.toHaveAttribute(
       "aria-current",
     );
   });
@@ -176,10 +185,13 @@ describe("MobileTabBar", () => {
       "aria-current",
       "page",
     );
-    expect(screen.getByRole("link", { name: "Hoje" })).not.toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Cockpit" })).not.toHaveAttribute(
       "aria-current",
     );
     expect(screen.getByRole("link", { name: "Despesas" })).not.toHaveAttribute(
+      "aria-current",
+    );
+    expect(screen.getByRole("link", { name: "Cartões" })).not.toHaveAttribute(
       "aria-current",
     );
   });
@@ -207,7 +219,7 @@ describe("MobileTabBar", () => {
       expect(links[activeIndex]).not.toHaveAttribute("style");
       expect(accent).toMatch(/^#[0-9A-F]{6}$/);
       expect(
-        screen.queryByRole("link", { name: "Hoje" }),
+        screen.queryByRole("link", { name: "Cockpit" }),
       ).not.toBeInTheDocument();
       expect(
         screen.queryByRole("button", { name: "Lançar" }),

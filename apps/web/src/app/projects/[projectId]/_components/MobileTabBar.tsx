@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Home, MessageCircle, Plus } from "lucide-react";
+import { CreditCard, Home, MessageCircle, Plus } from "lucide-react";
 import { hasFeature, ProjectType, type NavModule } from "@reformaflow/domain";
 import { isPathActive } from "./mobile-nav";
 import { navIcon } from "./nav-icons";
@@ -41,11 +41,13 @@ export function MobileTabBar({
     const todayHref = `${basePath}/monthly`;
     const expensesHref = `${basePath}/expenses`;
     const mariaHref = `${basePath}/maria`;
+    const cardsHref = `${basePath}/credit-cards`;
     const canViewToday = primary.some((module) => module.slug === "monthly");
     const canViewExpenses = canLaunch;
     const todayActive = isPathActive(pathname, todayHref);
     const expensesActive = isPathActive(pathname, expensesHref);
     const mariaActive = isPathActive(pathname, mariaHref);
+    const cardsActive = isPathActive(pathname, cardsHref);
 
     return (
       <nav className={DOCK_CLASS} aria-label="Navegação principal">
@@ -61,7 +63,7 @@ export function MobileTabBar({
                 className={pessoalTabClass(todayActive)}
               >
                 <Home className="h-5 w-5" />
-                <span className="max-w-full truncate">Hoje</span>
+                <span className="max-w-full truncate">Cockpit</span>
               </Link>
             )}
 
@@ -83,6 +85,15 @@ export function MobileTabBar({
             >
               <MessageCircle className="h-5 w-5" />
               <span className="max-w-full truncate">Maria</span>
+            </Link>
+
+            <Link
+              href={cardsHref}
+              aria-current={cardsActive ? "page" : undefined}
+              className={pessoalTabClass(cardsActive)}
+            >
+              <CreditCard className="h-5 w-5" />
+              <span className="max-w-full truncate">Cartões</span>
             </Link>
           </div>
 

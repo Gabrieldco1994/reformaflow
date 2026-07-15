@@ -91,4 +91,19 @@ describe("/login signup discovery and redirect", () => {
     });
     expect(replaceMock).toHaveBeenCalledWith("/app?screen=lancar");
   });
+
+  it('preserves screen query when next contains app route params', async () => {
+    searchQuery = 'next=%2Fapp%3Fscreen%3Dlancar';
+    const user = userEvent.setup();
+    render(<LoginPage />);
+
+    await user.type(screen.getByLabelText('Usuário'), 'demo');
+    await user.type(screen.getByLabelText('Senha'), '123456');
+    await user.click(screen.getByRole('button', { name: 'Entrar' }));
+
+    await waitFor(() => {
+      expect(loginMock).toHaveBeenCalledWith('demo', '123456');
+    });
+    expect(replaceMock).toHaveBeenCalledWith('/app?screen=lancar');
+  });
 });

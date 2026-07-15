@@ -10,6 +10,8 @@ interface Props {
   card: CardRow | null;
   onClose: () => void;
   onSaved: () => void;
+  /** ponytail: skip the fixed overlay when embedded inside AccountFormModal's own overlay */
+  bare?: boolean;
 }
 
 const INSTITUTIONS = [
@@ -26,7 +28,7 @@ const INSTITUTIONS = [
 
 const BRANDS = ['Visa', 'Mastercard', 'Elo', 'Amex', 'Hipercard'];
 
-export default function CardFormModal({ projectId, card, onClose, onSaved }: Props) {
+export default function CardFormModal({ projectId, card, onClose, onSaved, bare }: Props) {
   const [institution, setInstitution] = useState(card?.institution ?? 'ITAU');
   const [brand, setBrand] = useState(card?.brand ?? 'Visa');
   const [nickname, setNickname] = useState(card?.nickname ?? '');
@@ -71,8 +73,7 @@ export default function CardFormModal({ projectId, card, onClose, onSaved }: Pro
     }
   }
 
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+  const content = (
       <div className="bg-white rounded-lg w-full max-w-md p-6">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-bold">{card ? 'Editar cartão' : 'Novo cartão'}</h2>
@@ -170,6 +171,11 @@ export default function CardFormModal({ projectId, card, onClose, onSaved }: Pro
           </div>
         </div>
       </div>
+  );
+  if (bare) return content;
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      {content}
     </div>
   );
 }

@@ -10,6 +10,7 @@ import { SkeletonList } from '@/components/ui/Skeleton';
 import BankAccountFormModal from './_components/BankAccountFormModal';
 import BankLinkSuggestionsPanel from './_components/BankLinkSuggestionsPanel';
 import BankReceiptLinkPanel from './_components/BankReceiptLinkPanel';
+import AccountFormModal from '../_components/AccountFormModal';
 import type { BankAccountRow } from './_types';
 
 export default function BankAccountsPage() {
@@ -129,12 +130,21 @@ export default function BankAccountsPage() {
       )}
 
       {formOpen && (
-        <BankAccountFormModal
-          projectId={projectId}
-          account={editing}
-          onClose={() => { setFormOpen(false); setEditing(null); }}
-          onSaved={() => { setFormOpen(false); setEditing(null); void load(); }}
-        />
+        editing ? (
+          <BankAccountFormModal
+            projectId={projectId}
+            account={editing}
+            onClose={() => { setFormOpen(false); setEditing(null); }}
+            onSaved={() => { setFormOpen(false); setEditing(null); void load(); }}
+          />
+        ) : (
+          <AccountFormModal
+            projectId={projectId}
+            defaultType="BANK"
+            onClose={() => setFormOpen(false)}
+            onSaved={() => { setFormOpen(false); void load(); }}
+          />
+        )
       )}
       {linksFor && (
         <BankLinkSuggestionsPanel
