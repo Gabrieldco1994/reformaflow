@@ -10,9 +10,9 @@ describe('projectTypeHasModule — pendencias gate', () => {
   });
 
   describe('userCanAccessProjectType', () => {
-    it('allows legacy users with empty allowedProjectTypes and empty allowedModules', () => {
-      expect(userCanAccessProjectType('USER', [], [], 'PESSOAL')).toBe(true);
-      expect(userCanAccessProjectType('USER', undefined, [], 'REFORMA')).toBe(true);
+    it('denies access when both type and module grants are empty', () => {
+      expect(userCanAccessProjectType('USER', [], [], 'PESSOAL')).toBe(false);
+      expect(userCanAccessProjectType('USER', undefined, [], 'REFORMA')).toBe(false);
     });
 
     it('keeps explicit type restriction when allowedProjectTypes is provided', () => {
@@ -26,12 +26,14 @@ describe('projectTypeHasModule — pendencias gate', () => {
   });
 
   describe('accessibleProjectTypes', () => {
-    it('returns null (no type restriction) for legacy empty grants', () => {
-      expect(accessibleProjectTypes('USER', [], [])).toBeNull();
+    it('returns empty list when both type and module grants are empty', () => {
+      expect(accessibleProjectTypes('USER', [], [])).toEqual([]);
     });
 
-    it('returns empty types when types are empty but modules exist', () => {
-      expect(accessibleProjectTypes('USER', [], ['monthlyOverview'])).toEqual([]);
+    it('derives types from modules when type grant is empty', () => {
+      expect(accessibleProjectTypes('USER', [], ['monthlyOverview'])).toEqual([
+        'PESSOAL',
+      ]);
     });
   });
 

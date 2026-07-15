@@ -62,7 +62,7 @@ describe("ProjectService objective gate", () => {
     );
   });
 
-  it("treats an empty type set as deny, never module-derived broad access", async () => {
+  it("derives access by module when type grants are empty", async () => {
     const prisma: any = {
       project: { findMany: jest.fn().mockResolvedValue(projects) },
     };
@@ -71,7 +71,7 @@ describe("ProjectService objective gate", () => {
         ...user,
         allowedProjectTypes: [],
       }),
-    ).resolves.toEqual([]);
+    ).resolves.toEqual(projects);
   });
 
   it("requires both the explicit type and project grant", async () => {

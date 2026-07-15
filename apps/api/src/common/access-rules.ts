@@ -33,10 +33,12 @@ export function accessibleProjectTypes(
 ): string[] | null {
   if (isFullAccessRole(role)) return null;
   const types = Array.isArray(allowedProjectTypes) ? allowedProjectTypes : [];
-  // ponytail: legacy users can have both arrays empty; keep permissive behavior.
+  // ponytail: compat legado — quando tipos vierem vazios, reaproveita gate por módulo.
   if (types.length === 0) {
-    if (!Array.isArray(allowedModules) || allowedModules.length === 0) return null;
-    return [];
+    if (!Array.isArray(allowedModules) || allowedModules.length === 0) return [];
+    return Object.keys(TYPE_MODULES).filter((type) =>
+      userHasAnyModuleForType(type, allowedModules),
+    );
   }
   return types.filter((type) => userHasAnyModuleForType(type, allowedModules));
 }
