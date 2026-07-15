@@ -10,6 +10,7 @@ import { SkeletonList } from '@/components/ui/Skeleton';
 import { CreditCardVisual } from '@/components/CreditCardVisual';
 import CardFormModal from './_components/CardFormModal';
 import LinkSuggestionsPanel from './_components/LinkSuggestionsPanel';
+import AccountFormModal from '../_components/AccountFormModal';
 import type { CardRow } from './_types';
 
 function limitLabel(percent: number) {
@@ -154,12 +155,21 @@ export default function CreditCardsPage() {
       )}
 
       {formOpen && (
-        <CardFormModal
-          projectId={projectId}
-          card={editing}
-          onClose={() => { setFormOpen(false); setEditing(null); }}
-          onSaved={() => { setFormOpen(false); setEditing(null); void load(); }}
-        />
+        editing ? (
+          <CardFormModal
+            projectId={projectId}
+            card={editing}
+            onClose={() => { setFormOpen(false); setEditing(null); }}
+            onSaved={() => { setFormOpen(false); setEditing(null); void load(); }}
+          />
+        ) : (
+          <AccountFormModal
+            projectId={projectId}
+            defaultType="CARD"
+            onClose={() => setFormOpen(false)}
+            onSaved={() => { setFormOpen(false); void load(); }}
+          />
+        )
       )}
       {linksFor && (
         <LinkSuggestionsPanel

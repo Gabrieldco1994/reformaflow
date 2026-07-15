@@ -10,6 +10,8 @@ interface Props {
   account: BankAccountRow | null;
   onClose: () => void;
   onSaved: () => void;
+  /** ponytail: skip the fixed overlay when embedded inside AccountFormModal's own overlay */
+  bare?: boolean;
 }
 
 const INSTITUTIONS = [
@@ -25,7 +27,7 @@ const INSTITUTIONS = [
   { value: 'OUTRO', label: 'Outro' },
 ];
 
-export default function BankAccountFormModal({ projectId, account, onClose, onSaved }: Props) {
+export default function BankAccountFormModal({ projectId, account, onClose, onSaved, bare }: Props) {
   const [institution, setInstitution] = useState(account?.institution ?? 'ITAU');
   const [nickname, setNickname] = useState(account?.nickname ?? '');
   const [last4, setLast4] = useState(account?.last4 ?? '');
@@ -70,8 +72,7 @@ export default function BankAccountFormModal({ projectId, account, onClose, onSa
     }
   }
 
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+  const content = (
       <div className="bg-white rounded-lg w-full max-w-md p-6">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-bold">{account ? 'Editar conta' : 'Nova conta bancária'}</h2>
@@ -142,6 +143,11 @@ export default function BankAccountFormModal({ projectId, account, onClose, onSa
           </div>
         </div>
       </div>
+  );
+  if (bare) return content;
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      {content}
     </div>
   );
 }

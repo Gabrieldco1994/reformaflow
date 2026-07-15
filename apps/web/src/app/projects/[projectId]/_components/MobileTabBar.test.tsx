@@ -69,14 +69,14 @@ const NON_PERSONAL_MATRIX = [
 ] as const;
 
 describe("MobileTabBar", () => {
-  it("preserves Hoje, Despesas, Lançar and Maria for PESSOAL with the green FAB", () => {
+  it("preserves Cockpit, Despesas, Lançar, Maria and Cartões for PESSOAL with the green FAB", () => {
     renderTabBar({ canLaunch: true });
 
     const links = screen.getAllByRole("link");
     const launch = screen.getByRole("button", { name: "Lançar" });
-    const today = screen.getByRole("link", { name: "Hoje" });
+    const today = screen.getByRole("link", { name: "Cockpit" });
 
-    expect(links).toHaveLength(3);
+    expect(links).toHaveLength(4);
     expect(today).toHaveAttribute("href", `${basePath}/monthly`);
     expect(today).toHaveAttribute("aria-current", "page");
     expect(today).toHaveClass("min-h-11");
@@ -89,15 +89,19 @@ describe("MobileTabBar", () => {
       "href",
       `${basePath}/maria`,
     );
+    expect(screen.getByRole("link", { name: "Cartões" })).toHaveAttribute(
+      "href",
+      `${basePath}/credit-cards`,
+    );
     expect(screen.getByRole("navigation")).toHaveClass("md:hidden");
     expect(screen.getByRole("navigation")).not.toHaveClass("lg:hidden");
   });
 
-  it("omits Hoje when PESSOAL monthly permission is absent and keeps Despesas/Maria", () => {
+  it("omits Cockpit when PESSOAL monthly permission is absent and keeps Despesas/Maria/Cartões", () => {
     renderTabBar({ primary: [], canLaunch: true });
 
     expect(
-      screen.queryByRole("link", { name: "Hoje" }),
+      screen.queryByRole("link", { name: "Cockpit" }),
     ).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Despesas" })).toHaveAttribute(
       "href",
@@ -108,12 +112,16 @@ describe("MobileTabBar", () => {
       "href",
       `${basePath}/maria`,
     );
+    expect(screen.getByRole("link", { name: "Cartões" })).toHaveAttribute(
+      "href",
+      `${basePath}/credit-cards`,
+    );
   });
 
   it("omits Lançar when PESSOAL expenses permission is absent", () => {
     renderTabBar({ canLaunch: false });
 
-    expect(screen.getByRole("link", { name: "Hoje" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Cockpit" })).toHaveAttribute(
       "href",
       `${basePath}/monthly`,
     );
@@ -126,6 +134,10 @@ describe("MobileTabBar", () => {
     expect(screen.getByRole("link", { name: "Maria" })).toHaveAttribute(
       "href",
       `${basePath}/maria`,
+    );
+    expect(screen.getByRole("link", { name: "Cartões" })).toHaveAttribute(
+      "href",
+      `${basePath}/credit-cards`,
     );
   });
 
@@ -149,7 +161,7 @@ describe("MobileTabBar", () => {
       "aria-current",
       "page",
     );
-    expect(screen.getByRole("link", { name: "Hoje" })).not.toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Cockpit" })).not.toHaveAttribute(
       "aria-current",
     );
   });
