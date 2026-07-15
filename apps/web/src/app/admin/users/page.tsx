@@ -12,6 +12,7 @@ interface AdminUser extends AuthUser {
   updatedAt?: string;
   createdByName?: string | null;
   lastLoginAt?: string | null;
+  tenantName?: string | null;
 }
 
 function formatDateTime(value?: string | null): string {
@@ -57,7 +58,7 @@ export default function AdminUsersPage() {
   async function reload() {
     setError(null);
     try {
-      const data = await api.get<AdminUser[]>('/users');
+      const data = await api.get<AdminUser[]>('/users?scope=all');
       setUsers(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao carregar usuários');
@@ -115,6 +116,9 @@ export default function AdminUsersPage() {
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">
+                  Tenant
+                </th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">
                   Nome
                 </th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">
@@ -132,12 +136,18 @@ export default function AdminUsersPage() {
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase whitespace-nowrap">
                   Último login
                 </th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase whitespace-nowrap">
+                  Cadastro
+                </th>
                 <th className="px-4 py-2"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {users.map((u) => (
                 <tr key={u.id}>
+                  <td className="px-4 py-3 text-xs text-gray-700 whitespace-nowrap">
+                    {u.tenantName ?? '—'}
+                  </td>
                   <td className="px-4 py-3 font-medium text-gray-900">{u.name}</td>
                   <td className="px-4 py-3 text-gray-700">{u.username}</td>
                   <td className="px-4 py-3">
@@ -164,21 +174,30 @@ export default function AdminUsersPage() {
                   <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">
                     {formatDateTime(u.lastLoginAt)}
                   </td>
+                  <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">
+                    {formatDateTime(u.createdAt)}
+                  </td>
                   <td className="px-4 py-3 text-right space-x-2 whitespace-nowrap">
-                    <button
-                      onClick={() => setEditing(u)}
-                      className="text-sm text-brand-700 hover:underline"
-                    >
-                      Editar
-                    </button>
-                    {u.id !== user?.id && (
-                      <button
-                        disabled={busy}
-                        onClick={() => handleDelete(u)}
-                        className="text-sm text-red-600 hover:underline"
-                      >
-                        Excluir
-                      </button>
+                    {u.tenantId === user?.tenantId ? (
+                      <>
+                        <button
+                          onClick={() => setEditing(u)}
+                          className="text-sm text-brand-700 hover:underline"
+                        >
+                          Editar
+                        </button>
+                        {u.id !== user?.id && (
+                          <button
+                            disabled={busy}
+                            onClick={() => handleDelete(u)}
+                            className="text-sm text-red-600 hover:underline"
+                          >
+                            Excluir
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      <span className="text-xs text-gray-400">Somente leitura</span>
                     )}
                   </td>
                 </tr>

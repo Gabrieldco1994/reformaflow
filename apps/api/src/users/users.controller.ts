@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
@@ -28,8 +29,13 @@ export class UsersController {
   constructor(private users: UsersService) {}
 
   @Get()
-  list(@CurrentTenant() tenantId: string) {
-    return this.users.list(tenantId);
+  list(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() requester: { role?: string },
+    @Query('scope') scope?: string,
+  ) {
+    const includeAllTenants = scope === 'all' && requester?.role === 'ADMIN';
+    return this.users.list(tenantId, includeAllTenants);
   }
 
   @Post()
