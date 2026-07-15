@@ -65,14 +65,16 @@ function toPublic(u: {
 export class UsersService {
   constructor(private prisma: PrismaService) {}
 
-  async list(tenantId: string) {
+  async list(tenantId: string, includeAllTenants = false) {
     const users = await this.prisma.user.findMany({
-      where: { tenantId },
-      orderBy: { createdAt: 'asc' },
+      ...(includeAllTenants ? {} : { where: { tenantId } }),
+      include: { tenant: { select: { name: true } } },
+      orderBy: [{ tenantId: 'asc' }, { createdAt: 'asc' }],
     });
     const nameById = new Map(users.map((u) => [u.id, u.name]));
     return users.map((u) => ({
       ...toPublic(u),
+      tenantName: u.tenant?.name ?? null,
       createdByName: u.createdByUserId
         ? (nameById.get(u.createdByUserId) ?? null)
         : null,
