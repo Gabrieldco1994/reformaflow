@@ -189,7 +189,7 @@ export function MobileExpensesScreen() {
                   : status === 'aberta'
                     ? { cls: 'bg-[#E8B04B] text-[#201D19]', label: 'fatura aberta' }
                     : { cls: 'bg-[#E2574B] text-white', label: 'configurar' };
-              return (
+              const cardContent = (
                 <article
                   key={card.last4}
                   className="relative flex min-h-[172px] min-w-[286px] flex-col overflow-hidden rounded-[20px] p-4 text-white shadow-darc-hero"
@@ -216,6 +216,14 @@ export function MobileExpensesScreen() {
                     </p>
                   </div>
                 </article>
+              );
+              // When the card needs configuration, wrap in a link to the credit-card edit
+              return status === 'configurar' ? (
+                <Link key={card.last4} href={`/projects/${projectId}/credit-cards?focus=closingDay&last4=${card.last4}`}>
+                  {cardContent}
+                </Link>
+              ) : (
+                <span key={card.last4}>{cardContent}</span>
               );
             })}
             {(accountView?.contas ?? []).map((conta) => (

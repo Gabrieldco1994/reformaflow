@@ -29,6 +29,7 @@ Commits principais:
 9. Falha parcial no modo cross-project exige rollback das criações anteriores da mesma requisição.
 10. UI, Copilot e voz devem convergir no mesmo contrato (`createRecorrente` / tool `create_recurring_expense`).
 11. `recurrenceGroupId` não existe no contrato atual; edição/exclusão em lote é evolução futura. ⚠️ não blindado por teste de ausência de agrupamento.
+12. **Regra de domicílio:** contas fixas que saem da conta bancária pessoal (luz, gás, internet, IPVA, seguro…) DEVEM ser lançadas como despesa recorrente no projeto **PESSOAL** — é assim que entram no caixa consolidado (§10). Projetos CASA/CARRO têm `recurringBills` para rastrear manutenção/lembretes do bem, mas essas NÃO alimentam o caixa. Espelho automático CASA/CARRO→PESSOAL é explicitamente **deferido** (decisão de produto 2026-07).
 
 ## Referência de implementação
 

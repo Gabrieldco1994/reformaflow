@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { CreditCard, Plus, Trash2, Link2 } from 'lucide-react';
@@ -22,6 +22,7 @@ function limitLabel(percent: number) {
 
 export default function CreditCardsPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const projectId = String(params?.projectId ?? '');
   const [cards, setCards] = useState<CardRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -42,6 +43,20 @@ export default function CreditCardsPage() {
   useEffect(() => {
     if (projectId) void load();
   }, [projectId, load]);
+
+  // Deep-link: ?focus=closingDay&last4=XXXX auto-opens card edit
+  useEffect(() => {
+    if (loading || searchParams.get('focus') !== 'closingDay') return;
+    const targetLast4 = searchParams.get('last4');
+    const target = targetLast4 ? cards.find((c) => c.last4 === targetLast4) : cards[0];
+    if (target) {
+      setEditing(target);
+      setFormOpen(true);
+    } else if (cards.length === 0) {
+      setEditing(null);
+      setFormOpen(true);
+    }
+  }, [loading, cards, searchParams]);
 
   async function handleDelete(card: CardRow) {
     if (!confirm(`Excluir cartão "${card.nickname ?? card.last4}"? As despesas importadas serão mantidas.`)) return;
