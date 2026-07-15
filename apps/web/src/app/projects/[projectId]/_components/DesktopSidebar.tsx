@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   ChevronLeft,
   ChevronRight,
+  Compass,
   Settings,
   LogOut,
   Users,
@@ -63,6 +64,8 @@ export function DesktopSidebar({
   const adminHref = "/admin/users";
   const isAdminActive = isPathActive(pathname, adminHref);
   const settingsHref = "/settings";
+  const apoioHref = `${basePath}/apoio`;
+  const isApoioActive = isPathActive(pathname, apoioHref);
 
   return (
     <aside
@@ -120,6 +123,16 @@ export function DesktopSidebar({
             </Link>
           );
         })}
+        <Link
+          href={apoioHref}
+          title="Apoio"
+          aria-label="Apoio"
+          aria-current={isApoioActive ? "page" : undefined}
+          className={itemClass}
+        >
+          <Compass className="minimal-sidebar-icon h-5 w-5 shrink-0" />
+          <span className={labelClass}>Apoio</span>
+        </Link>
         {!isAdmin && (
           <Link
             href={settingsHref}
