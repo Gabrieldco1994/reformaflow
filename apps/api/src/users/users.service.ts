@@ -19,6 +19,8 @@ function toPublic(u: {
   allowedModules: string;
   allowedProjects: string;
   allowedProjectTypes: string;
+  createdByUserId: string | null;
+  lastLoginAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }) {
@@ -52,6 +54,8 @@ function toPublic(u: {
     allowedModules,
     allowedProjects,
     allowedProjectTypes,
+    createdByUserId: u.createdByUserId,
+    lastLoginAt: u.lastLoginAt,
     createdAt: u.createdAt,
     updatedAt: u.updatedAt,
   };
@@ -66,10 +70,16 @@ export class UsersService {
       where: { tenantId },
       orderBy: { createdAt: 'asc' },
     });
-    return users.map(toPublic);
+    const nameById = new Map(users.map((u) => [u.id, u.name]));
+    return users.map((u) => ({
+      ...toPublic(u),
+      createdByName: u.createdByUserId
+        ? (nameById.get(u.createdByUserId) ?? null)
+        : null,
+    }));
   }
 
-  async create(tenantId: string, dto: CreateUserDto) {
+  async create(tenantId: string, dto: CreateUserDto, createdByUserId?: string) {
     const username = dto.username.toLowerCase().trim();
     const existing = await this.prisma.user.findFirst({
       where: { username, deletedAt: null },
@@ -87,6 +97,7 @@ export class UsersService {
         allowedModules: JSON.stringify(dto.allowedModules ?? []),
         allowedProjects: JSON.stringify(dto.allowedProjects ?? []),
         allowedProjectTypes: JSON.stringify(dto.allowedProjectTypes ?? []),
+        createdByUserId: createdByUserId ?? null,
       },
     });
     return toPublic(user);

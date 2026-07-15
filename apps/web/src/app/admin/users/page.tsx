@@ -10,6 +10,19 @@ import { api } from '@/lib/api';
 interface AdminUser extends AuthUser {
   createdAt?: string;
   updatedAt?: string;
+  createdByName?: string | null;
+  lastLoginAt?: string | null;
+}
+
+function formatDateTime(value?: string | null): string {
+  if (!value) return '—';
+  return new Date(value).toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 const PROJECT_TYPE_OPTIONS: { value: string; label: string }[] = [
@@ -97,7 +110,7 @@ export default function AdminUsersPage() {
           </div>
         )}
 
-        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+        <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
@@ -112,6 +125,12 @@ export default function AdminUsersPage() {
                 </th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">
                   Módulos
+                </th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase whitespace-nowrap">
+                  Criado por
+                </th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase whitespace-nowrap">
+                  Último login
                 </th>
                 <th className="px-4 py-2"></th>
               </tr>
@@ -139,7 +158,13 @@ export default function AdminUsersPage() {
                         ? '—'
                         : u.allowedModules.length + ' módulo(s)'}
                   </td>
-                  <td className="px-4 py-3 text-right space-x-2">
+                  <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">
+                    {u.createdByName ?? 'Auto-cadastro'}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">
+                    {formatDateTime(u.lastLoginAt)}
+                  </td>
+                  <td className="px-4 py-3 text-right space-x-2 whitespace-nowrap">
                     <button
                       onClick={() => setEditing(u)}
                       className="text-sm text-brand-700 hover:underline"
