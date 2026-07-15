@@ -10,6 +10,7 @@ interface ModalProps {
   children: React.ReactNode;
   variant?: 'auto' | 'center' | 'sheet';
   size?: 'sm' | 'md' | 'lg' | 'xl';
+  zIndex?: string; // e.g. 'z-60', 'z-[70]'
 }
 
 const sizeMap = {
@@ -26,6 +27,7 @@ export function Modal({
   children,
   variant = 'auto',
   size = 'md',
+  zIndex,
 }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const [mounted, setMounted] = useState(false);
@@ -63,7 +65,7 @@ export function Modal({
   return (
     <div
       ref={overlayRef}
-      className={`fixed inset-0 z-50 flex ${containerClasses} bg-darc-velvet/85 backdrop-blur-sm transition-opacity duration-200 ${mounted ? 'opacity-100' : 'opacity-0'}`}
+      className={`fixed inset-0 ${zIndex ?? 'z-50'} flex ${containerClasses} bg-darc-velvet/85 backdrop-blur-sm transition-opacity duration-200 ${mounted ? 'opacity-100' : 'opacity-0'}`}
       onClick={(e) => {
         if (e.target === overlayRef.current) onClose();
       }}
