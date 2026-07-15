@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   Post,
+  Patch,
   Req,
   Res,
   UseGuards,
@@ -15,6 +16,10 @@ import { CurrentUser } from '../common/decorators/tenant.decorator';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { PrismaService } from '../prisma/prisma.service';
+import { RegisterOwnerDto } from './dto/register-owner.dto';
+import { RegisterGuestDto } from './dto/register-guest.dto';
+import { ClaimGuestDto } from './dto/claim-guest.dto';
+import { UpdateObjectivesDto } from './dto/update-objectives.dto';
 
 const COOKIE_NAME = 'rf_token';
 const COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 dias
@@ -36,6 +41,30 @@ export class AuthController {
   ) {}
 
   @Public()
+  @Get('config')
+  config() {
+    return this.auth.getPublicConfig();
+  }
+
+  @Get('onboarding')
+  onboarding(@CurrentUser() user: { id: string }) {
+    return this.auth.getOnboarding(user.id);
+  }
+
+  @Get('objectives')
+  objectives(@CurrentUser() user: { id: string }) {
+    return this.auth.getSelfObjectives(user.id);
+  }
+
+  @Patch('objectives')
+  updateObjectives(
+    @CurrentUser() user: { id: string },
+    @Body() dto: UpdateObjectivesDto,
+  ) {
+    return this.auth.updateSelfObjectives(user.id, dto.projectTypes);
+  }
+
+  @Public()
   @UseGuards(LoginThrottleGuard)
   @Post('login')
   @HttpCode(200)
@@ -47,6 +76,47 @@ export class AuthController {
     const token = this.auth.issueToken(user);
     res.cookie(COOKIE_NAME, token, COOKIE_OPTIONS);
     return { user: this.auth.buildPublicUser(user), token };
+  }
+
+  @Public()
+  @UseGuards(LoginThrottleGuard)
+  @Post('register')
+  @HttpCode(201)
+  async register(
+    @Body() dto: RegisterOwnerDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { user } = await this.auth.registerOwner(dto);
+    const token = this.auth.issueToken(user);
+    res.cookie(COOKIE_NAME, token, COOKIE_OPTIONS);
+    return { user: this.auth.buildPublicUser(user), token };
+  }
+
+  @Public()
+  @UseGuards(LoginThrottleGuard)
+  @Post('guest')
+  @HttpCode(201)
+  async registerGuest(
+    @Body() dto: RegisterGuestDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { user } = await this.auth.registerGuest(dto);
+    const token = this.auth.issueToken(user);
+    res.cookie(COOKIE_NAME, token, COOKIE_OPTIONS);
+    return { user: this.auth.buildPublicUser(user), token };
+  }
+
+  @Post('claim')
+  @HttpCode(200)
+  async claimGuest(
+    @CurrentUser() user: { id: string },
+    @Body() dto: ClaimGuestDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { user: claimedUser } = await this.auth.claimGuest(user.id, dto);
+    const token = this.auth.issueToken(claimedUser);
+    res.cookie(COOKIE_NAME, token, COOKIE_OPTIONS);
+    return { user: this.auth.buildPublicUser(claimedUser), token };
   }
 
   @Public()

@@ -29,7 +29,6 @@ import { CurrentTenant } from '../common/decorators/tenant.decorator';
 export class ScheduleController {
   constructor(private readonly service: ScheduleService) {}
 
-  // ─── Config ───────────────────────────────────────────
   @Get('config')
   getConfig(
     @Param('projectId') projectId: string,
@@ -47,7 +46,6 @@ export class ScheduleController {
     return this.service.upsertConfig(projectId, tenantId, dto);
   }
 
-  // ─── Stages ───────────────────────────────────────────
   @Get('stages')
   getStages(
     @Param('projectId') projectId: string,
@@ -68,17 +66,22 @@ export class ScheduleController {
   @Patch('stages/:stageId')
   updateStage(
     @Param('stageId') stageId: string,
+    @Param('projectId') projectId: string,
+    @CurrentTenant() tenantId: string,
     @Body() dto: UpdateScheduleStageDto,
   ) {
-    return this.service.updateStage(stageId, dto);
+    return this.service.updateStage(stageId, projectId, tenantId, dto);
   }
 
   @Delete('stages/:stageId')
-  deleteStage(@Param('stageId') stageId: string) {
-    return this.service.deleteStage(stageId);
+  deleteStage(
+    @Param('stageId') stageId: string,
+    @Param('projectId') projectId: string,
+    @CurrentTenant() tenantId: string,
+  ) {
+    return this.service.deleteStage(stageId, projectId, tenantId);
   }
 
-  // ─── Tasks ────────────────────────────────────────────
   @Get('tasks')
   getTasks(
     @Param('projectId') projectId: string,
@@ -115,7 +118,6 @@ export class ScheduleController {
     return this.service.deleteTask(taskId, projectId, tenantId);
   }
 
-  // ─── Holidays ─────────────────────────────────────────
   @Get('holidays')
   getHolidays(
     @Param('projectId') projectId: string,
@@ -142,7 +144,6 @@ export class ScheduleController {
     return this.service.deleteHoliday(holidayId, projectId, tenantId);
   }
 
-  // ─── Gantt ────────────────────────────────────────────
   @Get('gantt')
   getGanttData(
     @Param('projectId') projectId: string,
@@ -151,7 +152,6 @@ export class ScheduleController {
     return this.service.getGanttData(projectId, tenantId);
   }
 
-  // ─── Import ───────────────────────────────────────────
   @Post('import')
   importSchedule(
     @Param('projectId') projectId: string,

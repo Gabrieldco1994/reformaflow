@@ -1,4 +1,6 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { ProjectType, type NavModule } from "@reformaflow/domain";
 import { describe, expect, it, vi } from "vitest";
 import { MaisSheet } from "./MaisSheet";
@@ -88,4 +90,49 @@ describe("MaisSheet", () => {
       screen.getByRole("link", { name: "Diagnóstico IA" }),
     ).not.toHaveAttribute("aria-current");
   });
+
+  it("is absent and untabbable while closed", async () => {
+    const user = userEvent.setup();
+    render(<MaisSheet {...baseProps} open={false} />);
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    await user.tab();
+    expect(document.body).toHaveFocus();
+  });
+
+  it("opens as a modal dialog and Escape closes it with focus restored", async () => {
+    const user = userEvent.setup();
+
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Abrir Mais
+          </button>
+          <MaisSheet
+            {...baseProps}
+            open={open}
+            onClose={() => setOpen(false)}
+          />
+        </>
+      );
+    }
+
+    render(<Harness />);
+    const trigger = screen.getByRole("button", { name: "Abrir Mais" });
+    await user.click(trigger);
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(dialog).toContainElement(screen.getByRole("button", { name: "Fechar" }));
+
+    await user.keyboard("{Escape}");
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
 });

@@ -134,30 +134,30 @@ export function MobileExpensesScreen() {
   const accountOut = spentItems.filter((item) => item.origem?.kind === 'conta');
 
   return (
-    <section className="space-y-3 lg:hidden">
-      <header className="flex min-w-0 items-center justify-between gap-2 rounded-2xl border border-lifeone-hairline bg-white px-3 py-2 shadow-lifeone-card">
+    <section className="pessoal-minimal-expenses space-y-3 lg:hidden">
+      <header className="pessoal-minimal-page-header flex min-w-0 items-center justify-between gap-2 rounded-2xl border border-lifeone-hairline bg-white px-3 py-2 shadow-lifeone-card">
         <div className="flex min-w-0 items-center gap-2">
           <Link
             href={`/projects/${projectId}/monthly`}
             aria-label="Voltar para hoje"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-lifeone-hairline bg-lifeone-surface text-lifeone-ink-2"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-lifeone-hairline bg-lifeone-surface text-lifeone-ink-2"
           >
             <ChevronLeft className="h-4 w-4" />
           </Link>
           <h1 className="truncate text-lg font-bold text-lifeone-ink">Despesas</h1>
         </div>
         <div className="flex items-center gap-1 rounded-xl border border-lifeone-hairline bg-lifeone-surface p-1">
-          <button type="button" aria-label="Mês anterior" onClick={() => setMonth((current) => addMonthKey(current, -1))} className="h-8 w-8 rounded-lg text-lifeone-ink-2">
+          <button type="button" aria-label="Mês anterior" onClick={() => setMonth((current) => addMonthKey(current, -1))} className="h-11 w-11 rounded-lg text-lifeone-ink-2">
             <ChevronLeft className="mx-auto h-4 w-4" />
           </button>
           <span className="min-w-[64px] text-center text-xs font-semibold uppercase text-lifeone-ink-2">{monthLabelShort(month)} {month.slice(2, 4)}</span>
-          <button type="button" aria-label="Próximo mês" onClick={() => setMonth((current) => addMonthKey(current, 1))} className="h-8 w-8 rounded-lg text-lifeone-ink-2">
+          <button type="button" aria-label="Próximo mês" onClick={() => setMonth((current) => addMonthKey(current, 1))} className="h-11 w-11 rounded-lg text-lifeone-ink-2">
             <ChevronRight className="mx-auto h-4 w-4" />
           </button>
         </div>
       </header>
 
-      <section className="rounded-3xl border border-lifeone-hairline bg-white p-4 shadow-lifeone-card">
+      <section className="minimal-card minimal-card--hero rounded-3xl border border-lifeone-hairline bg-white p-4 shadow-lifeone-card">
         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-lifeone-ink-3">Gastei de verdade · {monthLabelShort(month)}</p>
         <p className="pt-1 text-3xl font-bold tracking-tight text-lifeone-ink">{moneyDetail(total(spentItems))}</p>
         <div className="mt-3 divide-y divide-lifeone-hairline text-sm">
@@ -177,7 +177,7 @@ export function MobileExpensesScreen() {
       </div>
 
       {((accountView?.cartoes?.length ?? 0) > 0 || (accountView?.contas?.length ?? 0) > 0) && (
-        <section className="space-y-2">
+        <section className="minimal-wallet space-y-2">
           <p className="px-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-lifeone-ink-3">Carteira · faturas espelham o banco</p>
           <div className="flex gap-3 overflow-x-auto pb-2">
             {(accountView?.cartoes ?? []).map((card) => {
@@ -253,7 +253,7 @@ export function MobileExpensesScreen() {
         ))}
       </div>
 
-      <label className="flex items-center justify-between rounded-2xl border border-lifeone-hairline bg-lifeone-surface px-3 py-2.5 text-xs text-lifeone-ink-2">
+      <label className="minimal-soft-card flex items-center justify-between rounded-2xl border border-lifeone-hairline bg-lifeone-surface px-3 py-2.5 text-xs text-lifeone-ink-2">
         <span>
           <strong className="text-sm text-lifeone-ink">Mostrar neutros</strong>
           <span className="block text-[11px] text-lifeone-ink-3">pagamento de fatura, movimentação e aporte</span>
@@ -272,7 +272,7 @@ export function MobileExpensesScreen() {
               {entries.map((entry, index) => {
                 const neutral = isConsumptionNeutralExpenseType(entry.tipoDespesa);
                 return (
-                  <div key={`${entry.data}-${entry.descricao}-${index}`} className={`flex items-center justify-between gap-3 rounded-2xl border px-3 py-3 ${neutral ? 'border-dashed border-lifeone-hairline bg-lifeone-surface text-lifeone-ink-3' : 'border-lifeone-hairline bg-white text-lifeone-ink'}`}>
+                  <div key={`${entry.data}-${entry.descricao}-${index}`} className={`minimal-list-card flex items-center justify-between gap-3 rounded-2xl border px-3 py-3 ${neutral ? 'border-dashed border-lifeone-hairline bg-lifeone-surface text-lifeone-ink-3' : 'border-lifeone-hairline bg-white text-lifeone-ink'}`}>
                     <div className="min-w-0">
                       <p className="truncate text-[15px] font-semibold">{entry.descricao}</p>
                       <p className="mt-1 truncate text-[11px] text-lifeone-ink-3">{tipoLabel(entry.tipoDespesa)}{entry.origem ? ` · ${entry.origem.nickname} •${entry.origem.last4}` : ''}</p>
@@ -285,7 +285,7 @@ export function MobileExpensesScreen() {
           </article>
         ))}
         {filtered.length === 0 && (
-          <div className="rounded-2xl border border-lifeone-hairline bg-white p-6 text-center text-sm text-lifeone-ink-3">
+          <div className="minimal-card rounded-2xl border border-lifeone-hairline bg-white p-6 text-center text-sm text-lifeone-ink-3">
             Nenhuma despesa para os filtros selecionados.
           </div>
         )}

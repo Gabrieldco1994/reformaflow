@@ -41,6 +41,9 @@ export function RunwayScenario({
   const remainingDays = Math.max(0, dailySerie.length - hoje);
   const deltaMonth = -(ritmo - ritmoBase) * remainingDays;
   const dailyEnd = dailySerie.at(-1)?.projetado ?? dailySerie.at(-1)?.realizado ?? 0;
+  const lastDay = dailySerie.at(-1)?.dia ?? 0;
+  const todayLabel = `D${hoje}`;
+  const lastDayLabel = `D${lastDay}`;
 
   const forward = (runwaySerie ?? []).filter((row) => row.mes >= currentMonth && row.mes <= cutoff);
 
@@ -79,7 +82,17 @@ export function RunwayScenario({
             </linearGradient>
           </defs>
           <CartesianGrid strokeDasharray="3 3" stroke="#ECE8E1" />
-          <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#8A857C' }} stroke="#ECE8E1" interval="preserveStartEnd" />
+          <XAxis
+            dataKey="label"
+            tick={{ fontSize: 11, fill: '#8A857C' }}
+            stroke="#ECE8E1"
+            interval="preserveStartEnd"
+            tickFormatter={(value: string) => {
+              if (!value.startsWith('D')) return value;
+              if (value === 'D1' || value === todayLabel || value === lastDayLabel) return value;
+              return '';
+            }}
+          />
           <YAxis tick={{ fontSize: 11, fill: '#8A857C' }} stroke="#ECE8E1" tickFormatter={(v) => fmtK(v)} width={56} />
           <Tooltip
             content={({ active, payload, label }) => (
@@ -117,9 +130,12 @@ export function RunwayScenario({
             dataKey="runway"
             name="Vai até dezembro"
             stroke="#1E924A"
-            strokeWidth={2.5}
+            strokeWidth={2}
+            strokeDasharray="4 4"
+            strokeOpacity={0.9}
             connectNulls={true}
-            dot={{ r: 2.5 }}
+            dot={false}
+            activeDot={{ r: 3 }}
           />
         </ComposedChart>
       </ResponsiveContainer>

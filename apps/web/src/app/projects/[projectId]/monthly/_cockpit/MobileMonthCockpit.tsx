@@ -177,7 +177,7 @@ export default function MobileMonthCockpit({
       aria-label="Cockpit mensal mobile"
       data-testid="mobile-month-cockpit"
       data-project-id={projectId}
-      className="min-w-0 space-y-3 md:hidden"
+      className="pessoal-minimal-today min-w-0 space-y-3 md:hidden"
     >
       {/* Herói escuro com "viagem no tempo": absorve o herói canônico e o slider
           diário. A viagem no tempo só aparece no mês corrente. */}
@@ -207,7 +207,7 @@ export default function MobileMonthCockpit({
       <Link
         href={`/projects/${projectId}/expenses`}
         aria-label="Ver todas as despesas"
-        className="flex min-h-[44px] items-center justify-between rounded-[18px] border border-[var(--ck-border)] bg-[var(--ck-surface)] px-4 py-3 text-sm font-semibold text-[var(--ck-text)] shadow-lifeone-card active:scale-[0.99]"
+        className="minimal-card flex min-h-[44px] items-center justify-between rounded-[18px] border border-[var(--ck-border)] bg-[var(--ck-surface)] px-4 py-3 text-sm font-semibold text-[var(--ck-text)] shadow-lifeone-card active:scale-[0.99]"
       >
         <span>Ver todas as despesas</span>
         <span aria-hidden>→</span>

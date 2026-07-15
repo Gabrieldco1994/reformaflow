@@ -13,7 +13,14 @@ import { MobileTabBar } from './MobileTabBar';
 import { MaisSheet } from './MaisSheet';
 import { getMobilePrimary } from './mobile-nav';
 import { MobileLaunchSheetContainer } from './mobile-launch/MobileLaunchSheetContainer';
+import { projectAccentStyle } from '../../_components/type-accent';
 import type { NavModule, ProjectInfo } from '../_types';
+
+interface ProjectLoadState {
+  projectId: string;
+  project: ProjectInfo | null;
+  loading: boolean;
+}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const params = useParams();
@@ -21,28 +28,59 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const projectId = params.projectId as string;
-  const [project, setProject] = useState<ProjectInfo | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [projectLoad, setProjectLoad] = useState<ProjectLoadState>(() => ({
+    projectId,
+    project: null,
+    loading: true,
+  }));
+  const currentProjectLoad =
+    projectLoad.projectId === projectId ? projectLoad : null;
+  const project = currentProjectLoad?.project ?? null;
+  const loading = currentProjectLoad?.loading ?? true;
   const [mobileOpen, setMobileOpen] = useState(false);
   const [launchOpen, setLaunchOpen] = useState(false);
   const { user, isAdmin, hasModule, hasProjectType, hasProjectAccess, logout, loading: authLoading } = useAuth();
 
   useEffect(() => {
+    let active = true;
+
+    setProjectLoad({ projectId, project: null, loading: true });
     api.get<ProjectInfo>(`/projects/${projectId}`)
-      .then(setProject)
-      .catch(() => router.push('/projects'))
-      .finally(() => setLoading(false));
+      .then((nextProject) => {
+        if (!active) return;
+        setProjectLoad({ projectId, project: nextProject, loading: true });
+      })
+      .catch(() => {
+        if (!active) return;
+        router.push("/projects");
+      })
+      .finally(() => {
+        if (!active) return;
+        setProjectLoad((current) =>
+          current.projectId === projectId
+            ? { ...current, loading: false }
+            : current,
+        );
+      });
+
+    return () => {
+      active = false;
+    };
   }, [projectId, router]);
 
   useEffect(() => {
     setMobileOpen(false);
     setLaunchOpen(false);
-  }, [pathname]);
+  }, [pathname, projectId]);
+
+  const canAccessProject = Boolean(
+    project && hasProjectType(project.type) && hasProjectAccess(project.id),
+  );
 
   useEffect(() => {
-    if (!project) return;
+    if (authLoading || !project || !canAccessProject) return;
     window.localStorage.setItem('rf_last_project_id', project.id);
-  }, [project]);
+  }, [authLoading, canAccessProject, project]);
 
   const navItems = useMemo<NavModule[]>(
     () => (project ? getProjectNavModules(project.type as ProjectType) : []),
@@ -91,10 +129,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setLaunchOpen(true);
   }, [canLaunch, searchParams]);
 
-  if (loading || !project) {
+  if (authLoading || loading || !project || !canAccessProject) {
     return (
-      <div className="flex h-screen items-center justify-center bg-white">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-darc-red"></div>
+      <div
+        data-ui-skin="minimal"
+        data-ui-loading="minimal-neutral"
+        role="status"
+        aria-label="Carregando projeto"
+        className="minimal-loading flex min-h-screen items-center justify-center bg-[#eef0f3]"
+      >
+        <div
+          className="minimal-loading-indicator h-8 w-8 animate-spin rounded-full border-2"
+          aria-hidden
+        />
       </div>
     );
   }
@@ -106,7 +153,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <ProjectProvider value={{ projectId: project.id, projectType: project.type, projectName: project.name }}>
-      <div className="flex flex-col md:flex-row h-screen bg-white">
+      <div
+        data-ui-skin="minimal"
+        data-project-type={resolvedProjectType}
+        style={projectAccentStyle(resolvedProjectType)}
+        className="minimal-shell flex h-screen flex-col md:flex-row"
+      >
         <MobileHeader
           project={project}
           hasMoreSheet={hasMoreSheet}
@@ -135,7 +187,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           onLogout={handleLogout}
         />
 
-        <main className="font-platform-content flex-1 overflow-y-auto p-4 md:p-6 bg-white pb-24 md:pb-6">
+        <main className="minimal-main flex-1 overflow-y-auto p-4 pb-24 md:p-6 md:pb-6">
           {children}
         </main>
 

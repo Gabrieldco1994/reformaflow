@@ -2,8 +2,12 @@ import { Controller, Get, UseInterceptors } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { BankAccountService } from './bank-account.service';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
-import { CurrentTenant, CurrentUser } from '../common/decorators/tenant.decorator';
-import { accessibleProjectScope } from '../common/access-rules';
+import {
+  CurrentTenant,
+  CurrentUser,
+} from '../common/decorators/tenant.decorator';
+import { resolveAccessibleProjectScope } from '../common/access-rules';
+import { PrismaService } from '../prisma/prisma.service';
 
 /**
  * Lista contas do tenant inteiro (independente de projeto).
@@ -14,17 +18,31 @@ import { accessibleProjectScope } from '../common/access-rules';
 @UseInterceptors(TenantInterceptor)
 @Controller('tenant/bank-accounts')
 export class BankAccountTenantController {
-  constructor(private readonly service: BankAccountService) {}
+  constructor(
+    private readonly service: BankAccountService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'Listar todas as contas do tenant' })
-  list(
+  async list(
     @CurrentTenant() tenantId: string,
-    @CurrentUser() user: { role: string; allowedProjects?: string[] },
+    @CurrentUser()
+    user: {
+      role: string;
+      allowedProjects?: string[];
+      allowedProjectTypes?: string[];
+      allowedModules?: string[];
+    },
   ) {
-    return this.service.listAccountsTenant(
+    const scope = await resolveAccessibleProjectScope(
+      this.prisma,
       tenantId,
-      accessibleProjectScope(user.role, user.allowedProjects),
+      user.role,
+      user.allowedProjects,
+      user.allowedProjectTypes,
+      user.allowedModules ?? [],
     );
+    return this.service.listAccountsTenant(tenantId, scope);
   }
 }

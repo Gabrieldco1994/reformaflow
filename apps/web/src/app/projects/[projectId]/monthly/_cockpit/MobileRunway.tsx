@@ -62,7 +62,7 @@ export default function MobileRunway({
   return (
     <section
       aria-label="Vai dar até dez?"
-      className="rounded-[18px] border border-[var(--ck-border)] bg-[var(--ck-surface)] p-4 shadow-lifeone-card"
+      className="minimal-card rounded-[18px] border border-[var(--ck-border)] bg-[var(--ck-surface)] p-4 shadow-lifeone-card"
     >
       <h2 className="text-base font-semibold text-[var(--ck-text)]">
         Vai dar até {mesCurto(monthIdx(last.mes))}?

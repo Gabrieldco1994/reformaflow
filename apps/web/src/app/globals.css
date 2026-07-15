@@ -203,3 +203,486 @@
   .voice-ring,
   .voice-thinking-ring { animation: none; }
 }
+
+
+/* Skin Minimal foundation. Tokens live on the project shell so app/PWA and
+   desktop share one visual system without changing global document styles. */
+[data-ui-skin="minimal"] {
+  --minimal-bg: #eef0f3;
+  --minimal-card: #ffffff;
+  --minimal-card-soft: #f6f7f9;
+  --minimal-ink: #111214;
+  --minimal-ink-2: #5b6068;
+  --minimal-ink-3: #9aa0a8;
+  --minimal-hair: #e8eaee;
+  --minimal-positive: #16a34a;
+  --minimal-warning: #b5803a;
+  --minimal-negative: #ef4444;
+  --minimal-radius-xl: 28px;
+  --minimal-radius-lg: 20px;
+  --minimal-radius-md: 14px;
+  --minimal-shadow:
+    0 1px 2px rgba(17, 18, 20, 0.03), 0 12px 32px rgba(17, 18, 20, 0.06);
+  --project-accent: #0a6cf0;
+  --project-accent-soft: #e6effe;
+  min-width: 0;
+  overflow-x: clip;
+  background: var(--minimal-bg);
+  color: var(--minimal-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+[data-ui-skin="minimal"] .minimal-header,
+[data-ui-skin="minimal"] .minimal-sidebar,
+[data-ui-skin="minimal"] .minimal-dock,
+[data-ui-skin="minimal"] .minimal-more-sheet {
+  font-family:
+    var(--font-minimal),
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    system-ui,
+    sans-serif;
+  font-feature-settings: "cv11";
+}
+
+[data-ui-skin="minimal"].minimal-shell {
+  overflow: hidden;
+  background: var(--minimal-bg);
+}
+
+[data-ui-skin="minimal"].minimal-loading {
+  background: var(--minimal-bg);
+}
+
+[data-ui-skin="minimal"] .minimal-loading-indicator {
+  border-color: var(--minimal-hair);
+  border-bottom-color: var(--minimal-ink);
+}
+
+[data-ui-skin="minimal"] .minimal-main {
+  min-width: 0;
+  overflow-x: clip;
+  background: var(--minimal-bg);
+}
+
+@media (min-width: 768px) {
+  [data-ui-skin="minimal"] .minimal-sidebar {
+    border-color: var(--minimal-hair);
+    background: var(--minimal-card);
+    color: var(--minimal-ink);
+    box-shadow: 8px 0 30px rgba(17, 18, 20, 0.035);
+  }
+
+  [data-ui-skin="minimal"] .minimal-sidebar-header,
+  [data-ui-skin="minimal"] .minimal-sidebar-footer {
+    border-color: var(--minimal-hair);
+  }
+
+  [data-ui-skin="minimal"] .minimal-sidebar-project-mark {
+    background: var(--project-accent-soft);
+    color: var(--project-accent);
+  }
+
+  [data-ui-skin="minimal"] .minimal-sidebar-item,
+  [data-ui-skin="minimal"] .minimal-sidebar-control {
+    color: var(--minimal-ink-2);
+  }
+
+  [data-ui-skin="minimal"] .minimal-sidebar-item:hover,
+  [data-ui-skin="minimal"] .minimal-sidebar-control:hover {
+    background: var(--minimal-card-soft);
+    color: var(--minimal-ink);
+  }
+
+  [data-ui-skin="minimal"] .minimal-sidebar-item[aria-current="page"] {
+    background: var(--project-accent-soft);
+    color: var(--minimal-ink);
+    box-shadow: 0 1px 2px rgba(17, 18, 20, 0.03);
+  }
+
+  [data-ui-skin="minimal"] .minimal-sidebar-item .minimal-sidebar-icon {
+    color: var(--minimal-ink-3);
+  }
+
+  [data-ui-skin="minimal"]
+    .minimal-sidebar-item[aria-current="page"]
+    .minimal-sidebar-icon {
+    color: var(--project-accent);
+  }
+}
+
+@media (max-width: 767px) {
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"] {
+    font-family:
+      var(--font-minimal),
+      Inter,
+      -apple-system,
+      BlinkMacSystemFont,
+      system-ui,
+      sans-serif;
+    font-feature-settings: "cv11";
+  }
+
+  [data-ui-skin="minimal"] .minimal-main {
+    padding: 8px 20px calc(124px + env(safe-area-inset-bottom));
+  }
+
+  [data-ui-skin="minimal"] .minimal-header {
+    height: calc(64px + env(safe-area-inset-top));
+    gap: 8px;
+    border: 0;
+    background: rgba(238, 240, 243, 0.92);
+    padding: calc(8px + env(safe-area-inset-top)) 20px 8px;
+  }
+
+  [data-ui-skin="minimal"] .minimal-header > a,
+  [data-ui-skin="minimal"] .minimal-header [data-testid="notification-action"],
+  [data-ui-skin="minimal"] .minimal-header > div > button {
+    box-shadow: var(--minimal-shadow);
+    color: var(--minimal-ink);
+  }
+
+  [data-ui-skin="minimal"]
+    .minimal-header
+    [data-testid="notification-action"]
+    > button {
+    display: grid;
+    min-width: 44px;
+    min-height: 44px;
+    place-items: center;
+    padding: 0;
+    color: var(--minimal-ink);
+  }
+
+  [data-ui-skin="minimal"] .minimal-project-mark {
+    background: var(--project-accent-soft);
+  }
+
+  [data-ui-skin="minimal"] .minimal-project-icon {
+    color: var(--project-accent);
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"] .minimal-project-mark {
+    background: var(--minimal-card-soft);
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"] .minimal-project-icon {
+    color: var(--minimal-ink);
+  }
+
+  [data-ui-skin="minimal"] .minimal-dock {
+    background: linear-gradient(
+      to top,
+      var(--minimal-bg) 0 72%,
+      rgba(238, 240, 243, 0)
+    );
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
+    padding-top: 18px;
+  }
+
+  [data-ui-skin="minimal"] .minimal-tab-pill,
+  [data-ui-skin="minimal"] .minimal-launch-action {
+    background: var(--minimal-card);
+    box-shadow: var(--minimal-shadow);
+  }
+
+  [data-ui-skin="minimal"] .minimal-tab-link {
+    color: var(--minimal-ink-2);
+  }
+
+  [data-ui-skin="minimal"] .minimal-tab-link--active {
+    background: var(--project-accent-soft);
+    color: var(--minimal-ink);
+  }
+
+  [data-ui-skin="minimal"] .minimal-tab-link--active svg {
+    color: var(--project-accent);
+  }
+
+  [data-ui-skin="minimal"] .minimal-backdrop,
+  [data-ui-skin="minimal"] .pessoal-minimal-backdrop {
+    background: rgba(17, 18, 20, 0.42);
+  }
+
+  [data-ui-skin="minimal"] .minimal-more-sheet {
+    border-color: var(--minimal-hair);
+    border-radius: var(--minimal-radius-xl) var(--minimal-radius-xl) 0 0;
+    background: var(--minimal-card);
+    color: var(--minimal-ink);
+    box-shadow: 0 -12px 40px rgba(17, 18, 20, 0.12);
+  }
+
+  [data-ui-skin="minimal"] .minimal-more-tile {
+    border-radius: var(--minimal-radius-md);
+    background: var(--minimal-card-soft);
+  }
+
+  [data-ui-skin="minimal"] .minimal-more-tile[aria-current="page"] {
+    background: var(--minimal-ink);
+  }
+
+  [data-ui-skin="minimal"] .minimal-more-icon {
+    background: var(--project-accent-soft);
+    color: var(--project-accent);
+  }
+
+  [data-ui-skin="minimal"]
+    .minimal-more-tile[aria-current="page"]
+    .minimal-more-icon {
+    background: var(--minimal-card);
+  }
+
+  [data-ui-skin="minimal"] .minimal-more-label {
+    color: var(--minimal-ink-2);
+  }
+
+  [data-ui-skin="minimal"] .minimal-more-logout {
+    background: var(--minimal-ink);
+    color: var(--minimal-card);
+  }
+
+  [data-ui-skin="minimal"] .minimal-more-logout:hover {
+    background: var(--minimal-ink-2);
+  }
+
+  [data-ui-skin="minimal"]
+    .minimal-more-tile[aria-current="page"]
+    .minimal-more-label {
+    color: var(--minimal-card);
+  }
+
+  /* PESSOAL route surfaces already migrated in #125. These compatibility hooks
+     stay type-scoped until later route slices adopt the shared primitives. */
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"] .bg-white,
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"] .bg-lifeone-card {
+    background-color: var(--minimal-card);
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"] .bg-lifeone-surface {
+    background-color: var(--minimal-card-soft);
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"] .bg-darc-velvet {
+    background-color: var(--minimal-ink);
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"] .text-lifeone-ink {
+    color: var(--minimal-ink);
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"] .text-lifeone-ink-2 {
+    color: var(--minimal-ink-2);
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"] .text-lifeone-ink-3 {
+    color: var(--minimal-ink-3);
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"] .text-emerald-700 {
+    color: var(--minimal-positive);
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"]
+    .border-lifeone-hairline,
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"] .border-darc-linen {
+    border-color: var(--minimal-hair);
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"]
+    .divide-lifeone-hairline
+    > :not([hidden])
+    ~ :not([hidden]) {
+    border-color: var(--minimal-hair);
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"] .shadow-lifeone-card,
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"] .shadow-darc-hero {
+    box-shadow: var(--minimal-shadow);
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"]
+    .pessoal-minimal-cockpit {
+    --ck-bg: var(--minimal-bg) !important;
+    --ck-surface: var(--minimal-card) !important;
+    --ck-surface-2: var(--minimal-card-soft) !important;
+    --ck-border: var(--minimal-hair) !important;
+    --ck-text: var(--minimal-ink) !important;
+    --ck-muted: var(--minimal-ink-2) !important;
+    --ck-pos: var(--minimal-positive) !important;
+    --ck-neg: var(--minimal-negative) !important;
+    --ck-accent: var(--minimal-ink) !important;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 0;
+    box-shadow: none;
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"]
+    .pessoal-minimal-page-header {
+    border-color: var(--minimal-hair);
+    color: var(--minimal-ink);
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"]
+    .pessoal-minimal-cockpit
+    .pessoal-minimal-page-header {
+    margin-bottom: 16px;
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"]
+    .pessoal-minimal-page-header
+    button,
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"]
+    .pessoal-minimal-page-header
+    a,
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"]
+    .pessoal-minimal-page-header
+    select {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"] .minimal-card {
+    border-color: var(--minimal-hair);
+    border-radius: var(--minimal-radius-lg);
+    background: var(--minimal-card);
+    box-shadow: var(--minimal-shadow);
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"] .minimal-card--hero {
+    border-radius: var(--minimal-radius-xl);
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"] .minimal-soft-card {
+    border-color: var(--minimal-hair);
+    border-radius: var(--minimal-radius-lg);
+    background: var(--minimal-card-soft);
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"] [data-minimal-hero] {
+    border-radius: var(--minimal-radius-xl);
+    background: var(--minimal-card);
+    box-shadow: var(--minimal-shadow);
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"] .pessoal-minimal-today {
+    padding-bottom: 8px;
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"]
+    .pessoal-minimal-expenses {
+    min-width: 0;
+    color: var(--minimal-ink);
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"]
+    .pessoal-minimal-expenses
+    > header {
+    border: 0;
+    background: transparent;
+    padding: 4px 0;
+    box-shadow: none;
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"]
+    .pessoal-minimal-expenses
+    .minimal-list-card {
+    border-color: var(--minimal-hair);
+    border-radius: var(--minimal-radius-md);
+    box-shadow: 0 1px 2px rgba(17, 18, 20, 0.03);
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"]
+    .pessoal-minimal-expenses
+    .minimal-wallet
+    article {
+    border-radius: var(--minimal-radius-lg);
+    box-shadow: var(--minimal-shadow);
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"] .pessoal-minimal-maria {
+    min-width: 0;
+    min-height: calc(100dvh - 200px);
+    color: var(--minimal-ink);
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"]
+    .pessoal-minimal-maria
+    > header {
+    border-color: var(--minimal-hair);
+    border-radius: var(--minimal-radius-lg);
+    background: var(--minimal-card);
+    box-shadow: var(--minimal-shadow);
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"] .minimal-chat-bubble {
+    border-color: var(--minimal-hair);
+    background: var(--minimal-card);
+    color: var(--minimal-ink-2);
+    box-shadow: var(--minimal-shadow);
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"]
+    .minimal-chat-bubble--user {
+    background: var(--minimal-ink);
+    color: var(--minimal-card);
+    box-shadow: none;
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"]
+    .pessoal-minimal-maria-dock {
+    bottom: calc(82px + env(safe-area-inset-bottom));
+    background: linear-gradient(
+      to top,
+      var(--minimal-bg) 0 72%,
+      rgba(238, 240, 243, 0)
+    );
+    padding-top: 20px;
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"]
+    .pessoal-minimal-launch-sheet {
+    border-color: var(--minimal-hair);
+    border-radius: var(--minimal-radius-xl) var(--minimal-radius-xl) 0 0;
+    background: var(--minimal-card);
+    color: var(--minimal-ink);
+    box-shadow: 0 -12px 40px rgba(17, 18, 20, 0.12);
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"]
+    .pessoal-minimal-balance {
+    background: var(--minimal-card-soft);
+    color: var(--minimal-ink-2);
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"]
+    .pessoal-minimal-balance
+    strong {
+    color: var(--minimal-ink);
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"] .pessoal-minimal-input,
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"] .pessoal-minimal-key {
+    border-color: var(--minimal-hair);
+    border-radius: var(--minimal-radius-md);
+    background: var(--minimal-card-soft);
+    color: var(--minimal-ink);
+    box-shadow: none;
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"]
+    .pessoal-minimal-launch-submit {
+    border-radius: var(--minimal-radius-md);
+    background: var(--minimal-positive);
+  }
+
+  [data-ui-skin="minimal"][data-project-type="PESSOAL"]
+    .pessoal-minimal-launch-submit:disabled {
+    background: var(--minimal-hair);
+    color: var(--minimal-ink-3);
+  }
+}

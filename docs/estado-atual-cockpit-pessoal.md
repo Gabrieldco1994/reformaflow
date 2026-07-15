@@ -1,6 +1,6 @@
 # Estado Atual — Cockpit/Visão Conta (PESSOAL)
 
-Atualizado em: **2026-07-13**
+Atualizado em: **2026-07-14**
 
 ## 0) Redesign UX 2026-07 — placar das trilhas
 
@@ -13,6 +13,15 @@ Atualizado em: **2026-07-13**
 - ✅ **Herói mobile c3 escuro (fidelidade final)** — gradiente `#1D1B17→#26231D`, glow por saúde do mês e narrativa em prosa, preservando números canônicos + toggle + slider + linhas Entrou/Saiu/Projeção em 1 linha (2026-07-13).
 - ✅ **Trilha 4 — App mobile** — PR #84 (casca 3 abas + PWA + Lançar + Despesas) e #87 (Maria; o #86 foi mergeado na base errada e resgatado). **QA pós-merge achou 5 bugs — todos RESOLVIDOS no PR #91**: navegação até Despesas (link no Hoje + tab), pill "Maria sugeriu: <tipo>" sempre visível no Lançar (fim do OUTROS silencioso), origens só do projeto atual (conta vs cartão), carteira física de cartões e polish (FAB verde/formatos). Specs E2E reescritos contra a UI enviada.
 - ✅ **Navegação contextual do projeto** — PR #93 (nav mobile por projeto).
+- ✅ **Skin Minimal mobile PESSOAL** — PR #125: Hoje, Despesas, Maria, Lançar e
+  Mais, sem alterar KPIs, dados ou contratos.
+- ✅ **Skin Minimal cross-project — Stage A (issue #128 / PR #136)** — mergeado em
+  `main` no commit `fa927308` e implantado em produção em 2026-07-14. Mudança
+  exclusivamente visual, sem alterações em API, domínio, Prisma, dados ou regras
+  financeiras. Tokens canônicos em `globals.css`; acentos em `type-accent.tsx`;
+  shell `AppShell` com `DesktopSidebar`, `MobileHeader`, `MobileTabBar` e
+  `MaisSheet`. Contrato responsivo: mobile `<768px`, sidebar desktop `>=768px` e
+  copilot desktop `>=1024px`. O épico #127 permanece aberto para #129–#134.
 - ✅ **Fase E — Motor único** — PR #88 conforme adendo: `getCaixaConta` público, tenant-financial e cash-flow lendo §10, `motor-unico-parity.spec.ts`, `scripts/validate-motores-prod.mjs`. §10 intocado. **PENDENTE: rodar o script contra prod** (`RF_TOKEN=<jwt> node scripts/validate-motores-prod.mjs`, esperado R$ 63.427,35 nas 4 telas).
 - ✅ **CI E2E do main** — resolvido no PR #91: os specs mobile (`monthly-mobile.spec.ts`, `expenses-mobile.spec.ts`) foram reescritos contra a UI das Trilhas 3/4; suíte verde (Domain 181 · API 455 · Web unit 473 · E2E 21 pass / 13 skip).
 - 🔎 **Auditoria técnica 2026-07-13** (architect + QA, main @ a62d064f): baseline verde (1.130 testes, 0 falhas), mas ficaram abertas — **#94** (§10 elege conta primária por literal `3636`, CRITICAL), **#95** (paridade em prod não validada + validador fora do CI — engloba o PENDENTE da Fase E acima), **#96** (cash-flow não ancora no `openingBalance` do §10), **#97** (`motor-unico-parity.spec` com claim falso/tautológico) e **#98** (feature-gating em 4 mapas divergentes).

@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import { api } from "@/lib/api";
-import { userHasAnyModuleForType } from "@reformaflow/domain";
+import type { ProjectType } from "@reformaflow/domain";
 
 export type ModuleSlug =
   | "dashboard"
@@ -65,7 +65,15 @@ export interface AuthUser {
   allowedProjectTypes: string[];
 }
 
-interface AuthContextValue {
+export interface RegistrationInput {
+  tenantName: string;
+  ownerName: string;
+  username: string;
+  password: string;
+  projectTypes: ProjectType[];
+}
+
+export interface AuthContextValue {
   user: AuthUser | null;
   loading: boolean;
   isAdmin: boolean;
@@ -74,6 +82,8 @@ interface AuthContextValue {
   hasProjectAccess: (projectId: string) => boolean;
   canCreateProjectType: (type: string) => boolean;
   login: (username: string, password: string) => Promise<AuthUser>;
+  register: (input: RegistrationInput, idempotencyKey: string) => Promise<AuthUser>;
+  updateObjectives: (projectTypes: ProjectType[]) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -108,6 +118,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return res.user;
   }, []);
 
+  const register = useCallback(async (input: RegistrationInput, idempotencyKey: string) => {
+    const res = await api.post<{ user: AuthUser }>("/auth/register", input, {
+      headers: { "Idempotency-Key": idempotencyKey },
+    });
+    setUser(res.user);
+    return res.user;
+  }, []);
+
+  const updateObjectives = useCallback(async (projectTypes: ProjectType[]) => {
+    await api.patch("/auth/objectives", { projectTypes });
+    const freshUser = await api.get<AuthUser>("/auth/me");
+    setUser(freshUser);
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       await api.post("/auth/logout", {});
@@ -122,12 +146,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const allowed = new Set(user?.allowedModules ?? []);
     const allowedProjects = user?.allowedProjects ?? [];
     const allowedProjectTypes = user?.allowedProjectTypes ?? [];
-    // Same gate the API enforces: owning only the universal `dashboard` module
-    // must not grant a project type. Shared predicate = client/server can't drift (#98).
-    const hasProjectType = (type: string) => {
-      if (isAdmin) return true;
-      return userHasAnyModuleForType(type, user?.allowedModules ?? []);
-    };
+    // Project types are an explicit authorization dimension. Shared modules must
+    // never imply access to an objective the person did not select.
+    const hasProjectType = (type: string) =>
+      isAdmin || allowedProjectTypes.includes(type);
     return {
       user,
       loading,
@@ -140,20 +162,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isAdmin ||
         allowedProjects.length === 0 ||
         allowedProjects.includes(projectId),
-      // Criação por tipo (opt-in): admin sempre; lista de tipos vazia = deriva
-      // dos módulos (como hoje); não-vazia = só os tipos liberados.
-      canCreateProjectType: (type: string) =>
-        isAdmin ||
-        (allowedProjectTypes.length > 0
-          ? allowedProjectTypes.includes(type)
-          : hasProjectType(type)),
+      canCreateProjectType: hasProjectType,
       login,
+      register,
+      updateObjectives,
       logout,
       refresh,
     };
-  }, [user, loading, login, logout, refresh]);
+  }, [user, loading, login, register, updateObjectives, logout, refresh]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+
+export function useOptionalAuth(): AuthContextValue | null {
+  return useContext(AuthContext);
 }
 
 export function useAuth(): AuthContextValue {
@@ -168,6 +191,12 @@ export function useAuth(): AuthContextValue {
       hasProjectAccess: () => false,
       canCreateProjectType: () => false,
       login: async () => {
+        throw new Error("AuthProvider not mounted");
+      },
+      register: async () => {
+        throw new Error("AuthProvider not mounted");
+      },
+      updateObjectives: async () => {
         throw new Error("AuthProvider not mounted");
       },
       logout: async () => {},

@@ -1,9 +1,15 @@
 import type { Metadata, Viewport } from 'next';
-import { Cormorant_Garamond, Jost } from 'next/font/google';
+import { Cormorant_Garamond, Inter, Jost } from 'next/font/google';
 import { SpeedInsights } from '@vercel/speed-insights/next';
 import './globals.css';
 import { Providers } from '@/lib/providers';
 import { Toaster } from 'sonner';
+
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-minimal",
+  display: "swap",
+});
 
 const jost = Jost({
   subsets: ['latin'],
@@ -45,7 +51,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="pt-BR" className={`${jost.variable} ${cormorant.variable}`}>
+    <html lang="pt-BR" className={`${jost.variable} ${cormorant.variable} ${inter.variable}`}>
       <head>
         {/* LifeOne design system — Geist + Material Symbols (loaded via Google Fonts,
             per design handoff). Exposed as the `font-geist` Tailwind family; opted
