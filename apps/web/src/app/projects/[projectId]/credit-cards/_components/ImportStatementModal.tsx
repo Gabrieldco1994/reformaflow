@@ -3,7 +3,9 @@
 import { useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
-import { X, Upload, CheckCircle2, AlertCircle, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
+import { Upload, CheckCircle2, AlertCircle, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
+import { Modal } from '@/components/ui/modal';
+import { Button } from '@/components/ui/button';
 import type { CardRow, PreviewResult, CommitResult, PreviewTx } from '../_types';
 import { PreviewTxRow } from './PreviewTxRow';
 
@@ -134,96 +136,91 @@ export default function ImportStatementModal({ projectId, card, onClose, onCommi
   }, [preview, txStates]);
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg w-full max-w-4xl max-h-[92vh] overflow-y-auto p-6">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-bold">
-            Importar fatura — {card.nickname ?? `${card.brand} ****${card.last4}`}
-          </h2>
-          <button onClick={onClose}><X className="w-5 h-5" /></button>
-        </div>
+    <Modal
+      open
+      onClose={onClose}
+      title={`Importar fatura — ${card.nickname ?? `${card.brand} ****${card.last4}`}`}
+      size="xl"
+      variant="center"
+    >
+      {commitResult ? (
+        <CommittedView result={commitResult} onClose={onCommitted} />
+      ) : (
+        <>
+          <UploadStep
+            files={files} setFiles={(f) => { setFiles(f); setPreview(null); setNeedsPassword(false); setPassword(''); setTxStates({}); }}
+            source={source} setSource={setSource}
+            password={password} setPassword={setPassword}
+            isPdf={isPdf} needsPassword={needsPassword}
+            loading={loading} onPreview={handlePreview}
+          />
 
-        {commitResult ? (
-          <CommittedView result={commitResult} onClose={onCommitted} />
-        ) : (
-          <>
-            <UploadStep
-              files={files} setFiles={(f) => { setFiles(f); setPreview(null); setNeedsPassword(false); setPassword(''); setTxStates({}); }}
-              source={source} setSource={setSource}
-              password={password} setPassword={setPassword}
-              isPdf={isPdf} needsPassword={needsPassword}
-              loading={loading} onPreview={handlePreview}
-            />
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-lg flex gap-2 mt-3">
+              <AlertCircle className="w-5 h-5 flex-shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
 
-            {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-lg flex gap-2 mt-3">
-                <AlertCircle className="w-5 h-5 flex-shrink-0" />
-                <span>{error}</span>
-              </div>
-            )}
-
-            {preview && (
-              <div className="mt-4">
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3 text-sm">
-                  <div>
-                    <strong>{preview.total}</strong> transações ·
-                    total <strong>{formatCurrency((preview.totalAmountCents ?? 0) / 100)}</strong> ·
-                    <strong> {preview.duplicated}</strong> já existentes ·
-                    formato detectado: <strong>{preview.source}</strong>
-                  </div>
-                  <div className="mt-1 text-xs text-blue-700">
-                    Após confirmar: <strong>{counts.willCreate}</strong> novas ·
-                    <strong> {counts.willLink}</strong> vinculadas a planejado ·
-                    <strong> {counts.willSkip}</strong> ignoradas ·
-                    soma: <strong>{formatCurrency(counts.totalCents / 100)}</strong>
-                  </div>
+          {preview && (
+            <div className="mt-4">
+              <div className="rounded-xl bg-blue-50 border border-blue-200 p-3 mb-3 text-sm">
+                <div>
+                  <strong>{preview.total}</strong> transações ·
+                  total <strong>{formatCurrency((preview.totalAmountCents ?? 0) / 100)}</strong> ·
+                  <strong> {preview.duplicated}</strong> já existentes ·
+                  formato detectado: <strong>{preview.source}</strong>
                 </div>
-
-                <div className="border rounded-lg overflow-hidden">
-                  <div className="bg-gray-50 px-3 py-2 text-xs font-medium text-gray-700 flex gap-2">
-                    <span className="flex-1">Estabelecimento / Data</span>
-                    <span className="w-32 text-right">Valor (R$)</span>
-                    <span className="w-40">Categoria</span>
-                    <span className="w-12"></span>
-                  </div>
-                  <div className="max-h-[50vh] overflow-y-auto">
-                    {preview.preview.map((tx) => (
-                      <PreviewTxRow
-                        key={tx.externalId}
-                        tx={tx}
-                        state={txStates[tx.externalId] ?? {}}
-                        onChange={(patch) => updateTx(tx.externalId, patch)}
-                        onClearDecision={() => clearDecision(tx.externalId)}
-                      />
-                    ))}
-                  </div>
-                </div>
-
-                {(preview.futureInstallments ?? []).length > 0 && (
-                  <FutureInstallmentsSection
-                    items={preview.futureInstallments!}
-                    expanded={showFuture}
-                    onToggle={() => setShowFuture((v) => !v)}
-                  />
-                )}
-
-                <div className="flex justify-end gap-2 mt-4">
-                  <button onClick={onClose} className="px-4 py-2 border rounded-lg">Cancelar</button>
-                  <button
-                    onClick={handleCommit}
-                    disabled={loading || (counts.willCreate + counts.willLink === 0)}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2 disabled:opacity-50"
-                  >
-                    {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                    {loading ? 'Importando…' : 'Confirmar importação'}
-                  </button>
+                <div className="mt-1 text-xs text-blue-700">
+                  Após confirmar: <strong>{counts.willCreate}</strong> novas ·
+                  <strong> {counts.willLink}</strong> vinculadas a planejado ·
+                  <strong> {counts.willSkip}</strong> ignoradas ·
+                  soma: <strong>{formatCurrency(counts.totalCents / 100)}</strong>
                 </div>
               </div>
-            )}
-          </>
-        )}
-      </div>
-    </div>
+
+              <div className="border rounded-xl overflow-hidden">
+                <div className="bg-gray-50 px-3 py-2 text-xs font-medium text-gray-700 hidden sm:flex gap-2">
+                  <span className="flex-1">Estabelecimento / Data</span>
+                  <span className="w-32 text-right">Valor (R$)</span>
+                  <span className="w-40">Categoria</span>
+                  <span className="w-12"></span>
+                </div>
+                <div className="max-h-[45vh] overflow-y-auto divide-y divide-gray-100">
+                  {preview.preview.map((tx) => (
+                    <PreviewTxRow
+                      key={tx.externalId}
+                      tx={tx}
+                      state={txStates[tx.externalId] ?? {}}
+                      onChange={(patch) => updateTx(tx.externalId, patch)}
+                      onClearDecision={() => clearDecision(tx.externalId)}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {(preview.futureInstallments ?? []).length > 0 && (
+                <FutureInstallmentsSection
+                  items={preview.futureInstallments!}
+                  expanded={showFuture}
+                  onToggle={() => setShowFuture((v) => !v)}
+                />
+              )}
+
+              <div className="flex justify-end gap-2 mt-4">
+                <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+                <Button
+                  onClick={handleCommit}
+                  disabled={loading || (counts.willCreate + counts.willLink === 0)}
+                >
+                  {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Importando…</> : <><Upload className="w-4 h-4" /> Confirmar importação</>}
+                </Button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </Modal>
   );
 }
 
@@ -290,14 +287,15 @@ function UploadStep({
           />
         </div>
       )}
-      <button
+      <Button
         onClick={onPreview}
         disabled={files.length === 0 || loading}
-        className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg disabled:opacity-50 flex items-center justify-center gap-2"
+        className="w-full"
+        variant="secondary"
       >
         {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
         {loading ? 'Processando…' : 'Pré-visualizar'}
-      </button>
+      </Button>
     </div>
   );
 }
@@ -343,9 +341,7 @@ function CommittedView({ result, onClose }: { result: CommitResult; onClose: () 
         {!!result.linked && <p><strong>{result.linked}</strong> vinculadas a despesas planejadas em outros projetos</p>}
         <p className="text-sm text-gray-500 mt-2">Período: {result.periodLabel}</p>
       </div>
-      <button onClick={onClose} className="mt-6 px-6 py-2 bg-blue-600 text-white rounded-lg">
-        Fechar
-      </button>
+      <Button onClick={onClose} className="mt-6">Fechar</Button>
     </div>
   );
 }

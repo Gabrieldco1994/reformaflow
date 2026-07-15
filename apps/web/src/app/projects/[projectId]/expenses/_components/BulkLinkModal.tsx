@@ -78,19 +78,6 @@ export function BulkLinkModal({ open, onClose, currentProjectId, preselectedSour
       : (preselectedSources ?? []);
     if (!selfSelectMode) return base;
     return base.filter((e) => {
-      // Para parcelado: verifica se alguma parcela cai no mês filtrado
-      if ((e.formaPagamento === 'PARCELADO' || e.formaPagamento === 'QUINZENAL') && (e.quantidadeParcela ?? 1) > 1) {
-        const startRaw = e.dataInicioParcela ?? e.dataPagamento ?? '';
-        if (!startRaw) return false;
-        const start = new Date(startRaw);
-        const [fy, fm] = monthFilter.split('-').map(Number);
-        for (let i = 0; i < (e.quantidadeParcela ?? 1); i++) {
-          const d = new Date(start);
-          d.setUTCMonth(d.getUTCMonth() + i);
-          if (d.getUTCFullYear() === fy && d.getUTCMonth() + 1 === fm) return true;
-        }
-        return false;
-      }
       const date = e.dataPagamento ?? e.dataCompra ?? '';
       if (date.slice(0, 7) !== monthFilter) return false;
       if (sourceFilter === 'card') return !!e.cardLast4;
