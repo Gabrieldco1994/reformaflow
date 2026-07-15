@@ -11,6 +11,32 @@
 
 ---
 
+## CONTRATO (normativo — o que nunca pode quebrar)
+
+1. **Caixa real (§10)** é sempre `saldoInicial + Σ lançamentos realizados da conta`.
+2. Lançamento da conta = `Expense`/`Receipt` com `bankLast4 != null`.
+3. Entradas de conta contam só quando `Receipt.status='EM_CAIXA'`.
+4. Saídas de conta contam só quando `Expense.status='PAGO'`.
+5. Compras no cartão sem `bankLast4` **não** entram no caixa da conta.
+6. Itens futuros (`PLANEJADO`/`PREVISTO`) **não** entram no `caixa.hoje`.
+7. `caixa.hoje` vem do backend (`computeCaixaConta`) e é independente do mês selecionado na UI.
+8. Quando `caixa.temSaldoInicial=false`, a UI deve rotular como "Resultado realizado" (não "Caixa").
+9. A projeção de fim do mês no cockpit usa a fonte canônica de conta (`data.projecao` / `getAccountView`) antes de qualquer fallback por competência.
+10. **I1:** `computeCaixaConta` é type-agnóstico: toda despesa `PAGO` com `bankLast4` reduz caixa, inclusive `INVESTIMENTOS` (neutro-de-consumo).
+11. **I2:** `RESGATE` `EM_CAIXA` com `bankLast4` aumenta caixa real.
+12. **I3:** `getCaixaConta` deve delegar para `computeCaixaConta` sem divergência numérica.
+13. **I4:** `caixa.porMes` é série acumulada a partir de `saldoInicial` e só com realizados. ⚠️ não blindado por teste dedicado com codinome I4.
+14. **I5:** fallback por competência nunca pode sobrescrever `caixa.hoje` reconciliado quando `temSaldoInicial=true`. ⚠️ não blindado por teste dedicado com codinome I5.
+
+## Referência de implementação
+
+- Backend: `apps/api/src/monthly-overview/monthly-overview.service.ts` (`computeCaixaConta`, `getCaixaConta`, `getOverview`).
+- DTO/conta: `apps/api/src/bank-account/dto/bank-account.dto.ts`, `apps/api/src/bank-account/bank-account.service.ts`.
+- Frontend: `apps/web/src/app/projects/[projectId]/monthly/_cockpit/derive.ts`, `.../_cockpit/CockpitTop.tsx`, `.../monthly/_types.ts`.
+- Testes que blindam contrato: `apps/api/src/monthly-overview/caixa-conta.spec.ts`, `apps/api/src/monthly-overview/get-caixa-conta.spec.ts`, `apps/web/src/app/projects/[projectId]/monthly/_cockpit/derive.projecao.test.ts`.
+
+## Apêndice histórico
+
 ## 1. Problema que originou a tarefa
 
 Os dashboards de KPI estavam confusos. Diagnóstico:

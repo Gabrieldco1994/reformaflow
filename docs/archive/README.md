@@ -8,3 +8,4 @@ Snapshots de trabalho de sessões anteriores, **não normativos**. A fonte de ve
 | `DIAGNOSTICO_CAIXA_INT_PM.md` | 2026-06-25 | Diagnóstico de caixa §10 e divergência de um lançamento específico vs `reconcile.py`. |
 | `RELATORIO_RECONCILIACAO_PESSOAL.md` | 2026-06-25 | Relatório de reconciliação do projeto PESSOAL. |
 | `plan-blocks.md` | 2026-06-27 | Catálogo de blocos MDX usado por uma ferramenta de plano visual. |
+| `estado-atual-historico-2026.md` | 2026-07-15 | Histórico detalhado movido do estado-atual vivo do Cockpit PESSOAL. |
