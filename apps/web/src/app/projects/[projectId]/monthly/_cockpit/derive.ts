@@ -595,7 +595,7 @@ export function anosDisponiveis(data: MonthlyOverviewResponse): number[] {
 
 export interface TotalsDerived {
   /** Realizado acumulado (entradas EM_CAIXA − saídas PAGO). */
-  caixaAgora: number;
+  fluxoRealizado: number;
   /** Caixa atual + futuro conhecido (a receber − a pagar). */
   saldoProjetado: number;
   entradasRealizadas: number;
@@ -665,10 +665,10 @@ export function deriveTotals(
       if (realizado) sr += e.valor; else sp += e.valor;
     }
   }
-  const caixaAgora = er - sr;
+  const fluxoRealizado = er - sr;
   return {
-    caixaAgora,
-    saldoProjetado: caixaAgora + (ep - sp),
+    fluxoRealizado,
+    saldoProjetado: fluxoRealizado + (ep - sp),
     entradasRealizadas: er,
     saidasRealizadas: sr,
     entradasPrevistas: ep,
@@ -720,7 +720,7 @@ export function deriveCockpitTop(
 ): CockpitTopDerived {
   const totals = deriveTotals(data);
   const temSaldo = data.caixa?.temSaldoInicial ?? false;
-  const caixaValor = temSaldo ? data.caixa!.hoje : totals.caixaAgora;
+  const caixaValor = temSaldo ? data.caixa!.hoje : totals.fluxoRealizado;
 
   const spark = (data.caixa?.porMes ?? []).map((p) => p.caixa);
   const caixaDelta =

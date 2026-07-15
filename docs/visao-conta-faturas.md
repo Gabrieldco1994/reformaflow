@@ -12,6 +12,34 @@
 
 ---
 
+## CONTRATO (normativo — o que nunca pode quebrar)
+
+1. Fatura é espelho bancário por chave interna `{dueMonth}__{cardLast4}`.
+2. `dueMonth` de compra no cartão vem de `caixaMonthForCardPurchase`.
+3. Neutro cobrado **no cartão** entra no espelho da fatura, mas não entra em gasto real.
+4. Neutro pago **pela conta** (`bankLast4`) não compõe fatura e só afeta caixa da conta.
+5. Casamento implícito pagamento→fatura (`matchPaidInvoices`) é por cartão + menor diferença de valor na janela `{payMonth, payMonth+1}`.
+6. Cada fatura pode ser consumida no casamento implícito no máximo uma vez.
+7. Quitação explícita (`settlesInvoiceKey`) soma múltiplas fontes e só marca paga quando soma >= total da fatura.
+8. Cobrança "cartão paga cartão" sem `bankLast4` não mexe no caixa; apenas o lançamento de conta mexe.
+9. DRE/visões de consumo excluem neutros de settlement (`PAGAMENTO_FATURA_CARTAO`, `MOVIMENTACAO_INTERNA`).
+10. **I1:** `computeCaixaConta` permanece type-agnóstico; aporte/resgate saem do consumo, não do caixa.
+11. **§7-1:** Fatura = banco (inclui neutro no cartão).
+12. **§7-2:** Gasto real exclui neutros.
+13. **§7-3:** Caixa só com `bankLast4`.
+14. **§7-4:** Quitação por fatura é única (implícito consome; explícito soma por alvo).
+15. **§7-5:** Pagamento próximo do vencimento casa no mês de vencimento (não no mês do pagamento).
+16. **§7-6:** Neutro-de-consumo (aporte/resgate) sai do consumo, mas permanece no caixa.
+
+## Referência de implementação
+
+- Serviço principal: `apps/api/src/monthly-overview/monthly-overview.service.ts` (`getAccountView`, `getCardInvoicesYearly`, `getOriginItemsYearly`, `matchPaidInvoices`, `computePaidInvoiceKeys`).
+- Dependências de regra: `packages/domain/src/calculations/card-cash-month.ts`, `packages/domain/src/enums/index.ts`.
+- Endpoint/controller: `apps/api/src/monthly-overview/monthly-overview.controller.ts`.
+- Testes que blindam contrato: `apps/api/src/monthly-overview/monthly-overview.account-view.spec.ts`, `apps/api/src/monthly-overview/caixa-conta.spec.ts`.
+
+## Apêndice histórico
+
 ## 1. Conceitos
 
 - **Fatura (espelho do banco):** soma das compras de um cartão com vencimento num

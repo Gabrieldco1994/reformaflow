@@ -150,7 +150,7 @@ Ao entrar num projeto, aparece a **casca** comum a todos os módulos:
 - **Cabeçalho:** botão **"‹ Projetos"** (volta ao Hub), **chip do projeto** (ícone
   colorido + nome), **sino de notificações** e, no celular, o botão **"Mais"**.
 - **Barra inferior (celular):**
-  - No **PESSOAL**, mostra **"Hoje"**, **"Lançar"** no centro e **"Maria"**.
+  - No **PESSOAL**, mostra **"Cockpit"**, **"Despesas"**, **"Maria"** e **"Cartões"**, com botão circular **"Lançar"** separado.
   - Nos demais tipos, mostra os três primeiros módulos autorizados para a pessoa,
     conforme a ordem de navegação do tipo.
   - O item ativo usa a **cor de destaque do tipo do projeto**.
@@ -163,8 +163,11 @@ Ao entrar num projeto, aparece a **casca** comum a todos os módulos:
 
 ### 3.4 Copiloto "Maria"
 No projeto **PESSOAL**, o atalho **"Maria"** da barra inferior abre o assistente
-financeiro em tela própria. Ele serve para tirar dúvidas e receber
-orientações sobre as finanças do usuário.
+financeiro em tela própria (chat em tela cheia no mobile).
+
+- Mostra abertura proativa com leitura do mês atual.
+- Aceita texto e voz (STT), e a resposta da Maria pode ser reproduzida por áudio (TTS).
+- A ação **Editar** em sugestões abre o mesmo sheet de lançamento usado no app.
 
 ### 3.5 Notificações (sino)
 Mostra avisos e pendências do sistema. O contador no sino indica quantos itens não
@@ -192,36 +195,29 @@ A tela-mãe do PESSOAL. Responde "como está meu mês?".
 **Controles do topo:**
 - **Toggle Mês / Ano:** alterna entre a visão mensal e a anual.
 - **Navegação ‹ › + mês:** troca o mês/ano em foco.
-- **Eixo de tempo (segmented):** **Gastei** (competência — pela data da compra) ou
-  **Vai sair** (caixa — pela data em que o dinheiro sai/vence). A escolha muda os
-  números de todas as seções abaixo e fica **memorizada** entre sessões.
-- **Botão "Extrato":** abre a visão de extrato (todas as saídas do mês em ordem de
-  data). É uma visão separada, focada.
+- **Eixo do mês (segmented):** **Caixa** (visão canônica do mês) ou **Extrato** (lista cronológica de saídas).
+- **Botão "Atual"** (quando aplicável) volta para o mês corrente.
 
-**Card-narrativa (topo):**
-- Frase-resumo do tipo *"Você tem R$ X em caixa. Julho caminha pra fechar em R$ Y
-  — faltam R$ Z a cobrir até o fim do mês."* Traduz os números num texto direto.
-- **Barra de progresso do mês** ("6% de Julho"): quanto do mês já passou.
+**Hero do topo:**
+- Semáforo de fechamento (**No caminho / No limite / Fecha no vermelho**) baseado na projeção de caixa do mês.
+- Valor principal mostra **Caixa hoje** (ou **Resultado realizado** quando não há saldo inicial cadastrado).
+- **Barra de progresso do mês** + frase narrativa de fechamento.
 - **Dropdown "Recomendações"** (minimizado por padrão): dicas automáticas —
   projeção de fechamento e quanto cortar por dia para equilibrar, maior gasto
   variável, contas a vencer, e status da reserva de emergência.
 
-**3 KPIs hero:**
+**KPIs do mês (eixo caixa):**
 | KPI | O que representa |
 |---|---|
-| **Caixa (conta corrente)** | Quanto você tem **de fato** na conta agora, reconciliado com o banco (caixa real §10). Compras no cartão só entram aqui quando a fatura é paga. Mostra a variação no mês e uma minissérie (sparkline). |
-| **Resultado do mês** | O que **já aconteceu** neste mês: recebimentos realizados − despesas realizadas (só o que já foi efetivamente pago/recebido). Traz delta vs. mês anterior e o detalhe "entrou X · saiu Y" (verde/vermelho). |
-| **Projeção fim do mês** | Como o mês **deve fechar**: caixa de hoje + o que ainda falta receber − o que ainda falta pagar. É previsão (inclui contas e faturas que ainda não saíram). Detalhe "a receber X · a pagar Y". |
+| **Entrou em {mês}** | Recebimentos já efetivados na conta no mês + indicação do que ainda falta receber. |
+| **Saiu em {mês}** | Saídas do eixo de caixa (já saiu + ainda vai sair), incluindo faturas vencendo no mês. |
+| **Sobra prevista** | Fechamento esperado do mês (`caixaHoje + aReceber - aPagar`), mesma fonte da Visão Conta. |
 
 Cada KPI tem um **botão de ajuda (ⓘ)** que explica o cálculo ao passar o mouse.
 
-**KPIs Entrou / Gastei (logo abaixo dos hero):**
-- **Entrou no mês:** recebimentos efetivados no mês.
-- **Gastei no mês:** total gasto no mês (+ indicação do que ainda está planejado).
-
 **Widget "Quanto gastei":**
 - Mostra **quanto foi gasto por cartão e por conta** no mês, respeitando o mês e o
-  eixo selecionado (Gastei = por compra; Vai sair = por vencimento).
+  contexto da visão mensal de caixa (não aparece na aba Extrato).
 - **Exclui neutros** (pagamento de fatura não conta como gasto).
 - Cartões aparecem como mini-cartões com gradiente; contas como linhas. Ordena do
   maior para o menor e esconde origens sem gasto. Link **"ver"** leva ao módulo do
@@ -248,8 +244,8 @@ Cada KPI tem um **botão de ajuda (ⓘ)** que explica o cálculo ao passar o mou
   lançamentos).
 
 **Visão Ano:**
-- Destaques do ano, **Resultado do ano**, **Taxa de poupança**, **Evolução do
-  patrimônio**, **Categorias do ano**, comparativos mês a mês.
+- **Resultado do ano**, **Taxa de poupança**, **Evolução do patrimônio**,
+  **Categorias do ano** e comparativos mês a mês.
 
 ### 4.2 Visão Conta (`/conta`) — apenas PESSOAL
 Foca no **caixa real** da conta e nas **faturas de cartão**. Responde "quanto tenho
@@ -334,14 +330,11 @@ Onde se registra e acompanha tudo que se gasta. É o módulo mais rico.
    (marcar uma futura como paga, escolhendo da lista).
 2. Passo **Dados:** tipo da despesa, categoria (mão de obra quando aplica),
    ambiente (em Reforma), título, fornecedor.
-3. Passo **Pagamento:** forma de pagamento; **Data do Pagamento** (quando o
-   dinheiro sai da conta / faz a despesa cair no mês); **Data da compra**
-   (competência — quando a compra foi feita; para cartão, define o mês da fatura);
-   parcelamento (qtd de parcelas + data de início) ou "despesa fixa (repete todo
-   mês)"; vínculo a cartão/conta.
+3. Passo **Pagamento:** forma de pagamento; **Data do Pagamento** (caixa);
+   **Data da compra** (competência); parcelamento (qtd + início) e vínculo a cartão/conta.
 4. Passo **Ação:** **Planejar/Salvar** ou **Vincular** (rateio para outro projeto).
-- Também há **"Lançar por voz"** (ditar a despesa) e **importação** (OFX/CSV de
-  fatura/extrato).
+- No modal de opções também há **Planejar**, **Despesa recorrente** (mensal/quinzenal),
+  **Lançar por voz** e **importação** (OFX/CSV de fatura/extrato).
 - **Validações:** valor > 0; máscara monetária `1.234,56`.
 
 **KPI hero "Gasto no mês":** total gasto no mês + **% pago** (barra), com
@@ -627,7 +620,7 @@ Para acompanhar uma compra grande (casa, carro, etc.).
 | **Rateio** | Dividir uma despesa entre vários projetos de destino. |
 | **Planejado / Pago** | Status de despesa (previsto × efetivado). |
 | **Previsto / Em caixa** | Status de recebimento (a receber × recebido). |
-| **Eixo de tempo** | O toggle Competência ↔ Caixa (Gastei ↔ Vai sair). |
+| **Eixo de tempo** | No Cockpit mensal, alterna entre **Caixa** e **Extrato**; em outras telas pode alternar Competência ↔ Caixa. |
 | **Ticket médio** | Total de saídas ÷ número de lançamentos. |
 | **Reserva de emergência** | Quantos meses de despesa o caixa cobre. |
 

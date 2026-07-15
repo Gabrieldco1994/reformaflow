@@ -63,6 +63,7 @@ cd packages/domain && npx vitest run              # testes domínio (vitest, __t
 - **Páginas ≤ 400 linhas / 20 KB** (convenção-alvo; algumas páginas legadas excedem, ex. `floor-plans/page.tsx` — tratar como dívida a quebrar). Quebrar em `<rota>/_components/Foo.tsx` (private folders) + `<rota>/_types.ts` + `<rota>/_hooks/useFoo.ts` + `<rota>/_lib/*.ts`.
 - **Labels/options de despesas**: helpers de forma de pagamento e categoria de mão de obra em `apps/web/src/lib/expense-options.ts` (`FORMA_PAGAMENTO_OPTIONS`, `CATEGORIA_MAO_DE_OBRA_OPTIONS`, `tipoLabel`, `formaLabel`, `catMaoLabel`). **Options de tipo de despesa** vêm de `getExpenseOptions(projectType)` em `apps/web/src/app/projects/[projectId]/expenses/_types.ts`.
 - **`useProject` é hook**: chamar dentro do componente, nunca no topo do módulo.
+- **Mudou comportamento visível de uma tela**: atualizar a seção correspondente de `docs/manual-do-aplicativo.md` no **mesmo PR** (mesma disciplina do `estado-atual`).
 
 ## Regras de ouro (cicatrizes — não repetir)
 

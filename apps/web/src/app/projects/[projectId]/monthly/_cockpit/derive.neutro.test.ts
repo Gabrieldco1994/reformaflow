@@ -61,7 +61,7 @@ describe('cockpit mensal — neutros fora do consumo/resultado', () => {
   it('deriveTotals ignora neutros nas saídas realizadas', () => {
     const t = deriveTotals(makeData([compra, fatura]));
     expect(t.saidasRealizadas).toBe(400000);
-    expect(t.caixaAgora).toBe(-400000);
+    expect(t.fluxoRealizado).toBe(-400000);
   });
 
   it('deriveCockpitTop.resultadoGastou/resultadoMes sem o neutro', () => {
