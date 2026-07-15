@@ -245,6 +245,16 @@ export function DespesaModal({
       tipoDespesaOptions={tipoOptions}
       roomOptions={[]}
       isPending={createMutation.isPending || updateMutation.isPending}
+      linkedExpenseDraft={{
+        titulo,
+        fornecedor,
+        tipoDespesa,
+        categoriaMaoDeObra,
+        valor,
+        quantidade,
+        formaPagamento,
+        status: formStatus,
+      }}
     />
   );
 }
