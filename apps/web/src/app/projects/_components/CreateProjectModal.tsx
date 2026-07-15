@@ -41,8 +41,9 @@ export function CreateProjectModal({
     <Modal open={open} onClose={onClose} title="Novo Projeto" size="md">
       <div className="space-y-4 font-geist">
         <div>
-          <label className="block text-[12px] font-medium text-lifeone-ink-2 mb-1.5">Nome</label>
+          <label htmlFor="project-name" className="block text-[12px] font-medium text-lifeone-ink-2 mb-1.5">Nome</label>
           <input
+            id="project-name"
             type="text"
             value={newProject.name}
             onChange={(e) => setNewProject((p) => ({ ...p, name: e.target.value }))}
@@ -53,19 +54,21 @@ export function CreateProjectModal({
         </div>
 
         <div>
-          <label className="block text-[12px] font-medium text-lifeone-ink-2 mb-2">Tipo do Projeto</label>
+          <span id="project-type-label" className="block text-[12px] font-medium text-lifeone-ink-2 mb-2">Tipo do Projeto</span>
           {allowedTypes.length === 0 ? (
             <div className="text-[13px] text-lifeone-ink-3 bg-lifeone-surface border border-lifeone-hairline rounded-[10px] p-3">
               Você não tem módulos liberados para criar projetos. Peça ao administrador.
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3" role="group" aria-labelledby="project-type-label">
               {allowedTypes.map((key) => {
                 const accent = typeAccent(key);
                 const selected = newProject.type === key;
                 return (
                   <button
                     key={key}
+                    type="button"
+                    aria-pressed={selected}
                     onClick={() => setNewProject((p) => ({ ...p, type: key }))}
                     className={`p-3 rounded-[12px] border-2 text-left transition-all ${
                       selected
@@ -94,8 +97,9 @@ export function CreateProjectModal({
         </div>
 
         <div>
-          <label className="block text-[12px] font-medium text-lifeone-ink-2 mb-1.5">Descrição (opcional)</label>
+          <label htmlFor="project-description" className="block text-[12px] font-medium text-lifeone-ink-2 mb-1.5">Descrição (opcional)</label>
           <textarea
+            id="project-description"
             value={newProject.description}
             onChange={(e) => setNewProject((p) => ({ ...p, description: e.target.value }))}
             className={inputClass}
@@ -105,7 +109,7 @@ export function CreateProjectModal({
         </div>
 
         {createError && (
-          <div className="text-[13px] text-[#B42318] bg-[#FEF3F2] border border-[#FECDCA] rounded-[10px] px-3 py-2.5">
+          <div role="alert" className="text-[13px] text-[#B42318] bg-[#FEF3F2] border border-[#FECDCA] rounded-[10px] px-3 py-2.5">
             {createError}
           </div>
         )}
@@ -113,12 +117,14 @@ export function CreateProjectModal({
 
       <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-lifeone-hairline">
         <button
+          type="button"
           onClick={onClose}
           className="px-4 py-2.5 text-[14px] font-medium text-lifeone-ink-2 hover:text-lifeone-ink transition-colors"
         >
           Cancelar
         </button>
         <button
+          type="button"
           onClick={onCreate}
           disabled={creating || !newProject.name.trim() || !newProject.type}
           className="px-4 py-2.5 bg-lifeone-blue text-[#FFFFFF] text-[14px] font-semibold rounded-[10px] hover:brightness-95 disabled:opacity-50 disabled:cursor-not-allowed transition-all"

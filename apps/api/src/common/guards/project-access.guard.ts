@@ -4,12 +4,19 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common';
-import { isFullAccessRole, userCanAccessProject } from '../access-rules';
+import {
+  isFullAccessRole,
+  userCanAccessProject,
+  userCanAccessProjectType,
+} from '../access-rules';
+import { PrismaService } from '../../prisma/prisma.service';
 
 /** Campos que carregam um ID de projeto em params/query/body. */
 const PROJECT_ID_FIELDS = ['projectId', 'sourceProjectId', 'targetProjectId'];
 
-function collectProjectIds(source: Record<string, unknown> | undefined): string[] {
+function collectProjectIds(
+  source: Record<string, unknown> | undefined,
+): string[] {
   if (!source) return [];
   const ids: string[] = [];
   for (const field of PROJECT_ID_FIELDS) {
@@ -36,15 +43,13 @@ function collectProjectIds(source: Record<string, unknown> | undefined): string[
  */
 @Injectable()
 export class ProjectAccessGuard implements CanActivate {
-  canActivate(context: ExecutionContext): boolean {
+  constructor(private readonly prisma: PrismaService) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
     const user = request.user;
     if (!user) return true;
     if (isFullAccessRole(user.role)) return true;
-
-    if (!Array.isArray(user.allowedProjects) || user.allowedProjects.length === 0) {
-      return true;
-    }
 
     const ids = new Set<string>([
       ...collectProjectIds(request.params),
@@ -55,6 +60,25 @@ export class ProjectAccessGuard implements CanActivate {
     for (const projectId of ids) {
       if (!userCanAccessProject(user.role, user.allowedProjects, projectId)) {
         throw new ForbiddenException('Sem permissao para acessar este projeto');
+      }
+      const project = await this.prisma.project.findFirst({
+        where: { id: projectId, tenantId: user.tenantId },
+        select: { type: true },
+      });
+      if (!project) {
+        throw new ForbiddenException('Sem permissao para acessar este projeto');
+      }
+      if (
+        !userCanAccessProjectType(
+          user.role,
+          user.allowedProjectTypes,
+          user.allowedModules ?? [],
+          project.type,
+        )
+      ) {
+        throw new ForbiddenException(
+          'Sem permissao para acessar este tipo de projeto',
+        );
       }
     }
     return true;

@@ -1,4 +1,14 @@
-import { IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import { ProjectType } from '@reformaflow/domain';
+import {
+  ArrayNotEmpty,
+  ArrayUnique,
+  IsArray,
+  IsEnum,
+  IsString,
+  Matches,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 
 export class RegisterOwnerDto {
   @IsString()
@@ -19,6 +29,12 @@ export class RegisterOwnerDto {
   username!: string;
 
   @IsString()
-  @MinLength(6)
+  @MinLength(8)
   password!: string;
+
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayUnique()
+  @IsEnum(ProjectType, { each: true })
+  projectTypes!: ProjectType[];
 }

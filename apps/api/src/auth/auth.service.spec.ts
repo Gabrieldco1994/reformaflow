@@ -1,5 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ProjectType } from '@reformaflow/domain';
 import * as bcrypt from 'bcrypt';
 import { AuthService } from './auth.service';
 
@@ -37,7 +38,7 @@ describe('AuthService signup/guest/claim', () => {
     });
   });
 
-  it('registerOwner cria tenant+admin em transação quando habilitado', async () => {
+  it('registerOwner cria tenant+user em transação quando habilitado', async () => {
     process.env['AUTH_ENABLE_REGISTER'] = '1';
     prisma.user.findFirst.mockResolvedValue(null);
     prisma.$transaction.mockImplementation(async (cb: (tx: any) => unknown) => {
@@ -46,18 +47,19 @@ describe('AuthService signup/guest/claim', () => {
           create: jest.fn().mockResolvedValue({ id: 't-1', name: 'Tenant' }),
         },
         user: {
+          findFirst: jest.fn().mockResolvedValue(null),
           create: jest.fn().mockImplementation(({ data }: { data: any }) =>
             Promise.resolve({
               id: 'u-1',
               tenantId: 't-1',
               username: 'owner',
               name: 'Owner',
-              role: 'ADMIN',
+              role: data.role,
               isGuest: false,
               passwordHash: data.passwordHash,
-              allowedModules: '[]',
+              allowedModules: data.allowedModules,
               allowedProjects: '[]',
-              allowedProjectTypes: '[]',
+              allowedProjectTypes: data.allowedProjectTypes,
             }),
           ),
         },
@@ -69,17 +71,14 @@ describe('AuthService signup/guest/claim', () => {
       tenantName: 'Tenant',
       ownerName: 'Owner',
       username: 'Owner',
-      password: '123456',
+      password: '12345678',
+      projectTypes: [ProjectType.CASA],
     });
 
-    expect(prisma.user.findFirst).toHaveBeenCalledWith({
-      where: { username: 'owner', deletedAt: null },
-      select: { id: true },
-    });
-    expect(out.user.role).toBe('ADMIN');
+    expect(out.user.role).toBe('USER');
     expect(out.user.isGuest).toBe(false);
     expect(out.user.passwordHash).toBeTruthy();
-    expect(await bcrypt.compare('123456', out.user.passwordHash as string)).toBe(
+    expect(await bcrypt.compare('12345678', out.user.passwordHash as string)).toBe(
       true,
     );
   });

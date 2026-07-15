@@ -73,10 +73,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setLaunchOpen(false);
   }, [pathname, projectId]);
 
+  const canAccessProject = Boolean(
+    project && hasProjectType(project.type) && hasProjectAccess(project.id),
+  );
+
   useEffect(() => {
-    if (!project) return;
+    if (authLoading || !project || !canAccessProject) return;
     window.localStorage.setItem('rf_last_project_id', project.id);
-  }, [project]);
+  }, [authLoading, canAccessProject, project]);
 
   const navItems = useMemo<NavModule[]>(
     () => (project ? getProjectNavModules(project.type as ProjectType) : []),
@@ -125,7 +129,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setLaunchOpen(true);
   }, [canLaunch, searchParams]);
 
-  if (loading || !project) {
+  if (authLoading || loading || !project || !canAccessProject) {
     return (
       <div
         data-ui-skin="minimal"

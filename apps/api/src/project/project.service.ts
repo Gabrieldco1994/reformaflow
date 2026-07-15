@@ -1,10 +1,14 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { defaultRooms } from '@reformaflow/domain';
 import {
-  userHasAnyModuleForType,
+  userCanAccessProjectType,
   userCanAccessProject,
   userCanCreateProjectType,
   isFullAccessRole,
@@ -70,7 +74,11 @@ export class ProjectService {
     // concede acesso ao projeto recém-criado (senão ele não veria o que criou).
     // Lê o estado fresco do usuário numa transação para evitar lost-update em
     // criações concorrentes (o snapshot do request pode estar desatualizado).
-    if (user?.id && !isFullAccessRole(user.role) && (user.allowedProjects ?? []).length > 0) {
+    if (
+      user?.id &&
+      !isFullAccessRole(user.role) &&
+      (user.allowedProjects ?? []).length > 0
+    ) {
       const userId = user.id;
       await this.prisma.$transaction(async (tx) => {
         const fresh = await tx.user.findUnique({
@@ -107,8 +115,12 @@ export class ProjectService {
 
     return projects.filter(
       (p) =>
-        userHasAnyModuleForType(p.type, user.allowedModules ?? []) &&
-        userCanAccessProject(user.role, user.allowedProjects, p.id),
+        userCanAccessProjectType(
+          user.role,
+          user.allowedProjectTypes,
+          user.allowedModules ?? [],
+          p.type,
+        ) && userCanAccessProject(user.role, user.allowedProjects, p.id),
     );
   }
 
@@ -116,7 +128,14 @@ export class ProjectService {
     const project = await this.findByIdInternal(tenantId, id);
 
     if (user && !isFullAccessRole(user.role)) {
-      if (!userHasAnyModuleForType(project.type, user.allowedModules ?? [])) {
+      if (
+        !userCanAccessProjectType(
+          user.role,
+          user.allowedProjectTypes,
+          user.allowedModules ?? [],
+          project.type,
+        )
+      ) {
         throw new ForbiddenException(
           `Sem permissão para acessar projetos do tipo "${project.type}"`,
         );
@@ -150,8 +169,12 @@ export class ProjectService {
         ...(dto.name && { name: dto.name }),
         ...(dto.type && { type: dto.type }),
         ...(dto.description !== undefined && { description: dto.description }),
-        ...(dto.startDate !== undefined && { startDate: dto.startDate ? new Date(dto.startDate) : null }),
-        ...(dto.endDate !== undefined && { endDate: dto.endDate ? new Date(dto.endDate) : null }),
+        ...(dto.startDate !== undefined && {
+          startDate: dto.startDate ? new Date(dto.startDate) : null,
+        }),
+        ...(dto.endDate !== undefined && {
+          endDate: dto.endDate ? new Date(dto.endDate) : null,
+        }),
       },
     });
   }

@@ -2,6 +2,7 @@
 
 import { hasFeature, type ProjectType } from '@reformaflow/domain';
 import { Suspense, useEffect } from 'react';
+import { useOptionalAuth } from '@/contexts/auth-context';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import {
@@ -86,22 +87,33 @@ function AppEntryContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const screen = searchParams.get('screen');
+  const auth = useOptionalAuth();
+  const authLoading = auth?.loading ?? false;
 
   useEffect(() => {
     let cancelled = false;
+
+    if (authLoading) return;
 
     async function resolveAppEntry() {
       try {
         const projects = await api.get<Project[]>('/projects');
         if (cancelled) return;
 
-        if (!projects.length) {
+        const visibleProjects = auth
+          ? projects.filter(
+              (project) =>
+                auth.hasProjectType(project.type) && auth.hasProjectAccess(project.id),
+            )
+          : projects;
+
+        if (!visibleProjects.length) {
           router.replace('/projects');
           return;
         }
 
         const lastProjectId = window.localStorage.getItem('rf_last_project_id');
-        const chosen = pickProjectForScreen(projects, screen, lastProjectId);
+        const chosen = pickProjectForScreen(visibleProjects, screen, lastProjectId);
 
         router.replace(resolveTargetPath(chosen, screen));
       } catch {
@@ -113,7 +125,7 @@ function AppEntryContent() {
     return () => {
       cancelled = true;
     };
-  }, [router, screen]);
+  }, [auth, authLoading, router, screen]);
 
   return (
     <div className="min-h-screen bg-white flex items-center justify-center">

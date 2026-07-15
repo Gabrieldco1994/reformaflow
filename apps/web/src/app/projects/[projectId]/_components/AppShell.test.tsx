@@ -168,6 +168,35 @@ describe("AppShell mobile navigation orchestration", () => {
     mocks.logout.mockResolvedValue(undefined);
   });
 
+  it("blocks direct navigation when the project type objective was revoked", async () => {
+    mocks.apiGet.mockResolvedValue(project(ProjectType.CARRO));
+    mocks.hasModule.mockReturnValue(true);
+    mocks.hasProjectType.mockReturnValue(false);
+
+    render(<AppShell>Conteúdo revogado</AppShell>);
+
+    await vi.waitFor(() => {
+      expect(mocks.router.replace).toHaveBeenCalledWith("/no-permission");
+    });
+    expect(screen.queryByText("Conteúdo revogado")).not.toBeInTheDocument();
+    expect(mocks.hasProjectType).toHaveBeenCalledWith(ProjectType.CARRO);
+  });
+
+  it("blocks a forged direct module URL even for an otherwise permitted project", async () => {
+    mocks.pathname = "/projects/project-1/expenses";
+    mocks.apiGet.mockResolvedValue(project(ProjectType.CASA));
+    mocks.hasModule.mockImplementation(
+      (module: string) => module !== "expenses",
+    );
+
+    render(<AppShell>Despesas diretas</AppShell>);
+
+    await screen.findByText("Despesas diretas");
+    await vi.waitFor(() => {
+      expect(mocks.router.replace).toHaveBeenCalledWith("/no-permission");
+    });
+  });
+
   it("splits the permission-filtered REFORMA modules and omits the personal launch sheet", async () => {
     mocks.apiGet.mockResolvedValue(project(ProjectType.REFORMA));
     mocks.hasModule.mockImplementation(

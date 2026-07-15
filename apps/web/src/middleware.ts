@@ -10,6 +10,7 @@ const LEGACY_MOBILE_ROUTES: Record<string, string> = {
 
 const PUBLIC_PATHS = [
   '/login',
+  '/register',
   '/_next',
   '/favicon.ico',
   '/api',

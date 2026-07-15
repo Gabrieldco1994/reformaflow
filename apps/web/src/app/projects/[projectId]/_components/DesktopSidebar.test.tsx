@@ -59,6 +59,7 @@ describe("DesktopSidebar", () => {
       ["Fluxo de Caixa", `${basePath}/cash-flow`],
       ["Dashboard", `${basePath}/dashboard`],
       ["Despesas", `${basePath}/expenses`],
+      ["Configurações", "/settings"],
     ]);
     expect(
       links

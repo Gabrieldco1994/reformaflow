@@ -7,9 +7,13 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
+import { deriveObjectiveAccess, ProjectType } from '@reformaflow/domain';
+import { Prisma } from '@prisma/client';
 import { JwtPayload } from './jwt.strategy';
 
 const BCRYPT_ROUNDS = 10;
+const SELF_SERVICE_ROLE = 'USER';
+const DUPLICATE_USERNAME_MESSAGE = 'Usuário já cadastrado';
 
 @Injectable()
 export class AuthService {
@@ -52,9 +56,7 @@ export class AuthService {
       hasPersonalProject,
       hasReformaProject,
       shouldSeed:
-        demoMode &&
-        user.isGuest &&
-        (!hasPersonalProject || !hasReformaProject),
+        demoMode && user.isGuest && (!hasPersonalProject || !hasReformaProject),
       tourStorageKey: `rf_demo_tour_seen:${user.tenantId}`,
     };
   }
@@ -65,12 +67,7 @@ export class AuthService {
       where: { username: normalizedUsername, deletedAt: null },
       include: { tenant: true },
     });
-    if (
-      !user ||
-      user.tenant.deletedAt ||
-      user.isGuest ||
-      !user.passwordHash
-    ) {
+    if (!user || user.tenant.deletedAt || user.isGuest || !user.passwordHash) {
       throw new UnauthorizedException('Credenciais inválidas');
     }
     const ok = await bcrypt.compare(password, user.passwordHash);
@@ -83,30 +80,104 @@ export class AuthService {
     ownerName: string;
     username: string;
     password: string;
+    projectTypes?: ProjectType[];
   }) {
     if (process.env['AUTH_ENABLE_REGISTER'] !== '1') {
       throw new NotFoundException();
     }
+    if (!input.projectTypes || input.projectTypes.length === 0) {
+      throw new BadRequestException('Selecione ao menos um objetivo');
+    }
     const username = this.normalizeUsername(input.username);
-    await this.assertUsernameAvailable(username);
+    const access = deriveObjectiveAccess(input.projectTypes);
     const passwordHash = await bcrypt.hash(input.password, BCRYPT_ROUNDS);
 
-    return this.prisma.$transaction(async (tx) => {
-      const tenant = await tx.tenant.create({
-        data: { name: input.tenantName.trim() },
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        // Creating the tenant first acquires SQLite's write lock. The duplicate
+        // check then runs inside the same transaction, so concurrent signups
+        // cannot both observe an available canonical username.
+        const tenant = await tx.tenant.create({
+          data: { name: input.tenantName.trim() },
+        });
+        const duplicate = await tx.user.findFirst({
+          where: { username, deletedAt: null },
+          select: { id: true },
+        });
+        if (duplicate)
+          throw new BadRequestException(DUPLICATE_USERNAME_MESSAGE);
+
+        const user = await tx.user.create({
+          data: {
+            tenantId: tenant.id,
+            username,
+            name: input.ownerName.trim(),
+            role: SELF_SERVICE_ROLE,
+            passwordHash,
+            isGuest: false,
+            allowedProjectTypes: JSON.stringify(access.allowedProjectTypes),
+            allowedModules: JSON.stringify(access.allowedModules),
+          },
+        });
+        return { tenant, user };
       });
-      const user = await tx.user.create({
-        data: {
-          tenantId: tenant.id,
-          username,
-          name: input.ownerName.trim(),
-          role: 'ADMIN',
-          passwordHash,
-          isGuest: false,
-        },
-      });
-      return { tenant, user };
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new BadRequestException(DUPLICATE_USERNAME_MESSAGE);
+      }
+      throw error;
+    }
+  }
+
+  async getSelfObjectives(userId: string) {
+    const user = await this.findActiveUser(userId);
+    return this.buildObjectiveResponse(user);
+  }
+
+  async updateSelfObjectives(userId: string, projectTypes: ProjectType[]) {
+    const access = deriveObjectiveAccess(projectTypes);
+    const user = await this.findActiveUser(userId);
+    const updated = await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        allowedProjectTypes: JSON.stringify(access.allowedProjectTypes),
+        allowedModules: JSON.stringify(access.allowedModules),
+      },
     });
+    return this.buildObjectiveResponse(updated);
+  }
+
+  private async findActiveUser(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { tenant: true },
+    });
+    if (!user || user.deletedAt || user.tenant.deletedAt) {
+      throw new UnauthorizedException('Sessão inválida');
+    }
+    return user;
+  }
+
+  private buildObjectiveResponse(user: {
+    allowedProjectTypes: string;
+    allowedModules: string;
+  }) {
+    const publicUser = this.buildPublicUser({
+      id: '',
+      username: '',
+      name: '',
+      role: SELF_SERVICE_ROLE,
+      tenantId: '',
+      ...user,
+    });
+    return {
+      projectTypes: publicUser.allowedProjectTypes,
+      allowedProjectTypes: publicUser.allowedProjectTypes,
+      allowedModules: publicUser.allowedModules,
+    };
   }
 
   async registerGuest(input: { tenantName: string }) {
@@ -164,7 +235,7 @@ export class AuthService {
       select: { id: true },
     });
     if (duplicate) {
-      throw new BadRequestException('Usuário já cadastrado');
+      throw new BadRequestException(DUPLICATE_USERNAME_MESSAGE);
     }
 
     const passwordHash = await bcrypt.hash(input.password, BCRYPT_ROUNDS);
@@ -187,7 +258,12 @@ export class AuthService {
     return { tenant, user };
   }
 
-  issueToken(user: { id: string; tenantId: string; username: string; role: string }) {
+  issueToken(user: {
+    id: string;
+    tenantId: string;
+    username: string;
+    role: string;
+  }) {
     const payload: JwtPayload = {
       sub: user.id,
       tenantId: user.tenantId,
@@ -244,15 +320,5 @@ export class AuthService {
 
   private normalizeUsername(username: string): string {
     return username.toLowerCase().trim();
-  }
-
-  private async assertUsernameAvailable(username: string): Promise<void> {
-    const existing = await this.prisma.user.findFirst({
-      where: { username, deletedAt: null },
-      select: { id: true },
-    });
-    if (existing) {
-      throw new BadRequestException('Usuário já cadastrado');
-    }
   }
 }

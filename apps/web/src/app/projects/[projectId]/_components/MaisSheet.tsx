@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import Link from "next/link";
-import { LogOut, Users, X } from "lucide-react";
+import { LogOut, Settings, Users, X } from "lucide-react";
 import { isPathActive } from "./mobile-nav";
 import { navIcon } from "./nav-icons";
 import type { NavModule, ProjectInfo } from "../_types";
@@ -165,7 +165,17 @@ export function MaisSheet({
             )}
           </div>
         </div>
-        <div className="minimal-more-footer border-t border-darc-linen px-4 pb-5 pt-2 safe-pb">
+        <div className="minimal-more-footer space-y-2 border-t border-darc-linen px-4 pb-5 pt-2 safe-pb">
+          {!isAdmin && (
+            <Link
+              href="/settings"
+              role="button"
+              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl bg-white px-4 py-2.5 text-sm font-medium text-lifeone-ink-2"
+            >
+              <Settings className="h-4 w-4" aria-hidden="true" />
+              Configurações
+            </Link>
+          )}
           {userName && (
             <button
               type="button"

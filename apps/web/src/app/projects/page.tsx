@@ -4,13 +4,14 @@ import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/auth-context';
-import { Plus, ChevronRight, LineChart, Search } from 'lucide-react';
+import { Plus, ChevronRight, LineChart, Search, Settings } from 'lucide-react';
 import Link from 'next/link';
 import { NotificationsBell } from '@/components/notifications/NotificationsBell';
 import { ProjectHubCard } from './_components/ProjectHubCard';
 import { CreateProjectModal } from './_components/CreateProjectModal';
-import { TYPE_ACCENT, typeAccent, TypeIcon } from './_components/type-accent';
+import { typeAccent, TypeIcon } from './_components/type-accent';
 import { getProjectHomePath } from './_lib/project-home-route';
+import { OBJECTIVE_TYPES } from '@/components/objectives/objective-options';
 
 interface Project {
   id: string;
@@ -30,8 +31,10 @@ export default function ProjectsPage() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const [onboarding, setOnboarding] = useState(false);
 
   useEffect(() => {
+    setOnboarding(new URLSearchParams(window.location.search).get('onboarding') === '1');
     loadProjects();
   }, []);
 
@@ -54,11 +57,20 @@ export default function ProjectsPage() {
   }, [visibleProjects, query]);
 
   const allowedTypes = useMemo(
-    () => Object.keys(TYPE_ACCENT).filter((t) => canCreateProjectType(t)),
+    () => OBJECTIVE_TYPES.filter((type) => canCreateProjectType(type)),
     [canCreateProjectType],
   );
 
   const canCreate = !!user && allowedTypes.length > 0;
+
+  useEffect(() => {
+    if (!loading && onboarding && projects.length === 0 && canCreate) {
+      setNewProject({ name: '', type: allowedTypes[0] ?? '', description: '' });
+      setCreateError(null);
+      setShowCreate(true);
+      setOnboarding(false);
+    }
+  }, [allowedTypes, canCreate, loading, onboarding, projects.length]);
 
   function openCreate() {
     if (!canCreate) return;
@@ -84,7 +96,7 @@ export default function ProjectsPage() {
 
   async function handleCreate() {
     if (!newProject.name.trim() || !newProject.type) return;
-    if (!allowedTypes.includes(newProject.type)) {
+    if (!allowedTypes.some((type) => type === newProject.type)) {
       setCreateError('Você não tem permissão para criar projetos desse tipo.');
       return;
     }
@@ -139,6 +151,16 @@ export default function ProjectsPage() {
             </h1>
           </div>
           <div className="flex items-center gap-2">
+            {!isAdmin && (
+              <Link
+                href="/settings"
+                aria-label="Configurações"
+                title="Configurações"
+                className="flex min-h-11 min-w-11 items-center justify-center rounded-[10px] text-lifeone-ink-3 hover:bg-lifeone-card hover:text-lifeone-blue"
+              >
+                <Settings className="h-5 w-5" />
+              </Link>
+            )}
             <NotificationsBell variant="light" />
             <button
               onClick={openCreate}
@@ -194,7 +216,7 @@ export default function ProjectsPage() {
           newProject={newProject}
           setNewProject={setNewProject}
           allowedTypes={allowedTypes}
-          totalTypes={Object.keys(TYPE_ACCENT).length}
+          totalTypes={OBJECTIVE_TYPES.length}
           isAdmin={isAdmin}
           creating={creating}
           createError={createError}
@@ -211,7 +233,7 @@ export default function ProjectsPage() {
             <p className="text-lifeone-ink-3 text-[13px] mt-1 px-6">
               {projects.length === 0
                 ? canCreate
-                  ? 'Crie seu primeiro projeto para começar'
+                  ? 'Dê um nome ao seu primeiro projeto e escolha um dos objetivos liberados para começar.'
                   : 'Peça ao administrador para liberar módulos'
                 : 'Peça ao administrador para liberar módulos'}
             </p>
