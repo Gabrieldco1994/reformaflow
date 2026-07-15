@@ -28,3 +28,13 @@ export function centsToReais(cents: number): string {
     maximumFractionDigits: 2,
   });
 }
+
+/**
+ * Máscara pt-BR automática para digitação monetária.
+ * Ex.: "1" -> "0,01" ; "1234" -> "12,34" ; "123456" -> "1.234,56".
+ */
+export function maskReaisInput(raw: string): string {
+  const digits = raw.replace(/\D/g, '');
+  if (!digits) return '';
+  return centsToReais(Number(digits));
+}

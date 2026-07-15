@@ -19,6 +19,7 @@ import { FORMA_PAGAMENTO_OPTIONS } from '@/lib/expense-options';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { CreateLinkedExpenseModal } from './CreateLinkedExpenseModal';
 import { useCategorySuggestion } from '../_hooks/useCategorySuggestion';
+import { centsToReais, maskReaisInput, reaisToCents } from '../_lib/money';
 
 interface ExpenseOption {
   value: string;
@@ -220,14 +221,13 @@ export function VoiceExpenseModal({
               <Input
                 label="Valor (R$)"
                 name="voiceValor"
-                type="number"
-                step="0.01"
-                min="0"
-                value={voiceData.valor ? String(voiceData.valor) : ''}
+                type="text"
+                inputMode="numeric"
+                value={voiceData.valor != null ? centsToReais(Math.round(voiceData.valor * 100)) : ''}
                 onChange={(e) =>
                   setVoiceData({
                     ...voiceData,
-                    valor: e.target.value ? Number.parseFloat(e.target.value) : null,
+                    valor: e.target.value ? reaisToCents(maskReaisInput(e.target.value)) / 100 : null,
                   })
                 }
               />

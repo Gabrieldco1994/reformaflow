@@ -99,7 +99,7 @@ export function makeInitialWizardState(mode: WizardMode = 'PLANEJAR'): WizardSta
 export function canAdvanceDados(state: WizardState, opts: { isReforma: boolean }): boolean {
   const { draft } = state;
   if (draft.tipoDespesa === '') return false;
-  if (!(Number(draft.valor) > 0)) return false;
+  if (!(reaisToCents(draft.valor) > 0)) return false;
   if (!(Number(draft.quantidade) >= 1)) return false;
   if (draft.tipoDespesa === 'MAO_DE_OBRA' && opts.isReforma && draft.categoriaMaoDeObra === '') {
     return false;

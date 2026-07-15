@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { api } from '@/lib/api';
 import { X } from 'lucide-react';
+import { centsToReaisInput, currencyInputToCents, maskCurrencyInput } from '@/lib/currency-input';
 import type { BankAccountRow } from '../_types';
 
 interface Props {
@@ -34,7 +35,7 @@ export default function BankAccountFormModal({ projectId, account, onClose, onSa
   const [agency, setAgency] = useState(account?.agency ?? '');
   const [accountNumber, setAccountNumber] = useState(account?.accountNumber ?? '');
   const [openingBalance, setOpeningBalance] = useState(
-    account?.openingBalanceCents ? (account.openingBalanceCents / 100).toString() : '',
+    account?.openingBalanceCents ? centsToReaisInput(account.openingBalanceCents) : '',
   );
   const [openingDate, setOpeningDate] = useState(
     account?.openingBalanceDate ? account.openingBalanceDate.slice(0, 10) : '',
@@ -56,8 +57,7 @@ export default function BankAccountFormModal({ projectId, account, onClose, onSa
       if (agency.trim()) body.agency = agency.trim();
       if (accountNumber.trim()) body.accountNumber = accountNumber.trim();
       // Saldo inicial (base da reconciliação §10). Em branco = mantém/zera.
-      const ob = openingBalance.trim().replace(/\./g, '').replace(',', '.');
-      body.openingBalanceCents = ob ? Math.round(parseFloat(ob) * 100) : 0;
+      body.openingBalanceCents = openingBalance ? currencyInputToCents(openingBalance) : 0;
       if (openingDate) body.openingBalanceDate = new Date(`${openingDate}T00:00:00.000Z`).toISOString();
       if (account) {
         await api.patch(`/projects/${projectId}/bank-accounts/${account.id}`, body);
@@ -115,9 +115,9 @@ export default function BankAccountFormModal({ projectId, account, onClose, onSa
                 <label className="text-xs text-gray-500">Saldo (R$)</label>
                 <input
                   value={openingBalance}
-                  onChange={(e) => setOpeningBalance(e.target.value.replace(/[^\d.,-]/g, ''))}
+                  onChange={(e) => setOpeningBalance(maskCurrencyInput(e.target.value))}
                   placeholder="14.285,97"
-                  inputMode="decimal"
+                  inputMode="numeric"
                   className="w-full border rounded-lg p-2 font-mono"
                 />
               </div>

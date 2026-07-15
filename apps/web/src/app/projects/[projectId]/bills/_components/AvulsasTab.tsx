@@ -8,6 +8,7 @@ import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { centsToReaisInput, currencyInputToNumber, maskCurrencyInput } from '@/lib/currency-input';
 import { Modal } from '@/components/ui/modal';
 import { FORMA_PAGAMENTO_OPTIONS } from '@/lib/expense-options';
 import { formatCurrency } from '@/lib/utils';
@@ -106,7 +107,7 @@ export function AvulsasTab({ projectId, projectType }: Props) {
 
   const createMutation = useMutation({
     mutationFn: async (d: DraftForm) => {
-      const valorNum = parseFloat(d.valor.replace(',', '.'));
+      const valorNum = currencyInputToNumber(d.valor);
       if (!valorNum || valorNum <= 0) throw new Error('Valor inválido');
       const payload: Record<string, unknown> = {
         tipoDespesa: d.tipoDespesa,
@@ -147,7 +148,7 @@ export function AvulsasTab({ projectId, projectType }: Props) {
       tipoDespesa: e.tipoDespesa,
       titulo: e.titulo ?? '',
       fornecedor: e.fornecedor ?? '',
-      valor: String((e.valorTotal ?? 0) / 100),
+      valor: centsToReaisInput(e.valorTotal ?? 0),
       formaPagamento: e.formaPagamento ?? 'A_VISTA',
       status: e.status,
       dataPagamento: e.dataPagamento?.slice(0, 10) ?? '',
@@ -264,12 +265,11 @@ export function AvulsasTab({ projectId, projectType }: Props) {
             <Input
               label="Valor (R$)"
               name="valor"
-              type="number"
-              step="0.01"
-              min="0"
+              type="text"
+              inputMode="numeric"
               required
               value={draft.valor}
-              onChange={(e) => setDraft({ ...draft, valor: e.target.value })}
+              onChange={(e) => setDraft({ ...draft, valor: maskCurrencyInput(e.target.value) })}
             />
             <Select
               label="Status"

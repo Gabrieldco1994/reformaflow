@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Modal } from '@/components/ui/modal';
 import { fmtMoneyExact } from '../../monthly/_cockpit/format';
+import { maskReaisInput, reaisToCents } from '../_lib/money';
 
 interface Option {
   value: string;
@@ -130,13 +131,13 @@ export function RecorrenteWizard({ open, projectId, tipoOptions, onClose, onCrea
     const fim = new Date(`${dataFim}T00:00:00.000Z`);
     if (Number.isNaN(inicio.getTime()) || Number.isNaN(fim.getTime())) return null;
     const dates = buildRecurrenceDates({ inicio, fim, frequencia });
-    const valorCents = Math.round(Number(valor) * 100) || 0;
+    const valorCents = reaisToCents(valor) || 0;
     return { count: dates.length, totalCents: dates.length * valorCents };
   }, [dataInicio, dataFim, frequencia, valor]);
 
   const valido =
     tipoDespesa !== '' &&
-    Number(valor) > 0 &&
+    reaisToCents(valor) > 0 &&
     dataInicio !== '' &&
     dataFim !== '' &&
     (preview?.count ?? 0) > 0;
@@ -145,7 +146,7 @@ export function RecorrenteWizard({ open, projectId, tipoOptions, onClose, onCrea
     mutationFn: () =>
       api.post<{ count: number }>(`/projects/${projectId}/expenses/recorrente`, {
         tipoDespesa,
-        valor: Number(valor),
+        valor: reaisToCents(valor) / 100,
         titulo: titulo.trim() || undefined,
         fornecedor: fornecedor.trim() || undefined,
         frequencia,
@@ -197,11 +198,10 @@ export function RecorrenteWizard({ open, projectId, tipoOptions, onClose, onCrea
           />
           <Input
             label="Valor de cada ocorrência (R$)"
-            type="number"
-            min={0}
-            step="0.01"
+            type="text"
+            inputMode="numeric"
             value={valor}
-            onChange={(e) => setValor(e.target.value)}
+            onChange={(e) => setValor(maskReaisInput(e.target.value))}
             placeholder="500,00"
           />
           <Input

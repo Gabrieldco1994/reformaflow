@@ -4,6 +4,7 @@ import { useProject } from "@/contexts/project-context";
 import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
 import { formatDateBR } from "@/lib/utils";
+import { centsToReaisInput, currencyInputToNumber, maskCurrencyInput } from "@/lib/currency-input";
 import { Plus, Wrench } from "lucide-react";
 import { MaintenanceHistoryView } from "./_components/MaintenanceHistoryView";
 import { MaintenanceKpiHeader } from "./_components/MaintenanceKpiHeader";
@@ -19,7 +20,7 @@ interface MaintenanceForm {
   dataRealizada: string;
   dataProxima: string;
   quilometragem?: number;
-  custo: number;
+  custo: string;
   fornecedor: string;
   observacoes: string;
 }
@@ -29,7 +30,7 @@ const emptyForm = {
   dataRealizada: new Date().toISOString().split("T")[0],
   dataProxima: "",
   quilometragem: undefined as number | undefined,
-  custo: 0,
+  custo: "",
   fornecedor: "",
   observacoes: "",
 };
@@ -73,7 +74,7 @@ export default function MaintenancePage() {
     try {
       const body = {
         ...form,
-        custo: form.custo ? Math.round(form.custo * 100) : undefined,
+        custo: form.custo ? Math.round(currencyInputToNumber(form.custo) * 100) : undefined,
         dataRealizada: new Date(form.dataRealizada).toISOString(),
         dataProxima: form.dataProxima
           ? new Date(form.dataProxima).toISOString()
@@ -113,7 +114,7 @@ export default function MaintenancePage() {
       dataRealizada: log.dataRealizada.split("T")[0],
       dataProxima: log.dataProxima?.split("T")[0] ?? "",
       quilometragem: log.quilometragem,
-      custo: log.custo ? log.custo / 100 : 0,
+      custo: log.custo ? centsToReaisInput(log.custo) : "",
       fornecedor: log.fornecedor ?? "",
       observacoes: log.observacoes ?? "",
     });
@@ -260,13 +261,13 @@ export default function MaintenancePage() {
                 <div>
                   <label className="text-xs text-gray-500">Custo (R$)</label>
                   <input
-                    type="number"
-                    step="0.01"
+                    type="text"
+                    inputMode="numeric"
                     value={form.custo || ""}
                     onChange={(e) =>
                       setForm((f) => ({
                         ...f,
-                        custo: parseFloat(e.target.value) || 0,
+                        custo: maskCurrencyInput(e.target.value),
                       }))
                     }
                     className="w-full border rounded-lg px-3 py-2"

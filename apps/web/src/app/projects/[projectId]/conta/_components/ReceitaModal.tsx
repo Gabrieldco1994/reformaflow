@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
+import { centsToReaisInput, currencyInputToNumber, maskCurrencyInput } from '@/lib/currency-input';
 
 type TipoOption = { value: string; label: string; group?: string };
 
@@ -132,7 +133,7 @@ export function ReceitaModal({
     e.preventDefault();
     const form = new FormData(e.currentTarget);
     const payload = {
-      valor: Number(form.get('valor')),
+      valor: currencyInputToNumber(String(form.get('valor') ?? '')),
       data: form.get('data') as string,
       tipo: form.get('tipo') as string,
       status: form.get('status') as string,
@@ -157,11 +158,13 @@ export function ReceitaModal({
         <Input
           label="Valor (R$)"
           name="valor"
-          type="number"
-          step="0.01"
-          min="0"
+          type="text"
+          inputMode="numeric"
           required
-          defaultValue={editing ? (editing.valor / 100).toFixed(2) : ''}
+          defaultValue={editing ? centsToReaisInput(editing.valor) : ''}
+          onChange={(e) => {
+            e.currentTarget.value = maskCurrencyInput(e.currentTarget.value);
+          }}
         />
         <Input
           label="Data"

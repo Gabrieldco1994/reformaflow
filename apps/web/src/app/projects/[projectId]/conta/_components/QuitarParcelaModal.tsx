@@ -9,6 +9,7 @@ import { Modal } from '@/components/ui/modal';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { getExpenseOptions } from '../../expenses/_types';
+import { centsToReaisInput, currencyInputToCents, maskCurrencyInput } from '@/lib/currency-input';
 import {
   buildEspelhoQuitacaoPayload,
   type QuitacaoMeio,
@@ -86,7 +87,7 @@ export function QuitarParcelaModal({
   });
 
   const [meioValue, setMeioValue] = useState('');
-  const [valorReais, setValorReais] = useState((valorSugerido / 100).toFixed(2));
+  const [valorReais, setValorReais] = useState(centsToReaisInput(valorSugerido));
   const [dataPagamento, setDataPagamento] = useState(dataSugerida);
   const [tipoDespesa, setTipoDespesa] = useState<string>(tipoOptions[0]?.value ?? '');
   const [erro, setErro] = useState<string | null>(null);
@@ -123,7 +124,7 @@ export function QuitarParcelaModal({
     mutationFn: async () => {
       const meio = parseMeio();
       if (!meio) throw new Error('Escolha a conta ou cartão de pagamento.');
-      const valorCentavos = Math.round((parseFloat(valorReais.replace(',', '.')) || 0) * 100);
+      const valorCentavos = currencyInputToCents(valorReais);
       if (valorCentavos <= 0) throw new Error('Informe um valor válido.');
       if (!tipoDespesa) throw new Error('Escolha a categoria da despesa.');
       if (!dataPagamento) throw new Error('Informe a data de pagamento.');
@@ -211,9 +212,9 @@ export function QuitarParcelaModal({
         <Input
           label="Valor (R$)"
           type="text"
-          inputMode="decimal"
+          inputMode="numeric"
           value={valorReais}
-          onChange={(e) => setValorReais(e.target.value)}
+          onChange={(e) => setValorReais(maskCurrencyInput(e.target.value))}
         />
 
         <Input

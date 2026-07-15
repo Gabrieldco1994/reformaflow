@@ -15,6 +15,7 @@ import { formatCurrency, formatDateBR } from '@/lib/utils';
 import type { Expense } from '@/types';
 import type { ExpenseCategoryGroup } from '../_hooks/useExpenseFilters';
 import { effectiveDate } from '../_lib/grouping-by-month';
+import { centsToReais, maskReaisInput, reaisToCents } from '../_lib/money';
 import { BulkCheckbox } from './BulkDateSelection';
 
 interface Props {
@@ -205,10 +206,10 @@ function CategoryExpenseViewImpl({
                         <div className="flex items-center gap-2">
                           <div className="flex-shrink-0 w-9" />
                           <input
-                            type="number"
-                            step="0.01"
+                            type="text"
+                            inputMode="numeric"
                             value={editValor}
-                            onChange={(ev) => setEditValor(ev.target.value)}
+                            onChange={(ev) => setEditValor(maskReaisInput(ev.target.value))}
                             placeholder="Valor"
                             className="w-24 border border-darc-mist rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-darc-mist"
                             autoFocus
@@ -222,7 +223,7 @@ function CategoryExpenseViewImpl({
                           <button
                             type="button"
                             onClick={() => {
-                              const valor = parseFloat(editValor);
+                              const valor = reaisToCents(editValor) / 100;
                               if (valor && editData) {
                                 onQuickUpdate(e.id, valor, editData);
                                 setEditingId(null);
@@ -343,7 +344,7 @@ function CategoryExpenseViewImpl({
                               type="button"
                               onClick={() => {
                                 setEditingId(e.id);
-                                setEditValor((e.valorTotal / 100).toFixed(2));
+                                setEditValor(centsToReais(e.valorTotal));
                                 setEditData((dateStr || '').slice(0, 10));
                               }}
                               aria-label="Editar rápido"
@@ -382,10 +383,10 @@ function CategoryExpenseViewImpl({
                     <div className="flex items-center gap-2 flex-wrap">
                       <div className="flex-shrink-0 w-9" />
                       <input
-                        type="number"
-                        step="0.01"
+                        type="text"
+                        inputMode="numeric"
                         value={newValor}
-                        onChange={(ev) => setNewValor(ev.target.value)}
+                        onChange={(ev) => setNewValor(maskReaisInput(ev.target.value))}
                         placeholder="Valor (R$)"
                         className="w-28 border border-darc-mist rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-darc-mist"
                         autoFocus
@@ -412,7 +413,7 @@ function CategoryExpenseViewImpl({
                       <button
                         type="button"
                         onClick={() => {
-                          const valor = parseFloat(newValor);
+                          const valor = reaisToCents(newValor) / 100;
                           if (valor && newData) {
                             onQuickCreate({
                               tipoDespesa: cat.tipo,

@@ -2,6 +2,7 @@ import { isSinglePaymentForm } from '@reformaflow/domain';
 import type { ExpenseFormData } from '@/types';
 import type { BasketRow, WizardDraft, WizardMode } from '../_hooks/useNovaDespesaWizard';
 import type { NewTarget } from '../_types';
+import { reaisToCents } from './money';
 
 /** String vazia (após trim) → null; caso contrário o valor trimado. */
 function nullable(v: string | null | undefined): string | null {
@@ -31,7 +32,7 @@ export function buildExpenseFormData(draft: WizardDraft, opts: BuildExpenseOpts)
         ? draft.categoriaMaoDeObra
         : null,
     roomId: nullable(draft.roomId),
-    valor: Number(draft.valor),
+    valor: reaisToCents(draft.valor) / 100,
     quantidade: Number(draft.quantidade),
     titulo: nullable(draft.titulo),
     fornecedor: nullable(draft.fornecedor),
@@ -88,7 +89,7 @@ export function buildRatearMixedPayload(basket: BasketRow[]): RatearMixedPayload
       newTargets.push({
         targetProjectId: d.targetProjectId,
         tipoDespesa: d.tipoDespesa ?? '',
-        valor: Number(d.valor), // REAIS
+        valor: reaisToCents(d.valor ?? '') / 100, // REAIS
         quantidade: Number(d.quantidade) || 1,
         titulo: d.titulo || undefined,
         fornecedor: d.fornecedor || undefined,

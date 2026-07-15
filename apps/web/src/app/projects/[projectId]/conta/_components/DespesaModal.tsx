@@ -9,6 +9,7 @@ import { Modal } from '@/components/ui/modal';
 import type { Expense, ExpenseFormData } from '@/types';
 import { ExpenseFormModal, type ExpenseFormVinculos } from '../../expenses/_components/ExpenseFormModal';
 import { getExpenseOptions } from '../../expenses/_types';
+import { centsToReaisInput, currencyInputToNumber } from '@/lib/currency-input';
 
 const EMPTY_VINCULOS: ExpenseFormVinculos = {
   creditCardId: '',
@@ -69,7 +70,7 @@ export function DespesaModal({
   const [hydratedId, setHydratedId] = useState<string | null>(null);
 
   const valorTotal = useMemo(() => {
-    const v = parseFloat(valor) || 0;
+    const v = currencyInputToNumber(valor) || 0;
     const q = parseInt(quantidade) || 1;
     return v * q;
   }, [valor, quantidade]);
@@ -87,7 +88,7 @@ export function DespesaModal({
       setFormStatus((editing.status as 'PLANEJADO' | 'PAGO') ?? 'PAGO');
       setTipoDespesa(editing.tipoDespesa);
       setFormaPagamento(editing.formaPagamento);
-      setValor(editing.valor ? (editing.valor / 100).toFixed(2) : '');
+      setValor(editing.valor ? centsToReaisInput(editing.valor) : '');
       setQuantidade(String(editing.quantidade ?? 1));
       setTitulo(editing.titulo ?? '');
       setFornecedor(editing.fornecedor ?? '');
@@ -157,7 +158,7 @@ export function DespesaModal({
       tipoDespesa: form.get('tipoDespesa') as string,
       categoriaMaoDeObra: nullable('categoriaMaoDeObra'),
       roomId: null,
-      valor: Number(form.get('valor')),
+      valor: currencyInputToNumber(String(form.get('valor') ?? '')),
       quantidade: Number(form.get('quantidade')),
       titulo: nullable('titulo'),
       fornecedor: nullable('fornecedor'),

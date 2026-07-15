@@ -12,6 +12,7 @@ import {
   Copy,
 } from 'lucide-react';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
+import { centsToReaisInput, currencyInputToNumber, maskCurrencyInput } from '@/lib/currency-input';
 import type { Receipt } from '@/types';
 import type { GrupoPorMes } from '../_types';
 
@@ -228,10 +229,10 @@ function MonthlyViewImpl({
                         <div className="flex items-center gap-2">
                           <div className="flex-shrink-0 w-9" />
                           <input
-                            type="number"
-                            step="0.01"
+                            type="text"
+                            inputMode="numeric"
                             value={editValor}
-                            onChange={(e) => setEditValor(e.target.value)}
+                            onChange={(e) => setEditValor(maskCurrencyInput(e.target.value))}
                             placeholder="Valor"
                             className="w-24 border border-darc-mist rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-darc-mist"
                             autoFocus
@@ -245,7 +246,7 @@ function MonthlyViewImpl({
                           <button
                             type="button"
                             onClick={() => {
-                              const valor = parseFloat(editValor);
+                              const valor = currencyInputToNumber(editValor);
                               if (valor && editData) {
                                 onQuickUpdate(r.id, valor, editData);
                                 setEditingId(null);
@@ -351,7 +352,7 @@ function MonthlyViewImpl({
                                   type="button"
                                   onClick={() => {
                                     setEditingId(r.id);
-                                    setEditValor((r.valor / 100).toFixed(2));
+                                    setEditValor(centsToReaisInput(r.valor));
                                     setEditData(r.data.slice(0, 10));
                                   }}
                                   aria-label="Editar rápido"
@@ -383,10 +384,10 @@ function MonthlyViewImpl({
                     <div className="flex items-center gap-2">
                       <div className="flex-shrink-0 w-9" />
                       <input
-                        type="number"
-                        step="0.01"
+                        type="text"
+                        inputMode="numeric"
                         value={newValor}
-                        onChange={(e) => setNewValor(e.target.value)}
+                        onChange={(e) => setNewValor(maskCurrencyInput(e.target.value))}
                         placeholder="Valor (R$)"
                         className="w-28 border border-darc-mist rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-darc-mist"
                         autoFocus
@@ -417,7 +418,7 @@ function MonthlyViewImpl({
                       <button
                         type="button"
                         onClick={() => {
-                          const valor = parseFloat(newValor);
+                          const valor = currencyInputToNumber(newValor);
                           if (valor && newData && newTipo) {
                             onQuickCreate(valor, newData, newTipo, newStatus);
                             setAddingToMonth(null);

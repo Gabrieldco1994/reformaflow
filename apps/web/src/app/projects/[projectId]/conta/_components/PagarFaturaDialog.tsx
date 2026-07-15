@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { CreditCard, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
+import { centsToReaisInput, currencyInputToCents, maskCurrencyInput } from '@/lib/currency-input';
 import type { AccountViewCardSummary, AccountViewConta } from '../_types';
 
 function todayKey() {
@@ -28,7 +29,7 @@ export function PagarFaturaDialog({
 }) {
   const queryClient = useQueryClient();
   const defaultAmount = card.faturaPendente > 0 ? card.faturaPendente : card.faturaAtual;
-  const [valor, setValor] = useState((defaultAmount / 100).toFixed(2));
+  const [valor, setValor] = useState(centsToReaisInput(defaultAmount));
   const [data, setData] = useState(todayKey());
   const [bankLast4, setBankLast4] = useState(contas[0]?.last4 ?? '');
 
@@ -41,7 +42,7 @@ export function PagarFaturaDialog({
       api.post(`/projects/${projectId}/monthly-overview/pay-invoice`, {
         cardLast4: card.last4,
         month: card.dueMonth,
-        amountCents: Math.round(parseFloat(valor || '0') * 100),
+        amountCents: currencyInputToCents(valor || '0'),
         bankLast4,
         paymentDate: data,
       }),
@@ -96,10 +97,10 @@ export function PagarFaturaDialog({
             <label className="block">
               <span className="text-[11px] font-semibold text-lifeone-ink-3">Valor</span>
               <input
-                type="number"
-                step="0.01"
+                type="text"
+                inputMode="numeric"
                 value={valor}
-                onChange={(e) => setValor(e.target.value)}
+                onChange={(e) => setValor(maskCurrencyInput(e.target.value))}
                 className="mt-1 h-11 w-full rounded-xl border border-lifeone-hairline bg-lifeone-card px-3 text-sm text-lifeone-ink outline-none focus:border-lifeone-blue"
               />
               <span className="mt-1 block text-[10px] text-lifeone-ink-4">
