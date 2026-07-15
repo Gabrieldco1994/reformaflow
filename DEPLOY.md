@@ -1,5 +1,7 @@
 # Deploy gratuito — ReformaFlow
 
+> **Deploy canônico é automático:** push no `main` roda o CI (`.github/workflows/ci.yml`) que testa, builda e faz `flyctl deploy` da API (job **Deploy API to Fly**); o web acompanha via Vercel. Os passos manuais abaixo servem para o **setup inicial** (criar app/volume/secrets) ou para deploy de emergência — no dia a dia, mergear no main já publica.
+
 Stack escolhido (zero migração de DB, custo R$ 0/mês para uso pessoal/demo):
 
 | Camada | Onde |

@@ -73,9 +73,13 @@ cd packages/domain && npx vitest run              # testes domínio (vitest, __t
 5. `nest build`/`tsc` às vezes geram `.js`/`.d.ts` dentro de `apps/*/src/app` → "Duplicate page". Limpar: `find apps/*/src -name 'page.js' -delete`.
 6. `CarInfo` é 1:1 com `Project` → endpoint usa `PUT` + Prisma `upsert`.
 7. Em `FloorPlanRoom.reanalyze`, use `deleteMany({where})` simples — FK cascade cuida do resto (não há soft-delete nesse modelo).
-8. **API NestJS morre se o shell que iniciou fechar.** Use `./start-api.sh` ou `bash` async detached.
+8. **API NestJS morre se o shell que iniciou fechar.** Use `./start-api.sh` ou `bash` async detached. Atenção: o script NÃO carrega o `.env` — exporte antes (`set -a && source .env && set +a`) ou a API cai com `DATABASE_URL` ausente.
 9. **EMU bloqueia `gh`/`git push` no repo pessoal.** Solução: `unset GH_TOKEN && gh auth switch -u Gabrieldco1994` antes de operações no GitHub.
 10. **NUNCA apagar `apps/web/src/app/prototype/agent-monitor/**` nem `tools/agent-monitor/**`.** É a página de monitoramento de agentes em produção (`/prototype/agent-monitor`, pública no `middleware.ts`), não um protótipo descartável apesar do nome da pasta. Já foi apagada sem querer por um checkpoint automático de sessão — se algum diff/checkout/limpeza remover esses arquivos, restaure antes de commitar.
+
+11. **PR sempre com `--base main`.** O PR #86 foi squash-mergeado numa branch já morta por omitir o `--base` — o código ficou órfão e fora do ar até resgate manual. Após criar, confirme `baseRefName=main` (`gh pr view <n> --json baseRefName`).
+12. **Agentes trabalham em worktree próprio** (`git worktree add ... -b <branch> origin/main`). NUNCA trocar a branch do checkout principal (`/Users/gabrielbarbosa/reformaflow`) nem commitar nele: outros agentes/processos o usam simultaneamente e commits caem na branch errada (aconteceu 2× em 2026-07-13).
+13. **Mudou UI? QA visual real é obrigatória antes do PR**: login real + dados reais, mobile 375/390px e desktop, screenshots no PR. tsc/testes verdes NÃO bastam (5 bugs só apareceram em QA real). Piso tipográfico: nada <11px, valores de lista ≥15px, alvos de toque ≥44px; **valor monetário nunca divide a largura da linha com outro elemento variável** (badge/chip/outro valor) — rótulo à esquerda, valor `nowrap` à direita (erro corrigido 4× no mesmo mês).
 
 ## Notas técnicas (consulte quando tocar o módulo)
 

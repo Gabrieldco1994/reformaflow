@@ -85,6 +85,16 @@ fatura de outro cartão. São os **neutros**. Eles:
 - podem afetar o caixa (se saíram de uma conta) ou compor a fatura (se foram
   cobrados no cartão), conforme onde a cobrança caiu.
 
+Há **dois graus** de neutro (não confundir):
+- **Neutro de liquidação** (os exemplos acima): o dinheiro só troca de lugar —
+  fora do gasto **e** fora do eixo de caixa (a saída real já está contada em
+  outro lançamento).
+- **Neutro de consumo**: **aporte em investimento** (saída) e **resgate**
+  (entrada). Não são gasto nem renda — mas o dinheiro **realmente** saiu/entrou
+  na conta, então **continuam no caixa**. No app, o aporte aparece como
+  "**Guardado**" (informação, não despesa); rendimentos (juros) são receita real
+  e contam normalmente.
+
 ### 2.4 Faturas de cartão
 Uma **fatura** é a soma das compras de um cartão com vencimento num certo mês. O
 app agrupa as compras por cartão + mês de vencimento (calculado a partir do dia de
@@ -610,6 +620,7 @@ Para acompanhar uma compra grande (casa, carro, etc.).
 | **Caixa / Conta Corrente** | Pela data em que o dinheiro entra/sai da conta. |
 | **Caixa real (§10)** | Saldo reconciliado com o banco: saldo inicial + lançamentos realizados da conta. |
 | **Neutro** | Movimento que não é consumo (pagar fatura, transferência, cartão paga cartão). Não vira gasto nem despesa no DRE. |
+| **Guardado / Aporte** | Neutro de consumo: dinheiro que saiu da conta para investimento. Não é gasto, mas afeta o caixa. O resgate é o espelho (entra no caixa, não é renda). |
 | **Fatura** | Soma das compras de um cartão com vencimento num mês; espelha o que o banco cobra. |
 | **Pagar fatura** | Lançamento neutro que reduz o caixa; não é gasto novo. |
 | **Espelho** | Despesa do PESSOAL vinculada a outro projeto; deduplicada no consolidado. |

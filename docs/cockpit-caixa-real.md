@@ -28,7 +28,7 @@ Os dashboards de KPI estavam confusos. Diagnóstico:
 
 ## 2. A regra central — Caixa real (reconciliação §10)
 
-Vem do consolidado financeiro do usuário (`LOGICA_CONSOLIDACAO_FINANCEIRA.md`, §10):
+Regra canônica do **Caixa Real** (codinome histórico **§10**, herdado da seção 10 de um documento pessoal do Gabriel, `LOGICA_CONSOLIDACAO_FINANCEIRA.md`, que NÃO está neste repo — a definição abaixo é a fonte de verdade):
 
 ```
 saldo da conta hoje = saldo inicial (na data de referência)
