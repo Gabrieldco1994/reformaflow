@@ -110,7 +110,8 @@ export default function ProjectsPage() {
       // Recarrega o usuário: se restrito, o backend acabou de conceder acesso
       // ao novo projeto — sem isso o layout redirecionaria para /no-permission.
       await refresh();
-      router.push(getProjectHomePath(created.id, created.type));
+      // Primeiro acesso ao projeto: manda pro guia de apoio antes do cockpit/dashboard.
+      router.push(`/projects/${created.id}/apoio`);
     } catch (err) {
       console.error('Erro ao criar projeto:', err);
       setCreateError(err instanceof Error ? err.message : 'Erro ao criar projeto');

@@ -5,6 +5,12 @@ export interface ApoioStep {
   description: string;
   /** Optional slug (relative to the project's basePath) the step links to. */
   slug?: string;
+  /**
+   * Screenshot real da tela (ex.: '/apoio/pessoal-expenses.png'). Enquanto
+   * não existe, o preview cai no mock ilustrado (ícone + skeleton) — trocar
+   * é só preencher este campo, sem mexer no componente.
+   */
+  previewSrc?: string;
 }
 
 export interface ApoioContent {
