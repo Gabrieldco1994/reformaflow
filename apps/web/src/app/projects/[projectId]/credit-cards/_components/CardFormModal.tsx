@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { api } from '@/lib/api';
 import { X } from 'lucide-react';
+import { centsToReaisInput, currencyInputToCents, maskCurrencyInput } from '@/lib/currency-input';
 import type { CardRow } from '../_types';
 
 interface Props {
@@ -34,7 +35,7 @@ export default function CardFormModal({ projectId, card, onClose, onSaved, bare 
   const [nickname, setNickname] = useState(card?.nickname ?? '');
   const [last4, setLast4] = useState(card?.last4 ?? '');
   const [limitReais, setLimitReais] = useState(
-    card?.limitTotalCents != null ? String(card.limitTotalCents / 100) : '',
+    card?.limitTotalCents != null ? centsToReaisInput(card.limitTotalCents) : '',
   );
   const [closingDay, setClosingDay] = useState(card?.closingDay?.toString() ?? '');
   const [dueDay, setDueDay] = useState(card?.dueDay?.toString() ?? '');
@@ -56,7 +57,7 @@ export default function CardFormModal({ projectId, card, onClose, onSaved, bare 
       };
       const trimmedNickname = nickname.trim();
       if (trimmedNickname) body.nickname = trimmedNickname;
-      if (limitReais) body.limitTotalCents = Math.round(parseFloat(limitReais) * 100);
+      if (limitReais) body.limitTotalCents = currencyInputToCents(limitReais);
       if (closingDay) body.closingDay = parseInt(closingDay, 10);
       if (dueDay) body.dueDay = parseInt(dueDay, 10);
 
@@ -123,9 +124,10 @@ export default function CardFormModal({ projectId, card, onClose, onSaved, bare 
           <div>
             <label className="text-sm text-gray-600">Limite total (R$, opcional)</label>
             <input
-              type="number"
+              type="text"
+              inputMode="numeric"
               value={limitReais}
-              onChange={(e) => setLimitReais(e.target.value)}
+              onChange={(e) => setLimitReais(maskCurrencyInput(e.target.value))}
               placeholder="10000"
               className="w-full border rounded-lg p-2"
             />

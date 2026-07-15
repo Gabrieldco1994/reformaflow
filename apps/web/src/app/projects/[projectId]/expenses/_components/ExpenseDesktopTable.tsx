@@ -13,6 +13,7 @@ import type { Expense } from '@/types';
 import { StatusBadge } from './StatusBadge';
 import type { ExpenseCategoryGroup } from '../_hooks/useExpenseFilters';
 import type { InlineNewRow } from '../_types';
+import { maskReaisInput, reaisToCents } from '../_lib/money';
 
 interface ExpenseOption {
   value: string;
@@ -230,8 +231,8 @@ export function ExpenseDesktopTable({
                                   className="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-300" />
                               </td>
                               <td className="px-3 py-2">
-                                <input type="number" step="0.01" placeholder="Valor" value={editingInlineRow.valor}
-                                  onChange={(e) => setEditingInlineRow({ ...editingInlineRow, valor: e.target.value })} onKeyDown={inlineEditKeyDown}
+                                <input type="text" inputMode="numeric" placeholder="Valor" value={editingInlineRow.valor}
+                                  onChange={(e) => setEditingInlineRow({ ...editingInlineRow, valor: maskReaisInput(e.target.value) })} onKeyDown={inlineEditKeyDown}
                                   className="w-20 border border-gray-300 rounded px-2 py-1 text-xs text-right focus:outline-none focus:ring-2 focus:ring-blue-300" />
                               </td>
                               <td className="px-3 py-2">
@@ -240,7 +241,7 @@ export function ExpenseDesktopTable({
                                   className="w-14 border border-gray-300 rounded px-2 py-1 text-xs text-right focus:outline-none focus:ring-2 focus:ring-blue-300" />
                               </td>
                               <td className="px-3 py-2 text-right text-xs text-gray-500 font-medium">
-                                {formatCurrency((parseFloat(editingInlineRow.valor) || 0) * (parseInt(editingInlineRow.quantidade) || 1))}
+                                {formatCurrency(((reaisToCents(editingInlineRow.valor) / 100) || 0) * (parseInt(editingInlineRow.quantidade) || 1))}
                               </td>
                               <td className="px-3 py-2">
                                 <div className="flex gap-1">
@@ -380,8 +381,8 @@ export function ExpenseDesktopTable({
                       className="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-300" />
                   </td>
                   <td className="px-3 py-2">
-                    <input type="number" step="0.01" placeholder="Valor" value={newRow.valor}
-                      onChange={(e) => setNewRow({ ...newRow, valor: e.target.value })} onKeyDown={inlineKeyDown}
+                    <input type="text" inputMode="numeric" placeholder="Valor" value={newRow.valor}
+                      onChange={(e) => setNewRow({ ...newRow, valor: maskReaisInput(e.target.value) })} onKeyDown={inlineKeyDown}
                       className="w-20 border border-gray-300 rounded px-2 py-1 text-xs text-right focus:outline-none focus:ring-2 focus:ring-blue-300" />
                   </td>
                   <td className="px-3 py-2">
@@ -390,7 +391,7 @@ export function ExpenseDesktopTable({
                       className="w-14 border border-gray-300 rounded px-2 py-1 text-xs text-right focus:outline-none focus:ring-2 focus:ring-blue-300" />
                   </td>
                   <td className="px-3 py-2 text-right text-xs text-gray-500 font-medium">
-                    {formatCurrency((parseFloat(newRow.valor) || 0) * (parseInt(newRow.quantidade) || 1))}
+                    {formatCurrency(((reaisToCents(newRow.valor) / 100) || 0) * (parseInt(newRow.quantidade) || 1))}
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex gap-1">
@@ -469,10 +470,10 @@ export function ExpenseDesktopTable({
                               onChange={(e) => setNewRow({ ...newRow, dataInicioParcela: e.target.value })} onKeyDown={inlineKeyDown}
                               className="border border-gray-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300" />
                           </div>
-                          {newRow.quantidadeParcela && parseFloat(newRow.valor) > 0 && (
+                          {newRow.quantidadeParcela && reaisToCents(newRow.valor) > 0 && (
                             <span className="text-[10px] text-gray-400">
                               = <span className="font-medium text-gray-600">
-                                {formatCurrency(((parseFloat(newRow.valor) || 0) * (parseInt(newRow.quantidade) || 1)) / (parseInt(newRow.quantidadeParcela) || 1))}
+                                {formatCurrency((((reaisToCents(newRow.valor) / 100) || 0) * (parseInt(newRow.quantidade) || 1)) / (parseInt(newRow.quantidadeParcela) || 1))}
                               </span> / {newRow.formaPagamento === 'PARCELADO' ? 'parcela' : 'quinzena'}
                             </span>
                           )}

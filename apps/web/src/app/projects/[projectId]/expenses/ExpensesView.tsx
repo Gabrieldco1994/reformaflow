@@ -71,6 +71,7 @@ import { ActiveExpenseFilterChips } from './_components/ActiveExpenseFilterChips
 import { MobileExpenseGlance } from './_components/MobileExpenseGlance';
 import { ExpenseMobileFab } from './_components/ExpenseMobileFab';
 import type { ExpenseQueryState } from './_lib/expense-query-state';
+import { centsToReais, reaisToCents } from './_lib/money';
 
 const toIsoDate = (date: Date) => date.toISOString().slice(0, 10);
 
@@ -683,7 +684,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
       tipoDespesa: expense.tipoDespesa,
       categoriaMaoDeObra: expense.categoriaMaoDeObra ?? '',
       roomId: expense.roomId ?? '',
-      valor: (expense.valor / 100).toFixed(2),
+      valor: centsToReais(expense.valor),
       quantidade: String(expense.quantidade ?? 1),
       titulo: expense.titulo ?? '',
       fornecedor: expense.fornecedor ?? '',
@@ -706,7 +707,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
       tipoDespesa: row.tipoDespesa,
       categoriaMaoDeObra: row.tipoDespesa === 'MAO_DE_OBRA' && row.categoriaMaoDeObra ? row.categoriaMaoDeObra : null,
       roomId: showRooms ? (row.roomId || null) : null,
-      valor: parseFloat(row.valor),
+      valor: reaisToCents(row.valor) / 100,
       quantidade: parseInt(row.quantidade) || 1,
       titulo: row.titulo || null,
       fornecedor: row.fornecedor || null,
@@ -740,7 +741,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
       tipoDespesa: form.get('tipoDespesa') as string,
       categoriaMaoDeObra: nullable('categoriaMaoDeObra'),
       roomId: formShowRooms ? nullable('roomId') : null,
-      valor: Number(form.get('valor')),
+      valor: reaisToCents(String(form.get('valor') ?? '')) / 100,
       quantidade: Number(form.get('quantidade')),
       titulo: nullable('titulo'),
       fornecedor: nullable('fornecedor'),
@@ -821,7 +822,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
   }
 
   const valorTotal = useMemo(() => {
-    const v = parseFloat(valor) || 0;
+    const v = reaisToCents(valor) / 100 || 0;
     const q = parseInt(quantidade) || 1;
     return v * q;
   }, [valor, quantidade]);

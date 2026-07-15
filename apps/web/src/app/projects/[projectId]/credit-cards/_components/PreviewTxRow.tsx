@@ -1,6 +1,7 @@
 'use client';
 
 import { formatCurrency, formatDateBR } from '@/lib/utils';
+import { centsToReaisInput, currencyInputToCents, maskCurrencyInput } from '@/lib/currency-input';
 import { Trash2, Link2, RotateCcw, Check } from 'lucide-react';
 import type { PreviewTx, CrossProjectMatch } from '../_types';
 import type { ImportDecision, TxState } from './ImportStatementModal';
@@ -91,11 +92,11 @@ export function PreviewTxRow({ tx, state, onChange, onClearDecision }: RowProps)
 
         <div className="w-32">
           <input
-            type="number"
-            step="0.01"
-            value={(valorCents / 100).toFixed(2)}
+            type="text"
+            inputMode="numeric"
+            value={centsToReaisInput(valorCents)}
             disabled={isSkipped}
-            onChange={(e) => setOverride({ valorCents: Math.round(parseFloat(e.target.value) * 100) || 0 })}
+            onChange={(e) => setOverride({ valorCents: currencyInputToCents(maskCurrencyInput(e.target.value)) || 0 })}
             className="w-full px-2 py-1 border rounded text-sm text-right font-mono"
           />
         </div>

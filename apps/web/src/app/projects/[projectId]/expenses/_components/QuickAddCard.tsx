@@ -5,6 +5,7 @@ import { isSinglePaymentForm } from '@reformaflow/domain';
 import { formatCurrency } from '@/lib/utils';
 import { CATEGORIA_MAO_DE_OBRA_OPTIONS, FORMA_PAGAMENTO_OPTIONS } from '@/lib/expense-options';
 import type { InlineNewRow } from '../_types';
+import { maskReaisInput, reaisToCents } from '../_lib/money';
 
 interface OptionItem {
   value: string;
@@ -39,7 +40,7 @@ export function QuickAddCard({
   onCancel,
   inlineKeyDown,
 }: Props) {
-  const valorTotal = (parseFloat(newRow.valor) || 0) * (parseInt(newRow.quantidade) || 1);
+  const valorTotal = (reaisToCents(newRow.valor) / 100 || 0) * (parseInt(newRow.quantidade) || 1);
   return (
     <div className="rounded-lg border-2 border-blue-200 bg-blue-50/40 p-3 space-y-2">
       <div className="flex items-center justify-between">
@@ -88,11 +89,11 @@ export function QuickAddCard({
         <label className="flex items-center gap-1 text-[10px] font-medium text-gray-500">
           Valor
           <input
-            type="number"
-            step="0.01"
+            type="text"
+            inputMode="numeric"
             placeholder="0,00"
             value={newRow.valor}
-            onChange={(e) => setNewRow({ ...newRow, valor: e.target.value })}
+            onChange={(e) => setNewRow({ ...newRow, valor: maskReaisInput(e.target.value) })}
             onKeyDown={inlineKeyDown}
             className={`${inputCls} w-24 text-right`}
           />
@@ -200,7 +201,7 @@ export function QuickAddCard({
                 className={inputCls}
               />
             </label>
-            {newRow.quantidadeParcela && parseFloat(newRow.valor) > 0 && (
+            {newRow.quantidadeParcela && reaisToCents(newRow.valor) > 0 && (
               <span className="text-[10px] text-gray-400">
                 ={' '}
                 <span className="font-medium text-gray-600">

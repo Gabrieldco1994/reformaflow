@@ -14,6 +14,7 @@ import { SkeletonList } from '@/components/ui/Skeleton';
 import { Modal } from '@/components/ui/modal';
 import React from 'react';
 import type { Receipt, ReceiptFormData } from '@/types';
+import { centsToReaisInput, currencyInputToNumber, maskCurrencyInput } from '@/lib/currency-input';
 import { MobileReceiptList } from './_components/MobileReceiptList';
 import { ReceiptsKpiCards } from './_components/ReceiptsKpiCards';
 import { ViewToggle } from './_components/ViewToggle';
@@ -213,7 +214,7 @@ export default function ReceiptsPage() {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
     const data: ReceiptFormData = {
-      valor: Number(form.get('valor')),
+      valor: currencyInputToNumber(String(form.get('valor') ?? '')),
       data: form.get('data') as string,
       tipo: form.get('tipo') as ReceiptFormData['tipo'],
       status: form.get('status') as ReceiptFormData['status'],
@@ -228,7 +229,7 @@ export default function ReceiptsPage() {
   function handleNewRowSubmit() {
     if (!newRow.valor || !newRow.data) return;
     createMutation.mutate({
-      valor: parseFloat(newRow.valor),
+      valor: currencyInputToNumber(newRow.valor),
       data: newRow.data,
       tipo: newRow.tipo as ReceiptFormData['tipo'],
       status: newRow.status as ReceiptFormData['status'],
@@ -242,11 +243,11 @@ export default function ReceiptsPage() {
 
   async function generatePersonalPlan() {
     if (!isPessoal) return;
-    const salary = Number(salaryValue) || 0;
+    const salary = currencyInputToNumber(salaryValue) || 0;
     const day15Pct = Number(salaryDay15Pct);
     const months = Math.max(1, Number(monthsToGenerate) || 1);
-    const dividends = Number(dividendsValue) || 0;
-    const fixedIncome = Number(fixedIncomeValue) || 0;
+    const dividends = currencyInputToNumber(dividendsValue) || 0;
+    const fixedIncome = currencyInputToNumber(fixedIncomeValue) || 0;
     if (salary <= 0 && dividends <= 0 && fixedIncome <= 0) return;
 
     const [startY, startM] = startMonth.split('-').map(Number);
@@ -444,11 +445,10 @@ export default function ReceiptsPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <Input
               label="Salário mensal total (R$)"
-              type="number"
-              min="0"
-              step="0.01"
+              type="text"
+              inputMode="numeric"
               value={salaryValue}
-              onChange={(e) => setSalaryValue(e.target.value)}
+              onChange={(e) => setSalaryValue(maskCurrencyInput(e.target.value))}
             />
             <Input
               label="% no dia 15"
@@ -476,19 +476,17 @@ export default function ReceiptsPage() {
             />
             <Input
               label="Dividendos mensais (R$)"
-              type="number"
-              min="0"
-              step="0.01"
+              type="text"
+              inputMode="numeric"
               value={dividendsValue}
-              onChange={(e) => setDividendsValue(e.target.value)}
+              onChange={(e) => setDividendsValue(maskCurrencyInput(e.target.value))}
             />
             <Input
               label="Juros renda fixa mensal (R$)"
-              type="number"
-              min="0"
-              step="0.01"
+              type="text"
+              inputMode="numeric"
               value={fixedIncomeValue}
-              onChange={(e) => setFixedIncomeValue(e.target.value)}
+              onChange={(e) => setFixedIncomeValue(maskCurrencyInput(e.target.value))}
             />
           </div>
           <div className="flex justify-end">
@@ -633,8 +631,8 @@ export default function ReceiptsPage() {
                 <tr className="bg-darc-mist/15 border-t-2 border-darc-mist">
                   <td />
                   <td className="px-4 py-2">
-                    <input type="number" step="0.01" placeholder="Valor" value={newRow.valor}
-                      onChange={(e) => setNewRow({ ...newRow, valor: e.target.value })}
+                    <input type="text" inputMode="numeric" placeholder="Valor" value={newRow.valor}
+                      onChange={(e) => setNewRow({ ...newRow, valor: maskCurrencyInput(e.target.value) })}
                       onKeyDown={handleNewRowKeyDown}
                       className="w-full border border-darc-linen rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-darc-mist"
                       autoFocus />
@@ -711,8 +709,11 @@ export default function ReceiptsPage() {
       {/* Modal de criação/edição completa */}
       <Modal open={modalOpen} onClose={closeModal} title={editing ? 'Editar Recebimento' : 'Novo Recebimento'}>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <Input label="Valor (R$)" name="valor" type="number" step="0.01" min="0" required
-            defaultValue={editing ? (editing.valor / 100).toFixed(2) : ''} />
+          <Input label="Valor (R$)" name="valor" type="text" inputMode="numeric" required
+            defaultValue={editing ? centsToReaisInput(editing.valor) : ''}
+            onChange={(e) => {
+              e.currentTarget.value = maskCurrencyInput(e.currentTarget.value);
+            }} />
           <Input label="Data" name="data" type="date" required
             defaultValue={editing?.data ? editing.data.slice(0, 10) : ''} />
           <div className="space-y-1">

@@ -3,6 +3,7 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { CATEGORIA_MAO_DE_OBRA_OPTIONS } from '@/lib/expense-options';
 import { formatCurrency } from '@/lib/utils';
+import { maskReaisInput } from '../_lib/money';
 import type { Expense } from '@/types';
 
 interface ExpenseOption {
@@ -119,12 +120,11 @@ export function DadosDespesaFields({
         <Input
           label="Valor (R$)"
           name="valor"
-          type="number"
-          step="0.01"
-          min="0"
+          type="text"
+          inputMode="numeric"
           required
           value={valor}
-          onChange={(e) => setValor(e.target.value)}
+          onChange={(e) => setValor(maskReaisInput(e.target.value))}
         />
         <Input
           label="Quantidade"

@@ -10,12 +10,13 @@ import { RecurringBillsView } from './_components/RecurringBillsView';
 import { AvulsasTab } from './_components/AvulsasTab';
 import { BillsKpiHeader } from './_components/BillsKpiHeader';
 import { computeBillsKpis } from './_lib/kpis';
+import { centsToReaisInput, currencyInputToNumber, maskCurrencyInput } from '@/lib/currency-input';
 
 type RecurringBill = RecurringBillRow;
 
 const emptyBill = {
   nome: '',
-  valor: 0,
+  valor: '',
   categoria: 'LUZ',
   frequencia: 'MENSAL',
   diaVencimento: 10,
@@ -43,7 +44,7 @@ export default function BillsPage() {
 
   async function handleSave() {
     try {
-      const body = { ...form, valor: Math.round(form.valor * 100) };
+      const body = { ...form, valor: Math.round(currencyInputToNumber(form.valor) * 100) };
       if (editingId) {
         await api.patch(`/projects/${projectId}/recurring-bills/${editingId}`, body);
       } else {
@@ -75,7 +76,7 @@ export default function BillsPage() {
   function startEdit(bill: RecurringBill) {
     setForm({
       nome: bill.nome,
-      valor: bill.valor / 100,
+      valor: centsToReaisInput(bill.valor),
       categoria: bill.categoria,
       frequencia: bill.frequencia,
       diaVencimento: bill.diaVencimento,
@@ -210,8 +211,8 @@ function RecorrentesContent({
                 <div>
                   <label className="text-xs text-gray-500">Valor (R$)</label>
                   <input
-                    type="number" step="0.01" value={form.valor || ''}
-                    onChange={(e) => setForm((f) => ({ ...f, valor: parseFloat(e.target.value) || 0 }))}
+                    type="text" inputMode="numeric" value={form.valor || ''}
+                    onChange={(e) => setForm((f) => ({ ...f, valor: maskCurrencyInput(e.target.value) }))}
                     className="w-full border rounded-lg px-3 py-2"
                   />
                 </div>

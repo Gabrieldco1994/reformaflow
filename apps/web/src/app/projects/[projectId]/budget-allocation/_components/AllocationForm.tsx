@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
+import { currencyInputToCents, maskCurrencyInput } from '@/lib/currency-input';
 
 interface Props {
   sourceProjectId: string;
@@ -54,7 +55,7 @@ export default function AllocationForm({ sourceProjectId, onSuccess }: Props) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const valorCents = Math.round(parseFloat(valor) * 100);
+    const valorCents = currencyInputToCents(valor);
     
     if (!targetProjectId || valorCents <= 0) {
       toast.error('Preencha todos os campos obrigatórios');
@@ -106,11 +107,10 @@ export default function AllocationForm({ sourceProjectId, onSuccess }: Props) {
             Valor (R$) *
           </label>
           <input
-            type="number"
-            step="0.01"
-            min="0.01"
+            type="text"
+            inputMode="numeric"
             value={valor}
-            onChange={(e) => setValor(e.target.value)}
+            onChange={(e) => setValor(maskCurrencyInput(e.target.value))}
             className="w-full px-3 py-2 border border-darc-linen rounded-lg focus:ring-2 focus:ring-darc-red focus:border-transparent"
             placeholder="0,00"
             required

@@ -7,6 +7,7 @@ import { ExpenseTypeLabels } from '@reformaflow/domain';
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
+import { currencyInputToNumber } from '@/lib/currency-input';
 import type { CashFlowEntry, Expense, ExpensesPage } from '@/types';
 import { tipoLabel } from '@/lib/expense-options';
 import type { PayConfig, Scenario, SimulationData } from '../_types';
@@ -100,7 +101,7 @@ function buildItems({
     const tipo = normalizeTipo(exp?.tipoDespesa || cfg?.categoria || first.categoria);
     if (EXCLUDED_TIPOS.has(tipo) || EXCLUDED_LABELS.has(tipo)) continue;
     const totalReal = entries.reduce((s, x) => s + x.valor, 0);
-    const projValor = cfg?.valor ? Math.round(parseFloat(cfg.valor) * 100) : totalReal;
+    const projValor = cfg?.valor ? Math.round(currencyInputToNumber(cfg.valor) * 100) : totalReal;
     out.push({
       id: expenseId,
       productKey: `e::${expenseId}`,
@@ -122,7 +123,7 @@ function buildItems({
     if (!cfg.link || !cfg.ambiente) continue;
     const tipo = normalizeTipo(cfg.categoria);
     if (EXCLUDED_TIPOS.has(tipo) || EXCLUDED_LABELS.has(tipo)) continue;
-    const valor = cfg.valor ? Math.round(parseFloat(cfg.valor) * 100) : 0;
+    const valor = cfg.valor ? Math.round(currencyInputToNumber(cfg.valor) * 100) : 0;
     const norm = (s: string) => s.toLowerCase().trim().replace(/\s+/g, ' ');
     out.push({
       id,
