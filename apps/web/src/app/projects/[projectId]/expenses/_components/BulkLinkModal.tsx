@@ -15,7 +15,7 @@ import { getBulkLinkTargetProjects, type BulkLinkTargetProject } from '../_lib/b
 import { buildBulkLinkTargetPayload } from '../_lib/bulkLinkPayload';
 import { filterBulkLinkSources } from '../_lib/bulkLinkSearchFilter';
 import { useBulkLinkExecution } from '../_hooks/useBulkLinkExecution';
-import { currentMonthKey } from '../_lib/grouping-by-month';
+import { currentMonthKey, expandExpenseOccurrences } from '../_lib/grouping-by-month';
 
 type SourceFilter = 'all' | 'card' | 'bank';
 
@@ -78,8 +78,9 @@ export function BulkLinkModal({ open, onClose, currentProjectId, preselectedSour
       : (preselectedSources ?? []);
     if (!selfSelectMode) return base;
     return base.filter((e) => {
-      const date = e.dataPagamento ?? e.dataCompra ?? '';
-      if (date.slice(0, 7) !== monthFilter) return false;
+      // Usa expandExpenseOccurrences — mesma lógica do agrupamento mensal, cobre parcelado/quinzenal/recorrente
+      const inMonth = expandExpenseOccurrences(e).some((occ) => occ.occDate.slice(0, 7) === monthFilter);
+      if (!inMonth) return false;
       if (sourceFilter === 'card') return !!e.cardLast4;
       if (sourceFilter === 'bank') return !!e.bankLast4;
       return true;
