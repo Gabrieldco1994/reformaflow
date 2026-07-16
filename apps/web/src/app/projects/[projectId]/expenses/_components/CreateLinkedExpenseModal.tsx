@@ -216,7 +216,7 @@ export function CreateLinkedExpenseModal({
   });
 
   return (
-    <Modal open={open} onClose={onClose} title="Criar despesa em outro projeto e vincular" zIndex="z-[60]">
+    <Modal open={open} onClose={onClose} title="Criar despesa em outro projeto e vincular" zIndex="z-[60]" portal>
       {/*
         IMPORTANTE: NÃO usar <form> aqui porque este modal é renderizado DENTRO do
         <form> do ExpenseFormModal (forms aninhados são inválidos em HTML — o submit
