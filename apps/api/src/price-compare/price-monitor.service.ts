@@ -78,25 +78,24 @@ export class PriceMonitorService {
     dto: UpdatePriceMonitorItemDto,
   ) {
     const existing = await this.findItem(tenantId, projectId, itemId);
-    const nextTitle = dto.title?.trim() || existing.title;
+    const nextTitle = this.trimToUndefined(dto.title) ?? existing.title;
     const query =
-      dto.query === undefined
+      dto.query == null
         ? this.normalizeQuery(existing.query ?? undefined, nextTitle)
         : this.normalizeQuery(dto.query, nextTitle);
 
     return this.prisma.priceMonitorItem.update({
       where: { id: itemId },
       data: {
-        title: dto.title?.trim(),
+        title: this.trimToUndefined(dto.title),
         query,
-        productUrl:
-          dto.productUrl === undefined ? undefined : dto.productUrl.trim() || null,
-        notes: dto.notes === undefined ? undefined : dto.notes.trim() || null,
+        productUrl: this.trimToNullable(dto.productUrl),
+        notes: this.trimToNullable(dto.notes),
         referencePriceCents:
           dto.referencePriceCents === undefined ? undefined : dto.referencePriceCents,
         targetPriceCents:
           dto.targetPriceCents === undefined ? undefined : dto.targetPriceCents,
-        isActive: dto.isActive,
+        isActive: dto.isActive == null ? undefined : dto.isActive,
       },
     });
   }
@@ -197,6 +196,19 @@ export class PriceMonitorService {
   private normalizeQuery(raw: string | undefined, fallbackTitle: string): string {
     const source = raw?.trim() || fallbackTitle.trim();
     return source.length < 3 ? fallbackTitle.trim() : source;
+  }
+
+  private trimToUndefined(value: string | null | undefined): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    return trimmed || undefined;
+  }
+
+  private trimToNullable(value: string | null | undefined): string | null | undefined {
+    if (value === undefined) return undefined;
+    if (value === null) return null;
+    const trimmed = value.trim();
+    return trimmed || null;
   }
 
   private pickBest(results: PriceResult[]): PriceSnapshot {

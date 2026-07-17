@@ -78,4 +78,46 @@ describe('PriceMonitorService', () => {
       NotFoundException,
     );
   });
+
+  it('update trata null em campos opcionais sem lançar TypeError', async () => {
+    const { service, prisma } = makeService();
+    prisma.priceMonitorItem.findFirst.mockResolvedValue({
+      id: 'pm1',
+      tenantId: 't1',
+      projectId: 'p1',
+      title: 'Produto',
+      query: 'produto',
+      productUrl: 'https://old.com',
+      notes: 'obs',
+      referencePriceCents: 10000,
+      targetPriceCents: 9000,
+      isActive: true,
+    });
+    prisma.priceMonitorItem.update.mockResolvedValue({
+      id: 'pm1',
+      title: 'Produto',
+      query: 'produto',
+      productUrl: null,
+      notes: null,
+      isActive: true,
+    });
+
+    await expect(
+      service.update('t1', 'p1', 'pm1', {
+        productUrl: null,
+        notes: null,
+        isActive: null,
+      } as any),
+    ).resolves.toBeDefined();
+
+    expect(prisma.priceMonitorItem.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          productUrl: null,
+          notes: null,
+          isActive: undefined,
+        }),
+      }),
+    );
+  });
 });
