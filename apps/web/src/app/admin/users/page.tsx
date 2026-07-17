@@ -84,6 +84,24 @@ export default function AdminUsersPage() {
     }
   }
 
+  async function handleDeleteTenant(u: AdminUser) {
+    const tenantUsers = users.filter((other) => other.tenantId === u.tenantId);
+    const typed = prompt(
+      `Excluir o tenant "${u.tenantName ?? u.tenantId}" e ${tenantUsers.length} usuário(s)?\n` +
+        `Só funciona se o tenant não tiver nenhum projeto. Digite o nome do tenant para confirmar:`,
+    );
+    if (typed !== (u.tenantName ?? u.tenantId)) return;
+    setBusy(true);
+    try {
+      await api.delete(`/tenants/${u.tenantId}`);
+      await reload();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Erro ao excluir tenant');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-4xl mx-auto">
@@ -197,7 +215,14 @@ export default function AdminUsersPage() {
                         )}
                       </>
                     ) : (
-                      <span className="text-xs text-gray-400">Somente leitura</span>
+                      <button
+                        disabled={busy}
+                        onClick={() => handleDeleteTenant(u)}
+                        className="text-sm text-red-600 hover:underline"
+                        title="Só funciona se o tenant não tiver projetos"
+                      >
+                        Excluir tenant
+                      </button>
                     )}
                   </td>
                 </tr>
