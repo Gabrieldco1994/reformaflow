@@ -1,6 +1,6 @@
 'use client';
 
-import { Mic } from 'lucide-react';
+import { AudioLines, Mic } from 'lucide-react';
 
 export const MARIA_SUGGESTIONS = [
   { key: 'posso', label: 'Posso gastar R$ 500?' },
@@ -9,6 +9,7 @@ export const MARIA_SUGGESTIONS = [
 ] as const;
 
 export const VOICE_LAUNCH_CHIP_LABEL = '🎙 lançar por voz';
+export const VOICE_CONVERSATION_CTA_LABEL = 'Iniciar conversa por voz';
 
 interface Props {
   input: string;
@@ -18,12 +19,38 @@ interface Props {
   listening: boolean;
   micSupported: boolean;
   disabled: boolean;
+  /**
+   * Abre a experiência 100% voz (`VoiceAssistantOverlay`) — reusa o mesmo
+   * `agent.send`/STT/TTS da tela, não duplica lógica. O microfone one-shot
+   * (`onMic`) e o botão "Ouvir" de cada resposta continuam disponíveis como
+   * fallback quando o overlay não é usado.
+   */
+  onOpenVoiceConversation: () => void;
 }
 
-export function MariaDock({ input, onInputChange, onSubmit, onMic, listening, micSupported, disabled }: Props) {
+export function MariaDock({
+  input,
+  onInputChange,
+  onSubmit,
+  onMic,
+  listening,
+  micSupported,
+  disabled,
+  onOpenVoiceConversation,
+}: Props) {
   return (
     <div className="pessoal-minimal-maria-dock sticky bottom-0 z-10 -mx-4 bg-gradient-to-t from-lifeone-surface via-lifeone-surface/95 to-transparent px-4 pb-2 pt-3">
       <div className="mb-2 flex gap-1.5 overflow-x-auto pb-1">
+        <button
+          type="button"
+          onClick={onOpenVoiceConversation}
+          disabled={disabled}
+          aria-label={VOICE_CONVERSATION_CTA_LABEL}
+          className="flex min-h-[44px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-lifeone-ink px-4 py-2.5 text-[13px] font-semibold text-white disabled:opacity-50"
+        >
+          <AudioLines className="h-3.5 w-3.5" />
+          {VOICE_CONVERSATION_CTA_LABEL}
+        </button>
         {MARIA_SUGGESTIONS.map((s) => (
           <button
             key={s.key}

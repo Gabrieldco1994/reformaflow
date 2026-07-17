@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation';
 import { ArrowLeft, Sparkles } from 'lucide-react';
 import { useFinancialAgent } from '@/components/agent/useFinancialAgent';
 import { useSpeechRecognition } from '@/components/agent/useSpeechRecognition';
+import { VoiceAssistantOverlay } from '@/components/agent/VoiceAssistantOverlay';
 import { streamSpeak, isStreamingTtsSupported, type StreamTtsHandle } from '@/lib/streaming-tts';
 import { MobileLaunchSheetContainer } from '../_components/mobile-launch/MobileLaunchSheetContainer';
 import { useMariaOpening } from './_hooks/useMariaOpening';
@@ -34,6 +35,7 @@ export default function MariaPage() {
   const [confirmedIndexes, setConfirmedIndexes] = useState<Set<number>>(new Set());
   const [editSheetOpen, setEditSheetOpen] = useState(false);
   const [speakingIndex, setSpeakingIndex] = useState<number | null>(null);
+  const [voiceConversationOpen, setVoiceConversationOpen] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const ttsHandleRef = useRef<StreamTtsHandle | null>(null);
@@ -169,7 +171,23 @@ export default function MariaPage() {
         listening={speech.listening}
         micSupported={speech.supported}
         disabled={agent.loading}
+        onOpenVoiceConversation={() => setVoiceConversationOpen(true)}
       />
+
+      {/*
+        Experiência 100% voz: reusa `agent.send` (mesma instância de
+        useFinancialAgent da tela, sem duplicar STT/TTS). `autoStart` inicia a
+        captura já a partir do gesto de clique do CTA — o microfone one-shot
+        (`captureVoice`) e o botão "Ouvir" de cada resposta seguem disponíveis
+        como fallback quando o overlay está fechado.
+      */}
+      {voiceConversationOpen && (
+        <VoiceAssistantOverlay
+          autoStart
+          send={agent.send}
+          onClose={() => setVoiceConversationOpen(false)}
+        />
+      )}
 
       {/*
         "Editar" no cartão de conferência: o agente não devolve um payload
