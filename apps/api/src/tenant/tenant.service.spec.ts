@@ -1,11 +1,8 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { TenantService } from './tenant.service';
 
 describe('TenantService.remove', () => {
-  function makeService(overrides: {
-    tenant?: unknown;
-    projectCount?: number;
-  } = {}) {
+  function makeService(overrides: { tenant?: unknown } = {}) {
     const prisma = {
       tenant: {
         findUnique: jest.fn().mockResolvedValue(
@@ -13,7 +10,7 @@ describe('TenantService.remove', () => {
         ),
         delete: jest.fn(),
       },
-      project: { count: jest.fn().mockResolvedValue(overrides.projectCount ?? 0) },
+      project: { deleteMany: jest.fn() },
       user: { deleteMany: jest.fn() },
     } as any;
     return { service: new TenantService(prisma), prisma };
@@ -24,19 +21,15 @@ describe('TenantService.remove', () => {
     await expect(service.remove('t1', 't1')).rejects.toThrow(BadRequestException);
   });
 
-  it('blocks excluding a tenant with at least one project', async () => {
-    const { service } = makeService({ projectCount: 1 });
-    await expect(service.remove('t2', 't1')).rejects.toThrow(ForbiddenException);
-  });
-
   it('404s when the tenant does not exist', async () => {
     const { service } = makeService({ tenant: null });
     await expect(service.remove('t2', 't1')).rejects.toThrow(NotFoundException);
   });
 
-  it('deletes users then tenant when tenant has no projects', async () => {
-    const { service, prisma } = makeService({ projectCount: 0 });
+  it('cascades: deletes projects, then users, then the tenant', async () => {
+    const { service, prisma } = makeService();
     await service.remove('t2', 't1');
+    expect(prisma.project.deleteMany).toHaveBeenCalledWith({ where: { tenantId: 't2' } });
     expect(prisma.user.deleteMany).toHaveBeenCalledWith({ where: { tenantId: 't2' } });
     expect(prisma.tenant.delete).toHaveBeenCalledWith({ where: { id: 't2' } });
   });
