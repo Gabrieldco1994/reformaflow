@@ -184,7 +184,9 @@ No projeto **PESSOAL**, o atalho **"Maria"** da barra inferior abre o assistente
 financeiro em tela própria (chat em tela cheia no mobile).
 
 - Mostra abertura proativa com leitura do mês atual.
-- Aceita texto e voz (STT), e a resposta da Maria pode ser reproduzida por áudio (TTS).
+- Aceita texto e voz (STT). **Iniciar conversa por voz** abre o modo automático:
+  depois de ouvir e responder, a Maria reproduz o áudio e reabre o microfone.
+  Durante o aquecimento da voz, a resposta já fica disponível para leitura.
 - A ação **Editar** em sugestões abre o mesmo sheet de lançamento usado no app.
 - Também pode consultar monitoramento de preços (watchlist) e busca avulsa de preços por produto via chat/voz.
 

@@ -39,6 +39,7 @@ export default function MariaPage() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const ttsHandleRef = useRef<StreamTtsHandle | null>(null);
+  const voiceConversationOpenRef = useRef(false);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -90,11 +91,24 @@ export default function MariaPage() {
     setVoiceError('');
     speech.start({
       onResult: (text) => {
+        if (voiceConversationOpenRef.current) return;
         setInput(text);
         submit(text);
       },
       onError: (message) => setVoiceError(message),
     });
+  };
+
+  const openVoiceConversation = () => {
+    voiceConversationOpenRef.current = true;
+    speech.stop();
+    stopSpeaking();
+    setVoiceConversationOpen(true);
+  };
+
+  const closeVoiceConversation = () => {
+    voiceConversationOpenRef.current = false;
+    setVoiceConversationOpen(false);
   };
 
   const confirmPending = (index: number) => {
@@ -171,7 +185,7 @@ export default function MariaPage() {
         listening={speech.listening}
         micSupported={speech.supported}
         disabled={agent.loading}
-        onOpenVoiceConversation={() => setVoiceConversationOpen(true)}
+        onOpenVoiceConversation={openVoiceConversation}
       />
 
       {/*
@@ -185,7 +199,7 @@ export default function MariaPage() {
         <VoiceAssistantOverlay
           autoStart
           send={agent.send}
-          onClose={() => setVoiceConversationOpen(false)}
+          onClose={closeVoiceConversation}
         />
       )}
 
