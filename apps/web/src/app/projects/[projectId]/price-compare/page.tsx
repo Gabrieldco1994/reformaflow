@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { hasFeature, type ProjectType } from '@reformaflow/domain';
-import { RefreshCcw, Plus, Trash2, ExternalLink } from 'lucide-react';
+import { RefreshCcw, Plus, Trash2, ExternalLink, Edit } from 'lucide-react';
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
@@ -11,6 +11,7 @@ import { currencyInputToCents, maskCurrencyInput } from '@/lib/currency-input';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
+import { EditAlertModal } from './_components/EditAlertModal';
 
 interface PriceMonitorItem {
   id: string;
@@ -25,6 +26,7 @@ interface PriceMonitorItem {
   lastBestStore: string | null;
   lastBestLink: string | null;
   lastCheckedAt: string | null;
+  diasMonitoramento: number;
 }
 
 interface RefreshAllResponse {
@@ -39,6 +41,7 @@ export default function PriceComparePage() {
   const [productUrl, setProductUrl] = useState('');
   const [referencePrice, setReferencePrice] = useState('');
   const [targetPrice, setTargetPrice] = useState('');
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
 
   const enabled = hasFeature(projectType as ProjectType, 'priceCompare');
 
@@ -251,6 +254,13 @@ export default function PriceComparePage() {
                 <Button
                   type="button"
                   variant="secondary"
+                  onClick={() => setEditingItemId(item.id)}
+                >
+                  <Edit className="h-4 w-4" /> Editar
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
                   onClick={() => refreshOneMutation.mutate(item.id)}
                   disabled={refreshOneMutation.isPending}
                 >
@@ -279,6 +289,15 @@ export default function PriceComparePage() {
           );
         })}
       </div>
+
+      {editingItemId && (
+        <EditAlertModal
+          open={true}
+          onClose={() => setEditingItemId(null)}
+          item={items.find((i) => i.id === editingItemId) || null}
+          projectId={projectId}
+        />
+      )}
     </div>
   );
 }
