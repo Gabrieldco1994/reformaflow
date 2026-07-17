@@ -9,6 +9,7 @@ describe('JwtStrategy', () => {
     prisma = {
       user: {
         findUnique: jest.fn(),
+        update: jest.fn().mockResolvedValue({}),
       },
     };
     strategy = new JwtStrategy(prisma);
@@ -93,5 +94,89 @@ describe('JwtStrategy', () => {
         allowedProjectTypes: ['PESSOAL'],
       }),
     );
+  });
+
+  it('atualiza lastLoginAt (last-seen) quando nulo', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'u1',
+      tenantId: 't1',
+      username: 'guest',
+      name: 'Guest',
+      role: 'ADMIN',
+      deletedAt: null,
+      isGuest: true,
+      lastLoginAt: null,
+      allowedModules: '[]',
+      allowedProjects: '[]',
+      allowedProjectTypes: '[]',
+      tenant: { id: 't1', deletedAt: null, expiresAt: null },
+    });
+
+    await strategy.validate({
+      sub: 'u1',
+      tenantId: 't1',
+      username: 'guest',
+      role: 'ADMIN',
+    });
+
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'u1' },
+      data: { lastLoginAt: expect.any(Date) },
+    });
+  });
+
+  it('atualiza lastLoginAt quando desatualizado (fora do throttle de 15min)', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'u1',
+      tenantId: 't1',
+      username: 'guest',
+      name: 'Guest',
+      role: 'ADMIN',
+      deletedAt: null,
+      isGuest: true,
+      lastLoginAt: new Date(Date.now() - 20 * 60 * 1000),
+      allowedModules: '[]',
+      allowedProjects: '[]',
+      allowedProjectTypes: '[]',
+      tenant: { id: 't1', deletedAt: null, expiresAt: null },
+    });
+
+    await strategy.validate({
+      sub: 'u1',
+      tenantId: 't1',
+      username: 'guest',
+      role: 'ADMIN',
+    });
+
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'u1' },
+      data: { lastLoginAt: expect.any(Date) },
+    });
+  });
+
+  it('não escreve no banco quando lastLoginAt está dentro do throttle', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'u1',
+      tenantId: 't1',
+      username: 'guest',
+      name: 'Guest',
+      role: 'ADMIN',
+      deletedAt: null,
+      isGuest: true,
+      lastLoginAt: new Date(Date.now() - 5 * 60 * 1000),
+      allowedModules: '[]',
+      allowedProjects: '[]',
+      allowedProjectTypes: '[]',
+      tenant: { id: 't1', deletedAt: null, expiresAt: null },
+    });
+
+    await strategy.validate({
+      sub: 'u1',
+      tenantId: 't1',
+      username: 'guest',
+      role: 'ADMIN',
+    });
+
+    expect(prisma.user.update).not.toHaveBeenCalled();
   });
 });
