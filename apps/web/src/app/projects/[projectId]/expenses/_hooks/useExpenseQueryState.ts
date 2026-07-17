@@ -23,7 +23,7 @@ export function useExpenseQueryState({ projectId, projectType, hasRooms }: { pro
   const apply = useCallback((nextState: ExpenseQueryState) => {
     const next = encodeExpenseQuery(new URLSearchParams(searchParams.toString()), nextState, options);
     const query = next.toString();
-    router.push(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
   }, [options, pathname, router, searchParams]);
   const remove = useCallback((key: keyof ExpenseQueryState) => {
     apply({ ...state, [key]: key === 'view' ? 'category' : '' });
