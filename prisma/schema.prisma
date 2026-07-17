@@ -120,6 +120,7 @@ model Project {
   pendencias              Pendencia[]
   plants                  Plant[]
   invoiceAdjustments      InvoiceAdjustment[]
+  priceMonitorItems       PriceMonitorItem[]
 
   @@map("projects")
 }
@@ -244,6 +245,32 @@ model Expense {
   @@index([linkedExpenseId])
   @@index([seriesKey])
   @@map("expenses")
+}
+
+model PriceMonitorItem {
+  id                  String    @id @default(cuid())
+  projectId           String    @map("project_id")
+  tenantId            String    @map("tenant_id")
+  title               String
+  query               String?
+  productUrl          String?   @map("product_url")
+  notes               String?
+  referencePriceCents Int?      @map("reference_price_cents")
+  targetPriceCents    Int?      @map("target_price_cents")
+  isActive            Boolean   @default(true) @map("is_active")
+  lastBestPriceCents  Int?      @map("last_best_price_cents")
+  lastBestStore       String?   @map("last_best_store")
+  lastBestLink        String?   @map("last_best_link")
+  lastCheckedAt       DateTime? @map("last_checked_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+  deletedAt           DateTime? @map("deleted_at")
+
+  project Project @relation(fields: [projectId], references: [id])
+
+  @@index([projectId, isActive])
+  @@index([tenantId, projectId, title])
+  @@map("price_monitor_items")
 }
 
 model CategoryBudget {

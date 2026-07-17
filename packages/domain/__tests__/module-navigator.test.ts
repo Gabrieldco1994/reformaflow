@@ -62,6 +62,7 @@ describe('getProjectNavModules', () => {
       'pendencias',
       'floor-plans',
       'simulation',
+      'price-compare',
     ]);
   });
 
@@ -96,8 +97,14 @@ describe('getProjectNavModules', () => {
     ]);
   });
 
-  it('COMPRA exposes exactly 4 modules', () => {
-    expect(getProjectNavModules(ProjectType.COMPRA)).toHaveLength(4);
+  it('COMPRA expõe fluxo financeiro + monitoramento de preços', () => {
+    expect(getProjectNavModules(ProjectType.COMPRA).map((m) => m.slug)).toEqual([
+      'dashboard',
+      'expenses',
+      'receipts',
+      'cash-flow',
+      'price-compare',
+    ]);
   });
 
   it('PLANTAS exposes exactly 5 modules', () => {
@@ -156,9 +163,9 @@ describe('splitMobileNav', () => {
     expect(secondary).toHaveLength(9);
   });
 
-  it('type with exactly 4 modules yields empty secondary (no "Mais" needed)', () => {
+  it('list with exactly 4 modules yields empty secondary (no "Mais" needed)', () => {
     const { primary, secondary } = splitMobileNav(
-      getProjectNavModules(ProjectType.COMPRA),
+      getProjectNavModules(ProjectType.COMPRA).slice(0, 4),
       4,
     );
     expect(primary).toHaveLength(4);
@@ -170,7 +177,7 @@ describe('splitMobileNav', () => {
   });
 
   it('boundary: primaryCount larger than list -> all primary, empty secondary', () => {
-    const mods = getProjectNavModules(ProjectType.COMPRA);
+    const mods = getProjectNavModules(ProjectType.COMPRA).slice(0, 4);
     const { primary, secondary } = splitMobileNav(mods, 10);
     expect(primary).toHaveLength(4);
     expect(secondary).toHaveLength(0);

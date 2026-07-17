@@ -24,7 +24,7 @@ export const PROJECT_FEATURES: Record<ProjectType, ProjectFeature[]> = {
     'rooms', 'floorPlans', 'simulation', 'priceCompare', 'pendencias',
   ],
   [ProjectType.COMPRA]: [
-    'expenses', 'receipts', 'cashFlow', 'dashboard',
+    'expenses', 'receipts', 'cashFlow', 'dashboard', 'priceCompare',
   ],
   [ProjectType.CASA]: [
     'dashboard', 'recurringBills', 'maintenance', 'reminders',

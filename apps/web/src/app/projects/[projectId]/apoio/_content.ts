@@ -81,6 +81,7 @@ export const APOIO_CONTENT: Record<ProjectType, ApoioContent> = {
     steps: [
       { title: 'Veja o Dashboard', slug: 'dashboard', description: 'Visão geral da compra.' },
       { title: 'Lance as despesas da compra', slug: 'expenses', description: 'Entrada, financiamento, documentação, cartório, imposto, seguro, vistoria, mudança.' },
+      { title: 'Monitore preços dos produtos', slug: 'price-compare', description: 'Cadastre produtos-alvo e acompanhe o melhor preço com atualização manual em um painel próprio.' },
       { title: 'Registre recebimentos', slug: 'receipts', description: 'Se houver entradas de dinheiro ligadas à compra.' },
       { title: 'Acompanhe o fluxo de caixa', slug: 'cash-flow', description: 'Projetado × realizado, lançamento a lançamento.' },
     ],

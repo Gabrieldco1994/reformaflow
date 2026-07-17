@@ -17,6 +17,7 @@ import {
   Shuffle,
   ScanSearch,
   Sprout,
+  Tags,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -44,6 +45,7 @@ export const NAV_ICONS: Record<string, LucideIcon> = {
   Shuffle,
   ScanSearch,
   Sprout,
+  Tags,
 };
 
 /** Fallback icon for any unmapped token (defensive, never crashes). */
