@@ -18,12 +18,6 @@ const cookieExtractor = (req: Request): string | null => {
   return null;
 };
 
-// ponytail: cookie sessions duram 7 dias, então POST /auth/login raramente
-// é chamado de novo — sem isto, lastLoginAt fica parado no 1º login mesmo
-// com uso diário. Throttle evita escrita a cada request; fire-and-forget
-// evita latência no caminho crítico de toda request autenticada.
-const LAST_SEEN_THROTTLE_MS = 15 * 60 * 1000;
-
 function resolveJwtSecret(): string {
   const secret = process.env['JWT_SECRET'];
   if (secret) return secret;
@@ -60,15 +54,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       user.tenant.expiresAt.getTime() <= Date.now()
     ) {
       throw new UnauthorizedException('Sessão inválida');
-    }
-
-    if (
-      !user.lastLoginAt ||
-      Date.now() - user.lastLoginAt.getTime() > LAST_SEEN_THROTTLE_MS
-    ) {
-      this.prisma.user
-        .update({ where: { id: user.id }, data: { lastLoginAt: new Date() } })
-        .catch(() => undefined);
     }
 
     let allowedModules: string[] = [];

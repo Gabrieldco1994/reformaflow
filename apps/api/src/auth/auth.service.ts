@@ -119,7 +119,6 @@ export class AuthService {
             role: SELF_SERVICE_ROLE,
             passwordHash,
             isGuest: false,
-            lastLoginAt: new Date(),
             allowedProjectTypes: JSON.stringify(access.allowedProjectTypes),
             allowedModules: JSON.stringify(access.allowedModules),
           },
@@ -207,7 +206,6 @@ export class AuthService {
           role: 'ADMIN',
           passwordHash: null,
           isGuest: true,
-          lastLoginAt: new Date(),
         },
       });
       return { tenant, user };

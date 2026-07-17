@@ -253,12 +253,17 @@ model PriceMonitorItem {
   tenantId            String    @map("tenant_id")
   title               String
   query               String?
+  url                 String?   @map("url")
   productUrl          String?   @map("product_url")
   notes               String?
   referencePriceCents Int?      @map("reference_price_cents")
+  targetPrice         Float?    @map("target_price")
   targetPriceCents    Int?      @map("target_price_cents")
   isActive            Boolean   @default(true) @map("is_active")
+  alertSent           Boolean   @default(false) @map("alert_sent")
+  monitoringEndDate   DateTime? @map("monitoring_end_date")
   lastBestPriceCents  Int?      @map("last_best_price_cents")
+  lastBestPrice       Float?    @map("last_best_price")
   lastBestStore       String?   @map("last_best_store")
   lastBestLink        String?   @map("last_best_link")
   lastCheckedAt       DateTime? @map("last_checked_at")
@@ -270,6 +275,8 @@ model PriceMonitorItem {
 
   @@index([projectId, isActive])
   @@index([tenantId, projectId, title])
+  @@index([targetPrice])
+  @@index([monitoringEndDate])
   @@map("price_monitor_items")
 }
 

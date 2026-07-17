@@ -1050,6 +1050,197 @@ export class AgentToolsService {
           };
         },
       },
+
+      create_price_alert: {
+        def: {
+          name: 'create_price_alert',
+          description:
+            'Cria um alerta de preço para monitorar um produto e receber notificação quando atingir o preço-alvo. ' +
+            'Use quando o usuário disser "monitora o iPhone por 5 mil" ou "alerta se cair para R$ 3.500".',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: {
+                type: 'string',
+                description: 'Projeto onde criar o alerta (COMPRA/REFORMA). Se omitido, usa primeiro disponível.',
+              },
+              title: {
+                type: 'string',
+                description: 'Nome do produto (ex: "iPhone 16", "Smart TV 55\")',
+              },
+              url: {
+                type: 'string',
+                description: 'URL do produto (opcional; se omitido, Maria busca automaticamente).',
+              },
+              targetPriceCentavos: {
+                type: 'integer',
+                description: 'Preço-alvo em centavos (ex: 500000 = R$ 5.000). Alerta dispara se ≤ este valor.',
+                minimum: 1,
+              },
+              diasMonitoramento: {
+                type: 'integer',
+                description: 'Dias para monitorar (padrão 30, mín 1, máx 365).',
+                minimum: 1,
+                maximum: 365,
+              },
+            },
+            required: ['title', 'targetPriceCentavos'],
+            additionalProperties: false,
+          },
+        },
+        run: async (ctx, args) => {
+          const projectIds = await this.resolvePriceCompareProjectIds(
+            ctx,
+            args['projectId']
+          );
+          if (projectIds.length === 0) {
+            return {
+              error:
+                'Nenhum projeto com monitoramento de preços (COMPRA/REFORMA) no seu escopo.',
+            };
+          }
+
+          const title = this.optStr(args['title']);
+          if (!title || title.length < 2) {
+            return { error: 'Informe um nome de produto válido (mín 2 caracteres).' };
+          }
+
+          const targetPrice = this.optInt(
+            args['targetPriceCentavos'],
+            1,
+            1_000_000_000
+          );
+          if (!targetPrice) {
+            return { error: 'Informe um preço-alvo válido (1 centavo a R$ 10 milhões).' };
+          }
+
+          const dias = Math.min(
+            365,
+            Math.max(1, parseInt(args['diasMonitoramento'] as string) || 30)
+          );
+          const url = this.optStr(args['url']);
+
+          try {
+            const item = await this.priceMonitor.createItem(
+              ctx.tenantId,
+              projectIds[0],
+              title,
+              url ?? '',
+              targetPrice,
+              dias
+            );
+
+            return {
+              success: true,
+              alertId: item.id,
+              alert: {
+                titulo: item.title,
+                alvoEmReais: ((item.targetPrice ?? 0) / 100).toLocaleString('pt-BR', {
+                  style: 'currency',
+                  currency: 'BRL',
+                }),
+                monitorandoAte: item.monitoringEndDate
+                  ? item.monitoringEndDate.toISOString().slice(0, 10)
+                  : null,
+                msg: `Alerta criado! 🔔 Vou te avisar quando ${item.title} cair para ${((item.targetPrice ?? 0) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} ou menos.`,
+              },
+            };
+          } catch (err: any) {
+            return { error: `Erro ao criar alerta: ${err.message}` };
+          }
+        },
+      },
+
+      list_price_alerts: {
+        def: {
+          name: 'list_price_alerts',
+          description:
+            'Lista todos os alertas de preço ativos do usuário com status, preço-alvo e quando expira. ' +
+            'Use quando perguntarem "quais alertas tenho?" ou "monitora quais produtos?".',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: {
+                type: 'string',
+                description: 'Filtrar por projeto específico (opcional).',
+              },
+            },
+            additionalProperties: false,
+          },
+        },
+        run: async (ctx, args) => {
+          const projectIds = await this.resolvePriceCompareProjectIds(
+            ctx,
+            args['projectId']
+          );
+          if (projectIds.length === 0) {
+            return { alerts: [], msg: 'Nenhum projeto com monitoramento disponível.' };
+          }
+
+          try {
+            const items = await this.prisma.priceMonitorItem.findMany({
+              where: {
+                tenantId: ctx.tenantId,
+                projectId: { in: projectIds },
+                deletedAt: null,
+                targetPrice: { not: null },
+              },
+              orderBy: { monitoringEndDate: 'asc' },
+              take: 50,
+            });
+
+            const now = new Date();
+            const alerts = items.map((item: any) => {
+              const isActive =
+                item.monitoringEndDate === null || item.monitoringEndDate > now;
+              const diasRestantes = item.monitoringEndDate
+                ? Math.ceil(
+                    (item.monitoringEndDate.getTime() - now.getTime()) /
+                      (24 * 60 * 60 * 1000)
+                  )
+                : null;
+
+              return {
+                id: item.id,
+                titulo: item.title,
+                alvoEmReais: (item.targetPrice / 100).toLocaleString('pt-BR', {
+                  style: 'currency',
+                  currency: 'BRL',
+                }),
+                ativo: isActive,
+                diasRestantes,
+                melhorPrecoCentavos: item.lastBestPrice,
+                melhorPreco: item.lastBestPrice
+                  ? (item.lastBestPrice / 100).toLocaleString('pt-BR', {
+                      style: 'currency',
+                      currency: 'BRL',
+                    })
+                  : null,
+                checadoEm: item.lastCheckedAt
+                  ? item.lastCheckedAt.toISOString().slice(0, 10)
+                  : null,
+              };
+            });
+
+            const active = alerts.filter((a: any) => a.ativo).length;
+            const expired = alerts.filter((a: any) => !a.ativo).length;
+
+            return {
+              total: alerts.length,
+              ativos: active,
+              expirados: expired,
+              alerts,
+              msg: `Você tem ${active} alerta(s) ativo(s) e ${expired} expirado(s). ${
+                active === 0
+                  ? 'Nenhum alerta ativo no momento.'
+                  : 'Vou verificar preços a cada hora.'
+              }`,
+            };
+          } catch (err: any) {
+            return { error: `Erro ao listar alertas: ${err.message}` };
+          }
+        },
+      },
     };
   }
 
