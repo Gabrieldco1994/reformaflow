@@ -6,6 +6,7 @@ import { ReceiptModule } from '../receipt/receipt.module';
 import { CreditCardModule } from '../credit-card/credit-card.module';
 import { BankAccountModule } from '../bank-account/bank-account.module';
 import { MerchantClassifierModule } from '../merchant-classifier/merchant-classifier.module';
+import { PriceCompareModule } from '../price-compare/price-compare.module';
 import { AgentController } from './agent.controller';
 import { AgentService } from './agent.service';
 import { AgentToolsService } from './tools/agent-tools.service';
@@ -44,6 +45,7 @@ export function buildLlmProvider(): LlmProvider {
     CreditCardModule,
     BankAccountModule,
     MerchantClassifierModule,
+    PriceCompareModule,
   ],
   controllers: [AgentController],
   providers: [

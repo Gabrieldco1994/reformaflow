@@ -16,12 +16,13 @@ const NON_PERSONAL_MATRIX = [
       'pendencias',
       'floor-plans',
       'simulation',
+      'price-compare',
     ],
   },
   {
     type: ProjectType.COMPRA,
     primary: ['dashboard', 'expenses', 'receipts'],
-    secondary: ['cash-flow'],
+    secondary: ['cash-flow', 'price-compare'],
   },
   {
     type: ProjectType.CASA,
@@ -93,6 +94,7 @@ describe('getMobilePrimary', () => {
       'pendencias',
       'floor-plans',
       'simulation',
+      'price-compare',
     ]);
     expect([...primary, ...secondary]).toEqual(visible);
   });

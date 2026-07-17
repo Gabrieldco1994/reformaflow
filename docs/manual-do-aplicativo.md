@@ -36,7 +36,7 @@ módulos (abas) ficam disponíveis:
 | **REFORMA** | Controle financeiro e visual de uma obra/reforma | Dashboard, Despesas, Recebimentos, Fluxo de Caixa, Cômodos, Plantas, Simulação, Cronograma, Comparar Preço, Pendências |
 | **CASA** | Gestão da casa (contas fixas, manutenções, lembretes) | Dashboard, Contas recorrentes, Manutenção, Lembretes, Despesas |
 | **CARRO** | Gestão do carro | Dashboard, Carro (dados), Contas recorrentes, Manutenção, Lembretes, Despesas |
-| **COMPRA** | Acompanhar uma compra grande (casa, carro etc.) | Dashboard, Despesas, Recebimentos, Fluxo de Caixa |
+| **COMPRA** | Acompanhar uma compra grande (casa, carro etc.) | Dashboard, Despesas, Recebimentos, Fluxo de Caixa, Preços |
 
 > Os módulos e sua ordem de navegação por tipo vivem em
 > `packages/domain/src/config/module-navigator.ts`.
@@ -186,6 +186,7 @@ financeiro em tela própria (chat em tela cheia no mobile).
 - Mostra abertura proativa com leitura do mês atual.
 - Aceita texto e voz (STT), e a resposta da Maria pode ser reproduzida por áudio (TTS).
 - A ação **Editar** em sugestões abre o mesmo sheet de lançamento usado no app.
+- Também pode consultar monitoramento de preços (watchlist) e busca avulsa de preços por produto via chat/voz.
 
 ### 3.5 Notificações (sino)
 Mostra avisos e pendências do sistema. O contador no sino indica quantos itens não
@@ -558,10 +559,10 @@ Etapas, tarefas e dependências da obra.
 - Ações destrutivas (excluir etapa/tarefa) pedem confirmação.
 
 ### 5.7 Comparar Preço (`/price-compare`)
-Cotações por item e fornecedor.
-- **"Novo item"** a comparar; **cotações por fornecedor**; **melhor preço /
-  economia** (KPI).
-> Observação: superfície em evolução — pode não estar totalmente ativa como tela.
+Painel próprio de monitoramento de preços por produto.
+- **Cadastro de item monitorado:** produto, termo de busca opcional, link opcional, preço de referência e preço alvo.
+- **Watchlist persistida por projeto:** lista de itens monitorados com melhor preço, loja e data da última checagem.
+- **Ações:** atualizar um item, atualizar todos, abrir oferta e remover item.
 
 ### 5.8 Pendências (`/pendencias`)
 Quadro de pendências da obra.
@@ -635,8 +636,9 @@ Igual ao §6.3, com coluna **Km** adicional na tabela.
 ## 8. Projeto COMPRA
 
 Para acompanhar uma compra grande (casa, carro, etc.).
-- Módulos: **Dashboard**, **Despesas**, **Recebimentos**, **Fluxo de Caixa** —
+- Módulos: **Dashboard**, **Despesas**, **Recebimentos**, **Fluxo de Caixa**, **Preços** —
   mesma mecânica descrita nas seções do PESSOAL/REFORMA.
+- Em **Preços** (`/price-compare`), há uma tela própria de watchlist para monitorar produtos e atualizar cotações.
 - Tipos de despesa próprios: Entrada, Financiamento, Documentação, Cartório,
   Imposto, Seguro, Vistoria, Mudança, Outros.
 

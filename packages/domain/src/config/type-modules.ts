@@ -61,7 +61,7 @@ export const TYPE_MODULES: Record<ProjectType, TypeModuleSlug[]> = {
     'creditCards',
     'pendencias',
   ],
-  [ProjectType.COMPRA]: ['dashboard', 'expenses', 'receipts', 'cashFlow', 'creditCards'],
+  [ProjectType.COMPRA]: ['dashboard', 'expenses', 'receipts', 'cashFlow', 'creditCards', 'priceCompare'],
   [ProjectType.PESSOAL]: [
     'dashboard',
     'expenses',

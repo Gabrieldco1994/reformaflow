@@ -7,6 +7,7 @@ import { ReceiptService } from '../../receipt/receipt.service';
 import { CreditCardService } from '../../credit-card/credit-card.service';
 import { BankAccountService } from '../../bank-account/bank-account.service';
 import { MerchantClassifierService } from '../../merchant-classifier/merchant-classifier.service';
+import { PriceMonitorService } from '../../price-compare/price-monitor.service';
 
 describe('create_expense — fallback do MerchantClassifier', () => {
   let service: AgentToolsService;
@@ -41,6 +42,7 @@ describe('create_expense — fallback do MerchantClassifier', () => {
         { provide: CreditCardService, useValue: {} },
         { provide: BankAccountService, useValue: {} },
         { provide: MerchantClassifierService, useValue: classifier },
+        { provide: PriceMonitorService, useValue: {} },
       ],
     }).compile();
     service = module.get(AgentToolsService);

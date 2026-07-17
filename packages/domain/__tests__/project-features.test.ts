@@ -32,12 +32,12 @@ describe('hasFeature', () => {
     expect(hasFeature(ProjectType.REFORMA, 'reminders')).toBe(false);
   });
 
-  it('COMPRA só tem features financeiras (sem planta/simulação)', () => {
+  it('COMPRA tem features financeiras + comparação de preços (sem planta/simulação)', () => {
     expect(hasFeature(ProjectType.COMPRA, 'expenses')).toBe(true);
     expect(hasFeature(ProjectType.COMPRA, 'cashFlow')).toBe(true);
     expect(hasFeature(ProjectType.COMPRA, 'floorPlans')).toBe(false);
     expect(hasFeature(ProjectType.COMPRA, 'simulation')).toBe(false);
-    expect(hasFeature(ProjectType.COMPRA, 'priceCompare')).toBe(false);
+    expect(hasFeature(ProjectType.COMPRA, 'priceCompare')).toBe(true);
   });
 
   it('CASA tem gestão de bens + despesas avulsas (one-off)', () => {

@@ -218,6 +218,7 @@ describe("AppShell mobile navigation orchestration", () => {
       "Pendências",
       "Plantas",
       "Simulação",
+      "Preços",
     ]);
     expect(within(primary).queryByText("Despesas")).not.toBeInTheDocument();
     expect(within(secondary).queryByText("Despesas")).not.toBeInTheDocument();
