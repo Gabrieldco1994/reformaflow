@@ -6,34 +6,60 @@ import { streamSpeak, type StreamTtsHandle } from '@/lib/streaming-tts';
 import { useSpeechRecognition } from './useSpeechRecognition';
 import type { ChatMessage } from './useFinancialAgent';
 
-type VoiceState = 'idle' | 'listening' | 'thinking' | 'speaking' | 'error';
+// `preparing`: texto já chegou e está visível, mas o primeiro PCM real do TTS
+// ainda não tocou — só vira `speaking` dentro de `streamSpeak.onStart` (nunca antes).
+type VoiceState = 'idle' | 'listening' | 'thinking' | 'preparing' | 'speaking' | 'error';
 
 interface VoiceAssistantOverlayProps {
   onClose: () => void;
   send: (text: string) => Promise<ChatMessage | null>;
+  /**
+   * Inicia a captura de voz assim que o overlay monta — usado quando a
+   * abertura já partiu do gesto de clique do usuário (ex.: CTA "Iniciar
+   * conversa por voz" na jornada Maria), o que preserva a permissão de
+   * microfone sem exigir um segundo toque. Se o navegador não suportar
+   * captura, o CTA interno (orb em estado `idle`/`error`) continua disponível.
+   */
+  autoStart?: boolean;
 }
 
 const STATE_HINT: Record<VoiceState, string> = {
   idle: 'Toque para conversar',
   listening: 'Ouvindo…',
   thinking: 'Pensando…',
+  preparing: 'Preparando voz…',
   speaking: 'Falando…',
   error: 'Toque para tentar de novo',
 };
 
-export function VoiceAssistantOverlay({ onClose, send }: VoiceAssistantOverlayProps) {
+const WARMUP_HINT = 'A voz está aquecendo. Você já pode ler a resposta.';
+const WARMUP_DELAY_MS = 3000;
+
+export function VoiceAssistantOverlay({ onClose, send, autoStart = false }: VoiceAssistantOverlayProps) {
   const speech = useSpeechRecognition();
   const [state, setState] = useState<VoiceState>('idle');
   const [lastUser, setLastUser] = useState('');
   const [lastAssistant, setLastAssistant] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [warmupHint, setWarmupHint] = useState(false);
 
   const activeRef = useRef(false);
   const ttsHandleRef = useRef<StreamTtsHandle | null>(null);
+  const warmupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoStartedRef = useRef(false);
+
+  const clearWarmupTimer = () => {
+    if (warmupTimerRef.current) {
+      clearTimeout(warmupTimerRef.current);
+      warmupTimerRef.current = null;
+    }
+    setWarmupHint(false);
+  };
 
   const stopTts = () => {
     ttsHandleRef.current?.stop();
     ttsHandleRef.current = null;
+    clearWarmupTimer();
   };
 
   function beginListening() {
@@ -70,18 +96,31 @@ export function VoiceAssistantOverlay({ onClose, send }: VoiceAssistantOverlayPr
   }
 
   function speakReply(text: string) {
-    setState('speaking');
+    // Resposta textual já está visível (setLastAssistant ocorreu antes desta
+    // chamada) — `preparing` só descreve a espera pelo primeiro PCM real.
+    // `speaking` é setado exclusivamente dentro de `onStart`, nunca aqui.
+    setState('preparing');
     stopTts();
+    warmupTimerRef.current = setTimeout(() => setWarmupHint(true), WARMUP_DELAY_MS);
     ttsHandleRef.current = streamSpeak({
       text,
       maxSeconds: 120,
+      onStart: () => {
+        clearWarmupTimer();
+        setState('speaking');
+      },
       onEnd: () => {
+        clearWarmupTimer();
         ttsHandleRef.current = null;
         if (activeRef.current) beginListening();
         else setState('idle');
       },
       onError: (error) => {
+        clearWarmupTimer();
         ttsHandleRef.current = null;
+        // A resposta (lastAssistant) permanece visível — erro de voz não
+        // esconde nem falha silenciosamente. Em modo automático, retoma
+        // ouvindo; senão, o orb vira CTA de retomada ("Toque para tentar de novo").
         setErrorMsg(error.message);
         if (activeRef.current) {
           setTimeout(() => {
@@ -107,7 +146,7 @@ export function VoiceAssistantOverlay({ onClose, send }: VoiceAssistantOverlayPr
   }
 
   function toggle() {
-    if (state === 'listening' || state === 'thinking' || state === 'speaking') {
+    if (state === 'listening' || state === 'thinking' || state === 'preparing' || state === 'speaking') {
       pauseConversation();
     } else {
       startConversation();
@@ -120,7 +159,18 @@ export function VoiceAssistantOverlay({ onClose, send }: VoiceAssistantOverlayPr
       speech.stop();
       ttsHandleRef.current?.stop();
       ttsHandleRef.current = null;
+      clearWarmupTimer();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Autostart: abre a captura já a partir do gesto de clique que abriu o
+  // overlay, evitando um segundo toque. Roda uma única vez, no mount.
+  useEffect(() => {
+    if (autoStart && !autoStartedRef.current) {
+      autoStartedRef.current = true;
+      startConversation();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -134,7 +184,7 @@ export function VoiceAssistantOverlay({ onClose, send }: VoiceAssistantOverlayPr
       ? 'voice-orb voice-orb--listening'
       : state === 'speaking'
         ? 'voice-orb voice-orb--speaking'
-        : state === 'thinking'
+        : state === 'thinking' || state === 'preparing'
           ? 'voice-orb voice-orb--thinking'
           : 'voice-orb';
 
@@ -151,7 +201,7 @@ export function VoiceAssistantOverlay({ onClose, send }: VoiceAssistantOverlayPr
           type="button"
           onClick={handleClose}
           aria-label="Fechar conversa por voz"
-          className="p-2 rounded-full hover:bg-white/10 transition-colors"
+          className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-white/10 transition-colors"
         >
           <X className="w-5 h-5" />
         </button>
@@ -165,7 +215,7 @@ export function VoiceAssistantOverlay({ onClose, send }: VoiceAssistantOverlayPr
               <span className={`voice-ring voice-ring--2 ${state === 'listening' ? 'voice-ring--active' : ''}`} />
             </>
           )}
-          {state === 'thinking' && <span className="voice-thinking-ring" />}
+          {(state === 'thinking' || state === 'preparing') && <span className="voice-thinking-ring" />}
 
           <button
             type="button"
@@ -174,7 +224,7 @@ export function VoiceAssistantOverlay({ onClose, send }: VoiceAssistantOverlayPr
             className={orbClass}
           >
             <span className="absolute inset-0 flex items-center justify-center text-white">
-              {state === 'thinking' ? (
+              {state === 'thinking' || state === 'preparing' ? (
                 <Loader2 className="w-12 h-12 animate-spin" />
               ) : state === 'speaking' ? (
                 <AudioLines className="w-12 h-12" />
@@ -199,6 +249,9 @@ export function VoiceAssistantOverlay({ onClose, send }: VoiceAssistantOverlayPr
               {lastAssistant}
             </p>
           )}
+          {state === 'preparing' && warmupHint && (
+            <p className="text-xs text-white/70">{WARMUP_HINT}</p>
+          )}
           {errorMsg && <p className="text-sm text-darc-pink-logo/90">{errorMsg}</p>}
           {!speech.supported && (
             <p className="text-xs text-white/60">
@@ -213,9 +266,14 @@ export function VoiceAssistantOverlay({ onClose, send }: VoiceAssistantOverlayPr
           type="button"
           onClick={toggle}
           disabled={!speech.supported}
-          className="flex items-center gap-2 rounded-full bg-white/10 hover:bg-white/20 disabled:opacity-40 px-6 py-3 text-sm font-medium backdrop-blur transition-colors"
+          aria-label={
+            state === 'listening' || state === 'thinking' || state === 'preparing' || state === 'speaking'
+              ? 'Pausar conversa por voz'
+              : 'Falar com a Maria'
+          }
+          className="flex min-h-[44px] items-center gap-2 rounded-full bg-white/10 hover:bg-white/20 disabled:opacity-40 px-6 py-3 text-sm font-medium backdrop-blur transition-colors"
         >
-          {state === 'listening' || state === 'thinking' || state === 'speaking' ? (
+          {state === 'listening' || state === 'thinking' || state === 'preparing' || state === 'speaking' ? (
             <>
               <X className="w-4 h-4" /> Pausar
             </>
