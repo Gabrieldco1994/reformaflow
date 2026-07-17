@@ -33,6 +33,7 @@ describe('AgentToolsService.create_expense — guard de duplicata', () => {
       {} as any,
       {} as any,
       {} as any,
+      {} as any,
     );
     return { service, prisma, expenses };
   }

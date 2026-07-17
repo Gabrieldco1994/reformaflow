@@ -1,60 +1,144 @@
 'use client';
 
-import { useState } from 'react';
-import { applyScenario } from '../_lib/scenarios';
-import { ProjecaoSaldo } from '../../conta/_components/ProjecaoSaldo';
+import {
+  Area,
+  CartesianGrid,
+  ComposedChart,
+  Line,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import type { DreSaldoAcumuladoRow } from '../../dre/_types';
+import type { DiaSaldo } from './derive';
+import { ChartTooltip } from './ui';
+import { fmtK, fmtMoney, mesCurto } from './format';
 
 /**
- * "Vai dar até dez?" com valor livre — versão desktop do "E se...?" da Trilha 1.
- * Deforma client-side a série de runway (mesmo contrato `applyScenario` usado
- * no mobile), mantendo o mês corrente (índice 0) como âncora imutável, e
- * renderiza a mesma `ProjecaoSaldo` da Visão Conta, inalterada, com a série
- * deformada — sem recalcular nada novo, sem tocar `derive.ts`.
- *
- * `DreSaldoAcumuladoRow` já satisfaz `ScenarioPoint` (`mes`/`saldoProjetado`)
- * diretamente — sem normalização de campos.
+ * Gráfico único do desktop: fluxo diário do mês + runway até dezembro.
+ * O slider de ritmo ajusta o fechamento do mês e desloca o runway futuro.
  */
 export function RunwayScenario({
-  serie,
+  dailySerie,
+  hoje,
+  runwaySerie,
   currentMonth,
+  ritmo,
+  ritmoBase,
 }: {
-  serie: DreSaldoAcumuladoRow[];
+  dailySerie: DiaSaldo[];
+  hoje: number;
+  runwaySerie?: DreSaldoAcumuladoRow[];
   currentMonth: string;
+  ritmo: number;
+  ritmoBase: number;
 }) {
-  const [deltaReais, setDeltaReais] = useState('');
+  const [yearStr] = currentMonth.split('-');
+  const year = Number.parseInt(yearStr ?? '0', 10);
+  const cutoff = `${year}-12`;
+  const remainingDays = Math.max(0, dailySerie.length - hoje);
+  const deltaMonth = -(ritmo - ritmoBase) * remainingDays;
+  const dailyEnd = dailySerie.at(-1)?.projetado ?? dailySerie.at(-1)?.realizado ?? 0;
+  const lastDay = dailySerie.at(-1)?.dia ?? 0;
+  const todayLabel = `D${hoje}`;
+  const lastDayLabel = `D${lastDay}`;
 
-  // Mesmo filtro que `ProjecaoSaldo` aplica internamente: garante que o
-  // índice 0 do array deformado seja o mês corrente, nunca um mês passado.
-  const forward = serie.filter((row) => row.mes >= currentMonth);
-  const deltaCentsPerMonth = -Math.round((Number(deltaReais) || 0) * 100);
+  const forward = (runwaySerie ?? []).filter((row) => row.mes >= currentMonth && row.mes <= cutoff);
 
-  const deformedSerie = applyScenario(forward, deltaCentsPerMonth);
+  const data = dailySerie.map((row) => ({
+    key: `d-${row.dia}`,
+    label: `D${row.dia}`,
+    realizado: row.realizado === null ? null : row.realizado / 100,
+    projetado: row.projetado === null ? null : row.projetado / 100,
+    runway: null as number | null,
+  }));
+
+  if (data.length > 0) {
+    const firstRunway = forward[0]?.saldoProjetado ?? dailyEnd;
+    data[data.length - 1].runway = (firstRunway + deltaMonth) / 100;
+  }
+
+  for (let i = 1; i < forward.length; i += 1) {
+    const [y, m] = forward[i].mes.split('-').map((n) => Number.parseInt(n, 10));
+    data.push({
+      key: `m-${forward[i].mes}`,
+      label: `${mesCurto((m || 1) - 1)}/${String(y || 0).slice(-2)}`,
+      realizado: null,
+      projetado: null,
+      runway: (forward[i].saldoProjetado + deltaMonth) / 100,
+    });
+  }
 
   return (
-    <div className="space-y-3">
-      <div className="rounded-2xl border border-[var(--ck-border)] bg-[var(--ck-surface)] p-3">
-        <label
-          htmlFor="runway-scenario-delta"
-          className="flex flex-col gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--ck-muted)]"
-        >
-          E se eu gastar quanto a mais por mês?
-          <input
-            id="runway-scenario-delta"
-            type="number"
-            inputMode="decimal"
-            step="50"
-            value={deltaReais}
-            onChange={(e) => setDeltaReais(e.target.value)}
-            placeholder="0"
-            className="min-h-[44px] rounded-lg border border-[var(--ck-border)] bg-[var(--ck-surface-2)] px-2.5 text-[15px] font-normal normal-case tracking-normal text-[var(--ck-text)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--ck-accent)]"
+    <div className="h-[320px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <ComposedChart data={data} margin={{ top: 5, right: 8, left: -8, bottom: 5 }}>
+          <defs>
+            <linearGradient id="ckSaldoFillMerged" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#0A6CF0" stopOpacity={0.35} />
+              <stop offset="100%" stopColor="#0A6CF0" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke="#ECE8E1" />
+          <XAxis
+            dataKey="label"
+            tick={{ fontSize: 11, fill: '#8A857C' }}
+            stroke="#ECE8E1"
+            interval="preserveStartEnd"
+            tickFormatter={(value: string) => {
+              if (!value.startsWith('D')) return value;
+              if (value === 'D1' || value === todayLabel || value === lastDayLabel) return value;
+              return '';
+            }}
           />
-        </label>
-        <p className="mt-1.5 text-[11px] text-[var(--ck-muted)]">
-          Valor positivo = gasto extra por mês; negativo = economia por mês.
-        </p>
-      </div>
-      <ProjecaoSaldo serie={deformedSerie} currentMonth={currentMonth} />
+          <YAxis tick={{ fontSize: 11, fill: '#8A857C' }} stroke="#ECE8E1" tickFormatter={(v) => fmtK(v)} width={56} />
+          <Tooltip
+            content={({ active, payload, label }) => (
+              <ChartTooltip
+                active={active}
+                payload={payload as never}
+                label={String(label)}
+                formatter={(v) => fmtMoney(v * 100)}
+              />
+            )}
+          />
+          <ReferenceLine y={0} stroke="#D92D20" strokeDasharray="3 3" />
+          <Area
+            type="monotone"
+            dataKey="realizado"
+            name="Fluxo realizado"
+            stroke="#0A6CF0"
+            strokeWidth={2.5}
+            fill="url(#ckSaldoFillMerged)"
+            connectNulls={false}
+            dot={false}
+          />
+          <Line
+            type="monotone"
+            dataKey="projetado"
+            name="Fluxo projetado"
+            stroke="#B5803A"
+            strokeWidth={2}
+            strokeDasharray="5 4"
+            connectNulls={false}
+            dot={false}
+          />
+          <Line
+            type="monotone"
+            dataKey="runway"
+            name="Vai até dezembro"
+            stroke="#1E924A"
+            strokeWidth={2}
+            strokeDasharray="4 4"
+            strokeOpacity={0.9}
+            connectNulls={true}
+            dot={false}
+            activeDot={{ r: 3 }}
+          />
+        </ComposedChart>
+      </ResponsiveContainer>
     </div>
   );
 }

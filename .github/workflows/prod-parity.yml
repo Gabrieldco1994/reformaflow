@@ -1,0 +1,25 @@
+name: Prod Parity (§10)
+
+# Valida a invariante de PARIDADE do caixa §10 em PRODUÇÃO (read-only GET).
+# Não bloqueia PRs: roda só no schedule semanal e sob demanda (workflow_dispatch).
+# Falha (vermelho) = ou a paridade quebrou, ou o RF_TOKEN expirou e precisa rotacionar.
+on:
+  schedule:
+    - cron: '0 12 * * 1' # segunda 12:00 UTC (09:00 BRT)
+  workflow_dispatch:
+
+jobs:
+  parity:
+    name: Validate §10 parity (read-only)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Validate motores (prod)
+        run: node scripts/validate-motores-prod.mjs
+        env:
+          RF_TOKEN: ${{ secrets.RF_TOKEN }}
+          # ponytail: snapshot congelado; atualize quando os dados vivos do PESSOAL mudarem de propósito
+          RF_EXPECT_CENTS: '6342735'

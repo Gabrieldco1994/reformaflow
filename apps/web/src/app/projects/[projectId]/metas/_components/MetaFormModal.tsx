@@ -4,6 +4,7 @@ import { Modal } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { currencyInputToNumber, maskCurrencyInput } from '@/lib/currency-input';
 
 /**
  * Modal para definir/editar a meta (limite mensal) de uma categoria.
@@ -31,7 +32,7 @@ export function MetaFormModal({
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    const v = Number(valor);
+    const v = currencyInputToNumber(valor);
     if (!tipo || !Number.isFinite(v) || v <= 0) return;
     onSave(tipo, v);
   }
@@ -49,11 +50,10 @@ export function MetaFormModal({
         />
         <Input
           label="Limite mensal (R$)"
-          type="number"
-          step="0.01"
-          min="0.01"
+          type="text"
+          inputMode="numeric"
           value={valor}
-          onChange={(e) => setValor(e.target.value)}
+          onChange={(e) => setValor(maskCurrencyInput(e.target.value))}
           required
         />
         <div className="flex justify-end gap-2 pt-2">

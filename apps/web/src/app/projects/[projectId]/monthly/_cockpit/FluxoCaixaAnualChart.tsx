@@ -7,14 +7,43 @@ import { ChartTooltip } from './ui';
 import { fmtK, fmtMoney } from './format';
 import type { MesAno } from './derive';
 
-export default function FluxoCaixaAnualChart({ meses }: { meses: MesAno[] }) {
-  const data = meses.map((m) => ({
+type FluxoMode = 'mensal' | 'acumuladaReal' | 'acumuladaRealPlus';
+
+export default function FluxoCaixaAnualChart({
+  meses,
+  mode = 'mensal',
+}: {
+  meses: MesAno[];
+  mode?: FluxoMode;
+}) {
+  let acumuladaReal = 0;
+  let acumuladaRealPlus = 0;
+  const data = meses.map((m) => {
+    acumuladaRealPlus += m.sobra / 100;
+    if (m.real) acumuladaReal += m.sobra / 100;
+    return {
     label: m.label,
     receita: m.rec / 100,
     despesa: m.desp / 100,
-    sobra: m.sobra / 100,
+    sobraMensal: m.sobra / 100,
+    sobraAcumuladaReal: acumuladaReal,
+    sobraAcumuladaRealPlus: acumuladaRealPlus,
     real: m.real,
-  }));
+    };
+  });
+
+  const lineKey =
+    mode === 'acumuladaReal'
+    ? 'sobraAcumuladaReal'
+    : mode === 'acumuladaRealPlus'
+      ? 'sobraAcumuladaRealPlus'
+      : 'sobraMensal';
+  const lineName =
+    mode === 'acumuladaReal'
+    ? 'Sobra acumulada (real)'
+    : mode === 'acumuladaRealPlus'
+      ? 'Sobra acumulada (real + planejada)'
+      : 'Sobra';
 
   return (
     <div className="h-[300px]">
@@ -40,7 +69,7 @@ export default function FluxoCaixaAnualChart({ meses }: { meses: MesAno[] }) {
               <Cell key={`d${i}`} fill="#D92D20" fillOpacity={d.real ? 1 : 0.4} />
             ))}
           </Bar>
-          <Line type="monotone" dataKey="sobra" name="Sobra" stroke="#0A6CF0" strokeWidth={2} dot={{ r: 2.5, fill: '#0A6CF0' }} />
+          <Line type="monotone" dataKey={lineKey} name={lineName} stroke="#0A6CF0" strokeWidth={2} dot={{ r: 2.5, fill: '#0A6CF0' }} />
         </ComposedChart>
       </ResponsiveContainer>
     </div>

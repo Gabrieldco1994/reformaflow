@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { api } from '@/lib/api';
 import { X } from 'lucide-react';
+import { centsToReaisInput, currencyInputToCents, maskCurrencyInput } from '@/lib/currency-input';
 import type { CardRow } from '../_types';
 
 interface Props {
@@ -10,6 +11,8 @@ interface Props {
   card: CardRow | null;
   onClose: () => void;
   onSaved: () => void;
+  /** ponytail: skip the fixed overlay when embedded inside AccountFormModal's own overlay */
+  bare?: boolean;
 }
 
 const INSTITUTIONS = [
@@ -26,13 +29,13 @@ const INSTITUTIONS = [
 
 const BRANDS = ['Visa', 'Mastercard', 'Elo', 'Amex', 'Hipercard'];
 
-export default function CardFormModal({ projectId, card, onClose, onSaved }: Props) {
+export default function CardFormModal({ projectId, card, onClose, onSaved, bare }: Props) {
   const [institution, setInstitution] = useState(card?.institution ?? 'ITAU');
   const [brand, setBrand] = useState(card?.brand ?? 'Visa');
   const [nickname, setNickname] = useState(card?.nickname ?? '');
   const [last4, setLast4] = useState(card?.last4 ?? '');
   const [limitReais, setLimitReais] = useState(
-    card?.limitTotalCents != null ? String(card.limitTotalCents / 100) : '',
+    card?.limitTotalCents != null ? centsToReaisInput(card.limitTotalCents) : '',
   );
   const [closingDay, setClosingDay] = useState(card?.closingDay?.toString() ?? '');
   const [dueDay, setDueDay] = useState(card?.dueDay?.toString() ?? '');
@@ -54,7 +57,7 @@ export default function CardFormModal({ projectId, card, onClose, onSaved }: Pro
       };
       const trimmedNickname = nickname.trim();
       if (trimmedNickname) body.nickname = trimmedNickname;
-      if (limitReais) body.limitTotalCents = Math.round(parseFloat(limitReais) * 100);
+      if (limitReais) body.limitTotalCents = currencyInputToCents(limitReais);
       if (closingDay) body.closingDay = parseInt(closingDay, 10);
       if (dueDay) body.dueDay = parseInt(dueDay, 10);
 
@@ -71,8 +74,7 @@ export default function CardFormModal({ projectId, card, onClose, onSaved }: Pro
     }
   }
 
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+  const content = (
       <div className="bg-white rounded-lg w-full max-w-md p-6">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-bold">{card ? 'Editar cartão' : 'Novo cartão'}</h2>
@@ -122,9 +124,10 @@ export default function CardFormModal({ projectId, card, onClose, onSaved }: Pro
           <div>
             <label className="text-sm text-gray-600">Limite total (R$, opcional)</label>
             <input
-              type="number"
+              type="text"
+              inputMode="numeric"
               value={limitReais}
-              onChange={(e) => setLimitReais(e.target.value)}
+              onChange={(e) => setLimitReais(maskCurrencyInput(e.target.value))}
               placeholder="10000"
               className="w-full border rounded-lg p-2"
             />
@@ -170,6 +173,11 @@ export default function CardFormModal({ projectId, card, onClose, onSaved }: Pro
           </div>
         </div>
       </div>
+  );
+  if (bare) return content;
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      {content}
     </div>
   );
 }

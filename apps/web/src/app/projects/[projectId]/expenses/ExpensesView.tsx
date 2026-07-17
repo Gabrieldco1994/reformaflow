@@ -5,8 +5,9 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
-import { Plus, ShoppingCart, ArrowDownWideNarrow, ArrowUpNarrowWide, SlidersHorizontal } from 'lucide-react';
+import { Plus, ShoppingCart, ArrowDownWideNarrow, ArrowUpNarrowWide, SlidersHorizontal, CreditCard, Landmark, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Modal } from '@/components/ui/modal';
 import type { Expense, ExpenseFormData, ExpensesPage, Project } from '@/types';
 import { toast } from 'sonner';
 
@@ -63,6 +64,8 @@ import {
   toDisplayBase,
 } from './_lib/personal-hierarchy';
 import ImportLauncher from './_components/ImportLauncher';
+import ImportStatementModal from '../credit-cards/_components/ImportStatementModal';
+import ImportBankStatementModal from '../bank-accounts/_components/ImportBankStatementModal';
 import { QuitarParcelaModal } from '../conta/_components/QuitarParcelaModal';
 import { suggestParcelaQuitacao, suggestParcelaQuitacaoAt } from './_lib/quitarParcelaCross';
 import { useExpenseQueryState } from './_hooks/useExpenseQueryState';
@@ -71,8 +74,16 @@ import { ActiveExpenseFilterChips } from './_components/ActiveExpenseFilterChips
 import { MobileExpenseGlance } from './_components/MobileExpenseGlance';
 import { ExpenseMobileFab } from './_components/ExpenseMobileFab';
 import type { ExpenseQueryState } from './_lib/expense-query-state';
+import { centsToReais, reaisToCents } from './_lib/money';
 
 const toIsoDate = (date: Date) => date.toISOString().slice(0, 10);
+const todayBrtIsoDate = () =>
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
 
 // Fatia uma base de despesas pelo período selecionado (mês / ano todo / range),
 // expandindo parcelas por competência. Extraído de `periodFilteredPersonal` para
@@ -162,6 +173,9 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardMode, setWizardMode] = useState<'PLANEJAR' | 'PAGA'>('PLANEJAR');
   const [recorrenteOpen, setRecorrenteOpen] = useState(false);
+  const [importStep, setImportStep] = useState<null | 'pick-card' | 'pick-account'>(null);
+  const [selectedCard, setSelectedCard] = useState<{ id: string; last4: string; nickname?: string | null } | null>(null);
+  const [selectedAccount, setSelectedAccount] = useState<{ id: string; last4?: string | null; nickname?: string | null; institution?: string | null } | null>(null);
   const [editing, setEditing] = useState<Expense | null>(null);
   const [ratearSource, setRatearSource] = useState<Expense | null>(null);
   const [formStatus, setFormStatus] = useState<'PLANEJADO' | 'PAGO'>('PLANEJADO');
@@ -683,7 +697,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
       tipoDespesa: expense.tipoDespesa,
       categoriaMaoDeObra: expense.categoriaMaoDeObra ?? '',
       roomId: expense.roomId ?? '',
-      valor: (expense.valor / 100).toFixed(2),
+      valor: centsToReais(expense.valor),
       quantidade: String(expense.quantidade ?? 1),
       titulo: expense.titulo ?? '',
       fornecedor: expense.fornecedor ?? '',
@@ -706,7 +720,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
       tipoDespesa: row.tipoDespesa,
       categoriaMaoDeObra: row.tipoDespesa === 'MAO_DE_OBRA' && row.categoriaMaoDeObra ? row.categoriaMaoDeObra : null,
       roomId: showRooms ? (row.roomId || null) : null,
-      valor: parseFloat(row.valor),
+      valor: reaisToCents(row.valor) / 100,
       quantidade: parseInt(row.quantidade) || 1,
       titulo: row.titulo || null,
       fornecedor: row.fornecedor || null,
@@ -714,7 +728,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
       status: row.status as 'PLANEJADO' | 'PAGO',
     };
     if (isSinglePaymentForm(fp)) {
-      data.dataPagamento = row.dataPagamento || (defaultDateIfMissing ? new Date().toISOString().slice(0, 10) : null);
+      data.dataPagamento = row.dataPagamento || (defaultDateIfMissing ? todayBrtIsoDate() : null);
       data.quantidadeParcela = null;
       data.dataInicioParcela = null;
     } else if (fp === 'PARCELADO' || fp === 'QUINZENAL') {
@@ -740,7 +754,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
       tipoDespesa: form.get('tipoDespesa') as string,
       categoriaMaoDeObra: nullable('categoriaMaoDeObra'),
       roomId: formShowRooms ? nullable('roomId') : null,
-      valor: Number(form.get('valor')),
+      valor: reaisToCents(String(form.get('valor') ?? '')) / 100,
       quantidade: Number(form.get('quantidade')),
       titulo: nullable('titulo'),
       fornecedor: nullable('fornecedor'),
@@ -821,7 +835,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
   }
 
   const valorTotal = useMemo(() => {
-    const v = parseFloat(valor) || 0;
+    const v = reaisToCents(valor) / 100 || 0;
     const q = parseInt(quantidade) || 1;
     return v * q;
   }, [valor, quantidade]);
@@ -882,6 +896,19 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
     queryKey: ['category-budgets', PROJECT_ID, budgetMes],
     queryFn: () => api.get(`/projects/${PROJECT_ID}/category-budgets?mes=${budgetMes}`),
     enabled: !!budgetMes,
+    staleTime: 30_000,
+  });
+
+  const { data: importCards = [], isFetching: loadingCards } = useQuery<Array<{ id: string; last4: string; nickname?: string | null; brand?: string | null }>>({
+    queryKey: ['credit-cards', PROJECT_ID],
+    queryFn: () => api.get(`/projects/${PROJECT_ID}/credit-cards`),
+    enabled: importStep === 'pick-card',
+    staleTime: 30_000,
+  });
+  const { data: importAccounts = [], isFetching: loadingAccounts } = useQuery<Array<{ id: string; last4?: string | null; nickname?: string | null; institution?: string | null }>>({
+    queryKey: ['bank-accounts', PROJECT_ID],
+    queryFn: () => api.get(`/projects/${PROJECT_ID}/bank-accounts`),
+    enabled: importStep === 'pick-account',
     staleTime: 30_000,
   });
   const limitsByTipo = useMemo(() => {
@@ -1392,16 +1419,8 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
           setPayModalOpen(false);
           openVoiceModal();
         }}
-        importSlot={
-          <ImportLauncher
-            projectId={PROJECT_ID}
-            onImported={() => {
-              setPayModalOpen(false);
-              queryClient.invalidateQueries({ queryKey: ['expenses', PROJECT_ID] });
-              queryClient.invalidateQueries({ queryKey: ['cash-flow', PROJECT_ID] });
-            }}
-          />
-        }
+        onImportCard={() => { setPayModalOpen(false); setImportStep('pick-card'); }}
+        onImportAccount={() => { setPayModalOpen(false); setImportStep('pick-account'); }}
       />
 
       <NovaDespesaWizard
@@ -1427,6 +1446,80 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
         onClose={() => setRecorrenteOpen(false)}
         onCreated={() => invalidate()}
       />
+
+      {importStep === 'pick-card' && !selectedCard && (
+        <Modal open onClose={() => setImportStep(null)} title="Para qual cartão é essa fatura?">
+          {loadingCards && <p className="text-sm text-gray-500">Carregando cartões…</p>}
+          {!loadingCards && importCards.length === 0 && (
+            <p className="text-sm text-gray-600">
+              Nenhum cartão cadastrado. Cadastre em <strong>Cartões de Crédito</strong> antes de importar.
+            </p>
+          )}
+          {!loadingCards && importCards.length > 0 && (
+            <div className="space-y-2">
+              {importCards.map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => setSelectedCard(c)}
+                  className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-gray-200 hover:border-orange-300 hover:bg-orange-50 text-left"
+                >
+                  <span className="flex items-center gap-2">
+                    <CreditCard className="w-4 h-4 text-orange-500" />
+                    <span className="text-sm font-medium">{c.nickname || c.brand} •••• {c.last4}</span>
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-gray-400" />
+                </button>
+              ))}
+            </div>
+          )}
+        </Modal>
+      )}
+
+      {importStep === 'pick-account' && !selectedAccount && (
+        <Modal open onClose={() => setImportStep(null)} title="Para qual conta é esse extrato?">
+          {loadingAccounts && <p className="text-sm text-gray-500">Carregando contas…</p>}
+          {!loadingAccounts && importAccounts.length === 0 && (
+            <p className="text-sm text-gray-600">
+              Nenhuma conta cadastrada. Cadastre em <strong>Contas Bancárias</strong> antes de importar.
+            </p>
+          )}
+          {!loadingAccounts && importAccounts.length > 0 && (
+            <div className="space-y-2">
+              {importAccounts.map((a) => (
+                <button
+                  key={a.id}
+                  onClick={() => setSelectedAccount(a)}
+                  className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-gray-200 hover:border-teal-300 hover:bg-teal-50 text-left"
+                >
+                  <span className="flex items-center gap-2">
+                    <Landmark className="w-4 h-4 text-teal-500" />
+                    <span className="text-sm font-medium">{a.nickname || a.institution}{a.last4 ? ` •••• ${a.last4}` : ''}</span>
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-gray-400" />
+                </button>
+              ))}
+            </div>
+          )}
+        </Modal>
+      )}
+
+      {selectedCard && (
+        <ImportStatementModal
+          projectId={PROJECT_ID}
+          card={selectedCard as any}
+          onClose={() => { setSelectedCard(null); setImportStep(null); }}
+          onCommitted={() => { setSelectedCard(null); setImportStep(null); invalidate(); }}
+        />
+      )}
+
+      {selectedAccount && (
+        <ImportBankStatementModal
+          projectId={PROJECT_ID}
+          account={selectedAccount as any}
+          onClose={() => { setSelectedAccount(null); setImportStep(null); }}
+          onCommitted={() => { setSelectedAccount(null); setImportStep(null); invalidate(); }}
+        />
+      )}
 
       {/* Expense Form Modal */}
       <ExpenseFormModal

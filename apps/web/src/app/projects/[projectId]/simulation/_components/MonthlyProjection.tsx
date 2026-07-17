@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
+import { currencyInputToNumber, maskCurrencyInput } from '@/lib/currency-input';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import type { CashFlowEntry } from '@/types';
 import { CATEGORIA_MAO_DE_OBRA_OPTIONS, tipoLabel } from '@/lib/expense-options';
@@ -143,7 +144,7 @@ export function MonthlyProjection({
       .map(([id, cfg]) => ({
         id,
         titulo: cfg.titulo || 'Despesa Extra',
-        valor: parseFloat(cfg.valor || '0'),
+        valor: currencyInputToNumber(cfg.valor || '0'),
         mode: cfg.mode || 'avista',
         parcelas: cfg.parcelas || '1',
         inicio: cfg.inicio || monthList[0] || '',
@@ -229,7 +230,7 @@ export function MonthlyProjection({
   const totalDespActive = useMemo(() => {
     const realTotal = despGroups.filter((g) => !excludes.has(g.groupId)).reduce((s, g) => {
       const cfg = payConfigs[g.groupId];
-      const v = cfg?.valor ? parseFloat(cfg.valor) : NaN;
+      const v = cfg?.valor ? currencyInputToNumber(cfg.valor) : NaN;
       return s + (!isNaN(v) ? Math.round(v * 100) : g.totalValor);
     }, 0);
     const extraTotal = extraRows.reduce((s, r) => s + Math.round(r.valor * 100), 0);
@@ -251,7 +252,7 @@ export function MonthlyProjection({
       entry.real += g.totalValor;
       if (!excludes.has(g.groupId)) {
         const cfg = payConfigs[g.groupId];
-        const v = cfg?.valor ? parseFloat(cfg.valor) : NaN;
+        const v = cfg?.valor ? currencyInputToNumber(cfg.valor) : NaN;
         entry.proj += !isNaN(v) ? Math.round(v * 100) : g.totalValor;
       }
     }
@@ -275,7 +276,7 @@ export function MonthlyProjection({
       entry.real += g.totalValor;
       if (!excludes.has(g.groupId)) {
         const cfg = payConfigs[g.groupId];
-        const v = cfg?.valor ? parseFloat(cfg.valor) : NaN;
+        const v = cfg?.valor ? currencyInputToNumber(cfg.valor) : NaN;
         entry.proj += !isNaN(v) ? Math.round(v * 100) : g.totalValor;
       }
     }
@@ -320,7 +321,7 @@ export function MonthlyProjection({
     let total = 0;
     for (const [tipoKey, valStr] of Object.entries(tipoOverrides)) {
       if (!valStr) continue;
-      const overrideVal = parseFloat(valStr);
+      const overrideVal = currencyInputToNumber(valStr);
       if (isNaN(overrideVal)) continue;
       const currentProj = projByTipoKey[tipoKey] ?? 0;
       total += Math.round(overrideVal * 100) - currentProj;
@@ -364,7 +365,7 @@ export function MonthlyProjection({
     for (const m of monthList) {
       const override = recDist[m];
       if (override !== undefined && override.trim() !== '') {
-        const n = parseFloat(override);
+        const n = currencyInputToNumber(override);
         result[m] = isNaN(n) ? 0 : Math.round(n * 100);
       } else {
         result[m] = monthlyRecReal[m] ?? 0;
@@ -495,7 +496,7 @@ export function MonthlyProjection({
                 {porTipo.map((tipoCard) => {
                   const currentProj = projByTipoKey[tipoCard.key] ?? 0;
                   const overrideStr = tipoOverrides[tipoCard.key] || '';
-                  const overrideVal = parseFloat(overrideStr);
+                  const overrideVal = currencyInputToNumber(overrideStr);
                   const hasOverride = overrideStr !== '' && !isNaN(overrideVal);
                   const effectiveProj = hasOverride ? Math.round(overrideVal * 100) : currentProj;
                   const diff = effectiveProj - tipoCard.total;
@@ -563,13 +564,12 @@ export function MonthlyProjection({
                         <div className="flex items-center gap-2">
                           <label className="text-[10px] text-gray-400 whitespace-nowrap">Simular:</label>
                           <input
-                            type="number"
-                            step="0.01"
-                            min="0"
+                            type="text"
+                            inputMode="numeric"
                             placeholder={(currentProj / 100).toFixed(2)}
                             value={overrideStr}
                             onClick={(e) => e.stopPropagation()}
-                            onChange={(e) => onTipoOverrideChange(tipoCard.key, e.target.value)}
+                            onChange={(e) => onTipoOverrideChange(tipoCard.key, maskCurrencyInput(e.target.value))}
                             className={`flex-1 border rounded px-2 py-1 text-xs text-right focus:outline-none focus:ring-1 focus:ring-blue-300 ${hasOverride ? 'border-blue-400 bg-blue-50 font-semibold' : 'border-gray-200'}`}
                           />
                           {hasOverride && (
@@ -692,7 +692,7 @@ export function MonthlyProjection({
                       {(() => {
                         const projTotal = cat.groups.reduce((s, g) => {
                           const c = payConfigs[g.groupId];
-                          const v = c?.valor ? parseFloat(c.valor) : NaN;
+                          const v = c?.valor ? currencyInputToNumber(c.valor) : NaN;
                           return s + (!isNaN(v) ? Math.round(v * 100) : g.totalValor);
                         }, 0);
                         return <span className={`font-semibold ${projTotal !== cat.total ? 'text-blue-700' : 'text-orange-800'}`}>{formatCurrency(projTotal / 100)}</span>;
@@ -714,7 +714,7 @@ export function MonthlyProjection({
 
                     // Compute projected value for this group
                     const valorProjStr = cfg.valor;
-                    const valorProjParsed = parseFloat(valorProjStr);
+                    const valorProjParsed = currencyInputToNumber(valorProjStr);
                     const valorProjetado = valorProjStr && !isNaN(valorProjParsed) ? Math.round(valorProjParsed * 100) : group.totalValor;
                     const hasValorChange = !isExtra && valorProjStr !== '' && !isNaN(valorProjParsed) && Math.round(valorProjParsed * 100) !== group.totalValor;
                     const deltaPercent = hasValorChange ? ((valorProjetado - group.totalValor) / group.totalValor * 100) : 0;
@@ -793,12 +793,11 @@ export function MonthlyProjection({
                           <td className="px-3 py-1.5 text-right bg-blue-50/20">
                             <div className="flex flex-col items-end gap-0.5">
                               <input
-                                type="number"
-                                step="0.01"
-                                min="0"
+                                type="text"
+                                inputMode="numeric"
                                 placeholder={(group.totalValor / 100).toFixed(2)}
                                 value={cfg.valor}
-                                onChange={(e) => onPayConfigChange(group.groupId, { ...cfg, valor: e.target.value })}
+                                onChange={(e) => onPayConfigChange(group.groupId, { ...cfg, valor: maskCurrencyInput(e.target.value) })}
                                 className={`w-24 border rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:ring-1 focus:ring-blue-300 ${hasValorChange ? 'border-blue-400 bg-blue-50' : 'border-gray-200 bg-white'}`}
                                 disabled={isExcluded}
                               />
@@ -900,8 +899,8 @@ export function MonthlyProjection({
                     </div>
                   </td>
                   <td className="px-3 py-1.5 bg-blue-50/20">
-                    <input type="number" value={newExtra.valor} onChange={(e) => setNewExtra((p) => ({ ...p, valor: e.target.value }))}
-                      className="border rounded px-1 py-0.5 text-xs w-20 text-right" placeholder="0,00" step="0.01" />
+                    <input type="text" inputMode="numeric" value={newExtra.valor} onChange={(e) => setNewExtra((p) => ({ ...p, valor: maskCurrencyInput(e.target.value) }))}
+                      className="border rounded px-1 py-0.5 text-xs w-20 text-right" placeholder="0,00" />
                   </td>
                   <td className="px-3 py-1.5 bg-blue-50/20">
                     <select value={newExtra.mode} onChange={(e) => setNewExtra((p) => ({ ...p, mode: e.target.value }))}
@@ -997,12 +996,11 @@ export function MonthlyProjection({
             <div key={month} className="text-center">
               <label className="text-[10px] font-medium text-gray-500 block">{formatMonth(month)}</label>
               <input
-                type="number"
-                step="0.01"
-                min="0"
+                type="text"
+                inputMode="numeric"
                 placeholder={(monthlyRecReal[month] ?? 0) > 0 ? ((monthlyRecReal[month] ?? 0) / 100).toFixed(2) : '0'}
                 value={recDist[month] ?? ''}
-                onChange={(e) => onRecDistChange(month, e.target.value)}
+                onChange={(e) => onRecDistChange(month, maskCurrencyInput(e.target.value))}
                 className="w-full border border-gray-200 rounded px-1 py-0.5 text-xs text-right focus:outline-none focus:ring-1 focus:ring-green-300 mt-0.5"
               />
             </div>

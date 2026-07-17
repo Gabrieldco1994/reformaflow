@@ -31,12 +31,18 @@ describe('MonthlyOverviewService.getAccountView', () => {
         ]),
         findFirst: jest.fn(),
       },
-      expense: { findMany: jest.fn(), create: jest.fn() },
+      expense: { findMany: jest.fn(), findFirst: jest.fn(), create: jest.fn() },
       receipt: { findMany: jest.fn() },
       cashFlowEntry: { findMany: jest.fn() },
       creditCard: { findMany: jest.fn(), findFirst: jest.fn() },
       crossProjectSettlement: { findMany: jest.fn().mockResolvedValue([]) },
       rateioAllocation: { findMany: jest.fn().mockResolvedValue([]) },
+      invoiceAdjustment: {
+        findMany: jest.fn().mockResolvedValue([]),
+        create: jest.fn(),
+        findFirst: jest.fn(),
+        delete: jest.fn(),
+      },
       bankStatementImport: { findMany: jest.fn().mockResolvedValue([]) },
     };
 
@@ -346,9 +352,11 @@ describe('MonthlyOverviewService.getAccountView', () => {
     const fatura = res.saidas.find((item: any) => item.forma === 'cartao');
     expect(fatura).toEqual(
       expect.objectContaining({
+        id: 'exp-fatura-pagamento',
         descricao: 'Fatura Nubank',
         valor: 7_000,
         realizado: true,
+        editavel: true,
       }),
     );
     expect(res.saidas.some((item: any) => /Pagamento fatura/i.test(item.descricao))).toBe(false);
@@ -376,6 +384,97 @@ describe('MonthlyOverviewService.getAccountView', () => {
         valor: 20_000,
       }),
     ]);
+  });
+
+  it('soma ajuste no espelho da fatura sem alterar caixa da conta', async () => {
+    prisma.bankAccount.findMany.mockResolvedValue([
+      {
+        id: 'acc-1',
+        openingBalanceCents: 100_000,
+        openingBalanceDate: new Date('2026-01-01T00:00:00.000Z'),
+        last4: '4247',
+        nickname: 'Conta principal',
+        institution: 'NUBANK',
+      },
+    ]);
+    prisma.expense.findMany.mockResolvedValue([
+      {
+        id: 'exp-card',
+        tenantId,
+        projectId,
+        tipoDespesa: 'OUTROS',
+        titulo: 'Compra cartão',
+        fornecedor: 'Loja',
+        valorTotal: 10_000,
+        valor: 10_000,
+        formaPagamento: 'A_VISTA',
+        dataPagamento: new Date('2026-06-10T00:00:00.000Z'),
+        dataInicioParcela: null,
+        createdAt: new Date('2026-06-10T00:00:00.000Z'),
+        quantidadeParcela: null,
+        status: 'PAGO',
+        cardLast4: '1111',
+        bankLast4: null,
+        importId: null,
+        linkedExpenseId: null,
+        settledByExpenseId: null,
+        settlesInvoiceKey: null,
+        paidParcelas: null,
+        project: { id: projectId, name: 'Pessoal', type: 'PESSOAL' },
+      },
+    ]);
+    prisma.receipt.findMany.mockResolvedValue([]);
+    prisma.cashFlowEntry.findMany.mockResolvedValue([
+      {
+        id: 'cfe-card',
+        tenantId,
+        projectId,
+        tipo: 'DESPESA',
+        valor: 10_000,
+        data: new Date('2026-06-10T00:00:00.000Z'),
+        status: 'PAGO',
+        categoria: 'OUTROS',
+        subcategoria: null,
+        formaPagamento: 'CARTAO_CREDITO',
+        parcela: null,
+        expense: {
+          id: 'exp-card',
+          tipoDespesa: 'OUTROS',
+          titulo: 'Compra cartão',
+          fornecedor: 'Loja',
+          cardLast4: '1111',
+          bankLast4: null,
+          linkedExpenseId: null,
+        },
+        receipt: null,
+      },
+    ]);
+    prisma.creditCard.findMany.mockResolvedValue([
+      {
+        nickname: 'Nubank',
+        last4: '1111',
+        closingDay: null,
+        dueDay: 10,
+        limitTotalCents: null,
+        limitAvailableCents: null,
+      },
+    ]);
+    prisma.invoiceAdjustment.findMany.mockResolvedValue([
+      {
+        id: 'adj-1',
+        cardLast4: '1111',
+        dueMonth: '2026-06',
+        amountCents: 320,
+        reason: 'IOF',
+      },
+    ]);
+
+    const res: any = await service.getAccountView(tenantId, projectId, '2026-06');
+
+    expect(res.caixaHoje).toBe(100_000);
+    expect(res.cartoes[0].faturaAtual).toBe(10_320);
+    expect(res.cartoes[0].faturaPendente).toBe(10_320);
+    expect(res.cartoes[0].possuiIntervencaoManual).toBe(true);
   });
 
   it('inclui cobrança neutra no cartão (PgConta/Pix no crédito) na fatura, mas fora do gasto real', async () => {
@@ -1399,7 +1498,7 @@ describe('MonthlyOverviewService.getAccountView', () => {
         dueDay: 28,
       });
       prisma.bankAccount.findFirst.mockResolvedValue({ last4: '4247' });
-      prisma.expense.findMany.mockResolvedValue([]); // nenhuma fatura paga ainda
+      prisma.expense.findFirst.mockResolvedValue(null);
       prisma.expense.create.mockResolvedValue({ id: 'pay-1' });
     });
 
@@ -1409,6 +1508,7 @@ describe('MonthlyOverviewService.getAccountView', () => {
         month: '2026-06',
         amountCents: 7_000,
         bankLast4: '4247',
+        paymentDate: '2026-05-31',
       });
 
       expect(prisma.expense.create).toHaveBeenCalledWith(
@@ -1419,6 +1519,7 @@ describe('MonthlyOverviewService.getAccountView', () => {
             valorTotal: 7_000,
             bankLast4: '4247',
             cardLast4: '1111',
+            dataPagamento: new Date('2026-05-31T00:00:00.000Z'),
           }),
         }),
       );
@@ -1429,10 +1530,8 @@ describe('MonthlyOverviewService.getAccountView', () => {
       expect(res.paymentExpenseId).toBe('pay-1');
     });
 
-    it('bloqueia pagamento duplicado no mesmo mês', async () => {
-      prisma.expense.findMany.mockResolvedValue([
-        { dataPagamento: new Date('2026-06-10T00:00:00.000Z'), createdAt: new Date('2026-06-10T00:00:00.000Z') },
-      ]);
+    it('bloqueia pagamento idêntico (mesmo valor + mesma data)', async () => {
+      prisma.expense.findFirst.mockResolvedValue({ id: 'pay-existing' });
 
       await expect(
         service.payInvoice(tenantId, projectId, {
@@ -1440,8 +1539,9 @@ describe('MonthlyOverviewService.getAccountView', () => {
           month: '2026-06',
           amountCents: 7_000,
           bankLast4: '4247',
+          paymentDate: '2026-06-10',
         }),
-      ).rejects.toThrow(/já está marcada como paga/i);
+      ).rejects.toThrow(/já foi registrado/i);
       expect(prisma.expense.create).not.toHaveBeenCalled();
     });
 
@@ -1462,6 +1562,21 @@ describe('MonthlyOverviewService.getAccountView', () => {
           bankLast4: '4247',
         }),
       ).rejects.toThrow(/Valor da fatura inválido/i);
+    });
+
+    it('permite segundo pagamento no mesmo mês com valor diferente', async () => {
+      prisma.expense.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.payInvoice(tenantId, projectId, {
+          cardLast4: '1111',
+          month: '2026-06',
+          amountCents: 500,
+          bankLast4: '4247',
+          paymentDate: '2026-06-10',
+        }),
+      ).resolves.toEqual(expect.objectContaining({ ok: true }));
+      expect(prisma.expense.create).toHaveBeenCalled();
     });
   });
 
@@ -1747,6 +1862,13 @@ describe('matchPaidInvoices', () => {
     const invoices = [inv('2026-06', '3541', 442_034)];
     expect(matchPaidInvoices(invoices, []).size).toBe(0);
   });
+
+  it('não quita implicitamente quando pagamento foge da tolerância', () => {
+    const invoices = [inv('2026-07', '3541', 2_400_000)];
+    const payments = [pay('2026-06', '3541', 50_000)];
+    const paid = matchPaidInvoices(invoices, payments);
+    expect(paid.has('2026-07__3541')).toBe(false);
+  });
 });
 
 describe('computePaidInvoiceKeys', () => {
@@ -1812,5 +1934,27 @@ describe('computePaidInvoiceKeys', () => {
     expect(paid.has('2026-06__7259')).toBe(true);
     expect(paid.has('2026-07__3541')).toBe(true);
     expect(paid.size).toBe(3);
+  });
+
+  it('não quita com pagamento mínimo fora da tolerância', () => {
+    const invoices = [inv('2026-07', '9999', 2_400_000)];
+    const implicit = [pay('2026-06', '9999', 50_000)];
+    const paid = computePaidInvoiceKeys(invoices, implicit, []);
+    expect(paid.has('2026-07__9999')).toBe(false);
+  });
+
+  it('quita com dois pagamentos parciais no mesmo ciclo', () => {
+    const invoices = [inv('2026-07', '9999', 240_000)];
+    const implicit = [pay('2026-06', '9999', 50_000), pay('2026-06', '9999', 190_000)];
+    const paid = computePaidInvoiceKeys(invoices, implicit, []);
+    expect(paid.has('2026-07__9999')).toBe(true);
+  });
+
+  it('quita com resíduo declarado mesmo sem cobrir o total integral', () => {
+    const invoices = [inv('2026-07', '9999', 100_000)];
+    const implicit = [pay('2026-06', '9999', 99_680)];
+    const residual = new Map<string, number>([['2026-07__9999', 320]]);
+    const paid = computePaidInvoiceKeys(invoices, implicit, [], residual);
+    expect(paid.has('2026-07__9999')).toBe(true);
   });
 });

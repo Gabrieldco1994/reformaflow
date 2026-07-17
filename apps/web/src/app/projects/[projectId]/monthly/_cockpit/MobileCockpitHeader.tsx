@@ -1,12 +1,12 @@
-import { ChevronLeft, ChevronRight, Gauge } from "lucide-react";
+import { ChevronLeft, ChevronRight, Compass, Gauge } from "lucide-react";
+import Link from "next/link";
 import type { Eixo } from "./EixoToggle";
 import { mesLongo } from "./format";
 
 export type MobileCockpitView = "mes" | "ano";
 
 const AXIS_OPTIONS: Array<{ value: Eixo; label: string }> = [
-  { value: "competencia", label: "Gastei" },
-  { value: "caixa", label: "Vai sair" },
+  { value: "caixa", label: "Caixa" },
   { value: "geral", label: "Extrato" },
 ];
 
@@ -17,6 +17,7 @@ function monthTitle(monthKey: string): string {
 }
 
 export default function MobileCockpitHeader({
+  projectId,
   view,
   monthKey,
   year,
@@ -32,6 +33,7 @@ export default function MobileCockpitHeader({
   onYearChange,
   onEixoChange,
 }: {
+  projectId: string;
   view: MobileCockpitView;
   monthKey: string;
   year: number;
@@ -48,7 +50,7 @@ export default function MobileCockpitHeader({
   onEixoChange: (eixo: Eixo) => void;
 }) {
   return (
-    <header className="mb-4 space-y-3">
+    <header className="pessoal-minimal-page-header mb-4 space-y-3">
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2.5">
           <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-[var(--ck-border)] bg-[var(--ck-surface)] text-[var(--ck-accent)]">
@@ -86,6 +88,14 @@ export default function MobileCockpitHeader({
             </button>
           </div>
         )}
+        <Link
+          href={`/projects/${projectId}/apoio`}
+          aria-label="Solicitar apoio"
+          title="Solicitar apoio"
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-[var(--ck-border)] bg-[var(--ck-surface)] text-[var(--ck-accent)]"
+        >
+          <Compass className="h-5 w-5" />
+        </Link>
       </div>
 
       <div className="flex items-center gap-2">
@@ -135,7 +145,7 @@ export default function MobileCockpitHeader({
         <div
           role="group"
           aria-label="Eixo de tempo"
-          className="grid grid-cols-3 rounded-xl border border-[var(--ck-border)] bg-[var(--ck-surface)] p-1"
+          className="grid grid-cols-2 rounded-xl border border-[var(--ck-border)] bg-[var(--ck-surface)] p-1"
         >
           {AXIS_OPTIONS.map((option) => (
             <button

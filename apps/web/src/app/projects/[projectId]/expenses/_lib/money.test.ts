@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { reaisToCents, centsToReais } from './money';
+import { reaisToCents, centsToReais, maskReaisInput } from './money';
 
 describe('reaisToCents', () => {
   it('converte formato BR com milhar e decimal', () => {
@@ -32,5 +32,18 @@ describe('centsToReais', () => {
   });
   it('valor não finito → 0,00', () => {
     expect(centsToReais(Number.NaN)).toBe('0,00');
+  });
+});
+
+describe('maskReaisInput', () => {
+  it('aplica máscara automática pt-BR', () => {
+    expect(maskReaisInput('1')).toBe('0,01');
+    expect(maskReaisInput('12')).toBe('0,12');
+    expect(maskReaisInput('1234')).toBe('12,34');
+    expect(maskReaisInput('123456')).toBe('1.234,56');
+  });
+
+  it('ignora caracteres não numéricos', () => {
+    expect(maskReaisInput('R$ 1.234,56')).toBe('1.234,56');
   });
 });

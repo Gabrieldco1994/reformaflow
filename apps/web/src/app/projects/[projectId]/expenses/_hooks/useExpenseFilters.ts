@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ExpenseQueryState } from '../_lib/expense-query-state';
 import { tipoLabel, formaLabel } from '@/lib/expense-options';
 import type { Expense } from '@/types';
@@ -37,6 +37,7 @@ export function useExpenseFilters(
   onQueryChange: (state: ExpenseQueryState) => void,
 ) {
   const [showFilters, setShowFilters] = useState(false);
+  const [localSearchText, setLocalSearchText] = useState(queryState.q);
   const filters: ExpenseFilters = {
     tipoDespesa: queryState.tipoDespesa,
     room: queryState.room,
@@ -45,17 +46,32 @@ export function useExpenseFilters(
     formaPagamento: queryState.formaPagamento,
     status: queryState.status,
   };
-  const searchText = queryState.q;
-  const setSearchText = (q: string) => onQueryChange({ ...queryState, q });
+  const searchText = localSearchText;
+  useEffect(() => {
+    setLocalSearchText(queryState.q);
+  }, [queryState.q]);
+  useEffect(() => {
+    if (localSearchText === queryState.q) return;
+    // ponytail: debounce só da busca textual para evitar push/replace a cada tecla.
+    const timeout = window.setTimeout(() => {
+      onQueryChange({ ...queryState, q: localSearchText });
+    }, 180);
+    return () => window.clearTimeout(timeout);
+  }, [localSearchText, onQueryChange, queryState]);
+  const setSearchText = (q: string) => setLocalSearchText(q);
   const updateFilter = (key: keyof ExpenseFilters, value: string) =>
     onQueryChange({ ...queryState, [key]: value });
-  const clearFilters = () => onQueryChange({
-    ...queryState,
-    q: '',
-    ...EMPTY_FILTERS,
-    rangeStart: '',
-    rangeEnd: '',
-  });
+  const clearFilters = () => {
+    setLocalSearchText('');
+    onQueryChange({
+      ...queryState,
+      q: '',
+      ...EMPTY_FILTERS,
+      rangeStart: '',
+      rangeEnd: '',
+    });
+  };
+  const normalizedSearchText = searchText.trim().toLowerCase();
 
   const filteredExpenses = useMemo(() => expenses.filter((exp) => {
     if (filters.tipoDespesa && exp.tipoDespesa !== filters.tipoDespesa) return false;
@@ -64,15 +80,15 @@ export function useExpenseFilters(
     if (filters.fornecedor && !(exp.fornecedor ?? '').toLowerCase().includes(filters.fornecedor.toLowerCase())) return false;
     if (filters.formaPagamento && exp.formaPagamento !== filters.formaPagamento) return false;
     if (filters.status && exp.status !== filters.status) return false;
-    if (searchText) {
+    if (normalizedSearchText) {
       const searchable = [exp.id, exp.titulo, exp.fornecedor, exp.room?.name, tipoLabel(exp.tipoDespesa), formaLabel(exp.formaPagamento)]
         .filter(Boolean).join(' ').toLowerCase();
-      if (!searchable.includes(searchText.toLowerCase())) return false;
+      if (!searchable.includes(normalizedSearchText)) return false;
     }
     return true;
-  }), [expenses, filters.tipoDespesa, filters.room, filters.titulo, filters.fornecedor, filters.formaPagamento, filters.status, searchText, showRooms]);
+  }), [expenses, filters.tipoDespesa, filters.room, filters.titulo, filters.fornecedor, filters.formaPagamento, filters.status, normalizedSearchText, showRooms]);
 
-  const hasActiveFilters = Object.values(filters).some((value) => value !== '') || searchText !== '';
+  const hasActiveFilters = Object.values(filters).some((value) => value !== '') || normalizedSearchText !== '';
   const categorias: ExpenseCategoryGroup[] = useMemo(() => {
     const catMap = new Map<string, Expense[]>();
     for (const exp of filteredExpenses) {

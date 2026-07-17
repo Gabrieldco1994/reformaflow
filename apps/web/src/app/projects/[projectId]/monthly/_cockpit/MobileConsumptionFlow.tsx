@@ -10,7 +10,7 @@ export default function MobileConsumptionFlow({
   return (
     <article
       aria-label="Consumo realizado"
-      className="rounded-[18px] border border-[var(--ck-border)] bg-[var(--ck-surface)] p-4 shadow-lifeone-card"
+      className="minimal-card rounded-[18px] border border-[var(--ck-border)] bg-[var(--ck-surface)] p-4 shadow-lifeone-card"
     >
       <div className="flex items-baseline justify-between gap-3">
         <div>

@@ -8,3 +8,5 @@ export * from './calculations/monthly-projection';
 export * from './seed';
 export * from './config';
 export * from './voice/expense-voice-parser';
+export * from './price-monitor';
+

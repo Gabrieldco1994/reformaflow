@@ -16,12 +16,13 @@ const NON_PERSONAL_MATRIX = [
       'pendencias',
       'floor-plans',
       'simulation',
+      'price-compare',
     ],
   },
   {
     type: ProjectType.COMPRA,
     primary: ['dashboard', 'expenses', 'receipts'],
-    secondary: ['cash-flow'],
+    secondary: ['cash-flow', 'price-compare'],
   },
   {
     type: ProjectType.CASA,
@@ -41,7 +42,7 @@ const NON_PERSONAL_MATRIX = [
 ] as const;
 
 describe('getMobilePrimary', () => {
-  it('keeps only monthly in the PESSOAL primary slot and every other visible module in secondary', () => {
+  it('keeps PESSOAL monthly in primary and reserves expenses for the dedicated dock instead of Mais', () => {
     const visible = getProjectNavModules(ProjectType.PESSOAL);
     const { primary, secondary } = getMobilePrimary(
       ProjectType.PESSOAL,
@@ -53,7 +54,6 @@ describe('getMobilePrimary', () => {
       'conta',
       'dre',
       'neutros',
-      'expenses',
       'receipts',
       'metas',
       'planning',
@@ -94,11 +94,12 @@ describe('getMobilePrimary', () => {
       'pendencias',
       'floor-plans',
       'simulation',
+      'price-compare',
     ]);
     expect([...primary, ...secondary]).toEqual(visible);
   });
 
-  it('keeps visible PESSOAL conta and expenses modules in secondary', () => {
+  it('keeps visible PESSOAL secondary modules in Mais but excludes docked expenses', () => {
     const visible = getProjectNavModules(ProjectType.PESSOAL).filter((module) =>
       ['monthly', 'conta', 'dre', 'expenses'].includes(module.slug),
     );
@@ -109,11 +110,11 @@ describe('getMobilePrimary', () => {
     );
 
     expect(primary.map((module) => module.slug)).toEqual(['monthly']);
-    expect(secondary.map((module) => module.slug)).toEqual([
-      'conta',
-      'dre',
+    expect(secondary.map((module) => module.slug)).toEqual(['conta', 'dre']);
+    expect(visible.map((module) => module.slug)).toContain('expenses');
+    expect([...primary, ...secondary].map((module) => module.slug)).not.toContain(
       'expenses',
-    ]);
+    );
   });
 
   it('does not synthesize a PESSOAL primary when monthly is not visible', () => {
@@ -127,7 +128,8 @@ describe('getMobilePrimary', () => {
     );
 
     expect(primary).toEqual([]);
-    expect(secondary).toEqual(visible);
+    expect(secondary.map((module) => module.slug)).toEqual(['conta']);
+    expect(secondary.map((module) => module.slug)).not.toContain('expenses');
   });
 
   it.each([0, 1, 2])(

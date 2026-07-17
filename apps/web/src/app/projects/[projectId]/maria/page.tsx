@@ -101,8 +101,8 @@ export default function MariaPage() {
   };
 
   return (
-    <section className="flex h-full min-h-[calc(100dvh-9rem)] flex-col">
-      <header className="flex items-center gap-3 rounded-2xl border border-lifeone-hairline bg-white px-4 py-3 shadow-lifeone-card">
+    <section className="pessoal-minimal-maria flex h-full min-h-[calc(100dvh-9rem)] flex-col">
+      <header className="pessoal-minimal-page-header flex items-center gap-3 rounded-2xl border border-lifeone-hairline bg-white px-4 py-3 shadow-lifeone-card">
         <Link
           href={`/projects/${params.projectId}/monthly`}
           className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-lifeone-hairline bg-lifeone-surface text-lifeone-ink-2"
@@ -122,7 +122,7 @@ export default function MariaPage() {
 
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto overflow-x-visible px-1 py-4">
         {opening.message && (
-          <div className="max-w-[86%] rounded-[18px] rounded-bl-md border border-lifeone-hairline bg-white px-4 py-3 text-[15px] leading-6 text-lifeone-ink-2 shadow-lifeone-card">
+          <div className="minimal-chat-bubble max-w-[86%] rounded-[18px] rounded-bl-md border border-lifeone-hairline bg-white px-4 py-3 text-[15px] leading-6 text-lifeone-ink-2 shadow-lifeone-card">
             {opening.message}
           </div>
         )}
@@ -147,7 +147,7 @@ export default function MariaPage() {
         })}
 
         {agent.loading && (
-          <div className="flex w-fit items-center gap-1 rounded-[18px] rounded-bl-md border border-lifeone-hairline bg-white px-4 py-3">
+          <div className="minimal-chat-bubble flex w-fit items-center gap-1 rounded-[18px] rounded-bl-md border border-lifeone-hairline bg-white px-4 py-3">
             <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-lifeone-ink-3" style={{ animationDelay: '0ms' }} />
             <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-lifeone-ink-3" style={{ animationDelay: '120ms' }} />
             <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-lifeone-ink-3" style={{ animationDelay: '240ms' }} />

@@ -261,6 +261,23 @@ export interface MonthDerived {
 }
 
 const FORMA_FIXA = new Set(['PARCELADO', 'QUINZENAL']);
+const FINANCIAL_TIME_ZONE = 'America/Sao_Paulo';
+
+function todayKeyInTimeZone(timeZone = FINANCIAL_TIME_ZONE, now = new Date()): { monthKey: string; day: number } {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+  const year = Number(parts.find((p) => p.type === 'year')?.value);
+  const month = Number(parts.find((p) => p.type === 'month')?.value);
+  const day = Number(parts.find((p) => p.type === 'day')?.value);
+  return {
+    monthKey: `${year}-${String(month).padStart(2, '0')}`,
+    day,
+  };
+}
 
 export function deriveMonth(
   data: MonthlyOverviewResponse,
@@ -284,11 +301,11 @@ export function deriveMonth(
 
   // "Hoje": mês passado = totalmente realizado; mês corrente = dia real;
   // mês futuro = nada realizado ainda (tudo projeção).
-  const now = new Date();
-  const nowKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const today = todayKeyInTimeZone();
+  const nowKey = today.monthKey;
   let hoje: number;
   if (mesAtualKey < nowKey) hoje = diasNoMes;
-  else if (mesAtualKey === nowKey) hoje = Math.min(now.getDate(), diasNoMes);
+  else if (mesAtualKey === nowKey) hoje = Math.min(today.day, diasNoMes);
   else hoje = 0;
   const diasRestantes = Math.max(0, diasNoMes - hoje);
 
@@ -326,11 +343,15 @@ export function deriveMonth(
     if (entryIsConsumptionNeutral(e)) continue;
     const realized = isRealized(e.status);
     const dia = dayOfMonth(e.data);
+    // No mês corrente, lançamentos datados após "hoje" entram como projeção, mesmo
+    // que venham marcados como realizados (ex.: compra no cartão remapeada para
+    // vencimento no eixo de caixa). Em meses passados, `hoje=diasNoMes`, então não muda.
+    const realizedByDate = realized && dia <= hoje;
     if (e.tipo === 'DESPESA') {
       const tipo = e.categoria?.trim() || 'Outros';
       categoriaAcc.set(tipo, (categoriaAcc.get(tipo) ?? 0) + e.valor);
       qtdSaidas += 1;
-      if (realized) {
+      if (realizedByDate) {
         gasteiRealizado += e.valor;
         if (!FORMA_FIXA.has(e.formaPagamento ?? '') && dia <= hoje) {
           variavelRealizadoAteHoje += e.valor;
@@ -347,7 +368,7 @@ export function deriveMonth(
         });
       }
     } else {
-      if (realized) {
+      if (realizedByDate) {
         entrouRealizado += e.valor;
       } else {
         entrouPrevisto += e.valor;
@@ -440,6 +461,19 @@ export function buildSaldoSeries(m: MonthDerived, entries: MonthlyEntry[], ritmo
   for (let dia = 1; dia <= m.hoje; dia++) {
     running += realizadoPorDia.get(dia) ?? 0;
     serie.push({ dia, realizado: running, projetado: dia === m.hoje ? running : null });
+  }
+
+  // Quando a visão está em caixa real (§10), o ponto "Hoje" da série precisa bater
+  // com o saldo canônico reconciliado (`saldoAtual`), evitando divergência visual.
+  if (m.caixaReal && m.hoje > 0) {
+    const delta = m.saldoAtual - running;
+    if (delta !== 0) {
+      for (const row of serie) {
+        if (row.realizado !== null) row.realizado += delta;
+        if (row.projetado !== null) row.projetado += delta;
+      }
+      running += delta;
+    }
   }
 
   // Projeção de hoje+1 até fim do mês.
@@ -578,7 +612,7 @@ export function anosDisponiveis(data: MonthlyOverviewResponse): number[] {
 
 export interface TotalsDerived {
   /** Realizado acumulado (entradas EM_CAIXA − saídas PAGO). */
-  caixaAgora: number;
+  fluxoRealizado: number;
   /** Caixa atual + futuro conhecido (a receber − a pagar). */
   saldoProjetado: number;
   entradasRealizadas: number;
@@ -648,10 +682,10 @@ export function deriveTotals(
       if (realizado) sr += e.valor; else sp += e.valor;
     }
   }
-  const caixaAgora = er - sr;
+  const fluxoRealizado = er - sr;
   return {
-    caixaAgora,
-    saldoProjetado: caixaAgora + (ep - sp),
+    fluxoRealizado,
+    saldoProjetado: fluxoRealizado + (ep - sp),
     entradasRealizadas: er,
     saidasRealizadas: sr,
     entradasPrevistas: ep,
@@ -703,7 +737,7 @@ export function deriveCockpitTop(
 ): CockpitTopDerived {
   const totals = deriveTotals(data);
   const temSaldo = data.caixa?.temSaldoInicial ?? false;
-  const caixaValor = temSaldo ? data.caixa!.hoje : totals.caixaAgora;
+  const caixaValor = temSaldo ? data.caixa!.hoje : totals.fluxoRealizado;
 
   const spark = (data.caixa?.porMes ?? []).map((p) => p.caixa);
   const caixaDelta =
@@ -756,11 +790,11 @@ export function deriveCockpitTop(
 
   // Fração do mês decorrida (para a barra de progresso do headline).
   const [y, m] = selectedMonth.split('-').map((n) => parseInt(n, 10));
-  const now = new Date();
-  const nowKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const today = todayKeyInTimeZone();
+  const nowKey = today.monthKey;
   const diasNoMes = new Date(Date.UTC(y ?? 1970, m ?? 1, 0)).getUTCDate();
   let pctMesDecorrido = 1;
-  if (selectedMonth === nowKey) pctMesDecorrido = Math.min(now.getDate() / diasNoMes, 1);
+  if (selectedMonth === nowKey) pctMesDecorrido = Math.min(today.day / diasNoMes, 1);
   else if (selectedMonth > nowKey) pctMesDecorrido = 0;
 
   return {

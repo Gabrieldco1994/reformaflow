@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
+import { currencyInputToNumber } from '@/lib/currency-input';
 import type { Scenario, SimulationData } from '../_types';
 import { CompareAmbienteBlock } from './CompareAmbienteBlock';
 
@@ -37,7 +38,7 @@ export function CompareView({
 
   const computeKpis = useCallback((data: SimulationData, savedValues: Record<string, string>) => {
     const totalRecSim = data.recebimentosPorTipo.reduce((s, r) => {
-      const sv = parseFloat(savedValues[`rec|${r.key}`] || '');
+      const sv = currencyInputToNumber(savedValues[`rec|${r.key}`] || '');
       return s + (isNaN(sv) ? r.total : Math.round(sv * 100));
     }, 0);
 
@@ -47,12 +48,12 @@ export function CompareView({
         if (tipo.key === 'MAO_DE_OBRA' && tipo.categorias) {
           for (const cat of tipo.categorias) {
             const simKey = `desp|${amb.key}|${tipo.key}|${cat.key}`;
-            const sv = parseFloat(savedValues[simKey] || '');
+            const sv = currencyInputToNumber(savedValues[simKey] || '');
             totalDespSim += isNaN(sv) ? cat.total : Math.round(sv * 100);
           }
         } else {
           const simKey = `desp|${amb.key}|${tipo.key}`;
-          const sv = parseFloat(savedValues[simKey] || '');
+          const sv = currencyInputToNumber(savedValues[simKey] || '');
           totalDespSim += isNaN(sv) ? tipo.total : Math.round(sv * 100);
         }
       }
@@ -158,8 +159,8 @@ export function CompareView({
               </thead>
               <tbody className="divide-y">
                 {baseData.recebimentosPorTipo.map((r) => {
-                  const svA = parseFloat(compareData[compareIdA!]?.[`rec|${r.key}`] || '');
-                  const svB = parseFloat(compareData[compareIdB!]?.[`rec|${r.key}`] || '');
+                  const svA = currencyInputToNumber(compareData[compareIdA!]?.[`rec|${r.key}`] || '');
+                  const svB = currencyInputToNumber(compareData[compareIdB!]?.[`rec|${r.key}`] || '');
                   const valA = isNaN(svA) ? r.total : Math.round(svA * 100);
                   const valB = isNaN(svB) ? r.total : Math.round(svB * 100);
                   const diff = valA - valB;
@@ -204,8 +205,8 @@ export function CompareView({
                       let tA = 0, tB = 0;
                       const catRows = tipo.categorias.map((cat) => {
                         const k = `desp|${amb.key}|${tipo.key}|${cat.key}`;
-                        const sA = parseFloat(compareData[compareIdA!]?.[k] || '');
-                        const sB = parseFloat(compareData[compareIdB!]?.[k] || '');
+                        const sA = currencyInputToNumber(compareData[compareIdA!]?.[k] || '');
+                        const sB = currencyInputToNumber(compareData[compareIdB!]?.[k] || '');
                         const vA = isNaN(sA) ? cat.total : Math.round(sA * 100);
                         const vB = isNaN(sB) ? cat.total : Math.round(sB * 100);
                         tA += vA; tB += vB;
@@ -215,8 +216,8 @@ export function CompareView({
                       return { ...tipo, vA: tA, vB: tB, catRows };
                     } else {
                       const k = `desp|${amb.key}|${tipo.key}`;
-                      const sA = parseFloat(compareData[compareIdA!]?.[k] || '');
-                      const sB = parseFloat(compareData[compareIdB!]?.[k] || '');
+                      const sA = currencyInputToNumber(compareData[compareIdA!]?.[k] || '');
+                      const sB = currencyInputToNumber(compareData[compareIdB!]?.[k] || '');
                       const vA = isNaN(sA) ? tipo.total : Math.round(sA * 100);
                       const vB = isNaN(sB) ? tipo.total : Math.round(sB * 100);
                       ambTotalA += vA; ambTotalB += vB;

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { CreditCard, Landmark } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -26,6 +26,10 @@ interface CreditCardBalance {
   brand: string;
   nickname: string | null;
   last4: string;
+}
+
+export function dedupeByLast4<T extends { last4: string }>(items: T[]): T[] {
+  return Array.from(new Map(items.map((item) => [item.last4, item])).values());
 }
 
 function accountName(account: BankAccountBalance): string {
@@ -71,11 +75,26 @@ export default function SaldosWidget({
   projectId,
   entries,
   eixo,
+  selectedCardLast4,
+  onSelectCard,
+  className,
 }: {
   projectId: string;
   entries: MonthlyEntry[];
   eixo: Eixo;
+  selectedCardLast4?: string | null;
+  onSelectCard?: (cardLast4: string | null) => void;
+  className?: string;
 }) {
+  const [internalSelectedCard, setInternalSelectedCard] = useState<string | null>(null);
+  const selectedCard = selectedCardLast4 !== undefined ? selectedCardLast4 : internalSelectedCard;
+  const selectCard = (cardLast4: string | null) => {
+    if (selectedCardLast4 === undefined) {
+      setInternalSelectedCard(cardLast4);
+    }
+    onSelectCard?.(cardLast4);
+  };
+
   const bankAccounts = useQuery<BankAccountBalance[]>({
     queryKey: ['bank-accounts', projectId],
     queryFn: () => api.get(`/projects/${projectId}/bank-accounts`),
@@ -94,15 +113,30 @@ export default function SaldosWidget({
   );
 
   const cardRows = useMemo(() => {
-    const cards = creditCards.data ?? [];
+    const cards = dedupeByLast4(creditCards.data ?? []);
     return cards
       .map((c) => ({ card: c, gasto: spend.cards.get(c.last4) ?? 0 }))
       .filter((r) => r.gasto > 0)
       .sort((a, b) => b.gasto - a.gasto);
   }, [creditCards.data, spend]);
 
+  const filteredCardRows = useMemo(() => {
+    if (!selectedCard) return cardRows;
+    return cardRows.filter(({ card }) => card.last4 === selectedCard);
+  }, [cardRows, selectedCard]);
+
+  useEffect(() => {
+    if (!selectedCard) return;
+    if (!cardRows.some(({ card }) => card.last4 === selectedCard)) {
+      if (selectedCardLast4 === undefined) {
+        setInternalSelectedCard(null);
+      }
+      onSelectCard?.(null);
+    }
+  }, [cardRows, selectedCard, selectedCardLast4, onSelectCard]);
+
   const accountRows = useMemo(() => {
-    const accounts = bankAccounts.data ?? [];
+    const accounts = dedupeByLast4(bankAccounts.data ?? []);
     return accounts
       .map((a) => ({ account: a, gasto: spend.accounts.get(a.last4) ?? 0 }))
       .filter((r) => r.gasto > 0)
@@ -115,10 +149,13 @@ export default function SaldosWidget({
   const showAccounts = accountRows.length > 0;
   const showCards = cardRows.length > 0;
   const hint = eixo === 'caixa' ? 'no mês, por vencimento' : 'no mês, por compra';
+  const totalCards = filteredCardRows.reduce((sum, row) => sum + row.gasto, 0);
+  const totalAccounts = accountRows.reduce((sum, row) => sum + row.gasto, 0);
+  const totalGeral = totalCards + totalAccounts;
 
   if (!showAccounts && !showCards) {
     return (
-      <Card title="Quanto gastei" hint={hint} className="ck-enter mb-5">
+      <Card title="Quanto gastei" hint={hint} className={`ck-enter h-full ${className ?? ''}`.trim()}>
         <p className="text-[13px] text-[var(--ck-muted)]">Nenhum gasto por cartão ou conta neste mês.</p>
       </Card>
     );
@@ -129,51 +166,80 @@ export default function SaldosWidget({
       title="Quanto gastei"
       hint={hint}
       info="Quanto foi gasto neste mês em cada cartão e conta, respeitando o filtro de mês e o eixo selecionado (Gastei = por compra; Vai sair = por vencimento). Pagamento de fatura não conta (não é consumo)."
-      className="ck-enter mb-5"
+      className={`ck-enter h-full ${className ?? ''}`.trim()}
     >
       <div className="grid gap-4 lg:grid-cols-2">
         {showCards && (
-          <section className="space-y-2">
-            <SectionHeader
-              href={`/projects/${projectId}/credit-cards`}
-              icon={<CreditCard className="w-3.5 h-3.5" />}
-              title="Cartões"
-            />
-            <div className="space-y-2">
-              {cardRows.map(({ card, gasto }) => (
-                <div
-                  key={card.id}
-                  className="relative flex items-center justify-between gap-3 overflow-hidden rounded-xl px-3 py-2.5 text-white shadow-lifeone-card"
-                  style={{ backgroundImage: pickCardGradient(card.last4) }}
+          <section className="flex h-full flex-col gap-2">
+            <SectionHeader href={`/projects/${projectId}/credit-cards`} icon={<CreditCard className="w-3.5 h-3.5" />} title="Cartões" />
+            {cardRows.length > 1 && (
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => selectCard(null)}
+                  className={`min-h-[36px] rounded-full border px-2.5 text-[11px] font-semibold transition-colors ${
+                    !selectedCard
+                      ? 'border-[var(--ck-accent)] bg-[var(--ck-accent)] text-white'
+                      : 'border-[var(--ck-border)] bg-[var(--ck-surface-2)] text-[var(--ck-muted)] hover:text-[var(--ck-text)]'
+                  }`}
                 >
-                  <span
-                    aria-hidden
-                    className="pointer-events-none absolute inset-0"
-                    style={{ background: 'radial-gradient(120% 80% at 85% 10%, rgba(255,255,255,.16), transparent 55%)' }}
-                  />
-                  <span className="relative flex min-w-0 items-center gap-2">
-                    <MiniCardChip />
-                    <span className="min-w-0 truncate text-xs font-medium text-white/90">
-                      {cardName(card)} <span className="text-white/55">••{card.last4}</span>
+                  Todos
+                </button>
+                {cardRows.map(({ card }) => (
+                  <button
+                    key={card.id}
+                    type="button"
+                    onClick={() => selectCard(card.last4)}
+                    className={`min-h-[36px] rounded-full border px-2.5 text-[11px] font-semibold transition-colors ${
+                      selectedCard === card.last4
+                        ? 'border-[var(--ck-accent)] bg-[var(--ck-accent)] text-white'
+                        : 'border-[var(--ck-border)] bg-[var(--ck-surface-2)] text-[var(--ck-muted)] hover:text-[var(--ck-text)]'
+                    }`}
+                  >
+                    ••{card.last4}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="flex-1 space-y-2">
+              {filteredCardRows.length === 0 ? (
+                <p className="text-xs text-[var(--ck-muted)]">Nenhum gasto no cartão selecionado neste mês.</p>
+              ) : (
+                filteredCardRows.map(({ card, gasto }) => (
+                  <div
+                    key={card.id}
+                    className="relative flex items-center justify-between gap-3 overflow-hidden rounded-xl px-3 py-2.5 text-white shadow-lifeone-card"
+                    style={{ backgroundImage: pickCardGradient(card.last4) }}
+                  >
+                    <span
+                      aria-hidden
+                      className="pointer-events-none absolute inset-0"
+                      style={{ background: 'radial-gradient(120% 80% at 85% 10%, rgba(255,255,255,.16), transparent 55%)' }}
+                    />
+                    <span className="relative flex min-w-0 items-center gap-2">
+                      <MiniCardChip />
+                      <span className="min-w-0 truncate text-xs font-medium text-white/90">
+                        {cardName(card)} <span className="text-white/55">••{card.last4}</span>
+                      </span>
                     </span>
-                  </span>
-                  <span className="relative shrink-0 font-geist tabular-nums text-sm font-bold">
-                    {fmtMoneyExact(gasto)}
-                  </span>
-                </div>
-              ))}
+                    <span className="relative shrink-0 font-geist tabular-nums text-sm font-bold">
+                      {fmtMoneyExact(gasto)}
+                    </span>
+                  </div>
+                ))
+              )}
             </div>
           </section>
         )}
 
         {showAccounts && (
-          <section className="space-y-2">
+          <section className="flex h-full flex-col gap-2">
             <SectionHeader
               href={`/projects/${projectId}/bank-accounts`}
               icon={<Landmark className="w-3.5 h-3.5" />}
               title="Contas"
             />
-            <div className="space-y-2">
+            <div className="flex-1 space-y-2">
               {accountRows.map(({ account, gasto }) => (
                 <div
                   key={account.id}
@@ -200,6 +266,20 @@ export default function SaldosWidget({
             </div>
           </section>
         )}
+      </div>
+      <div className="mt-4 grid gap-2 border-t border-[var(--ck-border)] pt-3 sm:grid-cols-3">
+        <div className="rounded-lg bg-[var(--ck-surface-2)] px-3 py-2">
+          <p className="text-[10px] uppercase tracking-[0.16em] text-[var(--ck-muted)]">Cartões</p>
+          <p className="font-geist tabular-nums text-sm font-semibold text-[var(--ck-text)]">{fmtMoneyExact(totalCards)}</p>
+        </div>
+        <div className="rounded-lg bg-[var(--ck-surface-2)] px-3 py-2">
+          <p className="text-[10px] uppercase tracking-[0.16em] text-[var(--ck-muted)]">Contas</p>
+          <p className="font-geist tabular-nums text-sm font-semibold text-[var(--ck-text)]">{fmtMoneyExact(totalAccounts)}</p>
+        </div>
+        <div className="rounded-lg bg-[var(--ck-surface-2)] px-3 py-2">
+          <p className="text-[10px] uppercase tracking-[0.16em] text-[var(--ck-muted)]">Total</p>
+          <p className="font-geist tabular-nums text-sm font-semibold text-[var(--ck-text)]">{fmtMoneyExact(totalGeral)}</p>
+        </div>
       </div>
     </Card>
   );

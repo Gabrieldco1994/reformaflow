@@ -1,11 +1,10 @@
-'use client';
+"use client";
 
-import Link from 'next/link';
-import { Home, MessageCircle, Plus } from 'lucide-react';
-import { ProjectType, type NavModule } from '@reformaflow/domain';
-import { typeAccent } from '../../_components/type-accent';
-import { isPathActive } from './mobile-nav';
-import { navIcon } from './nav-icons';
+import Link from "next/link";
+import { CreditCard, Home, MessageCircle, Plus } from "lucide-react";
+import { hasFeature, ProjectType, type NavModule } from "@reformaflow/domain";
+import { isPathActive } from "./mobile-nav";
+import { navIcon } from "./nav-icons";
 
 interface MobileTabBarProps {
   basePath: string;
@@ -16,12 +15,16 @@ interface MobileTabBarProps {
   onOpenLaunch: () => void;
 }
 
-const BAR_CLASS =
-  'fixed inset-x-0 bottom-0 z-30 border-t border-darc-linen bg-white/95 backdrop-blur-md safe-pb md:hidden';
+const DOCK_CLASS =
+  "minimal-dock fixed inset-x-0 bottom-0 z-30 px-[18px] md:hidden";
 
 function tabClass(active: boolean) {
-  return `flex min-h-11 flex-1 flex-col items-center justify-center gap-1 py-1 text-[11px] font-semibold transition-colors ${
-    active ? 'text-darc-velvet' : 'text-darc-velvet/60'
+  return `minimal-tab-link ${active ? "minimal-tab-link--active" : ""} flex h-12 min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-full px-1 text-[10px] font-semibold leading-tight transition-all active:scale-95`;
+}
+
+function pessoalTabClass(active: boolean) {
+  return `flex h-12 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-full px-1 text-[10px] font-semibold leading-tight transition-all active:scale-95 ${
+    active ? "bg-[#111214] text-white" : "text-[#5B6068]"
   }`;
 }
 
@@ -33,46 +36,77 @@ export function MobileTabBar({
   canLaunch = false,
   onOpenLaunch,
 }: MobileTabBarProps) {
-  if (projectType === ProjectType.PESSOAL) {
+  if (hasFeature(projectType, "monthlyOverview")) {
+    const ExpensesIcon = navIcon("expenses");
     const todayHref = `${basePath}/monthly`;
+    const expensesHref = `${basePath}/expenses`;
     const mariaHref = `${basePath}/maria`;
-    const canViewToday = primary.some((module) => module.slug === 'monthly');
+    const cardsHref = `${basePath}/credit-cards`;
+    const canViewToday = primary.some((module) => module.slug === "monthly");
+    const canViewExpenses = canLaunch;
     const todayActive = isPathActive(pathname, todayHref);
+    const expensesActive = isPathActive(pathname, expensesHref);
     const mariaActive = isPathActive(pathname, mariaHref);
+    const cardsActive = isPathActive(pathname, cardsHref);
 
     return (
-      <nav className={BAR_CLASS}>
-        <div className="flex items-end justify-around px-2 pb-1 pt-1.5">
-          {canViewToday && (
+      <nav className={DOCK_CLASS} aria-label="Navegação principal">
+        <div className="flex items-center gap-2.5">
+          <div
+            data-testid="pessoal-tab-pill"
+            className="minimal-tab-pill flex min-w-0 flex-1 items-center rounded-full p-2"
+          >
+            {canViewToday && (
+              <Link
+                href={todayHref}
+                aria-current={todayActive ? "page" : undefined}
+                className={pessoalTabClass(todayActive)}
+              >
+                <Home className="h-5 w-5" />
+                <span className="max-w-full truncate">Cockpit</span>
+              </Link>
+            )}
+
+            {canViewExpenses && (
+              <Link
+                href={expensesHref}
+                aria-current={expensesActive ? "page" : undefined}
+                className={pessoalTabClass(expensesActive)}
+              >
+                <ExpensesIcon className="h-5 w-5" />
+                <span className="max-w-full truncate">Despesas</span>
+              </Link>
+            )}
+
             <Link
-              href={todayHref}
-              aria-current={todayActive ? 'page' : undefined}
-              className={tabClass(todayActive)}
+              href={mariaHref}
+              aria-current={mariaActive ? "page" : undefined}
+              className={pessoalTabClass(mariaActive)}
             >
-              <Home className="h-5 w-5" />
-              <span>Hoje</span>
+              <MessageCircle className="h-5 w-5" />
+              <span className="max-w-full truncate">Maria</span>
             </Link>
-          )}
+
+            <Link
+              href={cardsHref}
+              aria-current={cardsActive ? "page" : undefined}
+              className={pessoalTabClass(cardsActive)}
+            >
+              <CreditCard className="h-5 w-5" />
+              <span className="max-w-full truncate">Cartões</span>
+            </Link>
+          </div>
 
           {canLaunch && (
             <button
               type="button"
               aria-label="Lançar"
               onClick={onOpenLaunch}
-              className="-mt-6 flex h-14 w-14 items-center justify-center rounded-full bg-[#0F6B4D] text-white shadow-darc-hero transition-transform active:scale-95"
+              className="minimal-launch-action flex h-16 w-16 shrink-0 bg-white items-center justify-center rounded-full text-[#111214] transition-transform active:scale-95"
             >
               <Plus className="h-6 w-6" />
             </button>
           )}
-
-          <Link
-            href={mariaHref}
-            aria-current={mariaActive ? 'page' : undefined}
-            className={tabClass(mariaActive)}
-          >
-            <MessageCircle className="h-5 w-5" />
-            <span>Maria</span>
-          </Link>
         </div>
       </nav>
     );
@@ -80,11 +114,9 @@ export function MobileTabBar({
 
   if (primary.length === 0) return null;
 
-  const accent = typeAccent(projectType);
-
   return (
-    <nav className={BAR_CLASS}>
-      <div className="flex items-stretch justify-around px-2 pb-1 pt-1.5">
+    <nav className={DOCK_CLASS} aria-label="Navegação principal">
+      <div className="minimal-tab-pill flex items-center rounded-full p-2">
         {primary.map((module) => {
           const href = `${basePath}/${module.slug}`;
           const active = isPathActive(pathname, href);
@@ -94,12 +126,11 @@ export function MobileTabBar({
             <Link
               key={module.slug}
               href={href}
-              aria-current={active ? 'page' : undefined}
+              aria-current={active ? "page" : undefined}
               className={tabClass(active)}
-              style={active ? { color: accent.color } : undefined}
             >
               <Icon className="h-5 w-5" />
-              <span>{module.label}</span>
+              <span className="max-w-full truncate">{module.label}</span>
             </Link>
           );
         })}

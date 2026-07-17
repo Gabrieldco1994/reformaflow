@@ -26,7 +26,7 @@ Se mudou `prisma/schema.prisma`: **backup obrigatório** `cp prisma/dev.db prism
 
 ## Layout
 
-- `apps/api/` — NestJS, porta **3001**, DB `prisma/dev.db`. Módulos principais: expense, cash-flow, dashboard, simulation, floor-plan, room, price-compare, car-info, recurring-bill, maintenance, reminder, schedule, receipt, project, tenant. Cockpit PESSOAL/financeiro: monthly-overview, tenant-financial, conciliacao, credit-card, bank-account, budget-allocation, category-budget. Assistente Maria: agent, tts, merchant-classifier. Infra: auth, users, common, prisma, notifications, link-preview.
+- `apps/api/` — NestJS, porta **3001**, DB `prisma/dev.db`. Módulos principais: expense, cash-flow, dashboard, simulation, floor-plan, room, price-compare, car-info, recurring-bill, maintenance, reminder, schedule, receipt, project, tenant. Cockpit PESSOAL/financeiro: monthly-overview, tenant-financial, conciliacao, credit-card, bank-account, budget-allocation, category-budget. Assistente Maria: agent, tts, merchant-classifier. Infra: auth, users, common, prisma, notifications, link-preview, demo.
 - `apps/web/` — Next.js, porta **3000**. Rotas dinâmicas em `src/app/projects/[projectId]/...` (cockpit em `.../monthly`).
 - `packages/domain/` — enums + regras (`ExpenseTypeLabels`, `ProjectType`, `getExpenseTypesForProject`, `PROJECT_FEATURES`, `hasFeature`). **Barrel only**: importar via `@reformaflow/domain`. Após mudar, `npm run build`.
 
@@ -55,12 +55,15 @@ cd packages/domain && npx vitest run              # testes domínio (vitest, __t
 | PLANTAS | dashboard, maintenance, reminders, plantsAi |
 
 > `carInfo` **não** é uma feature de `PROJECT_FEATURES` — é um endpoint/módulo 1:1 com `Project` (`PUT` + upsert), específico de CARRO. CASA e CARRO compartilham o mesmo conjunto (recurringBills/maintenance/reminders/expenses); CARRO só acrescenta o registro `carInfo`. Como CASA/CARRO têm `expenses`, suas despesas planejadas podem ser alvo de vínculo/rateio cross-project a partir do PESSOAL.
+>
+> `TYPE_MODULES` (`packages/domain/src/config/type-modules.ts`) é o mapa de **autorização** compartilhado entre API e contexto de autenticação. `PROJECT_FEATURES` continua sendo o mapa de **capacidade/exposição do produto**. Não trocar um pelo outro.
 
 ## Convenções
 
 - **Páginas ≤ 400 linhas / 20 KB** (convenção-alvo; algumas páginas legadas excedem, ex. `floor-plans/page.tsx` — tratar como dívida a quebrar). Quebrar em `<rota>/_components/Foo.tsx` (private folders) + `<rota>/_types.ts` + `<rota>/_hooks/useFoo.ts` + `<rota>/_lib/*.ts`.
 - **Labels/options de despesas**: helpers de forma de pagamento e categoria de mão de obra em `apps/web/src/lib/expense-options.ts` (`FORMA_PAGAMENTO_OPTIONS`, `CATEGORIA_MAO_DE_OBRA_OPTIONS`, `tipoLabel`, `formaLabel`, `catMaoLabel`). **Options de tipo de despesa** vêm de `getExpenseOptions(projectType)` em `apps/web/src/app/projects/[projectId]/expenses/_types.ts`.
 - **`useProject` é hook**: chamar dentro do componente, nunca no topo do módulo.
+- **Mudou comportamento visível de uma tela**: atualizar a seção correspondente de `docs/manual-do-aplicativo.md` no **mesmo PR** (mesma disciplina do `estado-atual`).
 
 ## Regras de ouro (cicatrizes — não repetir)
 
@@ -71,8 +74,13 @@ cd packages/domain && npx vitest run              # testes domínio (vitest, __t
 5. `nest build`/`tsc` às vezes geram `.js`/`.d.ts` dentro de `apps/*/src/app` → "Duplicate page". Limpar: `find apps/*/src -name 'page.js' -delete`.
 6. `CarInfo` é 1:1 com `Project` → endpoint usa `PUT` + Prisma `upsert`.
 7. Em `FloorPlanRoom.reanalyze`, use `deleteMany({where})` simples — FK cascade cuida do resto (não há soft-delete nesse modelo).
-8. **API NestJS morre se o shell que iniciou fechar.** Use `./start-api.sh` ou `bash` async detached.
+8. **API NestJS morre se o shell que iniciou fechar.** Use `./start-api.sh` ou `bash` async detached. Atenção: o script NÃO carrega o `.env` — exporte antes (`set -a && source .env && set +a`) ou a API cai com `DATABASE_URL` ausente.
 9. **EMU bloqueia `gh`/`git push` no repo pessoal.** Solução: `unset GH_TOKEN && gh auth switch -u Gabrieldco1994` antes de operações no GitHub.
+10. **NUNCA apagar `apps/web/src/app/prototype/agent-monitor/**` nem `tools/agent-monitor/**`.** É a página de monitoramento de agentes em produção (`/prototype/agent-monitor`, pública no `middleware.ts`), não um protótipo descartável apesar do nome da pasta. Já foi apagada sem querer por um checkpoint automático de sessão — se algum diff/checkout/limpeza remover esses arquivos, restaure antes de commitar.
+
+11. **PR sempre com `--base main`.** O PR #86 foi squash-mergeado numa branch já morta por omitir o `--base` — o código ficou órfão e fora do ar até resgate manual. Após criar, confirme `baseRefName=main` (`gh pr view <n> --json baseRefName`).
+12. **Agentes trabalham em worktree próprio** (`git worktree add ... -b <branch> origin/main`). NUNCA trocar a branch do checkout principal (`/Users/gabrielbarbosa/reformaflow`) nem commitar nele: outros agentes/processos o usam simultaneamente e commits caem na branch errada (aconteceu 2× em 2026-07-13).
+13. **Mudou UI? QA visual real é obrigatória antes do PR**: login real + dados reais, mobile 375/390px e desktop, screenshots no PR. tsc/testes verdes NÃO bastam (5 bugs só apareceram em QA real). Piso tipográfico: nada <11px, valores de lista ≥15px, alvos de toque ≥44px; **valor monetário nunca divide a largura da linha com outro elemento variável** (badge/chip/outro valor) — rótulo à esquerda, valor `nowrap` à direita (erro corrigido 4× no mesmo mês).
 
 ## Notas técnicas (consulte quando tocar o módulo)
 
@@ -88,4 +96,4 @@ cd packages/domain && npx vitest run              # testes domínio (vitest, __t
 
 ## Variáveis de ambiente
 
-`DATABASE_URL`, `GOOGLE_API_KEY` (Gemini), `GOOGLE_SEARCH_ENGINE_ID` (opcional). Portas: web 3000, api 3001.
+`DATABASE_URL`, `GOOGLE_API_KEY` (Gemini), `GOOGLE_SEARCH_ENGINE_ID` (opcional), `AUTH_ENABLE_REGISTER`, `AUTH_ENABLE_GUEST`, `APP_MODE` e `ALLOW_TENANT_OVERRIDE`. Em produção, mantenha `ALLOW_TENANT_OVERRIDE="0"`. Portas: web 3000, api 3001.

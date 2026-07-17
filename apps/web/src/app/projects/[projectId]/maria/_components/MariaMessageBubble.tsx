@@ -45,7 +45,7 @@ export function MariaMessageBubble({
 
   if (isUser) {
     return (
-      <div className="ml-auto max-w-[86%] rounded-[18px] rounded-br-md bg-lifeone-ink px-4 py-3 text-[15px] font-medium leading-6 text-white">
+      <div className="minimal-chat-bubble minimal-chat-bubble--user ml-auto max-w-[86%] rounded-[18px] rounded-br-md bg-lifeone-ink px-4 py-3 text-[15px] font-medium leading-6 text-white">
         {message.content}
       </div>
     );
@@ -55,11 +55,11 @@ export function MariaMessageBubble({
   if (pending) {
     return (
       <div className="max-w-[86%] space-y-2">
-        <div className="rounded-[18px] rounded-bl-md border border-lifeone-hairline bg-white px-4 py-3 text-[15px] leading-6 text-lifeone-ink-2 shadow-lifeone-card">
+        <div className="minimal-chat-bubble rounded-[18px] rounded-bl-md border border-lifeone-hairline bg-white px-4 py-3 text-[15px] leading-6 text-lifeone-ink-2 shadow-lifeone-card">
           Entendi assim — confere?
         </div>
         <div
-          className={`rounded-2xl border-[1.5px] border-dashed border-emerald-200 bg-emerald-50 p-4 ${confirmed ? 'opacity-70' : ''}`}
+          className={`minimal-soft-card rounded-2xl border-[1.5px] border-dashed border-emerald-200 bg-emerald-50 p-4 ${confirmed ? 'opacity-70' : ''}`}
         >
           <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-emerald-800">
             nova despesa
@@ -97,14 +97,14 @@ export function MariaMessageBubble({
 
   return (
     <div className="max-w-[86%] space-y-2">
-      <div className="rounded-[18px] rounded-bl-md border border-lifeone-hairline bg-white px-4 py-3 text-[15px] leading-6 text-lifeone-ink-2 shadow-lifeone-card">
+      <div className="minimal-chat-bubble rounded-[18px] rounded-bl-md border border-lifeone-hairline bg-white px-4 py-3 text-[15px] leading-6 text-lifeone-ink-2 shadow-lifeone-card">
         {formatInlineBold(message.content)}
         {ttsSupported && (
           <button
             type="button"
             onClick={onToggleSpeak}
             aria-label={speaking ? 'Parar áudio' : 'Ouvir resposta'}
-            className="mt-2 flex min-h-[32px] items-center gap-1 rounded-full border border-lifeone-hairline px-2.5 py-1 text-[11px] font-semibold text-lifeone-ink-3"
+            className="mt-2 flex min-h-[44px] items-center gap-1 rounded-full border border-lifeone-hairline px-2.5 py-1 text-[11px] font-semibold text-lifeone-ink-3"
           >
             {speaking ? <Square className="h-3 w-3" /> : <Volume2 className="h-3 w-3" />}
             {speaking ? 'Parar' : 'Ouvir'}

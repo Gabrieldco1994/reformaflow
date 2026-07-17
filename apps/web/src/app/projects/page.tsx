@@ -4,12 +4,14 @@ import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/auth-context';
-import { Plus, ChevronRight, LineChart, Search } from 'lucide-react';
+import { Plus, ChevronRight, LineChart, Search, Settings } from 'lucide-react';
 import Link from 'next/link';
 import { NotificationsBell } from '@/components/notifications/NotificationsBell';
 import { ProjectHubCard } from './_components/ProjectHubCard';
 import { CreateProjectModal } from './_components/CreateProjectModal';
-import { TYPE_ACCENT, typeAccent, TypeIcon } from './_components/type-accent';
+import { typeAccent, TypeIcon } from './_components/type-accent';
+import { getProjectHomePath } from './_lib/project-home-route';
+import { OBJECTIVE_TYPES } from '@/components/objectives/objective-options';
 
 interface Project {
   id: string;
@@ -29,8 +31,10 @@ export default function ProjectsPage() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const [onboarding, setOnboarding] = useState(false);
 
   useEffect(() => {
+    setOnboarding(new URLSearchParams(window.location.search).get('onboarding') === '1');
     loadProjects();
   }, []);
 
@@ -53,11 +57,20 @@ export default function ProjectsPage() {
   }, [visibleProjects, query]);
 
   const allowedTypes = useMemo(
-    () => Object.keys(TYPE_ACCENT).filter((t) => canCreateProjectType(t)),
+    () => OBJECTIVE_TYPES.filter((type) => canCreateProjectType(type)),
     [canCreateProjectType],
   );
 
   const canCreate = !!user && allowedTypes.length > 0;
+
+  useEffect(() => {
+    if (!loading && onboarding && projects.length === 0 && canCreate) {
+      setNewProject({ name: '', type: allowedTypes[0] ?? '', description: '' });
+      setCreateError(null);
+      setShowCreate(true);
+      setOnboarding(false);
+    }
+  }, [allowedTypes, canCreate, loading, onboarding, projects.length]);
 
   function openCreate() {
     if (!canCreate) return;
@@ -83,7 +96,7 @@ export default function ProjectsPage() {
 
   async function handleCreate() {
     if (!newProject.name.trim() || !newProject.type) return;
-    if (!allowedTypes.includes(newProject.type)) {
+    if (!allowedTypes.some((type) => type === newProject.type)) {
       setCreateError('Você não tem permissão para criar projetos desse tipo.');
       return;
     }
@@ -97,7 +110,8 @@ export default function ProjectsPage() {
       // Recarrega o usuário: se restrito, o backend acabou de conceder acesso
       // ao novo projeto — sem isso o layout redirecionaria para /no-permission.
       await refresh();
-      router.push(`/projects/${created.id}/dashboard`);
+      // Primeiro acesso ao projeto: manda pro guia de apoio antes do cockpit/dashboard.
+      router.push(`/projects/${created.id}/apoio`);
     } catch (err) {
       console.error('Erro ao criar projeto:', err);
       setCreateError(err instanceof Error ? err.message : 'Erro ao criar projeto');
@@ -138,6 +152,16 @@ export default function ProjectsPage() {
             </h1>
           </div>
           <div className="flex items-center gap-2">
+            {!isAdmin && (
+              <Link
+                href="/settings"
+                aria-label="Configurações"
+                title="Configurações"
+                className="flex min-h-11 min-w-11 items-center justify-center rounded-[10px] text-lifeone-ink-3 hover:bg-lifeone-card hover:text-lifeone-blue"
+              >
+                <Settings className="h-5 w-5" />
+              </Link>
+            )}
             <NotificationsBell variant="light" />
             <button
               onClick={openCreate}
@@ -193,7 +217,7 @@ export default function ProjectsPage() {
           newProject={newProject}
           setNewProject={setNewProject}
           allowedTypes={allowedTypes}
-          totalTypes={Object.keys(TYPE_ACCENT).length}
+          totalTypes={OBJECTIVE_TYPES.length}
           isAdmin={isAdmin}
           creating={creating}
           createError={createError}
@@ -210,7 +234,7 @@ export default function ProjectsPage() {
             <p className="text-lifeone-ink-3 text-[13px] mt-1 px-6">
               {projects.length === 0
                 ? canCreate
-                  ? 'Crie seu primeiro projeto para começar'
+                  ? 'Dê um nome ao seu primeiro projeto e escolha um dos objetivos liberados para começar.'
                   : 'Peça ao administrador para liberar módulos'
                 : 'Peça ao administrador para liberar módulos'}
             </p>
@@ -239,7 +263,7 @@ export default function ProjectsPage() {
                   key={project.id}
                   project={project}
                   isAdmin={isAdmin}
-                  onOpen={() => router.push(`/projects/${project.id}/dashboard`)}
+                  onOpen={() => router.push(getProjectHomePath(project.id, project.type))}
                   onDelete={(e) => { e.stopPropagation(); handleDelete(project.id); }}
                 />
               ))}
@@ -261,7 +285,7 @@ export default function ProjectsPage() {
                 return (
                   <div
                     key={project.id}
-                    onClick={() => router.push(`/projects/${project.id}/dashboard`)}
+                    onClick={() => router.push(getProjectHomePath(project.id, project.type))}
                     className="flex items-center gap-3 px-3.5 py-3 rounded-[14px] bg-lifeone-card border border-lifeone-hairline shadow-lifeone-card active:scale-[0.99] transition-all"
                   >
                     <span

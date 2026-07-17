@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LifeOne App — Despesas · v2 (cartões reais + lista moderna)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./skin-mobile-base.css">
+<style>
+  :root{
+    --bg:#F6F4EF; --card:#FFFFFF; --surface:#FBFAF7;
+    --ink:#201D19; --ink2:#57524A; --ink3:#8A857C; --line:#EAE6DE;
+    --green:#0F6B4D; --green-soft:#E4F3EC; --red:#D92D20; --red-soft:#FCEBE9;
+    --amber:#B5803A; --amber-soft:#FBF2DF; --blue:#2F5AC8; --blue-soft:#E9EEFB;
+    --r-lg:22px; --r-md:16px;
+    --shadow:0 1px 2px rgba(32,29,25,.04),0 8px 24px rgba(32,29,25,.05);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{font-family:'Inter',-apple-system,system-ui,sans-serif;color:var(--ink);
+    -webkit-font-smoothing:antialiased;font-feature-settings:"cv11"}
+  body{background:#E5E1DA;display:flex;justify-content:center;align-items:flex-start;
+    gap:28px;padding:28px;flex-wrap:wrap;min-height:100vh}
+  .num{font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+  .micro{font-size:11.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3)}
+
+  .phone{width:402px;height:848px;background:var(--bg);border-radius:48px;
+    border:11px solid #131110;overflow:hidden;position:relative;display:flex;
+    flex-direction:column;box-shadow:0 30px 70px rgba(19,17,16,.4)}
+  .screen{flex:1;overflow-y:auto;padding:12px 18px 130px;scrollbar-width:none;position:relative}
+  .screen::-webkit-scrollbar{display:none}
+
+  .top{display:flex;align-items:center;justify-content:space-between;padding:10px 2px 12px}
+  .top .t{display:flex;align-items:center;gap:10px}
+  .back{width:36px;height:36px;border-radius:11px;border:1px solid var(--line);background:#fff;
+    display:grid;place-items:center;color:var(--ink2);text-decoration:none}
+  .title{font-size:22px;font-weight:800;letter-spacing:-.02em}
+  .mNav{display:flex;align-items:center;gap:6px}
+  .mNav button{width:32px;height:32px;border-radius:10px;border:1px solid var(--line);background:#fff;
+    color:var(--ink2);font-size:15px;cursor:pointer}
+  .mNav .m{font-size:14px;font-weight:700;min-width:64px;text-align:center}
+
+  /* HERÓI CLARO — gasto real */
+  .hero{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);
+    padding:20px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+  .hero::before{content:"";position:absolute;width:220px;height:220px;border-radius:50%;
+    background:radial-gradient(closest-side,rgba(15,107,77,.08),transparent);top:-110px;right:-70px}
+  .hero .big{font-size:40px;font-weight:800;letter-spacing:-.035em;margin-top:5px;line-height:1;position:relative}
+  .hero .big em{font-style:normal;font-size:20px;font-weight:600;color:var(--ink3)}
+  .hero .sub{margin-top:9px;font-size:13.5px;line-height:1.55;color:var(--ink2);position:relative;font-weight:500}
+  .hero .sub b{font-weight:700;color:var(--ink)}
+  .pills{margin-top:14px;position:relative;border-top:1px solid var(--line);padding-top:4px}
+  .pill{display:flex;justify-content:space-between;align-items:center;padding:9px 2px;min-height:38px}
+  .pill+.pill{border-top:1px solid #F1EEE8}
+  .pill .k{font-size:13px;font-weight:650;color:var(--ink2);display:flex;align-items:center;gap:8px}
+  .pill .k i{width:9px;height:9px;border-radius:3px;display:inline-block}
+  .pill .v{font-size:15.5px;font-weight:750;white-space:nowrap}
+  .pill.amber .k i{background:var(--amber)} .pill.amber .v{color:#7A5A28}
+  .pill.green .k i{background:var(--green)} .pill.green .v{color:#0C5A40}
+  .pill.gray .k i{background:#C9C4BB} .pill.gray .v{color:var(--ink3)}
+
+  /* chips de origem */
+  .orig{display:flex;gap:8px;overflow-x:auto;margin-top:16px;scrollbar-width:none;padding-bottom:2px}
+  .orig::-webkit-scrollbar{display:none}
+  .orig button{white-space:nowrap;border:1.5px solid var(--line);background:#fff;border-radius:99px;
+    padding:11px 16px;font:700 13.5px Inter;color:var(--ink2);cursor:pointer;min-height:44px;
+    display:flex;align-items:center;gap:7px}
+  .orig button .chip{width:8px;height:8px;border-radius:3px;display:inline-block}
+  .orig button.on{background:var(--ink);border-color:var(--ink);color:#fff}
+
+  /* ══ CARTÕES DE VERDADE ══ */
+  .wallet{display:flex;gap:12px;overflow-x:auto;margin-top:12px;scrollbar-width:none;
+    padding:4px 2px 10px;scroll-snap-type:x mandatory}
+  .wallet::-webkit-scrollbar{display:none}
+  .ccard{min-width:286px;height:172px;border-radius:20px;position:relative;overflow:hidden;
+    padding:16px 18px;color:#fff;scroll-snap-align:start;display:flex;flex-direction:column;
+    box-shadow:0 14px 30px rgba(19,17,16,.22)}
+  .ccard.master{background:linear-gradient(135deg,#221F1B 0%,#3A332B 55%,#4E4437 100%)}
+  .ccard.pers{background:linear-gradient(135deg,#101318 0%,#1E2430 60%,#2B3648 100%)}
+  .ccard.conta{background:linear-gradient(135deg,#0B4A36 0%,#0F6B4D 60%,#1B8A66 100%)}
+  .ccard::before{content:"";position:absolute;width:190px;height:190px;border-radius:50%;
+    background:radial-gradient(closest-side,rgba(255,255,255,.10),transparent);top:-70px;right:-50px}
+  .ccard .row1{display:flex;justify-content:space-between;align-items:center;position:relative;gap:8px;min-width:0}
+  .ccard .bank{font-size:12.5px;font-weight:750;letter-spacing:.02em;opacity:.95;min-width:0;max-width:58%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ccard .brand{display:flex;align-items:center;gap:8px;flex-shrink:0}
+  .mcLogo{width:40px;height:24px;position:relative}
+  .mcLogo i{position:absolute;width:24px;height:24px;border-radius:50%;top:0}
+  .mcLogo i:first-child{left:0;background:#EB001B;opacity:.92}
+  .mcLogo i:last-child{right:0;background:#F79E1B;opacity:.92;mix-blend-mode:screen}
+  .visaTxt{font-size:13px;font-weight:800;font-style:italic;letter-spacing:.04em;opacity:.9}
+  .ccard .chipRow{display:flex;align-items:center;gap:10px;margin-top:12px;position:relative}
+  .chipIc{width:32px;height:23px;border-radius:5px;background:linear-gradient(140deg,#E8CC7A,#B98F3E);
+    position:relative}
+  .chipIc::after{content:"";position:absolute;inset:5px 6px;border:1px solid rgba(0,0,0,.28);border-radius:3px}
+  .ccard .pan{font-size:14.5px;font-weight:650;letter-spacing:.14em;opacity:.92}
+  .ccard .foot{margin-top:auto;position:relative}
+  .ccard .fl .k{font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;opacity:.6;line-height:1.25}
+  .ccard .fl .v{font-size:22px;font-weight:800;letter-spacing:-.02em;margin-top:3px;white-space:nowrap}
+  .ccard .fl .s{font-size:11.5px;font-weight:600;opacity:.72;margin-top:4px;line-height:1.3}
+  .st{font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+    padding:6px 11px;border-radius:9px;white-space:nowrap}
+  .st.paid{background:#2FA97C;color:#fff}
+  .st.open{background:#E8B04B;color:#201D19}
+  .st.warn{background:#E2574B;color:#fff}
+
+  /* filtros */
+  .filters{display:flex;gap:8px;overflow-x:auto;margin-top:14px;scrollbar-width:none;align-items:center}
+  .filters::-webkit-scrollbar{display:none}
+  .filters button{white-space:nowrap;border:1px solid var(--line);background:#fff;border-radius:99px;
+    padding:10px 14px;font:600 13px Inter;color:var(--ink2);cursor:pointer;min-height:40px}
+  .filters button.on{background:var(--ink);border-color:var(--ink);color:#fff;font-weight:700}
+  .neutTgl{display:flex;justify-content:space-between;align-items:center;margin-top:12px;
+    padding:12px 14px;background:var(--surface);border:1px solid var(--line);border-radius:14px}
+  .neutTgl .t{font-size:13.5px;font-weight:650;color:var(--ink2)}
+  .neutTgl .s{font-size:11.5px;color:var(--ink3);font-weight:500;margin-top:2px}
+  .sw{width:46px;height:27px;border-radius:99px;background:#DDD8CF;position:relative;cursor:pointer;
+    transition:background .2s;flex-shrink:0}
+  .sw::after{content:"";position:absolute;width:21px;height:21px;border-radius:50%;background:#fff;
+    top:3px;left:3px;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,.25)}
+  .sw.on{background:var(--green)}
+  .sw.on::after{left:22px}
+
+  /* ══ LISTA MODERNA — cada item é um card ══ */
+  .day{margin-top:18px}
+  .dayHead{display:flex;justify-content:space-between;align-items:baseline;padding:0 6px 8px}
+  .dayHead .d{font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3)}
+  .dayHead .tot{font-size:12.5px;font-weight:700;color:var(--ink2)}
+  .items{display:flex;flex-direction:column;gap:8px}
+  .item{display:flex;gap:12px;padding:13px 14px;align-items:center;background:var(--card);
+    border-radius:16px;box-shadow:var(--shadow);border:1px solid transparent}
+  .item.neutral{background:var(--surface);border:1px dashed var(--line);box-shadow:none;opacity:.78}
+  .catDot{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;flex-shrink:0;font-size:17px}
+  .cd-green{background:var(--green-soft)} .cd-blue{background:var(--blue-soft)}
+  .cd-amber{background:var(--amber-soft)} .cd-red{background:var(--red-soft)}
+  .cd-gray{background:#F0EDE6}
+  .item .bd{flex:1;min-width:0}
+  .item .n{font-size:15px;font-weight:680;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    letter-spacing:-.01em}
+  .item .s{font-size:12px;color:var(--ink3);margin-top:3.5px;font-weight:550;display:flex;gap:5px;
+    align-items:center;flex-wrap:wrap}
+  .tag{font-size:10.5px;font-weight:750;padding:2.5px 7px;border-radius:6px}
+  .tag.parc{background:var(--blue-soft);color:var(--blue)}
+  .tag.esp{background:var(--amber-soft);color:var(--amber)}
+  .tag.neu{background:#EBE7DF;color:var(--ink3)}
+  .tag.inv{background:var(--green-soft);color:#0C5A40}
+  .item .vv{text-align:right;flex-shrink:0}
+  .item .v{font-size:15.5px;font-weight:780;letter-spacing:-.02em}
+  .item .vs{font-size:10.5px;font-weight:600;color:var(--ink3);margin-top:2px}
+  .item.neutral .v{color:var(--ink3);font-weight:620}
+  .item .v.pos{color:var(--green)}
+  .empty{padding:26px;text-align:center;font-size:14px;color:var(--ink3);font-weight:500;
+    background:var(--card);border-radius:16px;box-shadow:var(--shadow)}
+
+  .tabbar{position:absolute;left:0;right:0;bottom:0;background:rgba(251,250,247,.94);
+    backdrop-filter:blur(14px);border-top:1px solid var(--line);display:flex;padding:10px 6px 26px;z-index:50}
+  .tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;
+    font-size:10.5px;color:var(--ink3);font-weight:650;text-decoration:none}
+  .tab.on{color:var(--green)}
+  .tab svg{width:22px;height:22px}
+  .tab .raised{width:46px;height:46px;border-radius:16px;background:var(--green);color:#fff;
+    display:grid;place-items:center;margin-top:-26px;box-shadow:0 10px 24px rgba(15,107,77,.4)}
+  .note{max-width:380px;font-size:13px;color:#3a372f;line-height:1.65;background:#fff;
+    border-radius:18px;padding:18px 20px;box-shadow:var(--shadow)}
+  .note b{color:#201D19}
+  @media (max-width:560px){
+    body{padding:0;background:var(--bg);display:block}
+    .phone{width:100%;height:100dvh;border:0;border-radius:0;box-shadow:none}
+    .note{display:none}
+  }
+</style>
+</head>
+<body>
+
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▪▪▪ ⌾ ▮</span></div>
+  <div class="screen">
+
+    <div class="top">
+      <div class="t">
+        <a class="back" href="cockpit-inovador-c3.html" aria-label="Voltar">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+        </a>
+        <div class="title">Despesas</div>
+      </div>
+      <div class="mNav">
+        <button aria-label="Mês anterior">‹</button>
+        <div class="m">jul 26</div>
+        <button aria-label="Próximo mês">›</button>
+      </div>
+    </div>
+
+    <!-- HERÓI CLARO -->
+    <section class="hero">
+      <span class="micro">Gastei de verdade · julho</span>
+      <div class="big num" id="heroVal">—</div>
+      <p class="sub" id="heroSub"></p>
+      <div class="pills num">
+        <div class="pill amber"><div class="k"><i></i>No cartão (vai pra fatura)</div><div class="v" id="splitFat">—</div></div>
+        <div class="pill green"><div class="k"><i></i>Saiu da conta</div><div class="v" id="splitConta">—</div></div>
+        <div class="pill gray"><div class="k"><i></i>Neutros (não somam)</div><div class="v" id="splitNeu">—</div></div>
+      </div>
+    </section>
+
+    <!-- ORIGENS -->
+    <div class="orig" id="orig">
+      <button class="on" data-o="all">Todos</button>
+      <button data-o="conta"><span class="chip" style="background:#0F6B4D"></span>Conta Itaú</button>
+      <button data-o="5876"><span class="chip" style="background:#D97706"></span>Master •5876</button>
+      <button data-o="7777"><span class="chip" style="background:#2F5AC8"></span>Pers. •7777</button>
+    </div>
+
+    <!-- CARTEIRA: cartões de verdade -->
+    <div class="micro" style="margin:16px 4px 0">Carteira · faturas espelham o banco</div>
+    <div class="wallet">
+      <div class="ccard master">
+        <div class="row1"><span class="bank">Itaú</span>
+          <span class="brand"><span class="st open" style="margin-right:10px">fatura aberta</span><span class="mcLogo"><i></i><i></i></span></span></div>
+        <div class="chipRow"><span class="chipIc"></span><span class="pan num">•••• 5876</span></div>
+        <div class="foot">
+          <div class="fl"><div class="k">fatura de agosto · fecha 5 · vence 12</div>
+            <div class="v num">R$ 394,80</div>
+            <div class="s num">julho: R$ 2.100,00 paga ✓</div></div>
+        </div>
+      </div>
+      <div class="ccard pers">
+        <div class="row1"><span class="bank">Personnalité</span>
+          <span class="brand"><span class="st warn" style="margin-right:10px">configurar</span><span class="visaTxt">VISA</span></span></div>
+        <div class="chipRow"><span class="chipIc"></span><span class="pan num">•••• 7777</span></div>
+        <div class="foot">
+          <div class="fl"><div class="k">fatura</div><div class="v num">—</div>
+            <div class="s">sem dia de fechamento cadastrado</div></div>
+        </div>
+      </div>
+      <div class="ccard conta">
+        <div class="row1"><span class="bank">Itaú · Conta Corrente</span>
+          <span class="brand"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity=".85"><rect x="3" y="6" width="18" height="13" rx="3"/><path d="M3 10h18"/></svg></span></div>
+        <div class="chipRow"><span class="chipIc"></span><span class="pan num">•••• 4247</span></div>
+        <div class="foot">
+          <div class="fl"><div class="k">saiu no mês (caixa)</div><div class="v num">R$ 10.524,90</div>
+            <div class="s">inclui neutros — caixa é caixa</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- FILTRO DE CATEGORIA -->
+    <div class="filters" id="cats">
+      <button class="on" data-c="all">Todas</button>
+      <button data-c="Supermercado">Supermercado</button>
+      <button data-c="Transporte">Transporte</button>
+      <button data-c="Alimentação">Alimentação</button>
+      <button data-c="Saúde">Saúde</button>
+      <button data-c="Casa">Casa</button>
+      <button data-c="Obra">Obra</button>
+      <button data-c="Assinaturas">Assinaturas</button>
+    </div>
+
+    <!-- NEUTROS -->
+    <div class="neutTgl">
+      <div><div class="t">Mostrar neutros</div>
+        <div class="s">pagamento de fatura, movimentação e aporte — nunca somam no gasto</div></div>
+      <div class="sw on" id="swNeu" role="switch" aria-checked="true"></div>
+    </div>
+
+    <!-- LISTA -->
+    <div id="list"></div>
+  </div>
+
+  <div class="bottomDock"><div class="bottomDockRow">
+    <nav class="navPill">
+      <a class="navTab" href="cockpit-inovador-c3.html" aria-label="Hoje"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 3.5 10v10h6v-6h5v6h6V10Z"/></svg></a>
+      <a class="navTab on" href="app-despesas.html" aria-label="Despesas"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><rect x="3" y="6" width="18" height="13" rx="3"/><path d="M3 10h18"/></svg></a>
+      <a class="navTab" href="app-maria.html" aria-label="Maria"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8.5 8.5 0 0 1-8.5 8.5c-1.5 0-2.9-.35-4.1-1L3 21l1.6-4.6A8.5 8.5 0 1 1 21 12Z"/></svg></a>
+      <a class="navTab" href="app-lancar.html" aria-label="Perfil"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="8" r="4"/></svg></a>
+    </nav>
+    <a class="navPlus" href="app-lancar.html" aria-label="Lançar"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></a>
+  </div><div class="homebar"></div></div>
+</div>
+
+<div class="note">
+  <b>App · Despesas — v2</b> (feedback do Gabriel: cartões de verdade, herói claro, lista moderna).<br><br>
+  <b>1 · Carteira de cartões reais.</b> Cada origem é um cartão físico: gradiente
+  próprio, chip dourado, •••• 5876, bandeira (círculos Mastercard / VISA). A fatura
+  aberta vive NO cartão, com status (aberta / paga ✓ / configurar) e a fatura de julho
+  paga como memória. A conta corrente é o cartão verde — mostra o que saiu no mês
+  (caixa §10, inclui neutros).<br><br>
+  <b>2 · Herói claro.</b> Sem bloco preto: card branco com glow verde sutil, número
+  em tinta e as 3 verdades como pílulas coloridas — <b>no cartão</b> (âmbar = compromisso),
+  <b>da conta</b> (verde = caixa), <b>neutros</b> (cinza = não conta). Cores com
+  significado, não decoração.<br><br>
+  <b>3 · Lista moderna.</b> Cada despesa é um card flutuante com ícone em tile pastel
+  por categoria, tipografia maior, valor à direita com a origem embaixo. Neutros ficam
+  com fundo cru + borda tracejada (visualmente "fora da conta"), estorno em verde.<br><br>
+  Regras do motor intactas (visao-conta-faturas.md): gasto real exclui neutros;
+  fatura espelha o banco; "paga ✓" via <code>matchPaidInvoices</code>; Personnalité
+  sem closingDay nunca inventa fatura.
+</div>
+
+<script>
+  const IT=[
+    {d:11,n:'Mercado Zaffari',c:'Supermercado',e:'🛒',cc:'cd-green',o:'5876',ol:'Master •5876',v:187.40},
+    {d:11,n:'PIX pagamento fatura Master',c:'Fatura',e:'🔁',cc:'cd-gray',o:'conta',ol:'Conta Itaú',v:2100.00,neutro:'settlement',why:'paga fatura · não é gasto'},
+    {d:10,n:'Uber',c:'Transporte',e:'🚗',cc:'cd-blue',o:'conta',ol:'Conta Itaú · débito',v:24.90},
+    {d:10,n:'iFood',c:'Alimentação',e:'🍔',cc:'cd-amber',o:'5876',ol:'Master •5876',v:62.50},
+    {d:9,n:'Sofá — parcela 4/10',c:'Casa',e:'🛋️',cc:'cd-amber',o:'7777',ol:'Pers. •7777',v:640.00,parc:'4/10'},
+    {d:8,n:'Farmácia Panvel',c:'Saúde',e:'💊',cc:'cd-red',o:'5876',ol:'Master •5876',v:89.30},
+    {d:8,n:'Estorno Amazon',c:'Casa',e:'↩️',cc:'cd-green',o:'5876',ol:'Master •5876',v:-45.00},
+    {d:5,n:'Aporte CDB',c:'Investimentos',e:'🌱',cc:'cd-green',o:'conta',ol:'Conta Itaú',v:3000.00,neutro:'consumo',why:'guardado · não é gasto'},
+    {d:2,n:'Cerâmica obra 2/3',c:'Obra',e:'🧱',cc:'cd-amber',o:'conta',ol:'Conta Itaú',v:5400.00,esp:'Reforma Ap 92',parc:'2/3'},
+    {d:1,n:'Netflix',c:'Assinaturas',e:'📺',cc:'cd-blue',o:'5876',ol:'Master •5876',v:55.90},
+  ];
+  const BRL=v=>v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+  const mil=v=>{const k=v/1000;return 'R$ '+(k>=10?k.toFixed(0):k.toFixed(1).replace('.',','))+' <em>mil</em>';};
+  const compact=v=>v>=10000?'R$ '+(v/1000).toFixed(1).replace('.',',')+' mil':BRL(v);
+  let orig='all', cat='all', showNeu=true;
+
+  function render(){
+    const inScope=IT.filter(i=>(orig==='all'||i.o===orig)&&(cat==='all'||i.c===cat));
+    const gasto=inScope.filter(i=>!i.neutro).reduce((s,i)=>s+i.v,0);
+    const fat=inScope.filter(i=>!i.neutro&&i.o!=='conta').reduce((s,i)=>s+i.v,0);
+    const contaTot=inScope.filter(i=>i.o==='conta').reduce((s,i)=>s+i.v,0);
+    const neu=inScope.filter(i=>i.neutro).reduce((s,i)=>s+i.v,0);
+    document.getElementById('heroVal').innerHTML=gasto>=1000?mil(gasto):BRL(gasto);
+    document.getElementById('heroSub').innerHTML=
+      orig==='all'&&cat==='all'
+      ? 'Consumo até dia 11 — <b>neutros e aportes fora</b>. A obra pesa <b>'+BRL(5400)+'</b> (espelho da Reforma).'
+      : 'Filtro ativo. Volte em "Todos"/"Todas" para o consolidado.';
+    document.getElementById('splitFat').textContent=compact(fat);
+    document.getElementById('splitConta').textContent=compact(contaTot);
+    document.getElementById('splitNeu').textContent=compact(neu);
+
+    const days=[...new Set(inScope.map(i=>i.d))].sort((a,b)=>b-a);
+    const list=document.getElementById('list');
+    list.innerHTML = days.length? days.map(d=>{
+      const its=inScope.filter(i=>i.d===d && (showNeu||!i.neutro));
+      if(!its.length)return '';
+      const tot=its.filter(i=>!i.neutro).reduce((s,i)=>s+i.v,0);
+      return `<div class="day">
+        <div class="dayHead"><span class="d">${d===11?'hoje · 11 jul':d+' jul'}</span>
+          <span class="tot num">gasto ${BRL(tot)}</span></div>
+        <div class="items">${its.map(i=>`
+          <div class="item ${i.neutro?'neutral':''}">
+            <div class="catDot ${i.cc}">${i.e}</div>
+            <div class="bd"><div class="n">${i.n}</div>
+              <div class="s">${i.c}
+                ${i.parc?`<span class="tag parc">${i.parc}</span>`:''}
+                ${i.esp?`<span class="tag esp">espelho · ${i.esp}</span>`:''}
+                ${i.neutro?`<span class="tag ${i.neutro==='consumo'?'inv':'neu'}">${i.why}</span>`:''}
+              </div></div>
+            <div class="vv"><div class="v num ${i.v<0?'pos':''}">${i.v<0?'+'+BRL(-i.v):BRL(i.v)}</div>
+              <div class="vs">${i.ol}</div></div>
+          </div>`).join('')}</div></div>`;
+    }).join('') : '<div class="day"><div class="empty">Nada nessa combinação de filtros.</div></div>';
+  }
+
+  document.getElementById('orig').addEventListener('click',e=>{
+    const b=e.target.closest('button');if(!b)return;
+    document.querySelectorAll('#orig button').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');orig=b.dataset.o;render();
+  });
+  document.getElementById('cats').addEventListener('click',e=>{
+    const b=e.target.closest('button');if(!b)return;
+    document.querySelectorAll('#cats button').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');cat=b.dataset.c;render();
+  });
+  document.getElementById('swNeu').addEventListener('click',e=>{
+    e.currentTarget.classList.toggle('on');showNeu=e.currentTarget.classList.contains('on');render();
+  });
+  render();
+</script>
+</body>
+</html>

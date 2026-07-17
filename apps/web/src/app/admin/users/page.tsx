@@ -10,6 +10,20 @@ import { api } from '@/lib/api';
 interface AdminUser extends AuthUser {
   createdAt?: string;
   updatedAt?: string;
+  createdByName?: string | null;
+  lastLoginAt?: string | null;
+  tenantName?: string | null;
+}
+
+function formatDateTime(value?: string | null): string {
+  if (!value) return '—';
+  return new Date(value).toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 const PROJECT_TYPE_OPTIONS: { value: string; label: string }[] = [
@@ -44,7 +58,7 @@ export default function AdminUsersPage() {
   async function reload() {
     setError(null);
     try {
-      const data = await api.get<AdminUser[]>('/users');
+      const data = await api.get<AdminUser[]>('/users?scope=all');
       setUsers(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao carregar usuários');
@@ -65,6 +79,24 @@ export default function AdminUsersPage() {
       await reload();
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Erro ao excluir');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDeleteTenant(u: AdminUser) {
+    const tenantUsers = users.filter((other) => other.tenantId === u.tenantId);
+    const typed = prompt(
+      `Excluir o tenant "${u.tenantName ?? u.tenantId}", ${tenantUsers.length} usuário(s) e todos os projetos dele?\n` +
+        `Digite o nome do tenant para confirmar:`,
+    );
+    if (typed !== (u.tenantName ?? u.tenantId)) return;
+    setBusy(true);
+    try {
+      await api.delete(`/tenants/${u.tenantId}`);
+      await reload();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Erro ao excluir tenant');
     } finally {
       setBusy(false);
     }
@@ -97,10 +129,13 @@ export default function AdminUsersPage() {
           </div>
         )}
 
-        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+        <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">
+                  Tenant
+                </th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">
                   Nome
                 </th>
@@ -113,12 +148,24 @@ export default function AdminUsersPage() {
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">
                   Módulos
                 </th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase whitespace-nowrap">
+                  Criado por
+                </th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase whitespace-nowrap">
+                  Último login
+                </th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase whitespace-nowrap">
+                  Cadastro
+                </th>
                 <th className="px-4 py-2"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {users.map((u) => (
                 <tr key={u.id}>
+                  <td className="px-4 py-3 text-xs text-gray-700 whitespace-nowrap">
+                    {u.tenantName ?? '—'}
+                  </td>
                   <td className="px-4 py-3 font-medium text-gray-900">{u.name}</td>
                   <td className="px-4 py-3 text-gray-700">{u.username}</td>
                   <td className="px-4 py-3">
@@ -139,20 +186,42 @@ export default function AdminUsersPage() {
                         ? '—'
                         : u.allowedModules.length + ' módulo(s)'}
                   </td>
-                  <td className="px-4 py-3 text-right space-x-2">
-                    <button
-                      onClick={() => setEditing(u)}
-                      className="text-sm text-brand-700 hover:underline"
-                    >
-                      Editar
-                    </button>
-                    {u.id !== user?.id && (
+                  <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">
+                    {u.createdByName ?? 'Auto-cadastro'}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">
+                    {formatDateTime(u.lastLoginAt)}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">
+                    {formatDateTime(u.createdAt)}
+                  </td>
+                  <td className="px-4 py-3 text-right space-x-2 whitespace-nowrap">
+                    {u.tenantId === user?.tenantId ? (
+                      <>
+                        <button
+                          onClick={() => setEditing(u)}
+                          className="text-sm text-brand-700 hover:underline"
+                        >
+                          Editar
+                        </button>
+                        {u.id !== user?.id && (
+                          <button
+                            disabled={busy}
+                            onClick={() => handleDelete(u)}
+                            className="text-sm text-red-600 hover:underline"
+                          >
+                            Excluir
+                          </button>
+                        )}
+                      </>
+                    ) : (
                       <button
                         disabled={busy}
-                        onClick={() => handleDelete(u)}
+                        onClick={() => handleDeleteTenant(u)}
                         className="text-sm text-red-600 hover:underline"
+                        title="Exclui o tenant, seus usuários e projetos (soft-delete)"
                       >
-                        Excluir
+                        Excluir tenant
                       </button>
                     )}
                   </td>

@@ -36,7 +36,7 @@ módulos (abas) ficam disponíveis:
 | **REFORMA** | Controle financeiro e visual de uma obra/reforma | Dashboard, Despesas, Recebimentos, Fluxo de Caixa, Cômodos, Plantas, Simulação, Cronograma, Comparar Preço, Pendências |
 | **CASA** | Gestão da casa (contas fixas, manutenções, lembretes) | Dashboard, Contas recorrentes, Manutenção, Lembretes, Despesas |
 | **CARRO** | Gestão do carro | Dashboard, Carro (dados), Contas recorrentes, Manutenção, Lembretes, Despesas |
-| **COMPRA** | Acompanhar uma compra grande (casa, carro etc.) | Dashboard, Despesas, Recebimentos, Fluxo de Caixa |
+| **COMPRA** | Acompanhar uma compra grande (casa, carro etc.) | Dashboard, Despesas, Recebimentos, Fluxo de Caixa, Preços |
 
 > Os módulos e sua ordem de navegação por tipo vivem em
 > `packages/domain/src/config/module-navigator.ts`.
@@ -85,6 +85,16 @@ fatura de outro cartão. São os **neutros**. Eles:
 - podem afetar o caixa (se saíram de uma conta) ou compor a fatura (se foram
   cobrados no cartão), conforme onde a cobrança caiu.
 
+Há **dois graus** de neutro (não confundir):
+- **Neutro de liquidação** (os exemplos acima): o dinheiro só troca de lugar —
+  fora do gasto **e** fora do eixo de caixa (a saída real já está contada em
+  outro lançamento).
+- **Neutro de consumo**: **aporte em investimento** (saída) e **resgate**
+  (entrada). Não são gasto nem renda — mas o dinheiro **realmente** saiu/entrou
+  na conta, então **continuam no caixa**. No app, o aporte aparece como
+  "**Guardado**" (informação, não despesa); rendimentos (juros) são receita real
+  e contam normalmente.
+
 ### 2.4 Faturas de cartão
 Uma **fatura** é a soma das compras de um cartão com vencimento num certo mês. O
 app agrupa as compras por cartão + mês de vencimento (calculado a partir do dia de
@@ -114,6 +124,24 @@ O **rateio** permite dividir uma despesa entre vários destinos.
 - **Ação "Entrar":** valida as credenciais; em sucesso, leva para o Hub (Meus
   Projetos); em erro, mostra mensagem de credencial inválida.
 
+### 3.1b Registro (`/register`)
+- **Propósito:** criar uma nova conta (tenant + usuário).
+- **Campos:** nome do espaço, nome do usuário, usuário (login), senha,
+  confirmação de senha, objetivos (seletor de tipos de projeto).
+- **Ação "Criar conta e continuar":**
+  - Se PESSOAL está entre os objetivos: redireciona para o **fluxo de setup guiado** (`/onboarding/pessoal-setup`).
+  - Caso contrário: redireciona para o Hub com modal de criar projeto aberto.
+
+### 3.1c Onboarding "do zero" (`/onboarding/pessoal-setup`)
+Fluxo guiado para novos usuários que escolheram PESSOAL. Stepper de 4 passos:
+
+1. **Projeto:** cria automaticamente o projeto PESSOAL (nome editável, padrão "Minha vida financeira").
+2. **Conta bancária:** banco, apelido, últimos 4 dígitos, e o campo-herói **"Quanto você tem na conta hoje?"** (saldo inicial + data=hoje). É a base do Caixa Real no cockpit. **Pular é possível**, mas exibe aviso explícito: "sem isso, o Caixa mostrado não será o saldo do banco".
+3. **Cartão de crédito (opcional):** banco, bandeira, últimos 4, dia de fechamento e dia de vencimento. Microcopy explica por quê ("é o que permite prever sua fatura").
+4. **Pronto:** redirect automático para o Cockpit do PESSOAL.
+
+O critério central: quem segue o caminho feliz vê, no primeiro minuto, um Caixa que é o saldo real digitado.
+
 ### 3.2 Hub — Meus Projetos (`/projects`)
 Ponto de entrada depois do login. Lista todos os projetos que o usuário pode ver.
 
@@ -140,7 +168,7 @@ Ao entrar num projeto, aparece a **casca** comum a todos os módulos:
 - **Cabeçalho:** botão **"‹ Projetos"** (volta ao Hub), **chip do projeto** (ícone
   colorido + nome), **sino de notificações** e, no celular, o botão **"Mais"**.
 - **Barra inferior (celular):**
-  - No **PESSOAL**, mostra **"Hoje"**, **"Lançar"** no centro e **"Maria"**.
+  - No **PESSOAL**, mostra **"Cockpit"**, **"Despesas"**, **"Maria"** e **"Cartões"**, com botão circular **"Lançar"** separado.
   - Nos demais tipos, mostra os três primeiros módulos autorizados para a pessoa,
     conforme a ordem de navegação do tipo.
   - O item ativo usa a **cor de destaque do tipo do projeto**.
@@ -153,8 +181,12 @@ Ao entrar num projeto, aparece a **casca** comum a todos os módulos:
 
 ### 3.4 Copiloto "Maria"
 No projeto **PESSOAL**, o atalho **"Maria"** da barra inferior abre o assistente
-financeiro em tela própria. Ele serve para tirar dúvidas e receber
-orientações sobre as finanças do usuário.
+financeiro em tela própria (chat em tela cheia no mobile).
+
+- Mostra abertura proativa com leitura do mês atual.
+- Aceita texto e voz (STT), e a resposta da Maria pode ser reproduzida por áudio (TTS).
+- A ação **Editar** em sugestões abre o mesmo sheet de lançamento usado no app.
+- Também pode consultar monitoramento de preços (watchlist) e busca avulsa de preços por produto via chat/voz.
 
 ### 3.5 Notificações (sino)
 Mostra avisos e pendências do sistema. O contador no sino indica quantos itens não
@@ -182,36 +214,32 @@ A tela-mãe do PESSOAL. Responde "como está meu mês?".
 **Controles do topo:**
 - **Toggle Mês / Ano:** alterna entre a visão mensal e a anual.
 - **Navegação ‹ › + mês:** troca o mês/ano em foco.
-- **Eixo de tempo (segmented):** **Gastei** (competência — pela data da compra) ou
-  **Vai sair** (caixa — pela data em que o dinheiro sai/vence). A escolha muda os
-  números de todas as seções abaixo e fica **memorizada** entre sessões.
-- **Botão "Extrato":** abre a visão de extrato (todas as saídas do mês em ordem de
-  data). É uma visão separada, focada.
+- **Eixo do mês (segmented):** **Caixa** (visão canônica do mês) ou **Extrato** (lista cronológica de saídas).
+- **Botão "Atual"** (quando aplicável) volta para o mês corrente.
 
-**Card-narrativa (topo):**
-- Frase-resumo do tipo *"Você tem R$ X em caixa. Julho caminha pra fechar em R$ Y
-  — faltam R$ Z a cobrir até o fim do mês."* Traduz os números num texto direto.
-- **Barra de progresso do mês** ("6% de Julho"): quanto do mês já passou.
+**Hero do topo:**
+- Semáforo de fechamento (**No caminho / No limite / Fecha no vermelho**) baseado na projeção de caixa do mês.
+- Valor principal mostra **Caixa hoje** (ou **Resultado realizado** quando não há saldo inicial cadastrado).
+- **Banner de estado degradado:** quando `temSaldoInicial=false`, aparece um aviso
+  persistente "Caixa mostrando só o fluxo — defina o saldo inicial para bater com o
+  banco" que leva diretamente à edição da conta bancária.
+- **Barra de progresso do mês** + frase narrativa de fechamento.
 - **Dropdown "Recomendações"** (minimizado por padrão): dicas automáticas —
   projeção de fechamento e quanto cortar por dia para equilibrar, maior gasto
   variável, contas a vencer, e status da reserva de emergência.
 
-**3 KPIs hero:**
+**KPIs do mês (eixo caixa):**
 | KPI | O que representa |
 |---|---|
-| **Caixa (conta corrente)** | Quanto você tem **de fato** na conta agora, reconciliado com o banco (caixa real §10). Compras no cartão só entram aqui quando a fatura é paga. Mostra a variação no mês e uma minissérie (sparkline). |
-| **Resultado do mês** | O que **já aconteceu** neste mês: recebimentos realizados − despesas realizadas (só o que já foi efetivamente pago/recebido). Traz delta vs. mês anterior e o detalhe "entrou X · saiu Y" (verde/vermelho). |
-| **Projeção fim do mês** | Como o mês **deve fechar**: caixa de hoje + o que ainda falta receber − o que ainda falta pagar. É previsão (inclui contas e faturas que ainda não saíram). Detalhe "a receber X · a pagar Y". |
+| **Entrou em {mês}** | Recebimentos já efetivados na conta no mês + indicação do que ainda falta receber. |
+| **Saiu em {mês}** | Saídas do eixo de caixa (já saiu + ainda vai sair), incluindo faturas vencendo no mês. |
+| **Sobra prevista** | Fechamento esperado do mês (`caixaHoje + aReceber - aPagar`), mesma fonte da Visão Conta. |
 
 Cada KPI tem um **botão de ajuda (ⓘ)** que explica o cálculo ao passar o mouse.
 
-**KPIs Entrou / Gastei (logo abaixo dos hero):**
-- **Entrou no mês:** recebimentos efetivados no mês.
-- **Gastei no mês:** total gasto no mês (+ indicação do que ainda está planejado).
-
 **Widget "Quanto gastei":**
 - Mostra **quanto foi gasto por cartão e por conta** no mês, respeitando o mês e o
-  eixo selecionado (Gastei = por compra; Vai sair = por vencimento).
+  contexto da visão mensal de caixa (não aparece na aba Extrato).
 - **Exclui neutros** (pagamento de fatura não conta como gasto).
 - Cartões aparecem como mini-cartões com gradiente; contas como linhas. Ordena do
   maior para o menor e esconde origens sem gasto. Link **"ver"** leva ao módulo do
@@ -238,8 +266,8 @@ Cada KPI tem um **botão de ajuda (ⓘ)** que explica o cálculo ao passar o mou
   lançamentos).
 
 **Visão Ano:**
-- Destaques do ano, **Resultado do ano**, **Taxa de poupança**, **Evolução do
-  patrimônio**, **Categorias do ano**, comparativos mês a mês.
+- **Resultado do ano**, **Taxa de poupança**, **Evolução do patrimônio**,
+  **Categorias do ano** e comparativos mês a mês.
 
 ### 4.2 Visão Conta (`/conta`) — apenas PESSOAL
 Foca no **caixa real** da conta e nas **faturas de cartão**. Responde "quanto tenho
@@ -269,12 +297,18 @@ movimentações abaixo.
 
 **Cartões e Contas (carrossel):**
 - Cada **cartão** aparece com visual realista do banco, **fatura atual**, **vence
-  em** e botão **"Pagar fatura"** (ou pílula **"✓ Paga"**). Clicar num cartão
-  filtra as movimentações por ele.
+  em** e status (**A pagar / Parcial / ✓ Paga**). Clicar num cartão filtra as
+  movimentações por ele.
+- Quando a fatura está parcial, o card mostra **"R$ pago de R$ total"**.
+- Cartões com intervenção manual exibem o indicador **"Ajuste manual"**.
 - Cada **conta bancária** aparece como tile (instituição, final, saldo). Clicável
   para filtrar.
 - **Pagar fatura** abre um diálogo (conta de débito + data) e registra um
   **lançamento neutro**: reduz o caixa, mas não é um novo gasto. Recalcula os KPIs.
+- **Ajustar fatura…** abre formulário com valor (+/−), motivo e nota. O ajuste muda
+  o espelho da fatura (valor bancário) sem virar consumo/caixa.
+- **Marcar quitada com resíduo…** registra o resíduo declarado (com nota) e fecha a
+  fatura mesmo com diferença de centavos/contestação.
 
 **Movimentações:**
 - Abas **Saídas / Entradas / Tudo**.
@@ -282,6 +316,7 @@ movimentações abaixo.
   descrição.
 - Lista de lançamentos com ícone, descrição, data e valor (verde = entrada,
   escuro = saída). Estado vazio quando não há itens.
+- Nas linhas de fatura, há ações rápidas **Ajustar** e **Resíduo**, além do status.
 
 **Ticket médio:** valor médio por lançamento, com barras de apoio.
 
@@ -324,14 +359,11 @@ Onde se registra e acompanha tudo que se gasta. É o módulo mais rico.
    (marcar uma futura como paga, escolhendo da lista).
 2. Passo **Dados:** tipo da despesa, categoria (mão de obra quando aplica),
    ambiente (em Reforma), título, fornecedor.
-3. Passo **Pagamento:** forma de pagamento; **Data do Pagamento** (quando o
-   dinheiro sai da conta / faz a despesa cair no mês); **Data da compra**
-   (competência — quando a compra foi feita; para cartão, define o mês da fatura);
-   parcelamento (qtd de parcelas + data de início) ou "despesa fixa (repete todo
-   mês)"; vínculo a cartão/conta.
+3. Passo **Pagamento:** forma de pagamento; **Data do Pagamento** (caixa);
+   **Data da compra** (competência); parcelamento (qtd + início) e vínculo a cartão/conta.
 4. Passo **Ação:** **Planejar/Salvar** ou **Vincular** (rateio para outro projeto).
-- Também há **"Lançar por voz"** (ditar a despesa) e **importação** (OFX/CSV de
-  fatura/extrato).
+- No modal de opções também há **Planejar**, **Despesa recorrente** (mensal/quinzenal),
+  **Lançar por voz** e **importação** (OFX/CSV de fatura/extrato).
 - **Validações:** valor > 0; máscara monetária `1.234,56`.
 
 **KPI hero "Gasto no mês":** total gasto no mês + **% pago** (barra), com
@@ -404,6 +436,9 @@ Gestão dos cartões de crédito.
 - **Card por cartão:** visual realista do banco, final, bandeira, instituição,
   **fechamento** e **vencimento**, e (quando há limite/uso) status
   **DENTRO / ATENÇÃO / ESTOURADO** com barra de uso (usado/disponível/limite).
+- **Badge "configurar" (deep-link):** cartões sem `closingDay` mostram badge
+  vermelho "configurar" na carteira (tela Despesas e Visão Conta). Ao tocar,
+  navega direto para o formulário de edição do cartão com foco no fechamento.
 - **Ações por cartão:** **Vincular despesas** (+ painel de sugestões de vínculo),
   **Editar**, **Excluir** (com confirmação).
 - **Importação de fatura:** ao importar, é possível **marcar a despesa planejada
@@ -420,6 +455,8 @@ Gestão das contas.
 - **Card por conta:** instituição, **final**, **agência**, **conta**, **saldo**;
   configuração de **saldo inicial** (base do caixa real §10). Ações: **Vincular
   despesas**, **Vincular recebimentos**, **Editar**, **Excluir** (confirmação).
+- **Deep-link do cockpit:** quando o cockpit exibe o banner de estado degradado
+  (sem saldo inicial), leva para esta tela com o formulário de edição aberto.
 - **Estado vazio:** "Nenhuma conta cadastrada".
 
 ### 4.9 Metas (`/metas`)
@@ -522,10 +559,10 @@ Etapas, tarefas e dependências da obra.
 - Ações destrutivas (excluir etapa/tarefa) pedem confirmação.
 
 ### 5.7 Comparar Preço (`/price-compare`)
-Cotações por item e fornecedor.
-- **"Novo item"** a comparar; **cotações por fornecedor**; **melhor preço /
-  economia** (KPI).
-> Observação: superfície em evolução — pode não estar totalmente ativa como tela.
+Painel próprio de monitoramento de preços por produto.
+- **Cadastro de item monitorado:** produto, termo de busca opcional, link opcional, preço de referência e preço alvo.
+- **Watchlist persistida por projeto:** lista de itens monitorados com melhor preço, loja e data da última checagem.
+- **Ações:** atualizar um item, atualizar todos, abrir oferta e remover item.
 
 ### 5.8 Pendências (`/pendencias`)
 Quadro de pendências da obra.
@@ -547,6 +584,10 @@ Contas fixas (luz, água, internet, gás…) e avulsas.
 - **"Total mensal estimado"** somando as recorrentes.
 - **Botão "Nova conta recorrente":** Nome da conta, Categoria, Valor, Frequência,
   Vencimento, Status.
+- **Dica contextual (hint):** ao criar uma conta em CASA/CARRO, aparece um aviso
+  não-bloqueante: "Esta conta é debitada da sua conta pessoal? Para ela contar no
+  seu caixa, lance como despesa recorrente no PESSOAL." Motivo: `recurringBills` de
+  CASA/CARRO rastreiam o bem, mas NÃO alimentam o caixa consolidado (§10).
 - **Tabela** (Conta, Categoria, Valor, Frequência, Vencimento, Status, ações):
   editar, **pausar/ativar**, excluir. No celular, a tabela rola horizontalmente
   para não cortar colunas/ações.
@@ -595,8 +636,9 @@ Igual ao §6.3, com coluna **Km** adicional na tabela.
 ## 8. Projeto COMPRA
 
 Para acompanhar uma compra grande (casa, carro, etc.).
-- Módulos: **Dashboard**, **Despesas**, **Recebimentos**, **Fluxo de Caixa** —
+- Módulos: **Dashboard**, **Despesas**, **Recebimentos**, **Fluxo de Caixa**, **Preços** —
   mesma mecânica descrita nas seções do PESSOAL/REFORMA.
+- Em **Preços** (`/price-compare`), há uma tela própria de watchlist para monitorar produtos e atualizar cotações.
 - Tipos de despesa próprios: Entrada, Financiamento, Documentação, Cartório,
   Imposto, Seguro, Vistoria, Mudança, Outros.
 
@@ -610,13 +652,14 @@ Para acompanhar uma compra grande (casa, carro, etc.).
 | **Caixa / Conta Corrente** | Pela data em que o dinheiro entra/sai da conta. |
 | **Caixa real (§10)** | Saldo reconciliado com o banco: saldo inicial + lançamentos realizados da conta. |
 | **Neutro** | Movimento que não é consumo (pagar fatura, transferência, cartão paga cartão). Não vira gasto nem despesa no DRE. |
+| **Guardado / Aporte** | Neutro de consumo: dinheiro que saiu da conta para investimento. Não é gasto, mas afeta o caixa. O resgate é o espelho (entra no caixa, não é renda). |
 | **Fatura** | Soma das compras de um cartão com vencimento num mês; espelha o que o banco cobra. |
 | **Pagar fatura** | Lançamento neutro que reduz o caixa; não é gasto novo. |
 | **Espelho** | Despesa do PESSOAL vinculada a outro projeto; deduplicada no consolidado. |
 | **Rateio** | Dividir uma despesa entre vários projetos de destino. |
 | **Planejado / Pago** | Status de despesa (previsto × efetivado). |
 | **Previsto / Em caixa** | Status de recebimento (a receber × recebido). |
-| **Eixo de tempo** | O toggle Competência ↔ Caixa (Gastei ↔ Vai sair). |
+| **Eixo de tempo** | No Cockpit mensal, alterna entre **Caixa** e **Extrato**; em outras telas pode alternar Competência ↔ Caixa. |
 | **Ticket médio** | Total de saídas ÷ número de lançamentos. |
 | **Reserva de emergência** | Quantos meses de despesa o caixa cobre. |
 

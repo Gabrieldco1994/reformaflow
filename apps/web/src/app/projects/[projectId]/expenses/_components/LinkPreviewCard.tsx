@@ -2,6 +2,8 @@
 
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { hasFeature, type ProjectType } from '@reformaflow/domain';
+import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { ExternalLink, ShoppingCart, BarChart3 } from 'lucide-react';
@@ -11,8 +13,10 @@ import { StatusBadge } from './StatusBadge';
 import { PriceCompareModal } from './PriceCompareModal';
 
 export function LinkPreviewCard({ expense, tipoLabel }: { expense: Expense; tipoLabel: (t: string) => string }) {
+  const { projectType } = useProject();
   const [imgError, setImgError] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
+  const canUsePriceCompare = hasFeature(projectType as ProjectType, 'priceCompare');
   const { data: preview, isLoading } = useQuery<LinkPreview>({
     queryKey: ['link-preview', expense.link],
     queryFn: () => api.get(`/link-preview?url=${encodeURIComponent(expense.link!)}`),
@@ -93,13 +97,15 @@ export function LinkPreviewCard({ expense, tipoLabel }: { expense: Expense; tipo
               )}
             </div>
             <div className="flex gap-1 sm:gap-1.5 shrink-0">
-              <button
-                onClick={() => setCompareOpen(true)}
-                className="inline-flex items-center gap-1 px-1.5 sm:px-2.5 py-1 sm:py-1.5 bg-purple-100 text-purple-700 text-xs font-medium rounded-lg hover:bg-purple-200 transition-colors"
-                title="Comparar preços"
-              >
-                <BarChart3 className="w-3 h-3" />
-              </button>
+              {canUsePriceCompare && (
+                <button
+                  onClick={() => setCompareOpen(true)}
+                  className="inline-flex items-center gap-1 px-1.5 sm:px-2.5 py-1 sm:py-1.5 bg-purple-100 text-purple-700 text-xs font-medium rounded-lg hover:bg-purple-200 transition-colors"
+                  title="Comparar preços"
+                >
+                  <BarChart3 className="w-3 h-3" />
+                </button>
+              )}
               <a
                 href={expense.link!}
                 target="_blank"
@@ -112,8 +118,9 @@ export function LinkPreviewCard({ expense, tipoLabel }: { expense: Expense; tipo
           </div>
         </div>
       </div>
-      <PriceCompareModal open={compareOpen} onClose={() => setCompareOpen(false)} expense={expense} />
+      {canUsePriceCompare && (
+        <PriceCompareModal open={compareOpen} onClose={() => setCompareOpen(false)} expense={expense} />
+      )}
     </>
   );
 }
-

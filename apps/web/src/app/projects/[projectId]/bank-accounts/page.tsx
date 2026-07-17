@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { Landmark, Plus, Trash2, Link2, ArrowDownLeft } from 'lucide-react';
@@ -10,10 +10,12 @@ import { SkeletonList } from '@/components/ui/Skeleton';
 import BankAccountFormModal from './_components/BankAccountFormModal';
 import BankLinkSuggestionsPanel from './_components/BankLinkSuggestionsPanel';
 import BankReceiptLinkPanel from './_components/BankReceiptLinkPanel';
+import AccountFormModal from '../_components/AccountFormModal';
 import type { BankAccountRow } from './_types';
 
 export default function BankAccountsPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const projectId = String(params?.projectId ?? '');
   const [accounts, setAccounts] = useState<BankAccountRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,6 +37,18 @@ export default function BankAccountsPage() {
   useEffect(() => {
     if (projectId) void load();
   }, [projectId, load]);
+
+  // Deep-link: ?focus=openingBalance opens the first account for editing (or new form)
+  useEffect(() => {
+    if (loading || searchParams.get('focus') !== 'openingBalance') return;
+    if (accounts.length > 0) {
+      setEditing(accounts[0]!);
+      setFormOpen(true);
+    } else {
+      setEditing(null);
+      setFormOpen(true);
+    }
+  }, [loading, accounts, searchParams]);
 
   async function handleDelete(acc: BankAccountRow) {
     if (!confirm(`Excluir conta "${acc.nickname ?? acc.last4}"? As despesas importadas serão mantidas.`)) return;
@@ -129,12 +143,21 @@ export default function BankAccountsPage() {
       )}
 
       {formOpen && (
-        <BankAccountFormModal
-          projectId={projectId}
-          account={editing}
-          onClose={() => { setFormOpen(false); setEditing(null); }}
-          onSaved={() => { setFormOpen(false); setEditing(null); void load(); }}
-        />
+        editing ? (
+          <BankAccountFormModal
+            projectId={projectId}
+            account={editing}
+            onClose={() => { setFormOpen(false); setEditing(null); }}
+            onSaved={() => { setFormOpen(false); setEditing(null); void load(); }}
+          />
+        ) : (
+          <AccountFormModal
+            projectId={projectId}
+            defaultType="BANK"
+            onClose={() => setFormOpen(false)}
+            onSaved={() => { setFormOpen(false); void load(); }}
+          />
+        )
       )}
       {linksFor && (
         <BankLinkSuggestionsPanel

@@ -41,8 +41,18 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: JwtPayload) {
-    const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
-    if (!user || user.deletedAt) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+      include: { tenant: true },
+    });
+    if (!user || user.deletedAt || !user.tenant || user.tenant.deletedAt) {
+      throw new UnauthorizedException('Sessão inválida');
+    }
+    if (
+      user.isGuest &&
+      user.tenant.expiresAt &&
+      user.tenant.expiresAt.getTime() <= Date.now()
+    ) {
       throw new UnauthorizedException('Sessão inválida');
     }
 
@@ -79,6 +89,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       allowedModules,
       allowedProjects,
       allowedProjectTypes,
+      isGuest: user.isGuest,
     };
   }
 }

@@ -134,16 +134,16 @@ export function MobileLaunchSheet({
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-darc-velvet/60 backdrop-blur-sm lg:hidden" onClick={onClose} aria-hidden />
-      <section className="fixed inset-x-0 bottom-0 z-50 max-h-[96dvh] overflow-y-auto rounded-t-[28px] border border-darc-linen bg-lifeone-surface px-4 pb-6 pt-3 lg:hidden">
+      <div className="pessoal-minimal-backdrop fixed inset-0 z-40 bg-darc-velvet/60 backdrop-blur-sm lg:hidden" onClick={onClose} aria-hidden />
+      <section data-mobile-sheet="launch" className="pessoal-minimal-launch-sheet fixed inset-x-0 bottom-0 z-50 max-h-[96dvh] overflow-y-auto rounded-t-[28px] border border-darc-linen bg-lifeone-surface px-4 pb-6 pt-3 lg:hidden">
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-xl font-bold text-lifeone-ink">Lançar</h2>
-          <button type="button" onClick={onClose} aria-label="Fechar lançar" className="rounded-full p-2 text-darc-velvet/70 hover:bg-darc-linen/60">
+          <button type="button" onClick={onClose} aria-label="Fechar lançar" className="flex min-h-11 min-w-11 items-center justify-center rounded-full text-darc-velvet/70 hover:bg-darc-linen/60">
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="rounded-2xl bg-darc-velvet px-4 py-3 text-sm text-white/85">
+        <div className="pessoal-minimal-balance rounded-2xl bg-darc-velvet px-4 py-3 text-sm text-white/85">
           <p>
             Fechamento previsto: <strong className="text-white">{moneyGlance(projected)}</strong>
           </p>
@@ -184,7 +184,7 @@ export function MobileLaunchSheet({
         </div>
 
         {selectedOrigin?.kind === 'card' && (
-          <div className="mt-4 rounded-2xl border border-darc-linen bg-white p-3">
+          <div className="minimal-soft-card mt-4 rounded-2xl border border-darc-linen bg-white p-3">
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-darc-velvet/55">Parcelas</p>
             <div className="mt-2 grid grid-cols-4 gap-2">
               {PARCELAS.map((n) => (
@@ -214,7 +214,7 @@ export function MobileLaunchSheet({
           value={description}
           onChange={(event) => setDescription(event.target.value)}
           placeholder="ex.: mercado, uber, farmácia"
-          className="mt-2 h-12 w-full rounded-xl border border-darc-linen bg-white px-3 text-sm"
+          className="pessoal-minimal-input mt-2 h-12 w-full rounded-xl border border-darc-linen bg-white px-3 text-sm"
         />
         <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
           {recentDescriptions.slice(0, 6).map((item) => (
@@ -274,7 +274,7 @@ export function MobileLaunchSheet({
               key={key}
               type="button"
               onClick={() => setDigits((current) => normalizeDigits(current + key))}
-              className="min-h-[54px] rounded-xl bg-white text-xl font-semibold text-lifeone-ink shadow-lifeone-card"
+              className="pessoal-minimal-key min-h-[54px] rounded-xl bg-white text-xl font-semibold text-lifeone-ink shadow-lifeone-card"
             >
               {key}
             </button>
@@ -282,21 +282,21 @@ export function MobileLaunchSheet({
           <button
             type="button"
             onClick={() => setDigits('')}
-            className="min-h-[54px] rounded-xl bg-lifeone-surface text-sm font-semibold text-darc-velvet/70"
+            className="pessoal-minimal-key min-h-[54px] rounded-xl bg-lifeone-surface text-sm font-semibold text-darc-velvet/70"
           >
             limpar
           </button>
           <button
             type="button"
             onClick={() => setDigits((current) => normalizeDigits(current + '0'))}
-            className="min-h-[54px] rounded-xl bg-white text-xl font-semibold text-lifeone-ink shadow-lifeone-card"
+            className="pessoal-minimal-key min-h-[54px] rounded-xl bg-white text-xl font-semibold text-lifeone-ink shadow-lifeone-card"
           >
             0
           </button>
           <button
             type="button"
             onClick={() => setDigits((current) => current.slice(0, -1))}
-            className="min-h-[54px] rounded-xl bg-lifeone-surface text-sm font-semibold text-darc-velvet/70"
+            className="pessoal-minimal-key min-h-[54px] rounded-xl bg-lifeone-surface text-sm font-semibold text-darc-velvet/70"
           >
             ⌫
           </button>
@@ -306,7 +306,7 @@ export function MobileLaunchSheet({
           type="button"
           disabled={launchDisabled}
           onClick={handleLaunch}
-          className="mt-4 flex min-h-[52px] w-full items-center justify-center rounded-2xl bg-[#0F6B4D] text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-darc-linen"
+          className="pessoal-minimal-launch-submit mt-4 flex min-h-[52px] w-full items-center justify-center rounded-2xl bg-[#0F6B4D] text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-darc-linen"
         >
           {launching ? 'Lançando...' : 'Lançar despesa'}
         </button>

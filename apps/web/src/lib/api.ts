@@ -11,6 +11,21 @@ const REQUEST_TIMEOUT_MS = 25_000;
 interface RequestExtra {
   /** Timeout específico em ms (sobrepõe o default de 25s). Ex.: Copilot/LLM. */
   timeoutMs?: number;
+  headers?: Record<string, string>;
+}
+
+export class ApiResponseError extends Error {
+  constructor(message: string, public readonly status: number) {
+    super(message);
+    this.name = 'ApiResponseError';
+  }
+}
+
+export class ApiTimeoutError extends Error {
+  constructor() {
+    super('O servidor demorou mais que o esperado pra responder. Tente novamente.');
+    this.name = 'ApiTimeoutError';
+  }
 }
 
 async function request<T>(
@@ -27,14 +42,16 @@ async function request<T>(
     const res = await fetch(`${API_BASE}${path}`, {
       ...options,
       credentials: 'include',
-      headers: { ...DEFAULT_HEADERS, ...options?.headers },
+      headers: { ...DEFAULT_HEADERS, ...extra?.headers, ...options?.headers },
       signal: controller.signal,
     });
 
     if (res.status === 401 && typeof window !== 'undefined') {
       const here = window.location.pathname;
       const isAuthFlow =
-        here.startsWith('/login') || here.startsWith('/no-permission');
+        here.startsWith('/login') ||
+        here.startsWith('/register') ||
+        here.startsWith('/no-permission');
       const isMeProbe = path === '/auth/me';
       if (!isAuthFlow && !isMeProbe) {
         window.location.href = `/login?next=${encodeURIComponent(here)}`;
@@ -46,15 +63,13 @@ async function request<T>(
       const msg = Array.isArray(error.message)
         ? error.message.join('; ')
         : (error.message ?? `HTTP ${res.status}`);
-      throw new Error(msg);
+      throw new ApiResponseError(msg, res.status);
     }
 
     return res.json();
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
-      throw new Error(
-        'O servidor demorou mais que o esperado pra responder. Tente novamente.',
-      );
+      throw new ApiTimeoutError();
     }
     throw err;
   } finally {
@@ -86,7 +101,9 @@ export const api = {
         if (res.status === 401 && typeof window !== 'undefined') {
           const here = window.location.pathname;
           const isAuthFlow =
-            here.startsWith('/login') || here.startsWith('/no-permission');
+            here.startsWith('/login') ||
+            here.startsWith('/register') ||
+            here.startsWith('/no-permission');
           if (!isAuthFlow) {
             window.location.href = `/login?next=${encodeURIComponent(here)}`;
           }

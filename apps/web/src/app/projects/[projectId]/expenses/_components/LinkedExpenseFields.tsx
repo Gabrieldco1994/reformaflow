@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { CATEGORIA_MAO_DE_OBRA_OPTIONS, FORMA_PAGAMENTO_OPTIONS } from '@/lib/expense-options';
 import { getExpenseOptions } from '../_types';
+import { maskReaisInput, reaisToCents } from '../_lib/money';
 import type { NewTargetDraft } from '../_types';
 import type { WizardDraft } from '../_hooks/useNovaDespesaWizard';
 
@@ -108,7 +109,7 @@ export function LinkedExpenseFields({ currentProjectId, source, onAdd, onCancel 
       setError('Escolha o tipo da despesa');
       return;
     }
-    const valorNum = parseFloat(String(valor).replace(',', '.'));
+    const valorNum = reaisToCents(String(valor)) / 100;
     if (!valorNum || valorNum <= 0) {
       setError('Valor inválido');
       return;
@@ -189,11 +190,10 @@ export function LinkedExpenseFields({ currentProjectId, source, onAdd, onCancel 
             <Input
               label="Valor (R$)"
               name="valor"
-              type="number"
-              step="0.01"
-              min="0"
+              type="text"
+              inputMode="numeric"
               value={valor}
-              onChange={(e) => setValor(e.target.value)}
+              onChange={(e) => setValor(maskReaisInput(e.target.value))}
             />
             <Input
               label="Quantidade"

@@ -1,10 +1,10 @@
-'use client';
+"use client";
 
-import Link from 'next/link';
-import { ChevronLeft, MoreHorizontal } from 'lucide-react';
-import { NotificationsBell } from '@/components/notifications/NotificationsBell';
-import { typeAccent, TypeIcon } from '../../_components/type-accent';
-import type { ProjectInfo } from '../_types';
+import Link from "next/link";
+import { ChevronLeft, MoreHorizontal } from "lucide-react";
+import { NotificationsBell } from "@/components/notifications/NotificationsBell";
+import { TypeIcon } from "../../_components/type-accent";
+import type { ProjectInfo } from "../_types";
 
 interface MobileHeaderProps {
   project: ProjectInfo;
@@ -12,37 +12,50 @@ interface MobileHeaderProps {
   onOpenMais: () => void;
 }
 
-export function MobileHeader({ project, hasMoreSheet, onOpenMais }: MobileHeaderProps) {
-  const accent = typeAccent(project.type);
+export function MobileHeader({
+  project,
+  hasMoreSheet,
+  onOpenMais,
+}: MobileHeaderProps) {
   return (
-    <header className="md:hidden flex items-center justify-between gap-2 px-3 h-14 bg-white/90 backdrop-blur-md sticky top-0 z-30 border-b border-darc-linen">
+    <header
+      data-mobile-header="minimal"
+      className="minimal-header safe-pt sticky top-0 z-30 flex h-14 items-center gap-1.5 border-b border-darc-linen bg-white/90 px-2.5 backdrop-blur-md md:hidden"
+    >
       <Link
         href="/projects"
         aria-label="Voltar para projetos"
-        className="flex items-center gap-0.5 -ml-1 pl-1 pr-2 py-2 rounded-lg text-darc-velvet/70 text-[13px] font-semibold hover:bg-darc-linen/60 active:bg-darc-linen transition-colors"
+        className="flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-0.5 rounded-full bg-white text-[12px] font-semibold text-darc-velvet/70 transition-transform active:scale-95"
       >
-        <ChevronLeft className="w-[18px] h-[18px]" />
-        Projetos
+        <ChevronLeft className="h-[18px] w-[18px]" />
+        <span className="sr-only">Projetos</span>
       </Link>
-      <span className="flex items-center gap-2 min-w-0 rounded-full bg-white pl-1.5 pr-3 py-1 shadow-lifeone-card">
-        <span
-          className="flex h-6 w-6 items-center justify-center rounded-lg flex-shrink-0"
-          style={{ backgroundColor: accent.fill }}
-        >
-          <TypeIcon type={project.type} className="w-[15px] h-[15px]" style={{ color: accent.color }} />
+      <span className="flex min-w-0 flex-1 items-center justify-center gap-1.5 px-1.5 py-1">
+        <span className="minimal-project-mark flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full">
+          <TypeIcon
+            type={project.type}
+            className="minimal-project-icon h-[15px] w-[15px]"
+          />
         </span>
-        <span className="font-geist font-bold text-[12.5px] text-lifeone-ink truncate">{project.name}</span>
+        <span className="truncate font-geist text-[12px] font-bold text-lifeone-ink">
+          {project.name}
+        </span>
       </span>
-      <div className="flex items-center -mr-1">
-        <NotificationsBell variant="light" />
+      <div className="flex shrink-0 items-center gap-1">
+        <span
+          data-testid="notification-action"
+          className="flex min-h-11 min-w-11 items-center justify-center rounded-full bg-white"
+        >
+          <NotificationsBell variant="light" />
+        </span>
         {hasMoreSheet ? (
           <button
             type="button"
             onClick={onOpenMais}
             aria-label="Mais opções"
-            className="p-2 rounded-full text-darc-velvet/70 hover:bg-darc-linen/60 active:bg-darc-linen transition-colors"
+            className="flex min-h-11 min-w-11 items-center justify-center rounded-full bg-white text-darc-velvet/70 transition-transform active:scale-95"
           >
-            <MoreHorizontal className="w-5 h-5" />
+            <MoreHorizontal className="h-5 w-5" />
           </button>
         ) : null}
       </div>

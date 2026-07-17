@@ -9,6 +9,7 @@ Plataforma pessoal para **gerenciar projetos de reforma/obra e finanças**, orga
 | **CASA** | Casa em andamento | dashboard, contas recorrentes, manutenção, lembretes, despesas avulsas |
 | **CARRO** | Veículo | idem CASA + registro do carro (`carInfo`) |
 | **PESSOAL** | Controlador universal de caixa (o *Cockpit*) | visão mensal consolidada, cartões, contas bancárias, espelho cross-project, rateio |
+| **PLANTAS** | Cuidado de plantas | dashboard, manutenção, lembretes, diagnóstico por IA |
 
 Inclui a assistente de voz **Maria** (lançamento de despesas por voz, TTS via VibeVoice) e um motor de cronograma com gráfico de Gantt.
 

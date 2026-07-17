@@ -1,0 +1,117 @@
+/* skin shared: shell + dock, sem quebrar estilos internos */
+:root{
+  --bg:#EEF0F3 !important;
+  --card:#FFFFFF !important;
+  --surface:#F6F7F9 !important;
+  --ink:#111214 !important;
+  --ink2:#5B6068 !important;
+  --ink3:#9AA0A8 !important;
+  --line:#E8EAEE !important;
+  --r-lg:20px !important;
+  --r-md:14px !important;
+  --shadow:0 1px 2px rgba(17,18,20,.03),0 8px 20px rgba(17,18,20,.06) !important;
+}
+
+body{background:#DDE0E5 !important;}
+
+.phone{
+  background:var(--bg) !important;
+  border-radius:52px !important;
+  border:2px solid #F8FAFD !important;
+  box-shadow:0 20px 44px rgba(17,18,20,.18) !important;
+}
+
+.status{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:16px 28px 4px;
+  font-size:14px;
+  font-weight:650;
+}
+
+.screen{
+  padding-top:8px !important;
+  padding-left:20px !important;
+  padding-right:20px !important;
+}
+
+.top{padding-top:8px !important;}
+
+.iconBtn,
+.back,
+.mNav button{
+  width:44px !important;
+  height:44px !important;
+  border-radius:50% !important;
+  border:0 !important;
+  box-shadow:var(--shadow) !important;
+}
+
+.card,
+.hero,
+.rich,
+.toolCard,
+.item,
+.actList,
+.remind,
+.tiles .tile,
+.topList{
+  border-radius:20px !important;
+}
+
+.bottomDock{
+  position:absolute;
+  left:0;
+  right:0;
+  bottom:0;
+  padding:0 18px 14px;
+  z-index:60;
+}
+
+.bottomDockRow{display:flex;gap:10px;align-items:center;}
+
+.navPill{
+  flex:1;
+  display:flex;
+  background:var(--card);
+  border-radius:99px;
+  box-shadow:var(--shadow);
+  padding:8px;
+}
+
+.navTab{
+  flex:1;
+  display:grid;
+  place-items:center;
+  height:48px;
+  border-radius:99px;
+  color:var(--ink3);
+}
+
+.navTab.on{background:#E9EBF0;color:var(--ink);}
+
+.navPlus{
+  width:64px;
+  height:64px;
+  border-radius:50%;
+  background:var(--card);
+  box-shadow:var(--shadow);
+  display:grid;
+  place-items:center;
+  color:var(--ink);
+  flex-shrink:0;
+}
+
+.homebar{
+  width:130px;
+  height:5px;
+  border-radius:3px;
+  background:#0B0C0D;
+  margin:10px auto 0;
+}
+
+@media (max-width:560px){
+  body{background:var(--bg) !important;}
+  .phone{border:0 !important;border-radius:0 !important;box-shadow:none !important;}
+}

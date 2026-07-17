@@ -1,5 +1,4 @@
-import { Mic, Zap, CalendarClock, CalendarRange } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { Mic, Zap, CalendarClock, CalendarRange, CreditCard, Landmark } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Modal } from '@/components/ui/modal';
 
@@ -12,8 +11,10 @@ interface PayOptionsModalProps {
   onOpenPlanForm?: () => void;
   /** Abre a jornada de despesa recorrente (gera N despesas planejadas). */
   onOpenRecorrenteForm?: () => void;
-  /** Slot para o acionador de importação (fatura/extrato). */
-  importSlot?: ReactNode;
+  /** Abre o picker de cartão para importar fatura. */
+  onImportCard?: () => void;
+  /** Abre o picker de conta para importar extrato bancário. */
+  onImportAccount?: () => void;
 }
 
 /**
@@ -30,7 +31,8 @@ export function PayOptionsModal({
   onOpenVoiceModal,
   onOpenPlanForm,
   onOpenRecorrenteForm,
-  importSlot,
+  onImportCard,
+  onImportAccount,
 }: PayOptionsModalProps) {
   return (
     <Modal open={open} onClose={onClose} title="Nova despesa">
@@ -81,6 +83,38 @@ export function PayOptionsModal({
               </span>
             </button>
           )}
+
+          {onImportCard && (
+            <button
+              type="button"
+              onClick={onImportCard}
+              className="flex items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-left transition-colors hover:bg-blue-100"
+            >
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-500 text-white">
+                <CreditCard className="h-4 w-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-darc-velvet">Fatura de cartão</span>
+                <span className="block text-[11px] text-darc-velvet/50">PDF, CSV/OFX ou 📷 foto</span>
+              </span>
+            </button>
+          )}
+
+          {onImportAccount && (
+            <button
+              type="button"
+              onClick={onImportAccount}
+              className="flex items-center gap-3 rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 text-left transition-colors hover:bg-teal-100"
+            >
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-teal-500 text-white">
+                <Landmark className="h-4 w-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-darc-velvet">Extrato bancário</span>
+                <span className="block text-[11px] text-darc-velvet/50">OFX/CSV ou 📷 foto</span>
+              </span>
+            </button>
+          )}
         </div>
 
         <div className="flex flex-col gap-2 sm:flex-row">
@@ -92,7 +126,6 @@ export function PayOptionsModal({
           >
             <Mic className="w-4 h-4" /> Lançar por voz
           </Button>
-          {importSlot && <div className="w-full [&_button]:w-full">{importSlot}</div>}
         </div>
       </div>
     </Modal>

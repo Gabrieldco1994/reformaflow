@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { ArrowDownCircle, ArrowUpCircle, Check, CreditCard, Landmark, Loader2, Pencil, RotateCcw, Trash2, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
+import { centsToReaisInput, currencyInputToNumber, maskCurrencyInput } from '@/lib/currency-input';
 import type { NeutroItem } from '../_types';
 
 function dateParts(iso: string): { dia: string; mes: string } {
@@ -34,7 +35,7 @@ export function NeutroRow({
 }) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
-  const [valorReais, setValorReais] = useState((item.valorTotal / 100).toFixed(2));
+  const [valorReais, setValorReais] = useState(centsToReaisInput(item.valorTotal));
 
   const isEntrada = item.kind === 'entrada';
   const base = isEntrada ? 'receipts' : 'expenses';
@@ -102,7 +103,7 @@ export function NeutroRow({
   const unmarking = unmarkMutation.isPending;
 
   function confirmEdit() {
-    const parsed = Number(valorReais.replace(',', '.'));
+    const parsed = currencyInputToNumber(valorReais);
     if (!Number.isFinite(parsed) || parsed <= 0) {
       toast.error('Informe um valor maior que zero.');
       return;
@@ -167,13 +168,12 @@ export function NeutroRow({
           <div className="flex items-center rounded-lg border border-lifeone-hairline bg-white px-2">
             <span className="text-[11px] text-lifeone-ink-3">R$</span>
             <input
-              type="number"
-              step="0.01"
-              min="0"
+              type="text"
+              inputMode="numeric"
               value={valorReais}
               autoFocus
               disabled={saving}
-              onChange={(e) => setValorReais(e.target.value)}
+              onChange={(e) => setValorReais(maskCurrencyInput(e.target.value))}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') confirmEdit();
                 if (e.key === 'Escape') setEditing(false);
@@ -192,7 +192,7 @@ export function NeutroRow({
           </button>
           <button
             type="button"
-            onClick={() => { setEditing(false); setValorReais((item.valorTotal / 100).toFixed(2)); }}
+            onClick={() => { setEditing(false); setValorReais(centsToReaisInput(item.valorTotal)); }}
             disabled={saving}
             className="rounded-lg border border-lifeone-hairline p-1.5 text-lifeone-ink-3 transition hover:bg-slate-50 disabled:opacity-50"
             aria-label="Cancelar"

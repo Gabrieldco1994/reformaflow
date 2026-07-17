@@ -3,9 +3,13 @@ export interface AccountViewCardSummary {
   last4: string;
   faturaAtual: number;
   faturaPendente: number;
+  faturaPaga: number;
+  residualDeclarado: number;
+  possuiIntervencaoManual: boolean;
+  ajusteManualTotal: number;
   dueMonth: string;
   vencimento: string;
-  status: 'paga' | 'a pagar';
+  status: 'paga' | 'a pagar' | 'parcial';
   limiteUsadoPct: number | null;
   limiteUsado: number | null;
   limiteTotal: number | null;
@@ -31,6 +35,10 @@ export interface AccountViewSaida {
   isInvoice: boolean;
   editavel: boolean;
   dueMonth: string | null;
+  invoicePaidAmount?: number;
+  invoiceResidualDeclared?: number;
+  invoiceHasManualIntervention?: boolean;
+  invoiceAdjustmentAmount?: number;
   projetoOrigem: { id: string; name: string; type: string } | null;
   parcelaIndex?: number | null;
   foreignExpenseId?: string | null;

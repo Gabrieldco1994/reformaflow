@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Gauge, ChevronLeft, ChevronRight } from "lucide-react";
+import { Gauge, ChevronLeft, ChevronRight, PlusCircle, Compass } from "lucide-react";
+import Link from "next/link";
 import { useProject } from "@/contexts/project-context";
 import { api } from "@/lib/api";
 import type { MonthlyOverviewResponse } from "./_types";
@@ -11,9 +12,10 @@ import type { DreOverviewResponse } from "../dre/_types";
 import type { MetaProgress } from "../metas/_components/MetaCategoriaCard";
 import { mesLongo } from "./_cockpit/format";
 import { COCKPIT_THEME } from "./_cockpit/ui";
-import { anosDisponiveis, buildCaixaData } from "./_cockpit/derive";
+import { anosDisponiveis, buildCaixaData, buildComprometimentoFuturo } from "./_cockpit/derive";
 import CockpitTop from "./_cockpit/CockpitTop";
 import MonthView from "./_cockpit/MonthView";
+import ComprometimentoFuturo from "./_cockpit/ComprometimentoFuturo";
 import ExtratoGeral from "./_cockpit/ExtratoGeral";
 import YearView from "./_cockpit/YearView";
 import EixoToggle, { type Eixo } from "./_cockpit/EixoToggle";
@@ -21,6 +23,7 @@ import SaldosWidget from "./_cockpit/SaldosWidget";
 import MobileCockpitHeader from "./_cockpit/MobileCockpitHeader";
 import MobileMonthCockpit from "./_cockpit/MobileMonthCockpit";
 import { monthlyOverviewPath } from "./_lib/monthly-overview-query";
+import { NovaDespesaLauncher } from "../expenses/_components/NovaDespesaLauncher";
 
 type View = "mes" | "ano";
 
@@ -38,9 +41,10 @@ export default function CockpitPage() {
   const searchParams = useSearchParams();
   const { projectType } = useProject();
   const [view, setView] = useState<View>("mes");
-  const [eixo, setEixo] = useState<Eixo>("competencia");
+  const [eixo, setEixo] = useState<Eixo>("caixa");
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(() => searchParams.get("mes"));
+  const [selectedCardLast4, setSelectedCardLast4] = useState<string | null>(null);
 
   const selectMonth = useCallback((month: string | null) => {
     setSelectedMonth(month);
@@ -54,8 +58,14 @@ export default function CockpitPage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const saved = window.localStorage.getItem("cockpit-eixo");
-    if (saved === "competencia" || saved === "caixa" || saved === "geral")
-      setEixo(saved);
+    if (saved === "geral") {
+      setEixo("geral");
+      return;
+    }
+    if (saved === "competencia" || saved === "caixa") {
+      setEixo("caixa");
+      return;
+    }
   }, []);
 
   const changeEixo = (e: Eixo) => {
@@ -70,8 +80,7 @@ export default function CockpitPage() {
     enabled: !!projectId,
   });
 
-  // DRE mensal + série de saldo acumulado (runway) e progresso de metas do
-  // rail desktop (D1) — mesma fonte usada em `conta/page.tsx` e `metas/page.tsx`.
+  // DRE mensal para série de runway mobile e progresso de metas.
   // Precisa ficar antes do early-return abaixo (regra dos hooks).
   const overviewMonthKey = selectedMonth ?? data?.mesAtual ?? "";
   const overviewYear =
@@ -129,6 +138,9 @@ export default function CockpitPage() {
   const monthEntries = viewData?.entries
     ? viewData.entries.filter((e) => (e.data ?? "").slice(0, 7) === monthKey)
     : undefined;
+  const comprometimentoRows = viewData
+    ? buildComprometimentoFuturo(viewData, monthKey ?? viewData.mesAtual, 12, projectId)
+    : [];
 
   const anos = viewData ? anosDisponiveis(viewData) : [monthYear];
   const year = selectedYear ?? monthYear;
@@ -136,10 +148,11 @@ export default function CockpitPage() {
   return (
     <div
       style={COCKPIT_THEME}
-      className="rounded-[22px] bg-[var(--ck-bg)] text-[var(--ck-text)] p-4 md:p-6 border border-[var(--ck-border)] shadow-lifeone-card"
+      className="pessoal-minimal-cockpit rounded-[22px] bg-[var(--ck-bg)] text-[var(--ck-text)] p-4 md:p-6 border border-[var(--ck-border)] shadow-lifeone-card"
     >
       <div className="md:hidden">
         <MobileCockpitHeader
+          projectId={projectId}
           view={view}
           monthKey={monthKey}
           year={year}
@@ -208,24 +221,52 @@ export default function CockpitPage() {
               <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--ck-muted)]">
                 Cockpit financeiro
               </p>
-              <h1
-                className="font-geist not-italic text-xl md:text-2xl text-[var(--ck-text)] leading-tight"
-                style={{
-                  fontFamily:
-                    "'Geist', var(--font-sans), system-ui, sans-serif",
-                  fontStyle: "normal",
-                }}
-              >
-                {view === "mes"
-                  ? data
-                    ? `${mesLongo(month0)} ${monthYear}`
-                    : "Visão do mês"
-                  : `Ano ${year}`}
-              </h1>
+              <div className="flex items-center gap-2">
+                <h1
+                  className="font-geist not-italic text-xl md:text-2xl text-[var(--ck-text)] leading-tight"
+                  style={{
+                    fontFamily:
+                      "'Geist', var(--font-sans), system-ui, sans-serif",
+                    fontStyle: "normal",
+                  }}
+                >
+                  {view === "mes"
+                    ? data
+                      ? `${mesLongo(month0)} ${monthYear}`
+                      : "Visão do mês"
+                    : `Ano ${year}`}
+                </h1>
+                {view === "mes" && (
+                  <div className="inline-flex items-center gap-1">
+                    <NovaDespesaLauncher
+                      projectId={projectId}
+                      projectType={projectType ?? "PESSOAL"}
+                      trigger={(open) => (
+                        <button
+                          type="button"
+                          aria-label="Lançar agora"
+                          onClick={open}
+                          className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg border border-[var(--ck-border)] bg-[var(--ck-surface)] text-[var(--ck-accent)] transition-colors hover:bg-[var(--ck-surface-2)]"
+                        >
+                          <PlusCircle className="h-4 w-4" />
+                        </button>
+                      )}
+                    />
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center justify-end gap-2">
+            <Link
+              href={`/projects/${projectId}/apoio`}
+              aria-label="Solicitar apoio"
+              title="Solicitar apoio"
+              className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg border border-[var(--ck-border)] bg-[var(--ck-surface)] text-[var(--ck-accent)] transition-colors hover:bg-[var(--ck-surface-2)]"
+            >
+              <Compass className="h-4 w-4" />
+            </Link>
             {view === "mes" && data && (
               <div className="inline-flex shrink-0 items-center gap-1 rounded-xl border border-[var(--ck-border)] bg-[var(--ck-surface-2)] p-1">
                 <button
@@ -302,11 +343,22 @@ export default function CockpitPage() {
         )}
 
         {viewData && !isLoading && view === "mes" && eixo !== "geral" && (
-          <SaldosWidget
-            projectId={projectId}
-            entries={monthEntries ?? []}
-            eixo={eixo}
-          />
+          <div className="mb-5 grid grid-cols-1 items-stretch gap-4 xl:grid-cols-2">
+            <SaldosWidget
+              projectId={projectId}
+              entries={monthEntries ?? []}
+              eixo={eixo}
+              selectedCardLast4={selectedCardLast4}
+              onSelectCard={setSelectedCardLast4}
+              className="h-full"
+            />
+            <ComprometimentoFuturo
+              rows={comprometimentoRows}
+              selectedCardLast4={selectedCardLast4}
+              onSelectCard={setSelectedCardLast4}
+              className="h-full"
+            />
+          </div>
         )}
 
         {isLoading && (
@@ -346,9 +398,7 @@ export default function CockpitPage() {
                 monthKey={monthKey}
                 entries={monthEntries}
                 projectId={projectId}
-                projectType={projectType}
                 eixo={eixo}
-                dreMensal={dreOverview?.mensal}
                 runwaySerie={dreOverview?.anual?.saldoAcumuladoSerie}
                 metasProgress={metasProgress}
               />

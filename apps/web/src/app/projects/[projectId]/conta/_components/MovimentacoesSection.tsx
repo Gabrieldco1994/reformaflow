@@ -42,6 +42,8 @@ export function MovimentacoesSection({
   originFilter,
   onClearOrigin,
   onPayInvoice,
+  onAdjustInvoice,
+  onSettleWithResidual,
   summaryQuickFilter,
   onClearSummaryQuickFilter,
 }: {
@@ -50,6 +52,8 @@ export function MovimentacoesSection({
   originFilter: string | null;
   onClearOrigin: () => void;
   onPayInvoice: (cardLast4: string) => void;
+  onAdjustInvoice: (cardLast4: string) => void;
+  onSettleWithResidual: (cardLast4: string) => void;
   summaryQuickFilter: ResumoQuickFilterKey | null;
   onClearSummaryQuickFilter: () => void;
 }) {
@@ -509,20 +513,40 @@ export function MovimentacoesSection({
 
             const meta = [
               item.kind === 'saida' && !item.isInvoice ? tipoLabel(item.tipoDespesa) : null,
+              item.kind === 'saida' &&
+              item.isInvoice &&
+              (item.invoicePaidAmount ?? 0) > 0 &&
+              !item.realizado
+                ? `Parcialmente paga (${formatCurrency((item.invoicePaidAmount ?? 0) / 100)} de ${formatCurrency(item.valor / 100)})`
+                : null,
               origem,
             ]
               .filter(Boolean)
               .join(' · ');
 
             const realizado = item.kind === 'saida' ? item.realizado : true;
+            const invoiceStatusText =
+              item.kind === 'saida' && item.isInvoice && (item.invoicePaidAmount ?? 0) > 0 && !item.realizado
+                ? 'Parcial'
+                : realizado
+                  ? 'Paga'
+                  : 'A pagar';
             const badge = isEntrada
               ? { txt: 'Recebido', cls: 'bg-[#E3F6EA] text-[#1E924A]' }
-              : realizado
-                ? { txt: 'Paga', cls: 'bg-[#E3F6EA] text-[#1E924A]' }
-                : { txt: 'A pagar', cls: 'bg-[#FBEBDC] text-[#B5803A]' };
+              : invoiceStatusText === 'Parcial'
+                ? { txt: 'Parcial', cls: 'bg-[#FBEBDC] text-[#B5803A]' }
+                : realizado
+                  ? { txt: 'Paga', cls: 'bg-[#E3F6EA] text-[#1E924A]' }
+                  : { txt: 'A pagar', cls: 'bg-[#FBEBDC] text-[#B5803A]' };
 
             const isInvoiceRow = !isEntrada && item.kind === 'saida' && item.isInvoice;
             const canToggle = !isEntrada && item.kind === 'saida' && item.editavel && !item.isInvoice;
+            const canEditInvoicePayment =
+              !isEntrada &&
+              item.kind === 'saida' &&
+              item.isInvoice &&
+              item.editavel &&
+              !!item.id;
             // Parcela cross-project ainda PENDENTE: não é editável nem toggl-ável;
             // precisa ser QUITADA (gera espelho + concilia) para não sumir da Visão Conta.
             const isPendingForeignParcela =
@@ -532,7 +556,7 @@ export function MovimentacoesSection({
               item.parcelaIndex != null &&
               !!item.foreignExpenseId;
             // Saída editável (despesa PESSOAL) ou entrada (recebimento) → abre modal completo.
-            const canEdit = canToggle || (isEntrada && !!item.id);
+            const canEdit = canToggle || canEditInvoicePayment || (isEntrada && !!item.id);
             const projOrigem =
               item.kind === 'saida' && item.projetoOrigem && item.projetoOrigem.type !== 'PESSOAL'
                 ? item.projetoOrigem
@@ -595,20 +619,47 @@ export function MovimentacoesSection({
                       {isEntrada ? '+' : '−'} {formatCurrency(item.valor / 100)}
                     </span>
                     {isInvoiceRow ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (item.kind === 'saida' && !item.realizado && item.cardLast4)
-                            onPayInvoice(item.cardLast4);
-                        }}
-                        disabled={realizado || !(item.kind === 'saida' && item.cardLast4)}
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${badge.cls} ${
-                          !realizado ? 'cursor-pointer hover:brightness-95' : ''
-                        }`}
-                        title={!realizado ? 'Pagar fatura' : undefined}
-                      >
-                        {badge.txt}
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (item.kind === 'saida' && !item.realizado && item.cardLast4)
+                              onPayInvoice(item.cardLast4);
+                          }}
+                          disabled={realizado || !(item.kind === 'saida' && item.cardLast4)}
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${badge.cls} ${
+                            !realizado ? 'cursor-pointer hover:brightness-95' : ''
+                          }`}
+                          title={!realizado ? 'Pagar fatura' : undefined}
+                        >
+                          {badge.txt}
+                        </button>
+                        {item.invoiceHasManualIntervention && (
+                          <span className="rounded-full bg-[#EFE6FA] px-2 py-0.5 text-[10px] font-semibold text-[#7A3FC2]">
+                            Ajuste manual
+                          </span>
+                        )}
+                        {item.kind === 'saida' && item.cardLast4 && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => onAdjustInvoice(item.cardLast4!)}
+                              className="rounded-full border border-lifeone-hairline px-2 py-0.5 text-[10px] font-semibold text-lifeone-ink-3 hover:border-lifeone-blue hover:text-lifeone-blue"
+                            >
+                              Ajustar
+                            </button>
+                            {!item.realizado && (
+                              <button
+                                type="button"
+                                onClick={() => onSettleWithResidual(item.cardLast4!)}
+                                className="rounded-full border border-lifeone-hairline px-2 py-0.5 text-[10px] font-semibold text-lifeone-ink-3 hover:border-lifeone-blue hover:text-lifeone-blue"
+                              >
+                                Resíduo
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </div>
                     ) : isPendingForeignParcela ? (
                       <button
                         type="button"

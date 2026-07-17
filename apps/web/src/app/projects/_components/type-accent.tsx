@@ -31,6 +31,20 @@ export function typeAccent(type: string): TypeAccent {
   return TYPE_ACCENT[type] ?? FALLBACK;
 }
 
+export type ProjectAccentStyle = CSSProperties & {
+  "--project-accent": string;
+  "--project-accent-soft": string;
+};
+
+/** Exposes the canonical type accent to every Skin Minimal shell surface. */
+export function projectAccentStyle(type: string): ProjectAccentStyle {
+  const accent = typeAccent(type);
+  return {
+    "--project-accent": accent.color,
+    "--project-accent-soft": accent.fill,
+  };
+}
+
 export function TypeIcon({
   type,
   className,

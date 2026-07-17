@@ -19,6 +19,8 @@ function toPublic(u: {
   allowedModules: string;
   allowedProjects: string;
   allowedProjectTypes: string;
+  createdByUserId: string | null;
+  lastLoginAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }) {
@@ -52,6 +54,8 @@ function toPublic(u: {
     allowedModules,
     allowedProjects,
     allowedProjectTypes,
+    createdByUserId: u.createdByUserId,
+    lastLoginAt: u.lastLoginAt,
     createdAt: u.createdAt,
     updatedAt: u.updatedAt,
   };
@@ -61,18 +65,26 @@ function toPublic(u: {
 export class UsersService {
   constructor(private prisma: PrismaService) {}
 
-  async list(tenantId: string) {
+  async list(tenantId: string, includeAllTenants = false) {
     const users = await this.prisma.user.findMany({
-      where: { tenantId },
-      orderBy: { createdAt: 'asc' },
+      ...(includeAllTenants ? {} : { where: { tenantId } }),
+      include: { tenant: { select: { name: true } } },
+      orderBy: [{ tenantId: 'asc' }, { createdAt: 'asc' }],
     });
-    return users.map(toPublic);
+    const nameById = new Map(users.map((u) => [u.id, u.name]));
+    return users.map((u) => ({
+      ...toPublic(u),
+      tenantName: u.tenant?.name ?? null,
+      createdByName: u.createdByUserId
+        ? (nameById.get(u.createdByUserId) ?? null)
+        : null,
+    }));
   }
 
-  async create(tenantId: string, dto: CreateUserDto) {
+  async create(tenantId: string, dto: CreateUserDto, createdByUserId?: string) {
     const username = dto.username.toLowerCase().trim();
     const existing = await this.prisma.user.findFirst({
-      where: { tenantId, username },
+      where: { username, deletedAt: null },
     });
     if (existing) throw new BadRequestException('Usuário já cadastrado');
 
@@ -87,6 +99,7 @@ export class UsersService {
         allowedModules: JSON.stringify(dto.allowedModules ?? []),
         allowedProjects: JSON.stringify(dto.allowedProjects ?? []),
         allowedProjectTypes: JSON.stringify(dto.allowedProjectTypes ?? []),
+        createdByUserId: createdByUserId ?? null,
       },
     });
     return toPublic(user);
@@ -102,7 +115,7 @@ export class UsersService {
       const username = dto.username.toLowerCase().trim();
       if (username !== user.username) {
         const dupe = await this.prisma.user.findFirst({
-          where: { tenantId, username, NOT: { id } },
+          where: { username, deletedAt: null, NOT: { id } },
         });
         if (dupe) throw new BadRequestException('Usuário já cadastrado');
       }

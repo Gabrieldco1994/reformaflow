@@ -12,6 +12,7 @@ import {
 } from 'recharts';
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
+import { moneyGlance } from '@/lib/money';
 import { tipoLabel } from '@/lib/expense-options';
 import { InfoHint } from '@/components/InfoHint';
 import { monthLabelShort, monthLabelLong } from '../_lib';
@@ -186,11 +187,13 @@ export function ProjecaoSaldo({
           >
             <p className="text-[10px] font-semibold uppercase tracking-wide text-lifeone-ink-3">{point.label}</p>
             <p
-              className={`mt-0.5 text-xs font-bold tabular-nums ${
+              title={formatCurrency(point.saldo / 100)}
+              className={`mt-0.5 whitespace-nowrap text-xs font-bold tabular-nums ${
                 point.negativo ? 'text-[#D92D20]' : 'text-lifeone-ink'
               }`}
             >
-              {formatCurrency(point.saldo / 100)}
+              {/* sem o prefixo "R$": pill de ~66px no rail não comporta "−R$ 495 mil" */}
+              {moneyGlance(point.saldo).replace('R$ ', '')}
             </p>
           </div>
         ))}

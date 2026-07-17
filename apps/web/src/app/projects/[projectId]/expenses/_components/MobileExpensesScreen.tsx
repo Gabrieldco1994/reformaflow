@@ -40,6 +40,13 @@ function total(items: Array<{ valor: number }>) {
   return items.reduce((acc, item) => acc + item.valor, 0);
 }
 
+const filterChipClass = (active: boolean) =>
+  `min-h-[44px] whitespace-nowrap rounded-full border px-4 text-xs font-semibold ${
+    active
+      ? 'border-darc-velvet bg-darc-velvet text-white'
+      : 'border-lifeone-hairline bg-white text-lifeone-ink-2'
+  }`;
+
 function groupByDay<T extends { data: string }>(items: T[]) {
   const map = new Map<string, T[]>();
   for (const item of items) {
@@ -127,50 +134,50 @@ export function MobileExpensesScreen() {
   const accountOut = spentItems.filter((item) => item.origem?.kind === 'conta');
 
   return (
-    <section className="space-y-3 lg:hidden">
-      <header className="flex items-center justify-between rounded-2xl border border-lifeone-hairline bg-white px-3 py-2 shadow-lifeone-card">
-        <div className="flex items-center gap-2">
+    <section className="pessoal-minimal-expenses space-y-3 lg:hidden">
+      <header className="pessoal-minimal-page-header flex min-w-0 items-center justify-between gap-2 rounded-2xl border border-lifeone-hairline bg-white px-3 py-2 shadow-lifeone-card">
+        <div className="flex min-w-0 items-center gap-2">
           <Link
             href={`/projects/${projectId}/monthly`}
             aria-label="Voltar para hoje"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-lifeone-hairline bg-lifeone-surface text-lifeone-ink-2"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-lifeone-hairline bg-lifeone-surface text-lifeone-ink-2"
           >
             <ChevronLeft className="h-4 w-4" />
           </Link>
-          <h1 className="text-lg font-bold text-lifeone-ink">Despesas</h1>
+          <h1 className="truncate text-lg font-bold text-lifeone-ink">Despesas</h1>
         </div>
         <div className="flex items-center gap-1 rounded-xl border border-lifeone-hairline bg-lifeone-surface p-1">
-          <button type="button" aria-label="Mês anterior" onClick={() => setMonth((current) => addMonthKey(current, -1))} className="h-8 w-8 rounded-lg text-lifeone-ink-2">
+          <button type="button" aria-label="Mês anterior" onClick={() => setMonth((current) => addMonthKey(current, -1))} className="h-11 w-11 rounded-lg text-lifeone-ink-2">
             <ChevronLeft className="mx-auto h-4 w-4" />
           </button>
           <span className="min-w-[64px] text-center text-xs font-semibold uppercase text-lifeone-ink-2">{monthLabelShort(month)} {month.slice(2, 4)}</span>
-          <button type="button" aria-label="Próximo mês" onClick={() => setMonth((current) => addMonthKey(current, 1))} className="h-8 w-8 rounded-lg text-lifeone-ink-2">
+          <button type="button" aria-label="Próximo mês" onClick={() => setMonth((current) => addMonthKey(current, 1))} className="h-11 w-11 rounded-lg text-lifeone-ink-2">
             <ChevronRight className="mx-auto h-4 w-4" />
           </button>
         </div>
       </header>
 
-      <section className="rounded-3xl border border-lifeone-hairline bg-white p-4 shadow-lifeone-card">
+      <section className="minimal-card minimal-card--hero rounded-3xl border border-lifeone-hairline bg-white p-4 shadow-lifeone-card">
         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-lifeone-ink-3">Gastei de verdade · {monthLabelShort(month)}</p>
         <p className="pt-1 text-3xl font-bold tracking-tight text-lifeone-ink">{moneyDetail(total(spentItems))}</p>
         <div className="mt-3 divide-y divide-lifeone-hairline text-sm">
-          <div className="flex items-center justify-between py-2"><span className="text-lifeone-ink-2">No cartão</span><strong className="text-amber-700">{moneyDetail(total(cardSpent))}</strong></div>
-          <div className="flex items-center justify-between py-2"><span className="text-lifeone-ink-2">Saiu da conta</span><strong className="text-emerald-700">{moneyDetail(total(accountOut))}</strong></div>
-          <div className="flex items-center justify-between py-2"><span className="text-lifeone-ink-2">Neutros (não somam)</span><strong className="text-lifeone-ink-3">{moneyDetail(total(neutralItems))}</strong></div>
+          <div className="flex items-center justify-between gap-3 py-2"><span className="min-w-0 text-lifeone-ink-2">No cartão</span><strong className="shrink-0 whitespace-nowrap text-amber-700">{moneyDetail(total(cardSpent))}</strong></div>
+          <div className="flex items-center justify-between gap-3 py-2"><span className="min-w-0 text-lifeone-ink-2">Saiu da conta</span><strong className="shrink-0 whitespace-nowrap text-emerald-700">{moneyDetail(total(accountOut))}</strong></div>
+          <div className="flex items-center justify-between gap-3 py-2"><span className="min-w-0 text-lifeone-ink-2">Neutros (não somam)</span><strong className="shrink-0 whitespace-nowrap text-lifeone-ink-3">{moneyDetail(total(neutralItems))}</strong></div>
         </div>
       </section>
 
       <div className="flex gap-2 overflow-x-auto pb-1">
-        <button type="button" onClick={() => setOriginFilter('all')} className={`min-h-[44px] rounded-full border px-4 text-xs font-semibold ${originFilter === 'all' ? 'border-darc-velvet bg-darc-velvet text-white' : 'border-lifeone-hairline bg-white text-lifeone-ink-2'}`}>Todos</button>
+        <button type="button" onClick={() => setOriginFilter('all')} className={filterChipClass(originFilter === 'all')}>Todos</button>
         {origins.map((origin) => (
-          <button key={origin.key} type="button" onClick={() => setOriginFilter(origin.key)} className={`min-h-[44px] whitespace-nowrap rounded-full border px-4 text-xs font-semibold ${originFilter === origin.key ? 'border-darc-velvet bg-darc-velvet text-white' : 'border-lifeone-hairline bg-white text-lifeone-ink-2'}`}>
+          <button key={origin.key} type="button" onClick={() => setOriginFilter(origin.key)} className={filterChipClass(originFilter === origin.key)}>
             {origin.label}
           </button>
         ))}
       </div>
 
       {((accountView?.cartoes?.length ?? 0) > 0 || (accountView?.contas?.length ?? 0) > 0) && (
-        <section className="space-y-2">
+        <section className="minimal-wallet space-y-2">
           <p className="px-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-lifeone-ink-3">Carteira · faturas espelham o banco</p>
           <div className="flex gap-3 overflow-x-auto pb-2">
             {(accountView?.cartoes ?? []).map((card) => {
@@ -182,14 +189,14 @@ export function MobileExpensesScreen() {
                   : status === 'aberta'
                     ? { cls: 'bg-[#E8B04B] text-[#201D19]', label: 'fatura aberta' }
                     : { cls: 'bg-[#E2574B] text-white', label: 'configurar' };
-              return (
+              const cardContent = (
                 <article
                   key={card.last4}
                   className="relative flex min-h-[172px] min-w-[286px] flex-col overflow-hidden rounded-[20px] p-4 text-white shadow-darc-hero"
                   style={{ background: cardGradient(cardMeta?.brand) }}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="text-[12.5px] font-bold">{card.nickname}</span>
+                    <span className="min-w-0 truncate text-[12.5px] font-bold">{card.nickname}</span>
                     <div className="flex items-center gap-2.5">
                       <span className={`rounded-lg px-2.5 py-1 text-[10.5px] font-extrabold uppercase ${badge.cls}`}>{badge.label}</span>
                       <BrandMark brand={cardMeta?.brand} />
@@ -210,6 +217,14 @@ export function MobileExpensesScreen() {
                   </div>
                 </article>
               );
+              // When the card needs configuration, wrap in a link to the credit-card edit
+              return status === 'configurar' ? (
+                <Link key={card.last4} href={`/projects/${projectId}/credit-cards?focus=closingDay&last4=${card.last4}`}>
+                  {cardContent}
+                </Link>
+              ) : (
+                <span key={card.last4}>{cardContent}</span>
+              );
             })}
             {(accountView?.contas ?? []).map((conta) => (
               <article
@@ -218,7 +233,7 @@ export function MobileExpensesScreen() {
                 style={{ background: 'linear-gradient(135deg,#0B4A36 0%,#0F6B4D 60%,#1B8A66 100%)' }}
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-[12.5px] font-bold">{conta.nome}</span>
+                  <span className="min-w-0 truncate text-[12.5px] font-bold">{conta.nome}</span>
                 </div>
                 <div className="mt-3 flex items-center gap-2.5">
                   <span className="h-[23px] w-8 rounded-[5px] bg-gradient-to-br from-[#E8CC7A] to-[#B98F3E]" aria-hidden />
@@ -238,15 +253,15 @@ export function MobileExpensesScreen() {
       )}
 
       <div className="flex gap-2 overflow-x-auto pb-1">
-        <button type="button" onClick={() => setCategoryFilter('all')} className={`min-h-[40px] rounded-full border px-4 text-xs font-semibold ${categoryFilter === 'all' ? 'border-darc-velvet bg-darc-velvet text-white' : 'border-lifeone-hairline bg-white text-lifeone-ink-2'}`}>Todas</button>
+        <button type="button" onClick={() => setCategoryFilter('all')} className={filterChipClass(categoryFilter === 'all')}>Todas</button>
         {categories.map((category) => (
-          <button key={category.key} type="button" onClick={() => setCategoryFilter(category.key)} className={`min-h-[40px] whitespace-nowrap rounded-full border px-4 text-xs font-semibold ${categoryFilter === category.key ? 'border-darc-velvet bg-darc-velvet text-white' : 'border-lifeone-hairline bg-white text-lifeone-ink-2'}`}>
+          <button key={category.key} type="button" onClick={() => setCategoryFilter(category.key)} className={filterChipClass(categoryFilter === category.key)}>
             {category.label}
           </button>
         ))}
       </div>
 
-      <label className="flex items-center justify-between rounded-2xl border border-lifeone-hairline bg-lifeone-surface px-3 py-2.5 text-xs text-lifeone-ink-2">
+      <label className="minimal-soft-card flex items-center justify-between rounded-2xl border border-lifeone-hairline bg-lifeone-surface px-3 py-2.5 text-xs text-lifeone-ink-2">
         <span>
           <strong className="text-sm text-lifeone-ink">Mostrar neutros</strong>
           <span className="block text-[11px] text-lifeone-ink-3">pagamento de fatura, movimentação e aporte</span>
@@ -265,12 +280,12 @@ export function MobileExpensesScreen() {
               {entries.map((entry, index) => {
                 const neutral = isConsumptionNeutralExpenseType(entry.tipoDespesa);
                 return (
-                  <div key={`${entry.data}-${entry.descricao}-${index}`} className={`flex items-center justify-between gap-3 rounded-2xl border px-3 py-3 ${neutral ? 'border-dashed border-lifeone-hairline bg-lifeone-surface text-lifeone-ink-3' : 'border-lifeone-hairline bg-white text-lifeone-ink'}`}>
+                  <div key={`${entry.data}-${entry.descricao}-${index}`} className={`minimal-list-card flex items-center justify-between gap-3 rounded-2xl border px-3 py-3 ${neutral ? 'border-dashed border-lifeone-hairline bg-lifeone-surface text-lifeone-ink-3' : 'border-lifeone-hairline bg-white text-lifeone-ink'}`}>
                     <div className="min-w-0">
                       <p className="truncate text-[15px] font-semibold">{entry.descricao}</p>
-                      <p className="mt-1 text-[11px] text-lifeone-ink-3">{tipoLabel(entry.tipoDespesa)}{entry.origem ? ` · ${entry.origem.nickname} •${entry.origem.last4}` : ''}</p>
+                      <p className="mt-1 truncate text-[11px] text-lifeone-ink-3">{tipoLabel(entry.tipoDespesa)}{entry.origem ? ` · ${entry.origem.nickname} •${entry.origem.last4}` : ''}</p>
                     </div>
-                    <strong className={`shrink-0 text-[15px] ${entry.valor < 0 ? 'text-emerald-700' : ''}`}>{moneyDetail(entry.valor)}</strong>
+                    <strong className={`shrink-0 whitespace-nowrap text-[15px] ${entry.valor < 0 ? 'text-emerald-700' : ''}`}>{moneyDetail(entry.valor)}</strong>
                   </div>
                 );
               })}
@@ -278,7 +293,7 @@ export function MobileExpensesScreen() {
           </article>
         ))}
         {filtered.length === 0 && (
-          <div className="rounded-2xl border border-lifeone-hairline bg-white p-6 text-center text-sm text-lifeone-ink-3">
+          <div className="minimal-card rounded-2xl border border-lifeone-hairline bg-white p-6 text-center text-sm text-lifeone-ink-3">
             Nenhuma despesa para os filtros selecionados.
           </div>
         )}

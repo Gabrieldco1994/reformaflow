@@ -6,7 +6,6 @@ import { moneyGlance } from "@/lib/money";
 import type { MonthlyEntry, MonthlyOverviewResponse } from "../_types";
 import type { DreSaldoAcumuladoRow } from "../../dre/_types";
 import { buildMariaStories } from "../_lib/insights";
-import SwipeToPay from "../_components/SwipeToPay";
 import type { Eixo } from "./EixoToggle";
 import {
   buildComprometimentoFuturo,
@@ -21,28 +20,21 @@ import MariaStories from "./MariaStories";
 import MiniHeroCapsule from "./MiniHeroCapsule";
 import MobileCockpitAccordion from "./MobileCockpitAccordion";
 import MobileConsumptionFlow from "./MobileConsumptionFlow";
-import MobileMonthDetails from "./MobileMonthDetails";
 import { buildMobileMonthData } from "./mobile-month-data";
 import MobileRunway from "./MobileRunway";
-import SankeyParaOndeFoi from "./SankeyParaOndeFoi";
 
 type AccordionState = {
   consumption: boolean;
-  details: boolean;
 };
 
 const DEFAULT_ACCORDIONS: AccordionState = {
   consumption: false,
-  details: false,
 };
 
 function isAccordionState(value: unknown): value is AccordionState {
   if (!value || typeof value !== "object") return false;
   const state = value as Record<string, unknown>;
-  return (
-    typeof state.consumption === "boolean" &&
-    typeof state.details === "boolean"
-  );
+  return typeof state.consumption === "boolean";
 }
 
 /** Limiar de rolagem (px) a partir do qual a cápsula-resumo aparece fixa no topo. */
@@ -131,8 +123,6 @@ export default function MobileMonthCockpit({
     setAccordions((current) => ({ ...current, [key]: !current[key] }));
   };
 
-  const isCurrentMonth = monthKey === data.mesAtual;
-  const isFutureMonth = monthKey > data.mesAtual;
   const viewingAnotherMonth = monthKey !== data.mesAtual;
 
   // Inovação #2 (Cenários "E se…?"): delta em centavos aplicado client-side sobre a
@@ -181,28 +171,13 @@ export default function MobileMonthCockpit({
     [month.categorias, mediaMensalPorTipoMap, comprometimento],
   );
 
-  // Inovação #4 (Deslizar-para-pagar): só despesas ainda não realizadas entram na
-  // lista — mês futuro permanece somente leitura (mesma regra da nota "incompleto").
-  const swipeEntries = useMemo(
-    () =>
-      isFutureMonth
-        ? []
-        : selectedEntries.filter(
-            (entry) =>
-              entry.tipo === "DESPESA" &&
-              entry.status !== "PAGO" &&
-              entry.status !== "EM_CAIXA",
-          ),
-    [isFutureMonth, selectedEntries],
-  );
-
   return (
     <section
       role="region"
       aria-label="Cockpit mensal mobile"
       data-testid="mobile-month-cockpit"
       data-project-id={projectId}
-      className="min-w-0 space-y-3 md:hidden"
+      className="pessoal-minimal-today min-w-0 space-y-3 md:hidden"
     >
       {/* Herói escuro com "viagem no tempo": absorve o herói canônico e o slider
           diário. A viagem no tempo só aparece no mês corrente. */}
@@ -211,7 +186,7 @@ export default function MobileMonthCockpit({
         series={series}
         hoje={month.hoje}
         diasNoMes={month.diasNoMes}
-        showTimeTravel={isCurrentMonth && series.length > 0}
+        showTimeTravel={false}
         scenarioDelta={scenarioDelta}
       />
 
@@ -227,45 +202,19 @@ export default function MobileMonthCockpit({
         />
       )}
 
-      {/* Sankey "Para onde foi" — mesma fonte de CategoriasBarras. */}
-      <SankeyParaOndeFoi
-        categorias={month.categorias}
-        entrouTotal={top.entrouMes}
-      />
-
       {/* Entrada para a tela de Despesas (mobile) — o app-despesas é alcançado a
           partir do "Hoje", como no protótipo (não há 4ª aba). */}
       <Link
         href={`/projects/${projectId}/expenses`}
         aria-label="Ver todas as despesas"
-        className="flex min-h-[44px] items-center justify-between rounded-[18px] border border-[var(--ck-border)] bg-[var(--ck-surface)] px-4 py-3 text-sm font-semibold text-[var(--ck-text)] shadow-lifeone-card active:scale-[0.99]"
+        className="minimal-card flex min-h-[44px] items-center justify-between rounded-[18px] border border-[var(--ck-border)] bg-[var(--ck-surface)] px-4 py-3 text-sm font-semibold text-[var(--ck-text)] shadow-lifeone-card active:scale-[0.99]"
       >
         <span>Ver todas as despesas</span>
         <span aria-hidden>→</span>
       </Link>
-
       {/* "Maria percebeu" — insights por regra pura (sem IA nesta fase),
           derivados de dados já calculados. */}
       <MariaStories insights={mariaInsights} />
-
-      {/* Deslizar-para-pagar — reusa o endpoint existente de marcar pago; mês
-          futuro fica de fora (somente leitura, regra da nota "Mês futuro incompleto"). */}
-      {!isFutureMonth && (
-        <section
-          aria-label="Próximas saídas"
-          className="rounded-[18px] border border-[var(--ck-border)] bg-[var(--ck-surface)] p-4 shadow-lifeone-card"
-        >
-          <h2 className="text-base font-semibold text-[var(--ck-text)]">
-            Próximas saídas
-          </h2>
-          <p className="mt-1 text-sm text-[var(--ck-muted)]">
-            Deslize ou toque para marcar como pago
-          </p>
-          <div className="mt-3">
-            <SwipeToPay entries={swipeEntries} viewingProjectId={projectId} />
-          </div>
-        </section>
-      )}
 
       <MobileCockpitAccordion
         id="mobile-cockpit-consumption"
@@ -275,15 +224,6 @@ export default function MobileMonthCockpit({
       >
         <MobileConsumptionFlow data={consumption} />
       </MobileCockpitAccordion>
-      <MobileCockpitAccordion
-        id="mobile-cockpit-details"
-        title="Detalhes"
-        open={accordions.details}
-        onToggle={() => toggleAccordion("details")}
-      >
-        <MobileMonthDetails month={month} isFutureMonth={isFutureMonth} />
-      </MobileCockpitAccordion>
-
       {/* Mini-herói cápsula: número canônico do MÊS ATUAL fixo no topo. No mês
           corrente surge por rolagem; ao consultar outro mês fica sempre visível e
           carrega o aviso "consultando <mês>" (papel da antiga aside, removida). */}

@@ -29,6 +29,16 @@ describe('deriveCockpitTop month-aware contract', () => {
     expect(top.projectionSource).toBe('canonical'); expect(top.projectionDegraded).toBe(false);
     expect(top.projecaoMes).toBe(0); expect(top.saidaTotal).toBe(0);
   });
+
+  it('considera o mês corrente no calendário BRT na fronteira UTC', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-01T02:30:00.000Z')); // 30/06 23:30 BRT
+    const jun = deriveCockpitTop(data(), '2026-06');
+    const jul = deriveCockpitTop(data(), '2026-07');
+    expect(jun.pctMesDecorrido).toBe(1);
+    expect(jul.pctMesDecorrido).toBe(0);
+  });
+
   it.each([
     ['month mismatch', canonical({ mes: '2026-06' })],
     ['degraded', { ...canonical(), status: 'degraded' as const }],

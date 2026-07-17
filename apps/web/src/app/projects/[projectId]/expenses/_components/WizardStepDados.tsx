@@ -1,5 +1,6 @@
 'use client';
 import { DadosDespesaFields } from './DadosDespesaFields';
+import { reaisToCents } from '../_lib/money';
 import type { WizardDraft } from '../_hooks/useNovaDespesaWizard';
 
 interface Option {
@@ -29,7 +30,7 @@ export function WizardStepDados({
   showRooms,
   tipoSuggestedByAi,
 }: Props) {
-  const valorTotal = (Number(draft.valor) || 0) * (Number(draft.quantidade) || 0);
+  const valorTotal = (reaisToCents(draft.valor) / 100 || 0) * (Number(draft.quantidade) || 0);
   return (
     <DadosDespesaFields
       tipoDespesa={draft.tipoDespesa}

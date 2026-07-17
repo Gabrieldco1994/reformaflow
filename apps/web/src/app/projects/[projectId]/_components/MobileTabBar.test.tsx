@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { getProjectNavModules, ProjectType } from "@reformaflow/domain";
-import { typeAccent } from "../../_components/type-accent";
 import { MobileTabBar } from "./MobileTabBar";
 import { getMobilePrimary } from "./mobile-nav";
 
@@ -45,76 +44,112 @@ const NON_PERSONAL_MATRIX = [
     type: ProjectType.REFORMA,
     labels: ["Dashboard", "Despesas", "Recebimentos"],
     slugs: ["dashboard", "expenses", "receipts"],
+    accent: "#C2691E",
   },
   {
     type: ProjectType.COMPRA,
     labels: ["Dashboard", "Despesas", "Recebimentos"],
     slugs: ["dashboard", "expenses", "receipts"],
+    accent: "#7A3FC2",
   },
   {
     type: ProjectType.CASA,
     labels: ["Dashboard", "Contas", "Despesas"],
     slugs: ["dashboard", "bills", "expenses"],
+    accent: "#1E924A",
   },
   {
     type: ProjectType.CARRO,
     labels: ["Dashboard", "Meu Carro", "Contas"],
     slugs: ["dashboard", "car-info", "bills"],
+    accent: "#5E5A52",
   },
   {
     type: ProjectType.PLANTAS,
     labels: ["Cronograma", "Diagnóstico IA", "Minhas Plantas"],
     slugs: ["dashboard", "plants-ai", "plants"],
+    accent: "#23824D",
   },
 ] as const;
 
 describe("MobileTabBar", () => {
-  it("preserves exactly Hoje, Lançar and Maria for PESSOAL with the green FAB", () => {
+  it("renders Cockpit, Despesas, Maria e Cartões in the PESSOAL pill and separate launch button", () => {
     renderTabBar({ canLaunch: true });
 
-    const links = screen.getAllByRole("link");
+    const pill = screen.getByTestId("pessoal-tab-pill");
+    const links = within(pill).getAllByRole("link");
     const launch = screen.getByRole("button", { name: "Lançar" });
-    const today = screen.getByRole("link", { name: "Hoje" });
+    const today = screen.getByRole("link", { name: "Cockpit" });
 
-    expect(links).toHaveLength(2);
+    expect(links).toHaveLength(4);
+    expect(links.map((link) => link.textContent)).toEqual([
+      "Cockpit",
+      "Despesas",
+      "Maria",
+      "Cartões",
+    ]);
     expect(today).toHaveAttribute("href", `${basePath}/monthly`);
     expect(today).toHaveAttribute("aria-current", "page");
-    expect(today).toHaveClass("min-h-11");
-    expect(launch).toHaveClass("bg-[#0F6B4D]", "text-white");
+    expect(today).toHaveClass("bg-[#111214]", "text-white");
+    expect(screen.getByRole("link", { name: "Despesas" })).toHaveAttribute(
+      "href",
+      `${basePath}/expenses`,
+    );
+    expect(launch).toHaveClass("h-16", "w-16", "bg-white");
+    expect(pill).not.toContainElement(launch);
     expect(screen.getByRole("link", { name: "Maria" })).toHaveAttribute(
       "href",
       `${basePath}/maria`,
+    );
+    expect(screen.getByRole("link", { name: "Cartões" })).toHaveAttribute(
+      "href",
+      `${basePath}/credit-cards`,
     );
     expect(screen.getByRole("navigation")).toHaveClass("md:hidden");
     expect(screen.getByRole("navigation")).not.toHaveClass("lg:hidden");
   });
 
-  it("omits Hoje when PESSOAL monthly permission is absent", () => {
+  it("omits Cockpit when PESSOAL monthly permission is absent and keeps Despesas/Maria/Cartões", () => {
     renderTabBar({ primary: [], canLaunch: true });
 
     expect(
-      screen.queryByRole("link", { name: "Hoje" }),
+      screen.queryByRole("link", { name: "Cockpit" }),
     ).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Despesas" })).toHaveAttribute(
+      "href",
+      `${basePath}/expenses`,
+    );
     expect(screen.getByRole("button", { name: "Lançar" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Maria" })).toHaveAttribute(
       "href",
       `${basePath}/maria`,
+    );
+    expect(screen.getByRole("link", { name: "Cartões" })).toHaveAttribute(
+      "href",
+      `${basePath}/credit-cards`,
     );
   });
 
   it("omits Lançar when PESSOAL expenses permission is absent", () => {
     renderTabBar({ canLaunch: false });
 
-    expect(screen.getByRole("link", { name: "Hoje" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Cockpit" })).toHaveAttribute(
       "href",
       `${basePath}/monthly`,
     );
+    expect(
+      screen.queryByRole("link", { name: "Despesas" }),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Lançar" }),
     ).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Maria" })).toHaveAttribute(
       "href",
       `${basePath}/maria`,
+    );
+    expect(screen.getByRole("link", { name: "Cartões" })).toHaveAttribute(
+      "href",
+      `${basePath}/credit-cards`,
     );
   });
 
@@ -128,9 +163,42 @@ describe("MobileTabBar", () => {
     expect(onOpenLaunch).toHaveBeenCalledTimes(1);
   });
 
+  it("marks Despesas as active on the expenses route for PESSOAL", () => {
+    renderTabBar({
+      pathname: `${basePath}/expenses`,
+      canLaunch: true,
+    });
+
+    expect(screen.getByRole("link", { name: "Despesas" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(screen.getByRole("link", { name: "Cockpit" })).not.toHaveAttribute(
+      "aria-current",
+    );
+  });
+
+  it("marks Maria as the only active pill tab on the assistant route", () => {
+    renderTabBar({ pathname: `${basePath}/maria` });
+
+    expect(screen.getByRole("link", { name: "Maria" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(screen.getByRole("link", { name: "Cockpit" })).not.toHaveAttribute(
+      "aria-current",
+    );
+    expect(screen.getByRole("link", { name: "Despesas" })).not.toHaveAttribute(
+      "aria-current",
+    );
+    expect(screen.getByRole("link", { name: "Cartões" })).not.toHaveAttribute(
+      "aria-current",
+    );
+  });
+
   it.each(NON_PERSONAL_MATRIX)(
     "renders the permission-filtered $type primary modules with project links and active accent",
-    ({ type, labels, slugs }) => {
+    ({ type, labels, slugs, accent }) => {
       const activeIndex = 1;
       renderTabBar({
         projectType: type,
@@ -147,9 +215,11 @@ describe("MobileTabBar", () => {
       });
 
       expect(links[activeIndex]).toHaveAttribute("aria-current", "page");
-      expect(links[activeIndex]).toHaveStyle({ color: typeAccent(type).color });
+      expect(links[activeIndex]).toHaveClass("minimal-tab-link--active");
+      expect(links[activeIndex]).not.toHaveAttribute("style");
+      expect(accent).toMatch(/^#[0-9A-F]{6}$/);
       expect(
-        screen.queryByRole("link", { name: "Hoje" }),
+        screen.queryByRole("link", { name: "Cockpit" }),
       ).not.toBeInTheDocument();
       expect(
         screen.queryByRole("button", { name: "Lançar" }),

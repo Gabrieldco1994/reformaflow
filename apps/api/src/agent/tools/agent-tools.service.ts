@@ -17,6 +17,7 @@ import {
   MerchantClassifierService,
   MERCHANT_TO_EXPENSE_TYPE,
 } from '../../merchant-classifier/merchant-classifier.service';
+import { PriceMonitorService } from '../../price-compare/price-monitor.service';
 import {
   isFullAccessRole,
   projectTypeHasModule,
@@ -60,6 +61,7 @@ export class AgentToolsService {
     private readonly cards: CreditCardService,
     private readonly accounts: BankAccountService,
     private readonly merchantClassifier: MerchantClassifierService,
+    private readonly priceMonitor: PriceMonitorService,
   ) {
     this.handlers = this.buildHandlers();
   }
@@ -136,6 +138,127 @@ export class AgentToolsService {
             orderBy: { createdAt: 'asc' },
           });
           return { projects };
+        },
+      },
+
+      list_price_monitor_items: {
+        def: {
+          name: 'list_price_monitor_items',
+          description:
+            'Lista produtos monitorados de preço (watchlist) com último melhor preço, loja e data da última checagem. ' +
+            'Pode filtrar por projeto. Use para "quais produtos estou monitorando?" e "como está minha watchlist".',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: { type: 'string', description: 'Projeto opcional para filtrar a watchlist.' },
+              limit: { type: 'integer', description: 'Máximo de itens (1 a 50, default 20).' },
+            },
+            additionalProperties: false,
+          },
+        },
+        run: async (ctx, args) => {
+          const projectIds = await this.resolvePriceCompareProjectIds(ctx, args['projectId']);
+          const limit = this.clampInt(args['limit'], 20, 1, 50);
+          const items = await this.priceMonitor.listByProjects(ctx.tenantId, projectIds, limit);
+          return {
+            total: items.length,
+            itens: items.map((i) => ({
+              itemId: i.id,
+              projectId: i.projectId,
+              projeto: i.project?.name ?? null,
+              projectType: i.project?.type ?? null,
+              titulo: i.title,
+              query: i.query ?? null,
+              ativo: i.isActive,
+              productUrl: i.productUrl ?? null,
+              referenciaCentavos: i.referencePriceCents ?? null,
+              alvoCentavos: i.targetPriceCents ?? null,
+              melhorPrecoCentavos: i.lastBestPriceCents ?? null,
+              melhorLoja: i.lastBestStore ?? null,
+              melhorLink: i.lastBestLink ?? null,
+              checadoEm: i.lastCheckedAt ? i.lastCheckedAt.toISOString().slice(0, 10) : null,
+            })),
+          };
+        },
+      },
+
+      check_price_monitor_item: {
+        def: {
+          name: 'check_price_monitor_item',
+          description:
+            'Atualiza e consulta o monitoramento de preço de um item da watchlist. ' +
+            'Você pode informar itemId diretamente ou uma query para encontrar o produto pelo nome.',
+          parameters: {
+            type: 'object',
+            properties: {
+              itemId: { type: 'string', description: 'Id do item monitorado (preferencial).' },
+              query: { type: 'string', description: 'Nome/trecho do produto para localizar na watchlist.' },
+              projectId: { type: 'string', description: 'Projeto opcional para restringir a busca.' },
+            },
+            additionalProperties: false,
+          },
+        },
+        run: async (ctx, args) => {
+          const projectIds = await this.resolvePriceCompareProjectIds(ctx, args['projectId']);
+          const itemId = this.optStr(args['itemId']);
+          const query = this.optStr(args['query']);
+
+          if (!itemId && !query) {
+            return { error: 'Informe itemId ou query para localizar o produto monitorado.' };
+          }
+
+          const item = itemId
+            ? await this.priceMonitor.findByIdInProjects(ctx.tenantId, projectIds, itemId)
+            : await this.priceMonitor.findFirstByQuery(ctx.tenantId, projectIds, query!);
+
+          if (!item) {
+            return { error: 'Produto monitorado não encontrado no seu escopo.' };
+          }
+
+          const refreshed = await this.priceMonitor.refreshItem(ctx.tenantId, item.projectId, item.id);
+          return {
+            item: {
+              itemId: refreshed.item.id,
+              projectId: refreshed.item.projectId,
+              titulo: refreshed.item.title,
+              query: refreshed.item.query ?? null,
+              referenciaCentavos: refreshed.item.referencePriceCents ?? null,
+              alvoCentavos: refreshed.item.targetPriceCents ?? null,
+              melhorPrecoCentavos: refreshed.item.lastBestPriceCents ?? null,
+              melhorLoja: refreshed.item.lastBestStore ?? null,
+              melhorLink: refreshed.item.lastBestLink ?? null,
+              checadoEm: refreshed.item.lastCheckedAt
+                ? refreshed.item.lastCheckedAt.toISOString().slice(0, 10)
+                : null,
+            },
+            comparacao: refreshed.comparison,
+          };
+        },
+      },
+
+      search_product_prices: {
+        def: {
+          name: 'search_product_prices',
+          description:
+            'Busca preços de um produto por texto livre (sem depender de item salvo na watchlist). ' +
+            'Use quando o usuário perguntar preço de um produto no chat/voz e ainda não houver cadastro.',
+          parameters: {
+            type: 'object',
+            properties: {
+              query: { type: 'string', description: 'Texto do produto para busca de preço.' },
+              referencePriceCents: { type: 'integer', description: 'Preço de referência opcional (centavos) para comparar variação.' },
+            },
+            required: ['query'],
+            additionalProperties: false,
+          },
+        },
+        run: async (_ctx, args) => {
+          const query = this.optStr(args['query']);
+          if (!query || query.length < 3) {
+            return { error: 'Informe um termo de busca com pelo menos 3 caracteres.' };
+          }
+          const reference = this.optInt(args['referencePriceCents'], 1, 1_000_000_000) ?? null;
+          return this.priceMonitor.searchPrices(query, reference);
         },
       },
 
@@ -934,6 +1057,57 @@ export class AgentToolsService {
     const n = Number(value);
     if (!Number.isFinite(n)) return fallback;
     return Math.min(max, Math.max(min, Math.round(n)));
+  }
+
+  private async resolvePriceCompareProjectIds(
+    ctx: ToolContext,
+    rawProjectId: unknown,
+  ): Promise<string[]> {
+    if (!isFullAccessRole(ctx.role)) {
+      const mods = Array.isArray(ctx.allowedModules) ? ctx.allowedModules : [];
+      if (!mods.includes('priceCompare')) {
+        throw new Error('Sem permissão para o módulo de comparação de preços.');
+      }
+    }
+
+    const explicitProjectId =
+      typeof rawProjectId === 'string' && rawProjectId.trim() ? rawProjectId.trim() : '';
+
+    if (explicitProjectId) {
+      const project = await this.prisma.project.findFirst({
+        where: { id: explicitProjectId, tenantId: ctx.tenantId, deletedAt: null },
+        select: { id: true, type: true },
+      });
+      if (!project) throw new Error('Projeto não encontrado.');
+      if (!userCanAccessProject(ctx.role, ctx.projectScope ?? undefined, project.id)) {
+        throw new Error('Sem permissão para acessar este projeto.');
+      }
+      if (!projectTypeHasModule(project.type, 'priceCompare')) {
+        throw new Error(
+          `Projetos do tipo "${project.type}" não suportam monitoramento de preços.`,
+        );
+      }
+      return [project.id];
+    }
+
+    const scope = ctx.projectScope ?? null;
+    const projects = await this.prisma.project.findMany({
+      where: {
+        tenantId: ctx.tenantId,
+        deletedAt: null,
+        ...(scope ? { id: { in: scope } } : {}),
+      },
+      select: { id: true, type: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const eligible = projects
+      .filter((p) => projectTypeHasModule(p.type, 'priceCompare'))
+      .map((p) => p.id);
+
+    if (eligible.length === 0) {
+      throw new Error('Nenhum projeto com monitoramento de preços disponível no seu escopo.');
+    }
+    return eligible;
   }
 
   /**

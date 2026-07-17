@@ -10,6 +10,7 @@ import { Select } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { CATEGORIA_MAO_DE_OBRA_OPTIONS, FORMA_PAGAMENTO_OPTIONS } from '@/lib/expense-options';
 import { getExpenseOptions } from '../_types';
+import { maskReaisInput, reaisToCents } from '../_lib/money';
 
 interface ProjectLite {
   id: string;
@@ -163,7 +164,7 @@ export function CreateLinkedExpenseModal({
     mutationFn: async () => {
       if (!targetProjectId) throw new Error('Escolha o projeto destino');
       if (!tipoDespesa) throw new Error('Escolha o tipo da despesa');
-      const valorNum = parseFloat(valor.replace(',', '.'));
+      const valorNum = reaisToCents(valor) / 100;
       if (!valorNum || valorNum <= 0) throw new Error('Valor inválido');
       const qtdNum = parseInt(quantidade, 10) || 1;
       const payload: Record<string, unknown> = {
@@ -215,7 +216,7 @@ export function CreateLinkedExpenseModal({
   });
 
   return (
-    <Modal open={open} onClose={onClose} title="Criar despesa em outro projeto e vincular">
+    <Modal open={open} onClose={onClose} title="Criar despesa em outro projeto e vincular" zIndex="z-[60]" portal>
       {/*
         IMPORTANTE: NÃO usar <form> aqui porque este modal é renderizado DENTRO do
         <form> do ExpenseFormModal (forms aninhados são inválidos em HTML — o submit
@@ -275,12 +276,11 @@ export function CreateLinkedExpenseModal({
               <Input
                 label="Valor (R$)"
                 name="valor"
-                type="number"
-                step="0.01"
-                min="0"
+                type="text"
+                inputMode="numeric"
                 required
                 value={valor}
-                onChange={(e) => setValor(e.target.value)}
+                onChange={(e) => setValor(maskReaisInput(e.target.value))}
               />
               <Input
                 label="Quantidade"

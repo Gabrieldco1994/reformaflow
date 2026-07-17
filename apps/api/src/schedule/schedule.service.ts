@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   UpsertScheduleConfigDto,
@@ -63,12 +63,26 @@ export class ScheduleService {
     });
   }
 
-  async updateStage(id: string, dto: UpdateScheduleStageDto) {
-    return this.prisma.scheduleStage.update({ where: { id }, data: dto });
+  async updateStage(id: string, projectId: string, tenantId: string, dto: UpdateScheduleStageDto) {
+    const result = await this.prisma.scheduleStage.updateMany({
+      where: { id, projectId, tenantId, deletedAt: null },
+      data: dto,
+    });
+    if (result.count === 0) throw new NotFoundException('Etapa não encontrada no projeto informado');
+    const stage = await this.prisma.scheduleStage.findFirst({
+      where: { id, projectId, tenantId, deletedAt: null },
+    });
+    if (!stage) throw new NotFoundException('Etapa não encontrada no projeto informado');
+    return stage;
   }
 
-  async deleteStage(id: string) {
-    return this.prisma.scheduleStage.delete({ where: { id } });
+  async deleteStage(id: string, projectId: string, tenantId: string) {
+    const result = await this.prisma.scheduleStage.updateMany({
+      where: { id, projectId, tenantId, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
+    if (result.count === 0) throw new NotFoundException('Etapa não encontrada no projeto informado');
+    return { deleted: true };
   }
 
   // ─── Tasks ────────────────────────────────────────────
@@ -101,8 +115,8 @@ export class ScheduleService {
   }
 
   async updateTask(id: string, projectId: string, tenantId: string, dto: UpdateScheduleTaskDto) {
-    const task = await this.prisma.scheduleTask.update({
-      where: { id },
+    const updated = await this.prisma.scheduleTask.updateMany({
+      where: { id, projectId, tenantId, deletedAt: null },
       data: {
         nome: dto.nome,
         duracao: dto.duracao,
@@ -114,12 +128,21 @@ export class ScheduleService {
         ordem: dto.ordem,
       },
     });
+    if (updated.count === 0) throw new NotFoundException('Tarefa não encontrada no projeto informado');
     await this.recalculateDates(projectId, tenantId);
+    const task = await this.prisma.scheduleTask.findFirst({
+      where: { id, projectId, tenantId, deletedAt: null },
+    });
+    if (!task) throw new NotFoundException('Tarefa não encontrada no projeto informado');
     return task;
   }
 
   async deleteTask(id: string, projectId: string, tenantId: string) {
-    await this.prisma.scheduleTask.delete({ where: { id } });
+    const deleted = await this.prisma.scheduleTask.updateMany({
+      where: { id, projectId, tenantId, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
+    if (deleted.count === 0) throw new NotFoundException('Tarefa não encontrada no projeto informado');
     await this.recalculateDates(projectId, tenantId);
   }
 
@@ -140,7 +163,11 @@ export class ScheduleService {
   }
 
   async deleteHoliday(id: string, projectId: string, tenantId: string) {
-    await this.prisma.scheduleHoliday.delete({ where: { id } });
+    const deleted = await this.prisma.scheduleHoliday.updateMany({
+      where: { id, projectId, tenantId, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
+    if (deleted.count === 0) throw new NotFoundException('Feriado não encontrado no projeto informado');
     await this.recalculateDates(projectId, tenantId);
   }
 
@@ -164,9 +191,9 @@ export class ScheduleService {
   // ─── Import ───────────────────────────────────────────
   async importSchedule(projectId: string, tenantId: string, dto: ImportScheduleDto) {
     // Delete existing schedule data
-    await this.prisma.scheduleTask.deleteMany({ where: { projectId } });
-    await this.prisma.scheduleStage.deleteMany({ where: { projectId } });
-    await this.prisma.scheduleHoliday.deleteMany({ where: { projectId } });
+    await this.prisma.scheduleTask.deleteMany({ where: { projectId, tenantId } });
+    await this.prisma.scheduleStage.deleteMany({ where: { projectId, tenantId } });
+    await this.prisma.scheduleHoliday.deleteMany({ where: { projectId, tenantId } });
 
     // Create config
     await this.upsertConfig(projectId, tenantId, {
@@ -246,8 +273,8 @@ export class ScheduleService {
 
     // Batch update
     for (const r of results) {
-      await this.prisma.scheduleTask.update({
-        where: { id: r.id },
+      await this.prisma.scheduleTask.updateMany({
+        where: { id: r.id, projectId, tenantId, deletedAt: null },
         data: { dataInicio: r.dataInicio, dataTermino: r.dataTermino },
       });
     }

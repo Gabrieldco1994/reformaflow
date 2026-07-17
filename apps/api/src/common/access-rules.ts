@@ -1,58 +1,46 @@
-import { ModuleSlug } from './decorators/require-module.decorator';
+import {
+  TYPE_MODULES,
+  projectTypeHasModule,
+  userHasAnyModuleForType,
+} from '@reformaflow/domain';
 
-export const TYPE_MODULES: Record<string, ModuleSlug[]> = {
-  REFORMA: [
-    'dashboard',
-    'expenses',
-    'receipts',
-    'cashFlow',
-    'schedule',
-    'floorPlans',
-    'simulation',
-    'priceCompare',
-    'rooms',
-    'creditCards',
-    'pendencias',
-  ],
-  COMPRA: ['dashboard', 'expenses', 'receipts', 'cashFlow', 'creditCards'],
-  PESSOAL: ['dashboard', 'expenses', 'receipts', 'cashFlow', 'creditCards', 'bankAccounts', 'monthlyOverview'],
-  CASA: ['dashboard', 'recurringBills', 'maintenance', 'reminders', 'expenses'],
-  CARRO: ['dashboard', 'carInfo', 'recurringBills', 'maintenance', 'reminders', 'expenses'],
-  PLANTAS: ['dashboard', 'maintenance', 'reminders', 'plantsAi'],
-};
+// The per-project-type module gate now lives in @reformaflow/domain
+// (config/type-modules). Re-exported here so existing API importers keep their
+// import path unchanged AND the enforcing server gate (modules.guard →
+// projectTypeHasModule) shares ONE map with the web (auth-context →
+// userHasAnyModuleForType) — they can no longer drift apart (#98).
+export { TYPE_MODULES, projectTypeHasModule, userHasAnyModuleForType };
 
-export function projectTypeHasModule(
-  projectType: string,
-  slug: ModuleSlug,
-): boolean {
-  const allowed = TYPE_MODULES[projectType];
-  return Array.isArray(allowed) && allowed.includes(slug);
-}
-
-export function userHasAnyModuleForType(
-  projectType: string,
-  allowedModules: string[],
-): boolean {
-  const typeMods = TYPE_MODULES[projectType] ?? [];
-  return typeMods.some((m) => m !== 'dashboard' && allowedModules.includes(m));
-}
-
-/**
- * Pode CRIAR projetos do tipo informado?
- * - ADMIN/OWNER: sempre.
- * - allowedProjectTypes não-vazio: só os tipos listados (controle explícito).
- * - allowedProjectTypes vazio: deriva dos módulos (comportamento atual).
- */
-export function userCanCreateProjectType(
+/** User authorization by project type with legacy fallback for empty grants. */
+export function userCanAccessProjectType(
   role: string | undefined,
   allowedProjectTypes: string[] | undefined,
   allowedModules: string[],
   projectType: string,
 ): boolean {
-  if (isFullAccessRole(role)) return true;
-  const types = allowedProjectTypes ?? [];
-  if (types.length > 0) return types.includes(projectType);
-  return userHasAnyModuleForType(projectType, allowedModules);
+  const types = accessibleProjectTypes(role, allowedProjectTypes, allowedModules);
+  if (types === null) return true;
+  return types.includes(projectType);
+}
+
+export const userCanCreateProjectType = userCanAccessProjectType;
+
+/** Returns the explicitly granted types that still have a corresponding module. */
+export function accessibleProjectTypes(
+  role: string | undefined,
+  allowedProjectTypes: string[] | undefined,
+  allowedModules: string[],
+): string[] | null {
+  if (isFullAccessRole(role)) return null;
+  const types = Array.isArray(allowedProjectTypes) ? allowedProjectTypes : [];
+  // ponytail: compat legado — quando tipos vierem vazios, reaproveita gate por módulo.
+  if (types.length === 0) {
+    if (!Array.isArray(allowedModules) || allowedModules.length === 0) return [];
+    return Object.keys(TYPE_MODULES).filter((type) =>
+      userHasAnyModuleForType(type, allowedModules),
+    );
+  }
+  return types.filter((type) => userHasAnyModuleForType(type, allowedModules));
 }
 
 /** Papéis com acesso total (veem todos os projetos, ignoram restrição por projeto). */
@@ -90,4 +78,38 @@ export function accessibleProjectScope(
   const list = allowedProjects ?? [];
   if (list.length === 0) return null;
   return list;
+}
+
+interface ProjectScopeReader {
+  project: {
+    findMany(args: {
+      where: Record<string, unknown>;
+      select: { id: true };
+    }): Promise<Array<{ id: string }>>;
+  };
+}
+
+/** Resolves aggregate visibility to concrete IDs, including type revocations. */
+export async function resolveAccessibleProjectScope(
+  prisma: ProjectScopeReader,
+  tenantId: string,
+  role: string | undefined,
+  allowedProjects: string[] | undefined,
+  allowedProjectTypes: string[] | undefined,
+  allowedModules: string[],
+): Promise<string[] | null> {
+  if (isFullAccessRole(role)) return null;
+  const types = accessibleProjectTypes(role, allowedProjectTypes, allowedModules);
+  if (types !== null && types.length === 0) return [];
+  const projectIds = Array.isArray(allowedProjects) ? allowedProjects : [];
+  const projects = await prisma.project.findMany({
+    where: {
+      tenantId,
+      deletedAt: null,
+      ...(types !== null ? { type: { in: types } } : {}),
+      ...(projectIds.length > 0 ? { id: { in: projectIds } } : {}),
+    },
+    select: { id: true },
+  });
+  return projects.map((project) => project.id);
 }

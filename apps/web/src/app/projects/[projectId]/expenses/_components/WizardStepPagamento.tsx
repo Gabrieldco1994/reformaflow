@@ -28,6 +28,7 @@ interface Props {
   allowRecorrente: boolean;
   /** Habilita as buscas de cartão/conta apenas quando o passo está visível. */
   enabled: boolean;
+  totalCents: number;
 }
 
 /**
@@ -35,7 +36,7 @@ interface Props {
  * controlado) + os vínculos "Pago no cartão" / "Paga pela conta" (selects
  * controlados a partir de `/tenant/credit-cards` e `/tenant/bank-accounts`).
  */
-export function WizardStepPagamento({ draft, patch, allowRecorrente, enabled }: Props) {
+export function WizardStepPagamento({ draft, patch, allowRecorrente, enabled, totalCents }: Props) {
   const { data: cards = [] } = useQuery<TenantCard[]>({
     queryKey: ['tenant', 'credit-cards'],
     queryFn: () => api.get('/tenant/credit-cards'),
@@ -87,6 +88,7 @@ export function WizardStepPagamento({ draft, patch, allowRecorrente, enabled }: 
         onRecorrenciaFimChange={(v) => patch({ recorrenciaFim: v })}
         dataCompraValue={draft.dataCompra}
         onDataCompraChange={(v) => patch({ dataCompra: v })}
+        valorTotalCents={totalCents}
       />
 
       <div className="space-y-3 border-t pt-3">

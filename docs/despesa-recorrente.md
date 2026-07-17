@@ -16,6 +16,30 @@ Commits principais:
 
 ---
 
+## CONTRATO (normativo — o que nunca pode quebrar)
+
+1. Recorrência cria **N despesas reais planejadas** (uma por ocorrência); não usa flag virtual para cálculo.
+2. Cada ocorrência é despesa normal (`formaPagamento='A_VISTA'`, `status='PLANEJADO'`) e entra em todos os KPIs sem lógica especial.
+3. Datas de ocorrência são calculadas por `buildRecurrenceDates` (mensal/quinzenal, limites inclusivos, teto de segurança).
+4. Mensal mantém dia do mês com clamp para último dia quando necessário (ex.: dia 31 em fevereiro).
+5. Quinzenal é intervalo fixo de 15 dias corridos.
+6. `fim < inicio` é inválido para criação (backend rejeita; preview retorna 0 ocorrências).
+7. Endpoint canônico é `POST /projects/:projectId/expenses/recorrente`.
+8. No modo cross-project (`obraProjectId`), cada ocorrência cria par canônica (obra) + espelho (PESSOAL com `linkedExpenseId`).
+9. Falha parcial no modo cross-project exige rollback das criações anteriores da mesma requisição.
+10. UI, Copilot e voz devem convergir no mesmo contrato (`createRecorrente` / tool `create_recurring_expense`).
+11. `recurrenceGroupId` não existe no contrato atual; edição/exclusão em lote é evolução futura. ⚠️ não blindado por teste de ausência de agrupamento.
+12. **Regra de domicílio:** contas fixas que saem da conta bancária pessoal (luz, gás, internet, IPVA, seguro…) DEVEM ser lançadas como despesa recorrente no projeto **PESSOAL** — é assim que entram no caixa consolidado (§10). Projetos CASA/CARRO têm `recurringBills` para rastrear manutenção/lembretes do bem, mas essas NÃO alimentam o caixa. Espelho automático CASA/CARRO→PESSOAL é explicitamente **deferido** (decisão de produto 2026-07).
+
+## Referência de implementação
+
+- Domain: `packages/domain/src/calculations/expense-recurrence.ts`.
+- Backend: `apps/api/src/expense/dto/create-recorrente.dto.ts`, `apps/api/src/expense/expense.service.ts` (`createRecorrente`), `apps/api/src/agent/tools/agent-tools.service.ts`.
+- Frontend: `apps/web/src/app/projects/[projectId]/expenses/_components/RecorrenteWizard.tsx`, `.../_components/PayOptionsModal.tsx`.
+- Testes que blindam contrato: `packages/domain/__tests__/expense-recurrence.test.ts`, `apps/api/src/expense/expense.service.spec.ts`.
+
+## Apêndice histórico
+
 ## 1) Princípio central — materializa despesas reais, não uma flag
 
 Existia (e foi **removida** da UI de criação) uma checkbox `recorrente` no form de

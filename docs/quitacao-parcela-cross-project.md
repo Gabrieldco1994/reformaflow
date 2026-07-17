@@ -18,6 +18,32 @@ Commits principais:
 
 ---
 
+## CONTRATO (normativo — o que nunca pode quebrar)
+
+1. Quitar parcela cross-project **nunca** pode ser "status puro"; sempre gera movimento real no PESSOAL.
+2. Fluxo obrigatório em 2 etapas: criar espelho pago no PESSOAL + conciliar parcela alvo.
+3. Conciliação por parcela persiste `CrossProjectSettlement(sourceExpenseId, targetExpenseId, parcelaIndex)`.
+4. `getAccountView` deve suprimir apenas parcelas quitadas e manter pendentes do mesmo alvo.
+5. IDs sintéticos por parcela (`<foreignId>#<idx>`) devem existir antes da 1ª quitação.
+6. **P1/P2:** idempotência por `(targetExpenseId, parcelaIndex)`; re-quitar não duplica débito.
+7. **P3:** origem (cartão/banco) classificada por parcela (`parcelaOriginByForeign`).
+8. **P4:** `realValor` usa valor do espelho, não do alvo.
+9. **P5:** alvo/source neutro não é quitável.
+10. **P6:** desconciliação trata destino do espelho e soft-delete conjunto de `Expense` + `cashFlowEntry`.
+11. **P7:** emissão por-parcela é a base da ação "Quitar".
+12. **E2:** `parcelaIndex` sempre normalizado (clamp no range válido).
+13. **E5:** mutex simétrico `rateio × settle` no mesmo `targetExpenseId`.
+14. **E8:** mutations invalidam `monthly-overview` e `account-view` no front.
+
+## Referência de implementação
+
+- Backend: `apps/api/src/conciliacao/conciliacao.service.ts`, `apps/api/src/expense/expense.service.ts`, `apps/api/src/monthly-overview/monthly-overview.service.ts`.
+- Frontend: `apps/web/src/app/projects/[projectId]/conta/_components/QuitarParcelaModal.tsx`, `.../conta/_components/MovimentacoesSection.tsx`, `.../expenses/ExpensesView.tsx`, `.../expenses/_hooks/useExpenseMutations.ts`, `.../expenses/_lib/quitarParcelaCross.ts`.
+- Modelo: `prisma/schema.prisma` (`CrossProjectSettlement`, `RateioAllocation`).
+- Testes que blindam contrato: `apps/api/src/conciliacao/conciliacao.hardening.spec.ts`, `apps/api/src/expense/expense.conciliar-parcela.spec.ts`, `apps/api/src/monthly-overview/monthly-overview.foreign-parcela.spec.ts`, `apps/web/src/app/projects/[projectId]/expenses/_lib/quitarParcelaCross.test.ts`.
+
+## Apêndice histórico
+
 ## 1) Bug-raiz — "a parcela some da Visão Conta"
 
 O PESSOAL é o **controlador universal do caixa**: consolida despesas de todos os

@@ -68,7 +68,7 @@ describe('NovaDespesaWizard', () => {
     fillDados(container);
     fireEvent.click(screen.getByRole('button', { name: /Avançar/i }));
     fireEvent.click(screen.getByRole('button', { name: /Voltar/i }));
-    expect((container.querySelector('[name="valor"]') as HTMLInputElement).value).toBe('100');
+    expect((container.querySelector('[name="valor"]') as HTMLInputElement).value).toBe('1,00');
   });
 
   it('passo AÇÃO mostra os 2 caminhos (registrar/planejar e vincular)', () => {

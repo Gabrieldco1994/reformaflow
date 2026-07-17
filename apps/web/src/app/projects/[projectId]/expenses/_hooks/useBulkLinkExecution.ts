@@ -22,22 +22,23 @@ export type BulkLinkExecutionRowWithStatus = BulkLinkExecutionRow & { status: Bu
  * `idle`/`error` — linhas `success` são puladas.
  */
 export function useBulkLinkExecution(rows: BulkLinkExecutionRow[]) {
-  const [state, setState] = useState<BulkLinkExecutionRowWithStatus[]>(() =>
-    rows.map((r) => ({ ...r, status: 'idle' as const })),
-  );
+  // ponytail: status por id, assim `rows` prop pode mudar livremente sem resetar successes
+  const [statuses, setStatuses] = useState<Record<string, BulkLinkRowStatus>>({});
 
   const execute = async () => {
-    for (let i = 0; i < state.length; i++) {
-      if (state[i].status === 'success') continue;
-      const row = state[i];
+    for (const row of rows) {
+      if (statuses[row.sourceId] === 'success') continue;
       try {
         await api.post(`/projects/${row.projectId}/expenses/${row.sourceId}/ratear-mixed`, row.payload);
-        setState((prev) => prev.map((r, idx) => (idx === i ? { ...r, status: 'success' } : r)));
+        setStatuses((prev) => ({ ...prev, [row.sourceId]: 'success' }));
       } catch {
-        setState((prev) => prev.map((r, idx) => (idx === i ? { ...r, status: 'error' } : r)));
+        setStatuses((prev) => ({ ...prev, [row.sourceId]: 'error' }));
       }
     }
   };
 
-  return { rows: state, execute };
+  return {
+    rows: rows.map((r) => ({ ...r, status: statuses[r.sourceId] ?? ('idle' as const) })),
+    execute,
+  };
 }

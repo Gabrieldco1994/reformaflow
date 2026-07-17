@@ -2,6 +2,7 @@
 
 import { X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 interface ModalProps {
   open: boolean;
@@ -10,6 +11,10 @@ interface ModalProps {
   children: React.ReactNode;
   variant?: 'auto' | 'center' | 'sheet';
   size?: 'sm' | 'md' | 'lg' | 'xl';
+  zIndex?: string;
+  /** Renderiza via createPortal em document.body. Use apenas em modais aninhados
+   *  dentro de outro Modal (overflow-y-auto) para escapar do stacking context. */
+  portal?: boolean;
 }
 
 const sizeMap = {
@@ -26,6 +31,8 @@ export function Modal({
   children,
   variant = 'auto',
   size = 'md',
+  zIndex,
+  portal = false,
 }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const [mounted, setMounted] = useState(false);
@@ -60,10 +67,10 @@ export function Modal({
       ? `w-full ${sizeMap[size]} max-h-[92vh] rounded-t-3xl transition-transform duration-300 ${mounted ? 'translate-y-0' : 'translate-y-full'}`
       : `w-full ${sizeMap[size]} max-h-[92vh] rounded-t-3xl md:rounded-2xl md:mx-4 transition-all duration-300 ${mounted ? 'translate-y-0 md:opacity-100 md:scale-100' : 'translate-y-full md:translate-y-0 md:opacity-0 md:scale-95'}`;
 
-  return (
+  const content = (
     <div
       ref={overlayRef}
-      className={`fixed inset-0 z-50 flex ${containerClasses} bg-darc-velvet/85 backdrop-blur-sm transition-opacity duration-200 ${mounted ? 'opacity-100' : 'opacity-0'}`}
+      className={`fixed inset-0 ${zIndex ?? 'z-50'} flex ${containerClasses} bg-darc-velvet/85 backdrop-blur-sm transition-opacity duration-200 ${mounted ? 'opacity-100' : 'opacity-0'}`}
       onClick={(e) => {
         if (e.target === overlayRef.current) onClose();
       }}
@@ -90,4 +97,8 @@ export function Modal({
       </div>
     </div>
   );
+
+  // ponytail: portal=true escapa do stacking context do pai (overflow-y-auto).
+  // Usar apenas em modais aninhados; top-level fica inline (preserva DOM ordering).
+  return portal ? createPortal(content, document.body) : content;
 }

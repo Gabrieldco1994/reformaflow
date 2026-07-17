@@ -7,10 +7,45 @@
 > funções puras `matchPaidInvoices` / `computePaidInvoiceKeys`).
 > **Testes:** `apps/api/src/monthly-overview/monthly-overview.account-view.spec.ts`.
 > Complementa `docs/cockpit-caixa-real.md` (caixa real §10).
+> Política de timezone/data: `docs/politica-datas-timezone.md`.
 > **Status (2026-06-25):** regras ativas em `main` (inclui commits `1cc93dc6`,
 > `7010b95d`, `01affbcb`, `7e901b15`, `f7be2bff`, `e41461c7`).
 
 ---
+
+## CONTRATO (normativo — o que nunca pode quebrar)
+
+1. Fatura é espelho bancário por chave interna `{dueMonth}__{cardLast4}`.
+2. `dueMonth` de compra no cartão vem de `caixaMonthForCardPurchase`.
+3. Neutro cobrado **no cartão** entra no espelho da fatura, mas não entra em gasto real.
+4. Neutro pago **pela conta** (`bankLast4`) não compõe fatura e só afeta caixa da conta.
+5. Casamento implícito pagamento→fatura (`matchPaidInvoices`) é por cartão + menor diferença de valor na janela `{payMonth, payMonth+1}`.
+6. Quitação implícita integral só ocorre com tolerância: `|pagamento - fatura| <= max(R$2, 0,5% do total)`.
+7. Pagamento fora da tolerância NÃO quita automaticamente: vira pagamento parcial e reduz `pending`.
+8. Múltiplos pagamentos implícitos no mesmo ciclo somam na mesma fatura.
+9. Quitação explícita (`settlesInvoiceKey`) soma múltiplas fontes e só marca paga quando soma >= total efetivo da fatura.
+10. Ajuste manual (`InvoiceAdjustment`, exceto `QUITACAO_RESIDUO`) altera o espelho da fatura e NÃO entra em gasto real nem em caixa.
+11. Quitação com resíduo declarado (`reason=QUITACAO_RESIDUO`) fecha a fatura quando `pago >= total - resíduo`, mantendo trilha auditável.
+12. Pagamento manual de fatura permite múltiplos pagamentos no mês; idempotência é por payload exato (cartão+conta+valor+data), não por mês.
+13. Cobrança "cartão paga cartão" sem `bankLast4` não mexe no caixa; apenas o lançamento de conta mexe.
+14. DRE/visões de consumo excluem neutros de settlement (`PAGAMENTO_FATURA_CARTAO`, `MOVIMENTACAO_INTERNA`).
+15. **I1:** `computeCaixaConta` permanece type-agnóstico; aporte/resgate saem do consumo, não do caixa.
+16. **§7-1:** Fatura = banco (inclui neutro no cartão e ajustes manuais).
+17. **§7-2:** Gasto real exclui neutros e ajustes de fatura.
+18. **§7-3:** Caixa só com `bankLast4`.
+19. **§7-4:** Quitação explícita soma por alvo; quitação implícita exige tolerância.
+20. **§7-5:** Pagamento próximo do vencimento casa no mês de vencimento (não no mês do pagamento).
+21. **§7-6:** Neutro-de-consumo (aporte/resgate) sai do consumo, mas permanece no caixa.
+
+## Referência de implementação
+
+- Serviço principal: `apps/api/src/monthly-overview/monthly-overview.service.ts` (`getAccountView`, `getCardInvoicesYearly`, `getOriginItemsYearly`, `matchPaidInvoices`, `computePaidInvoiceKeys`).
+- Ajustes manuais: `apps/api/src/monthly-overview/invoice-adjustment.controller.ts`, `apps/api/src/monthly-overview/dto/invoice-adjustment.dto.ts`.
+- Dependências de regra: `packages/domain/src/calculations/card-cash-month.ts`, `packages/domain/src/enums/index.ts`.
+- Endpoint/controller: `apps/api/src/monthly-overview/monthly-overview.controller.ts`, `POST/DELETE /projects/:projectId/invoice-adjustments`.
+- Testes que blindam contrato: `apps/api/src/monthly-overview/monthly-overview.account-view.spec.ts`, `apps/api/src/monthly-overview/caixa-conta.spec.ts`.
+
+## Apêndice histórico
 
 ## 1. Conceitos
 
