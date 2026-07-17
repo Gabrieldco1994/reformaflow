@@ -87,8 +87,8 @@ export default function AdminUsersPage() {
   async function handleDeleteTenant(u: AdminUser) {
     const tenantUsers = users.filter((other) => other.tenantId === u.tenantId);
     const typed = prompt(
-      `Excluir o tenant "${u.tenantName ?? u.tenantId}" e ${tenantUsers.length} usuário(s)?\n` +
-        `Só funciona se o tenant não tiver nenhum projeto. Digite o nome do tenant para confirmar:`,
+      `Excluir o tenant "${u.tenantName ?? u.tenantId}", ${tenantUsers.length} usuário(s) e todos os projetos dele?\n` +
+        `Digite o nome do tenant para confirmar:`,
     );
     if (typed !== (u.tenantName ?? u.tenantId)) return;
     setBusy(true);
@@ -219,7 +219,7 @@ export default function AdminUsersPage() {
                         disabled={busy}
                         onClick={() => handleDeleteTenant(u)}
                         className="text-sm text-red-600 hover:underline"
-                        title="Só funciona se o tenant não tiver projetos"
+                        title="Exclui o tenant, seus usuários e projetos (soft-delete)"
                       >
                         Excluir tenant
                       </button>

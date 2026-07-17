@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTenantDto } from './dto/create-tenant.dto';
 
@@ -33,8 +28,8 @@ export class TenantService {
 
   /**
    * Exclusão de tenant restrita a limpeza de contas de teste/orfãs:
-   * bloqueia o próprio tenant do requisitante (evita self-lockout) e
-   * qualquer tenant que já tenha projeto criado (evita apagar dado real).
+   * bloqueia o próprio tenant do requisitante (evita self-lockout).
+   * Projetos, usuários e o tenant são soft-deletados em cascata.
    */
   async remove(id: string, requesterTenantId: string) {
     if (id === requesterTenantId) {
@@ -45,15 +40,7 @@ export class TenantService {
     const tenant = await this.prisma.tenant.findUnique({ where: { id } });
     if (!tenant) throw new NotFoundException('Tenant não encontrado');
 
-    const projectCount = await this.prisma.project.count({
-      where: { tenantId: id },
-    });
-    if (projectCount > 0) {
-      throw new ForbiddenException(
-        'Só é possível excluir tenants sem nenhum projeto criado',
-      );
-    }
-
+    await this.prisma.project.deleteMany({ where: { tenantId: id } });
     await this.prisma.user.deleteMany({ where: { tenantId: id } });
     await this.prisma.tenant.delete({ where: { id } });
     return { ok: true };
