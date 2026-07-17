@@ -390,4 +390,55 @@ export class PriceMonitorService {
   async searchPrices(query: string, _reference?: number | null): Promise<any> {
     return await this.priceCompare.searchPrices(query);
   }
+
+  /**
+   * Controller aliases: Adapt camelCase method names to action names
+   */
+  async list(tenantId: string, projectId: string) {
+    return this.listItems(tenantId, projectId);
+  }
+
+  async create(tenantId: string, projectId: string, dto: any) {
+    const item = await this.createItem(
+      tenantId,
+      projectId,
+      dto.title,
+      dto.url,
+      dto.targetPrice,
+      dto.diasMonitoramento || 30,
+    );
+    // Update with notes separately if provided
+    if (dto.notes) {
+      return this.updateItem(tenantId, item.id, { notes: dto.notes });
+    }
+    return item;
+  }
+
+  async update(tenantId: string, projectId: string, itemId: string, dto: any) {
+    return this.updateItem(tenantId, itemId, dto);
+  }
+
+  async remove(tenantId: string, projectId: string, itemId: string) {
+    return this.deleteItem(tenantId, itemId);
+  }
+
+  async refreshAll(tenantId: string, projectId: string, _limit?: number) {
+    const items = await this.findActiveAlerts();
+    const results = [];
+    for (const item of items) {
+      if (item.projectId === projectId) {
+        try {
+          const result = await this.refreshAndCheckAlerts(
+            item.tenantId,
+            item.projectId,
+            item.id,
+          );
+          results.push(result);
+        } catch (error) {
+          this.logger.error(`Error refreshing alert ${item.id}:`, error);
+        }
+      }
+    }
+    return results;
+  }
 }
