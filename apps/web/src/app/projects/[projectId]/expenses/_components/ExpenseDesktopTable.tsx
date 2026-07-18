@@ -9,6 +9,7 @@ import {
   formaLabel,
   tipoLabel,
 } from '@/lib/expense-options';
+import { getExpenseIcon } from '@/lib/expense-icons';
 import type { Expense } from '@/types';
 import { StatusBadge } from './StatusBadge';
 import type { ExpenseCategoryGroup } from '../_hooks/useExpenseFilters';
@@ -155,7 +156,13 @@ export function ExpenseDesktopTable({
                             ) : null}
                           </td>
                           <td className="px-2 py-1.5 font-medium text-gray-800">
-                            {exp.titulo || tipoLabel(exp.tipoDespesa)}
+                            <div className="flex items-center gap-2">
+                              {(() => {
+                                const { Icon, color } = getExpenseIcon(exp.tipoDespesa);
+                                return <Icon className={`w-3.5 h-3.5 ${color} shrink-0`} />;
+                              })()}
+                              <span>{exp.titulo || tipoLabel(exp.tipoDespesa)}</span>
+                            </div>
                             {exp.tipoDespesa === 'MAO_DE_OBRA' && exp.categoriaMaoDeObra && (
                               <span className="ml-1.5 text-[10px] text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded">{catMaoLabel(exp.categoriaMaoDeObra)}</span>
                             )}
