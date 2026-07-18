@@ -117,7 +117,7 @@ export default function MariaPage() {
   };
 
   return (
-    <section className="pessoal-minimal-maria flex h-full min-h-[calc(100dvh-9rem)] flex-col">
+    <section className="pessoal-minimal-maria flex h-full min-h-0 flex-col">
       <header className="pessoal-minimal-page-header flex items-center gap-3 rounded-2xl border border-lifeone-hairline bg-white px-4 py-3 shadow-lifeone-card">
         <Link
           href={`/projects/${params.projectId}/monthly`}
@@ -136,7 +136,7 @@ export default function MariaPage() {
         </div>
       </header>
 
-      <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto overflow-x-visible px-1 py-4">
+      <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto overflow-x-visible px-1 py-4">
         {opening.message && (
           <div className="minimal-chat-bubble max-w-[86%] rounded-[18px] rounded-bl-md border border-lifeone-hairline bg-white px-4 py-3 text-[15px] leading-6 text-lifeone-ink-2 shadow-lifeone-card">
             {opening.message}

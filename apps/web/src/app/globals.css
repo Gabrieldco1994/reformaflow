@@ -605,7 +605,7 @@
 
   [data-ui-skin="minimal"][data-project-type="PESSOAL"] .pessoal-minimal-maria {
     min-width: 0;
-    min-height: calc(100dvh - 200px);
+    min-height: 0;
     color: var(--minimal-ink);
   }
 
