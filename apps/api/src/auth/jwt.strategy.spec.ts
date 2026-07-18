@@ -9,6 +9,7 @@ describe('JwtStrategy', () => {
     prisma = {
       user: {
         findUnique: jest.fn(),
+        update: jest.fn().mockResolvedValue({}),
       },
     };
     strategy = new JwtStrategy(prisma);
@@ -20,6 +21,7 @@ describe('JwtStrategy', () => {
       tenantId: 't1',
       deletedAt: null,
       isGuest: false,
+      sessionVersion: 0,
       allowedModules: '[]',
       allowedProjects: '[]',
       allowedProjectTypes: '[]',
@@ -45,6 +47,7 @@ describe('JwtStrategy', () => {
       role: 'ADMIN',
       deletedAt: null,
       isGuest: true,
+      sessionVersion: 0,
       allowedModules: '[]',
       allowedProjects: '[]',
       allowedProjectTypes: '[]',
@@ -70,6 +73,7 @@ describe('JwtStrategy', () => {
       role: 'ADMIN',
       deletedAt: null,
       isGuest: true,
+      sessionVersion: 0,
       allowedModules: '["dashboard"]',
       allowedProjects: '["p1"]',
       allowedProjectTypes: '["PESSOAL"]',

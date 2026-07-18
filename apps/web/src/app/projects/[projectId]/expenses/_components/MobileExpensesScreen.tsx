@@ -9,6 +9,7 @@ import { isConsumptionNeutralExpenseType } from '@reformaflow/domain';
 import { api } from '@/lib/api';
 import { moneyDetail } from '@/lib/money';
 import { tipoLabel } from '@/lib/expense-options';
+import { getExpenseIcon } from '@/lib/expense-icons';
 import { addMonthKey, currentMonthKey, monthLabelLong, monthLabelShort } from '../../conta/_lib';
 import type { AccountViewResponse, OriginItemsYearlyResponse } from '../../conta/_types';
 import { deriveCardWalletStatus } from '../_lib/card-wallet-status';
@@ -279,11 +280,17 @@ export function MobileExpensesScreen() {
             <div className="space-y-2">
               {entries.map((entry, index) => {
                 const neutral = isConsumptionNeutralExpenseType(entry.tipoDespesa);
+                const { Icon, color, bgColor } = getExpenseIcon(entry.tipoDespesa);
                 return (
                   <div key={`${entry.data}-${entry.descricao}-${index}`} className={`minimal-list-card flex items-center justify-between gap-3 rounded-2xl border px-3 py-3 ${neutral ? 'border-dashed border-lifeone-hairline bg-lifeone-surface text-lifeone-ink-3' : 'border-lifeone-hairline bg-white text-lifeone-ink'}`}>
                     <div className="min-w-0">
-                      <p className="truncate text-[15px] font-semibold">{entry.descricao}</p>
-                      <p className="mt-1 truncate text-[11px] text-lifeone-ink-3">{tipoLabel(entry.tipoDespesa)}{entry.origem ? ` · ${entry.origem.nickname} •${entry.origem.last4}` : ''}</p>
+                      <div className="flex items-center gap-2.5">
+                        <div className={`inline-flex items-center justify-center w-7 h-7 rounded-lg ${bgColor} shrink-0`}>
+                          <Icon className={`w-3.5 h-3.5 ${color}`} />
+                        </div>
+                        <p className="truncate text-[15px] font-semibold">{entry.descricao}</p>
+                      </div>
+                      <p className="mt-1 truncate text-[11px] text-lifeone-ink-3 ml-9">{tipoLabel(entry.tipoDespesa)}{entry.origem ? ` · ${entry.origem.nickname} •${entry.origem.last4}` : ''}</p>
                     </div>
                     <strong className={`shrink-0 whitespace-nowrap text-[15px] ${entry.valor < 0 ? 'text-emerald-700' : ''}`}>{moneyDetail(entry.valor)}</strong>
                   </div>
