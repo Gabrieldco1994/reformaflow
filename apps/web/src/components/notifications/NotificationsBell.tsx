@@ -15,7 +15,7 @@ import {
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { Modal } from '@/components/ui/modal';
-import { useProject } from '@/contexts/project-context';
+import { useProjectOptional } from '@/contexts/project-context';
 import type { DailySummary, SummaryItem } from './types';
 
 interface NotificationsBellProps {
@@ -85,7 +85,9 @@ function filterToProject(data: DailySummary, projectId: string): DailySummary {
 export function NotificationsBell({ variant = 'dark', className = '' }: NotificationsBellProps) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
-  const { projectId, projectName } = useProject();
+  const project = useProjectOptional();
+  const projectId = project?.projectId ?? null;
+  const projectName = project?.projectName ?? 'Notificações';
 
   const { data, isLoading } = useQuery<DailySummary>({
     queryKey: ['notifications', 'daily-summary'],
@@ -95,7 +97,7 @@ export function NotificationsBell({ variant = 'dark', className = '' }: Notifica
   });
 
   // ponytail: filter client-side — avoids API change, data already cached globally
-  const filtered = data ? filterToProject(data, projectId) : undefined;
+  const filtered = data && projectId ? filterToProject(data, projectId) : data;
   const badge = filtered?.totalBadge ?? 0;
   const isDark = variant === 'dark';
 
