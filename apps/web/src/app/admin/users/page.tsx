@@ -51,6 +51,7 @@ export default function AdminUsersPage() {
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [feedbackWarning, setFeedbackWarning] = useState<string | null>(null);
   const [editing, setEditing] = useState<AdminUser | null>(null);
   const [showCreate, setShowCreate] = useState(false);
 
@@ -67,13 +68,19 @@ export default function AdminUsersPage() {
 
   async function reload() {
     setError(null);
+    setFeedbackWarning(null);
     try {
-      const [usersData, feedbacksData] = await Promise.all([
-        api.get<AdminUser[]>('/users?scope=all'),
-        api.get<Feedback[]>('/feedback'),
-      ]);
+      const usersData = await api.get<AdminUser[]>('/users?scope=all');
       setUsers(usersData);
-      setFeedbacks(feedbacksData);
+
+      try {
+        const feedbacksData = await api.get<Feedback[]>('/feedback');
+        setFeedbacks(feedbacksData);
+      } catch {
+        // ponytail: feedback não pode derrubar a tela de usuários
+        setFeedbacks([]);
+        setFeedbackWarning('Feedbacks indisponíveis no momento.');
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao carregar usuários');
     }
@@ -152,6 +159,11 @@ export default function AdminUsersPage() {
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2 mb-4">
             {error}
+          </div>
+        )}
+        {feedbackWarning && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-700 text-sm rounded-lg px-3 py-2 mb-4">
+            {feedbackWarning}
           </div>
         )}
 
