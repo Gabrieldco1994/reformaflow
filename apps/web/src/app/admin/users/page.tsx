@@ -36,10 +36,19 @@ const PROJECT_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: 'PLANTAS', label: 'Plantas' },
 ];
 
+interface Feedback {
+  id: string;
+  userId: string;
+  username: string;
+  message: string;
+  createdAt: string;
+}
+
 export default function AdminUsersPage() {
   const { user, isAdmin, loading } = useAuth();
   const router = useRouter();
   const [users, setUsers] = useState<AdminUser[]>([]);
+  const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<AdminUser | null>(null);
@@ -59,8 +68,12 @@ export default function AdminUsersPage() {
   async function reload() {
     setError(null);
     try {
-      const data = await api.get<AdminUser[]>('/users?scope=all');
-      setUsers(data);
+      const [usersData, feedbacksData] = await Promise.all([
+        api.get<AdminUser[]>('/users?scope=all'),
+        api.get<Feedback[]>('/feedback'),
+      ]);
+      setUsers(usersData);
+      setFeedbacks(feedbacksData);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao carregar usuários');
     }
@@ -304,6 +317,26 @@ export default function AdminUsersPage() {
             await reload();
           }}
         />
+      )}
+
+      {/* Feedbacks section */}
+      {feedbacks.length > 0 && (
+        <div className="max-w-4xl mx-auto mt-8">
+          <h2 className="text-lg font-bold text-gray-900 mb-3">Feedbacks ({feedbacks.length})</h2>
+          <div className="flex flex-col gap-3">
+            {feedbacks.map((fb) => (
+              <div key={fb.id} className="bg-white rounded-xl border border-gray-200 px-4 py-3">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-sm font-semibold text-gray-800">{fb.username}</span>
+                  <span className="text-xs text-gray-400">
+                    {new Date(fb.createdAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
+                <p className="text-sm text-gray-700 whitespace-pre-wrap">{fb.message}</p>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );
