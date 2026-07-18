@@ -56,6 +56,15 @@ export class UsersController {
     return this.users.update(tenantId, id, dto);
   }
 
+  @Post(':id/force-logout')
+  forceLogout(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() requester: { id: string },
+    @Param('id') id: string,
+  ) {
+    return this.users.forceLogout(tenantId, id, requester.id);
+  }
+
   @Delete(':id')
   remove(
     @CurrentTenant() tenantId: string,

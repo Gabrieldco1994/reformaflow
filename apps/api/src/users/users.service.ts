@@ -21,6 +21,7 @@ function toPublic(u: {
   allowedProjectTypes: string;
   createdByUserId: string | null;
   lastLoginAt: Date | null;
+  lastActivityAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }) {
@@ -56,6 +57,7 @@ function toPublic(u: {
     allowedProjectTypes,
     createdByUserId: u.createdByUserId,
     lastLoginAt: u.lastLoginAt,
+    lastActivityAt: u.lastActivityAt,
     createdAt: u.createdAt,
     updatedAt: u.updatedAt,
   };
@@ -137,6 +139,19 @@ export class UsersService {
 
     const updated = await this.prisma.user.update({ where: { id }, data });
     return toPublic(updated);
+  }
+
+  async forceLogout(tenantId: string, id: string, requesterId: string) {
+    if (id === requesterId) {
+      throw new BadRequestException('Você não pode encerrar sua própria sessão');
+    }
+    const user = await this.prisma.user.findFirst({ where: { id, tenantId } });
+    if (!user) throw new NotFoundException('Usuário não encontrado');
+    await this.prisma.user.update({
+      where: { id },
+      data: { sessionVersion: { increment: 1 } },
+    });
+    return { ok: true };
   }
 
   async remove(tenantId: string, id: string, requesterId: string) {

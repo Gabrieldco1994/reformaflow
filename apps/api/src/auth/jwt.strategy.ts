@@ -9,6 +9,7 @@ export interface JwtPayload {
   tenantId: string;
   username: string;
   role: 'ADMIN' | 'USER';
+  sv?: number; // sessionVersion — ausente em tokens antigos (tratados como versão 0)
 }
 
 const cookieExtractor = (req: Request): string | null => {
@@ -48,6 +49,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (!user || user.deletedAt || !user.tenant || user.tenant.deletedAt) {
       throw new UnauthorizedException('Sessão inválida');
     }
+    if ((payload.sv ?? 0) !== user.sessionVersion) {
+      throw new UnauthorizedException('Sessão encerrada');
+    }
     if (
       user.isGuest &&
       user.tenant.expiresAt &&
@@ -56,6 +60,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Sessão inválida');
     }
 
+    // ponytail: fire-and-forget, at most 1 write per user per 5min
+    const stale =
+      !user.lastActivityAt ||
+      Date.now() - user.lastActivityAt.getTime() > 5 * 60 * 1000;
+    if (stale) {
+      this.prisma.user
+        .update({ where: { id: user.id }, data: { lastActivityAt: new Date() } })
+        .catch(() => {});
+    }
     let allowedModules: string[] = [];
     try {
       const parsed = JSON.parse(user.allowedModules || '[]');
