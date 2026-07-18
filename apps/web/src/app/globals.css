@@ -632,9 +632,11 @@
     box-shadow: none;
   }
 
+  /* ponytail: sem "bottom" custom aqui — o <main> do AppShell já reserva
+     pb-24 para a nav fixa; somar um offset extra duplicava a folga e
+     deixava um vão cinza vazio entre o input e a barra de navegação. */
   [data-ui-skin="minimal"][data-project-type="PESSOAL"]
     .pessoal-minimal-maria-dock {
-    bottom: calc(82px + env(safe-area-inset-bottom));
     background: linear-gradient(
       to top,
       var(--minimal-bg) 0 72%,
