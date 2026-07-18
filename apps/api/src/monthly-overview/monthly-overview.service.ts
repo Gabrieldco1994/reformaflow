@@ -994,7 +994,7 @@ export class MonthlyOverviewService {
             bankLast4: receipt.bankLast4,
             importId: receipt.importId ?? null,
           }) === (primaryAccount?.id ?? null) &&
-          receipt.status === 'EM_CAIXA' &&
+          (receipt.status === 'EM_CAIXA' || receipt.status === 'PREVISTO') &&
           receipt.data >= monthStart &&
           receipt.data < monthEnd,
       )
@@ -1007,7 +1007,7 @@ export class MonthlyOverviewService {
         tipo: receiptTypeKey(receipt.tipo),
         valor: receipt.valor,
         bankLast4: receipt.bankLast4,
-        status: 'EM_CAIXA',
+        status: receipt.status,
       }));
 
     const devoCartaoTotal = sumBy(
@@ -1296,10 +1296,14 @@ export class MonthlyOverviewService {
     );
 
     const entradasConta = groupLabelValues(
-      accountView.entradas.map((entrada) => ({
-        label: entrada.descricao,
-        valor: entrada.valor,
-      })),
+      // Eixo conta do DRE é REALIZADO: recebimento PREVISTO entra na lista da
+      // Visão Conta (getAccountView.entradas) mas NÃO pode somar aqui como realizado.
+      accountView.entradas
+        .filter((entrada) => entrada.status === 'EM_CAIXA')
+        .map((entrada) => ({
+          label: entrada.descricao,
+          valor: entrada.valor,
+        })),
     );
     const faturasItems = groupLabelValues(
       accountView.saidas

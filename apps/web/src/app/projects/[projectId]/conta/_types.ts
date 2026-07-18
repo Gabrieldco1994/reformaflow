@@ -52,7 +52,7 @@ export interface AccountViewEntrada {
   tipo: string;
   valor: number;
   bankLast4: string | null;
-  status: string;
+  status: 'EM_CAIXA' | 'PREVISTO';
 }
 
 export type AccountViewMovimentacao = AccountViewSaida | AccountViewEntrada;

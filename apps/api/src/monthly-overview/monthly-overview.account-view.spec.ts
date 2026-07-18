@@ -331,6 +331,8 @@ describe('MonthlyOverviewService.getAccountView', () => {
 
     expect(res.caixaHoje).toBe(108_000);
     expect(res.entrouMes).toBe(20_000);
+    // Recebimento PREVISTO entra na lista, mas os agregados de caixa não mudam.
+    expect(res.recebimentosPrevistosMes).toBe(4_000);
     expect(res.saiuMes).toBe(12_000);
     expect(res.faltaPagarMes).toBe(8_000);
     expect(res.sobraPrevista).toBe(104_000);
@@ -379,9 +381,16 @@ describe('MonthlyOverviewService.getAccountView', () => {
 
     expect(res.entradas).toEqual([
       expect.objectContaining({
+        descricao: 'Reembolso',
+        tipo: 'reembolso',
+        valor: 4_000,
+        status: 'PREVISTO',
+      }),
+      expect.objectContaining({
         descricao: 'Salario',
         tipo: 'salario',
         valor: 20_000,
+        status: 'EM_CAIXA',
       }),
     ]);
   });

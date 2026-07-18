@@ -3,11 +3,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowDownUp, CreditCard, LayoutList, PieChart, Pencil, Trash2 } from 'lucide-react';
+import { ArrowDownUp, LayoutList, PieChart } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { tipoLabel } from '@/lib/expense-options';
 import { DespesaModal } from './DespesaModal';
+import { MovimentacaoRow, type QuitarTarget } from './MovimentacaoRow';
 import { QuitarParcelaModal } from './QuitarParcelaModal';
 import { ReceitaModal, type ReceitaEditing } from './ReceitaModal';
 import type { ResumoQuickFilterKey } from './ResumoCards';
@@ -22,19 +23,6 @@ type Tab = 'saidas' | 'entradas' | 'tudo';
 type StatusFilter = 'todos' | 'pago' | 'apagar';
 type SortDir = 'desc' | 'asc';
 type ViewMode = 'lista' | 'categoria';
-
-const MESES_ABREV = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-
-/** Extrai { dia, mes } de uma data ISO/‑string, em UTC, para o badge do avatar. */
-function dateParts(value: string): { dia: string; mes: string } {
-  const part = (value ?? '').slice(0, 10);
-  const [, m, d] = part.split('-');
-  const mi = parseInt(m ?? '', 10);
-  return {
-    dia: (d ?? '').padStart(2, '0') || '--',
-    mes: mi >= 1 && mi <= 12 ? MESES_ABREV[mi - 1]! : '',
-  };
-}
 
 export function MovimentacoesSection({
   data,
@@ -67,13 +55,7 @@ export function MovimentacoesSection({
   const [viewMode, setViewMode] = useState<ViewMode>('lista');
   const [editExpenseId, setEditExpenseId] = useState<string | null>(null);
   const [editReceita, setEditReceita] = useState<ReceitaEditing | null>(null);
-  const [quitarTarget, setQuitarTarget] = useState<{
-    foreignExpenseId: string;
-    parcelaIndex: number;
-    valorSugerido: number;
-    descricao: string;
-    dataSugerida: string;
-  } | null>(null);
+  const [quitarTarget, setQuitarTarget] = useState<QuitarTarget | null>(null);
 
   useEffect(() => {
     if (!summaryQuickFilter) return;
@@ -110,6 +92,14 @@ export function MovimentacoesSection({
   const toggleStatus = useMutation({
     mutationFn: ({ id, status }: { id: string; status: 'PAGO' | 'PLANEJADO' }) =>
       api.patch(`/projects/${projectId}/expenses/${id}`, { status }),
+    onSuccess: invalidate,
+    onError: (e: Error) => toast.error(`Erro ao alterar status: ${e.message}`),
+  });
+
+  // Espelho do toggle de saída: recebimento previsto ↔ em caixa.
+  const toggleReceiptStatus = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: 'EM_CAIXA' | 'PREVISTO' }) =>
+      api.patch(`/projects/${projectId}/receipts/${id}`, { status }),
     onSuccess: invalidate,
     onError: (e: Error) => toast.error(`Erro ao alterar status: ${e.message}`),
   });
@@ -194,7 +184,8 @@ export function MovimentacoesSection({
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const result = merged.filter((m) => {
-      if (summaryQuickFilter === 'entrouMes' && m.kind !== 'entrada') return false;
+      if (summaryQuickFilter === 'entrouMes' && (m.kind !== 'entrada' || m.status !== 'EM_CAIXA'))
+        return false;
       if (summaryQuickFilter === 'saiuMes' && (m.kind !== 'saida' || !m.realizado)) return false;
       if (summaryQuickFilter === 'faltaPagarMes' && (m.kind !== 'saida' || m.realizado)) return false;
 
@@ -207,7 +198,7 @@ export function MovimentacoesSection({
       }
 
       if (statusFilter !== 'todos') {
-        const realizado = m.kind === 'saida' ? m.realizado : true;
+        const realizado = m.kind === 'saida' ? m.realizado : m.status === 'EM_CAIXA';
         if (statusFilter === 'pago' && !realizado) return false;
         if (statusFilter === 'apagar' && realizado) return false;
       }
@@ -253,8 +244,12 @@ export function MovimentacoesSection({
   const totalSaidas = filtered
     .filter((m): m is AccountViewSaida => m.kind === 'saida')
     .reduce((s, m) => s + m.valor, 0);
-  const totalEntradas = filtered
-    .filter((m): m is AccountViewEntrada => m.kind === 'entrada')
+  const entradasVisiveis = filtered.filter((m): m is AccountViewEntrada => m.kind === 'entrada');
+  const totalEntradasRecebido = entradasVisiveis
+    .filter((m) => m.status === 'EM_CAIXA')
+    .reduce((s, m) => s + m.valor, 0);
+  const totalEntradasPrevisto = entradasVisiveis
+    .filter((m) => m.status === 'PREVISTO')
     .reduce((s, m) => s + m.valor, 0);
 
   // Agrupa as saídas visíveis por categoria (tipo de despesa) para a visão resumida.
@@ -304,7 +299,12 @@ export function MovimentacoesSection({
           </h2>
         </div>
         <div className="text-right text-[11px] leading-tight">
-          <p className="font-semibold text-[#1E924A]">+ {formatCurrency(totalEntradas / 100)}</p>
+          <p className="font-semibold text-[#1E924A]">+ {formatCurrency(totalEntradasRecebido / 100)}</p>
+          {totalEntradasPrevisto > 0 && (
+            <p className="font-semibold text-[#B5803A]">
+              ~ {formatCurrency(totalEntradasPrevisto / 100)} previsto
+            </p>
+          )}
           <p className="font-semibold text-lifeone-ink-2">− {formatCurrency(totalSaidas / 100)}</p>
         </div>
       </div>
@@ -449,7 +449,7 @@ export function MovimentacoesSection({
               setStatusFilter('pago');
             }}
           >
-            pago
+            {tab === 'entradas' ? 'recebido' : 'pago'}
           </FilterPill>
           <FilterPill
             active={statusFilter === 'apagar'}
@@ -458,7 +458,7 @@ export function MovimentacoesSection({
               setStatusFilter('apagar');
             }}
           >
-            a pagar
+            {tab === 'entradas' ? 'previsto' : 'a pagar'}
           </FilterPill>
         </div>
       </div>
@@ -498,243 +498,25 @@ export function MovimentacoesSection({
         </div>
       ) : (
         <div className="space-y-2">
-          {filtered.map((item) => {
-            const isEntrada = item.kind === 'entrada';
-
-            const titulo =
-              !isEntrada && item.kind === 'saida' && !item.isInvoice
-                ? item.descricao || tipoLabel(item.tipoDespesa)
-                : item.descricao;
-
-            const origem =
-              item.kind === 'saida'
-                ? originLabel(item.cardLast4, item.bankLast4)
-                : originLabel(null, item.bankLast4);
-
-            const meta = [
-              item.kind === 'saida' && !item.isInvoice ? tipoLabel(item.tipoDespesa) : null,
-              item.kind === 'saida' &&
-              item.isInvoice &&
-              (item.invoicePaidAmount ?? 0) > 0 &&
-              !item.realizado
-                ? `Parcialmente paga (${formatCurrency((item.invoicePaidAmount ?? 0) / 100)} de ${formatCurrency(item.valor / 100)})`
-                : null,
-              origem,
-            ]
-              .filter(Boolean)
-              .join(' · ');
-
-            const realizado = item.kind === 'saida' ? item.realizado : true;
-            const invoiceStatusText =
-              item.kind === 'saida' && item.isInvoice && (item.invoicePaidAmount ?? 0) > 0 && !item.realizado
-                ? 'Parcial'
-                : realizado
-                  ? 'Paga'
-                  : 'A pagar';
-            const badge = isEntrada
-              ? { txt: 'Recebido', cls: 'bg-[#E3F6EA] text-[#1E924A]' }
-              : invoiceStatusText === 'Parcial'
-                ? { txt: 'Parcial', cls: 'bg-[#FBEBDC] text-[#B5803A]' }
-                : realizado
-                  ? { txt: 'Paga', cls: 'bg-[#E3F6EA] text-[#1E924A]' }
-                  : { txt: 'A pagar', cls: 'bg-[#FBEBDC] text-[#B5803A]' };
-
-            const isInvoiceRow = !isEntrada && item.kind === 'saida' && item.isInvoice;
-            const canToggle = !isEntrada && item.kind === 'saida' && item.editavel && !item.isInvoice;
-            const canEditInvoicePayment =
-              !isEntrada &&
-              item.kind === 'saida' &&
-              item.isInvoice &&
-              item.editavel &&
-              !!item.id;
-            // Parcela cross-project ainda PENDENTE: não é editável nem toggl-ável;
-            // precisa ser QUITADA (gera espelho + concilia) para não sumir da Visão Conta.
-            const isPendingForeignParcela =
-              item.kind === 'saida' &&
-              !item.isInvoice &&
-              !item.realizado &&
-              item.parcelaIndex != null &&
-              !!item.foreignExpenseId;
-            // Saída editável (despesa PESSOAL) ou entrada (recebimento) → abre modal completo.
-            const canEdit = canToggle || canEditInvoicePayment || (isEntrada && !!item.id);
-            const projOrigem =
-              item.kind === 'saida' && item.projetoOrigem && item.projetoOrigem.type !== 'PESSOAL'
-                ? item.projetoOrigem
-                : null;
-
-            return (
-              <div
-                key={`${item.kind}-${item.id ?? `${item.descricao}-${item.data}-${item.valor}`}`}
-                className="rounded-2xl border border-lifeone-hairline bg-lifeone-card transition-colors hover:border-lifeone-blue hover:shadow-lifeone-card"
-              >
-                <div className="group flex items-center gap-3 px-3 py-2.5 md:px-4 md:py-3">
-                  <span
-                    className={`flex h-9 w-9 shrink-0 flex-col items-center justify-center rounded-full leading-none md:h-10 md:w-10 ${
-                      isEntrada
-                        ? 'bg-[#E3F6EA] text-[#1E924A]'
-                        : isInvoiceRow
-                          ? 'bg-[#EFE6FA] text-[#7A3FC2]'
-                          : 'bg-[#E6EFFE] text-lifeone-blue'
-                    }`}
-                  >
-                    {isInvoiceRow ? (
-                      <CreditCard className="h-4 w-4" />
-                    ) : (
-                      <>
-                        <span className="text-sm font-bold tabular-nums font-geist">{dateParts(item.data).dia}</span>
-                        <span className="text-[8px] font-semibold uppercase tracking-wide opacity-70">
-                          {dateParts(item.data).mes}
-                        </span>
-                      </>
-                    )}
-                  </span>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!canEdit) return;
-                      if (item.kind === 'saida') openEditExpense(item);
-                      else if (item.kind === 'entrada') openEditReceita(item);
-                    }}
-                    className="min-w-0 flex-1 text-left"
-                    title={canEdit ? 'Editar' : undefined}
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <span className="truncate text-sm font-semibold text-lifeone-ink">{titulo}</span>
-                      {projOrigem && (
-                        <span className="shrink-0 rounded-full bg-[#E6EFFE] px-2 py-0.5 text-[10px] font-semibold text-lifeone-blue">
-                          {projOrigem.name}
-                        </span>
-                      )}
-                    </div>
-                    <div className="truncate text-[11px] text-lifeone-ink-3">{meta}</div>
-                  </button>
-
-                  <div className="flex shrink-0 flex-col items-end gap-1">
-                    <span
-                      className={`text-sm font-semibold tabular-nums font-geist ${
-                        isEntrada ? 'text-[#1E924A]' : 'text-lifeone-ink'
-                      }`}
-                    >
-                      {isEntrada ? '+' : '−'} {formatCurrency(item.valor / 100)}
-                    </span>
-                    {isInvoiceRow ? (
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (item.kind === 'saida' && !item.realizado && item.cardLast4)
-                              onPayInvoice(item.cardLast4);
-                          }}
-                          disabled={realizado || !(item.kind === 'saida' && item.cardLast4)}
-                          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${badge.cls} ${
-                            !realizado ? 'cursor-pointer hover:brightness-95' : ''
-                          }`}
-                          title={!realizado ? 'Pagar fatura' : undefined}
-                        >
-                          {badge.txt}
-                        </button>
-                        {item.invoiceHasManualIntervention && (
-                          <span className="rounded-full bg-[#EFE6FA] px-2 py-0.5 text-[10px] font-semibold text-[#7A3FC2]">
-                            Ajuste manual
-                          </span>
-                        )}
-                        {item.kind === 'saida' && item.cardLast4 && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => onAdjustInvoice(item.cardLast4!)}
-                              className="rounded-full border border-lifeone-hairline px-2 py-0.5 text-[10px] font-semibold text-lifeone-ink-3 hover:border-lifeone-blue hover:text-lifeone-blue"
-                            >
-                              Ajustar
-                            </button>
-                            {!item.realizado && (
-                              <button
-                                type="button"
-                                onClick={() => onSettleWithResidual(item.cardLast4!)}
-                                className="rounded-full border border-lifeone-hairline px-2 py-0.5 text-[10px] font-semibold text-lifeone-ink-3 hover:border-lifeone-blue hover:text-lifeone-blue"
-                              >
-                                Resíduo
-                              </button>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    ) : isPendingForeignParcela ? (
-                      <button
-                        type="button"
-                        onClick={(ev) => {
-                          ev.stopPropagation();
-                          if (item.kind === 'saida' && item.foreignExpenseId && item.parcelaIndex != null) {
-                            setQuitarTarget({
-                              foreignExpenseId: item.foreignExpenseId,
-                              parcelaIndex: item.parcelaIndex,
-                              valorSugerido: item.valor,
-                              descricao: item.descricao,
-                              dataSugerida: item.data.slice(0, 10),
-                            });
-                          }
-                        }}
-                        className="rounded-full bg-lifeone-blue px-2.5 py-0.5 text-[10px] font-semibold text-white transition hover:brightness-95"
-                        title="Quitar parcela pela conta pessoal"
-                      >
-                        Quitar
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={(ev) => {
-                          ev.stopPropagation();
-                          if (canToggle && item.kind === 'saida' && item.id)
-                            toggleStatus.mutate({
-                              id: item.id,
-                              status: realizado ? 'PLANEJADO' : 'PAGO',
-                            });
-                        }}
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${badge.cls}`}
-                        title={canToggle ? 'Alternar status' : undefined}
-                      >
-                        {badge.txt}
-                      </button>
-                    )}
-                  </div>
-
-                  {canEdit && (
-                    <div className="flex shrink-0 items-center gap-0.5">
-                      <button
-                        type="button"
-                        aria-label="Editar"
-                        onClick={() => {
-                          if (item.kind === 'saida') openEditExpense(item);
-                          else if (item.kind === 'entrada') openEditReceita(item);
-                        }}
-                        className="rounded-lg p-1.5 text-lifeone-ink-4 transition-colors hover:bg-[#E6EFFE] hover:text-lifeone-blue"
-                        title="Editar"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label="Excluir"
-                        onClick={() => {
-                          if (!item.id) return;
-                          if (item.kind === 'saida') {
-                            if (confirm('Excluir lançamento?')) removeExpense.mutate(item.id);
-                          } else if (item.kind === 'entrada') {
-                            if (confirm('Excluir recebimento?')) removeReceita.mutate(item.id);
-                          }
-                        }}
-                        className="rounded-lg p-1.5 text-lifeone-ink-4 transition-colors hover:bg-[#FCEBE9] hover:text-[#D92D20]"
-                        title="Excluir"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+          {filtered.map((item) => (
+            <MovimentacaoRow
+              key={`${item.kind}-${item.id ?? `${item.descricao}-${item.data}-${item.valor}`}`}
+              item={item}
+              originLabel={originLabel}
+              onEditExpense={openEditExpense}
+              onEditReceita={openEditReceita}
+              onToggleExpense={(id, realizado) =>
+                toggleStatus.mutate({ id, status: realizado ? 'PLANEJADO' : 'PAGO' })
+              }
+              onToggleReceita={(id, nextStatus) => toggleReceiptStatus.mutate({ id, status: nextStatus })}
+              onPayInvoice={onPayInvoice}
+              onAdjustInvoice={onAdjustInvoice}
+              onSettleWithResidual={onSettleWithResidual}
+              onQuitar={setQuitarTarget}
+              onRemoveExpense={(id) => removeExpense.mutate(id)}
+              onRemoveReceita={(id) => removeReceita.mutate(id)}
+            />
+          ))}
         </div>
       )}
 
