@@ -91,7 +91,7 @@ async function mockApi(page: Page) {
           id: "phase-d-user",
           username: "phase-d",
           name: "Usuário Phase D",
-          role: "OWNER",
+          role: "ADMIN",
           tenantId: "phase-d-tenant",
           allowedModules: [],
           allowedProjects: [],

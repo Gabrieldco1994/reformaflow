@@ -39,6 +39,81 @@ const PROJECT_DEFAULT_ROUTE: Record<string, string> = {
 
 type Kind = 'gasto' | 'recebimento' | 'tarefa' | 'conta' | 'lembrete' | 'manutencao' | 'vencimento';
 
+function emptySummary(): DailySummary {
+  return {
+    data: new Date().toISOString(),
+    hoje: {
+      gastos: { total: 0, count: 0, items: [] },
+      recebimentos: { total: 0, count: 0, items: [] },
+      tarefasAtivas: [],
+      vencendoHoje: [],
+    },
+    proximos7Dias: {
+      vencimentos: [],
+      tarefasComecando: [],
+      lembretes: [],
+      manutencoes: [],
+      contasRecorrentes: [],
+    },
+    totalBadge: 0,
+  };
+}
+
+function asItems(value: unknown): SummaryItem[] {
+  return Array.isArray(value) ? (value as SummaryItem[]) : [];
+}
+
+function normalizeSummary(value: unknown): DailySummary {
+  if (!value || typeof value !== 'object') return emptySummary();
+  const raw = value as Partial<DailySummary>;
+  const hoje = raw.hoje as DailySummary['hoje'] | undefined;
+  const prox = raw.proximos7Dias as DailySummary['proximos7Dias'] | undefined;
+
+  const gastosItems = asItems(hoje?.gastos?.items);
+  const recebimentosItems = asItems(hoje?.recebimentos?.items);
+  const tarefasAtivas = asItems(hoje?.tarefasAtivas);
+  const vencendoHoje = asItems(hoje?.vencendoHoje);
+  const vencimentos = asItems(prox?.vencimentos);
+  const tarefasComecando = asItems(prox?.tarefasComecando);
+  const lembretes = asItems(prox?.lembretes);
+  const manutencoes = asItems(prox?.manutencoes);
+  const contasRecorrentes = asItems(prox?.contasRecorrentes);
+  const totalBadge =
+    vencendoHoje.length +
+    tarefasAtivas.length +
+    vencimentos.length +
+    lembretes.length +
+    manutencoes.length +
+    contasRecorrentes.length +
+    tarefasComecando.length;
+
+  return {
+    data: typeof raw.data === 'string' ? raw.data : new Date().toISOString(),
+    hoje: {
+      gastos: {
+        items: gastosItems,
+        count: gastosItems.length,
+        total: gastosItems.reduce((sum, item) => sum + (item.valor ?? 0), 0),
+      },
+      recebimentos: {
+        items: recebimentosItems,
+        count: recebimentosItems.length,
+        total: recebimentosItems.reduce((sum, item) => sum + (item.valor ?? 0), 0),
+      },
+      tarefasAtivas,
+      vencendoHoje,
+    },
+    proximos7Dias: {
+      vencimentos,
+      tarefasComecando,
+      lembretes,
+      manutencoes,
+      contasRecorrentes,
+    },
+    totalBadge,
+  };
+}
+
 function routeForItem(item: SummaryItem, kind: Kind): string {
   const base = `/projects/${item.projectId}`;
   return `${base}/${KIND_ROUTES[kind] ?? PROJECT_DEFAULT_ROUTE[item.projectType] ?? 'dashboard'}`;
@@ -63,9 +138,10 @@ function urgencyDot(days: number): string {
 
 /** Filter all DailySummary arrays to a single project. */
 function filterToProject(data: DailySummary, projectId: string): DailySummary {
+  const safe = normalizeSummary(data);
   const f = <T extends SummaryItem>(arr: T[]) => arr.filter(i => i.projectId === projectId);
-  const gastos = f(data.hoje.gastos.items);
-  const recebimentos = f(data.hoje.recebimentos.items);
+  const gastos = f(safe.hoje.gastos.items);
+  const recebimentos = f(safe.hoje.recebimentos.items);
   const hoje = {
     gastos: {
       items: gastos,
@@ -77,21 +153,21 @@ function filterToProject(data: DailySummary, projectId: string): DailySummary {
       count: recebimentos.length,
       total: recebimentos.reduce((s, i) => s + (i.valor ?? 0), 0),
     },
-    tarefasAtivas: f(data.hoje.tarefasAtivas),
-    vencendoHoje: f(data.hoje.vencendoHoje),
+    tarefasAtivas: f(safe.hoje.tarefasAtivas),
+    vencendoHoje: f(safe.hoje.vencendoHoje),
   };
   const prox = {
-    vencimentos: f(data.proximos7Dias.vencimentos),
-    tarefasComecando: f(data.proximos7Dias.tarefasComecando),
-    lembretes: f(data.proximos7Dias.lembretes),
-    manutencoes: f(data.proximos7Dias.manutencoes),
-    contasRecorrentes: f(data.proximos7Dias.contasRecorrentes),
+    vencimentos: f(safe.proximos7Dias.vencimentos),
+    tarefasComecando: f(safe.proximos7Dias.tarefasComecando),
+    lembretes: f(safe.proximos7Dias.lembretes),
+    manutencoes: f(safe.proximos7Dias.manutencoes),
+    contasRecorrentes: f(safe.proximos7Dias.contasRecorrentes),
   };
   const totalBadge =
     hoje.vencendoHoje.length + hoje.tarefasAtivas.length +
     prox.vencimentos.length + prox.lembretes.length +
     prox.manutencoes.length + prox.contasRecorrentes.length + prox.tarefasComecando.length;
-  return { ...data, hoje, proximos7Dias: prox, totalBadge };
+  return { ...safe, hoje, proximos7Dias: prox, totalBadge };
 }
 
 export function NotificationsBell({ variant = 'dark', className = '' }: NotificationsBellProps) {
@@ -104,7 +180,7 @@ export function NotificationsBell({ variant = 'dark', className = '' }: Notifica
 
   const { data, isLoading } = useQuery<DailySummary>({
     queryKey: ['notifications', 'daily-summary'],
-    queryFn: () => api.get<DailySummary>('/notifications/daily-summary'),
+    queryFn: async () => normalizeSummary(await api.get<unknown>('/notifications/daily-summary')),
     staleTime: 60_000,
     refetchInterval: 5 * 60_000,
   });
