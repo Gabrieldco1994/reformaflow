@@ -49,6 +49,19 @@ function formatDateShort(iso: string): string {
   return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
 }
 
+function daysUntil(iso: string): number {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const d = new Date(iso); d.setHours(0, 0, 0, 0);
+  return Math.round((d.getTime() - today.getTime()) / 86_400_000);
+}
+
+function urgencyDot(days: number): string {
+  if (days <= 0) return 'bg-red-500';
+  if (days <= 2) return 'bg-orange-400';
+  if (days <= 5) return 'bg-amber-300';
+  return 'bg-slate-300';
+}
+
 /** Filter all DailySummary arrays to a single project. */
 function filterToProject(data: DailySummary, projectId: string): DailySummary {
   const f = <T extends SummaryItem>(arr: T[]) => arr.filter(i => i.projectId === projectId);
@@ -126,7 +139,7 @@ export function NotificationsBell({ variant = 'dark', className = '' }: Notifica
         )}
       </button>
 
-      <Modal open={open} onClose={() => setOpen(false)} title={projectName} size="md">
+      <Modal open={open} onClose={() => setOpen(false)} title={projectName} size="md" portal>
         {isLoading ? (
           <div className="py-10 flex justify-center">
             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-darc-red" />
@@ -311,12 +324,16 @@ function Group({ title, icon, children }: { title: string; icon: React.ReactNode
 
 function Item({ item, onClick, showDate = false }: { item: SummaryItem; onClick: () => void; showDate?: boolean }) {
   const sub = [showDate ? formatDateShort(item.data) : null, item.meta].filter(Boolean).join(' · ');
+  const dotClass = showDate && item.data ? urgencyDot(daysUntil(item.data)) : null;
   return (
     <button
       type="button"
       onClick={onClick}
       className="w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-darc-linen/40 active:bg-darc-linen/60 transition-colors min-h-[44px]"
     >
+      {dotClass && (
+        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dotClass}`} />
+      )}
       <div className="flex-1 min-w-0">
         <p className="text-sm text-darc-velvet truncate leading-snug">{item.titulo}</p>
         {sub && <p className="text-[11px] text-darc-velvet/50 truncate mt-0.5">{sub}</p>}
