@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ChevronLeft, MoreHorizontal } from "lucide-react";
 import { NotificationsBell } from "@/components/notifications/NotificationsBell";
+import { FeedbackButton } from "@/components/feedback/FeedbackButton";
 import { TypeIcon } from "../../_components/type-accent";
 import type { ProjectInfo } from "../_types";
 
@@ -47,6 +48,9 @@ export function MobileHeader({
           className="flex min-h-11 min-w-11 items-center justify-center rounded-full bg-white"
         >
           <NotificationsBell variant="light" />
+        </span>
+        <span className="flex min-h-11 min-w-11 items-center justify-center rounded-full bg-white">
+          <FeedbackButton variant="light" />
         </span>
         {hasMoreSheet ? (
           <button

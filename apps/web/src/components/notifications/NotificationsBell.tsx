@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import {
   Bell,
@@ -15,7 +15,6 @@ import {
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { Modal } from '@/components/ui/modal';
-import { useProjectOptional } from '@/contexts/project-context';
 import type { DailySummary, SummaryItem } from './types';
 
 interface NotificationsBellProps {
@@ -98,9 +97,10 @@ function filterToProject(data: DailySummary, projectId: string): DailySummary {
 export function NotificationsBell({ variant = 'dark', className = '' }: NotificationsBellProps) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
-  const project = useProjectOptional();
-  const projectId = project?.projectId ?? null;
-  const projectName = project?.projectName ?? 'Notificações';
+  // ponytail: useParams reads URL directly — works outside ProjectProvider (global shell)
+  const params = useParams();
+  const projectId = (params?.projectId as string) ?? null;
+  const projectName = 'Notificações';
 
   const { data, isLoading } = useQuery<DailySummary>({
     queryKey: ['notifications', 'daily-summary'],

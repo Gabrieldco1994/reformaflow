@@ -12,6 +12,7 @@ import {
   Users,
 } from "lucide-react";
 import { NotificationsBell } from "@/components/notifications/NotificationsBell";
+import { FeedbackButton } from "@/components/feedback/FeedbackButton";
 import { TypeIcon } from "../../_components/type-accent";
 import { isPathActive } from "./mobile-nav";
 import { navIcon } from "./nav-icons";
@@ -85,6 +86,10 @@ export function DesktopSidebar({
             <span className={labelClass}>Projetos</span>
           </Link>
           <NotificationsBell
+            variant="light"
+            className="minimal-sidebar-control min-h-11 min-w-11 rounded-[14px]"
+          />
+          <FeedbackButton
             variant="light"
             className="minimal-sidebar-control min-h-11 min-w-11 rounded-[14px]"
           />

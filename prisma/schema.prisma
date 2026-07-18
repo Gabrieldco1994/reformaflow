@@ -920,3 +920,16 @@ model BudgetAllocation {
   @@index([mes])
   @@map("budget_allocations")
 }
+
+
+model Feedback {
+  id        String   @id @default(cuid())
+  tenantId  String   @map("tenant_id")
+  userId    String   @map("user_id")
+  username  String
+  message   String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId])
+  @@map("feedbacks")
+}
