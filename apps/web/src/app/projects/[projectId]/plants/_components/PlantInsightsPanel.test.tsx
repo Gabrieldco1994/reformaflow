@@ -60,7 +60,7 @@ describe('PlantInsights Frontend - Hook', () => {
     });
 
     // Verify the hook returned data
-    expect(apiGetMock).toHaveBeenCalledWith('/projects/proj1/plants/plant1/insights');
+    expect(apiGetMock).toHaveBeenCalledWith('/projects/proj1/plants-ai/plant1/insights');
   });
 
   // Test 17: Hook handles API error gracefully
