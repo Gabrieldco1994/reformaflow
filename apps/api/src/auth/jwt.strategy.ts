@@ -56,6 +56,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Sessão inválida');
     }
 
+    // ponytail: fire-and-forget, at most 1 write per user per 5min
+    const stale =
+      !user.lastActivityAt ||
+      Date.now() - user.lastActivityAt.getTime() > 5 * 60 * 1000;
+    if (stale) {
+      this.prisma.user
+        .update({ where: { id: user.id }, data: { lastActivityAt: new Date() } })
+        .catch(() => {});
+    }
     let allowedModules: string[] = [];
     try {
       const parsed = JSON.parse(user.allowedModules || '[]');

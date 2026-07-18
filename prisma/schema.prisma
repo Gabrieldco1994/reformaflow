@@ -42,6 +42,7 @@ model User {
   allowedProjectTypes String    @default("[]") @map("allowed_project_types") // Tipos de projeto que o usuário pode CRIAR (JSON). Vazio = sem restrição (deriva dos módulos, como hoje). Não-vazio = só estes tipos.
   createdByUserId     String?   @map("created_by_user_id") // Id do admin que criou este usuário. Nulo = auto-cadastro (owner/guest).
   lastLoginAt         DateTime? @map("last_login_at")
+  lastActivityAt      DateTime? @map("last_activity_at") // Última requisição autenticada (atualizado no JWT validate, debounced 5min)
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")
   deletedAt           DateTime? @map("deleted_at")

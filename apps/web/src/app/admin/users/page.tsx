@@ -12,6 +12,7 @@ interface AdminUser extends AuthUser {
   updatedAt?: string;
   createdByName?: string | null;
   lastLoginAt?: string | null;
+  lastActivityAt?: string | null;
   tenantName?: string | null;
 }
 
@@ -129,6 +130,35 @@ export default function AdminUsersPage() {
           </div>
         )}
 
+        {/* Stats bar */}
+        {users.length > 0 && (() => {
+          const now = Date.now();
+          const d7 = 7 * 24 * 60 * 60 * 1000;
+          const d30 = 30 * 24 * 60 * 60 * 1000;
+          const lastSeen = (u: AdminUser) => u.lastActivityAt ?? u.lastLoginAt ?? null;
+          const total = users.length;
+          const admins = users.filter((u) => u.role === 'ADMIN').length;
+          const active7d = users.filter((u) => { const t = lastSeen(u); return t && now - new Date(t).getTime() < d7; }).length;
+          const active30d = users.filter((u) => { const t = lastSeen(u); return t && now - new Date(t).getTime() < d30; }).length;
+          const never = users.filter((u) => !lastSeen(u)).length;
+          return (
+            <div className="grid grid-cols-5 gap-3 mb-4">
+              {[
+                { label: 'Total', value: total, color: 'text-gray-900' },
+                { label: 'Admins', value: admins, color: 'text-purple-700' },
+                { label: 'Ativos 7d', value: active7d, color: 'text-green-700' },
+                { label: 'Ativos 30d', value: active30d, color: 'text-blue-700' },
+                { label: 'Nunca acessaram', value: never, color: 'text-gray-400' },
+              ].map((s) => (
+                <div key={s.label} className="bg-white border border-gray-200 rounded-xl px-4 py-3 text-center">
+                  <div className={`text-2xl font-bold ${s.color}`}>{s.value}</div>
+                  <div className="text-xs text-gray-500 mt-0.5">{s.label}</div>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
+
         <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
@@ -152,7 +182,7 @@ export default function AdminUsersPage() {
                   Criado por
                 </th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase whitespace-nowrap">
-                  Último login
+                  Última atividade
                 </th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase whitespace-nowrap">
                   Cadastro
@@ -190,7 +220,7 @@ export default function AdminUsersPage() {
                     {u.createdByName ?? 'Auto-cadastro'}
                   </td>
                   <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">
-                    {formatDateTime(u.lastLoginAt)}
+                    {formatDateTime(u.lastActivityAt ?? u.lastLoginAt)}
                   </td>
                   <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">
                     {formatDateTime(u.createdAt)}

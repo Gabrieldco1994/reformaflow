@@ -21,6 +21,7 @@ function toPublic(u: {
   allowedProjectTypes: string;
   createdByUserId: string | null;
   lastLoginAt: Date | null;
+  lastActivityAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }) {
@@ -56,6 +57,7 @@ function toPublic(u: {
     allowedProjectTypes,
     createdByUserId: u.createdByUserId,
     lastLoginAt: u.lastLoginAt,
+    lastActivityAt: u.lastActivityAt,
     createdAt: u.createdAt,
     updatedAt: u.updatedAt,
   };

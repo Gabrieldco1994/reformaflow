@@ -9,6 +9,7 @@ describe('JwtStrategy', () => {
     prisma = {
       user: {
         findUnique: jest.fn(),
+        update: jest.fn().mockResolvedValue({}),
       },
     };
     strategy = new JwtStrategy(prisma);
