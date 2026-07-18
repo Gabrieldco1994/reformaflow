@@ -19,7 +19,7 @@ export function usePlantInsights(projectId: string, plantId: string): UsePlantIn
       setError(null);
       try {
         const insights = await api.get<PlantInsightsResponse>(
-          `/projects/${projectId}/plants/${plantId}/insights`
+          `/projects/${projectId}/plants-ai/${plantId}/insights`
         );
         setData(insights);
       } catch (err) {
