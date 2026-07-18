@@ -141,6 +141,19 @@ export class UsersService {
     return toPublic(updated);
   }
 
+  async forceLogout(tenantId: string, id: string, requesterId: string) {
+    if (id === requesterId) {
+      throw new BadRequestException('Você não pode encerrar sua própria sessão');
+    }
+    const user = await this.prisma.user.findFirst({ where: { id, tenantId } });
+    if (!user) throw new NotFoundException('Usuário não encontrado');
+    await this.prisma.user.update({
+      where: { id },
+      data: { sessionVersion: { increment: 1 } },
+    });
+    return { ok: true };
+  }
+
   async remove(tenantId: string, id: string, requesterId: string) {
     if (id === requesterId) {
       throw new BadRequestException('Você não pode excluir a si mesmo');

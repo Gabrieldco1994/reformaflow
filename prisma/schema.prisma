@@ -41,6 +41,7 @@ model User {
   allowedProjects     String    @default("[]") @map("allowed_projects") // IDs de projetos liberados (JSON). Vazio = sem restrição por projeto (vê por tipo/módulo). Não-vazio = só estes projetos.
   allowedProjectTypes String    @default("[]") @map("allowed_project_types") // Tipos de projeto que o usuário pode CRIAR (JSON). Vazio = sem restrição (deriva dos módulos, como hoje). Não-vazio = só estes tipos.
   createdByUserId     String?   @map("created_by_user_id") // Id do admin que criou este usuário. Nulo = auto-cadastro (owner/guest).
+  sessionVersion      Int       @default(0) @map("session_version") // Incrementado no force-logout; JWTs com sv antigo são rejeitados
   lastLoginAt         DateTime? @map("last_login_at")
   lastActivityAt      DateTime? @map("last_activity_at") // Última requisição autenticada (atualizado no JWT validate, debounced 5min)
   createdAt           DateTime  @default(now()) @map("created_at")

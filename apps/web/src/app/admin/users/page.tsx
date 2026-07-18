@@ -72,6 +72,18 @@ export default function AdminUsersPage() {
 
   if (loading || !isAdmin) return null;
 
+  async function handleForceLogout(u: AdminUser) {
+    if (!confirm(`Encerrar sessão de ${u.username}? O usuário será desconectado na próxima requisição.`)) return;
+    setBusy(true);
+    try {
+      await api.post(`/users/${u.id}/force-logout`, {});
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Erro ao encerrar sessão');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleDelete(u: AdminUser) {
     if (!confirm(`Excluir usuário ${u.username}?`)) return;
     setBusy(true);
@@ -234,14 +246,23 @@ export default function AdminUsersPage() {
                         >
                           Editar
                         </button>
-                        {u.id !== user?.id && (
-                          <button
-                            disabled={busy}
-                            onClick={() => handleDelete(u)}
-                            className="text-sm text-red-600 hover:underline"
-                          >
-                            Excluir
-                          </button>
+                      {u.id !== user?.id && (
+                          <>
+                            <button
+                              disabled={busy}
+                              onClick={() => handleForceLogout(u)}
+                              className="text-sm text-amber-600 hover:underline"
+                            >
+                              Sair
+                            </button>
+                            <button
+                              disabled={busy}
+                              onClick={() => handleDelete(u)}
+                              className="text-sm text-red-600 hover:underline"
+                            >
+                              Excluir
+                            </button>
+                          </>
                         )}
                       </>
                     ) : (

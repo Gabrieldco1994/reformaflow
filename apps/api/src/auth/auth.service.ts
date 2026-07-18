@@ -267,12 +267,14 @@ export class AuthService {
     tenantId: string;
     username: string;
     role: string;
+    sessionVersion: number;
   }) {
     const payload: JwtPayload = {
       sub: user.id,
       tenantId: user.tenantId,
       username: user.username,
       role: user.role as 'ADMIN' | 'USER',
+      sv: user.sessionVersion,
     };
     return this.jwt.sign(payload, { expiresIn: '7d' });
   }

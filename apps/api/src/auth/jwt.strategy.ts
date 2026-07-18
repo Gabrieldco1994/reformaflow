@@ -9,6 +9,7 @@ export interface JwtPayload {
   tenantId: string;
   username: string;
   role: 'ADMIN' | 'USER';
+  sv?: number; // sessionVersion — ausente em tokens antigos (tratados como versão 0)
 }
 
 const cookieExtractor = (req: Request): string | null => {
@@ -47,6 +48,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
     if (!user || user.deletedAt || !user.tenant || user.tenant.deletedAt) {
       throw new UnauthorizedException('Sessão inválida');
+    }
+    if ((payload.sv ?? 0) !== user.sessionVersion) {
+      throw new UnauthorizedException('Sessão encerrada');
     }
     if (
       user.isGuest &&
