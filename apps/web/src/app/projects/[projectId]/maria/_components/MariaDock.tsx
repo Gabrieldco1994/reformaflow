@@ -1,6 +1,6 @@
 'use client';
 
-import { AudioLines, Mic } from 'lucide-react';
+import { AudioLines, Mic, Send } from 'lucide-react';
 
 export const MARIA_SUGGESTIONS = [
   { key: 'posso', label: 'Posso gastar R$ 500?' },
@@ -87,17 +87,29 @@ export function MariaDock({
           disabled={disabled}
           className="min-h-[44px] flex-1 rounded-2xl border border-lifeone-hairline bg-white px-4 py-3 text-[15px] font-medium text-lifeone-ink shadow-lifeone-card disabled:opacity-60"
         />
-        <button
-          type="button"
-          onClick={onMic}
-          disabled={disabled || !micSupported}
-          aria-label="Falar"
-          className={`flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-2xl text-white disabled:opacity-50 ${
-            listening ? 'bg-red-600' : 'bg-emerald-700'
-          }`}
-        >
-          <Mic className="h-5 w-5" />
-        </button>
+        {/* ponytail: botão enviar aparece quando há texto; mic aparece quando vazio */}
+        {input.trim() ? (
+          <button
+            type="submit"
+            disabled={disabled}
+            aria-label="Enviar"
+            className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-2xl bg-emerald-700 text-white disabled:opacity-50"
+          >
+            <Send className="h-5 w-5" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onMic}
+            disabled={disabled || !micSupported}
+            aria-label="Falar"
+            className={`flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-2xl text-white disabled:opacity-50 ${
+              listening ? 'bg-red-600' : 'bg-emerald-700'
+            }`}
+          >
+            <Mic className="h-5 w-5" />
+          </button>
+        )}
       </form>
     </div>
   );
