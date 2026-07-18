@@ -119,10 +119,16 @@ export class AuthController {
     return { user: this.auth.buildPublicUser(claimedUser), token };
   }
 
-  @Public()
   @Post('logout')
   @HttpCode(200)
-  async logout(@Res({ passthrough: true }) res: Response) {
+  async logout(
+    @CurrentUser() user: { id: string },
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { sessionVersion: { increment: 1 } },
+    });
     res.clearCookie(COOKIE_NAME, {
       path: '/',
       sameSite: COOKIE_OPTIONS.sameSite,
