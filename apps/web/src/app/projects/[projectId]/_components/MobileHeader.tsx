@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ChevronLeft, MoreHorizontal } from "lucide-react";
 import { NotificationsBell } from "@/components/notifications/NotificationsBell";
+import { FeedbackButton } from "@/components/feedback/FeedbackButton";
 import { TypeIcon } from "../../_components/type-accent";
 import type { ProjectInfo } from "../_types";
 
@@ -20,7 +21,7 @@ export function MobileHeader({
   return (
     <header
       data-mobile-header="minimal"
-      className="minimal-header safe-pt sticky top-0 z-30 flex h-14 items-center gap-1.5 border-b border-darc-linen bg-white/90 px-2.5 backdrop-blur-md md:hidden"
+      className="minimal-header sticky top-0 z-30 flex h-14 items-center gap-1.5 border-b border-darc-linen bg-white px-2.5 md:hidden"
     >
       <Link
         href="/projects"
@@ -47,6 +48,12 @@ export function MobileHeader({
           className="flex min-h-11 min-w-11 items-center justify-center rounded-full bg-white"
         >
           <NotificationsBell variant="light" />
+        </span>
+        <span
+          data-testid="feedback-action"
+          className="flex min-h-11 min-w-11 items-center justify-center rounded-full bg-white"
+        >
+          <FeedbackButton variant="light" />
         </span>
         {hasMoreSheet ? (
           <button

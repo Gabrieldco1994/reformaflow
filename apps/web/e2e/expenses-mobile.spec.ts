@@ -69,7 +69,7 @@ async function openExpenses(page: Page, viewport: ViewportSize) {
           id: "user-test",
           username: "test",
           name: "Usuário Teste",
-          role: "OWNER",
+          role: "ADMIN",
           tenantId: "tenant-test",
           allowedModules: [],
           allowedProjects: [],

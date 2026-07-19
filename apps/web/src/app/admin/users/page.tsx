@@ -36,12 +36,22 @@ const PROJECT_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: 'PLANTAS', label: 'Plantas' },
 ];
 
+interface Feedback {
+  id: string;
+  userId: string;
+  username: string;
+  message: string;
+  createdAt: string;
+}
+
 export default function AdminUsersPage() {
   const { user, isAdmin, loading } = useAuth();
   const router = useRouter();
   const [users, setUsers] = useState<AdminUser[]>([]);
+  const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [feedbackWarning, setFeedbackWarning] = useState<string | null>(null);
   const [editing, setEditing] = useState<AdminUser | null>(null);
   const [showCreate, setShowCreate] = useState(false);
 
@@ -58,9 +68,19 @@ export default function AdminUsersPage() {
 
   async function reload() {
     setError(null);
+    setFeedbackWarning(null);
     try {
-      const data = await api.get<AdminUser[]>('/users?scope=all');
-      setUsers(data);
+      const usersData = await api.get<AdminUser[]>('/users?scope=all');
+      setUsers(usersData);
+
+      try {
+        const feedbacksData = await api.get<Feedback[]>('/feedback');
+        setFeedbacks(feedbacksData);
+      } catch {
+        // ponytail: feedback não pode derrubar a tela de usuários
+        setFeedbacks([]);
+        setFeedbackWarning('Feedbacks indisponíveis no momento.');
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao carregar usuários');
     }
@@ -139,6 +159,11 @@ export default function AdminUsersPage() {
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2 mb-4">
             {error}
+          </div>
+        )}
+        {feedbackWarning && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-700 text-sm rounded-lg px-3 py-2 mb-4">
+            {feedbackWarning}
           </div>
         )}
 
@@ -304,6 +329,26 @@ export default function AdminUsersPage() {
             await reload();
           }}
         />
+      )}
+
+      {/* Feedbacks section */}
+      {feedbacks.length > 0 && (
+        <div className="max-w-4xl mx-auto mt-8">
+          <h2 className="text-lg font-bold text-gray-900 mb-3">Feedbacks ({feedbacks.length})</h2>
+          <div className="flex flex-col gap-3">
+            {feedbacks.map((fb) => (
+              <div key={fb.id} className="bg-white rounded-xl border border-gray-200 px-4 py-3">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-sm font-semibold text-gray-800">{fb.username}</span>
+                  <span className="text-xs text-gray-400">
+                    {new Date(fb.createdAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
+                <p className="text-sm text-gray-700 whitespace-pre-wrap">{fb.message}</p>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );
