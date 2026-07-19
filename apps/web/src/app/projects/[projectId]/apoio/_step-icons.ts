@@ -15,7 +15,6 @@ import {
   ScanSearch,
   Sprout,
   Tags,
-  DoorOpen,
   Wallet,
   Wrench,
   type LucideIcon,
@@ -46,7 +45,6 @@ const STEP_ICONS: Record<string, LucideIcon> = {
   plants: Sprout,
   'plants-ai': ScanSearch,
   maria: MessageCircle,
-  rooms: DoorOpen,
   'price-compare': Tags,
 };
 

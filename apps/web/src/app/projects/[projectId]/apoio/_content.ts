@@ -44,7 +44,7 @@ export const APOIO_CONTENT: Record<ProjectType, ApoioContent> = {
     steps: [
       { title: 'Veja o Dashboard', slug: 'dashboard', description: 'Visão geral: dinheiro disponível, já pago e despesas planejado × pago por mês.' },
       { title: 'Lance as despesas da obra', slug: 'expenses', description: 'Igual ao PESSOAL, mas com Ambiente/Cômodo e tipos próprios (Material, Mão de Obra, Marcenaria...).' },
-      { title: 'Organize os cômodos', slug: 'rooms', description: 'Ambientes da reforma e o custo de cada um.' },
+      { title: 'Organize os cômodos', slug: 'floor-plans', description: 'Ambientes da reforma e o custo de cada um — cômodos são criados dentro da planta.' },
       { title: 'Suba a planta', slug: 'floor-plans', description: 'Marque objetos compráveis direto na planta e vincule a despesas.' },
       { title: 'Monte o cronograma', slug: 'schedule', description: 'Etapas e tarefas com datas, dependências e % concluído.' },
       { title: 'Simule cenários de custo', slug: 'simulation', description: 'Compare "real" × "projetado" antes de decidir uma compra grande.' },
