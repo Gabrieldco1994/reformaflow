@@ -40,7 +40,7 @@ export function CreditCardTile({
       onClick={() => onSelect(active ? null : card.last4)}
       topRight={
         <span
-          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold backdrop-blur ${badgeClass}`}
+          className={`rounded-full px-2 py-0.5 text-[11px] font-semibold backdrop-blur ${badgeClass}`}
         >
           {badgeText}
         </span>
@@ -48,17 +48,17 @@ export function CreditCardTile({
       footer={
         <div className="flex items-end justify-between gap-2">
           <div className="min-w-0">
-            <p className="text-[10px] uppercase tracking-wide text-white/60">Fatura atual</p>
+            <p className="text-[11px] uppercase tracking-wide text-white/60">Fatura atual</p>
             <p className="font-geist text-[19px] font-bold tabular-nums leading-tight">
               {formatCurrency(card.faturaAtual / 100)}
             </p>
             {parcial && (
-              <p className="mt-0.5 text-[10px] text-white/75">
+              <p className="mt-0.5 text-[11px] text-white/75">
                 {formatCurrency(card.faturaPaga / 100)} de {formatCurrency(card.faturaAtual / 100)}
               </p>
             )}
             {card.possuiIntervencaoManual && (
-              <p className="mt-0.5 text-[10px] text-white/75">Ajuste manual</p>
+              <p className="mt-0.5 text-[11px] text-white/75">Ajuste manual</p>
             )}
           </div>
           <p className="shrink-0 text-[11px] text-white/70">vence {formatDateBR(card.vencimento)}</p>

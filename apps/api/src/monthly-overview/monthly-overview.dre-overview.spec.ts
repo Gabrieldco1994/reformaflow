@@ -104,6 +104,16 @@ describe('MonthlyOverviewService.getDreOverview', () => {
           bankLast4: '4247',
           status: 'EM_CAIXA',
         },
+        {
+          id: 'rec-jun-previsto',
+          kind: 'entrada',
+          descricao: 'Reembolso previsto',
+          data: '2026-06-20T00:00:00.000Z',
+          tipo: 'reembolso',
+          valor: 5_000,
+          bankLast4: '4247',
+          status: 'PREVISTO',
+        },
       ],
       ticketMedio: {
         valor: 0,
@@ -274,6 +284,11 @@ describe('MonthlyOverviewService.getDreOverview', () => {
       sobraPrevista: 764_629,
       despesaTotal: 5_500,
     });
+
+    // Blindagem da armadilha: o eixo conta do DRE é REALIZADO. O recebimento
+    // PREVISTO (Reembolso previsto, 5.000) aparece na lista da Visão Conta, mas
+    // NÃO pode entrar em entradasConta como realizado — só o salário EM_CAIXA.
+    expect(res.mensal.entradasConta).toEqual([{ label: 'Salário', valor: 10_000 }]);
 
     expect(
       res.mensal.saidas.some((group: any) =>

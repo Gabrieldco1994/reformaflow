@@ -1,5 +1,5 @@
-import { IsString, IsNumber, IsDateString, IsIn, Min } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { IsString, IsNumber, IsDateString, IsIn, Min, IsOptional, MaxLength } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ReceiptType } from '@reformaflow/domain';
 
 export class CreateReceiptDto {
@@ -24,4 +24,10 @@ export class CreateReceiptDto {
   @IsString()
   @IsIn(['PREVISTO', 'EM_CAIXA'])
   status!: string;
+
+  @ApiPropertyOptional({ example: 'Salário Empresa X', description: 'Descrição livre do crédito' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  descricao?: string;
 }

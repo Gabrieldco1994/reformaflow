@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Sparkles, X } from 'lucide-react';
+import { ChevronDown, CreditCard, Sparkles, Wallet, X } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import { moneyGlance } from '@/lib/money';
 import { tipoLabel } from '@/lib/expense-options';
+import { getExpenseIcon } from '@/lib/expense-icons';
 import { useCategorySuggestion } from '../../expenses/_hooks/useCategorySuggestion';
 import { getExpenseOptions } from '../../expenses/_types';
 import { faturaDestino } from '../../_lib/fatura-destino';
@@ -34,7 +35,13 @@ interface Props {
   projectedBalanceCents?: number | null;
 }
 
-const PARCELAS = [1, 3, 6, 12] as const;
+// ponytail: atalho de categorias PESSOAL do dia a dia no lançamento rápido;
+// ajustar aqui se o mix mudar. O resto das categorias fica atrás de "ver todas".
+const COMMON_TIPOS = [
+  'SUPERMERCADO', 'ALIMENTACAO', 'TRANSPORTE', 'SAUDE',
+  'LAZER', 'CONTAS_UTILIDADES', 'ASSINATURAS', 'MORADIA',
+  'BELEZA', 'PETS', 'EDUCACAO', 'ACADEMIA',
+];
 
 function normalizeDigits(value: string): string {
   return value.replace(/\D/g, '').replace(/^0+(?=\d)/, '');
@@ -76,18 +83,27 @@ export function MobileLaunchSheet({
   const [originKey, setOriginKey] = useState('');
   const [parcelas, setParcelas] = useState(1);
   const [tipoOverride, setTipoOverride] = useState<string | null>(null);
-  const [showTypePicker, setShowTypePicker] = useState(false);
+  const [showAllTipos, setShowAllTipos] = useState(false);
 
   const typeOptions = useMemo(() => getExpenseOptions(projectType), [projectType]);
+  const commonOptions = useMemo(
+    () =>
+      COMMON_TIPOS.map((v) => typeOptions.find((o) => o.value === v)).filter(
+        (o): o is (typeof typeOptions)[number] => Boolean(o),
+      ),
+    [typeOptions],
+  );
 
   const cents = Number.parseInt(digits || '0', 10);
   const selectedOrigin = origins.find((origin) => origin.key === originKey) ?? null;
   const { suggestion } = useCategorySuggestion(description, description);
 
-  // Tipo efetivo que SERÁ lançado — sempre visível ao usuário na pill.
-  // Sem sugestão da Maria e sem override → "OUTROS", mas mostrado, nunca silencioso.
+  // Tipo efetivo que SERÁ lançado — sempre visível ao usuário. Sem sugestão da
+  // Maria e sem escolha → "OUTROS", mas o título é preenchido pela categoria por trás.
   const effectiveTipo = tipoOverride ?? suggestion?.suggestedTipoDespesa ?? 'OUTROS';
   const isSuggested = !tipoOverride && !!suggestion?.suggestedTipoDespesa;
+  const selectedTipo = tipoOverride ?? suggestion?.suggestedTipoDespesa ?? null;
+  const tituloPreview = description.trim() || (selectedTipo ? tipoLabel(effectiveTipo) : '');
 
   useEffect(() => {
     if (!open) return;
@@ -95,7 +111,7 @@ export function MobileLaunchSheet({
     setDescription('');
     setParcelas(1);
     setTipoOverride(null);
-    setShowTypePicker(false);
+    setShowAllTipos(false);
     setOriginKey(origins[0]?.key ?? '');
   }, [open, origins]);
 
@@ -117,7 +133,7 @@ export function MobileLaunchSheet({
       tipoDespesa: effectiveTipo,
       valor: cents / 100,
       quantidade: 1,
-      titulo: description.trim() || 'Despesa',
+      titulo: description.trim() || (selectedTipo ? tipoLabel(effectiveTipo) : 'Despesa'),
       fornecedor: description.trim() || null,
       formaPagamento: selectedOrigin.kind === 'card' && parcelas > 1 ? 'PARCELADO' : 'A_VISTA',
       quantidadeParcela: selectedOrigin.kind === 'card' && parcelas > 1 ? parcelas : null,
@@ -156,50 +172,67 @@ export function MobileLaunchSheet({
 
         <p className="pt-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-darc-velvet/55">De onde sai</p>
         <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
-          {origins.map((origin) => (
-            <button
-              key={origin.key}
-              type="button"
-              aria-label={`Origem ${origin.label}`}
-              onClick={() => {
-                setOriginKey(origin.key);
-                if (origin.kind !== 'card') setParcelas(1);
-              }}
-              className={`min-h-[64px] min-w-[132px] rounded-2xl border px-3 py-2 text-left transition ${
-                origin.key === originKey
-                  ? 'border-darc-velvet bg-darc-velvet text-white'
-                  : 'border-darc-linen bg-white text-darc-velvet'
-              }`}
-            >
-              <p className="flex items-center gap-1.5 text-[13px] font-semibold">
+          {origins.map((origin) => {
+            const active = origin.key === originKey;
+            const isCard = origin.kind === 'card';
+            const OriginIcon = isCard ? CreditCard : Wallet;
+            return (
+              <button
+                key={origin.key}
+                type="button"
+                aria-label={`Origem ${origin.label}`}
+                aria-pressed={active}
+                onClick={() => {
+                  setOriginKey(origin.key);
+                  if (!isCard) setParcelas(1);
+                }}
+                className={`flex min-h-[56px] shrink-0 items-center gap-2.5 rounded-2xl border px-3 py-2 text-left transition ${
+                  active
+                    ? 'border-darc-velvet bg-darc-velvet text-white'
+                    : 'border-darc-linen bg-white text-darc-velvet'
+                }`}
+              >
                 <span
                   aria-hidden
-                  className={`inline-block h-2 w-2 shrink-0 rounded-[3px] ${origin.kind === 'account' ? 'bg-[#0F6B4D]' : 'bg-[#D97706]'}`}
-                />
-                {origin.label}
-              </p>
-              <p className={`text-[11px] ${origin.key === originKey ? 'text-white/70' : 'text-darc-velvet/60'}`}>{origin.hint}</p>
-            </button>
-          ))}
+                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${
+                    active
+                      ? 'bg-white/15 text-white'
+                      : isCard
+                        ? 'bg-[#FEF0DC] text-[#D97706]'
+                        : 'bg-[#E4F3EC] text-[#0F6B4D]'
+                  }`}
+                >
+                  <OriginIcon className="h-4 w-4" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block whitespace-nowrap text-sm font-semibold">{origin.label}</span>
+                  <span className={`block text-xs ${active ? 'text-white/70' : 'text-darc-velvet/55'}`}>{origin.hint}</span>
+                </span>
+              </button>
+            );
+          })}
         </div>
 
         {selectedOrigin?.kind === 'card' && (
           <div className="minimal-soft-card mt-4 rounded-2xl border border-darc-linen bg-white p-3">
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-darc-velvet/55">Parcelas</p>
-            <div className="mt-2 grid grid-cols-4 gap-2">
-              {PARCELAS.map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  aria-label={n === 1 ? 'à vista' : `${n}x`}
-                  onClick={() => setParcelas(n)}
-                  className={`min-h-[44px] rounded-xl border text-sm font-semibold ${
-                    parcelas === n ? 'border-darc-velvet bg-darc-velvet text-white' : 'border-darc-linen text-darc-velvet/70'
-                  }`}
-                >
-                  {n === 1 ? 'à vista' : `${n}x`}
-                </button>
-              ))}
+            <div className="relative mt-2">
+              <select
+                value={parcelas}
+                onChange={(event) => setParcelas(Number(event.target.value))}
+                aria-label="Parcelas"
+                className="h-12 w-full appearance-none rounded-xl border border-darc-linen bg-white pl-3 pr-9 text-sm font-semibold text-darc-velvet"
+              >
+                {Array.from({ length: 18 }, (_, i) => i + 1).map((n) => (
+                  <option key={n} value={n}>
+                    {n === 1 ? 'À vista' : `${n}x`}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                aria-hidden
+                className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-darc-velvet/50"
+              />
             </div>
             <p className="mt-2 text-xs text-darc-velvet/70">
               {invoiceHint
@@ -209,63 +242,75 @@ export function MobileLaunchSheet({
           </div>
         )}
 
-        <p className="pt-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-darc-velvet/55">O que foi</p>
+        <div className="flex items-center justify-between pt-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-darc-velvet/55">O que foi</p>
+          {isSuggested && (
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#0C5A40]">
+              <Sparkles className="h-3 w-3" /> Maria sugeriu
+            </span>
+          )}
+        </div>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {(showAllTipos ? typeOptions : commonOptions).map((option) => {
+            const { Icon, color, bgColor } = getExpenseIcon(option.value);
+            const active = selectedTipo === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                aria-label={`Categoria ${option.label}`}
+                aria-pressed={active}
+                onClick={() => setTipoOverride(active ? null : option.value)}
+                className={`inline-flex min-h-[44px] items-center gap-1.5 rounded-full border px-3 py-1.5 text-[13px] font-semibold transition ${
+                  active
+                    ? 'border-darc-velvet bg-darc-velvet text-white'
+                    : 'border-darc-linen bg-white text-darc-velvet'
+                }`}
+              >
+                <span
+                  aria-hidden
+                  className={`flex h-5 w-5 items-center justify-center rounded-md ${active ? '' : `${bgColor} ${color}`}`}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                </span>
+                {option.label}
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            onClick={() => setShowAllTipos((value) => !value)}
+            aria-expanded={showAllTipos}
+            className="inline-flex min-h-[44px] items-center rounded-full border border-dashed border-darc-linen px-3 text-[13px] font-semibold text-darc-velvet/60"
+          >
+            {showAllTipos ? 'ver menos' : 'ver todas'}
+          </button>
+        </div>
+
         <input
           value={description}
           onChange={(event) => setDescription(event.target.value)}
-          placeholder="ex.: mercado, uber, farmácia"
-          className="pessoal-minimal-input mt-2 h-12 w-full rounded-xl border border-darc-linen bg-white px-3 text-sm"
+          placeholder="Detalhe (opcional): ex. mercado da esquina"
+          className="pessoal-minimal-input mt-3 h-12 w-full rounded-xl border border-darc-linen bg-white px-3 text-sm"
         />
-        <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
-          {recentDescriptions.slice(0, 6).map((item) => (
-            <button
-              key={item}
-              type="button"
-              onClick={() => setDescription(item)}
-              className="inline-flex min-h-[42px] shrink-0 items-center rounded-full border border-darc-linen bg-white px-4 text-xs font-semibold text-darc-velvet/75"
-            >
-              <span className="block max-w-[150px] truncate">{item}</span>
-            </button>
-          ))}
-        </div>
-        {description.trim() && (
-          <div className="mt-3">
-            <div className="flex items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-[#CBE7D8] bg-[#E4F3EC] px-3 py-1.5 text-xs font-bold text-[#0C5A40]">
-                <Sparkles className="h-3.5 w-3.5" />
-                {isSuggested ? 'Maria sugeriu' : 'Tipo'}: {tipoLabel(effectiveTipo)}
-              </span>
+        {recentDescriptions.length > 0 && (
+          <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+            {recentDescriptions.slice(0, 6).map((item) => (
               <button
+                key={item}
                 type="button"
-                onClick={() => setShowTypePicker((value) => !value)}
-                aria-expanded={showTypePicker}
-                className="inline-flex min-h-[44px] items-center px-1 text-xs font-semibold text-darc-velvet/60 underline underline-offset-2"
+                onClick={() => setDescription(item)}
+                className="inline-flex min-h-[42px] shrink-0 items-center rounded-full border border-darc-linen bg-white px-4 text-xs font-semibold text-darc-velvet/75"
               >
-                trocar
+                <span className="block max-w-[150px] truncate">{item}</span>
               </button>
-            </div>
-            {showTypePicker && (
-              <div className="mt-2 flex flex-wrap gap-2">
-                {typeOptions.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => {
-                      setTipoOverride(option.value);
-                      setShowTypePicker(false);
-                    }}
-                    className={`min-h-[44px] rounded-full border px-3 text-xs font-semibold ${
-                      effectiveTipo === option.value
-                        ? 'border-[#0F6B4D] bg-[#E4F3EC] text-[#0C5A40]'
-                        : 'border-darc-linen bg-white text-darc-velvet/75'
-                    }`}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            )}
+            ))}
           </div>
+        )}
+        {tituloPreview && (
+          <p className="mt-2 text-xs text-darc-velvet/60">
+            Lança como <strong className="font-semibold text-darc-velvet/80">{tituloPreview}</strong>
+          </p>
         )}
 
         <div className="mt-4 grid grid-cols-3 gap-2">

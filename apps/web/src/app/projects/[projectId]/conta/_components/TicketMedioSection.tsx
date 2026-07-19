@@ -57,7 +57,7 @@ export function TicketMedioSection({
               const active = item.mes === currentMonth;
               return (
                 <div key={item.mes} className="flex flex-1 flex-col items-center gap-2">
-                  <span className="hidden text-[10px] text-lifeone-ink-3 md:block">
+                  <span className="hidden text-[11px] text-lifeone-ink-3 md:block">
                     {formatDeltaPct(item.deltaPct)}
                   </span>
                   <div className="flex h-36 w-full items-end xl:h-44">

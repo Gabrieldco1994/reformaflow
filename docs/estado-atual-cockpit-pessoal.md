@@ -1,6 +1,6 @@
 # Estado Atual — Cockpit/Visão Conta (PESSOAL)
 
-Atualizado em: **2026-07-15**
+Atualizado em: **2026-07-19**
 
 Histórico detalhado: `docs/archive/estado-atual-historico-2026.md`.
 
@@ -12,6 +12,10 @@ Histórico detalhado: `docs/archive/estado-atual-historico-2026.md`.
 - ✅ Auditoria técnica abriu #94/#95/#96/#97/#98; continuam como trilhas de evolução (não regressão do entregue).
 - ✅ PR #145 (spec review/arquivamento) mergeado em `main` em 2026-07-15.
 - 🚀 Deploy web (Vercel) e API (Fly) continuam automáticos pelo `main`.
+- 🔧 PR #174 (draft, `feat/conta-unificada`): Visão Conta unificada (Lista + Por
+  categoria/projeto, filtros com "Limpar filtros", expandir fatura inline) e
+  lançamento mobile "+" em 3 modos (Escrito categoria-first / Voz / Foto).
+  Backend read-only/aditivo (receipt persiste `descricao`; sem migration).
 
 ## 2) Fontes de verdade
 

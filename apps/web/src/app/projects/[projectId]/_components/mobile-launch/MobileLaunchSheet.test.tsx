@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MobileLaunchSheet } from './MobileLaunchSheet';
-import { getExpenseOptions } from '../../expenses/_types';
 
 vi.mock('../../expenses/_hooks/useCategorySuggestion', () => ({
   useCategorySuggestion: () => ({ suggestion: null, isFetching: false }),
@@ -32,7 +31,7 @@ describe('MobileLaunchSheet', () => {
     await user.click(screen.getByRole('button', { name: '2' }));
     await user.click(screen.getByRole('button', { name: '3' }));
     await user.click(screen.getByRole('button', { name: 'Origem Master •5876' }));
-    await user.click(screen.getByRole('button', { name: '3x' }));
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Parcelas' }), '3');
     await user.click(screen.getByRole('button', { name: 'Mercado Zaffari' }));
 
     const launchButton = screen.getByRole('button', { name: 'Lançar despesa' });
@@ -51,7 +50,7 @@ describe('MobileLaunchSheet', () => {
     );
   });
 
-  it('always shows the expense-type pill and lets the user change it (bug 2)', async () => {
+  it('mostra categorias direto, preenche o título pela categoria e revela o resto em "ver todas"', async () => {
     const user = userEvent.setup();
     const onLaunch = vi.fn(async () => undefined);
 
@@ -63,32 +62,32 @@ describe('MobileLaunchSheet', () => {
         launching={false}
         accounts={[{ id: 'acc-1', nickname: 'Conta Itaú', last4: '4247' }]}
         cards={[]}
-        recentDescriptions={['Mercado Zaffari']}
+        recentDescriptions={[]}
         projectType="PESSOAL"
       />,
     );
 
-    // Sem descrição → sem pill (logo, sem "trocar").
-    expect(screen.queryByRole('button', { name: 'trocar' })).not.toBeInTheDocument();
-
     await user.click(screen.getByRole('button', { name: '5' }));
-    await user.click(screen.getByRole('button', { name: 'Mercado Zaffari' }));
 
-    // Sem sugestão da Maria → a pill mostra "Outros", nunca silencioso.
-    expect(screen.getByRole('button', { name: 'trocar' })).toBeInTheDocument();
-    expect(
-      screen.getByText((_, el) => /tipo:\s*outros/i.test(el?.textContent ?? '') && el?.tagName === 'SPAN'),
-    ).toBeInTheDocument();
+    // Categoria aparece direto como tile (sem digitar nada).
+    const supermercado = screen.getByRole('button', { name: 'Categoria Supermercado' });
+    // Categoria fora do atalho só aparece em "ver todas".
+    expect(screen.queryByRole('button', { name: 'Categoria Faxineira' })).not.toBeInTheDocument();
 
-    // Trocar abre o seletor com as opções de PESSOAL.
-    const options = getExpenseOptions('PESSOAL');
-    await user.click(screen.getByRole('button', { name: 'trocar' }));
-    await user.click(screen.getByRole('button', { name: options[0].label }));
+    await user.click(supermercado);
+    expect(supermercado).toHaveAttribute('aria-pressed', 'true');
+
+    // Título é preenchido pela categoria escolhida, por trás.
+    expect(screen.getByText(/Lança como/)).toHaveTextContent('Supermercado');
+
+    // "ver todas" revela as demais categorias de PESSOAL.
+    await user.click(screen.getByRole('button', { name: 'ver todas' }));
+    expect(screen.getByRole('button', { name: 'Categoria Faxineira' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Lançar despesa' }));
 
     expect(onLaunch).toHaveBeenCalledWith(
-      expect.objectContaining({ tipoDespesa: options[0].value }),
+      expect.objectContaining({ tipoDespesa: 'SUPERMERCADO', titulo: 'Supermercado' }),
     );
   });
 });

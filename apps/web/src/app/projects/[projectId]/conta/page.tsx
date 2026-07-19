@@ -2,7 +2,7 @@
 
 import { useParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Landmark, ArrowDownCircle, ArrowUpCircle, Link2 } from 'lucide-react';
+import { Landmark } from 'lucide-react';
 import { useState } from 'react';
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
@@ -18,7 +18,7 @@ import { TicketMedioSection } from './_components/TicketMedioSection';
 import { FaturasAnuaisChart } from './_components/FaturasAnuaisChart';
 import { DespesasRelacionadas } from './_components/DespesasRelacionadas';
 import { TodasDespesasAno } from './_components/TodasDespesasAno';
-import { NovaDespesaLauncher } from '../expenses/_components/NovaDespesaLauncher';
+import { ContaQuickActions } from './_components/ContaQuickActions';
 import { BulkLinkModal } from '../expenses/_components/BulkLinkModal';
 import { ReceitaModal } from './_components/ReceitaModal';
 import type {
@@ -147,7 +147,7 @@ export default function ContaPage() {
             <Landmark className="h-[18px] w-[18px]" />
           </span>
           <div className="min-w-0 leading-tight">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-lifeone-ink-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-lifeone-ink-3">
               Visão Conta
             </p>
             <h1
@@ -189,37 +189,14 @@ export default function ContaPage() {
         </div>
       </header>
 
-      {/* Ações rápidas: novos lançamentos manuais */}
-      <div className="flex flex-wrap gap-2">
-        <NovaDespesaLauncher
-          projectId={projectId}
-          projectType="PESSOAL"
-          onChanged={invalidateConta}
-          trigger={(open) => (
-            <button
-              type="button"
-              onClick={open}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-[#F2C6C1] bg-[#FCEBE9] px-3 py-2 text-sm font-semibold text-[#D92D20] transition hover:bg-[#F8DAD6]"
-            >
-              <ArrowDownCircle className="h-4 w-4" /> Nova Despesa
-            </button>
-          )}
-        />
-        <button
-          type="button"
-          onClick={() => setNovaReceitaOpen(true)}
-          className="inline-flex items-center gap-1.5 rounded-xl border border-[#BFE6CC] bg-[#E3F6EA] px-3 py-2 text-sm font-semibold text-[#1E924A] transition hover:bg-[#D2EFDC]"
-        >
-          <ArrowUpCircle className="h-4 w-4" /> Nova Receita
-        </button>
-        <button
-          type="button"
-          onClick={() => setBulkLinkOpen(true)}
-          className="inline-flex items-center gap-1.5 rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-700 transition hover:bg-gray-50"
-        >
-          <Link2 className="h-4 w-4" /> Vincular em massa
-        </button>
-      </div>
+      {/* Ações rápidas: novos lançamentos manuais + plano de recebimentos */}
+      <ContaQuickActions
+        projectId={projectId}
+        defaultMonth={selectedMonth}
+        onInvalidate={invalidateConta}
+        onNovaReceita={() => setNovaReceitaOpen(true)}
+        onVincularEmMassa={() => setBulkLinkOpen(true)}
+      />
 
       {viewMode === 'ano' ? (
         <>

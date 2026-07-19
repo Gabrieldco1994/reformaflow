@@ -72,7 +72,7 @@ export function CartoesSection({
                 <p className="truncate text-sm font-semibold text-lifeone-ink">
                   {conta.nome} · {conta.last4}
                 </p>
-                <p className="text-[10px] text-lifeone-ink-3">conta corrente</p>
+                <p className="text-[11px] text-lifeone-ink-3">conta corrente</p>
               </div>
             </article>
           );

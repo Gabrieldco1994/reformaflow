@@ -14,6 +14,7 @@ import {
   Heart,
   BookOpen,
   Smile,
+  Sparkles,
   Dog,
   ShoppingCart,
   Brush,
@@ -31,10 +32,22 @@ import {
   Cable,
   TrendingDown,
   Archive,
-  HelpCircle,
+  Banknote,
+  Laptop,
+  Award,
+  PiggyBank,
+  Bitcoin,
+  Undo2,
+  Wallet,
+  ArrowLeftRight,
+  ReceiptText,
+  FileCheck,
+  Tag,
+  Gift,
+  CircleDollarSign,
   LucideIcon,
 } from 'lucide-react';
-import { ExpenseType } from '@reformaflow/domain';
+import { ExpenseType, ReceiptType } from '@reformaflow/domain';
 
 export interface ExpenseIconConfig {
   Icon: LucideIcon;
@@ -165,7 +178,7 @@ export const EXPENSE_ICON_MAP: Record<ExpenseType, ExpenseIconConfig> = {
     bgColor: 'bg-pink-50',
   },
   [ExpenseType.BELEZA]: {
-    Icon: Smile,
+    Icon: Sparkles,
     color: 'text-fuchsia-600',
     bgColor: 'bg-fuchsia-50',
   },
@@ -235,7 +248,7 @@ export const EXPENSE_ICON_MAP: Record<ExpenseType, ExpenseIconConfig> = {
     bgColor: 'bg-red-50',
   },
   [ExpenseType.OUTROS]: {
-    Icon: HelpCircle,
+    Icon: Tag,
     color: 'text-slate-600',
     bgColor: 'bg-slate-50',
   },
@@ -320,6 +333,73 @@ export const EXPENSE_ICON_MAP: Record<ExpenseType, ExpenseIconConfig> = {
   },
 };
 
+// Categorias legadas/importadas que NÃO são membros do enum (vêm de extrato/importação).
+// Mapeadas à mão para não caírem no ícone genérico "Outros". Chave em MAIÚSCULO.
+const EXPENSE_ICON_ALIASES: Record<string, ExpenseIconConfig> = {
+  TRANSFERENCIA: { Icon: ArrowLeftRight, color: 'text-cyan-600', bgColor: 'bg-cyan-50' },
+  PAGAMENTO_FATURA_CARTAO: { Icon: CreditCard, color: 'text-blue-600', bgColor: 'bg-blue-50' },
+};
+
 export function getExpenseIcon(type: string | ExpenseType): ExpenseIconConfig {
-  return EXPENSE_ICON_MAP[type as ExpenseType] || EXPENSE_ICON_MAP[ExpenseType.OUTROS];
+  const key = (type ?? '').toString().toUpperCase();
+  return (
+    EXPENSE_ICON_MAP[key as ExpenseType] ||
+    EXPENSE_ICON_ALIASES[key] ||
+    EXPENSE_ICON_MAP[ExpenseType.OUTROS]
+  );
+}
+
+// ponytail: mapping tipos de recebimento → ícone + cor. Verdes/emerald p/ renda,
+// slate p/ neutros (resgate/transferência/alocação). Novos tipos = nova entrada.
+export const RECEIPT_ICON_MAP: Record<ReceiptType, ExpenseIconConfig> = {
+  // Trabalho / renda salarial
+  [ReceiptType.SALARIO]: { Icon: Banknote, color: 'text-green-600', bgColor: 'bg-green-50' },
+  [ReceiptType.ADIANTAMENTO_SALARIO]: { Icon: Banknote, color: 'text-green-600', bgColor: 'bg-green-50' },
+  [ReceiptType.DECIMO_TERCEIRO]: { Icon: Banknote, color: 'text-green-600', bgColor: 'bg-green-50' },
+  [ReceiptType.FERIAS]: { Icon: Banknote, color: 'text-green-600', bgColor: 'bg-green-50' },
+  [ReceiptType.FREELANCE]: { Icon: Laptop, color: 'text-emerald-600', bgColor: 'bg-emerald-50' },
+  [ReceiptType.BONUS]: { Icon: Award, color: 'text-emerald-600', bgColor: 'bg-emerald-50' },
+  [ReceiptType.COMISSAO]: { Icon: Award, color: 'text-emerald-600', bgColor: 'bg-emerald-50' },
+  [ReceiptType.PENSAO]: { Icon: Landmark, color: 'text-green-600', bgColor: 'bg-green-50' },
+
+  // Investimentos / rendimentos
+  [ReceiptType.DIVIDENDOS]: { Icon: TrendingUp, color: 'text-emerald-600', bgColor: 'bg-emerald-50' },
+  [ReceiptType.ACAO]: { Icon: TrendingUp, color: 'text-emerald-600', bgColor: 'bg-emerald-50' },
+  [ReceiptType.VENDA_ACAO]: { Icon: TrendingUp, color: 'text-emerald-600', bgColor: 'bg-emerald-50' },
+  [ReceiptType.FII]: { Icon: TrendingUp, color: 'text-emerald-600', bgColor: 'bg-emerald-50' },
+  [ReceiptType.JUROS_RENDA_FIXA]: { Icon: PiggyBank, color: 'text-emerald-600', bgColor: 'bg-emerald-50' },
+  [ReceiptType.POUPANCA]: { Icon: PiggyBank, color: 'text-emerald-600', bgColor: 'bg-emerald-50' },
+  [ReceiptType.CRIPTO]: { Icon: Bitcoin, color: 'text-amber-600', bgColor: 'bg-amber-50' },
+
+  // Outras rendas
+  [ReceiptType.ALUGUEL]: { Icon: Home, color: 'text-green-600', bgColor: 'bg-green-50' },
+  [ReceiptType.REEMBOLSO]: { Icon: ReceiptText, color: 'text-teal-600', bgColor: 'bg-teal-50' },
+  [ReceiptType.RESTITUICAO_IR]: { Icon: FileCheck, color: 'text-green-600', bgColor: 'bg-green-50' },
+  [ReceiptType.VENDA_BEM]: { Icon: Tag, color: 'text-emerald-600', bgColor: 'bg-emerald-50' },
+  [ReceiptType.PRESENTE]: { Icon: Gift, color: 'text-pink-600', bgColor: 'bg-pink-50' },
+  [ReceiptType.PAGAMENTO]: { Icon: CircleDollarSign, color: 'text-green-600', bgColor: 'bg-green-50' },
+  [ReceiptType.PIX_RECEBIDO]: { Icon: CircleDollarSign, color: 'text-green-600', bgColor: 'bg-green-50' },
+
+  // Neutros (movimentação própria / alocação — não é renda nova)
+  [ReceiptType.RESGATE]: { Icon: Undo2, color: 'text-slate-600', bgColor: 'bg-slate-50' },
+  [ReceiptType.TRANSFERENCIA_PROPRIA]: { Icon: ArrowLeftRight, color: 'text-slate-600', bgColor: 'bg-slate-50' },
+  [ReceiptType.ALOCACAO_ORCAMENTO]: { Icon: Wallet, color: 'text-slate-600', bgColor: 'bg-slate-50' },
+  [ReceiptType.ORCAMENTO_INICIAL]: { Icon: Wallet, color: 'text-slate-600', bgColor: 'bg-slate-50' },
+
+  [ReceiptType.OUTROS]: { Icon: CircleDollarSign, color: 'text-slate-600', bgColor: 'bg-slate-50' },
+};
+
+// Tipos de recebimento legados/importados (não são membros do enum ReceiptType).
+const RECEIPT_ICON_ALIASES: Record<string, ExpenseIconConfig> = {
+  RENDIMENTO: { Icon: TrendingUp, color: 'text-emerald-600', bgColor: 'bg-emerald-50' },
+  TRANSFERENCIA: { Icon: ArrowLeftRight, color: 'text-slate-600', bgColor: 'bg-slate-50' },
+};
+
+/**
+ * Ícone semântico do tipo de recebimento. Aceita o enum (maiúsculo) ou o valor
+ * já normalizado pela Visão Conta (minúsculo, sem acento) — daí o toUpperCase.
+ */
+export function getReceiptIcon(type: string | ReceiptType): ExpenseIconConfig {
+  const key = (type ?? '').toString().toUpperCase() as ReceiptType;
+  return RECEIPT_ICON_MAP[key] || RECEIPT_ICON_ALIASES[key] || RECEIPT_ICON_MAP[ReceiptType.OUTROS];
 }

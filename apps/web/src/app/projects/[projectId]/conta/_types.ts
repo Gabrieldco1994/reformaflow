@@ -48,11 +48,13 @@ export interface AccountViewEntrada {
   id: string | null;
   kind: 'entrada';
   descricao: string;
+  /** Descrição crua (sem fallback do label) — prefixa o modal de edição. */
+  descricaoRaw?: string | null;
   data: string;
   tipo: string;
   valor: number;
   bankLast4: string | null;
-  status: string;
+  status: 'EM_CAIXA' | 'PREVISTO';
 }
 
 export type AccountViewMovimentacao = AccountViewSaida | AccountViewEntrada;
