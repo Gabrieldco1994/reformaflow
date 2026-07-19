@@ -19,11 +19,13 @@ primary_region = "gru" # São Paulo. Trocar se preferir: gig (Rio), iad (Virgini
 [http_service]
   internal_port = 3001
   force_https = true
-  # `suspend` mantém o processo em memória após inatividade; resume em
-  # ~1-2s, ao invés de cold-start completo de `stop` (~5-15s).
-  auto_stop_machines = "suspend"
+  # Máquina sempre ligada: o modo suspend/resume (min_machines_running = 0)
+  # causava lentidão/timeouts intermitentes reais em produção (login
+  # chegando a 10s+ ou travando por completo ao "acordar" a máquina).
+  # Custo extra pequeno, mas elimina esse soneca para os usuários reais.
+  auto_stop_machines = "off"
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
   processes = ["app"]
 
   [http_service.concurrency]
@@ -40,6 +42,6 @@ primary_region = "gru" # São Paulo. Trocar se preferir: gig (Rio), iad (Virgini
 # SQLite single-instance: NEVER scale > 1
 [[vm]]
   size = "shared-cpu-1x"
-  memory = "256mb"
+  memory = "512mb"
   cpu_kind = "shared"
   cpus = 1
