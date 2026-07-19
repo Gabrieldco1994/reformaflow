@@ -236,12 +236,12 @@ test.describe("Phase D responsive cards and account hierarchy", () => {
         await expect(mobileMore).toBeVisible();
         await expect(desktopToggle).toBeHidden();
         const mobileHeader = page.locator('[data-mobile-header="minimal"]');
-        await expect(mobileHeader).toHaveClass(/safe-pt/);
+        await expect(mobileHeader).not.toHaveClass(/safe-pt/);
         expect(
           await mobileHeader.evaluate((element) =>
-            Number.parseFloat(getComputedStyle(element).paddingTop),
+            Number.parseFloat(getComputedStyle(element).height),
           ),
-        ).toBeGreaterThan(0);
+        ).toBeGreaterThanOrEqual(56);
       } else {
         await expect(mobileMore).toBeHidden();
         await expect(desktopToggle).toBeVisible();
