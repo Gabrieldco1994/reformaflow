@@ -18,7 +18,7 @@ import { SetParcelaStatusDto } from './dto/set-parcela-status.dto';
 import { RatearDto } from './dto/ratear.dto';
 import { RatearMixedDto } from './dto/ratear-mixed.dto';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
-import { CurrentTenant } from '../common/decorators/tenant.decorator';
+import { CurrentTenant, CurrentUser } from '../common/decorators/tenant.decorator';
 import { RequireModule } from '../common/decorators/require-module.decorator';
 
 @ApiTags('expenses')
@@ -34,9 +34,10 @@ export class ExpenseController {
   create(
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
+    @CurrentUser() requester: { id: string },
     @Body() dto: CreateExpenseDto,
   ) {
-    return this.service.create(tenantId, projectId, dto);
+    return this.service.create(tenantId, projectId, dto, requester.id);
   }
 
   @Post('recorrente')
@@ -44,9 +45,10 @@ export class ExpenseController {
   createRecorrente(
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
+    @CurrentUser() requester: { id: string },
     @Body() dto: CreateRecorrenteDto,
   ) {
-    return this.service.createRecorrente(tenantId, projectId, dto);
+    return this.service.createRecorrente(tenantId, projectId, dto, requester.id);
   }
 
   @Get()
@@ -196,9 +198,10 @@ export class ExpenseController {
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('id') id: string,
+    @CurrentUser() requester: { id: string },
     @Body() dto: RatearMixedDto,
   ) {
-    return this.service.ratearMixed(tenantId, projectId, id, dto);
+    return this.service.ratearMixed(tenantId, projectId, id, dto, requester.id);
   }
 
   @Delete(':id/ratear')

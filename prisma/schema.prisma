@@ -89,6 +89,7 @@ model DemoSeed {
 model Project {
   id          String    @id @default(cuid())
   tenantId    String    @map("tenant_id")
+  createdByUserId String? @map("created_by_user_id")
   type        String    @default("REFORMA") // REFORMA | COMPRA | CASA | CARRO | PESSOAL
   name        String
   description String?
@@ -201,6 +202,7 @@ model Expense {
   id                 String    @id @default(cuid())
   projectId          String    @map("project_id")
   tenantId           String    @map("tenant_id")
+  createdByUserId    String?   @map("created_by_user_id")
   tipoDespesa        String    @map("tipo_despesa") // MATERIAL_CONSTRUCAO | ELETRODOMESTICO | REVESTIMENTO | ILUMINACAO | MARMORE | VIDRACARIA_SERRALHERIA | METAL_CERAMICA | MARCENARIA | MAO_DE_OBRA
   categoriaMaoDeObra String?   @map("categoria_mao_de_obra") // EMPREITEIRO | INSTALADOR_PISO | INSTALADOR_MARMORE | PINTOR | ELETRICISTA | VIDRACEIRO | SERRALHEIRO | MARCENEIRO
   roomId             String?   @map("room_id") // ambiente da casa (opcional)

@@ -63,6 +63,15 @@ function toPublic(u: {
   };
 }
 
+function mapCounts(rows: Array<{ createdByUserId: string | null; _count: { _all: number } }>) {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    if (!row.createdByUserId) continue;
+    counts.set(row.createdByUserId, row._count._all);
+  }
+  return counts;
+}
+
 @Injectable()
 export class UsersService {
   constructor(private prisma: PrismaService) {}
@@ -73,13 +82,40 @@ export class UsersService {
       include: { tenant: { select: { name: true } } },
       orderBy: [{ tenantId: 'asc' }, { createdAt: 'asc' }],
     });
+    if (users.length === 0) return [];
+
     const nameById = new Map(users.map((u) => [u.id, u.name]));
+    const userIds = users.map((u) => u.id);
+    const [projectCounts, expenseCounts] = await Promise.all([
+      this.prisma.project.groupBy({
+        by: ['createdByUserId'],
+        where: {
+          createdByUserId: { in: userIds },
+          deletedAt: null,
+        },
+        _count: { _all: true },
+      }),
+      this.prisma.expense.groupBy({
+        by: ['createdByUserId'],
+        where: {
+          createdByUserId: { in: userIds },
+          deletedAt: null,
+          settledByExpenseId: null,
+        },
+        _count: { _all: true },
+      }),
+    ]);
+    const projectsByUserId = mapCounts(projectCounts);
+    const expensesByUserId = mapCounts(expenseCounts);
+
     return users.map((u) => ({
       ...toPublic(u),
       tenantName: u.tenant?.name ?? null,
       createdByName: u.createdByUserId
         ? (nameById.get(u.createdByUserId) ?? null)
         : null,
+      projectsCreatedCount: projectsByUserId.get(u.id) ?? 0,
+      expensesCreatedCount: expensesByUserId.get(u.id) ?? 0,
     }));
   }
 
