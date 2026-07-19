@@ -2,6 +2,8 @@ import {
   isImageBuffer,
   detectImageMime,
   rowsToStatementText,
+  imageToStatementRows,
+  ImageOcrError,
   type OcrStatementRow,
 } from './image-ocr';
 import { extractTransactionsFromText } from './pdf';
@@ -83,6 +85,50 @@ describe('end-to-end: OCR rows -> text -> card invoice parser', () => {
     const uber = current.find((t) => /uber/i.test(t.merchant));
     expect(uber!.amountCents).toBe(7798);
     expect(uber!.installmentCurrent).toBeUndefined();
+  });
+});
+
+describe('imageToStatementRows: falhas de rede/timeout não devem virar 500', () => {
+  const JPEG_BUF = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);
+  const originalFetch = global.fetch;
+  const originalKey = process.env['GEMINI_API_KEY'];
+
+  beforeEach(() => {
+    process.env['GEMINI_API_KEY'] = 'test-key';
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    process.env['GEMINI_API_KEY'] = originalKey;
+  });
+
+  it('converte timeout do fetch (AbortSignal.timeout) em ImageOcrError amigável', async () => {
+    global.fetch = (async () => {
+      const err = new DOMException('The operation was aborted', 'TimeoutError');
+      throw err;
+    }) as any;
+
+    await expect(imageToStatementRows(JPEG_BUF, 'image/jpeg', 'statement')).rejects.toThrow(ImageOcrError);
+    await expect(imageToStatementRows(JPEG_BUF, 'image/jpeg', 'statement')).rejects.toThrow(/demorou demais/i);
+  });
+
+  it('converte falha genérica de rede (fetch failed) em ImageOcrError amigável', async () => {
+    global.fetch = (async () => {
+      throw new TypeError('fetch failed');
+    }) as any;
+
+    await expect(imageToStatementRows(JPEG_BUF, 'image/jpeg', 'statement')).rejects.toThrow(ImageOcrError);
+    await expect(imageToStatementRows(JPEG_BUF, 'image/jpeg', 'statement')).rejects.toThrow(/não consegui me conectar/i);
+  });
+
+  it('converte JSON inválido no corpo da resposta em ImageOcrError', async () => {
+    global.fetch = (async () => ({
+      ok: true,
+      status: 200,
+      json: async () => { throw new SyntaxError('Unexpected token'); },
+    })) as any;
+
+    await expect(imageToStatementRows(JPEG_BUF, 'image/jpeg', 'statement')).rejects.toThrow(ImageOcrError);
   });
 });
 

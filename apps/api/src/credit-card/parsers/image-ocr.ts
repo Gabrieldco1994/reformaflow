@@ -190,26 +190,42 @@ export async function imageToStatementRows(
   }
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [
-        {
-          parts: [
-            { text: buildPrompt(kind) },
-            { inline_data: { mime_type: mimeType, data: buffer.toString('base64') } },
-          ],
+  // ponytail: fetch() rejeita (timeout/DNS/reset) SEM nunca chegar ao
+  // `!response.ok` abaixo — sem este try/catch esse erro genérico escapava
+  // do ImageOcrError, driblava os catches específicos do controller e virava
+  // um 500 puro pro usuário. Fotos reais de câmera (maiores/mais lentas que
+  // um print) batem nisso com frequência bem maior que os testes com prints.
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              { text: buildPrompt(kind) },
+              { inline_data: { mime_type: mimeType, data: buffer.toString('base64') } },
+            ],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.1,
+          maxOutputTokens: 16384,
+          responseMimeType: 'application/json',
         },
-      ],
-      generationConfig: {
-        temperature: 0.1,
-        maxOutputTokens: 16384,
-        responseMimeType: 'application/json',
-      },
-    }),
-    signal: AbortSignal.timeout(90000),
-  });
+      }),
+      signal: AbortSignal.timeout(90000),
+    });
+  } catch (err) {
+    const errName = (err as { name?: string })?.name;
+    const isTimeout = errName === 'TimeoutError' || errName === 'AbortError';
+    throw new ImageOcrError(
+      isTimeout
+        ? 'A leitura da imagem demorou demais e foi cancelada. Tente novamente ou use uma foto mais leve.'
+        : 'Não consegui me conectar ao serviço de leitura de imagem agora. Tente novamente em instantes.',
+    );
+  }
 
   if (!response.ok) {
     throw new ImageOcrError(
@@ -217,7 +233,12 @@ export async function imageToStatementRows(
     );
   }
 
-  const data = await response.json();
+  let data: any;
+  try {
+    data = await response.json();
+  } catch {
+    throw new ImageOcrError('A IA retornou uma resposta inválida ao ler a imagem. Tente novamente.');
+  }
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
   const parsed = extractJson(text);
   if (!parsed || !Array.isArray(parsed.rows)) return { kind, rows: [] };
