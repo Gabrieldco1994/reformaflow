@@ -76,6 +76,13 @@ describe('rowsToStatementText', () => {
     ];
     expect(rowsToStatementText(rows)).toBe('19/03/2027 Pix enviado para Maria -143,10');
   });
+
+  it('usa a data de hoje quando a IA retorna o placeholder "0000-00-00" (print de notificação sem data, só "há 1h")', () => {
+    const rows: OcrStatementRow[] = [
+      { date: '0000-00-00', description: 'Pix enviado para MARIA', amount: -143.1 },
+    ];
+    expect(rowsToStatementText(rows)).toBe('19/03/2027 Pix enviado para MARIA -143,10');
+  });
 });
 
 describe('end-to-end: OCR rows -> text -> card invoice parser', () => {
@@ -152,6 +159,24 @@ describe('imageToStatementRows: falhas de rede/timeout não devem virar 500', ()
     })) as any;
 
     await expect(imageToStatementRows(JPEG_BUF, 'image/jpeg', 'statement')).rejects.toThrow(ImageOcrError);
+  });
+
+  it('instrui a IA a extrair transação única de print de notificação/push (não só tabela de extrato)', async () => {
+    let sentPrompt = '';
+    global.fetch = (async (_url: string, init: any) => {
+      sentPrompt = JSON.parse(init.body).contents[0].parts[0].text;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ candidates: [{ content: { parts: [{ text: '{"rows":[]}' }] } }] }),
+      };
+    }) as any;
+
+    await imageToStatementRows(JPEG_BUF, 'image/jpeg', 'statement');
+
+    expect(sentPrompt).toMatch(/notifica/i);
+    expect(sentPrompt).toMatch(/APENAS UMA/);
+    expect(sentPrompt).toMatch(/não retorne uma lista vazia/i);
   });
 });
 
