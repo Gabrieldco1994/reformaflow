@@ -153,7 +153,10 @@ describe("MobileMonthCockpit", () => {
     const hero = within(cockpit).getByRole("button", {
       name: "Mostrar valor exato",
     });
-    const miniHero = within(cockpit).getByTestId("mini-hero-capsule");
+    // Renderizado FORA da section (irmão), de propósito: é `position: fixed` e
+    // não pode herdar margin-top do `space-y-3` do cockpit (ver comentário no
+    // componente) — por isso a busca é em `screen`, não `within(cockpit)`.
+    const miniHero = screen.getByTestId("mini-hero-capsule");
     const expected = [["Consumo", "false"]] as const;
 
     for (const [name, expanded] of expected) {
