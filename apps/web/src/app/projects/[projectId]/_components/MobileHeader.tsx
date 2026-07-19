@@ -21,7 +21,7 @@ export function MobileHeader({
   return (
     <header
       data-mobile-header="minimal"
-      className="minimal-header sticky top-0 z-30 flex h-14 items-center gap-1.5 border-b border-darc-linen bg-white/90 px-2.5 backdrop-blur-md md:hidden"
+      className="minimal-header sticky top-0 z-30 flex h-14 items-center gap-1.5 border-b border-darc-linen bg-white px-2.5 md:hidden"
     >
       <Link
         href="/projects"

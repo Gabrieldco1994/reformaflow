@@ -342,7 +342,7 @@
     height: calc(56px + var(--minimal-mobile-safe-top));
     gap: 8px;
     border: 0;
-    background: rgba(238, 240, 243, 0.92);
+    background: #ffffff;
     padding: var(--minimal-mobile-safe-top) 20px 0;
   }
 
