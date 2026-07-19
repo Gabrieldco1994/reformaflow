@@ -12,7 +12,7 @@ import {
   UpdateBankAccountDto,
 } from './dto/bank-account.dto';
 import { RequireModule } from '../common/decorators/require-module.decorator';
-import { CurrentTenant } from '../common/decorators/tenant.decorator';
+import { CurrentTenant, CurrentUser } from '../common/decorators/tenant.decorator';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
 import { PdfPasswordRequiredError, PdfWrongPasswordError, ImageOcrError } from './parsers';
 
@@ -127,6 +127,7 @@ export class BankAccountController {
   @UseInterceptors(AnyFilesInterceptor({ limits: { fileSize: 10 * 1024 * 1024, files: 5 } }))
   async importStatement(
     @CurrentTenant() tenantId: string,
+    @CurrentUser() requester: { id: string },
     @Param('projectId') projectId: string,
     @Param('id') accountId: string,
     @UploadedFiles() files: Express.Multer.File[] | undefined,
@@ -151,7 +152,7 @@ export class BankAccountController {
       if ((query.mode ?? 'preview') === 'commit') {
         return await this.service.commitImport(
           tenantId, projectId, accountId, buffers, fileName, source,
-          query.periodLabel, query.password, decisions,
+          query.periodLabel, query.password, decisions, requester.id,
         );
       }
       return await this.service.previewImport(

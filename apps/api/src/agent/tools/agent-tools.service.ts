@@ -37,6 +37,8 @@ export interface ToolContext {
   role?: string;
   /** Módulos liberados ao usuário — usado nas ferramentas de escrita. */
   allowedModules?: string[];
+  /** Id do usuário autenticado — stampado como createdByUserId nas escritas. */
+  userId?: string;
 }
 
 interface ToolHandler {
@@ -500,7 +502,7 @@ export class AgentToolsService {
             creditCardId,
             bankAccountId,
             linkedExpenseId,
-          } as any);
+          } as any, ctx.userId ?? null);
 
           return {
             ok: true,
@@ -593,7 +595,7 @@ export class AgentToolsService {
             obraProjectId,
             creditCardId,
             bankAccountId,
-          } as any);
+          } as any, ctx.userId ?? null);
 
           return {
             ok: true,
@@ -1005,7 +1007,7 @@ export class AgentToolsService {
             titulo,
             fornecedor,
             ...dateFields,
-          } as any);
+          } as any, ctx.userId ?? null);
 
           // 2) Espelho no PESSOAL (saída do caixa) vinculado ao canônico.
           //    Se falhar, desfaz o canônico para não deixar registro pela metade.
@@ -1023,7 +1025,7 @@ export class AgentToolsService {
               creditCardId,
               bankAccountId,
               linkedExpenseId: canonico.id,
-            } as any);
+            } as any, ctx.userId ?? null);
           } catch (e) {
             await this.expenses.remove(ctx.tenantId, obra.id, canonico.id).catch(() => undefined);
             throw e;

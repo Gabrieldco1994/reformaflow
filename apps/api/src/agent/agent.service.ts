@@ -13,6 +13,8 @@ export interface AgentChatInput {
   role?: string;
   /** Módulos liberados ao usuário — usado nas ferramentas de escrita. */
   allowedModules?: string[];
+  /** Id do usuário autenticado — stampado como createdByUserId nas escritas. */
+  userId?: string;
   /** Histórico da conversa (apenas roles user/assistant). */
   messages: { role: 'user' | 'assistant'; content: string }[];
 }
@@ -75,6 +77,7 @@ export class AgentService {
                 projectScope: input.projectScope ?? null,
                 role: input.role,
                 allowedModules: input.allowedModules,
+                userId: input.userId,
               },
               tc.arguments,
             );

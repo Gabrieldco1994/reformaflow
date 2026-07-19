@@ -345,6 +345,7 @@ export class CreditCardService {
     periodLabelOverride?: string,
     password?: string,
     decisions?: ImportDecision[],
+    createdByUserId: string | null = null,
   ) {
     const card = await this.findCard(tenantId, projectId, cardId);
     const buffers = toBuffers(fileContent);
@@ -408,6 +409,7 @@ export class CreditCardService {
           adjustedTx,
           importRecord.id,
           d?.overrides?.category,
+          createdByUserId,
         );
         if (result.settled) settled++;
         if (result.inserted) inserted++;
@@ -654,6 +656,7 @@ export class CreditCardService {
     tx: NormalizedTx,
     importId: string,
     categoryOverride?: string,
+    createdByUserId: string | null = null,
   ): Promise<{ inserted: boolean; settled: boolean; expenseId?: string }> {
     if (tx.amountCents < 0) {
       // Pagamento da fatura ANTERIOR aparece nas faturas Itaú como linha negativa
@@ -682,6 +685,7 @@ export class CreditCardService {
           importId,
           externalId: tx.externalId,
           cardLast4: card.last4,
+          createdByUserId,
         },
       });
       await this.prisma.cashFlowEntry.create({
@@ -783,6 +787,7 @@ export class CreditCardService {
         externalId: tx.externalId,
         seriesKey,
         cardLast4: card.last4,
+        createdByUserId,
       },
     });
 

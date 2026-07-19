@@ -121,6 +121,7 @@ export class AuthService {
             isGuest: false,
             allowedProjectTypes: JSON.stringify(access.allowedProjectTypes),
             allowedModules: JSON.stringify(access.allowedModules),
+            lastLoginAt: new Date(),
           },
         });
         return { tenant, user };
@@ -206,6 +207,7 @@ export class AuthService {
           role: 'ADMIN',
           passwordHash: null,
           isGuest: true,
+          lastLoginAt: new Date(),
         },
       });
       return { tenant, user };
@@ -255,6 +257,7 @@ export class AuthService {
           name: input.name.trim(),
           passwordHash,
           isGuest: false,
+          lastLoginAt: new Date(),
         },
       }),
     ]);

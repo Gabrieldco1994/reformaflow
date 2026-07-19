@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Post, Query, UseInterceptors } from '@nes
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { MonthlyOverviewService } from './monthly-overview.service';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
-import { CurrentTenant } from '../common/decorators/tenant.decorator';
+import { CurrentTenant, CurrentUser } from '../common/decorators/tenant.decorator';
 
 @ApiTags('monthly-overview')
 @ApiBearerAuth()
@@ -92,6 +92,7 @@ export class MonthlyOverviewController {
   })
   payInvoice(
     @CurrentTenant() tenantId: string,
+    @CurrentUser() requester: { id: string },
     @Param('projectId') projectId: string,
     @Body()
     body: {
@@ -102,6 +103,6 @@ export class MonthlyOverviewController {
       paymentDate?: string;
     },
   ) {
-    return this.service.payInvoice(tenantId, projectId, body);
+    return this.service.payInvoice(tenantId, projectId, body, requester.id);
   }
 }

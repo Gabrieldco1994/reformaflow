@@ -2335,6 +2335,7 @@ export class MonthlyOverviewService {
       bankLast4?: string;
       paymentDate?: string;
     },
+    createdByUserId: string | null = null,
   ) {
     await this.ensurePessoalProject(tenantId, projectId);
 
@@ -2398,6 +2399,7 @@ export class MonthlyOverviewService {
         status: 'PAGO',
         bankLast4: account.last4,
         cardLast4: card.last4,
+        createdByUserId,
       },
     });
 
