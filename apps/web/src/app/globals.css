@@ -313,7 +313,17 @@
 }
 
 @media (max-width: 767px) {
-  [data-ui-skin="minimal"][data-project-type="PESSOAL"] {
+:root {
+  --minimal-mobile-safe-top: 0px;
+}
+
+@media (display-mode: standalone), (display-mode: fullscreen) {
+  :root {
+    --minimal-mobile-safe-top: env(safe-area-inset-top);
+  }
+}
+
+[data-ui-skin="minimal"][data-project-type="PESSOAL"] {
     font-family:
       var(--font-minimal),
       Inter,
@@ -329,11 +339,11 @@
   }
 
   [data-ui-skin="minimal"] .minimal-header {
-    height: calc(56px + env(safe-area-inset-top));
+    height: calc(56px + var(--minimal-mobile-safe-top));
     gap: 8px;
     border: 0;
     background: rgba(238, 240, 243, 0.92);
-    padding: env(safe-area-inset-top) 20px 0;
+    padding: var(--minimal-mobile-safe-top) 20px 0;
   }
 
   [data-ui-skin="minimal"] .minimal-header > a,
