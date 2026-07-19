@@ -353,7 +353,7 @@ test.describe("Monthly cockpit — Phase C mobile relance", () => {
 
   // O FAB "Lançar" e o sheet de lançamento vivem no AppShell (global a todas as
   // rotas do projeto), então o cockpit é uma superfície válida para exercê-los.
-  test("Lançar: FAB minimal, origens do projeto atual e pill de tipo sempre visível", async ({
+  test("Lançar: FAB minimal, modo Escrito traz origens do projeto e categorias diretas", async ({
     page,
   }, testInfo) => {
     test.skip(
@@ -369,46 +369,58 @@ test.describe("Monthly cockpit — Phase C mobile relance", () => {
       await fab.evaluate((el) => getComputedStyle(el).backgroundColor),
     ).toBe("rgb(255, 255, 255)");
 
+    // O "+" abre PRIMEIRO o menu de modo (Escrito / Voz / Foto) — não vai direto
+    // ao sheet de lançamento.
     await fab.click();
-    await expect(page.getByRole("heading", { name: "Lançar" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Como quer lançar?" }),
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: /Escrito/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Foto/ })).toBeVisible();
 
-    // bug 3: origens SÓ do projeto atual (2), label = nickname da própria
-    // entidade + last4, conta e cartão visualmente distintos (dot verde x âmbar).
+    // Escrito → sheet de lançamento rápido.
+    await page.getByRole("button", { name: /Escrito/ }).click();
+    await expect(
+      page.getByRole("heading", { name: "Lançar", exact: true }),
+    ).toBeVisible();
+
+    // origens SÓ do projeto atual (2): conta + cartão com labels próprios.
     const origins = page.locator('button[aria-label^="Origem "]');
     await expect(origins).toHaveCount(2);
-    const account = page.getByRole("button", {
-      name: "Origem Itaú Personnalité",
-    });
+    await expect(
+      page.getByRole("button", { name: "Origem Itaú Personnalité" }),
+    ).toBeVisible();
     const card = page.getByRole("button", {
       name: "Origem Itaú Mastercard •5876",
     });
-    await expect(account).toBeVisible();
     await expect(card).toBeVisible();
-    expect(
-      await account
-        .locator("span[aria-hidden]")
-        .first()
-        .evaluate((el) => getComputedStyle(el).backgroundColor),
-    ).toBe("rgb(15, 107, 77)");
-    expect(
-      await card
-        .locator("span[aria-hidden]")
-        .first()
-        .evaluate((el) => getComputedStyle(el).backgroundColor),
-    ).toBe("rgb(217, 119, 6)");
 
-    // bug 2: ao digitar a descrição, a Maria categoriza NA TELA — pill sempre
-    // visível — e "trocar" abre o seletor com getExpenseOptions(PESSOAL).
-    await page
-      .getByPlaceholder("ex.: mercado, uber, farmácia")
-      .fill("Compra no mercado");
-    await expect(page.getByText(/Maria sugeriu:\s*Alimentação/)).toBeVisible();
-    await page.getByRole("button", { name: "trocar" }).click();
+    // cartão expõe parcelas nativas (1–18x, "À vista" para 1); conta não.
+    await card.click();
+    const parcelas = page.getByRole("combobox", { name: "Parcelas" });
+    await expect(parcelas).toBeVisible();
+    await expect(parcelas.locator("option")).toHaveCount(18);
+    await expect(parcelas.locator("option").first()).toHaveText("À vista");
+
+    // categoria-first: os atalhos de categoria aparecem direto (sem digitar) e o
+    // título é preenchido pela categoria escolhida, por trás.
+    const supermercado = page.getByRole("button", {
+      name: "Categoria Supermercado",
+    });
+    await expect(supermercado).toBeVisible();
+    await supermercado.click();
+    await expect(page.getByText(/Lança como/)).toContainText("Supermercado");
+
+    // "ver todas" revela o resto do catálogo PESSOAL (fora do atalho).
     await expect(
-      page.getByRole("button", { name: "Moradia", exact: true }),
+      page.getByRole("button", { name: "Categoria Faxineira" }),
+    ).toHaveCount(0);
+    await page.getByRole("button", { name: "ver todas" }).click();
+    await expect(
+      page.getByRole("button", { name: "Categoria Faxineira" }),
     ).toBeVisible();
 
-    // presentation-only: abrir e preencher o sheet não escreve despesa nenhuma.
+    // presentation-only: abrir e mexer no sheet não escreve despesa nenhuma.
     expect(mutations.filter((m) => m.includes("/expenses"))).toEqual([]);
   });
 });

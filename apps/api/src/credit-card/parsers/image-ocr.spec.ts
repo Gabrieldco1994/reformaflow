@@ -2,6 +2,8 @@ import {
   isImageBuffer,
   detectImageMime,
   rowsToStatementText,
+  imageToStatementRows,
+  ImageOcrError,
   type OcrStatementRow,
 } from './image-ocr';
 import { extractTransactionsFromText } from './pdf';
@@ -40,27 +42,50 @@ describe('detectImageMime / isImageBuffer', () => {
 });
 
 describe('rowsToStatementText', () => {
-  it('normalizes ISO dates to DD/MM/YYYY and formats BRL', () => {
+  // ponytail: fixa o "hoje" do servidor pra testar deterministicamente o
+  // override de ano (não pode depender do ano real em que o teste roda).
+  beforeEach(() => {
+    jest.useFakeTimers().setSystemTime(new Date(Date.UTC(2027, 2, 19))); // 19/03/2027
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('normalizes ISO dates to DD/MM/<ano vigente>, ignorando o ano que a IA reportou', () => {
     const rows: OcrStatementRow[] = [
       { date: '2026-01-08', description: 'Samsung No Itau 18/21', amount: 114.25 },
     ];
-    expect(rowsToStatementText(rows)).toBe('08/01/2026 Samsung No Itau 18/21 114,25');
+    expect(rowsToStatementText(rows)).toBe('08/01/2027 Samsung No Itau 18/21 114,25');
   });
 
-  it('keeps DD/MM/YYYY dates and renders negative + thousands', () => {
+  it('mantém dia/mês de datas DD/MM/AAAA mas sobrescreve o ano pelo vigente', () => {
     const rows: OcrStatementRow[] = [
       { date: '05/01/2026', description: 'PIX TRANSF FORMULA 05/01', amount: -392.25 },
-      { date: '11/06/2026', description: 'Mercadolivre', amount: 1136.78 },
+      { date: '11/06/2020', description: 'Mercadolivre', amount: 1136.78 },
     ];
     const text = rowsToStatementText(rows);
     expect(text.split('\n')).toEqual([
-      '05/01/2026 PIX TRANSF FORMULA 05/01 -392,25',
-      '11/06/2026 Mercadolivre 1.136,78',
+      '05/01/2027 PIX TRANSF FORMULA 05/01 -392,25',
+      '11/06/2027 Mercadolivre 1.136,78',
     ]);
+  });
+
+  it('usa a data de hoje inteira quando a linha não tem NENHUMA data reconhecível (não descarta a transação)', () => {
+    const rows: OcrStatementRow[] = [
+      { date: 'sem data visível', description: 'Pix enviado para Maria', amount: -143.1 },
+    ];
+    expect(rowsToStatementText(rows)).toBe('19/03/2027 Pix enviado para Maria -143,10');
   });
 });
 
 describe('end-to-end: OCR rows -> text -> card invoice parser', () => {
+  beforeEach(() => {
+    jest.useFakeTimers().setSystemTime(new Date(Date.UTC(2026, 6, 1)));
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   it('extracts installments and positive (expense) amounts', () => {
     const rows: OcrStatementRow[] = [
       { date: '2026-01-08', description: 'Samsung No Itau 18/21', amount: 114.25 },
@@ -86,7 +111,58 @@ describe('end-to-end: OCR rows -> text -> card invoice parser', () => {
   });
 });
 
+describe('imageToStatementRows: falhas de rede/timeout não devem virar 500', () => {
+  const JPEG_BUF = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);
+  const originalFetch = global.fetch;
+  const originalKey = process.env['GEMINI_API_KEY'];
+
+  beforeEach(() => {
+    process.env['GEMINI_API_KEY'] = 'test-key';
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    process.env['GEMINI_API_KEY'] = originalKey;
+  });
+
+  it('converte timeout do fetch (AbortSignal.timeout) em ImageOcrError amigável', async () => {
+    global.fetch = (async () => {
+      const err = new DOMException('The operation was aborted', 'TimeoutError');
+      throw err;
+    }) as any;
+
+    await expect(imageToStatementRows(JPEG_BUF, 'image/jpeg', 'statement')).rejects.toThrow(ImageOcrError);
+    await expect(imageToStatementRows(JPEG_BUF, 'image/jpeg', 'statement')).rejects.toThrow(/demorou demais/i);
+  });
+
+  it('converte falha genérica de rede (fetch failed) em ImageOcrError amigável', async () => {
+    global.fetch = (async () => {
+      throw new TypeError('fetch failed');
+    }) as any;
+
+    await expect(imageToStatementRows(JPEG_BUF, 'image/jpeg', 'statement')).rejects.toThrow(ImageOcrError);
+    await expect(imageToStatementRows(JPEG_BUF, 'image/jpeg', 'statement')).rejects.toThrow(/não consegui me conectar/i);
+  });
+
+  it('converte JSON inválido no corpo da resposta em ImageOcrError', async () => {
+    global.fetch = (async () => ({
+      ok: true,
+      status: 200,
+      json: async () => { throw new SyntaxError('Unexpected token'); },
+    })) as any;
+
+    await expect(imageToStatementRows(JPEG_BUF, 'image/jpeg', 'statement')).rejects.toThrow(ImageOcrError);
+  });
+});
+
 describe('end-to-end: OCR rows -> text -> bank statement parser', () => {
+  beforeEach(() => {
+    jest.useFakeTimers().setSystemTime(new Date(Date.UTC(2026, 6, 1)));
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   it('debits become positive expenses, income becomes credit', () => {
     const rows: OcrStatementRow[] = [
       { date: '05/01/2026', description: 'PIX QRS PIX Marketp 03/01', amount: -118.52 },

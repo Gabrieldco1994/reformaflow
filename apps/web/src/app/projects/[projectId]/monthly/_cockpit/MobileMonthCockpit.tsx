@@ -172,61 +172,68 @@ export default function MobileMonthCockpit({
   );
 
   return (
-    <section
-      role="region"
-      aria-label="Cockpit mensal mobile"
-      data-testid="mobile-month-cockpit"
-      data-project-id={projectId}
-      className="pessoal-minimal-today min-w-0 space-y-3 md:hidden"
-    >
-      {/* Herói escuro com "viagem no tempo": absorve o herói canônico e o slider
-          diário. A viagem no tempo só aparece no mês corrente. */}
-      <HeroTimeTravel
-        top={top}
-        series={series}
-        hoje={month.hoje}
-        diasNoMes={month.diasNoMes}
-        showTimeTravel={false}
-        scenarioDelta={scenarioDelta}
-      />
-
-      {/* "Vai dar até dez?": veredito + curva de 6 meses + cenários "E se…?"
-          integrados. Os chips deformam ao vivo a curva projetada do herói acima
-          (mesmo scenarioDelta), nunca o headline canônico. */}
-      {runwaySerie && (
-        <MobileRunway
-          serie={runwaySerie}
-          currentMonth={monthKey}
+    <>
+      <section
+        role="region"
+        aria-label="Cockpit mensal mobile"
+        data-testid="mobile-month-cockpit"
+        data-project-id={projectId}
+        className="pessoal-minimal-today min-w-0 space-y-3 md:hidden"
+      >
+        {/* Herói escuro com "viagem no tempo": absorve o herói canônico e o slider
+            diário. A viagem no tempo só aparece no mês corrente. */}
+        <HeroTimeTravel
+          top={top}
+          series={series}
+          hoje={month.hoje}
+          diasNoMes={month.diasNoMes}
+          showTimeTravel={false}
           scenarioDelta={scenarioDelta}
-          onScenarioChange={setScenarioDelta}
         />
-      )}
 
-      {/* Entrada para a tela de Despesas (mobile) — o app-despesas é alcançado a
-          partir do "Hoje", como no protótipo (não há 4ª aba). */}
-      <Link
-        href={`/projects/${projectId}/expenses`}
-        aria-label="Ver todas as despesas"
-        className="minimal-card flex min-h-[44px] items-center justify-between rounded-[18px] border border-[var(--ck-border)] bg-[var(--ck-surface)] px-4 py-3 text-sm font-semibold text-[var(--ck-text)] shadow-lifeone-card active:scale-[0.99]"
-      >
-        <span>Ver todas as despesas</span>
-        <span aria-hidden>→</span>
-      </Link>
-      {/* "Maria percebeu" — insights por regra pura (sem IA nesta fase),
-          derivados de dados já calculados. */}
-      <MariaStories insights={mariaInsights} />
+        {/* "Vai dar até dez?": veredito + curva de 6 meses + cenários "E se…?"
+            integrados. Os chips deformam ao vivo a curva projetada do herói acima
+            (mesmo scenarioDelta), nunca o headline canônico. */}
+        {runwaySerie && (
+          <MobileRunway
+            serie={runwaySerie}
+            currentMonth={monthKey}
+            scenarioDelta={scenarioDelta}
+            onScenarioChange={setScenarioDelta}
+          />
+        )}
 
-      <MobileCockpitAccordion
-        id="mobile-cockpit-consumption"
-        title="Consumo"
-        open={accordions.consumption}
-        onToggle={() => toggleAccordion("consumption")}
-      >
-        <MobileConsumptionFlow data={consumption} />
-      </MobileCockpitAccordion>
-      {/* Mini-herói cápsula: número canônico do MÊS ATUAL fixo no topo. No mês
-          corrente surge por rolagem; ao consultar outro mês fica sempre visível e
-          carrega o aviso "consultando <mês>" (papel da antiga aside, removida). */}
+        {/* Entrada para a tela de Despesas (mobile) — o app-despesas é alcançado a
+            partir do "Hoje", como no protótipo (não há 4ª aba). */}
+        <Link
+          href={`/projects/${projectId}/expenses`}
+          aria-label="Ver todas as despesas"
+          className="minimal-card flex min-h-[44px] items-center justify-between rounded-[18px] border border-[var(--ck-border)] bg-[var(--ck-surface)] px-4 py-3 text-sm font-semibold text-[var(--ck-text)] shadow-lifeone-card active:scale-[0.99]"
+        >
+          <span>Ver todas as despesas</span>
+          <span aria-hidden>→</span>
+        </Link>
+        {/* "Maria percebeu" — insights por regra pura (sem IA nesta fase),
+            derivados de dados já calculados. */}
+        <MariaStories insights={mariaInsights} />
+
+        <MobileCockpitAccordion
+          id="mobile-cockpit-consumption"
+          title="Consumo"
+          open={accordions.consumption}
+          onToggle={() => toggleAccordion("consumption")}
+        >
+          <MobileConsumptionFlow data={consumption} />
+        </MobileCockpitAccordion>
+      </section>
+      {/* Mini-herói cápsula: number canônico do MÊS ATUAL fixo no topo. Renderizada
+          FORA da section acima (de propósito): essa section usa `space-y-3`, e o
+          Tailwind aplica margin-top a todo filho não-primeiro — inclusive a este,
+          que é `position: fixed`. Essa margem somava com o `-translate-y-full` e
+          deixava uma faixa de ~12px do capsule (com backdrop-blur) vazando por
+          cima do header mesmo com `visible=false` (bug real, não efeito nativo do
+          navegador — ver histórico do PR). Fora do space-y-3, a margem não se
+          aplica e o `-translate-y-full` esconde 100% do elemento como esperado. */}
       <MiniHeroCapsule
         visible={capsuleVisible}
         value={moneyGlance(currentTop.caixaValor)}
@@ -234,6 +241,6 @@ export default function MobileMonthCockpit({
         monthLabel={labelMonth(data.mesAtual)}
         consultingLabel={viewingAnotherMonth ? labelMonth(monthKey) : undefined}
       />
-    </section>
+    </>
   );
 }
