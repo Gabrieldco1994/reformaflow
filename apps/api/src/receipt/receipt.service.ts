@@ -25,6 +25,7 @@ export class ReceiptService {
           data: new Date(dto.data),
           tipo: dto.tipo,
           status: dto.status,
+          descricao: dto.descricao?.trim() || null,
           bankLast4: defaultBankLast4 ?? undefined,
         },
       });
@@ -79,6 +80,7 @@ export class ReceiptService {
           ...(dto.data !== undefined && { data: new Date(dto.data) }),
           ...(dto.tipo !== undefined && { tipo: dto.tipo }),
           ...(dto.status !== undefined && { status: dto.status }),
+          ...(dto.descricao !== undefined && { descricao: dto.descricao?.trim() || null }),
           ...(defaultBankLast4 ? { bankLast4: defaultBankLast4 } : {}),
         },
       });

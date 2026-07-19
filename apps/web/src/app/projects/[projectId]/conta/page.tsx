@@ -147,7 +147,7 @@ export default function ContaPage() {
             <Landmark className="h-[18px] w-[18px]" />
           </span>
           <div className="min-w-0 leading-tight">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-lifeone-ink-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-lifeone-ink-3">
               Visão Conta
             </p>
             <h1

@@ -46,7 +46,7 @@ function SaldoTooltip({ active, payload }: { active?: boolean; payload?: Array<{
       </p>
       {p.categorias.length > 0 && (
         <div className="mt-2 border-t border-lifeone-hairline pt-2">
-          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-lifeone-ink-3">
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-lifeone-ink-3">
             Saídas por categoria
           </p>
           <ul className="space-y-0.5">
@@ -185,7 +185,7 @@ export function ProjecaoSaldo({
               point.negativo ? 'border-[#F2C6C1] bg-[#FCEBE9]' : 'border-lifeone-hairline bg-lifeone-surface'
             }`}
           >
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-lifeone-ink-3">{point.label}</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-lifeone-ink-3">{point.label}</p>
             <p
               title={formatCurrency(point.saldo / 100)}
               className={`mt-0.5 whitespace-nowrap text-xs font-bold tabular-nums ${

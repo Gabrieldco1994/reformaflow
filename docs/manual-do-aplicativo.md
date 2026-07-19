@@ -169,6 +169,8 @@ Ao entrar num projeto, aparece a **casca** comum a todos os módulos:
   colorido + nome), **sino de notificações** e, no celular, o botão **"Mais"**.
 - **Barra inferior (celular):**
   - No **PESSOAL**, mostra **"Cockpit"**, **"Despesas"**, **"Maria"** e **"Cartões"**, com botão circular **"Lançar"** separado.
+    - O **"+"** abre um **menu de modo** com três jornadas: **Escrito** (teclado numérico rápido), **Voz** (dita a despesa, mesma IA da Maria) e **Foto** (importa print/foto de **fatura de cartão** ou **extrato de conta**).
+    - No modo **Escrito**, as **categorias aparecem direto** (atalho das mais usadas + "ver todas"): tocar numa categoria já **preenche o título por trás**; o campo de texto vira detalhe opcional. Parcelas de cartão saem num seletor nativo **1–18x** ("À vista" para 1).
   - Nos demais tipos, mostra os três primeiros módulos autorizados para a pessoa,
     conforme a ordem de navegação do tipo.
   - O item ativo usa a **cor de destaque do tipo do projeto**.
@@ -314,11 +316,16 @@ movimentações abaixo.
 
 **Movimentações:**
 - Abas **Saídas / Entradas / Tudo**.
-- Filtro de **origem** (Todos / uma conta / um cartão específico) e busca por
-  descrição.
+- **Visões (só saídas):** **Lista**, **Por categoria** e **Por projeto** — as duas
+  últimas agrupam os gastos com subtotais e ícone da categoria (drill-down por linha).
+- Filtro de **origem** (Todos / uma conta / um cartão específico), **categoria** e
+  **projeto**, busca por descrição e ordenação por data. Quando há qualquer filtro
+  ativo, aparece o botão **"Limpar filtros"** que zera todos de uma vez.
 - Lista de lançamentos com ícone, descrição, data e valor (verde = entrada,
   escuro = saída). Estado vazio quando não há itens.
-- Nas linhas de fatura, há ações rápidas **Ajustar** e **Resíduo**, além do status.
+- As **faturas de cartão** podem ser **expandidas na própria linha** para revelar as
+  compras que as compõem (no celular, tocando na linha). Nas linhas de fatura há
+  ações rápidas **Ajustar** e **Resíduo**, além do status.
 
 **Ticket médio:** valor médio por lançamento, com barras de apoio.
 

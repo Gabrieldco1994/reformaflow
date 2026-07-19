@@ -1003,6 +1003,9 @@ export class MonthlyOverviewService {
         id: receipt.id as string | null,
         kind: 'entrada' as const,
         descricao: receipt.descricao?.trim() || receiptTypeLabel(receipt.tipo),
+        // Descrição crua (sem fallback do label) — usada só para prefixar o modal
+        // de edição, para não persistir o rótulo como se fosse texto do usuário.
+        descricaoRaw: receipt.descricao?.trim() || null,
         data: receipt.data.toISOString(),
         tipo: receiptTypeKey(receipt.tipo),
         valor: receipt.valor,

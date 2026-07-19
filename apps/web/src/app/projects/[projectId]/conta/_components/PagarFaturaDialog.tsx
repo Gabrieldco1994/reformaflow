@@ -103,7 +103,7 @@ export function PagarFaturaDialog({
                 onChange={(e) => setValor(maskCurrencyInput(e.target.value))}
                 className="mt-1 h-11 w-full rounded-xl border border-lifeone-hairline bg-lifeone-card px-3 text-sm text-lifeone-ink outline-none focus:border-lifeone-blue"
               />
-              <span className="mt-1 block text-[10px] text-lifeone-ink-4">
+              <span className="mt-1 block text-[11px] text-lifeone-ink-4">
                 pendente: {formatCurrency(card.faturaPendente / 100)} · total: {formatCurrency(card.faturaAtual / 100)}
               </span>
             </label>

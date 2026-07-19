@@ -75,6 +75,7 @@ export interface ReceitaEditing {
   data: string; // ISO
   tipo: string;
   status: string;
+  descricao?: string;
 }
 
 /**
@@ -108,7 +109,7 @@ export function ReceitaModal({
   };
 
   const createMutation = useMutation({
-    mutationFn: (data: { valor: number; data: string; tipo: string; status: string }) =>
+    mutationFn: (data: { valor: number; data: string; tipo: string; status: string; descricao?: string }) =>
       api.post(`/projects/${projectId}/receipts`, data),
     onSuccess: () => {
       toast.success('Recebimento criado');
@@ -119,7 +120,7 @@ export function ReceitaModal({
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: { valor: number; data: string; tipo: string; status: string } }) =>
+    mutationFn: ({ id, data }: { id: string; data: { valor: number; data: string; tipo: string; status: string; descricao?: string } }) =>
       api.patch(`/projects/${projectId}/receipts/${id}`, data),
     onSuccess: () => {
       toast.success('Recebimento atualizado');
@@ -132,11 +133,13 @@ export function ReceitaModal({
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
+    const descricao = String(form.get('descricao') ?? '').trim();
     const payload = {
       valor: currencyInputToNumber(String(form.get('valor') ?? '')),
       data: form.get('data') as string,
       tipo: form.get('tipo') as string,
       status: form.get('status') as string,
+      descricao,
     };
     if (isEdit && editing) {
       updateMutation.mutate({ id: editing.id, data: payload });
@@ -185,6 +188,14 @@ export function ReceitaModal({
             {renderTipoOptions(extraTipo)}
           </select>
         </div>
+        <Input
+          label="Descrição (opcional)"
+          name="descricao"
+          type="text"
+          maxLength={200}
+          placeholder="Ex.: Salário Empresa X"
+          defaultValue={editing?.descricao ?? ''}
+        />
         <Select label="Status" name="status" options={STATUS_OPTIONS} required defaultValue={editing?.status ?? 'EM_CAIXA'} />
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
