@@ -99,4 +99,65 @@ describe('/admin/users analytics', () => {
     const zeroCells = await screen.findAllByText('0');
     expect(zeroCells.length).toBeGreaterThanOrEqual(2);
   });
+
+  it('shows today login count based on lastLoginAt', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-19T12:00:00.000Z'));
+    try {
+      apiGetMock.mockImplementation((path: string) => {
+        if (path.startsWith('/users')) {
+          return Promise.resolve([
+            {
+              id: 'u1',
+              username: 'ana',
+              name: 'Ana',
+              role: 'USER',
+              tenantId: 'tenant-1',
+              allowedModules: [],
+              allowedProjects: [],
+              allowedProjectTypes: [],
+              createdByUserId: null,
+              createdByName: null,
+              lastLoginAt: '2026-07-19T08:00:00.000Z',
+              lastActivityAt: null,
+              createdAt: '2026-01-01T00:00:00.000Z',
+              updatedAt: '2026-01-01T00:00:00.000Z',
+              tenantName: 'Tenant 1',
+              projectsCreatedCount: 0,
+              expensesCreatedCount: 0,
+            },
+            {
+              id: 'u2',
+              username: 'bruno',
+              name: 'Bruno',
+              role: 'USER',
+              tenantId: 'tenant-1',
+              allowedModules: [],
+              allowedProjects: [],
+              allowedProjectTypes: [],
+              createdByUserId: null,
+              createdByName: null,
+              lastLoginAt: '2026-07-18T23:59:59.000Z',
+              lastActivityAt: null,
+              createdAt: '2026-01-01T00:00:00.000Z',
+              updatedAt: '2026-01-01T00:00:00.000Z',
+              tenantName: 'Tenant 1',
+              projectsCreatedCount: 0,
+              expensesCreatedCount: 0,
+            },
+          ]);
+        }
+        return Promise.resolve([]);
+      });
+
+      render(<AdminUsersPage />);
+
+      const label = await screen.findByText('Logaram hoje');
+      expect(label).toBeInTheDocument();
+      const card = label.parentElement;
+      expect(card?.querySelector('.text-2xl')?.textContent).toBe('1');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
