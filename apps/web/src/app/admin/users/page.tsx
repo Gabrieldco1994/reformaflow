@@ -174,19 +174,29 @@ export default function AdminUsersPage() {
           const now = Date.now();
           const d7 = 7 * 24 * 60 * 60 * 1000;
           const d30 = 30 * 24 * 60 * 60 * 1000;
+          const startOfToday = new Date();
+          startOfToday.setHours(0, 0, 0, 0);
+          const startOfTomorrow = new Date(startOfToday);
+          startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
           const lastSeen = (u: AdminUser) => u.lastActivityAt ?? u.lastLoginAt ?? null;
           const total = users.length;
           const admins = users.filter((u) => u.role === 'ADMIN').length;
           const active7d = users.filter((u) => { const t = lastSeen(u); return t && now - new Date(t).getTime() < d7; }).length;
           const active30d = users.filter((u) => { const t = lastSeen(u); return t && now - new Date(t).getTime() < d30; }).length;
+          const loggedToday = users.filter((u) => {
+            if (!u.lastLoginAt) return false;
+            const t = new Date(u.lastLoginAt).getTime();
+            return t >= startOfToday.getTime() && t < startOfTomorrow.getTime();
+          }).length;
           const never = users.filter((u) => !lastSeen(u)).length;
           return (
-            <div className="grid grid-cols-5 gap-3 mb-4">
+            <div className="grid grid-cols-6 gap-3 mb-4">
               {[
                 { label: 'Total', value: total, color: 'text-gray-900' },
                 { label: 'Admins', value: admins, color: 'text-purple-700' },
                 { label: 'Ativos 7d', value: active7d, color: 'text-green-700' },
                 { label: 'Ativos 30d', value: active30d, color: 'text-blue-700' },
+                { label: 'Logaram hoje', value: loggedToday, color: 'text-brand-700' },
                 { label: 'Nunca acessaram', value: never, color: 'text-gray-400' },
               ].map((s) => (
                 <div key={s.label} className="bg-white border border-gray-200 rounded-xl px-4 py-3 text-center">
