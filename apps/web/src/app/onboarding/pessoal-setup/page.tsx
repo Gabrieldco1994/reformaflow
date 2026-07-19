@@ -15,7 +15,8 @@ import { ArrowRight, Building2, CreditCard, CheckCircle2, SkipForward, AlertTria
  * 1. Auto-creates the PESSOAL project (name editable)
  * 2. Bank-account step (openingBalance = hero number anchor)
  * 3. Credit-card step (closingDay/dueDay = invoice features)
- * 4. Land on Cockpit
+ * 4. Land on the "apoio" first-run guide (same stop the generic project-creation
+ *    flow uses — never skip straight to the Cockpit without it)
  * 
  * Reuses existing API endpoints — no new backend logic.
  */
@@ -143,11 +144,13 @@ export default function PessoalSetupPage() {
     }
   }
 
-  // --- Redirect to Cockpit on done ---
+  // --- Redirect to the "apoio" guide on done (same first-run stop as the generic
+  // project-creation flow in projects/page.tsx — skipping it here left new PESSOAL
+  // users landing straight on the Cockpit with no onboarding guide at all). ---
   useEffect(() => {
     if (step === 'done' && projectId) {
       const timer = setTimeout(() => {
-        router.replace(`/projects/${projectId}/monthly`);
+        router.replace(`/projects/${projectId}/apoio`);
       }, 1500);
       return () => clearTimeout(timer);
     }
@@ -450,7 +453,7 @@ export default function PessoalSetupPage() {
             </div>
             <h2 className="mt-4 text-[22px] font-bold text-lifeone-ink">Tudo pronto!</h2>
             <p className="mt-2 text-[14px] text-lifeone-ink-3">
-              Seu Cockpit financeiro está configurado. Levando você para a visão do mês…
+              Seu Cockpit financeiro está configurado. Levando você para o guia de primeiros passos…
             </p>
             <div className="mt-4 flex justify-center">
               <div className="h-1 w-24 overflow-hidden rounded-full bg-lifeone-hairline">
