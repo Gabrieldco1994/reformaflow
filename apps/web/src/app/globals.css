@@ -329,15 +329,16 @@
   }
 
   [data-ui-skin="minimal"] .minimal-header {
-    height: calc(64px + env(safe-area-inset-top));
+    height: calc(56px + env(safe-area-inset-top));
     gap: 8px;
     border: 0;
     background: rgba(238, 240, 243, 0.92);
-    padding: calc(8px + env(safe-area-inset-top)) 20px 8px;
+    padding: env(safe-area-inset-top) 20px 0;
   }
 
   [data-ui-skin="minimal"] .minimal-header > a,
   [data-ui-skin="minimal"] .minimal-header [data-testid="notification-action"],
+  [data-ui-skin="minimal"] .minimal-header [data-testid="feedback-action"],
   [data-ui-skin="minimal"] .minimal-header > div > button {
     box-shadow: var(--minimal-shadow);
     color: var(--minimal-ink);
@@ -346,6 +347,10 @@
   [data-ui-skin="minimal"]
     .minimal-header
     [data-testid="notification-action"]
+    > button,
+  [data-ui-skin="minimal"]
+    .minimal-header
+    [data-testid="feedback-action"]
     > button {
     display: grid;
     min-width: 44px;

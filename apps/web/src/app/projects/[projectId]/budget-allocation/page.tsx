@@ -78,7 +78,7 @@ export default function BudgetAllocationPage() {
   }
 
   return (
-    <div className="min-h-screen p-4 lg:p-6 space-y-6">
+    <div className="p-4 lg:p-6 space-y-6">
       {/* Header */}
       <div>
         <h1 className="font-editorial italic text-2xl lg:text-3xl text-darc-velvet mb-2">

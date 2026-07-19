@@ -1373,7 +1373,7 @@ function FloorPlanViewer({
   };
 
   return (
-    <div className="h-[calc(100vh-3rem)] flex flex-col">
+    <div className="h-[calc(100dvh-3rem)] flex flex-col">
       {/* Toolbar */}
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <button onClick={onBack} className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900">
@@ -1940,7 +1940,7 @@ function XRayOverlay({
                     alt={floorPlan.name}
                     width={1600}
                     height={1200}
-                    className="max-w-[100vw] max-h-[calc(100vh-3rem)] w-auto h-auto select-none"
+                    className="max-w-[100vw] max-h-[calc(100dvh-3rem)] w-auto h-auto select-none"
                     draggable={false}
                   />
 
