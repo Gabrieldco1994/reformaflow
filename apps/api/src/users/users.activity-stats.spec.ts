@@ -66,9 +66,25 @@ describe('UsersService list analytics', () => {
         where: expect.objectContaining({
           deletedAt: null,
           settledByExpenseId: null,
-          createdByUserId: { in: ['u1'] },
+          tenantId: { in: ['tenant-1'] },
         }),
       }),
     );
+  });
+
+  it('counts legacy unattributed expenses for the sole user in a tenant', async () => {
+    const prisma: any = {
+      user: { findMany: jest.fn().mockResolvedValue([userRow()]) },
+      project: { groupBy: jest.fn().mockResolvedValue([]) },
+      expense: {
+        groupBy: jest.fn().mockResolvedValue([
+          { tenantId: 'tenant-1', createdByUserId: null, _count: { _all: 5 } },
+        ]),
+      },
+    };
+
+    const result = await new UsersService(prisma).list('tenant-1');
+
+    expect(result[0].expensesCreatedCount).toBe(5);
   });
 });
