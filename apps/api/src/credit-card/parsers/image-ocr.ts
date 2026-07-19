@@ -86,19 +86,28 @@ function pad2(n: number): string {
   return String(n).padStart(2, '0');
 }
 
-function normalizeDate(raw: string): string | null {
+/**
+ * ponytail: a IA "chuta" o ano quando ele não aparece impresso na imagem (ex.:
+ * print de notificação de Pix), e esse chute é inconsistente entre chamadas
+ * idênticas (observado: 2023, 2024, 2026 pro MESMO print). Por pedido
+ * explícito do usuário, IGNORAMOS o ano que a IA reportou e sempre usamos o
+ * ano vigente (mantendo dia/mês, que a IA lê corretamente da imagem). Se a
+ * linha não tiver NENHUMA data reconhecível, cai na data de hoje inteira —
+ * nunca descartamos a transação por falta de data.
+ */
+function normalizeDate(raw: string): string {
+  const currentYear = new Date().getUTCFullYear();
   const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(raw.trim());
   if (iso) {
-    const [, y, m, d] = iso;
-    return `${pad2(Number(d))}/${pad2(Number(m))}/${y}`;
+    const [, , m, d] = iso;
+    return `${pad2(Number(d))}/${pad2(Number(m))}/${currentYear}`;
   }
   const br = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.exec(raw.trim());
   if (br) {
-    let y = Number(br[3]);
-    if (y < 100) y += 2000;
-    return `${pad2(Number(br[1]))}/${pad2(Number(br[2]))}/${y}`;
+    return `${pad2(Number(br[1]))}/${pad2(Number(br[2]))}/${currentYear}`;
   }
-  return null;
+  const today = new Date();
+  return `${pad2(today.getUTCDate())}/${pad2(today.getUTCMonth() + 1)}/${currentYear}`;
 }
 
 function formatBrl(amount: number): string {
@@ -114,7 +123,6 @@ export function rowsToStatementText(rows: OcrStatementRow[]): string {
   const lines: string[] = [];
   for (const row of rows) {
     const date = normalizeDate(row.date);
-    if (!date) continue;
     const desc = (row.description ?? '').replace(/\s+/g, ' ').trim();
     if (!desc) continue;
     if (!Number.isFinite(row.amount)) continue;
@@ -137,7 +145,10 @@ function buildPrompt(kind: StatementKind): string {
   return [
     `Você é um extrator preciso de transações financeiras. A imagem é ${sourceLabel}.`,
     'Extraia TODAS as linhas de transação visíveis. Para cada uma, retorne:',
-    '- "date": data da transação no formato AAAA-MM-DD. Se o ano não aparecer na linha, infira pelo período/contexto do documento.',
+    // ponytail: o ano que a IA retornar aqui é DESCARTADO por normalizeDate()
+    // (sempre usamos o ano vigente do servidor) — pedimos dia/mês reais e
+    // liberamos a IA de "adivinhar" o ano pra não gerar ruído/inconsistência.
+    '- "date": data da transação no formato AAAA-MM-DD, com o DIA e MÊS exatamente como aparecem na imagem. Se o ano não aparecer, use "0000" como ano (ele será ignorado e substituído pelo ano vigente).',
     '- "description": a descrição do lançamento EXATAMENTE como aparece, INCLUINDO o indicador de parcela no formato "k/NN" quando houver (ex.: "Samsung No Itau 18/21").',
     '- "amount": o valor em reais como número (use ponto decimal). ' + signRule,
     'NÃO invente linhas. NÃO inclua linhas de TOTAL, SALDO, LIMITE, cabeçalhos ou rodapés.',
