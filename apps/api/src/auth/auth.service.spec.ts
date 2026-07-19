@@ -83,6 +83,37 @@ describe('AuthService signup/guest/claim', () => {
     );
   });
 
+  it('registerOwner grava lastLoginAt na criação (senão o KPI "logaram hoje" nunca conta quem só se cadastrou)', async () => {
+    process.env['AUTH_ENABLE_REGISTER'] = '1';
+    prisma.user.findFirst.mockResolvedValue(null);
+    let capturedUserCreateData: any;
+    prisma.$transaction.mockImplementation(async (cb: (tx: any) => unknown) => {
+      const tx = {
+        tenant: {
+          create: jest.fn().mockResolvedValue({ id: 't-1', name: 'Tenant' }),
+        },
+        user: {
+          findFirst: jest.fn().mockResolvedValue(null),
+          create: jest.fn().mockImplementation(({ data }: { data: any }) => {
+            capturedUserCreateData = data;
+            return Promise.resolve({ id: 'u-1', tenantId: 't-1', ...data });
+          }),
+        },
+      };
+      return cb(tx);
+    });
+
+    await service.registerOwner({
+      tenantName: 'Tenant',
+      ownerName: 'Owner',
+      username: 'Owner',
+      password: '12345678',
+      projectTypes: [ProjectType.CASA],
+    });
+
+    expect(capturedUserCreateData.lastLoginAt).toBeInstanceOf(Date);
+  });
+
   it('registerOwner falha quando flag está desligada', async () => {
     await expect(
       service.registerOwner({
@@ -92,6 +123,29 @@ describe('AuthService signup/guest/claim', () => {
         password: '123456',
       }),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('registerGuest grava lastLoginAt na criação (mesmo motivo do registerOwner)', async () => {
+    process.env['AUTH_ENABLE_GUEST'] = '1';
+    let capturedUserCreateData: any;
+    prisma.$transaction.mockImplementation(async (cb: (tx: any) => unknown) => {
+      const tx = {
+        tenant: {
+          create: jest.fn().mockResolvedValue({ id: 't-guest', name: 'Guest Tenant' }),
+        },
+        user: {
+          create: jest.fn().mockImplementation(({ data }: { data: any }) => {
+            capturedUserCreateData = data;
+            return Promise.resolve({ id: 'u-guest', tenantId: 't-guest', ...data });
+          }),
+        },
+      };
+      return cb(tx);
+    });
+
+    await service.registerGuest({ tenantName: 'Guest Tenant' });
+
+    expect(capturedUserCreateData.lastLoginAt).toBeInstanceOf(Date);
   });
 
   it('claimGuest atualiza apenas a própria conta convidada e limpa expiração', async () => {
@@ -143,6 +197,13 @@ describe('AuthService signup/guest/claim', () => {
     });
     expect(out.user.isGuest).toBe(false);
     expect(prisma.$transaction).toHaveBeenCalled();
+    // claimGuest é a "primeira entrada real" com credenciais próprias — deve
+    // contar como login para o KPI "logaram hoje" (mesma lógica de registerOwner).
+    expect(prisma.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ lastLoginAt: expect.any(Date) }),
+      }),
+    );
   });
 
   it('claimGuest recusa username duplicado global', async () => {

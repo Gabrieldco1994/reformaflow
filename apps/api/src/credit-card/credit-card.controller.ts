@@ -11,7 +11,7 @@ import {
   UpdateCreditCardDto,
 } from './dto/credit-card.dto';
 import { RequireModule } from '../common/decorators/require-module.decorator';
-import { CurrentTenant } from '../common/decorators/tenant.decorator';
+import { CurrentTenant, CurrentUser } from '../common/decorators/tenant.decorator';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
 import { PdfPasswordRequiredError, PdfWrongPasswordError, ImageOcrError } from './parsers';
 
@@ -98,6 +98,7 @@ export class CreditCardController {
   @UseInterceptors(AnyFilesInterceptor({ limits: { fileSize: 10 * 1024 * 1024, files: 5 } }))
   async importStatement(
     @CurrentTenant() tenantId: string,
+    @CurrentUser() requester: { id: string },
     @Param('projectId') projectId: string,
     @Param('id') cardId: string,
     @UploadedFiles() files: Express.Multer.File[] | undefined,
@@ -134,6 +135,7 @@ export class CreditCardController {
           query.periodLabel,
           query.password,
           decisions,
+          requester.id,
         );
       }
       return await this.service.previewImport(

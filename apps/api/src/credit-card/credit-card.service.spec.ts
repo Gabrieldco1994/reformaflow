@@ -544,5 +544,37 @@ describe('CreditCardService', () => {
       expect(targetUpdate[0].data.status).toBe('PLANEJADO');
       expect(targetUpdate[0].data.paidParcelas).toBe('[0]');
     });
+
+    it('repassa createdByUserId para a Expense criada (KPI "despesas criadas" depende disso)', async () => {
+      const ofx = buildOfx(ofxFor('20260429', 100, 'LOJA CREATEDBY', 'CB1'));
+      prisma.expense.findFirst.mockResolvedValue(null);
+      const preview = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX');
+      expect(preview.preview.length).toBe(1);
+
+      prisma.expense.create.mockClear();
+      await service.commitImport(
+        't1', 'pessoal1', 'card1',
+        Buffer.from(ofx), 'f.ofx', 'OFX',
+        undefined, undefined, undefined,
+        'user-abc',
+      );
+
+      expect(prisma.expense.create).toHaveBeenCalledTimes(1);
+      const createdCall = prisma.expense.create.mock.calls[0][0];
+      expect(createdCall.data.createdByUserId).toBe('user-abc');
+    });
+
+    it('sem createdByUserId, grava null explicitamente (não deixa undefined)', async () => {
+      const ofx = buildOfx(ofxFor('20260429', 100, 'LOJA SEM USER', 'CB2'));
+      prisma.expense.findFirst.mockResolvedValue(null);
+      const preview = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX');
+      expect(preview.preview.length).toBe(1);
+
+      prisma.expense.create.mockClear();
+      await service.commitImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX');
+
+      const createdCall = prisma.expense.create.mock.calls[0][0];
+      expect(createdCall.data.createdByUserId).toBeNull();
+    });
   });
 });

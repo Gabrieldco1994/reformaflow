@@ -37,6 +37,7 @@ export class AgentController {
     @CurrentTenant() tenantId: string,
     @CurrentUser()
     user: {
+      id: string;
       role: string;
       allowedProjects?: string[];
       allowedProjectTypes?: string[];
@@ -58,6 +59,7 @@ export class AgentController {
       projectScope,
       role: user.role,
       allowedModules: user.allowedModules,
+      userId: user.id,
       messages: dto.messages,
     });
   }

@@ -70,6 +70,7 @@ describe('create_expense — fallback do MerchantClassifier', () => {
       'tenant-1',
       'proj-1',
       expect.objectContaining({ tipoDespesa: 'ALIMENTACAO' }),
+      null,
     );
   });
 
@@ -106,5 +107,22 @@ describe('create_expense — fallback do MerchantClassifier', () => {
     expect(classifier.classifyBatch).toHaveBeenCalled();
     expect(res.error).toBeUndefined();
     expect(res.despesa.tipoDespesa).toBe('OUTROS');
+  });
+
+  it('repassa ctx.userId como createdByUserId (KPI "despesas criadas" via Maria/voz depende disso)', async () => {
+    const ctxWithUser: ToolContext = { ...ctx, userId: 'user-maria-1' };
+
+    await service.execute('create_expense', ctxWithUser, {
+      valor: '50,00',
+      fornecedor: 'Ifood',
+      tipoDespesa: 'ALIMENTACAO',
+    });
+
+    expect(expenses.create).toHaveBeenCalledWith(
+      'tenant-1',
+      'proj-1',
+      expect.any(Object),
+      'user-maria-1',
+    );
   });
 });

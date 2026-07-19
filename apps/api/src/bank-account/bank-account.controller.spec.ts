@@ -30,20 +30,21 @@ describe('BankAccountController.importStatement — decisions parsing', () => {
       { externalId: 'B2', action: 'skip' },
     ];
     await controller.importStatement(
-      't1', 'p1', 'acc1',
+      't1', { id: 'u1' }, 'p1', 'acc1',
       [fakeFile],
       { mode: 'commit', source: 'OFX' } as any,
       { decisions: JSON.stringify(decisions) },
     );
     expect(service.commitImport).toHaveBeenCalled();
     const args = service.commitImport.mock.calls[0];
-    expect(args[args.length - 1]).toEqual(decisions);
+    expect(args[args.length - 2]).toEqual(decisions);
+    expect(args[args.length - 1]).toBe('u1');
   });
 
   it('decisões JSON inválido → BadRequestException', async () => {
     await expect(
       controller.importStatement(
-        't1', 'p1', 'acc1',
+        't1', { id: 'u1' }, 'p1', 'acc1',
       [fakeFile],
         { mode: 'commit', source: 'OFX' } as any,
         { decisions: '{broken' },
@@ -53,7 +54,7 @@ describe('BankAccountController.importStatement — decisions parsing', () => {
 
   it('modo preview ignora decisions', async () => {
     await controller.importStatement(
-      't1', 'p1', 'acc1',
+      't1', { id: 'u1' }, 'p1', 'acc1',
       [fakeFile],
       { mode: 'preview', source: 'OFX' } as any,
       { decisions: JSON.stringify([{ externalId: 'A', action: 'skip' }]) },
@@ -64,7 +65,7 @@ describe('BankAccountController.importStatement — decisions parsing', () => {
 
   it('arquivo ausente retorna erro', async () => {
     const res = await controller.importStatement(
-      't1', 'p1', 'acc1',
+      't1', { id: 'u1' }, 'p1', 'acc1',
       undefined,
       { mode: 'commit', source: 'OFX' } as any,
       undefined,

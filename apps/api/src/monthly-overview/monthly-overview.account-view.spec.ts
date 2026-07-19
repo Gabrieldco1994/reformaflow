@@ -1731,6 +1731,27 @@ describe("MonthlyOverviewService.getAccountView", () => {
       expect(res.paymentExpenseId).toBe("pay-1");
     });
 
+    it("repassa createdByUserId para a Expense de pagamento (KPI \"despesas criadas\" depende disso)", async () => {
+      await service.payInvoice(
+        tenantId,
+        projectId,
+        {
+          cardLast4: "1111",
+          month: "2026-06",
+          amountCents: 7_000,
+          bankLast4: "4247",
+          paymentDate: "2026-05-31",
+        },
+        "user-abc",
+      );
+
+      expect(prisma.expense.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ createdByUserId: "user-abc" }),
+        }),
+      );
+    });
+
     it("bloqueia pagamento idêntico (mesmo valor + mesma data)", async () => {
       prisma.expense.findFirst.mockResolvedValue({ id: "pay-existing" });
 

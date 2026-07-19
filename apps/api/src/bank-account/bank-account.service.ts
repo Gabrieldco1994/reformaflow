@@ -415,6 +415,7 @@ export class BankAccountService {
     periodLabelOverride?: string,
     password?: string,
     decisions?: BankImportDecision[],
+    createdByUserId: string | null = null,
   ) {
     const account = await this.findAccount(tenantId, projectId, accountId);
     const buffers = toBuffers(fileContent);
@@ -480,6 +481,7 @@ export class BankAccountService {
           adjustedTx,
           importRecord.id,
           d?.overrides?.category,
+          createdByUserId,
         );
         if (result.inserted) inserted++;
         if (result.receiptInserted) receiptsInserted++;
@@ -1018,6 +1020,7 @@ export class BankAccountService {
     tx: NormalizedTx,
     importId: string,
     categoryOverride?: string,
+    createdByUserId: string | null = null,
   ): Promise<{ inserted: boolean; receiptInserted: boolean; cardPayment: boolean; expenseId?: string; receiptId?: string }> {
     if (tx.amountCents < 0) {
       const receiptAmount = -tx.amountCents;
@@ -1132,6 +1135,7 @@ export class BankAccountService {
           externalId: tx.externalId,
           bankLast4: account.last4,
           cardLast4: matchedCard?.last4 ?? cardPaymentInfo.last4 ?? null,
+          createdByUserId,
         },
       });
 
@@ -1184,6 +1188,7 @@ export class BankAccountService {
         importId,
         externalId: tx.externalId,
         bankLast4: account.last4,
+        createdByUserId,
       },
     });
 

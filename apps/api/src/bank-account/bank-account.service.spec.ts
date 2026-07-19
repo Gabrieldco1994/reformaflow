@@ -344,6 +344,22 @@ describe('BankAccountService', () => {
       expect(call.data.valor).toBe(150000);
       expect(call.data.tipoDespesa).toBe('MORADIA');
     });
+
+    it('repassa createdByUserId para a Expense criada (KPI "despesas criadas" depende disso)', async () => {
+      const ofx = buildBankOfx(ofxBankFor('20260401', 10000, 'LOJA CREATEDBY', 'CB1'));
+      await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX');
+
+      prisma.expense.create.mockClear();
+      await service.commitImport(
+        't1', 'pessoal1', 'acc1',
+        Buffer.from(ofx), 'ext.ofx', 'OFX',
+        undefined, undefined, undefined,
+        'user-abc',
+      );
+
+      expect(prisma.expense.create).toHaveBeenCalledTimes(1);
+      expect(prisma.expense.create.mock.calls[0][0].data.createdByUserId).toBe('user-abc');
+    });
   });
 
   describe('linkToExpense', () => {
