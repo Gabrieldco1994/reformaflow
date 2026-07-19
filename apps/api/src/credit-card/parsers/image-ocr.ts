@@ -86,6 +86,11 @@ function pad2(n: number): string {
   return String(n).padStart(2, '0');
 }
 
+function todayBr(currentYear: number): string {
+  const today = new Date();
+  return `${pad2(today.getUTCDate())}/${pad2(today.getUTCMonth() + 1)}/${currentYear}`;
+}
+
 /**
  * ponytail: a IA "chuta" o ano quando ele não aparece impresso na imagem (ex.:
  * print de notificação de Pix), e esse chute é inconsistente entre chamadas
@@ -98,16 +103,17 @@ function pad2(n: number): string {
 function normalizeDate(raw: string): string {
   const currentYear = new Date().getUTCFullYear();
   const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(raw.trim());
-  if (iso) {
+  // "0000-00-00": placeholder pedido no prompt para notificações/prints sem
+  // NENHUMA data (nem relativa "há 1h"), dia/mês inclusive — cai direto em hoje.
+  if (iso && Number(iso[2]) >= 1 && Number(iso[3]) >= 1) {
     const [, , m, d] = iso;
     return `${pad2(Number(d))}/${pad2(Number(m))}/${currentYear}`;
   }
   const br = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.exec(raw.trim());
-  if (br) {
+  if (br && Number(br[1]) >= 1 && Number(br[2]) >= 1) {
     return `${pad2(Number(br[1]))}/${pad2(Number(br[2]))}/${currentYear}`;
   }
-  const today = new Date();
-  return `${pad2(today.getUTCDate())}/${pad2(today.getUTCMonth() + 1)}/${currentYear}`;
+  return todayBr(currentYear);
 }
 
 function formatBrl(amount: number): string {
@@ -143,15 +149,30 @@ function buildPrompt(kind: StatementKind): string {
       ? '- Valores de COMPRAS são POSITIVOS. Estornos/créditos/pagamentos recebidos são NEGATIVOS (sinal "-").'
       : '- DÉBITOS (saídas) são NEGATIVOS (ex.: -32.99). CRÉDITOS/RECEITAS (entradas, rendimentos, salário) são POSITIVOS.';
   return [
-    `Você é um extrator preciso de transações financeiras. A imagem é ${sourceLabel}.`,
-    'Extraia TODAS as linhas de transação visíveis. Para cada uma, retorne:',
+    `Você é um extrator preciso de transações financeiras. A imagem é ${sourceLabel}, mas` +
+      ' pode vir em QUALQUER formato: tabela/lista tradicional, print do app do banco, OU um' +
+      ' print de NOTIFICAÇÃO/PUSH avulsa (ex.: "Central de Notificações" do iOS/Android,' +
+      ' banner do app, SMS) mostrando UMA ÚNICA transação em texto corrido (ex.: "Feito. Pix' +
+      ' enviado. Você enviou R$ 143,10 para MARIA" com "há 1h" no lugar de uma data).',
+    'Extraia TODAS as transações visíveis, mesmo que seja APENAS UMA e mesmo que não estejam' +
+      ' em formato de tabela. NÃO retorne uma lista vazia só porque a imagem não parece um' +
+      ' extrato tradicional — se houver QUALQUER menção a um valor em R$ associado a uma' +
+      ' operação financeira (Pix, compra, pagamento, transferência, saque, recebimento), extraia-a.',
+    'Para cada transação, retorne:',
     // ponytail: o ano que a IA retornar aqui é DESCARTADO por normalizeDate()
     // (sempre usamos o ano vigente do servidor) — pedimos dia/mês reais e
     // liberamos a IA de "adivinhar" o ano pra não gerar ruído/inconsistência.
-    '- "date": data da transação no formato AAAA-MM-DD, com o DIA e MÊS exatamente como aparecem na imagem. Se o ano não aparecer, use "0000" como ano (ele será ignorado e substituído pelo ano vigente).',
-    '- "description": a descrição do lançamento EXATAMENTE como aparece, INCLUINDO o indicador de parcela no formato "k/NN" quando houver (ex.: "Samsung No Itau 18/21").',
+    '- "date": data da transação no formato AAAA-MM-DD, com o DIA e MÊS exatamente como aparecem' +
+      ' na imagem. Se o ano não aparecer, use "0000" como ano (será ignorado e substituído pelo' +
+      ' ano vigente). Se a imagem só tiver uma referência RELATIVA (ex.: "há 1h", "agora",' +
+      ' "hoje", "ontem") em vez de uma data explícita, use "0000-00-00" — a transação SEMPRE' +
+      ' deve ser retornada mesmo sem data explícita.',
+    '- "description": a descrição do lançamento EXATAMENTE como aparece, INCLUINDO o indicador de' +
+      ' parcela no formato "k/NN" quando houver (ex.: "Samsung No Itau 18/21"). Em notificações' +
+      ' avulsas, use o texto da operação (ex.: "Pix enviado para MARIA").',
     '- "amount": o valor em reais como número (use ponto decimal). ' + signRule,
-    'NÃO invente linhas. NÃO inclua linhas de TOTAL, SALDO, LIMITE, cabeçalhos ou rodapés.',
+    'NÃO invente linhas que não existem. NÃO inclua linhas de TOTAL, SALDO, LIMITE, cabeçalhos ou' +
+      ' rodapés — mas SEMPRE inclua transações reais, mesmo vindas de um print de notificação avulsa.',
     'Se a imagem indicar os 4 últimos dígitos do cartão, inclua em "cardLast4".',
     'Responda SOMENTE com JSON no formato:',
     '{ "kind": "' + kind + '", "cardLast4": "1234", "rows": [ { "date": "2026-01-08", "description": "Samsung No Itau 18/21", "amount": 114.25 } ] }',
