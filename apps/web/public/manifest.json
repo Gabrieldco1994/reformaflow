@@ -5,7 +5,7 @@
   "start_url": "/projects",
   "display": "standalone",
   "background_color": "#FFFFFF",
-  "theme_color": "#1A1714",
+  "theme_color": "#eef0f3",
   "icons": [
     {
       "src": "/lifeone-mark.svg",
