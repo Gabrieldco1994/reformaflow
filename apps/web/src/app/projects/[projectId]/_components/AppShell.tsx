@@ -136,7 +136,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         data-ui-loading="minimal-neutral"
         role="status"
         aria-label="Carregando projeto"
-        className="minimal-loading flex min-h-screen items-center justify-center bg-[#eef0f3]"
+        className="minimal-loading flex min-h-[100dvh] items-center justify-center bg-[#eef0f3]"
       >
         <div
           className="minimal-loading-indicator h-8 w-8 animate-spin rounded-full border-2"
@@ -157,7 +157,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         data-ui-skin="minimal"
         data-project-type={resolvedProjectType}
         style={projectAccentStyle(resolvedProjectType)}
-        className="minimal-shell flex h-screen flex-col md:flex-row"
+        className="minimal-shell flex h-[100dvh] flex-col md:h-screen md:flex-row"
       >
         <MobileHeader
           project={project}

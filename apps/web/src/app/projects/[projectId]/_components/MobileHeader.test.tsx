@@ -30,7 +30,6 @@ describe("MobileHeader", () => {
       "data-mobile-header",
       "minimal",
     );
-    expect(screen.getByRole("banner")).toHaveClass("safe-pt");
     expect(
       screen.getByRole("link", { name: "Voltar para projetos" }),
     ).toHaveClass("min-h-11", "min-w-11");
@@ -63,7 +62,6 @@ describe("MobileHeader", () => {
       "data-mobile-header",
       "minimal",
     );
-    expect(screen.getByRole("banner")).toHaveClass("safe-pt");
     expect(
       screen.getByRole("link", { name: "Voltar para projetos" }),
     ).toHaveClass("min-h-11", "min-w-11");

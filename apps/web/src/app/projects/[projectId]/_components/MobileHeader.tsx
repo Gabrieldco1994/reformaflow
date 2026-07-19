@@ -21,7 +21,7 @@ export function MobileHeader({
   return (
     <header
       data-mobile-header="minimal"
-      className="minimal-header safe-pt sticky top-0 z-30 flex h-14 items-center gap-1.5 border-b border-darc-linen bg-white/90 px-2.5 backdrop-blur-md md:hidden"
+      className="minimal-header sticky top-0 z-30 flex h-14 items-center gap-1.5 border-b border-darc-linen bg-white/90 px-2.5 backdrop-blur-md md:hidden"
     >
       <Link
         href="/projects"
@@ -49,7 +49,10 @@ export function MobileHeader({
         >
           <NotificationsBell variant="light" />
         </span>
-        <span className="flex min-h-11 min-w-11 items-center justify-center rounded-full bg-white">
+        <span
+          data-testid="feedback-action"
+          className="flex min-h-11 min-w-11 items-center justify-center rounded-full bg-white"
+        >
           <FeedbackButton variant="light" />
         </span>
         {hasMoreSheet ? (

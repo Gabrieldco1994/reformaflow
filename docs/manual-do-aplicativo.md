@@ -166,7 +166,8 @@ Ponto de entrada depois do login. Lista todos os projetos que o usuário pode ve
 Ao entrar num projeto, aparece a **casca** comum a todos os módulos:
 
 - **Cabeçalho:** botão **"‹ Projetos"** (volta ao Hub), **chip do projeto** (ícone
-  colorido + nome), **sino de notificações** e, no celular, o botão **"Mais"**.
+  colorido + nome), **sino de notificações**, botão **Feedback** (balão) e, no
+  celular, o botão **"Mais"**.
 - **Barra inferior (celular):**
   - No **PESSOAL**, mostra **"Cockpit"**, **"Despesas"**, **"Maria"** e **"Cartões"**, com botão circular **"Lançar"** separado.
   - Nos demais tipos, mostra os três primeiros módulos autorizados para a pessoa,
@@ -193,6 +194,9 @@ financeiro em tela própria (chat em tela cheia no mobile).
 ### 3.5 Notificações (sino)
 Mostra avisos e pendências do sistema. O contador no sino indica quantos itens não
 lidos existem.
+
+Quando aberto dentro de um projeto, o sino mostra apenas itens daquele projeto
+pela rota atual (`/projects/:projectId/...`).
 
 ### 3.6 Saúde financeira consolidada (`/financeiro`)
 Dashboard que **junta todos os projetos** do usuário numa visão única (caixa,

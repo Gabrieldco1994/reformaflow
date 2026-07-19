@@ -299,7 +299,7 @@ export function GuidedPlanModal({
                 <img
                   src={`${API_BASE}${plan.imageUrl}`}
                   alt={plan.name}
-                  className="max-h-[calc(100vh-100px)] max-w-full block"
+                  className="max-h-[calc(100dvh-100px)] max-w-full block"
                   style={removeWhiteBg ? { mixBlendMode: 'multiply' } : undefined}
                 />
 
