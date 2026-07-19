@@ -86,6 +86,7 @@ export class UsersService {
 
     const nameById = new Map(users.map((u) => [u.id, u.name]));
     const userIds = users.map((u) => u.id);
+    const tenantIds = [...new Set(users.map((u) => u.tenantId))];
     const [projectCounts, expenseCounts] = await Promise.all([
       this.prisma.project.groupBy({
         by: ['createdByUserId'],
@@ -96,9 +97,9 @@ export class UsersService {
         _count: { _all: true },
       }),
       this.prisma.expense.groupBy({
-        by: ['createdByUserId'],
+        by: ['tenantId', 'createdByUserId'],
         where: {
-          createdByUserId: { in: userIds },
+          tenantId: { in: tenantIds },
           deletedAt: null,
           settledByExpenseId: null,
         },
@@ -107,6 +108,20 @@ export class UsersService {
     ]);
     const projectsByUserId = mapCounts(projectCounts);
     const expensesByUserId = mapCounts(expenseCounts);
+    const usersByTenantId = new Map<string, typeof users>();
+    for (const user of users) {
+      const tenantUsers = usersByTenantId.get(user.tenantId) ?? [];
+      tenantUsers.push(user);
+      usersByTenantId.set(user.tenantId, tenantUsers);
+    }
+    for (const row of expenseCounts) {
+      if (row.createdByUserId) continue;
+      const tenantUsers = usersByTenantId.get(row.tenantId);
+      if (tenantUsers?.length === 1) {
+        const userId = tenantUsers[0].id;
+        expensesByUserId.set(userId, (expensesByUserId.get(userId) ?? 0) + row._count._all);
+      }
+    }
 
     return users.map((u) => ({
       ...toPublic(u),
