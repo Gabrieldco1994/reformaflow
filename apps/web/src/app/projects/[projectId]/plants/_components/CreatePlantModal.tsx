@@ -18,6 +18,8 @@ interface DiagnoseAndScheduleResult {
 interface CreatePlantModalProps {
   onClose: () => void;
   onCreated: () => void;
+  /** ponytail: skip the fixed overlay when embedded elsewhere (e.g. onboarding wizard) — same convention as the bank/card form modals. */
+  bare?: boolean;
 }
 
 type Step = 'pick-photo' | 'diagnosing' | 'confirm-name' | 'manual-name';
@@ -84,7 +86,7 @@ function ConfirmNameStep({
   );
 }
 
-export function CreatePlantModal({ onClose, onCreated }: CreatePlantModalProps) {
+export function CreatePlantModal({ onClose, onCreated, bare }: CreatePlantModalProps) {
   const { projectId } = useProject();
   const [step, setStep] = useState<Step>('pick-photo');
   const [error, setError] = useState<string | null>(null);
@@ -155,8 +157,7 @@ export function CreatePlantModal({ onClose, onCreated }: CreatePlantModalProps) 
     }
   }
 
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+  const content = (
       <div className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-5 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="font-semibold text-gray-900 flex items-center gap-2">
@@ -254,6 +255,11 @@ export function CreatePlantModal({ onClose, onCreated }: CreatePlantModalProps) 
           </div>
         )}
       </div>
+  );
+  if (bare) return content;
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      {content}
     </div>
   );
 }

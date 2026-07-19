@@ -5,24 +5,14 @@ import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
 import { Plus } from 'lucide-react';
 import type { ProjectType } from '@reformaflow/domain';
-import { BILL_CATEGORIES, BILL_FREQUENCIES, type RecurringBillRow } from './_display';
+import type { RecurringBillRow } from './_display';
 import { RecurringBillsView } from './_components/RecurringBillsView';
 import { AvulsasTab } from './_components/AvulsasTab';
 import { BillsKpiHeader } from './_components/BillsKpiHeader';
 import { computeBillsKpis } from './_lib/kpis';
-import { centsToReaisInput, currencyInputToNumber, maskCurrencyInput } from '@/lib/currency-input';
+import RecurringBillFormModal from './_components/RecurringBillFormModal';
 
 type RecurringBill = RecurringBillRow;
-
-const emptyBill = {
-  nome: '',
-  valor: '',
-  categoria: 'LUZ',
-  frequencia: 'MENSAL',
-  diaVencimento: 10,
-  status: 'ATIVO',
-  observacoes: '',
-};
 
 export default function BillsPage() {
   const { projectId, projectType } = useProject();
@@ -30,8 +20,7 @@ export default function BillsPage() {
   const [bills, setBills] = useState<RecurringBill[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState(emptyBill);
+  const [editingBill, setEditingBill] = useState<RecurringBillRow | null>(null);
 
   useEffect(() => { loadBills(); }, [projectId]);
 
@@ -40,21 +29,6 @@ export default function BillsPage() {
       const data = await api.get<RecurringBill[]>(`/projects/${projectId}/recurring-bills`);
       setBills(data);
     } catch { /* empty */ } finally { setLoading(false); }
-  }
-
-  async function handleSave() {
-    try {
-      const body = { ...form, valor: Math.round(currencyInputToNumber(form.valor) * 100) };
-      if (editingId) {
-        await api.patch(`/projects/${projectId}/recurring-bills/${editingId}`, body);
-      } else {
-        await api.post(`/projects/${projectId}/recurring-bills`, body);
-      }
-      setShowForm(false);
-      setEditingId(null);
-      setForm(emptyBill);
-      loadBills();
-    } catch (err) { console.error(err); }
   }
 
   async function handleDelete(id: string) {
@@ -74,17 +48,23 @@ export default function BillsPage() {
   }
 
   function startEdit(bill: RecurringBill) {
-    setForm({
-      nome: bill.nome,
-      valor: centsToReaisInput(bill.valor),
-      categoria: bill.categoria,
-      frequencia: bill.frequencia,
-      diaVencimento: bill.diaVencimento,
-      status: bill.status,
-      observacoes: bill.observacoes ?? '',
-    });
-    setEditingId(bill.id);
+    setEditingBill(bill);
     setShowForm(true);
+  }
+
+  function openCreate() {
+    setEditingBill(null);
+    setShowForm(true);
+  }
+
+  function closeForm() {
+    setShowForm(false);
+    setEditingBill(null);
+  }
+
+  function handleSaved() {
+    closeForm();
+    loadBills();
   }
 
   const billsKpis = computeBillsKpis(bills, new Date());
@@ -128,17 +108,20 @@ export default function BillsPage() {
         <RecorrentesContent
           loading={loading}
           bills={bills}
-          form={form}
-          setForm={setForm}
-          showForm={showForm}
-          setShowForm={setShowForm}
-          editingId={editingId}
-          setEditingId={setEditingId}
-          handleSave={handleSave}
-          handleDelete={handleDelete}
-          toggleStatus={toggleStatus}
-          startEdit={startEdit}
+          onToggleStatus={toggleStatus}
+          onEdit={startEdit}
+          onDelete={handleDelete}
+          onCreateClick={openCreate}
+        />
+      )}
+
+      {showForm && (
+        <RecurringBillFormModal
+          projectId={projectId}
           projectType={projectType}
+          bill={editingBill}
+          onClose={closeForm}
+          onSaved={handleSaved}
         />
       )}
     </div>
@@ -148,33 +131,19 @@ export default function BillsPage() {
 interface RecorrentesContentProps {
   loading: boolean;
   bills: RecurringBill[];
-  form: typeof emptyBill;
-  setForm: React.Dispatch<React.SetStateAction<typeof emptyBill>>;
-  showForm: boolean;
-  setShowForm: React.Dispatch<React.SetStateAction<boolean>>;
-  editingId: string | null;
-  setEditingId: React.Dispatch<React.SetStateAction<string | null>>;
-  handleSave: () => Promise<void>;
-  handleDelete: (id: string) => Promise<void>;
-  toggleStatus: (bill: RecurringBill) => Promise<void>;
-  startEdit: (bill: RecurringBill) => void;
-  projectType: string;
+  onToggleStatus: (bill: RecurringBill) => Promise<void>;
+  onEdit: (bill: RecurringBill) => void;
+  onDelete: (id: string) => Promise<void>;
+  onCreateClick: () => void;
 }
 
 function RecorrentesContent({
   loading,
   bills,
-  form,
-  setForm,
-  showForm,
-  setShowForm,
-  editingId,
-  setEditingId,
-  handleSave,
-  handleDelete,
-  toggleStatus,
-  startEdit,
-  projectType,
+  onToggleStatus,
+  onEdit,
+  onDelete,
+  onCreateClick,
 }: RecorrentesContentProps) {
   if (loading) {
     return (
@@ -188,89 +157,12 @@ function RecorrentesContent({
     <div>
       <div className="flex justify-end mb-4">
         <button
-          onClick={() => {
-            setForm(emptyBill);
-            setEditingId(null);
-            setShowForm(true);
-          }}
+          onClick={onCreateClick}
           className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700"
         >
           <Plus className="w-4 h-4" /> Nova conta recorrente
         </button>
       </div>
-
-      {/* Form modal */}
-      {showForm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto">
-            <h2 className="text-lg font-bold mb-4">{editingId ? 'Editar Conta' : 'Nova Conta'}</h2>
-            <div className="space-y-3">
-              <input
-                type="text" placeholder="Nome da conta" value={form.nome}
-                onChange={(e) => setForm((f) => ({ ...f, nome: e.target.value }))}
-                className="w-full border rounded-lg px-3 py-2" autoFocus
-              />
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-gray-500">Valor (R$)</label>
-                  <input
-                    type="text" inputMode="numeric" value={form.valor || ''}
-                    onChange={(e) => setForm((f) => ({ ...f, valor: maskCurrencyInput(e.target.value) }))}
-                    className="w-full border rounded-lg px-3 py-2"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500">Dia Vencimento</label>
-                  <input
-                    type="number" min={1} max={31} value={form.diaVencimento}
-                    onChange={(e) => setForm((f) => ({ ...f, diaVencimento: parseInt(e.target.value) || 1 }))}
-                    className="w-full border rounded-lg px-3 py-2"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-gray-500">Categoria</label>
-                  <select value={form.categoria} onChange={(e) => setForm((f) => ({ ...f, categoria: e.target.value }))}
-                    className="w-full border rounded-lg px-3 py-2">
-                    {BILL_CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500">Frequência</label>
-                  <select value={form.frequencia} onChange={(e) => setForm((f) => ({ ...f, frequencia: e.target.value }))}
-                    className="w-full border rounded-lg px-3 py-2">
-                    {BILL_FREQUENCIES.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
-                  </select>
-                </div>
-              </div>
-              <textarea
-                placeholder="Observações (opcional)" value={form.observacoes}
-                onChange={(e) => setForm((f) => ({ ...f, observacoes: e.target.value }))}
-                className="w-full border rounded-lg px-3 py-2" rows={2}
-              />
-              {/* Hint for CASA/CARRO: recurring bills that hit your bank account belong in PESSOAL */}
-              {(projectType === 'CASA' || projectType === 'CARRO') && !editingId && (
-                <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2.5">
-                  <p className="text-[12px] leading-relaxed text-blue-800">
-                    <strong>Dica:</strong> esta conta é debitada da sua conta pessoal?
-                    Para ela contar no seu caixa, lance como despesa recorrente no projeto <strong>PESSOAL</strong>.
-                  </p>
-                  <p className="mt-1 text-[11px] text-blue-600">
-                    Contas de CASA/CARRO registram manutenção do bem — débitos da conta bancária entram no PESSOAL.
-                  </p>
-                </div>
-              )}
-            </div>
-            <div className="flex justify-end gap-3 mt-4">
-              <button onClick={() => { setShowForm(false); setEditingId(null); }} className="px-4 py-2 text-gray-600">Cancelar</button>
-              <button onClick={handleSave} disabled={!form.nome} className="px-4 py-2 bg-brand-600 text-white rounded-lg disabled:opacity-50">
-                {editingId ? 'Salvar' : 'Criar'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Table */}
       {bills.length === 0 ? (
@@ -282,9 +174,9 @@ function RecorrentesContent({
       ) : (
         <RecurringBillsView
           bills={bills}
-          onToggleStatus={toggleStatus}
-          onEdit={startEdit}
-          onDelete={handleDelete}
+          onToggleStatus={onToggleStatus}
+          onEdit={onEdit}
+          onDelete={onDelete}
         />
       )}
     </div>

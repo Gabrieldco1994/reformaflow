@@ -7,8 +7,8 @@ import { LifeOneLogo } from '@/components/LifeOneLogo';
 import { ObjectiveSelector } from '@/components/objectives/ObjectiveSelector';
 import type { ObjectiveType } from '@/components/objectives/objective-options';
 import { useAuth } from '@/contexts/auth-context';
-import { ProjectType } from '@reformaflow/domain';
 import { ApiResponseError } from '@/lib/api';
+import { pickPrimaryProjectType } from '@/app/onboarding/setup/_lib/primary-project-type';
 
 const fieldClass =
   'min-h-11 w-full rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-3.5 py-2.5 text-[14px] text-lifeone-ink placeholder:text-lifeone-ink-4 focus:border-lifeone-blue focus:outline-none focus:ring-2 focus:ring-lifeone-blue/25';
@@ -72,12 +72,11 @@ export default function RegisterPage() {
         },
         idempotencyKey.current,
       );
-      // Guided "do zero" flow when PESSOAL is among selected types
-      if (projectTypes.includes(ProjectType.PESSOAL)) {
-        router.replace('/onboarding/pessoal-setup');
-      } else {
-        router.replace('/projects?onboarding=1');
-      }
+      // Guided per-type wizard: pick a single primary type (PESSOAL priority,
+      // then canonical OBJECTIVE_TYPES order) and route it through the
+      // generic onboarding wizard shell.
+      const primary = pickPrimaryProjectType(projectTypes);
+      router.replace(primary ? `/onboarding/setup?type=${primary}` : '/projects?onboarding=1');
     } catch (caught) {
       if (caught instanceof ApiResponseError) idempotencyKey.current = newIdempotencyKey();
       setError(caught instanceof Error ? caught.message : 'Não foi possível criar sua conta. Tente novamente.');
