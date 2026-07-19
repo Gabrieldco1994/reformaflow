@@ -46,6 +46,7 @@ export class ProjectService {
       const project = await tx.project.create({
         data: {
           tenantId,
+          createdByUserId: user?.id ?? null,
           type: dto.type,
           name: dto.name,
           description: dto.description,

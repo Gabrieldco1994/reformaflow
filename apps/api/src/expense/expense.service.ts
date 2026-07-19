@@ -87,7 +87,12 @@ export class ExpenseService {
     return out;
   }
 
-  async create(tenantId: string, projectId: string, dto: CreateExpenseDto) {
+  async create(
+    tenantId: string,
+    projectId: string,
+    dto: CreateExpenseDto,
+    createdByUserId: string | null = null,
+  ) {
     await this.validateProject(tenantId, projectId);
 
     const valorCents = Math.round(dto.valor * 100);
@@ -99,6 +104,7 @@ export class ExpenseService {
       data: {
         projectId,
         tenantId,
+        createdByUserId,
         tipoDespesa: dto.tipoDespesa,
         categoriaMaoDeObra: dto.categoriaMaoDeObra,
         roomId: dto.roomId,
@@ -143,7 +149,12 @@ export class ExpenseService {
    * padrão de `create_obra_expense`, repetido por ocorrência. Se qualquer criação
    * falhar, TODAS as já criadas são desfeitas (transação lógica).
    */
-  async createRecorrente(tenantId: string, projectId: string, dto: CreateRecorrenteDto) {
+  async createRecorrente(
+    tenantId: string,
+    projectId: string,
+    dto: CreateRecorrenteDto,
+    createdByUserId: string | null = null,
+  ) {
     await this.validateProject(tenantId, projectId);
 
     if (!isRecurrenceFrequency(dto.frequencia)) {
@@ -208,7 +219,7 @@ export class ExpenseService {
             status: 'PLANEJADO',
             dataPagamento: iso,
             dataCompra: iso,
-          } as CreateExpenseDto);
+          } as CreateExpenseDto, createdByUserId);
           createdRefs.push({ projectId: dto.obraProjectId!, id: canonico.id });
 
           // 2) Espelho no PESSOAL (saída do caixa) vinculado à canônica.
@@ -226,7 +237,7 @@ export class ExpenseService {
             creditCardId: dto.creditCardId,
             bankAccountId: dto.bankAccountId,
             linkedExpenseId: canonico.id,
-          } as CreateExpenseDto);
+          } as CreateExpenseDto, createdByUserId);
           createdRefs.push({ projectId: projectId, id: espelho.id });
         } else {
           const expense = await this.create(tenantId, projectId, {
@@ -245,7 +256,7 @@ export class ExpenseService {
             dataCompra: iso,
             creditCardId: dto.creditCardId,
             bankAccountId: dto.bankAccountId,
-          } as CreateExpenseDto);
+          } as CreateExpenseDto, createdByUserId);
           createdRefs.push({ projectId: projectId, id: expense.id });
         }
       }
@@ -499,6 +510,7 @@ export class ExpenseService {
     projectId: string,
     sourceId: string,
     dto: RatearMixedDto,
+    createdByUserId: string | null = null,
   ) {
     await this.validateProject(tenantId, projectId);
     const source = await this.prisma.expense.findFirst({
@@ -549,6 +561,7 @@ export class ExpenseService {
           data: {
             projectId: nt.targetProjectId,
             tenantId,
+            createdByUserId,
             tipoDespesa: nt.tipoDespesa,
             categoriaMaoDeObra: nt.categoriaMaoDeObra,
             roomId: nt.roomId,
@@ -887,6 +900,7 @@ export class ExpenseService {
         data: {
           projectId,
           tenantId,
+          createdByUserId: planned.createdByUserId ?? null,
           tipoDespesa: dto.tipoDespesa ?? planned.tipoDespesa,
           categoriaMaoDeObra: dto.categoriaMaoDeObra ?? planned.categoriaMaoDeObra,
           roomId: dto.roomId ?? planned.roomId,

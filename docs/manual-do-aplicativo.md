@@ -207,6 +207,8 @@ módulo `financialDashboard`.
 Área do administrador. Permite gerenciar usuários e o que cada um pode acessar:
 **módulos liberados**, **tipos de projeto** que pode criar e **acesso a projetos
 específicos**. Essas permissões são o que controla o que cada pessoa vê no app.
+O painel também mostra **Projetos criados** e **Despesas criadas** por usuário,
+para auditoria rápida de atividade.
 
 ---
 

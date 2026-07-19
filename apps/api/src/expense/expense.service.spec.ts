@@ -7,7 +7,7 @@ import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 type AnyFn = jest.Mock;
 
 interface PrismaMock {
-  project: { findFirst: AnyFn };
+  project: { findFirst: AnyFn; findMany: AnyFn };
   expense: {
     findFirst: AnyFn;
     findMany: AnyFn;
@@ -149,6 +149,44 @@ describe('ExpenseService', () => {
             quantidade: 2,
             valorTotal: 20100,
           }),
+        }),
+      );
+    });
+
+    it('stamps createdByUserId when provided', async () => {
+      prisma.expense.create.mockResolvedValue({ id: 'e1' });
+      prisma.expense.findUnique.mockResolvedValue(null);
+
+      await service.create(tenantId, projectId, {
+        tipoDespesa: 'MATERIAL_CONSTRUCAO',
+        valor: 50,
+        quantidade: 1,
+        formaPagamento: 'A_VISTA',
+        status: 'PAGO',
+      } as any, 'user-42');
+
+      expect(prisma.expense.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ createdByUserId: 'user-42' }),
+        }),
+      );
+    });
+
+    it('defaults createdByUserId to null when omitted', async () => {
+      prisma.expense.create.mockResolvedValue({ id: 'e1' });
+      prisma.expense.findUnique.mockResolvedValue(null);
+
+      await service.create(tenantId, projectId, {
+        tipoDespesa: 'MATERIAL_CONSTRUCAO',
+        valor: 50,
+        quantidade: 1,
+        formaPagamento: 'A_VISTA',
+        status: 'PAGO',
+      } as any);
+
+      expect(prisma.expense.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ createdByUserId: null }),
         }),
       );
     });
@@ -603,6 +641,33 @@ describe('ExpenseService', () => {
       await expect(
         service.payPlanned(tenantId, projectId, 'e-q', {} as any),
       ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('preserva createdByUserId do planejado no clone pago', async () => {
+      prisma.expense.findFirst.mockResolvedValue({
+        id: 'e-planned',
+        projectId,
+        tenantId,
+        status: 'PLANEJADO',
+        valor: 10000,
+        quantidade: 1,
+        formaPagamento: 'A_VISTA',
+        paidParcelas: null,
+        quantidadeParcela: null,
+        settledByExpenseId: null,
+        createdByUserId: 'creator-1',
+      });
+      prisma.expense.create.mockResolvedValue({ id: 'e-paid' });
+      prisma.expense.update.mockResolvedValue({});
+      prisma.expense.findUnique.mockResolvedValue(null);
+
+      await service.payPlanned(tenantId, projectId, 'e-planned', {} as any);
+
+      expect(prisma.expense.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ createdByUserId: 'creator-1' }),
+        }),
+      );
     });
   });
 

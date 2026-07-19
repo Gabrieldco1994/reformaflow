@@ -14,6 +14,8 @@ interface AdminUser extends AuthUser {
   lastLoginAt?: string | null;
   lastActivityAt?: string | null;
   tenantName?: string | null;
+  projectsCreatedCount?: number;
+  expensesCreatedCount?: number;
 }
 
 function formatDateTime(value?: string | null): string {
@@ -219,6 +221,12 @@ export default function AdminUsersPage() {
                   Criado por
                 </th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase whitespace-nowrap">
+                  Projetos criados
+                </th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase whitespace-nowrap">
+                  Despesas criadas
+                </th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase whitespace-nowrap">
                   Última atividade
                 </th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase whitespace-nowrap">
@@ -255,6 +263,12 @@ export default function AdminUsersPage() {
                   </td>
                   <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">
                     {u.createdByName ?? 'Auto-cadastro'}
+                  </td>
+                  <td className="px-4 py-3 text-xs font-medium text-gray-900 whitespace-nowrap">
+                    {u.projectsCreatedCount ?? 0}
+                  </td>
+                  <td className="px-4 py-3 text-xs font-medium text-gray-900 whitespace-nowrap">
+                    {u.expensesCreatedCount ?? 0}
                   </td>
                   <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">
                     {formatDateTime(u.lastActivityAt ?? u.lastLoginAt)}
