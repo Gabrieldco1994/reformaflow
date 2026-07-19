@@ -152,7 +152,7 @@ flyctl deploy --app reformaflow-api -c apps/api/fly.toml --dockerfile apps/api/D
 ## Custo
 
 - **Vercel Hobby**: gratuito (100 GB tráfego/mês).
-- **Fly.io**: dentro do free allowance (3 VMs shared-cpu-1x 256 MB, 3 GB volume, 160 GB tráfego). Acima disso há cobrança proporcional — você pode definir um spend limit em https://fly.io/dashboard/<org>/billing pra não passar de R$ 0.
+- **Fly.io**: 1 VM shared-cpu-1x 512 MB **sempre ligada** (`min_machines_running = 1`, `auto_stop_machines = "off"`) — trocado do modo suspend/resume (`min_machines_running = 0`) porque este último causava lentidão/timeouts intermitentes reais em produção ao "acordar" a máquina sob tráfego real. Isso sai do free allowance (256 MB) e gera cobrança proporcional — defina um spend limit em https://fly.io/dashboard/<org>/billing.
 
 ---
 
