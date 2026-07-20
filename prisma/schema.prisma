@@ -936,3 +936,15 @@ model Feedback {
   @@index([tenantId])
   @@map("feedbacks")
 }
+
+model UserActivityLog {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  tenantId  String   @map("tenant_id")
+  action    String   // e.g. "expenses.create", "projects.delete"
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@map("user_activity_logs")
+}

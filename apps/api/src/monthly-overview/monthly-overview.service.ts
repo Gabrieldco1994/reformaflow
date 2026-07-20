@@ -1045,7 +1045,7 @@ export class MonthlyOverviewService {
     // Recalculate saiuMes and faltaPagarMes to include all saidas (including carteira)
     // This ensures carteira items are properly counted in the totals
     const recalculatedSaiuMes = sumBy(
-      saidas.filter((s: any) => s.kind === 'saida'),
+      saidas.filter((s: any) => s.kind === 'saida' && s.realizado),
       (s: any) => s.valor,
     );
     const recalculatedFaltaPagarMes = sumBy(
@@ -1181,9 +1181,9 @@ export class MonthlyOverviewService {
       caixaHoje: caixa.hoje,
       entrouMes,
       saiuMes: recalculatedSaiuMes,
-      faltaPagarMes: recalculatedFaltaPagarMes + devoCartaoTotal,
+      faltaPagarMes: recalculatedFaltaPagarMes,
       recebimentosPrevistosMes,
-      sobraPrevista: caixa.hoje - (recalculatedFaltaPagarMes + devoCartaoTotal) + recebimentosPrevistosMes,
+      sobraPrevista: caixa.hoje - recalculatedFaltaPagarMes + recebimentosPrevistosMes,
       devoCartaoTotal,
       cartoes,
       contas,

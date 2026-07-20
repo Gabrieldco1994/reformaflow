@@ -207,7 +207,7 @@ export function MovimentacoesSection({
   const originLabel = (cardLast4: string | null, bankLast4: string | null) => {
     if (cardLast4) return cardByLast4.get(cardLast4)?.nickname ?? `Cartão ••${cardLast4}`;
     if (bankLast4) return contaByLast4.get(bankLast4)?.nome ?? `Conta ••${bankLast4}`;
-    return null;
+    return 'Sem conta';
   };
 
   const activeIsCard = originFilter != null && cardByLast4.has(originFilter);
@@ -279,8 +279,14 @@ export function MovimentacoesSection({
       if (summaryQuickFilter === 'faltaPagarMes' && (m.kind !== 'saida' || m.realizado)) return false;
 
       if (originFilter) {
-        const last4 = m.kind === 'saida' ? m.cardLast4 ?? m.bankLast4 : m.bankLast4;
-        if (last4 !== originFilter) return false;
+        if (originFilter === 'carteira') {
+          // ponytail: sentinel for items with no card/bank — carteira pseudo-origin
+          const last4 = m.kind === 'saida' ? m.cardLast4 ?? m.bankLast4 : m.bankLast4;
+          if (last4 != null) return false;
+        } else {
+          const last4 = m.kind === 'saida' ? m.cardLast4 ?? m.bankLast4 : m.bankLast4;
+          if (last4 !== originFilter) return false;
+        }
       }
 
       if (statusFilter !== 'todos') {
@@ -633,7 +639,7 @@ export function MovimentacoesSection({
       {/* Indicador de filtro de origem ativo (vem dos cards acima) */}
       {originFilter && (
         <div className="mb-3 flex items-center gap-2 rounded-xl bg-[#E6EFFE] px-3 py-2 text-[12px] text-lifeone-blue">
-          <span className="font-semibold">Filtrando por {originLabel(activeIsCard ? originFilter : null, activeIsCard ? null : originFilter)}</span>
+          <span className="font-semibold">Filtrando por {originFilter === 'carteira' ? 'Sem conta' : originLabel(activeIsCard ? originFilter : null, activeIsCard ? null : originFilter)}</span>
           {activeIsCard && (
             <span className="text-lifeone-blue">· compras da fatura</span>
           )}

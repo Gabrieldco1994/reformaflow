@@ -13,6 +13,7 @@ const BCRYPT_ROUNDS = 10;
 function toPublic(u: {
   id: string;
   username: string;
+  email: string | null;
   name: string;
   role: string;
   tenantId: string;
@@ -49,6 +50,7 @@ function toPublic(u: {
   return {
     id: u.id,
     username: u.username,
+    email: u.email,
     name: u.name,
     role: u.role,
     tenantId: u.tenantId,
@@ -132,6 +134,25 @@ export class UsersService {
       projectsCreatedCount: projectsByUserId.get(u.id) ?? 0,
       expensesCreatedCount: expensesByUserId.get(u.id) ?? 0,
     }));
+  }
+
+  async getActivity(userId: string) {
+    const [summary, recent] = await Promise.all([
+      this.prisma.userActivityLog.groupBy({
+        by: ['action'],
+        where: { userId },
+        _count: { _all: true },
+      }),
+      this.prisma.userActivityLog.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        take: 30,
+      }),
+    ]);
+    return {
+      summary: summary.map((s) => ({ action: s.action, count: s._count._all })).sort((a, b) => b.count - a.count),
+      recent,
+    };
   }
 
   async create(tenantId: string, dto: CreateUserDto, createdByUserId?: string) {

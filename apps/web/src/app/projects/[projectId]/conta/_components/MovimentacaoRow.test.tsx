@@ -194,7 +194,8 @@ describe('MovimentacaoRow — saída', () => {
 
       // "Sem conta" NÃO deve estar presente quando há conta
       expect(screen.queryByText('Sem conta')).not.toBeInTheDocument();
-      expect(screen.getByText('Conta 5678')).toBeInTheDocument();
+      // origin embedded in meta string — use partial match
+      expect(screen.getByText(/Conta 5678/)).toBeInTheDocument();
     });
 
     it('chip "Sem conta" sem descrição (falha graceful)', () => {

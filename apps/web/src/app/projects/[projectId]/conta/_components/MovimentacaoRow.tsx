@@ -108,6 +108,9 @@ export function MovimentacaoRow({
       ? originLabel(item.cardLast4, item.bankLast4)
       : originLabel(null, item.bankLast4);
 
+  // "Sem conta" gets a chip — don't embed in meta text
+  const isSemConta = origem === 'Sem conta';
+
   const dp = dateParts(item.data);
   const dateStr = dp.mes ? `${dp.dia} ${dp.mes}` : dp.dia;
 
@@ -121,7 +124,7 @@ export function MovimentacaoRow({
       ? `Parcial: ${formatCurrency((item.invoicePaidAmount ?? 0) / 100)} de ${formatCurrency(item.valor / 100)}`
       : null,
     item.kind === 'saida' && item.isInvoice && item.invoiceHasManualIntervention ? 'Ajuste manual' : null,
-    origem,
+    isSemConta ? null : origem,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -303,6 +306,20 @@ export function MovimentacaoRow({
           </div>
           <div className={`mt-0.5 flex items-center gap-1.5 ${canExpand ? 'pl-5' : ''}`}>
             <span className="truncate text-[11px] text-lifeone-ink-3">{meta}</span>
+            {isSemConta && (
+              // ponytail: chip reuses onVincular — "de onde saiu?" → conciliação
+              <button
+                type="button"
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  if (onVincular && item.kind === 'saida') onVincular(item);
+                }}
+                className="shrink-0 rounded-full bg-[#F3F3F3] px-1.5 py-0.5 text-[11px] font-semibold text-lifeone-ink-3 transition-colors hover:bg-[#E6EFFE] hover:text-lifeone-blue"
+                title="Lançamento sem conta vinculada — clique para vincular"
+              >
+                Sem conta
+              </button>
+            )}
             {projOrigem && (
               <span className="shrink-0 rounded-full bg-[#E6EFFE] px-1.5 py-0.5 text-[11px] font-semibold text-lifeone-blue">
                 {projOrigem.name}

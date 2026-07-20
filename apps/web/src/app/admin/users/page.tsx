@@ -8,6 +8,7 @@ import { useAuth, ALL_MODULES, type ModuleSlug, type AuthUser } from '@/contexts
 import { api } from '@/lib/api';
 
 interface AdminUser extends AuthUser {
+  email?: string | null;
   createdAt?: string;
   updatedAt?: string;
   createdByName?: string | null;
@@ -56,6 +57,8 @@ export default function AdminUsersPage() {
   const [feedbackWarning, setFeedbackWarning] = useState<string | null>(null);
   const [editing, setEditing] = useState<AdminUser | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [filterToday, setFilterToday] = useState(false);
+  const [activityUser, setActivityUser] = useState<AdminUser | null>(null);
 
   useEffect(() => {
     if (loading) return;
@@ -192,16 +195,24 @@ export default function AdminUsersPage() {
           return (
             <div className="grid grid-cols-6 gap-3 mb-4">
               {[
-                { label: 'Total', value: total, color: 'text-gray-900' },
-                { label: 'Admins', value: admins, color: 'text-purple-700' },
-                { label: 'Ativos 7d', value: active7d, color: 'text-green-700' },
-                { label: 'Ativos 30d', value: active30d, color: 'text-blue-700' },
-                { label: 'Logaram hoje', value: loggedToday, color: 'text-brand-700' },
-                { label: 'Nunca acessaram', value: never, color: 'text-gray-400' },
+                { label: 'Total', value: total, color: 'text-gray-900', filterable: false },
+                { label: 'Admins', value: admins, color: 'text-purple-700', filterable: false },
+                { label: 'Ativos 7d', value: active7d, color: 'text-green-700', filterable: false },
+                { label: 'Ativos 30d', value: active30d, color: 'text-blue-700', filterable: false },
+                { label: 'Logaram hoje', value: loggedToday, color: 'text-brand-700', filterable: true },
+                { label: 'Nunca acessaram', value: never, color: 'text-gray-400', filterable: false },
               ].map((s) => (
-                <div key={s.label} className="bg-white border border-gray-200 rounded-xl px-4 py-3 text-center">
+                <div
+                  key={s.label}
+                  onClick={s.filterable ? () => setFilterToday((v) => !v) : undefined}
+                  className={`bg-white border rounded-xl px-4 py-3 text-center transition-all ${
+                    s.filterable
+                      ? 'cursor-pointer hover:border-brand-400 ' + (filterToday ? 'border-brand-500 ring-2 ring-brand-200' : 'border-gray-200')
+                      : 'border-gray-200'
+                  }`}
+                >
                   <div className={`text-2xl font-bold ${s.color}`}>{s.value}</div>
-                  <div className="text-xs text-gray-500 mt-0.5">{s.label}</div>
+                  <div className="text-xs text-gray-500 mt-0.5">{s.label}{s.filterable && filterToday ? ' ✓' : ''}</div>
                 </div>
               ))}
             </div>
@@ -209,6 +220,12 @@ export default function AdminUsersPage() {
         })()}
 
         <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto">
+          {filterToday && (
+            <div className="px-4 py-2 bg-brand-50 border-b border-brand-100 flex items-center justify-between">
+              <span className="text-xs text-brand-700 font-medium">Filtro: logaram hoje</span>
+              <button onClick={() => setFilterToday(false)} className="text-xs text-brand-600 hover:underline">Limpar</button>
+            </div>
+          )}
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
@@ -220,6 +237,9 @@ export default function AdminUsersPage() {
                 </th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">
                   Usuário
+                </th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">
+                  Email
                 </th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">
                   Papel
@@ -246,13 +266,23 @@ export default function AdminUsersPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {users.map((u) => (
+              {(filterToday
+                ? users.filter((u) => {
+                    if (!u.lastLoginAt) return false;
+                    const t = new Date(u.lastLoginAt);
+                    const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+                    const startOfTomorrow = new Date(startOfToday); startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
+                    return t >= startOfToday && t < startOfTomorrow;
+                  })
+                : users
+              ).map((u) => (
                 <tr key={u.id}>
                   <td className="px-4 py-3 text-xs text-gray-700 whitespace-nowrap">
                     {u.tenantName ?? '—'}
                   </td>
                   <td className="px-4 py-3 font-medium text-gray-900">{u.name}</td>
                   <td className="px-4 py-3 text-gray-700">{u.username}</td>
+                  <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{u.email ?? '—'}</td>
                   <td className="px-4 py-3">
                     <span
                       className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
@@ -287,6 +317,12 @@ export default function AdminUsersPage() {
                     {formatDateTime(u.createdAt)}
                   </td>
                   <td className="px-4 py-3 text-right space-x-2 whitespace-nowrap">
+                    <button
+                      onClick={() => setActivityUser(u)}
+                      className="text-sm text-gray-500 hover:text-gray-800 hover:underline"
+                    >
+                      Atividade
+                    </button>
                     {u.tenantId === user?.tenantId ? (
                       <>
                         <button
@@ -353,6 +389,10 @@ export default function AdminUsersPage() {
             await reload();
           }}
         />
+      )}
+
+      {activityUser && (
+        <ActivityModal user={activityUser} onClose={() => setActivityUser(null)} />
       )}
 
       {/* Feedbacks section */}
@@ -649,6 +689,87 @@ function UserFormModal({
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+interface ActivityData {
+  summary: { action: string; count: number }[];
+  recent: { id: string; action: string; createdAt: string }[];
+}
+
+function actionLabel(action: string): string {
+  const labels: Record<string, string> = {
+    'expenses.create': 'Criou despesa', 'expenses.update': 'Editou despesa', 'expenses.delete': 'Excluiu despesa',
+    'projects.create': 'Criou projeto', 'projects.update': 'Editou projeto', 'projects.delete': 'Excluiu projeto',
+    'receipts.create': 'Adicionou recibo', 'receipts.update': 'Editou recibo', 'receipts.delete': 'Excluiu recibo',
+    'recurring-bill.create': 'Criou conta fixa', 'recurring-bill.update': 'Editou conta fixa',
+    'maintenance.create': 'Criou manutenção', 'reminder.create': 'Criou lembrete',
+    'cash-flow.create': 'Lançou caixa', 'cash-flow.update': 'Editou caixa',
+    'credit-card.create': 'Criou cartão', 'bank-account.create': 'Criou conta',
+    'schedule.create': 'Criou tarefa', 'schedule.update': 'Editou tarefa',
+  };
+  return labels[action] ?? action;
+}
+
+function ActivityModal({ user, onClose }: { user: AdminUser; onClose: () => void }) {
+  const [data, setData] = useState<ActivityData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.get<ActivityData>(`/users/${user.id}/activity`)
+      .then(setData)
+      .catch(() => setData({ summary: [], recent: [] }))
+      .finally(() => setLoading(false));
+  }, [user.id]);
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={onClose}>
+      <div className="bg-white rounded-xl w-full max-w-lg max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="p-5 border-b border-gray-200 flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">Atividade — {user.name}</h2>
+            <p className="text-xs text-gray-500">{user.username} · {user.tenantName}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+        </div>
+        <div className="p-5">
+          {loading ? (
+            <p className="text-sm text-gray-500 text-center py-8">Carregando…</p>
+          ) : !data || (data.summary.length === 0 && data.recent.length === 0) ? (
+            <p className="text-sm text-gray-500 text-center py-8">Nenhuma ação registrada ainda.</p>
+          ) : (
+            <>
+              {data.summary.length > 0 && (
+                <div className="mb-5">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2">Resumo por ação</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {data.summary.map((s) => (
+                      <span key={s.action} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-gray-100 text-xs text-gray-700">
+                        {actionLabel(s.action)}
+                        <span className="font-bold text-gray-900">{s.count}×</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {data.recent.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2">Últimas ações</h3>
+                  <ul className="divide-y divide-gray-100">
+                    {data.recent.map((r) => (
+                      <li key={r.id} className="flex items-center justify-between py-2">
+                        <span className="text-sm text-gray-700">{actionLabel(r.action)}</span>
+                        <span className="text-xs text-gray-400 whitespace-nowrap ml-4">{new Date(r.createdAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
