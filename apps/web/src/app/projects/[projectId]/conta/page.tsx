@@ -27,7 +27,6 @@ import type {
   OriginItemsYearlyResponse,
 } from './_types';
 import type { DreOverviewResponse } from '../dre/_types';
-import { deriveRunwayNarrative } from '../_lib/runway-summary';
 
 function LoadingBlock() {
   return (
@@ -114,7 +113,6 @@ export default function ContaPage() {
   const sobraPrevistaAcumulada = dreData?.anual.saldoAcumuladoSerie.find(
     (row) => row.mes === selectedMonth,
   )?.saldoProjetado;
-  const runwayNarrative = deriveRunwayNarrative(dreData?.anual.saldoAcumuladoSerie, selectedMonth);
   const { data: originItems, isLoading: originItemsLoading } = useQuery<OriginItemsYearlyResponse>({
     queryKey: ['origin-items-yearly', projectId, selectedYear, selectedOrigin?.kind, selectedOrigin?.last4],
     queryFn: () =>
@@ -256,20 +254,14 @@ export default function ContaPage() {
                 }}
               />
               <section className="rounded-2xl border border-lifeone-hairline bg-lifeone-card px-4 py-3 text-[12px] text-lifeone-ink-2 shadow-lifeone-card">
-                {runwayNarrative ? (
-                  <p className="leading-relaxed">
-                    {runwayNarrative.headline} {runwayNarrative.detail}
-                  </p>
-                ) : (
-                  <p className="leading-relaxed">
-                    Projeção multi-mês indisponível para este recorte.
-                  </p>
-                )}
+                <p className="leading-relaxed">
+                  A projeção multi-mês fica no Cockpit para manter a narrativa única de caixa.
+                </p>
                 <Link
                   href={`/projects/${projectId}/monthly?mes=${selectedMonth}`}
                   className="mt-2 inline-flex text-[12px] font-semibold text-lifeone-blue hover:underline"
                 >
-                  Ver no Cockpit (Vai dar até dez?)
+                  Ver no Cockpit
                 </Link>
               </section>
               <CartoesSection
