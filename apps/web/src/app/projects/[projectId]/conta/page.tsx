@@ -3,7 +3,7 @@
 import { useParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Landmark } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
 import { currentMonthKey, monthLabelLong } from './_lib';
@@ -19,7 +19,7 @@ import { DespesasRelacionadas } from './_components/DespesasRelacionadas';
 import { TodasDespesasAno } from './_components/TodasDespesasAno';
 import { ContaQuickActions } from './_components/ContaQuickActions';
 import { BulkLinkModal } from '../expenses/_components/BulkLinkModal';
-import { MobileLaunchSheetContainer } from '../_components/mobile-launch/MobileLaunchSheetContainer';
+import { NovaDespesaLauncher } from '../expenses/_components/NovaDespesaLauncher';
 import type {
   AccountViewResponse,
   CardInvoicesYearlyResponse,
@@ -57,8 +57,8 @@ export default function ContaPage() {
   const [residualCardLast4, setResidualCardLast4] = useState<string | null>(null);
   const [originFilter, setOriginFilter] = useState<string | null>(null);
   const [bulkLinkOpen, setBulkLinkOpen] = useState(false);
-  const [launchOpen, setLaunchOpen] = useState(false);
   const [resumoQuickFilter, setResumoQuickFilter] = useState<ResumoQuickFilterKey | null>(null);
+  const openNovaDespesaRef = useRef<() => void>(() => undefined);
 
   const selectedYear = selectedMonth.slice(0, 4);
 
@@ -181,10 +181,19 @@ export default function ContaPage() {
       </header>
 
       {/* Ações rápidas: novos lançamentos manuais + plano de recebimentos */}
+      <NovaDespesaLauncher
+        projectId={projectId}
+        projectType={projectType ?? 'PESSOAL'}
+        onChanged={invalidateConta}
+        trigger={(open) => {
+          openNovaDespesaRef.current = open;
+          return null;
+        }}
+      />
       <ContaQuickActions
         projectId={projectId}
         defaultMonth={selectedMonth}
-        onOpenLaunch={() => setLaunchOpen(true)}
+        onOpenLaunch={() => openNovaDespesaRef.current()}
         onVincularEmMassa={() => setBulkLinkOpen(true)}
       />
 
@@ -316,14 +325,6 @@ export default function ContaPage() {
         defaultMonth={selectedMonth}
       />
 
-      <MobileLaunchSheetContainer
-        projectId={projectId}
-        open={launchOpen}
-        onClose={() => {
-          setLaunchOpen(false);
-          invalidateConta();
-        }}
-      />
     </div>
   );
 }

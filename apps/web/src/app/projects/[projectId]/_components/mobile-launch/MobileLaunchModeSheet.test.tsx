@@ -11,17 +11,21 @@ describe('MobileLaunchModeSheet', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('mostra os 3 modos e emite o pick de Escrito/Voz', async () => {
+  it('mostra despesa/recebimento/foto e emite pick', async () => {
     const user = userEvent.setup();
     const onPick = vi.fn();
     render(<MobileLaunchModeSheet open onClose={vi.fn()} onPick={onPick} />);
 
-    expect(screen.getByRole('button', { name: /Escrito/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Despesa/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Recebimento/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Voz/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Foto/ })).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /Escrito/ }));
+    await user.click(screen.getByRole('button', { name: /Despesa/ }));
     expect(onPick).toHaveBeenCalledWith('escrito');
+
+    await user.click(screen.getByRole('button', { name: /Recebimento/ }));
+    expect(onPick).toHaveBeenCalledWith('receita');
 
     await user.click(screen.getByRole('button', { name: /^Voz/ }));
     expect(onPick).toHaveBeenCalledWith('voz');
@@ -30,7 +34,7 @@ describe('MobileLaunchModeSheet', () => {
   it('esconde Voz sem suporte do navegador', () => {
     render(<MobileLaunchModeSheet open onClose={vi.fn()} onPick={vi.fn()} voiceSupported={false} />);
     expect(screen.queryByRole('button', { name: /^Voz/ })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Escrito/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Despesa/ })).toBeInTheDocument();
   });
 
   it('Foto abre a sub-tela e emite fatura/extrato; Voltar retorna à raiz', async () => {
@@ -39,17 +43,17 @@ describe('MobileLaunchModeSheet', () => {
     render(<MobileLaunchModeSheet open onClose={vi.fn()} onPick={onPick} />);
 
     await user.click(screen.getByRole('button', { name: /Foto/ }));
-    // Sub-tela: some o modo Escrito, aparecem as duas fontes.
-    expect(screen.queryByRole('button', { name: /Escrito/ })).not.toBeInTheDocument();
+    // Sub-tela: some o modo Despesa, aparecem as duas fontes.
+    expect(screen.queryByRole('button', { name: /Despesa/ })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Foto da fatura/ })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /Foto da fatura/ }));
     expect(onPick).toHaveBeenCalledWith('fatura');
 
-    // Reabre Foto e testa Voltar → raiz mostra Escrito de novo.
+    // Reabre Foto e testa Voltar → raiz mostra Despesa de novo.
     await user.click(screen.getByRole('button', { name: /Foto do extrato/ }));
     expect(onPick).toHaveBeenCalledWith('extrato');
     await user.click(screen.getByRole('button', { name: /Voltar/ }));
-    expect(screen.getByRole('button', { name: /Escrito/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Despesa/ })).toBeInTheDocument();
   });
 });

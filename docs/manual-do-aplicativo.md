@@ -194,7 +194,7 @@ Ao entrar num projeto, aparece a **casca** comum a todos os módulos:
   celular, o botão **"Mais"**.
 - **Barra inferior (celular):**
   - No **PESSOAL**, mostra **"Cockpit"**, **"Conta"**, **"Maria"** e **"Cartões"**, com botão circular **"Lançar"** separado.
-    - O **"+"** abre um **menu de modo** com três jornadas: **Escrito** (teclado numérico rápido), **Voz** (dita a despesa, mesma IA da Maria) e **Foto** (importa print/foto de **fatura de cartão** ou **extrato de conta**).
+    - O **"+"** abre um **menu de modo** com as jornadas: **Despesa** (teclado numérico rápido), **Recebimento**, **Voz** (dita a despesa, mesma IA da Maria) e **Foto** (importa print/foto de **fatura de cartão** ou **extrato de conta**).
     - No modo **Escrito**, as **categorias aparecem direto** (atalho das mais usadas + "ver todas"): tocar numa categoria já **preenche o título por trás**; o campo de texto vira detalhe opcional. Parcelas de cartão saem num seletor nativo **1–18x** ("À vista" para 1).
   - Nos demais tipos, mostra os três primeiros módulos autorizados para a pessoa,
     conforme a ordem de navegação do tipo.
@@ -314,10 +314,9 @@ e o que ainda vai sair?".
 mês (‹ › + calendário).
 
 **Ações rápidas (topo):**
-- **"+ Lançar"** → abre a escolha de tipo (**Nova Despesa** ou **Nova Receita**),
-  reaproveitando os mesmos fluxos dos módulos especializados.
-- **Menu "⋯"** concentra ações avançadas: **Planejar recebimentos** e
-  **Vincular em massa**.
+- **"Lançar"** (desktop) → abre o mesmo launcher canônico usado no Cockpit.
+- No **mobile**, o lançamento fica no botão **"+"** da barra inferior.
+- **"Planejar recebimentos"** e **"Vincular em massa"** ficam visíveis no topo.
 
 **KPIs (ResumoCards):**
 | KPI | O que representa |

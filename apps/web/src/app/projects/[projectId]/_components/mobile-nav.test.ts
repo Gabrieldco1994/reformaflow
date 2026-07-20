@@ -51,14 +51,9 @@ describe('getMobilePrimary', () => {
 
     expect(primary.map((module) => module.slug)).toEqual(['monthly', 'conta']);
     expect(secondary.map((module) => module.slug)).toEqual([
-      'dre',
-      'neutros',
       'expenses',
       'receipts',
       'metas',
-      'planning',
-      'budget-allocation',
-      'cash-flow',
       'credit-cards',
       'bank-accounts',
     ]);
@@ -110,7 +105,7 @@ describe('getMobilePrimary', () => {
     );
 
     expect(primary.map((module) => module.slug)).toEqual(['monthly', 'conta']);
-    expect(secondary.map((module) => module.slug)).toEqual(['dre', 'expenses']);
+    expect(secondary.map((module) => module.slug)).toEqual(['expenses']);
     expect(visible.map((module) => module.slug)).toContain('expenses');
     expect(secondary.map((module) => module.slug)).not.toContain(
       'conta',
