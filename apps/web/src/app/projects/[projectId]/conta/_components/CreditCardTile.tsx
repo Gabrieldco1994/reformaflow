@@ -38,9 +38,10 @@ export function CreditCardTile({
       nickname={card.nickname}
       active={active}
       onClick={() => onSelect(active ? null : card.last4)}
+      className="min-h-[156px] p-3 md:min-h-[176px] md:p-4"
       topRight={
         <span
-          className={`rounded-full px-2 py-0.5 text-[11px] font-semibold backdrop-blur ${badgeClass}`}
+          className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold backdrop-blur md:px-2 md:text-[11px] ${badgeClass}`}
         >
           {badgeText}
         </span>
@@ -48,26 +49,26 @@ export function CreditCardTile({
       footer={
         <div className="flex items-end justify-between gap-2">
           <div className="min-w-0">
-            <p className="text-[11px] uppercase tracking-wide text-white/60">Fatura atual</p>
-            <p className="font-geist text-[19px] font-bold tabular-nums leading-tight">
+            <p className="text-[10px] uppercase tracking-wide text-white/60 md:text-[11px]">Fatura atual</p>
+            <p className="font-geist text-[17px] font-bold tabular-nums leading-tight md:text-[19px]">
               {formatCurrency(card.faturaAtual / 100)}
             </p>
             {parcial && (
-              <p className="mt-0.5 text-[11px] text-white/75">
+              <p className="mt-0.5 text-[10px] text-white/75 md:text-[11px]">
                 {formatCurrency(card.faturaPaga / 100)} de {formatCurrency(card.faturaAtual / 100)}
               </p>
             )}
             {card.possuiIntervencaoManual && (
-              <p className="mt-0.5 text-[11px] text-white/75">Ajuste manual</p>
+              <p className="mt-0.5 text-[10px] text-white/75 md:text-[11px]">Ajuste manual</p>
             )}
           </div>
-          <p className="shrink-0 text-[11px] text-white/70">vence {formatDateBR(card.vencimento)}</p>
+          <p className="shrink-0 text-[10px] text-white/70 md:text-[11px]">vence {formatDateBR(card.vencimento)}</p>
         </div>
       }
       limit={{ pct: card.limiteUsadoPct, used: card.limiteUsado, total: card.limiteTotal }}
       action={
         card.faturaAtual > 0 ? (
-          <div className="mt-1 grid grid-cols-1 gap-1">
+          <div className="mt-0.5 grid grid-cols-1 gap-1">
             {!paga && (
               <button
                 type="button"
@@ -75,7 +76,7 @@ export function CreditCardTile({
                   ev.stopPropagation();
                   onPayInvoice(card.last4);
                 }}
-                className="inline-flex h-8 w-full items-center justify-center gap-1 rounded-lg bg-white text-[12px] font-semibold text-lifeone-ink transition hover:bg-white/90"
+                className="inline-flex h-7 w-full items-center justify-center gap-1 rounded-lg bg-white text-[11px] font-semibold text-lifeone-ink transition hover:bg-white/90 md:h-8 md:text-[12px]"
               >
                 Pagar fatura
               </button>
@@ -86,7 +87,7 @@ export function CreditCardTile({
                 ev.stopPropagation();
                 onAdjustInvoice(card.last4);
               }}
-              className="inline-flex h-7 w-full items-center justify-center rounded-lg border border-white/35 bg-transparent text-[11px] font-semibold text-white transition hover:bg-white/10"
+              className="inline-flex h-6 w-full items-center justify-center rounded-lg border border-white/35 bg-transparent text-[10px] font-semibold text-white transition hover:bg-white/10 md:h-7 md:text-[11px]"
             >
               Ajustar fatura…
             </button>
@@ -97,7 +98,7 @@ export function CreditCardTile({
                   ev.stopPropagation();
                   onSettleWithResidual(card.last4);
                 }}
-                className="inline-flex h-7 w-full items-center justify-center rounded-lg border border-white/35 bg-transparent text-[11px] font-semibold text-white transition hover:bg-white/10"
+                className="inline-flex h-6 w-full items-center justify-center rounded-lg border border-white/35 bg-transparent text-[10px] font-semibold text-white transition hover:bg-white/10 md:h-7 md:text-[11px]"
               >
                 Marcar quitada com resíduo…
               </button>

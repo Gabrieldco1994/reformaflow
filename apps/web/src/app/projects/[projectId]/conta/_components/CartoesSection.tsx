@@ -40,7 +40,7 @@ export function CartoesSection({
         )}
       </div>
 
-      <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {cartoes.map((card) => (
           <CreditCardTile
             key={`card-${card.last4}`}
