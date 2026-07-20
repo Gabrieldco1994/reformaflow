@@ -353,7 +353,7 @@ test.describe("Monthly cockpit — Phase C mobile relance", () => {
 
   // O FAB "Lançar" e o sheet de lançamento vivem no AppShell (global a todas as
   // rotas do projeto), então o cockpit é uma superfície válida para exercê-los.
-  test("Lançar: FAB minimal, modo Escrito traz origens do projeto e categorias diretas", async ({
+  test("Lançar: FAB minimal, modo Despesa traz origens do projeto e categorias diretas", async ({
     page,
   }, testInfo) => {
     test.skip(
@@ -369,17 +369,18 @@ test.describe("Monthly cockpit — Phase C mobile relance", () => {
       await fab.evaluate((el) => getComputedStyle(el).backgroundColor),
     ).toBe("rgb(255, 255, 255)");
 
-    // O "+" abre PRIMEIRO o menu de modo (Escrito / Voz / Foto) — não vai direto
+    // O "+" abre PRIMEIRO o menu de modo (Despesa / Recebimento / Voz / Foto) —
+    // não vai direto
     // ao sheet de lançamento.
     await fab.click();
     await expect(
       page.getByRole("heading", { name: "Como quer lançar?" }),
     ).toBeVisible();
-    await expect(page.getByRole("button", { name: /Escrito/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Despesa/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /Foto/ })).toBeVisible();
 
-    // Escrito → sheet de lançamento rápido.
-    await page.getByRole("button", { name: /Escrito/ }).click();
+    // Despesa → sheet de lançamento rápido.
+    await page.getByRole("button", { name: /Despesa/ }).click();
     await expect(
       page.getByRole("heading", { name: "Lançar", exact: true }),
     ).toBeVisible();
