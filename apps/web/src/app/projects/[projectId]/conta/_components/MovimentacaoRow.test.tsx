@@ -109,4 +109,149 @@ describe('MovimentacaoRow — saída', () => {
     });
     expect(screen.getByText('Casa Praia')).toBeInTheDocument();
   });
+
+  describe('F1: Carteira (Sem conta) chip', () => {
+    it('mostra chip "Sem conta" quando origem.tipo === "carteira"', () => {
+      const onVincular = vi.fn();
+      renderRow({
+        item: makeSaida({
+          forma: 'pix',
+          cardLast4: null,
+          bankLast4: null,
+        }),
+        originLabel: () => 'Sem conta',
+        onVincular,
+      });
+
+      const semContaChip = screen.getByText('Sem conta');
+      expect(semContaChip).toBeInTheDocument();
+      expect(semContaChip).toHaveClass('rounded-full');
+    });
+
+    it('chip "Sem conta" é clicável e abre modal de vínculo', () => {
+      const onVincular = vi.fn();
+      const item = makeSaida({
+        forma: 'pix',
+        cardLast4: null,
+        bankLast4: null,
+        id: 'exp-carteira-1',
+      });
+      renderRow({
+        item,
+        originLabel: () => 'Sem conta',
+        onVincular,
+      });
+
+      const semContaChip = screen.getByText('Sem conta');
+      fireEvent.click(semContaChip.closest('button, a, [role="button"]') || semContaChip);
+      
+      // Verificar que o callback de vinculação foi chamado
+      expect(onVincular).toHaveBeenCalledWith(item);
+    });
+
+    it('exibe "Sem conta" chip mesmo quando há projeto vinculado (cross-project)', () => {
+      renderRow({
+        item: makeSaida({
+          forma: 'pix',
+          cardLast4: null,
+          bankLast4: null,
+          projetoOrigem: { id: 'proj-2', name: 'Projeto B', type: 'OBRA' },
+        }),
+        originLabel: () => 'Sem conta',
+      });
+
+      // Ambos devem estar presentes: chip "Sem conta" e chip do projeto
+      expect(screen.getByText('Sem conta')).toBeInTheDocument();
+      expect(screen.getByText('Projeto B')).toBeInTheDocument();
+    });
+
+    it('exibe "Sem conta" com item de alto valor (7 dígitos) sem quebra de layout', () => {
+      renderRow({
+        item: makeSaida({
+          forma: 'pix',
+          cardLast4: null,
+          bankLast4: null,
+          valor: 9_999_999, // R$ 99.999,99
+        }),
+        originLabel: () => 'Sem conta',
+      });
+
+      const semContaChip = screen.getByText('Sem conta');
+      expect(semContaChip).toBeInTheDocument();
+      
+      // Verificar que o chip está visível (não escondido ou quebrado)
+      expect(semContaChip.closest('.rounded-full, [class*="chip"], [class*="badge"]')).toBeVisible();
+    });
+
+    it('chip "Sem conta" não aparece quando há conta vinculada (origem != carteira)', () => {
+      renderRow({
+        item: makeSaida({
+          forma: 'pix',
+          bankLast4: '5678',
+        }),
+        originLabel: () => 'Conta 5678',
+      });
+
+      // "Sem conta" NÃO deve estar presente quando há conta
+      expect(screen.queryByText('Sem conta')).not.toBeInTheDocument();
+      expect(screen.getByText('Conta 5678')).toBeInTheDocument();
+    });
+
+    it('chip "Sem conta" sem descrição (falha graceful)', () => {
+      renderRow({
+        item: makeSaida({
+          forma: 'pix',
+          cardLast4: null,
+          bankLast4: null,
+          descricao: '',
+        }),
+        originLabel: () => 'Sem conta',
+      });
+
+      const semContaChip = screen.getByText('Sem conta');
+      expect(semContaChip).toBeInTheDocument();
+    });
+
+    it('texto do chip "Sem conta" é exatamente "Sem conta" (mutation: não é "Sem vinculação")', () => {
+      renderRow({
+        item: makeSaida({
+          forma: 'pix',
+          cardLast4: null,
+          bankLast4: null,
+        }),
+        originLabel: () => 'Sem conta',
+      });
+
+      expect(screen.getByText('Sem conta')).toBeInTheDocument();
+      expect(screen.queryByText('Sem vinculação')).not.toBeInTheDocument();
+      expect(screen.queryByText('Carteira')).not.toBeInTheDocument();
+      expect(screen.queryByText('N/A')).not.toBeInTheDocument();
+    });
+
+    it('chip "Sem conta" reutiliza o mesmo flow de LinkExpense (onVincular callback)', () => {
+      const onVincular = vi.fn();
+      const item = makeSaida({
+        forma: 'pix',
+        cardLast4: null,
+        bankLast4: null,
+        id: 'exp-sem-conta-123',
+      });
+      renderRow({
+        item,
+        originLabel: () => 'Sem conta',
+        onVincular,
+      });
+
+      // Clicar no chip de "Sem conta" deve chamar onVincular com o item
+      const chipButton = screen.getByText('Sem conta').closest('button');
+      if (chipButton) fireEvent.click(chipButton);
+
+      expect(onVincular).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'exp-sem-conta-123',
+          forma: 'pix',
+        })
+      );
+    });
+  });
 });

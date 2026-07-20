@@ -64,6 +64,7 @@ async function ensureBootstrapAdmin(prisma: PrismaService) {
       tenantId: tenant.id,
       email: `admin@${normalizedUsername}.local`,
       username: normalizedUsername,
+      email: null,
       name: 'Administrador',
       role: 'ADMIN',
       passwordHash,

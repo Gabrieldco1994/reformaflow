@@ -34,6 +34,7 @@ model User {
   externalId          String?   @unique @map("external_id")
   email               String    @unique @map("email")
   username            String
+  email               String?   @unique
   name                String
   role                String    @default("USER")
   isGuest             Boolean   @default(false) @map("is_guest")

@@ -5,6 +5,7 @@ import {
   IsArray,
   IsEmail,
   IsEnum,
+  IsNotEmpty,
   IsString,
   Matches,
   MaxLength,
@@ -32,6 +33,10 @@ export class RegisterOwnerDto {
       'Usuário deve conter apenas letras, números, ponto, hífen ou sublinhado',
   })
   username!: string;
+
+  @IsEmail()
+  @IsNotEmpty()
+  email!: string;
 
   @IsString()
   @MinLength(8)

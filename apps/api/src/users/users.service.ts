@@ -147,6 +147,7 @@ export class UsersService {
         tenantId,
         email: dto.email ?? `${username}@local`,
         username,
+        email: null,
         name: dto.name.trim(),
         role: dto.role ?? 'USER',
         passwordHash,

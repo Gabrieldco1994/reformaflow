@@ -34,6 +34,7 @@
   },
   "packageManager": "npm@11.6.2",
   "dependencies": {
+    "@microsoft/clarity": "^1.0.2",
     "@prisma/client": "^5.22.0"
   }
 }

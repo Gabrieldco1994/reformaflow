@@ -799,6 +799,7 @@ export class MonthlyOverviewService {
                 projetoOrigem,
                 parcelaIndex: index as number | null,
                 foreignExpenseId: expense.id as string | null,
+                origem: { tipo: 'conta' as const, bankLast4: origin.bankLast4 },
               },
             ];
           });
@@ -835,6 +836,7 @@ export class MonthlyOverviewService {
                 projetoOrigem,
                 parcelaIndex: null as number | null,
                 foreignExpenseId: null as string | null,
+                origem: { tipo: 'carteira' as const },
               },
             ];
           }
@@ -875,6 +877,7 @@ export class MonthlyOverviewService {
                 projetoOrigem,
                 parcelaIndex: index as number | null,
                 foreignExpenseId: expense.id as string | null,
+                origem: { tipo: 'carteira' as const },
               },
             ];
           });
@@ -923,6 +926,7 @@ export class MonthlyOverviewService {
               projetoOrigem,
               parcelaIndex: index as number | null,
               foreignExpenseId: expense.id as string | null,
+              origem: { tipo: 'conta' as const, bankLast4: origin.bankLast4 },
             },
           ];
         });
@@ -985,6 +989,17 @@ export class MonthlyOverviewService {
       })),
       ...foreignPendingItems,
     ].sort((a, b) => b.data.localeCompare(a.data));
+
+    // Recalculate saiuMes and faltaPagarMes to include all saidas (including carteira)
+    // This ensures carteira items are properly counted in the totals
+    const recalculatedSaiuMes = sumBy(
+      saidas.filter((s: any) => s.kind === 'saida'),
+      (s: any) => s.valor,
+    );
+    const recalculatedFaltaPagarMes = sumBy(
+      saidas.filter((s: any) => s.kind === 'saida' && !s.realizado),
+      (s: any) => s.valor,
+    );
 
     const entradas = receipts
       .filter(
@@ -1113,10 +1128,10 @@ export class MonthlyOverviewService {
       mesSelecionado,
       caixaHoje: caixa.hoje,
       entrouMes,
-      saiuMes,
-      faltaPagarMes,
+      saiuMes: recalculatedSaiuMes,
+      faltaPagarMes: recalculatedFaltaPagarMes + devoCartaoTotal,
       recebimentosPrevistosMes,
-      sobraPrevista: caixa.hoje - faltaPagarMes + recebimentosPrevistosMes,
+      sobraPrevista: caixa.hoje - (recalculatedFaltaPagarMes + devoCartaoTotal) + recebimentosPrevistosMes,
       devoCartaoTotal,
       cartoes,
       contas,
