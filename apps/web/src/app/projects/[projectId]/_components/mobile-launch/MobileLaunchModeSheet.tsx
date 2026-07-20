@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ArrowUpCircle, Camera, CreditCard, Keyboard, Landmark, Mic, X } from 'lucide-react';
+import { ArrowDownCircle, ArrowUpCircle, Camera, CreditCard, Landmark, Mic, X } from 'lucide-react';
 
 export type LaunchMode = 'escrito' | 'receita' | 'voz' | 'fatura' | 'extrato';
 
@@ -82,10 +82,10 @@ export function MobileLaunchModeSheet({ open, onClose, onPick, voiceSupported = 
         {view === 'root' ? (
           <div className="space-y-2.5 pt-1">
             <OptionCard
-              icon={Keyboard}
+              icon={ArrowDownCircle}
               title="Despesa"
               subtitle="Teclado rápido — valor, origem e descrição"
-              accent="bg-darc-velvet text-white"
+              accent="bg-[#E8F0EC] text-[#2F7D5B]"
               onClick={() => onPick('escrito')}
             />
             <OptionCard

@@ -1,4 +1,4 @@
-import { Mic, Zap, CalendarClock, CalendarRange, CreditCard, Landmark } from 'lucide-react';
+import { Mic, Zap, CalendarClock, CalendarRange, CreditCard, Landmark, ArrowDownCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Modal } from '@/components/ui/modal';
 
@@ -15,6 +15,8 @@ interface PayOptionsModalProps {
   onImportCard?: () => void;
   /** Abre o picker de conta para importar extrato bancário. */
   onImportAccount?: () => void;
+  /** Abre o formulário de novo recebimento. */
+  onOpenNewReceiptForm?: () => void;
 }
 
 /**
@@ -33,9 +35,10 @@ export function PayOptionsModal({
   onOpenRecorrenteForm,
   onImportCard,
   onImportAccount,
+  onOpenNewReceiptForm,
 }: PayOptionsModalProps) {
   return (
-    <Modal open={open} onClose={onClose} title="Nova despesa">
+    <Modal open={open} onClose={onClose} title="Novo lançamento">
       <div className="space-y-4">
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <button
@@ -112,6 +115,22 @@ export function PayOptionsModal({
               <span className="min-w-0">
                 <span className="block text-sm font-semibold text-darc-velvet">Extrato bancário</span>
                 <span className="block text-[11px] text-darc-velvet/50">OFX/CSV ou 📷 foto</span>
+              </span>
+            </button>
+          )}
+
+          {onOpenNewReceiptForm && (
+            <button
+              type="button"
+              onClick={onOpenNewReceiptForm}
+              className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-left transition-colors hover:bg-emerald-100"
+            >
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white">
+                <ArrowDownCircle className="h-4 w-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-darc-velvet">Novo recebimento</span>
+                <span className="block text-[11px] text-darc-velvet/50">Abrir formulário de receita</span>
               </span>
             </button>
           )}

@@ -314,7 +314,7 @@ e o que ainda vai sair?".
 mês (‹ › + calendário).
 
 **Ações rápidas (topo):**
-- **"Lançar"** (desktop) → abre o mesmo launcher canônico usado no Cockpit.
+- **"Lançar"** (desktop) → abre o launcher canônico **"Novo lançamento"**.
 - No **mobile**, o lançamento fica no botão **"+"** da barra inferior.
 - **"Planejar recebimentos"** e **"Vincular em massa"** ficam visíveis no topo.
 
@@ -420,7 +420,7 @@ Onde se registra e acompanha tudo que se gasta. É o módulo mais rico.
    **Data da compra** (competência); parcelamento (qtd + início) e vínculo a cartão/conta.
 4. Passo **Ação:** **Planejar/Salvar** ou **Vincular** (rateio para outro projeto).
 - No modal de opções também há **Planejar**, **Despesa recorrente** (mensal/quinzenal),
-  **Lançar por voz** e **importação** (OFX/CSV de fatura/extrato).
+  **Novo recebimento**, **Lançar por voz** e **importação** (OFX/CSV de fatura/extrato).
 - **Validações:** valor > 0; máscara monetária `1.234,56`.
 
 **KPI hero "Gasto no mês":** total gasto no mês + **% pago** (barra), com
