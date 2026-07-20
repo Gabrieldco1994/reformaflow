@@ -150,8 +150,8 @@ export function MobileLaunchSheet({
 
   return (
     <>
-      <div className="pessoal-minimal-backdrop fixed inset-0 z-40 bg-darc-velvet/60 backdrop-blur-sm" onClick={onClose} aria-hidden />
-      <section data-mobile-sheet="launch" className="pessoal-minimal-launch-sheet fixed inset-x-0 bottom-0 z-50 max-h-[96dvh] overflow-y-auto rounded-t-[28px] border border-darc-linen bg-lifeone-surface px-4 pb-6 pt-3">
+      <div className="pessoal-minimal-backdrop fixed inset-0 z-40 bg-darc-velvet/60 backdrop-blur-sm lg:hidden" onClick={onClose} aria-hidden />
+      <section data-mobile-sheet="launch" className="pessoal-minimal-launch-sheet fixed inset-x-0 bottom-0 z-50 max-h-[96dvh] overflow-y-auto rounded-t-[28px] border border-darc-linen bg-lifeone-surface px-4 pb-6 pt-3 lg:hidden">
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-xl font-bold text-lifeone-ink">Lançar</h2>
           <button type="button" onClick={onClose} aria-label="Fechar lançar" className="flex min-h-11 min-w-11 items-center justify-center rounded-full text-darc-velvet/70 hover:bg-darc-linen/60">

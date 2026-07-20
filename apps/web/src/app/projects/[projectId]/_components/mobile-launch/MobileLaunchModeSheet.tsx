@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Camera, CreditCard, Keyboard, Landmark, Mic, X } from 'lucide-react';
+import { ArrowUpCircle, Camera, CreditCard, Keyboard, Landmark, Mic, X } from 'lucide-react';
 
-export type LaunchMode = 'escrito' | 'voz' | 'fatura' | 'extrato';
+export type LaunchMode = 'escrito' | 'receita' | 'voz' | 'fatura' | 'extrato';
 
 interface Props {
   open: boolean;
@@ -57,13 +57,13 @@ export function MobileLaunchModeSheet({ open, onClose, onPick, voiceSupported = 
   return (
     <>
       <div
-        className="pessoal-minimal-backdrop fixed inset-0 z-40 bg-darc-velvet/60 backdrop-blur-sm"
+        className="pessoal-minimal-backdrop fixed inset-0 z-40 bg-darc-velvet/60 backdrop-blur-sm lg:hidden"
         onClick={onClose}
         aria-hidden
       />
       <section
         data-mobile-sheet="launch-mode"
-        className="pessoal-minimal-launch-sheet fixed inset-x-0 bottom-0 z-50 max-h-[96dvh] overflow-y-auto rounded-t-[28px] border border-darc-linen bg-lifeone-surface px-4 pb-6 pt-3"
+        className="pessoal-minimal-launch-sheet fixed inset-x-0 bottom-0 z-50 max-h-[96dvh] overflow-y-auto rounded-t-[28px] border border-darc-linen bg-lifeone-surface px-4 pb-6 pt-3 lg:hidden"
       >
         <div className="mb-1 flex items-center justify-between">
           <h2 className="text-[17px] font-semibold text-darc-velvet">
@@ -83,10 +83,17 @@ export function MobileLaunchModeSheet({ open, onClose, onPick, voiceSupported = 
           <div className="space-y-2.5 pt-1">
             <OptionCard
               icon={Keyboard}
-              title="Escrito"
+              title="Despesa"
               subtitle="Teclado rápido — valor, origem e descrição"
               accent="bg-darc-velvet text-white"
               onClick={() => onPick('escrito')}
+            />
+            <OptionCard
+              icon={ArrowUpCircle}
+              title="Recebimento"
+              subtitle="Registrar entrada de dinheiro"
+              accent="bg-[#E8F0EC] text-[#2F7D5B]"
+              onClick={() => onPick('receita')}
             />
             {voiceSupported && (
               <OptionCard

@@ -15,6 +15,7 @@ import { VoiceExpenseModal } from '../../expenses/_components/VoiceExpenseModal'
 import ImportStatementModal from '../../credit-cards/_components/ImportStatementModal';
 import ImportBankStatementModal from '../../bank-accounts/_components/ImportBankStatementModal';
 import { currentMonthKey } from '../../conta/_lib';
+import { ReceitaModal } from '../../conta/_components/ReceitaModal';
 import type { AccountViewResponse, OriginItemsYearlyResponse } from '../../conta/_types';
 import { MobileLaunchSheet } from './MobileLaunchSheet';
 import { MobileLaunchModeSheet } from './MobileLaunchModeSheet';
@@ -27,7 +28,7 @@ interface Props {
 }
 
 type CreatedExpense = { id: string };
-type LaunchScreen = 'choose' | 'escrito' | 'voz' | 'fatura' | 'extrato';
+type LaunchScreen = 'choose' | 'escrito' | 'receita' | 'voz' | 'fatura' | 'extrato';
 
 const cardLabel = (c: LaunchCardOption) =>
   [c.nickname || c.brand || 'Cartão', c.last4 ? `•${c.last4}` : null].filter(Boolean).join(' ');
@@ -212,6 +213,13 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
         recentDescriptions={recentDescriptions}
         projectType={projectType}
         projectedBalanceCents={accountView?.sobraPrevista ?? null}
+      />
+
+      <ReceitaModal
+        open={open && screen === 'receita'}
+        onClose={handleClose}
+        projectId={projectId}
+        defaultData={new Date().toISOString().slice(0, 10)}
       />
 
       <VoiceExpenseModal
