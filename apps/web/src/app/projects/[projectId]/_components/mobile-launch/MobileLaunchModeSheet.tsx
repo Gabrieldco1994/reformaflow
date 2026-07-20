@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ArrowDownCircle, ArrowUpCircle, Camera, CreditCard, Landmark, Mic, X } from 'lucide-react';
+import { ArrowDownCircle, ArrowUpCircle, CalendarClock, Camera, CreditCard, Landmark, Mic, X } from 'lucide-react';
 
-export type LaunchMode = 'escrito' | 'receita' | 'voz' | 'fatura' | 'extrato';
+export type LaunchMode = 'escrito' | 'planejar' | 'receita' | 'voz' | 'fatura' | 'extrato';
 
 interface Props {
   open: boolean;
@@ -85,8 +85,15 @@ export function MobileLaunchModeSheet({ open, onClose, onPick, voiceSupported = 
               icon={ArrowDownCircle}
               title="Despesa"
               subtitle="Teclado rápido — valor, origem e descrição"
-              accent="bg-[#E8F0EC] text-[#2F7D5B]"
+              accent="bg-[#FDEBEC] text-[#C43D4B]"
               onClick={() => onPick('escrito')}
+            />
+            <OptionCard
+              icon={CalendarClock}
+              title="Planejar"
+              subtitle="Despesa futura / a pagar"
+              accent="bg-[#FBEBDC] text-[#B5803A]"
+              onClick={() => onPick('planejar')}
             />
             <OptionCard
               icon={ArrowUpCircle}

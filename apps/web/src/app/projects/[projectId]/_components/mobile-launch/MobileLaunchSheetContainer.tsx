@@ -17,9 +17,11 @@ import ImportBankStatementModal from '../../bank-accounts/_components/ImportBank
 import { currentMonthKey } from '../../conta/_lib';
 import { ReceitaModal } from '../../conta/_components/ReceitaModal';
 import type { AccountViewResponse, OriginItemsYearlyResponse } from '../../conta/_types';
+import type { Expense } from '@/types';
 import { MobileLaunchSheet } from './MobileLaunchSheet';
 import { MobileLaunchModeSheet } from './MobileLaunchModeSheet';
 import type { LaunchAccountOption, LaunchCardOption, LaunchPayload } from './types';
+import { NovaDespesaWizard } from '../../expenses/_components/NovaDespesaWizard';
 
 interface Props {
   projectId: string;
@@ -28,7 +30,7 @@ interface Props {
 }
 
 type CreatedExpense = { id: string };
-type LaunchScreen = 'choose' | 'escrito' | 'receita' | 'voz' | 'fatura' | 'extrato';
+type LaunchScreen = 'choose' | 'escrito' | 'planejar' | 'receita' | 'voz' | 'fatura' | 'extrato';
 
 const cardLabel = (c: LaunchCardOption) =>
   [c.nickname || c.brand || 'Cartão', c.last4 ? `•${c.last4}` : null].filter(Boolean).join(' ');
@@ -82,6 +84,11 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
     queryKey: ['origin-items-yearly', projectId, year, 'all'],
     queryFn: () => api.get(`/projects/${projectId}/monthly-overview/origin-items-yearly?year=${year}&kind=all`),
     enabled: open,
+  });
+  const { data: plannedExpenses = [] } = useQuery<Expense[]>({
+    queryKey: ['expenses', projectId, 'planned'],
+    queryFn: () => api.get(`/projects/${projectId}/expenses/planned`),
+    enabled: open && screen === 'planejar',
   });
 
   // Cartões/contas/projetos do tenant — usados pela IA de voz para auto-vincular
@@ -142,6 +149,19 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
       });
     },
     onError: (error: Error) => toast.error(`Erro ao lançar despesa: ${error.message}`),
+  });
+  const payMutation = useMutation({
+    mutationFn: (id: string) => api.post(`/projects/${projectId}/expenses/${id}/pay`, {}),
+    onSuccess: () => {
+      invalidateExpenseQueries(queryClient, projectId);
+      queryClient.invalidateQueries({ queryKey: ['origin-items-yearly', projectId] });
+      toast.success('Despesa paga');
+      setScreen('choose');
+      setSelectedCardId(null);
+      setSelectedAccountId(null);
+      onClose();
+    },
+    onError: (error: Error) => toast.error(`Erro ao pagar despesa: ${error.message}`),
   });
 
   const handleClose = useCallback(() => {
@@ -213,6 +233,22 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
         recentDescriptions={recentDescriptions}
         projectType={projectType}
         projectedBalanceCents={accountView?.sobraPrevista ?? null}
+      />
+
+      <NovaDespesaWizard
+        open={open && screen === 'planejar'}
+        mode="PLANEJAR"
+        projectId={projectId}
+        projectType={projectType}
+        allowRecorrente={false}
+        tipoOptions={tipoDespesaOptions}
+        roomOptions={[]}
+        showRooms={false}
+        plannedExpenses={plannedExpenses}
+        onPay={(id) => payMutation.mutate(id)}
+        payDisabled={payMutation.isPending}
+        onClose={handleClose}
+        onCreated={handleClose}
       />
 
       <ReceitaModal
