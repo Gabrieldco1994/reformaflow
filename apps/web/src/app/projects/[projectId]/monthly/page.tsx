@@ -338,6 +338,7 @@ export default function CockpitPage() {
             data={viewData}
             monthKey={monthKey}
             entries={monthEntries}
+            runwaySerie={dreOverview?.anual?.saldoAcumuladoSerie}
             showRecs={view === "mes"}
           />
         )}

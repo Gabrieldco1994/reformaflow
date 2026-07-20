@@ -309,6 +309,11 @@ emitem `isNeutralConsumo=true`; `caixa.hoje` permaneceu R$ 69.016,52.
 > card de mês futuro prefere o `saldoProjetado` da série anual: runway
 > **acumulado**, carregando sobras ou faltas dos meses anteriores. Se a série não
 > estiver disponível, a tela volta à sobra mensal da account-view.
+>
+> **Onde cada coisa aparece (PR-3):** o detalhamento completo do runway ("Vai dar até
+> dez?" com curva/cenários) fica no **Cockpit** (mobile + desktop). A **Visão Conta**
+> mantém só a linha-resumo de horizonte com deep-link para o Cockpit, para evitar
+> narrativas contraditórias entre telas.
 
 ---
 
