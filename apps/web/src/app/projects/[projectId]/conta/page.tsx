@@ -13,12 +13,12 @@ import { CartoesSection } from './_components/CartoesSection';
 import { MovimentacoesSection } from './_components/MovimentacoesSection';
 import { PagarFaturaDialog } from './_components/PagarFaturaDialog';
 import { InvoiceInterventionDialog } from './_components/InvoiceInterventionDialog';
-import { TicketMedioSection } from './_components/TicketMedioSection';
 import { FaturasAnuaisChart } from './_components/FaturasAnuaisChart';
 import { DespesasRelacionadas } from './_components/DespesasRelacionadas';
 import { TodasDespesasAno } from './_components/TodasDespesasAno';
 import { ContaQuickActions } from './_components/ContaQuickActions';
 import { NovaDespesaLauncher } from '../expenses/_components/NovaDespesaLauncher';
+import { PendenciasQueueCard } from '../monthly/_cockpit/PendenciasQueueCard';
 import type {
   AccountViewResponse,
   CardInvoicesYearlyResponse,
@@ -252,7 +252,9 @@ export default function ContaPage() {
                   setResumoQuickFilter(key);
                 }}
               />
+              <PendenciasQueueCard projectId={projectId} monthKey={data.mesSelecionado} />
               <CartoesSection
+                projectId={projectId}
                 cartoes={data.cartoes}
                 contas={data.contas ?? []}
                 selected={originFilter}
@@ -272,7 +274,6 @@ export default function ContaPage() {
                 summaryQuickFilter={resumoQuickFilter}
                 onClearSummaryQuickFilter={() => setResumoQuickFilter(null)}
               />
-              <TicketMedioSection ticket={data.ticketMedio} currentMonth={data.mesSelecionado} />
             </>
           )}
         </>

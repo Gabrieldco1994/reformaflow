@@ -99,6 +99,12 @@ O v1 resolveu a **arquitetura de informação** (Conta = linha do tempo única; 
 
 **Agentes:** `frontend-expert` → `qa-engineer` → `pessoal-lens` Phase 2 → `doc-librarian`. (`architect` só para a decisão de destino do Ticket Médio, pode ser consulta rápida.)
 
+**Status desta execução (2026-07-20):**
+- [x] `CartoesSection` em carrossel horizontal compacto no mobile (scroll-snap) + link "Ver todos" para `/credit-cards`; desktop mantém grid.
+- [x] `TicketMedioSection` removida da Conta e exibida em Análises (`/dre`) com os mesmos dados do mês.
+- [x] Ordem da Conta ajustada: resumo → **Precisa de você** (quando houver) → cartões/contas → movimentações (nada abaixo da lista).
+- [x] Teste de componente atualizado para `CartoesSection` (link + filtro).
+
 ---
 
 ## W4 — Do alerta à ação (runway prescritivo) — PR-D

@@ -10,6 +10,8 @@ import { DreMensalView, type DreEixoMensal } from './_components/DreMensalView';
 import { DreAnualView } from './_components/DreAnualView';
 import { CategoryRulesSheet } from './_components/CategoryRulesSheet';
 import type { DreOverviewResponse } from './_types';
+import type { AccountViewResponse } from '../conta/_types';
+import { TicketMedioSection } from '../conta/_components/TicketMedioSection';
 
 type Periodo = 'mensal' | 'anual';
 
@@ -50,6 +52,13 @@ export default function DrePage() {
     queryFn: () =>
       api.get(`/projects/${projectId}/monthly-overview/dre-overview?month=${monthKey}&year=${year}`),
     enabled: !!projectId,
+  });
+
+  const { data: accountView } = useQuery<AccountViewResponse>({
+    queryKey: ['account-view', projectId, monthKey],
+    queryFn: () =>
+      api.get(`/projects/${projectId}/monthly-overview/account-view?month=${monthKey}`),
+    enabled: !!projectId && periodo === 'mensal',
   });
 
   if (projectType && projectType !== 'PESSOAL') {
@@ -149,11 +158,19 @@ export default function DrePage() {
       {data && !isLoading && (
         <>
           {periodo === 'mensal' ? (
-            <DreMensalView
-              data={data.mensal}
-              eixo={eixoMensal}
-              onChangeEixo={setEixoMensal}
-            />
+            <>
+              <DreMensalView
+                data={data.mensal}
+                eixo={eixoMensal}
+                onChangeEixo={setEixoMensal}
+              />
+              {accountView && (
+                <TicketMedioSection
+                  ticket={accountView.ticketMedio}
+                  currentMonth={accountView.mesSelecionado}
+                />
+              )}
+            </>
           ) : (
             <DreAnualView data={data.anual} />
           )}
