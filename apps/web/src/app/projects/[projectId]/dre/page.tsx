@@ -8,6 +8,7 @@ import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
 import { DreMensalView, type DreEixoMensal } from './_components/DreMensalView';
 import { DreAnualView } from './_components/DreAnualView';
+import { CategoryRulesSheet } from './_components/CategoryRulesSheet';
 import type { DreOverviewResponse } from './_types';
 
 type Periodo = 'mensal' | 'anual';
@@ -76,29 +77,32 @@ export default function DrePage() {
               </h1>
             </div>
           </div>
-          <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-0.5">
-            <button
-              type="button"
-              onClick={() => setPeriodo('mensal')}
-              className={`h-11 rounded-lg px-4 text-sm font-semibold transition ${
-                periodo === 'mensal'
-                  ? 'bg-white text-slate-900 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              mensal
-            </button>
-            <button
-              type="button"
-              onClick={() => setPeriodo('anual')}
-              className={`h-11 rounded-lg px-4 text-sm font-semibold transition ${
-                periodo === 'anual'
-                  ? 'bg-white text-slate-900 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              anual
-            </button>
+          <div className="flex items-center gap-2">
+            <CategoryRulesSheet />
+            <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-0.5">
+              <button
+                type="button"
+                onClick={() => setPeriodo('mensal')}
+                className={`h-11 rounded-lg px-4 text-sm font-semibold transition ${
+                  periodo === 'mensal'
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                mensal
+              </button>
+              <button
+                type="button"
+                onClick={() => setPeriodo('anual')}
+                className={`h-11 rounded-lg px-4 text-sm font-semibold transition ${
+                  periodo === 'anual'
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                anual
+              </button>
+            </div>
           </div>
         </div>
 
