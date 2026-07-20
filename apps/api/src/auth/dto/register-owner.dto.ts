@@ -3,8 +3,10 @@ import {
   ArrayNotEmpty,
   ArrayUnique,
   IsArray,
+  IsEmail,
   IsEnum,
   IsNotEmpty,
+  IsOptional,
   IsString,
   Matches,
   MaxLength,
@@ -19,6 +21,11 @@ export class RegisterOwnerDto {
   @IsString()
   @MinLength(2)
   ownerName!: string;
+
+  @IsString()
+  @IsEmail()
+  @IsOptional()
+  email?: string;
 
   @IsString()
   @MinLength(3)
