@@ -23,6 +23,8 @@ O v1 resolveu a **arquitetura de informação** (Conta = linha do tempo única; 
 
 ## W1 — Fila de Pendências ("Precisa de você") — PR-A
 
+**Tracking:** issue #214 (sub-issue do épico #213).
+
 **Problema:** hoje a conciliação é garimpo — o usuário precisa *encontrar* o item sem conta/sem categoria na lista. **Solução:** uma caixa de entrada única de pendências financeiras, resolvível item a item com 1 toque.
 
 ### Backend

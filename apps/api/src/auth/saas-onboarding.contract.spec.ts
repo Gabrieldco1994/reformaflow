@@ -78,7 +78,7 @@ describe("self-service registration contract", () => {
         allowedProjectTypes: JSON.stringify(["CASA", "PESSOAL"]),
         allowedModules: JSON.stringify([
           "dashboard", "recurringBills", "maintenance", "reminders", "expenses",
-          "receipts", "cashFlow", "creditCards", "bankAccounts", "monthlyOverview",
+          "receipts", "cashFlow", "creditCards", "bankAccounts", "monthlyOverview", "pendencias",
         ]),
       }),
     });
@@ -101,7 +101,7 @@ describe("self-service registration contract", () => {
     expect(data.role).toBe("USER");
     expect(data.allowedModules).toBe(JSON.stringify([
       "dashboard", "recurringBills", "maintenance", "reminders", "expenses",
-      "receipts", "cashFlow", "creditCards", "bankAccounts", "monthlyOverview",
+      "receipts", "cashFlow", "creditCards", "bankAccounts", "monthlyOverview", "pendencias",
     ]));
     expect(data.allowedProjectTypes).toBe(JSON.stringify(["CASA", "PESSOAL"]));
   });

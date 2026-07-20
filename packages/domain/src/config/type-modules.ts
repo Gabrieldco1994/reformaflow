@@ -70,6 +70,7 @@ export const TYPE_MODULES: Record<ProjectType, TypeModuleSlug[]> = {
     'creditCards',
     'bankAccounts',
     'monthlyOverview',
+    'pendencias',
   ],
   [ProjectType.CASA]: ['dashboard', 'recurringBills', 'maintenance', 'reminders', 'expenses'],
   [ProjectType.CARRO]: [
