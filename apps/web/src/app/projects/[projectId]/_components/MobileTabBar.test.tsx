@@ -73,7 +73,7 @@ const NON_PERSONAL_MATRIX = [
 ] as const;
 
 describe("MobileTabBar", () => {
-  it("renders Cockpit, Despesas, Maria e Cartões in the PESSOAL pill and separate launch button", () => {
+  it("renders Cockpit, Conta, Maria e Cartões in the PESSOAL pill and separate launch button", () => {
     renderTabBar({ canLaunch: true });
 
     const pill = screen.getByTestId("pessoal-tab-pill");
@@ -84,16 +84,16 @@ describe("MobileTabBar", () => {
     expect(links).toHaveLength(4);
     expect(links.map((link) => link.textContent)).toEqual([
       "Cockpit",
-      "Despesas",
+      "Conta",
       "Maria",
       "Cartões",
     ]);
     expect(today).toHaveAttribute("href", `${basePath}/monthly`);
     expect(today).toHaveAttribute("aria-current", "page");
     expect(today).toHaveClass("bg-[#111214]", "text-white");
-    expect(screen.getByRole("link", { name: "Despesas" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Conta" })).toHaveAttribute(
       "href",
-      `${basePath}/expenses`,
+      `${basePath}/conta`,
     );
     expect(launch).toHaveClass("h-16", "w-16", "bg-white");
     expect(pill).not.toContainElement(launch);
@@ -109,16 +109,15 @@ describe("MobileTabBar", () => {
     expect(screen.getByRole("navigation")).not.toHaveClass("lg:hidden");
   });
 
-  it("omits Cockpit when PESSOAL monthly permission is absent and keeps Despesas/Maria/Cartões", () => {
+  it("omits Cockpit/Conta when PESSOAL monthly permission is absent and keeps Maria/Cartões", () => {
     renderTabBar({ primary: [], canLaunch: true });
 
     expect(
       screen.queryByRole("link", { name: "Cockpit" }),
     ).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Despesas" })).toHaveAttribute(
-      "href",
-      `${basePath}/expenses`,
-    );
+    expect(
+      screen.queryByRole("link", { name: "Conta" }),
+    ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Lançar" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Maria" })).toHaveAttribute(
       "href",
@@ -137,9 +136,10 @@ describe("MobileTabBar", () => {
       "href",
       `${basePath}/monthly`,
     );
-    expect(
-      screen.queryByRole("link", { name: "Despesas" }),
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Conta" })).toHaveAttribute(
+      "href",
+      `${basePath}/conta`,
+    );
     expect(
       screen.queryByRole("button", { name: "Lançar" }),
     ).not.toBeInTheDocument();
@@ -163,13 +163,13 @@ describe("MobileTabBar", () => {
     expect(onOpenLaunch).toHaveBeenCalledTimes(1);
   });
 
-  it("marks Despesas as active on the expenses route for PESSOAL", () => {
+  it("marks Conta as active on the conta route for PESSOAL", () => {
     renderTabBar({
-      pathname: `${basePath}/expenses`,
+      pathname: `${basePath}/conta`,
       canLaunch: true,
     });
 
-    expect(screen.getByRole("link", { name: "Despesas" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Conta" })).toHaveAttribute(
       "aria-current",
       "page",
     );
@@ -188,7 +188,7 @@ describe("MobileTabBar", () => {
     expect(screen.getByRole("link", { name: "Cockpit" })).not.toHaveAttribute(
       "aria-current",
     );
-    expect(screen.getByRole("link", { name: "Despesas" })).not.toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Conta" })).not.toHaveAttribute(
       "aria-current",
     );
     expect(screen.getByRole("link", { name: "Cartões" })).not.toHaveAttribute(
