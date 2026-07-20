@@ -4,6 +4,7 @@ import { SpeedInsights } from '@vercel/speed-insights/next';
 import './globals.css';
 import { Providers } from '@/lib/providers';
 import { Toaster } from 'sonner';
+import { ClarityInit } from './_components/ClarityInit';
 
 const inter = Inter({
   subsets: ["latin"],
@@ -68,6 +69,7 @@ export default function RootLayout({
         />
       </head>
       <body className={jost.className}>
+        <ClarityInit />
         <Providers>
           <Toaster richColors position="top-right" />
           {children}
