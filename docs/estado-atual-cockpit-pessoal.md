@@ -1,6 +1,6 @@
 # Estado Atual — Cockpit/Visão Conta (PESSOAL)
 
-Atualizado em: **2026-07-19**
+Atualizado em: **2026-07-20**
 
 Histórico detalhado: `docs/archive/estado-atual-historico-2026.md`.
 
@@ -16,6 +16,11 @@ Histórico detalhado: `docs/archive/estado-atual-historico-2026.md`.
   categoria/projeto, filtros com "Limpar filtros", expandir fatura inline) e
   lançamento mobile "+" em 3 modos (Escrito categoria-first / Voz / Foto).
   Backend read-only/aditivo (receipt persiste `descricao`; sem migration).
+- ✅ PR-1 (linha mobile da Conta) e PR-2 (Carteira backend/frontend) entregues no
+  ciclo Visão Conta Hub; fechamento frontend da Carteira consolidado no PR #204.
+- ▶ PR-3 (`feat/conta-pr3-projecao-unificada`, PR #205) e PR-4 (`feat/conta-pr4-nav-actions`, PR #207)
+  em revisão: narrativa única de projeção entre Conta/Cockpit e migração de navegação
+  para Conta como hub.
 
 ## 2) Fontes de verdade
 

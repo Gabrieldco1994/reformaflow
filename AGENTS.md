@@ -86,6 +86,7 @@ cd packages/domain && npx vitest run              # testes domínio (vitest, __t
 
 - **Status consolidado do Cockpit PESSOAL**: ver `docs/estado-atual-cockpit-pessoal.md` antes de qualquer análise de escopo.
 - **Visão Conta / Faturas de cartão**: regra de neutros, agregação de fatura, casamento pagamento→fatura (`matchPaidInvoices`, por valor+janela) e "cartão paga cartão" (`settlesInvoiceKey` + `computePaidInvoiceKeys`) estão documentados em `docs/visao-conta-faturas.md`. Caixa real §10 em `docs/cockpit-caixa-real.md`.
+- **Navegação do PESSOAL (PR-4)**: bottom nav mobile mora em `apps/web/src/app/projects/[projectId]/_components/mobile-nav.ts` + `MobileTabBar.tsx` (Cockpit · Conta · [+] · Maria · Cartões). Sidebar desktop mora em `DesktopSidebar.tsx` (grupos Cockpit/Conta/Cartões/Planejamento/Análises). Despesas/Recebimentos são drill-downs da Conta no PESSOAL (links em `conta/_components/MovimentacoesSection.tsx`) e continuam acessíveis no sheet "Mais".
 - **Gemini 2.5-flash**: thinking tokens contam para `maxOutputTokens`. Usar `16K` + `responseMimeType:'application/json'` (sem `responseSchema`). Repair de JSON truncado já existe em `gemini.service.ts`.
 - **Price compare**: Buscapé via `__NEXT_DATA__` (sem API key). Google CSE retorna 403 (não habilitado).
 - **Floor plans**: `react-zoom-pan-pinch` precisa `disabled={drawingMode}` para permitir desenho.

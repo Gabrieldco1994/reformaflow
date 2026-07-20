@@ -85,6 +85,32 @@ describe("DesktopSidebar", () => {
     expect(screen.getByText("Usuários")).toBeInTheDocument();
   });
 
+  it("groups PESSOAL sidebar into cockpit/conta/cartoes/planejamento/analises and removes despesas from primary menu", () => {
+    render(
+      <DesktopSidebar
+        project={{ id: "p1", name: "Finanças", type: ProjectType.PESSOAL }}
+        basePath={basePath}
+        pathname={`${basePath}/conta`}
+        visibleNav={getProjectNavModules(ProjectType.PESSOAL)}
+        isAdmin={false}
+        userName="Ana"
+        onLogout={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /expandir menu lateral/i }),
+    );
+
+    expect(screen.getByText("Cockpit", { selector: "p" })).toBeInTheDocument();
+    expect(screen.getByText("Conta", { selector: "p" })).toBeInTheDocument();
+    expect(screen.getByText("Cartões", { selector: "p" })).toBeInTheDocument();
+    expect(screen.getByText("Planejamento", { selector: "p" })).toBeInTheDocument();
+    expect(screen.getByText("Análises", { selector: "p" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Despesas" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Recebimentos" })).not.toBeInTheDocument();
+  });
+
   it("uses exact route segments for PLANTAS active state", () => {
     const visibleNav = getProjectNavModules(ProjectType.PLANTAS);
     const plantProps = {

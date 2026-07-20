@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -438,6 +439,12 @@ export function MovimentacoesSection({
     { key: 'entradas', label: 'Entradas' },
     { key: 'tudo', label: 'Tudo' },
   ];
+  const drillDownHref =
+    tab === 'saidas'
+      ? `/projects/${projectId}/expenses?eixo=competencia`
+      : tab === 'entradas'
+        ? `/projects/${projectId}/receipts`
+        : null;
 
   // Nº de filtros de conteúdo ativos (categoria + projeto) — badge do botão "Filtros".
   const activeFilterCount =
@@ -635,6 +642,16 @@ export function MovimentacoesSection({
           </button>
         ))}
       </div>
+      {drillDownHref && (
+        <div className="mb-2 flex justify-end">
+          <Link
+            href={drillDownHref}
+            className="text-[12px] font-semibold text-lifeone-blue hover:underline"
+          >
+            Ver análise completa
+          </Link>
+        </div>
+      )}
 
       {/* Indicador de filtro de origem ativo (vem dos cards acima) */}
       {originFilter && (
