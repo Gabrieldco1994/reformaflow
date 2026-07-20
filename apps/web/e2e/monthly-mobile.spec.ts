@@ -372,14 +372,21 @@ test.describe("Monthly cockpit — Phase C mobile relance", () => {
     // O "+" abre PRIMEIRO o menu de modo (Despesa / Recebimento / Voz / Foto) — não vai direto
     // ao sheet de lançamento.
     await fab.click();
+    const launchModeSheet = page.locator('[data-mobile-sheet="launch-mode"]');
     await expect(
-      page.getByRole("heading", { name: "Como quer lançar?" }),
+      launchModeSheet.getByRole("heading", { name: "Como quer lançar?" }),
     ).toBeVisible();
-    await expect(page.getByRole("button", { name: /Despesa/ })).toBeVisible();
-    await expect(page.getByRole("button", { name: /Foto/ })).toBeVisible();
+    await expect(
+      launchModeSheet.getByRole("button", { name: /^Despesa\b/ }),
+    ).toBeVisible();
+    await expect(
+      launchModeSheet.getByRole("button", { name: /^Foto\b/ }),
+    ).toBeVisible();
 
     // Despesa → sheet de lançamento rápido.
-    await page.getByRole("button", { name: /Despesa/ }).click();
+    await launchModeSheet
+      .getByRole("button", { name: /^Despesa\b/ })
+      .click();
     await expect(
       page.getByRole("heading", { name: "Lançar", exact: true }),
     ).toBeVisible();
