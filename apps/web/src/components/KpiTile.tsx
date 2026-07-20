@@ -56,6 +56,8 @@ export interface KpiTileProps {
   className?: string;
   /** Delta de mudança. */
   delta?: { value: number; type?: 'cents' | 'percent'; isGood?: boolean };
+  /** Versão mais compacta no mobile para listas densas de KPI. */
+  mobileCompact?: boolean;
 }
 
 export function KpiTile({
@@ -72,6 +74,7 @@ export function KpiTile({
   active = false,
   className = '',
   delta,
+  mobileCompact = false,
 }: KpiTileProps) {
   // Resolver variante
   let resolvedVariant = variant;
@@ -84,17 +87,25 @@ export function KpiTile({
   const isState = resolvedVariant === 'state' || (resolvedVariant === 'tinted' && !isHero);
 
   // Dimensionamento por variante
-  const labelSize = isSupport ? 'text-[12px]' : isHero ? 'text-[13px]' : 'text-[11px]';
+  const labelSize = isSupport
+    ? 'text-[12px]'
+    : isHero
+      ? 'text-[13px]'
+      : mobileCompact
+        ? 'text-[10px] md:text-[11px]'
+        : 'text-[11px]';
   const valueSize = isSupport
     ? 'text-[20px]'
     : isHero
       ? 'text-[26px] md:text-[30px]'
-      : 'text-lg md:text-[22px]';
+      : mobileCompact
+        ? 'text-base md:text-[22px]'
+        : 'text-lg md:text-[22px]';
 
   const base =
     isState
-      ? `rounded-2xl border p-3 shadow-lifeone-card ${getTintedClasses(tone)}`
-      : `rounded-2xl border border-lifeone-hairline bg-lifeone-card p-3 shadow-lifeone-card ${isHero ? 'md:p-4' : ''}`;
+      ? `rounded-2xl border ${mobileCompact ? 'p-2.5 md:p-3' : 'p-3'} shadow-lifeone-card ${getTintedClasses(tone)}`
+      : `rounded-2xl border border-lifeone-hairline bg-lifeone-card ${mobileCompact ? 'p-2.5 md:p-3' : 'p-3'} shadow-lifeone-card ${isHero ? 'md:p-4' : ''}`;
 
   const interactive = onClick
     ? `cursor-pointer text-left transition ${active ? 'ring-2 ring-lifeone-blue' : ''}`
@@ -110,7 +121,7 @@ export function KpiTile({
         <span className="min-w-0 truncate">{label}</span>
         {info && <InfoHint text={info} className={isState ? undefined : 'text-lifeone-ink-3'} />}
       </p>
-      <p className={`mt-2 font-geist tabular-nums font-bold tracking-tight leading-tight ${valueSize} ${valueColor}`}>
+      <p className={`${mobileCompact ? 'mt-1.5 md:mt-2' : 'mt-2'} font-geist tabular-nums font-bold tracking-tight leading-tight ${valueSize} ${valueColor}`}>
         {value}
       </p>
       {delta && (
@@ -120,7 +131,9 @@ export function KpiTile({
       )}
       {extra}
       {context && (
-        <p className={`mt-2 text-[11px] leading-4 ${isState ? 'opacity-80' : 'text-lifeone-ink-3'}`}>
+        <p
+          className={`${mobileCompact ? 'mt-1.5 text-[10px] leading-3.5 md:mt-2 md:text-[11px] md:leading-4' : 'mt-2 text-[11px] leading-4'} ${isState ? 'opacity-80' : 'text-lifeone-ink-3'}`}
+        >
           {context}
         </p>
       )}
