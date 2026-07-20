@@ -1,25 +1,49 @@
 'use client';
 
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { ArrowRight, SkipForward } from 'lucide-react';
+import { hasFeature } from '@reformaflow/domain';
 import { api } from '@/lib/api';
 import { maskCurrencyInput, currencyInputToNumber } from '@/lib/currency-input';
 import { getExpenseOptions } from '@/app/projects/[projectId]/expenses/_types';
 import type { OnboardingStepProps } from '../../_types';
 
+interface TenantCard { id: string; nickname?: string | null; brand: string; last4: string }
+interface TenantAccount { id: string; nickname?: string | null; institution: string; last4?: string | null }
+
 /**
  * Purpose-built quick-add expense step — own local state, own POST call.
  * Used by PESSOAL and REFORMA/COMPRA via `getExpenseOptions(projectType)`
  * for the tipo dropdown (already project-type-aware, never a hardcoded list).
+ * Vínculo com conta/cartão só aparece para tipos com essas features (hoje só
+ * PESSOAL) — replica o mesmo par de selects de `VinculosFields`, mas sem o
+ * cross-project linking (fora de escopo pro "criar rápido" do wizard).
  */
 export function QuickExpenseStep({ projectId, projectType, onDone, onSkip }: OnboardingStepProps) {
   const options = getExpenseOptions(projectType);
+  const showVinculos = hasFeature(projectType, 'bankAccounts') || hasFeature(projectType, 'creditCards');
   const [tipoDespesa, setTipoDespesa] = useState<string>(options[0]?.value ?? '');
   const [valor, setValor] = useState('');
   const [titulo, setTitulo] = useState('');
   const [dataPagamento, setDataPagamento] = useState(() => new Date().toISOString().slice(0, 10));
+  const [creditCardId, setCreditCardId] = useState('');
+  const [bankAccountId, setBankAccountId] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const { data: cards = [] } = useQuery<TenantCard[]>({
+    queryKey: ['tenant', 'credit-cards'],
+    queryFn: () => api.get('/tenant/credit-cards'),
+    staleTime: 60_000,
+    enabled: showVinculos,
+  });
+  const { data: accounts = [] } = useQuery<TenantAccount[]>({
+    queryKey: ['tenant', 'bank-accounts'],
+    queryFn: () => api.get('/tenant/bank-accounts'),
+    staleTime: 60_000,
+    enabled: showVinculos,
+  });
 
   const canSubmit = valor.trim().length > 0;
 
@@ -36,6 +60,8 @@ export function QuickExpenseStep({ projectId, projectType, onDone, onSkip }: Onb
         status: 'PAGO',
         dataPagamento,
         titulo,
+        creditCardId: creditCardId || null,
+        bankAccountId: bankAccountId || null,
       });
       onDone();
     } catch (e) {
@@ -44,6 +70,7 @@ export function QuickExpenseStep({ projectId, projectType, onDone, onSkip }: Onb
       setSaving(false);
     }
   }
+
 
   return (
     <section className="rounded-[18px] border border-lifeone-hairline bg-lifeone-card p-6 shadow-lifeone-card">
@@ -95,6 +122,39 @@ export function QuickExpenseStep({ projectId, projectType, onDone, onSkip }: Onb
             />
           </div>
         </div>
+
+        {showVinculos && (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label htmlFor="qe-conta" className="mb-1 block text-[12px] font-medium text-lifeone-ink-2">Conta bancária</label>
+              <select
+                id="qe-conta"
+                value={bankAccountId}
+                onChange={(e) => setBankAccountId(e.target.value)}
+                className="min-h-11 w-full rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-3 py-2.5 text-[14px]"
+              >
+                <option value="">Nenhuma</option>
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>{a.nickname || a.institution}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="qe-cartao" className="mb-1 block text-[12px] font-medium text-lifeone-ink-2">Cartão</label>
+              <select
+                id="qe-cartao"
+                value={creditCardId}
+                onChange={(e) => setCreditCardId(e.target.value)}
+                className="min-h-11 w-full rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-3 py-2.5 text-[14px]"
+              >
+                <option value="">Nenhum</option>
+                {cards.map((c) => (
+                  <option key={c.id} value={c.id}>{c.nickname || `${c.brand} ••${c.last4}`}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
       </div>
 
       {error && <p className="mt-3 text-[13px] text-[#B42318]">{error}</p>}
