@@ -155,6 +155,10 @@ PESSOAL. O stepper tem 3 partes:
 3. **Pronto:** tela final de confirmação; redireciona automaticamente para o
    **guia de apoio do projeto** (`/projects/:id/apoio`) — nunca direto para o
    Cockpit/Dashboard (`/monthly` ou similar).
+4. **Passo final no guia de apoio:** no fim da timeline de primeiros passos, há
+   uma seção "Último passo: envie seu feedback" explicando como abrir o balão
+   de feedback (no cabeçalho mobile ou menu lateral desktop), escrever a
+   mensagem e enviar para o time.
 
 O critério central permanece o mesmo do fluxo original do PESSOAL: quem segue o
 caminho feliz sai do assistente com pelo menos um lançamento/dado real

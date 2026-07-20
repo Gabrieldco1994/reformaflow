@@ -4,7 +4,13 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useProject } from '@/contexts/project-context';
 import { ProjectType } from '@reformaflow/domain';
-import { ArrowRight, CheckCircle2, Compass, type LucideIcon } from 'lucide-react';
+import {
+  ArrowRight,
+  CheckCircle2,
+  Compass,
+  MessageSquarePlus,
+  type LucideIcon,
+} from 'lucide-react';
 import { typeAccent, type TypeAccent } from '../../_components/type-accent';
 import { APOIO_CONTENT, type ApoioStep } from './_content';
 import { stepIcon } from './_step-icons';
@@ -58,6 +64,31 @@ export default function ApoioPage() {
           </li>
         ))}
       </ol>
+
+      <section className="mt-8 rounded-2xl border border-gray-200 bg-white p-4">
+        <div className="flex items-start gap-3">
+          <span
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
+            style={{ background: accent.fill, color: accent.color }}
+          >
+            <MessageSquarePlus className="h-5 w-5" />
+          </span>
+          <div>
+            <h2 className="text-sm font-semibold text-gray-900">Último passo: envie seu feedback</h2>
+            <p className="mt-1 text-sm text-gray-600">
+              Depois de usar os passos acima, conte como foi sua experiência para o time.
+            </p>
+          </div>
+        </div>
+        <ol className="mt-3 list-decimal space-y-1.5 pl-5 text-sm text-gray-600">
+          <li>
+            Abra o <strong>ícone de feedback (balão)</strong> no cabeçalho (mobile) ou menu lateral
+            (desktop).
+          </li>
+          <li>Descreva rapidamente o que funcionou bem, o que ficou confuso ou qualquer bug.</li>
+          <li>Toque em <strong>Enviar</strong> para registrar sua mensagem.</li>
+        </ol>
+      </section>
 
       <div className="mt-2 flex items-start gap-2 rounded-2xl bg-gray-50 p-4 text-sm text-gray-600">
         <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />
