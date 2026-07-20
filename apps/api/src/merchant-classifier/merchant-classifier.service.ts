@@ -49,6 +49,19 @@ export const MERCHANT_TO_EXPENSE_TYPE: Record<MerchantCategory, ExpenseType> = {
   outros: ExpenseType.OUTROS,
 };
 
+const EXPENSE_TYPE_TO_MERCHANT_CATEGORY: Partial<Record<ExpenseType, MerchantCategory>> = {
+  [ExpenseType.ALIMENTACAO]: 'alimentação',
+  [ExpenseType.TRANSPORTE]: 'transporte',
+  [ExpenseType.ASSINATURAS]: 'assinaturas',
+  [ExpenseType.LAZER]: 'lazer',
+  [ExpenseType.SAUDE]: 'saúde',
+  [ExpenseType.EDUCACAO]: 'educação',
+  [ExpenseType.MORADIA]: 'moradia',
+  [ExpenseType.BELEZA]: 'beleza',
+  [ExpenseType.PETS]: 'pets',
+  [ExpenseType.TRANSFERENCIA_TED]: 'transferência',
+};
+
 export interface ClassifyResult {
   merchant: string;
   category: MerchantCategory;
@@ -77,6 +90,10 @@ export class MerchantClassifierService {
     return s.slice(0, 80);
   }
 
+  static toMerchantCategory(expenseType: string): MerchantCategory | null {
+    return EXPENSE_TYPE_TO_MERCHANT_CATEGORY[expenseType as ExpenseType] ?? null;
+  }
+
   async fromCache(raw: string): Promise<ClassifyResult | null> {
     const key = MerchantClassifierService.normalizeKey(raw);
     if (!key) return null;
@@ -86,7 +103,7 @@ export class MerchantClassifierService {
       merchant: raw,
       category: row.category as MerchantCategory,
       subcategory: row.subcategory,
-      source: 'CACHE',
+      source: (row.source as ClassifyResult['source']) ?? 'CACHE',
       confidence: row.confidence,
     };
   }
@@ -121,7 +138,7 @@ export class MerchantClassifierService {
           merchant: sample,
           category: c.category as MerchantCategory,
           subcategory: c.subcategory,
-          source: 'CACHE',
+          source: (c.source as ClassifyResult['source']) ?? 'CACHE',
           confidence: c.confidence,
         });
       } else {
@@ -203,6 +220,15 @@ export class MerchantClassifierService {
         confidence: 1.0,
       },
     });
+  }
+
+  async removeManual(raw: string): Promise<{ merchantKey: string; deleted: boolean }> {
+    const key = MerchantClassifierService.normalizeKey(raw);
+    if (!key) return { merchantKey: '', deleted: false };
+    const deleted = await this.prisma.merchantCategory.deleteMany({
+      where: { merchantKey: key, source: 'MANUAL' },
+    });
+    return { merchantKey: key, deleted: deleted.count > 0 };
   }
 
   private async callGemini(merchants: string[]): Promise<

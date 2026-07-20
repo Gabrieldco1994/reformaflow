@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { MerchantClassifierService, type MerchantCategory } from './merchant-classifier.service';
 import { MERCHANT_TO_EXPENSE_TYPE } from './merchant-classifier.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -46,6 +46,21 @@ export class MerchantClassifierController {
   @Post('override')
   override(@Body() body: { merchant: string; category: MerchantCategory; subcategory?: string }) {
     return this.svc.setManual(body.merchant, body.category, body.subcategory ?? null);
+  }
+
+  @Post('confirm-rule')
+  async confirmRule(@Body() body: { merchant: string; tipoDespesa: string }) {
+    const category = MerchantClassifierService.toMerchantCategory(body.tipoDespesa);
+    if (!category) {
+      throw new BadRequestException('Tipo de despesa sem mapeamento para regra de merchant');
+    }
+    const saved = await this.svc.setManual(body.merchant, category, null);
+    return { merchantKey: saved?.merchantKey ?? '', category };
+  }
+
+  @Post('remove-rule')
+  removeRule(@Body() body: { merchant: string }) {
+    return this.svc.removeManual(body.merchant);
   }
 
   /**

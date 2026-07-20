@@ -1,8 +1,9 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle } from 'lucide-react';
+import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { Modal } from '@/components/ui/modal';
@@ -48,6 +49,12 @@ type QueueGroup = {
 type QueueResponse = {
   total: number;
   grupos: QueueGroup[];
+};
+
+type ConfirmUndoPayload = {
+  expenseId: string;
+  previousTipoDespesa: string;
+  merchant: string;
 };
 
 export function PendenciasQueueCard({ projectId, monthKey }: { projectId: string; monthKey: string }) {
@@ -108,12 +115,70 @@ export function PendenciasQueueCard({ projectId, monthKey }: { projectId: string
 
   const refreshQueue = () => {
     queryClient.invalidateQueries({ queryKey: queueQueryKey });
+    queryClient.invalidateQueries({ queryKey: ['expenses', projectId] });
+    queryClient.invalidateQueries({ queryKey: ['account-view', projectId] });
   };
 
   const reopenQueue = () => {
     refreshQueue();
     setOpen(true);
   };
+
+  const undoCategoriaMutation = useMutation({
+    mutationFn: async (payload: ConfirmUndoPayload) => {
+      await api.patch(`/projects/${projectId}/expenses/${payload.expenseId}`, {
+        tipoDespesa: payload.previousTipoDespesa,
+      });
+      await api.post('/merchant-categories/remove-rule', { merchant: payload.merchant });
+    },
+    onSuccess: () => {
+      toast.success('Regra removida e categoria revertida');
+      refreshQueue();
+    },
+    onError: (error: Error) => {
+      toast.error(`Não foi possível desfazer: ${error.message}`);
+    },
+  });
+
+  const confirmCategoriaMutation = useMutation({
+    mutationFn: async (item: QueueItem): Promise<ConfirmUndoPayload> => {
+      if (!item.expenseId || !item.suggestionTipoDespesa) {
+        throw new Error('Item sem dados para confirmação de categoria');
+      }
+      const expense = (await api.get(`/projects/${projectId}/expenses/${item.expenseId}`)) as {
+        id: string;
+        tipoDespesa?: string | null;
+        fornecedor?: string | null;
+        titulo?: string | null;
+      };
+      const merchant = (expense.fornecedor ?? expense.titulo ?? item.descricao ?? '').trim();
+      if (!merchant) throw new Error('Fornecedor/título ausente para criar regra');
+      const previousTipoDespesa = expense.tipoDespesa ?? 'OUTROS';
+      await api.patch(`/projects/${projectId}/expenses/${item.expenseId}`, {
+        tipoDespesa: item.suggestionTipoDespesa,
+      });
+      await api.post('/merchant-categories/confirm-rule', {
+        merchant,
+        tipoDespesa: item.suggestionTipoDespesa,
+      });
+      return { expenseId: item.expenseId, previousTipoDespesa, merchant };
+    },
+    onSuccess: (undoPayload, item) => {
+      refreshQueue();
+      toast.success(
+        `Regra criada: ${undoPayload.merchant} → ${item.suggestionTipoDespesa}`,
+        {
+          action: {
+            label: 'Desfazer',
+            onClick: () => undoCategoriaMutation.mutate(undoPayload),
+          },
+        },
+      );
+    },
+    onError: (error: Error) => {
+      toast.error(`Não foi possível confirmar categoria: ${error.message}`);
+    },
+  });
 
   const handleItemAction = (item: QueueItem) => {
     if (item.tipo === 'SEM_CONTA' && item.foreignExpenseId && item.parcelaIndex != null) {
@@ -133,8 +198,12 @@ export function PendenciasQueueCard({ projectId, monthKey }: { projectId: string
       return;
     }
     if (item.tipo === 'SEM_CATEGORIA' && item.expenseId) {
-      setOpen(false);
-      setEditExpenseId(item.expenseId);
+      if (item.suggestionTipoDespesa) {
+        confirmCategoriaMutation.mutate(item);
+      } else {
+        setOpen(false);
+        setEditExpenseId(item.expenseId);
+      }
       return;
     }
     if (item.tipo === 'FATURA_NAO_PAGA' && item.cardLast4) {
