@@ -38,19 +38,21 @@ export function CreditCardTile({
       nickname={card.nickname}
       active={active}
       onClick={() => onSelect(active ? null : card.last4)}
-      className="min-h-[146px] p-2.5 md:min-h-[176px] md:p-4"
+      className="min-h-[128px] p-2 md:min-h-[176px] md:p-4"
       topRight={
         <span
-          className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold backdrop-blur md:px-2 md:text-[11px] ${badgeClass}`}
+          className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold backdrop-blur md:px-2 md:text-[11px] ${badgeClass}`}
         >
           {badgeText}
         </span>
       }
       footer={
-        <div className="flex items-end justify-between gap-1.5">
+        <div className="flex items-end justify-between gap-1">
           <div className="min-w-0">
-            <p className="text-[9px] uppercase tracking-wide text-white/60 md:text-[11px]">Fatura atual</p>
-            <p className="font-geist text-[16px] font-bold tabular-nums leading-tight md:text-[19px]">
+            <p className="hidden text-[11px] uppercase tracking-wide text-white/60 md:block">
+              Fatura atual
+            </p>
+            <p className="font-geist text-[15px] font-bold tabular-nums leading-tight md:text-[19px]">
               {formatCurrency(card.faturaAtual / 100)}
             </p>
             {parcial && (
@@ -59,7 +61,7 @@ export function CreditCardTile({
               </p>
             )}
           </div>
-          <p className="shrink-0 text-[9px] text-white/70 md:text-[11px]">vence {formatDateBR(card.vencimento)}</p>
+          <p className="shrink-0 text-[11px] text-white/70">vence {formatDateBR(card.vencimento)}</p>
         </div>
       }
       limit={{ pct: card.limiteUsadoPct, used: card.limiteUsado, total: card.limiteTotal }}
@@ -73,7 +75,7 @@ export function CreditCardTile({
                   ev.stopPropagation();
                   onPayInvoice(card.last4);
                 }}
-                className="inline-flex h-7 w-full items-center justify-center gap-1 rounded-lg bg-white text-[11px] font-semibold text-lifeone-ink transition hover:bg-white/90 md:h-8 md:text-[12px]"
+                className="inline-flex h-6.5 w-full items-center justify-center gap-1 rounded-lg bg-white text-[11px] font-semibold text-lifeone-ink transition hover:bg-white/90 md:h-8 md:text-[12px]"
               >
                 Pagar fatura
               </button>
@@ -84,9 +86,9 @@ export function CreditCardTile({
                 ev.stopPropagation();
                 onAdjustInvoice(card.last4);
               }}
-              className="inline-flex h-6 w-full items-center justify-center rounded-lg border border-white/35 bg-transparent text-[10px] font-semibold text-white transition hover:bg-white/10 md:h-7 md:text-[11px]"
+              className="inline-flex h-5.5 w-full items-center justify-center rounded-lg border border-white/35 bg-transparent text-[11px] font-semibold text-white transition hover:bg-white/10 md:h-7"
             >
-              Ajustar fatura…
+              Ajustar…
             </button>
             {card.faturaPendente > 0 && (
               <button
@@ -95,9 +97,9 @@ export function CreditCardTile({
                   ev.stopPropagation();
                   onSettleWithResidual(card.last4);
                 }}
-                className="inline-flex h-6 w-full items-center justify-center rounded-lg border border-white/35 bg-transparent text-[10px] font-semibold text-white transition hover:bg-white/10 md:h-7 md:text-[11px]"
+                className="inline-flex h-5.5 w-full items-center justify-center rounded-lg border border-white/35 bg-transparent text-[11px] font-semibold text-white transition hover:bg-white/10 md:h-7"
               >
-                Marcar quitada com resíduo…
+                Quitar c/ resíduo…
               </button>
             )}
           </div>

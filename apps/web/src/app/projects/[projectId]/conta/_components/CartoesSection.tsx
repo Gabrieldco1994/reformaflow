@@ -40,7 +40,7 @@ export function CartoesSection({
         )}
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+      <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {cartoes.map((card) => (
           <CreditCardTile
             key={`card-${card.last4}`}
@@ -59,17 +59,17 @@ export function CartoesSection({
             <article
               key={`bank-${conta.last4}`}
               onClick={() => onSelect(active ? null : conta.last4)}
-              className={`flex cursor-pointer items-center gap-2 rounded-2xl border bg-lifeone-card p-3 shadow-lifeone-card transition-colors ${
+              className={`flex cursor-pointer items-center gap-2 rounded-2xl border bg-lifeone-card p-2.5 shadow-lifeone-card transition-colors ${
                 active
                   ? 'border-lifeone-blue ring-1 ring-lifeone-blue'
                   : 'border-lifeone-hairline hover:border-lifeone-blue'
               }`}
             >
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#E6EFFE] text-lifeone-blue">
-                <Landmark className="h-4 w-4" />
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#E6EFFE] text-lifeone-blue">
+                <Landmark className="h-3.5 w-3.5" />
               </span>
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-lifeone-ink">
+                <p className="truncate text-[13px] font-semibold text-lifeone-ink">
                   {conta.nome} · {conta.last4}
                 </p>
                 <p className="text-[11px] text-lifeone-ink-3">conta corrente</p>
