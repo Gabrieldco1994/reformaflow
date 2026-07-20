@@ -23,7 +23,6 @@ export default function RegisterPage() {
   const { register } = useAuth();
   const [tenantName, setTenantName] = useState('');
   const [ownerName, setOwnerName] = useState('');
-  const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [passwordConfirmation, setPasswordConfirmation] = useState('');
@@ -41,7 +40,6 @@ export default function RegisterPage() {
   function validate(): string | null {
     if (tenantName.trim().length < 3) return 'Informe um nome para seu espaço com pelo menos 3 caracteres.';
     if (ownerName.trim().length < 2) return 'Informe seu nome.';
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return 'Informe um email válido.';
     if (!/^[a-zA-Z0-9._-]{3,40}$/.test(username.trim())) {
       return 'O usuário deve ter de 3 a 40 caracteres: letras, números, ponto, hífen ou sublinhado.';
     }
@@ -68,7 +66,6 @@ export default function RegisterPage() {
         {
           tenantName: tenantName.trim(),
           ownerName: ownerName.trim(),
-          email: email.trim(),
           username: username.trim(),
           password,
           projectTypes,
@@ -120,10 +117,6 @@ export default function RegisterPage() {
               <div>
                 <label htmlFor="ownerName" className="mb-1.5 block text-[12px] font-medium text-lifeone-ink-2">Seu nome</label>
                 <input id="ownerName" name="ownerName" autoComplete="name" required minLength={2} value={ownerName} onChange={(event) => setOwnerName(event.target.value)} className={fieldClass} />
-              </div>
-              <div>
-                <label htmlFor="email" className="mb-1.5 block text-[12px] font-medium text-lifeone-ink-2">Email</label>
-                <input id="email" name="email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} className={fieldClass} />
               </div>
               <div>
                 <label htmlFor="username" className="mb-1.5 block text-[12px] font-medium text-lifeone-ink-2">Usuário</label>
