@@ -17,11 +17,9 @@ import ImportBankStatementModal from '../../bank-accounts/_components/ImportBank
 import { currentMonthKey } from '../../conta/_lib';
 import { ReceitaModal } from '../../conta/_components/ReceitaModal';
 import type { AccountViewResponse, OriginItemsYearlyResponse } from '../../conta/_types';
-import type { Expense } from '@/types';
 import { MobileLaunchSheet } from './MobileLaunchSheet';
 import { MobileLaunchModeSheet } from './MobileLaunchModeSheet';
 import type { LaunchAccountOption, LaunchCardOption, LaunchPayload } from './types';
-import { NovaDespesaWizard } from '../../expenses/_components/NovaDespesaWizard';
 
 interface Props {
   projectId: string;
@@ -85,12 +83,6 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
     queryFn: () => api.get(`/projects/${projectId}/monthly-overview/origin-items-yearly?year=${year}&kind=all`),
     enabled: open,
   });
-  const { data: plannedExpenses = [] } = useQuery<Expense[]>({
-    queryKey: ['expenses', projectId, 'planned'],
-    queryFn: () => api.get(`/projects/${projectId}/expenses/planned`),
-    enabled: open && screen === 'planejar',
-  });
-
   // Cartões/contas/projetos do tenant — usados pela IA de voz para auto-vincular
   // ("no Itaú", "no 5868", "para a reforma"). Mesmas queries do ExpensesView.
   const { data: tenantCards = [] } = useQuery<
@@ -150,20 +142,6 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
     },
     onError: (error: Error) => toast.error(`Erro ao lançar despesa: ${error.message}`),
   });
-  const payMutation = useMutation({
-    mutationFn: (id: string) => api.post(`/projects/${projectId}/expenses/${id}/pay`, {}),
-    onSuccess: () => {
-      invalidateExpenseQueries(queryClient, projectId);
-      queryClient.invalidateQueries({ queryKey: ['origin-items-yearly', projectId] });
-      toast.success('Despesa paga');
-      setScreen('choose');
-      setSelectedCardId(null);
-      setSelectedAccountId(null);
-      onClose();
-    },
-    onError: (error: Error) => toast.error(`Erro ao pagar despesa: ${error.message}`),
-  });
-
   const handleClose = useCallback(() => {
     setScreen('choose');
     setSelectedCardId(null);
@@ -235,20 +213,17 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
         projectedBalanceCents={accountView?.sobraPrevista ?? null}
       />
 
-      <NovaDespesaWizard
+      <MobileLaunchSheet
         open={open && screen === 'planejar'}
         mode="PLANEJAR"
-        projectId={projectId}
-        projectType={projectType}
-        allowRecorrente={false}
-        tipoOptions={tipoDespesaOptions}
-        roomOptions={[]}
-        showRooms={false}
-        plannedExpenses={plannedExpenses}
-        onPay={(id) => payMutation.mutate(id)}
-        payDisabled={payMutation.isPending}
         onClose={handleClose}
-        onCreated={handleClose}
+        onLaunch={(payload) => createMutation.mutateAsync(payload).then(() => handleClose())}
+        launching={createMutation.isPending}
+        accounts={accounts}
+        cards={cards}
+        recentDescriptions={recentDescriptions}
+        projectType={projectType}
+        projectedBalanceCents={accountView?.sobraPrevista ?? null}
       />
 
       <ReceitaModal
