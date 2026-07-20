@@ -117,7 +117,6 @@ export class AuthService {
             tenantId: tenant.id,
             email: input.email.trim(),
             username,
-            email: input.email,
             name: input.ownerName.trim(),
             role: SELF_SERVICE_ROLE,
             passwordHash,
@@ -205,9 +204,8 @@ export class AuthService {
       const user = await tx.user.create({
         data: {
           tenantId: tenant.id,
-          email: `guest_${tenant.id}@guest.local`,
-          username: `guest_${tenant.id.slice(0, 8)}`,
           email: null,
+          username: `guest_${tenant.id.slice(0, 8)}`,
           name: 'Convidado',
           role: 'ADMIN',
           passwordHash: null,
@@ -296,6 +294,7 @@ export class AuthService {
     allowedModules: string;
     allowedProjects?: string;
     allowedProjectTypes?: string;
+    email?: string | null;
     isGuest?: boolean;
   }) {
     let allowedModules: string[] = [];
@@ -325,6 +324,7 @@ export class AuthService {
       name: user.name,
       role: user.role,
       tenantId: user.tenantId,
+      email: user.email ?? null,
       allowedModules,
       allowedProjects,
       allowedProjectTypes,
