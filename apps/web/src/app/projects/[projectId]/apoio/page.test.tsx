@@ -51,4 +51,16 @@ describe('ApoioPage', () => {
       screen.getByRole('link', { name: /cadastre sua conta corrente/i }),
     ).toHaveAttribute('href', '/projects/p1/bank-accounts');
   });
+
+  it('renders a final feedback section explaining how to send feedback', () => {
+    mockProjectType = 'PESSOAL';
+    render(<ApoioPage />);
+    expect(
+      screen.getByRole('heading', { name: /último passo: envie seu feedback/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/ícone de feedback \(balão\)/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/^toque em/i)).toHaveTextContent(/enviar/i);
+  });
 });
