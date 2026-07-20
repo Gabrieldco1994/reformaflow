@@ -103,13 +103,14 @@ export function MovimentacaoRow({
       ? item.descricao || tipoLabel(item.tipoDespesa)
       : item.descricao;
 
+  // Saída sem cartão nem conta bancária → pseudo-origem Carteira.
+  // NÃO incluir o retorno de originLabel no meta text — chip separado.
+  const isCarteira = item.kind === 'saida' && !item.isInvoice && !item.cardLast4 && !item.bankLast4;
+
   const origem =
     item.kind === 'saida'
       ? originLabel(item.cardLast4, item.bankLast4)
       : originLabel(null, item.bankLast4);
-
-  // "Sem conta" gets a chip — don't embed in meta text
-  const isSemConta = origem === 'Sem conta';
 
   const dp = dateParts(item.data);
   const dateStr = dp.mes ? `${dp.dia} ${dp.mes}` : dp.dia;
@@ -124,7 +125,7 @@ export function MovimentacaoRow({
       ? `Parcial: ${formatCurrency((item.invoicePaidAmount ?? 0) / 100)} de ${formatCurrency(item.valor / 100)}`
       : null,
     item.kind === 'saida' && item.isInvoice && item.invoiceHasManualIntervention ? 'Ajuste manual' : null,
-    isSemConta ? null : origem,
+    isCarteira ? null : origem,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -286,28 +287,30 @@ export function MovimentacaoRow({
           <AvatarIcon className="h-[18px] w-[18px]" />
         </span>
 
-        <button
-          type="button"
-          onClick={() => {
-            if (canExpand) onToggleExpand!();
-            else if (canEdit) doEdit();
-          }}
-          className="min-w-0 flex-1 text-left"
-          title={canExpand ? (expanded ? 'Recolher compras' : 'Ver compras da fatura') : canEdit ? 'Editar' : undefined}
-        >
-          <div className="flex items-center gap-1">
-            {canExpand &&
-              (expanded ? (
-                <ChevronDown className="h-4 w-4 shrink-0 text-lifeone-ink-3" />
-              ) : (
-                <ChevronRight className="h-4 w-4 shrink-0 text-lifeone-ink-3" />
-              ))}
-            <span className="truncate pr-1 text-[15px] font-semibold leading-tight text-lifeone-ink">{titulo}</span>
-          </div>
+        {/* Título + metadados: separados para o chip "Sem conta" não aninhar <button> dentro de <button>. */}
+        <div className="min-w-0 flex-1">
+          <button
+            type="button"
+            onClick={() => {
+              if (canExpand) onToggleExpand!();
+              else if (canEdit) doEdit();
+            }}
+            className="w-full text-left"
+            title={canExpand ? (expanded ? 'Recolher compras' : 'Ver compras da fatura') : canEdit ? 'Editar' : undefined}
+          >
+            <div className="flex items-center gap-1">
+              {canExpand &&
+                (expanded ? (
+                  <ChevronDown className="h-4 w-4 shrink-0 text-lifeone-ink-3" />
+                ) : (
+                  <ChevronRight className="h-4 w-4 shrink-0 text-lifeone-ink-3" />
+                ))}
+              <span className="truncate pr-1 text-[15px] font-semibold leading-tight text-lifeone-ink">{titulo}</span>
+            </div>
+          </button>
           <div className={`mt-0.5 flex items-center gap-1.5 ${canExpand ? 'pl-5' : ''}`}>
             <span className="truncate text-[11px] text-lifeone-ink-3">{meta}</span>
-            {isSemConta && (
-              // ponytail: chip reuses onVincular — "de onde saiu?" → conciliação
+            {isCarteira && (
               <button
                 type="button"
                 onClick={(ev) => {
@@ -315,7 +318,7 @@ export function MovimentacaoRow({
                   if (onVincular && item.kind === 'saida') onVincular(item);
                 }}
                 className="shrink-0 rounded-full bg-[#F3F3F3] px-1.5 py-0.5 text-[11px] font-semibold text-lifeone-ink-3 transition-colors hover:bg-[#E6EFFE] hover:text-lifeone-blue"
-                title="Lançamento sem conta vinculada — clique para vincular"
+                title="De onde saiu esse pagamento?"
               >
                 Sem conta
               </button>
@@ -326,7 +329,7 @@ export function MovimentacaoRow({
               </span>
             )}
           </div>
-        </button>
+        </div>
 
         {/* Cluster à direita: valor SEMPRE isolado (nowrap), status abaixo (mobile) ou ao lado (desktop). */}
         <div className="flex shrink-0 flex-col items-end gap-0.5">

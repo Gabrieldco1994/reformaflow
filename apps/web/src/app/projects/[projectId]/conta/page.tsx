@@ -245,6 +245,9 @@ export default function ContaPage() {
                 faltaPagarMes={data.faltaPagarMes}
                 recebimentosPrevistosMes={data.recebimentosPrevistosMes}
                 sobraPrevista={sobraPrevistaAcumulada ?? data.sobraPrevista}
+                saiuSemConta={data.saidas
+                  .filter((s) => !s.isInvoice && !s.cardLast4 && !s.bankLast4 && s.realizado)
+                  .reduce((acc, s) => acc + s.valor, 0)}
                 activeQuickFilter={resumoQuickFilter}
                 onQuickFilterSelect={(key) => {
                   setOriginFilter(null);

@@ -45,6 +45,11 @@ function isNeutralMovimentacao(m: AccountViewMovimentacao): boolean {
   return m.tipoDespesa !== 'PAGAMENTO_FATURA_CARTAO' && isConsumptionNeutralExpenseType(m.tipoDespesa);
 }
 
+// Saída sem cartão nem conta bancária → pseudo-origem Carteira (D5 do plano).
+function isCarteiraItem(m: AccountViewMovimentacao): boolean {
+  return m.kind === 'saida' && !m.isInvoice && !m.cardLast4 && !m.bankLast4;
+}
+
 export function MovimentacoesSection({
   data,
   projectId,
@@ -74,6 +79,7 @@ export function MovimentacoesSection({
   const [projetoFilter, setProjetoFilter] = useState<string>('todos');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [viewMode, setViewMode] = useState<ViewMode>('lista');
+  const [semContaFilter, setSemContaFilter] = useState(false);
   // Faturas expandidas inline (por cardLast4): revela as compras do cartão na Lista.
   const [expandedCards, setExpandedCards] = useState<Set<string>>(() => new Set());
   const toggleCard = (last4: string) =>
@@ -207,7 +213,7 @@ export function MovimentacoesSection({
   const originLabel = (cardLast4: string | null, bankLast4: string | null) => {
     if (cardLast4) return cardByLast4.get(cardLast4)?.nickname ?? `Cartão ••${cardLast4}`;
     if (bankLast4) return contaByLast4.get(bankLast4)?.nome ?? `Conta ••${bankLast4}`;
-    return 'Sem conta';
+    return null;
   };
 
   const activeIsCard = originFilter != null && cardByLast4.has(originFilter);
@@ -278,15 +284,13 @@ export function MovimentacoesSection({
       if (summaryQuickFilter === 'saiuMes' && (m.kind !== 'saida' || !m.realizado)) return false;
       if (summaryQuickFilter === 'faltaPagarMes' && (m.kind !== 'saida' || m.realizado)) return false;
 
+      if (semContaFilter) {
+        if (!isCarteiraItem(m)) return false;
+      }
+
       if (originFilter) {
-        if (originFilter === 'carteira') {
-          // ponytail: sentinel for items with no card/bank — carteira pseudo-origin
-          const last4 = m.kind === 'saida' ? m.cardLast4 ?? m.bankLast4 : m.bankLast4;
-          if (last4 != null) return false;
-        } else {
-          const last4 = m.kind === 'saida' ? m.cardLast4 ?? m.bankLast4 : m.bankLast4;
-          if (last4 !== originFilter) return false;
-        }
+        const last4 = m.kind === 'saida' ? m.cardLast4 ?? m.bankLast4 : m.bankLast4;
+        if (last4 !== originFilter) return false;
       }
 
       if (statusFilter !== 'todos') {
@@ -309,7 +313,7 @@ export function MovimentacoesSection({
       if (q && !m.descricao.toLowerCase().includes(q)) return false;
       return true;
     },
-    [summaryQuickFilter, originFilter, statusFilter, catFilter, projetoFilter, search, projectId],
+    [summaryQuickFilter, semContaFilter, originFilter, statusFilter, catFilter, projetoFilter, search, projectId],
   );
 
   const filtered = useMemo(() => {
@@ -439,9 +443,9 @@ export function MovimentacoesSection({
     { key: 'tudo', label: 'Tudo' },
   ];
 
-  // Nº de filtros de conteúdo ativos (categoria + projeto) — badge do botão "Filtros".
+  // Nº de filtros de conteúdo ativos (categoria + projeto + sem conta) — badge do botão "Filtros".
   const activeFilterCount =
-    (catFilter !== 'todas' ? 1 : 0) + (projetoFilter !== 'todos' ? 1 : 0);
+    (catFilter !== 'todas' ? 1 : 0) + (projetoFilter !== 'todos' ? 1 : 0) + (semContaFilter ? 1 : 0);
 
   // Qualquer filtro de conteúdo ativo (inclui busca, status, origem e filtro rápido) —
   // controla a visibilidade do botão "Limpar filtros".
@@ -450,6 +454,7 @@ export function MovimentacoesSection({
     catFilter !== 'todas' ||
     projetoFilter !== 'todos' ||
     statusFilter !== 'todos' ||
+    semContaFilter ||
     originFilter != null ||
     summaryQuickFilter != null;
 
@@ -458,6 +463,7 @@ export function MovimentacoesSection({
     setCatFilter('todas');
     setProjetoFilter('todos');
     setStatusFilter('todos');
+    setSemContaFilter(false);
     if (originFilter) onClearOrigin();
     if (summaryQuickFilter) onClearSummaryQuickFilter();
   };
@@ -494,6 +500,20 @@ export function MovimentacoesSection({
             </option>
           ))}
         </select>
+      )}
+      {tab !== 'entradas' && (
+        <button
+          type="button"
+          onClick={() => setSemContaFilter((v) => !v)}
+          className={`flex h-11 items-center gap-1.5 rounded-xl border px-3 text-sm font-medium transition md:h-10 ${
+            semContaFilter
+              ? 'border-lifeone-blue bg-[#E6EFFE] text-lifeone-blue'
+              : 'border-lifeone-hairline bg-lifeone-card text-lifeone-ink hover:border-lifeone-blue'
+          } ${stacked ? 'w-full justify-center' : ''}`}
+          title="Mostrar apenas lançamentos sem conta vinculada"
+        >
+          Sem conta
+        </button>
       )}
       <button
         type="button"
@@ -639,7 +659,11 @@ export function MovimentacoesSection({
       {/* Indicador de filtro de origem ativo (vem dos cards acima) */}
       {originFilter && (
         <div className="mb-3 flex items-center gap-2 rounded-xl bg-[#E6EFFE] px-3 py-2 text-[12px] text-lifeone-blue">
-          <span className="font-semibold">Filtrando por {originFilter === 'carteira' ? 'Sem conta' : originLabel(activeIsCard ? originFilter : null, activeIsCard ? null : originFilter)}</span>
+          <span className="font-semibold">
+            Filtrando por{' '}
+            {originLabel(activeIsCard ? originFilter : null, activeIsCard ? null : originFilter) ??
+              `••${originFilter}`}
+          </span>
           {activeIsCard && (
             <span className="text-lifeone-blue">· compras da fatura</span>
           )}

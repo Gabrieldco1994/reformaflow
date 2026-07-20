@@ -318,7 +318,7 @@ mês (‹ › + calendário).
 |---|---|
 | **Tenho na conta hoje** | O dinheiro disponível de verdade na conta agora, reconciliado com o banco (caixa real). Compras no cartão só entram quando a fatura é paga. |
 | **Entrou no mês** | Recebimentos que já caíram na conta neste mês. |
-| **Saiu no mês** | Tudo que já foi pago até hoje. |
+| **Saiu no mês** | Tudo que já foi pago até hoje — **inclui lançamentos sem conta vinculada (Carteira)**. Quando há lançamentos Carteira, aparece a nota "inclui R$ X sem conta vinculada" abaixo do valor. |
 | **Ainda falta pagar** | O que ainda vai sair até o fim do mês: faturas de cartão e contas em aberto. Clicável → filtra o que falta pagar. |
 | **Sobra prevista** | Previsão do saldo no fim do mês: o que tem hoje + o que ainda entra − o que ainda falta pagar. Negativo = a conta deve fechar no vermelho. |
 
@@ -345,13 +345,17 @@ movimentações abaixo.
 - **Visões (só saídas):** **Lista**, **Por categoria** e **Por projeto** — as duas
   últimas agrupam os gastos com subtotais e ícone da categoria (drill-down por linha).
 - Filtro de **origem** (Todos / uma conta / um cartão específico), **categoria** e
-  **projeto**, busca por descrição e ordenação por data. Quando há qualquer filtro
-  ativo, aparece o botão **"Limpar filtros"** que zera todos de uma vez.
+  **projeto**, busca por descrição e ordenação por data. Toggle **"Sem conta"** filtra
+  só os lançamentos sem conta/cartão vinculado. Quando há qualquer filtro ativo, aparece o
+  botão **"Limpar filtros"** que zera todos de uma vez.
+- **Lançamentos sem conta vinculada (Carteira):** exibem o chip cinza clicável **"Sem conta"**
+  na linha de metadados. Tocar abre o fluxo de vínculo ("de onde saiu esse pagamento?"). Após
+  vincular, o chip some e a conta/cartão vinculada aparece nos metadados.
 - Layout canônico de linha financeira (mobile-first): **linha 1** com descrição
   + valor `nowrap` à direita (valor nunca divide linha com chip/badge variável),
-  **linha 2** com metadados (data · categoria · origem) e chip de projeto quando
-  cross-project, e **status textual** ("Paga/A pagar/Previsto/Recebido") abaixo
-  do valor, alinhado à direita. Estado vazio quando não há itens.
+  **linha 2** com metadados (data · categoria · origem) + chip "Sem conta" quando carteira
+  + chip de projeto quando cross-project, e **status textual** ("Paga/A pagar/Previsto/Recebido")
+  abaixo do valor, alinhado à direita. Estado vazio quando não há itens.
 - As **faturas de cartão** podem ser **expandidas na própria linha** para revelar as
   compras que as compõem (no celular, tocando na linha). Nas linhas de fatura há
   ações rápidas **Ajustar** e **Resíduo**, além do status.

@@ -65,4 +65,38 @@ describe("ResumoCards", () => {
     ).not.toBeInTheDocument();
     expect(within(projection).getByText("Sobra prevista")).toBeInTheDocument();
   });
+
+  it("mostra nota 'inclui X sem conta' no card Saiu no mês quando saiuSemConta > 0", () => {
+    render(
+      <ResumoCards
+        {...values}
+        saiuSemConta={5_000}
+        activeQuickFilter={null}
+        onQuickFilterSelect={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/inclui.*sem conta vinculada/)).toBeInTheDocument();
+    expect(screen.getByText(/R\$ 50,00/)).toBeInTheDocument();
+  });
+
+  it("não mostra nota 'sem conta' quando saiuSemConta é 0 ou ausente", () => {
+    const { rerender } = render(
+      <ResumoCards
+        {...values}
+        saiuSemConta={0}
+        activeQuickFilter={null}
+        onQuickFilterSelect={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText(/sem conta vinculada/)).not.toBeInTheDocument();
+
+    rerender(
+      <ResumoCards
+        {...values}
+        activeQuickFilter={null}
+        onQuickFilterSelect={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText(/sem conta vinculada/)).not.toBeInTheDocument();
+  });
 });

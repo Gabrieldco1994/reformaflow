@@ -194,7 +194,7 @@ describe('MovimentacaoRow — saída', () => {
 
       // "Sem conta" NÃO deve estar presente quando há conta
       expect(screen.queryByText('Sem conta')).not.toBeInTheDocument();
-      // origin embedded in meta string — use partial match
+      // origin label is embedded inside the meta string — use partial match
       expect(screen.getByText(/Conta 5678/)).toBeInTheDocument();
     });
 
