@@ -110,7 +110,23 @@ export function PendenciasQueueCard({ projectId, monthKey }: { projectId: string
     queryClient.invalidateQueries({ queryKey: queueQueryKey });
   };
 
+  const reopenQueue = () => {
+    refreshQueue();
+    setOpen(true);
+  };
+
   const handleItemAction = (item: QueueItem) => {
+    if (item.tipo === 'SEM_CONTA' && item.foreignExpenseId && item.parcelaIndex != null) {
+      setOpen(false);
+      setQuitar({
+        foreignExpenseId: item.foreignExpenseId,
+        parcelaIndex: item.parcelaIndex,
+        valor: item.valor,
+        descricao: item.descricao,
+        data: item.data.slice(0, 10),
+      });
+      return;
+    }
     if (item.tipo === 'SEM_CONTA' && item.expenseId) {
       setOpen(false);
       setVincularExpenseId(item.expenseId);
@@ -217,7 +233,7 @@ export function PendenciasQueueCard({ projectId, monthKey }: { projectId: string
         open={vincularExpense != null}
         onClose={() => {
           setVincularExpenseId(null);
-          refreshQueue();
+          reopenQueue();
         }}
         portal
         currentProjectId={projectId}
@@ -228,7 +244,7 @@ export function PendenciasQueueCard({ projectId, monthKey }: { projectId: string
         open={editExpenseId != null}
         onClose={() => {
           setEditExpenseId(null);
-          refreshQueue();
+          reopenQueue();
         }}
         projectId={projectId}
         editExpenseId={editExpenseId}
@@ -238,7 +254,7 @@ export function PendenciasQueueCard({ projectId, monthKey }: { projectId: string
         open={editReceita != null}
         onClose={() => {
           setEditReceita(null);
-          refreshQueue();
+          reopenQueue();
         }}
         projectId={projectId}
         editing={editReceita}
@@ -251,7 +267,7 @@ export function PendenciasQueueCard({ projectId, monthKey }: { projectId: string
           contas={accountView.contas ?? []}
           onClose={() => {
             setPayCardLast4(null);
-            refreshQueue();
+            reopenQueue();
           }}
         />
       )}
@@ -266,9 +282,12 @@ export function PendenciasQueueCard({ projectId, monthKey }: { projectId: string
           dataSugerida={quitar.data}
           onDone={() => {
             setQuitar(null);
-            refreshQueue();
+            reopenQueue();
           }}
-          onClose={() => setQuitar(null)}
+          onClose={() => {
+            setQuitar(null);
+            reopenQueue();
+          }}
         />
       )}
     </>

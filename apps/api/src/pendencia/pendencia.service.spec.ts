@@ -235,6 +235,9 @@ describe('PendenciaService', () => {
         'RECEBIMENTO_PREVISTO_ATRASADO',
       ]);
       expect(res.grupos[0].itens[0].expenseId).toBe('e1');
+      expect(res.grupos[0].itens[0].foreignExpenseId).toBe('fx1');
+      expect(res.grupos[0].itens[0].parcelaIndex).toBe(2);
+      expect(res.grupos[0].itens[0].label).toBe('Quitar parcela');
       expect(res.grupos[1].itens[0].suggestionTipoDespesa).toBe('ALIMENTACAO');
       expect(res.grupos[2].itens[0].cardLast4).toBe('1234');
       expect(res.grupos[3].itens[0].parcelaIndex).toBe(2);

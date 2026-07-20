@@ -160,11 +160,13 @@ export class PendenciaService {
       .map((s) => ({
         id: `sem-conta-${s.id}`,
         tipo: 'SEM_CONTA',
-        label: 'Vincular origem',
+        label: s.foreignExpenseId && s.parcelaIndex != null ? 'Quitar parcela' : 'Vincular origem',
         descricao: s.descricao,
         valor: s.valor,
         data: s.data,
         expenseId: s.id ?? undefined,
+        foreignExpenseId: s.foreignExpenseId ?? undefined,
+        parcelaIndex: s.parcelaIndex ?? undefined,
       }));
 
     const semCategoriaBase = accountView.saidas.filter(
