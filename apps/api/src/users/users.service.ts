@@ -13,6 +13,7 @@ const BCRYPT_ROUNDS = 10;
 function toPublic(u: {
   id: string;
   username: string;
+  email: string | null;
   name: string;
   role: string;
   tenantId: string;
@@ -49,6 +50,7 @@ function toPublic(u: {
   return {
     id: u.id,
     username: u.username,
+    email: u.email,
     name: u.name,
     role: u.role,
     tenantId: u.tenantId,

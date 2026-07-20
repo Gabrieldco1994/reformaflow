@@ -8,6 +8,7 @@ import { useAuth, ALL_MODULES, type ModuleSlug, type AuthUser } from '@/contexts
 import { api } from '@/lib/api';
 
 interface AdminUser extends AuthUser {
+  email?: string | null;
   createdAt?: string;
   updatedAt?: string;
   createdByName?: string | null;
@@ -238,6 +239,9 @@ export default function AdminUsersPage() {
                   Usuário
                 </th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">
+                  Email
+                </th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">
                   Papel
                 </th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-600 uppercase">
@@ -278,6 +282,7 @@ export default function AdminUsersPage() {
                   </td>
                   <td className="px-4 py-3 font-medium text-gray-900">{u.name}</td>
                   <td className="px-4 py-3 text-gray-700">{u.username}</td>
+                  <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{u.email ?? '—'}</td>
                   <td className="px-4 py-3">
                     <span
                       className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
