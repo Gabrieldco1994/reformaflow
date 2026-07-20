@@ -1,5 +1,11 @@
 export interface CardRow {
   id: string;
+  projectId?: string;
+  project?: {
+    id: string;
+    name: string;
+    type: string;
+  };
   institution: string;
   brand: string;
   nickname: string | null;

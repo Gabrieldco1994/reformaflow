@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
+import { useProject } from '@/contexts/project-context';
 import { formatCurrency } from '@/lib/utils';
 import { CreditCard, Plus, Trash2, Link2 } from 'lucide-react';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -24,21 +25,32 @@ export default function CreditCardsPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const projectId = String(params?.projectId ?? '');
+  const { projectType } = useProject();
   const [cards, setCards] = useState<CardRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<CardRow | null>(null);
   const [linksFor, setLinksFor] = useState<CardRow | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
-      const data = await api.get<CardRow[]>(`/projects/${projectId}/credit-cards`);
-      setCards(data);
+      const scopedCards = await api.get<CardRow[]>(`/projects/${projectId}/credit-cards`);
+      if (projectType === 'PESSOAL' && scopedCards.length === 0) {
+        const tenantCards = await api.get<CardRow[]>('/tenant/credit-cards');
+        setCards(tenantCards);
+        return;
+      }
+      setCards(scopedCards);
+    } catch (error) {
+      setCards([]);
+      setLoadError(error instanceof Error ? error.message : 'Não foi possível carregar os cartões.');
     } finally {
       setLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, projectType]);
 
   useEffect(() => {
     if (projectId) void load();
@@ -59,8 +71,9 @@ export default function CreditCardsPage() {
   }, [loading, cards, searchParams]);
 
   async function handleDelete(card: CardRow) {
+    const cardProjectId = card.projectId ?? projectId;
     if (!confirm(`Excluir cartão "${card.nickname ?? card.last4}"? As despesas importadas serão mantidas.`)) return;
-    await api.delete(`/projects/${projectId}/credit-cards/${card.id}`);
+    await api.delete(`/projects/${cardProjectId}/credit-cards/${card.id}`);
     void load();
   }
 
@@ -85,6 +98,16 @@ export default function CreditCardsPage() {
 
       {loading ? (
         <SkeletonList rows={2} />
+      ) : loadError ? (
+        <EmptyState
+          icon={CreditCard}
+          title="Não foi possível carregar os cartões"
+          description={loadError}
+          action={{
+            label: 'Tentar novamente',
+            onClick: () => void load(),
+          }}
+        />
       ) : cards.length === 0 ? (
         <EmptyState
           icon={CreditCard}
@@ -172,7 +195,7 @@ export default function CreditCardsPage() {
       {formOpen && (
         editing ? (
           <CardFormModal
-            projectId={projectId}
+            projectId={editing.projectId ?? projectId}
             card={editing}
             onClose={() => { setFormOpen(false); setEditing(null); }}
             onSaved={() => { setFormOpen(false); setEditing(null); void load(); }}
@@ -188,7 +211,7 @@ export default function CreditCardsPage() {
       )}
       {linksFor && (
         <LinkSuggestionsPanel
-          projectId={projectId}
+          projectId={linksFor.projectId ?? projectId}
           card={linksFor}
           onClose={() => setLinksFor(null)}
         />
