@@ -321,16 +321,14 @@ export default function ContaPage() {
         defaultMonth={selectedMonth}
       />
 
-      <div className="md:hidden">
-        <MobileLaunchSheetContainer
-          projectId={projectId}
-          open={launchOpen}
-          onClose={() => {
-            setLaunchOpen(false);
-            invalidateConta();
-          }}
-        />
-      </div>
+      <MobileLaunchSheetContainer
+        projectId={projectId}
+        open={launchOpen}
+        onClose={() => {
+          setLaunchOpen(false);
+          invalidateConta();
+        }}
+      />
     </div>
   );
 }
