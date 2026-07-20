@@ -124,7 +124,6 @@ export function MovimentacaoRow({
     !item.realizado
       ? `Parcial: ${formatCurrency((item.invoicePaidAmount ?? 0) / 100)} de ${formatCurrency(item.valor / 100)}`
       : null,
-    item.kind === 'saida' && item.isInvoice && item.invoiceHasManualIntervention ? 'Ajuste manual' : null,
     isCarteira ? null : origem,
   ]
     .filter(Boolean)
