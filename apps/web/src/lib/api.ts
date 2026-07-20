@@ -1,4 +1,16 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+function resolveApiBase(): string {
+  const envBase = process.env.NEXT_PUBLIC_API_URL;
+  if (envBase) return envBase;
+
+  if (typeof window !== 'undefined') {
+    const { hostname } = window.location;
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1') return '/api';
+  }
+
+  return 'http://localhost:3001';
+}
+
+const API_BASE = resolveApiBase();
 
 const DEFAULT_HEADERS: Record<string, string> = {
   'Content-Type': 'application/json',
