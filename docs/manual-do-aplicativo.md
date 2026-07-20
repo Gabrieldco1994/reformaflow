@@ -316,7 +316,7 @@ mês (‹ › + calendário).
 **Ações rápidas (topo):**
 - **"Lançar"** (desktop) → abre o launcher canônico **"Novo lançamento"**.
 - No **mobile**, o lançamento fica no botão **"+"** da barra inferior.
-- **"Planejar recebimentos"** e **"Vincular em massa"** ficam visíveis no topo.
+- **"Planejar recebimentos"** fica no fluxo do **"+" mobile**.
 
 **KPIs (ResumoCards):**
 | KPI | O que representa |

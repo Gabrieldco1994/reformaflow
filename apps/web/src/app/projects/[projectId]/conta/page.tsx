@@ -18,7 +18,6 @@ import { FaturasAnuaisChart } from './_components/FaturasAnuaisChart';
 import { DespesasRelacionadas } from './_components/DespesasRelacionadas';
 import { TodasDespesasAno } from './_components/TodasDespesasAno';
 import { ContaQuickActions } from './_components/ContaQuickActions';
-import { BulkLinkModal } from '../expenses/_components/BulkLinkModal';
 import { NovaDespesaLauncher } from '../expenses/_components/NovaDespesaLauncher';
 import type {
   AccountViewResponse,
@@ -56,7 +55,6 @@ export default function ContaPage() {
   const [adjustCardLast4, setAdjustCardLast4] = useState<string | null>(null);
   const [residualCardLast4, setResidualCardLast4] = useState<string | null>(null);
   const [originFilter, setOriginFilter] = useState<string | null>(null);
-  const [bulkLinkOpen, setBulkLinkOpen] = useState(false);
   const [resumoQuickFilter, setResumoQuickFilter] = useState<ResumoQuickFilterKey | null>(null);
   const openNovaDespesaRef = useRef<() => void>(() => undefined);
 
@@ -191,10 +189,7 @@ export default function ContaPage() {
         }}
       />
       <ContaQuickActions
-        projectId={projectId}
-        defaultMonth={selectedMonth}
         onOpenLaunch={() => openNovaDespesaRef.current()}
-        onVincularEmMassa={() => setBulkLinkOpen(true)}
       />
 
       {viewMode === 'ano' ? (
@@ -317,13 +312,6 @@ export default function ContaPage() {
           />
         );
       })()}
-
-      <BulkLinkModal
-        open={bulkLinkOpen}
-        onClose={() => setBulkLinkOpen(false)}
-        currentProjectId={projectId}
-        defaultMonth={selectedMonth}
-      />
 
     </div>
   );
