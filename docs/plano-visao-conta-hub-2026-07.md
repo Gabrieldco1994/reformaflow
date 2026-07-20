@@ -214,5 +214,5 @@ Conforme regra de ouro 13 e memória `feedback-qa-visual-obrigatorio`:
 
 1. **PR #202 foi bundling indevido** — levou PR-1 mobile row + PR-2 backend + 2 migrations + testes vermelhos F1 num único PR. Fatias do plano mestre devem ser PRs limpos e atômicos a partir daqui.
 2. **PR #201 (`feat/conta-pr1-mobile-row`)** foi aberto separado mas o conteúdo chegou ao main via #202 — fechado com nota explicativa.
-3. **PR #203 (`feat/pr2-carteira`)** usa prefixo do plano mas é PR de admin/telemetria — não usar prefixos do plano em branches fora do roadmap.
+3. **Episódio PR #203 (`feat/pr2-carteira`)**: branch do plano foi sequestrada por escopo admin/telemetria, ocorreu implementação paralela da Carteira sem QA visual e o merge foi direto no main. Lição: branch do roadmap é exclusiva da fatia, sem trabalho concorrente fora do escopo e sem merge antes do gate visual.
 4. **3 commits diretos no main** (b2230d40, 8d7ab3d7, 275ed563) sem PR — reforçar: sempre PR, sem exceção.
