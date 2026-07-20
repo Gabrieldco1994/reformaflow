@@ -134,6 +134,25 @@ export class UsersService {
     }));
   }
 
+  async getActivity(userId: string) {
+    const [summary, recent] = await Promise.all([
+      this.prisma.userActivityLog.groupBy({
+        by: ['action'],
+        where: { userId },
+        _count: { _all: true },
+      }),
+      this.prisma.userActivityLog.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        take: 30,
+      }),
+    ]);
+    return {
+      summary: summary.map((s) => ({ action: s.action, count: s._count._all })).sort((a, b) => b.count - a.count),
+      recent,
+    };
+  }
+
   async create(tenantId: string, dto: CreateUserDto, createdByUserId?: string) {
     const username = dto.username.toLowerCase().trim();
     const existing = await this.prisma.user.findFirst({

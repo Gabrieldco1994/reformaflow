@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { join, isAbsolute } from 'path';
 import { PrismaModule } from './prisma/prisma.module';
@@ -39,6 +39,7 @@ import { PlantsAiModule } from './plants-ai/plants-ai.module';
 import { PlantModule } from './plant/plant.module';
 import { DemoModule } from './demo/demo.module';
 import { FeedbackModule } from './feedback/feedback.module';
+import { ActivityLogInterceptor } from './common/interceptors/activity-log.interceptor';
 
 const UPLOADS_DIR = (() => {
   const raw = process.env['UPLOADS_DIR'];
@@ -87,6 +88,10 @@ const UPLOADS_DIR = (() => {
     FeedbackModule,
   ],
   providers: [
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: ActivityLogInterceptor,
+    },
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
