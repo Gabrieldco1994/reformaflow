@@ -147,7 +147,7 @@ export default function ContaPage() {
             </h1>
           </div>
         </div>
-        <div className="flex w-full shrink-0 flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between xl:w-auto xl:justify-start">
+        <div className="flex w-full shrink-0 items-center gap-2 overflow-x-auto pb-0.5 xl:w-auto xl:justify-start xl:overflow-visible xl:pb-0">
           <div className="flex shrink-0 items-center rounded-xl border border-lifeone-hairline bg-lifeone-sidebar p-0.5">
             <button
               type="button"
@@ -173,7 +173,9 @@ export default function ContaPage() {
             </button>
           </div>
           {viewMode === 'mes' && (
-            <ContaMonthPicker month={selectedMonth} onChange={setSelectedMonth} />
+            <div className="shrink-0">
+              <ContaMonthPicker month={selectedMonth} onChange={setSelectedMonth} />
+            </div>
           )}
         </div>
       </header>
