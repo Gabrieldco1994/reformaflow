@@ -20,7 +20,7 @@ import { DespesasRelacionadas } from './_components/DespesasRelacionadas';
 import { TodasDespesasAno } from './_components/TodasDespesasAno';
 import { ContaQuickActions } from './_components/ContaQuickActions';
 import { BulkLinkModal } from '../expenses/_components/BulkLinkModal';
-import { ReceitaModal } from './_components/ReceitaModal';
+import { MobileLaunchSheetContainer } from '../_components/mobile-launch/MobileLaunchSheetContainer';
 import type {
   AccountViewResponse,
   CardInvoicesYearlyResponse,
@@ -58,15 +58,8 @@ export default function ContaPage() {
   const [residualCardLast4, setResidualCardLast4] = useState<string | null>(null);
   const [originFilter, setOriginFilter] = useState<string | null>(null);
   const [bulkLinkOpen, setBulkLinkOpen] = useState(false);
-  const [novaReceitaOpen, setNovaReceitaOpen] = useState(false);
+  const [launchOpen, setLaunchOpen] = useState(false);
   const [resumoQuickFilter, setResumoQuickFilter] = useState<ResumoQuickFilterKey | null>(null);
-
-  // Data padrão dos novos lançamentos: hoje se o mês selecionado for o atual;
-  // senão, o dia 1 do mês selecionado (mantém o lançamento no mês em foco).
-  const defaultLancamentoData =
-    selectedMonth === currentMonthKey()
-      ? new Date().toISOString().slice(0, 10)
-      : `${selectedMonth}-01`;
 
   const selectedYear = selectedMonth.slice(0, 4);
 
@@ -193,8 +186,7 @@ export default function ContaPage() {
       <ContaQuickActions
         projectId={projectId}
         defaultMonth={selectedMonth}
-        onInvalidate={invalidateConta}
-        onNovaReceita={() => setNovaReceitaOpen(true)}
+        onOpenLaunch={() => setLaunchOpen(true)}
         onVincularEmMassa={() => setBulkLinkOpen(true)}
       />
 
@@ -322,19 +314,23 @@ export default function ContaPage() {
         );
       })()}
 
-      <ReceitaModal
-        open={novaReceitaOpen}
-        onClose={() => setNovaReceitaOpen(false)}
-        projectId={projectId}
-        defaultData={defaultLancamentoData}
-      />
-
       <BulkLinkModal
         open={bulkLinkOpen}
         onClose={() => setBulkLinkOpen(false)}
         currentProjectId={projectId}
         defaultMonth={selectedMonth}
       />
+
+      <div className="md:hidden">
+        <MobileLaunchSheetContainer
+          projectId={projectId}
+          open={launchOpen}
+          onClose={() => {
+            setLaunchOpen(false);
+            invalidateConta();
+          }}
+        />
+      </div>
     </div>
   );
 }

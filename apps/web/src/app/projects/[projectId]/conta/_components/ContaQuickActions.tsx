@@ -1,46 +1,32 @@
 'use client';
 
-import { useRef, useState } from 'react';
-import { ArrowDownCircle, ArrowUpCircle, CalendarClock, Ellipsis, Link2, Plus } from 'lucide-react';
-import { NovaDespesaLauncher } from '../../expenses/_components/NovaDespesaLauncher';
+import { useState } from 'react';
+import { CalendarClock, Ellipsis, Link2, Plus } from 'lucide-react';
 import { PlanoRecebimentosModal } from './PlanoRecebimentosModal';
 import { Modal } from '@/components/ui/modal';
 
 export function ContaQuickActions({
   projectId,
   defaultMonth,
-  onInvalidate,
-  onNovaReceita,
+  onOpenLaunch,
   onVincularEmMassa,
 }: {
   projectId: string;
   defaultMonth: string;
-  onInvalidate: () => void;
-  onNovaReceita: () => void;
+  onOpenLaunch: () => void;
   onVincularEmMassa: () => void;
 }) {
   const [planoOpen, setPlanoOpen] = useState(false);
-  const [launchOpen, setLaunchOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
-  const openNovaDespesaRef = useRef<() => void>(() => undefined);
 
   return (
     <div className="flex flex-wrap gap-2">
-      <NovaDespesaLauncher
-        projectId={projectId}
-        projectType="PESSOAL"
-        onChanged={onInvalidate}
-        trigger={(open) => {
-          openNovaDespesaRef.current = open;
-          return null;
-        }}
-      />
       <button
         type="button"
-        onClick={() => setLaunchOpen(true)}
+        onClick={onOpenLaunch}
         className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-lifeone-hairline bg-lifeone-card px-3 py-2 text-sm font-semibold text-lifeone-ink transition hover:border-lifeone-blue"
       >
-        <Plus className="h-4 w-4" /> + Lançar
+        <Plus className="h-4 w-4" /> Lançar
       </button>
       <button
         type="button"
@@ -49,33 +35,8 @@ export function ContaQuickActions({
         aria-label="Mais ações"
         title="Mais ações"
       >
-        <Ellipsis className="h-4 w-4" /> ⋯
+        <Ellipsis className="h-4 w-4" />
       </button>
-
-      <Modal open={launchOpen} onClose={() => setLaunchOpen(false)} title="Lançar" variant="sheet" size="sm">
-        <div className="flex flex-col gap-2 pb-2">
-          <button
-            type="button"
-            onClick={() => {
-              setLaunchOpen(false);
-              openNovaDespesaRef.current();
-            }}
-            className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-[#F2C6C1] bg-[#FCEBE9] px-3 py-2 text-sm font-semibold text-[#D92D20] transition hover:bg-[#F8DAD6]"
-          >
-            <ArrowDownCircle className="h-4 w-4" /> Nova Despesa
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setLaunchOpen(false);
-              onNovaReceita();
-            }}
-            className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-[#BFE6CC] bg-[#E3F6EA] px-3 py-2 text-sm font-semibold text-[#1E924A] transition hover:bg-[#D2EFDC]"
-          >
-            <ArrowUpCircle className="h-4 w-4" /> Nova Receita
-          </button>
-        </div>
-      </Modal>
 
       <Modal open={moreOpen} onClose={() => setMoreOpen(false)} title="Mais ações" variant="sheet" size="sm">
         <div className="flex flex-col gap-2 pb-2">
