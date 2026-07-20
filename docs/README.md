@@ -21,7 +21,17 @@ Regra: o CONTRATO é atemporal e não carrega narrativa de "antes/depois". Hist�
 | `quitacao-parcela-cross-project.md` | Quitação de parcela cross-project (PESSOAL): bug-raiz do "sumiço", fluxo espelho+conciliar, invariantes P1–P7/E5/E8, UI e validação. |
 | `manual-do-aplicativo.md` | Manual do usuário: comportamento observável por tela + conceitos-chave e glossário (não normativo para regras — estas vivem nos docs acima). |
 | `despesa-recorrente.md` | Despesa recorrente (mensal/quinzenal): gera N despesas planejadas reais; modo cross-project (obra+espelho); canais UI/Copilot/voz; API e validação. |
+| `politica-datas-timezone.md` | Política de datas e fronteira de timezone (BRT×UTC) nas telas financeiras. |
 | `archive/estado-atual-historico-2026.md` | Histórico detalhado movido do estado-atual do cockpit (incrementos/commits de 2026). |
 | `archive/` | Notas históricas de sessões anteriores (não normativas) — ver `archive/README.md`. |
+
+## Planos mestres de UX (roadmap executável)
+
+Cada plano é a fonte única do seu ciclo: decisões de produto, fatiamento em PRs, agentes por etapa, critérios de aceite e registro de desvios. Ao concluir, o plano é marcado e permanece como histórico; o plano ativo entra na leitura obrigatória de início de sessão.
+
+| Plano | Status | Assunto |
+|---|---|---|
+| `plano-visao-conta-hub-2026-07.md` | ✅ Concluído (PRs #204/#205/#207, 2026-07-20) | v1 — Visão Conta como hub: Carteira/"sem conta", projeção unificada no Cockpit, navegação (bottom nav + sidebar 5 grupos), Despesas/Recebimentos como drill-downs. |
+| `plano-ux-v2-2026-07.md` | 🚀 Ativo | v2 — Redução de trabalho: W1 fila de pendências, W2 auto-categorização com regras, W3 dieta da tela da Conta, W4 runway prescritivo, W5 onboarding/empty states. |
 
 Ferramentas de apoio (não-app): `tools/financial-analysis/` (reconciliação de caixa via `reconcile.py`).
