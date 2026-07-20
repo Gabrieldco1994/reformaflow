@@ -55,6 +55,7 @@ export function ResumoCards({
   faltaPagarMes,
   recebimentosPrevistosMes,
   sobraPrevista,
+  saiuSemConta,
   activeQuickFilter,
   onQuickFilterSelect,
 }: {
@@ -64,6 +65,8 @@ export function ResumoCards({
   faltaPagarMes: number;
   recebimentosPrevistosMes: number;
   sobraPrevista: number;
+  /** Centavos: soma das saídas realizadas do mês sem conta/cartão vinculado (Carteira). */
+  saiuSemConta?: number;
   activeQuickFilter: ResumoQuickFilterKey | null;
   onQuickFilterSelect: (key: ResumoQuickFilterKey) => void;
 }) {
@@ -100,7 +103,11 @@ export function ResumoCards({
           quickFilterKey ? () => onQuickFilterSelect(quickFilterKey) : undefined
         }
         extra={
-          key === 'faltaPagarMes' && recebimentosPrevistosMes > 0 ? (
+          key === 'saiuMes' && (saiuSemConta ?? 0) > 0 ? (
+            <p className="mt-1 text-[11px] leading-4 text-lifeone-ink-3">
+              inclui {formatCurrency((saiuSemConta ?? 0) / 100)} sem conta vinculada
+            </p>
+          ) : key === 'faltaPagarMes' && recebimentosPrevistosMes > 0 ? (
             <p className="mt-1 text-[11px] font-semibold leading-4 text-[#B5803A]">
               + {formatCurrency(recebimentosPrevistosMes / 100)} previsto ainda
               a entrar

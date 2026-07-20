@@ -309,3 +309,26 @@ emitem `isNeutralConsumo=true`; `caixa.hoje` permaneceu R$ 69.016,52.
 > card de mês futuro prefere o `saldoProjetado` da série anual: runway
 > **acumulado**, carregando sobras ou faltas dos meses anteriores. Se a série não
 > estiver disponível, a tela volta à sobra mensal da account-view.
+
+---
+
+## §11 Carteira / Pseudo-origem "Sem conta"
+
+**Definição:** uma saída é *Carteira* quando `kind='saida' && !isInvoice && cardLast4===null && bankLast4===null` — ou seja, um lançamento de despesa sem cartão nem conta bancária vinculada.
+
+**Por que existe:** historicamente, saídas sem vínculo de origem (`origin:'none'`) eram descartadas silenciosamente em `getAccountView`, tornando a Conta uma tela incompleta — dinheiro desaparecia do consolidado. A regra de ouro: **toda movimentação do PESSOAL sem cartão/conta pertence à Carteira e DEVE aparecer na Visão Conta e nos totais**.
+
+**Inclusão nos totais:**
+- `saiuMes` (caixa) inclui saídas Carteira realizadas no mês.
+- `faltaPagarMes` inclui saídas Carteira pendentes.
+- O backend `getAccountView` emite `origem: { tipo: 'carteira' }` nesses itens (ver `monthly-overview.service.ts`, seção `carteiraPaidThisMonth`/`carteiraUnpaidThisMonth`).
+
+**Chip "Sem conta":** na linha de movimentação (`MovimentacaoRow`), saídas Carteira exibem o chip discreto "Sem conta" (cinza, `rounded-full`). O chip é clicável e abre o fluxo de vínculo (`onVincular` → `BulkLinkModal`) respondendo "de onde saiu esse pagamento?".
+
+**Dedupe após conciliação:** quando um item Carteira é vinculado a uma conta/cartão (`onVincular`), o backend atualiza `bankAccountId`/`creditCardId`, e na próxima carga `getAccountView` o item muda de origem. O total **não muda** — o item é contado 1× antes e depois da conciliação.
+
+**Interação com neutros:** itens Carteira de tipo neutro (`isConsumptionNeutralExpenseType`) são filtrados de movimentação via `isNeutralMovimentacao`, igual aos demais neutros — não aparecem na lista mas continuam nos totais de caixa.
+
+**Interação com espelho cross-project:** itens Carteira podem ser alvos de vínculo/rateio cross-project (origem PESSOAL). O vínculo gera espelho; o espelho herda o `bankAccountId` definido no PESSOAL.
+
+**Filtro "Sem conta":** em `MovimentacoesSection`, o toggle "Sem conta" (estado `semContaFilter`) restringe a lista a itens `isCarteiraItem`. Oculto na aba Entradas.
