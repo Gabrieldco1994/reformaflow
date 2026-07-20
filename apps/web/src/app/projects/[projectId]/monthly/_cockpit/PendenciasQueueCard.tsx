@@ -112,14 +112,17 @@ export function PendenciasQueueCard({ projectId, monthKey }: { projectId: string
 
   const handleItemAction = (item: QueueItem) => {
     if (item.tipo === 'SEM_CONTA' && item.expenseId) {
+      setOpen(false);
       setVincularExpenseId(item.expenseId);
       return;
     }
     if (item.tipo === 'SEM_CATEGORIA' && item.expenseId) {
+      setOpen(false);
       setEditExpenseId(item.expenseId);
       return;
     }
     if (item.tipo === 'FATURA_NAO_PAGA' && item.cardLast4) {
+      setOpen(false);
       setPayCardLast4(item.cardLast4);
       return;
     }
@@ -128,6 +131,7 @@ export function PendenciasQueueCard({ projectId, monthKey }: { projectId: string
       item.foreignExpenseId &&
       item.parcelaIndex != null
     ) {
+      setOpen(false);
       setQuitar({
         foreignExpenseId: item.foreignExpenseId,
         parcelaIndex: item.parcelaIndex,
@@ -138,6 +142,7 @@ export function PendenciasQueueCard({ projectId, monthKey }: { projectId: string
       return;
     }
     if (item.tipo === 'RECEBIMENTO_PREVISTO_ATRASADO' && item.receiptId) {
+      setOpen(false);
       setEditReceita({
         id: item.receiptId,
         valor: item.valor,
@@ -214,6 +219,7 @@ export function PendenciasQueueCard({ projectId, monthKey }: { projectId: string
           setVincularExpenseId(null);
           refreshQueue();
         }}
+        portal
         currentProjectId={projectId}
         preselectedSources={vincularExpense ? [vincularExpense] : undefined}
       />
