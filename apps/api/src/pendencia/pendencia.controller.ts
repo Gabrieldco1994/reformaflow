@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, UseInterceptors } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, Query, UseInterceptors } from '@nestjs/common';
 import { PendenciaService } from './pendencia.service';
 import { CreatePendenciaDto, UpdatePendenciaDto, MovePendenciaDto } from './dto/pendencia.dto';
 import { RequireModule } from '../common/decorators/require-module.decorator';
@@ -14,6 +14,15 @@ export class PendenciaController {
   @Get()
   findAll(@CurrentTenant() tenantId: string, @Param('projectId') projectId: string) {
     return this.service.findAll(tenantId, projectId);
+  }
+
+  @Get('financeiras')
+  findFinancialQueue(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Query('month') month?: string,
+  ) {
+    return this.service.findFinancialQueue(tenantId, projectId, month);
   }
 
   @Post()

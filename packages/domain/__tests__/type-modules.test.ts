@@ -44,6 +44,7 @@ describe('TYPE_MODULES (single source of truth for the access gate)', () => {
         'creditCards',
         'bankAccounts',
         'monthlyOverview',
+        'pendencias',
       ],
       CASA: ['dashboard', 'recurringBills', 'maintenance', 'reminders', 'expenses'],
       CARRO: ['dashboard', 'carInfo', 'recurringBills', 'maintenance', 'reminders', 'expenses'],

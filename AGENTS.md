@@ -83,6 +83,7 @@ cd packages/domain && npx vitest run              # testes domínio (vitest, __t
 13. **Mudou UI? QA visual real é obrigatória antes do PR**: login real + dados reais, mobile 375/390px e desktop, screenshots no PR. tsc/testes verdes NÃO bastam (5 bugs só apareceram em QA real). Piso tipográfico: nada <11px, valores de lista ≥15px, alvos de toque ≥44px; **valor monetário nunca divide a largura da linha com outro elemento variável** (badge/chip/outro valor) — rótulo à esquerda, valor `nowrap` à direita (erro corrigido 4× no mesmo mês). **`MovimentacaoRow` é o layout canônico de linha financeira** — novas listas financeiras do app copiam esse padrão (título + metadados separados, valor nowrap, status textual abaixo do valor).
 
 14. **Toda movimentação do PESSOAL sem cartão/conta pertence à pseudo-origem Carteira e DEVE aparecer na Visão Conta e nos totais** (`getAccountView`). Nunca filtrar `origin:'none'` para fora silenciosamente — item invisível = dinheiro sumido no consolidado. Frontend exibe chip "Sem conta" clicável (→ fluxo de vínculo). Docs: `docs/visao-conta-faturas.md §11`.
+15. **Fila "Precisa de você" agrega fontes existentes (`GET /projects/:id/pendencias/financeiras`) e não cria mutação nova.** Cada pendência deve apenas rotear para um modal já existente (vincular, pagar fatura, quitar parcela, editar despesa/recebimento). Nova pendência = nova fonte no agregador, não fluxo paralelo.
 
 ## Notas técnicas (consulte quando tocar o módulo)
 

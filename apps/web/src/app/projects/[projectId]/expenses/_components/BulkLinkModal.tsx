@@ -23,6 +23,7 @@ interface Props {
   open: boolean;
   onClose: () => void;
   currentProjectId: string;
+  portal?: boolean;
   /**
    * Despesas pré-selecionadas pelo chamador (ex: seleção via checkbox na lista
    * de ExpensesView). Quando omitido, o modal busca e lista TODAS as despesas
@@ -46,7 +47,14 @@ interface RowChoice {
  * só escolhe projeto destino + categoria por linha; título/valor/data são
  * copiados automaticamente da fonte.
  */
-export function BulkLinkModal({ open, onClose, currentProjectId, preselectedSources, defaultMonth }: Props) {
+export function BulkLinkModal({
+  open,
+  onClose,
+  currentProjectId,
+  preselectedSources,
+  defaultMonth,
+  portal = false,
+}: Props) {
   const queryClient = useQueryClient();
   const selfSelectMode = preselectedSources === undefined;
 
@@ -167,7 +175,7 @@ export function BulkLinkModal({ open, onClose, currentProjectId, preselectedSour
   }
 
   return (
-    <Modal open={open} onClose={handleClose} title="Vincular em massa">
+    <Modal open={open} onClose={handleClose} title="Vincular em massa" portal={portal}>
       <div className="space-y-4">
         <p className="text-sm text-gray-600">
           Cada despesa abaixo vira uma despesa vinculada (valor integral, sem rateio) no projeto

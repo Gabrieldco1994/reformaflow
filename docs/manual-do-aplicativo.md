@@ -264,6 +264,11 @@ A tela-mãe do PESSOAL. Responde "como está meu mês?".
 - **Dropdown "Recomendações"** (minimizado por padrão): dicas automáticas —
   projeção de fechamento e quanto cortar por dia para equilibrar, maior gasto
   variável, contas a vencer, e status da reserva de emergência.
+- **Card "Precisa de você (N)"** (quando `N > 0`): mostra pendências financeiras
+  acionáveis (sem conta, sem categoria com sugestão, fatura a vencer, parcela
+  cross-project pendente e recebimento previsto atrasado). Ao tocar, abre um
+  painel que dispara os modais já existentes (vincular, pagar fatura, quitar
+  parcela, editar despesa/recebimento) sem criar um fluxo paralelo.
 
 **KPIs do mês (eixo caixa):**
 | KPI | O que representa |
