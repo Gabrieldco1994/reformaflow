@@ -57,7 +57,7 @@ export default function AdminUsersPage() {
   const [feedbackWarning, setFeedbackWarning] = useState<string | null>(null);
   const [editing, setEditing] = useState<AdminUser | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [filterToday, setFilterToday] = useState(false);
+  const [todayFilter, setTodayFilter] = useState<'none' | 'logged' | 'created' | 'existing'>('none');
   const [activityUser, setActivityUser] = useState<AdminUser | null>(null);
 
   useEffect(() => {
@@ -202,26 +202,26 @@ export default function AdminUsersPage() {
           return (
             <div className="grid grid-cols-8 gap-3 mb-4">
               {[
-                { label: 'Total', value: total, color: 'text-gray-900', filterable: false },
-                { label: 'Admins', value: admins, color: 'text-purple-700', filterable: false },
-                { label: 'Ativos 7d', value: active7d, color: 'text-green-700', filterable: false },
-                { label: 'Ativos 30d', value: active30d, color: 'text-blue-700', filterable: false },
-                { label: 'Logaram hoje', value: loggedToday, color: 'text-brand-700', filterable: true },
-                { label: 'Cadastros hoje', value: createdToday, color: 'text-emerald-700', filterable: false },
-                { label: 'Login hoje (existentes)', value: loggedTodayExisting, color: 'text-indigo-700', filterable: false },
-                { label: 'Nunca acessaram', value: never, color: 'text-gray-400', filterable: false },
+                { label: 'Total', value: total, color: 'text-gray-900' },
+                { label: 'Admins', value: admins, color: 'text-purple-700' },
+                { label: 'Ativos 7d', value: active7d, color: 'text-green-700' },
+                { label: 'Ativos 30d', value: active30d, color: 'text-blue-700' },
+                { label: 'Logaram hoje', value: loggedToday, color: 'text-brand-700', filterKey: 'logged' as const },
+                { label: 'Cadastros hoje', value: createdToday, color: 'text-emerald-700', filterKey: 'created' as const },
+                { label: 'Login hoje (existentes)', value: loggedTodayExisting, color: 'text-indigo-700', filterKey: 'existing' as const },
+                { label: 'Nunca acessaram', value: never, color: 'text-gray-400' },
               ].map((s) => (
                 <div
                   key={s.label}
-                  onClick={s.filterable ? () => setFilterToday((v) => !v) : undefined}
+                  onClick={s.filterKey ? () => setTodayFilter((v) => (v === s.filterKey ? 'none' : s.filterKey)) : undefined}
                   className={`bg-white border rounded-xl px-4 py-3 text-center transition-all ${
-                    s.filterable
-                      ? 'cursor-pointer hover:border-brand-400 ' + (filterToday ? 'border-brand-500 ring-2 ring-brand-200' : 'border-gray-200')
+                    s.filterKey
+                      ? 'cursor-pointer hover:border-brand-400 ' + (todayFilter === s.filterKey ? 'border-brand-500 ring-2 ring-brand-200' : 'border-gray-200')
                       : 'border-gray-200'
                   }`}
                 >
                   <div className={`text-2xl font-bold ${s.color}`}>{s.value}</div>
-                  <div className="text-xs text-gray-500 mt-0.5">{s.label}{s.filterable && filterToday ? ' ✓' : ''}</div>
+                  <div className="text-xs text-gray-500 mt-0.5">{s.label}{s.filterKey && todayFilter === s.filterKey ? ' ✓' : ''}</div>
                 </div>
               ))}
             </div>
@@ -229,10 +229,12 @@ export default function AdminUsersPage() {
         })()}
 
         <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto">
-          {filterToday && (
+          {todayFilter !== 'none' && (
             <div className="px-4 py-2 bg-brand-50 border-b border-brand-100 flex items-center justify-between">
-              <span className="text-xs text-brand-700 font-medium">Filtro: logaram hoje</span>
-              <button onClick={() => setFilterToday(false)} className="text-xs text-brand-600 hover:underline">Limpar</button>
+              <span className="text-xs text-brand-700 font-medium">
+                Filtro: {todayFilter === 'logged' ? 'logaram hoje' : todayFilter === 'created' ? 'cadastros hoje' : 'login hoje (existentes)'}
+              </span>
+              <button onClick={() => setTodayFilter('none')} className="text-xs text-brand-600 hover:underline">Limpar</button>
             </div>
           )}
           <table className="w-full text-sm">
@@ -275,13 +277,22 @@ export default function AdminUsersPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {(filterToday
+              {(todayFilter !== 'none'
                 ? users.filter((u) => {
-                    if (!u.lastLoginAt) return false;
-                    const t = new Date(u.lastLoginAt);
-                    const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
-                    const startOfTomorrow = new Date(startOfToday); startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
-                    return t >= startOfToday && t < startOfTomorrow;
+                    const startOfToday = new Date();
+                    startOfToday.setHours(0, 0, 0, 0);
+                    const startOfTomorrow = new Date(startOfToday);
+                    startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
+                    const isInToday = (value?: string | null) => {
+                      if (!value) return false;
+                      const t = new Date(value).getTime();
+                      return t >= startOfToday.getTime() && t < startOfTomorrow.getTime();
+                    };
+                    if (todayFilter === 'logged') return isInToday(u.lastLoginAt);
+                    if (todayFilter === 'created') return isInToday(u.createdAt);
+                    if (!isInToday(u.lastLoginAt)) return false;
+                    if (!u.createdAt) return true;
+                    return new Date(u.createdAt).getTime() < startOfToday.getTime();
                   })
                 : users
               ).map((u) => (
