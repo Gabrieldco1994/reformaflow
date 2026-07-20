@@ -33,6 +33,7 @@ interface Props {
   recentDescriptions: string[];
   projectType: string;
   projectedBalanceCents?: number | null;
+  mode?: 'PAGA' | 'PLANEJAR';
 }
 
 // ponytail: atalho de categorias PESSOAL do dia a dia no lançamento rápido;
@@ -57,6 +58,7 @@ export function MobileLaunchSheet({
   recentDescriptions,
   projectType,
   projectedBalanceCents,
+  mode = 'PAGA',
 }: Props) {
   const origins = useMemo<OriginOption[]>(() => {
     const accountOrigins: OriginOption[] = accounts.map((account) => ({
@@ -139,7 +141,7 @@ export function MobileLaunchSheet({
       quantidadeParcela: selectedOrigin.kind === 'card' && parcelas > 1 ? parcelas : null,
       dataInicioParcela: selectedOrigin.kind === 'card' && parcelas > 1 ? today : null,
       dataPagamento: today,
-      status: 'PAGO',
+      status: mode === 'PLANEJAR' ? 'PLANEJADO' : 'PAGO',
       creditCardId: selectedOrigin.kind === 'card' ? selectedOrigin.id : null,
       bankAccountId: selectedOrigin.kind === 'account' ? selectedOrigin.id : null,
     };
@@ -153,7 +155,7 @@ export function MobileLaunchSheet({
       <div className="pessoal-minimal-backdrop fixed inset-0 z-40 bg-darc-velvet/60 backdrop-blur-sm lg:hidden" onClick={onClose} aria-hidden />
       <section data-mobile-sheet="launch" className="pessoal-minimal-launch-sheet fixed inset-x-0 bottom-0 z-50 max-h-[96dvh] overflow-y-auto rounded-t-[28px] border border-darc-linen bg-lifeone-surface px-4 pb-6 pt-3 lg:hidden">
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-xl font-bold text-lifeone-ink">Lançar</h2>
+          <h2 className="text-xl font-bold text-lifeone-ink">{mode === 'PLANEJAR' ? 'Planejar' : 'Lançar'}</h2>
           <button type="button" onClick={onClose} aria-label="Fechar lançar" className="flex min-h-11 min-w-11 items-center justify-center rounded-full text-darc-velvet/70 hover:bg-darc-linen/60">
             <X className="h-5 w-5" />
           </button>
@@ -161,7 +163,8 @@ export function MobileLaunchSheet({
 
         <div className="pessoal-minimal-balance rounded-2xl bg-darc-velvet px-4 py-3 text-sm text-white/85">
           <p>
-            Fechamento previsto: <strong className="text-white">{moneyGlance(projected)}</strong>
+            {mode === 'PLANEJAR' ? 'Impacto previsto:' : 'Fechamento previsto:'}{' '}
+            <strong className="text-white">{moneyGlance(projected)}</strong>
           </p>
         </div>
 
@@ -290,7 +293,7 @@ export function MobileLaunchSheet({
         <input
           value={description}
           onChange={(event) => setDescription(event.target.value)}
-          placeholder="Detalhe (opcional): ex. mercado da esquina"
+          placeholder={mode === 'PLANEJAR' ? 'Detalhe (opcional): ex. internet de agosto' : 'Detalhe (opcional): ex. mercado da esquina'}
           className="pessoal-minimal-input mt-3 h-12 w-full rounded-xl border border-darc-linen bg-white px-3 text-sm"
         />
         {recentDescriptions.length > 0 && (
@@ -353,7 +356,7 @@ export function MobileLaunchSheet({
           onClick={handleLaunch}
           className="pessoal-minimal-launch-submit mt-4 flex min-h-[52px] w-full items-center justify-center rounded-2xl bg-[#0F6B4D] text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-darc-linen"
         >
-          {launching ? 'Lançando...' : 'Lançar despesa'}
+          {launching ? (mode === 'PLANEJAR' ? 'Planejando...' : 'Lançando...') : mode === 'PLANEJAR' ? 'Planejar despesa' : 'Lançar despesa'}
         </button>
       </section>
     </>

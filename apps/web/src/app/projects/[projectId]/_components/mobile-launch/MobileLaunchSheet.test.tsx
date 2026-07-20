@@ -90,4 +90,33 @@ describe('MobileLaunchSheet', () => {
       expect.objectContaining({ tipoDespesa: 'SUPERMERCADO', titulo: 'Supermercado' }),
     );
   });
+
+  it('usa fluxo de planejamento no mobile quando mode=PLANEJAR', async () => {
+    const user = userEvent.setup();
+    const onLaunch = vi.fn(async () => undefined);
+
+    render(
+      <MobileLaunchSheet
+        open
+        mode="PLANEJAR"
+        onClose={vi.fn()}
+        onLaunch={onLaunch}
+        launching={false}
+        accounts={[{ id: 'acc-1', nickname: 'Conta Itaú', last4: '4247' }]}
+        cards={[]}
+        recentDescriptions={[]}
+        projectType="PESSOAL"
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '7' }));
+    await user.click(screen.getByRole('button', { name: 'Planejar despesa' }));
+
+    expect(onLaunch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        valor: 0.07,
+        status: 'PLANEJADO',
+      }),
+    );
+  });
 });
