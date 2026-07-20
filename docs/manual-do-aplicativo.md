@@ -333,10 +333,13 @@ Os cards "Entrou/Saiu/Falta pagar" funcionam como **filtros rápidos** das
 movimentações abaixo.
 
 **Projeção multi-mês (runway):**
-- A Visão Conta mostra apenas um **resumo de horizonte** (texto curto) e um link
-  **"Ver no Cockpit (Vai dar até dez?)"**.
-- O gráfico e a exploração completa da projeção multi-mês ficam no **Cockpit** (mobile
-  e desktop), para manter uma narrativa única entre as telas.
+- A Visão Conta mostra um **resumo de 1 linha** com o mesmo veredito do Cockpit
+  (ex.: "fica negativo em…"/"se mantém positivo até…") e o link
+  **"Ver projeção no Cockpit"**.
+- Quando não há horizonte suficiente para calcular narrativa, esse bloco **não é exibido**
+  (sem placeholder estático).
+- O gráfico "Vai dar até dez?" e a exploração completa da projeção ficam no **Cockpit**
+  (mobile e desktop), para manter narrativa única entre as telas.
 
 **Cartões e Contas (carrossel):**
 - Cada **cartão** aparece com visual realista do banco, **fatura atual**, **vence

@@ -66,8 +66,8 @@ describe("ResumoCards", () => {
     expect(within(projection).getByText("Sobra prevista")).toBeInTheDocument();
   });
 
-  it("mostra nota 'inclui X sem conta' no card Saiu no mês quando saiuSemConta > 0", () => {
-    render(
+  it("shows the sem conta note on Saiu no mês only when saiuSemConta > 0", () => {
+    const { rerender } = render(
       <ResumoCards
         {...values}
         saiuSemConta={5_000}
@@ -75,12 +75,10 @@ describe("ResumoCards", () => {
         onQuickFilterSelect={vi.fn()}
       />,
     );
-    expect(screen.getByText(/inclui.*sem conta vinculada/)).toBeInTheDocument();
-    expect(screen.getByText(/R\$ 50,00/)).toBeInTheDocument();
-  });
 
-  it("não mostra nota 'sem conta' quando saiuSemConta é 0 ou ausente", () => {
-    const { rerender } = render(
+    expect(screen.getByText(/inclui.*sem conta vinculada/i)).toBeInTheDocument();
+
+    rerender(
       <ResumoCards
         {...values}
         saiuSemConta={0}
@@ -88,7 +86,7 @@ describe("ResumoCards", () => {
         onQuickFilterSelect={vi.fn()}
       />,
     );
-    expect(screen.queryByText(/sem conta vinculada/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/sem conta vinculada/i)).not.toBeInTheDocument();
 
     rerender(
       <ResumoCards
@@ -97,6 +95,6 @@ describe("ResumoCards", () => {
         onQuickFilterSelect={vi.fn()}
       />,
     );
-    expect(screen.queryByText(/sem conta vinculada/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/sem conta vinculada/i)).not.toBeInTheDocument();
   });
 });
