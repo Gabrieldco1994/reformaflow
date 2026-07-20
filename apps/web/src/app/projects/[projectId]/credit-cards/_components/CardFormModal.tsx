@@ -13,6 +13,8 @@ interface Props {
   onSaved: () => void;
   /** ponytail: skip the fixed overlay when embedded inside AccountFormModal's own overlay */
   bare?: boolean;
+  /** Hide the "Cancelar" button — used when embedded in a flow that already has its own skip affordance (e.g. onboarding wizard). */
+  hideCancel?: boolean;
 }
 
 const INSTITUTIONS = [
@@ -29,7 +31,7 @@ const INSTITUTIONS = [
 
 const BRANDS = ['Visa', 'Mastercard', 'Elo', 'Amex', 'Hipercard'];
 
-export default function CardFormModal({ projectId, card, onClose, onSaved, bare }: Props) {
+export default function CardFormModal({ projectId, card, onClose, onSaved, bare, hideCancel }: Props) {
   const [institution, setInstitution] = useState(card?.institution ?? 'ITAU');
   const [brand, setBrand] = useState(card?.brand ?? 'Visa');
   const [nickname, setNickname] = useState(card?.nickname ?? '');
@@ -162,7 +164,7 @@ export default function CardFormModal({ projectId, card, onClose, onSaved, bare 
           {error && <div className="text-sm text-red-600">{error}</div>}
 
           <div className="flex justify-end gap-2 pt-2">
-            <button onClick={onClose} className="px-4 py-2 border rounded-lg">Cancelar</button>
+            {!hideCancel && <button onClick={onClose} className="px-4 py-2 border rounded-lg">Cancelar</button>}
             <button
               onClick={handleSave}
               disabled={saving}

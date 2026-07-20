@@ -95,4 +95,13 @@ describe('CreatePlantModal', () => {
     expect(apiPostMock).toHaveBeenCalledWith('/projects/p1/plants', { nome: 'Cacto' });
     expect(apiUploadMock).not.toHaveBeenCalled();
   });
+
+  it('bare=true renders without the outer "fixed inset-0 bg-black/40" wrapper class; bare=false (default) keeps it', () => {
+    const { container, unmount } = render(<CreatePlantModal onClose={vi.fn()} onCreated={vi.fn()} bare />);
+    expect(container.querySelector('.fixed.inset-0.bg-black\\/40')).not.toBeInTheDocument();
+    unmount();
+
+    const { container: containerDefault } = render(<CreatePlantModal onClose={vi.fn()} onCreated={vi.fn()} />);
+    expect(containerDefault.querySelector('.fixed.inset-0.bg-black\\/40')).toBeInTheDocument();
+  });
 });

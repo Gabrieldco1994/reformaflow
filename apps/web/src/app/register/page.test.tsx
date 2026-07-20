@@ -51,7 +51,7 @@ describe("/register form behavior", () => {
     ).toEqual(["REFORMA", "COMPRA", "CASA", "CARRO", "PESSOAL", "PLANTAS"]);
   });
 
-  it("submits one canonical payload once and enters manual project onboarding", async () => {
+  it("submits one canonical payload once and enters the guided onboarding wizard for the selected type", async () => {
     let finishRegistration!: (value: { id: string }) => void;
     mocks.register.mockImplementationOnce(
       () => new Promise((resolve) => { finishRegistration = resolve; }),
@@ -75,7 +75,45 @@ describe("/register form behavior", () => {
     }, expect.any(String));
     finishRegistration({ id: "u1" });
     await waitFor(() =>
-      expect(mocks.replace).toHaveBeenCalledWith("/projects?onboarding=1"),
+      expect(mocks.replace).toHaveBeenCalledWith("/onboarding/setup?type=CASA"),
+    );
+  });
+
+  it("routes to the PESSOAL onboarding wizard when PESSOAL is selected alongside other types", async () => {
+    mocks.register.mockResolvedValueOnce({ id: "u1" });
+    const browser = userEvent.setup();
+    render(<RegisterPage />);
+    await browser.type(screen.getByLabelText(/nome do seu espaço/i), "Acme");
+    await browser.type(screen.getByLabelText(/seu nome/i), "Maria");
+    await browser.type(screen.getByLabelText(/usuário/i), "maria");
+    await browser.type(screen.getByLabelText(/^senha$/i), "segredo1");
+    await browser.type(screen.getByLabelText(/confirmar senha/i), "segredo1");
+    await browser.click(screen.getByRole("checkbox", { name: /Reformar/i }));
+    await browser.click(screen.getByRole("checkbox", { name: /financeira/i }));
+    await browser.click(screen.getByRole("checkbox", { name: /^Cuidar da casa/i }));
+    await browser.click(screen.getByRole("button", { name: /criar conta/i }));
+
+    await waitFor(() =>
+      expect(mocks.replace).toHaveBeenCalledWith("/onboarding/setup?type=PESSOAL"),
+    );
+  });
+
+  it("falls back to canonical OBJECTIVE_TYPES order when PESSOAL is absent from the selection", async () => {
+    mocks.register.mockResolvedValueOnce({ id: "u1" });
+    const browser = userEvent.setup();
+    render(<RegisterPage />);
+    await browser.type(screen.getByLabelText(/nome do seu espaço/i), "Acme");
+    await browser.type(screen.getByLabelText(/seu nome/i), "Maria");
+    await browser.type(screen.getByLabelText(/usuário/i), "maria");
+    await browser.type(screen.getByLabelText(/^senha$/i), "segredo1");
+    await browser.type(screen.getByLabelText(/confirmar senha/i), "segredo1");
+    await browser.click(screen.getByRole("checkbox", { name: /carro/i }));
+    await browser.click(screen.getByRole("checkbox", { name: /Reformar/i }));
+    await browser.click(screen.getByRole("button", { name: /criar conta/i }));
+
+    // REFORMA precedes CARRO in canonical OBJECTIVE_TYPES order.
+    await waitFor(() =>
+      expect(mocks.replace).toHaveBeenCalledWith("/onboarding/setup?type=REFORMA"),
     );
   });
 

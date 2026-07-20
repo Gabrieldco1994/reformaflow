@@ -69,7 +69,7 @@ test("CTA to fresh session and explicitly named first project", async ({
   await page.getByRole("checkbox", { name: /^Cuidar da casa/i }).check();
   await page.getByRole("button", { name: /criar conta/i }).click();
 
-  await expect(page).toHaveURL(/\/projects\?onboarding=1$/);
+  await expect(page).toHaveURL(/\/onboarding\/setup\?type=CASA$/);
   expect(registerBodies).toEqual([
     {
       tenantName: "Acme",
@@ -81,9 +81,7 @@ test("CTA to fresh session and explicitly named first project", async ({
   ]);
   expect(projectBodies).toEqual([]);
 
-  await page.getByLabel("Nome", { exact: true }).fill("Minha Casa");
-  await page.getByRole("button", { name: "Criar Projeto" }).first().click();
-  expect(projectBodies).toEqual([
-    { name: "Minha Casa", type: "CASA", description: "" },
-  ]);
+  await page.getByLabel(/nome do projeto/i).fill("Minha Casa");
+  await page.getByRole("button", { name: /criar e continuar/i }).click();
+  expect(projectBodies).toEqual([{ name: "Minha Casa", type: "CASA" }]);
 });

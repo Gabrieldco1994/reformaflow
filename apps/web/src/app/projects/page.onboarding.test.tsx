@@ -105,6 +105,8 @@ describe("first project onboarding", () => {
       description: "",
     });
     expect(mocks.refresh).toHaveBeenCalledTimes(1);
-    expect(mocks.push).toHaveBeenCalledWith("/projects/casa-1/apoio");
+    expect(mocks.push).toHaveBeenCalledWith(
+      "/onboarding/setup?projectId=casa-1&type=CASA",
+    );
   });
 });

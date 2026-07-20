@@ -128,19 +128,37 @@ O **rateio** permite dividir uma despesa entre vários destinos.
 - **Propósito:** criar uma nova conta (tenant + usuário).
 - **Campos:** nome do espaço, nome do usuário, usuário (login), senha,
   confirmação de senha, objetivos (seletor de tipos de projeto).
-- **Ação "Criar conta e continuar":**
-  - Se PESSOAL está entre os objetivos: redireciona para o **fluxo de setup guiado** (`/onboarding/pessoal-setup`).
-  - Caso contrário: redireciona para o Hub com modal de criar projeto aberto.
+- **Ação "Criar conta e continuar":** cria a conta e redireciona todo mundo para o
+  **assistente de onboarding guiado** (`/onboarding/setup?type=X`), onde `X` é o
+  tipo de objetivo "principal" da seleção: PESSOAL tem prioridade se estiver entre
+  os escolhidos; senão, vale o primeiro tipo na ordem canônica dos objetivos
+  (Reforma, Compra, Casa, Carro, Pessoal, Plantas).
 
-### 3.1c Onboarding "do zero" (`/onboarding/pessoal-setup`)
-Fluxo guiado para novos usuários que escolheram PESSOAL. Stepper de 4 passos:
+### 3.1c Onboarding guiado (`/onboarding/setup?type=X`)
+Assistente **genérico**, dirigido por configuração — todos os 6 tipos de projeto
+(Reforma, Compra, Casa, Carro, Pessoal, Plantas) passam por ele, não só o
+PESSOAL. O stepper tem 3 partes:
 
-1. **Projeto:** cria automaticamente o projeto PESSOAL (nome editável, padrão "Minha vida financeira").
-2. **Conta bancária:** banco, apelido, últimos 4 dígitos, e o campo-herói **"Quanto você tem na conta hoje?"** (saldo inicial + data=hoje). É a base do Caixa Real no cockpit. **Pular é possível**, mas exibe aviso explícito: "sem isso, o Caixa mostrado não será o saldo do banco".
-3. **Cartão de crédito (opcional):** banco, bandeira, últimos 4, dia de fechamento e dia de vencimento. Microcopy explica por quê ("é o que permite prever sua fatura").
-4. **Pronto:** redirect automático para o Cockpit do PESSOAL.
+1. **Projeto:** cria automaticamente o projeto do tipo escolhido (nome editável).
+   Pulado quando o projeto já existe (ex.: criado pelo botão "Novo Projeto" do
+   Hub, que já chega no assistente com `projectId` na URL).
+2. **Passo(s) de âncora, específico(s) do tipo** — cada tipo tem seu próprio
+   conjunto, sempre **pulável**:
+   - **Pessoal:** Conta bancária (com o campo-herói "Quanto você tem na conta
+     hoje?" — base do Caixa Real) → Cartão de crédito → Despesa rápida →
+     Recebimento rápido.
+   - **Reforma:** Despesa rápida.
+   - **Compra:** Despesa rápida.
+   - **Casa:** Conta recorrente (água, luz, condomínio…).
+   - **Carro:** Dados do veículo (placa, modelo, ano…).
+   - **Plantas:** Cadastro de planta (nome, espécie, ambiente…).
+3. **Pronto:** tela final de confirmação; redireciona automaticamente para o
+   **guia de apoio do projeto** (`/projects/:id/apoio`) — nunca direto para o
+   Cockpit/Dashboard (`/monthly` ou similar).
 
-O critério central: quem segue o caminho feliz vê, no primeiro minuto, um Caixa que é o saldo real digitado.
+O critério central permanece o mesmo do fluxo original do PESSOAL: quem segue o
+caminho feliz sai do assistente com pelo menos um lançamento/dado real
+cadastrado, e sempre passa pelo guia de apoio antes do cockpit.
 
 ### 3.2 Hub — Meus Projetos (`/projects`)
 Ponto de entrada depois do login. Lista todos os projetos que o usuário pode ver.
@@ -158,7 +176,9 @@ Ponto de entrada depois do login. Lista todos os projetos que o usuário pode ve
 - **Botão "Novo Projeto" / FAB "+":** abre o modal de criação. Só habilitado se o
   usuário tem permissão para criar ao menos um tipo (`canCreateProjectType`).
   - Modal de criação: **Nome**, **Tipo** (apenas os tipos permitidos ao usuário) e
-    **Descrição**. Ao criar, o projeto é aberto direto no Dashboard.
+    **Descrição**. Ao criar, o projeto entra no **assistente de onboarding guiado**
+    (`/onboarding/setup?projectId=X&type=Y`, ver §3.1c) em vez de abrir direto no
+    Dashboard.
 - **Estados:** carregando (spinner); vazio ("Nenhum projeto ainda" ou "Você não
   tem acesso a nenhum projeto", com orientação para pedir liberação ao admin).
 
