@@ -244,7 +244,7 @@ export function MovimentacaoRow({
           });
         }
       }}
-      className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-lifeone-blue px-3.5 text-[11px] font-semibold text-white transition hover:brightness-95 md:min-h-[30px]"
+      className="inline-flex min-h-[44px] items-center justify-end text-[11px] font-semibold text-lifeone-blue transition hover:brightness-90 md:min-h-[30px] md:justify-center md:rounded-full md:bg-lifeone-blue md:px-3.5 md:text-white"
       title="Quitar parcela pela conta pessoal"
     >
       Quitar
@@ -315,7 +315,18 @@ export function MovimentacaoRow({
                 type="button"
                 onClick={(ev) => {
                   ev.stopPropagation();
-                  if (onVincular && item.kind === 'saida') onVincular(item);
+                  if (item.kind !== 'saida') return;
+                  if (item.foreignExpenseId && item.parcelaIndex != null) {
+                    onQuitar({
+                      foreignExpenseId: item.foreignExpenseId,
+                      parcelaIndex: item.parcelaIndex,
+                      valorSugerido: item.valor,
+                      descricao: item.descricao,
+                      dataSugerida: item.data.slice(0, 10),
+                    });
+                    return;
+                  }
+                  if (onVincular) onVincular(item);
                 }}
                 className="shrink-0 rounded-full bg-[#F3F3F3] px-1.5 py-0.5 text-[11px] font-semibold text-lifeone-ink-3 transition-colors hover:bg-[#E6EFFE] hover:text-lifeone-blue"
                 title="De onde saiu esse pagamento?"

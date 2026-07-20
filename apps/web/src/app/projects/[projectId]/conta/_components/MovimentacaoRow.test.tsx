@@ -130,6 +130,7 @@ describe('MovimentacaoRow — saída', () => {
 
     it('chip "Sem conta" é clicável e abre modal de vínculo', () => {
       const onVincular = vi.fn();
+      const onQuitar = vi.fn();
       const item = makeSaida({
         forma: 'pix',
         cardLast4: null,
@@ -140,6 +141,7 @@ describe('MovimentacaoRow — saída', () => {
         item,
         originLabel: () => 'Sem conta',
         onVincular,
+        onQuitar,
       });
 
       const semContaChip = screen.getByText('Sem conta');
@@ -147,6 +149,40 @@ describe('MovimentacaoRow — saída', () => {
       
       // Verificar que o callback de vinculação foi chamado
       expect(onVincular).toHaveBeenCalledWith(item);
+      expect(onQuitar).not.toHaveBeenCalled();
+    });
+
+    it('chip "Sem conta" em item foreign roteia para quitar (não vincular)', () => {
+      const onVincular = vi.fn();
+      const onQuitar = vi.fn();
+      renderRow({
+        item: makeSaida({
+          id: 'exp-foreign-1',
+          forma: 'pix',
+          cardLast4: null,
+          bankLast4: null,
+          foreignExpenseId: 'exp-destino-99',
+          parcelaIndex: 3,
+          valor: 12345,
+          data: '2026-07-22',
+          descricao: 'Parcela obra',
+        }),
+        originLabel: () => 'Sem conta',
+        onVincular,
+        onQuitar,
+      });
+
+      const chipButton = screen.getByText('Sem conta').closest('button');
+      if (chipButton) fireEvent.click(chipButton);
+
+      expect(onQuitar).toHaveBeenCalledWith({
+        foreignExpenseId: 'exp-destino-99',
+        parcelaIndex: 3,
+        valorSugerido: 12345,
+        descricao: 'Parcela obra',
+        dataSugerida: '2026-07-22',
+      });
+      expect(onVincular).not.toHaveBeenCalled();
     });
 
     it('exibe "Sem conta" chip mesmo quando há projeto vinculado (cross-project)', () => {
