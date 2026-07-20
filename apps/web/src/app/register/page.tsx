@@ -68,7 +68,7 @@ export default function RegisterPage() {
         {
           tenantName: tenantName.trim(),
           ownerName: ownerName.trim(),
-          email: email.trim(),
+          ...(email.trim() ? { email: email.trim() } : {}),
           username: username.trim(),
           password,
           projectTypes,
