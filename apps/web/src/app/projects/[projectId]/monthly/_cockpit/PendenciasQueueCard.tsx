@@ -6,6 +6,7 @@ import { AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
+import { tipoLabel } from '@/lib/expense-options';
 import { Modal } from '@/components/ui/modal';
 import type { Expense } from '@/types';
 import { BulkLinkModal } from '../../expenses/_components/BulkLinkModal';
@@ -165,15 +166,12 @@ export function PendenciasQueueCard({ projectId, monthKey }: { projectId: string
     },
     onSuccess: (undoPayload, item) => {
       refreshQueue();
-      toast.success(
-        `Regra criada: ${undoPayload.merchant} → ${item.suggestionTipoDespesa}`,
-        {
-          action: {
-            label: 'Desfazer',
-            onClick: () => undoCategoriaMutation.mutate(undoPayload),
-          },
+      toast.success(`Regra criada: ${undoPayload.merchant} → ${tipoLabel(item.suggestionTipoDespesa ?? 'OUTROS')} · desfazer`, {
+        action: {
+          label: 'Desfazer',
+          onClick: () => undoCategoriaMutation.mutate(undoPayload),
         },
-      );
+      });
     },
     onError: (error: Error) => {
       toast.error(`Não foi possível confirmar categoria: ${error.message}`);

@@ -68,6 +68,7 @@ export function MovimentacaoRow({
   onRemoveReceita,
   onRatear,
   onVincular,
+  onConfirmSuggestion,
   expandable = false,
   expanded = false,
   onToggleExpand,
@@ -88,6 +89,8 @@ export function MovimentacaoRow({
   onRatear?: (item: AccountViewSaida) => void;
   /** Vincular (espelhar) uma compra PESSOAL em outro projeto. */
   onVincular?: (item: AccountViewSaida) => void;
+  /** Confirma sugestão de categoria e aprende regra manual. */
+  onConfirmSuggestion?: (item: AccountViewSaida, tipoDespesa: string) => void;
   /** Linha de fatura pode revelar as compras inline (chevron no título). */
   expandable?: boolean;
   expanded?: boolean;
@@ -175,6 +178,10 @@ export function MovimentacaoRow({
   const projOrigem =
     item.kind === 'saida' && item.projetoOrigem && item.projetoOrigem.type !== 'PESSOAL'
       ? item.projetoOrigem
+      : null;
+  const suggestionLabel =
+    item.kind === 'saida' && !item.isInvoice && item.tipoDespesa === 'OUTROS' && item.suggestionTipoDespesa
+      ? `${tipoLabel(item.suggestionTipoDespesa)}?`
       : null;
 
   const doEdit = () => {
@@ -338,6 +345,19 @@ export function MovimentacaoRow({
               <span className="shrink-0 rounded-full bg-[#E6EFFE] px-1.5 py-0.5 text-[11px] font-semibold text-lifeone-blue">
                 {projOrigem.name}
               </span>
+            )}
+            {suggestionLabel && onConfirmSuggestion && item.kind === 'saida' && item.suggestionTipoDespesa && (
+              <button
+                type="button"
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  onConfirmSuggestion(item, item.suggestionTipoDespesa!);
+                }}
+                className="shrink-0 rounded-full bg-[#EAF7EE] px-1.5 py-0.5 text-[11px] font-semibold text-[#1E924A] transition-colors hover:bg-[#D9F1E1]"
+                title="Confirmar categoria e criar regra"
+              >
+                {suggestionLabel}
+              </button>
             )}
           </div>
         </div>

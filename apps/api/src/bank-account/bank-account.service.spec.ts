@@ -38,7 +38,10 @@ function makePrismaMock() {
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       createMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
-    creditCardStatementImport: { update: jest.fn().mockResolvedValue({}) },
+    creditCardStatementImport: {
+      update: jest.fn().mockResolvedValue({}),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     creditCard: { findMany: jest.fn().mockResolvedValue([]) },
     recurringBill: { create: jest.fn(), findFirst: jest.fn() },
     crossProjectSettlement: {
@@ -57,6 +60,7 @@ function makePrismaMock() {
 function makeClassifierMock() {
   return {
     classifyBatch: jest.fn().mockResolvedValue(new Map()),
+    manualExpenseType: jest.fn().mockResolvedValue(null),
   } as any;
 }
 
@@ -187,6 +191,24 @@ describe('BankAccountService', () => {
   });
 
   describe('previewImport — cross-project matches', () => {
+    it('PIX PF sem regra manual permanece OUTROS no preview', async () => {
+      classifier.manualExpenseType.mockResolvedValue(null);
+      const ofx = buildBankOfx(ofxBankFor('20260401', 10000, 'PIX TRANSF JOAO SILVA', 'PF1'));
+      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX');
+      const tx = result.preview.find((t: any) => t.amountCents > 0);
+      expect(tx?.suggestedCategory).toBe('OUTROS');
+      expect(tx?.categoriaFonte).toBeNull();
+    });
+
+    it('regra manual aparece como fonte regra no preview', async () => {
+      classifier.manualExpenseType.mockResolvedValue('MORADIA');
+      const ofx = buildBankOfx(ofxBankFor('20260401', 10000, 'ENEL DISTRIBUICAO', 'RG1'));
+      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX');
+      const tx = result.preview.find((t: any) => t.amountCents > 0);
+      expect(tx?.suggestedCategory).toBe('MORADIA');
+      expect(tx?.categoriaFonte).toBe('regra');
+    });
+
     it('débito casa com Expense PLANEJADO em outro projeto (kind=expense)', async () => {
       prisma.project.findMany.mockResolvedValue([
         { id: 'reforma1', name: 'Reforma', type: 'REFORMA' },

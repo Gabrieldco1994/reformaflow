@@ -90,6 +90,16 @@ export class MerchantClassifierService {
     return s.slice(0, 80);
   }
 
+  static isLikelyPixPessoaFisica(raw: string): boolean {
+    const text = (raw ?? '').toUpperCase().trim();
+    if (!text) return false;
+    if (!/^PIX\s+TRANSF\b|^PIX\s+ENVIADO\b|^TED\b|^DOC\b/.test(text)) return false;
+    if (/\b(LTDA|EIRELI|S\/A|SA\b|MEI|ME\b|EPP|MERCADO\s*PAGO|PAGSEGURO|STONE|CIELO)\b/.test(text)) {
+      return false;
+    }
+    return true;
+  }
+
   static toMerchantCategory(expenseType: string): MerchantCategory | null {
     return EXPENSE_TYPE_TO_MERCHANT_CATEGORY[expenseType as ExpenseType] ?? null;
   }
@@ -106,6 +116,14 @@ export class MerchantClassifierService {
       source: (row.source as ClassifyResult['source']) ?? 'CACHE',
       confidence: row.confidence,
     };
+  }
+
+  async manualExpenseType(raw: string): Promise<ExpenseType | null> {
+    const row = await this.fromCache(raw);
+    if (!row || row.source !== 'MANUAL') return null;
+    const expenseType = MERCHANT_TO_EXPENSE_TYPE[row.category];
+    if (!expenseType || expenseType === ExpenseType.OUTROS) return null;
+    return expenseType;
   }
 
   /**

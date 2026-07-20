@@ -42,6 +42,8 @@ export interface AccountViewSaida {
   projetoOrigem: { id: string; name: string; type: string } | null;
   parcelaIndex?: number | null;
   foreignExpenseId?: string | null;
+  suggestionTipoDespesa?: string | null;
+  suggestionSource?: 'MANUAL' | 'AI' | 'REGEX' | 'CACHE' | null;
 }
 
 export interface AccountViewEntrada {

@@ -29,9 +29,12 @@ export class MerchantClassifierController {
   ) {}
 
   @Get()
-  list(@Query('q') q?: string) {
+  list(@Query('q') q?: string, @Query('source') source?: string) {
     return this.prisma.merchantCategory.findMany({
-      where: q ? { merchantKey: { contains: q.toLowerCase() } } : undefined,
+      where: {
+        ...(q ? { merchantKey: { contains: q.toLowerCase() } } : {}),
+        ...(source ? { source: source.toUpperCase() } : {}),
+      },
       orderBy: { updatedAt: 'desc' },
       take: 200,
     });

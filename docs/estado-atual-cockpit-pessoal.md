@@ -6,7 +6,8 @@ Histórico detalhado: `docs/archive/estado-atual-historico-2026.md`.
 
 ## 0) Placar das trilhas (estado vivo no main)
 
-- 🚧 UX v2 W1 em execução (`feat/ux-v2-w1-pendencias`): endpoint `GET /projects/:id/pendencias/financeiras` + card/sheet "Precisa de você" no Cockpit com roteamento para modais existentes.
+- ✅ UX v2 W1 estabilizado (`feat/ux-v2-w1-pendencias` / PR #220): fila "Precisa de você" com roteamento correto (vincular/quitar/pagar/editar), sem 404.
+- 🚧 UX v2 W2 em execução (`feat/ux-v2-w2-categorias`): confirmar categoria com aprendizado de regra manual, proteção PIX PF, auto-aplicação no ingest para regra manual e gestão de regras atrás de engrenagem em Análises.
 - ✅ Fases A–D + F/G (redesign UX + cockpit/mobile/web) concluídas em `main`.
 - ✅ Fase E (motor único + caixa real §10) concluída e ativa; pendência operacional de validação em prod segue no issue #95.
 - ✅ Skin Minimal mobile PESSOAL (PR #125) e Stage A cross-project (PR #136) em produção.

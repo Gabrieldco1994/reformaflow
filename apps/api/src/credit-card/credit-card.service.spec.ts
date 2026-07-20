@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { CreditCardService } from './credit-card.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
+import { MerchantClassifierService } from '../merchant-classifier/merchant-classifier.service';
 
 function makePrismaMock() {
   return {
@@ -61,14 +62,17 @@ function buildOfx(...stmts: string[]) {
 describe('CreditCardService', () => {
   let service: CreditCardService;
   let prisma: ReturnType<typeof makePrismaMock>;
+  let merchantClassifier: { manualExpenseType: jest.Mock };
 
   beforeEach(async () => {
     prisma = makePrismaMock();
+    merchantClassifier = { manualExpenseType: jest.fn().mockResolvedValue(null) };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CreditCardService,
         ConciliacaoService,
         { provide: PrismaService, useValue: prisma },
+        { provide: MerchantClassifierService, useValue: merchantClassifier },
       ],
     }).compile();
     service = module.get(CreditCardService);
@@ -234,6 +238,14 @@ describe('CreditCardService', () => {
   });
 
   describe('previewImport — cross-project matches', () => {
+    it('aplica regra manual no suggestedCategory e marca fonte regra', async () => {
+      merchantClassifier.manualExpenseType.mockResolvedValue('ALIMENTACAO');
+      const ofx = buildOfx(ofxFor('20260429', 100, 'PADARIA CENTRAL', 'RGX'));
+      const result = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX');
+      expect(result.preview[0].suggestedCategory).toBe('ALIMENTACAO');
+      expect(result.preview[0].categoriaFonte).toBe('regra');
+    });
+
     it('retorna crossProjectMatches para despesas planejadas em outros projetos', async () => {
       prisma.project.findMany.mockResolvedValue([
         { id: 'reforma1', name: 'Reforma Casa', type: 'REFORMA' },

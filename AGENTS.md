@@ -84,6 +84,7 @@ cd packages/domain && npx vitest run              # testes domínio (vitest, __t
 
 14. **Toda movimentação do PESSOAL sem cartão/conta pertence à pseudo-origem Carteira e DEVE aparecer na Visão Conta e nos totais** (`getAccountView`). Nunca filtrar `origin:'none'` para fora silenciosamente — item invisível = dinheiro sumido no consolidado. Frontend exibe chip "Sem conta" clicável (→ fluxo de vínculo). Docs: `docs/visao-conta-faturas.md §11`.
 15. **Fila "Precisa de você" agrega fontes existentes (`GET /projects/:id/pendencias/financeiras`) e não cria mutação nova.** Cada pendência deve apenas rotear para um modal já existente (vincular, pagar fatura, quitar parcela, editar despesa/recebimento). Nova pendência = nova fonte no agregador, não fluxo paralelo.
+16. **Regra de categoria (`MerchantCategory`) só muda CATEGORIA, nunca valor/caixa.** Auto-aplicação no ingest só para regra manual confirmada; PIX PF nunca auto-aplica sem regra prévia. Retroativo (se habilitado) deve ser transacional.
 
 ## Notas técnicas (consulte quando tocar o módulo)
 

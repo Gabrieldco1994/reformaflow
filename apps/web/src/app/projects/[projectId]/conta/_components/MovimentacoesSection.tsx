@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowDownUp, CreditCard, Filter, Layers, LayoutList, PieChart, X } from 'lucide-react';
+import { ArrowDownUp, CreditCard, Filter, Layers, LayoutList, PieChart, Settings, X } from 'lucide-react';
 import { isConsumptionNeutralExpenseType, isNeutralReceiptType } from '@reformaflow/domain';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
@@ -33,6 +33,11 @@ type Tab = 'saidas' | 'entradas' | 'tudo';
 type StatusFilter = 'todos' | 'pago' | 'apagar';
 type SortDir = 'desc' | 'asc';
 type ViewMode = 'lista' | 'categoria' | 'projeto';
+type MerchantSuggestion = {
+  suggestedTipoDespesa: string | null;
+  source: 'MANUAL' | 'AI' | 'REGEX' | 'CACHE';
+};
+type MerchantSuggestionMap = Record<string, MerchantSuggestion>;
 
 // Movimento "neutro" = transferência interna / resgate / aporte (investimento,
 // pagamento da casa). Some da LISTA de movimentações da Conta para não poluir a
@@ -98,6 +103,8 @@ export function MovimentacoesSection({
   // é buscada sob demanda (os modais precisam do objeto Expense, ex. valorTotal).
   const [actionExpenseId, setActionExpenseId] = useState<string | null>(null);
   const [actionKind, setActionKind] = useState<'ratear' | 'vincular' | null>(null);
+  const [rulesOpen, setRulesOpen] = useState(false);
+  const [ruleSearch, setRuleSearch] = useState('');
 
   useEffect(() => {
     if (!summaryQuickFilter) return;
@@ -170,6 +177,102 @@ export function MovimentacoesSection({
     queryKey: ['expense', projectId, actionExpenseId],
     queryFn: () => api.get(`/projects/${projectId}/expenses/${actionExpenseId}`),
     enabled: actionExpenseId != null,
+  });
+
+  const semCategoriaMerchants = useMemo(() => {
+    const set = new Set<string>();
+    for (const row of [...data.saidas, ...data.comprasCartao]) {
+      if (row.isInvoice || row.tipoDespesa !== 'OUTROS') continue;
+      const merchant = row.descricao?.trim();
+      if (merchant) set.add(merchant);
+    }
+    return [...set].sort();
+  }, [data.saidas, data.comprasCartao]);
+
+  const { data: suggestionByMerchant } = useQuery<MerchantSuggestionMap>({
+    queryKey: ['merchant-suggest-conta', semCategoriaMerchants],
+    queryFn: async () => {
+      const entries = await Promise.all(
+        semCategoriaMerchants.map(async (merchant) => {
+          const result = await api.post('/merchant-categories/suggest', { text: merchant });
+          return [merchant, result] as const;
+        }),
+      );
+      return Object.fromEntries(entries) as MerchantSuggestionMap;
+    },
+    enabled: semCategoriaMerchants.length > 0,
+    staleTime: 60_000,
+  });
+  const suggestionMap: MerchantSuggestionMap = suggestionByMerchant ?? {};
+
+  const { data: rules = [] } = useQuery<
+    Array<{ merchantKey: string; merchantSample: string; category: string; source: string }>
+  >({
+    queryKey: ['merchant-rules', ruleSearch],
+    queryFn: () =>
+      api.get(`/merchant-categories?source=MANUAL${ruleSearch.trim() ? `&q=${encodeURIComponent(ruleSearch.trim())}` : ''}`),
+    enabled: rulesOpen,
+  });
+
+  const removeRuleMutation = useMutation({
+    mutationFn: (merchant: string) => api.post('/merchant-categories/remove-rule', { merchant }),
+    onSuccess: () => {
+      toast.success('Regra removida');
+      queryClient.invalidateQueries({ queryKey: ['merchant-rules'] });
+      queryClient.invalidateQueries({ queryKey: ['merchant-suggest-conta'] });
+      invalidate();
+    },
+    onError: (e: Error) => toast.error(`Erro ao remover regra: ${e.message}`),
+  });
+
+  const undoCategoriaMutation = useMutation({
+    mutationFn: async (payload: { expenseId: string; previousTipoDespesa: string; merchant: string }) => {
+      await api.patch(`/projects/${projectId}/expenses/${payload.expenseId}`, {
+        tipoDespesa: payload.previousTipoDespesa,
+      });
+      await api.post('/merchant-categories/remove-rule', { merchant: payload.merchant });
+    },
+    onSuccess: () => {
+      toast.success('Regra removida e categoria revertida');
+      invalidate();
+      queryClient.invalidateQueries({ queryKey: ['merchant-suggest-conta'] });
+    },
+    onError: (e: Error) => toast.error(`Não foi possível desfazer: ${e.message}`),
+  });
+
+  const confirmCategoriaMutation = useMutation({
+    mutationFn: async ({ item, tipoDespesa }: { item: AccountViewSaida; tipoDespesa: string }) => {
+      if (!item.id) throw new Error('Lançamento sem id para confirmar categoria');
+      const expense = (await api.get(`/projects/${projectId}/expenses/${item.id}`)) as {
+        id: string;
+        tipoDespesa?: string | null;
+        fornecedor?: string | null;
+        titulo?: string | null;
+      };
+      const merchant = (expense.fornecedor ?? expense.titulo ?? item.descricao ?? '').trim();
+      if (!merchant) throw new Error('Fornecedor/título ausente para criar regra');
+      const previousTipoDespesa = expense.tipoDespesa ?? 'OUTROS';
+      await api.patch(`/projects/${projectId}/expenses/${item.id}`, { tipoDespesa });
+      await api.post('/merchant-categories/confirm-rule', { merchant, tipoDespesa });
+      return { merchant, previousTipoDespesa, expenseId: item.id, tipoDespesa };
+    },
+    onSuccess: (payload) => {
+      invalidate();
+      queryClient.invalidateQueries({ queryKey: ['merchant-rules'] });
+      queryClient.invalidateQueries({ queryKey: ['merchant-suggest-conta'] });
+      toast.success(`Regra criada: ${payload.merchant} → ${tipoLabel(payload.tipoDespesa)} · desfazer`, {
+        action: {
+          label: 'Desfazer',
+          onClick: () =>
+            undoCategoriaMutation.mutate({
+              expenseId: payload.expenseId,
+              previousTipoDespesa: payload.previousTipoDespesa,
+              merchant: payload.merchant,
+            }),
+        },
+      });
+    },
+    onError: (e: Error) => toast.error(`Não foi possível confirmar categoria: ${e.message}`),
   });
 
   // Rateio: distribui UMA compra (fonte, PESSOAL) entre N planejadas de outro
@@ -416,7 +519,18 @@ export function MovimentacoesSection({
   ) => (
     <MovimentacaoRow
       key={rowKey(item)}
-      item={item}
+      item={
+        item.kind === 'saida' && !item.isInvoice && item.tipoDespesa === 'OUTROS'
+          ? {
+              ...item,
+              suggestionTipoDespesa:
+                suggestionMap[item.descricao]?.suggestedTipoDespesa && suggestionMap[item.descricao]?.suggestedTipoDespesa !== 'OUTROS'
+                  ? suggestionMap[item.descricao]!.suggestedTipoDespesa
+                  : null,
+              suggestionSource: suggestionMap[item.descricao]?.source ?? null,
+            }
+          : item
+      }
       originLabel={originLabel}
       onEditExpense={openEditExpense}
       onEditReceita={openEditReceita}
@@ -432,6 +546,7 @@ export function MovimentacoesSection({
       onRemoveReceita={(id) => removeReceita.mutate(id)}
       onRatear={openRatear}
       onVincular={openVincular}
+      onConfirmSuggestion={(row, tipoDespesa) => confirmCategoriaMutation.mutate({ item: row, tipoDespesa })}
       expandable={expand?.expandable}
       expanded={expand?.expanded}
       onToggleExpand={expand?.onToggleExpand}
@@ -663,7 +778,18 @@ export function MovimentacoesSection({
         ))}
       </div>
       {drillDownHref && (
-        <div className="mb-2 flex justify-end">
+        <div className="mb-2 flex items-center justify-end gap-2">
+          {viewMode !== 'lista' && (
+            <button
+              type="button"
+              onClick={() => setRulesOpen(true)}
+              className="inline-flex h-8 items-center gap-1 rounded-lg border border-lifeone-hairline px-2.5 text-[12px] font-semibold text-lifeone-ink-2 transition hover:border-lifeone-blue hover:text-lifeone-blue"
+              title="Gerenciar regras de categoria"
+            >
+              <Settings className="h-3.5 w-3.5" />
+              Regras
+            </button>
+          )}
           <Link
             href={drillDownHref}
             className="text-[12px] font-semibold text-lifeone-blue hover:underline"
@@ -754,6 +880,41 @@ export function MovimentacoesSection({
             <Button type="button" onClick={() => setFilterSheetOpen(false)} className="mt-1 w-full">
               Aplicar
             </Button>
+          </div>
+        </Modal>
+      )}
+
+      {rulesOpen && (
+        <Modal open={rulesOpen} onClose={() => setRulesOpen(false)} title="Regras de categoria" variant="sheet" size="sm">
+          <div className="space-y-3 pb-2">
+            <input
+              value={ruleSearch}
+              onChange={(e) => setRuleSearch(e.target.value)}
+              placeholder="Buscar merchant"
+              className="h-10 w-full rounded-xl border border-lifeone-hairline bg-lifeone-card px-3 text-sm text-lifeone-ink outline-none focus:border-lifeone-blue"
+            />
+            <div className="space-y-2">
+              {rules.map((rule) => (
+                <div key={rule.merchantKey} className="flex items-center justify-between gap-2 rounded-xl border border-lifeone-hairline p-2.5">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-lifeone-ink">{rule.merchantSample}</p>
+                    <p className="text-[11px] text-lifeone-ink-3">{rule.category}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeRuleMutation.mutate(rule.merchantKey)}
+                    className="rounded-lg border border-lifeone-hairline px-2 py-1 text-[11px] font-semibold text-[#D92D20] hover:bg-[#FCEBE9]"
+                  >
+                    Excluir
+                  </button>
+                </div>
+              ))}
+              {rules.length === 0 && (
+                <p className="rounded-xl border border-dashed border-lifeone-hairline p-3 text-center text-[12px] text-lifeone-ink-3">
+                  Nenhuma regra manual encontrada.
+                </p>
+              )}
+            </div>
           </div>
         </Modal>
       )}

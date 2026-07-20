@@ -367,6 +367,11 @@ movimentações abaixo.
 - **Lançamentos sem conta vinculada (Carteira):** exibem o chip cinza clicável **"Sem conta"**
   na linha de metadados. Tocar abre o fluxo de vínculo ("de onde saiu esse pagamento?"). Após
   vincular, o chip some e a conta/cartão vinculada aparece nos metadados.
+- **Lançamentos sem categoria (`OUTROS`)** exibem chip de sugestão (ex.: **"Alimentação?"**)
+  na própria linha da Lista. Um toque confirma a categoria e cria regra manual do merchant;
+  o toast permite **desfazer** (reverte categoria + remove regra).
+- Em **Análises** (visões "Categorias" e "Projetos"), o botão de **engrenagem "Regras"**
+  abre a gestão simples de regras de categoria (listar + excluir). Não há atalho na navegação primária.
 - Layout canônico de linha financeira (mobile-first): **linha 1** com descrição
   + valor `nowrap` à direita (valor nunca divide linha com chip/badge variável),
   **linha 2** com metadados (data · categoria · origem) + chip "Sem conta" quando carteira

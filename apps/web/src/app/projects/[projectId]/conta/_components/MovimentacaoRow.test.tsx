@@ -290,5 +290,23 @@ describe('MovimentacaoRow — saída', () => {
         })
       );
     });
+
+    it('item sem categoria exibe chip de sugestão e confirma com um toque', () => {
+      const onConfirmSuggestion = vi.fn();
+      renderRow({
+        item: makeSaida({
+          tipoDespesa: 'OUTROS',
+          suggestionTipoDespesa: 'ALIMENTACAO',
+        }),
+        onConfirmSuggestion,
+      });
+
+      const chip = screen.getByRole('button', { name: /Alimentação\?/i });
+      fireEvent.click(chip);
+      expect(onConfirmSuggestion).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'exp-1', tipoDespesa: 'OUTROS' }),
+        'ALIMENTACAO',
+      );
+    });
   });
 });
