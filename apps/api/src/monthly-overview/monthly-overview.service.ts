@@ -516,6 +516,17 @@ export class MonthlyOverviewService {
       (receipt) => receipt.valor,
     );
 
+    const carteiraPotential = foreignExpenses.filter((e) => {
+      const pass =
+        e.status === 'PAGO' &&
+        !isNeutralExpenseType(e.tipoDespesa) &&
+        (espelhosByForeignId.get(e.id) ?? []).length === 0;
+      return pass;
+    });
+    const carteiraPaidThisMonth = carteiraPotential.filter((e) =>
+      isInRange(purchaseDate(e), monthStart, monthEnd),
+    );
+
     const saiuMes = sumBy(
       expenses.filter(
         (expense) =>
@@ -528,7 +539,8 @@ export class MonthlyOverviewService {
           isInRange(accountExpenseDate(expense), monthStart, monthEnd),
       ),
       (expense) => expense.valorTotal,
-    );
+    ) +
+    sumBy(carteiraPaidThisMonth, (expense) => expense.valorTotal);
 
     const cardByLast4 = new Map(cards.map((card) => [card.last4, card] as const));
     const invoiceByMonthCard = new Map<string, CardInvoiceAggregate>();
@@ -720,7 +732,7 @@ export class MonthlyOverviewService {
     //  - bank parcelado/quinzenal → emite as parcelas FUTURAS não pagas (paidParcelas),
     //    cada uma no mês do próprio vencimento.
     //  - sem espelho → mantém o lump (valorTotal) na data de compra (comportamento legado).
-    const foreignPendingItems = foreignExpenses
+    const foreignPendingItems: Array<any> = foreignExpenses
       .filter((expense) => {
         if (expense.status === 'PAGO') return false;
         if (expense.settledByExpenseId) return false;
@@ -780,6 +792,10 @@ export class MonthlyOverviewService {
             // Parcela já paga por outra via (paidParcelas) → não re-emite.
             if (paidByOther.has(index)) return [];
             if (!isInRange(parcela.data, monthStart, monthEnd)) return [];
+            // Determine origem based on the foreign expense origin
+            const itemOrigem = origin.origem === 'bank'
+              ? { tipo: 'conta' as const, bankLast4: origin.bankLast4 }
+              : { tipo: 'carteira' as const };
             return [
               {
                 id: `${expense.id}#${index}` as string | null,
@@ -799,7 +815,8 @@ export class MonthlyOverviewService {
                 projetoOrigem,
                 parcelaIndex: index as number | null,
                 foreignExpenseId: expense.id as string | null,
-              },
+                origem: itemOrigem,
+              } as any,
             ];
           });
         }
@@ -834,8 +851,9 @@ export class MonthlyOverviewService {
                 dueMonth: null as string | null,
                 projetoOrigem,
                 parcelaIndex: null as number | null,
-                foreignExpenseId: null as string | null,
-              },
+                foreignExpenseId: expense.id as string | null,
+                origem: { tipo: 'carteira' as const },
+              } as any,
             ];
           }
 
@@ -875,6 +893,7 @@ export class MonthlyOverviewService {
                 projetoOrigem,
                 parcelaIndex: index as number | null,
                 foreignExpenseId: expense.id as string | null,
+                origem: { tipo: 'carteira' as const },
               },
             ];
           });
@@ -904,6 +923,8 @@ export class MonthlyOverviewService {
         return parcelas.flatMap((parcela, index) => {
           if (paidSet.has(index)) return [];
           if (!isInRange(parcela.data, monthStart, monthEnd)) return [];
+          // Only reach here when origin.origem === 'bank'
+          if (origin.origem !== 'bank') return [];
           return [
             {
               id: `${expense.id}#${index}` as string | null,
@@ -923,7 +944,8 @@ export class MonthlyOverviewService {
               projetoOrigem,
               parcelaIndex: index as number | null,
               foreignExpenseId: expense.id as string | null,
-            },
+              origem: { tipo: 'conta' as const, bankLast4: origin.bankLast4 },
+            } as any,
           ];
         });
       });
@@ -936,7 +958,7 @@ export class MonthlyOverviewService {
       ) +
       sumBy(foreignPendingItems, (item) => item.valor);
 
-    const saidas = [
+    const saidas: Array<any> = [
       ...selectedInvoices.map((invoice) => ({
         id: implicitPaymentByInvoice.get(`${invoice.dueMonth}__${invoice.cardLast4}`) ?? null,
         kind: 'saida' as const,
@@ -983,8 +1005,53 @@ export class MonthlyOverviewService {
         parcelaIndex: null as number | null,
         foreignExpenseId: null as string | null,
       })),
+      // PAGO carteira items (foreign expenses without espelhos, paid in the current month)
+      ...carteiraPaidThisMonth.map((expense) => {
+        const descricao = expenseDisplayName(
+          expense.tipoDespesa,
+          expense.titulo,
+          expense.fornecedor,
+        );
+        const forma = inferCashForm(
+          `${expense.titulo ?? ''} ${expense.fornecedor ?? ''}`,
+          expense.formaPagamento,
+        );
+        return {
+          id: expense.id as string | null,
+          kind: 'saida' as const,
+          descricao,
+          data: purchaseDate(expense).toISOString(),
+          forma,
+          valor: expense.valorTotal,
+          realizado: true,
+          status: expense.status,
+          cardLast4: null as string | null,
+          bankLast4: null as string | null,
+          tipoDespesa: expense.tipoDespesa,
+          isInvoice: false,
+          editavel: false,
+          dueMonth: null as string | null,
+          projetoOrigem: expense.project
+            ? { id: expense.project.id, name: expense.project.name, type: expense.project.type }
+            : null,
+          parcelaIndex: null as number | null,
+          foreignExpenseId: expense.id as string | null,
+          origem: { tipo: 'carteira' as const },
+        } as any;
+      }),
       ...foreignPendingItems,
     ].sort((a, b) => b.data.localeCompare(a.data));
+
+    // Recalculate saiuMes and faltaPagarMes to include all saidas (including carteira)
+    // This ensures carteira items are properly counted in the totals
+    const recalculatedSaiuMes = sumBy(
+      saidas.filter((s: any) => s.kind === 'saida'),
+      (s: any) => s.valor,
+    );
+    const recalculatedFaltaPagarMes = sumBy(
+      saidas.filter((s: any) => s.kind === 'saida' && !s.realizado),
+      (s: any) => s.valor,
+    );
 
     const entradas = receipts
       .filter(
@@ -1113,10 +1180,10 @@ export class MonthlyOverviewService {
       mesSelecionado,
       caixaHoje: caixa.hoje,
       entrouMes,
-      saiuMes,
-      faltaPagarMes,
+      saiuMes: recalculatedSaiuMes,
+      faltaPagarMes: recalculatedFaltaPagarMes + devoCartaoTotal,
       recebimentosPrevistosMes,
-      sobraPrevista: caixa.hoje - faltaPagarMes + recebimentosPrevistosMes,
+      sobraPrevista: caixa.hoje - (recalculatedFaltaPagarMes + devoCartaoTotal) + recebimentosPrevistosMes,
       devoCartaoTotal,
       cartoes,
       contas,

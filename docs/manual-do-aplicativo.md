@@ -347,8 +347,11 @@ movimentações abaixo.
 - Filtro de **origem** (Todos / uma conta / um cartão específico), **categoria** e
   **projeto**, busca por descrição e ordenação por data. Quando há qualquer filtro
   ativo, aparece o botão **"Limpar filtros"** que zera todos de uma vez.
-- Lista de lançamentos com ícone, descrição, data e valor (verde = entrada,
-  escuro = saída). Estado vazio quando não há itens.
+- Layout canônico de linha financeira (mobile-first): **linha 1** com descrição
+  + valor `nowrap` à direita (valor nunca divide linha com chip/badge variável),
+  **linha 2** com metadados (data · categoria · origem) e chip de projeto quando
+  cross-project, e **status textual** ("Paga/A pagar/Previsto/Recebido") abaixo
+  do valor, alinhado à direita. Estado vazio quando não há itens.
 - As **faturas de cartão** podem ser **expandidas na própria linha** para revelar as
   compras que as compõem (no celular, tocando na linha). Nas linhas de fatura há
   ações rápidas **Ajustar** e **Resíduo**, além do status.

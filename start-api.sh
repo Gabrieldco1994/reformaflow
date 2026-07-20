@@ -13,6 +13,9 @@
 
 cd "$(dirname "$0")"
 
+# Carregar env do repo principal
+set -a && source /Users/gabrielbarbosa/reformaflow/.env && set +a
+
 # Matar processo anterior na porta 3001
 OLD_PID=$(lsof -i :3001 -t 2>/dev/null)
 if [ -n "$OLD_PID" ]; then

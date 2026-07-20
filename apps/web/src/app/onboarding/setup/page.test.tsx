@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import OnboardingSetupPage from './page';
 
 const mocks = vi.hoisted(() => ({
@@ -22,7 +23,7 @@ vi.mock('@/lib/api', () => ({
     patch: mocks.apiPatch,
     put: mocks.apiPut,
     upload: mocks.apiUpload,
-    get: vi.fn().mockResolvedValue({}),
+    get: vi.fn().mockResolvedValue([]),
   },
 }));
 vi.mock('next/navigation', () => ({
@@ -45,6 +46,15 @@ async function skipEverything(user: ReturnType<typeof userEvent.setup>, type: st
     const el = await screen.findByText(regex);
     await user.click(el);
   }
+}
+
+function renderPage() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <OnboardingSetupPage />
+    </QueryClientProvider>,
+  );
 }
 
 describe('OnboardingSetupPage', () => {
@@ -71,7 +81,7 @@ describe('OnboardingSetupPage', () => {
   ])('auto-creates the %s project, skips every anchor step, and always lands on /projects/:id/apoio (never /monthly)', async (type) => {
     mocks.searchParams = new URLSearchParams({ type });
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    render(<OnboardingSetupPage />);
+    renderPage();
 
     await user.click(await screen.findByRole('button', { name: /criar e continuar/i }));
     await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith('/projects', expect.objectContaining({ type })));
@@ -89,7 +99,7 @@ describe('OnboardingSetupPage', () => {
 
   it('when projectId is supplied via query param, skips the project-creation step entirely and starts at the first anchor step', async () => {
     mocks.searchParams = new URLSearchParams({ type: 'CASA', projectId: 'existing-1' });
-    render(<OnboardingSetupPage />);
+    renderPage();
 
     expect(screen.queryByRole('button', { name: /criar e continuar/i })).not.toBeInTheDocument();
     expect(await screen.findByPlaceholderText('Nome da conta')).toBeInTheDocument();
@@ -100,7 +110,7 @@ describe('OnboardingSetupPage', () => {
 
   it('redirects to /projects when type is missing', async () => {
     mocks.searchParams = new URLSearchParams();
-    render(<OnboardingSetupPage />);
+    renderPage();
 
     await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith('/projects'));
     vi.useRealTimers();
@@ -108,7 +118,7 @@ describe('OnboardingSetupPage', () => {
 
   it('redirects to /projects when type is not a valid ProjectType', async () => {
     mocks.searchParams = new URLSearchParams({ type: 'NOT_A_TYPE' });
-    render(<OnboardingSetupPage />);
+    renderPage();
 
     await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith('/projects'));
     vi.useRealTimers();
@@ -122,7 +132,7 @@ describe('OnboardingSetupPage', () => {
       return Promise.resolve({});
     });
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime, delay: null });
-    render(<OnboardingSetupPage />);
+    renderPage();
 
     const button = await screen.findByRole('button', { name: /criar e continuar|criando/i });
     await user.click(button);
