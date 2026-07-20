@@ -2,6 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { PendenciaService } from './pendencia.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { MonthlyOverviewService } from '../monthly-overview/monthly-overview.service';
+import { MerchantClassifierService } from '../merchant-classifier/merchant-classifier.service';
 
 const TENANT = 't1';
 const PROJECT = 'reforma1';
@@ -30,6 +32,8 @@ function makeRow(over: Partial<any> = {}) {
 describe('PendenciaService', () => {
   let service: PendenciaService;
   let prisma: any;
+  let monthlyOverviewService: any;
+  let merchantClassifierService: any;
 
   beforeEach(async () => {
     prisma = {
@@ -43,9 +47,16 @@ describe('PendenciaService', () => {
       room: { findFirst: jest.fn() },
       scheduleTask: { findFirst: jest.fn() },
     };
+    monthlyOverviewService = { getAccountView: jest.fn() };
+    merchantClassifierService = { fromCache: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [PendenciaService, { provide: PrismaService, useValue: prisma }],
+      providers: [
+        PendenciaService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: MonthlyOverviewService, useValue: monthlyOverviewService },
+        { provide: MerchantClassifierService, useValue: merchantClassifierService },
+      ],
     }).compile();
 
     service = module.get(PendenciaService);
@@ -165,6 +176,69 @@ describe('PendenciaService', () => {
 
       expect(prisma.pendencia.delete).toHaveBeenCalledWith({ where: { id: 'p1' } });
       expect(res).toEqual({ deleted: true });
+    });
+  });
+
+  describe('findFinancialQueue', () => {
+    it('aggregates queue groups and keeps only rows with actionable payload', async () => {
+      const dueSoon = new Date();
+      dueSoon.setDate(dueSoon.getDate() + 2);
+      monthlyOverviewService.getAccountView.mockResolvedValue({
+        cartoes: [
+          {
+            nickname: 'Nubank',
+            last4: '1234',
+            dueMonth: '2026-07',
+            vencimento: dueSoon.toISOString(),
+            status: 'a pagar',
+            faturaPendente: 20000,
+          },
+        ],
+        saidas: [
+          {
+            id: 'e1',
+            descricao: 'PIX pedreiro',
+            valor: 9000,
+            data: '2026-07-10T00:00:00.000Z',
+            isInvoice: false,
+            cardLast4: null,
+            bankLast4: null,
+            tipoDespesa: 'OUTROS',
+            realizado: false,
+            foreignExpenseId: 'fx1',
+            parcelaIndex: 2,
+          },
+        ],
+        entradas: [
+          {
+            id: 'r1',
+            descricao: 'Recebimento cliente',
+            valor: 4500,
+            data: '2025-01-01T00:00:00.000Z',
+            status: 'PREVISTO',
+          },
+        ],
+      });
+      merchantClassifierService.fromCache.mockResolvedValue({
+        category: 'alimentação',
+      });
+
+      const res = await service.findFinancialQueue(TENANT, PROJECT, '2026-07');
+
+      expect(monthlyOverviewService.getAccountView).toHaveBeenCalledWith(TENANT, PROJECT, '2026-07');
+      expect(res.total).toBe(5);
+      expect(res.grupos.map((g: any) => g.tipo)).toEqual([
+        'SEM_CONTA',
+        'SEM_CATEGORIA',
+        'FATURA_NAO_PAGA',
+        'PARCELA_FOREIGN_PENDENTE',
+        'RECEBIMENTO_PREVISTO_ATRASADO',
+      ]);
+      expect(res.grupos[0].itens[0].expenseId).toBe('e1');
+      expect(res.grupos[1].itens[0].suggestionTipoDespesa).toBe('ALIMENTACAO');
+      expect(res.grupos[2].itens[0].cardLast4).toBe('1234');
+      expect(res.grupos[3].itens[0].parcelaIndex).toBe(2);
+      expect(res.grupos[4].itens[0].receiptId).toBe('r1');
     });
   });
 });

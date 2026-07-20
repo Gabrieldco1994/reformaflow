@@ -40,6 +40,7 @@
 ## Referência de implementação
 
 - Serviço principal: `apps/api/src/monthly-overview/monthly-overview.service.ts` (`getAccountView`, `getCardInvoicesYearly`, `getOriginItemsYearly`, `matchPaidInvoices`, `computePaidInvoiceKeys`).
+- Fila financeira W1 (`GET /projects/:projectId/pendencias/financeiras`) deriva pendências **a partir do `getAccountView`** (mesma fonte e mesmos invariantes; sem motor paralelo de caixa/fatura).
 - Ajustes manuais: `apps/api/src/monthly-overview/invoice-adjustment.controller.ts`, `apps/api/src/monthly-overview/dto/invoice-adjustment.dto.ts`.
 - Dependências de regra: `packages/domain/src/calculations/card-cash-month.ts`, `packages/domain/src/enums/index.ts`.
 - Endpoint/controller: `apps/api/src/monthly-overview/monthly-overview.controller.ts`, `POST/DELETE /projects/:projectId/invoice-adjustments`.

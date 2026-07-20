@@ -22,6 +22,7 @@ import EixoToggle, { type Eixo } from "./_cockpit/EixoToggle";
 import SaldosWidget from "./_cockpit/SaldosWidget";
 import MobileCockpitHeader from "./_cockpit/MobileCockpitHeader";
 import MobileMonthCockpit from "./_cockpit/MobileMonthCockpit";
+import { PendenciasQueueCard } from "./_cockpit/PendenciasQueueCard";
 import { monthlyOverviewPath } from "./_lib/monthly-overview-query";
 import { NovaDespesaLauncher } from "../expenses/_components/NovaDespesaLauncher";
 import { ProjecaoSaldo } from "../conta/_components/ProjecaoSaldo";
@@ -193,14 +194,17 @@ export default function CockpitPage() {
                 year={monthYear}
               />
             ) : (
-              <MobileMonthCockpit
-                data={viewData}
-                monthKey={monthKey}
-                entries={monthEntries ?? []}
-                projectId={projectId}
-                eixo={eixo}
-                runwaySerie={dreOverview?.anual?.saldoAcumuladoSerie}
-              />
+              <>
+                <PendenciasQueueCard projectId={projectId} monthKey={monthKey} />
+                <MobileMonthCockpit
+                  data={viewData}
+                  monthKey={monthKey}
+                  entries={monthEntries ?? []}
+                  projectId={projectId}
+                  eixo={eixo}
+                  runwaySerie={dreOverview?.anual?.saldoAcumuladoSerie}
+                />
+              </>
             )
           ) : (
             <YearView
@@ -371,6 +375,8 @@ export default function CockpitPage() {
             />
           </div>
         )}
+
+        {viewData && !isLoading && view === "mes" && <PendenciasQueueCard projectId={projectId} monthKey={monthKey} />}
 
         {isLoading && (
           <div className="space-y-4 animate-pulse">
