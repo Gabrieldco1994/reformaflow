@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ProjectType } from '@reformaflow/domain';
 import { LifeOneLogo } from '@/components/LifeOneLogo';
@@ -25,7 +25,7 @@ const VALID_TYPES = new Set<string>(Object.values(ProjectType));
  * `/monthly` or any other cockpit route (regression class fixed in #195,
  * extended here to all 6 project types).
  */
-export default function OnboardingSetupPage() {
+function OnboardingSetupForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const typeParam = searchParams.get('type');
@@ -112,5 +112,13 @@ export default function OnboardingSetupPage() {
           })}
       </div>
     </main>
+  );
+}
+
+export default function OnboardingSetupPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-lifeone-canvas" />}>
+      <OnboardingSetupForm />
+    </Suspense>
   );
 }
