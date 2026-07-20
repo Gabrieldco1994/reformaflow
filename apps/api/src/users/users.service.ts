@@ -145,6 +145,7 @@ export class UsersService {
     const user = await this.prisma.user.create({
       data: {
         tenantId,
+        email: dto.email || null,
         username,
         name: dto.name.trim(),
         role: dto.role ?? 'USER',

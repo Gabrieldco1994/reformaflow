@@ -2,7 +2,6 @@
 
 import { useEffect } from 'react';
 import { usePathname } from 'next/navigation';
-import Clarity from '@microsoft/clarity';
 import { useOptionalAuth } from '@/contexts/auth-context';
 
 const enabled =
@@ -17,14 +16,20 @@ export function ClarityAnalytics() {
 
   useEffect(() => {
     if (!enabled) return;
-    Clarity.init(process.env.NEXT_PUBLIC_CLARITY_PROJECT_ID!);
+    (async () => {
+      const { default: Clarity } = await import('@microsoft/clarity');
+      Clarity.init(process.env.NEXT_PUBLIC_CLARITY_PROJECT_ID!);
+    })();
   }, []);
 
   useEffect(() => {
     if (!enabled || !user) return;
-    Clarity.setTag('tenantId', user.tenantId);
-    Clarity.setTag('role', user.role);
-    Clarity.identify(user.id, undefined, undefined, user.tenantId);
+    (async () => {
+      const { default: Clarity } = await import('@microsoft/clarity');
+      Clarity.setTag('tenantId', user.tenantId);
+      Clarity.setTag('role', user.role);
+      Clarity.identify(user.id, undefined, undefined, user.tenantId);
+    })();
   }, [user, pathname]);
 
   return null;

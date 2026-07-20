@@ -2421,3 +2421,284 @@ describe("computePaidInvoiceKeys", () => {
     expect(paid.has("2026-07__9999")).toBe(true);
   });
 });
+
+describe("MonthlyOverviewService.getAccountView — Carteira (origem='none')", () => {
+  let service: MonthlyOverviewService;
+  let prisma: any;
+  let settlement: any;
+
+  const tenantId = "tenant-1";
+  const projectId = "pessoal-1";
+  const reforma = { id: "reforma-1", name: "Reforma", type: "REFORMA" };
+
+  const base = (over: any) => ({
+    tenantId,
+    tipoDespesa: "MAO_DE_OBRA",
+    valor: 0,
+    valorTotal: 0,
+    formaPagamento: "A_VISTA",
+    dataPagamento: null,
+    dataInicioParcela: null,
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    quantidadeParcela: null,
+    paidParcelas: null,
+    status: "PLANEJADO",
+    cardLast4: null,
+    bankLast4: null,
+    linkedExpenseId: null,
+    settledByExpenseId: null,
+    settlesInvoiceKey: null,
+    importId: null,
+    project: null,
+    ...over,
+  });
+
+  beforeEach(async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-06-15T12:00:00.000Z"));
+
+    prisma = {
+      project: {
+        findFirst: jest
+          .fn()
+          .mockResolvedValue({
+            id: projectId,
+            tenantId,
+            type: "PESSOAL",
+            deletedAt: null,
+          }),
+        findMany: jest
+          .fn()
+          .mockResolvedValue([
+            { id: projectId, name: "Pessoal", type: "PESSOAL" },
+          ]),
+      },
+      bankAccount: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue([
+            {
+              openingBalanceCents: 100_000,
+              openingBalanceDate: new Date("2025-12-31T00:00:00.000Z"),
+            },
+          ]),
+        findFirst: jest.fn(),
+      },
+      expense: { findMany: jest.fn(), findFirst: jest.fn(), create: jest.fn() },
+      receipt: { findMany: jest.fn() },
+      cashFlowEntry: { findMany: jest.fn() },
+      creditCard: { findMany: jest.fn(), findFirst: jest.fn() },
+      crossProjectSettlement: { findMany: jest.fn().mockResolvedValue([]) },
+      rateioAllocation: { findMany: jest.fn().mockResolvedValue([]) },
+      invoiceAdjustment: {
+        findMany: jest.fn().mockResolvedValue([]),
+        create: jest.fn(),
+        findFirst: jest.fn(),
+        delete: jest.fn(),
+      },
+      bankStatementImport: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+
+    settlement = {
+      settleInvoice: jest
+        .fn()
+        .mockResolvedValue({ settledExpenses: 0, settledParcelas: 0 }),
+    };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        MonthlyOverviewService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: CardInvoiceSettlementService, useValue: settlement },
+      ],
+    }).compile();
+
+    service = module.get<MonthlyOverviewService>(MonthlyOverviewService);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  // T1: Foreign with origin='none', single payment → emits origem { tipo: 'carteira' }
+  it("T1: Foreign com origin='none', pagamento único → emite origem { tipo: 'carteira' }", async () => {
+    prisma.expense.findMany.mockResolvedValue([
+      base({
+        id: "foreign-nao-linkado",
+        projectId: reforma.id,
+        titulo: "Serviço avulso",
+        fornecedor: "Fornecedor",
+        valorTotal: 5_000,
+        valor: 5_000,
+        formaPagamento: "A_VISTA",
+        dataPagamento: new Date("2026-06-10T00:00:00.000Z"),
+        status: "PLANEJADO",
+        project: reforma,
+      }),
+    ]);
+    prisma.receipt.findMany.mockResolvedValue([]);
+    prisma.cashFlowEntry.findMany.mockResolvedValue([]);
+    prisma.creditCard.findMany.mockResolvedValue([]);
+
+    const res: any = await service.getAccountView(tenantId, projectId, "2026-06");
+
+    const item = res.saidas.find((s: any) => s.foreignExpenseId === "foreign-nao-linkado");
+    expect(item).toBeDefined();
+    expect(item.origem).toEqual({ tipo: "carteira" });
+  });
+
+  // T2: Foreign with origin='none', parcelado (3 parcelas) → each emits origem { tipo: 'carteira' }
+  it("T2: Foreign com origin='none', parcelado 3x → cada parcela emite origem { tipo: 'carteira' }", async () => {
+    prisma.expense.findMany.mockResolvedValue([
+      base({
+        id: "foreign-parc-3x",
+        projectId: reforma.id,
+        titulo: "Serviço parcelado",
+        fornecedor: "Fornecedor",
+        valorTotal: 3_000,
+        valor: 1_000,
+        formaPagamento: "PARCELADO",
+        quantidadeParcela: 3,
+        dataInicioParcela: new Date("2026-06-10T00:00:00.000Z"),
+        status: "PLANEJADO",
+        project: reforma,
+      }),
+    ]);
+    prisma.receipt.findMany.mockResolvedValue([]);
+    prisma.cashFlowEntry.findMany.mockResolvedValue([]);
+    prisma.creditCard.findMany.mockResolvedValue([]);
+
+    const res: any = await service.getAccountView(tenantId, projectId, "2026-06");
+
+    const parcelas = res.saidas.filter(
+      (s: any) => s.foreignExpenseId === "foreign-parc-3x"
+    );
+    expect(parcelas.length).toBe(1); // Só 1 em junho (parcela 0)
+    expect(parcelas[0].origem).toEqual({ tipo: "carteira" });
+  });
+
+  // T3: Foreign with bankLast4, 3 parcelas, 1 settlement → unsettled parcelas emit origem { tipo: 'conta', bankLast4 }
+  it("T3: Foreign com bankLast4, 3 parcelas, 1 settlement → parcelas não-quitadas emitem origem { tipo: 'conta', bankLast4 }", async () => {
+    prisma.expense.findMany.mockResolvedValue([
+      base({
+        id: "esp-bank",
+        projectId,
+        titulo: "PIX foreign",
+        fornecedor: "Fornecedor",
+        valorTotal: 3_000,
+        valor: 3_000,
+        formaPagamento: "A_VISTA",
+        dataPagamento: new Date("2026-05-10T00:00:00.000Z"),
+        status: "PAGO",
+        bankLast4: "3636",
+        linkedExpenseId: "foreign-parc-3",
+      }),
+      base({
+        id: "foreign-parc-3",
+        projectId: reforma.id,
+        titulo: "Serviço parcelado",
+        fornecedor: "Fornecedor",
+        valorTotal: 9_000,
+        valor: 3_000,
+        formaPagamento: "PARCELADO",
+        quantidadeParcela: 3,
+        dataInicioParcela: new Date("2026-05-10T00:00:00.000Z"),
+        status: "PLANEJADO",
+        project: reforma,
+      }),
+    ]);
+    prisma.receipt.findMany.mockResolvedValue([]);
+    prisma.cashFlowEntry.findMany.mockResolvedValue([]);
+    prisma.creditCard.findMany.mockResolvedValue([]);
+    prisma.crossProjectSettlement.findMany.mockResolvedValue([
+      {
+        tenantId,
+        targetExpenseId: "foreign-parc-3",
+        parcelaIndex: 0,
+        sourceExpenseId: "esp-bank",
+        realValor: 3_000,
+        plannedValor: 3_000,
+        plannedStatus: "PLANEJADO",
+      },
+    ]);
+
+    const res: any = await service.getAccountView(tenantId, projectId, "2026-06");
+
+    const parcelas = res.saidas.filter(
+      (s: any) => s.foreignExpenseId === "foreign-parc-3"
+    );
+    // Parcelas 1 e 2 devem estar em junho (não liquidadas)
+    parcelas.forEach((p: any) => {
+      expect(p.origem).toEqual({ tipo: "conta", bankLast4: "3636" });
+    });
+  });
+
+  // T4: Foreign with bankLast4, parcelado (2 parcelas, no settlement) → emits origem { tipo: 'conta', bankLast4 }
+  it("T4: Foreign com bankLast4, parcelado 2x (sem settlement) → emite origem { tipo: 'conta', bankLast4 }", async () => {
+    prisma.expense.findMany.mockResolvedValue([
+      base({
+        id: "esp-bank-2p",
+        projectId,
+        titulo: "PIX foreign 2x",
+        fornecedor: "Fornecedor",
+        valorTotal: 2_000,
+        valor: 2_000,
+        formaPagamento: "A_VISTA",
+        dataPagamento: new Date("2026-06-05T00:00:00.000Z"),
+        status: "PAGO",
+        bankLast4: "3636",
+        linkedExpenseId: "foreign-parc-2",
+      }),
+      base({
+        id: "foreign-parc-2",
+        projectId: reforma.id,
+        titulo: "Serviço parcelado 2x",
+        fornecedor: "Fornecedor",
+        valorTotal: 4_000,
+        valor: 2_000,
+        formaPagamento: "PARCELADO",
+        quantidadeParcela: 2,
+        dataInicioParcela: new Date("2026-06-10T00:00:00.000Z"),
+        status: "PLANEJADO",
+        project: reforma,
+      }),
+    ]);
+    prisma.receipt.findMany.mockResolvedValue([]);
+    prisma.cashFlowEntry.findMany.mockResolvedValue([]);
+    prisma.creditCard.findMany.mockResolvedValue([]);
+
+    const res: any = await service.getAccountView(tenantId, projectId, "2026-06");
+
+    const item = res.saidas.find(
+      (s: any) => s.foreignExpenseId === "foreign-parc-2"
+    );
+    expect(item).toBeDefined();
+    expect(item.origem).toEqual({ tipo: "conta", bankLast4: "3636" });
+  });
+
+  // T5: saiuMes includes carteira; maestro totals unchanged
+  it("T5: saiuMes inclui carteira; maestro totals sem alteração", async () => {
+    prisma.expense.findMany.mockResolvedValue([
+      base({
+        id: "foreign-carteira",
+        projectId: reforma.id,
+        titulo: "Carteira expense",
+        fornecedor: "Carteira",
+        valorTotal: 2_000,
+        valor: 2_000,
+        formaPagamento: "A_VISTA",
+        dataPagamento: new Date("2026-06-12T00:00:00.000Z"),
+        status: "PAGO",
+        project: reforma,
+      }),
+    ]);
+    prisma.receipt.findMany.mockResolvedValue([]);
+    prisma.cashFlowEntry.findMany.mockResolvedValue([]);
+    prisma.creditCard.findMany.mockResolvedValue([]);
+
+    const res: any = await service.getAccountView(tenantId, projectId, "2026-06");
+
+    // saiuMes deve incluir o item de carteira
+    expect(res.saiuMes).toBe(2_000); // Carteira item should be included
+    expect(res.faltaPagarMes).toBe(0); // Nothing pending
+  });
+});

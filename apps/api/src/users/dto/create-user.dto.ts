@@ -1,6 +1,7 @@
 import {
   ArrayUnique,
   IsArray,
+  IsEmail,
   IsIn,
   IsOptional,
   IsString,
@@ -46,6 +47,10 @@ export class CreateUserDto {
     message: 'Usuário deve conter apenas letras, números, ponto, hífen ou sublinhado',
   })
   username!: string;
+
+  @IsOptional()
+  @IsEmail()
+  email?: string;
 
   @IsString()
   @MinLength(6)

@@ -12,6 +12,7 @@ export class TenantService {
         name: dto.name,
         users: {
           create: {
+            email: null,
             username: dto.ownerUsername,
             name: dto.ownerName,
             role: 'OWNER',

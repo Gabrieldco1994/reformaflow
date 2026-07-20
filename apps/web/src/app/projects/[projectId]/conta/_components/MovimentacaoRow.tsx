@@ -144,15 +144,15 @@ export function MovimentacaoRow({
       : realizado
         ? 'Paga'
         : 'A pagar';
-  const badge = isEntrada
+  const status = isEntrada
     ? realizado
-      ? { txt: 'Recebido', cls: 'bg-[#E3F6EA] text-[#1E924A]' }
-      : { txt: 'Previsto', cls: 'bg-[#FBEBDC] text-[#B5803A]' }
+      ? { txt: 'Recebido', cls: 'text-[#1E924A]' }
+      : { txt: 'Previsto', cls: 'text-[#B5803A]' }
     : invoiceStatusText === 'Parcial'
-      ? { txt: 'Parcial', cls: 'bg-[#FBEBDC] text-[#B5803A]' }
+      ? { txt: 'Parcial', cls: 'text-[#B5803A]' }
       : realizado
-        ? { txt: 'Paga', cls: 'bg-[#E3F6EA] text-[#1E924A]' }
-        : { txt: 'A pagar', cls: 'bg-[#FBEBDC] text-[#B5803A]' };
+        ? { txt: 'Paga', cls: 'text-[#1E924A]' }
+        : { txt: 'A pagar', cls: 'text-[#B5803A]' };
 
   const canToggle = item.kind === 'saida' && item.editavel && !item.isInvoice;
   const canEditInvoicePayment =
@@ -210,6 +210,7 @@ export function MovimentacaoRow({
     });
 
   // Controle primário de status (visível em ambos): pagar fatura / quitar / alternar.
+  const statusBaseClass = 'inline-flex min-h-[44px] items-center justify-end text-[11px] font-semibold leading-none md:min-h-[30px]';
   const statusControl = isInvoiceRow ? (
     <button
       type="button"
@@ -217,12 +218,12 @@ export function MovimentacaoRow({
         if (item.kind === 'saida' && !item.realizado && item.cardLast4) onPayInvoice(item.cardLast4);
       }}
       disabled={realizado || !(item.kind === 'saida' && item.cardLast4)}
-      className={`inline-flex min-h-[44px] items-center justify-center rounded-full px-3 text-[11px] font-semibold md:min-h-[30px] ${badge.cls} ${
-        !realizado ? 'cursor-pointer hover:brightness-95' : 'cursor-default'
+      className={`${statusBaseClass} ${status.cls} ${
+        !realizado ? 'cursor-pointer hover:brightness-90' : 'cursor-default'
       }`}
       title={!realizado ? 'Pagar fatura' : undefined}
     >
-      {badge.txt}
+      {status.txt}
     </button>
   ) : isPendingForeignParcela ? (
     <button
@@ -256,8 +257,8 @@ export function MovimentacaoRow({
         }
       }}
       disabled={!(canToggle || canToggleReceita)}
-      className={`inline-flex min-h-[44px] items-center justify-center rounded-full px-3 text-[11px] font-semibold md:min-h-[30px] ${badge.cls} ${
-        canToggle || canToggleReceita ? 'cursor-pointer hover:brightness-95' : 'cursor-default'
+      className={`${statusBaseClass} ${status.cls} ${
+        canToggle || canToggleReceita ? 'cursor-pointer hover:brightness-90' : 'cursor-default'
       }`}
       title={
         canToggleReceita
@@ -269,13 +270,13 @@ export function MovimentacaoRow({
             : undefined
       }
     >
-      {badge.txt}
+      {status.txt}
     </button>
   );
 
   return (
     <div className="rounded-2xl border border-lifeone-hairline bg-lifeone-card transition-colors hover:border-lifeone-blue hover:shadow-lifeone-card">
-      <div className="flex items-center gap-3 px-3 py-2.5 md:px-4 md:py-3">
+      <div className="flex items-start gap-3 px-3 py-2.5 md:items-center md:px-4 md:py-3">
         <span
           className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${iconCfg.bgColor} ${iconCfg.color}`}
         >
@@ -298,7 +299,7 @@ export function MovimentacaoRow({
               ) : (
                 <ChevronRight className="h-4 w-4 shrink-0 text-lifeone-ink-3" />
               ))}
-            <span className="truncate text-[15px] font-semibold leading-tight text-lifeone-ink">{titulo}</span>
+            <span className="truncate pr-1 text-[15px] font-semibold leading-tight text-lifeone-ink">{titulo}</span>
           </div>
           <div className={`mt-0.5 flex items-center gap-1.5 ${canExpand ? 'pl-5' : ''}`}>
             <span className="truncate text-[11px] text-lifeone-ink-3">{meta}</span>
@@ -311,7 +312,7 @@ export function MovimentacaoRow({
         </button>
 
         {/* Cluster à direita: valor SEMPRE isolado (nowrap), status abaixo (mobile) ou ao lado (desktop). */}
-        <div className="flex shrink-0 flex-col items-end gap-1 md:flex-row md:items-center md:gap-2.5">
+        <div className="flex shrink-0 flex-col items-end gap-0.5">
           <span
             className={`whitespace-nowrap text-[15px] font-semibold tabular-nums font-geist ${
               isEntrada ? 'text-[#1E924A]' : 'text-lifeone-ink'
