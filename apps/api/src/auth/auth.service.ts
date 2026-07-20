@@ -82,6 +82,7 @@ export class AuthService {
   async registerOwner(input: {
     tenantName: string;
     ownerName: string;
+    email: string;
     username: string;
     password: string;
     projectTypes?: ProjectType[];
@@ -114,6 +115,7 @@ export class AuthService {
         const user = await tx.user.create({
           data: {
             tenantId: tenant.id,
+            email: input.email.trim(),
             username,
             name: input.ownerName.trim(),
             role: SELF_SERVICE_ROLE,
@@ -202,6 +204,7 @@ export class AuthService {
       const user = await tx.user.create({
         data: {
           tenantId: tenant.id,
+          email: `guest_${tenant.id}@guest.local`,
           username: `guest_${tenant.id.slice(0, 8)}`,
           name: 'Convidado',
           role: 'ADMIN',

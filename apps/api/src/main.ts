@@ -62,6 +62,7 @@ async function ensureBootstrapAdmin(prisma: PrismaService) {
   await prisma.user.create({
     data: {
       tenantId: tenant.id,
+      email: `admin@${normalizedUsername}.local`,
       username: normalizedUsername,
       name: 'Administrador',
       role: 'ADMIN',

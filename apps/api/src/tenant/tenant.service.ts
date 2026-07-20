@@ -12,6 +12,7 @@ export class TenantService {
         name: dto.name,
         users: {
           create: {
+            email: `${dto.ownerUsername}@${dto.name.toLowerCase().replace(/\s+/g, '')}`,
             username: dto.ownerUsername,
             name: dto.ownerName,
             role: 'OWNER',

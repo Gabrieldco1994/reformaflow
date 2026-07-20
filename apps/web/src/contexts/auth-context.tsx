@@ -68,6 +68,7 @@ export interface AuthUser {
 export interface RegistrationInput {
   tenantName: string;
   ownerName: string;
+  email: string;
   username: string;
   password: string;
   projectTypes: ProjectType[];
