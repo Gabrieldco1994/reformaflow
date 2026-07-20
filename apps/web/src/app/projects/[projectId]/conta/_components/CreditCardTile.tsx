@@ -38,7 +38,7 @@ export function CreditCardTile({
       nickname={card.nickname}
       active={active}
       onClick={() => onSelect(active ? null : card.last4)}
-      className="min-h-[156px] p-3 md:min-h-[176px] md:p-4"
+      className="min-h-[146px] p-2.5 md:min-h-[176px] md:p-4"
       topRight={
         <span
           className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold backdrop-blur md:px-2 md:text-[11px] ${badgeClass}`}
@@ -47,28 +47,25 @@ export function CreditCardTile({
         </span>
       }
       footer={
-        <div className="flex items-end justify-between gap-2">
+        <div className="flex items-end justify-between gap-1.5">
           <div className="min-w-0">
-            <p className="text-[10px] uppercase tracking-wide text-white/60 md:text-[11px]">Fatura atual</p>
-            <p className="font-geist text-[17px] font-bold tabular-nums leading-tight md:text-[19px]">
+            <p className="text-[9px] uppercase tracking-wide text-white/60 md:text-[11px]">Fatura atual</p>
+            <p className="font-geist text-[16px] font-bold tabular-nums leading-tight md:text-[19px]">
               {formatCurrency(card.faturaAtual / 100)}
             </p>
             {parcial && (
-              <p className="mt-0.5 text-[10px] text-white/75 md:text-[11px]">
+              <p className="mt-0.5 hidden text-[10px] text-white/75 md:block md:text-[11px]">
                 {formatCurrency(card.faturaPaga / 100)} de {formatCurrency(card.faturaAtual / 100)}
               </p>
             )}
-            {card.possuiIntervencaoManual && (
-              <p className="mt-0.5 text-[10px] text-white/75 md:text-[11px]">Ajuste manual</p>
-            )}
           </div>
-          <p className="shrink-0 text-[10px] text-white/70 md:text-[11px]">vence {formatDateBR(card.vencimento)}</p>
+          <p className="shrink-0 text-[9px] text-white/70 md:text-[11px]">vence {formatDateBR(card.vencimento)}</p>
         </div>
       }
       limit={{ pct: card.limiteUsadoPct, used: card.limiteUsado, total: card.limiteTotal }}
       action={
         card.faturaAtual > 0 ? (
-          <div className="mt-0.5 grid grid-cols-1 gap-1">
+          <div className="mt-0.5 grid grid-cols-1 gap-0.5">
             {!paga && (
               <button
                 type="button"
