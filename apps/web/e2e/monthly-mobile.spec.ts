@@ -369,8 +369,7 @@ test.describe("Monthly cockpit — Phase C mobile relance", () => {
       await fab.evaluate((el) => getComputedStyle(el).backgroundColor),
     ).toBe("rgb(255, 255, 255)");
 
-    // O "+" abre PRIMEIRO o menu de modo (Despesa / Recebimento / Voz / Foto) —
-    // não vai direto
+    // O "+" abre PRIMEIRO o menu de modo (Despesa / Recebimento / Voz / Foto) — não vai direto
     // ao sheet de lançamento.
     await fab.click();
     await expect(

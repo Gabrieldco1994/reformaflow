@@ -68,13 +68,30 @@ export function PendenciasQueueCard({ projectId, monthKey }: { projectId: string
   const queueQueryKey = ['pendencias-financeiras', projectId, monthKey] as const;
   const { data, isLoading } = useQuery<QueueResponse>({
     queryKey: queueQueryKey,
-    queryFn: () => api.get(`/projects/${projectId}/pendencias/financeiras?month=${monthKey}`),
+    queryFn: async () => {
+      const raw = await api.get(`/projects/${projectId}/pendencias/financeiras?month=${monthKey}`);
+      if (
+        raw &&
+        typeof raw === 'object' &&
+        typeof (raw as { total?: unknown }).total === 'number' &&
+        Array.isArray((raw as { grupos?: unknown }).grupos)
+      ) {
+        return raw as QueueResponse;
+      }
+      return { total: 0, grupos: [] };
+    },
     enabled: !!projectId && !!monthKey,
   });
 
-  const { data: accountView } = useQuery<AccountViewResponse>({
+  const { data: accountView } = useQuery<AccountViewResponse | null>({
     queryKey: ['account-view', projectId, monthKey],
-    queryFn: () => api.get(`/projects/${projectId}/monthly-overview/account-view?month=${monthKey}`),
+    queryFn: async () => {
+      const raw = await api.get(`/projects/${projectId}/monthly-overview/account-view?month=${monthKey}`);
+      if (raw && typeof raw === 'object' && Array.isArray((raw as { cartoes?: unknown }).cartoes)) {
+        return raw as AccountViewResponse;
+      }
+      return null;
+    },
     enabled: !!projectId && !!monthKey,
   });
 
@@ -84,10 +101,10 @@ export function PendenciasQueueCard({ projectId, monthKey }: { projectId: string
     enabled: vincularExpenseId != null,
   });
 
-  const selectedCard = useMemo(
-    () => accountView?.cartoes.find((card) => card.last4 === payCardLast4) ?? null,
-    [accountView?.cartoes, payCardLast4],
-  );
+  const selectedCard = useMemo(() => {
+    const cartoes = accountView?.cartoes ?? [];
+    return cartoes.find((card) => card.last4 === payCardLast4) ?? null;
+  }, [accountView?.cartoes, payCardLast4]);
 
   const refreshQueue = () => {
     queryClient.invalidateQueries({ queryKey: queueQueryKey });
