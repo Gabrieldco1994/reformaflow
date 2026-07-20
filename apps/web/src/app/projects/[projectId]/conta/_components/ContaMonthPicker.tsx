@@ -18,7 +18,7 @@ export function ContaMonthPicker({
   onChange: (month: string) => void;
 }) {
   return (
-    <div className="flex w-full min-w-0 items-center gap-1.5 sm:w-auto">
+    <div className="flex shrink-0 items-center gap-1.5">
       <button
         type="button"
         onClick={() => onChange(addMonthKey(month, -1))}
@@ -27,7 +27,7 @@ export function ContaMonthPicker({
       >
         <ChevronLeft className="h-5 w-5" />
       </button>
-      <div className="flex h-10 min-w-0 flex-1 items-center rounded-xl border border-lifeone-hairline bg-lifeone-surface px-2.5 text-sm font-medium text-lifeone-ink-2 sm:flex-none">
+      <div className="flex h-10 min-w-0 items-center rounded-xl border border-lifeone-hairline bg-lifeone-surface px-2 text-sm font-medium text-lifeone-ink-2 sm:px-2.5">
         <span className="truncate sm:hidden">{monthShort(month)}</span>
         <label className="relative hidden w-[9rem] min-w-0 sm:block">
           <span className="sr-only">{monthLabelLong(month)}</span>
