@@ -214,7 +214,8 @@ export function MovimentacaoRow({
     });
 
   // Controle primário de status (visível em ambos): pagar fatura / quitar / alternar.
-  const statusBaseClass = 'inline-flex min-h-[44px] items-center justify-end text-[11px] font-semibold leading-none md:min-h-[30px]';
+  const statusBaseClass =
+    'inline-flex min-h-6 items-center justify-end text-[11px] font-semibold leading-none md:min-h-[30px]';
   const statusControl = isInvoiceRow ? (
     <button
       type="button"
@@ -244,7 +245,7 @@ export function MovimentacaoRow({
           });
         }
       }}
-      className="inline-flex min-h-[44px] items-center justify-end text-[11px] font-semibold text-lifeone-blue transition hover:brightness-90 md:min-h-[30px] md:justify-center md:rounded-full md:bg-lifeone-blue md:px-3.5 md:text-white"
+      className="inline-flex min-h-6 items-center justify-end text-[11px] font-semibold text-lifeone-blue transition hover:brightness-90 md:min-h-[30px] md:justify-center md:rounded-full md:bg-lifeone-blue md:px-3.5 md:text-white"
       title="Quitar parcela pela conta pessoal"
     >
       Quitar
@@ -279,12 +280,12 @@ export function MovimentacaoRow({
   );
 
   return (
-    <div className="rounded-2xl border border-lifeone-hairline bg-lifeone-card transition-colors hover:border-lifeone-blue hover:shadow-lifeone-card">
-      <div className="flex items-start gap-3 px-3 py-2.5 md:items-center md:px-4 md:py-3">
+    <div className="rounded-xl border border-lifeone-hairline bg-lifeone-card transition-colors hover:border-lifeone-blue hover:shadow-lifeone-card md:rounded-2xl">
+      <div className="flex items-start gap-2.5 px-2.5 py-2 md:items-center md:gap-3 md:px-4 md:py-3">
         <span
-          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${iconCfg.bgColor} ${iconCfg.color}`}
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full md:h-10 md:w-10 ${iconCfg.bgColor} ${iconCfg.color}`}
         >
-          <AvatarIcon className="h-[18px] w-[18px]" />
+          <AvatarIcon className="h-4 w-4 md:h-[18px] md:w-[18px]" />
         </span>
 
         {/* Título + metadados: separados para o chip "Sem conta" não aninhar <button> dentro de <button>. */}
@@ -305,7 +306,7 @@ export function MovimentacaoRow({
                 ) : (
                   <ChevronRight className="h-4 w-4 shrink-0 text-lifeone-ink-3" />
                 ))}
-              <span className="truncate pr-1 text-[15px] font-semibold leading-tight text-lifeone-ink">{titulo}</span>
+              <span className="truncate pr-1 text-[14px] font-semibold leading-tight text-lifeone-ink md:text-[15px]">{titulo}</span>
             </div>
           </button>
           <div className={`mt-0.5 flex items-center gap-1.5 ${canExpand ? 'pl-5' : ''}`}>
@@ -343,9 +344,9 @@ export function MovimentacaoRow({
         </div>
 
         {/* Cluster à direita: valor SEMPRE isolado (nowrap), status abaixo (mobile) ou ao lado (desktop). */}
-        <div className="flex shrink-0 flex-col items-end gap-0.5">
+        <div className="flex shrink-0 flex-col items-end gap-0">
           <span
-            className={`whitespace-nowrap text-[15px] font-semibold tabular-nums font-geist ${
+            className={`whitespace-nowrap text-[14px] font-semibold tabular-nums font-geist md:text-[15px] ${
               isEntrada ? 'text-[#1E924A]' : 'text-lifeone-ink'
             }`}
           >
@@ -379,7 +380,7 @@ export function MovimentacaoRow({
               type="button"
               aria-label="Mais ações"
               onClick={() => setMenuOpen(true)}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-lifeone-ink-4 transition-colors hover:bg-lifeone-sidebar hover:text-lifeone-ink-2 md:hidden"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-lifeone-ink-4 transition-colors hover:bg-lifeone-sidebar hover:text-lifeone-ink-2 md:hidden"
             >
               <MoreHorizontal className="h-5 w-5" />
             </button>
