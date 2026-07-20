@@ -82,6 +82,7 @@ export class AuthService {
   async registerOwner(input: {
     tenantName: string;
     ownerName: string;
+    email?: string;
     username: string;
     password: string;
     projectTypes?: ProjectType[];
@@ -116,6 +117,7 @@ export class AuthService {
             tenantId: tenant.id,
             username,
             name: input.ownerName.trim(),
+            email: input.email ? input.email.trim() : null,
             role: SELF_SERVICE_ROLE,
             passwordHash,
             isGuest: false,

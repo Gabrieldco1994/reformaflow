@@ -22,9 +22,9 @@ export class RegisterOwnerDto {
   @MinLength(2)
   ownerName!: string;
 
+  @IsOptional()
   @IsString()
   @IsEmail()
-  @IsOptional()
   email?: string;
 
   @IsString()
