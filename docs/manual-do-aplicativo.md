@@ -32,7 +32,7 @@ módulos (abas) ficam disponíveis:
 
 | Tipo | Para quê serve | Módulos disponíveis |
 |---|---|---|
-| **PESSOAL** | Controle do dinheiro pessoal (o "cockpit" da sua vida financeira) | Cockpit, Visão Conta, DRE, Despesas, Recebimentos, Fluxo de Caixa, Cartões, Contas, Metas, Planning, Budget |
+| **PESSOAL** | Controle do dinheiro pessoal (o "cockpit" da sua vida financeira) | Cockpit, Visão Conta, Cartões, Metas, Planning, Budget, DRE, Fluxo de Caixa (+ drill-downs: Despesas/Recebimentos) |
 | **REFORMA** | Controle financeiro e visual de uma obra/reforma | Dashboard, Despesas, Recebimentos, Fluxo de Caixa, Cômodos, Plantas, Simulação, Cronograma, Comparar Preço, Pendências |
 | **CASA** | Gestão da casa (contas fixas, manutenções, lembretes) | Dashboard, Contas recorrentes, Manutenção, Lembretes, Despesas |
 | **CARRO** | Gestão do carro | Dashboard, Carro (dados), Contas recorrentes, Manutenção, Lembretes, Despesas |
@@ -193,7 +193,7 @@ Ao entrar num projeto, aparece a **casca** comum a todos os módulos:
   colorido + nome), **sino de notificações**, botão **Feedback** (balão) e, no
   celular, o botão **"Mais"**.
 - **Barra inferior (celular):**
-  - No **PESSOAL**, mostra **"Cockpit"**, **"Despesas"**, **"Maria"** e **"Cartões"**, com botão circular **"Lançar"** separado.
+  - No **PESSOAL**, mostra **"Cockpit"**, **"Conta"**, **"Maria"** e **"Cartões"**, com botão circular **"Lançar"** separado.
     - O **"+"** abre um **menu de modo** com três jornadas: **Escrito** (teclado numérico rápido), **Voz** (dita a despesa, mesma IA da Maria) e **Foto** (importa print/foto de **fatura de cartão** ou **extrato de conta**).
     - No modo **Escrito**, as **categorias aparecem direto** (atalho das mais usadas + "ver todas"): tocar numa categoria já **preenche o título por trás**; o campo de texto vira detalhe opcional. Parcelas de cartão saem num seletor nativo **1–18x** ("À vista" para 1).
   - Nos demais tipos, mostra os três primeiros módulos autorizados para a pessoa,
@@ -314,11 +314,10 @@ e o que ainda vai sair?".
 mês (‹ › + calendário).
 
 **Ações rápidas (topo):**
-- **"Nova Despesa"** → abre o **assistente guiado de despesa** (o mesmo do módulo
-  Despesas): escolha inicial *Nova despesa paga* × *Pagar despesa planejada*, e
-  então os passos Dados → Pagamento → Ação. Cria despesa simples (sem espelho por
-  padrão); o vínculo/rateio é opcional.
-- **"Nova Receita"** → modal de recebimento (Valor, Data, Tipo, Status).
+- **"+ Lançar"** → abre a escolha de tipo (**Nova Despesa** ou **Nova Receita**),
+  reaproveitando os mesmos fluxos dos módulos especializados.
+- **Menu "⋯"** concentra ações avançadas: **Planejar recebimentos** e
+  **Vincular em massa**.
 
 **KPIs (ResumoCards):**
 | KPI | O que representa |
@@ -358,6 +357,8 @@ movimentações abaixo.
 
 **Movimentações:**
 - Abas **Saídas / Entradas / Tudo**.
+- Em **Saídas** e **Entradas**, aparece o link **"Ver análise completa"** para os
+  drill-downs dedicados (`/expenses` e `/receipts`).
 - **Visões (só saídas):** **Lista**, **Por categoria** e **Por projeto** — as duas
   últimas agrupam os gastos com subtotais e ícone da categoria (drill-down por linha).
 - Filtro de **origem** (Todos / uma conta / um cartão específico), **categoria** e
@@ -407,6 +408,10 @@ guardou" pela data de caixa).
   menor margem), gráfico com barras mês a mês e totais anuais.
 
 ### 4.4 Despesas (`/expenses`)
+No PESSOAL, esta tela é um **drill-down da Visão Conta**.
+
+- Faixa superior: **"Visão por competência"** + link **"Voltar para Conta"**.
+- Rótulo explícito: os números desta tela são de **competência** (não de caixa).
 Onde se registra e acompanha tudo que se gasta. É o módulo mais rico.
 
 **Cabeçalho:** saudação + "Despesas"; navegação de mês (‹ Jul 26 ›); botão
@@ -459,6 +464,10 @@ planejado.
 **Estados:** carregando, vazio, erro.
 
 ### 4.5 Recebimentos (`/receipts`)
+No PESSOAL, esta tela é um **drill-down da Visão Conta**.
+
+- Faixa superior: **"Visão por competência"** + link **"Voltar para Conta"**.
+- Rótulo explícito: os números desta tela são de **competência** (não de caixa).
 Entradas de dinheiro (salário, dividendos, etc.).
 
 - **Toggle "Por mês" / "Por tipo".**

@@ -16,7 +16,7 @@ export const TYPE_ICONS: Record<string, string> = {
 };
 
 const PESSOAL_PRIMARY_SLUG = 'monthly';
-const PESSOAL_DOCK_SLUGS = new Set(['monthly', 'expenses']);
+const PESSOAL_DOCK_SLUGS = new Set(['monthly', 'conta']);
 
 function isProjectType(value: string): value is ProjectType {
   return Object.values(ProjectType).includes(value as ProjectType);
@@ -29,7 +29,7 @@ export interface MobileNavSplit {
 
 /**
  * Splits the already permission-filtered navigation for mobile rendering.
- * PESSOAL reserves its fixed bar for monthly only; every other visible module
+ * PESSOAL reserves its fixed bar for monthly + conta; every other visible module
  * remains available in the Mais sheet. Other types use the first three visible
  * modules in project navigation order.
  */
@@ -39,9 +39,18 @@ export function getMobilePrimary(
 ): MobileNavSplit {
   const hasMonthlyOverviewFeature =
     isProjectType(type) && hasFeature(type, 'monthlyOverview');
+  const hasMonthlyVisible = visibleNav.some(
+    (module) => module.slug === PESSOAL_PRIMARY_SLUG,
+  );
   const primary =
     hasMonthlyOverviewFeature
-      ? visibleNav.filter((module) => module.slug === PESSOAL_PRIMARY_SLUG)
+      ? hasMonthlyVisible
+        ? visibleNav.filter(
+            (module) =>
+              module.slug === PESSOAL_PRIMARY_SLUG ||
+              module.slug === 'conta',
+          )
+        : []
       : splitMobileNav(visibleNav, 3).primary;
   const primarySlugs = hasMonthlyOverviewFeature
     ? PESSOAL_DOCK_SLUGS

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { CreditCard, Home, MessageCircle, Plus } from "lucide-react";
+import { CreditCard, Home, Landmark, MessageCircle, Plus } from "lucide-react";
 import { hasFeature, ProjectType, type NavModule } from "@reformaflow/domain";
 import { isPathActive } from "./mobile-nav";
 import { navIcon } from "./nav-icons";
@@ -37,15 +37,14 @@ export function MobileTabBar({
   onOpenLaunch,
 }: MobileTabBarProps) {
   if (hasFeature(projectType, "monthlyOverview")) {
-    const ExpensesIcon = navIcon("expenses");
     const todayHref = `${basePath}/monthly`;
-    const expensesHref = `${basePath}/expenses`;
+    const contaHref = `${basePath}/conta`;
     const mariaHref = `${basePath}/maria`;
     const cardsHref = `${basePath}/credit-cards`;
     const canViewToday = primary.some((module) => module.slug === "monthly");
-    const canViewExpenses = canLaunch;
+    const canViewConta = primary.some((module) => module.slug === "conta");
     const todayActive = isPathActive(pathname, todayHref);
-    const expensesActive = isPathActive(pathname, expensesHref);
+    const contaActive = isPathActive(pathname, contaHref);
     const mariaActive = isPathActive(pathname, mariaHref);
     const cardsActive = isPathActive(pathname, cardsHref);
 
@@ -67,14 +66,14 @@ export function MobileTabBar({
               </Link>
             )}
 
-            {canViewExpenses && (
+            {canViewConta && (
               <Link
-                href={expensesHref}
-                aria-current={expensesActive ? "page" : undefined}
-                className={pessoalTabClass(expensesActive)}
+                href={contaHref}
+                aria-current={contaActive ? "page" : undefined}
+                className={pessoalTabClass(contaActive)}
               >
-                <ExpensesIcon className="h-5 w-5" />
-                <span className="max-w-full truncate">Despesas</span>
+                <Landmark className="h-5 w-5" />
+                <span className="max-w-full truncate">Conta</span>
               </Link>
             )}
 

@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 import { useProject } from '@/contexts/project-context';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -359,6 +360,21 @@ export default function ReceiptsPage() {
 
   return (
     <div className="space-y-6">
+      {isPessoal && (
+        <div className="rounded-xl border border-lifeone-hairline bg-lifeone-card px-3 py-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-lifeone-ink-3">
+              Visão por competência
+            </p>
+            <Link
+              href={`/projects/${PROJECT_ID}/conta`}
+              className="text-[12px] font-semibold text-lifeone-blue hover:underline"
+            >
+              Voltar para Conta
+            </Link>
+          </div>
+        </div>
+      )}
       {/* Header desktop */}
       <div className="hidden md:flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <h1 className="text-2xl font-bold text-gray-900">Recebimentos</h1>
