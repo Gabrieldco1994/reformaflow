@@ -258,6 +258,9 @@ A tela-mãe do PESSOAL. Responde "como está meu mês?".
   persistente "Caixa mostrando só o fluxo — defina o saldo inicial para bater com o
   banco" que leva diretamente à edição da conta bancária.
 - **Barra de progresso do mês** + frase narrativa de fechamento.
+- **Narrativa de horizonte (runway) no próprio Cockpit:** o mesmo veredito multi-mês
+  ("fica negativo em…"/"se mantém positivo até…") também aparece aqui, usando a mesma
+  série do card "Vai dar até dez?" para evitar contradição com a Visão Conta.
 - **Dropdown "Recomendações"** (minimizado por padrão): dicas automáticas —
   projeção de fechamento e quanto cortar por dia para equilibrar, maior gasto
   variável, contas a vencer, e status da reserva de emergência.
@@ -328,6 +331,15 @@ mês (‹ › + calendário).
 
 Os cards "Entrou/Saiu/Falta pagar" funcionam como **filtros rápidos** das
 movimentações abaixo.
+
+**Projeção multi-mês (runway):**
+- A Visão Conta mostra um **resumo de 1 linha** com o mesmo veredito do Cockpit
+  (ex.: "fica negativo em…"/"se mantém positivo até…") e o link
+  **"Ver projeção no Cockpit"**.
+- Quando não há horizonte suficiente para calcular narrativa, esse bloco **não é exibido**
+  (sem placeholder estático).
+- O gráfico "Vai dar até dez?" e a exploração completa da projeção ficam no **Cockpit**
+  (mobile e desktop), para manter narrativa única entre as telas.
 
 **Cartões e Contas (carrossel):**
 - Cada **cartão** aparece com visual realista do banco, **fatura atual**, **vence

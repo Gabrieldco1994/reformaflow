@@ -290,3 +290,23 @@ passou a dividir **sempre por 12** (ano cheio normalizado), igual a
 `gastoMedioMensal` e ao ticket médio geral. Antes dividia pelo nº de **meses
 ativos** (com gasto pago), o que dava um número maior e inconsistente com os
 demais KPIs mensais. Base inalterada: só pagas, espelho/neutro-de-consumo fora.
+
+---
+
+## 11. PR-3 — projeção unificada (mês × horizonte)
+
+- **Fonte única da narrativa multi-mês:** `dreOverview.anual.saldoAcumuladoSerie`.
+- **Derivação única de texto:** `deriveRunwayNarrative(...)` (reutilizada por Cockpit e Conta).
+- **Cockpit:** exibe o card/gráfico completo "Vai dar até dez?" (desktop e mobile).
+- **Conta:** exibe só 1 linha-resumo + link "Ver projeção no Cockpit".
+
+Tabela de estados canônica (mês × horizonte):
+
+| Fechamento do mês | Horizonte multi-mês | Texto |
+|---|---|---|
+| positivo | positivo | "No caminho" + "se mantém positivo até …" |
+| positivo | negativo | "No caminho no mês, atenção no horizonte" + "fica negativo em …" |
+| negativo | positivo | "Fecha no vermelho no mês" + "horizonte volta a positivo" |
+| negativo | negativo | "Fecha no vermelho no mês" + "fica negativo em …" |
+
+Regra operacional: para o **mesmo mês e mesma série**, Conta e Cockpit devem sempre mostrar o mesmo veredito de horizonte (sem contradição entre telas).

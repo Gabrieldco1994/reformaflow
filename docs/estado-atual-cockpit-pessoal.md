@@ -16,6 +16,13 @@ Histórico detalhado: `docs/archive/estado-atual-historico-2026.md`.
 - 🚀 **PR-2 frontend Carteira** (este PR, `feat/conta-pr2-carteira-fechamento`): chip "Sem conta", filtro, nota no card — pendente merge.
 - 🔧 PR-3 (projeção unificada no Cockpit) e PR-4 (navegação/bottom nav) pendentes.
 - 🚀 Deploy web (Vercel) e API (Fly) continuam automáticos pelo `main`.
+- 🚧 PR-3 em execução (`feat/conta-pr3-projecao-unificada`): narrativa de projeção
+  unificada entre Cockpit e Conta (Conta vira resumo com deep-link para Cockpit;
+  Cockpit exibe o mesmo veredito de horizonte multi-mês).
+- 🔧 PR #174 (draft, `feat/conta-unificada`): Visão Conta unificada (Lista + Por
+  categoria/projeto, filtros com "Limpar filtros", expandir fatura inline) e
+  lançamento mobile "+" em 3 modos (Escrito categoria-first / Voz / Foto).
+  Backend read-only/aditivo (receipt persiste `descricao`; sem migration).
 
 ## 2) Fontes de verdade
 

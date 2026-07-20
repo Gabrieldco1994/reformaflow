@@ -104,7 +104,7 @@ export function ResumoCards({
         }
         extra={
           key === 'saiuMes' && (saiuSemConta ?? 0) > 0 ? (
-            <p className="mt-1 text-[11px] leading-4 text-lifeone-ink-3">
+            <p className="mt-1 text-[11px] font-semibold leading-4 text-lifeone-ink-3">
               inclui {formatCurrency((saiuSemConta ?? 0) / 100)} sem conta vinculada
             </p>
           ) : key === 'faltaPagarMes' && recebimentosPrevistosMes > 0 ? (

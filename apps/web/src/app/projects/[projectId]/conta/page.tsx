@@ -3,13 +3,13 @@
 import { useParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Landmark } from 'lucide-react';
+import Link from 'next/link';
 import { useState } from 'react';
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
 import { currentMonthKey, monthLabelLong } from './_lib';
 import { ContaMonthPicker } from './_components/ContaMonthPicker';
 import { ResumoCards, type ResumoQuickFilterKey } from './_components/ResumoCards';
-import { ProjecaoSaldo } from './_components/ProjecaoSaldo';
 import { CartoesSection } from './_components/CartoesSection';
 import { MovimentacoesSection } from './_components/MovimentacoesSection';
 import { PagarFaturaDialog } from './_components/PagarFaturaDialog';
@@ -27,6 +27,7 @@ import type {
   OriginItemsYearlyResponse,
 } from './_types';
 import type { DreOverviewResponse } from '../dre/_types';
+import { deriveRunwayNarrative } from '../_lib/runway-summary';
 
 function LoadingBlock() {
   return (
@@ -107,13 +108,13 @@ export default function ContaPage() {
   const selectedOrigin = yearlyData?.origins.find((o) => o.key === selectedOriginKey) ?? null;
 
   // "Sobra prevista" ACUMULADA: saldo projetado do mês selecionado, lido da mesma
-  // série do runway logo abaixo (carrega o que sobrou/faltou dos meses anteriores,
-  // em vez de recomeçar do caixa de hoje a cada mês). Fallback para a sobra do mês
-  // (não-acumulada, vinda da account-view) quando a série não está disponível —
-  // ex.: ano != atual, quando dreData fica desabilitado.
+  // série do cockpit (carrega o que sobrou/faltou dos meses anteriores, em vez de
+  // recomeçar do caixa de hoje a cada mês). Fallback para a sobra do mês
+  // (não-acumulada, vinda da account-view) quando a série não está disponível.
   const sobraPrevistaAcumulada = dreData?.anual.saldoAcumuladoSerie.find(
     (row) => row.mes === selectedMonth,
   )?.saldoProjetado;
+  const runwayNarrative = deriveRunwayNarrative(dreData?.anual.saldoAcumuladoSerie, selectedMonth);
   const { data: originItems, isLoading: originItemsLoading } = useQuery<OriginItemsYearlyResponse>({
     queryKey: ['origin-items-yearly', projectId, selectedYear, selectedOrigin?.kind, selectedOrigin?.last4],
     queryFn: () =>
@@ -254,11 +255,22 @@ export default function ContaPage() {
                   setResumoQuickFilter(key);
                 }}
               />
-              {dreData && (
-                <ProjecaoSaldo
-                  serie={dreData.anual.saldoAcumuladoSerie}
-                  currentMonth={currentMonthKey()}
-                />
+              {runwayNarrative && (
+                <section className="rounded-2xl border border-lifeone-hairline bg-lifeone-card px-4 py-3 text-[12px] text-lifeone-ink-2 shadow-lifeone-card">
+                  <p
+                    className={`leading-relaxed ${
+                      runwayNarrative.tone === 'negative' ? 'text-[#D92D20]' : 'text-lifeone-ink-2'
+                    }`}
+                  >
+                    {runwayNarrative.headline}
+                  </p>
+                  <Link
+                    href={`/projects/${projectId}/monthly?mes=${selectedMonth}`}
+                    className="mt-2 inline-flex text-[12px] font-semibold text-lifeone-blue hover:underline"
+                  >
+                    Ver projeção no Cockpit
+                  </Link>
+                </section>
               )}
               <CartoesSection
                 cartoes={data.cartoes}

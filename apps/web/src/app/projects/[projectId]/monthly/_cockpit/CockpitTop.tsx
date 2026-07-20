@@ -5,12 +5,14 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { Wallet, Target, ArrowUpRight, ArrowDownRight, Lightbulb, ChevronDown, AlertCircle } from 'lucide-react';
 import type { MonthlyOverviewResponse, MonthlyEntry } from '../_types';
+import type { DreSaldoAcumuladoRow } from '../../dre/_types';
 import { Card, type Tone } from './ui';
 import { InfoHint } from '@/components/InfoHint';
 import { fmtMoney, fmtPct, mesLongo } from './format';
 import { moneyShort, moneyExact } from '@/lib/money';
 import { deriveCockpitTop, deriveMonth, saldoProjetado } from './derive';
 import { RecomendacoesList } from './Recomendacoes';
+import { deriveRunwayNarrative } from '../../_lib/runway-summary';
 
 const TONE_TEXT: Record<Tone, string> = {
   accent: 'text-[var(--ck-accent)]',
@@ -111,11 +113,13 @@ export default function CockpitTop({
   data,
   monthKey,
   entries,
+  runwaySerie,
   showRecs = true,
 }: {
   data: MonthlyOverviewResponse;
   monthKey?: string;
   entries?: MonthlyEntry[];
+  runwaySerie?: DreSaldoAcumuladoRow[];
   /** Renderiza o bloco de recomendações dentro do card do topo (só na visão Mês). */
   showRecs?: boolean;
 }) {
@@ -128,6 +132,10 @@ export default function CockpitTop({
   }, [showRecs, data, monthKey, entries]);
 
   const [exact, setExact] = useState(false);
+  const runwayNarrative = useMemo(
+    () => deriveRunwayNarrative(runwaySerie, t.mesAtualKey),
+    [runwaySerie, t.mesAtualKey],
+  );
 
   const sobra = t.projecaoMes - t.caixaValor; // a receber − a pagar do mês
   const projTone: Tone = sobra >= 0 ? 'pos' : 'alert';
@@ -212,6 +220,15 @@ export default function CockpitTop({
         </div>
 
         <p className="mt-3 text-[13px] leading-relaxed text-[var(--ck-muted)]">{fechamento}</p>
+        {runwayNarrative && (
+          <p
+            className={`mt-1 text-[12px] leading-relaxed ${
+              runwayNarrative.tone === 'negative' ? 'text-[var(--ck-neg)]' : 'text-[var(--ck-muted)]'
+            }`}
+          >
+            {runwayNarrative.headline} {runwayNarrative.detail}
+          </p>
+        )}
         {t.projectionDegraded && (
           <p className="mt-1 text-[11px] text-[var(--ck-alert)]">Estimativa por lançamentos do mês; projeção da conta indisponível.</p>
         )}

@@ -24,6 +24,7 @@ import MobileCockpitHeader from "./_cockpit/MobileCockpitHeader";
 import MobileMonthCockpit from "./_cockpit/MobileMonthCockpit";
 import { monthlyOverviewPath } from "./_lib/monthly-overview-query";
 import { NovaDespesaLauncher } from "../expenses/_components/NovaDespesaLauncher";
+import { ProjecaoSaldo } from "../conta/_components/ProjecaoSaldo";
 
 type View = "mes" | "ano";
 
@@ -338,8 +339,18 @@ export default function CockpitPage() {
             data={viewData}
             monthKey={monthKey}
             entries={monthEntries}
+            runwaySerie={dreOverview?.anual?.saldoAcumuladoSerie}
             showRecs={view === "mes"}
           />
+        )}
+
+        {viewData && !isLoading && view === "mes" && dreOverview?.anual?.saldoAcumuladoSerie && (
+          <div className="mb-5">
+            <ProjecaoSaldo
+              serie={dreOverview.anual.saldoAcumuladoSerie}
+              currentMonth={monthKey}
+            />
+          </div>
         )}
 
         {viewData && !isLoading && view === "mes" && eixo !== "geral" && (
