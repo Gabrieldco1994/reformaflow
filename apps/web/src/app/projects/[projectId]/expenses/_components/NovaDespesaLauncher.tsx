@@ -14,6 +14,7 @@ import { RecorrenteWizard } from './RecorrenteWizard';
 import { VoiceExpenseModal } from './VoiceExpenseModal';
 import ImportStatementModal from '../../credit-cards/_components/ImportStatementModal';
 import ImportBankStatementModal from '../../bank-accounts/_components/ImportBankStatementModal';
+import { ReceitaModal } from '../../conta/_components/ReceitaModal';
 import { Modal } from '@/components/ui/modal';
 import { useVoiceExpense } from '../_hooks/useVoiceExpense';
 
@@ -47,6 +48,7 @@ export function NovaDespesaLauncher({ projectId, projectType, trigger, onChanged
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardMode, setWizardMode] = useState<'PLANEJAR' | 'PAGA'>('PAGA');
   const [recorrenteOpen, setRecorrenteOpen] = useState(false);
+  const [receitaOpen, setReceitaOpen] = useState(false);
   const [importStep, setImportStep] = useState<null | 'pick-card' | 'pick-account'>(null);
   const [selectedCard, setSelectedCard] = useState<{ id: string; last4: string; nickname?: string | null } | null>(null);
   const [selectedAccount, setSelectedAccount] = useState<{ id: string; last4?: string | null; nickname?: string | null; institution?: string | null } | null>(null);
@@ -153,6 +155,10 @@ export function NovaDespesaLauncher({ projectId, projectType, trigger, onChanged
         }}
         onImportCard={() => { setPayModalOpen(false); setImportStep('pick-card'); }}
         onImportAccount={() => { setPayModalOpen(false); setImportStep('pick-account'); }}
+        onOpenNewReceiptForm={isPersonal ? () => {
+          setPayModalOpen(false);
+          setReceitaOpen(true);
+        } : undefined}
       />
 
       <NovaDespesaWizard
@@ -177,6 +183,13 @@ export function NovaDespesaLauncher({ projectId, projectType, trigger, onChanged
         tipoOptions={tipoOptions}
         onClose={() => setRecorrenteOpen(false)}
         onCreated={invalidate}
+      />
+
+      <ReceitaModal
+        open={receitaOpen}
+        onClose={() => setReceitaOpen(false)}
+        projectId={projectId}
+        defaultData={new Date().toISOString().slice(0, 10)}
       />
 
       <VoiceExpenseModal
