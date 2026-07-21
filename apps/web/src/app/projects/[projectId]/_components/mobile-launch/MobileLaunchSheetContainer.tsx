@@ -197,7 +197,7 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
       <MobileLaunchModeSheet
         open={open && screen === 'choose'}
         onClose={handleClose}
-        onPick={(mode) => setScreen(mode)}
+        onPick={(mode) => setScreen(mode === 'foto' ? 'foto' : mode)}
         voiceSupported={voice.voiceSupported}
       />
 
