@@ -241,11 +241,11 @@ function UploadStep({
   return (
     <div className="space-y-3 mb-4">
       <div>
-        <label className="text-sm text-gray-600">Arquivos (OFX, CSV, PDF ou 📷 até 5 prints/fotos, máx 10MB cada)</label>
+        <label className="text-sm text-gray-600">Arquivos (OFX, CSV, TXT, PDF, XLSX/XLS ou 📷 até 5 prints/fotos, máx 10MB cada)</label>
         <input
           type="file"
           multiple
-          accept=".ofx,.csv,.txt,.pdf,image/png,image/jpeg,image/webp,image/heic,.png,.jpg,.jpeg,.webp,.heic"
+          accept=".ofx,.csv,.txt,.pdf,.xlsx,.xls,image/png,image/jpeg,image/webp,image/heic,.png,.jpg,.jpeg,.webp,.heic"
           onChange={(e) => setFiles(Array.from(e.target.files ?? []).slice(0, 5))}
           className="w-full border rounded-lg p-2"
         />
