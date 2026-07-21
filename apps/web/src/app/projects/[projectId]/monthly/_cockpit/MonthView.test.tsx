@@ -4,8 +4,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import MonthView from './MonthView';
 import type { MonthlyOverviewResponse } from '../_types';
 
-vi.mock('./RunwayScenario', () => ({ RunwayScenario: () => <div data-testid="merged-runway-chart" /> }));
-
 // `ArvoreGastos` (renderizado incondicionalmente quando há `projectId`, já
 // existente antes desta trilha) faz sua própria query de bank-accounts — só
 // precisa de um QueryClient no contexto, sem mock (não é peça desta trilha).
@@ -24,9 +22,12 @@ const DATA: MonthlyOverviewResponse = {
 };
 
 describe('MonthView — grid desktop D1', () => {
-  it('renderiza o gráfico unificado e mantém o card de saúde/metas na coluna lateral', () => {
+  it('renderiza o simulador de ritmo e o card de saúde/metas na coluna lateral', () => {
     renderWithQueryClient(<MonthView data={DATA} projectId="p1" />);
-    expect(screen.getByTestId('merged-runway-chart')).toBeInTheDocument();
+    // Verifica que o simulador de ritmo existe (substitui o antigo gráfico intra-mês)
+    expect(screen.getByText(/ritmo de gasto/i)).toBeInTheDocument();
+    expect(screen.getByText(/gasto diário \(simulação\)/i)).toBeInTheDocument();
+    // Verifica que o card de saúde/metas mantém seu lugar
     expect(screen.getByText(/saúde financeira e metas do mês/i)).toBeInTheDocument();
     const grid = screen.getByText(/saúde financeira e metas do mês/i).closest('[class*="xl:grid-cols-3"]');
     expect(grid).not.toBeNull();
