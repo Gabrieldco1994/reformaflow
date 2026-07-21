@@ -340,6 +340,8 @@ movimentações abaixo.
   narrativa de horizonte e gráfico "Vai dar até dez?".
 
 **Cartões e Contas (carrossel):**
+- No mobile, aparece em **1 linha horizontal com scroll-snap** (card compacto por origem).
+- Link **"Ver todos"** leva para `/credit-cards`.
 - Cada **cartão** aparece com visual realista do banco, **fatura atual**, **vence
   em** e status (**A pagar / Parcial / ✓ Paga**). Clicar num cartão filtra as
   movimentações por ele.
@@ -353,6 +355,11 @@ movimentações abaixo.
   o espelho da fatura (valor bancário) sem virar consumo/caixa.
 - **Marcar quitada com resíduo…** registra o resíduo declarado (com nota) e fecha a
   fatura mesmo com diferença de centavos/contestação.
+
+**Precisa de você (fila de pendências):**
+- Quando há pendências financeiras no mês, a Conta exibe o card **"Precisa de você"**
+  antes do carrossel de cartões/contas.
+- O card abre o mesmo sheet de resolução do Cockpit, sem criar fluxo novo.
 
 **Movimentações:**
 - Abas **Saídas / Entradas / Tudo**.
@@ -381,8 +388,6 @@ movimentações abaixo.
   compras que as compõem (no celular, tocando na linha). Nas linhas de fatura há
   ações rápidas **Ajustar** e **Resíduo**, além do status.
 
-**Ticket médio:** valor médio por lançamento, com barras de apoio.
-
 **Visão Ano todo:** gráfico de faturas por origem/cartão ao longo do ano, com
 drill-down por origem (despesas relacionadas).
 
@@ -405,6 +410,10 @@ Mostra o resultado (receitas − despesas) de forma estruturada.
 No eixo **Conta Corrente**, os mesmos blocos passam a considerar só o que
 efetivamente entrou/saiu da conta no mês ("O que entrou", "O que saiu", "O que
 guardou" pela data de caixa).
+
+**Ticket médio (migrado da Conta):**
+- A seção de ticket médio (valor, série 6 meses e delta) agora fica em **Análises (DRE)**,
+  usando os mesmos números da Visão Conta para o mês selecionado.
 
 **Visão anual:**
 - **Resultado acumulado** (entradas − saídas − guardado no ano; positivo = sobrou),
