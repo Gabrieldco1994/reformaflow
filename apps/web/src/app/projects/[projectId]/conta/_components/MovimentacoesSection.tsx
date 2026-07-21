@@ -131,11 +131,8 @@ export function MovimentacoesSection({
   }, [summaryQuickFilter]);
 
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ['account-view', projectId] });
-    queryClient.invalidateQueries({ queryKey: ['expenses', projectId] });
+    invalidateExpenseQueries(queryClient, projectId);
     queryClient.invalidateQueries({ queryKey: ['receipts', projectId] });
-    queryClient.invalidateQueries({ queryKey: ['dashboard', projectId] });
-    queryClient.invalidateQueries({ queryKey: ['cash-flow', projectId] });
   };
 
   const toggleStatus = useMutation({
@@ -282,7 +279,6 @@ export function MovimentacoesSection({
     mutationFn: ({ sourceId, allocations }: { sourceId: string; allocations: { targetExpenseId: string; allocation: number }[] }) =>
       api.post(`/projects/${projectId}/expenses/${sourceId}/ratear`, { allocations }),
     onSuccess: (_d, vars) => {
-      invalidateExpenseQueries(queryClient, projectId);
       invalidate();
       toast.success(`Compra rateada em ${vars.allocations.length} ${vars.allocations.length === 1 ? 'planejada' : 'planejadas'}`);
     },
@@ -293,7 +289,6 @@ export function MovimentacoesSection({
     mutationFn: ({ sourceId }: { sourceId: string }) =>
       api.delete(`/projects/${projectId}/expenses/${sourceId}/ratear`),
     onSuccess: () => {
-      invalidateExpenseQueries(queryClient, projectId);
       invalidate();
       toast.success('Rateio desfeito');
     },

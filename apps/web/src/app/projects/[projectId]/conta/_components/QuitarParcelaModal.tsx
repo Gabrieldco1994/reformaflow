@@ -171,6 +171,8 @@ export function QuitarParcelaModal({
       ]) {
         queryClient.invalidateQueries({ queryKey: [key, projectId] });
       }
+      queryClient.invalidateQueries({ queryKey: ['pendencias-financeiras', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['pendencias', projectId] });
       toast.success('Parcela quitada e conciliada');
       onDone();
     },

@@ -122,10 +122,7 @@ export function DespesaModal({
   }, [open, isEdit, editing, defaultData]);
 
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ['account-view', projectId] });
-    queryClient.invalidateQueries({ queryKey: ['expenses', projectId] });
-    queryClient.invalidateQueries({ queryKey: ['dashboard', projectId] });
-    queryClient.invalidateQueries({ queryKey: ['cash-flow', projectId] });
+    invalidateExpenseQueries(queryClient, projectId);
   };
 
   const createMutation = useMutation({

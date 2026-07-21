@@ -22,6 +22,9 @@ export function invalidateExpenseQueries(queryClient: QueryClient, projectId: st
   // Visão Conta / Visão Mês são caixa: qualquer mutação de despesa pode movê-las.
   queryClient.invalidateQueries({ queryKey: ['account-view', projectId] });
   queryClient.invalidateQueries({ queryKey: ['monthly-overview', projectId] });
+  // Fila "Precisa de você": reverter por outras telas deve reaparecer sem refresh.
+  queryClient.invalidateQueries({ queryKey: ['pendencias-financeiras', projectId] });
+  queryClient.invalidateQueries({ queryKey: ['pendencias', projectId] });
 }
 
 /** True se a despesa tem ao menos uma parcela marcada como paga (paidParcelas). */

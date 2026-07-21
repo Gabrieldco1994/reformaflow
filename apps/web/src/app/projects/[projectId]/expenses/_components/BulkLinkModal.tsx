@@ -165,6 +165,8 @@ export function BulkLinkModal({
       for (const key of ['expenses', 'cash-flow', 'dashboard', 'cross-project-expenses', 'account-view', 'monthly-overview']) {
         queryClient.invalidateQueries({ queryKey: [key] });
       }
+      queryClient.invalidateQueries({ queryKey: ['pendencias-financeiras', currentProjectId] });
+      queryClient.invalidateQueries({ queryKey: ['pendencias', currentProjectId] });
     }
     setChoices({});
     setConfirmed(false);
