@@ -4,8 +4,9 @@ import { parsePdfStatement, PdfPasswordRequiredError, PdfWrongPasswordError } fr
 import { detectImageMime, parseImageStatement } from './image-ocr';
 import { mergeParseResults, type ParseResult } from './types';
 import { isPdfBuffer, parseBuffersAndMerge } from '../../common/parsers/buffer-parser.util';
+import { parseXlsx } from './xlsx';
 
-export type SourceHint = 'OFX' | 'CSV_NUBANK' | 'CSV_ITAU' | 'CSV_GENERIC' | 'PDF' | 'AUTO';
+export type SourceHint = 'OFX' | 'CSV_NUBANK' | 'CSV_ITAU' | 'CSV_GENERIC' | 'PDF' | 'XLSX' | 'AUTO';
 
 export function parseStatement(
   content: string,
@@ -36,6 +37,10 @@ export async function parseStatementBuffer(
   if (hint === 'PDF' || isPdfBuffer(buffer)) {
     return parsePdfStatement(buffer, cardId, password, fileName);
   }
+  const isXlsx = hint === 'XLSX' || (fileName ?? '').toLowerCase().match(/\.(xlsx|xls)$/);
+  if (isXlsx) {
+    return parseXlsx(buffer, cardId);
+  }
   return parseStatement(buffer.toString('utf-8'), cardId, hint, fileName);
 }
 
@@ -63,7 +68,10 @@ function resolveSource(
   fileName: string | undefined,
   hint: SourceHint,
 ): 'OFX' | 'CSV_NUBANK' | 'CSV_ITAU' | 'CSV_GENERIC' {
-  if (hint !== 'AUTO' && hint !== 'PDF') return hint;
+  // XLSX é binário, nunca via parseStatement (que recebe string)
+  // Se hint for XLSX, é erro — não deve chegar aqui
+  if (hint === 'XLSX' || hint === 'PDF') return 'CSV_GENERIC'; // fallback
+  if (hint !== 'AUTO') return hint as any;
   const head = content.slice(0, 600).toUpperCase();
   if (head.includes('<OFX') || head.includes('OFXHEADER')) return 'OFX';
   const lower = (fileName ?? '').toLowerCase();

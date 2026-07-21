@@ -1,11 +1,12 @@
 import { parseBankOfx } from './ofx';
 import { parseBankCsv } from './csv';
 import { parseBankPdfStatement, PdfPasswordRequiredError, PdfWrongPasswordError } from './pdf';
+import { parseXlsx } from './xlsx';
 import { detectImageMime, parseImageBankStatement } from '../../credit-card/parsers/image-ocr';
 import { mergeParseResults, type ParseResult } from '../../credit-card/parsers/types';
 import { isPdfBuffer, parseBuffersAndMerge } from '../../common/parsers/buffer-parser.util';
 
-export type BankSourceHint = 'OFX' | 'CSV_GENERIC' | 'PDF' | 'AUTO';
+export type BankSourceHint = 'OFX' | 'CSV_GENERIC' | 'PDF' | 'XLSX' | 'AUTO';
 
 export async function parseBankStatementBuffer(
   buffer: Buffer,
@@ -20,6 +21,10 @@ export async function parseBankStatementBuffer(
   }
   if (hint === 'PDF' || isPdfBuffer(buffer)) {
     return parseBankPdfStatement(buffer, accountId, password, fileName);
+  }
+  const isXlsx = hint === 'XLSX' || (fileName ?? '').toLowerCase().match(/\.(xlsx|xls)$/);
+  if (isXlsx) {
+    return parseXlsx(buffer, accountId);
   }
   const content = buffer.toString('utf-8');
   const head = content.slice(0, 600).toUpperCase();

@@ -12,11 +12,12 @@ export interface NormalizedTx {
 }
 
 export interface ParseResult {
-  source: 'OFX' | 'CSV_NUBANK' | 'CSV_ITAU' | 'CSV_GENERIC' | 'PDF' | 'IMAGE';
+  source: 'OFX' | 'CSV_NUBANK' | 'CSV_ITAU' | 'CSV_GENERIC' | 'PDF' | 'IMAGE' | 'XLSX';
   transactions: NormalizedTx[];
   totalAmountCents: number;
   periodLabel?: string;       // YYYY-MM da maior densidade
   futureInstallments?: NormalizedTx[]; // parcelas/lançamentos futuros (apenas informativo)
+  error?: string;             // erro durante parsing (ex.: arquivo vazio, formato inválido)
 }
 
 /**
