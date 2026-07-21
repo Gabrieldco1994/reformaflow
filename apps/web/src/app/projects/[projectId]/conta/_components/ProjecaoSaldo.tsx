@@ -122,7 +122,7 @@ export function ProjecaoSaldo({
       {/* Gráfico de barras */}
       <div className="mt-4 h-40 md:h-56">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={chartData} margin={{ top: 8, right: 8, bottom: 32, left: 4 }}>
+          <BarChart data={chartData} margin={{ top: 8, right: 4, bottom: 32, left: 2 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#EDE8DF" vertical={false} />
             <XAxis
               dataKey="label"
@@ -134,13 +134,13 @@ export function ProjecaoSaldo({
               tick={{ fontSize: 11, fill: '#8A857C' }}
               axisLine={false}
               tickLine={false}
-              width={46}
+              width={40}
               tickFormatter={(v: number) => compactBRL(v)}
               domain={[min - margin, max + margin]}
             />
             <ReferenceLine y={0} stroke="#D92D20" strokeWidth={1} strokeDasharray="4 3" />
             <Tooltip content={<SaldoTooltip />} />
-            <Bar dataKey="saldo" radius={[4, 4, 0, 0]}>
+            <Bar dataKey="saldo" radius={[4, 4, 0, 0]} maxBarSize={32}>
               {chartData.map((entry, index) => (
                 <Cell key={`cell-${index}`} fill={entry.negativo ? '#D92D20' : '#1E924A'} />
               ))}
