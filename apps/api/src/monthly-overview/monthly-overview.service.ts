@@ -3250,6 +3250,7 @@ export function buildRunwayCandidatos(
     for (const item of (view.saidas ?? []) as Array<any>) {
       if (item.isInvoice) continue;
       if (item.realizado) continue;
+      if (isConsumptionNeutralExpenseType(item.tipoDespesa)) continue;
       // Exclui espelhos PESSOAL (linkedExpenseId != null → projetoOrigem set, foreignExpenseId null)
       if (item.projetoOrigem !== null && item.projetoOrigem !== undefined && !item.foreignExpenseId) continue;
 

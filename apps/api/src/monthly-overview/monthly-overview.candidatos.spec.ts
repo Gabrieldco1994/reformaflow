@@ -18,6 +18,7 @@ const makeSaida = (overrides: Partial<{
   data: string;
   isInvoice: boolean;
   realizado: boolean;
+  tipoDespesa: string | null;
   projetoOrigem: { id: string; name: string; type: string } | null;
 }>) => ({
   id: null,
@@ -28,6 +29,7 @@ const makeSaida = (overrides: Partial<{
   data: '2026-08-15T00:00:00.000Z',
   isInvoice: false,
   realizado: false,
+  tipoDespesa: null,
   status: 'PLANEJADO',
   projetoOrigem: null,
   ...overrides,
@@ -170,5 +172,27 @@ describe('buildRunwayCandidatos', () => {
     const result = buildRunwayCandidatos(serie, views, ['2026-07', '2026-08'], '2026-07');
     expect(result).toHaveLength(1);
     expect(result[0].valor).toBe(200_00); // soma das parcelas
+  });
+
+  it('exclui neutros (MOVIMENTACAO_INTERNA / INVESTIMENTOS) mesmo que planejados e grandes', () => {
+    const serie = makeSerie([
+      { mes: '2026-07', saldoProjetado: 10_000 },
+      { mes: '2026-08', saldoProjetado: -5_000 },
+    ]);
+    const views = [
+      {
+        saidas: [
+          makeSaida({ id: 'neutro-1', tipoDespesa: 'MOVIMENTACAO_INTERNA', valor: 999_999_00 }),
+          makeSaida({ id: 'neutro-2', tipoDespesa: 'INVESTIMENTOS', valor: 500_000_00 }),
+          makeSaida({ id: 'real-1', tipoDespesa: null, valor: 1_00 }),
+        ],
+      },
+      { saidas: [] },
+    ];
+    const result = buildRunwayCandidatos(serie, views, ['2026-07', '2026-08'], '2026-07');
+    const ids = result.map((c) => c.expenseId);
+    expect(ids).not.toContain('neutro-1');
+    expect(ids).not.toContain('neutro-2');
+    expect(ids).toContain('real-1'); // despesa real sem tipoDespesa passa
   });
 });
