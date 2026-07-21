@@ -8,6 +8,7 @@ import type { DreSaldoAcumuladoRow } from '../../dre/_types';
 import type { MetaProgress } from '../../metas/_components/MetaCategoriaCard';
 import { tipoLabel } from '@/lib/expense-options';
 import { metaProgressTone } from '../../metas/_lib/metaTone';
+import { monthLabelLong } from '../../conta/_lib';
 import { Card, Progress } from './ui';
 import { fmtMoney } from './format';
 import { deriveMonth, buildSaldoSeries, saldoProjetado } from './derive';
@@ -77,7 +78,7 @@ export default function MonthView({
         <Card
           className="xl:col-span-2"
           title="Ritmo de gasto"
-          hint={`${m.hoje > 0 ? `até ${m.diasNoMes}° de ${m.mesLabel}` : 'ajuste o cursor e acompanhe a projeção'}`}
+          hint={`${m.hoje > 0 ? `até ${m.diasNoMes}º de ${monthLabelLong(m.mesAtualKey).split(' de ')[0]}` : 'ajuste o cursor e acompanhe a projeção'}`}
         >
           <div className="mt-4 rounded-xl border border-[var(--ck-border)] bg-[var(--ck-surface-2)] p-3">
             <div className="flex items-center justify-between gap-2 mb-2">

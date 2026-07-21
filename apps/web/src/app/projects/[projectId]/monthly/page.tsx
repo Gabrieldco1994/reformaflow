@@ -356,7 +356,6 @@ export default function CockpitPage() {
               serie={dreOverview.anual.saldoAcumuladoSerie}
               currentMonth={monthKey}
               simulatedRitmo={ritmoSimulador ?? undefined}
-              baseRitmo={viewData?.meses?.[0]?.ritmoDiario}
             />
           </div>
         )}

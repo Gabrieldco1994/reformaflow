@@ -9,7 +9,7 @@ function row(patch: Partial<DreSaldoAcumuladoRow>): DreSaldoAcumuladoRow {
     recebimentos: 0,
     despesas: 0,
     recebimentosRealizados: null,
-    despesasRealizadas: null,
+    despesasRealizados: null,
     saldoProjetado: 0,
     saldoRealizado: null,
     ...patch,

@@ -86,7 +86,6 @@ describe('ProjecaoSaldo — Simulador de ritmo', () => {
         serie={serieBases}
         currentMonth={currentMonth}
         simulatedRitmo={simulatedRitmo}
-        baseRitmo={baseRitmo}
       />
     );
 
@@ -107,7 +106,6 @@ describe('ProjecaoSaldo — Simulador de ritmo', () => {
         serie={serieBases}
         currentMonth={currentMonth}
         simulatedRitmo={simulatedRitmo}
-        baseRitmo={baseRitmo}
       />
     );
 

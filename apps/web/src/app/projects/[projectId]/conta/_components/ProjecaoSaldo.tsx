@@ -43,17 +43,15 @@ export function ProjecaoSaldo({
   serie,
   currentMonth,
   simulatedRitmo,
-  baseRitmo,
 }: {
   serie: DreSaldoAcumuladoRow[];
   currentMonth: string;
   simulatedRitmo?: number;
-  baseRitmo?: number;
 }) {
   const forward = serie.filter((row) => row.mes >= currentMonth).slice(0, 6);
   if (forward.length < 2) return null;
 
-  const isSimulating = simulatedRitmo !== undefined && simulatedRitmo !== baseRitmo;
+  const isSimulating = simulatedRitmo !== undefined;
 
   // Recalcular série quando ritmo muda: saldo(n) = saldo(n-1) + fixoLiquido(n) − (ritmo × dias)
   let chartData: BarPoint[];
