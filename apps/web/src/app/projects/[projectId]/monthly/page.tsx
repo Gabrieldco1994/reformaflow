@@ -195,7 +195,7 @@ export default function CockpitPage() {
               />
             ) : (
               <>
-                <PendenciasQueueCard projectId={projectId} monthKey={monthKey} />
+                <PendenciasQueueCard projectId={projectId} monthKey={monthKey} projectType={projectType} />
                 <MobileMonthCockpit
                   data={viewData}
                   monthKey={monthKey}
@@ -376,7 +376,9 @@ export default function CockpitPage() {
           </div>
         )}
 
-        {viewData && !isLoading && view === "mes" && <PendenciasQueueCard projectId={projectId} monthKey={monthKey} />}
+        {viewData && !isLoading && view === "mes" && (
+          <PendenciasQueueCard projectId={projectId} monthKey={monthKey} projectType={projectType} />
+        )}
 
         {isLoading && (
           <div className="space-y-4 animate-pulse">

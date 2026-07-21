@@ -252,7 +252,11 @@ export default function ContaPage() {
                   setResumoQuickFilter(key);
                 }}
               />
-              <PendenciasQueueCard projectId={projectId} monthKey={data.mesSelecionado} />
+              <PendenciasQueueCard
+                projectId={projectId}
+                monthKey={data.mesSelecionado}
+                projectType={projectType}
+              />
               <CartoesSection
                 projectId={projectId}
                 cartoes={data.cartoes}

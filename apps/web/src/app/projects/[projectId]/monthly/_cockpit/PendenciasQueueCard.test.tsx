@@ -20,7 +20,6 @@ vi.mock('../../expenses/_components/BulkLinkModal', () => ({
       </div>
     ) : null,
 }));
-vi.mock('../../conta/_components/DespesaModal', () => ({ DespesaModal: () => null }));
 vi.mock('../../conta/_components/PagarFaturaDialog', () => ({ PagarFaturaDialog: () => null }));
 vi.mock('../../conta/_components/QuitarParcelaModal', () => ({
   QuitarParcelaModal: ({
@@ -59,7 +58,7 @@ describe('PendenciasQueueCard', () => {
       return null;
     });
 
-    renderWithQuery(<PendenciasQueueCard projectId="p1" monthKey="2026-07" />);
+    renderWithQuery(<PendenciasQueueCard projectId="p1" monthKey="2026-07" projectType="PESSOAL" />);
 
     expect(await screen.queryByText(/Precisa de você/i)).not.toBeInTheDocument();
   });
@@ -94,7 +93,7 @@ describe('PendenciasQueueCard', () => {
       return null;
     });
 
-    renderWithQuery(<PendenciasQueueCard projectId="p1" monthKey="2026-07" />);
+    renderWithQuery(<PendenciasQueueCard projectId="p1" monthKey="2026-07" projectType="PESSOAL" />);
 
     expect(await screen.findByText(/1 pendência financeira/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Resolver/i }));
@@ -144,7 +143,7 @@ describe('PendenciasQueueCard', () => {
       return null;
     });
 
-    renderWithQuery(<PendenciasQueueCard projectId="p1" monthKey="2026-07" />);
+    renderWithQuery(<PendenciasQueueCard projectId="p1" monthKey="2026-07" projectType="PESSOAL" />);
 
     fireEvent.click(await screen.findByRole('button', { name: /Resolver/i }));
     fireEvent.click(await screen.findByRole('button', { name: /Quitar parcela/i }));
@@ -165,7 +164,7 @@ describe('PendenciasQueueCard', () => {
     expect(await screen.findByRole('heading', { name: /Precisa de você/i })).toBeInTheDocument();
   });
 
-  it('confirms sem categoria in one tap and creates merchant rule', async () => {
+  it('shows suggested category and lets user change before confirming', async () => {
     vi.mocked(api.get).mockImplementation(async (url: string) => {
       if (url.includes('/pendencias/financeiras')) {
         return {
@@ -203,18 +202,77 @@ describe('PendenciasQueueCard', () => {
       return null;
     });
 
-    renderWithQuery(<PendenciasQueueCard projectId="p1" monthKey="2026-07" />);
+    renderWithQuery(<PendenciasQueueCard projectId="p1" monthKey="2026-07" projectType="PESSOAL" />);
 
     fireEvent.click(await screen.findByRole('button', { name: /Resolver/i }));
-    fireEvent.click(await screen.findByRole('button', { name: /Confirmar categoria/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Confirmar categoria$/i }));
+    expect(await screen.findByText(/Sugestão:/i)).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'TRANSPORTE' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Confirmar categoria$/i }));
 
     await waitFor(() => {
       expect(api.patch).toHaveBeenCalledWith('/projects/p1/expenses/e-sem-cat', {
-        tipoDespesa: 'ALIMENTACAO',
+        tipoDespesa: 'TRANSPORTE',
       });
       expect(api.post).toHaveBeenCalledWith('/merchant-categories/confirm-rule', {
         merchant: 'Padaria do João',
-        tipoDespesa: 'ALIMENTACAO',
+        tipoDespesa: 'TRANSPORTE',
+      });
+    });
+  });
+
+  it('without suggestion still shows category selector list and confirms chosen type', async () => {
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url.includes('/pendencias/financeiras')) {
+        return {
+          total: 1,
+          grupos: [
+            {
+              tipo: 'SEM_CATEGORIA',
+              label: 'Sem categoria',
+              count: 1,
+              valorTotal: 9000,
+              itens: [
+                {
+                  id: 'i-sem-cat-2',
+                  tipo: 'SEM_CATEGORIA',
+                  label: 'Escolher categoria',
+                  descricao: 'Farmácia Bairro',
+                  valor: 9000,
+                  data: '2026-07-10T00:00:00.000Z',
+                  expenseId: 'e-sem-cat-2',
+                },
+              ],
+            },
+          ],
+        };
+      }
+      if (url.includes('/monthly-overview/account-view')) return { cartoes: [], contas: [] };
+      if (url.includes('/expenses/e-sem-cat-2')) {
+        return {
+          id: 'e-sem-cat-2',
+          tipoDespesa: 'OUTROS',
+          fornecedor: 'Farmácia Bairro',
+        };
+      }
+      return null;
+    });
+
+    renderWithQuery(<PendenciasQueueCard projectId="p1" monthKey="2026-07" projectType="PESSOAL" />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Resolver/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /Escolher categoria/i }));
+    expect(await screen.findByRole('combobox')).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'SAUDE' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Confirmar categoria$/i }));
+
+    await waitFor(() => {
+      expect(api.patch).toHaveBeenCalledWith('/projects/p1/expenses/e-sem-cat-2', {
+        tipoDespesa: 'SAUDE',
+      });
+      expect(api.post).toHaveBeenCalledWith('/merchant-categories/confirm-rule', {
+        merchant: 'Farmácia Bairro',
+        tipoDespesa: 'SAUDE',
       });
     });
   });
