@@ -4,8 +4,9 @@ import { parsePdfStatement, PdfPasswordRequiredError, PdfWrongPasswordError } fr
 import { detectImageMime, parseImageStatement } from './image-ocr';
 import { mergeParseResults, type ParseResult } from './types';
 import { isPdfBuffer, parseBuffersAndMerge } from '../../common/parsers/buffer-parser.util';
+import { parseXlsx } from '../../bank-account/parsers/xlsx';
 
-export type SourceHint = 'OFX' | 'CSV_NUBANK' | 'CSV_ITAU' | 'CSV_GENERIC' | 'PDF' | 'AUTO';
+export type SourceHint = 'OFX' | 'CSV_NUBANK' | 'CSV_ITAU' | 'CSV_GENERIC' | 'PDF' | 'XLSX' | 'AUTO';
 
 export function parseStatement(
   content: string,
@@ -35,6 +36,10 @@ export async function parseStatementBuffer(
   }
   if (hint === 'PDF' || isPdfBuffer(buffer)) {
     return parsePdfStatement(buffer, cardId, password, fileName);
+  }
+  const isXlsx = hint === 'XLSX' || (fileName ?? '').toLowerCase().match(/\.(xlsx|xls)$/);
+  if (isXlsx) {
+    return parseXlsx(buffer, cardId);
   }
   return parseStatement(buffer.toString('utf-8'), cardId, hint, fileName);
 }
