@@ -13,6 +13,7 @@ import {
   deriveCockpitTop,
   deriveMonth,
   mediaMensalPorTipo,
+  saldoProjetado,
 } from "./derive";
 import { mesLongo } from "./format";
 import HeroTimeTravel from "./HeroTimeTravel";
@@ -80,10 +81,12 @@ export default function MobileMonthCockpit({
     () => deriveMonth(data, monthKey, selectedEntries),
     [data, monthKey, selectedEntries],
   );
+  const [ritmo, setRitmo] = useState(() => month.ritmoDiario);
   const series = useMemo(
-    () => buildSaldoSeries(month, selectedEntries, month.ritmoDiario),
-    [month, selectedEntries],
+    () => buildSaldoSeries(month, selectedEntries, ritmo),
+    [month, selectedEntries, ritmo],
   );
+  const projetado = useMemo(() => saldoProjetado(month, ritmo), [month, ritmo]);
   const consumption = useMemo(
     () => buildMobileMonthData(selectedEntries),
     [selectedEntries],
@@ -136,6 +139,11 @@ export default function MobileMonthCockpit({
   useEffect(() => {
     setScenarioDelta(0);
   }, [monthKey]);
+
+  // Reset do slider de ritmo a cada troca de mês.
+  useEffect(() => {
+    setRitmo(month.ritmoDiario);
+  }, [monthKey]); // eslint-disable-line react-hooks/exhaustive-deps -- reset intencional só na troca de mês
 
   // Inovação #5 (Mini-herói cápsula): no mês corrente a cápsula surge por
   // rolagem; ao consultar OUTRO mês fica sempre visível para não perder o caixa
@@ -205,6 +213,11 @@ export default function MobileMonthCockpit({
             onScenarioChange={setScenarioDelta}
             candidatos={runwayCandidatos}
             projectId={projectId}
+            ritmo={ritmo}
+            ritmoDiario={month.ritmoDiario}
+            diasNoMes={month.diasNoMes}
+            projetado={projetado}
+            onRitmoChange={setRitmo}
           />
         )}
 

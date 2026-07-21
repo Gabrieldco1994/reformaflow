@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, SlidersHorizontal } from "lucide-react";
 import { moneyGlance } from "@/lib/money";
 import { applyScenario } from "../_lib/scenarios";
 import ScenarioChips from "../_components/ScenarioChips";
@@ -28,6 +28,11 @@ export default function MobileRunway({
   onScenarioChange,
   candidatos,
   projectId,
+  ritmo,
+  ritmoDiario,
+  diasNoMes,
+  projetado,
+  onRitmoChange,
 }: {
   serie: DreSaldoAcumuladoRow[];
   currentMonth: string;
@@ -35,6 +40,16 @@ export default function MobileRunway({
   onScenarioChange: (deltaCentsPerMonth: number) => void;
   candidatos?: RunwayCandidato[];
   projectId?: string;
+  /** Valor atual do slider de ritmo diário (centavos/dia). */
+  ritmo?: number;
+  /** Média histórica de gasto diário (centavos/dia). */
+  ritmoDiario?: number;
+  /** Dias totais no mês corrente. */
+  diasNoMes?: number;
+  /** Saldo projetado no fim do mês com o ritmo atual (centavos). */
+  projetado?: number;
+  /** Callback ao mover o slider de ritmo. */
+  onRitmoChange?: (v: number) => void;
 }) {
   const forward = serie.filter((row) => row.mes >= currentMonth);
   if (forward.length < 6) return null;
@@ -195,9 +210,58 @@ export default function MobileRunway({
         })}
       </div>
 
+      {ritmo !== undefined && ritmoDiario !== undefined && onRitmoChange && (
+        <div className="mt-4 rounded-xl border border-[var(--ck-border)] bg-[var(--ck-surface-2)] p-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <label className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-[var(--ck-muted)]">
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              Ritmo de gasto diário
+            </label>
+            <span className="font-geist tabular-nums text-sm text-[var(--ck-alert)]">
+              {moneyGlance(ritmo)}/dia
+            </span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={Math.max(ritmoDiario * 3, 30000)}
+            step={500}
+            value={Math.min(ritmo, Math.max(ritmoDiario * 3, 30000))}
+            onChange={(e) => onRitmoChange(Number(e.target.value))}
+            className="w-full accent-[var(--ck-alert)]"
+            aria-label="Simular ritmo de gasto diário"
+          />
+          <div className="mt-1 flex justify-between text-[10px] text-[var(--ck-muted)]">
+            <span>R$ 0</span>
+            <button
+              type="button"
+              onClick={() => onRitmoChange(ritmoDiario)}
+              className="underline transition-colors hover:text-[var(--ck-text)]"
+            >
+              média atual ({moneyGlance(ritmoDiario)})
+            </button>
+            <span>{moneyGlance(Math.max(ritmoDiario * 3, 30000))}</span>
+          </div>
+          {projetado !== undefined && (
+            <div className="mt-3 flex items-center justify-between gap-2 border-t border-[var(--ck-border)] pt-3">
+              <span className="text-[11px] uppercase tracking-wider text-[var(--ck-muted)]">
+                Com esse ritmo, termina o mês com
+              </span>
+              <span
+                className={`font-geist tabular-nums text-lg font-bold ${
+                  projetado >= 0 ? "text-[var(--ck-pos)]" : "text-[var(--ck-neg)]"
+                }`}
+              >
+                {moneyGlance(projetado)}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="mt-4">
         <p className="text-sm font-medium text-[var(--ck-muted)]">
-          E se, por mês, eu…
+          Como fechar no azul?
         </p>
         <div className="mt-2">
           <ScenarioChips selectedDelta={scenarioDelta} onChange={onScenarioChange} />
