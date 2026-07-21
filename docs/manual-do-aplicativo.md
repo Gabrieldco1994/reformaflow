@@ -261,6 +261,7 @@ A tela-mãe do PESSOAL. Responde "como está meu mês?".
 - **Narrativa de horizonte (runway) no próprio Cockpit:** o mesmo veredito multi-mês
   ("fica negativo em…"/"se mantém positivo até…") também aparece aqui, usando a mesma
   série do card "Vai dar até dez?" para evitar contradição com a Visão Conta.
+  Quando o tom é vermelho, aparece o botão **"Como fechar no azul?"** (ver §4, Projeção multi-mês).
 - **Dropdown "Recomendações"** (minimizado por padrão): dicas automáticas —
   projeção de fechamento e quanto cortar por dia para equilibrar, maior gasto
   variável, contas a vencer, e status da reserva de emergência.
@@ -338,6 +339,15 @@ movimentações abaixo.
 **Projeção multi-mês (runway):**
 - A exploração da projeção fica no **Cockpit** (mobile e desktop), incluindo
   narrativa de horizonte e gráfico "Vai dar até dez?".
+- Quando o saldo projetado fica negativo em algum mês futuro (tom vermelho),
+  aparece o botão **"Como fechar no azul?"**. Ao tocar, abre um sheet com:
+  - O quanto falta (valor do pior ponto, ex.: "−R$ 77 mil em dezembro").
+  - A **lista dos até 5 maiores gastos planejados** até o mês do crossover
+    (o mês onde o saldo vira negativo), com descricao, valor e projeto de origem.
+  - Por item: **Adiar** (abre seletor de data), **Reduzir** (abre campo de valor)
+    e **Remover** (exclui a despesa). Cada ação recalcula a projeção ao fechar.
+  - Linguagem neutra: nunca sugere cortes específicos — o usuário decide.
+  - Quando o saldo se mantém positivo (tom verde), o botão não aparece.
 
 **Cartões e Contas (carrossel):**
 - No mobile, aparece em **1 linha horizontal com scroll-snap** (card compacto por origem).

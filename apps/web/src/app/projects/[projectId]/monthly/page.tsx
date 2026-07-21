@@ -203,6 +203,7 @@ export default function CockpitPage() {
                   projectId={projectId}
                   eixo={eixo}
                   runwaySerie={dreOverview?.anual?.saldoAcumuladoSerie}
+                  runwayCandidatos={dreOverview?.anual?.candidatos}
                 />
               </>
             )
@@ -419,6 +420,7 @@ export default function CockpitPage() {
                 projectId={projectId}
                 eixo={eixo}
                 runwaySerie={dreOverview?.anual?.saldoAcumuladoSerie}
+                runwayCandidatos={dreOverview?.anual?.candidatos}
                 metasProgress={metasProgress}
               />
             )

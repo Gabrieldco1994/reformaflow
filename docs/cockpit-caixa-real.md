@@ -310,3 +310,22 @@ Tabela de estados canônica (mês × horizonte):
 | negativo | negativo | "Fecha no vermelho no mês" + "fica negativo em …" |
 
 Regra operacional: para o **mesmo mês e mesma série**, Conta e Cockpit devem sempre mostrar o mesmo veredito de horizonte (sem contradição entre telas).
+
+---
+
+## 12. W4 — Runway prescritivo ("Como fechar no azul?")
+
+O candidatos-selector acrescenta uma camada de **ação** sobre a série existente — sem criar um segundo motor de projeção.
+
+- **Fonte:** a MESMA `dreOverview.anual.saldoAcumuladoSerie` / `getAccountView` já computada. NUNCA um segundo motor.
+- **Crossover:** primeiro mês com `saldoProjetado < 0` a partir do mês selecionado. Se não há crossover, `candidatos = []`.
+- **Janela:** do mês selecionado até o mês do crossover (inclusive).
+- **Exclusões obrigatórias do seletor:**
+  - `isInvoice: true` — fatura agregada (não é despesa editável individualmente).
+  - `realizado: true` — já pago/registrado.
+  - Espelhos (`projetoOrigem != null && foreignExpenseId === null`) — despesa PESSOAL com `linkedExpenseId`; o item foreign-pending já representa o mesmo fluxo.
+- **Deduplicação:** agrupar por `foreignExpenseId ?? id`, somar `valor`, manter data mais cedo.
+- **Ordenação/cap:** desc por valor total, top 5.
+- **Ações no sheet:** adiar (PATCH data), reduzir (PATCH valor), remover (DELETE) — reutilizam os endpoints e modais existentes. Invalidam `dre-overview`, `account-view`, `monthly-overview`.
+- **Gate de tom:** botão "Como fechar no azul?" só aparece quando `tone === 'negative'`. Nunca quando positivo.
+- **Linguagem:** neutra — NUNCA aconselhamento financeiro ou sugestão de corte específico.

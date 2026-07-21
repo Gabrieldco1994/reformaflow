@@ -14,6 +14,7 @@ import { deriveMonth, buildSaldoSeries, saldoProjetado } from './derive';
 import CategoriasBarras from './CategoriasBarras';
 import ArvoreGastos from './ArvoreGastos';
 import { RunwayScenario } from './RunwayScenario';
+import { RunwayActionSheet } from './RunwayActionSheet';
 import type { Eixo } from './EixoToggle';
 const ChartSkeleton = () => <div className="h-[320px] rounded-xl bg-[var(--ck-surface-2)] animate-pulse" />;
 
@@ -24,6 +25,7 @@ export default function MonthView({
   projectId,
   eixo,
   runwaySerie,
+  runwayCandidatos,
   metasProgress = [],
 }: {
   data: MonthlyOverviewResponse;
@@ -33,11 +35,14 @@ export default function MonthView({
   eixo?: Eixo;
   /** Série anual de saldo acumulado (`dre-overview`) para a visão "vai até dezembro". */
   runwaySerie?: DreSaldoAcumuladoRow[];
+  /** Candidatos para "Como fechar no azul?" (desktop). */
+  runwayCandidatos?: import('../../dre/_types').RunwayCandidato[];
   /** Progresso de metas por categoria (`category-budgets/progress`), já buscado por `page.tsx`. */
   metasProgress?: MetaProgress[];
 }) {
   const m = useMemo(() => deriveMonth(data, monthKey ?? data.mesAtual, entries), [data, monthKey, entries]);
   const [ritmo, setRitmo] = useState<number>(m.ritmoDiario);
+  const [runwaySheetOpen, setRunwaySheetOpen] = useState(false);
 
   const serieEntries = entries ?? data.mesAtualEntries;
   const serie = useMemo(() => buildSaldoSeries(m, serieEntries, ritmo), [m, serieEntries, ritmo]);
@@ -50,6 +55,11 @@ export default function MonthView({
   const metasVisiveis = metasProgress.slice(0, 4);
   const metasRestantes = metasProgress.length - metasVisiveis.length;
   const currentMonth = monthKey ?? data.mesAtual;
+
+  // Detecta crossover no runway (desktop) para mostrar o botão de ação
+  const runwayHasCrossover = !!(runwaySerie?.some(
+    (row) => row.mes >= currentMonth && row.saldoProjetado < 0,
+  ));
 
   return (
     <div className="space-y-4">
@@ -75,6 +85,30 @@ export default function MonthView({
               />
             )}
           </div>
+
+          {/* "Como fechar no azul?" — desktop, só quando há crossover */}
+          {runwayHasCrossover && projectId && (
+            <>
+              <button
+                type="button"
+                data-testid="runway-action-cta"
+                onClick={() => setRunwaySheetOpen(true)}
+                className="mt-3 flex w-full min-h-[44px] items-center justify-center rounded-xl border border-[var(--ck-neg)]/40 bg-[var(--ck-neg)]/10 px-4 text-[13px] font-semibold text-[var(--ck-neg)]"
+              >
+                Como fechar no azul?
+              </button>
+              {runwaySheetOpen && (
+                <RunwayActionSheet
+                  candidatos={runwayCandidatos ?? []}
+                  piorSaldo={Math.min(...(runwaySerie?.filter(r => r.mes >= currentMonth).map(r => r.saldoProjetado) ?? [0]))}
+                  piorMes={currentMonth}
+                  projectId={projectId}
+                  onClose={() => setRunwaySheetOpen(false)}
+                />
+              )}
+            </>
+          )}
+
           <div className="mt-4 rounded-xl border border-[var(--ck-border)] bg-[var(--ck-surface-2)] p-3">
             <div className="flex items-center justify-between gap-2 mb-2">
               <label className="text-[11px] uppercase tracking-wider text-[var(--ck-muted)] flex items-center gap-1.5">
