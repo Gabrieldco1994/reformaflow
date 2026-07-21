@@ -23,13 +23,13 @@ describe('MobileLaunchModeSheet', () => {
     expect(screen.getByRole('button', { name: /Foto/ })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /^Despesa Teclado rápido/i }));
-    expect(onPick).toHaveBeenCalledWith('escrito');
+    expect(onPick).toHaveBeenCalledWith('despesa');
 
     await user.click(screen.getByRole('button', { name: /Planejar/ }));
     expect(onPick).toHaveBeenCalledWith('planejar');
 
     await user.click(screen.getByRole('button', { name: /Recebimento/ }));
-    expect(onPick).toHaveBeenCalledWith('receita');
+    expect(onPick).toHaveBeenCalledWith('recebimento');
 
     await user.click(screen.getByRole('button', { name: /^Voz/ }));
     expect(onPick).toHaveBeenCalledWith('voz');

@@ -169,10 +169,10 @@ describe('QuickExpenseStep', () => {
   });
 
   describe('mode picker', () => {
-    it('shows Escrito and Foto mode buttons; Voz shown when voiceSupported=true', () => {
+    it('shows Despesa and Foto mode buttons; Voz shown when voiceSupported=true', () => {
       mockVoiceSupported = true;
       renderStep({ projectId: 'p1', projectType: ProjectType.PESSOAL, onDone: vi.fn(), onSkip: vi.fn() });
-      expect(screen.getByRole('button', { name: /escrito/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /despesa/i })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /voz/i })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /foto/i })).toBeInTheDocument();
     });
@@ -207,13 +207,13 @@ describe('QuickExpenseStep', () => {
       expect(apiPostMock).not.toHaveBeenCalled();
     });
 
-    it('escrito mode: original form still submits correctly (regression)', async () => {
+    it('despesa mode: original form still submits correctly (regression)', async () => {
       mockVoiceSupported = true;
       apiPostMock.mockResolvedValue({});
       const onDone = vi.fn();
       renderStep({ projectId: 'p1', projectType: ProjectType.PESSOAL, onDone, onSkip: vi.fn() });
 
-      // Should be in escrito mode by default
+      // Should be in despesa mode by default
       expect(screen.getByRole('button', { name: /criar e continuar/i })).toBeInTheDocument();
 
       fireEvent.change(screen.getByLabelText(/valor/i), { target: { value: '25,00' } });
@@ -234,7 +234,7 @@ describe('QuickExpenseStep', () => {
 
       expect(screen.getByTestId('voice-expense-modal')).toBeInTheDocument();
 
-      // Closing modal falls back to escrito mode gracefully
+      // Closing modal falls back to despesa mode gracefully
       fireEvent.click(screen.getByText('fechar-modal-voz'));
       expect(screen.queryByTestId('voice-expense-modal')).not.toBeInTheDocument();
       expect(screen.getByRole('button', { name: /criar e continuar/i })).toBeInTheDocument();

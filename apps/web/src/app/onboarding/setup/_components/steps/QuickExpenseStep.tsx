@@ -10,32 +10,29 @@ import { maskCurrencyInput, currencyInputToNumber } from '@/lib/currency-input';
 import { getExpenseOptions } from '@/app/projects/[projectId]/expenses/_types';
 import { useVoiceExpense } from '@/app/projects/[projectId]/expenses/_hooks/useVoiceExpense';
 import { VoiceExpenseModal } from '@/app/projects/[projectId]/expenses/_components/VoiceExpenseModal';
+import { ONBOARDING_MODES } from '@/app/projects/[projectId]/_components/mobile-launch/launch-modes';
+import type { LaunchMode } from '@/app/projects/[projectId]/_components/mobile-launch/launch-modes';
 import type { ExpenseFormData } from '@/types';
 import type { OnboardingStepProps } from '../../_types';
 
-type EntryMode = 'escrito' | 'voz' | 'foto';
+type EntryMode = Extract<LaunchMode, 'despesa' | 'voz' | 'foto'>;
 
 interface TenantCard { id: string; nickname?: string | null; brand: string; last4: string }
 interface TenantAccount { id: string; nickname?: string | null; institution: string; last4?: string | null }
 interface TenantProject { id: string; name: string; type: string }
 
-const MODE_LABELS: { value: EntryMode; label: string }[] = [
-  { value: 'escrito', label: 'Escrito' },
-  { value: 'voz', label: 'Voz' },
-  { value: 'foto', label: 'Foto' },
-];
-
 /**
  * Purpose-built quick-add expense step — own local state, own POST call.
- * Modes: escrito (form), voz (VoiceExpenseModal), foto (image picker → advance).
- * Only `escrito` mode calls POST; voz/foto advance via their own flows.
+ * Modes: despesa (form), voz (VoiceExpenseModal), foto (image picker → advance).
+ * Only `despesa` mode calls POST; voz/foto advance via their own flows.
+ * Modos carregados do catálogo centralizado (launch-modes.ts).
  */
 export function QuickExpenseStep({ projectId, projectType, onDone, onSkip }: OnboardingStepProps) {
   const options = getExpenseOptions(projectType);
   const showVinculos = hasFeature(projectType, 'bankAccounts') || hasFeature(projectType, 'creditCards');
-  const [mode, setMode] = useState<EntryMode>('escrito');
+  const [mode, setMode] = useState<EntryMode>('despesa');
 
-  // ─── Escrito form state ───────────────────────────────────────────────────
+  // ─── Despesa form state ───────────────────────────────────────────────────
   const [tipoDespesa, setTipoDespesa] = useState<string>(options[0]?.value ?? '');
   const [valor, setValor] = useState('');
   const [titulo, setTitulo] = useState('');
@@ -48,7 +45,7 @@ export function QuickExpenseStep({ projectId, projectType, onDone, onSkip }: Onb
   // ─── Foto ref ─────────────────────────────────────────────────────────────
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // ─── Tenant queries (needed for both escrito vinculos and voice context) ──
+  // ─── Tenant queries (needed for both despesa vinculos and voice context) ──
   const { data: cards = [] } = useQuery<TenantCard[]>({
     queryKey: ['tenant', 'credit-cards'],
     queryFn: () => api.get('/tenant/credit-cards'),
@@ -94,7 +91,7 @@ export function QuickExpenseStep({ projectId, projectType, onDone, onSkip }: Onb
   const canSubmit = valor.trim().length > 0;
 
   async function handleSave() {
-    if (!canSubmit || mode !== 'escrito') return;
+    if (!canSubmit || mode !== 'despesa') return;
     setSaving(true);
     setError(null);
     try {
@@ -131,11 +128,11 @@ export function QuickExpenseStep({ projectId, projectType, onDone, onSkip }: Onb
 
       {/* Mode picker — inline, works on desktop + mobile */}
       <div className="mt-4 flex gap-1.5 rounded-[10px] border border-lifeone-hairline bg-lifeone-surface p-1">
-        {MODE_LABELS.filter((m) => m.value !== 'voz' || voice.voiceSupported).map((m) => (
+        {ONBOARDING_MODES.filter((m) => m.value !== 'voz' || voice.voiceSupported).map((m) => (
           <button
             key={m.value}
             type="button"
-            onClick={() => setMode(m.value)}
+            onClick={() => setMode(m.value as EntryMode)}
             className={[
               'flex-1 min-h-11 rounded-[8px] px-3 py-2 text-[13px] font-medium transition-colors',
               mode === m.value
@@ -148,8 +145,8 @@ export function QuickExpenseStep({ projectId, projectType, onDone, onSkip }: Onb
         ))}
       </div>
 
-      {/* ─── ESCRITO mode ─────────────────────────────────────────────────── */}
-      {mode === 'escrito' && (
+      {/* ─── DESPESA mode ─────────────────────────────────────────────────── */}
+      {mode === 'despesa' && (
         <>
           <div className="mt-4 space-y-3">
             <div>
@@ -257,7 +254,7 @@ export function QuickExpenseStep({ projectId, projectType, onDone, onSkip }: Onb
         <>
           <VoiceExpenseModal
             open
-            onClose={() => setMode('escrito')}
+            onClose={() => setMode('despesa')}
             voiceSupported={voice.voiceSupported}
             voiceListening={voice.voiceListening}
             voiceTranscript={voice.voiceTranscript}
