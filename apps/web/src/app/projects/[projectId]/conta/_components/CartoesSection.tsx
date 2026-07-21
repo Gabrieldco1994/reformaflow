@@ -3,6 +3,7 @@
 import { Landmark } from 'lucide-react';
 import Link from 'next/link';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
+import { pickCardGradient } from '@/components/CreditCardVisual';
 import type { AccountViewCardSummary, AccountViewConta } from '../_types';
 import { CreditCardTile } from './CreditCardTile';
 
@@ -73,23 +74,24 @@ export function CartoesSection({
             key={`card-mobile-${card.last4}`}
             type="button"
             onClick={() => handleCompactCardTap(card)}
+            style={{ background: pickCardGradient(card.last4) }}
             className={`flex min-h-[64px] w-[260px] shrink-0 snap-start flex-col justify-center rounded-2xl border px-3 py-2 text-left shadow-lifeone-card transition-colors ${
               selected === card.last4
-                ? 'border-lifeone-blue ring-1 ring-lifeone-blue'
-                : 'border-lifeone-hairline bg-lifeone-card'
+                ? 'border-white ring-1 ring-white'
+                : 'border-transparent'
             }`}
           >
             <div className="flex items-center justify-between gap-2">
-              <p className="truncate text-[13px] font-semibold text-lifeone-ink">
+              <p className="truncate text-[13px] font-semibold text-white">
                 {card.nickname} · {card.last4}
               </p>
-              <span className="shrink-0 rounded-full bg-lifeone-surface px-2 py-0.5 text-[11px] font-semibold text-lifeone-ink-2">
+              <span className="shrink-0 rounded-full bg-white/15 px-2 py-0.5 text-[11px] font-semibold text-white backdrop-blur">
                 {card.status}
               </span>
             </div>
-            <div className="mt-0.5 flex items-center justify-between gap-2 text-[11px] text-lifeone-ink-3">
+            <div className="mt-0.5 flex items-center justify-between gap-2 text-[11px] text-white/75">
               <span>vence {formatDateBR(card.vencimento)}</span>
-              <span className="whitespace-nowrap font-semibold text-lifeone-ink">
+              <span className="whitespace-nowrap font-semibold text-white">
                 {formatCurrency(card.faturaAtual / 100)}
               </span>
             </div>
