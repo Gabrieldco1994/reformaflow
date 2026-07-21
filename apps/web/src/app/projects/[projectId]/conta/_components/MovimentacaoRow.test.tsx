@@ -152,7 +152,7 @@ describe('MovimentacaoRow — saída', () => {
       expect(onQuitar).not.toHaveBeenCalled();
     });
 
-    it('chip "Sem conta" em item foreign roteia para quitar (não vincular)', () => {
+    it('parcela foreign pendente: sem chip "Sem conta" redundante, quitação pelo controle "Quitar"', () => {
       const onVincular = vi.fn();
       const onQuitar = vi.fn();
       renderRow({
@@ -161,6 +161,7 @@ describe('MovimentacaoRow — saída', () => {
           forma: 'pix',
           cardLast4: null,
           bankLast4: null,
+          realizado: false,
           foreignExpenseId: 'exp-destino-99',
           parcelaIndex: 3,
           valor: 12345,
@@ -172,8 +173,11 @@ describe('MovimentacaoRow — saída', () => {
         onQuitar,
       });
 
-      const chipButton = screen.getByText('Sem conta').closest('button');
-      if (chipButton) fireEvent.click(chipButton);
+      // O chip "Sem conta" é omitido quando já há o controle "Quitar" (evita
+      // duplicar o mesmo fluxo de quitação e libera a linha no mobile).
+      expect(screen.queryByText('Sem conta')).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByTitle('Quitar parcela pela conta pessoal'));
 
       expect(onQuitar).toHaveBeenCalledWith({
         foreignExpenseId: 'exp-destino-99',

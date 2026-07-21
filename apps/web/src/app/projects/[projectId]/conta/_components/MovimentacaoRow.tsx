@@ -317,7 +317,10 @@ export function MovimentacaoRow({
           </button>
           <div className={`mt-0.5 flex min-w-0 items-center gap-1.5 ${canExpand ? 'pl-5' : ''}`}>
             <span className="truncate text-[11px] text-lifeone-ink-3">{meta}</span>
-            {isCarteira && (
+            {/* Chip "Sem conta" é redundante quando já há o controle "Quitar" (parcela
+                foreign pendente): ambos abrem o mesmo fluxo de quitação. Esconder libera
+                a linha para o nome do projeto respirar no mobile. */}
+            {isCarteira && !isPendingForeignParcela && (
               <button
                 type="button"
                 onClick={(ev) => {
