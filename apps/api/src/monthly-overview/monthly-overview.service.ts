@@ -1573,6 +1573,10 @@ export class MonthlyOverviewService {
         const key = s.isInvoice ? '__fatura__' : s.tipoDespesa || '__sem__';
         despesasPorCategoria[key] = (despesasPorCategoria[key] ?? 0) + s.valor;
       }
+      // ponytail: fixoLiquido = receitas planejadas − despesas planejadas (compromissos fixos).
+      // Usado pelo simulador para recalcular barras quando ritmo muda.
+      // derivado da MESMA série, sem 2º motor.
+      const fixoLiquido = recebimentos - despesas;
       accProjetado += recebimentos - despesas;
       if (!isFuture) accRealizado += recebimentosRealizados - despesasRealizadas;
       return {
@@ -1584,6 +1588,7 @@ export class MonthlyOverviewService {
         saldoProjetado: accProjetado,
         saldoRealizado: isFuture ? null : accRealizado,
         despesasPorCategoria,
+        fixoLiquido,
       };
     });
 

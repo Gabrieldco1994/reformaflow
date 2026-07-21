@@ -1,9 +1,10 @@
 'use client';
 
 import {
-  Area,
-  AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
+  Cell,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -12,8 +13,6 @@ import {
 } from 'recharts';
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
-import { moneyGlance } from '@/lib/money';
-import { tipoLabel } from '@/lib/expense-options';
 import { InfoHint } from '@/components/InfoHint';
 import { monthLabelShort, monthLabelLong } from '../_lib';
 import type { DreSaldoAcumuladoRow } from '../../dre/_types';
@@ -25,87 +24,87 @@ function compactBRL(cents: number) {
   return reais.toLocaleString('pt-BR', { maximumFractionDigits: 0 });
 }
 
-function categoriaLabel(key: string) {
-  if (key === '__fatura__') return 'Fatura de cartão';
-  if (key === '__sem__') return 'Sem categoria';
-  return tipoLabel(key);
-}
+type BarPoint = { mes: string; label: string; saldo: number; negativo: boolean };
 
-type Categoria = { label: string; valor: number };
-type ChartPoint = { mes: string; label: string; saldo: number; negativo: boolean; categorias: Categoria[] };
-
-function SaldoTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: ChartPoint }> }) {
+function SaldoTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: BarPoint }> }) {
   if (!active || !payload?.length) return null;
   const p = payload[0].payload;
-  const totalCat = p.categorias.reduce((s, c) => s + c.valor, 0);
   return (
-    <div className="min-w-[200px] rounded-xl border border-lifeone-hairline bg-lifeone-card px-3 py-2.5 text-xs shadow-lifeone-card">
+    <div className="min-w-[160px] rounded-xl border border-lifeone-hairline bg-lifeone-card px-3 py-2.5 text-xs shadow-lifeone-card">
       <p className="font-semibold text-lifeone-ink">{monthLabelLong(p.mes)}</p>
       <p className={p.negativo ? 'text-[#D92D20]' : 'text-[#1E924A]'}>
-        saldo projetado · {formatCurrency(p.saldo / 100)}
+        {formatCurrency(p.saldo / 100)}
       </p>
-      {p.categorias.length > 0 && (
-        <div className="mt-2 border-t border-lifeone-hairline pt-2">
-          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-lifeone-ink-3">
-            Saídas por categoria
-          </p>
-          <ul className="space-y-0.5">
-            {p.categorias.map((c) => (
-              <li key={c.label} className="flex items-center justify-between gap-4">
-                <span className="truncate text-lifeone-ink-2">{c.label}</span>
-                <span className="shrink-0 tabular-nums font-medium text-lifeone-ink">
-                  {formatCurrency(c.valor / 100)}
-                </span>
-              </li>
-            ))}
-          </ul>
-          <div className="mt-1 flex items-center justify-between gap-4 border-t border-lifeone-hairline pt-1">
-            <span className="text-lifeone-ink-3">Total saídas</span>
-            <span className="shrink-0 tabular-nums font-semibold text-lifeone-ink">
-              {formatCurrency(totalCat / 100)}
-            </span>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
-/**
- * Runway de caixa: encadeia o saldo real de hoje mês a mês (saldo anterior +
- * receitas previstas − contas a pagar), reaproveitando a série já reconciliada
- * do `dre-overview` (eixo caixa §10: inclui parcelas cross-project, ignora
- * neutros/faturas já contadas). Diferente do card "Sobra prevista", que reseta
- * para o caixa de hoje a cada mês, aqui o saldo CARREGA de um mês para o outro —
- * é a visão que responde "vou ter dinheiro até dezembro?".
- */
 export function ProjecaoSaldo({
   serie,
   currentMonth,
+  simulatedRitmo,
 }: {
   serie: DreSaldoAcumuladoRow[];
   currentMonth: string;
+  simulatedRitmo?: number;
 }) {
-  const forward = serie.filter((row) => row.mes >= currentMonth);
+  const forward = serie.filter((row) => row.mes >= currentMonth).slice(0, 6);
   if (forward.length < 2) return null;
 
-  const chartData: ChartPoint[] = forward.map((row) => ({
-    mes: row.mes,
-    label: monthLabelShort(row.mes),
-    saldo: row.saldoProjetado,
-    negativo: row.saldoProjetado < 0,
-    categorias: Object.entries(row.despesasPorCategoria ?? {})
-      .map(([key, valor]) => ({ label: categoriaLabel(key), valor }))
-      .sort((a, b) => b.valor - a.valor),
-  }));
+  const isSimulating = simulatedRitmo !== undefined;
 
-  const crossover = forward.find((row) => row.saldoProjetado < 0) ?? null;
-  const lowest = forward.reduce((min, row) => (row.saldoProjetado < min.saldoProjetado ? row : min), forward[0]);
-  const last = forward[forward.length - 1];
+  // Recalcular série quando ritmo muda: saldo(n) = saldo(n-1) + fixoLiquido(n) − (ritmo × dias)
+  let chartData: BarPoint[];
+  if (isSimulating && simulatedRitmo !== undefined) {
+    // Simulação: recalcular a partir do primeiro mês
+    chartData = [];
+    let accSaldo = forward[0]?.saldoProjetado ?? 0;
+    
+    for (let i = 0; i < forward.length; i++) {
+      const row = forward[i];
+      const label = monthLabelShort(row.mes);
+      
+      // Se for o primeiro mês (atual), usar saldo atual; caso contrário, recalcular
+      if (i === 0) {
+        accSaldo = row.saldoProjetado;
+      } else {
+        // saldo(n) = saldo(n-1) + fixoLiquido(n) − (ritmo × dias do mês)
+        const daysInMonth = new Date(parseInt(row.mes.split('-')[0]), parseInt(row.mes.split('-')[1]), 0).getDate();
+        const variavelMes = simulatedRitmo * daysInMonth;
+        const fixo = forward[i]?.fixoLiquido ?? (row.recebimentos - row.despesas);
+        accSaldo = accSaldo + fixo - variavelMes;
+      }
+      
+      chartData.push({
+        mes: row.mes,
+        label,
+        saldo: accSaldo,
+        negativo: accSaldo < 0,
+      });
+    }
+  } else {
+    // Default: usar série do backend
+    chartData = forward.map((row) => ({
+      mes: row.mes,
+      label: monthLabelShort(row.mes),
+      saldo: row.saldoProjetado,
+      negativo: row.saldoProjetado < 0,
+    }));
+  }
+
+  const crossover = chartData.find((row) => row.negativo) ?? null;
+  const lowest = chartData.reduce((min, row) => (row.saldo < min.saldo ? row : min), chartData[0]);
+  const last = chartData[chartData.length - 1];
+
+  // Dinâmica visual: escala se o simulador mudou
+  const allValues = chartData.map(d => d.saldo);
+  const min = Math.min(...allValues, 0);
+  const max = Math.max(...allValues, 0);
+  const margin = Math.abs(max - min) * 0.1 || 50000;
 
   return (
     <section className="rounded-3xl border border-lifeone-hairline bg-lifeone-card p-4 shadow-lifeone-card xl:p-6">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2 mb-3">
         <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-lifeone-ink-3">
           Vai dar até {monthLabelShort(last.mes)}?
           <InfoHint
@@ -113,91 +112,70 @@ export function ProjecaoSaldo({
             className="text-lifeone-ink-3"
           />
         </p>
+        {isSimulating && (
+          <span className="text-[11px] text-lifeone-ink-2 italic">simulação</span>
+        )}
       </div>
 
       {crossover ? (
-        <div className="mt-3 flex items-start gap-2.5 rounded-2xl border border-[#F2C6C1] bg-[#FCEBE9] px-3.5 py-3">
+        <div className="mt-2 flex items-start gap-2.5 rounded-2xl border border-[#F2C6C1] bg-[#FCEBE9] px-3.5 py-3">
           <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-[#D92D20]" />
           <div className="leading-snug">
             <p className="text-sm font-bold text-[#D92D20]">
-              No ritmo atual, o saldo fica negativo em {monthLabelLong(crossover.mes)}.
+              {isSimulating ? 'Com esse ritmo' : 'No ritmo atual'}, o saldo fica negativo em {monthLabelLong(crossover.mes)}.
             </p>
             <p className="mt-0.5 text-xs text-[#B5803A]">
-              Pior ponto: <span className="font-semibold">{formatCurrency(lowest.saldoProjetado / 100)}</span> em{' '}
-              {monthLabelLong(lowest.mes)} — é o quanto precisa entrar a mais (ou deixar de gastar) até lá.
+              Pior ponto: <span className="font-semibold">{formatCurrency(lowest.saldo / 100)}</span> em{' '}
+              {monthLabelLong(lowest.mes)}.
             </p>
           </div>
         </div>
       ) : (
-        <div className="mt-3 flex items-start gap-2.5 rounded-2xl border border-[#BFE6CC] bg-[#E3F6EA] px-3.5 py-3">
+        <div className="mt-2 flex items-start gap-2.5 rounded-2xl border border-[#BFE6CC] bg-[#E3F6EA] px-3.5 py-3">
           <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-[#1E924A]" />
           <div className="leading-snug">
             <p className="text-sm font-bold text-[#1E924A]">
-              O saldo se mantém positivo até {monthLabelLong(last.mes)}.
+              {isSimulating ? 'Com esse ritmo' : 'No ritmo atual'}, o saldo se mantém positivo até {monthLabelLong(last.mes)}.
             </p>
             <p className="mt-0.5 text-xs text-lifeone-ink-3">
-              Menor ponto: <span className="font-semibold">{formatCurrency(lowest.saldoProjetado / 100)}</span> em{' '}
+              Menor ponto: <span className="font-semibold">{formatCurrency(lowest.saldo / 100)}</span> em{' '}
               {monthLabelLong(lowest.mes)}.
             </p>
           </div>
         </div>
       )}
 
-      <div className="mt-4 h-56">
+      {/* Gráfico de barras */}
+      <div className="mt-4 h-40 md:h-56">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: 4 }}>
-            <defs>
-              <linearGradient id="saldoPos" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#1E924A" stopOpacity={0.28} />
-                <stop offset="100%" stopColor="#1E924A" stopOpacity={0.02} />
-              </linearGradient>
-            </defs>
+          <BarChart data={chartData} margin={{ top: 8, right: 4, bottom: 32, left: 2 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#EDE8DF" vertical={false} />
-            <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#8A857C' }} axisLine={false} tickLine={false} />
+            <XAxis
+              dataKey="label"
+              tick={{ fontSize: 11, fill: '#8A857C' }}
+              axisLine={false}
+              tickLine={false}
+            />
             <YAxis
               tick={{ fontSize: 11, fill: '#8A857C' }}
               axisLine={false}
               tickLine={false}
-              width={46}
+              width={40}
               tickFormatter={(v: number) => compactBRL(v)}
+              domain={[min - margin, max + margin]}
             />
             <ReferenceLine y={0} stroke="#D92D20" strokeWidth={1} strokeDasharray="4 3" />
             <Tooltip content={<SaldoTooltip />} />
-            <Area
-              type="monotone"
-              dataKey="saldo"
-              stroke="#0F6B4D"
-              strokeWidth={2.5}
-              fill="url(#saldoPos)"
-              dot={{ r: 3, fill: '#0F6B4D' }}
-              activeDot={{ r: 5 }}
-              isAnimationActive={false}
-            />
-          </AreaChart>
+            <Bar dataKey="saldo" radius={[4, 4, 0, 0]} maxBarSize={32}>
+              {chartData.map((entry, index) => (
+                <Cell key={`cell-${index}`} fill={entry.negativo ? '#D92D20' : '#1E924A'} />
+              ))}
+            </Bar>
+          </BarChart>
         </ResponsiveContainer>
       </div>
 
-      <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4 xl:grid-cols-6">
-        {chartData.map((point) => (
-          <div
-            key={point.mes}
-            className={`rounded-xl border px-2.5 py-2 text-center ${
-              point.negativo ? 'border-[#F2C6C1] bg-[#FCEBE9]' : 'border-lifeone-hairline bg-lifeone-surface'
-            }`}
-          >
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-lifeone-ink-3">{point.label}</p>
-            <p
-              title={formatCurrency(point.saldo / 100)}
-              className={`mt-0.5 whitespace-nowrap text-xs font-bold tabular-nums ${
-                point.negativo ? 'text-[#D92D20]' : 'text-lifeone-ink'
-              }`}
-            >
-              {/* sem o prefixo "R$": pill de ~66px no rail não comporta "−R$ 495 mil" */}
-              {moneyGlance(point.saldo).replace('R$ ', '')}
-            </p>
-          </div>
-        ))}
-      </div>
+      <p className="mt-2 text-center text-[11px] text-lifeone-ink-3">valores em milhares</p>
     </section>
   );
 }

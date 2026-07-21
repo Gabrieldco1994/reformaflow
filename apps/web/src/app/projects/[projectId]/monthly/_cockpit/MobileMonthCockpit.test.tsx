@@ -15,7 +15,7 @@ const RUNWAY: DreSaldoAcumuladoRow[] = Array.from({ length: 6 }, (_, index) => (
   recebimentos: 0,
   despesas: 0,
   recebimentosRealizados: null,
-  despesasRealizadas: null,
+  despesasRealizados: null,
   saldoProjetado: 1_200_000 - index * 100_000,
   saldoRealizado: null,
 }));

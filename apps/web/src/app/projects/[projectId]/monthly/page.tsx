@@ -47,6 +47,7 @@ export default function CockpitPage() {
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(() => searchParams.get("mes"));
   const [selectedCardLast4, setSelectedCardLast4] = useState<string | null>(null);
+  const [ritmoSimulador, setRitmoSimulador] = useState<number | null>(null);
 
   const selectMonth = useCallback((month: string | null) => {
     setSelectedMonth(month);
@@ -354,6 +355,7 @@ export default function CockpitPage() {
             <ProjecaoSaldo
               serie={dreOverview.anual.saldoAcumuladoSerie}
               currentMonth={monthKey}
+              simulatedRitmo={ritmoSimulador ?? undefined}
             />
           </div>
         )}
@@ -422,6 +424,8 @@ export default function CockpitPage() {
                 runwaySerie={dreOverview?.anual?.saldoAcumuladoSerie}
                 runwayCandidatos={dreOverview?.anual?.candidatos}
                 metasProgress={metasProgress}
+                ritmoSimulador={ritmoSimulador}
+                onRitmoChange={setRitmoSimulador}
               />
             )
           ) : (

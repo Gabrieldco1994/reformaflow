@@ -21,7 +21,7 @@ function row(mes: string, saldoProjetado: number): DreSaldoAcumuladoRow {
     recebimentos: 0,
     despesas: 0,
     recebimentosRealizados: null,
-    despesasRealizadas: null,
+    despesasRealizados: null,
     saldoProjetado,
     saldoRealizado: null,
   };
