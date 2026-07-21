@@ -8,6 +8,7 @@ import { Select } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
 import { centsToReaisInput, currencyInputToNumber, maskCurrencyInput } from '@/lib/currency-input';
+import { invalidateExpenseQueries } from '../../expenses/_hooks/useExpenseMutations';
 
 type TipoOption = { value: string; label: string; group?: string };
 
@@ -102,10 +103,8 @@ export function ReceitaModal({
   const isEdit = !!editing;
 
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ['account-view', projectId] });
+    invalidateExpenseQueries(queryClient, projectId);
     queryClient.invalidateQueries({ queryKey: ['receipts', projectId] });
-    queryClient.invalidateQueries({ queryKey: ['dashboard', projectId] });
-    queryClient.invalidateQueries({ queryKey: ['cash-flow', projectId] });
   };
 
   const createMutation = useMutation({

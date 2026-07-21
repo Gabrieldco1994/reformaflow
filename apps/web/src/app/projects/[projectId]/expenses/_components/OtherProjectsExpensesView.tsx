@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Link2, Unlink, ExternalLink, Search } from 'lucide-react';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import type { Expense } from '@/types';
+import { invalidateExpenseQueries } from '../_hooks/useExpenseMutations';
 
 interface CrossExpense {
   id: string;
@@ -83,8 +84,7 @@ export function OtherProjectsExpensesView({ projectId, localExpenses }: Props) {
     mutationFn: ({ localId, targetId }: { localId: string; targetId: string }) =>
       api.post(`/projects/${projectId}/expenses/${localId}/link`, { targetExpenseId: targetId }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['expenses', projectId] });
-      queryClient.invalidateQueries({ queryKey: ['cross-project-expenses', projectId] });
+      invalidateExpenseQueries(queryClient, projectId);
       setPickerOpen(null);
     },
   });
@@ -93,8 +93,7 @@ export function OtherProjectsExpensesView({ projectId, localExpenses }: Props) {
     mutationFn: ({ localId }: { localId: string }) =>
       api.delete(`/projects/${projectId}/expenses/${localId}/link`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['expenses', projectId] });
-      queryClient.invalidateQueries({ queryKey: ['cross-project-expenses', projectId] });
+      invalidateExpenseQueries(queryClient, projectId);
     },
   });
 
