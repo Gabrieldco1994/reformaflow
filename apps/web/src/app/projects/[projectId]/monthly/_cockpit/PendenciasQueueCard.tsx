@@ -9,8 +9,8 @@ import { formatCurrency } from '@/lib/utils';
 import { tipoLabel } from '@/lib/expense-options';
 import { Modal } from '@/components/ui/modal';
 import type { Expense } from '@/types';
+import { getExpenseOptions } from '../../expenses/_types';
 import { BulkLinkModal } from '../../expenses/_components/BulkLinkModal';
-import { DespesaModal } from '../../conta/_components/DespesaModal';
 import { PagarFaturaDialog } from '../../conta/_components/PagarFaturaDialog';
 import { QuitarParcelaModal } from '../../conta/_components/QuitarParcelaModal';
 import { ReceitaModal, type ReceitaEditing } from '../../conta/_components/ReceitaModal';
@@ -58,12 +58,21 @@ type ConfirmUndoPayload = {
   merchant: string;
 };
 
-export function PendenciasQueueCard({ projectId, monthKey }: { projectId: string; monthKey: string }) {
+export function PendenciasQueueCard({
+  projectId,
+  monthKey,
+  projectType,
+}: {
+  projectId: string;
+  monthKey: string;
+  projectType: string;
+}) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [vincularExpenseId, setVincularExpenseId] = useState<string | null>(null);
-  const [editExpenseId, setEditExpenseId] = useState<string | null>(null);
   const [editReceita, setEditReceita] = useState<ReceitaEditing | null>(null);
+  const [categoriaItem, setCategoriaItem] = useState<QueueItem | null>(null);
+  const [categoriaEscolhida, setCategoriaEscolhida] = useState('');
   const [payCardLast4, setPayCardLast4] = useState<string | null>(null);
   const [quitar, setQuitar] = useState<{
     foreignExpenseId: string;
@@ -113,6 +122,7 @@ export function PendenciasQueueCard({ projectId, monthKey }: { projectId: string
     const cartoes = accountView?.cartoes ?? [];
     return cartoes.find((card) => card.last4 === payCardLast4) ?? null;
   }, [accountView?.cartoes, payCardLast4]);
+  const categoriaOptions = useMemo(() => getExpenseOptions(projectType), [projectType]);
 
   const refreshQueue = () => {
     queryClient.invalidateQueries({ queryKey: queueQueryKey });
@@ -142,8 +152,14 @@ export function PendenciasQueueCard({ projectId, monthKey }: { projectId: string
   });
 
   const confirmCategoriaMutation = useMutation({
-    mutationFn: async (item: QueueItem): Promise<ConfirmUndoPayload> => {
-      if (!item.expenseId || !item.suggestionTipoDespesa) {
+    mutationFn: async ({
+      item,
+      tipoDespesa,
+    }: {
+      item: QueueItem;
+      tipoDespesa: string;
+    }): Promise<ConfirmUndoPayload> => {
+      if (!item.expenseId || !tipoDespesa) {
         throw new Error('Item sem dados para confirmação de categoria');
       }
       const expense = (await api.get(`/projects/${projectId}/expenses/${item.expenseId}`)) as {
@@ -156,17 +172,19 @@ export function PendenciasQueueCard({ projectId, monthKey }: { projectId: string
       if (!merchant) throw new Error('Fornecedor/título ausente para criar regra');
       const previousTipoDespesa = expense.tipoDespesa ?? 'OUTROS';
       await api.patch(`/projects/${projectId}/expenses/${item.expenseId}`, {
-        tipoDespesa: item.suggestionTipoDespesa,
+        tipoDespesa,
       });
       await api.post('/merchant-categories/confirm-rule', {
         merchant,
-        tipoDespesa: item.suggestionTipoDespesa,
+        tipoDespesa,
       });
       return { expenseId: item.expenseId, previousTipoDespesa, merchant };
     },
-    onSuccess: (undoPayload, item) => {
+    onSuccess: (undoPayload, vars) => {
       refreshQueue();
-      toast.success(`Regra criada: ${undoPayload.merchant} → ${tipoLabel(item.suggestionTipoDespesa ?? 'OUTROS')} · desfazer`, {
+      setCategoriaItem(null);
+      setCategoriaEscolhida('');
+      toast.success(`Regra criada: ${undoPayload.merchant} → ${tipoLabel(vars.tipoDespesa)} · desfazer`, {
         action: {
           label: 'Desfazer',
           onClick: () => undoCategoriaMutation.mutate(undoPayload),
@@ -196,12 +214,13 @@ export function PendenciasQueueCard({ projectId, monthKey }: { projectId: string
       return;
     }
     if (item.tipo === 'SEM_CATEGORIA' && item.expenseId) {
-      if (item.suggestionTipoDespesa) {
-        confirmCategoriaMutation.mutate(item);
-      } else {
-        setOpen(false);
-        setEditExpenseId(item.expenseId);
-      }
+      setOpen(false);
+      const defaultCategoria =
+        item.suggestionTipoDespesa && categoriaOptions.some((o) => o.value === item.suggestionTipoDespesa)
+          ? item.suggestionTipoDespesa
+          : (categoriaOptions[0]?.value ?? 'OUTROS');
+      setCategoriaEscolhida(defaultCategoria);
+      setCategoriaItem(item);
       return;
     }
     if (item.tipo === 'FATURA_NAO_PAGA' && item.cardLast4) {
@@ -296,6 +315,56 @@ export function PendenciasQueueCard({ projectId, monthKey }: { projectId: string
         </div>
       </Modal>
 
+      <Modal
+        open={categoriaItem != null}
+        onClose={() => {
+          setCategoriaItem(null);
+          setCategoriaEscolhida('');
+          reopenQueue();
+        }}
+        title="Escolher categoria"
+        variant="sheet"
+        size="sm"
+      >
+        {categoriaItem && (
+          <div className="space-y-3 pb-2">
+            <div className="rounded-xl border border-lifeone-hairline bg-lifeone-card p-3">
+              <p className="truncate text-[13px] font-medium text-lifeone-ink">{categoriaItem.descricao}</p>
+              <p className="text-[11px] text-lifeone-ink-3">
+                {formatCurrency(categoriaItem.valor / 100)} · {new Date(categoriaItem.data).toLocaleDateString('pt-BR')}
+              </p>
+            </div>
+            {categoriaItem.suggestionTipoDespesa && (
+              <p className="text-[11px] text-lifeone-ink-3">
+                Sugestão: <span className="font-semibold text-lifeone-ink">{tipoLabel(categoriaItem.suggestionTipoDespesa)}</span>
+              </p>
+            )}
+            <label className="block space-y-1">
+              <span className="text-[11px] font-semibold text-lifeone-ink-3">Categoria</span>
+              <select
+                value={categoriaEscolhida}
+                onChange={(e) => setCategoriaEscolhida(e.target.value)}
+                className="h-11 w-full rounded-xl border border-lifeone-hairline bg-lifeone-card px-3 text-sm text-lifeone-ink outline-none focus:border-lifeone-blue"
+              >
+                {categoriaOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              disabled={!categoriaEscolhida || confirmCategoriaMutation.isPending}
+              onClick={() => confirmCategoriaMutation.mutate({ item: categoriaItem, tipoDespesa: categoriaEscolhida })}
+              className="inline-flex min-h-[44px] w-full items-center justify-center rounded-xl bg-lifeone-blue px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Confirmar categoria
+            </button>
+          </div>
+        )}
+      </Modal>
+
       <BulkLinkModal
         open={vincularExpense != null}
         onClose={() => {
@@ -305,16 +374,6 @@ export function PendenciasQueueCard({ projectId, monthKey }: { projectId: string
         portal
         currentProjectId={projectId}
         preselectedSources={vincularExpense ? [vincularExpense] : undefined}
-      />
-
-      <DespesaModal
-        open={editExpenseId != null}
-        onClose={() => {
-          setEditExpenseId(null);
-          reopenQueue();
-        }}
-        projectId={projectId}
-        editExpenseId={editExpenseId}
       />
 
       <ReceitaModal
