@@ -4,7 +4,7 @@ import { parsePdfStatement, PdfPasswordRequiredError, PdfWrongPasswordError } fr
 import { detectImageMime, parseImageStatement } from './image-ocr';
 import { mergeParseResults, type ParseResult } from './types';
 import { isPdfBuffer, parseBuffersAndMerge } from '../../common/parsers/buffer-parser.util';
-import { parseXlsx } from '../../bank-account/parsers/xlsx';
+import { parseXlsx } from './xlsx';
 
 export type SourceHint = 'OFX' | 'CSV_NUBANK' | 'CSV_ITAU' | 'CSV_GENERIC' | 'PDF' | 'XLSX' | 'AUTO';
 
