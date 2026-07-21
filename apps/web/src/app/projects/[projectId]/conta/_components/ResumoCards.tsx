@@ -105,11 +105,11 @@ export function ResumoCards({
         }
         extra={
           key === 'saiuMes' && (saiuSemConta ?? 0) > 0 ? (
-            <p className="mt-1 text-[10px] font-semibold leading-3.5 text-lifeone-ink-3 md:text-[11px] md:leading-4">
+            <p className="mt-1 text-[11px] font-semibold leading-3.5 text-lifeone-ink-3 md:text-[11px] md:leading-4">
               inclui {formatCurrency((saiuSemConta ?? 0) / 100)} sem conta vinculada
             </p>
           ) : key === 'faltaPagarMes' && recebimentosPrevistosMes > 0 ? (
-            <p className="mt-1 text-[10px] font-semibold leading-3.5 text-[#B5803A] md:text-[11px] md:leading-4">
+            <p className="mt-1 text-[11px] font-semibold leading-3.5 text-[#B5803A] md:text-[11px] md:leading-4">
               + {formatCurrency(recebimentosPrevistosMes / 100)} previsto ainda
               a entrar
             </p>
@@ -132,7 +132,7 @@ export function ResumoCards({
         <p className="mt-1.5 font-geist text-[22px] font-bold tabular-nums tracking-tight text-lifeone-ink xl:mt-2 xl:text-[34px]">
           {formatCurrency(caixaHoje / 100)}
         </p>
-        <p className="mt-1.5 max-w-sm text-[10px] leading-3.5 text-lifeone-ink-3 xl:mt-2 xl:text-xs xl:leading-5">
+        <p className="mt-1.5 max-w-sm text-[11px] leading-3.5 text-lifeone-ink-3 xl:mt-2 xl:text-xs xl:leading-5">
           é o dinheiro disponível agora, de verdade, na sua conta
         </p>
       </article>

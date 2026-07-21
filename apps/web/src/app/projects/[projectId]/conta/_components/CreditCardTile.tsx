@@ -41,7 +41,7 @@ export function CreditCardTile({
       className="min-h-[128px] p-2 md:min-h-[176px] md:p-4"
       topRight={
         <span
-          className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold backdrop-blur md:px-2 md:text-[11px] ${badgeClass}`}
+          className={`rounded-full px-1.5 py-0.5 text-[11px] font-semibold backdrop-blur md:px-2 md:text-[11px] ${badgeClass}`}
         >
           {badgeText}
         </span>
