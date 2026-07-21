@@ -4,6 +4,46 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ProjectType } from '@reformaflow/domain';
 import { QuickExpenseStep } from './QuickExpenseStep';
 
+// Stub VoiceExpenseModal so voice tests don't need full Modal/Speech setup
+vi.mock(
+  '@/app/projects/[projectId]/expenses/_components/VoiceExpenseModal',
+  () => ({
+    VoiceExpenseModal: ({ open, onClose }: { open: boolean; onClose: () => void }) =>
+      open ? (
+        <div data-testid="voice-expense-modal">
+          <button onClick={onClose}>fechar-modal-voz</button>
+        </div>
+      ) : null,
+  }),
+);
+
+// Stub useVoiceExpense — voiceSupported toggleable via module-level variable
+let mockVoiceSupported = true;
+vi.mock(
+  '@/app/projects/[projectId]/expenses/_hooks/useVoiceExpense',
+  () => ({
+    useVoiceExpense: () => ({
+      voiceModalOpen: false,
+      voiceSupported: mockVoiceSupported,
+      voiceListening: false,
+      voiceTranscript: '',
+      voiceError: '',
+      voiceData: null,
+      setVoiceData: vi.fn(),
+      voiceFornecedor: '',
+      setVoiceFornecedor: vi.fn(),
+      voiceLinkedExpenseId: '',
+      setVoiceLinkedExpenseId: vi.fn(),
+      voiceLinkedProject: null,
+      openVoiceModal: vi.fn(),
+      closeVoiceModal: vi.fn(),
+      clearVoiceTranscript: vi.fn(),
+      startVoiceCapture: vi.fn(),
+      saveVoiceExpense: vi.fn(),
+    }),
+  }),
+);
+
 const apiPostMock = vi.fn();
 const apiGetMock = vi.fn();
 
@@ -13,7 +53,6 @@ vi.mock('@/lib/api', () => ({
     get: (...args: unknown[]) => apiGetMock(...args),
   },
 }));
-
 function renderStep(props: React.ComponentProps<typeof QuickExpenseStep>) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -127,5 +166,78 @@ describe('QuickExpenseStep', () => {
       '/projects/p1/expenses',
       expect.objectContaining({ bankAccountId: 'ba1', creditCardId: null }),
     ));
+  });
+
+  describe('mode picker', () => {
+    it('shows Escrito and Foto mode buttons; Voz shown when voiceSupported=true', () => {
+      mockVoiceSupported = true;
+      renderStep({ projectId: 'p1', projectType: ProjectType.PESSOAL, onDone: vi.fn(), onSkip: vi.fn() });
+      expect(screen.getByRole('button', { name: /escrito/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /voz/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /foto/i })).toBeInTheDocument();
+    });
+
+    it('hides Voz button when voiceSupported=false', () => {
+      mockVoiceSupported = false;
+      renderStep({ projectId: 'p1', projectType: ProjectType.PESSOAL, onDone: vi.fn(), onSkip: vi.fn() });
+      expect(screen.queryByRole('button', { name: /voz/i })).not.toBeInTheDocument();
+      // Restore for other tests
+      mockVoiceSupported = true;
+    });
+
+    it('foto mode: clicking Foto shows camera CTA; selecting a file calls onDone without api.post', async () => {
+      const onDone = vi.fn();
+      renderStep({ projectId: 'p1', projectType: ProjectType.PESSOAL, onDone, onSkip: vi.fn() });
+
+      fireEvent.click(screen.getByRole('button', { name: /foto/i }));
+
+      // Camera CTA visible
+      await waitFor(() =>
+        expect(screen.getByText(/fotografe o comprovante/i)).toBeInTheDocument(),
+      );
+
+      // Simulate file selection on the hidden input
+      const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+      expect(input).not.toBeNull();
+      fireEvent.change(input, {
+        target: { files: [new File(['img'], 'receipt.jpg', { type: 'image/jpeg' })] },
+      });
+
+      expect(onDone).toHaveBeenCalledTimes(1);
+      expect(apiPostMock).not.toHaveBeenCalled();
+    });
+
+    it('escrito mode: original form still submits correctly (regression)', async () => {
+      mockVoiceSupported = true;
+      apiPostMock.mockResolvedValue({});
+      const onDone = vi.fn();
+      renderStep({ projectId: 'p1', projectType: ProjectType.PESSOAL, onDone, onSkip: vi.fn() });
+
+      // Should be in escrito mode by default
+      expect(screen.getByRole('button', { name: /criar e continuar/i })).toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText(/valor/i), { target: { value: '25,00' } });
+      fireEvent.click(screen.getByRole('button', { name: /criar e continuar/i }));
+
+      await waitFor(() => expect(apiPostMock).toHaveBeenCalledWith(
+        '/projects/p1/expenses',
+        expect.objectContaining({ valor: 25 }),
+      ));
+      expect(onDone).toHaveBeenCalledTimes(1);
+    });
+
+    it('voz mode: clicking Voz renders VoiceExpenseModal stub', () => {
+      mockVoiceSupported = true;
+      renderStep({ projectId: 'p1', projectType: ProjectType.PESSOAL, onDone: vi.fn(), onSkip: vi.fn() });
+
+      fireEvent.click(screen.getByRole('button', { name: /voz/i }));
+
+      expect(screen.getByTestId('voice-expense-modal')).toBeInTheDocument();
+
+      // Closing modal falls back to escrito mode gracefully
+      fireEvent.click(screen.getByText('fechar-modal-voz'));
+      expect(screen.queryByTestId('voice-expense-modal')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /criar e continuar/i })).toBeInTheDocument();
+    });
   });
 });

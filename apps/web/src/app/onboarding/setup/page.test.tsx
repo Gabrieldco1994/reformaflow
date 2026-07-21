@@ -33,7 +33,7 @@ vi.mock('next/navigation', () => ({
 
 /** Per-type sequence of skip-button name regexes to click through every anchor step. */
 const SKIP_SEQUENCES: Record<string, RegExp[]> = {
-  PESSOAL: [/pular por agora/i, /pular mesmo assim/i, /pular — cadastro depois/i, /pular por agora/i, /pular por agora/i],
+  PESSOAL: [/pular por agora/i, /pular mesmo assim/i, /pular — cadastro depois/i, /pular por agora/i, /pular — importar depois/i, /pular por agora/i],
   REFORMA: [/pular por agora/i],
   COMPRA: [/pular por agora/i],
   CASA: [/cancelar/i],
