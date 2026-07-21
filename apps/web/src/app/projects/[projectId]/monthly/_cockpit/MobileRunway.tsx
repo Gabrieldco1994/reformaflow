@@ -230,7 +230,7 @@ export default function MobileRunway({
               step={500}
               value={Math.min(ritmo, Math.max(ritmoDiario * 3, 30000))}
               onChange={(e) => onRitmoChange(Number(e.target.value))}
-              className="w-full accent-[var(--ck-alert)]"
+              className="min-h-[44px] w-full accent-[var(--ck-alert)]"
               aria-label="Simular ritmo de gasto diário"
             />
           </div>
