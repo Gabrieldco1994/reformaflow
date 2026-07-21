@@ -315,7 +315,7 @@ export function MovimentacaoRow({
               <span className="truncate pr-1 text-[14px] font-semibold leading-tight text-lifeone-ink md:text-[15px]">{titulo}</span>
             </div>
           </button>
-          <div className={`mt-0.5 flex items-center gap-1.5 ${canExpand ? 'pl-5' : ''}`}>
+          <div className={`mt-0.5 flex min-w-0 items-center gap-1.5 ${canExpand ? 'pl-5' : ''}`}>
             <span className="truncate text-[11px] text-lifeone-ink-3">{meta}</span>
             {isCarteira && (
               <button
@@ -342,7 +342,7 @@ export function MovimentacaoRow({
               </button>
             )}
             {projOrigem && (
-              <span className="shrink-0 rounded-full bg-[#E6EFFE] px-1.5 py-0.5 text-[11px] font-semibold text-lifeone-blue">
+              <span className="min-w-0 shrink truncate rounded-full bg-[#E6EFFE] px-1.5 py-0.5 text-[11px] font-semibold text-lifeone-blue">
                 {projOrigem.name}
               </span>
             )}
