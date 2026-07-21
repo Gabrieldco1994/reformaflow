@@ -8,6 +8,7 @@ import { QuickReceiptStep } from '../_components/steps/QuickReceiptStep';
 import { RecurringBillStep } from '../_components/steps/RecurringBillStep';
 import { CarInfoStep } from '../_components/steps/CarInfoStep';
 import { PlantStep } from '../_components/steps/PlantStep';
+import { ImportMassStep } from '../_components/steps/ImportMassStep';
 
 export interface AnchorStepDef {
   /** stable id, also stepper-dot label key */
@@ -27,6 +28,7 @@ export const ANCHOR_STEPS: Record<ProjectType, AnchorStepDef[]> = {
     { key: 'bank', label: 'Conta', Component: BankAccountStep },
     { key: 'card', label: 'Cartão', Component: CreditCardStep },
     { key: 'expense', label: 'Despesa', Component: QuickExpenseStep },
+    { key: 'import', label: 'Importar', Component: ImportMassStep },
     { key: 'receipt', label: 'Recebimento', Component: QuickReceiptStep },
   ],
   [ProjectType.REFORMA]: [{ key: 'expense', label: 'Despesa', Component: QuickExpenseStep }],

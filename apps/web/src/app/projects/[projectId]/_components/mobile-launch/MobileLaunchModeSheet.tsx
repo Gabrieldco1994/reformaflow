@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { ArrowDownCircle, ArrowUpCircle, CalendarClock, Camera, CreditCard, Landmark, Mic, X } from 'lucide-react';
-
-export type LaunchMode = 'escrito' | 'planejar' | 'receita' | 'voz' | 'fatura' | 'extrato';
+import type { LaunchMode } from './launch-modes';
+import { MOBILE_LAUNCH_MODES, PHOTO_MODES } from './launch-modes';
 
 interface Props {
   open: boolean;
@@ -40,9 +40,10 @@ function OptionCard({ icon: Icon, title, subtitle, onClick, accent }: OptionCard
 }
 
 /**
- * Menu de modo do "+" mobile: escolhe a experiência de lançamento (Escrito / Voz /
- * Foto). Apenas apresentacional — o container decide qual jornada abrir. Foto abre
- * uma sub-tela com "Fatura de cartão" e "Extrato bancário" (as APIs já aceitam imagem).
+ * Menu de modo do "+" mobile: escolhe a experiência de lançamento (Despesa / Planejar /
+ * Recebimento / Voz / Foto). Apenas apresentacional — o container decide qual jornada abrir.
+ * Foto abre uma sub-tela com "Fatura de cartão" e "Extrato bancário" (as APIs já aceitam imagem).
+ * Modos carregados do catálogo centralizado (launch-modes.ts).
  */
 export function MobileLaunchModeSheet({ open, onClose, onPick, voiceSupported = true }: Props) {
   const [view, setView] = useState<'root' | 'foto'>('root');
@@ -81,60 +82,70 @@ export function MobileLaunchModeSheet({ open, onClose, onPick, voiceSupported = 
 
         {view === 'root' ? (
           <div className="space-y-2.5 pt-1">
-            <OptionCard
-              icon={ArrowDownCircle}
-              title="Despesa"
-              subtitle="Teclado rápido — valor, origem e descrição"
-              accent="bg-[#FDEBEC] text-[#C43D4B]"
-              onClick={() => onPick('escrito')}
-            />
-            <OptionCard
-              icon={CalendarClock}
-              title="Planejar"
-              subtitle="Despesa futura / a pagar"
-              accent="bg-[#FBEBDC] text-[#B5803A]"
-              onClick={() => onPick('planejar')}
-            />
-            <OptionCard
-              icon={ArrowUpCircle}
-              title="Recebimento"
-              subtitle="Registrar entrada de dinheiro"
-              accent="bg-[#E8F0EC] text-[#2F7D5B]"
-              onClick={() => onPick('receita')}
-            />
-            {voiceSupported && (
-              <OptionCard
-                icon={Mic}
-                title="Voz"
-                subtitle="Fale a despesa — mãos livres"
-                accent="bg-[#E8F0EC] text-[#2F7D5B]"
-                onClick={() => onPick('voz')}
-              />
-            )}
-            <OptionCard
-              icon={Camera}
-              title="Foto"
-              subtitle="Print ou foto de fatura / extrato"
-              accent="bg-[#FBEBDC] text-[#B5803A]"
-              onClick={() => setView('foto')}
-            />
+            {MOBILE_LAUNCH_MODES.map((mode) => {
+              const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
+                despesa: ArrowDownCircle,
+                planejar: CalendarClock,
+                recebimento: ArrowUpCircle,
+                voz: Mic,
+                foto: Camera,
+              };
+              const accentMap: Record<string, string> = {
+                despesa: 'bg-[#FDEBEC] text-[#C43D4B]',
+                planejar: 'bg-[#FBEBDC] text-[#B5803A]',
+                recebimento: 'bg-[#E8F0EC] text-[#2F7D5B]',
+                voz: 'bg-[#E8F0EC] text-[#2F7D5B]',
+                foto: 'bg-[#FBEBDC] text-[#B5803A]',
+              };
+              const Icon = iconMap[mode.value];
+              if (!Icon) return null;
+              
+              const isVozAndNotSupported = mode.value === 'voz' && !voiceSupported;
+              if (isVozAndNotSupported) return null;
+
+              return (
+                <OptionCard
+                  key={mode.value}
+                  icon={Icon}
+                  title={mode.label}
+                  subtitle={mode.subtitle ?? ''}
+                  accent={accentMap[mode.value]}
+                  onClick={() => {
+                    if (mode.value === 'foto') {
+                      setView('foto');
+                    } else {
+                      onPick(mode.value);
+                    }
+                  }}
+                />
+              );
+            })}
           </div>
         ) : (
           <div className="space-y-2.5 pt-1">
-            <OptionCard
-              icon={CreditCard}
-              title="Foto da fatura"
-              subtitle="Print/foto da fatura do cartão"
-              accent="bg-[#FBEBDC] text-[#B5803A]"
-              onClick={() => onPick('fatura')}
-            />
-            <OptionCard
-              icon={Landmark}
-              title="Foto do extrato"
-              subtitle="Print/foto do extrato da conta"
-              accent="bg-[#E8F0EC] text-[#2F7D5B]"
-              onClick={() => onPick('extrato')}
-            />
+            {PHOTO_MODES.map((mode) => {
+              const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
+                fatura: CreditCard,
+                extrato: Landmark,
+              };
+              const accentMap: Record<string, string> = {
+                fatura: 'bg-[#FBEBDC] text-[#B5803A]',
+                extrato: 'bg-[#E8F0EC] text-[#2F7D5B]',
+              };
+              const Icon = iconMap[mode.value];
+              if (!Icon) return null;
+
+              return (
+                <OptionCard
+                  key={mode.value}
+                  icon={Icon}
+                  title={mode.label}
+                  subtitle={mode.subtitle ?? ''}
+                  accent={accentMap[mode.value]}
+                  onClick={() => onPick(mode.value)}
+                />
+              );
+            })}
             <button
               type="button"
               onClick={() => setView('root')}

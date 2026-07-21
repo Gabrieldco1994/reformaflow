@@ -28,7 +28,7 @@ interface Props {
 }
 
 type CreatedExpense = { id: string };
-type LaunchScreen = 'choose' | 'escrito' | 'planejar' | 'receita' | 'voz' | 'fatura' | 'extrato';
+type LaunchScreen = 'choose' | 'despesa' | 'planejar' | 'recebimento' | 'voz' | 'fatura' | 'extrato' | 'foto';
 
 const cardLabel = (c: LaunchCardOption) =>
   [c.nickname || c.brand || 'Cartão', c.last4 ? `•${c.last4}` : null].filter(Boolean).join(' ');
@@ -197,12 +197,12 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
       <MobileLaunchModeSheet
         open={open && screen === 'choose'}
         onClose={handleClose}
-        onPick={(mode) => setScreen(mode)}
+        onPick={(mode) => setScreen(mode === 'foto' ? 'foto' : mode)}
         voiceSupported={voice.voiceSupported}
       />
 
       <MobileLaunchSheet
-        open={open && screen === 'escrito'}
+        open={open && screen === 'despesa'}
         onClose={handleClose}
         onLaunch={(payload) => createMutation.mutateAsync(payload).then(() => handleClose())}
         launching={createMutation.isPending}
@@ -227,7 +227,7 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
       />
 
       <ReceitaModal
-        open={open && screen === 'receita'}
+        open={open && screen === 'recebimento'}
         onClose={handleClose}
         projectId={projectId}
         defaultData={new Date().toISOString().slice(0, 10)}
@@ -259,6 +259,28 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
         accounts={tenantAccounts}
         currentProjectId={projectId}
       />
+
+      {/* Sub-tela de foto: oferece fatura ou extrato */}
+      {open && screen === 'foto' && (
+        <Modal open onClose={handleClose} title="Como quer importar?">
+          <div className="space-y-2">
+            <button
+              onClick={() => setScreen('fatura')}
+              className="flex min-h-11 w-full items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-left hover:border-orange-300 hover:bg-orange-50"
+            >
+              <CreditCard className="h-4 w-4 text-orange-500" />
+              <span className="text-sm font-medium">Fatura de cartão</span>
+            </button>
+            <button
+              onClick={() => setScreen('extrato')}
+              className="flex min-h-11 w-full items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-left hover:border-teal-300 hover:bg-teal-50"
+            >
+              <Landmark className="h-4 w-4 text-teal-500" />
+              <span className="text-sm font-medium">Extrato bancário</span>
+            </button>
+          </div>
+        </Modal>
+      )}
 
       {open && screen === 'fatura' && !selectedCardId && (
         <Modal open onClose={handleClose} title="Para qual cartão é essa fatura?">
