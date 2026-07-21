@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type React from 'react';
 import { PendenciasQueueCard } from './PendenciasQueueCard';
 import { api } from '@/lib/api';
 
 vi.mock('@/lib/api', () => ({
-  api: { get: vi.fn() },
+  api: { get: vi.fn(), patch: vi.fn(), post: vi.fn() },
 }));
 
 vi.mock('../../expenses/_components/BulkLinkModal', () => ({
@@ -48,6 +48,8 @@ function renderWithQuery(ui: React.ReactElement) {
 describe('PendenciasQueueCard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(api.patch).mockResolvedValue({});
+    vi.mocked(api.post).mockResolvedValue({});
   });
 
   it('does not render when queue is empty', async () => {
@@ -161,5 +163,59 @@ describe('PendenciasQueueCard', () => {
     expect(await screen.findByText('BulkLinkModal aberto')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Fechar BulkLinkModal/i }));
     expect(await screen.findByRole('heading', { name: /Precisa de você/i })).toBeInTheDocument();
+  });
+
+  it('confirms sem categoria in one tap and creates merchant rule', async () => {
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url.includes('/pendencias/financeiras')) {
+        return {
+          total: 1,
+          grupos: [
+            {
+              tipo: 'SEM_CATEGORIA',
+              label: 'Sem categoria',
+              count: 1,
+              valorTotal: 12000,
+              itens: [
+                {
+                  id: 'i-sem-cat',
+                  tipo: 'SEM_CATEGORIA',
+                  label: 'Confirmar categoria',
+                  descricao: 'Padaria do João',
+                  valor: 12000,
+                  data: '2026-07-02T00:00:00.000Z',
+                  expenseId: 'e-sem-cat',
+                  suggestionTipoDespesa: 'ALIMENTACAO',
+                },
+              ],
+            },
+          ],
+        };
+      }
+      if (url.includes('/monthly-overview/account-view')) return { cartoes: [], contas: [] };
+      if (url.includes('/expenses/e-sem-cat')) {
+        return {
+          id: 'e-sem-cat',
+          tipoDespesa: 'OUTROS',
+          fornecedor: 'Padaria do João',
+        };
+      }
+      return null;
+    });
+
+    renderWithQuery(<PendenciasQueueCard projectId="p1" monthKey="2026-07" />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Resolver/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /Confirmar categoria/i }));
+
+    await waitFor(() => {
+      expect(api.patch).toHaveBeenCalledWith('/projects/p1/expenses/e-sem-cat', {
+        tipoDespesa: 'ALIMENTACAO',
+      });
+      expect(api.post).toHaveBeenCalledWith('/merchant-categories/confirm-rule', {
+        merchant: 'Padaria do João',
+        tipoDespesa: 'ALIMENTACAO',
+      });
+    });
   });
 });

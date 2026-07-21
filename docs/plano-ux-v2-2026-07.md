@@ -72,6 +72,14 @@ O v1 resolveu a **arquitetura de informação** (Conta = linha do tempo única; 
 
 **Agentes:** `architect` (spec RED; decisão do retroativo; revisar normalização) → `pessoal-lens` Phase 1 → `backend-expert` + `frontend-expert` → `qa-engineer` (mutation mindset na aplicação de regras — dinheiro não muda, só categoria) → `pessoal-lens` Phase 2 → `doc-librarian`.
 
+**Status desta execução (2026-07-20):**
+- [x] Confirmar sugestão na fila (`Sem categoria`) categoriza + cria regra manual; toast com desfazer.
+- [x] Chip de sugestão também na Lista da Conta (`MovimentacaoRow`) com confirmação em 1 toque.
+- [x] Proteção PIX PF: sem regra manual prévia, permanece `OUTROS` (não auto-aplica).
+- [x] Ingest (extrato/fatura/OCR) reaplica regra manual e marca `categoriaFonte: 'regra'` no preview.
+- [x] Gestão de regras (listar/excluir) atrás de engrenagem em Análises (não na navegação primária).
+- [ ] Retroativo em lote ("aplicar a N semelhantes deste mês") — opcional, não implementado nesta rodada.
+
 ---
 
 ## W3 — Dieta da tela da Conta — PR-C

@@ -4,6 +4,7 @@ import { ExpenseTypeLabels, NEUTRAL_EXPENSE_TYPES, buildInstallments, caixaMonth
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import { CreateCreditCardDto, UpdateCreditCardDto } from './dto/credit-card.dto';
 import { parseStatementBuffers, type SourceHint, type NormalizedTx, type ParseResult } from './parsers';
+import { MerchantClassifierService } from '../merchant-classifier/merchant-classifier.service';
 
 /** Normaliza a entrada (string legada, Buffer único ou array) para Buffer[]. */
 function toBuffers(content: string | Buffer | Buffer[]): Buffer[] {
@@ -45,6 +46,7 @@ export class CreditCardService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly conciliacao: ConciliacaoService,
+    private readonly merchantClassifier: MerchantClassifierService,
   ) {}
 
   // ─── CRUD cartões ────────────────────────────────────────
@@ -308,20 +310,32 @@ export class CreditCardService {
       return scored.slice(0, 5);
     }
 
-    const preview = parsed.transactions.map((tx) => ({
-      ...tx,
-      date: tx.date.toISOString().slice(0, 10),
-      duplicate: existing.has(tx.externalId),
-      suggestedCategory: PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS',
-      crossProjectMatches: findMatches(tx),
-    }));
+    const preview = await Promise.all(
+      parsed.transactions.map(async (tx) => {
+        const manualExpenseType = await this.merchantClassifier.manualExpenseType(tx.merchant);
+        return {
+          ...tx,
+          date: tx.date.toISOString().slice(0, 10),
+          duplicate: existing.has(tx.externalId),
+          suggestedCategory: manualExpenseType ?? PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS',
+          categoriaFonte: manualExpenseType ? 'regra' : null,
+          crossProjectMatches: findMatches(tx),
+        };
+      }),
+    );
 
-    const futureInstallments = (parsed.futureInstallments ?? []).map((tx) => ({
-      ...tx,
-      date: tx.date.toISOString().slice(0, 10),
-      suggestedCategory: PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS',
-      crossProjectMatches: findMatches(tx),
-    }));
+    const futureInstallments = await Promise.all(
+      (parsed.futureInstallments ?? []).map(async (tx) => {
+        const manualExpenseType = await this.merchantClassifier.manualExpenseType(tx.merchant);
+        return {
+          ...tx,
+          date: tx.date.toISOString().slice(0, 10),
+          suggestedCategory: manualExpenseType ?? PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS',
+          categoriaFonte: manualExpenseType ? 'regra' : null,
+          crossProjectMatches: findMatches(tx),
+        };
+      }),
+    );
 
     return {
       source: parsed.source,
@@ -667,7 +681,10 @@ export class CreditCardService {
       }
       // Estorno/crédito real (refund, desconto, ajuste). Cria Expense com valor
       // NEGATIVO para abater do total da fatura — soma corretamente no cashflow.
-      const expenseType = categoryOverride || (PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS');
+      const manualExpenseType =
+        categoryOverride ? null : await this.merchantClassifier.manualExpenseType(tx.merchant);
+      const expenseType =
+        categoryOverride || manualExpenseType || (PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS');
       const tituloEst = `Estorno: ${tx.merchant}`.slice(0, 200);
       const expEst = await this.prisma.expense.create({
         data: {
@@ -708,7 +725,10 @@ export class CreditCardService {
       throw new Error('valor-zero');
     }
 
-    const expenseType = categoryOverride || (PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS');
+    const manualExpenseType =
+      categoryOverride ? null : await this.merchantClassifier.manualExpenseType(tx.merchant);
+    const expenseType =
+      categoryOverride || manualExpenseType || (PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS');
     const total = tx.installmentTotal && tx.installmentTotal > 1 ? tx.installmentTotal : 1;
     const current = tx.installmentCurrent && tx.installmentCurrent >= 1 ? tx.installmentCurrent : 1;
     const remainingAfterCurrent = Math.max(0, total - current);

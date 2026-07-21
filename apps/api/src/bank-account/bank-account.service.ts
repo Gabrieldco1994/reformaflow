@@ -376,6 +376,9 @@ export class BankAccountService {
       const matches = tx.amountCents < 0
         ? findReceiptMatches(tx)         // crédito → match com Receipt PLANEJADO
         : findExpenseMatches(tx);        // débito → match com Expense PLANEJADO
+      const manualExpenseType =
+        tx.amountCents > 0 ? await this.merchantClassifier.manualExpenseType(tx.merchant) : null;
+      const isPixPf = tx.amountCents > 0 && MerchantClassifierService.isLikelyPixPessoaFisica(tx.merchant);
       return {
         ...tx,
         date: tx.date.toISOString().slice(0, 10),
@@ -385,8 +388,13 @@ export class BankAccountService {
         suggestedCategory: tx.amountCents > 0
           ? (isCardPay
               ? 'PAGAMENTO_FATURA_CARTAO'
-              : (fastClassify(tx.merchant) ?? PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS'))
+              : (manualExpenseType
+                  ?? (isPixPf
+                    ? 'OUTROS'
+                    : (fastClassify(tx.merchant) ?? PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS'))))
           : (fastClassify(tx.merchant) === 'MOVIMENTACAO_INTERNA' ? 'MOVIMENTACAO_INTERNA' : 'RECEITA'),
+        categoriaFonte:
+          tx.amountCents > 0 && !isCardPay && manualExpenseType ? 'regra' : null,
         crossProjectMatches: matches,
       };
     }));
@@ -511,9 +519,8 @@ export class BankAccountService {
       }
     }
 
-    // ─── Reclassificação inteligente via AI (Gemini) ──────────
-    // Para todas as Expenses tipo OUTROS criadas neste import, consulta o
-    // classifier (cache DB + Gemini). Atualiza tipoDespesa + categoria do CashFlow.
+    // Regras manuais confirmadas pelo usuário reaplicam no ingest para manter
+    // consistência sem mexer em valor/caixa.
     const aiReclassified = await this.reclassifyImportedExpenses(tenantId, projectId, importRecord.id);
 
     // ─── Propagação de recorrências p/ projetos CASA/CARRO ───
@@ -530,7 +537,7 @@ export class BankAccountService {
           receiptsInserted > 0 ? `${receiptsInserted} recebimento(s)` : null,
           cardPayments > 0 ? `${cardPayments} pagto(s) de cartão vinculado(s)` : null,
           linked > 0 ? `${linked} vinculada(s) a planejado` : null,
-          aiReclassified > 0 ? `${aiReclassified} categoria(s) sugerida(s) por IA` : null,
+          aiReclassified > 0 ? `${aiReclassified} categoria(s) por regra` : null,
           recurrencesCreated > 0 ? `${recurrencesCreated} recorrência(s) propagada(s)` : null,
         ].filter(Boolean).join(' • ') || null,
       },
@@ -554,8 +561,8 @@ export class BankAccountService {
   }
 
   /**
-   * Pega todas as Expenses tipo OUTROS criadas neste import e reclassifica
-   * via cache+AI. Atualiza tipoDespesa da Expense + categoria da CashFlowEntry.
+   * Reaplica apenas regras MANUAL em despesas OUTROS deste import.
+   * Não auto-aplica IA/heurística aqui para preservar previsibilidade.
    */
   private async reclassifyImportedExpenses(
     tenantId: string,
@@ -572,26 +579,19 @@ export class BankAccountService {
     });
     if (!candidates.length) return 0;
 
-    const merchants = candidates.map((c) => c.fornecedor || '').filter(Boolean);
-    const map = await this.merchantClassifier.classifyBatch(merchants);
-    if (!map.size) return 0;
-
     let updated = 0;
     for (const c of candidates) {
       if (!c.fornecedor) continue;
-      const key = MerchantClassifierService.normalizeKey(c.fornecedor);
-      const r = map.get(key);
-      if (!r) continue;
-      const newType = PESSOAL_CATEGORY_MAP[r.category] ?? 'OUTROS';
-      if (newType === 'OUTROS') continue;
+      const manualType = await this.merchantClassifier.manualExpenseType(c.fornecedor);
+      if (!manualType) continue;
       await this.prisma.$transaction([
         this.prisma.expense.update({
           where: { id: c.id },
-          data: { tipoDespesa: newType },
+          data: { tipoDespesa: manualType },
         }),
         this.prisma.cashFlowEntry.updateMany({
           where: { expenseId: c.id },
-          data: { categoria: newType },
+          data: { categoria: manualType },
         }),
       ]);
       updated++;
@@ -1167,9 +1167,17 @@ export class BankAccountService {
       return { inserted: false, receiptInserted: false, cardPayment: true, expenseId: e.id };
     }
 
+    const manualExpenseType = categoryOverride ? null : await this.merchantClassifier.manualExpenseType(tx.merchant);
+    const isPixPfWithoutRule =
+      !categoryOverride &&
+      !manualExpenseType &&
+      MerchantClassifierService.isLikelyPixPessoaFisica(tx.merchant);
     const expenseType = categoryOverride ||
-      fastClassify(tx.merchant) ||
-      (PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS');
+      manualExpenseType ||
+      (isPixPfWithoutRule
+        ? 'OUTROS'
+        : fastClassify(tx.merchant) ||
+          (PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS'));
     const titulo = tx.merchant.slice(0, 200);
 
     const expense = await this.prisma.expense.create({

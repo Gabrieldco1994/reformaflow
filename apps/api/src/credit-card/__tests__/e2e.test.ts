@@ -20,6 +20,7 @@ import { CreditCardService } from '../credit-card.service';
 import { ConciliacaoService } from '../../conciliacao/conciliacao.service';
 import { MonthlyOverviewService } from '../../monthly-overview/monthly-overview.service';
 import { CardInvoiceSettlementService } from '../card-invoice-settlement.service';
+import { MerchantClassifierService } from '../../merchant-classifier/merchant-classifier.service';
 
 const prisma = new PrismaClient();
 let failures = 0;
@@ -33,7 +34,11 @@ function assert(cond: any, msg: string) {
 function header(t: string) { console.log(`\n── ${t}`); }
 
 async function main() {
-  const cardSvc = new CreditCardService(prisma as any, new ConciliacaoService(prisma as any));
+  const cardSvc = new CreditCardService(
+    prisma as any,
+    new ConciliacaoService(prisma as any),
+    new MerchantClassifierService(prisma as any),
+  );
   const monthlySvc = new MonthlyOverviewService(prisma as any, new CardInvoiceSettlementService(prisma as any));
 
   // ───── Setup tenant + projetos ─────────────────────────────
