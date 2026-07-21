@@ -1,11 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { moneyGlance } from "@/lib/money";
 import { applyScenario } from "../_lib/scenarios";
 import ScenarioChips from "../_components/ScenarioChips";
-import type { DreSaldoAcumuladoRow } from "../../dre/_types";
+import type { DreSaldoAcumuladoRow, RunwayCandidato } from "../../dre/_types";
 import { mesCurto, mesLongo } from "./format";
+import { RunwayActionSheet } from "./RunwayActionSheet";
 
 /**
  * "Vai dar até dez?" mobile (fidelidade v3): veredito verde/vermelho + curva de
@@ -24,13 +26,16 @@ export default function MobileRunway({
   currentMonth,
   scenarioDelta,
   onScenarioChange,
+  candidatos,
+  projectId,
 }: {
   serie: DreSaldoAcumuladoRow[];
   currentMonth: string;
   scenarioDelta: number;
   onScenarioChange: (deltaCentsPerMonth: number) => void;
+  candidatos?: RunwayCandidato[];
+  projectId?: string;
 }) {
-  // Mesmo recorte do `ProjecaoSaldo`: âncora no mês corrente, olhando adiante.
   const forward = serie.filter((row) => row.mes >= currentMonth);
   if (forward.length < 6) return null;
 
@@ -58,6 +63,9 @@ export default function MobileRunway({
     .join(" ");
   const area = `${line} L${x(values.length - 1).toFixed(1)},${y(min).toFixed(1)} L${x(0).toFixed(1)},${y(min).toFixed(1)} Z`;
   const tone = crossover ? "var(--ck-neg)" : "var(--ck-pos)";
+
+  // ponytail: estado local do sheet — só existe quando crossover && projectId
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   return (
     <section
@@ -96,6 +104,29 @@ export default function MobileRunway({
           </p>
         </div>
       </div>
+
+      {/* "Como fechar no azul?" — só quando há crossover e projectId */}
+      {crossover && projectId && (
+        <>
+          <button
+            type="button"
+            data-testid="runway-action-cta"
+            onClick={() => setSheetOpen(true)}
+            className="mt-3 flex w-full min-h-[44px] items-center justify-center rounded-2xl border border-[var(--ck-neg)]/40 bg-[var(--ck-neg)]/10 px-4 text-[13px] font-semibold text-[var(--ck-neg)]"
+          >
+            Como fechar no azul?
+          </button>
+          {sheetOpen && (
+            <RunwayActionSheet
+              candidatos={candidatos ?? []}
+              piorSaldo={lowest.saldoProjetado}
+              piorMes={mesLongo(monthIdx(lowest.mes))}
+              projectId={projectId}
+              onClose={() => setSheetOpen(false)}
+            />
+          )}
+        </>
+      )}
 
       <div className="relative mt-3">
         <span

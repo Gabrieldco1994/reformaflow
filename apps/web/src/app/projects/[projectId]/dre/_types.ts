@@ -68,6 +68,17 @@ export interface DreSaldoAcumuladoRow {
   despesasPorCategoria?: Record<string, number>;
 }
 
+/** Candidato para a sheet "Como fechar no azul?" */
+export interface RunwayCandidato {
+  expenseId: string;
+  descricao: string;
+  /** Soma dos valores (centavos) para essa despesa na janela até o crossover. */
+  valor: number;
+  /** ISO string da ocorrência mais próxima. */
+  data: string;
+  projetoOrigem: { id: string; name: string; type: string } | null;
+}
+
 /** Deep-dive: despesas de um mês quebradas por origem de pagamento. */
 export interface DreDespesaOrigemRow {
   mes: string;
@@ -101,6 +112,8 @@ export interface DreAnual {
   totaisEntradas: DreTotalAnual[];
   totaisSaidas: DreTotalAnual[];
   totaisGuardado: DreTotalAnual[];
+  /** Top-5 gastos planejados até o crossover. Vazio quando saldo sempre positivo. */
+  candidatos?: RunwayCandidato[];
 }
 
 export interface DreOverviewResponse {

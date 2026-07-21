@@ -52,6 +52,7 @@ export default function MobileMonthCockpit({
   entries,
   projectId,
   runwaySerie,
+  runwayCandidatos,
 }: {
   data: MonthlyOverviewResponse;
   monthKey: string;
@@ -60,6 +61,8 @@ export default function MobileMonthCockpit({
   eixo: Eixo;
   /** Série anual de saldo acumulado (`dre-overview`) — mesma do `RunwayScenario` desktop. */
   runwaySerie?: DreSaldoAcumuladoRow[];
+  /** Candidatos para o sheet "Como fechar no azul?" */
+  runwayCandidatos?: import('../../dre/_types').RunwayCandidato[];
 }) {
   const selectedEntries = useMemo(
     () =>
@@ -200,6 +203,8 @@ export default function MobileMonthCockpit({
             currentMonth={monthKey}
             scenarioDelta={scenarioDelta}
             onScenarioChange={setScenarioDelta}
+            candidatos={runwayCandidatos}
+            projectId={projectId}
           />
         )}
 

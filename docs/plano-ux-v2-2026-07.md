@@ -107,7 +107,7 @@ O v1 resolveu a **arquitetura de informação** (Conta = linha do tempo única; 
 
 ---
 
-## W4 — Do alerta à ação (runway prescritivo) — PR-D
+## W4 — Do alerta à ação (runway prescritivo) — PR-D ✅ ENTREGUE (PR #236)
 
 **Problema:** "Vai dar até dez?" diagnostica ("setembro fica negativo") mas não prescreve. **Solução:** o alerta ganha um degrau de ação.
 

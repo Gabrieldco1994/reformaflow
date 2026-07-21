@@ -1,6 +1,6 @@
 # Estado Atual — Cockpit/Visão Conta (PESSOAL)
 
-Atualizado em: **2026-07-20**
+Atualizado em: **2026-07-21**
 
 Histórico detalhado: `docs/archive/estado-atual-historico-2026.md`.
 
@@ -8,7 +8,8 @@ Histórico detalhado: `docs/archive/estado-atual-historico-2026.md`.
 
 - ✅ UX v2 W1 estabilizado (`feat/ux-v2-w1-pendencias` / PR #220): fila "Precisa de você" com roteamento correto (vincular/quitar/pagar/editar), sem 404.
 - ✅ UX v2 W2 estabilizado (`feat/ux-v2-w2-categorias` / PR #234): confirmar categoria com aprendizado de regra manual, proteção PIX PF, auto-aplicação no ingest para regra manual e gestão de regras atrás de engrenagem em Análises.
-- 🚧 UX v2 W3 em execução (`feat/ux-v2-w3-dieta-conta`): dieta da Conta (carrossel compacto + ticket médio em Análises).
+- ✅ UX v2 W3 estabilizado (`feat/ux-v2-w3-dieta-conta` / PR #235): dieta da Conta (carrossel compacto de cartões, ticket médio movido para Análises, piso tipográfico ≥11px corrigido).
+- 🚧 UX v2 W4 em execução (`feat/ux-v2-w4-runway-prescritivo`): runway prescritivo — botão "Como fechar no azul?" no Cockpit quando tom negativo; sheet com candidatos (até 5 maiores planejados até o crossover) e ações adiar/reduzir/remover.
 - ✅ Fases A–D + F/G (redesign UX + cockpit/mobile/web) concluídas em `main`.
 - ✅ Fase E (motor único + caixa real §10) concluída e ativa; pendência operacional de validação em prod segue no issue #95.
 - ✅ Skin Minimal mobile PESSOAL (PR #125) e Stage A cross-project (PR #136) em produção.

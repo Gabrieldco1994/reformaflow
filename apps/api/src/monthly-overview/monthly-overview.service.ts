@@ -1719,6 +1719,7 @@ export class MonthlyOverviewService {
         totaisEntradas,
         totaisSaidas,
         totaisGuardado,
+        candidatos: buildRunwayCandidatos(saldoAcumuladoSerie, monthlyViews, months, mesSelecionado),
       },
     };
   }
@@ -3198,4 +3199,80 @@ function roundPct(value: number): number {
 
 function sumBy<T>(items: T[], pick: (item: T) => number): number {
   return items.reduce((sum, item) => sum + pick(item), 0);
+}
+
+/** Candidato para a sheet "Como fechar no azul?" */
+export interface RunwayCandidato {
+  expenseId: string;
+  descricao: string;
+  /** Soma dos valores (centavos) para essa despesa na janela até o crossover. */
+  valor: number;
+  /** ISO string da ocorrência mais próxima (para referência de timing). */
+  data: string;
+  projetoOrigem: { id: string; name: string; type: string } | null;
+}
+
+/**
+ * Seleciona os até 5 maiores gastos PLANEJADOS entre `mesSelecionado` e o
+ * primeiro mês com `saldoProjetado < 0` (crossover), usando as saidas já
+ * calculadas por `getAccountView` — NUNCA um segundo motor.
+ *
+ * Exclusões (regra de ouro §W4):
+ *  - `isInvoice: true`  (fatura agregada — não é despesa editável)
+ *  - `realizado: true`  (já pago/quitado)
+ *  - espelhos: itens com `projetoOrigem != null && foreignExpenseId == null`
+ *    (PESSOAL expense com linkedExpenseId — o foreign pending já o representa)
+ *
+ * Deduplicação: mesma despesa (mesmo expenseId) pode aparecer em meses
+ * diferentes (parcelas); soma-se o valor e guarda-se a data mais próxima.
+ */
+export function buildRunwayCandidatos(
+  saldoAcumuladoSerie: Array<{ mes: string; saldoProjetado: number }>,
+  monthlyViews: Array<{ saidas: Array<any> }>,
+  months: string[],
+  mesSelecionado: string,
+): RunwayCandidato[] {
+  // Encontra o primeiro mês a partir do selecionado com saldo projetado negativo.
+  const crossoverMes = saldoAcumuladoSerie.find(
+    (row) => row.mes >= mesSelecionado && row.saldoProjetado < 0,
+  )?.mes ?? null;
+  if (!crossoverMes) return [];
+
+  // Acumula por expenseId: valor total da janela + data mais próxima.
+  const byId = new Map<string, { descricao: string; valor: number; data: string; projetoOrigem: RunwayCandidato['projetoOrigem'] }>();
+
+  for (let i = 0; i < months.length; i++) {
+    const mes = months[i];
+    if (mes < mesSelecionado || mes > crossoverMes) continue;
+    const view = monthlyViews[i];
+    if (!view) continue;
+
+    for (const item of (view.saidas ?? []) as Array<any>) {
+      if (item.isInvoice) continue;
+      if (item.realizado) continue;
+      // Exclui espelhos PESSOAL (linkedExpenseId != null → projetoOrigem set, foreignExpenseId null)
+      if (item.projetoOrigem !== null && item.projetoOrigem !== undefined && !item.foreignExpenseId) continue;
+
+      const id: string | null = item.foreignExpenseId ?? item.id;
+      if (!id) continue;
+
+      const existing = byId.get(id);
+      if (existing) {
+        existing.valor += item.valor as number;
+        if ((item.data as string) < existing.data) existing.data = item.data;
+      } else {
+        byId.set(id, {
+          descricao: item.descricao,
+          valor: item.valor,
+          data: item.data,
+          projetoOrigem: item.projetoOrigem ?? null,
+        });
+      }
+    }
+  }
+
+  return Array.from(byId.entries())
+    .sort((a, b) => b[1].valor - a[1].valor)
+    .slice(0, 5)
+    .map(([expenseId, v]) => ({ expenseId, ...v }));
 }
