@@ -221,22 +221,25 @@ export default function MobileRunway({
               {moneyGlance(ritmo)}/dia
             </span>
           </div>
-          <input
-            type="range"
-            min={0}
-            max={Math.max(ritmoDiario * 3, 30000)}
-            step={500}
-            value={Math.min(ritmo, Math.max(ritmoDiario * 3, 30000))}
-            onChange={(e) => onRitmoChange(Number(e.target.value))}
-            className="w-full accent-[var(--ck-alert)]"
-            aria-label="Simular ritmo de gasto diário"
-          />
-          <div className="mt-1 flex justify-between text-[10px] text-[var(--ck-muted)]">
+          {/* wrapper garante toque ≥44px (regra 13) sem inflar o slider visualmente */}
+          <div className="flex min-h-[44px] items-center">
+            <input
+              type="range"
+              min={0}
+              max={Math.max(ritmoDiario * 3, 30000)}
+              step={500}
+              value={Math.min(ritmo, Math.max(ritmoDiario * 3, 30000))}
+              onChange={(e) => onRitmoChange(Number(e.target.value))}
+              className="w-full accent-[var(--ck-alert)]"
+              aria-label="Simular ritmo de gasto diário"
+            />
+          </div>
+          <div className="mt-1 flex items-center justify-between text-[10px] text-[var(--ck-muted)]">
             <span>R$ 0</span>
             <button
               type="button"
               onClick={() => onRitmoChange(ritmoDiario)}
-              className="underline transition-colors hover:text-[var(--ck-text)]"
+              className="min-h-[44px] min-w-[44px] underline transition-colors hover:text-[var(--ck-text)]"
             >
               média atual ({moneyGlance(ritmoDiario)})
             </button>
