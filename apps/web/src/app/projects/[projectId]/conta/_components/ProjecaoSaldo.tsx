@@ -39,11 +39,6 @@ function SaldoTooltip({ active, payload }: { active?: boolean; payload?: Array<{
   );
 }
 
-/**
- * Runway de caixa: encadeia o saldo real de hoje mês a mês.
- * Gráfico de barras com 6 meses (corrente → dezembro).
- * Integra com simulador de ritmo em MonthView para recalcular ao vivo.
- */
 export function ProjecaoSaldo({
   serie,
   currentMonth,
@@ -58,19 +53,52 @@ export function ProjecaoSaldo({
   const forward = serie.filter((row) => row.mes >= currentMonth).slice(0, 6);
   if (forward.length < 2) return null;
 
-  const chartData: BarPoint[] = forward.map((row) => ({
-    mes: row.mes,
-    label: monthLabelShort(row.mes),
-    saldo: row.saldoProjetado,
-    negativo: row.saldoProjetado < 0,
-  }));
+  const isSimulating = simulatedRitmo !== undefined && simulatedRitmo !== baseRitmo;
 
-  const crossover = forward.find((row) => row.saldoProjetado < 0) ?? null;
-  const lowest = forward.reduce((min, row) => (row.saldoProjetado < min.saldoProjetado ? row : min), forward[0]);
-  const last = forward[forward.length - 1];
+  // Recalcular série quando ritmo muda: saldo(n) = saldo(n-1) + fixoLiquido(n) − (ritmo × dias)
+  let chartData: BarPoint[];
+  if (isSimulating && simulatedRitmo !== undefined) {
+    // Simulação: recalcular a partir do primeiro mês
+    chartData = [];
+    let accSaldo = forward[0]?.saldoProjetado ?? 0;
+    
+    for (let i = 0; i < forward.length; i++) {
+      const row = forward[i];
+      const label = monthLabelShort(row.mes);
+      
+      // Se for o primeiro mês (atual), usar saldo atual; caso contrário, recalcular
+      if (i === 0) {
+        accSaldo = row.saldoProjetado;
+      } else {
+        // saldo(n) = saldo(n-1) + fixoLiquido(n) − (ritmo × dias do mês)
+        const daysInMonth = new Date(parseInt(row.mes.split('-')[0]), parseInt(row.mes.split('-')[1]), 0).getDate();
+        const variavelMes = simulatedRitmo * daysInMonth;
+        const fixo = forward[i]?.fixoLiquido ?? (row.recebimentos - row.despesas);
+        accSaldo = accSaldo + fixo - variavelMes;
+      }
+      
+      chartData.push({
+        mes: row.mes,
+        label,
+        saldo: accSaldo,
+        negativo: accSaldo < 0,
+      });
+    }
+  } else {
+    // Default: usar série do backend
+    chartData = forward.map((row) => ({
+      mes: row.mes,
+      label: monthLabelShort(row.mes),
+      saldo: row.saldoProjetado,
+      negativo: row.saldoProjetado < 0,
+    }));
+  }
+
+  const crossover = chartData.find((row) => row.negativo) ?? null;
+  const lowest = chartData.reduce((min, row) => (row.saldo < min.saldo ? row : min), chartData[0]);
+  const last = chartData[chartData.length - 1];
 
   // Dinâmica visual: escala se o simulador mudou
-  const isSimulating = simulatedRitmo !== undefined && simulatedRitmo !== baseRitmo;
   const allValues = chartData.map(d => d.saldo);
   const min = Math.min(...allValues, 0);
   const max = Math.max(...allValues, 0);
@@ -87,7 +115,7 @@ export function ProjecaoSaldo({
           />
         </p>
         {isSimulating && (
-          <span className="text-[10px] text-lifeone-ink-2 italic">simulação</span>
+          <span className="text-[11px] text-lifeone-ink-2 italic">simulação</span>
         )}
       </div>
 
@@ -99,7 +127,7 @@ export function ProjecaoSaldo({
               {isSimulating ? 'Com esse ritmo' : 'No ritmo atual'}, o saldo fica negativo em {monthLabelLong(crossover.mes)}.
             </p>
             <p className="mt-0.5 text-xs text-[#B5803A]">
-              Pior ponto: <span className="font-semibold">{formatCurrency(lowest.saldoProjetado / 100)}</span> em{' '}
+              Pior ponto: <span className="font-semibold">{formatCurrency(lowest.saldo / 100)}</span> em{' '}
               {monthLabelLong(lowest.mes)}.
             </p>
           </div>
@@ -112,7 +140,7 @@ export function ProjecaoSaldo({
               {isSimulating ? 'Com esse ritmo' : 'No ritmo atual'}, o saldo se mantém positivo até {monthLabelLong(last.mes)}.
             </p>
             <p className="mt-0.5 text-xs text-lifeone-ink-3">
-              Menor ponto: <span className="font-semibold">{formatCurrency(lowest.saldoProjetado / 100)}</span> em{' '}
+              Menor ponto: <span className="font-semibold">{formatCurrency(lowest.saldo / 100)}</span> em{' '}
               {monthLabelLong(lowest.mes)}.
             </p>
           </div>
@@ -149,7 +177,7 @@ export function ProjecaoSaldo({
         </ResponsiveContainer>
       </div>
 
-      <p className="mt-2 text-center text-[10px] text-lifeone-ink-3">valores em milhares</p>
+      <p className="mt-2 text-center text-[11px] text-lifeone-ink-3">valores em milhares</p>
     </section>
   );
 }

@@ -60,12 +60,16 @@ export interface DreSaldoAcumuladoRow {
   recebimentos: number;
   despesas: number;
   recebimentosRealizados: number | null;
-  despesasRealizadas: number | null;
+  despesasRealizados: number | null;
   saldoProjetado: number;
   saldoRealizado: number | null;
   /** Saídas do mês por categoria (tipo de despesa). Chave = código do tipo,
    *  `__fatura__` para faturas de cartão, `__sem__` sem tipo. Valores em centavos. */
   despesasPorCategoria?: Record<string, number>;
+  /** Componente fixo/planejado líquido (receitas − despesas planejadas, em centavos).
+   *  Usado pelo simulador para recalcular barras quando ritmo muda. Imune a alterações
+   *  de ritmo diário — compromissos planejados não mudam. */
+  fixoLiquido?: number;
 }
 
 /** Candidato para a sheet "Como fechar no azul?" */
