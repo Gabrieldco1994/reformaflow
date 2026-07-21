@@ -63,7 +63,10 @@ function resolveSource(
   fileName: string | undefined,
   hint: SourceHint,
 ): 'OFX' | 'CSV_NUBANK' | 'CSV_ITAU' | 'CSV_GENERIC' {
-  if (hint !== 'AUTO' && hint !== 'PDF') return hint;
+  // XLSX é binário, nunca via parseStatement (que recebe string)
+  // Se hint for XLSX, é erro — não deve chegar aqui
+  if (hint === 'XLSX' || hint === 'PDF') return 'CSV_GENERIC'; // fallback
+  if (hint !== 'AUTO') return hint as any;
   const head = content.slice(0, 600).toUpperCase();
   if (head.includes('<OFX') || head.includes('OFXHEADER')) return 'OFX';
   const lower = (fileName ?? '').toLowerCase();
