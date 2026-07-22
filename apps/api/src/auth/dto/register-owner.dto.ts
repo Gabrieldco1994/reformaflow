@@ -1,11 +1,9 @@
 import { ProjectType } from '@reformaflow/domain';
 import {
-  ArrayNotEmpty,
   ArrayUnique,
   IsArray,
   IsEmail,
   IsEnum,
-  IsNotEmpty,
   IsOptional,
   IsString,
   Matches,
@@ -14,19 +12,20 @@ import {
 } from 'class-validator';
 
 export class RegisterOwnerDto {
+  @IsOptional()
   @IsString()
   @MinLength(3)
-  tenantName!: string;
+  tenantName?: string;
 
   @IsString()
   @MinLength(2)
   ownerName!: string;
 
-  @IsOptional()
   @IsString()
   @IsEmail()
-  email?: string;
+  email!: string;
 
+  @IsOptional()
   @IsString()
   @MinLength(3)
   @MaxLength(40)
@@ -34,15 +33,15 @@ export class RegisterOwnerDto {
     message:
       'Usuário deve conter apenas letras, números, ponto, hífen ou sublinhado',
   })
-  username!: string;
+  username?: string;
 
   @IsString()
   @MinLength(8)
   password!: string;
 
+  @IsOptional()
   @IsArray()
-  @ArrayNotEmpty()
   @ArrayUnique()
   @IsEnum(ProjectType, { each: true })
-  projectTypes!: ProjectType[];
+  projectTypes?: ProjectType[];
 }

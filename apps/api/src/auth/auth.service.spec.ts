@@ -70,6 +70,7 @@ describe('AuthService signup/guest/claim', () => {
     const out = await service.registerOwner({
       tenantName: 'Tenant',
       ownerName: 'Owner',
+      email: 'owner@example.com',
       username: 'Owner',
       password: '12345678',
       projectTypes: [ProjectType.CASA],
@@ -106,6 +107,7 @@ describe('AuthService signup/guest/claim', () => {
     await service.registerOwner({
       tenantName: 'Tenant',
       ownerName: 'Owner',
+      email: 'owner@example.com',
       username: 'Owner',
       password: '12345678',
       projectTypes: [ProjectType.CASA],
@@ -119,6 +121,7 @@ describe('AuthService signup/guest/claim', () => {
       service.registerOwner({
         tenantName: 'Tenant',
         ownerName: 'Owner',
+        email: 'owner@example.com',
         username: 'owner',
         password: '123456',
       }),
@@ -267,5 +270,181 @@ describe('AuthService signup/guest/claim', () => {
       where: { id: 'u-1' },
       data: { lastLoginAt: expect.any(Date) },
     });
+  });
+
+  it('registerOwner deriva username de email quando username não informado', async () => {
+    process.env['AUTH_ENABLE_REGISTER'] = '1';
+    let capturedUserData: any;
+    prisma.$transaction.mockImplementation(async (cb: (tx: any) => unknown) => {
+      const tx = {
+        tenant: {
+          create: jest.fn().mockResolvedValue({ id: 't-1', name: 'Vida de João' }),
+        },
+        user: {
+          findFirst: jest.fn().mockResolvedValue(null),
+          create: jest.fn().mockImplementation(({ data }: { data: any }) => {
+            capturedUserData = data;
+            return Promise.resolve({
+              id: 'u-1',
+              tenantId: 't-1',
+              ...data,
+            });
+          }),
+        },
+      };
+      return cb(tx);
+    });
+
+    const result = await service.registerOwner({
+      ownerName: 'João Silva',
+      email: 'joao@example.com',
+      password: '12345678',
+    });
+
+    expect(capturedUserData.username).toBe('joao');
+    expect(capturedUserData.email).toBe('joao@example.com');
+    expect(result.user.username).toBe('joao');
+  });
+
+  it('registerOwner resolve colisão de username com sufixo -2, -3, etc', async () => {
+    process.env['AUTH_ENABLE_REGISTER'] = '1';
+    let capturedUserData: any;
+    prisma.$transaction.mockImplementation(async (cb: (tx: any) => unknown) => {
+      const tx = {
+        tenant: {
+          create: jest.fn().mockResolvedValue({ id: 't-1', name: 'Vida de João' }),
+        },
+        user: {
+          findFirst: jest.fn()
+            .mockResolvedValueOnce(null) // email not exists
+            .mockResolvedValueOnce({ id: 'u-existing' }) // joao exists
+            .mockResolvedValueOnce({ id: 'u-existing-2' }) // joao-2 exists
+            .mockResolvedValueOnce(null), // joao-3 not exists
+          create: jest.fn().mockImplementation(({ data }: { data: any }) => {
+            capturedUserData = data;
+            return Promise.resolve({
+              id: 'u-new',
+              tenantId: 't-1',
+              ...data,
+            });
+          }),
+        },
+      };
+      return cb(tx);
+    });
+
+    const result = await service.registerOwner({
+      ownerName: 'João Silva',
+      email: 'joao@example.com',
+      password: '12345678',
+    });
+
+    expect(capturedUserData.username).toBe('joao-3');
+  });
+
+  it('registerOwner deriva tenantName de ownerName quando tenantName não informado', async () => {
+    process.env['AUTH_ENABLE_REGISTER'] = '1';
+    let capturedTenantData: any;
+    prisma.$transaction.mockImplementation(async (cb: (tx: any) => unknown) => {
+      const tx = {
+        tenant: {
+          create: jest.fn().mockImplementation(({ data }: { data: any }) => {
+            capturedTenantData = data;
+            return Promise.resolve({ id: 't-1', ...data });
+          }),
+        },
+        user: {
+          findFirst: jest.fn().mockResolvedValue(null),
+          create: jest.fn().mockResolvedValue({
+            id: 'u-1',
+            tenantId: 't-1',
+            username: 'joao',
+          }),
+        },
+      };
+      return cb(tx);
+    });
+
+    await service.registerOwner({
+      ownerName: 'João Silva',
+      email: 'joao@example.com',
+      password: '12345678',
+    });
+
+    expect(capturedTenantData.name).toBe('Vida de João');
+  });
+
+  it('registerOwner rejeita email duplicado com mensagem em português', async () => {
+    process.env['AUTH_ENABLE_REGISTER'] = '1';
+    prisma.$transaction.mockImplementation(async (cb: (tx: any) => unknown) => {
+      const tx = {
+        tenant: {
+          create: jest.fn().mockResolvedValue({ id: 't-1', name: 'Tenant' }),
+        },
+        user: {
+          findFirst: jest.fn().mockResolvedValue({ id: 'u-dup' }), // email exists
+          create: jest.fn(),
+        },
+      };
+      return cb(tx);
+    });
+
+    await expect(
+      service.registerOwner({
+        ownerName: 'João Silva',
+        email: 'joao@example.com',
+        password: '12345678',
+      }),
+    ).rejects.toThrow('Este e-mail já está cadastrado');
+  });
+
+  it('validateUser aceita login por email e normaliza para lowercase', async () => {
+    const passwordHash = await bcrypt.hash('12345678', 10);
+    prisma.user.findFirst.mockResolvedValue({
+      id: 'u-1',
+      email: 'joao@example.com',
+      tenant: { deletedAt: null },
+      isGuest: false,
+      passwordHash,
+    });
+    prisma.user.update.mockResolvedValue({});
+
+    const out = await service.validateUser('JOAO@EXAMPLE.COM', '12345678');
+
+    expect(out.id).toBe('u-1');
+    expect(prisma.user.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: expect.arrayContaining([
+            expect.objectContaining({ email: 'joao@example.com' }),
+          ]),
+        }),
+      }),
+    );
+  });
+
+  it('validateUser aceita login por username também', async () => {
+    const passwordHash = await bcrypt.hash('12345678', 10);
+    prisma.user.findFirst.mockResolvedValue({
+      id: 'u-1',
+      username: 'joao',
+      tenant: { deletedAt: null },
+      isGuest: false,
+      passwordHash,
+    });
+    prisma.user.update.mockResolvedValue({});
+
+    const out = await service.validateUser('joao', '12345678');
+
+    expect(out.id).toBe('u-1');
+    expect(prisma.user.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: expect.arrayContaining([
+            expect.objectContaining({ username: 'joao' }),
+          ]),
+        }),
+      }),
+    );
   });
 });

@@ -61,12 +61,21 @@ export class AuthService {
     };
   }
 
-  async validateUser(username: string, password: string) {
-    const normalizedUsername = this.normalizeUsername(username);
+  async validateUser(input: string, password: string) {
+    const normalizedInput = this.normalizeUsername(input);
+    const isEmail = input.includes('@');
+    
     const user = await this.prisma.user.findFirst({
-      where: { username: normalizedUsername, deletedAt: null },
+      where: {
+        OR: [
+          { username: normalizedInput },
+          ...(isEmail ? [{ email: input.toLowerCase() }] : []),
+        ],
+        deletedAt: null,
+      },
       include: { tenant: true },
     });
+    
     if (!user || user.tenant.deletedAt || user.isGuest || !user.passwordHash) {
       throw new UnauthorizedException('Credenciais inválidas');
     }
@@ -80,44 +89,62 @@ export class AuthService {
   }
 
   async registerOwner(input: {
-    tenantName: string;
+    tenantName?: string;
     ownerName: string;
-    email?: string;
-    username: string;
+    email: string;
+    username?: string;
     password: string;
     projectTypes?: ProjectType[];
   }) {
     if (process.env['AUTH_ENABLE_REGISTER'] !== '1') {
       throw new NotFoundException();
     }
-    if (!input.projectTypes || input.projectTypes.length === 0) {
-      throw new BadRequestException('Selecione ao menos um objetivo');
-    }
-    const username = this.normalizeUsername(input.username);
-    const access = deriveObjectiveAccess(input.projectTypes);
+    
+    const projectTypes = input.projectTypes || [];
+    const access = deriveObjectiveAccess(projectTypes);
     const passwordHash = await bcrypt.hash(input.password, BCRYPT_ROUNDS);
+    
+    // Derive username from email if not provided
+    const baseUsername = input.username || input.email.split('@')[0];
+    const normalizedBase = this.normalizeUsername(baseUsername);
+    
+    // Derive tenantName from ownerName if not provided
+    const tenantName = input.tenantName || `Vida de ${input.ownerName.split(' ')[0]}`;
 
     try {
       return await this.prisma.$transaction(async (tx) => {
-        // Creating the tenant first acquires SQLite's write lock. The duplicate
-        // check then runs inside the same transaction, so concurrent signups
-        // cannot both observe an available canonical username.
         const tenant = await tx.tenant.create({
-          data: { name: input.tenantName.trim() },
+          data: { name: tenantName.trim() },
         });
-        const duplicate = await tx.user.findFirst({
-          where: { username, deletedAt: null },
+        
+        // Check email uniqueness first
+        const emailExists = await tx.user.findFirst({
+          where: { email: input.email.toLowerCase(), deletedAt: null },
           select: { id: true },
         });
-        if (duplicate)
-          throw new BadRequestException(DUPLICATE_USERNAME_MESSAGE);
+        if (emailExists) {
+          throw new BadRequestException('Este e-mail já está cadastrado');
+        }
+        
+        // Resolve username collisions by suffixing -2, -3, etc
+        let resolvedUsername = normalizedBase;
+        let suffix = 2;
+        while (true) {
+          const duplicate = await tx.user.findFirst({
+            where: { username: resolvedUsername, deletedAt: null },
+            select: { id: true },
+          });
+          if (!duplicate) break;
+          resolvedUsername = `${normalizedBase}-${suffix}`;
+          suffix++;
+        }
 
         const user = await tx.user.create({
           data: {
             tenantId: tenant.id,
-            username,
+            username: resolvedUsername,
             name: input.ownerName.trim(),
-            email: input.email ? input.email.trim() : null,
+            email: input.email.toLowerCase(),
             role: SELF_SERVICE_ROLE,
             passwordHash,
             isGuest: false,
@@ -129,11 +156,14 @@ export class AuthService {
         return { tenant, user };
       });
     } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'
       ) {
-        throw new BadRequestException(DUPLICATE_USERNAME_MESSAGE);
+        throw new BadRequestException('Este e-mail já está cadastrado');
       }
       throw error;
     }

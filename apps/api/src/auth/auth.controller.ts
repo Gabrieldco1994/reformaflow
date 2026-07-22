@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -72,7 +73,9 @@ export class AuthController {
     @Body() dto: LoginDto,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const user = await this.auth.validateUser(dto.username, dto.password);
+    const input = dto.username || dto.email;
+    if (!input) throw new BadRequestException('Informe usuário ou e-mail');
+    const user = await this.auth.validateUser(input, dto.password);
     const token = this.auth.issueToken(user);
     res.cookie(COOKIE_NAME, token, COOKIE_OPTIONS);
     return { user: this.auth.buildPublicUser(user), token };
