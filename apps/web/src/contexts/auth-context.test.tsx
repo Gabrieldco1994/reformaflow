@@ -76,6 +76,12 @@ function Probe() {
           Update objectives
         </button>
       )}
+      <button onClick={() => auth.login("maria", "segredo1")}>
+        Login with username
+      </button>
+      <button onClick={() => auth.login("Maria@Example.com", "segredo1")}>
+        Login with email
+      </button>
     </>
   );
 }
@@ -166,5 +172,30 @@ describe("AuthProvider SaaS session contract", () => {
       projectTypes: ["PLANTAS"],
     });
     expect(screen.getByTestId("user")).toHaveTextContent(JSON.stringify(fresh));
+  });
+
+  it("routes a plain identifier as username and an e-mail as email on login", async () => {
+    apiMocks.get.mockResolvedValueOnce(null);
+    apiMocks.post.mockResolvedValue({ user });
+    const browser = userEvent.setup();
+
+    render(
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>,
+    );
+    await waitFor(() => expect(apiMocks.get).toHaveBeenCalledTimes(1));
+
+    await browser.click(screen.getByRole("button", { name: "Login with username" }));
+    await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith("/auth/login", {
+      username: "maria",
+      password: "segredo1",
+    }));
+
+    await browser.click(screen.getByRole("button", { name: "Login with email" }));
+    await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith("/auth/login", {
+      email: "maria@example.com",
+      password: "segredo1",
+    }));
   });
 });

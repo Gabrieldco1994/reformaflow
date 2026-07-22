@@ -66,12 +66,12 @@ export interface AuthUser {
 }
 
 export interface RegistrationInput {
-  tenantName: string;
+  tenantName?: string;
   ownerName: string;
-  email?: string;
-  username: string;
+  email: string;
+  username?: string;
   password: string;
-  projectTypes: ProjectType[];
+  projectTypes?: ProjectType[];
 }
 
 export interface AuthContextValue {
@@ -110,11 +110,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     refresh();
   }, [refresh]);
 
-  const login = useCallback(async (username: string, password: string) => {
-    const res = await api.post<{ user: AuthUser }>("/auth/login", {
-      username,
-      password,
-    });
+  const login = useCallback(async (identifier: string, password: string) => {
+    // The identifier can be a username or an e-mail; LoginDto validates each
+    // field with a different format, so it must be routed to the matching key.
+    const body = identifier.includes("@")
+      ? { email: identifier.toLowerCase(), password }
+      : { username: identifier, password };
+    const res = await api.post<{ user: AuthUser }>("/auth/login", body);
     setUser(res.user);
     return res.user;
   }, []);

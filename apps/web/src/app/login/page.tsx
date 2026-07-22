@@ -86,7 +86,7 @@ function LoginForm() {
           <div className="space-y-4">
             <div>
               <label htmlFor="login-username" className="block text-[12px] font-medium text-lifeone-ink-2 mb-1.5">
-                Usuário
+                E-mail ou usuário
               </label>
               <input
                 id="login-username"

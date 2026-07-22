@@ -61,27 +61,23 @@ test("CTA to fresh session and explicitly named first project", async ({
   await page.getByRole("link", { name: /criar minha conta/i }).click();
   await expect(page).toHaveURL(/\/register$/);
 
-  await page.getByLabel(/nome do seu espaço/i).fill("Acme");
   await page.getByLabel(/^seu nome$/i).fill("Maria");
-  await page.getByLabel(/usuário/i).fill("Maria.Silva");
+  await page.getByLabel(/email/i).fill("maria@example.com");
   await page.getByLabel(/^senha$/i).fill("segredo123");
-  await page.getByLabel(/confirmar senha/i).fill("segredo123");
-  await page.getByRole("checkbox", { name: /^Cuidar da casa/i }).check();
   await page.getByRole("button", { name: /criar conta/i }).click();
 
-  await expect(page).toHaveURL(/\/onboarding\/setup\?type=CASA$/);
+  // Default projectTypes is PESSOAL (server-side), so redirect is /onboarding/setup?type=PESSOAL
+  await expect(page).toHaveURL(/\/onboarding\/setup\?type=PESSOAL$/);
   expect(registerBodies).toEqual([
     {
-      tenantName: "Acme",
       ownerName: "Maria",
-      username: "Maria.Silva",
+      email: "maria@example.com",
       password: "segredo123",
-      projectTypes: ["CASA"],
     },
   ]);
   expect(projectBodies).toEqual([]);
 
-  await page.getByLabel(/nome do projeto/i).fill("Minha Casa");
+  await page.getByLabel(/nome do projeto/i).fill("Minha Vida Financeira");
   await page.getByRole("button", { name: /criar e continuar/i }).click();
-  expect(projectBodies).toEqual([{ name: "Minha Casa", type: "CASA" }]);
+  expect(projectBodies).toEqual([{ name: "Minha Vida Financeira", type: "PESSOAL" }]);
 });
