@@ -14,10 +14,36 @@ export default function RegisterPage() {
           </Link>
         </header>
 
-        <div className="lg:flex lg:items-center lg:gap-10">
-          <RegisterHero />
-          <div className="mt-6 lg:mt-0 lg:w-[420px] lg:shrink-0">
+        {/*
+          Mobile: single column, natural DOM order (Intro -> Maria -> Form -> Benefits -> Phone -> Trust).
+          Desktop: two independent columns via explicit grid placement (form fixed on the right).
+        */}
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_420px] lg:auto-rows-min lg:items-start lg:gap-x-10 lg:gap-y-8">
+          <div className="lg:col-start-1 lg:row-start-1">
+            <RegisterHero.Intro />
+          </div>
+
+          <div className="lg:col-start-1 lg:row-start-2">
+            <RegisterHero.Maria />
+          </div>
+
+          <div className="lg:col-start-2 lg:row-start-1 lg:row-span-5">
             <RegisterForm />
+            <div className="mt-4">
+              <RegisterHero.SocialProof />
+            </div>
+          </div>
+
+          <div className="lg:col-start-1 lg:row-start-3">
+            <RegisterHero.Benefits />
+          </div>
+
+          <div className="lg:col-start-1 lg:row-start-4">
+            <RegisterHero.Phone />
+          </div>
+
+          <div className="lg:col-start-1 lg:row-start-5">
+            <RegisterHero.Trust />
           </div>
         </div>
       </div>

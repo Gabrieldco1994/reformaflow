@@ -25,6 +25,14 @@ describe("/register 3-field registration", () => {
   it("exists as an explicit public registration page", () => {
     expect(RegisterPage).toBeDefined();
   });
+
+  it("renders the value-prop headline, the Maria card, and a single registration form", () => {
+    render(<RegisterPage />);
+
+    expect(screen.getByText(/controle, planeje tudo em um só app/i)).toBeInTheDocument();
+    expect(screen.getByText(/maria, sua copiloto no lifeone/i)).toBeInTheDocument();
+    expect(screen.getAllByLabelText(/seu nome/i)).toHaveLength(1);
+  });
 });
 
 describe("/register form behavior", () => {
