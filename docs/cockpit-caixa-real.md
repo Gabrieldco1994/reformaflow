@@ -290,3 +290,47 @@ passou a dividir **sempre por 12** (ano cheio normalizado), igual a
 `gastoMedioMensal` e ao ticket médio geral. Antes dividia pelo nº de **meses
 ativos** (com gasto pago), o que dava um número maior e inconsistente com os
 demais KPIs mensais. Base inalterada: só pagas, espelho/neutro-de-consumo fora.
+
+## 11. Projeção multi-mês + simulador de ritmo (W5, jul/2026, PR #242)
+
+**Transformação:** o strip de 6 caixas planas (mês corrente → dezembro) vira um **gráfico de barras** interativo com simulador de ritmo diário.
+
+### Contrato — decomposição fixo × variável
+
+A projeção **MESMA série** (não criar segundo motor):
+- `saldoProjetado(n) = saldoProjetado(n-1) + fixoLiquido(n) − (ritmo × dias_do_mês)`
+- **fixoLiquido(n)** = entrada planejada − compromisso planejado (faturas + parcelas já agendadas).
+- **Variável** = gasto diário × dias do mês (iterável pelo cursor).
+- **Anchored** ao mês corrente (não recalcula realizado).
+- **Compromisso fixo imune** ao cursor: se multiplicasse tudo (fixo + variável × ritmo), mentiria.
+
+### Backend (aditivo, sem migration)
+
+- **Novo campo:** `DreSaldoAcumuladoRow.fixoLiquido` (centavos, entrada planejada − compromisso líquido por mês).
+- **Derivação:** mesmo cálculo de `getAccountView` / `saldoAcumuladoSerie`; não duplica lógica.
+- **Candidatos a adiar/reduzir/remover** (runwayActionSheet): despesas PLANEJADAS reais até o mês de virada (saldo fico), top 5 por valor, excluindo neutros/faturas/realizados/espelhos.
+
+### Frontend (ProjecaoSaldo.tsx)
+
+- **Recalculation quando simular:** `recalculateSeries(baseRitmo, simulatedRitmo, monthlyData)`.
+- **Paridade:** com cursor no ritmo atual (`simulatedRitmo === baseRitmo`), valores são **idênticos** aos do backend (teste automatizado).
+- **Gráfico:** 6 barras (mês corrente → dezembro), zero line, cores por sinal (positivo=success, negativo=danger), mês + valor abreviado sob cada barra.
+- **Narrativa** recalculada ao vivo: crossover (primeiro mês com saldo projetado < 0), delta vs oficial.
+- **Cursor:** faixa 0 → teto do ritmo atual; thumb ≥44px (mobile); afordância "voltar ao ritmo atual".
+- **Simulação marcada:** badge "Simulação" nos valores; status oficial não muda.
+
+### Aceite (W5)
+
+1. ✅ Gráfico substitui strip; zero line + cores por sinal.
+2. ✅ Cursor recalcula barras + narrativa (paridade cursor-default × backend = teste).
+3. ✅ Compromissos planejados (faturas, parcelas) preservados com ritmo=0 (teste).
+4. ✅ Nada persistido; "voltar ao ritmo atual" restaura.
+5. ✅ Piso tipográfico (≥11px); nenhum valor <11px.
+6. ✅ vitest + tsc + jest verdes (monthly-overview.*.spec + motor-unico-parity).
+
+### Referência (W5)
+
+- Backend: `apps/api/src/monthly-overview/monthly-overview.service.ts` (fixoLiquido export).
+- Frontend: `apps/web/src/app/projects/[projectId]/conta/_components/ProjecaoSaldo.tsx` (recalculation logic).
+- Testes: `ProjecaoSaldo.test.tsx` (paridade + compromisso fixo), `monthly-overview.candidatos.spec.ts` (seletor), motor-unico-parity (invariantes).
+

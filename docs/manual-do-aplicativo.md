@@ -145,20 +145,30 @@ PESSOAL. O stepper tem 3 partes:
 2. **Passo(s) de âncora, específico(s) do tipo** — cada tipo tem seu próprio
    conjunto, sempre **pulável**:
    - **Pessoal:** Conta bancária (com o campo-herói "Quanto você tem na conta
-     hoje?" — base do Caixa Real) → Cartão de crédito → Despesa rápida →
-     Recebimento rápido.
-   - **Reforma:** Despesa rápida.
-   - **Compra:** Despesa rápida.
+     hoje?" — base do Caixa Real) → Cartão de crédito → Lançar despesa (W5: 3 abas de modo) →
+     Recebimento rápido → **Import em massa (opcional, ativado por contagem de cartões/contas)**.
+   - **Reforma:** Lançar despesa.
+   - **Compra:** Lançar despesa.
    - **Casa:** Conta recorrente (água, luz, condomínio…).
    - **Carro:** Dados do veículo (placa, modelo, ano…).
    - **Plantas:** Cadastro de planta (nome, espécie, ambiente…).
+
+   **Modos de lançamento de despesa (W5):**
+   O passo "Lançar despesa" oferece 3 abas:
+   - **Despesa** (aba 1): formulário rápido (valor, data, descrição) — teclado.
+   - **Voz** (aba 2): fale a despesa — mãos livres. Ex.: *"Mercado 45 reais"* → cria despesa com valor e descrição. Requer permissão de microfone.
+   - **Foto** (aba 3): tire foto de nota/extrato ou selecione arquivo. Parser extrai data, valor e descrição automaticamente (suporta formatos PDF e imagem).
+   
+   **Import em massa (passo opcional):** ativado quando o usuário tem ≥2 cartões/contas. Permite fazer upload de arquivos Excel (.xlsx/.xls) para importar múltiplas despesas de uma vez (faturas, extratos). Processa o arquivo, valida, e mostra preview antes de confirmar a importação.
+
 3. **Pronto:** tela final de confirmação; redireciona automaticamente para o
    **guia de apoio do projeto** (`/projects/:id/apoio`) — nunca direto para o
    Cockpit/Dashboard (`/monthly` ou similar).
 
-O critério central permanece o mesmo do fluxo original do PESSOAL: quem segue o
-caminho feliz sai do assistente com pelo menos um lançamento/dado real
-cadastrado, e sempre passa pelo guia de apoio antes do cockpit.
+O critério central permanece o mesmo: quem segue o caminho feliz sai do
+assistente com pelo menos um lançamento/dado real cadastrado, e sempre passa
+pelo guia de apoio antes do cockpit.
+
 
 ### 3.2 Hub — Meus Projetos (`/projects`)
 Ponto de entrada depois do login. Lista todos os projetos que o usuário pode ver.
@@ -275,18 +285,28 @@ Cada KPI tem um **botão de ajuda (ⓘ)** que explica o cálculo ao passar o mou
   maior para o menor e esconde origens sem gasto. Link **"ver"** leva ao módulo do
   cartão/conta.
 
-**Gráfico "Fluxo de caixa do mês" (visão Mês):**
-- Linha do saldo ao longo do mês (começa no caixa real; inclui cartão ainda não
-  debitado como projeção).
-- **Slider "Ritmo de gasto diário":** simula quanto você gastaria por dia; abaixo,
-  *"Se manter esse ritmo, termina o mês com R$ …"* recalcula o fechamento
-  projetado. Link **"média atual"** volta o slider ao ritmo real do mês.
+**Projeção multi-mês (W5, novo):**
+- **Gráfico de barras** (mês corrente → dezembro): saldo acumulado por mês, 6 barras com zero line visível.
+- Cada barra mostra mês (ex.: "Jul") e valor abreviado (ex.: "R$ 5,2k"). Positivo = verde (success), negativo = vermelho (danger).
+- **Slider "Ritmo de gasto diário"** (interativo): simula quanto você gastaria por dia. As barras e a projeção recalculam ao vivo.
+- Narrativa atualizada: *"No ritmo [simulado], o mês fecha em R$ …"* e, se negativo, *"o saldo vira negativo em [mês]"*.
+- Link **"Voltar ao ritmo atual"** restaura a simulação ao real.
+- **Quando fechar no vermelho:** botão **"Como fechar no azul?"** → sheet com até 5 maiores gastos planejados até o mês de virada, cada um com ações rápidas:
+  - **Adiar:** data da despesa (reschedule).
+  - **Reduzir:** novo valor.
+  - **Remover:** delete.
+  Ao confirmar qualquer ação, o gráfico recalcula; nada é persistido até você descartar a sheet.
+- **Regra:** o slider só toca gasto variável; compromissos planejados (faturas, parcelas) permanecem fixos. Com ritmo 0, os compromissos continuam visíveis (só o variável some).
+
+**Gráfico "Fluxo de caixa do mês" (visão Mês, removido):**
+- Substituído pela projeção multi-mês (redunda com o novo gráfico de barras).
 
 **Seções da visão Mês (abaixo do gráfico):**
 - **Principais gastos:** barras por categoria (participação % no mês).
 - **Comprometimento futuro (cartão):** parcelas/lançamentos planejados por mês de
   saída, no eixo atual (quanto do futuro já está comprometido).
 - **Saúde financeira:** reserva de emergência (meses de despesa cobertos) e sinais.
+
 
 **Aba Extrato:**
 - **Extrato de saídas:** todas as saídas do mês em ordem de data, agrupadas por dia.

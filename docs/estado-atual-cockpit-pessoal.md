@@ -1,6 +1,6 @@
 # Estado Atual — Cockpit/Visão Conta (PESSOAL)
 
-Atualizado em: **2026-07-19**
+Atualizado em: **2026-07-22** (W5 — projeção + simulador + onboarding voz/foto)
 
 Histórico detalhado: `docs/archive/estado-atual-historico-2026.md`.
 
@@ -11,6 +11,7 @@ Histórico detalhado: `docs/archive/estado-atual-historico-2026.md`.
 - ✅ Skin Minimal mobile PESSOAL (PR #125) e Stage A cross-project (PR #136) em produção.
 - ✅ Auditoria técnica abriu #94/#95/#96/#97/#98; continuam como trilhas de evolução (não regressão do entregue).
 - ✅ PR #145 (spec review/arquivamento) mergeado em `main` em 2026-07-15.
+- ✅ **W5** (PR #242/#241/#243) — Cockpit projeção com gráfico de barras (mês corrente → dezembro), simulador de ritmo diário (recalcula barras ao vivo), seletor de candidatos para adiar/reduzir/remover gastos planejados. Onboarding W5: lançamento por voz/foto + import em massa. Parser Excel para extratos/faturas. Tudo em `main`.
 - 🚀 Deploy web (Vercel) e API (Fly) continuam automáticos pelo `main`.
 - 🔧 PR #174 (draft, `feat/conta-unificada`): Visão Conta unificada (Lista + Por
   categoria/projeto, filtros com "Limpar filtros", expandir fatura inline) e
