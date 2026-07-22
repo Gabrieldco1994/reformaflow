@@ -27,8 +27,7 @@ export function ObjectiveSelector({
 
   return (
     <fieldset disabled={disabled} className="min-w-0">
-      <legend className="text-[15px] font-semibold text-lifeone-ink">{legend}</legend>
-      <p className="mt-1 text-[13px] text-lifeone-ink-3">Escolha uma ou mais. Você poderá alterar depois.</p>
+      <legend className="sr-only">{legend}</legend>
       <div className="relative mt-4 grid min-w-0 gap-3 sm:grid-cols-2" data-testid="objective-constellation">
         <svg className="pointer-events-none absolute inset-8 hidden h-[calc(100%-4rem)] w-[calc(100%-4rem)] sm:block" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
           <path d="M10 12 L88 12 L12 50 L88 50 L12 88 L88 88" fill="none" stroke="#DAD5CC" strokeWidth="0.8" strokeDasharray="2 3" />
