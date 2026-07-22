@@ -54,7 +54,7 @@ export function RegisterForm() {
         },
         idempotencyKey.current,
       );
-      router.replace('/onboarding/setup?type=PESSOAL');
+      router.replace('/onboarding/objetivos');
     } catch (caught) {
       if (caught instanceof ApiResponseError) idempotencyKey.current = newIdempotencyKey();
       setError(caught instanceof Error ? caught.message : 'Não foi possível criar sua conta. Tente novamente.');

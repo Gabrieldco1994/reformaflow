@@ -183,6 +183,11 @@ export class AuthService {
   }
 
   async updateSelfObjectives(userId: string, projectTypes: ProjectType[]) {
+    if (!projectTypes || projectTypes.length === 0) {
+      throw new BadRequestException(
+        'Selecione ao menos um objetivo — isso zeraria o acesso da conta',
+      );
+    }
     const access = deriveObjectiveAccess(projectTypes);
     const user = await this.findActiveUser(userId);
     const updated = await this.prisma.user.update({
