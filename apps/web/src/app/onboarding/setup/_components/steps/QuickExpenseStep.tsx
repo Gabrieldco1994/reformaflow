@@ -234,11 +234,13 @@ export function QuickExpenseStep({ projectId, projectType, onDone, onSkip }: Onb
             <button
               onClick={handleSave}
               disabled={!canSubmit || saving}
+              aria-describedby={!canSubmit ? 'qe-helper' : undefined}
               className="flex min-h-11 w-full items-center justify-center gap-2 rounded-[10px] bg-lifeone-blue px-4 py-3 text-[14px] font-semibold text-white hover:brightness-95 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {saving ? 'Salvando…' : 'Criar e continuar'}
               {!saving && <ArrowRight className="h-4 w-4" />}
             </button>
+            {!canSubmit && <p id="qe-helper" className="text-[12px] text-lifeone-ink-3">Informe o valor para continuar.</p>}
             <button
               onClick={onSkip}
               className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] text-lifeone-ink-3 hover:text-lifeone-ink"
