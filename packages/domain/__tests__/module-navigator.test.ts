@@ -99,12 +99,13 @@ describe('getProjectNavModules', () => {
     ]);
   });
 
-  it('COMPRA expõe fluxo financeiro + monitoramento de preços', () => {
+  it('COMPRA expõe fluxo financeiro + simulação + monitoramento de preços', () => {
     expect(getProjectNavModules(ProjectType.COMPRA).map((m) => m.slug)).toEqual([
       'dashboard',
       'expenses',
       'receipts',
       'cash-flow',
+      'simulation',
       'price-compare',
     ]);
   });

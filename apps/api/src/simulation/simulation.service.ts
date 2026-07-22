@@ -76,7 +76,8 @@ export class SimulationService {
   /* ───── Main simulation data ───── */
 
   async getData(tenantId: string, projectId: string, scenarioId?: string) {
-    await this.validateProject(tenantId, projectId);
+    const project = await this.validateProject(tenantId, projectId);
+    const hasReformaBreakdown = project.type === 'REFORMA';
 
     // Projetos financiados por alocação de orçamento (ex.: REFORMA recebendo budget
     // de um projeto PESSOAL) não possuem `receipt`; o recebimento é registrado como
@@ -159,22 +160,30 @@ export class SimulationService {
           });
 
     // Despesas consolidadas por ambiente → tipos → categorias
-    const expenseTypes = [
-      'MATERIAL_CONSTRUCAO', 'ELETRODOMESTICO', 'REVESTIMENTO', 'ILUMINACAO',
-      'MARMORE', 'VIDRACARIA_SERRALHERIA', 'METAL_CERAMICA', 'MARCENARIA', 'MAO_DE_OBRA',
-    ];
-    const laborCategories = [
-      'EMPREITEIRO', 'INSTALADOR_PISO', 'INSTALADOR_MARMORE', 'PINTOR',
-      'ELETRICISTA', 'VIDRACEIRO', 'SERRALHEIRO', 'MARCENEIRO',
-    ];
+    const expenseTypes = hasReformaBreakdown
+      ? [
+          'MATERIAL_CONSTRUCAO', 'ELETRODOMESTICO', 'REVESTIMENTO', 'ILUMINACAO',
+          'MARMORE', 'VIDRACARIA_SERRALHERIA', 'METAL_CERAMICA', 'MARCENARIA', 'MAO_DE_OBRA',
+        ]
+      : [];
+    const laborCategories = hasReformaBreakdown
+      ? [
+          'EMPREITEIRO', 'INSTALADOR_PISO', 'INSTALADOR_MARMORE', 'PINTOR',
+          'ELETRICISTA', 'VIDRACEIRO', 'SERRALHEIRO', 'MARCENEIRO',
+        ]
+      : [];
 
-    const allRooms = await this.prisma.room.findMany({
-      where: { projectId },
-      orderBy: { order: 'asc' },
-    });
+    const allRooms = hasReformaBreakdown
+      ? await this.prisma.room.findMany({
+          where: { projectId },
+          orderBy: { order: 'asc' },
+        })
+      : [];
 
     // Rateio de Mão de Obra Empreiteiro entre ambientes com valor > 0.
-    const expensesAllocated = allocateEmpreiteiroExpenses(expenses);
+    const expensesAllocated = hasReformaBreakdown
+      ? allocateEmpreiteiroExpenses(expenses)
+      : [];
 
     const roomGroups = new Map<string, { label: string; expenses: typeof expensesAllocated }>();
     for (const room of allRooms) {

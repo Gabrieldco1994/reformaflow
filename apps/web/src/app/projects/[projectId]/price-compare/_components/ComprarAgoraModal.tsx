@@ -79,6 +79,8 @@ export function ComprarAgoraModal({ item, projectId, onClose }: ComprarAgoraModa
         queryKey: ['price-monitor', projectId],
       });
       queryClient.invalidateQueries({ queryKey: ['expenses', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['cash-flow', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['simulation', projectId] });
       toast.success('Compra registrada e monitoramento encerrado');
       onClose();
     },

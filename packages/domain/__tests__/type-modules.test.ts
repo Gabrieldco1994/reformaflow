@@ -35,7 +35,7 @@ describe('TYPE_MODULES (single source of truth for the access gate)', () => {
         'creditCards',
         'pendencias',
       ],
-      COMPRA: ['dashboard', 'expenses', 'receipts', 'cashFlow', 'creditCards', 'priceCompare'],
+      COMPRA: ['dashboard', 'expenses', 'receipts', 'cashFlow', 'creditCards', 'simulation', 'priceCompare'],
       PESSOAL: [
         'dashboard',
         'expenses',

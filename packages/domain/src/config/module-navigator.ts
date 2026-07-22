@@ -35,6 +35,7 @@ export const PROJECT_NAV: Record<ProjectType, NavModule[]> = {
     { slug: 'expenses', label: 'Despesas', iconName: 'Receipt', module: 'expenses' },
     { slug: 'receipts', label: 'Recebimentos', iconName: 'Wallet', module: 'receipts' },
     { slug: 'cash-flow', label: 'Fluxo de Caixa', iconName: 'ArrowLeftRight', module: 'cashFlow' },
+    { slug: 'simulation', label: 'Simulação', iconName: 'FlaskConical', module: 'simulation' },
     { slug: 'price-compare', label: 'Preços', iconName: 'Tags', module: 'priceCompare' },
   ],
   [ProjectType.PESSOAL]: [

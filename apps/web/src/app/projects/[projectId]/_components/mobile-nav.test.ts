@@ -22,7 +22,7 @@ const NON_PERSONAL_MATRIX = [
   {
     type: ProjectType.COMPRA,
     primary: ['dashboard', 'expenses', 'receipts'],
-    secondary: ['cash-flow', 'price-compare'],
+    secondary: ['cash-flow', 'simulation', 'price-compare'],
   },
   {
     type: ProjectType.CASA,

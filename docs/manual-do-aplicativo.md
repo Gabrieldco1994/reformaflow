@@ -46,7 +46,7 @@ módulos (abas) ficam disponíveis:
 | **REFORMA** | Controle financeiro e visual de uma obra/reforma | Dashboard, Despesas, Recebimentos, Fluxo de Caixa, Cômodos, Plantas, Simulação, Cronograma, Comparar Preço, Pendências |
 | **CASA** | Gestão da casa (financiamento, contas fixas, manutenções, lembretes) | Dashboard, Financiamento, Contas recorrentes, Manutenção, Lembretes, Despesas |
 | **CARRO** | Gestão do carro | Dashboard, Carro (dados), Documentos, Contas recorrentes, Manutenção, Lembretes, Despesas |
-| **COMPRA** | Acompanhar uma compra grande (casa, carro etc.) | Dashboard, Despesas, Recebimentos, Fluxo de Caixa, Preços |
+| **COMPRA** | Acompanhar uma compra grande (casa, carro etc.) | Dashboard, Despesas, Recebimentos, Fluxo de Caixa, Simulação, Preços |
 
 > Os módulos e sua ordem de navegação por tipo vivem em
 > `packages/domain/src/config/module-navigator.ts`.
@@ -779,9 +779,17 @@ Igual ao §6.3, com coluna **Km** adicional na tabela.
 ## 8. Projeto COMPRA
 
 Para acompanhar uma compra grande (casa, carro, etc.).
-- Módulos: **Dashboard**, **Despesas**, **Recebimentos**, **Fluxo de Caixa**, **Preços** —
+- Módulos: **Dashboard**, **Despesas**, **Recebimentos**, **Fluxo de Caixa**, **Simulação**, **Preços** —
   mesma mecânica descrita nas seções do PESSOAL/REFORMA.
 - Em **Preços** (`/price-compare`), há uma tela própria de watchlist para monitorar produtos e atualizar cotações.
+- Em **Simulação** (`/simulation`), cenários financeiros reutilizam as despesas,
+  recebimentos e o fluxo de caixa reais do projeto, sem ambientes ou categorias de
+  obra. Cada cenário pode incluir ou excluir produtos ativos de Preços, simular
+  pagamento à vista ou parcelado e comparar **total planejado**, **saldo projetado**
+  e **impacto mensal**.
+- **Comprar agora** dentro do cenário abre o mesmo fluxo de Preços. A confirmação
+  cria uma única despesa real e encerra o monitoramento; antes disso, as escolhas
+  permanecem apenas no cenário.
 - Tipos de despesa próprios: Entrada, Financiamento, Documentação, Cartório,
   Imposto, Seguro, Vistoria, Mudança, Outros.
 

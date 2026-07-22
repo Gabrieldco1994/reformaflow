@@ -3,17 +3,21 @@ import { useProject } from '@/contexts/project-context';
 
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { ProjectType } from '@reformaflow/domain';
 import { api } from '@/lib/api';
 import type { CashFlowEntry } from '@/types';
+import { CompraCompareView } from './_components/CompraCompareView';
+import { CompraScenarioView } from './_components/CompraScenarioView';
 import { CompareView } from './_components/CompareView';
 import { MonthlyProjection } from './_components/MonthlyProjection';
 import { ShoppableSimulationView } from './_components/ShoppableSimulationView';
 import { SimulationHero } from './_components/SimulationHero';
 import { useSimulationScenarios } from './_hooks/useSimulationScenarios';
-import type { SimMode } from './_types';
+import type { CompraPriceMonitorItem, SimMode } from './_types';
 
 export default function SimulationPage() {
-  const { projectId: PROJECT_ID } = useProject();
+  const { projectId: PROJECT_ID, projectType } = useProject();
+  const isCompra = projectType === ProjectType.COMPRA;
   const [simMode, setSimMode] = useState<SimMode>('simulacao');
 
   // Compare mode state
@@ -57,6 +61,15 @@ export default function SimulationPage() {
     queryKey: ['cash-flow', PROJECT_ID],
     queryFn: () => api.get(`/projects/${PROJECT_ID}/cash-flow`),
   });
+  const {
+    data: monitoredItems = [],
+    isLoading: monitoredItemsLoading,
+    isError: monitoredItemsError,
+  } = useQuery<CompraPriceMonitorItem[]>({
+    queryKey: ['price-monitor', PROJECT_ID],
+    queryFn: () => api.get(`/projects/${PROJECT_ID}/price-monitor/items`),
+    enabled: isCompra,
+  });
   const realProjectedSaldoCents = cfEntries.at(-1)?.rollingBalance;
 
   if (scenariosLoading) return <div className="text-gray-500">Carregando...</div>;
@@ -66,7 +79,11 @@ export default function SimulationPage() {
   return (
     <div className="space-y-4">
       {/* Header + scenario toolbar */}
-      <div className="flex items-center gap-3 flex-wrap">
+      <div
+        className={`flex items-center gap-3 flex-wrap ${
+          isCompra ? '[&_button]:min-h-11 [&_select]:min-h-11' : ''
+        }`}
+      >
         <h1 className="text-xl font-bold text-gray-900">Simulação</h1>
 
         {/* Scenario selector */}
@@ -149,7 +166,11 @@ export default function SimulationPage() {
 
       {/* Rename modal */}
       {renamingId && (
-        <div className="flex items-center gap-2 bg-yellow-50 border border-yellow-200 rounded p-2">
+        <div
+          className={`flex items-center gap-2 bg-yellow-50 border border-yellow-200 rounded p-2 ${
+            isCompra ? '[&_button]:min-h-11 [&_input]:min-h-11' : ''
+          }`}
+        >
           <span className="text-xs text-gray-600">Renomear:</span>
           <input
             autoFocus
@@ -176,7 +197,10 @@ export default function SimulationPage() {
 
       {/* Mode toggle */}
       <div className="inline-flex rounded-md border border-gray-300 text-xs overflow-hidden">
-        {(['simulacao', 'compraveis', 'comparar'] as SimMode[]).map((mode) => (
+        {(isCompra
+          ? (['simulacao', 'comparar'] as SimMode[])
+          : (['simulacao', 'compraveis', 'comparar'] as SimMode[])
+        ).map((mode) => (
           <button
             key={mode}
             onClick={() => {
@@ -190,7 +214,11 @@ export default function SimulationPage() {
               simMode === mode ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
             }`}
           >
-            {{ simulacao: 'Simulação', compraveis: 'Compráveis Simulados', comparar: 'Comparar Cenários' }[mode]}
+            {{
+              simulacao: isCompra ? 'Cenário' : 'Simulação',
+              compraveis: 'Compráveis Simulados',
+              comparar: 'Comparar Cenários',
+            }[mode]}
           </button>
         ))}
       </div>
@@ -204,7 +232,23 @@ export default function SimulationPage() {
       {error && <div className="text-red-600">Erro ao carregar simulação.</div>}
 
       {/* ═══ SIMULAÇÃO (unified view) ═══ */}
-      {simMode === 'simulacao' && data && (
+      {simMode === 'simulacao' && data && isCompra && (
+        <CompraScenarioView
+          projectId={PROJECT_ID}
+          data={data}
+          cashFlowEntries={cfEntries}
+          items={monitoredItems}
+          itemsLoading={monitoredItemsLoading}
+          itemsError={monitoredItemsError}
+          excludes={monthlyExcludes}
+          setExcludes={setMonthlyExcludes}
+          payConfigs={monthlyPayConfigs}
+          setPayConfigs={setMonthlyPayConfigs}
+          scheduleSave={scheduleSave}
+        />
+      )}
+
+      {simMode === 'simulacao' && data && !isCompra && (
         <>
         <SimulationHero
           previsaoSaldo={data.kpis.previsaoSaldo}
@@ -259,17 +303,31 @@ export default function SimulationPage() {
 
       {/* ═══ COMPARE MODE ═══ */}
       {simMode === 'comparar' && scenarios && (
-        <CompareView
-          scenarios={scenarios}
-          compareIdA={compareIdA}
-          compareIdB={compareIdB}
-          setCompareIdA={setCompareIdA}
-          setCompareIdB={setCompareIdB}
-        />
+        isCompra ? (
+          <CompraCompareView
+            projectId={PROJECT_ID}
+            scenarios={scenarios}
+            compareIdA={compareIdA}
+            compareIdB={compareIdB}
+            setCompareIdA={setCompareIdA}
+            setCompareIdB={setCompareIdB}
+            baseData={data}
+            cashFlowEntries={cfEntries}
+            items={monitoredItems}
+          />
+        ) : (
+          <CompareView
+            scenarios={scenarios}
+            compareIdA={compareIdA}
+            compareIdB={compareIdB}
+            setCompareIdA={setCompareIdA}
+            setCompareIdB={setCompareIdB}
+          />
+        )
       )}
 
       {/* ═══ COMPRÁVEIS SIMULADOS (todos os cenários lado a lado) ═══ */}
-      {simMode === 'compraveis' && (
+      {!isCompra && simMode === 'compraveis' && (
         <ShoppableSimulationView />
       )}
     </div>

@@ -48,4 +48,16 @@ describe('ModulesGuard', () => {
       guard.canActivate(context(['priceCompare', 'expenses'])),
     ).resolves.toBe(true);
   });
+
+  it('gates COMPRA simulation by the explicit user permission', async () => {
+    reflector.getAllAndOverride.mockReturnValue('simulation');
+    const guard = new ModulesGuard(reflector as any, prisma as any);
+
+    await expect(
+      guard.canActivate(context([])),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      guard.canActivate(context(['simulation'])),
+    ).resolves.toBe(true);
+  });
 });

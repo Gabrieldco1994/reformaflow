@@ -45,3 +45,9 @@ Os mapas têm funções distintas:
 O acesso exige o tipo explicitamente permitido e um módulo não universal compatível. O módulo `dashboard`, isoladamente, nunca concede acesso a um tipo. Módulos compartilhados por tipos diferentes também não mantêm ativo um tipo removido.
 
 O JWT identifica usuário e tenant, mas as permissões são recarregadas do banco em cada requisição. Assim, revogações têm efeito imediato. Administradores só listam e alteram usuários do tenant presente no JWT.
+
+Ao adicionar `simulation` ao objetivo COMPRA, snapshots já persistidos devem ser
+atualizados com `npm run backfill:compra-simulation`. O script considera apenas
+usuários cujo `allowedProjectTypes` contém explicitamente `COMPRA`, preserva os
+demais objetivos e é idempotente; use `npm run backfill:compra-simulation -- --dry-run`
+para conferir a quantidade antes da execução.

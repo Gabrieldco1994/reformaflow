@@ -48,7 +48,7 @@ cd packages/domain && npx vitest run              # testes domínio (vitest, __t
 | Tipo | Módulos (features) |
 |---|---|
 | REFORMA | dashboard, expenses, receipts, cashFlow, rooms, floorPlans, simulation, priceCompare |
-| COMPRA | dashboard, expenses, receipts, cashFlow |
+| COMPRA | dashboard, expenses, receipts, cashFlow, simulation, priceCompare |
 | CASA | dashboard, recurringBills, maintenance, reminders, **expenses** (avulsas) |
 | CARRO | dashboard, recurringBills, maintenance, reminders, **expenses** (avulsas) |
 | PESSOAL | monthlyOverview, dashboard, expenses, receipts, cashFlow, creditCards, bankAccounts |
@@ -85,6 +85,7 @@ cd packages/domain && npx vitest run              # testes domínio (vitest, __t
 14. **Toda movimentação do PESSOAL sem cartão/conta pertence à pseudo-origem Carteira e DEVE aparecer na Visão Conta e nos totais** (`getAccountView`). Nunca filtrar `origin:'none'` para fora silenciosamente — item invisível = dinheiro sumido no consolidado. Frontend exibe chip "Sem conta" clicável (→ fluxo de vínculo). Docs: `docs/visao-conta-faturas.md §11`.
 15. **Fila "Precisa de você" agrega fontes existentes (`GET /projects/:id/pendencias/financeiras`) e não cria mutação nova.** Cada pendência deve apenas rotear para um modal já existente (vincular, pagar fatura, quitar parcela, editar despesa/recebimento). Nova pendência = nova fonte no agregador, não fluxo paralelo.
 16. **Regra de categoria (`MerchantCategory`) só muda CATEGORIA, nunca valor/caixa.** Auto-aplicação no ingest só para regra manual confirmada; PIX PF nunca auto-aplica sem regra prévia. Retroativo (se habilitado) deve ser transacional.
+17. **Cenários de COMPRA reutilizam `Simulation`/`SimulationValue` e o motor `projectMonthlyExpenses`.** Itens monitorados usam chaves `monthly_excl|pm_<id>` e `monthly_pay|pm_<id>|...`; o cenário nunca persiste preço duplicado nem cria outro parcelamento. `Comprar agora` continua sendo a única conversão para despesa real e encerra o monitoramento atomicamente.
 
 ## Notas técnicas (consulte quando tocar o módulo)
 

@@ -151,6 +151,65 @@ describe('SimulationService.getData — recebimentos via budget allocation', () 
     service = module.get<SimulationService>(SimulationService);
   });
 
+  describe('SimulationService.getData — COMPRA', () => {
+    it('preserva o baseline financeiro sem expor ambientes ou categorias de REFORMA', async () => {
+      const prisma = makePrismaMock();
+      prisma.project.findFirst.mockResolvedValue({
+        id: 'project-compra',
+        tenantId: 'tenant-1',
+        type: 'COMPRA',
+      });
+      prisma.receipt.findMany.mockResolvedValue([
+        { id: 'r1', tipo: 'OUTROS', valor: 500_000, status: 'EM_CAIXA' },
+      ]);
+      prisma.expense.findMany.mockResolvedValue([
+        {
+          id: 'e1',
+          valorTotal: 120_000,
+          tipoDespesa: 'DOCUMENTACAO',
+          status: 'PLANEJADO',
+          roomId: null,
+          room: null,
+        },
+      ]);
+      prisma.cashFlowEntry.findMany.mockResolvedValue([
+        {
+          id: 'cf1',
+          data: new Date('2026-07-10T00:00:00.000Z'),
+          tipo: 'RECEBIMENTO',
+          valor: 500_000,
+        },
+        {
+          id: 'cf2',
+          data: new Date('2026-07-15T00:00:00.000Z'),
+          tipo: 'DESPESA',
+          valor: 120_000,
+        },
+      ]);
+
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [SimulationService, { provide: PrismaService, useValue: prisma }],
+      }).compile();
+      const service = module.get<SimulationService>(SimulationService);
+
+      const data = await service.getData('tenant-1', 'project-compra');
+
+      expect(data.kpis).toEqual({
+        totalRecebimentos: 500_000,
+        previsaoGastos: 120_000,
+        previsaoSaldo: 380_000,
+      });
+      expect(data.ambientes).toEqual([]);
+      expect(data.porTipo).toEqual([]);
+      expect(data.projecaoMensal[0]).toEqual({
+        month: '2026-07',
+        recebimentos: 500_000,
+        despesas: 120_000,
+      });
+      expect(prisma.room.findMany).not.toHaveBeenCalled();
+    });
+  });
+
   it('usa o orçamento alocado como Total Recebimentos quando há budget allocations', async () => {
     prisma.budgetAllocation.findMany.mockResolvedValue([
       { id: 'a1', valor: 3000000, targetProjectId: projectId, tenantId },

@@ -34,6 +34,17 @@ export interface Scenario {
   updatedAt: string;
 }
 
+export interface CompraPriceMonitorItem {
+  id: string;
+  title: string;
+  productUrl?: string | null;
+  referencePriceCents: number | null;
+  lastBestPriceCents: number | null;
+  lastBestPrice?: number | null;
+  isActive: boolean;
+  monitoringEndDate?: string | null;
+}
+
 export type SimValues = Record<string, string>;
 export type SimMode = 'simulacao' | 'comparar' | 'compraveis';
 

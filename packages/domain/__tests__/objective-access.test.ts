@@ -73,4 +73,10 @@ describe("canonical objective authorization", () => {
     expect(result.allowedProjectTypes).toEqual(["CASA"]);
     expect(result.allowedProjectTypes).not.toContain("CARRO");
   });
+
+  it("grants simulation to newly selected COMPRA objectives", () => {
+    const result = derive(["COMPRA"]);
+    expect(result.allowedProjectTypes).toEqual(["COMPRA"]);
+    expect(result.allowedModules).toContain("simulation");
+  });
 });
