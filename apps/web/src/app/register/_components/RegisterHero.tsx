@@ -1,19 +1,43 @@
 import Image from 'next/image';
-import { Bot, Home, Lock, ShoppingBag } from 'lucide-react';
+import { Bot, Check, PiggyBank, Shield, Sparkles, Layers } from 'lucide-react';
 
 const BENEFITS = [
-  'Veja se sobra ou falta dinheiro antes do mês acabar',
-  'Sem limite de projetos e categorias para organizar sua vida',
-  'Simule decisões e saiba o impacto antes de gastar',
+  {
+    icon: PiggyBank,
+    tileClass: 'bg-lifeone-info text-lifeone-blue',
+    title: 'Veja se sobra ou falta',
+    description: 'O caixa do dia e a projeção de fechamento do mês, atualizados em tempo real.',
+  },
+  {
+    icon: Sparkles,
+    tileClass: 'bg-type-compra-fill text-type-compra',
+    title: 'Simule antes de gastar',
+    description: 'Teste uma decisão e veja o impacto no mês inteiro antes de tomá-la.',
+  },
+  {
+    icon: Layers,
+    tileClass: 'bg-type-casa-fill text-type-casa',
+    title: 'Projetos ilimitados',
+    description: 'Reforma, carro, casa, uma viagem — organize cada frente sem limite de categorias.',
+  },
 ];
+
+const TRUST_ITEMS = [
+  { icon: Check, label: 'Sem cartão de crédito' },
+  { icon: Check, label: 'Cancele quando quiser' },
+  { icon: Shield, label: 'Seus dados são seus · LGPD' },
+];
+
+const AVATAR_COLORS = ['#0A6CF0', '#1E924A', '#C2691E', '#7A3FC2']; // type-pessoal, type-casa, type-reforma, type-compra
 
 function RegisterHeroIntro() {
   return (
     <div>
-      <p className="text-[13px] font-semibold uppercase tracking-wide text-lifeone-blue">
-        Para qualquer tipo de projeto
+      <p className="inline-flex items-center gap-1.5 rounded-full bg-lifeone-info px-3 py-1 text-[11px] font-bold uppercase tracking-[0.09em] text-lifeone-blue">
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-lifeone-success" aria-hidden="true" />
+        Comece grátis em 1 minuto
       </p>
-      <h2 className="mt-2 text-[27px] font-bold leading-tight tracking-[-0.035em] text-lifeone-ink sm:text-[34px]">
+      <h2 className="mt-3 text-[27px] font-bold leading-tight tracking-[-0.035em] text-lifeone-ink sm:text-[34px]">
         Controle, planeje tudo em um só app
       </h2>
       <p className="mt-3 text-[15px] leading-relaxed text-lifeone-ink-2">
@@ -45,29 +69,19 @@ function RegisterHeroMaria() {
 
 function RegisterHeroBenefits() {
   return (
-    <div>
-      <ul className="space-y-3">
-        {BENEFITS.map((benefit) => (
-          <li key={benefit} className="flex items-start gap-2.5 text-[14px] leading-relaxed text-lifeone-ink-2">
-            <svg className="mt-0.5 h-5 w-5 shrink-0 text-lifeone-blue" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-            {benefit}
-          </li>
-        ))}
-      </ul>
-
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-type-casa-fill px-3 py-1 text-[12px] font-medium text-type-casa">
-          <Home className="h-3.5 w-3.5" aria-hidden="true" />
-          Casa
-        </span>
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-type-compra-fill px-3 py-1 text-[12px] font-medium text-type-compra">
-          <ShoppingBag className="h-3.5 w-3.5" aria-hidden="true" />
-          Compra
-        </span>
-      </div>
-    </div>
+    <ul className="space-y-4">
+      {BENEFITS.map((benefit) => (
+        <li key={benefit.title} className="flex items-start gap-3">
+          <span className={`flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] ${benefit.tileClass}`}>
+            <benefit.icon className="h-[19px] w-[19px]" aria-hidden="true" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-[14px] font-bold leading-tight text-lifeone-ink">{benefit.title}</p>
+            <p className="mt-0.5 text-[13.5px] leading-snug text-lifeone-ink-2">{benefit.description}</p>
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -88,18 +102,33 @@ function RegisterHeroPhone() {
 
 function RegisterHeroSocialProof() {
   return (
-    <p className="text-center text-[13px] font-medium text-lifeone-ink-2 lg:text-left">
-      +1.200 pessoas já usam a LifeOne.
-    </p>
+    <div className="flex items-center justify-center gap-2.5 lg:justify-start">
+      <div className="flex shrink-0" aria-hidden="true">
+        {AVATAR_COLORS.map((color, index) => (
+          <span
+            key={color}
+            className="h-[26px] w-[26px] rounded-full border-2 border-white"
+            style={{ backgroundColor: color, marginLeft: index === 0 ? 0 : -8 }}
+          />
+        ))}
+      </div>
+      <p className="text-[13px] font-medium text-lifeone-ink-2">
+        Pessoas já organizam a vida financeira com a LifeOne.
+      </p>
+    </div>
   );
 }
 
 function RegisterHeroTrust() {
   return (
-    <div className="flex items-center justify-center gap-1.5 text-[12px] text-lifeone-ink-3 lg:justify-start">
-      <Lock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-      Seus dados são privados e protegidos.
-    </div>
+    <ul className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 lg:justify-start">
+      {TRUST_ITEMS.map((item) => (
+        <li key={item.label} className="flex items-center gap-1.5 text-[12px] text-lifeone-ink-3">
+          <item.icon className="h-3.5 w-3.5 shrink-0 text-lifeone-success" aria-hidden="true" />
+          {item.label}
+        </li>
+      ))}
+    </ul>
   );
 }
 

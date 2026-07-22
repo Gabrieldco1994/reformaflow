@@ -29,6 +29,9 @@ export default function RegisterPage() {
 
           <div className="lg:col-start-2 lg:row-start-1 lg:row-span-5">
             <RegisterForm />
+            <p className="mt-3 text-center text-[11.5px] text-lifeone-ink-4">
+              Ao criar a conta você concorda com os Termos e a Política de Privacidade.
+            </p>
             <div className="mt-4">
               <RegisterHero.SocialProof />
             </div>
