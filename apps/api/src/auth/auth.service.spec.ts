@@ -1,6 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { ProjectType } from '@reformaflow/domain';
+import { deriveObjectiveAccess, ProjectType } from '@reformaflow/domain';
 import * as bcrypt from 'bcrypt';
 import { AuthService } from './auth.service';
 
@@ -446,5 +446,57 @@ describe('AuthService signup/guest/claim', () => {
         }),
       }),
     );
+  });
+
+  it('updateSelfObjectives com 1 tipo grava allowedProjectTypes e allowedModules só daquele tipo', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'u1',
+      tenantId: 't1',
+      deletedAt: null,
+      tenant: { deletedAt: null },
+    });
+    prisma.user.update.mockImplementation(({ data }: any) =>
+      Promise.resolve({ id: 'u1', tenantId: 't1', ...data }),
+    );
+
+    const out = await service.updateSelfObjectives('u1', [ProjectType.CARRO]);
+
+    const expected = deriveObjectiveAccess([ProjectType.CARRO]);
+    expect(out.allowedProjectTypes).toEqual(expected.allowedProjectTypes);
+    expect(out.allowedModules.sort()).toEqual(expected.allowedModules.sort());
+  });
+
+  it('updateSelfObjectives com 3 tipos grava a união dos módulos dos três', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'u1',
+      tenantId: 't1',
+      deletedAt: null,
+      tenant: { deletedAt: null },
+    });
+    prisma.user.update.mockImplementation(({ data }: any) =>
+      Promise.resolve({ id: 'u1', tenantId: 't1', ...data }),
+    );
+
+    const tipos = [ProjectType.CASA, ProjectType.CARRO, ProjectType.REFORMA];
+    const out = await service.updateSelfObjectives('u1', tipos);
+
+    const expected = deriveObjectiveAccess(tipos);
+    expect(out.allowedProjectTypes.sort()).toEqual(
+      [...expected.allowedProjectTypes].sort(),
+    );
+    expect(out.allowedModules.sort()).toEqual([...expected.allowedModules].sort());
+    // a união tem que ser estritamente maior que qualquer tipo isolado —
+    // senão não é união, é só o último tipo sobrescrevendo os outros.
+    expect(out.allowedModules.length).toBeGreaterThan(
+      deriveObjectiveAccess([ProjectType.CARRO]).allowedModules.length,
+    );
+  });
+
+  it('updateSelfObjectives com [] rejeita — não pode zerar o acesso e deixar a conta sem módulo nenhum', async () => {
+    await expect(service.updateSelfObjectives('u1', [])).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(prisma.user.findUnique).not.toHaveBeenCalled();
+    expect(prisma.user.update).not.toHaveBeenCalled();
   });
 });

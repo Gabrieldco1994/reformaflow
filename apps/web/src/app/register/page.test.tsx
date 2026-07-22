@@ -46,7 +46,7 @@ describe("/register form behavior", () => {
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   });
 
-  it("submits 3-field payload and routes to PESSOAL onboarding", async () => {
+  it("submits 3-field payload and routes to the objective picker", async () => {
     let finishRegistration!: (value: { id: string }) => void;
     mocks.register.mockImplementationOnce(
       () => new Promise((resolve) => { finishRegistration = resolve; }),
@@ -68,7 +68,7 @@ describe("/register form behavior", () => {
     }, expect.any(String));
     finishRegistration({ id: "u1" });
     await waitFor(() =>
-      expect(mocks.replace).toHaveBeenCalledWith("/onboarding/setup?type=PESSOAL"),
+      expect(mocks.replace).toHaveBeenCalledWith("/onboarding/objetivos"),
     );
   });
 

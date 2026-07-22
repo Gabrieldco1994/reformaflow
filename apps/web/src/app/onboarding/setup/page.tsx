@@ -69,6 +69,14 @@ function OnboardingSetupForm() {
 
   const currentKey = steps[stepIdx]?.key;
 
+  // Enquanto o passo atual é um passo-âncora (bank/card/expense/...), a régua
+  // mostra o progresso DENTRO da fase de setup do tipo (ex.: "Passo 1 de 5"
+  // para PESSOAL), não o total incluindo o nome do projeto e o "Pronto" —
+  // esses dois são bookends, não trabalho do usuário dentro do tipo.
+  const anchorIndex = anchorSteps.findIndex((anchor) => anchor.key === currentKey);
+  const progressSteps = anchorIndex >= 0 ? anchorSteps : steps;
+  const progressIndex = anchorIndex >= 0 ? anchorIndex : stepIdx;
+
   return (
     <main className="min-h-screen bg-lifeone-canvas px-4 py-6 font-geist sm:px-6 sm:py-10">
       <div className="mx-auto w-full max-w-lg">
@@ -77,7 +85,7 @@ function OnboardingSetupForm() {
           <span className="text-[12px] font-medium text-lifeone-ink-3">Começando do zero</span>
         </header>
 
-        <ProgressDots steps={steps} currentIndex={stepIdx} />
+        <ProgressDots steps={progressSteps} currentIndex={progressIndex} />
 
         {currentKey === 'project' && (
           <ProjectNameStep
