@@ -1,0 +1,28 @@
+<svg width="375" height="812" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 375 812">
+  <!-- Background -->
+  <rect width="375" height="812" fill="#f5f7fa"/>
+  
+  <!-- Status bar -->
+  <rect width="375" height="44" fill="#ffffff"/>
+  <text x="20" y="28" font-size="18" font-weight="bold" fill="#1a1a1a" font-family="system-ui">LifeOne</text>
+  
+  <!-- Card "Caixa hoje" -->
+  <rect x="16" y="80" width="343" height="160" fill="#ffffff" stroke="#e0e0e0" stroke-width="1" rx="10"/>
+  <text x="24" y="100" font-size="12" fill="#666666" font-family="system-ui">Caixa hoje</text>
+  <text x="24" y="140" font-size="36" font-weight="bold" fill="#1a1a1a" font-family="system-ui">R$ 2.340</text>
+  <text x="24" y="165" font-size="13" fill="#2563eb" font-family="system-ui">↑ 12% vs. mês anterior</text>
+  
+  <!-- Progress bar -->
+  <rect x="24" y="180" width="200" height="8" fill="#2563eb" rx="2"/>
+  <rect x="224" y="180" width="125" height="8" fill="#e0e0e0" rx="2"/>
+  
+  <!-- Card "Vai dar até dez?" -->
+  <rect x="16" y="260" width="343" height="140" fill="#ffffff" stroke="#e0e0e0" stroke-width="1" rx="10"/>
+  <text x="24" y="280" font-size="12" fill="#666666" font-family="system-ui">Vai dar até dez?</text>
+  <text x="24" y="310" font-size="18" font-weight="bold" fill="#1a1a1a" font-family="system-ui">Sim, com R$ 1.200 de sobra</text>
+  <text x="24" y="335" font-size="13" fill="#16a34a" font-family="system-ui">✓ Ritmo sustentável</text>
+  <text x="24" y="358" font-size="13" fill="#16a34a" font-family="system-ui">✓ Sem cortes de gastos</text>
+  
+  <!-- Benefit text -->
+  <text x="24" y="750" font-size="12" fill="#999999" font-family="system-ui">Seu fluxo de caixa em tempo real</text>
+</svg>
