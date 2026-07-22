@@ -37,20 +37,18 @@ describe('BankAccountStep', () => {
     await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
   });
 
-  it('clicking "Pular por agora" shows the warning card and does NOT call onSkip yet', () => {
+  it('clicking "Pular por agora" calls onSkip directly (no warning modal)', () => {
     const onSkip = vi.fn();
     render(<BankAccountStep projectId="p1" projectType={ProjectType.PESSOAL} onDone={vi.fn()} onSkip={onSkip} />);
     fireEvent.click(screen.getByText(/pular por agora/i));
-    expect(screen.getByText(/pular mesmo assim/i)).toBeInTheDocument();
-    expect(onSkip).not.toHaveBeenCalled();
+    expect(onSkip).toHaveBeenCalledTimes(1);
   });
 
-  it('clicking "Pular mesmo assim" after the warning calls onSkip exactly once', () => {
-    const onSkip = vi.fn();
-    render(<BankAccountStep projectId="p1" projectType={ProjectType.PESSOAL} onDone={vi.fn()} onSkip={onSkip} />);
-    fireEvent.click(screen.getByText(/pular por agora/i));
-    fireEvent.click(screen.getByText(/pular mesmo assim/i));
-    expect(onSkip).toHaveBeenCalledTimes(1);
+  it('renders non-blocking hint about skipping bank account (no warning card)', () => {
+    render(<BankAccountStep projectId="p1" projectType={ProjectType.PESSOAL} onDone={vi.fn()} onSkip={vi.fn()} />);
+    expect(screen.getByText(/sem o saldo, o caixa mostra só o fluxo/i)).toBeInTheDocument();
+    // Warning card should NOT exist
+    expect(screen.queryByText(/pular mesmo assim/i)).not.toBeInTheDocument();
   });
 
   it('api.post failure keeps the step visible and does not call onDone or onSkip', async () => {
