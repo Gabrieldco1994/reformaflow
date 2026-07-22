@@ -33,6 +33,34 @@ describe("/register 3-field registration", () => {
     expect(screen.getByText(/maria, sua copiloto no lifeone/i)).toBeInTheDocument();
     expect(screen.getAllByLabelText(/seu nome/i)).toHaveLength(1);
   });
+
+  it("shows the eyebrow pill, the icon+title+description benefits, and no invented category badges", () => {
+    render(<RegisterPage />);
+
+    expect(screen.getByText(/comece grátis em 1 minuto/i)).toBeInTheDocument();
+    expect(screen.getByText(/veja se sobra ou falta/i)).toBeInTheDocument();
+    expect(screen.getByText(/simule antes de gastar/i)).toBeInTheDocument();
+    expect(screen.getByText(/projetos ilimitados/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^casa$/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^compra$/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the 3-item trust row instead of the single privacy line", () => {
+    render(<RegisterPage />);
+
+    expect(screen.getByText(/sem cartão de crédito/i)).toBeInTheDocument();
+    expect(screen.getByText(/cancele quando quiser/i)).toBeInTheDocument();
+    expect(screen.getByText(/seus dados são seus/i)).toBeInTheDocument();
+    expect(screen.queryByText(/seus dados são privados e protegidos/i)).not.toBeInTheDocument();
+  });
+
+  it("shows social proof without a fabricated user count and the legal disclaimer under the form", () => {
+    render(<RegisterPage />);
+
+    expect(screen.getByText(/pessoas já organizam a vida financeira com a lifeone/i)).toBeInTheDocument();
+    expect(screen.queryByText(/\+1\.200/)).not.toBeInTheDocument();
+    expect(screen.getByText(/ao criar a conta você concorda com os termos/i)).toBeInTheDocument();
+  });
 });
 
 describe("/register form behavior", () => {
