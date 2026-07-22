@@ -25,6 +25,7 @@ import { ExpenseKpiCards } from './_components/ExpenseKpiCards';
 import { ExpenseFiltersBar } from './_components/ExpenseFiltersBar';
 import { VoiceExpenseModal } from './_components/VoiceExpenseModal';
 import { ExpenseFormModal } from './_components/ExpenseFormModal';
+import { SemCartaoEmptyState } from '../_components/SemCartaoEmptyState';
 import { RatearCompraModal } from './_components/RatearCompraModal';
 import { PayOptionsModal } from './_components/PayOptionsModal';
 import { NovaDespesaWizard } from './_components/NovaDespesaWizard';
@@ -1451,9 +1452,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
         <Modal open onClose={() => setImportStep(null)} title="Para qual cartão é essa fatura?">
           {loadingCards && <p className="text-sm text-gray-500">Carregando cartões…</p>}
           {!loadingCards && importCards.length === 0 && (
-            <p className="text-sm text-gray-600">
-              Nenhum cartão cadastrado. Cadastre em <strong>Cartões de Crédito</strong> antes de importar.
-            </p>
+            <SemCartaoEmptyState projectId={PROJECT_ID} />
           )}
           {!loadingCards && importCards.length > 0 && (
             <div className="space-y-2">

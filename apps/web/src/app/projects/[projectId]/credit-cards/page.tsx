@@ -70,6 +70,14 @@ export default function CreditCardsPage() {
     }
   }, [loading, cards, searchParams]);
 
+  // Deep-link: ?new=1 auto-opens new card form
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      setEditing(null);
+      setFormOpen(true);
+    }
+  }, [searchParams]);
+
   async function handleDelete(card: CardRow) {
     const cardProjectId = card.projectId ?? projectId;
     if (!confirm(`Excluir cartão "${card.nickname ?? card.last4}"? As despesas importadas serão mantidas.`)) return;
