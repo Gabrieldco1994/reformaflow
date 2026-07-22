@@ -81,6 +81,7 @@ describe('getProjectNavModules', () => {
       'dashboard',
       'bills',
       'expenses',
+      'financing',
       'maintenance',
       'reminders',
     ]);

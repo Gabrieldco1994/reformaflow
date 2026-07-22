@@ -23,7 +23,8 @@ export type TypeModuleSlug =
   | 'bankAccounts'
   | 'schedule'
   | 'pendencias'
-  | 'plantsAi';
+  | 'plantsAi'
+  | 'financing';
 
 /**
  * The module slug universal to every project type (its Dashboard/home row).
@@ -72,7 +73,7 @@ export const TYPE_MODULES: Record<ProjectType, TypeModuleSlug[]> = {
     'monthlyOverview',
     'pendencias',
   ],
-  [ProjectType.CASA]: ['dashboard', 'recurringBills', 'maintenance', 'reminders', 'expenses'],
+  [ProjectType.CASA]: ['dashboard', 'recurringBills', 'maintenance', 'reminders', 'expenses', 'financing'],
   [ProjectType.CARRO]: [
     'dashboard',
     'carInfo',
