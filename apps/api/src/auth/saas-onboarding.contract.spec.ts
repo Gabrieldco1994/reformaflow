@@ -8,13 +8,15 @@ const TYPES = ["REFORMA", "COMPRA", "CASA", "CARRO", "PESSOAL", "PLANTAS"] as co
 type Input = {
   tenantName: string;
   ownerName: string;
+  email: string;
   username: string;
   password: string;
   projectTypes: string[];
 };
-const valid: Input = {
+const valid: any = {
   tenantName: " Acme ",
   ownerName: " Maria ",
+  email: "maria@acme.com",
   username: "Maria.Silva",
   password: "segredo123",
   projectTypes: ["CASA", "PESSOAL"],
