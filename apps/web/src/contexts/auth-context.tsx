@@ -25,6 +25,7 @@ export type ModuleSlug =
   | "maintenance"
   | "reminders"
   | "carInfo"
+  | "vehicleDocuments"
   | "financing"
   | "creditCards"
   | "bankAccounts"
@@ -47,6 +48,7 @@ export const ALL_MODULES: { slug: ModuleSlug; label: string }[] = [
   { slug: "maintenance", label: "Manutenções" },
   { slug: "reminders", label: "Lembretes" },
   { slug: "carInfo", label: "Info Carro" },
+  { slug: "vehicleDocuments", label: "Documentos do Carro" },
   { slug: "financing", label: "Financiamento" },
   { slug: "creditCards", label: "Cartões" },
   { slug: "bankAccounts", label: "Contas Bancárias" },

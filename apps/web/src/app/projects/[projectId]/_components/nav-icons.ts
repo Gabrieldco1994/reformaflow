@@ -18,6 +18,7 @@ import {
   ScanSearch,
   Sprout,
   Tags,
+  FileText,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -46,6 +47,7 @@ export const NAV_ICONS: Record<string, LucideIcon> = {
   ScanSearch,
   Sprout,
   Tags,
+  FileText,
 };
 
 /** Fallback icon for any unmapped token (defensive, never crashes). */

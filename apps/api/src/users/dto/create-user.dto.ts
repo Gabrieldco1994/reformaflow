@@ -26,6 +26,7 @@ export const MODULE_SLUGS = [
   'maintenance',
   'reminders',
   'carInfo',
+  'vehicleDocuments',
   'financing',
   'creditCards',
   'bankAccounts',

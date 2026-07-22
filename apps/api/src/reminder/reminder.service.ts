@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateReminderDto, UpdateReminderDto } from './dto/reminder.dto';
 
@@ -47,6 +47,11 @@ export class ReminderService {
 
   async update(tenantId: string, projectId: string, id: string, dto: UpdateReminderDto) {
     const existing = await this.findById(tenantId, projectId, id);
+    if (existing.generatedBy === 'VEHICLE_DOCUMENT') {
+      throw new ConflictException(
+        'Este lembrete é gerenciado pelo documento do veículo',
+      );
+    }
     const data: Record<string, unknown> = {};
     if (dto.titulo !== undefined) data.titulo = dto.titulo;
     if (dto.descricao !== undefined) data.descricao = dto.descricao;
@@ -71,7 +76,12 @@ export class ReminderService {
   }
 
   async remove(tenantId: string, projectId: string, id: string) {
-    await this.findById(tenantId, projectId, id);
+    const existing = await this.findById(tenantId, projectId, id);
+    if (existing.generatedBy === 'VEHICLE_DOCUMENT') {
+      throw new ConflictException(
+        'Este lembrete é gerenciado pelo documento do veículo',
+      );
+    }
     await this.prisma.reminder.delete({ where: { id } });
     return { deleted: true };
   }

@@ -87,12 +87,13 @@ describe('getProjectNavModules', () => {
     ]);
   });
 
-  it('reproduces legacy FEATURE_NAV ordering for CARRO', () => {
+  it('includes vehicle documents in the CARRO navigation', () => {
     expect(getProjectNavModules(ProjectType.CARRO).map((m) => m.slug)).toEqual([
       'dashboard',
       'car-info',
       'bills',
       'expenses',
+      'vehicle-documents',
       'maintenance',
       'reminders',
     ]);

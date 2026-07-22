@@ -1,3 +1,4 @@
+import { ConflictException } from '@nestjs/common';
 import { ReminderService } from './reminder.service';
 
 describe('ReminderService.update recurrence advance', () => {
@@ -36,5 +37,19 @@ describe('ReminderService.update recurrence advance', () => {
     (service as any).findById = jest.fn().mockResolvedValue(unica);
     await service.update('t1', 'p1', 'r1', { status: 'CONCLUIDO' } as any);
     expect(update).toHaveBeenCalledWith({ where: { id: 'r1' }, data: { status: 'CONCLUIDO' } });
+  });
+
+  it('rejects updates to reminders managed by vehicle documents', async () => {
+    const { service, update } = makeService();
+    const managed = {
+      ...existing,
+      generatedBy: 'VEHICLE_DOCUMENT',
+    };
+    (service as any).findById = jest.fn().mockResolvedValue(managed);
+
+    await expect(
+      service.update('t1', 'p1', 'r1', { status: 'CONCLUIDO' } as any),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(update).not.toHaveBeenCalled();
   });
 });

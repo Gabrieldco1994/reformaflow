@@ -13,10 +13,12 @@ import {
 } from '@reformaflow/domain';
 import ManagementGlance from './ManagementGlance';
 import ManagementFocus from './ManagementFocus';
+import { useAuth } from '@/contexts/auth-context';
 
 export interface Bill { id: string; nome: string; valor: number; categoria: string; frequencia: string; diaVencimento: number; status: string; }
 export interface Maintenance { id: string; tipo: string; dataRealizada: string; dataProxima?: string; custo: number; fornecedor?: string; }
 export interface Reminder { id: string; titulo: string; descricao?: string; data: string; prioridade: string; recorrencia: string; status: string; }
+export interface VehicleDocument { id: string; titulo: string; tipo: string; dataVencimento: string; }
 export interface FinancingSummary {
   instituicao?: string | null;
   sistema: string;
@@ -33,6 +35,9 @@ export interface FinancingSummary {
 
 export default function ManagementDashboard({ projectId, projectType }: { projectId: string; projectType: string }) {
   const isCasa = projectType === 'CASA';
+  const isCarro = projectType === 'CARRO';
+  const { hasModule } = useAuth();
+  const canViewVehicleDocuments = isCarro && hasModule('vehicleDocuments');
   const { data: bills } = useQuery<Bill[]>({
     queryKey: ['recurring-bills', projectId],
     queryFn: () => api.get(`/projects/${projectId}/recurring-bills`),
@@ -49,6 +54,11 @@ export default function ManagementDashboard({ projectId, projectType }: { projec
     queryKey: ['financing', projectId],
     queryFn: () => api.get(`/projects/${projectId}/financing`),
     enabled: isCasa,
+  });
+  const { data: vehicleDocuments } = useQuery<VehicleDocument[]>({
+    queryKey: ['vehicle-documents', projectId],
+    queryFn: () => api.get(`/projects/${projectId}/vehicle-documents`),
+    enabled: canViewVehicleDocuments,
   });
 
   const activeBills = (bills ?? []).filter(b => b.status === 'ATIVO');
@@ -153,6 +163,30 @@ export default function ManagementDashboard({ projectId, projectType }: { projec
               </p>
             </div>
           </div>
+        </section>
+      )}
+
+      {canViewVehicleDocuments && (
+        <section className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="font-editorial italic text-lg md:text-xl text-darc-velvet">📄 Documentos</h2>
+              <p className="mt-1 text-sm text-darc-velvet/60">
+                {(vehicleDocuments ?? []).length === 0
+                  ? 'Cadastre IPVA, seguro e licenciamento.'
+                  : `${vehicleDocuments?.length} documento(s) acompanhado(s).`}
+              </p>
+            </div>
+            <Link href={`/projects/${projectId}/vehicle-documents`} className="inline-flex min-h-[44px] items-center text-sm text-darc-velvet/70 hover:underline">
+              Ver documentos
+            </Link>
+          </div>
+          {(vehicleDocuments ?? []).slice(0, 3).map((document) => (
+            <div key={document.id} className="mt-3 flex items-center justify-between gap-3 border-t border-darc-linen pt-3 text-sm">
+              <span className="min-w-0 truncate font-medium text-darc-velvet">{document.titulo}</span>
+              <span className="whitespace-nowrap text-darc-velvet/60">{formatDateBR(document.dataVencimento)}</span>
+            </div>
+          ))}
         </section>
       )}
 

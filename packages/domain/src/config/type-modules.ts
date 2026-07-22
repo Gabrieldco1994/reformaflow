@@ -24,7 +24,8 @@ export type TypeModuleSlug =
   | 'schedule'
   | 'pendencias'
   | 'plantsAi'
-  | 'financing';
+  | 'financing'
+  | 'vehicleDocuments';
 
 /**
  * The module slug universal to every project type (its Dashboard/home row).
@@ -77,6 +78,7 @@ export const TYPE_MODULES: Record<ProjectType, TypeModuleSlug[]> = {
   [ProjectType.CARRO]: [
     'dashboard',
     'carInfo',
+    'vehicleDocuments',
     'recurringBills',
     'maintenance',
     'reminders',

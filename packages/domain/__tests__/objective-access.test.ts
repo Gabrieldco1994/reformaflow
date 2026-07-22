@@ -40,6 +40,7 @@ describe("canonical objective authorization", () => {
         "reminders",
         "financing",
         "carInfo",
+        "vehicleDocuments",
         "bankAccounts",
         "monthlyOverview",
         "plantsAi",
@@ -59,6 +60,7 @@ describe("canonical objective authorization", () => {
         "expenses",
         "financing",
         "carInfo",
+        "vehicleDocuments",
       ],
     });
     expect(new Set(result.allowedModules).size).toBe(
