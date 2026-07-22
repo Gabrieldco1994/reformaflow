@@ -11,7 +11,7 @@ export function DoneStep() {
       </div>
       <h2 className="mt-4 text-[22px] font-bold text-lifeone-ink">Tudo pronto!</h2>
       <p className="mt-2 text-[14px] text-lifeone-ink-3">
-        Seu Cockpit financeiro está configurado. Levando você para o guia de primeiros passos…
+        Seu Cockpit está configurado. Levando você para lá…
       </p>
       <div className="mt-4 flex justify-center">
         <div className="h-1 w-24 overflow-hidden rounded-full bg-lifeone-hairline">

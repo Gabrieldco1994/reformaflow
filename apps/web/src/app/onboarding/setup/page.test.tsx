@@ -72,13 +72,13 @@ describe('OnboardingSetupPage', () => {
   });
 
   it.each([
-    ['PESSOAL', 5],
-    ['REFORMA', 1],
-    ['COMPRA', 1],
-    ['CASA', 1],
-    ['CARRO', 1],
-    ['PLANTAS', 1],
-  ])('auto-creates the %s project, skips every anchor step, and always lands on /projects/:id/apoio (never /monthly)', async (type) => {
+    ['PESSOAL', '/projects/proj-1/monthly'],
+    ['REFORMA', '/projects/proj-1/dashboard'],
+    ['COMPRA', '/projects/proj-1/dashboard'],
+    ['CASA', '/projects/proj-1/dashboard'],
+    ['CARRO', '/projects/proj-1/dashboard'],
+    ['PLANTAS', '/projects/proj-1/dashboard'],
+  ])('auto-creates the %s project, skips every anchor step, and lands on its per-type cockpit (%s)', async (type, expectedHome) => {
     mocks.searchParams = new URLSearchParams({ type });
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderPage();
@@ -91,8 +91,8 @@ describe('OnboardingSetupPage', () => {
     await screen.findByText(/tudo pronto/i);
     vi.advanceTimersByTime(1500);
 
-    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith('/projects/proj-1/apoio'));
-    expect(mocks.replace).not.toHaveBeenCalledWith(expect.stringContaining('/monthly'));
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith(expectedHome));
+    expect(mocks.replace).not.toHaveBeenCalledWith(expect.stringContaining('/apoio'));
 
     vi.useRealTimers();
   });

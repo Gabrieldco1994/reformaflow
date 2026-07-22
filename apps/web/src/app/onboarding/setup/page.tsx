@@ -9,6 +9,7 @@ import { ProgressDots, type ProgressDotsStep } from './_components/ProgressDots'
 import { ProjectNameStep } from './_components/ProjectNameStep';
 import { DoneStep } from './_components/DoneStep';
 import { ANCHOR_STEPS } from './_lib/steps-config';
+import { getProjectHomePath } from '@/app/projects/_lib/project-home-route';
 
 const VALID_TYPES = new Set<string>(Object.values(ProjectType));
 
@@ -21,9 +22,9 @@ const VALID_TYPES = new Set<string>(Object.values(ProjectType));
  *   "+"-button flow already created it) and the wizard skips the
  *   project-creation step, starting at the first anchor step.
  *
- * Always terminates by redirecting to `/projects/:id/apoio` — never to
- * `/monthly` or any other cockpit route (regression class fixed in #195,
- * extended here to all 6 project types).
+ * Always terminates by redirecting to the project's per-type cockpit
+ * (the first nav module for the type via `getProjectHomePath`): PESSOAL →
+ * `/monthly`, the rest → `/dashboard`. Never lands on an intermediate page.
  */
 function OnboardingSetupForm() {
   const router = useRouter();
@@ -57,13 +58,13 @@ function OnboardingSetupForm() {
   }, []);
 
   useEffect(() => {
-    if (stepIdx === steps.length - 1 && projectId) {
+    if (stepIdx === steps.length - 1 && projectId && type) {
       const timer = setTimeout(() => {
-        router.replace(`/projects/${projectId}/apoio`);
+        router.replace(getProjectHomePath(projectId, type));
       }, 1500);
       return () => clearTimeout(timer);
     }
-  }, [stepIdx, steps.length, projectId, router]);
+  }, [stepIdx, steps.length, projectId, type, router]);
 
   if (!type) return null;
 
