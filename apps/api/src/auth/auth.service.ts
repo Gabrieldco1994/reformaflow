@@ -100,7 +100,9 @@ export class AuthService {
       throw new NotFoundException();
     }
     
-    const projectTypes = input.projectTypes || [];
+    const projectTypes = input.projectTypes && input.projectTypes.length > 0
+      ? input.projectTypes
+      : [ProjectType.PESSOAL];
     const access = deriveObjectiveAccess(projectTypes);
     const passwordHash = await bcrypt.hash(input.password, BCRYPT_ROUNDS);
     
@@ -126,10 +128,13 @@ export class AuthService {
           throw new BadRequestException('Este e-mail já está cadastrado');
         }
         
-        // Resolve username collisions by suffixing -2, -3, etc
+        // Resolve username collisions by suffixing -2, -3, etc.
+        // Must run inside transaction to serialize concurrent signups via SQLite write lock.
+        // Limit to 50 attempts to avoid holding transaction open indefinitely.
         let resolvedUsername = normalizedBase;
         let suffix = 2;
-        while (true) {
+        const MAX_COLLISION_ATTEMPTS = 50;
+        while (suffix <= MAX_COLLISION_ATTEMPTS) {
           const duplicate = await tx.user.findFirst({
             where: { username: resolvedUsername, deletedAt: null },
             select: { id: true },
@@ -137,6 +142,9 @@ export class AuthService {
           if (!duplicate) break;
           resolvedUsername = `${normalizedBase}-${suffix}`;
           suffix++;
+        }
+        if (suffix > MAX_COLLISION_ATTEMPTS) {
+          throw new BadRequestException('Não foi possível gerar um usuário único. Tente novamente.');
         }
 
         const user = await tx.user.create({

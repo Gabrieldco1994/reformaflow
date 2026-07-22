@@ -16,15 +16,12 @@ vi.mock("@/contexts/auth-context", () => ({
 }));
 
 async function fillValidForm(browser: ReturnType<typeof userEvent.setup>) {
-  await browser.type(screen.getByLabelText(/nome do seu espaço/i), "Acme");
   await browser.type(screen.getByLabelText(/seu nome/i), "Maria");
-  await browser.type(screen.getByLabelText(/usuário/i), " Maria.Silva ");
+  await browser.type(screen.getByLabelText(/email/i), "maria@example.com");
   await browser.type(screen.getByLabelText(/^senha$/i), "segredo1");
-  await browser.type(screen.getByLabelText(/confirmar senha/i), "segredo1");
-  await browser.click(screen.getByRole("checkbox", { name: /CASA/i }));
 }
 
-describe("/register public route contract", () => {
+describe("/register 3-field registration", () => {
   it("exists as an explicit public registration page", () => {
     expect(RegisterPage).toBeDefined();
   });
@@ -36,22 +33,20 @@ describe("/register form behavior", () => {
     mocks.register.mockResolvedValue({ id: "u1" });
   });
 
-  it("exposes all required inputs and exactly the six canonical objective values", () => {
+  it("exposes name, email, and password fields only", () => {
     render(<RegisterPage />);
 
-    expect(screen.getByLabelText(/nome do seu espaço/i)).toBeRequired();
     expect(screen.getByLabelText(/seu nome/i)).toBeRequired();
-    expect(screen.getByLabelText(/usuário/i)).toBeRequired();
+    expect(screen.getByLabelText(/email/i)).toBeRequired();
     expect(screen.getByLabelText(/^senha$/i)).toBeRequired();
-    expect(screen.getByLabelText(/confirmar senha/i)).toBeRequired();
-    expect(
-      screen
-        .getAllByRole("checkbox")
-        .map((checkbox) => (checkbox as HTMLInputElement).value),
-    ).toEqual(["REFORMA", "COMPRA", "CASA", "CARRO", "PESSOAL", "PLANTAS"]);
+    
+    expect(screen.queryByLabelText(/nome do seu espaço/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/usuário/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/confirmar senha/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   });
 
-  it("submits one canonical payload once and enters the guided onboarding wizard for the selected type", async () => {
+  it("submits 3-field payload and routes to PESSOAL onboarding", async () => {
     let finishRegistration!: (value: { id: string }) => void;
     mocks.register.mockImplementationOnce(
       () => new Promise((resolve) => { finishRegistration = resolve; }),
@@ -67,72 +62,66 @@ describe("/register form behavior", () => {
 
     await waitFor(() => expect(mocks.register).toHaveBeenCalledTimes(1));
     expect(mocks.register).toHaveBeenCalledWith({
-      tenantName: "Acme",
       ownerName: "Maria",
-      username: "Maria.Silva",
+      email: "maria@example.com",
       password: "segredo1",
-      projectTypes: ["CASA"],
     }, expect.any(String));
     finishRegistration({ id: "u1" });
-    await waitFor(() =>
-      expect(mocks.replace).toHaveBeenCalledWith("/onboarding/setup?type=CASA"),
-    );
-  });
-
-  it("routes to the PESSOAL onboarding wizard when PESSOAL is selected alongside other types", async () => {
-    mocks.register.mockResolvedValueOnce({ id: "u1" });
-    const browser = userEvent.setup();
-    render(<RegisterPage />);
-    await browser.type(screen.getByLabelText(/nome do seu espaço/i), "Acme");
-    await browser.type(screen.getByLabelText(/seu nome/i), "Maria");
-    await browser.type(screen.getByLabelText(/usuário/i), "maria");
-    await browser.type(screen.getByLabelText(/^senha$/i), "segredo1");
-    await browser.type(screen.getByLabelText(/confirmar senha/i), "segredo1");
-    await browser.click(screen.getByRole("checkbox", { name: /Reformar/i }));
-    await browser.click(screen.getByRole("checkbox", { name: /financeira/i }));
-    await browser.click(screen.getByRole("checkbox", { name: /^Cuidar da casa/i }));
-    await browser.click(screen.getByRole("button", { name: /criar conta/i }));
-
     await waitFor(() =>
       expect(mocks.replace).toHaveBeenCalledWith("/onboarding/setup?type=PESSOAL"),
     );
   });
 
-  it("falls back to canonical OBJECTIVE_TYPES order when PESSOAL is absent from the selection", async () => {
-    mocks.register.mockResolvedValueOnce({ id: "u1" });
+  it("validates name minimum length", async () => {
     const browser = userEvent.setup();
     render(<RegisterPage />);
-    await browser.type(screen.getByLabelText(/nome do seu espaço/i), "Acme");
-    await browser.type(screen.getByLabelText(/seu nome/i), "Maria");
-    await browser.type(screen.getByLabelText(/usuário/i), "maria");
+    await browser.type(screen.getByLabelText(/email/i), "test@example.com");
     await browser.type(screen.getByLabelText(/^senha$/i), "segredo1");
-    await browser.type(screen.getByLabelText(/confirmar senha/i), "segredo1");
-    await browser.click(screen.getByRole("checkbox", { name: /carro/i }));
-    await browser.click(screen.getByRole("checkbox", { name: /Reformar/i }));
-    await browser.click(screen.getByRole("button", { name: /criar conta/i }));
-
-    // REFORMA precedes CARRO in canonical OBJECTIVE_TYPES order.
-    await waitFor(() =>
-      expect(mocks.replace).toHaveBeenCalledWith("/onboarding/setup?type=REFORMA"),
-    );
-  });
-
-  it("rejects mismatch and missing objectives without a request", async () => {
-    const browser = userEvent.setup();
-    render(<RegisterPage />);
-    await browser.type(screen.getByLabelText(/nome do seu espaço/i), "Acme");
-    await browser.type(screen.getByLabelText(/seu nome/i), "Maria");
-    await browser.type(screen.getByLabelText(/usuário/i), "maria");
-    await browser.type(screen.getByLabelText(/^senha$/i), "segredo1");
-    await browser.type(screen.getByLabelText(/confirmar senha/i), "diferente");
     await browser.click(screen.getByRole("button", { name: /criar conta/i }));
 
     expect(mocks.register).not.toHaveBeenCalled();
-    expect(mocks.replace).not.toHaveBeenCalled();
+    expect(screen.getByText(/informe seu nome/i)).toBeInTheDocument();
   });
 
-  it("recovers from a server failure without navigating or duplicating the request", async () => {
-    mocks.register.mockRejectedValue(new Error("username unavailable"));
+  it("validates email format", async () => {
+    const browser = userEvent.setup();
+    render(<RegisterPage />);
+    await browser.type(screen.getByLabelText(/seu nome/i), "Maria");
+    await browser.type(screen.getByLabelText(/email/i), "invalid");
+    await browser.type(screen.getByLabelText(/^senha$/i), "segredo1");
+    await browser.click(screen.getByRole("button", { name: /criar conta/i }));
+
+    expect(mocks.register).not.toHaveBeenCalled();
+    expect(screen.getByText(/informe um email válido/i)).toBeInTheDocument();
+  });
+
+  it("validates password minimum length", async () => {
+    const browser = userEvent.setup();
+    render(<RegisterPage />);
+    await browser.type(screen.getByLabelText(/seu nome/i), "Maria");
+    await browser.type(screen.getByLabelText(/email/i), "maria@example.com");
+    await browser.type(screen.getByLabelText(/^senha$/i), "short");
+    await browser.click(screen.getByRole("button", { name: /criar conta/i }));
+
+    expect(mocks.register).not.toHaveBeenCalled();
+    expect(screen.getByText(/crie uma senha com pelo menos 8 caracteres/i)).toBeInTheDocument();
+  });
+
+  it("prevents double submission", async () => {
+    mocks.register.mockImplementation(() => new Promise(() => {}));
+    const browser = userEvent.setup();
+    render(<RegisterPage />);
+    await fillValidForm(browser);
+    const submit = screen.getByRole("button", { name: /criar conta/i });
+    await browser.click(submit);
+    await browser.click(submit);
+    await browser.click(submit);
+
+    expect(mocks.register).toHaveBeenCalledTimes(1);
+  });
+
+  it("recovers from server failure", async () => {
+    mocks.register.mockRejectedValue(new Error("email duplicado"));
     const browser = userEvent.setup();
     render(<RegisterPage />);
     await fillValidForm(browser);
@@ -141,5 +130,6 @@ describe("/register form behavior", () => {
     await waitFor(() => expect(mocks.register).toHaveBeenCalledTimes(1));
     expect(mocks.replace).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: /criar conta/i })).toBeEnabled();
+    expect(screen.getByText(/email duplicado/i)).toBeInTheDocument();
   });
 });
