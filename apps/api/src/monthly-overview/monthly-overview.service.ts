@@ -527,6 +527,22 @@ export class MonthlyOverviewService {
       isInRange(purchaseDate(e), monthStart, monthEnd),
     );
 
+    // Despesas LOCAIS do próprio projeto sem cartão E sem conta (ex.: lançadas
+    // por voz sem meio de pagamento informado) — a "Carteira". Regra de ouro 14:
+    // nunca sumir com origin:'none' do consolidado. Sem cartão/conta elas saem
+    // direto do caixa como dinheiro; espelha o tratamento das foreign carteira,
+    // mas para o projeto atual. Exclui espelhos (linkedExpenseId), já contados
+    // pela via do foreign que liquidam.
+    const localCarteiraPaidThisMonth = expenses.filter(
+      (expense) =>
+        !expense.cardLast4 &&
+        !expense.bankLast4 &&
+        !expense.linkedExpenseId &&
+        expense.status === 'PAGO' &&
+        !isNeutralExpenseType(expense.tipoDespesa) &&
+        isInRange(purchaseDate(expense), monthStart, monthEnd),
+    );
+
     const saiuMes = sumBy(
       expenses.filter(
         (expense) =>
@@ -1039,6 +1055,31 @@ export class MonthlyOverviewService {
           origem: { tipo: 'carteira' as const },
         } as any;
       }),
+      // PAGO carteira LOCAL (despesa do próprio projeto sem cartão nem conta,
+      // ex.: lançada por voz). Sem isto, sumia da Visão Conta e do caixa (§14).
+      ...localCarteiraPaidThisMonth.map((expense) => ({
+        id: expense.id as string | null,
+        kind: 'saida' as const,
+        descricao: expenseDisplayName(expense.tipoDespesa, expense.titulo, expense.fornecedor),
+        data: purchaseDate(expense).toISOString(),
+        forma: inferCashForm(
+          `${expense.titulo ?? ''} ${expense.fornecedor ?? ''}`,
+          expense.formaPagamento,
+        ),
+        valor: expense.valorTotal,
+        realizado: true,
+        status: expense.status,
+        cardLast4: null as string | null,
+        bankLast4: null as string | null,
+        tipoDespesa: expense.tipoDespesa,
+        isInvoice: false,
+        editavel: true,
+        dueMonth: null as string | null,
+        projetoOrigem: null as { id: string; name: string; type: string } | null,
+        parcelaIndex: null as number | null,
+        foreignExpenseId: null as string | null,
+        origem: { tipo: 'carteira' as const },
+      })),
       ...foreignPendingItems,
     ].sort((a, b) => b.data.localeCompare(a.data));
 

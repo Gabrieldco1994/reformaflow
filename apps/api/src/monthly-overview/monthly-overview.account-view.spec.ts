@@ -2738,4 +2738,39 @@ describe("MonthlyOverviewService.getAccountView — Carteira (origem='none')", (
     expect(res.saiuMes).toBe(2_000); // Carteira item should be included
     expect(res.faltaPagarMes).toBe(0); // Nothing pending
   });
+
+  // T6 (regressão): despesa LOCAL do PESSOAL sem cartão E sem conta — o que a
+  // voz cria quando o usuário não informa o meio de pagamento. Antes era
+  // descartada no filtro do accountExpenseList (exigia bankLast4) e sumia da
+  // Visão Conta e do caixa. Agora entra em saidas como carteira e soma.
+  it("T6: despesa LOCAL sem cartão e sem conta aparece como carteira e soma no caixa", async () => {
+    prisma.expense.findMany.mockResolvedValue([
+      base({
+        id: "local-carteira",
+        projectId,
+        tipoDespesa: "ALIMENTACAO",
+        titulo: "Feira",
+        fornecedor: "Feira livre",
+        valorTotal: 1_500,
+        valor: 1_500,
+        formaPagamento: "A_VISTA",
+        dataPagamento: new Date("2026-06-10T00:00:00.000Z"),
+        status: "PAGO",
+        project: { id: projectId, name: "Pessoal", type: "PESSOAL" },
+      }),
+    ]);
+    prisma.receipt.findMany.mockResolvedValue([]);
+    prisma.cashFlowEntry.findMany.mockResolvedValue([]);
+    prisma.creditCard.findMany.mockResolvedValue([]);
+
+    const res: any = await service.getAccountView(tenantId, projectId, "2026-06");
+
+    const item = res.saidas.find((s: any) => s.id === "local-carteira");
+    expect(item).toBeDefined();
+    expect(item.origem).toEqual({ tipo: "carteira" });
+    expect(item.valor).toBe(1_500);
+    expect(item.realizado).toBe(true);
+    expect(res.saiuMes).toBe(1_500);
+    expect(res.faltaPagarMes).toBe(0);
+  });
 });
