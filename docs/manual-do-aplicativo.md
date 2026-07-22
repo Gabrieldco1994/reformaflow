@@ -45,7 +45,7 @@ módulos (abas) ficam disponíveis:
 | **PESSOAL** | Controle do dinheiro pessoal (o "cockpit" da sua vida financeira) | Cockpit, Visão Conta, Cartões, Metas, Planning, Budget, DRE, Fluxo de Caixa (+ drill-downs: Despesas/Recebimentos) |
 | **REFORMA** | Controle financeiro e visual de uma obra/reforma | Dashboard, Despesas, Recebimentos, Fluxo de Caixa, Cômodos, Plantas, Simulação, Cronograma, Comparar Preço, Pendências |
 | **CASA** | Gestão da casa (financiamento, contas fixas, manutenções, lembretes) | Dashboard, Financiamento, Contas recorrentes, Manutenção, Lembretes, Despesas |
-| **CARRO** | Gestão do carro | Dashboard, Carro (dados), Contas recorrentes, Manutenção, Lembretes, Despesas |
+| **CARRO** | Gestão do carro | Dashboard, Carro (dados), Documentos, Contas recorrentes, Manutenção, Lembretes, Despesas |
 | **COMPRA** | Acompanhar uma compra grande (casa, carro etc.) | Dashboard, Despesas, Recebimentos, Fluxo de Caixa, Preços |
 
 > Os módulos e sua ordem de navegação por tipo vivem em
@@ -761,7 +761,17 @@ Ficha do veículo (é um registro 1:1 com o projeto).
 - **Valores:** **Tabela FIPE** × **valor pago** (em centavos).
 - **Quilometragem** + sinal de revisão (km atual/última revisão).
 
-### 7.2 Manutenção do carro
+### 7.2 Documentos (`/vehicle-documents`)
+Centraliza documentos do veículo e seus vencimentos.
+- Tipos próprios para **IPVA**, **Seguro**, **Licenciamento** e **Outro**.
+- Cada cadastro guarda título, número/apólice opcional, vencimento, observações e
+  antecedência do aviso.
+- O app cria um lembrete vinculado e mantém título e data sincronizados quando o
+  documento é editado. Excluir o documento também remove esse lembrete.
+- Aceita múltiplos anexos em PDF, JPG, PNG ou WebP (até 10 MB cada).
+- O dashboard de CARRO mostra um atalho e os próximos documentos cadastrados.
+
+### 7.3 Manutenção do carro
 Igual ao §6.3, com coluna **Km** adicional na tabela.
 
 ---

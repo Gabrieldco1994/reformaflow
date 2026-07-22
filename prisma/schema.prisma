@@ -112,6 +112,7 @@ model Project {
   maintenanceLogs         MaintenanceLog[]
   reminders               Reminder[]
   carInfo                 CarInfo?
+  vehicleDocuments        VehicleDocument[]
   scheduleConfig          ScheduleConfig?
   scheduleStages          ScheduleStage[]
   scheduleTasks           ScheduleTask[]
@@ -412,6 +413,29 @@ model Attachment {
   @@map("attachments")
 }
 
+model VehicleDocument {
+  id                       String    @id @default(cuid())
+  projectId                String    @map("project_id")
+  tenantId                 String    @map("tenant_id")
+  reminderId               String?   @unique @map("reminder_id")
+  tipo                     String
+  titulo                   String
+  numero                   String?
+  dataVencimento           DateTime  @map("data_vencimento")
+  lembreteAntecedenciaDias Int       @default(30) @map("lembrete_antecedencia_dias")
+  observacoes              String?
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
+  deletedAt                DateTime? @map("deleted_at")
+
+  project  Project   @relation(fields: [projectId], references: [id])
+  reminder Reminder? @relation(fields: [reminderId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, dataVencimento])
+  @@index([tenantId])
+  @@map("vehicle_documents")
+}
+
 model Simulation {
   id        String   @id @default(cuid())
   projectId String   @map("project_id")
@@ -632,6 +656,7 @@ model Reminder {
 
   project Project @relation(fields: [projectId], references: [id])
   plant   Plant?  @relation(fields: [plantId], references: [id])
+  vehicleDocument VehicleDocument?
 
   @@index([projectId])
   @@index([data])

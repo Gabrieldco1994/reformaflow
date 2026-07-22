@@ -12,6 +12,7 @@ export interface ReminderRow {
   recorrencia: string;
   status: string;
   prioridade: string;
+  generatedBy?: string | null;
 }
 
 const PRIORIDADES: Record<string, { label: string; color: string }> = {
@@ -54,21 +55,24 @@ export function ReminderCard({
   const prio = PRIORIDADES[r.prioridade];
   const statusCfg = STATUS_CONFIG[r.status];
   const recLabel = RECORRENCIAS[r.recorrencia];
+  const isManagedVehicleDocument = r.generatedBy === 'VEHICLE_DOCUMENT';
 
   const actions: CardAction[] = [];
-  if (r.status === 'PENDENTE') {
+  if (!isManagedVehicleDocument && r.status === 'PENDENTE') {
     actions.push({ label: 'Concluir', onClick: () => onMarkDone(r.id), icon: <Check className="h-4 w-4" /> });
     actions.push({ label: 'Adiar', onClick: () => onPostpone(r.id), icon: <Clock className="h-4 w-4" /> });
   }
-  actions.push({ label: 'Editar', onClick: () => onEdit(r), icon: <Edit2 className="h-4 w-4" /> });
-  actions.push({ label: 'Excluir', onClick: () => onDelete(r.id), icon: <Trash2 className="h-4 w-4" />, tone: 'danger' });
+  if (!isManagedVehicleDocument) {
+    actions.push({ label: 'Editar', onClick: () => onEdit(r), icon: <Edit2 className="h-4 w-4" /> });
+    actions.push({ label: 'Excluir', onClick: () => onDelete(r.id), icon: <Trash2 className="h-4 w-4" />, tone: 'danger' });
+  }
 
   return (
     <article
       aria-label={r.titulo}
       className={`flex items-start gap-4 rounded-lg border bg-white p-4 ${r.status === 'CONCLUIDO' ? 'opacity-60' : ''}`}
     >
-      {r.status === 'PENDENTE' && (
+      {r.status === 'PENDENTE' && !isManagedVehicleDocument && (
         <button
           type="button"
           onClick={() => onMarkDone(r.id)}
@@ -105,10 +109,17 @@ export function ReminderCard({
             <span className="rounded bg-gray-100 px-1.5 py-0.5">{recLabel}</span>
           )}
           <span className={`rounded px-1.5 py-0.5 ${statusCfg?.color ?? ''}`}>{statusCfg?.label}</span>
+          {isManagedVehicleDocument && (
+            <span className="rounded bg-blue-50 px-1.5 py-0.5 text-blue-700">
+              Gerenciado em Documentos
+            </span>
+          )}
         </div>
       </div>
 
-      <CardActionsMenu ariaLabel={`Ações ${r.titulo}`} actions={actions} />
+      {actions.length > 0 && (
+        <CardActionsMenu ariaLabel={`Ações ${r.titulo}`} actions={actions} />
+      )}
     </article>
   );
 }

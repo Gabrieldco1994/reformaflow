@@ -30,6 +30,7 @@ vi.mock("@tanstack/react-query", () => ({
           },
         ],
       };
+    if (queryKey[0] === "vehicle-documents") return { data: [] };
     if (queryKey[0] === "financing")
       return {
         data: {
@@ -62,6 +63,9 @@ vi.mock("@tanstack/react-query", () => ({
       ],
     };
   },
+}));
+vi.mock("@/contexts/auth-context", () => ({
+  useAuth: () => ({ hasModule: () => true }),
 }));
 vi.mock("next/link", () => ({
   default: ({

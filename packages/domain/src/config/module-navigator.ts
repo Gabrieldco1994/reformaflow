@@ -64,6 +64,7 @@ export const PROJECT_NAV: Record<ProjectType, NavModule[]> = {
     { slug: 'car-info', label: 'Meu Carro', iconName: 'Car', module: 'carInfo' },
     { slug: 'bills', label: 'Contas', iconName: 'CreditCard', module: 'recurringBills' },
     { slug: 'expenses', label: 'Despesas', iconName: 'Receipt', module: 'expenses' },
+    { slug: 'vehicle-documents', label: 'Documentos', iconName: 'FileText', module: 'vehicleDocuments' },
     { slug: 'maintenance', label: 'Manutenções', iconName: 'Wrench', module: 'maintenance' },
     { slug: 'reminders', label: 'Lembretes', iconName: 'Bell', module: 'reminders' },
   ],

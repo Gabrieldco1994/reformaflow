@@ -139,4 +139,17 @@ export const api = {
       })
       .finally(() => clearTimeout(timer));
   },
+  download: async (path: string, fileName: string) => {
+    const res = await fetch(`${API_BASE}${path}`, { credentials: 'include' });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({ message: `HTTP ${res.status}` }));
+      throw new ApiResponseError(error.message ?? `HTTP ${res.status}`, res.status);
+    }
+    const objectUrl = URL.createObjectURL(await res.blob());
+    const anchor = document.createElement('a');
+    anchor.href = objectUrl;
+    anchor.download = fileName;
+    anchor.click();
+    URL.revokeObjectURL(objectUrl);
+  },
 };
