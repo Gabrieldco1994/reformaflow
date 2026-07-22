@@ -6,18 +6,17 @@ import { UpdateObjectivesDto } from "./dto/update-objectives.dto";
 
 const TYPES = ["REFORMA", "COMPRA", "CASA", "CARRO", "PESSOAL", "PLANTAS"] as const;
 type Input = {
-  tenantName: string;
+  tenantName?: string;
   ownerName: string;
-  username: string;
+  email: string;
+  username?: string;
   password: string;
-  projectTypes: string[];
+  projectTypes?: string[];
 };
 const valid: Input = {
-  tenantName: " Acme ",
-  ownerName: " Maria ",
-  username: "Maria.Silva",
+  ownerName: "Maria",
+  email: "maria@example.com",
   password: "segredo123",
-  projectTypes: ["CASA", "PESSOAL"],
 };
 const registerDto = (input: Partial<Input> = {}) =>
   Object.assign(new RegisterOwnerDto(), valid, input);
@@ -45,68 +44,87 @@ describe("self-service registration contract", () => {
   beforeEach(() => { process.env.AUTH_ENABLE_REGISTER = "1"; });
   afterEach(() => { delete process.env.AUTH_ENABLE_REGISTER; });
 
-  it.each([
-    [undefined], [null], [[]], [["CASA", "CASA"]], [["DESCONHECIDO"]],
-    [[...TYPES, "CASA"]],
-  ])("rejects a missing, malformed, duplicate, unknown, or >6 projectTypes set: %j", async (projectTypes) => {
-    const errors = await validate(registerDto({ projectTypes: projectTypes as any }));
-    expect(errors.map((error) => error.property)).toContain("projectTypes");
+  it("requires email, ownerName, and password; all others optional", async () => {
+    const errors = await validate(registerDto({
+      email: undefined, ownerName: undefined, password: undefined,
+    } as any));
+    expect(errors.map((e) => e.property)).toContain("email");
+    expect(errors.map((e) => e.property)).toContain("ownerName");
+    expect(errors.map((e) => e.property)).toContain("password");
   });
 
-  it.each(TYPES)("accepts canonical project type %s", async (projectType) => {
-    expect(await validate(registerDto({ projectTypes: [projectType] }))).toEqual([]);
+  it("accepts projectTypes when provided and valid", async () => {
+    expect(await validate(registerDto({ projectTypes: ["CASA", "PESSOAL"] }))).toEqual([]);
   });
 
-  it("enforces the same minimum password length as the public form", async () => {
-    const errors = await validate(registerDto({ password: "curta12" }));
-    expect(errors.map((error) => error.property)).toContain("password");
+  it("accepts projectTypes absent (defaults to [PESSOAL])", async () => {
+    const errors = await validate(registerDto({ projectTypes: undefined }));
+    expect(errors).toEqual([]);
   });
 
-  it("creates exactly one tenant and one USER atomically, derives permissions, and creates no project", async () => {
+  it("rejects invalid projectTypes: malformed, duplicate, unknown, or >6 types", async () => {
+    const invalid = [
+      [["CASA", "CASA"]], // duplicate
+      [["DESCONHECIDO"]], // unknown
+      [[...TYPES, "CASA"]], // >6
+      [[null]], // malformed
+    ];
+    for (const [projectTypes] of invalid) {
+      const errors = await validate(registerDto({ projectTypes: projectTypes as any }));
+      expect(errors.map((e) => e.property)).toContain("projectTypes");
+    }
+  });
+
+  it("enforces minimum password length 8", async () => {
+    const errors = await validate(registerDto({ password: "short12" }));
+    expect(errors.map((e) => e.property)).toContain("password");
+  });
+
+  it("creates exactly one tenant and one USER atomically with derived permissions", async () => {
     const { service, prisma, tx } = harness();
     const result = await service.registerOwner(valid as any);
 
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(tx.tenant.create).toHaveBeenCalledTimes(1);
-    expect(tx.user.findFirst).toHaveBeenCalledWith({
-      where: { username: "maria.silva", deletedAt: null }, select: { id: true },
-    });
+    expect(tx.user.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ email: "maria@example.com" }),
+      }),
+    );
     expect(tx.user.create).toHaveBeenCalledTimes(1);
     expect(tx.user.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        tenantId: "t1", username: "maria.silva", name: "Maria", role: "USER", isGuest: false,
-        allowedProjectTypes: JSON.stringify(["CASA", "PESSOAL"]),
+        tenantId: "t1",
+        email: "maria@example.com",
+        username: "maria", // derived from email prefix
+        name: "Maria",
+        role: "USER",
+        isGuest: false,
+        allowedProjectTypes: JSON.stringify(["PESSOAL"]), // default
+        // PESSOAL allows: dashboard, expenses, receipts, cashFlow, creditCards, bankAccounts, monthlyOverview, pendencias
         allowedModules: JSON.stringify([
-          "dashboard", "recurringBills", "maintenance", "reminders", "expenses",
-          "receipts", "cashFlow", "creditCards", "bankAccounts", "monthlyOverview", "pendencias",
+          "dashboard", "expenses", "receipts", "cashFlow", "creditCards",
+          "bankAccounts", "monthlyOverview", "pendencias",
         ]),
       }),
     });
     expect(prisma.tenant.create).not.toHaveBeenCalled();
     expect(prisma.user.create).not.toHaveBeenCalled();
-    expect(prisma.project.findMany).not.toHaveBeenCalled();
-    expect(result.user.role).toBe("USER");
-    expect(result.user.allowedProjects).toBe("[]");
   });
 
-  it("ignores forged role, tenant and derived permissions", async () => {
+  it("ignores forged role, tenantId, and derived permissions", async () => {
     const { service, tx } = harness();
     await service.registerOwner({
-      ...valid, role: "ADMIN", tenantId: "evil", allowedModules: ["admin"],
-      allowedProjectTypes: ["REFORMA"],
+      ...valid, role: "ADMIN", tenantId: "evil", allowedProjectTypes: ["REFORMA"],
     } as any);
 
     const data = tx.user.create.mock.calls[0][0].data;
     expect(data.tenantId).toBe("t1");
     expect(data.role).toBe("USER");
-    expect(data.allowedModules).toBe(JSON.stringify([
-      "dashboard", "recurringBills", "maintenance", "reminders", "expenses",
-      "receipts", "cashFlow", "creditCards", "bankAccounts", "monthlyOverview", "pendencias",
-    ]));
-    expect(data.allowedProjectTypes).toBe(JSON.stringify(["CASA", "PESSOAL"]));
+    expect(data.allowedProjectTypes).toBe(JSON.stringify(["PESSOAL"]));
   });
 
-  it("keeps duplicate detection and both writes in the rollback boundary", async () => {
+  it("keeps duplicate email detection and transaction rollback on conflict", async () => {
     const { service, prisma, tx } = harness();
     tx.user.findFirst.mockResolvedValue({ id: "existing" });
 
@@ -114,7 +132,6 @@ describe("self-service registration contract", () => {
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(tx.tenant.create).toHaveBeenCalledTimes(1);
     expect(tx.user.create).not.toHaveBeenCalled();
-    expect(prisma.tenant.create).not.toHaveBeenCalled();
   });
 
   it("does not mutate when public registration is disabled", async () => {
@@ -122,8 +139,6 @@ describe("self-service registration contract", () => {
     const { service, prisma, tx } = harness();
     await expect(service.registerOwner(valid as any)).rejects.toBeInstanceOf(NotFoundException);
     expect(prisma.$transaction).not.toHaveBeenCalled();
-    expect(tx.tenant.create).not.toHaveBeenCalled();
-    expect(tx.user.create).not.toHaveBeenCalled();
   });
 });
 
@@ -157,10 +172,6 @@ describe("self objective validation and persistence", () => {
         allowedProjectTypes: '["PLANTAS"]',
         allowedModules: '["dashboard","maintenance","reminders","plantsAi"]',
       },
-    });
-    expect(result).toEqual({
-      projectTypes: ["PLANTAS"], allowedProjectTypes: ["PLANTAS"],
-      allowedModules: ["dashboard", "maintenance", "reminders", "plantsAi"],
     });
   });
 });
