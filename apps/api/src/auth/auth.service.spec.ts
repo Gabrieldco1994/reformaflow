@@ -70,6 +70,7 @@ describe('AuthService signup/guest/claim', () => {
     const out = await service.registerOwner({
       tenantName: 'Tenant',
       ownerName: 'Owner',
+      email: 'owner@example.com',
       username: 'Owner',
       password: '12345678',
       projectTypes: [ProjectType.CASA],
@@ -106,6 +107,7 @@ describe('AuthService signup/guest/claim', () => {
     await service.registerOwner({
       tenantName: 'Tenant',
       ownerName: 'Owner',
+      email: 'owner@example.com',
       username: 'Owner',
       password: '12345678',
       projectTypes: [ProjectType.CASA],
@@ -119,6 +121,7 @@ describe('AuthService signup/guest/claim', () => {
       service.registerOwner({
         tenantName: 'Tenant',
         ownerName: 'Owner',
+        email: 'owner@example.com',
         username: 'owner',
         password: '123456',
       }),
