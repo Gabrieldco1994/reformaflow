@@ -23,7 +23,9 @@ describe('PriceMonitorService', () => {
       notification: {
         create: jest.fn(),
       },
+      $transaction: jest.fn(),
     };
+    prisma.$transaction.mockImplementation((callback: any) => callback(prisma));
 
     priceCompare = {
       searchPrices: jest.fn(),
@@ -478,6 +480,7 @@ describe('PriceMonitorService', () => {
           status: 'PAGO',
         }),
         'user-1',
+        prisma,
       );
       expect(prisma.priceMonitorItem.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -522,6 +525,7 @@ describe('PriceMonitorService', () => {
           status: 'PLANEJADO',
         }),
         'user-1',
+        prisma,
       );
     });
 
@@ -548,6 +552,7 @@ describe('PriceMonitorService', () => {
         'project-1',
         expect.objectContaining({ valor: 2799.9 }),
         'user-1',
+        prisma,
       );
       expect(result.pricePaidCents).toBe(279_990);
     });
@@ -576,6 +581,7 @@ describe('PriceMonitorService', () => {
             dataCompra: '2026-07-22T00:00:00.000Z',
           }),
           'user-1',
+          prisma,
         );
       } finally {
         jest.useRealTimers();
@@ -600,12 +606,9 @@ describe('PriceMonitorService', () => {
       expect(expenseService.create).not.toHaveBeenCalled();
     });
 
-    it('removes the expense when closing monitoring fails', async () => {
+    it('does not create an expense when the monitor claim fails', async () => {
       prisma.priceMonitorItem.findFirst.mockResolvedValue(item);
-      expenseService.create.mockResolvedValue({ id: 'expense-3' });
-      prisma.priceMonitorItem.updateMany.mockRejectedValue(
-        new Error('database unavailable'),
-      );
+      prisma.priceMonitorItem.updateMany.mockResolvedValue({ count: 0 });
 
       await expect(
         service.comprarAgora(
@@ -615,11 +618,32 @@ describe('PriceMonitorService', () => {
           { quantidade: 1, formaPagamento: 'A_VISTA' },
           'user-1',
         ),
-      ).rejects.toThrow('database unavailable');
-      expect(expenseService.remove).toHaveBeenCalledWith(
+      ).rejects.toThrow('Este monitoramento já foi encerrado');
+      expect(expenseService.create).not.toHaveBeenCalled();
+    });
+
+    it('creates the expense inside the same transaction as monitor closure', async () => {
+      prisma.priceMonitorItem.findFirst.mockResolvedValue(item);
+      prisma.priceMonitorItem.updateMany.mockResolvedValue({ count: 1 });
+      expenseService.create.mockRejectedValue(new Error('cash flow failed'));
+
+      await expect(
+        service.comprarAgora(
+          'tenant-1',
+          'project-1',
+          'item-1',
+          { quantidade: 1, formaPagamento: 'A_VISTA' },
+          'user-1',
+        ),
+      ).rejects.toThrow('cash flow failed');
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(expenseService.create).toHaveBeenCalledWith(
         'tenant-1',
         'project-1',
-        'expense-3',
+        expect.any(Object),
+        'user-1',
+        prisma,
       );
     });
 

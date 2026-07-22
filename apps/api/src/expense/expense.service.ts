@@ -9,6 +9,8 @@ import { RatearMixedDto } from './dto/ratear-mixed.dto';
 import { Prisma } from '@prisma/client';
 import { fastClassify } from '../bank-account/bank-account.service';
 
+type ExpenseDb = PrismaService | Prisma.TransactionClient;
+
 @Injectable()
 export class ExpenseService {
   constructor(
@@ -27,23 +29,24 @@ export class ExpenseService {
     tenantId: string,
     currentProjectId: string,
     dto: Pick<CreateExpenseDto, 'creditCardId' | 'bankAccountId' | 'linkedExpenseId'>,
+    db: ExpenseDb = this.prisma,
   ): Promise<{ cardLast4?: string | null; bankLast4?: string | null; linkedExpenseId?: string | null }> {
     // Parallel queries for better performance
     const [cardRow, accRow, linkedRow] = await Promise.all([
       dto.creditCardId && dto.creditCardId !== null && dto.creditCardId !== ''
-        ? this.prisma.creditCard.findFirst({
+        ? db.creditCard.findFirst({
             where: { id: dto.creditCardId, tenantId, deletedAt: null },
             select: { last4: true },
           })
         : null,
       dto.bankAccountId && dto.bankAccountId !== null && dto.bankAccountId !== ''
-        ? this.prisma.bankAccount.findFirst({
+        ? db.bankAccount.findFirst({
             where: { id: dto.bankAccountId, tenantId, deletedAt: null },
             select: { last4: true },
           })
         : null,
       dto.linkedExpenseId && dto.linkedExpenseId !== null && dto.linkedExpenseId !== ''
-        ? this.prisma.expense.findFirst({
+        ? db.expense.findFirst({
             where: { id: dto.linkedExpenseId, tenantId, deletedAt: null },
             select: { projectId: true },
           })
@@ -92,15 +95,17 @@ export class ExpenseService {
     projectId: string,
     dto: CreateExpenseDto,
     createdByUserId: string | null = null,
+    tx?: Prisma.TransactionClient,
   ) {
-    await this.validateProject(tenantId, projectId);
+    const db = tx ?? this.prisma;
+    await this.validateProject(tenantId, projectId, db);
 
     const valorCents = Math.round(dto.valor * 100);
     const valorTotal = valorCents * dto.quantidade;
 
-    const links = await this.resolveLinks(tenantId, projectId, dto);
+    const links = await this.resolveLinks(tenantId, projectId, dto, db);
 
-    const expense = await this.prisma.expense.create({
+    const expense = await db.expense.create({
       data: {
         projectId,
         tenantId,
@@ -131,8 +136,10 @@ export class ExpenseService {
     });
 
     try {
-      await this.regenerateCashFlow(expense.id);
+      await this.regenerateCashFlow(expense.id, tx);
     } catch (error) {
+      if (tx) throw error;
+
       const deletedAt = new Date();
       await this.prisma.$transaction([
         this.prisma.cashFlowEntry.updateMany({
@@ -1099,26 +1106,33 @@ export class ExpenseService {
     return { deleted: true, count: idArr.length };
   }
 
-  private async regenerateCashFlow(expenseId: string) {
-    const expense = await this.prisma.expense.findUnique({
+  private async regenerateCashFlow(
+    expenseId: string,
+    tx?: Prisma.TransactionClient,
+  ) {
+    const db = tx ?? this.prisma;
+    const expense = await db.expense.findUnique({
       where: { id: expenseId },
       include: { room: true },
     });
     if (!expense) return;
 
-    return this.prisma.$transaction(async (tx) => {
+    const regenerate = async (transaction: Prisma.TransactionClient) => {
       // Alvo RATEADO: o caixa é derivado do cronograma da fonte, não do planejado
       // próprio. Editar o alvo não pode apagar/regenerar errado o caixa do rateio.
-      const rateio = await tx.rateioAllocation.findUnique({
+      const rateio = await transaction.rateioAllocation.findUnique({
         where: { targetExpenseId: expenseId },
       });
       if (rateio) {
-        await this.conciliacao.regenerateRateioTargetCashflow(tx, expenseId);
+        await this.conciliacao.regenerateRateioTargetCashflow(
+          transaction,
+          expenseId,
+        );
         return;
       }
 
       // Soft-delete existing entries
-      await tx.cashFlowEntry.updateMany({
+      await transaction.cashFlowEntry.updateMany({
         where: { expenseId, deletedAt: null },
         data: { deletedAt: new Date() },
       });
@@ -1128,9 +1142,11 @@ export class ExpenseService {
 
       const entries = this.buildCashFlowEntries(expense);
       if (entries.length > 0) {
-        await tx.cashFlowEntry.createMany({ data: entries });
+        await transaction.cashFlowEntry.createMany({ data: entries });
       }
-    });
+    };
+
+    return tx ? regenerate(tx) : this.prisma.$transaction(regenerate);
   }
 
   private buildCashFlowEntries(expense: {
@@ -1212,8 +1228,12 @@ export class ExpenseService {
     return Array.from(set).sort((a, b) => a - b);
   }
 
-  private async validateProject(tenantId: string, projectId: string) {
-    const project = await this.prisma.project.findFirst({
+  private async validateProject(
+    tenantId: string,
+    projectId: string,
+    db: ExpenseDb = this.prisma,
+  ) {
+    const project = await db.project.findFirst({
       where: { id: projectId, tenantId },
     });
     if (!project) throw new NotFoundException('Projeto não encontrado');

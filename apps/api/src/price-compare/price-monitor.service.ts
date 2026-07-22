@@ -342,78 +342,47 @@ export class PriceMonitorService {
     dto: ComprarAgoraDto,
     createdByUserId: string,
   ) {
-    const item = await this.prisma.priceMonitorItem.findFirst({
-      where: {
-        id: itemId,
-        tenantId,
-        projectId,
-        isActive: true,
-        deletedAt: null,
-      },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      const item = await tx.priceMonitorItem.findFirst({
+        where: {
+          id: itemId,
+          tenantId,
+          projectId,
+          isActive: true,
+          deletedAt: null,
+        },
+      });
 
-    if (!item) {
-      throw new NotFoundException('Produto monitorado não encontrado');
-    }
+      if (!item) {
+        throw new NotFoundException('Produto monitorado não encontrado');
+      }
 
-    if (
-      item.monitoringEndDate &&
-      new Date(item.monitoringEndDate) <= new Date()
-    ) {
-      throw new ConflictException('Este monitoramento já foi encerrado');
-    }
+      if (
+        item.monitoringEndDate &&
+        new Date(item.monitoringEndDate) <= new Date()
+      ) {
+        throw new ConflictException('Este monitoramento já foi encerrado');
+      }
 
-    const priceCents =
-      item.lastBestPriceCents ??
-      (item.lastBestPrice ? Math.round(item.lastBestPrice * 100) : null) ??
-      item.referencePriceCents;
+      const priceCents =
+        item.lastBestPriceCents ??
+        (item.lastBestPrice ? Math.round(item.lastBestPrice * 100) : null) ??
+        item.referencePriceCents;
 
-    if (!priceCents || priceCents <= 0) {
-      throw new BadRequestException(
-        'Atualize ou informe um preço antes de registrar a compra',
-      );
-    }
+      if (!priceCents || priceCents <= 0) {
+        throw new BadRequestException(
+          'Atualize ou informe um preço antes de registrar a compra',
+        );
+      }
 
-    if (dto.formaPagamento === 'PARCELADO' && !dto.parcelas) {
-      throw new BadRequestException(
-        'Informe a quantidade de parcelas para uma compra parcelada',
-      );
-    }
+      if (dto.formaPagamento === 'PARCELADO' && !dto.parcelas) {
+        throw new BadRequestException(
+          'Informe a quantidade de parcelas para uma compra parcelada',
+        );
+      }
 
-    const purchasedAt =
-      dto.dataCompra ??
-      todayLocalDateUtc('America/Sao_Paulo').toISOString();
-    const expense = await this.expenseService.create(
-      tenantId,
-      projectId,
-      {
-        tipoDespesa: ExpenseType.OUTROS,
-        valor: priceCents / 100,
-        quantidade: dto.quantidade,
-        titulo: item.title,
-        fornecedor: item.lastBestStore ?? undefined,
-        link: item.lastBestLink ?? item.productUrl ?? item.url ?? undefined,
-        formaPagamento: dto.formaPagamento,
-        dataPagamento:
-          dto.formaPagamento === 'A_VISTA' ? purchasedAt : undefined,
-        quantidadeParcela:
-          dto.formaPagamento === 'PARCELADO' ? dto.parcelas : undefined,
-        dataInicioParcela:
-          dto.formaPagamento === 'PARCELADO'
-            ? (dto.dataInicio ?? purchasedAt)
-            : undefined,
-        dataCompra: purchasedAt,
-        status:
-          dto.formaPagamento === 'A_VISTA'
-            ? ExpenseStatus.PAGO
-            : ExpenseStatus.PLANEJADO,
-      },
-      createdByUserId,
-    );
-
-    const closedAt = new Date();
-    try {
-      const closed = await this.prisma.priceMonitorItem.updateMany({
+      const closedAt = new Date();
+      const closed = await tx.priceMonitorItem.updateMany({
         where: {
           id: itemId,
           tenantId,
@@ -426,20 +395,48 @@ export class PriceMonitorService {
           monitoringEndDate: closedAt,
         },
       });
-
       if (closed.count !== 1) {
         throw new ConflictException('Este monitoramento já foi encerrado');
       }
-    } catch (error) {
-      await this.expenseService.remove(tenantId, projectId, expense.id);
-      throw error;
-    }
 
-    return {
-      expenseId: expense.id,
-      pricePaidCents: priceCents,
-      closedAt: closedAt.toISOString(),
-    };
+      const purchasedAt =
+        dto.dataCompra ??
+        todayLocalDateUtc('America/Sao_Paulo').toISOString();
+      const expense = await this.expenseService.create(
+        tenantId,
+        projectId,
+        {
+          tipoDespesa: ExpenseType.OUTROS,
+          valor: priceCents / 100,
+          quantidade: dto.quantidade,
+          titulo: item.title,
+          fornecedor: item.lastBestStore ?? undefined,
+          link: item.lastBestLink ?? item.productUrl ?? item.url ?? undefined,
+          formaPagamento: dto.formaPagamento,
+          dataPagamento:
+            dto.formaPagamento === 'A_VISTA' ? purchasedAt : undefined,
+          quantidadeParcela:
+            dto.formaPagamento === 'PARCELADO' ? dto.parcelas : undefined,
+          dataInicioParcela:
+            dto.formaPagamento === 'PARCELADO'
+              ? (dto.dataInicio ?? purchasedAt)
+              : undefined,
+          dataCompra: purchasedAt,
+          status:
+            dto.formaPagamento === 'A_VISTA'
+              ? ExpenseStatus.PAGO
+              : ExpenseStatus.PLANEJADO,
+        },
+        createdByUserId,
+        tx,
+      );
+
+      return {
+        expenseId: expense.id,
+        pricePaidCents: priceCents,
+        closedAt: closedAt.toISOString(),
+      };
+    });
   }
 
   /**

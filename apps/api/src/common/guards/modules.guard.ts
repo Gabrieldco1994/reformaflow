@@ -22,11 +22,12 @@ export class ModulesGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const required = this.reflector.getAllAndOverride<ModuleSlug>(MODULE_KEY, [
-      context.getHandler(),
-      context.getClass(),
-    ]);
+    const required = this.reflector.getAllAndOverride<ModuleSlug[] | ModuleSlug>(
+      MODULE_KEY,
+      [context.getHandler(), context.getClass()],
+    );
     if (!required) return true;
+    const requiredModules = Array.isArray(required) ? required : [required];
 
     const request = context.switchToHttp().getRequest();
     const { user } = request;
@@ -38,9 +39,10 @@ export class ModulesGuard implements CanActivate {
       const allowed: string[] = Array.isArray(user.allowedModules)
         ? user.allowedModules
         : [];
-      if (!allowed.includes(required)) {
+      const missing = requiredModules.filter((module) => !allowed.includes(module));
+      if (missing.length > 0) {
         throw new ForbiddenException(
-          `Sem permissão para o módulo "${required}"`,
+          `Sem permissão para o módulo "${missing.join(', ')}"`,
         );
       }
     }
@@ -63,10 +65,12 @@ export class ModulesGuard implements CanActivate {
       ) {
         throw new ForbiddenException('Sem permissão para este tipo de projeto');
       }
-      if (!projectTypeHasModule(project.type, required)) {
-        throw new ForbiddenException(
-          `Módulo "${required}" não disponível em projetos do tipo "${project.type}"`,
-        );
+      for (const requiredModule of requiredModules) {
+        if (!projectTypeHasModule(project.type, requiredModule)) {
+          throw new ForbiddenException(
+            `Módulo "${requiredModule}" não disponível em projetos do tipo "${project.type}"`,
+          );
+        }
       }
     }
 

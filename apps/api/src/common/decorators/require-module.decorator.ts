@@ -23,4 +23,5 @@ export type ModuleSlug =
   | 'pendencias'
   | 'plantsAi';
 
-export const RequireModule = (slug: ModuleSlug) => SetMetadata(MODULE_KEY, slug);
+export const RequireModule = (...slugs: ModuleSlug[]) =>
+  SetMetadata(MODULE_KEY, slugs);

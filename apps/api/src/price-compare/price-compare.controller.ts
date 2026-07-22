@@ -73,7 +73,7 @@ export class PriceCompareController {
   }
 
   @Post('projects/:projectId/price-monitor/items/:id/comprar-agora')
-  @RequireModule('priceCompare')
+  @RequireModule('priceCompare', 'expenses')
   async comprarAgora(
     @CurrentTenant() tenantId: string,
     @CurrentUser() requester: { id: string },
