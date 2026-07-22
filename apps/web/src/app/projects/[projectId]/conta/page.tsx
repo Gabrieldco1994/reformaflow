@@ -3,7 +3,7 @@
 import { useParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Landmark } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
 import { currentMonthKey, monthLabelLong } from './_lib';
@@ -57,6 +57,15 @@ export default function ContaPage() {
   const [originFilter, setOriginFilter] = useState<string | null>(null);
   const [resumoQuickFilter, setResumoQuickFilter] = useState<ResumoQuickFilterKey | null>(null);
   const openNovaDespesaRef = useRef<() => void>(() => undefined);
+
+  // Seed resumoQuickFilter from ?quick= query param
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const quick = params.get('quick') as ResumoQuickFilterKey | null;
+    if (quick && ['entrouMes', 'saiuMes', 'faltaPagarMes'].includes(quick)) {
+      setResumoQuickFilter(quick);
+    }
+  }, []);
 
   const selectedYear = selectedMonth.slice(0, 4);
 
