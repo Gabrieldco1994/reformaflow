@@ -80,7 +80,7 @@ export default function MobileMonthHero({
         <button
           type="button"
           onClick={scrollToRunway}
-          className="mt-3 block w-full min-h-[44px] rounded-[6px] bg-white text-left font-normal leading-6 text-[#5B6068] hover:bg-[#F6F7F9]"
+          className="mt-3 flex w-full min-h-[44px] items-center justify-start rounded-[6px] bg-white px-3 text-left font-normal leading-6 text-[#5B6068] hover:bg-[#F6F7F9]"
           aria-label="Rolar até projeção detalhada"
         >
           <span className="text-[14.5px]">
@@ -103,7 +103,7 @@ export default function MobileMonthHero({
           <button
             type="button"
             onClick={scrollToRunway}
-            className="font-semibold text-[#5B6068] hover:underline"
+            className="flex min-h-[44px] items-center font-semibold text-[#5B6068] hover:underline"
             aria-label="Rolar até projeção detalhada"
           >
             fim do mês {moneyGlance(top.projecaoMes)}
