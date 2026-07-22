@@ -1,4 +1,3 @@
-import Image from 'next/image';
 import { Bot, Check, PiggyBank, Shield, Sparkles, Layers } from 'lucide-react';
 
 const BENEFITS = [
@@ -85,21 +84,6 @@ function RegisterHeroBenefits() {
   );
 }
 
-function RegisterHeroPhone() {
-  return (
-    <div className="relative mx-auto h-[280px] w-[129px] shrink-0 lg:mx-0 lg:h-[608px] lg:w-[280px]">
-      <Image
-        src="/hero-cockpit-mobile.png"
-        alt="Tela do Cockpit financeiro do LifeOne mostrando o caixa do dia e a projeção de fechamento do mês"
-        fill
-        sizes="(min-width: 1024px) 280px, 129px"
-        className="rounded-[20px] border border-lifeone-hairline object-contain object-top shadow-lifeone-card lg:rounded-[28px]"
-        priority
-      />
-    </div>
-  );
-}
-
 function RegisterHeroSocialProof() {
   return (
     <div className="flex items-center justify-center gap-2.5 lg:justify-start">
@@ -137,7 +121,6 @@ export const RegisterHero = {
   Intro: RegisterHeroIntro,
   Maria: RegisterHeroMaria,
   Benefits: RegisterHeroBenefits,
-  Phone: RegisterHeroPhone,
   SocialProof: RegisterHeroSocialProof,
   Trust: RegisterHeroTrust,
 };

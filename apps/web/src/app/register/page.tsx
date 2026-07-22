@@ -15,7 +15,7 @@ export default function RegisterPage() {
         </header>
 
         {/*
-          Mobile: single column, natural DOM order (Intro -> Maria -> Form -> Benefits -> Phone -> Trust).
+          Mobile: single column, natural DOM order (Intro -> Maria -> Form -> Benefits -> Trust).
           Desktop: two independent columns via explicit grid placement (form fixed on the right).
         */}
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_420px] lg:auto-rows-min lg:items-start lg:gap-x-10 lg:gap-y-8">
@@ -27,7 +27,7 @@ export default function RegisterPage() {
             <RegisterHero.Maria />
           </div>
 
-          <div className="lg:col-start-2 lg:row-start-1 lg:row-span-5">
+          <div className="lg:col-start-2 lg:row-start-1 lg:row-span-4">
             <RegisterForm />
             <p className="mt-3 text-center text-[11.5px] text-lifeone-ink-4">
               Ao criar a conta você concorda com os Termos e a Política de Privacidade.
@@ -42,10 +42,6 @@ export default function RegisterPage() {
           </div>
 
           <div className="lg:col-start-1 lg:row-start-4">
-            <RegisterHero.Phone />
-          </div>
-
-          <div className="lg:col-start-1 lg:row-start-5">
             <RegisterHero.Trust />
           </div>
         </div>
