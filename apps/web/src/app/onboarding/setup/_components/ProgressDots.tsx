@@ -1,7 +1,5 @@
 'use client';
 
-import { CheckCircle2 } from 'lucide-react';
-
 export interface ProgressDotsStep {
   key: string;
   label: string;
@@ -12,28 +10,29 @@ interface ProgressDotsProps {
   currentIndex: number;
 }
 
-/** Stepper-dots progress indicator — extracted verbatim from the original PESSOAL-only wizard. */
+/**
+ * Progress indicator for the setup wizard: a slim progress bar + "Passo X de Y"
+ * text. Replaces a per-step dots ruler that overflowed at 375-390px viewports
+ * once a flow reached 7 steps (the "7" dot got clipped). A bar+label scales to
+ * any step count without layout math, so it can't overflow regardless of how
+ * many anchor steps a project type ends up with.
+ */
 export function ProgressDots({ steps, currentIndex }: ProgressDotsProps) {
+  const total = steps.length;
+  const current = Math.min(currentIndex + 1, total);
+  const percent = total > 0 ? (current / total) * 100 : 0;
+
   return (
-    <div className="mb-8 flex items-center justify-center gap-2" aria-label="Progresso do setup">
-      {steps.map((s, i) => (
-        <div key={s.key} className="flex items-center gap-2">
-          <div
-            className={`flex h-8 w-8 items-center justify-center rounded-full text-[12px] font-bold transition-colors ${
-              i < currentIndex
-                ? 'bg-lifeone-blue text-white'
-                : i === currentIndex
-                  ? 'border-2 border-lifeone-blue bg-white text-lifeone-blue'
-                  : 'border border-lifeone-hairline bg-lifeone-surface text-lifeone-ink-4'
-            }`}
-          >
-            {i < currentIndex ? <CheckCircle2 className="h-4 w-4" /> : i + 1}
-          </div>
-          {i < steps.length - 1 && (
-            <div className={`h-0.5 w-6 sm:w-10 ${i < currentIndex ? 'bg-lifeone-blue' : 'bg-lifeone-hairline'}`} />
-          )}
-        </div>
-      ))}
+    <div className="mb-8" aria-label="Progresso do setup">
+      <p className="mb-2 text-center text-[12px] font-semibold text-lifeone-ink-3">
+        Passo {current} de {total}
+      </p>
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-lifeone-hairline">
+        <div
+          className="h-full rounded-full bg-lifeone-blue transition-[width]"
+          style={{ width: `${percent}%` }}
+        />
+      </div>
     </div>
   );
 }
