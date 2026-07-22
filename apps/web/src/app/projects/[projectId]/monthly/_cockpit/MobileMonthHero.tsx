@@ -80,7 +80,7 @@ export default function MobileMonthHero({
         <button
           type="button"
           onClick={scrollToRunway}
-          className="mt-3 flex w-full min-h-[44px] items-center justify-start rounded-[6px] bg-white px-3 text-left font-normal leading-6 text-[#5B6068] hover:bg-[#F6F7F9]"
+          className="-mx-3 mt-3 flex w-full min-h-[44px] items-center justify-start rounded-[6px] bg-white px-3 text-left font-normal leading-6 text-[#5B6068] hover:bg-[#F6F7F9]"
           aria-label="Rolar até projeção detalhada"
         >
           <span className="text-[14.5px]">
@@ -98,15 +98,15 @@ export default function MobileMonthHero({
             style={{ width: `${progress}%` }}
           />
         </div>
-        <div className="mt-2 flex items-center justify-between gap-3 text-sm text-[#9AA0A8]">
-          <span>Hoje</span>
+        <div className="mt-1.5 flex items-center justify-between gap-3 text-sm text-[#9AA0A8]">
+          <span className="text-[#5B6068]">Hoje</span>
           <button
             type="button"
             onClick={scrollToRunway}
-            className="flex min-h-[44px] items-center font-semibold text-[#5B6068] hover:underline"
+            className="-my-1.5 flex min-h-[44px] items-center font-semibold text-[#5B6068] hover:underline"
             aria-label="Rolar até projeção detalhada"
           >
-            fim do mês {moneyGlance(top.projecaoMes)}
+            fim do mês
           </button>
         </div>
 
