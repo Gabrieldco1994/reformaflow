@@ -6,7 +6,7 @@ import * as bcrypt from 'bcrypt';
 import { AppModule } from './app.module';
 import { PrismaService } from './prisma/prisma.service';
 
-async function ensureBootstrapAdmin(prisma: PrismaService) {
+export async function ensureBootstrapAdmin(prisma: PrismaService) {
   const logger = new Logger('Bootstrap');
   let username = process.env['ADMIN_USERNAME'];
   const password = process.env['ADMIN_PASSWORD'];
@@ -41,19 +41,21 @@ async function ensureBootstrapAdmin(prisma: PrismaService) {
   });
 
   if (existing) {
-    const passwordHash = await bcrypt.hash(password, 10);
-    if (existing.role !== 'ADMIN' || !existing.passwordHash) {
+    const data: { role?: 'ADMIN'; passwordHash?: string } = {};
+    if (existing.role !== 'ADMIN') {
+      data.role = 'ADMIN';
+    }
+    if (!existing.passwordHash) {
+      data.passwordHash = await bcrypt.hash(password, 10);
+    }
+    if (Object.keys(data).length > 0) {
       await prisma.user.update({
         where: { id: existing.id },
-        data: { role: 'ADMIN', passwordHash },
+        data,
       });
       logger.log(`Admin promovido/atualizado: ${normalizedUsername}`);
     } else {
-      await prisma.user.update({
-        where: { id: existing.id },
-        data: { passwordHash },
-      });
-      logger.log(`Admin já existe: ${normalizedUsername} (senha sincronizada com .env)`);
+      logger.log(`Admin já existe: ${normalizedUsername} (senha preservada)`);
     }
     return;
   }
@@ -73,7 +75,7 @@ async function ensureBootstrapAdmin(prisma: PrismaService) {
   logger.log(`Admin inicial criado: ${normalizedUsername}`);
 }
 
-async function bootstrap() {
+export async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   // Behind proxy (Fly.io, Render, etc.) — needed for secure cookies + req.ip
@@ -117,4 +119,7 @@ async function bootstrap() {
 
   await app.listen(process.env['PORT'] ?? 3001, '0.0.0.0');
 }
-bootstrap();
+
+if (require.main === module) {
+  void bootstrap();
+}
