@@ -238,6 +238,51 @@ describe('ExpenseService', () => {
       const arg2 = prisma.expense.create.mock.calls[0]![0];
       expect(arg2.data.dataCompra).toBeNull();
     });
+
+    it('removes the expense if cash-flow generation fails', async () => {
+      const created = { id: 'e1', linkedExpenseId: 'existing-expense' };
+      prisma.expense.create.mockResolvedValue(created);
+      prisma.expense.findUnique.mockResolvedValue({
+        ...created,
+        projectId,
+        tenantId,
+        tipoDespesa: 'MATERIAL_CONSTRUCAO',
+        categoriaMaoDeObra: null,
+        roomId: null,
+        valorTotal: 5000,
+        formaPagamento: 'A_VISTA',
+        dataPagamento: new Date('2026-07-22'),
+        quantidadeParcela: null,
+        dataInicioParcela: null,
+        status: 'PAGO',
+        settledByExpenseId: null,
+        room: null,
+      });
+      prisma.$transaction.mockRejectedValueOnce(new Error('cash flow failed'));
+      prisma.expense.findFirst.mockResolvedValue(created);
+      prisma.expense.findMany.mockResolvedValue([]);
+
+      await expect(
+        service.create(tenantId, projectId, {
+          tipoDespesa: 'MATERIAL_CONSTRUCAO',
+          valor: 50,
+          quantidade: 1,
+          formaPagamento: 'A_VISTA',
+          status: 'PAGO',
+        } as any),
+      ).rejects.toThrow('cash flow failed');
+
+      expect(prisma.expense.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            id: 'e1',
+            tenantId,
+            projectId,
+          }),
+          data: expect.objectContaining({ deletedAt: expect.any(Date) }),
+        }),
+      );
+    });
   });
 
   describe('update — undefined vs null em campos de data (regressão)', () => {

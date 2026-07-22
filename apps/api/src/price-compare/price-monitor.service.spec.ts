@@ -2,11 +2,13 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PriceMonitorService } from './price-monitor.service';
 import { PriceCompareService } from './price-compare.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { ExpenseService } from '../expense/expense.service';
 
 describe('PriceMonitorService', () => {
   let service: PriceMonitorService;
   let prisma: any;
   let priceCompare: any;
+  let expenseService: any;
 
   beforeEach(async () => {
     prisma = {
@@ -15,6 +17,7 @@ describe('PriceMonitorService', () => {
         findFirst: jest.fn(),
         findMany: jest.fn(),
         update: jest.fn(),
+        updateMany: jest.fn(),
         delete: jest.fn(),
       },
       notification: {
@@ -25,12 +28,17 @@ describe('PriceMonitorService', () => {
     priceCompare = {
       searchPrices: jest.fn(),
     };
+    expenseService = {
+      create: jest.fn(),
+      remove: jest.fn(),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PriceMonitorService,
         { provide: PrismaService, useValue: prisma },
         { provide: PriceCompareService, useValue: priceCompare },
+        { provide: ExpenseService, useValue: expenseService },
       ],
     }).compile();
 
@@ -204,6 +212,16 @@ describe('PriceMonitorService', () => {
       expect(service.isMonitoringActive(item)).toBe(true);
     });
 
+    it('should return true for the canonical cents target', () => {
+      expect(
+        service.isMonitoringActive({
+          isActive: true,
+          targetPriceCents: 250_000,
+          monitoringEndDate: null,
+        }),
+      ).toBe(true);
+    });
+
     it('should return true if monitoringEndDate is in the future', () => {
       const futureDate = new Date();
       futureDate.setDate(futureDate.getDate() + 30);
@@ -246,7 +264,7 @@ describe('PriceMonitorService', () => {
       priceCompare.searchPrices.mockResolvedValue([
         {
           title: 'Product',
-          price: 4500,
+          price: 45,
           currency: 'BRL',
           store: 'Store A',
           link: 'https://store-a.com',
@@ -274,6 +292,8 @@ describe('PriceMonitorService', () => {
           where: { id: 'item-1' },
           data: expect.objectContaining({
             alertSent: true,
+            lastBestPrice: 45,
+            lastBestPriceCents: 4500,
           }),
         }),
       );
@@ -295,7 +315,7 @@ describe('PriceMonitorService', () => {
       priceCompare.searchPrices.mockResolvedValue([
         {
           title: 'Product',
-          price: 6000,
+          price: 60,
           currency: 'BRL',
           store: 'Store A',
           link: 'https://store-a.com',
@@ -330,7 +350,7 @@ describe('PriceMonitorService', () => {
       priceCompare.searchPrices.mockResolvedValue([
         {
           title: 'Product',
-          price: 4500,
+          price: 45,
           currency: 'BRL',
           store: 'Store A',
           link: 'https://store-a.com',
@@ -417,6 +437,240 @@ describe('PriceMonitorService', () => {
 
       expect(result).toHaveLength(1);
       expect(result[0].id).toBe('item-1');
+    });
+  });
+
+  describe('comprarAgora', () => {
+    const item = {
+      id: 'item-1',
+      tenantId: 'tenant-1',
+      projectId: 'project-1',
+      title: 'Geladeira',
+      isActive: true,
+      lastBestPriceCents: 279_990,
+      referencePriceCents: 300_000,
+      lastBestStore: 'Loja A',
+      lastBestLink: 'https://loja-a.example/produto',
+      deletedAt: null,
+    };
+
+    it('creates a paid cash expense and closes monitoring', async () => {
+      prisma.priceMonitorItem.findFirst.mockResolvedValue(item);
+      expenseService.create.mockResolvedValue({ id: 'expense-1' });
+      prisma.priceMonitorItem.updateMany.mockResolvedValue({ count: 1 });
+
+      const result = await service.comprarAgora(
+        'tenant-1',
+        'project-1',
+        'item-1',
+        { quantidade: 1, formaPagamento: 'A_VISTA' },
+        'user-1',
+      );
+
+      expect(expenseService.create).toHaveBeenCalledWith(
+        'tenant-1',
+        'project-1',
+        expect.objectContaining({
+          titulo: 'Geladeira',
+          valor: 2799.9,
+          quantidade: 1,
+          formaPagamento: 'A_VISTA',
+          status: 'PAGO',
+        }),
+        'user-1',
+      );
+      expect(prisma.priceMonitorItem.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            id: 'item-1',
+            tenantId: 'tenant-1',
+            projectId: 'project-1',
+            isActive: true,
+          }),
+          data: expect.objectContaining({ isActive: false }),
+        }),
+      );
+      expect(result.pricePaidCents).toBe(279_990);
+    });
+
+    it('keeps purchase date separate from installment start', async () => {
+      prisma.priceMonitorItem.findFirst.mockResolvedValue(item);
+      expenseService.create.mockResolvedValue({ id: 'expense-2' });
+      prisma.priceMonitorItem.updateMany.mockResolvedValue({ count: 1 });
+
+      await service.comprarAgora(
+        'tenant-1',
+        'project-1',
+        'item-1',
+        {
+          quantidade: 1,
+          formaPagamento: 'PARCELADO',
+          parcelas: 12,
+          dataCompra: '2026-07-22',
+          dataInicio: '2026-08-10',
+        },
+        'user-1',
+      );
+
+      expect(expenseService.create).toHaveBeenCalledWith(
+        'tenant-1',
+        'project-1',
+        expect.objectContaining({
+          quantidadeParcela: 12,
+          dataCompra: '2026-07-22',
+          dataInicioParcela: '2026-08-10',
+          status: 'PLANEJADO',
+        }),
+        'user-1',
+      );
+    });
+
+    it('converts a legacy price in reais to cents', async () => {
+      prisma.priceMonitorItem.findFirst.mockResolvedValue({
+        ...item,
+        lastBestPriceCents: null,
+        referencePriceCents: 999_900,
+        lastBestPrice: 2799.9,
+      });
+      expenseService.create.mockResolvedValue({ id: 'expense-legacy' });
+      prisma.priceMonitorItem.updateMany.mockResolvedValue({ count: 1 });
+
+      const result = await service.comprarAgora(
+        'tenant-1',
+        'project-1',
+        'item-1',
+        { quantidade: 1, formaPagamento: 'A_VISTA' },
+        'user-1',
+      );
+
+      expect(expenseService.create).toHaveBeenCalledWith(
+        'tenant-1',
+        'project-1',
+        expect.objectContaining({ valor: 2799.9 }),
+        'user-1',
+      );
+      expect(result.pricePaidCents).toBe(279_990);
+    });
+
+    it('defaults the purchase date to the São Paulo calendar day', async () => {
+      jest.useFakeTimers().setSystemTime(
+        new Date('2026-07-23T01:00:00.000Z'),
+      );
+      prisma.priceMonitorItem.findFirst.mockResolvedValue(item);
+      expenseService.create.mockResolvedValue({ id: 'expense-date' });
+      prisma.priceMonitorItem.updateMany.mockResolvedValue({ count: 1 });
+
+      try {
+        await service.comprarAgora(
+          'tenant-1',
+          'project-1',
+          'item-1',
+          { quantidade: 1, formaPagamento: 'A_VISTA' },
+          'user-1',
+        );
+
+        expect(expenseService.create).toHaveBeenCalledWith(
+          'tenant-1',
+          'project-1',
+          expect.objectContaining({
+            dataCompra: '2026-07-22T00:00:00.000Z',
+          }),
+          'user-1',
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('rejects an expired monitor without creating an expense', async () => {
+      prisma.priceMonitorItem.findFirst.mockResolvedValue({
+        ...item,
+        monitoringEndDate: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      });
+
+      await expect(
+        service.comprarAgora(
+          'tenant-1',
+          'project-1',
+          'item-1',
+          { quantidade: 1, formaPagamento: 'A_VISTA' },
+          'user-1',
+        ),
+      ).rejects.toThrow('Este monitoramento já foi encerrado');
+      expect(expenseService.create).not.toHaveBeenCalled();
+    });
+
+    it('removes the expense when closing monitoring fails', async () => {
+      prisma.priceMonitorItem.findFirst.mockResolvedValue(item);
+      expenseService.create.mockResolvedValue({ id: 'expense-3' });
+      prisma.priceMonitorItem.updateMany.mockRejectedValue(
+        new Error('database unavailable'),
+      );
+
+      await expect(
+        service.comprarAgora(
+          'tenant-1',
+          'project-1',
+          'item-1',
+          { quantidade: 1, formaPagamento: 'A_VISTA' },
+          'user-1',
+        ),
+      ).rejects.toThrow('database unavailable');
+      expect(expenseService.remove).toHaveBeenCalledWith(
+        'tenant-1',
+        'project-1',
+        'expense-3',
+      );
+    });
+
+    it('waits for an in-flight price refresh before purchasing', async () => {
+      let finishSearch!: (value: any[]) => void;
+      const searchPending = new Promise<any[]>((resolve) => {
+        finishSearch = resolve;
+      });
+      prisma.priceMonitorItem.findFirst.mockResolvedValue({
+        ...item,
+        targetPriceCents: 300_000,
+        alertSent: false,
+        monitoringEndDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        url: 'https://example.com',
+      });
+      priceCompare.searchPrices.mockReturnValue(searchPending);
+      prisma.priceMonitorItem.update.mockResolvedValue(item);
+      prisma.notification.create.mockResolvedValue({ id: 'notification-1' });
+      expenseService.create.mockResolvedValue({ id: 'expense-4' });
+      prisma.priceMonitorItem.updateMany.mockResolvedValue({ count: 1 });
+
+      const refreshPromise = service.refreshAndCheckAlerts(
+        'tenant-1',
+        'project-1',
+        'item-1',
+      );
+      await Promise.resolve();
+      const purchasePromise = service.comprarAgora(
+        'tenant-1',
+        'project-1',
+        'item-1',
+        { quantidade: 1, formaPagamento: 'A_VISTA' },
+        'user-1',
+      );
+      await Promise.resolve();
+
+      expect(expenseService.create).not.toHaveBeenCalled();
+
+      finishSearch([
+        {
+          title: 'Geladeira',
+          price: 2799.9,
+          currency: 'BRL',
+          store: 'Loja A',
+          link: 'https://loja-a.example/produto',
+        },
+      ]);
+      await refreshPromise;
+      await purchasePromise;
+
+      expect(expenseService.create).toHaveBeenCalledTimes(1);
     });
   });
 });

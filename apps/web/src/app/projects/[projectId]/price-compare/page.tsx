@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { hasFeature, type ProjectType } from '@reformaflow/domain';
-import { RefreshCcw, Plus, Trash2, ExternalLink, Edit } from 'lucide-react';
+import { RefreshCcw, Plus, Trash2, ExternalLink, Edit, ShoppingCart } from 'lucide-react';
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { EditAlertModal } from './_components/EditAlertModal';
+import { ComprarAgoraModal } from './_components/ComprarAgoraModal';
 
 interface PriceMonitorItem {
   id: string;
@@ -23,9 +24,11 @@ interface PriceMonitorItem {
   targetPriceCents: number | null;
   isActive: boolean;
   lastBestPriceCents: number | null;
+  lastBestPrice: number | null;
   lastBestStore: string | null;
   lastBestLink: string | null;
   lastCheckedAt: string | null;
+  monitoringEndDate: string | null;
   diasMonitoramento: number;
 }
 
@@ -42,6 +45,7 @@ export default function PriceComparePage() {
   const [referencePrice, setReferencePrice] = useState('');
   const [targetPrice, setTargetPrice] = useState('');
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [buyingItemId, setBuyingItemId] = useState<string | null>(null);
 
   const enabled = hasFeature(projectType as ProjectType, 'priceCompare');
 
@@ -205,6 +209,10 @@ export default function PriceComparePage() {
             item.referencePriceCents != null && item.lastBestPriceCents != null
               ? item.lastBestPriceCents - item.referencePriceCents
               : null;
+          const canBuy =
+            item.isActive &&
+            (!item.monitoringEndDate ||
+              new Date(item.monitoringEndDate).getTime() > Date.now());
 
           return (
             <div key={item.id} className="rounded-2xl border border-darc-linen bg-white p-4">
@@ -251,6 +259,18 @@ export default function PriceComparePage() {
               </div>
 
               <div className="mt-3 flex flex-wrap gap-2">
+                {canBuy &&
+                  (item.lastBestPriceCents != null ||
+                    item.lastBestPrice != null ||
+                    item.referencePriceCents != null) && (
+                    <Button
+                      type="button"
+                      className="min-h-11"
+                      onClick={() => setBuyingItemId(item.id)}
+                    >
+                      <ShoppingCart className="h-4 w-4" /> Comprar agora
+                    </Button>
+                  )}
                 <Button
                   type="button"
                   variant="secondary"
@@ -298,6 +318,14 @@ export default function PriceComparePage() {
           projectId={projectId}
         />
       )}
+
+      <ComprarAgoraModal
+        item={
+          items.find((item) => item.id === buyingItemId) ?? null
+        }
+        projectId={projectId}
+        onClose={() => setBuyingItemId(null)}
+      />
     </div>
   );
 }

@@ -26,10 +26,20 @@ export class PriceAlertScheduler implements OnModuleInit {
       const items = await this.prisma.priceMonitorItem.findMany({
         where: {
           deletedAt: null,
-          targetPrice: { not: null }, // only items with alert threshold
-          OR: [
-            { monitoringEndDate: null }, // indefinite
-            { monitoringEndDate: { gt: now } }, // not yet expired
+          isActive: true,
+          AND: [
+            {
+              OR: [
+                { targetPriceCents: { not: null } },
+                { targetPrice: { not: null } },
+              ],
+            },
+            {
+              OR: [
+                { monitoringEndDate: null }, // indefinite
+                { monitoringEndDate: { gt: now } }, // not yet expired
+              ],
+            },
           ],
         },
         select: { tenantId: true, projectId: true, id: true },

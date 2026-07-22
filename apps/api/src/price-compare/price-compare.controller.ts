@@ -3,7 +3,9 @@ import { PriceCompareService, PriceResult } from './price-compare.service';
 import { PriceMonitorService } from './price-monitor.service';
 import { CreatePriceMonitorItemDto, UpdatePriceMonitorItemDto, PriceMonitorItemResponseDto } from './dto/price-monitor-item.dto';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
-import { CurrentTenant } from '../common/decorators/tenant.decorator';
+import { CurrentTenant, CurrentUser } from '../common/decorators/tenant.decorator';
+import { ComprarAgoraDto } from './dto/comprar-agora.dto';
+import { RequireModule } from '../common/decorators/require-module.decorator';
 
 @UseInterceptors(TenantInterceptor)
 @Controller()
@@ -22,24 +24,19 @@ export class PriceCompareController {
   }
 
   @Post('projects/:projectId/price-monitor/items')
+  @RequireModule('priceCompare')
   async createMonitorItem(
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Body() dto: CreatePriceMonitorItemDto,
   ): Promise<PriceMonitorItemResponseDto> {
-    const item = await this.priceMonitorService.createItem(
-      tenantId,
-      projectId,
-      dto.title,
-      dto.url || '',
-      dto.targetPrice,
-      dto.diasMonitoramento || 30,
-    );
+    const item = await this.priceMonitorService.create(tenantId, projectId, dto);
 
     return this.itemToResponse(item);
   }
 
   @Get('projects/:projectId/price-monitor/items')
+  @RequireModule('priceCompare')
   async listMonitorItems(
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
@@ -49,6 +46,7 @@ export class PriceCompareController {
   }
 
   @Patch('projects/:projectId/price-monitor/items/:id')
+  @RequireModule('priceCompare')
   async updateMonitorItem(
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
@@ -65,12 +63,31 @@ export class PriceCompareController {
   }
 
   @Delete('projects/:projectId/price-monitor/items/:id')
+  @RequireModule('priceCompare')
   async deleteMonitorItem(
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('id') itemId: string,
   ): Promise<void> {
     await this.priceMonitorService.deleteItem(tenantId, itemId);
+  }
+
+  @Post('projects/:projectId/price-monitor/items/:id/comprar-agora')
+  @RequireModule('priceCompare')
+  async comprarAgora(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() requester: { id: string },
+    @Param('projectId') projectId: string,
+    @Param('id') itemId: string,
+    @Body() dto: ComprarAgoraDto,
+  ) {
+    return this.priceMonitorService.comprarAgora(
+      tenantId,
+      projectId,
+      itemId,
+      dto,
+      requester.id,
+    );
   }
 
   private itemToResponse(item: any): PriceMonitorItemResponseDto {
@@ -80,12 +97,17 @@ export class PriceCompareController {
       url: item.url,
       query: item.query,
       notes: item.notes,
+      productUrl: item.productUrl,
+      referencePriceCents: item.referencePriceCents,
       targetPrice: item.targetPrice,
+      targetPriceCents: item.targetPriceCents,
+      isActive: item.isActive,
       monitoringEndDate: item.monitoringEndDate?.toISOString() || null,
       alertSent: item.alertSent,
       ativo: this.priceMonitorService.isMonitoringActive(item),
       lastCheckedAt: item.lastCheckedAt?.toISOString() || null,
       lastBestPrice: item.lastBestPrice,
+      lastBestPriceCents: item.lastBestPriceCents,
       lastBestStore: item.lastBestStore,
       lastBestLink: item.lastBestLink,
       createdAt: item.createdAt.toISOString(),

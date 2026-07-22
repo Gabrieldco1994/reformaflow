@@ -1,6 +1,19 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PriceCompareService, PriceResult } from './price-compare.service';
+import { ExpenseService } from '../expense/expense.service';
+import { ComprarAgoraDto } from './dto/comprar-agora.dto';
+import {
+  ExpenseStatus,
+  ExpenseType,
+  todayLocalDateUtc,
+} from '@reformaflow/domain';
 
 export interface PriceMonitorItem {
   id: string;
@@ -10,7 +23,11 @@ export interface PriceMonitorItem {
   url?: string;
   query?: string;
   notes?: string;
+  productUrl?: string;
+  referencePriceCents?: number;
   targetPrice?: number;
+  targetPriceCents?: number;
+  isActive?: boolean;
   alertSent: boolean;
   monitoringEndDate?: Date;
   lastCheckedAt?: Date;
@@ -36,7 +53,26 @@ export class PriceMonitorService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly priceCompare: PriceCompareService,
+    private readonly expenseService: ExpenseService,
   ) {}
+
+  private async acquireItemLock(mutexKey: string): Promise<() => void> {
+    const previousPromise = this.mutexMap.get(mutexKey) ?? Promise.resolve();
+    let resolveCurrentPromise!: () => void;
+    const currentPromise = new Promise<void>((resolve) => {
+      resolveCurrentPromise = resolve;
+    });
+
+    this.mutexMap.set(mutexKey, currentPromise);
+    await previousPromise;
+
+    return () => {
+      resolveCurrentPromise();
+      if (this.mutexMap.get(mutexKey) === currentPromise) {
+        this.mutexMap.delete(mutexKey);
+      }
+    };
+  }
 
   /**
    * Create a price monitor item with optional alert threshold and monitoring period
@@ -88,8 +124,10 @@ export class PriceMonitorService {
 
     const shouldResetAlert =
       (updates.targetPrice !== undefined && updates.targetPrice !== current.targetPrice) ||
+      (updates.targetPriceCents !== undefined && updates.targetPriceCents !== current.targetPriceCents) ||
       (updates.title !== undefined && updates.title !== current.title) ||
       (updates.url !== undefined && updates.url !== current.url) ||
+      (updates.productUrl !== undefined && updates.productUrl !== current.productUrl) ||
       (updates.notes !== undefined && updates.notes !== current.notes);
 
     const updateData: any = {
@@ -112,7 +150,8 @@ export class PriceMonitorService {
    * Check if monitoring is active for an item
    */
   isMonitoringActive(item: PriceMonitorItem | any): boolean {
-    if (!item.targetPrice) return false;
+    if (item.isActive === false) return false;
+    if (!item.targetPriceCents && !item.targetPrice) return false;
     if (item.monitoringEndDate === null || item.monitoringEndDate === undefined) return true;
     return new Date(item.monitoringEndDate) > new Date();
   }
@@ -126,24 +165,10 @@ export class PriceMonitorService {
     projectId: string,
     itemId: string,
   ): Promise<PriceRefreshResult> {
-    // Use mutex to prevent concurrent access to the same item
     const mutexKey = `${tenantId}:${itemId}`;
-    if (!this.mutexMap.has(mutexKey)) {
-      this.mutexMap.set(mutexKey, Promise.resolve());
-    }
-
-    const previousPromise = this.mutexMap.get(mutexKey)!;
-    let resolveCurrentPromise: () => void;
-
-    const currentPromise = new Promise<void>((resolve) => {
-      resolveCurrentPromise = resolve;
-    });
-
-    this.mutexMap.set(mutexKey, currentPromise);
+    const releaseItemLock = await this.acquireItemLock(mutexKey);
 
     try {
-      await previousPromise;
-
       // Get fresh item data inside critical section
       let item = await this.prisma.priceMonitorItem.findFirst({
         where: {
@@ -201,7 +226,7 @@ export class PriceMonitorService {
         }
 
         if (minPrice !== null) {
-          bestPrice = minPrice;
+          bestPrice = Math.round(minPrice * 100);
           bestStore = prices[minIdx].store || null;
           bestLink = prices[minIdx].link || null;
         }
@@ -209,7 +234,8 @@ export class PriceMonitorService {
 
       // Check if alert should be triggered
       let alertTriggered = false;
-      const itemTargetPrice = (item as any).targetPrice;
+      const itemTargetPrice =
+        (item as any).targetPriceCents ?? (item as any).targetPrice;
       const itemAlertSent = (item as any).alertSent;
       const itemUrl = (item as any).url;
 
@@ -247,7 +273,8 @@ export class PriceMonitorService {
         where: { id: itemId },
         data: {
           lastCheckedAt: new Date(),
-          lastBestPrice: bestPrice,
+          lastBestPrice: bestPrice !== null ? bestPrice / 100 : null,
+          lastBestPriceCents: bestPrice,
           lastBestStore: bestStore,
           lastBestLink: bestLink,
           alertSent: alertTriggered ? true : itemAlertSent,
@@ -260,7 +287,7 @@ export class PriceMonitorService {
         newPrice: bestPrice,
       };
     } finally {
-      resolveCurrentPromise!();
+      releaseItemLock();
     }
   }
 
@@ -285,6 +312,136 @@ export class PriceMonitorService {
     }));
   }
 
+  async comprarAgora(
+    tenantId: string,
+    projectId: string,
+    itemId: string,
+    dto: ComprarAgoraDto,
+    createdByUserId: string,
+  ) {
+    const releaseItemLock = await this.acquireItemLock(
+      `${tenantId}:${itemId}`,
+    );
+    try {
+      return await this.comprarAgoraLocked(
+        tenantId,
+        projectId,
+        itemId,
+        dto,
+        createdByUserId,
+      );
+    } finally {
+      releaseItemLock();
+    }
+  }
+
+  private async comprarAgoraLocked(
+    tenantId: string,
+    projectId: string,
+    itemId: string,
+    dto: ComprarAgoraDto,
+    createdByUserId: string,
+  ) {
+    const item = await this.prisma.priceMonitorItem.findFirst({
+      where: {
+        id: itemId,
+        tenantId,
+        projectId,
+        isActive: true,
+        deletedAt: null,
+      },
+    });
+
+    if (!item) {
+      throw new NotFoundException('Produto monitorado não encontrado');
+    }
+
+    if (
+      item.monitoringEndDate &&
+      new Date(item.monitoringEndDate) <= new Date()
+    ) {
+      throw new ConflictException('Este monitoramento já foi encerrado');
+    }
+
+    const priceCents =
+      item.lastBestPriceCents ??
+      (item.lastBestPrice ? Math.round(item.lastBestPrice * 100) : null) ??
+      item.referencePriceCents;
+
+    if (!priceCents || priceCents <= 0) {
+      throw new BadRequestException(
+        'Atualize ou informe um preço antes de registrar a compra',
+      );
+    }
+
+    if (dto.formaPagamento === 'PARCELADO' && !dto.parcelas) {
+      throw new BadRequestException(
+        'Informe a quantidade de parcelas para uma compra parcelada',
+      );
+    }
+
+    const purchasedAt =
+      dto.dataCompra ??
+      todayLocalDateUtc('America/Sao_Paulo').toISOString();
+    const expense = await this.expenseService.create(
+      tenantId,
+      projectId,
+      {
+        tipoDespesa: ExpenseType.OUTROS,
+        valor: priceCents / 100,
+        quantidade: dto.quantidade,
+        titulo: item.title,
+        fornecedor: item.lastBestStore ?? undefined,
+        link: item.lastBestLink ?? item.productUrl ?? item.url ?? undefined,
+        formaPagamento: dto.formaPagamento,
+        dataPagamento:
+          dto.formaPagamento === 'A_VISTA' ? purchasedAt : undefined,
+        quantidadeParcela:
+          dto.formaPagamento === 'PARCELADO' ? dto.parcelas : undefined,
+        dataInicioParcela:
+          dto.formaPagamento === 'PARCELADO'
+            ? (dto.dataInicio ?? purchasedAt)
+            : undefined,
+        dataCompra: purchasedAt,
+        status:
+          dto.formaPagamento === 'A_VISTA'
+            ? ExpenseStatus.PAGO
+            : ExpenseStatus.PLANEJADO,
+      },
+      createdByUserId,
+    );
+
+    const closedAt = new Date();
+    try {
+      const closed = await this.prisma.priceMonitorItem.updateMany({
+        where: {
+          id: itemId,
+          tenantId,
+          projectId,
+          isActive: true,
+          deletedAt: null,
+        },
+        data: {
+          isActive: false,
+          monitoringEndDate: closedAt,
+        },
+      });
+
+      if (closed.count !== 1) {
+        throw new ConflictException('Este monitoramento já foi encerrado');
+      }
+    } catch (error) {
+      await this.expenseService.remove(tenantId, projectId, expense.id);
+      throw error;
+    }
+
+    return {
+      expenseId: expense.id,
+      pricePaidCents: priceCents,
+      closedAt: closedAt.toISOString(),
+    };
+  }
+
   /**
    * Find all items that need to be checked (active alerts)
    */
@@ -294,10 +451,20 @@ export class PriceMonitorService {
     const items = await this.prisma.priceMonitorItem.findMany({
       where: {
         deletedAt: null,
-        targetPrice: { not: null },
-        OR: [
-          { monitoringEndDate: null },
-          { monitoringEndDate: { gt: now } }
+        isActive: true,
+        AND: [
+          {
+            OR: [
+              { targetPriceCents: { not: null } },
+              { targetPrice: { not: null } },
+            ],
+          },
+          {
+            OR: [
+              { monitoringEndDate: null },
+              { monitoringEndDate: { gt: now } },
+            ],
+          },
         ],
       },
       select: {
@@ -399,19 +566,32 @@ export class PriceMonitorService {
   }
 
   async create(tenantId: string, projectId: string, dto: any) {
-    const item = await this.createItem(
-      tenantId,
-      projectId,
-      dto.title,
-      dto.url,
-      dto.targetPrice,
-      dto.diasMonitoramento || 30,
+    const monitoringEndDate = new Date();
+    monitoringEndDate.setTime(
+      monitoringEndDate.getTime() +
+        (dto.diasMonitoramento || 30) * 24 * 60 * 60 * 1000,
     );
-    // Update with notes separately if provided
-    if (dto.notes) {
-      return this.updateItem(tenantId, item.id, { notes: dto.notes });
-    }
-    return item;
+
+    return this.prisma.priceMonitorItem.create({
+      data: {
+        tenantId,
+        projectId,
+        title: dto.title,
+        query: dto.query,
+        productUrl: dto.productUrl,
+        url: dto.url,
+        notes: dto.notes,
+        referencePriceCents: dto.referencePriceCents,
+        targetPrice: dto.targetPrice,
+        targetPriceCents: dto.targetPriceCents,
+        isActive: dto.isActive ?? true,
+        alertSent: false,
+        monitoringEndDate:
+          dto.targetPriceCents || dto.targetPrice
+            ? monitoringEndDate
+            : null,
+      },
+    });
   }
 
   async update(tenantId: string, projectId: string, itemId: string, dto: any) {

@@ -130,7 +130,22 @@ export class ExpenseService {
       include: { room: true },
     });
 
-    await this.regenerateCashFlow(expense.id);
+    try {
+      await this.regenerateCashFlow(expense.id);
+    } catch (error) {
+      const deletedAt = new Date();
+      await this.prisma.$transaction([
+        this.prisma.cashFlowEntry.updateMany({
+          where: { expenseId: expense.id, deletedAt: null },
+          data: { deletedAt },
+        }),
+        this.prisma.expense.updateMany({
+          where: { id: expense.id, tenantId, projectId, deletedAt: null },
+          data: { deletedAt },
+        }),
+      ]);
+      throw error;
+    }
 
     return expense;
   }

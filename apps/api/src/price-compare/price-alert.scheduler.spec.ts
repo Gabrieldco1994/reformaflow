@@ -50,7 +50,20 @@ describe('PriceAlertScheduler', () => {
 
       await scheduler.checkPriceAlerts();
 
-      expect(prisma.priceMonitorItem.findMany).toHaveBeenCalled();
+      expect(prisma.priceMonitorItem.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            isActive: true,
+            AND: expect.arrayContaining([
+              expect.objectContaining({
+                OR: expect.arrayContaining([
+                  { targetPriceCents: { not: null } },
+                ]),
+              }),
+            ]),
+          }),
+        }),
+      );
       expect(priceMonitor.refreshAndCheckAlerts).toHaveBeenCalledTimes(2);
     });
 
