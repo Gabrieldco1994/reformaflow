@@ -12,6 +12,7 @@ import { invalidateExpenseQueries } from '../../expenses/_hooks/useExpenseMutati
 import { getExpenseOptions } from '../../expenses/_types';
 import { useVoiceExpense } from '../../expenses/_hooks/useVoiceExpense';
 import { VoiceExpenseModal } from '../../expenses/_components/VoiceExpenseModal';
+import { SemCartaoEmptyState } from '../SemCartaoEmptyState';
 import ImportStatementModal from '../../credit-cards/_components/ImportStatementModal';
 import ImportBankStatementModal from '../../bank-accounts/_components/ImportBankStatementModal';
 import { currentMonthKey } from '../../conta/_lib';
@@ -285,9 +286,7 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
       {open && screen === 'fatura' && !selectedCardId && (
         <Modal open onClose={handleClose} title="Para qual cartão é essa fatura?">
           {cards.length === 0 ? (
-            <p className="text-sm text-gray-600">
-              Nenhum cartão cadastrado. Cadastre em <strong>Cartões</strong> antes de importar a fatura.
-            </p>
+            <SemCartaoEmptyState projectId={projectId} />
           ) : (
             <div className="space-y-2">
               {cards.map((c) => (

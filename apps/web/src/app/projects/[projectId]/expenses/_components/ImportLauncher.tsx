@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { Upload, CreditCard, Landmark, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Modal } from '@/components/ui/modal';
+import { SemCartaoEmptyState } from '../../_components/SemCartaoEmptyState';
 import ImportStatementModal from '../../credit-cards/_components/ImportStatementModal';
 import ImportBankStatementModal from '../../bank-accounts/_components/ImportBankStatementModal';
 import type { CardRow } from '../../credit-cards/_types';
@@ -131,9 +132,7 @@ export default function ImportLauncher({ projectId, onImported }: Props) {
           {loading && <p className="text-sm text-gray-500">Carregando cartões…</p>}
           {error && <p className="text-sm text-red-600">{error}</p>}
           {!loading && cards && cards.length === 0 && (
-            <p className="text-sm text-gray-600">
-              Nenhum cartão cadastrado ainda. Cadastre um cartão em <strong>Cartões de Crédito</strong> antes de importar a fatura.
-            </p>
+            <SemCartaoEmptyState projectId={projectId} />
           )}
           {!loading && cards && cards.length > 0 && (
             <div className="space-y-2">

@@ -12,6 +12,7 @@ import { PayOptionsModal } from './PayOptionsModal';
 import { NovaDespesaWizard } from './NovaDespesaWizard';
 import { RecorrenteWizard } from './RecorrenteWizard';
 import { VoiceExpenseModal } from './VoiceExpenseModal';
+import { SemCartaoEmptyState } from '../../_components/SemCartaoEmptyState';
 import ImportStatementModal from '../../credit-cards/_components/ImportStatementModal';
 import ImportBankStatementModal from '../../bank-accounts/_components/ImportBankStatementModal';
 import { ReceitaModal } from '../../conta/_components/ReceitaModal';
@@ -220,9 +221,7 @@ export function NovaDespesaLauncher({ projectId, projectType, trigger, onChanged
         <Modal open onClose={() => setImportStep(null)} title="Para qual cartão é essa fatura?">
           {loadingCards && <p className="text-sm text-gray-500">Carregando cartões…</p>}
           {!loadingCards && importCards.length === 0 && (
-            <p className="text-sm text-gray-600">
-              Nenhum cartão cadastrado. Cadastre em <strong>Cartões de Crédito</strong> antes de importar.
-            </p>
+            <SemCartaoEmptyState projectId={projectId} />
           )}
           {!loadingCards && importCards.length > 0 && (
             <div className="space-y-2">
