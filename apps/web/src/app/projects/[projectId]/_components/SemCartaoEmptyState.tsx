@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { CreditCard } from 'lucide-react';
 import { EmptyState } from '@/components/ui/EmptyState';
 
@@ -9,6 +9,8 @@ interface SemCartaoEmptyStateProps {
 }
 
 export function SemCartaoEmptyState({ projectId }: SemCartaoEmptyStateProps) {
+  const router = useRouter();
+
   return (
     <EmptyState
       icon={CreditCard}
@@ -17,27 +19,9 @@ export function SemCartaoEmptyState({ projectId }: SemCartaoEmptyStateProps) {
       action={{
         label: 'Novo cartão',
         onClick: () => {
-          // This handler is for when the component is used outside of credit-cards page.
-          // Inside credit-cards page, use the Link href directly for consistency.
-          window.location.href = `/projects/${projectId}/credit-cards?new=1`;
+          router.push(`/projects/${projectId}/credit-cards?new=1`);
         },
       }}
     />
-  );
-}
-
-export function SemCartaoEmptyStateLink({ projectId }: SemCartaoEmptyStateProps) {
-  return (
-    <Link href={`/projects/${projectId}/credit-cards?new=1`}>
-      <EmptyState
-        icon={CreditCard}
-        title="Nenhum cartão cadastrado"
-        description="Comece adicionando um cartão para importar faturas e acompanhar o limite."
-        action={{
-          label: 'Novo cartão',
-          onClick: () => {},
-        }}
-      />
-    </Link>
   );
 }

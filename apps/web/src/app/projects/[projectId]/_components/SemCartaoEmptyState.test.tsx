@@ -1,8 +1,20 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { SemCartaoEmptyState } from './SemCartaoEmptyState';
 
+const mockPush = vi.fn();
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({
+    push: mockPush,
+  }),
+}));
+
 describe('SemCartaoEmptyState', () => {
+  beforeEach(() => {
+    mockPush.mockClear();
+  });
+
   it('renders with icon, title, and description', () => {
     render(<SemCartaoEmptyState projectId="p1" />);
     expect(screen.getByText('Nenhum cartão cadastrado')).toBeInTheDocument();
@@ -10,11 +22,10 @@ describe('SemCartaoEmptyState', () => {
   });
 
   it('button navigates to credit-cards page with ?new=1', () => {
-    const { container } = render(<SemCartaoEmptyState projectId="p1" />);
-    const buttons = screen.getAllByText('Novo cartão');
-    expect(buttons.length).toBeGreaterThan(0);
-    // Check that href targets credit-cards?new=1
-    // (The action button's onClick handler should navigate)
+    render(<SemCartaoEmptyState projectId="p1" />);
+    const button = screen.getByRole('button', { name: 'Novo cartão' });
+    fireEvent.click(button);
+    expect(mockPush).toHaveBeenCalledWith('/projects/p1/credit-cards?new=1');
   });
 
   it('renders EmptyState component with correct props', () => {
