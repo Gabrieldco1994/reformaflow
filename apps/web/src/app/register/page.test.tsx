@@ -55,7 +55,7 @@ describe("/register form behavior", () => {
     render(<RegisterPage />);
     await fillValidForm(browser);
 
-    const submit = screen.getByRole("button", { name: /criar conta/i });
+    const submit = screen.getByRole("button", { name: /criar minha conta/i });
     await browser.click(submit);
     expect(submit).toBeDisabled();
     await browser.click(submit);
@@ -77,7 +77,7 @@ describe("/register form behavior", () => {
     render(<RegisterPage />);
     await browser.type(screen.getByLabelText(/email/i), "test@example.com");
     await browser.type(screen.getByLabelText(/^senha$/i), "segredo1");
-    await browser.click(screen.getByRole("button", { name: /criar conta/i }));
+    await browser.click(screen.getByRole("button", { name: /criar minha conta/i }));
 
     expect(mocks.register).not.toHaveBeenCalled();
     expect(screen.getByText(/informe seu nome/i)).toBeInTheDocument();
@@ -89,7 +89,7 @@ describe("/register form behavior", () => {
     await browser.type(screen.getByLabelText(/seu nome/i), "Maria");
     await browser.type(screen.getByLabelText(/email/i), "invalid");
     await browser.type(screen.getByLabelText(/^senha$/i), "segredo1");
-    await browser.click(screen.getByRole("button", { name: /criar conta/i }));
+    await browser.click(screen.getByRole("button", { name: /criar minha conta/i }));
 
     expect(mocks.register).not.toHaveBeenCalled();
     expect(screen.getByText(/informe um email válido/i)).toBeInTheDocument();
@@ -101,7 +101,7 @@ describe("/register form behavior", () => {
     await browser.type(screen.getByLabelText(/seu nome/i), "Maria");
     await browser.type(screen.getByLabelText(/email/i), "maria@example.com");
     await browser.type(screen.getByLabelText(/^senha$/i), "short");
-    await browser.click(screen.getByRole("button", { name: /criar conta/i }));
+    await browser.click(screen.getByRole("button", { name: /criar minha conta/i }));
 
     expect(mocks.register).not.toHaveBeenCalled();
     expect(screen.getByText(/crie uma senha com pelo menos 8 caracteres/i)).toBeInTheDocument();
@@ -112,7 +112,7 @@ describe("/register form behavior", () => {
     const browser = userEvent.setup();
     render(<RegisterPage />);
     await fillValidForm(browser);
-    const submit = screen.getByRole("button", { name: /criar conta/i });
+    const submit = screen.getByRole("button", { name: /criar minha conta/i });
     await browser.click(submit);
     await browser.click(submit);
     await browser.click(submit);
@@ -125,11 +125,11 @@ describe("/register form behavior", () => {
     const browser = userEvent.setup();
     render(<RegisterPage />);
     await fillValidForm(browser);
-    await browser.click(screen.getByRole("button", { name: /criar conta/i }));
+    await browser.click(screen.getByRole("button", { name: /criar minha conta/i }));
 
     await waitFor(() => expect(mocks.register).toHaveBeenCalledTimes(1));
     expect(mocks.replace).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: /criar conta/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /criar minha conta/i })).toBeEnabled();
     expect(screen.getByText(/email duplicado/i)).toBeInTheDocument();
   });
 });

@@ -16,6 +16,7 @@ const PUBLIC_PATHS = [
   '/api',
   '/prototype/agent-monitor',
   '/skin-mobile-base.css',
+  '/hero-cockpit-mobile.png',
 ];
 
 export function middleware(req: NextRequest) {

@@ -64,7 +64,7 @@ test("CTA to fresh session and explicitly named first project", async ({
   await page.getByLabel(/^seu nome$/i).fill("Maria");
   await page.getByLabel(/email/i).fill("maria@example.com");
   await page.getByLabel(/^senha$/i).fill("segredo123");
-  await page.getByRole("button", { name: /criar conta/i }).click();
+  await page.getByRole("button", { name: /criar minha conta/i }).click();
 
   // Default projectTypes is PESSOAL (server-side), so redirect is /onboarding/setup?type=PESSOAL
   await expect(page).toHaveURL(/\/onboarding\/setup\?type=PESSOAL$/);
