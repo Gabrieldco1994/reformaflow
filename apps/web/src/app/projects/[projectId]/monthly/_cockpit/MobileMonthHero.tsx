@@ -26,6 +26,13 @@ const HERO_STATE = {
 
 type HeroState = keyof typeof HERO_STATE;
 
+const scrollToRunway = () => {
+  const element = document.getElementById("mobile-cockpit-runway");
+  if (element) {
+    element.scrollIntoView({ behavior: "smooth" });
+  }
+};
+
 export default function MobileMonthHero({
   top,
   projectId,
@@ -70,25 +77,20 @@ export default function MobileMonthHero({
           {exact ? moneyDetail(top.caixaValor) : moneyGlance(top.caixaValor)}
         </button>
 
-        <p className="mt-3 max-w-[310px] text-[14.5px] leading-6 text-[#5B6068]">
-          Se nada mudar, o mês fecha em{" "}
-          <button
-            type="button"
-            onClick={() => {
-              const element = document.getElementById("mobile-cockpit-runway");
-              if (element) {
-                element.scrollIntoView({ behavior: "smooth" });
-              }
-            }}
-            className="font-semibold text-blue-600 hover:underline"
-            aria-label="Rolar até projeção detalhada"
-          >
+        <button
+          type="button"
+          onClick={scrollToRunway}
+          className="mt-3 block w-full min-h-[44px] rounded-[6px] bg-white text-left font-normal leading-6 text-[#5B6068] hover:bg-[#F6F7F9]"
+          aria-label="Rolar até projeção detalhada"
+        >
+          <span className="text-[14.5px]">
+            Se nada mudar, o mês fecha em{" "}
             <b className={state === "negative" ? "text-[#EF4444]" : "text-[#111214]"}>
               {moneyGlance(top.projecaoMes)}
             </b>
-          </button>
-          .
-        </p>
+            .
+          </span>
+        </button>
 
         <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#EEF0F3]">
           <div
@@ -100,12 +102,7 @@ export default function MobileMonthHero({
           <span>Hoje</span>
           <button
             type="button"
-            onClick={() => {
-              const element = document.getElementById("mobile-cockpit-runway");
-              if (element) {
-                element.scrollIntoView({ behavior: "smooth" });
-              }
-            }}
+            onClick={scrollToRunway}
             className="font-semibold text-[#5B6068] hover:underline"
             aria-label="Rolar até projeção detalhada"
           >
