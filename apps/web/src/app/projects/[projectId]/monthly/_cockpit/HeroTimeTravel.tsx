@@ -116,7 +116,7 @@ export default function HeroTimeTravel({
               const next = Number(event.target.value);
               setScrubDay(clamp(next));
             }}
-            className="mt-2 h-11 min-h-[44px] w-full accent-[var(--ck-accent)] text-sm"
+            className="mt-2 h-[44px] min-h-[44px] w-full appearance-none accent-[var(--ck-accent)] text-sm"
           />
 
           <div className="flex items-center justify-between gap-3 text-xs text-[var(--ck-muted)]">
