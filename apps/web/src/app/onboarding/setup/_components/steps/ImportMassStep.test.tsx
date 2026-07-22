@@ -5,11 +5,18 @@ import { ProjectType } from '@reformaflow/domain';
 import { ImportMassStep } from './ImportMassStep';
 
 const apiGetMock = vi.fn();
+const mockPush = vi.fn();
 
 vi.mock('@/lib/api', () => ({
   api: {
     get: (...args: unknown[]) => apiGetMock(...args),
   },
+}));
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({
+    push: mockPush,
+  }),
 }));
 
 // Stub modals — call onCommitted when rendered to simulate a completed import
@@ -44,8 +51,13 @@ const defaultProps = {
   onSkip: vi.fn(),
 };
 
-function renderStep(overrides?: Partial<typeof defaultProps>) {
+function renderStep(
+  overrides?: Partial<typeof defaultProps>,
+  precache?: { cards?: unknown[]; accounts?: unknown[] },
+) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  if (precache?.cards) client.setQueryData(['tenant', 'credit-cards'], precache.cards);
+  if (precache?.accounts) client.setQueryData(['tenant', 'bank-accounts'], precache.accounts);
   return render(
     <QueryClientProvider client={client}>
       <ImportMassStep {...defaultProps} {...overrides} />
@@ -59,19 +71,25 @@ describe('ImportMassStep', () => {
     apiGetMock.mockResolvedValue([]);
   });
 
-  it('shows skip-only UI when no cards and no accounts', async () => {
+  it('shows "Fatura do cartão" even with no cards and no accounts, and clicking it opens the empty state (not "Extrato")', async () => {
     apiGetMock.mockResolvedValue([]);
     renderStep();
 
     await waitFor(() =>
-      expect(
-        screen.getByText(/adicione um cartão ou conta bancária/i),
-      ).toBeInTheDocument(),
+      expect(screen.getByText(/fatura do cartão/i)).toBeInTheDocument(),
     );
 
-    expect(screen.queryByText(/fatura do cartão/i)).not.toBeInTheDocument();
+    // "Extrato da conta" continua sem conta cadastrada — a correção é só o cartão.
     expect(screen.queryByText(/extrato da conta/i)).not.toBeInTheDocument();
     expect(screen.getByText(/pular — importar depois/i)).toBeInTheDocument();
+
+    // Clicar em "Fatura do cartão" sem cartão cadastrado abre o empty state (#248),
+    // permitindo cadastrar sem sair do onboarding — não uma tela em branco nem "Extrato".
+    fireEvent.click(screen.getByText(/fatura do cartão/i));
+    await waitFor(() =>
+      expect(screen.getByText(/nenhum cartão cadastrado/i)).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('import-statement-modal')).not.toBeInTheDocument();
   });
 
   it('shows "Fatura do cartão" button when at least one card exists', async () => {
@@ -119,7 +137,10 @@ describe('ImportMassStep', () => {
         return Promise.resolve([{ id: 'cc1', brand: 'Visa', last4: '9999' }]);
       return Promise.resolve([]);
     });
-    renderStep({ onDone });
+    // Precarrega o cache para evitar corrida: agora "Fatura do cartão" renderiza
+    // antes do fetch resolver (é sempre visível), então o clique precisa achar
+    // cards.length já resolvido para 1 e auto-selecionar em vez de abrir o picker.
+    renderStep({ onDone }, { cards: [{ id: 'cc1', brand: 'Visa', last4: '9999' }] });
 
     await waitFor(() =>
       expect(screen.getByText(/fatura do cartão/i)).toBeInTheDocument(),

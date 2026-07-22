@@ -226,6 +226,12 @@ export default function ImportBankStatementModal({ projectId, account, onClose, 
 
             {preview && (
               <div className="mt-4">
+                {preview.warning && (
+                  <div className="rounded-xl bg-amber-50 border border-amber-300 text-amber-800 p-3 mb-3 text-sm flex gap-2">
+                    <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                    <span>{preview.warning.message}</span>
+                  </div>
+                )}
                 <div className="rounded-xl bg-blue-50 border border-blue-200 p-3 mb-3 text-sm">
                   <div>
                     <strong>{preview.total}</strong> transações ·
