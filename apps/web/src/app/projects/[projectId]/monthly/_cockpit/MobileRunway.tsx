@@ -127,7 +127,7 @@ export default function MobileRunway({
             type="button"
             data-testid="runway-action-cta"
             onClick={() => setSheetOpen(true)}
-            className="mt-3 flex w-full min-h-[44px] items-center justify-center rounded-2xl border border-[var(--ck-neg)]/40 bg-[var(--ck-neg)]/10 px-4 text-[13px] font-semibold text-[var(--ck-neg)]"
+            className="mt-3 flex min-h-[44px] w-full items-center justify-center rounded-2xl border border-[var(--ck-neg)]/40 bg-[var(--ck-neg)]/10 px-4 text-sm font-semibold text-[var(--ck-neg)]"
           >
             Como fechar no azul?
           </button>
@@ -230,7 +230,7 @@ export default function MobileRunway({
               step={500}
               value={Math.min(ritmo, Math.max(ritmoDiario * 3, 30000))}
               onChange={(e) => onRitmoChange(Number(e.target.value))}
-              className="block h-[44px] min-h-[44px] w-full accent-[var(--ck-alert)]"
+              className="block h-[44px] min-h-[44px] w-full appearance-none accent-[var(--ck-alert)]"
               aria-label="Simular ritmo de gasto diário"
             />
           </div>
@@ -239,7 +239,7 @@ export default function MobileRunway({
             <button
               type="button"
               onClick={() => onRitmoChange(ritmoDiario)}
-              className="min-h-[44px] min-w-[44px] underline transition-colors hover:text-[var(--ck-text)]"
+              className="min-h-[44px] min-w-[44px] text-sm underline transition-colors hover:text-[var(--ck-text)]"
             >
               média atual ({moneyGlance(ritmoDiario)})
             </button>
