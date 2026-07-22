@@ -200,25 +200,28 @@ export default function MobileMonthCockpit({
           diasNoMes={month.diasNoMes}
           showTimeTravel={false}
           scenarioDelta={scenarioDelta}
+          projectId={projectId}
         />
 
         {/* "Vai dar até dez?": veredito + curva de 6 meses + cenários "E se…?"
             integrados. Os chips deformam ao vivo a curva projetada do herói acima
             (mesmo scenarioDelta), nunca o headline canônico. */}
         {runwaySerie && (
-          <MobileRunway
-            serie={runwaySerie}
-            currentMonth={monthKey}
-            scenarioDelta={scenarioDelta}
-            onScenarioChange={setScenarioDelta}
-            candidatos={runwayCandidatos}
-            projectId={projectId}
-            ritmo={ritmo}
-            ritmoDiario={month.ritmoDiario}
-            diasNoMes={month.diasNoMes}
-            projetado={projetado}
-            onRitmoChange={setRitmo}
-          />
+          <section id="mobile-cockpit-runway">
+            <MobileRunway
+              serie={runwaySerie}
+              currentMonth={monthKey}
+              scenarioDelta={scenarioDelta}
+              onScenarioChange={setScenarioDelta}
+              candidatos={runwayCandidatos}
+              projectId={projectId}
+              ritmo={ritmo}
+              ritmoDiario={month.ritmoDiario}
+              diasNoMes={month.diasNoMes}
+              projetado={projetado}
+              onRitmoChange={setRitmo}
+            />
+          </section>
         )}
 
         {/* Entrada para a tela de Despesas (mobile) — o app-despesas é alcançado a

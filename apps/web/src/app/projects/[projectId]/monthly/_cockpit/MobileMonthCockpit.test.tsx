@@ -213,17 +213,16 @@ describe("MobileMonthCockpit", () => {
 
   it("does not change canonical values while outer accordions toggle", () => {
     renderCockpit();
-    const values = ["Entrou", "Saiu", "Projeção"].map(
-      (name) => screen.getByRole("article", { name }).textContent,
-    );
+    const getCanonicalValues = () => ({
+      entrou: screen.getByRole("link", { name: "Ver entradas do mês" }).textContent,
+      saiu: screen.getByRole("link", { name: "Ver saídas do mês" }).textContent,
+      projecao: screen.getByRole("button", { name: "Rolar até projeção" }).textContent,
+    });
+    const values = getCanonicalValues();
     for (const name of ["Consumo"]) {
       fireEvent.click(screen.getByRole("button", { name }));
     }
-    expect(
-      ["Entrou", "Saiu", "Projeção"].map(
-        (name) => screen.getByRole("article", { name }).textContent,
-      ),
-    ).toEqual(values);
+    expect(getCanonicalValues()).toEqual(values);
   });
 
   it("keeps canonical hero/support values and reveals the exact hero in one touch", () => {
@@ -238,13 +237,13 @@ describe("MobileMonthCockpit", () => {
       within(cockpit).getByRole("button", { name: "Mostrar valor exato" }),
     ).toHaveTextContent("R$ 12 mil");
     expect(
-      within(cockpit).getByRole("article", { name: "Entrou" }),
+      within(cockpit).getByRole("link", { name: "Ver entradas do mês" }),
     ).toHaveTextContent("R$ 3 mil");
     expect(
-      within(cockpit).getByRole("article", { name: "Saiu" }),
+      within(cockpit).getByRole("link", { name: "Ver saídas do mês" }),
     ).toHaveTextContent("R$ 2 mil");
     expect(
-      within(cockpit).getByRole("article", { name: "Projeção" }),
+      within(cockpit).getByRole("button", { name: "Rolar até projeção" }),
     ).toHaveTextContent("R$ 12 mil");
 
     fireEvent.click(
@@ -267,13 +266,13 @@ describe("MobileMonthCockpit", () => {
       },
     });
     renderCockpit({ data: overview, monthKey: "2026-06", entries: [] });
-    expect(screen.getByRole("article", { name: "Entrou" })).toHaveTextContent(
+    expect(screen.getByRole("link", { name: "Ver entradas do mês" })).toHaveTextContent(
       "R$ 4,6 mil",
     );
-    expect(screen.getByRole("article", { name: "Saiu" })).toHaveTextContent(
+    expect(screen.getByRole("link", { name: "Ver saídas do mês" })).toHaveTextContent(
       "R$ 1,2 mil",
     );
-    expect(screen.getByRole("article", { name: "Projeção" })).toHaveTextContent(
+    expect(screen.getByRole("button", { name: "Rolar até projeção" })).toHaveTextContent(
       "R$ 9,9 mil",
     );
     const miniHero = screen.getByTestId("mini-hero-capsule");
@@ -327,9 +326,12 @@ describe("MobileMonthCockpit", () => {
     const cockpit = screen.getByRole("region", {
       name: "Cockpit mensal mobile",
     });
-    const canonical = ["Entrou", "Saiu", "Projeção"].map(
-      (name) => within(cockpit).getByRole("article", { name }).textContent,
-    );
+    // "Entrou" e "Saiu" são agora Links; "Projeção" é um button
+    const canonical = [
+      within(cockpit).getByRole("link", { name: "Ver entradas do mês" }).textContent,
+      within(cockpit).getByRole("link", { name: "Ver saídas do mês" }).textContent,
+      within(cockpit).getByRole("button", { name: "Rolar até projeção" }).textContent,
+    ];
     const hero = within(cockpit).getByRole("button", {
       name: "Mostrar valor exato",
     }).textContent;
@@ -339,11 +341,11 @@ describe("MobileMonthCockpit", () => {
     expect(
       within(cockpit).getByRole("button", { name: "Mostrar valor exato" }),
     ).toHaveTextContent(hero ?? "");
-    expect(
-      ["Entrou", "Saiu", "Projeção"].map(
-        (name) => within(cockpit).getByRole("article", { name }).textContent,
-      ),
-    ).toEqual(canonical);
+    expect([
+      within(cockpit).getByRole("link", { name: "Ver entradas do mês" }).textContent,
+      within(cockpit).getByRole("link", { name: "Ver saídas do mês" }).textContent,
+      within(cockpit).getByRole("button", { name: "Rolar até projeção" }).textContent,
+    ]).toEqual(canonical);
     expect(
       within(cockpit).getByRole("article", { name: "Consumo realizado" }),
     ).toHaveTextContent("R$ 2 mil");
