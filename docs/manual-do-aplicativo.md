@@ -44,7 +44,7 @@ módulos (abas) ficam disponíveis:
 |---|---|---|
 | **PESSOAL** | Controle do dinheiro pessoal (o "cockpit" da sua vida financeira) | Cockpit, Visão Conta, Cartões, Metas, Planning, Budget, DRE, Fluxo de Caixa (+ drill-downs: Despesas/Recebimentos) |
 | **REFORMA** | Controle financeiro e visual de uma obra/reforma | Dashboard, Despesas, Recebimentos, Fluxo de Caixa, Cômodos, Plantas, Simulação, Cronograma, Comparar Preço, Pendências |
-| **CASA** | Gestão da casa (contas fixas, manutenções, lembretes) | Dashboard, Contas recorrentes, Manutenção, Lembretes, Despesas |
+| **CASA** | Gestão da casa (financiamento, contas fixas, manutenções, lembretes) | Dashboard, Financiamento, Contas recorrentes, Manutenção, Lembretes, Despesas |
 | **CARRO** | Gestão do carro | Dashboard, Carro (dados), Contas recorrentes, Manutenção, Lembretes, Despesas |
 | **COMPRA** | Acompanhar uma compra grande (casa, carro etc.) | Dashboard, Despesas, Recebimentos, Fluxo de Caixa, Preços |
 
@@ -694,12 +694,24 @@ Quadro de pendências da obra.
 
 ## 6. Projeto CASA
 
-Gestão da casa: contas fixas, manutenções e lembretes.
+Gestão da casa: financiamento, contas fixas, manutenções e lembretes.
 
 ### 6.1 Dashboard (`/dashboard`)
-Visão geral da casa (KPIs gerais, resumo, próximas pendências).
+Visão geral da casa (KPIs gerais, resumo, próximas pendências). Quando há um
+financiamento cadastrado, mostra saldo devedor, valor pago, progresso e próxima
+parcela, com acesso aos detalhes.
 
-### 6.2 Contas recorrentes (`/bills`)
+### 6.2 Financiamento (`/financing`)
+Registra um financiamento imobiliário por projeto e gera sua projeção mensal.
+- Sistemas de amortização **PRICE** e **SAC**, com valor financiado, taxa mensal,
+  prazo, primeira parcela e dia de vencimento.
+- Resumo com total, valor pago, saldo devedor, progresso e próxima parcela.
+- Tabela de parcelas previstas/pagas. **Marcar como paga** registra o valor
+  previsto e a data atual sem criar uma despesa ou alterar o caixa consolidado.
+- Ao editar o contrato, parcelas já pagas permanecem no histórico; somente as
+  parcelas futuras são recalculadas.
+
+### 6.3 Contas recorrentes (`/bills`)
 Contas fixas (luz, água, internet, gás…) e avulsas.
 - **Abas "Recorrentes / Avulsas".**
 - **"Total mensal estimado"** somando as recorrentes.
@@ -716,7 +728,7 @@ Contas fixas (luz, água, internet, gás…) e avulsas.
   ações), com **Nova despesa avulsa** (Título, Valor, Categoria, Forma de
   pagamento, Data do pagamento, Fornecedor, Observações).
 
-### 6.3 Manutenção (`/maintenance`)
+### 6.4 Manutenção (`/maintenance`)
 Histórico e agenda de manutenções.
 - **Botão "Nova Manutenção".**
 - **"Próximas manutenções":** cards com o tipo, quando ("em X dias") e a data.
@@ -724,7 +736,7 @@ Histórico e agenda de manutenções.
   rola horizontalmente. Ações: editar, excluir.
 - Formulário: tipo, datas, custo, **Fornecedor (opcional)**, **Observações**.
 
-### 6.4 Lembretes (`/reminders`)
+### 6.5 Lembretes (`/reminders`)
 Tarefas com prazo e prioridade.
 - **Botão "Novo Lembrete"** (Título, Descrição opcional, data, prioridade,
   frequência).
@@ -732,7 +744,7 @@ Tarefas com prazo e prioridade.
 - **Card de lembrete:** título, data, frequência, badges de **prioridade** e
   **status**. Ações: **Concluir**, **Adiar**, **Editar**, **Excluir**.
 
-### 6.5 Despesas (`/expenses`)
+### 6.6 Despesas (`/expenses`)
 Despesas avulsas do lar (mesma mecânica do §4.4, com tipos próprios de casa).
 
 ---

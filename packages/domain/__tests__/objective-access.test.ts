@@ -38,6 +38,7 @@ describe("canonical objective authorization", () => {
         "recurringBills",
         "maintenance",
         "reminders",
+        "financing",
         "carInfo",
         "bankAccounts",
         "monthlyOverview",
@@ -56,6 +57,7 @@ describe("canonical objective authorization", () => {
         "maintenance",
         "reminders",
         "expenses",
+        "financing",
         "carInfo",
       ],
     });

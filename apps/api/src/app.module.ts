@@ -39,6 +39,7 @@ import { PlantsAiModule } from './plants-ai/plants-ai.module';
 import { PlantModule } from './plant/plant.module';
 import { DemoModule } from './demo/demo.module';
 import { FeedbackModule } from './feedback/feedback.module';
+import { FinancingModule } from './financing/financing.module';
 import { ActivityLogInterceptor } from './common/interceptors/activity-log.interceptor';
 
 const UPLOADS_DIR = (() => {
@@ -86,6 +87,7 @@ const UPLOADS_DIR = (() => {
     PlantModule,
     DemoModule,
     FeedbackModule,
+    FinancingModule,
   ],
   providers: [
     {

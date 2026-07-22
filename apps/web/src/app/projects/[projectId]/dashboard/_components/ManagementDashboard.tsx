@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
@@ -16,8 +17,22 @@ import ManagementFocus from './ManagementFocus';
 export interface Bill { id: string; nome: string; valor: number; categoria: string; frequencia: string; diaVencimento: number; status: string; }
 export interface Maintenance { id: string; tipo: string; dataRealizada: string; dataProxima?: string; custo: number; fornecedor?: string; }
 export interface Reminder { id: string; titulo: string; descricao?: string; data: string; prioridade: string; recorrencia: string; status: string; }
+export interface FinancingSummary {
+  instituicao?: string | null;
+  sistema: string;
+  valorTotalFinanciado: number;
+  summary: {
+    valorPago: number;
+    saldoDevedor: number;
+    progresso: number;
+    totalParcelas: number;
+    parcelasPagas: number;
+    proximaParcela: { numeroParcela: number; dataVencimento: string; valorPrevisto: number } | null;
+  };
+}
 
 export default function ManagementDashboard({ projectId, projectType }: { projectId: string; projectType: string }) {
+  const isCasa = projectType === 'CASA';
   const { data: bills } = useQuery<Bill[]>({
     queryKey: ['recurring-bills', projectId],
     queryFn: () => api.get(`/projects/${projectId}/recurring-bills`),
@@ -29,6 +44,11 @@ export default function ManagementDashboard({ projectId, projectType }: { projec
   const { data: reminders } = useQuery<Reminder[]>({
     queryKey: ['reminders', projectId],
     queryFn: () => api.get(`/projects/${projectId}/reminders`),
+  });
+  const { data: financing } = useQuery<FinancingSummary | null>({
+    queryKey: ['financing', projectId],
+    queryFn: () => api.get(`/projects/${projectId}/financing`),
+    enabled: isCasa,
   });
 
   const activeBills = (bills ?? []).filter(b => b.status === 'ATIVO');
@@ -87,6 +107,54 @@ export default function ManagementDashboard({ projectId, projectType }: { projec
           </div>
         ))}
       </div>
+
+      {isCasa && financing && (
+        <section className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-editorial italic text-lg md:text-xl text-darc-velvet">🏦 Financiamento</h2>
+            <Link href={`/projects/${projectId}/financing`} className="inline-flex min-h-[44px] items-center text-sm text-darc-velvet/70 hover:underline">
+              Ver detalhes
+            </Link>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div>
+              <p className="text-xs text-darc-velvet/60">Saldo Devedor</p>
+              <p className="font-bold text-darc-velvet">{formatCurrency(financing.summary.saldoDevedor / 100)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-darc-velvet/60">Progresso</p>
+              <p className="font-bold text-darc-velvet">
+                {financing.summary.progresso}% ({financing.summary.parcelasPagas}/{financing.summary.totalParcelas})
+              </p>
+              <div
+                role="progressbar"
+                aria-label="Progresso do financiamento"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={financing.summary.progresso}
+                className="mt-2 h-2 overflow-hidden rounded-full bg-darc-linen"
+              >
+                <div
+                  className="h-full bg-darc-red"
+                  style={{ width: `${financing.summary.progresso}%` }}
+                />
+              </div>
+            </div>
+            <div>
+              <p className="text-xs text-darc-velvet/60">Valor Pago</p>
+              <p className="font-bold text-darc-velvet">{formatCurrency(financing.summary.valorPago / 100)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-darc-velvet/60">Próxima Parcela</p>
+              <p className="font-bold text-darc-velvet">
+                {financing.summary.proximaParcela
+                  ? `${formatCurrency(financing.summary.proximaParcela.valorPrevisto / 100)} · ${formatDateBR(financing.summary.proximaParcela.dataVencimento)}`
+                  : 'Quitado'}
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="hidden md:block rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5">
         <h2 className="font-editorial italic text-lg md:text-xl text-darc-velvet mb-3">📋 Contas Recorrentes</h2>

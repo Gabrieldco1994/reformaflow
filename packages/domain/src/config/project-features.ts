@@ -16,7 +16,8 @@ export type ProjectFeature =
   | 'creditCards'
   | 'bankAccounts'
   | 'pendencias'
-  | 'plantsAi';
+  | 'plantsAi'
+  | 'financing';
 
 export const PROJECT_FEATURES: Record<ProjectType, ProjectFeature[]> = {
   [ProjectType.REFORMA]: [
@@ -31,6 +32,8 @@ export const PROJECT_FEATURES: Record<ProjectType, ProjectFeature[]> = {
     // Despesas avulsas (one-off) — complementam as recorrentes. Também tornam CASA elegível
     // como alvo de vínculo cross-project a partir do PESSOAL.
     'expenses',
+    // Financiamento imobiliário (singleton por projeto): histórico + projeção PRICE/SAC.
+    'financing',
   ],
   [ProjectType.CARRO]: [
     'dashboard', 'recurringBills', 'maintenance', 'reminders',
