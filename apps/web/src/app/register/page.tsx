@@ -100,10 +100,33 @@ export default function RegisterPage() {
         </header>
 
         <form onSubmit={handleSubmit} noValidate aria-busy={submitting} className="grid min-w-0 overflow-hidden rounded-[22px] border border-lifeone-hairline bg-lifeone-card shadow-lifeone-card lg:grid-cols-[0.82fr_1.18fr]">
-          <section className="min-w-0 border-b border-lifeone-hairline p-5 sm:p-8 lg:border-b-0 lg:border-r">
-            <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-lifeone-blue">Sua LifeOne começa aqui</p>
-            <h1 className="mt-2 text-[27px] font-bold leading-tight tracking-[-0.035em] text-lifeone-ink sm:text-[34px]">Uma conta para seus próximos objetivos.</h1>
-            <p className="mt-3 text-[14px] leading-relaxed text-lifeone-ink-3">Crie seu espaço, escolha o que importa agora e entre pronto para nomear o primeiro projeto.</p>
+          <section className="relative min-w-0 border-b border-lifeone-hairline p-5 sm:p-8 lg:border-b-0 lg:border-r bg-gradient-to-br from-lifeone-blue/5 to-lifeone-surface/50">
+            {/* ponytail: visual accent, opacity-10 mobile to not overwhelm */}
+            <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-5 sm:opacity-10 lg:opacity-100">
+              <div className="absolute -right-40 -top-40 w-80 h-80 bg-lifeone-blue rounded-full blur-3xl" />
+            </div>
+
+            <div className="relative z-10">
+              <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-lifeone-blue">Sua LifeOne começa aqui</p>
+              <h1 className="mt-2 text-[27px] font-bold leading-tight tracking-[-0.035em] text-lifeone-ink sm:text-[34px]">Uma conta para seus próximos objetivos.</h1>
+              <p className="mt-3 text-[14px] leading-relaxed text-lifeone-ink-3">Crie seu espaço, escolha o que importa agora e entre pronto para nomear o primeiro projeto.</p>
+
+              {/* Feature highlights */}
+              <ul className="mt-6 space-y-3">
+                <li className="flex gap-2 text-[13px] text-lifeone-ink-2">
+                  <span className="text-lifeone-blue font-bold">✓</span>
+                  <span>Sem limite de projetos e categorias</span>
+                </li>
+                <li className="flex gap-2 text-[13px] text-lifeone-ink-2">
+                  <span className="text-lifeone-blue font-bold">✓</span>
+                  <span>Controle completo do seu fluxo de caixa</span>
+                </li>
+                <li className="flex gap-2 text-[13px] text-lifeone-ink-2">
+                  <span className="text-lifeone-blue font-bold">✓</span>
+                  <span>Projeções de gastos e cenários</span>
+                </li>
+              </ul>
+            </div>
 
             {error && (
               <div ref={errorRef} role="alert" tabIndex={-1} className="mt-5 rounded-[10px] border border-[#FECDCA] bg-[#FEF3F2] px-3 py-2.5 text-[13px] text-[#B42318] outline-none focus:ring-2 focus:ring-[#B42318]/30">
