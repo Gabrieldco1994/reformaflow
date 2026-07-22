@@ -38,9 +38,11 @@ const mockItems = [
     targetPriceCents: 250000,
     isActive: true,
     lastBestPriceCents: 280000,
+    lastBestPrice: 2800,
     lastBestStore: 'Loja A',
     lastBestLink: 'https://loja-a.com',
     lastCheckedAt: '2026-07-17T00:00:00Z',
+    monitoringEndDate: null,
     diasMonitoramento: 30,
     dataVencimento: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
   },
@@ -148,5 +150,40 @@ describe('PriceComparePage — Price Alerts', () => {
 
     // Verify component renders and calls API
     expect(screen.getByText(/monitoramento de preço/i)).toBeInTheDocument();
+  });
+
+  it('registers the monitored item as an expense and closes monitoring', async () => {
+    const { api } = await import('@/lib/api');
+    vi.mocked(api.get).mockResolvedValue(mockItems);
+    vi.mocked(api.post).mockResolvedValue({
+      expenseId: 'expense-1',
+      pricePaidCents: 280000,
+    });
+    const user = userEvent.setup();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <PriceComparePage />
+      </QueryClientProvider>
+    );
+
+    await user.click(
+      await screen.findByRole('button', { name: /comprar agora/i }),
+    );
+    expect(
+      screen.getByRole('heading', { name: /comprar agora/i }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /registrar compra/i }));
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith(
+        '/projects/test-project-1/price-monitor/items/item-1/comprar-agora',
+        expect.objectContaining({
+          quantidade: 1,
+          formaPagamento: 'A_VISTA',
+        }),
+      );
+    });
   });
 });

@@ -50,7 +50,7 @@ export class CreatePriceMonitorItemDto {
 
   @IsOptional()
   @IsNumber()
-  targetPrice?: number; // in reais for new alert API
+  targetPrice?: number; // legacy value in cents
 
   @IsOptional()
   @IsNumber()
@@ -119,12 +119,17 @@ export interface PriceMonitorItemResponseDto {
   url?: string;
   query?: string;
   notes?: string;
+  productUrl?: string;
+  referencePriceCents?: number;
   targetPrice: number | null;
+  targetPriceCents?: number;
+  isActive?: boolean;
   monitoringEndDate: string | null; // ISO format
   alertSent: boolean;
   ativo: boolean; // computed
   lastCheckedAt: string | null;
   lastBestPrice: number | null;
+  lastBestPriceCents?: number;
   lastBestStore: string | null;
   lastBestLink: string | null;
   createdAt: string;
