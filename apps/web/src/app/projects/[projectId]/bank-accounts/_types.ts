@@ -61,6 +61,8 @@ export interface BankPreviewResult {
   totalDebits?: number;
   totalCredits?: number;
   inserted?: number;
+  /** Sinal de que o arquivo parece uma fatura de cartão, não um extrato (Bug A). Não bloqueia. */
+  warning?: { code: 'looks_like_card_invoice'; message: string };
 }
 
 export interface BankCommitResult {

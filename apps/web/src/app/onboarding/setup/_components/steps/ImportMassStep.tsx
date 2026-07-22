@@ -7,6 +7,7 @@ import { SkipForward, CreditCard, Landmark, ArrowRight } from 'lucide-react';
 import { api } from '@/lib/api';
 import ImportStatementModal from '@/app/projects/[projectId]/credit-cards/_components/ImportStatementModal';
 import ImportBankStatementModal from '@/app/projects/[projectId]/bank-accounts/_components/ImportBankStatementModal';
+import { SemCartaoEmptyState } from '@/app/projects/[projectId]/_components/SemCartaoEmptyState';
 import type { CardRow } from '@/app/projects/[projectId]/credit-cards/_types';
 import type { BankAccountRow } from '@/app/projects/[projectId]/bank-accounts/_types';
 import type { OnboardingStepProps } from '../../_types';
@@ -37,7 +38,10 @@ function OptionButton({ icon: Icon, label, onClick }: OptionButtonProps) {
 /**
  * Onboarding step that lets users bulk-import transactions from a card
  * statement or bank statement they already have.
- * Gated on card/account existence — shows a friendly message if neither exists.
+ * "Fatura do cartão" fica sempre visível (mesmo sem cartão cadastrado) —
+ * escondê-la empurra quem tem fatura na mão para "Extrato da conta", que
+ * inverte o sinal errado e mistura despesa de cartão com caixa real.
+ * Espelha o padrão já usado em ImportLauncher.tsx.
  */
 export function ImportMassStep({ projectId, onDone, onSkip }: OnboardingStepProps) {
   const { data: cards = [] } = useQuery<TenantCard[]>({
@@ -54,12 +58,10 @@ export function ImportMassStep({ projectId, onDone, onSkip }: OnboardingStepProp
   const [importType, setImportType] = useState<'fatura' | 'extrato' | null>(null);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
-  // card picker shown when >1 card exists
+  // card picker shown when >1 card exists (also reused for the "sem cartão" empty state)
   const [showCardPicker, setShowCardPicker] = useState(false);
   // account picker shown when >1 account exists
   const [showAccountPicker, setShowAccountPicker] = useState(false);
-
-  const hasNoCardAndNoAccount = cards.length === 0 && accounts.length === 0;
 
   function openFatura() {
     if (cards.length === 1) {
@@ -95,32 +97,28 @@ export function ImportMassStep({ projectId, onDone, onSkip }: OnboardingStepProp
         Use o extrato ou fatura que já tem — detectamos os valores automaticamente
       </p>
 
-      {hasNoCardAndNoAccount ? (
-        <p className="text-[13px] text-lifeone-ink-3 mt-4">
-          Adicione um cartão ou conta bancária para importar lançamentos em massa.
-        </p>
-      ) : (
-        <>
-          <div className="space-y-2.5 mt-4">
-            {cards.length > 0 && (
-              <OptionButton
-                icon={CreditCard}
-                label="Fatura do cartão"
-                onClick={openFatura}
-              />
-            )}
-            {accounts.length > 0 && (
-              <OptionButton
-                icon={Landmark}
-                label="Extrato da conta"
-                onClick={openExtrato}
-              />
-            )}
-          </div>
+      <div className="space-y-2.5 mt-4">
+        <OptionButton
+          icon={CreditCard}
+          label="Fatura do cartão"
+          onClick={openFatura}
+        />
+        {accounts.length > 0 && (
+          <OptionButton
+            icon={Landmark}
+            label="Extrato da conta"
+            onClick={openExtrato}
+          />
+        )}
+      </div>
 
-          {/* Card picker when >1 card */}
-          {showCardPicker && (
-            <div className="mt-3 space-y-1.5">
+      {/* Card picker: lista quando >1 cartão, empty state quando 0 cartões */}
+      {showCardPicker && (
+        <div className="mt-3 space-y-1.5">
+          {cards.length === 0 ? (
+            <SemCartaoEmptyState projectId={projectId} />
+          ) : (
+            <>
               <p className="text-[12px] font-medium text-lifeone-ink-2">Qual cartão?</p>
               {cards.map((c) => (
                 <button
@@ -136,30 +134,30 @@ export function ImportMassStep({ projectId, onDone, onSkip }: OnboardingStepProp
                   {c.nickname || `${c.brand} ••${c.last4}`}
                 </button>
               ))}
-            </div>
+            </>
           )}
+        </div>
+      )}
 
-          {/* Account picker when >1 account */}
-          {showAccountPicker && (
-            <div className="mt-3 space-y-1.5">
-              <p className="text-[12px] font-medium text-lifeone-ink-2">Qual conta?</p>
-              {accounts.map((a) => (
-                <button
-                  key={a.id}
-                  type="button"
-                  onClick={() => {
-                    setSelectedAccountId(a.id);
-                    setImportType('extrato');
-                    setShowAccountPicker(false);
-                  }}
-                  className="flex min-h-11 w-full items-center gap-2 rounded-[8px] border border-lifeone-hairline bg-lifeone-surface px-3 py-2.5 text-[13px] text-lifeone-ink hover:bg-lifeone-hairline/60 transition-colors"
-                >
-                  {a.nickname || a.institution}
-                </button>
-              ))}
-            </div>
-          )}
-        </>
+      {/* Account picker when >1 account */}
+      {showAccountPicker && (
+        <div className="mt-3 space-y-1.5">
+          <p className="text-[12px] font-medium text-lifeone-ink-2">Qual conta?</p>
+          {accounts.map((a) => (
+            <button
+              key={a.id}
+              type="button"
+              onClick={() => {
+                setSelectedAccountId(a.id);
+                setImportType('extrato');
+                setShowAccountPicker(false);
+              }}
+              className="flex min-h-11 w-full items-center gap-2 rounded-[8px] border border-lifeone-hairline bg-lifeone-surface px-3 py-2.5 text-[13px] text-lifeone-ink hover:bg-lifeone-hairline/60 transition-colors"
+            >
+              {a.nickname || a.institution}
+            </button>
+          ))}
+        </div>
       )}
 
       {/* CSV/PDF tip */}

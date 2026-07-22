@@ -9,6 +9,43 @@ function toBuffers(content: string | Buffer | Buffer[]): Buffer[] {
   if (typeof content === 'string') return [Buffer.from(content, 'utf-8')];
   return [content];
 }
+
+/**
+ * Detecta se um arquivo importado como EXTRATO parece, na verdade, ser uma
+ * FATURA DE CARTÃO (Bug A: o extrato inverte o sinal — despesa do cartão vira
+ * "recebimento" no caixa real). Não bloqueia: só sinaliza no preview para o
+ * usuário decidir, igual ao restante do fluxo (mode=preview/commit, decisions[]).
+ *
+ * Três sinais, qualquer um já dispara:
+ *  - cabeçalho exatamente "date,title,amount" (fatura Nubank, ver credit-card/parsers/csv.ts)
+ *  - alguma transação com parcela detectada ("Parcela N/M" só existe em fatura)
+ *  - >90% das linhas viram recebimento (isCredit) — também cobre bancos que
+ *    exportam tudo positivo com coluna D/C (Bradesco/BB/Caixa)
+ */
+function detectCardInvoiceWarning(
+  buffers: Buffer[],
+  transactions: Array<{ amountCents: number; installmentTotal?: number }>,
+): { code: 'looks_like_card_invoice'; message: string } | null {
+  const headerLooksLikeCardInvoice = buffers.some((buf) => {
+    const firstLine = buf
+      .toString('utf-8')
+      .replace(/^\uFEFF/, '')
+      .split(/\r?\n/, 1)[0]
+      ?.trim()
+      .toLowerCase();
+    return firstLine === 'date,title,amount';
+  });
+  const hasInstallmentMarkers = transactions.some((t) => (t.installmentTotal ?? 0) > 1);
+  const total = transactions.length;
+  const creditRatio = total > 0 ? transactions.filter((t) => t.amountCents < 0).length / total : 0;
+
+  if (!headerLooksLikeCardInvoice && !hasInstallmentMarkers && creditRatio <= 0.9) return null;
+  return {
+    code: 'looks_like_card_invoice',
+    message:
+      'Isso parece uma fatura de cartão, não um extrato bancário. Importar fatura como extrato inverte o sinal e faz despesas do cartão entrarem como recebimento no caixa. Confira antes de importar.',
+  };
+}
 import type { NormalizedTx } from '../credit-card/parsers/types';
 import { categorize } from '../credit-card/categorizer';
 import {
@@ -400,6 +437,7 @@ export class BankAccountService {
     }));
 
     const debits = parsed.transactions.filter((t) => t.amountCents > 0);
+    const warning = detectCardInvoiceWarning(buffers, parsed.transactions);
     return {
       source: parsed.source,
       periodLabel: parsed.periodLabel,
@@ -410,6 +448,7 @@ export class BankAccountService {
       duplicated: preview.filter((p) => p.duplicate).length,
       inserted: 0,
       preview,
+      ...(warning ? { warning } : {}),
     };
   }
 

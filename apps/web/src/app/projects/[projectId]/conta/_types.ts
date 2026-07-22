@@ -123,7 +123,7 @@ export interface OriginYearlyItem {
   status: string;
   projetoOrigem: { id: string; name: string; type: string } | null;
   /** Presente só na variante "Todos" (kind='all'): origem do lançamento. */
-  origem?: { kind: 'card' | 'conta'; last4: string; nickname: string };
+  origem?: { kind: 'card' | 'conta' | 'carteira'; last4: string; nickname: string };
 }
 
 export interface OriginItemsYearlyResponse {

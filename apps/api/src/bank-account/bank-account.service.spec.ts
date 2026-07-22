@@ -318,6 +318,42 @@ describe('BankAccountService', () => {
     });
   });
 
+  describe('previewImport — warning: fatura de cartão importada como extrato (Bug A)', () => {
+    it('cabeçalho Nubank "date,title,amount" dispara warning looks_like_card_invoice', async () => {
+      const csv = ['date,title,amount', '2026-05-12,IFOOD RESTAURANTE,89.90', '2026-05-13,UBER,32.50'].join('\n');
+      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(csv), 'fatura.csv', 'CSV_GENERIC');
+      expect(result.warning?.code).toBe('looks_like_card_invoice');
+    });
+
+    it('"Parcela N/M" na descrição dispara warning mesmo sem o cabeçalho Nubank', async () => {
+      const csv = ['data;descricao;valor', '12/05/2026;LOJA XYZ PARC 2/4;250,00'].join('\n');
+      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(csv), 'fatura.csv', 'CSV_GENERIC');
+      expect(result.warning?.code).toBe('looks_like_card_invoice');
+    });
+
+    it('>90% das linhas viram recebimento dispara warning (cobre extrato Bradesco/BB/Caixa tudo positivo)', async () => {
+      // Cabeçalho Itaú (não dispara pelo critério de header) com 10 despesas na fatura,
+      // que ao inverter para extrato viram 10 recebimentos (100% > 90%).
+      const csvItau = [
+        'data;descricao;valor',
+        ...Array.from({ length: 10 }, (_, i) => `${10 + i}/05/2026;COMPRA ${i};50,00`),
+      ].join('\n');
+      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(csvItau), 'extrato.csv', 'CSV_GENERIC');
+      expect(result.totalCredits).toBe(10);
+      expect(result.warning?.code).toBe('looks_like_card_invoice');
+    });
+
+    it('extrato bancário normal (débitos e créditos misturados, sem parcela) NÃO dispara warning', async () => {
+      const ofx = buildBankOfx(
+        ofxBankFor('20260401', 10000, 'MERCADO', 'B1'),
+        ofxBankFor('20260402', -50000, 'SALARIO', 'B2'),
+        ofxBankFor('20260403', 5000, 'FARMACIA', 'B3'),
+      );
+      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX');
+      expect(result.warning).toBeUndefined();
+    });
+  });
+
   describe('commitImport — decisions', () => {
     it('decision.skip ignora transação (não cria expense)', async () => {
       const ofx = buildBankOfx(
