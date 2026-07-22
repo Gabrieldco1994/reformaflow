@@ -3,9 +3,10 @@
 import { useParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Landmark } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
+import { LoadingBlock } from '@/app/_components/LoadingBlock';
 import { currentMonthKey, monthLabelLong } from './_lib';
 import { ContaMonthPicker } from './_components/ContaMonthPicker';
 import { ResumoCards, type ResumoQuickFilterKey } from './_components/ResumoCards';
@@ -26,23 +27,6 @@ import type {
 } from './_types';
 import type { DreOverviewResponse } from '../dre/_types';
 
-function LoadingBlock() {
-  return (
-    <div className="space-y-4 animate-pulse">
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_20rem]">
-        <div className="h-36 rounded-3xl bg-lifeone-surface" />
-        <div className="h-36 rounded-3xl bg-lifeone-surface" />
-      </div>
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-6">
-        {Array.from({ length: 4 }).map((_, index) => (
-          <div key={index} className="h-28 rounded-2xl bg-lifeone-surface" />
-        ))}
-      </div>
-      <div className="h-64 rounded-3xl bg-lifeone-surface" />
-    </div>
-  );
-}
-
 export default function ContaPage() {
   const params = useParams<{ projectId: string }>();
   const projectId = params.projectId;
@@ -57,6 +41,15 @@ export default function ContaPage() {
   const [originFilter, setOriginFilter] = useState<string | null>(null);
   const [resumoQuickFilter, setResumoQuickFilter] = useState<ResumoQuickFilterKey | null>(null);
   const openNovaDespesaRef = useRef<() => void>(() => undefined);
+
+  // Seed resumoQuickFilter from ?quick= query param
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const quick = params.get('quick') as ResumoQuickFilterKey | null;
+    if (quick && ['entrouMes', 'saiuMes', 'faltaPagarMes'].includes(quick)) {
+      setResumoQuickFilter(quick);
+    }
+  }, []);
 
   const selectedYear = selectedMonth.slice(0, 4);
 

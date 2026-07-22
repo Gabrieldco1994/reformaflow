@@ -1,3 +1,11 @@
+# Temporary QA/test scripts (never commit credentials)
+*.mjs
+capture-*.mjs
+inspect-*.mjs
+playwright-test-*.mjs
+**/playwright-test-*.mjs
+
+# Existing ignore rules
 node_modules
 dist
 **/dist/

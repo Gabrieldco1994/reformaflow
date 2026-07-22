@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { ArrowDownRight, ArrowUpRight, Target } from "lucide-react";
 import { moneyDetail, moneyGlance } from "@/lib/money";
 import type { CockpitTopDerived } from "./derive";
@@ -25,7 +26,20 @@ const HERO_STATE = {
 
 type HeroState = keyof typeof HERO_STATE;
 
-export default function MobileMonthHero({ top }: { top: CockpitTopDerived }) {
+const scrollToRunway = () => {
+  const element = document.getElementById("mobile-cockpit-runway");
+  if (element) {
+    element.scrollIntoView({ behavior: "smooth" });
+  }
+};
+
+export default function MobileMonthHero({
+  top,
+  projectId,
+}: {
+  top: CockpitTopDerived;
+  projectId: string;
+}) {
   const [exact, setExact] = useState(false);
   const state: HeroState =
     top.projecaoMes < 0
@@ -63,13 +77,20 @@ export default function MobileMonthHero({ top }: { top: CockpitTopDerived }) {
           {exact ? moneyDetail(top.caixaValor) : moneyGlance(top.caixaValor)}
         </button>
 
-        <p className="mt-3 max-w-[310px] text-[14.5px] leading-6 text-[#5B6068]">
-          Se nada mudar, o mês fecha em{" "}
-          <b className={state === "negative" ? "text-[#EF4444]" : "text-[#111214]"}>
-            {moneyGlance(top.projecaoMes)}
-          </b>
-          .
-        </p>
+        <button
+          type="button"
+          onClick={scrollToRunway}
+          className="mt-3 flex w-full min-h-[44px] items-center justify-start rounded-[6px] bg-white px-3 text-left font-normal leading-6 text-[#5B6068] hover:bg-[#F6F7F9]"
+          aria-label="Rolar até projeção detalhada"
+        >
+          <span className="text-[14.5px]">
+            Se nada mudar, o mês fecha em{" "}
+            <b className={state === "negative" ? "text-[#EF4444]" : "text-[#111214]"}>
+              {moneyGlance(top.projecaoMes)}
+            </b>
+            .
+          </span>
+        </button>
 
         <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#EEF0F3]">
           <div
@@ -79,55 +100,66 @@ export default function MobileMonthHero({ top }: { top: CockpitTopDerived }) {
         </div>
         <div className="mt-2 flex items-center justify-between gap-3 text-sm text-[#9AA0A8]">
           <span>Hoje</span>
-          <span className="font-semibold text-[#5B6068]">
+          <button
+            type="button"
+            onClick={scrollToRunway}
+            className="flex min-h-[44px] items-center font-semibold text-[#5B6068] hover:underline"
+            aria-label="Rolar até projeção detalhada"
+          >
             fim do mês {moneyGlance(top.projecaoMes)}
-          </span>
+          </button>
         </div>
 
         <div className="mt-4 space-y-2 border-t border-[#E8EAEE] pt-3">
-          <div
-            role="article"
-            aria-label="Entrou"
-            className="flex min-h-[44px] items-center justify-between gap-3 rounded-[14px] bg-[#F6F7F9] px-3 text-sm text-[#5B6068]"
+          <Link
+            href={`/projects/${projectId}/conta?quick=entrouMes`}
+            className="flex min-h-[44px] items-center justify-between gap-3 rounded-[14px] bg-[#F6F7F9] px-3 text-sm text-[#5B6068] hover:bg-[#EDEFF4] active:scale-[0.99]"
+            aria-label="Ver entradas do mês"
           >
             <span className="flex items-center gap-2">
               <ArrowUpRight className="h-4 w-4 text-[#16A34A]" />
               Entrou
             </span>
-            <span className="font-geist text-[15px] font-bold tabular-nums text-[#16A34A]">
+            <span className="shrink-0 font-geist text-[15px] font-bold tabular-nums text-[#16A34A]">
               {moneyGlance(top.entrouMes)}
             </span>
-          </div>
-          <div
-            role="article"
-            aria-label="Saiu"
-            className="flex min-h-[44px] items-center justify-between gap-3 rounded-[14px] bg-[#F6F7F9] px-3 text-sm text-[#5B6068]"
+          </Link>
+          <Link
+            href={`/projects/${projectId}/conta?quick=saiuMes`}
+            className="flex min-h-[44px] items-center justify-between gap-3 rounded-[14px] bg-[#F6F7F9] px-3 text-sm text-[#5B6068] hover:bg-[#EDEFF4] active:scale-[0.99]"
+            aria-label="Ver saídas do mês"
           >
             <span className="flex items-center gap-2">
               <ArrowDownRight className="h-4 w-4 text-[#EF4444]" />
               Saiu
             </span>
-            <span className="font-geist text-[15px] font-bold tabular-nums text-[#EF4444]">
+            <span className="shrink-0 font-geist text-[15px] font-bold tabular-nums text-[#EF4444]">
               {moneyGlance(top.saidaJaSaiu)}
             </span>
-          </div>
-          <div
-            role="article"
-            aria-label="Projeção"
-            className="flex min-h-[44px] items-center justify-between gap-3 rounded-[14px] bg-[#F6F7F9] px-3 text-sm text-[#5B6068]"
+          </Link>
+          <button
+            type="button"
+            onClick={() => {
+              const element = document.getElementById("mobile-cockpit-runway");
+              if (element) {
+                element.scrollIntoView({ behavior: "smooth" });
+              }
+            }}
+            className="w-full flex min-h-[44px] items-center justify-between gap-3 rounded-[14px] bg-[#F6F7F9] px-3 text-sm text-[#5B6068] hover:bg-[#EDEFF4] active:scale-[0.99]"
+            aria-label="Rolar até projeção"
           >
             <span className="flex items-center gap-2">
               <Target className="h-4 w-4 text-[#5B6068]" />
               Projeção
             </span>
             <span
-              className={`font-geist text-[15px] font-bold tabular-nums ${
+              className={`shrink-0 font-geist text-[15px] font-bold tabular-nums ${
                 top.projecaoMes >= 0 ? "text-[#111214]" : "text-[#EF4444]"
               }`}
             >
               {moneyGlance(top.projecaoMes)}
             </span>
-          </div>
+          </button>
         </div>
       </div>
     </section>

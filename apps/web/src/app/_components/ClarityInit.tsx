@@ -12,6 +12,31 @@ export function ClarityInit() {
     if (!clarityProjectId) return;
 
     Clarity.init(clarityProjectId);
+
+    const handleWindowError = (event: ErrorEvent) => {
+      const source =
+        event.filename ||
+        (event.message === 'Script error.' ? 'cross-origin' : 'inline');
+      Clarity.setTag('jsErrorSource', source);
+      Clarity.setTag('jsErrorMsg', (event.message || '').slice(0, 80));
+    };
+
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const reason = event.reason;
+      const source = reason?.stack ? 'promise-rejection' : 'unknown-rejection';
+      const message = reason?.message || reason?.toString?.() || 'Unhandled promise rejection';
+      
+      Clarity.setTag('jsErrorSource', source);
+      Clarity.setTag('jsErrorMsg', message.slice(0, 80));
+    };
+
+    window.addEventListener('error', handleWindowError);
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+    
+    return () => {
+      window.removeEventListener('error', handleWindowError);
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+    };
   }, []);
 
   return null;

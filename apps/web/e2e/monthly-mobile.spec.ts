@@ -271,7 +271,7 @@ test.describe("Monthly cockpit — Phase C mobile relance", () => {
       expect(box?.height).toBeLessThanOrEqual(viewport.height * 2.5);
 
       const interactiveMetrics = await mobile
-        .locator("button:visible, summary:visible, input:visible")
+        .locator("button:visible, summary:visible, input:visible, a:visible")
         .evaluateAll((elements) =>
           elements.map((element) => {
             const style = getComputedStyle(element);

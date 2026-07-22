@@ -44,6 +44,7 @@ function renderHero(overrides: Partial<React.ComponentProps<typeof HeroTimeTrave
       hoje={1}
       diasNoMes={3}
       showTimeTravel
+      projectId="test-project"
       {...overrides}
     />,
   );
@@ -132,6 +133,7 @@ describe("HeroTimeTravel", () => {
         diasNoMes={3}
         showTimeTravel
         scenarioDelta={0}
+        projectId="test-project"
       />,
     );
     const slider = screen.getByRole("slider", {
@@ -148,6 +150,7 @@ describe("HeroTimeTravel", () => {
         diasNoMes={3}
         showTimeTravel
         scenarioDelta={50_000}
+        projectId="test-project"
       />,
     );
     // Day 2 is the first future day — contract keeps it fixed for any delta.

@@ -22,6 +22,7 @@ export default function HeroTimeTravel({
   diasNoMes,
   showTimeTravel,
   scenarioDelta = 0,
+  projectId,
 }: {
   top: CockpitTopDerived;
   series: DiaSaldo[];
@@ -29,6 +30,7 @@ export default function HeroTimeTravel({
   diasNoMes: number;
   showTimeTravel: boolean;
   scenarioDelta?: number;
+  projectId: string;
 }) {
   const firstDay = series[0]?.dia ?? 0;
   const lastDay = series[series.length - 1]?.dia ?? diasNoMes;
@@ -68,7 +70,7 @@ export default function HeroTimeTravel({
 
   return (
     <div data-testid="mobile-hero-time-travel" className="space-y-3">
-      <MobileMonthHero top={top} />
+      <MobileMonthHero top={top} projectId={projectId} />
 
       {showTimeTravel && series.length > 0 && (
         <section

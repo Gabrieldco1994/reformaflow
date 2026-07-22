@@ -15,6 +15,16 @@
 1. [Visão geral do produto](#1-visão-geral-do-produto)
 2. [Conceitos-chave (ler antes)](#2-conceitos-chave-ler-antes)
 3. [Telas globais e navegação](#3-telas-globais-e-navegação)
+   - 3.1 Login
+   - 3.2 Registro
+   - 3.3 Onboarding
+   - 3.4 Hub — Meus Projetos
+   - 3.5 Casca do projeto
+   - 3.6 Maria
+   - 3.7 Notificações
+   - 3.8 Saúde financeira consolidada
+   - 3.9 Admin
+   - 3.10 Tratamento de Erros e Estados de Carregamento
 4. [Projeto PESSOAL](#4-projeto-pessoal)
 5. [Projeto REFORMA](#5-projeto-reforma)
 6. [Projeto CASA](#6-projeto-casa)
@@ -235,6 +245,27 @@ módulo `financialDashboard`.
 específicos**. Essas permissões são o que controla o que cada pessoa vê no app.
 O painel também mostra **Projetos criados** e **Despesas criadas** por usuário,
 para auditoria rápida de atividade.
+
+### 3.8 Tratamento de Erros e Estados de Carregamento
+
+#### Estados de Carregamento
+Quando uma página está carregando dados, aparece um **skeleton animado** com a mesma
+estrutura visual da página final, mas com blocos cinzentos que pulsam. Isto dá feedback
+visual de que o app está funcionando, sem deixar a tela em branco.
+
+#### Erros de Rede / Exceções Não Tratadas
+Se ocorrer um erro não esperado durante a navegação:
+
+- **Dentro de um projeto:** mostra uma tela de erro com a navegação do projeto
+  preservada. O usuário consegue voltar ou navegar para outra seção sem recarregar
+  a página. Dois CTAs estão disponíveis: **"Tentar novamente"** (tenta renderizar
+  a página novamente) e **"Ir para Cockpit"** (navega para a visão principal).
+
+- **Telas gerais** (fora de um projeto): mostra uma tela de erro genérica com botão
+  **"Tentar novamente"** para renderizar de novo a rota atual.
+
+- **Erro catastrófico no root layout:** último recurso. Mostra uma tela com botão
+  **"Recarregar"** (recarrega toda a página no navegador). Raramente é acionado.
 
 ---
 
