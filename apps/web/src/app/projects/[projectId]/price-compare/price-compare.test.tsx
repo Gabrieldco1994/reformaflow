@@ -159,6 +159,7 @@ describe('PriceComparePage — Price Alerts', () => {
       expenseId: 'expense-1',
       pricePaidCents: 280000,
     });
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
     const user = userEvent.setup();
 
     render(
@@ -184,6 +185,12 @@ describe('PriceComparePage — Price Alerts', () => {
           formaPagamento: 'A_VISTA',
         }),
       );
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ['cash-flow', 'test-project-1'],
+      });
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ['simulation', 'test-project-1'],
+      });
     });
   });
 });
