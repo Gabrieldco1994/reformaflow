@@ -202,7 +202,7 @@ module.exports = {
         sans: ['var(--font-sans)', 'Jost', 'system-ui', 'sans-serif'],
         mono: ['Courier New', 'ui-monospace', 'monospace'],
         // LifeOne primary type (opt-in por telas re-skinadas)
-        geist: ['Geist', 'var(--font-sans)', '-apple-system', 'system-ui', 'sans-serif'],
+        geist: ['var(--font-geist-sans)', 'Geist', 'var(--font-sans)', '-apple-system', 'system-ui', 'sans-serif'],
       },
       boxShadow: {
         'darc-soft':  '0 2px 16px rgba(57, 18, 18, 0.10)',
