@@ -92,7 +92,7 @@ export function ComprarAgoraModal({ item, projectId, onClose }: ComprarAgoraModa
   if (!item) return null;
 
   return (
-    <Modal open onClose={onClose} title="Comprar agora" size="sm">
+    <Modal open onClose={onClose} title="Comprar agora" size="sm" portal>
       <div className="space-y-4">
         <div className="rounded-xl bg-darc-linen/40 p-3">
           <p className="text-sm font-semibold text-darc-velvet">{item.title}</p>
