@@ -48,4 +48,16 @@ describe('ModulesGuard', () => {
       guard.canActivate(context(['priceCompare', 'expenses'])),
     ).resolves.toBe(true);
   });
+
+  // ponytail: regression-lock da decisão do PO (2026-07-22, ver #271) — cenários
+  // de compra ancoram na projeção do PESSOAL, não num módulo `simulation` na
+  // COMPRA. Se este teste quebrar, alguém reabriu esse caminho sem passar pelo PO.
+  it("nega 'simulation' para projeto COMPRA (cenários ancoram no PESSOAL — decisão PO 2026-07-22, ver #271)", async () => {
+    reflector.getAllAndOverride.mockReturnValue('simulation');
+    const guard = new ModulesGuard(reflector as any, prisma as any);
+
+    await expect(
+      guard.canActivate(context(['simulation'])),
+    ).rejects.toThrow('Sem permissão para este tipo de projeto');
+  });
 });
