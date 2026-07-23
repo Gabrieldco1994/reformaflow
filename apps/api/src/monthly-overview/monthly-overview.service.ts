@@ -382,6 +382,17 @@ export class MonthlyOverviewService {
       importAccountById,
       primaryAccount?.id ?? null,
     );
+    // Recebimento pertence a ESTA visão (agregado/conta primária) se:
+    //  - tem conta e ela resolve para a primária, OU
+    //  - NÃO tem conta (sem conta) → cai sempre na visão primária, espelhando o
+    //    tratamento localCarteira das despesas (§14: sem isto o recebimento sumia
+    //    da Visão Conta e do caixa). NÃO entra em computeCaixaConta/§10 (bank-only).
+    const receiptInPrimaryView = (receipt: { bankLast4: string | null; importId?: string | null }) =>
+      !receipt.bankLast4 ||
+      resolveMovementAccountId({
+        bankLast4: receipt.bankLast4,
+        importId: receipt.importId ?? null,
+      }) === (primaryAccount?.id ?? null);
     const foreignById = new Map(foreignExpenses.map((expense) => [expense.id, expense] as const));
     // Espelhos PESSOAL (expenses com linkedExpenseId) agrupados pelo alvo foreign que
     // liquidam. Usado para classificar a ORIGEM de pagamento de cada foreign: quitada
@@ -489,11 +500,7 @@ export class MonthlyOverviewService {
     const entrouMes = sumBy(
       receipts.filter(
         (receipt) =>
-          !!receipt.bankLast4 &&
-          resolveMovementAccountId({
-            bankLast4: receipt.bankLast4,
-            importId: receipt.importId ?? null,
-          }) === (primaryAccount?.id ?? null) &&
+          receiptInPrimaryView(receipt) &&
           receipt.status === 'EM_CAIXA' &&
           receipt.data >= monthStart &&
           receipt.data < monthEnd,
@@ -504,11 +511,7 @@ export class MonthlyOverviewService {
     const recebimentosPrevistosMes = sumBy(
       receipts.filter(
         (receipt) =>
-          !!receipt.bankLast4 &&
-          resolveMovementAccountId({
-            bankLast4: receipt.bankLast4,
-            importId: receipt.importId ?? null,
-          }) === (primaryAccount?.id ?? null) &&
+          receiptInPrimaryView(receipt) &&
           receipt.status === 'PREVISTO' &&
           receipt.data >= monthStart &&
           receipt.data < monthEnd,
@@ -1097,11 +1100,7 @@ export class MonthlyOverviewService {
     const entradas = receipts
       .filter(
         (receipt) =>
-          !!receipt.bankLast4 &&
-          resolveMovementAccountId({
-            bankLast4: receipt.bankLast4,
-            importId: receipt.importId ?? null,
-          }) === (primaryAccount?.id ?? null) &&
+          receiptInPrimaryView(receipt) &&
           (receipt.status === 'EM_CAIXA' || receipt.status === 'PREVISTO') &&
           receipt.data >= monthStart &&
           receipt.data < monthEnd,

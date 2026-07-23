@@ -216,6 +216,15 @@ describe('PendenciaService', () => {
             valor: 4500,
             data: '2025-01-01T00:00:00.000Z',
             status: 'PREVISTO',
+            bankLast4: '1234',
+          },
+          {
+            id: 'r2',
+            descricao: 'Recebimento sem conta',
+            valor: 7000,
+            data: '2026-07-05T00:00:00.000Z',
+            status: 'EM_CAIXA',
+            bankLast4: null,
           },
         ],
       });
@@ -226,12 +235,13 @@ describe('PendenciaService', () => {
       const res = await service.findFinancialQueue(TENANT, PROJECT, '2026-07');
 
       expect(monthlyOverviewService.getAccountView).toHaveBeenCalledWith(TENANT, PROJECT, '2026-07');
-      expect(res.total).toBe(5);
+      expect(res.total).toBe(6);
       expect(res.grupos.map((g: any) => g.tipo)).toEqual([
         'SEM_CONTA',
         'SEM_CATEGORIA',
         'FATURA_NAO_PAGA',
         'PARCELA_FOREIGN_PENDENTE',
+        'RECEBIMENTO_SEM_CONTA',
         'RECEBIMENTO_PREVISTO_ATRASADO',
       ]);
       expect(res.grupos[0].itens[0].expenseId).toBe('e1');
@@ -241,7 +251,11 @@ describe('PendenciaService', () => {
       expect(res.grupos[1].itens[0].suggestionTipoDespesa).toBe('ALIMENTACAO');
       expect(res.grupos[2].itens[0].cardLast4).toBe('1234');
       expect(res.grupos[3].itens[0].parcelaIndex).toBe(2);
-      expect(res.grupos[4].itens[0].receiptId).toBe('r1');
+      const semConta = res.grupos.find((g: any) => g.tipo === 'RECEBIMENTO_SEM_CONTA')!;
+      expect(semConta.itens[0].receiptId).toBe('r2');
+      expect(semConta.itens[0].label).toBe('Associar conta');
+      const atrasado = res.grupos.find((g: any) => g.tipo === 'RECEBIMENTO_PREVISTO_ATRASADO')!;
+      expect(atrasado.itens[0].receiptId).toBe('r1');
     });
   });
 });

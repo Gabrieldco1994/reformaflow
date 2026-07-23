@@ -593,6 +593,63 @@ describe("MonthlyOverviewService.getAccountView", () => {
     expect(res.cartoes[0].possuiIntervencaoManual).toBe(true);
   });
 
+  it("recebimento sem conta (bankLast4 null) aparece nas entradas e soma em entrou/previsto, sem tocar caixaHoje", async () => {
+    // Regressão simétrica à localCarteira das despesas: sem isto, um recebimento
+    // criado sem conta (ex.: onboarding pulou a conta) sumia da Visão Conta (§14).
+    prisma.bankAccount.findMany.mockResolvedValue([
+      {
+        id: "acc-1",
+        openingBalanceCents: 100_000,
+        openingBalanceDate: new Date("2026-01-01T00:00:00.000Z"),
+        last4: "4247",
+        nickname: "Conta principal",
+        institution: "NUBANK",
+      },
+    ]);
+    prisma.expense.findMany.mockResolvedValue([]);
+    prisma.receipt.findMany.mockResolvedValue([
+      {
+        id: "rec-em-caixa-sem-conta",
+        tenantId,
+        projectId,
+        tipo: "PAGAMENTO",
+        descricao: "Entrada em dinheiro",
+        valor: 15_000,
+        data: new Date("2026-06-05T00:00:00.000Z"),
+        status: "EM_CAIXA",
+        bankLast4: null,
+        importId: null,
+        linkedReceiptId: null,
+      },
+      {
+        id: "rec-previsto-sem-conta",
+        tenantId,
+        projectId,
+        tipo: "PAGAMENTO",
+        descricao: "A receber",
+        valor: 5_000,
+        data: new Date("2026-06-20T00:00:00.000Z"),
+        status: "PREVISTO",
+        bankLast4: null,
+        importId: null,
+        linkedReceiptId: null,
+      },
+    ]);
+    prisma.cashFlowEntry.findMany.mockResolvedValue([]);
+    prisma.creditCard.findMany.mockResolvedValue([]);
+
+    const res: any = await service.getAccountView(tenantId, projectId, "2026-06");
+
+    const ids = res.entradas.map((e: any) => e.id);
+    expect(ids).toContain("rec-em-caixa-sem-conta");
+    expect(ids).toContain("rec-previsto-sem-conta");
+    expect(res.entradas.find((e: any) => e.id === "rec-em-caixa-sem-conta").bankLast4).toBeNull();
+    expect(res.entrouMes).toBe(15_000);
+    expect(res.recebimentosPrevistosMes).toBe(5_000);
+    // §10 puro: recebimento sem conta NÃO entra no saldo reconciliado com o banco.
+    expect(res.caixaHoje).toBe(100_000);
+  });
+
   it("inclui cobrança neutra no cartão (PgConta/Pix no crédito) na fatura, mas fora do gasto real", async () => {
     // Card "Latam-like": closing 25, due 1. Compras em 2026-04-30 caem na fatura de 2026-06.
     prisma.bankAccount.findMany.mockResolvedValue([]);

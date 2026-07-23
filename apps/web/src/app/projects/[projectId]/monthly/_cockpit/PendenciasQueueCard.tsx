@@ -14,6 +14,7 @@ import { BulkLinkModal } from '../../expenses/_components/BulkLinkModal';
 import { PagarFaturaDialog } from '../../conta/_components/PagarFaturaDialog';
 import { QuitarParcelaModal } from '../../conta/_components/QuitarParcelaModal';
 import { ReceitaModal, type ReceitaEditing } from '../../conta/_components/ReceitaModal';
+import { AssociarContaModal } from './AssociarContaModal';
 import type { AccountViewResponse } from '../../conta/_types';
 
 type QueueType =
@@ -21,7 +22,8 @@ type QueueType =
   | 'SEM_CATEGORIA'
   | 'FATURA_NAO_PAGA'
   | 'PARCELA_FOREIGN_PENDENTE'
-  | 'RECEBIMENTO_PREVISTO_ATRASADO';
+  | 'RECEBIMENTO_PREVISTO_ATRASADO'
+  | 'RECEBIMENTO_SEM_CONTA';
 
 type QueueItem = {
   id: string;
@@ -71,6 +73,7 @@ export function PendenciasQueueCard({
   const [open, setOpen] = useState(false);
   const [vincularExpenseId, setVincularExpenseId] = useState<string | null>(null);
   const [editReceita, setEditReceita] = useState<ReceitaEditing | null>(null);
+  const [associarReceita, setAssociarReceita] = useState<QueueItem | null>(null);
   const [categoriaItem, setCategoriaItem] = useState<QueueItem | null>(null);
   const [categoriaEscolhida, setCategoriaEscolhida] = useState('');
   const [payCardLast4, setPayCardLast4] = useState<string | null>(null);
@@ -243,6 +246,11 @@ export function PendenciasQueueCard({
       });
       return;
     }
+    if (item.tipo === 'RECEBIMENTO_SEM_CONTA' && item.receiptId) {
+      setOpen(false);
+      setAssociarReceita(item);
+      return;
+    }
     if (item.tipo === 'RECEBIMENTO_PREVISTO_ATRASADO' && item.receiptId) {
       setOpen(false);
       setEditReceita({
@@ -385,6 +393,19 @@ export function PendenciasQueueCard({
         projectId={projectId}
         editing={editReceita}
       />
+
+      {associarReceita?.receiptId && (
+        <AssociarContaModal
+          projectId={projectId}
+          receiptId={associarReceita.receiptId}
+          descricao={associarReceita.descricao}
+          valor={associarReceita.valor}
+          onClose={() => {
+            setAssociarReceita(null);
+            reopenQueue();
+          }}
+        />
+      )}
 
       {selectedCard && accountView && (
         <PagarFaturaDialog

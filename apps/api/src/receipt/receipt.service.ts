@@ -67,10 +67,14 @@ export class ReceiptService {
       where: { id, projectId, tenantId },
     });
     if (!existing) throw new NotFoundException('Recebimento não encontrado');
-    const shouldBackfillBankLast4 = !existing.bankLast4;
+    // Associação explícita de conta (ação "Associar conta" das pendências) tem
+    // prioridade; senão mantém o auto-backfill p/ a conta primária quando vazio.
+    const explicitBankLast4 = dto.bankLast4;
+    const shouldBackfillBankLast4 = !explicitBankLast4 && !existing.bankLast4;
     const defaultBankLast4 = shouldBackfillBankLast4
       ? await this.resolveDefaultBankLast4ForProject(tenantId, projectId, project.type)
       : null;
+    const resolvedBankLast4 = explicitBankLast4 ?? defaultBankLast4;
 
     return this.prisma.$transaction(async (tx) => {
       const receipt = await tx.receipt.update({
@@ -81,7 +85,7 @@ export class ReceiptService {
           ...(dto.tipo !== undefined && { tipo: dto.tipo }),
           ...(dto.status !== undefined && { status: dto.status }),
           ...(dto.descricao !== undefined && { descricao: dto.descricao?.trim() || null }),
-          ...(defaultBankLast4 ? { bankLast4: defaultBankLast4 } : {}),
+          ...(resolvedBankLast4 ? { bankLast4: resolvedBankLast4 } : {}),
         },
       });
 
