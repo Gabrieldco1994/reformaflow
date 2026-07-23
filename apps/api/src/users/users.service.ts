@@ -244,10 +244,31 @@ export class UsersService {
         })
       : [];
 
-    // Resolve nomes de todos os donos envolvidos (projetos e conteúdo de hoje).
+    // Total de despesas (todas, sem janela de tempo) por tipo de projeto —
+    // cross-tenant. Expense não tem `type` próprio; agregamos por projectId e
+    // resolvemos tipo/dono via project (só projetos ativos: deletedAt null).
+    const expenseCounts = await this.prisma.expense.groupBy({
+      by: ['projectId'],
+      where: { deletedAt: null },
+      _count: { _all: true },
+    });
+    const expenseProjectIds = expenseCounts
+      .map((e) => e.projectId)
+      .filter((id): id is string => !!id);
+    const expenseProjects = expenseProjectIds.length
+      ? await this.prisma.project.findMany({
+          where: { id: { in: expenseProjectIds }, deletedAt: null },
+          select: { id: true, type: true, createdByUserId: true },
+        })
+      : [];
+    const expenseProjMeta = new Map(expenseProjects.map((p) => [p.id, p]));
+
+    // Resolve nomes de todos os donos envolvidos (projetos, conteúdo de hoje e
+    // despesas).
     const ownerIds = new Set<string>();
     for (const r of byTypeRaw) if (r.createdByUserId) ownerIds.add(r.createdByUserId);
     for (const p of touchedProjects) if (p.createdByUserId) ownerIds.add(p.createdByUserId);
+    for (const p of expenseProjects) if (p.createdByUserId) ownerIds.add(p.createdByUserId);
     const owners = ownerIds.size
       ? await this.prisma.user.findMany({
           where: { id: { in: [...ownerIds] } },
@@ -270,11 +291,25 @@ export class UsersService {
       touchedProjects.map((p) => ({ type: p.type, userId: p.createdByUserId, count: 1 })),
       ownerLabel,
     );
+    const expensesByType = summarizeByType(
+      expenseCounts
+        .map((e) => {
+          const p = e.projectId ? expenseProjMeta.get(e.projectId) : undefined;
+          return p
+            ? { type: p.type, userId: p.createdByUserId, count: e._count?._all ?? 0 }
+            : null;
+        })
+        .filter((r): r is TypeUserRow => r !== null),
+      ownerLabel,
+    );
+    const expensesTotal = expensesByType.reduce((sum, t) => sum + t.count, 0);
 
     return {
       byType,
       contentTodayByType,
       contentTodayTotal: touchedProjects.length,
+      expensesByType,
+      expensesTotal,
       windowStart: start.toISOString(),
       windowEnd: end.toISOString(),
     };
