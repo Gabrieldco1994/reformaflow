@@ -47,13 +47,13 @@
 
   body {
     @apply antialiased;
-    font-family: 'Geist', var(--font-sans), 'Jost', system-ui, sans-serif;
+    font-family: var(--font-geist-sans), 'Geist', var(--font-sans), 'Jost', system-ui, sans-serif;
     font-weight: 400;
   }
 
   /* Títulos: Geist (LifeOne). Substitui o serif italiano editorial legado. */
   h1, h2, h3 {
-    font-family: 'Geist', var(--font-sans), system-ui, sans-serif;
+    font-family: var(--font-geist-sans), 'Geist', var(--font-sans), system-ui, sans-serif;
     font-style: normal;
     font-weight: 700;
     letter-spacing: -0.02em;
@@ -115,7 +115,7 @@
   }
   /* Tipografia de títulos hero/marketing → Geist (LifeOne) */
   .font-editorial {
-    font-family: 'Geist', var(--font-sans), system-ui, sans-serif;
+    font-family: var(--font-geist-sans), 'Geist', var(--font-sans), system-ui, sans-serif;
     font-style: normal;
     font-weight: 700;
     letter-spacing: -0.02em;
