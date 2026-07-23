@@ -58,7 +58,7 @@ export default function OnboardingObjetivosPage() {
 
         <div className="rounded-[22px] border border-lifeone-hairline bg-lifeone-card p-6 shadow-lifeone-card sm:p-8">
           <h1 className="text-[27px] font-bold tracking-[-0.035em] text-lifeone-ink sm:text-[32px]">
-            O que você quer acompanhar?
+            Quais objetivos você quer acompanhar?
           </h1>
           <p className="mt-2 text-[14px] leading-relaxed text-lifeone-ink-3">
             Marque um ou mais. Se marcar mais de um, começamos pelo controle Pessoal — os outros você cria depois pelo botão &quot;+&quot;.
