@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth, ALL_MODULES, type ModuleSlug, type AuthUser } from '@/contexts/auth-context';
 import { api } from '@/lib/api';
+import { ProjectStatsCharts, type ProjectStats } from './_components/ProjectStatsCharts';
 
 interface AdminUser extends AuthUser {
   email?: string | null;
@@ -52,6 +53,7 @@ export default function AdminUsersPage() {
   const router = useRouter();
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
+  const [projectStats, setProjectStats] = useState<ProjectStats | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [feedbackWarning, setFeedbackWarning] = useState<string | null>(null);
@@ -85,6 +87,13 @@ export default function AdminUsersPage() {
         // ponytail: feedback não pode derrubar a tela de usuários
         setFeedbacks([]);
         setFeedbackWarning('Feedbacks indisponíveis no momento.');
+      }
+
+      try {
+        setProjectStats(await api.get<ProjectStats>('/users/stats/projects'));
+      } catch {
+        // ponytail: gráficos são acessórios, não derrubam a tela
+        setProjectStats(null);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao carregar usuários');
@@ -171,6 +180,8 @@ export default function AdminUsersPage() {
             {feedbackWarning}
           </div>
         )}
+
+        {projectStats && <ProjectStatsCharts stats={projectStats} />}
 
         {/* Stats bar */}
         {users.length > 0 && (() => {
