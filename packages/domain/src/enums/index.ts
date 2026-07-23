@@ -248,7 +248,7 @@ export const ExpenseTypeLabels: Record<ExpenseType, string> = {
   [ExpenseType.REEMBOLSO_MEDICO]: 'Reembolso Médico',
   [ExpenseType.ACADEMIA]: 'Academia',
   [ExpenseType.ESTACIONAMENTO]: 'Estacionamento',
-  [ExpenseType.GASOLINA]: 'Gasolina',
+  [ExpenseType.GASOLINA]: 'Combustível',
   [ExpenseType.LAVAGEM]: 'Lavagem',
   [ExpenseType.ASSINATURAS]: 'Assinaturas',
   [ExpenseType.INVESTIMENTOS]: 'Investimentos',

@@ -850,6 +850,17 @@ Centraliza documentos do veículo e seus vencimentos.
 ### 7.3 Manutenção do carro
 Igual ao §6.3, com coluna **Km** adicional na tabela.
 
+### 7.4 Dashboard do CARRO (`/dashboard`)
+Além dos cartões gerais (§6.1), o dashboard de CARRO mostra:
+- **"🔧 Próximas Manutenções":** ao lado do título, exibe o **km atual** do
+  veículo (de `/car-info`, quando cadastrado). Cada manutenção agendada ganha
+  uma **barra de progresso** do tempo decorrido desde a última troca até a
+  próxima data prevista, além de "Em X dias" e o fornecedor.
+- **"⛽ Gasto com Combustível":** soma das despesas do tipo Combustível
+  (rótulo atual do tipo `GASOLINA`) lançadas em `/expenses` **neste mês** e a
+  **média mensal** dos últimos 3 meses com lançamento. Card só aparece para
+  projetos CARRO; some silenciosamente sem despesas de combustível lançadas.
+
 ---
 
 ## 8. Projeto COMPRA

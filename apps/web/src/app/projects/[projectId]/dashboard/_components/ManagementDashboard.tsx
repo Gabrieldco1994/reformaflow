@@ -15,6 +15,8 @@ import {
 import ManagementGlance from './ManagementGlance';
 import ManagementFocus from './ManagementFocus';
 import { useAuth } from '@/contexts/auth-context';
+import { computeMaintenanceProgress } from '../_lib/maintenance-progress';
+import { computeFuelSummary, type FuelExpenseLike } from '../_lib/fuel-summary';
 
 /** "vence em N dias" / "vence hoje" / "Vencida" — mesma fonte que o badge de atraso. */
 export function dueDateLabel(dias: number): string {
@@ -34,6 +36,7 @@ export interface Bill { id: string; nome: string; valor: number; categoria: stri
 export interface Maintenance { id: string; tipo: string; dataRealizada: string; dataProxima?: string; custo: number; fornecedor?: string; }
 export interface Reminder { id: string; titulo: string; descricao?: string; data: string; prioridade: string; recorrencia: string; status: string; }
 export interface VehicleDocument { id: string; titulo: string; tipo: string; dataVencimento: string; }
+export interface CarInfo { kmAtual: number | null; }
 export interface FinancingSummary {
   instituicao?: string | null;
   sistema: string;
@@ -75,6 +78,16 @@ export default function ManagementDashboard({ projectId, projectType }: { projec
     queryFn: () => api.get(`/projects/${projectId}/vehicle-documents`),
     enabled: canViewVehicleDocuments,
   });
+  const { data: carInfo } = useQuery<CarInfo | null>({
+    queryKey: ['car-info', projectId],
+    queryFn: () => api.get(`/projects/${projectId}/car-info`),
+    enabled: isCarro,
+  });
+  const { data: expensesPage } = useQuery<{ items: FuelExpenseLike[] }>({
+    queryKey: ['expenses', projectId, 'fuel-summary'],
+    queryFn: () => api.get(`/projects/${projectId}/expenses?pageSize=500`),
+    enabled: isCarro,
+  });
 
   const activeBills = (bills ?? []).filter(b => b.status === 'ATIVO');
   const totalMensal = activeBills.reduce((sum, b) => sum + b.valor, 0);
@@ -84,6 +97,10 @@ export default function ManagementDashboard({ projectId, projectType }: { projec
     .filter(m => m.dataProxima && new Date(m.dataProxima) >= today)
     .sort((a, b) => new Date(a.dataProxima!).getTime() - new Date(b.dataProxima!).getTime())
     .slice(0, 5);
+
+  const fuelExpenses = ((expensesPage?.items ?? []) as (FuelExpenseLike & { tipoDespesa?: string })[])
+    .filter((e) => e.tipoDespesa === 'GASOLINA');
+  const fuelSummary = isCarro ? computeFuelSummary(fuelExpenses, today) : null;
 
   const pendingReminders = (reminders ?? [])
     .filter(r => r.status === 'PENDENTE')
@@ -117,6 +134,7 @@ export default function ManagementDashboard({ projectId, projectType }: { projec
           upcomingMaintenance={upcomingMaintenance}
           pendingReminders={pendingReminders}
           today={today}
+          carKmAtual={isCarro ? carInfo?.kmAtual ?? null : null}
         />
       </div>
       <div className="hidden md:grid grid-cols-2 lg:grid-cols-3 gap-4">
@@ -193,6 +211,26 @@ export default function ManagementDashboard({ projectId, projectType }: { projec
         </section>
       )}
 
+      {isCarro && fuelSummary && (
+        <section className="rounded-2xl border border-lifeone-hairline bg-lifeone-card p-4 shadow-lifeone-card md:p-5">
+          <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-lifeone-ink-3">Gasto com Combustível</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <p className="text-xs text-lifeone-ink-3">Este mês</p>
+              <p className="whitespace-nowrap font-geist text-lg font-bold tabular-nums text-lifeone-ink">
+                {formatCurrency(fuelSummary.currentMonthCents / 100)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-lifeone-ink-3">Média mensal</p>
+              <p className="whitespace-nowrap font-geist text-lg font-bold tabular-nums text-lifeone-ink">
+                {fuelSummary.monthsConsidered > 0 ? formatCurrency(fuelSummary.averageMonthlyCents / 100) : 'Sem histórico'}
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
+
       <div>
         {overdueBills.length === 0 ? (
           <div className="flex items-start gap-2.5 rounded-2xl border border-[#BFE6CC] bg-[#E3F6EA] px-3.5 py-3">
@@ -245,7 +283,12 @@ export default function ManagementDashboard({ projectId, projectType }: { projec
       </section>
 
       <section className="hidden rounded-2xl border border-lifeone-hairline bg-lifeone-card p-4 shadow-lifeone-card md:block md:p-5">
-        <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-lifeone-ink-3">Próximas Manutenções</p>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-lifeone-ink-3">Próximas Manutenções</p>
+          {isCarro && carInfo?.kmAtual != null && (
+            <span className="whitespace-nowrap font-geist text-xs tabular-nums text-lifeone-ink-3">{carInfo.kmAtual.toLocaleString('pt-BR')} km atuais</span>
+          )}
+        </div>
         {upcomingMaintenance.length === 0 ? (
           <p className="text-sm text-lifeone-ink-3">Nenhuma manutenção agendada.</p>
         ) : (
@@ -253,6 +296,7 @@ export default function ManagementDashboard({ projectId, projectType }: { projec
             {upcomingMaintenance.map((m) => {
               const daysUntil = daysBetween(m.dataProxima!, today);
               const accent = daysUntil <= 7 ? 'bg-[#D92D20]' : daysUntil <= 30 ? 'bg-[#B5803A]' : 'bg-lifeone-ink-4';
+              const progress = computeMaintenanceProgress(m.dataRealizada, m.dataProxima!, today);
               return (
                 <div key={m.id} className="relative overflow-hidden rounded-xl bg-lifeone-surface p-3">
                   <span className={`absolute bottom-3 left-0 top-3 w-1 rounded-r-full ${accent}`} />
@@ -261,6 +305,16 @@ export default function ManagementDashboard({ projectId, projectType }: { projec
                   <p className={`pl-2 text-xs ${daysUntil <= 0 ? 'font-semibold text-[#D92D20]' : 'text-lifeone-ink-3'}`}>
                     {daysUntil <= 0 ? 'Atrasada' : `Em ${daysUntil} dias`}
                   </p>
+                  <div
+                    role="progressbar"
+                    aria-label={`Progresso até a próxima manutenção: ${m.tipo}`}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={progress.percentComplete}
+                    className="ml-2 mt-2 h-1.5 overflow-hidden rounded-full bg-lifeone-hairline-3"
+                  >
+                    <div className={`h-full ${accent}`} style={{ width: `${progress.percentComplete}%` }} />
+                  </div>
                   {m.fornecedor && <p className="mt-1 pl-2 text-xs text-lifeone-ink-4">{m.fornecedor}</p>}
                 </div>
               );
