@@ -613,6 +613,37 @@ Distribui o orçamento do PESSOAL para os outros projetos de vida.
 - **"Nova Alocação":** **Projeto destino**, **Valor (R$)**, **Mês de referência**.
 - **Histórico de alocações** e recálculo do saldo ao criar/excluir.
 
+### 4.12 Planejador de Compras (`/planejador`) — apenas PESSOAL
+Responde "cabe no meu orçamento?" antes de uma compra grande ou financiamento,
+simulando o impacto **sobre a projeção real do PESSOAL** — sem criar nenhum
+lançamento e sem ser um segundo motor financeiro (CASA/CARRO/COMPRA continuam
+sendo só fontes de itens e destinos de conversão).
+
+- **Cenários:** cada cenário agrupa itens hipotéticos (ex.: "Carro novo"). Criar,
+  selecionar e trocar de cenário sem perder o estado dos demais.
+- **Itens do cenário**, um dos três tipos:
+  - **À vista:** um único impacto no mês de início.
+  - **Parcelado:** N parcelas iguais a partir do mês de início (mesmo motor de
+    parcelamento das despesas avulsas — `expense-installments`).
+  - **Financiamento:** entrada (opcional) + cronograma **PRICE** ou **SAC** com
+    juros mensais reais — o **mesmo gerador** usado pelo Financiamento real de
+    CASA/CARRO (`packages/domain`), não uma segunda matemática.
+  - Cada item tem um toggle **incluído/excluído**: itens desligados não entram
+    no veredito, mas continuam salvos no cenário.
+- **Horizonte 3/6/12 meses:** troca instantânea, recalculada 100% no navegador
+  sobre a projeção já carregada — não busca dados de novo ao alternar.
+- **Veredito na linguagem do app:** "A projeção segue positiva até dezembro" ou
+  "Com esse plano, a projeção fica negativa em outubro", com o menor saldo do
+  período e mini-barras por mês (mesmo padrão visual do runway do Cockpit).
+- **Deep-link a partir do Monitoramento de preços (COMPRA):** o botão **"Simular
+  impacto"** de um item monitorado (ver §8) abre o Planejador do projeto PESSOAL
+  já com nome e melhor preço pré-carregados (referência como fallback).
+- **Conversão só por navegação:** o Planejador nunca lança nada sozinho — para
+  efetivar, use os CTAs já existentes "Comprar agora" (COMPRA) ou "Criar
+  financiamento" (CASA/CARRO/Financiamento).
+- Disponível apenas quando o projeto tem o módulo `monthlyOverview` (só
+  PESSOAL); nos demais tipos de projeto, a rota e a API não existem.
+
 ---
 
 ## 5. Projeto REFORMA
@@ -791,6 +822,9 @@ Para acompanhar uma compra grande (casa, carro, etc.).
 - Módulos: **Dashboard**, **Despesas**, **Recebimentos**, **Fluxo de Caixa**, **Preços** —
   mesma mecânica descrita nas seções do PESSOAL/REFORMA.
 - Em **Preços** (`/price-compare`), há uma tela própria de watchlist para monitorar produtos e atualizar cotações.
+  Cada item monitorado tem o botão **"Simular impacto"**, que abre o Planejador de
+  Compras (§4.12) do projeto PESSOAL com nome e melhor preço já pré-carregados —
+  útil para responder "cabe no orçamento?" antes de decidir comprar.
 - Tipos de despesa próprios: Entrada, Financiamento, Documentação, Cartório,
   Imposto, Seguro, Vistoria, Mudança, Outros.
 

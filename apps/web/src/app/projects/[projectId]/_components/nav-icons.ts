@@ -19,6 +19,7 @@ import {
   Sprout,
   Tags,
   FileText,
+  Calculator,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -48,6 +49,7 @@ export const NAV_ICONS: Record<string, LucideIcon> = {
   Sprout,
   Tags,
   FileText,
+  Calculator,
 };
 
 /** Fallback icon for any unmapped token (defensive, never crashes). */

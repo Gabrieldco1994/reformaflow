@@ -46,6 +46,7 @@ export const PROJECT_NAV: Record<ProjectType, NavModule[]> = {
     { slug: 'receipts', label: 'Recebimentos', iconName: 'Wallet', module: 'receipts' },
     { slug: 'metas', label: 'Metas', iconName: 'Target', module: 'expenses' },
     { slug: 'planning', label: 'Planning', iconName: 'CalendarClock', module: 'monthlyOverview' },
+    { slug: 'planejador', label: 'Planejador', iconName: 'Calculator', module: 'monthlyOverview' },
     { slug: 'budget-allocation', label: 'Alocação Budget', iconName: 'Wallet', module: 'dashboard' },
     { slug: 'cash-flow', label: 'Fluxo de Caixa', iconName: 'ArrowLeftRight', module: 'cashFlow' },
     { slug: 'credit-cards', label: 'Cartões', iconName: 'CreditCard', module: 'creditCards' },
