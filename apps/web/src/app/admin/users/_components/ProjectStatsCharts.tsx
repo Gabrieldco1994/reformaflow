@@ -29,6 +29,8 @@ export interface ProjectStats {
   byType: TypeBreakdown[];
   contentTodayByType: TypeBreakdown[];
   contentTodayTotal: number;
+  expensesByType: TypeBreakdown[];
+  expensesTotal: number;
   windowStart: string;
   windowEnd: string;
 }
@@ -50,10 +52,12 @@ function UsersPanel({
   rows,
   selectedType,
   onClear,
+  unit = 'projeto',
 }: {
   rows: TypeBreakdown[];
   selectedType: string | null;
   onClear: () => void;
+  unit?: string;
 }) {
   if (!selectedType) {
     return (
@@ -86,7 +90,7 @@ function UsersPanel({
                 {u.name}
               </span>
               <span className="ml-auto font-semibold text-gray-900">
-                {u.count} projeto{u.count === 1 ? '' : 's'}
+                {u.count} {unit}{u.count === 1 ? '' : 's'}
               </span>
             </li>
           ))}
@@ -96,16 +100,77 @@ function UsersPanel({
   );
 }
 
+function TypeBarCard({
+  title,
+  total,
+  unit,
+  tooltipLabel,
+  byType,
+  emptyText,
+}: {
+  title: string;
+  total: number;
+  unit: string;
+  tooltipLabel: string;
+  byType: TypeBreakdown[];
+  emptyText: string;
+}) {
+  const data = byType.map((r) => ({ ...r, ...meta(r.type) }));
+  const [selected, setSelected] = useState<string | null>(null);
+  const plural = (n: number) => `${n} ${unit}${n === 1 ? '' : 's'}`;
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl p-4">
+      <div className="flex items-baseline justify-between mb-2">
+        <h2 className="text-sm font-semibold text-gray-900">{title}</h2>
+        <span className="text-xs text-gray-500">{plural(total)}</span>
+      </div>
+      {data.length === 0 ? (
+        <p className="text-xs text-gray-400 py-10 text-center">{emptyText}</p>
+      ) : (
+        <>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={data} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
+              <XAxis dataKey="label" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+              <Tooltip
+                cursor={{ fill: '#F3F4F6' }}
+                formatter={(value: number) => [plural(value), tooltipLabel]}
+              />
+              <Bar
+                dataKey="count"
+                radius={[4, 4, 0, 0]}
+                onClick={(d: { type?: string }) =>
+                  d?.type && setSelected((cur) => (cur === d.type ? null : d.type!))
+                }
+                className="cursor-pointer"
+              >
+                {data.map((r) => (
+                  <Cell
+                    key={r.type}
+                    fill={r.color}
+                    opacity={selected && selected !== r.type ? 0.35 : 1}
+                  />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+          <UsersPanel rows={byType} selectedType={selected} onClear={() => setSelected(null)} unit={unit} />
+        </>
+      )}
+    </div>
+  );
+}
+
 export function ProjectStatsCharts({ stats }: { stats: ProjectStats }) {
   const byType = stats.byType ?? [];
   const contentByType = stats.contentTodayByType ?? [];
+  const expensesByType = stats.expensesByType ?? [];
   const distribution = byType.map((r) => ({ ...r, ...meta(r.type) }));
-  const today = contentByType.map((r) => ({ ...r, ...meta(r.type) }));
   const totalProjects = distribution.reduce((sum, r) => sum + r.count, 0);
-  const contentTotal = stats.contentTodayTotal ?? today.reduce((s, r) => s + r.count, 0);
+  const contentTotal = stats.contentTodayTotal ?? contentByType.reduce((s, r) => s + r.count, 0);
+  const expensesTotal = stats.expensesTotal ?? expensesByType.reduce((s, r) => s + r.count, 0);
 
   const [selectedDist, setSelectedDist] = useState<string | null>(null);
-  const [selectedToday, setSelectedToday] = useState<string | null>(null);
   const toggle =
     (setter: React.Dispatch<React.SetStateAction<string | null>>) => (type: string) =>
       setter((cur) => (cur === type ? null : type));
@@ -172,50 +237,23 @@ export function ProjectStatsCharts({ stats }: { stats: ProjectStats }) {
         )}
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-xl p-4">
-        <div className="flex items-baseline justify-between mb-2">
-          <h2 className="text-sm font-semibold text-gray-900">Criaram conteúdo hoje</h2>
-          <span className="text-xs text-gray-500">
-            {contentTotal} projeto{contentTotal === 1 ? '' : 's'}
-          </span>
-        </div>
-        {today.length === 0 ? (
-          <p className="text-xs text-gray-400 py-10 text-center">
-            Nenhum projeto criou conteúdo hoje.
-          </p>
-        ) : (
-          <>
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={today} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
-                <XAxis dataKey="label" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
-                <Tooltip
-                  cursor={{ fill: '#F3F4F6' }}
-                  formatter={(value: number) => [
-                    `${value} projeto${value === 1 ? '' : 's'}`,
-                    'Ativos hoje',
-                  ]}
-                />
-                <Bar
-                  dataKey="count"
-                  radius={[4, 4, 0, 0]}
-                  onClick={(d: { type?: string }) => d?.type && toggle(setSelectedToday)(d.type)}
-                  className="cursor-pointer"
-                >
-                  {today.map((r) => (
-                    <Cell
-                      key={r.type}
-                      fill={r.color}
-                      opacity={selectedToday && selectedToday !== r.type ? 0.35 : 1}
-                    />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-            <UsersPanel rows={contentByType} selectedType={selectedToday} onClear={() => setSelectedToday(null)} />
-          </>
-        )}
-      </div>
+      <TypeBarCard
+        title="Criaram conteúdo hoje"
+        total={contentTotal}
+        unit="projeto"
+        tooltipLabel="Ativos hoje"
+        byType={contentByType}
+        emptyText="Nenhum projeto criou conteúdo hoje."
+      />
+
+      <TypeBarCard
+        title="Despesas por tipo"
+        total={expensesTotal}
+        unit="despesa"
+        tooltipLabel="Total de despesas"
+        byType={expensesByType}
+        emptyText="Sem despesas."
+      />
     </div>
   );
 }

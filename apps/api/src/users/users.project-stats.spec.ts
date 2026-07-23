@@ -116,4 +116,48 @@ describe('UsersService.getProjectStats', () => {
       },
     });
   });
+
+  it('counts total expenses by project type (cross-tenant, no time window)', async () => {
+    const prisma = makePrisma();
+    // A janela "hoje" e o total de despesas compartilham expense.groupBy; o
+    // mock ramifica pela presença de _count (só a query de total pede _count).
+    prisma.expense.groupBy.mockImplementation((args: any) =>
+      Promise.resolve(
+        args?._count
+          ? [
+              { projectId: 'p1', _count: { _all: 5 } },
+              { projectId: 'p2', _count: { _all: 3 } },
+              { projectId: 'pDel', _count: { _all: 9 } }, // projeto apagado -> excluído
+            ]
+          : [],
+      ),
+    );
+    prisma.project.findMany.mockResolvedValue([
+      { id: 'p1', type: 'PESSOAL', createdByUserId: 'u1' },
+      { id: 'p2', type: 'PESSOAL', createdByUserId: 'u2' },
+    ]);
+    prisma.user.findMany.mockResolvedValue([
+      { id: 'u1', name: 'Ana' },
+      { id: 'u2', name: 'Bruno' },
+    ]);
+
+    const stats = await new UsersService(prisma).getProjectStats();
+
+    expect(prisma.expense.groupBy).toHaveBeenCalledWith({
+      by: ['projectId'],
+      where: { deletedAt: null },
+      _count: { _all: true },
+    });
+    expect(stats.expensesTotal).toBe(8); // 5 + 3, pDel excluído
+    expect(stats.expensesByType).toEqual([
+      {
+        type: 'PESSOAL',
+        count: 8,
+        users: [
+          { userId: 'u1', name: 'Ana', count: 5 },
+          { userId: 'u2', name: 'Bruno', count: 3 },
+        ],
+      },
+    ]);
+  });
 });
