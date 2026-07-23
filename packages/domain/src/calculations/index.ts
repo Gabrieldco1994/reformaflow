@@ -8,6 +8,8 @@ export * from './card-cash-month';
 export * from './local-date-utc';
 export * from './cash-axis';
 export * from './cross-project-settlement';
+export * from './loan-schedule';
+export * from './purchase-plan';
 
 /**
  * Calcula o saldo acumulado do fluxo de caixa (rolling balance)
