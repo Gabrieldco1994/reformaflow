@@ -1,10 +1,11 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
+import { ExpenseModule } from '../expense/expense.module';
 import { FinancingController } from './financing.controller';
 import { FinancingService } from './financing.service';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, ExpenseModule],
   controllers: [FinancingController],
   providers: [FinancingService],
 })

@@ -248,6 +248,7 @@ model Expense {
   settlementsAsTarget CrossProjectSettlement[] @relation("SettlementTarget")
   rateioAsSource      RateioAllocation[]       @relation("RateioSource")
   rateioAsTarget      RateioAllocation[]       @relation("RateioTarget")
+  financingInstallment FinancingInstallment?
 
   @@index([linkedExpenseId])
   @@index([seriesKey])
@@ -625,11 +626,16 @@ model FinancingInstallment {
   status               String    @default("PREVISTO") // PREVISTO | PAGO
   valorPago            Int?      @map("valor_pago") // centavos
   dataPagamento        DateTime? @map("data_pagamento")
+  // Espelha a parcela como despesa PLANEJADA avulsa no projeto dono (CASA/CARRO),
+  // só dentro do horizonte rolling de 12 meses — alvo normal de vínculo/rateio do
+  // PESSOAL (regras 14/15). Nulo = fora da janela, ainda não materializada.
+  expenseId            String?   @unique @map("expense_id")
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
   deletedAt            DateTime? @map("deleted_at")
 
   financing Financing @relation(fields: [financingId], references: [id], onDelete: Cascade)
+  expense   Expense?  @relation(fields: [expenseId], references: [id])
 
   @@unique([financingId, numeroParcela])
   @@index([projectId, dataVencimento])

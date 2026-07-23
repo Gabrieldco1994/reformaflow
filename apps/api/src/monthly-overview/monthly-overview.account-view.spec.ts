@@ -2265,6 +2265,100 @@ describe("MonthlyOverviewService.getAccountView", () => {
       expect(res.saidas.some((s: any) => s.descricao === "Areia")).toBe(false);
       expect(res.saidas.some((s: any) => s.valor === 3_000)).toBe(false);
     });
+
+    it("financiamento (CASA): parcela materializada aparece em falta pagar antes de ser paga", async () => {
+      // Issue (e): FinancingInstallment materializa uma despesa PLANEJADA avulsa no
+      // projeto dono (CASA) — antes desta materialização, a parcela real era invisível
+      // no consolidado. Aqui ela ainda não foi rateada/paga: deve aparecer normalmente.
+      const casa = { id: "casa-1", name: "Casa", type: "CASA" };
+      prisma.expense.findMany.mockResolvedValue([
+        base({
+          id: "fin-inst-1",
+          projectId: casa.id,
+          tipoDespesa: "FINANCIAMENTO",
+          titulo: "Parcela 1/120",
+          valorTotal: 340_000,
+          valor: 340_000,
+          formaPagamento: "A_VISTA",
+          status: "PLANEJADO",
+          dataPagamento: new Date("2026-06-10T00:00:00.000Z"),
+          project: casa,
+        }),
+      ]);
+
+      const res: any = await service.getAccountView(
+        tenantId,
+        projectId,
+        "2026-06",
+      );
+
+      const parcela = res.saidas.find((s: any) => s.id === "fin-inst-1");
+      expect(parcela).toBeDefined();
+      expect(parcela.realizado).toBe(false);
+      expect(parcela.valor).toBe(340_000);
+      expect(parcela.projetoOrigem).toEqual(
+        expect.objectContaining({ type: "CASA" }),
+      );
+      expect(res.faltaPagarMes).toBe(340_000);
+    });
+
+    it("financiamento (CASA): parcela paga via rateio do PESSOAL vira espelho e sai de falta pagar", async () => {
+      // Sequência da regra 14/15: uma compra do PESSOAL (paga) é rateada sobre a
+      // parcela do financiamento (CASA) — o rateio realinha o alvo ao cronograma da
+      // fonte e o marca PAGO (conciliacao.service::ratearSource). A partir daí, a
+      // parcela some da fila "falta pagar" (vira espelho da saída já paga na Conta).
+      const casa = { id: "casa-1", name: "Casa", type: "CASA" };
+      prisma.rateioAllocation.findMany.mockResolvedValue([
+        { sourceExpenseId: "src-pessoal", targetExpenseId: "fin-inst-1" },
+      ]);
+      prisma.expense.findMany.mockResolvedValue([
+        base({
+          id: "src-pessoal",
+          projectId,
+          titulo: "Parcela financiamento casa",
+          fornecedor: "Banco",
+          valorTotal: 340_000,
+          valor: 340_000,
+          formaPagamento: "A_VISTA",
+          status: "PAGO",
+          dataPagamento: new Date("2026-06-10T00:00:00.000Z"),
+          bankLast4: "9999",
+          linkedExpenseId: "fin-inst-1",
+        }),
+        base({
+          id: "fin-inst-1",
+          projectId: casa.id,
+          tipoDespesa: "FINANCIAMENTO",
+          titulo: "Parcela 1/120",
+          valorTotal: 340_000,
+          valor: 340_000,
+          formaPagamento: "A_VISTA",
+          // Alinhado pelo rateio (ratearSource): status PAGO, mesma data da fonte.
+          status: "PAGO",
+          dataPagamento: new Date("2026-06-10T00:00:00.000Z"),
+          project: casa,
+        }),
+      ]);
+
+      const res: any = await service.getAccountView(
+        tenantId,
+        projectId,
+        "2026-06",
+      );
+
+      // A parcela do financiamento (alvo do rateio) não vira uma linha própria —
+      // é suprimida em favor da saída real da fonte PESSOAL, que já aparece rotulada
+      // com o projeto de origem CASA (mesmo padrão do teste "consolida projetos" acima).
+      expect(res.saidas.some((s: any) => s.id === "fin-inst-1")).toBe(false);
+      const fonte = res.saidas.find((s: any) => s.id === "src-pessoal");
+      expect(fonte).toBeDefined();
+      expect(fonte.realizado).toBe(true);
+      expect(fonte.projetoOrigem).toEqual(
+        expect.objectContaining({ type: "CASA" }),
+      );
+      // Nenhuma linha "a pagar" para o financiamento: já foi paga (via espelho).
+      expect(res.faltaPagarMes).toBe(0);
+    });
   });
 });
 

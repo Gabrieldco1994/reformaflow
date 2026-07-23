@@ -1,6 +1,6 @@
 # Estado Atual — Cockpit/Visão Conta (PESSOAL)
 
-Atualizado em: **2026-07-21**
+Atualizado em: **2026-07-22**
 
 Histórico detalhado: `docs/archive/estado-atual-historico-2026.md`.
 
@@ -32,6 +32,16 @@ Histórico detalhado: `docs/archive/estado-atual-historico-2026.md`.
 - ▶ PR-3 (`feat/conta-pr3-projecao-unificada`, PR #205) e PR-4 (`feat/conta-pr4-nav-actions`, PR #207)
   em revisão: narrativa única de projeção entre Conta/Cockpit e migração de navegação
   para Conta como hub.
+- 🔄 Mudança de direção (PO, 2026-07-22): decisões de compra/financiamento passam a
+  ancorar na projeção consolidada do PESSOAL (épico "Planejador de Compras",
+  issue #271). PR #269 (cenários de COMPRA sobre o motor de Simulação) fechado sem
+  merge; substituído por este épico.
+- 🚀 **Pré-requisito do épico — financing→caixa** (`feat/ux-financing-parcelas-caixa`):
+  `FinancingInstallment` passa a materializar uma despesa PLANEJADA avulsa (janela
+  rolling de 12 meses) no projeto dono (CASA/CARRO) — antes desta correção, a
+  parcela real de um financiamento era **invisível** no caixa consolidado/Conta
+  (violava a regra 14). Parcelas pagas ou vinculadas via rateio ao PESSOAL nunca
+  são tocadas por uma edição posterior do contrato.
 
 ## 2) Fontes de verdade
 
