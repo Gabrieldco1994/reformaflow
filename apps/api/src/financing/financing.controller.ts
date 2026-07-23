@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Put, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Put, UseInterceptors } from '@nestjs/common';
 import { FinancingService } from './financing.service';
 import { UpsertFinancingDto, PayInstallmentDto } from './dto/financing.dto';
 import { RequireModule } from '../common/decorators/require-module.decorator';
@@ -33,5 +33,10 @@ export class FinancingController {
     @Body() dto: PayInstallmentDto,
   ) {
     return this.service.payInstallment(tenantId, projectId, id, dto);
+  }
+
+  @Delete()
+  remove(@CurrentTenant() tenantId: string, @Param('projectId') projectId: string) {
+    return this.service.remove(tenantId, projectId);
   }
 }

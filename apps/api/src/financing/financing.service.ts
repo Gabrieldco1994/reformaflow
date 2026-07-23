@@ -5,6 +5,8 @@ import {
 } from '@nestjs/common';
 import { Prisma, FinancingInstallment } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { ExpenseService } from '../expense/expense.service';
+import { CreateExpenseDto } from '../expense/dto/create-expense.dto';
 import { UpsertFinancingDto, PayInstallmentDto } from './dto/financing.dto';
 
 type FinancingDb = PrismaService | Prisma.TransactionClient;
@@ -12,6 +14,15 @@ type FinancingDb = PrismaService | Prisma.TransactionClient;
 interface ScheduleRow {
   valorPrevisto: number;
   saldoDevedorPrevisto: number;
+}
+
+/** Janela rolling de materialização: só parcelas com vencimento dentro dos
+ * próximos N meses viram despesa PLANEJADA (nunca as 360 de uma vez). */
+const ROLLING_WINDOW_MONTHS = 12;
+
+/** Formata uma Date UTC como "YYYY-MM-DD" (mesmo formato aceito por CreateExpenseDto). */
+function toDateOnlyString(date: Date): string {
+  return date.toISOString().slice(0, 10);
 }
 
 /** Parses a strict "YYYY-MM-DD" string into a UTC midnight Date (timezone-safe). */
@@ -116,7 +127,10 @@ export function buildSacSchedule(
 
 @Injectable()
 export class FinancingService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly expenseService: ExpenseService,
+  ) {}
 
   async get(tenantId: string, projectId: string) {
     return this.getWithSummary(this.prisma, tenantId, projectId);
@@ -153,6 +167,7 @@ export class FinancingService {
       };
 
       let financingId: string;
+      let materializable: FinancingInstallment[];
 
       if (!existing) {
         const created = await tx.financing.create({
@@ -162,33 +177,177 @@ export class FinancingService {
         await tx.financingInstallment.createMany({
           data: schedule.map((row) => ({ ...row, financingId, projectId, tenantId })),
         });
+        materializable = await tx.financingInstallment.findMany({
+          where: { financingId, deletedAt: null },
+          orderBy: { numeroParcela: 'asc' },
+        });
       } else {
         financingId = existing.id;
-        const paid = await tx.financingInstallment.findMany({
-          where: { financingId, status: 'PAGO', deletedAt: null },
+        const current = await tx.financingInstallment.findMany({
+          where: { financingId, deletedAt: null },
+          orderBy: { numeroParcela: 'asc' },
         });
-        const maxPaidNumero = paid.reduce((max, p) => Math.max(max, p.numeroParcela), 0);
-        if (dto.prazoMeses < maxPaidNumero) {
+
+        const protectedNumeros = new Set<number>();
+        for (const installment of current) {
+          if (await this.isInstallmentProtected(tx, installment)) {
+            protectedNumeros.add(installment.numeroParcela);
+          }
+        }
+        const maxProtectedNumero = protectedNumeros.size > 0 ? Math.max(...protectedNumeros) : 0;
+        if (dto.prazoMeses < maxProtectedNumero) {
           throw new BadRequestException(
-            `Prazo (${dto.prazoMeses}) não pode ser menor que a parcela ${maxPaidNumero}, já paga`,
+            `Prazo (${dto.prazoMeses}) não pode ser menor que a parcela ${maxProtectedNumero}, já paga ou vinculada`,
           );
         }
-        const paidNumeros = new Set(paid.map((p) => p.numeroParcela));
 
         await tx.financing.update({ where: { id: financingId }, data: baseData });
-        await tx.financingInstallment.deleteMany({
-          where: { financingId, status: 'PREVISTO' },
-        });
-        const toInsert = schedule.filter((row) => !paidNumeros.has(row.numeroParcela));
+
+        // Recalcula do zero as parcelas NÃO protegidas: as protegidas (pagas ou
+        // vinculadas via rateio ao PESSOAL) preservam id/expenseId intocados.
+        // Hard-delete (não soft): parcela PREVISTA nunca paga/vinculada não tem
+        // valor de auditoria e o índice único (financingId, numeroParcela) colidiria
+        // com um soft-delete (a linha continuaria existindo fisicamente).
+        const toDiscard = current.filter((i) => !protectedNumeros.has(i.numeroParcela));
+        await this.discardInstallments(tx, toDiscard);
+
+        const toInsert = schedule.filter((row) => !protectedNumeros.has(row.numeroParcela));
         if (toInsert.length > 0) {
           await tx.financingInstallment.createMany({
             data: toInsert.map((row) => ({ ...row, financingId, projectId, tenantId })),
           });
         }
+
+        materializable = await tx.financingInstallment.findMany({
+          where: { financingId, deletedAt: null, expenseId: null },
+          orderBy: { numeroParcela: 'asc' },
+        });
       }
+
+      await this.materializeWindow(tx, tenantId, projectId, materializable, dto.prazoMeses);
 
       return this.getWithSummary(tx, tenantId, projectId);
     });
+  }
+
+  async remove(tenantId: string, projectId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const financing = await tx.financing.findFirst({
+        where: { projectId, tenantId, deletedAt: null },
+        include: { installments: { where: { deletedAt: null } } },
+      });
+      if (!financing) throw new NotFoundException('Financiamento não encontrado');
+
+      const now = new Date();
+      for (const installment of financing.installments) {
+        if (await this.isInstallmentProtected(tx, installment)) continue;
+        if (installment.expenseId) {
+          await tx.cashFlowEntry.updateMany({
+            where: { expenseId: installment.expenseId, deletedAt: null },
+            data: { deletedAt: now },
+          });
+          await tx.expense.updateMany({
+            where: { id: installment.expenseId, deletedAt: null },
+            data: { deletedAt: now },
+          });
+        }
+        await tx.financingInstallment.update({
+          where: { id: installment.id },
+          data: { deletedAt: now },
+        });
+      }
+
+      await tx.financing.update({ where: { id: financing.id }, data: { deletedAt: now } });
+      return { deleted: true };
+    });
+  }
+
+  /**
+   * Uma parcela é PROTEGIDA (nunca tocada por edição/recálculo) quando já foi
+   * paga diretamente (FinancingInstallment.status = PAGO) OU quando sua despesa
+   * espelho está PAGA ou foi rateada a partir de uma compra do PESSOAL
+   * (RateioAllocation.targetExpenseId aponta para ela — regras 14/15).
+   */
+  private async isInstallmentProtected(
+    tx: Prisma.TransactionClient,
+    installment: Pick<FinancingInstallment, 'status' | 'expenseId'>,
+  ): Promise<boolean> {
+    if (installment.status === 'PAGO') return true;
+    if (!installment.expenseId) return false;
+
+    const expense = await tx.expense.findUnique({
+      where: { id: installment.expenseId },
+      select: { status: true },
+    });
+    if (expense?.status === 'PAGO') return true;
+
+    const rateio = await tx.rateioAllocation.findUnique({
+      where: { targetExpenseId: installment.expenseId },
+    });
+    return !!rateio;
+  }
+
+  /** Descarta (hard-delete) parcelas efêmeras e suas despesas espelho (soft-delete). */
+  private async discardInstallments(
+    tx: Prisma.TransactionClient,
+    installments: FinancingInstallment[],
+  ) {
+    if (installments.length === 0) return;
+    const now = new Date();
+    const expenseIds = installments
+      .map((i) => i.expenseId)
+      .filter((id): id is string => !!id);
+    if (expenseIds.length > 0) {
+      await tx.cashFlowEntry.updateMany({
+        where: { expenseId: { in: expenseIds }, deletedAt: null },
+        data: { deletedAt: now },
+      });
+      await tx.expense.updateMany({
+        where: { id: { in: expenseIds }, deletedAt: null },
+        data: { deletedAt: now },
+      });
+    }
+    const ids = installments.map((i) => i.id);
+    await tx.$executeRaw`DELETE FROM financing_installments WHERE id IN (${Prisma.join(ids)})`;
+  }
+
+  /**
+   * Materializa (cria a despesa PLANEJADA espelho de) cada parcela sem
+   * expenseId cujo vencimento esteja dentro da janela rolling de
+   * ROLLING_WINDOW_MONTHS a partir de agora — nunca as 360 parcelas de uma vez.
+   */
+  private async materializeWindow(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    projectId: string,
+    installments: FinancingInstallment[],
+    prazoMeses: number,
+  ) {
+    const now = new Date();
+    const horizonEnd = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + ROLLING_WINDOW_MONTHS, now.getUTCDate()),
+    );
+
+    for (const installment of installments) {
+      if (installment.expenseId) continue;
+      if (installment.dataVencimento > horizonEnd) continue;
+
+      const dto: CreateExpenseDto = {
+        tipoDespesa: 'FINANCIAMENTO',
+        valor: installment.valorPrevisto / 100,
+        quantidade: 1,
+        titulo: `Parcela ${installment.numeroParcela}/${prazoMeses}`,
+        formaPagamento: 'A_VISTA',
+        dataPagamento: toDateOnlyString(installment.dataVencimento),
+        status: 'PLANEJADO',
+      } as CreateExpenseDto;
+
+      const expense = await this.expenseService.create(tenantId, projectId, dto, null, tx);
+      await tx.financingInstallment.update({
+        where: { id: installment.id },
+        data: { expenseId: expense.id },
+      });
+    }
   }
 
   async payInstallment(

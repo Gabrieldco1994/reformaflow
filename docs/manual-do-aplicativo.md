@@ -706,10 +706,19 @@ Registra um financiamento imobiliário por projeto e gera sua projeção mensal.
 - Sistemas de amortização **PRICE** e **SAC**, com valor financiado, taxa mensal,
   prazo, primeira parcela e dia de vencimento.
 - Resumo com total, valor pago, saldo devedor, progresso e próxima parcela.
-- Tabela de parcelas previstas/pagas. **Marcar como paga** registra o valor
-  previsto e a data atual sem criar uma despesa ou alterar o caixa consolidado.
-- Ao editar o contrato, parcelas já pagas permanecem no histórico; somente as
-  parcelas futuras são recalculadas.
+- Tabela de parcelas previstas/pagas. Cada parcela com vencimento dentro dos
+  próximos 12 meses materializa automaticamente uma despesa avulsa PLANEJADA
+  (tipo Financiamento) no projeto dono — ela aparece na Conta/consolidado
+  normalmente e pode ser vinculada/rateada com o PESSOAL como qualquer outra
+  despesa planejada (regras 14/15). Antes desta materialização, a parcela real
+  era invisível no caixa consolidado.
+- **Marcar como paga** (na tela do Financiamento) só registra o valor/data na
+  parcela em si — não altera a despesa espelho nem o caixa consolidado; quitar
+  de fato é feito no PESSOAL (vínculo/rateio), que também tira a parcela da
+  fila "falta pagar".
+- Ao editar o contrato, parcelas já pagas ou já vinculadas ao PESSOAL
+  permanecem intocadas; somente as parcelas futuras não vinculadas são
+  recalculadas (e sua despesa espelho, atualizada).
 
 ### 6.3 Contas recorrentes (`/bills`)
 Contas fixas (luz, água, internet, gás…) e avulsas.
