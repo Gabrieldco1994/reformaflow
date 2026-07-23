@@ -49,13 +49,27 @@ Histórico detalhado: `docs/archive/estado-atual-historico-2026.md`.
   paridade garantem que a parcela nº1 hipotética do domain é idêntica à do
   `financing.service` real (PRICE e SAC). `financing.service.spec.ts` não foi
   editado (gate do épico).
-- 🚀 **Épico Planejador de Compras — PR-B** (`feat/ux-v2-planejador-pr-b`, este PR):
-  modelos `PurchaseScenario`/`PurchaseScenarioItem` (com `deletedAt` em ambos) +
+- ✅ **Épico Planejador de Compras — PR-B** (PR #281, mergeado): modelos
+  `PurchaseScenario`/`PurchaseScenarioItem` (com `deletedAt` em ambos) +
   migration + API CRUD (`purchase-planner.service/controller/module`) sob
   `@RequireModule('monthlyOverview')` — que já é exclusivo de PESSOAL via
   `TYPE_MODULES`, satisfazendo sozinho o critério "rota só PESSOAL, 403 para os
   demais tipos". Cálculo (`applyPurchasePlan`) fica só no client (PR-C); a API
-  é puro CRUD, sem backfill. Ainda sem UI — vem no PR-C.
+  é puro CRUD, sem backfill.
+- 🚀 **Épico Planejador de Compras — PR-C** (`feat/ux-v2-planejador-pr-c`, este PR,
+  fecha o épico #271): UI do Planejador (`/projects/:id/planejador`, PESSOAL-only
+  via `hasFeature('monthlyOverview')`), reaproveitando o slug já criado em
+  `module-navigator.ts` (single source of truth para sidebar desktop + sheet
+  mobile "Mais"). Cenários com toggle por item, horizonte 3/6/12 recalculado
+  100% no client (`useMemo` + `applyPurchasePlan`, sem novo fetch da baseline
+  ao trocar horizonte), veredito + mini-barras no padrão visual do runway do
+  Cockpit (mesmo `COCKPIT_THEME`). CTA **"Simular impacto"** adicionado à tela
+  `/price-compare` (COMPRA) faz o deep-link cross-project para o Planejador do
+  PESSOAL (`?priceItemId=&projectId=`), pré-carregando nome e melhor preço do
+  item monitorado (fallback: preço de referência). Conversão só por navegação
+  (CTAs já existentes "Comprar agora"/"Criar financiamento") — o Planejador
+  nunca lança nada sozinho. e2e cobre criação de cenário + item financiamento +
+  troca de horizonte sem novo fetch, e a pré-carga via deep-link.
 
 ## 2) Fontes de verdade
 

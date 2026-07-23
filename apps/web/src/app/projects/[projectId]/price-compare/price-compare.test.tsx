@@ -27,6 +27,11 @@ vi.mock('@reformaflow/domain', () => ({
   hasFeature: () => true,
 }));
 
+// Mock router (CTA "Simular impacto" navigates cross-project to the Planejador)
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
+
 const mockItems = [
   {
     id: 'item-1',

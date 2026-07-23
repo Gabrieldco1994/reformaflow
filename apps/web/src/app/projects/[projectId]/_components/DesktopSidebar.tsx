@@ -46,7 +46,7 @@ function buildDesktopNavGroups(projectType: string, visibleNav: NavModule[]): Na
     { id: "cockpit", label: "Cockpit", slugs: ["monthly"] },
     { id: "conta", label: "Conta", slugs: ["conta"] },
     { id: "cartoes", label: "Cartões", slugs: ["credit-cards"] },
-    { id: "planejamento", label: "Planejamento", slugs: ["metas", "planning", "budget-allocation"] },
+    { id: "planejamento", label: "Planejamento", slugs: ["metas", "planning", "budget-allocation", "planejador"] },
     { id: "analises", label: "Análises", slugs: ["dre", "cash-flow", "neutros"] },
   ];
   return groups

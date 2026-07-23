@@ -54,6 +54,7 @@ describe('getMobilePrimary', () => {
       'expenses',
       'receipts',
       'metas',
+      'planejador',
       'credit-cards',
       'bank-accounts',
     ]);

@@ -1,9 +1,10 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { hasFeature, type ProjectType } from '@reformaflow/domain';
-import { RefreshCcw, Plus, Trash2, ExternalLink, Edit, ShoppingCart } from 'lucide-react';
+import { RefreshCcw, Plus, Trash2, ExternalLink, Edit, ShoppingCart, Calculator } from 'lucide-react';
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
@@ -38,6 +39,7 @@ interface RefreshAllResponse {
 
 export default function PriceComparePage() {
   const { projectId, projectType } = useProject();
+  const router = useRouter();
   const queryClient = useQueryClient();
   const [title, setTitle] = useState('');
   const [query, setQuery] = useState('');
@@ -54,6 +56,16 @@ export default function PriceComparePage() {
     queryFn: () => api.get(`/projects/${projectId}/price-monitor/items`),
     enabled,
   });
+
+  // Projeto Pessoal do tenant — destino do deep-link "Simular impacto" (o
+  // Planejador vive só lá; reusa a mesma lista de /projects já usada por
+  // outras telas para cross-project linking).
+  const { data: tenantProjects = [] } = useQuery<{ id: string; type: string }[]>({
+    queryKey: ['tenant', 'projects'],
+    queryFn: () => api.get('/projects'),
+    staleTime: 60_000,
+  });
+  const pessoalProjectId = tenantProjects.find((p) => p.type === 'PESSOAL')?.id;
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -271,6 +283,19 @@ export default function PriceComparePage() {
                       <ShoppingCart className="h-4 w-4" /> Comprar agora
                     </Button>
                   )}
+                {pessoalProjectId && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() =>
+                      router.push(
+                        `/projects/${pessoalProjectId}/planejador?priceItemId=${item.id}&projectId=${projectId}`,
+                      )
+                    }
+                  >
+                    <Calculator className="h-4 w-4" /> Simular impacto
+                  </Button>
+                )}
                 <Button
                   type="button"
                   variant="secondary"
