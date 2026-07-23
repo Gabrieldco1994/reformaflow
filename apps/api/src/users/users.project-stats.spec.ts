@@ -12,6 +12,7 @@ function makePrisma(over: Record<string, any> = {}): any {
       groupBy: jest.fn().mockResolvedValue([]),
       findMany: jest.fn().mockResolvedValue([]),
     },
+    user: { findMany: jest.fn().mockResolvedValue([]) },
   };
   for (const m of CONTENT_MODELS) {
     prisma[m] = { groupBy: jest.fn().mockResolvedValue([]) };
@@ -20,42 +21,73 @@ function makePrisma(over: Record<string, any> = {}): any {
 }
 
 describe('UsersService.getProjectStats', () => {
-  it('groups active projects by type, sorted desc', async () => {
+  it('groups active projects by type (sorted desc) with per-user breakdown', async () => {
     const prisma = makePrisma();
     prisma.project.groupBy.mockResolvedValue([
-      { type: 'CASA', _count: { _all: 2 } },
-      { type: 'PESSOAL', _count: { _all: 5 } },
+      { type: 'CASA', createdByUserId: 'u1', _count: { _all: 2 } },
+      { type: 'PESSOAL', createdByUserId: 'u1', _count: { _all: 3 } },
+      { type: 'PESSOAL', createdByUserId: 'u2', _count: { _all: 2 } },
+    ]);
+    prisma.user.findMany.mockResolvedValue([
+      { id: 'u1', name: 'Ana' },
+      { id: 'u2', name: 'Bruno' },
     ]);
 
     const { byType } = await new UsersService(prisma).getProjectStats();
 
-    expect(byType).toEqual([
-      { type: 'PESSOAL', count: 5 },
-      { type: 'CASA', count: 2 },
+    expect(byType.map((r: any) => [r.type, r.count])).toEqual([
+      ['PESSOAL', 5],
+      ['CASA', 2],
+    ]);
+    const pessoal = byType.find((r: any) => r.type === 'PESSOAL');
+    expect(pessoal?.users).toEqual([
+      { userId: 'u1', name: 'Ana', count: 3 },
+      { userId: 'u2', name: 'Bruno', count: 2 },
     ]);
     expect(prisma.project.groupBy).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { deletedAt: null } }),
+      expect.objectContaining({
+        by: ['type', 'createdByUserId'],
+        where: { deletedAt: null },
+      }),
     );
   });
 
-  it('counts projects that created content today, excluding soft-deleted', async () => {
+  it('labels projects with no owner as "Sem dono"', async () => {
+    const prisma = makePrisma();
+    prisma.project.groupBy.mockResolvedValue([
+      { type: 'CARRO', createdByUserId: null, _count: { _all: 1 } },
+    ]);
+
+    const { byType } = await new UsersService(prisma).getProjectStats();
+
+    expect(byType[0].users).toEqual([{ userId: null, name: 'Sem dono', count: 1 }]);
+  });
+
+  it('counts projects that created content today with owners, excluding soft-deleted', async () => {
     const prisma = makePrisma();
     prisma.expense.groupBy.mockResolvedValue([{ projectId: 'p1' }, { projectId: 'p2' }]);
     prisma.receipt.groupBy.mockResolvedValue([{ projectId: 'p2' }, { projectId: 'p3' }]);
     // p3 é apagado -> some do findMany (where deletedAt null) e não deve contar
-    prisma.project.findMany.mockResolvedValue([{ type: 'PESSOAL' }, { type: 'CASA' }]);
+    prisma.project.findMany.mockResolvedValue([
+      { type: 'PESSOAL', createdByUserId: 'u1' },
+      { type: 'CASA', createdByUserId: 'u2' },
+    ]);
+    prisma.user.findMany.mockResolvedValue([
+      { id: 'u1', name: 'Ana' },
+      { id: 'u2', name: 'Bruno' },
+    ]);
 
     const stats = await new UsersService(prisma).getProjectStats();
 
     expect(prisma.project.findMany).toHaveBeenCalledWith({
       where: { id: { in: ['p1', 'p2', 'p3'] }, deletedAt: null },
-      select: { type: true },
+      select: { type: true, createdByUserId: true },
     });
     expect(stats.contentTodayTotal).toBe(2);
     expect(stats.contentTodayByType).toEqual(
       expect.arrayContaining([
-        { type: 'PESSOAL', count: 1 },
-        { type: 'CASA', count: 1 },
+        { type: 'PESSOAL', count: 1, users: [{ userId: 'u1', name: 'Ana', count: 1 }] },
+        { type: 'CASA', count: 1, users: [{ userId: 'u2', name: 'Bruno', count: 1 }] },
       ]),
     );
   });

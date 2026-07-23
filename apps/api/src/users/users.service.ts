@@ -21,6 +21,39 @@ function saoPauloTodayWindow(now = new Date()): { start: Date; end: Date } {
   return { start, end: new Date(start.getTime() + 24 * 60 * 60 * 1000) };
 }
 
+interface TypeUserRow {
+  type: string;
+  userId: string | null;
+  count: number;
+}
+
+// Agrega linhas (type,userId,count) em [{type,count,users:[{userId,name,count}]}].
+function summarizeByType(
+  rows: TypeUserRow[],
+  label: (userId: string | null) => string,
+) {
+  const byType = new Map<
+    string,
+    { count: number; users: Map<string, { userId: string | null; name: string; count: number }> }
+  >();
+  for (const r of rows) {
+    const entry = byType.get(r.type) ?? { count: 0, users: new Map() };
+    entry.count += r.count;
+    const key = r.userId ?? '__none__';
+    const u = entry.users.get(key) ?? { userId: r.userId, name: label(r.userId), count: 0 };
+    u.count += r.count;
+    entry.users.set(key, u);
+    byType.set(r.type, entry);
+  }
+  return [...byType]
+    .map(([type, e]) => ({
+      type,
+      count: e.count,
+      users: [...e.users.values()].sort((a, b) => b.count - a.count),
+    }))
+    .sort((a, b) => b.count - a.count);
+}
+
 function toPublic(u: {
   id: string;
   username: string;
@@ -171,13 +204,10 @@ export class UsersService {
     const { start, end } = saoPauloTodayWindow(now);
 
     const byTypeRaw = await this.prisma.project.groupBy({
-      by: ['type'],
+      by: ['type', 'createdByUserId'],
       where: { deletedAt: null },
       _count: { _all: true },
     });
-    const byType = byTypeRaw
-      .map((r) => ({ type: r.type, count: r._count._all }))
-      .sort((a, b) => b.count - a.count);
 
     // Projetos que criaram conteúdo hoje (janela SP). VehicleDocument fica de
     // fora: liga em carro, não em projeto.
@@ -210,16 +240,36 @@ export class UsersService {
     const touchedProjects = activeProjectIds.size
       ? await this.prisma.project.findMany({
           where: { id: { in: [...activeProjectIds] }, deletedAt: null },
-          select: { type: true },
+          select: { type: true, createdByUserId: true },
         })
       : [];
-    const contentMap = new Map<string, number>();
-    for (const p of touchedProjects) {
-      contentMap.set(p.type, (contentMap.get(p.type) ?? 0) + 1);
-    }
-    const contentTodayByType = [...contentMap]
-      .map(([type, count]) => ({ type, count }))
-      .sort((a, b) => b.count - a.count);
+
+    // Resolve nomes de todos os donos envolvidos (projetos e conteúdo de hoje).
+    const ownerIds = new Set<string>();
+    for (const r of byTypeRaw) if (r.createdByUserId) ownerIds.add(r.createdByUserId);
+    for (const p of touchedProjects) if (p.createdByUserId) ownerIds.add(p.createdByUserId);
+    const owners = ownerIds.size
+      ? await this.prisma.user.findMany({
+          where: { id: { in: [...ownerIds] } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const nameById = new Map(owners.map((o) => [o.id, o.name]));
+    const ownerLabel = (userId: string | null) =>
+      userId ? (nameById.get(userId) ?? 'Usuário removido') : 'Sem dono';
+
+    const byType = summarizeByType(
+      byTypeRaw.map((r) => ({
+        type: r.type,
+        userId: r.createdByUserId,
+        count: r._count._all,
+      })),
+      ownerLabel,
+    );
+    const contentTodayByType = summarizeByType(
+      touchedProjects.map((p) => ({ type: p.type, userId: p.createdByUserId, count: 1 })),
+      ownerLabel,
+    );
 
     return {
       byType,
