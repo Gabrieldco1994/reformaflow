@@ -54,16 +54,16 @@ function OnboardingSetupForm() {
   // criada (pulou a despesa → createdExpense fica null → passo não aparece).
   const showMariaStep = type === ProjectType.PESSOAL && createdExpense != null;
 
-  // Anchors na ordem de fluxo, com o passo dinâmico da Maria enxertado logo
-  // após a despesa. Serve tanto para renderizar quanto para a régua (Passo X).
+  // Anchors na ordem de fluxo, com o passo dinâmico da Maria no FINAL do setup
+  // (após todos os anchors, antes do "Pronto"): assim tocar num chip abre a
+  // Maria sem abandonar passos restantes — todos já foram concluídos. Serve
+  // tanto para renderizar quanto para a régua (Passo X).
   const flowSteps: ProgressDotsStep[] = useMemo(() => {
-    const list: ProgressDotsStep[] = [];
-    for (const anchor of anchorSteps) {
-      list.push({ key: anchor.key, label: anchor.label });
-      if (anchor.key === 'expense' && showMariaStep) {
-        list.push({ key: 'maria-insight', label: 'Maria' });
-      }
-    }
+    const list: ProgressDotsStep[] = anchorSteps.map((anchor) => ({
+      key: anchor.key,
+      label: anchor.label,
+    }));
+    if (showMariaStep) list.push({ key: 'maria-insight', label: 'Maria' });
     return list;
   }, [anchorSteps, showMariaStep]);
 
