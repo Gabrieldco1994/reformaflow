@@ -109,6 +109,13 @@ describe('QuickExpenseStep', () => {
       }),
     ));
     expect(onDone).toHaveBeenCalledTimes(1);
+    // Propaga a despesa criada (tipo + label da categoria) para habilitar o
+    // MariaInsightStep — o label vem de getExpenseOptions, não é recriado aqui.
+    expect(onDone).toHaveBeenCalledWith(
+      expect.objectContaining({
+        createdExpense: expect.objectContaining({ categoriaLabel: expect.any(String) }),
+      }),
+    );
   });
 
   it('clicking the skip affordance calls onSkip without any api.post call', () => {

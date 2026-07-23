@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import MariaPage from './page';
+import { setPendingMariaPrompt, consumePendingMariaPrompt } from './_lib/pending-prompt';
 
 // Contrato de view: a página Maria reusa `useFinancialAgent`/`useSpeechRecognition`
 // (nenhuma nova instância de STT/TTS aqui) e ganha um CTA explícito e acessível
@@ -75,6 +76,7 @@ describe('MariaPage', () => {
     agentSend.mockClear();
     streamSpeak.mockClear();
     ttsStop.mockClear();
+    sessionStorage.clear();
   });
 
   it('does not render the voice overlay until the explicit CTA is used', () => {
@@ -112,6 +114,22 @@ describe('MariaPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Iniciar conversa por voz' }));
     callbacks.onResult('resultado atrasado');
 
+    expect(agentSend).not.toHaveBeenCalled();
+  });
+
+  it('auto-envia o prompt pendente do onboarding uma vez e limpa a ponte', () => {
+    setPendingMariaPrompt('Quanto já gastei em Supermercado este mês?');
+
+    render(<MariaPage />);
+
+    expect(agentSend).toHaveBeenCalledTimes(1);
+    expect(agentSend).toHaveBeenCalledWith('Quanto já gastei em Supermercado este mês?');
+    // Ponte consumida → refresh não re-dispara.
+    expect(consumePendingMariaPrompt()).toBeNull();
+  });
+
+  it('não envia nada quando não há prompt pendente (input nasce vazio)', () => {
+    render(<MariaPage />);
     expect(agentSend).not.toHaveBeenCalled();
   });
 

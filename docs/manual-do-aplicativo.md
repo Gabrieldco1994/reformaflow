@@ -156,12 +156,20 @@ PESSOAL. O stepper tem 3 partes:
    conjunto, sempre **pulável**:
    - **Pessoal:** Conta bancária (com o campo-herói "Quanto você tem na conta
      hoje?" — base do Caixa Real) → Cartão de crédito → Despesa rápida →
-     Recebimento rápido.
+     **Pergunte à Maria** (ver abaixo) → Recebimento rápido.
    - **Reforma:** Despesa rápida.
    - **Compra:** Despesa rápida.
    - **Casa:** Conta recorrente (água, luz, condomínio…).
    - **Carro:** Dados do veículo (placa, modelo, ano…).
    - **Plantas:** Cadastro de planta (nome, espécie, ambiente…).
+   - **Pergunte à Maria (só PESSOAL, só após criar a 1ª despesa):** logo depois
+    de a despesa ser lançada, aparece um passo opcional "Pergunte à Maria sobre
+    esse gasto" com 2–3 perguntas prontas, a primeira **derivada da categoria
+    real** que a pessoa acabou de lançar (ex.: Mercado → "Quanto já gastei em
+    Mercado este mês?"). Tocar numa pergunta abre a Maria já com o texto e
+    **envia automaticamente uma vez** — a resposta usa os dados reais recém
+    cadastrados. "Pular por agora" (um toque, sem confirmação) segue o fluxo.
+    Se a despesa foi pulada, este passo **não aparece**.
 3. **Pronto:** tela final de confirmação; redireciona automaticamente para o
    **guia de apoio do projeto** (`/projects/:id/apoio`) — nunca direto para o
    Cockpit/Dashboard (`/monthly` ou similar).
@@ -221,6 +229,10 @@ No projeto **PESSOAL**, o atalho **"Maria"** da barra inferior abre o assistente
 financeiro em tela própria (chat em tela cheia no mobile).
 
 - Mostra abertura proativa com leitura do mês atual.
+- Pode ser aberta **já com uma pergunta pré-preenchida e enviada** a partir do
+  onboarding (passo "Pergunte à Maria", ver §3.1c): o texto chega via
+  sessionStorage e dispara uma única vez; abrir a Maria por qualquer outro
+  caminho mantém o campo vazio.
 - Aceita texto e voz (STT). **Iniciar conversa por voz** abre o modo automático:
   depois de ouvir e responder, a Maria reproduz o áudio e reabre o microfone.
   Durante o aquecimento da voz, a resposta já fica disponível para leitura.

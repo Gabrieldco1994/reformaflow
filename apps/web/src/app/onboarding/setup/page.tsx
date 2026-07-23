@@ -7,8 +7,10 @@ import { LifeOneLogo } from '@/components/LifeOneLogo';
 import { ProjectProvider } from '@/contexts/project-context';
 import { ProgressDots, type ProgressDotsStep } from './_components/ProgressDots';
 import { ProjectNameStep } from './_components/ProjectNameStep';
+import { MariaInsightStep } from './_components/steps/MariaInsightStep';
 import { DoneStep } from './_components/DoneStep';
 import { ANCHOR_STEPS } from './_lib/steps-config';
+import type { StepDonePayload } from './_types';
 import { getProjectHomePath } from '@/app/projects/_lib/project-home-route';
 
 const VALID_TYPES = new Set<string>(Object.values(ProjectType));
@@ -36,6 +38,9 @@ function OnboardingSetupForm() {
 
   const [projectId, setProjectId] = useState<string | null>(projectIdParam);
   const [stepIdx, setStepIdx] = useState(0);
+  const [createdExpense, setCreatedExpense] = useState<
+    NonNullable<StepDonePayload['createdExpense']> | null
+  >(null);
 
   useEffect(() => {
     if (!type) {
@@ -45,13 +50,30 @@ function OnboardingSetupForm() {
 
   const anchorSteps = useMemo(() => (type ? ANCHOR_STEPS[type] : []), [type]);
 
+  // O passo da Maria só existe no PESSOAL e só depois de a 1ª despesa ser
+  // criada (pulou a despesa → createdExpense fica null → passo não aparece).
+  const showMariaStep = type === ProjectType.PESSOAL && createdExpense != null;
+
+  // Anchors na ordem de fluxo, com o passo dinâmico da Maria enxertado logo
+  // após a despesa. Serve tanto para renderizar quanto para a régua (Passo X).
+  const flowSteps: ProgressDotsStep[] = useMemo(() => {
+    const list: ProgressDotsStep[] = [];
+    for (const anchor of anchorSteps) {
+      list.push({ key: anchor.key, label: anchor.label });
+      if (anchor.key === 'expense' && showMariaStep) {
+        list.push({ key: 'maria-insight', label: 'Maria' });
+      }
+    }
+    return list;
+  }, [anchorSteps, showMariaStep]);
+
   const steps: ProgressDotsStep[] = useMemo(() => {
     const list: ProgressDotsStep[] = [];
     if (!projectIdParam) list.push({ key: 'project', label: 'Projeto' });
-    for (const anchor of anchorSteps) list.push({ key: anchor.key, label: anchor.label });
+    list.push(...flowSteps);
     list.push({ key: 'done', label: 'Pronto' });
     return list;
-  }, [projectIdParam, anchorSteps]);
+  }, [projectIdParam, flowSteps]);
 
   const advance = useCallback(() => {
     setStepIdx((i) => i + 1);
@@ -70,13 +92,12 @@ function OnboardingSetupForm() {
 
   const currentKey = steps[stepIdx]?.key;
 
-  // Enquanto o passo atual é um passo-âncora (bank/card/expense/...), a régua
-  // mostra o progresso DENTRO da fase de setup do tipo (ex.: "Passo 1 de 5"
-  // para PESSOAL), não o total incluindo o nome do projeto e o "Pronto" —
-  // esses dois são bookends, não trabalho do usuário dentro do tipo.
-  const anchorIndex = anchorSteps.findIndex((anchor) => anchor.key === currentKey);
-  const progressSteps = anchorIndex >= 0 ? anchorSteps : steps;
-  const progressIndex = anchorIndex >= 0 ? anchorIndex : stepIdx;
+  // Enquanto o passo atual é um passo de fluxo (bank/card/expense/maria/...), a
+  // régua mostra o progresso DENTRO da fase de setup do tipo, não o total
+  // incluindo o nome do projeto e o "Pronto" — esses dois são bookends.
+  const flowIndex = flowSteps.findIndex((step) => step.key === currentKey);
+  const progressSteps = flowIndex >= 0 ? flowSteps : steps;
+  const progressIndex = flowIndex >= 0 ? flowIndex : stepIdx;
 
   return (
     <main className="min-h-screen bg-lifeone-canvas px-4 py-6 font-geist sm:px-6 sm:py-10">
@@ -100,6 +121,14 @@ function OnboardingSetupForm() {
 
         {currentKey === 'done' && <DoneStep />}
 
+        {projectId && currentKey === 'maria-insight' && createdExpense && (
+          <MariaInsightStep
+            projectId={projectId}
+            createdExpense={createdExpense}
+            onSkip={advance}
+          />
+        )}
+
         {projectId &&
           anchorSteps.map((anchor) => {
             const anchorGlobalIdx = steps.findIndex((s) => s.key === anchor.key);
@@ -113,7 +142,10 @@ function OnboardingSetupForm() {
                 <Component
                   projectId={projectId}
                   projectType={type}
-                  onDone={advance}
+                  onDone={(payload?: StepDonePayload) => {
+                    if (payload?.createdExpense) setCreatedExpense(payload.createdExpense);
+                    advance();
+                  }}
                   onSkip={advance}
                 />
               </ProjectProvider>
