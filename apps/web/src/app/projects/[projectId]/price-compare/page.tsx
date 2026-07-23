@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { EditAlertModal } from './_components/EditAlertModal';
 import { ComprarAgoraModal } from './_components/ComprarAgoraModal';
+import { PriceHistoryChart } from './_components/PriceHistoryChart';
 
 interface PriceMonitorItem {
   id: string;
@@ -268,6 +269,10 @@ export default function PriceComparePage() {
                   <span>Alvo: {formatCurrency(item.targetPriceCents / 100)}</span>
                 )}
                 {item.lastBestStore && <span>Loja: {item.lastBestStore}</span>}
+              </div>
+
+              <div className="mt-3">
+                <PriceHistoryChart projectId={projectId} itemId={item.id} />
               </div>
 
               <div className="mt-3 flex flex-wrap gap-2">
