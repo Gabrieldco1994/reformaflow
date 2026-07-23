@@ -75,7 +75,7 @@ export function QuickExpenseStep({ projectId, projectType, onDone, onSkip }: Onb
         .post(`/projects/${projectId}/expenses`, data)
         .then(() => {
           onSuccess();
-          onDone();
+          onDone(expenseDonePayload(data.tipoDespesa));
         })
         .catch(() => {
           // Voice modal already shows its own error state via saveDisabled;
@@ -89,6 +89,13 @@ export function QuickExpenseStep({ projectId, projectType, onDone, onSkip }: Onb
   });
 
   const canSubmit = valor.trim().length > 0;
+
+  // Deriva o payload que habilita o MariaInsightStep a partir do tipo de
+  // despesa, reusando os labels de `getExpenseOptions` (não recria mapa).
+  function expenseDonePayload(tipo: string) {
+    const categoriaLabel = options.find((o) => o.value === tipo)?.label ?? '';
+    return { createdExpense: { tipoDespesa: tipo, categoriaLabel } };
+  }
 
   async function handleSave() {
     if (!canSubmit || mode !== 'despesa') return;
@@ -106,7 +113,7 @@ export function QuickExpenseStep({ projectId, projectType, onDone, onSkip }: Onb
         creditCardId: creditCardId || null,
         bankAccountId: bankAccountId || null,
       });
-      onDone();
+      onDone(expenseDonePayload(tipoDespesa));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao salvar despesa');
     } finally {

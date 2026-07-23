@@ -11,6 +11,7 @@ import { streamSpeak, isStreamingTtsSupported, type StreamTtsHandle } from '@/li
 import { MobileLaunchSheetContainer } from '../_components/mobile-launch/MobileLaunchSheetContainer';
 import { useMariaOpening } from './_hooks/useMariaOpening';
 import { CONFIRM_REPLY } from './_lib/pending-expense';
+import { consumePendingMariaPrompt } from './_lib/pending-prompt';
 import { MariaMessageBubble } from './_components/MariaMessageBubble';
 import { MariaDock } from './_components/MariaDock';
 
@@ -40,6 +41,7 @@ export default function MariaPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const ttsHandleRef = useRef<StreamTtsHandle | null>(null);
   const voiceConversationOpenRef = useRef(false);
+  const pendingPromptSentRef = useRef(false);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -86,6 +88,19 @@ export default function MariaPage() {
     setVoiceError('');
     void agent.send(content);
   };
+
+  // Ponte do onboarding: se um passo anterior gravou um prompt pré-formatado,
+  // consome (destrutivo → envio único) e dispara UMA vez na montagem. O ref
+  // trava o double-invoke do StrictMode; o consumo destrutivo trava o refresh.
+  useEffect(() => {
+    if (pendingPromptSentRef.current) return;
+    pendingPromptSentRef.current = true;
+    const pending = consumePendingMariaPrompt();
+    if (pending) {
+      submit(pending);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const captureVoice = () => {
     setVoiceError('');
