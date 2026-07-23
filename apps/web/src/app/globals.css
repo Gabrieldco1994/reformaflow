@@ -59,6 +59,27 @@
     letter-spacing: -0.02em;
   }
 
+  /* iOS Safari centraliza e desalinha o valor de <input type="date"> por
+     padrão (::-webkit-date-and-time-value{text-align:center}), o que deixa o
+     campo com aparência quebrada no mobile. Normaliza para alinhar à esquerda,
+     ocupar a mesma altura dos demais inputs e não colapsar quando vazio. */
+  input[type="date"],
+  input[type="time"],
+  input[type="datetime-local"] {
+    -webkit-appearance: none;
+    appearance: none;
+    min-height: 2.75rem;
+  }
+  input[type="date"]::-webkit-date-and-time-value,
+  input[type="time"]::-webkit-date-and-time-value,
+  input[type="datetime-local"]::-webkit-date-and-time-value {
+    text-align: left;
+    margin: 0;
+  }
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    margin-left: auto;
+  }
+
   /* Foco com Blue Mist (sistema D'arc) */
   *:focus-visible {
     outline: 2px solid var(--darc-mist);
