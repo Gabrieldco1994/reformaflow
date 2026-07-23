@@ -1,4 +1,4 @@
-import { IsString, IsNumber, IsDateString, IsIn, Min, IsOptional, MaxLength } from 'class-validator';
+import { IsString, IsNumber, IsDateString, IsIn, Min, IsOptional, MaxLength, Matches } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ReceiptType } from '@reformaflow/domain';
 
@@ -30,4 +30,10 @@ export class CreateReceiptDto {
   @IsString()
   @MaxLength(200)
   descricao?: string;
+
+  @ApiPropertyOptional({ example: '1234', description: 'Últimos 4 dígitos da conta a associar' })
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}$/, { message: 'bankLast4 deve ter exatamente 4 dígitos numéricos' })
+  bankLast4?: string;
 }

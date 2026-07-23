@@ -33,7 +33,8 @@ type FinancialQueueType =
   | 'SEM_CATEGORIA'
   | 'FATURA_NAO_PAGA'
   | 'PARCELA_FOREIGN_PENDENTE'
-  | 'RECEBIMENTO_PREVISTO_ATRASADO';
+  | 'RECEBIMENTO_PREVISTO_ATRASADO'
+  | 'RECEBIMENTO_SEM_CONTA';
 
 export interface FinancialQueueItem {
   id: string;
@@ -136,6 +137,7 @@ export class PendenciaService {
     if (tipo === 'SEM_CATEGORIA') return 'Sem categoria';
     if (tipo === 'FATURA_NAO_PAGA') return 'Fatura a vencer ou vencida';
     if (tipo === 'PARCELA_FOREIGN_PENDENTE') return 'Parcela cross-project pendente';
+    if (tipo === 'RECEBIMENTO_SEM_CONTA') return 'Recebimento sem conta';
     return 'Recebimento previsto atrasado';
   }
 
@@ -235,7 +237,7 @@ export class PendenciaService {
       }));
 
     const recebimentosAtrasados: FinancialQueueItem[] = accountView.entradas
-      .filter((r) => r.status === 'PREVISTO' && !!r.id)
+      .filter((r) => r.status === 'PREVISTO' && !!r.id && !!r.bankLast4)
       .filter((r) => new Date(r.data) < startToday)
       .sort((a, b) => b.valor - a.valor)
       .map((r) => ({
@@ -248,11 +250,27 @@ export class PendenciaService {
         receiptId: r.id ?? undefined,
       }));
 
+    // Recebimento sem conta corrente associada (nasce sem bankLast4, ex.: onboarding
+    // pulou a conta). Precede o "atrasado" — primeiro associa a conta, depois atualiza.
+    const recebimentosSemConta: FinancialQueueItem[] = accountView.entradas
+      .filter((r) => !r.bankLast4 && !!r.id)
+      .sort((a, b) => b.valor - a.valor)
+      .map((r) => ({
+        id: `recebimento-sem-conta-${r.id}`,
+        tipo: 'RECEBIMENTO_SEM_CONTA',
+        label: 'Associar conta',
+        descricao: r.descricao,
+        valor: r.valor,
+        data: r.data,
+        receiptId: r.id ?? undefined,
+      }));
+
     const groups: Array<[FinancialQueueType, FinancialQueueItem[]]> = [
       ['SEM_CONTA', semConta],
       ['SEM_CATEGORIA', semCategoria],
       ['FATURA_NAO_PAGA', faturasNaoPagas],
       ['PARCELA_FOREIGN_PENDENTE', foreignPendentes],
+      ['RECEBIMENTO_SEM_CONTA', recebimentosSemConta],
       ['RECEBIMENTO_PREVISTO_ATRASADO', recebimentosAtrasados],
     ];
 
