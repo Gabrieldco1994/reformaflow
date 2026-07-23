@@ -135,3 +135,15 @@ export interface PriceMonitorItemResponseDto {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface PricePointResponseDto {
+  id: string;
+  priceCents: number;
+  store: string | null;
+  link: string | null;
+  checkedAt: string; // ISO format
+}
+
+export interface RefreshAllResponseDto {
+  refreshedCount: number;
+}

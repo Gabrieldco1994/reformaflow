@@ -1,7 +1,7 @@
-import { Controller, Get, Post, Patch, Delete, Query, Param, Body, UseInterceptors } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Query, Param, Body, UseInterceptors, NotFoundException } from '@nestjs/common';
 import { PriceCompareService, PriceResult } from './price-compare.service';
 import { PriceMonitorService } from './price-monitor.service';
-import { CreatePriceMonitorItemDto, UpdatePriceMonitorItemDto, PriceMonitorItemResponseDto } from './dto/price-monitor-item.dto';
+import { CreatePriceMonitorItemDto, UpdatePriceMonitorItemDto, PriceMonitorItemResponseDto, PricePointResponseDto, RefreshAllResponseDto } from './dto/price-monitor-item.dto';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
 import { CurrentTenant, CurrentUser } from '../common/decorators/tenant.decorator';
 import { ComprarAgoraDto } from './dto/comprar-agora.dto';
@@ -70,6 +70,58 @@ export class PriceCompareController {
     @Param('id') itemId: string,
   ): Promise<void> {
     await this.priceMonitorService.deleteItem(tenantId, itemId);
+  }
+
+  @Post('projects/:projectId/price-monitor/items/:id/refresh')
+  @RequireModule('priceCompare')
+  async refreshMonitorItem(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Param('id') itemId: string,
+  ) {
+    const result = await this.priceMonitorService.refreshAndCheckAlerts(
+      tenantId,
+      projectId,
+      itemId,
+    );
+    if (!result.item) {
+      throw new NotFoundException(`Item ${itemId} não encontrado`);
+    }
+    return this.itemToResponse(result.item);
+  }
+
+  @Post('projects/:projectId/price-monitor/refresh')
+  @RequireModule('priceCompare')
+  async refreshAllMonitorItems(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+  ): Promise<RefreshAllResponseDto> {
+    const results = await this.priceMonitorService.refreshAll(
+      tenantId,
+      projectId,
+    );
+    return { refreshedCount: results.length };
+  }
+
+  @Get('projects/:projectId/price-monitor/items/:id/history')
+  @RequireModule('priceCompare')
+  async getMonitorItemHistory(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Param('id') itemId: string,
+  ): Promise<PricePointResponseDto[]> {
+    const points = await this.priceMonitorService.getHistory(
+      tenantId,
+      projectId,
+      itemId,
+    );
+    return points.map((point) => ({
+      id: point.id,
+      priceCents: point.priceCents,
+      store: point.store,
+      link: point.link,
+      checkedAt: point.checkedAt.toISOString(),
+    }));
   }
 
   @Post('projects/:projectId/price-monitor/items/:id/comprar-agora')

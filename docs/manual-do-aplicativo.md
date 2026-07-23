@@ -727,6 +727,11 @@ Painel próprio de monitoramento de preços por produto.
 - **Cadastro de item monitorado:** produto, termo de busca opcional, link opcional, preço de referência e preço alvo.
 - **Watchlist persistida por projeto:** lista de itens monitorados com melhor preço, loja e data da última checagem.
 - **Ações:** atualizar um item, atualizar todos, abrir oferta e remover item.
+- **Histórico de preço:** cada checagem bem-sucedida (manual ou automática, via
+  scheduler) grava um ponto (`PricePoint`: preço, loja, data). O card do item
+  mostra um gráfico de linha com a evolução; com menos de 2 pontos registrados,
+  mostra a mensagem "Histórico aparece após a 2ª checagem de preço" em vez de
+  um gráfico vazio ou fabricado.
 
 ### 5.8 Pendências (`/pendencias`)
 Quadro de pendências da obra.

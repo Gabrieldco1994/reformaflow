@@ -281,6 +281,21 @@ export class PriceMonitorService {
         },
       });
 
+      // Histórico: 1 ponto por checagem com preço encontrado (issue a).
+      // Checagens sem resultado (bestPrice null) não geram ponto — não há
+      // preço para plotar no gráfico de histórico.
+      if (bestPrice !== null) {
+        await this.prisma.pricePoint.create({
+          data: {
+            tenantId,
+            priceMonitorItemId: itemId,
+            priceCents: bestPrice,
+            store: bestStore,
+            link: bestLink,
+          },
+        });
+      }
+
       return {
         item: updatedItem as any as PriceMonitorItem,
         alertTriggered,
@@ -617,5 +632,25 @@ export class PriceMonitorService {
       }
     }
     return results;
+  }
+
+  /**
+   * Histórico de preço de um item monitorado, mais antigo primeiro
+   * (ordem natural para gráfico de linha). Confirma posse via tenantId
+   * + projectId antes de expor o histórico.
+   */
+  async getHistory(tenantId: string, projectId: string, itemId: string) {
+    const item = await this.prisma.priceMonitorItem.findFirst({
+      where: { id: itemId, tenantId, projectId, deletedAt: null },
+    });
+
+    if (!item) {
+      throw new NotFoundException(`Item ${itemId} não encontrado`);
+    }
+
+    return this.prisma.pricePoint.findMany({
+      where: { tenantId, priceMonitorItemId: itemId },
+      orderBy: { checkedAt: 'asc' },
+    });
   }
 }

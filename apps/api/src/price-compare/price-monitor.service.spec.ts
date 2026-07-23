@@ -23,6 +23,10 @@ describe('PriceMonitorService', () => {
       notification: {
         create: jest.fn(),
       },
+      pricePoint: {
+        create: jest.fn(),
+        findMany: jest.fn(),
+      },
       $transaction: jest.fn(),
     };
     prisma.$transaction.mockImplementation((callback: any) => callback(prisma));
@@ -391,6 +395,95 @@ describe('PriceMonitorService', () => {
 
       expect(result.alertTriggered).toBe(false);
       expect(priceCompare.searchPrices).not.toHaveBeenCalled();
+    });
+
+    it('records a PricePoint when a price is found (issue a: history)', async () => {
+      const item = {
+        id: 'item-1',
+        tenantId: 'tenant-1',
+        projectId: 'project-1',
+        targetPrice: 5000,
+        alertSent: false,
+        monitoringEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        url: 'https://example.com',
+        title: 'Test Product',
+      };
+
+      prisma.priceMonitorItem.findFirst.mockResolvedValue(item);
+      priceCompare.searchPrices.mockResolvedValue([
+        {
+          title: 'Product',
+          price: 60,
+          currency: 'BRL',
+          store: 'Store A',
+          link: 'https://store-a.com',
+        },
+      ]);
+      prisma.priceMonitorItem.update.mockResolvedValue({
+        ...item,
+        lastBestPrice: 6000,
+      });
+
+      await service.refreshAndCheckAlerts('tenant-1', 'project-1', 'item-1');
+
+      expect(prisma.pricePoint.create).toHaveBeenCalledWith({
+        data: {
+          tenantId: 'tenant-1',
+          priceMonitorItemId: 'item-1',
+          priceCents: 6000,
+          store: 'Store A',
+          link: 'https://store-a.com',
+        },
+      });
+    });
+
+    it('does NOT record a PricePoint when no price is found', async () => {
+      const item = {
+        id: 'item-1',
+        tenantId: 'tenant-1',
+        projectId: 'project-1',
+        targetPrice: 5000,
+        alertSent: false,
+        monitoringEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        url: 'https://example.com',
+        title: 'Test Product',
+      };
+
+      prisma.priceMonitorItem.findFirst.mockResolvedValue(item);
+      priceCompare.searchPrices.mockResolvedValue([]);
+      prisma.priceMonitorItem.update.mockResolvedValue({
+        ...item,
+        lastBestPrice: null,
+      });
+
+      await service.refreshAndCheckAlerts('tenant-1', 'project-1', 'item-1');
+
+      expect(prisma.pricePoint.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getHistory', () => {
+    it('returns points ordered oldest-first for an owned item', async () => {
+      const item = { id: 'item-1', tenantId: 'tenant-1', projectId: 'project-1' };
+      prisma.priceMonitorItem.findFirst.mockResolvedValue(item);
+      const points = [{ id: 'p1', priceCents: 6000, checkedAt: new Date() }];
+      prisma.pricePoint.findMany.mockResolvedValue(points);
+
+      const result = await service.getHistory('tenant-1', 'project-1', 'item-1');
+
+      expect(result).toBe(points);
+      expect(prisma.pricePoint.findMany).toHaveBeenCalledWith({
+        where: { tenantId: 'tenant-1', priceMonitorItemId: 'item-1' },
+        orderBy: { checkedAt: 'asc' },
+      });
+    });
+
+    it('throws NotFoundException when item does not belong to tenant/project', async () => {
+      prisma.priceMonitorItem.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.getHistory('tenant-1', 'project-1', 'item-1'),
+      ).rejects.toThrow('não encontrado');
     });
   });
 

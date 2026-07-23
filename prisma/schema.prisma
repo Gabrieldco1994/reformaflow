@@ -282,12 +282,32 @@ model PriceMonitorItem {
 
   project Project @relation(fields: [projectId], references: [id])
   purchasePlanItems PurchaseScenarioItem[]
+  pricePoints PricePoint[]
 
   @@index([projectId, isActive])
   @@index([tenantId, projectId, title])
   @@index([targetPrice])
   @@index([monitoringEndDate])
   @@map("price_monitor_items")
+}
+
+// Histórico de preço: 1 registro por checagem bem-sucedida (scheduler
+// horário, "atualizar" manual ou "atualizar todos"). Log append-only —
+// nunca soft-deletado (ver modelsWithoutSoftDelete em prisma.service.ts).
+// Alimenta o gráfico de histórico do item monitorado (mockup M4).
+model PricePoint {
+  id                 String   @id @default(cuid())
+  tenantId           String   @map("tenant_id")
+  priceMonitorItemId String   @map("price_monitor_item_id")
+  priceCents         Int      @map("price_cents")
+  store              String?
+  link               String?
+  checkedAt          DateTime @default(now()) @map("checked_at")
+
+  priceMonitorItem PriceMonitorItem @relation(fields: [priceMonitorItemId], references: [id])
+
+  @@index([tenantId, priceMonitorItemId, checkedAt])
+  @@map("price_points")
 }
 
 model CategoryBudget {
