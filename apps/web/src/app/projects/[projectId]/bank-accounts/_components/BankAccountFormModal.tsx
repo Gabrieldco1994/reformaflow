@@ -120,7 +120,7 @@ export default function BankAccountFormModal({ projectId, account, onClose, onSa
                   onChange={(e) => setOpeningBalance(maskCurrencyInput(e.target.value))}
                   placeholder="14.285,97"
                   inputMode="numeric"
-                  className="w-full border rounded-lg p-2 font-mono"
+                  className="min-h-11 w-full rounded-lg border p-2 font-mono text-[14px]"
                 />
               </div>
               <div>
@@ -129,7 +129,7 @@ export default function BankAccountFormModal({ projectId, account, onClose, onSa
                   type="date"
                   value={openingDate}
                   onChange={(e) => setOpeningDate(e.target.value)}
-                  className="w-full border rounded-lg p-2"
+                  className="min-h-11 w-full rounded-lg border p-2 text-[14px]"
                 />
               </div>
             </div>
