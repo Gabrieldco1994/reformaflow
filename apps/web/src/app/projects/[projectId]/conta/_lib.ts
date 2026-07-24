@@ -33,6 +33,27 @@ export function monthLabelShort(key: string) {
     .replace('.', '');
 }
 
+export function groupByMovementDay<T extends { data: string }>(items: T[]) {
+  const groups = new Map<string, T[]>();
+  for (const item of items) {
+    const day = item.data.slice(0, 10);
+    const group = groups.get(day);
+    if (group) group.push(item);
+    else groups.set(day, [item]);
+  }
+
+  return Array.from(groups, ([day, movements]) => ({
+    day,
+    label: new Intl.DateTimeFormat('pt-BR', {
+      weekday: 'long',
+      day: '2-digit',
+      month: 'long',
+      timeZone: 'UTC',
+    }).format(new Date(`${day}T00:00:00.000Z`)),
+    movements,
+  }));
+}
+
 export function formatDeltaPct(value: number | null) {
   if (value == null) return '—';
   const rounded = Math.round(value * 10) / 10;
