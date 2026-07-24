@@ -56,9 +56,9 @@ describe('hasFeature', () => {
     expect(hasFeature(ProjectType.CASA, 'receipts')).toBe(false);
   });
 
-  it('CASA tem financing (singleton de financiamento imobiliário); demais tipos não', () => {
+  it('CASA e CARRO têm financing (motor PRICE/SAC compartilhado); demais tipos não', () => {
     expect(hasFeature(ProjectType.CASA, 'financing')).toBe(true);
-    expect(hasFeature(ProjectType.CARRO, 'financing')).toBe(false);
+    expect(hasFeature(ProjectType.CARRO, 'financing')).toBe(true);
     expect(hasFeature(ProjectType.REFORMA, 'financing')).toBe(false);
     expect(hasFeature(ProjectType.COMPRA, 'financing')).toBe(false);
     expect(hasFeature(ProjectType.PESSOAL, 'financing')).toBe(false);

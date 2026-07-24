@@ -32,7 +32,7 @@ const NON_PERSONAL_MATRIX = [
   {
     type: ProjectType.CARRO,
     primary: ['dashboard', 'car-info', 'bills'],
-    secondary: ['expenses', 'vehicle-documents', 'maintenance', 'reminders'],
+    secondary: ['expenses', 'vehicle-documents', 'financing', 'maintenance', 'reminders'],
   },
   {
     type: ProjectType.PLANTAS,

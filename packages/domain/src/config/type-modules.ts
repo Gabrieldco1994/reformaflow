@@ -83,6 +83,7 @@ export const TYPE_MODULES: Record<ProjectType, TypeModuleSlug[]> = {
     'maintenance',
     'reminders',
     'expenses',
+    'financing',
   ],
   [ProjectType.PLANTAS]: ['dashboard', 'maintenance', 'reminders', 'plantsAi'],
 };

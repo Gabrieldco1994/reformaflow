@@ -88,13 +88,14 @@ describe('getProjectNavModules', () => {
     ]);
   });
 
-  it('includes vehicle documents in the CARRO navigation', () => {
+  it('includes vehicle documents and financing in the CARRO navigation', () => {
     expect(getProjectNavModules(ProjectType.CARRO).map((m) => m.slug)).toEqual([
       'dashboard',
       'car-info',
       'bills',
       'expenses',
       'vehicle-documents',
+      'financing',
       'maintenance',
       'reminders',
     ]);
