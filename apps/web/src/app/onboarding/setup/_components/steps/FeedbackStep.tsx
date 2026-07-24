@@ -22,6 +22,10 @@ const RATING_LABELS: Record<number, string> = {
  * nota de 1 a 5 estrelas ("quão fácil achou usar o app") e um comentário livre.
  * Envia para o MESMO recurso de feedback (`POST /feedback`) já usado pelo
  * botão de feedback do app — não é um sistema paralelo, só mais uma origem.
+ *
+ * "Pular" também passa por handleSubmit: se a pessoa já tocou numa estrela e
+ * depois usa "Pular" (hábito dos outros passos do wizard), a nota não se
+ * perde — só pula de fato quando nada foi preenchido.
  */
 export function FeedbackStep({ onDone }: FeedbackStepProps) {
   const [rating, setRating] = useState(0);
@@ -100,8 +104,9 @@ export function FeedbackStep({ onDone }: FeedbackStepProps) {
         </button>
         <button
           type="button"
-          onClick={onDone}
-          className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] text-lifeone-ink-3 hover:text-lifeone-ink"
+          onClick={handleSubmit}
+          disabled={status === 'sending'}
+          className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] text-lifeone-ink-3 hover:text-lifeone-ink disabled:opacity-60"
         >
           <SkipForward className="h-3.5 w-3.5" /> Pular
         </button>
