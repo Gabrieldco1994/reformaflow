@@ -974,6 +974,32 @@ export class ExpenseService {
   }
 
   /**
+   * Marca uma despesa PLANEJADA como PAGA in-place (sem clone) e regenera seu
+   * cashflow. Usado por fluxos que já têm sua própria despesa canônica e só
+   * precisam sincronizar o espelho — hoje: financing.service::payInstallment
+   * (#294, parcela paga direto pelo dashboard do financiamento).
+   * Se a despesa já é alvo de um rateio (RateioAllocation), o caminho
+   * PESSOAL→financiamento (#276) já governa seu status/cashflow — não sobrescreve.
+   * SEMPRE roda dentro da `tx` do caller (regra 4: $transaction ignora o $use
+   * de soft-delete, por isso o filtro `deletedAt: null` é explícito aqui).
+   */
+  async markPaidInPlace(
+    tenantId: string,
+    id: string,
+    dataPagamento: Date,
+    tx: Prisma.TransactionClient,
+  ): Promise<void> {
+    const rateio = await tx.rateioAllocation.findUnique({ where: { targetExpenseId: id } });
+    if (rateio) return;
+
+    const expense = await tx.expense.findFirst({ where: { id, tenantId, deletedAt: null } });
+    if (!expense) return;
+
+    await tx.expense.update({ where: { id }, data: { status: 'PAGO', dataPagamento } });
+    await this.regenerateCashFlow(id, tx);
+  }
+
+  /**
    * Marca/desmarca UMA parcela (0-based) de uma despesa PARCELADO/QUINZENAL como paga.
    * Não cria clone (diferente de payPlanned): mantém a despesa e ajusta `paidParcelas`
    * + regenera o fluxo de caixa com status por parcela. Quando todas as parcelas ficam

@@ -41,6 +41,7 @@ function makePrismaMock() {
 function makeExpenseServiceMock() {
   return {
     create: jest.fn().mockResolvedValue({ id: 'expense-mock' }),
+    markPaidInPlace: jest.fn().mockResolvedValue(undefined),
   } as any;
 }
 
@@ -622,6 +623,79 @@ describe('FinancingService', () => {
         }),
       ).rejects.toBeInstanceOf(BadRequestException);
       expect(prisma.financingInstallment.update).not.toHaveBeenCalled();
+    });
+
+    it('#294: parcela COM espelho (expenseId) sincroniza a Expense via markPaidInPlace', async () => {
+      prisma.financingInstallment.findFirst.mockResolvedValue({
+        id: 'inst-1',
+        status: 'PREVISTO',
+        expenseId: 'expense-espelho-1',
+      });
+      prisma.financingInstallment.update.mockResolvedValue({
+        id: 'inst-1',
+        status: 'PAGO',
+        valorPago: 500,
+        expenseId: 'expense-espelho-1',
+      });
+
+      await service.payInstallment(tenantId, projectId, 'inst-1', {
+        valorPago: 500,
+        dataPagamento: '2026-02-10',
+      });
+
+      expect(expenseService.markPaidInPlace).toHaveBeenCalledWith(
+        tenantId,
+        'expense-espelho-1',
+        parseDateOnlyUtc('2026-02-10'),
+        prisma, // $transaction injeta o próprio mock como `tx`
+      );
+    });
+
+    it('#294: parcela SEM espelho (expenseId null — fora da janela rolling) não quebra e não sincroniza', async () => {
+      prisma.financingInstallment.findFirst.mockResolvedValue({
+        id: 'inst-2',
+        status: 'PREVISTO',
+        expenseId: null,
+      });
+      prisma.financingInstallment.update.mockResolvedValue({
+        id: 'inst-2',
+        status: 'PAGO',
+        valorPago: 500,
+        expenseId: null,
+      });
+
+      const result = await service.payInstallment(tenantId, projectId, 'inst-2', {
+        valorPago: 500,
+        dataPagamento: '2026-02-10',
+      });
+
+      expect(result.status).toBe('PAGO');
+      expect(expenseService.markPaidInPlace).not.toHaveBeenCalled();
+    });
+
+    it('#294: idempotência com espelho — marcar paga 2× não lança e sincroniza ambas as vezes sem efeito duplicado (regenerateCashFlow é soft-delete+recriar)', async () => {
+      prisma.financingInstallment.findFirst.mockResolvedValue({
+        id: 'inst-1',
+        status: 'PAGO',
+        expenseId: 'expense-espelho-1',
+      });
+      prisma.financingInstallment.update.mockResolvedValue({
+        id: 'inst-1',
+        status: 'PAGO',
+        valorPago: 500,
+        expenseId: 'expense-espelho-1',
+      });
+
+      await service.payInstallment(tenantId, projectId, 'inst-1', {
+        valorPago: 500,
+        dataPagamento: '2026-02-10',
+      });
+      await service.payInstallment(tenantId, projectId, 'inst-1', {
+        valorPago: 500,
+        dataPagamento: '2026-02-10',
+      });
+
+      expect(expenseService.markPaidInPlace).toHaveBeenCalledTimes(2);
     });
   });
 });

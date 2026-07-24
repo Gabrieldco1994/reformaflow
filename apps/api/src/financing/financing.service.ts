@@ -265,18 +265,28 @@ export class FinancingService {
     if (dto.valorPago < 1) {
       throw new BadRequestException('Valor pago deve ser maior que zero');
     }
-    const installment = await this.prisma.financingInstallment.findFirst({
-      where: { id, tenantId, projectId, deletedAt: null },
-    });
-    if (!installment) throw new NotFoundException('Parcela não encontrada');
 
-    return this.prisma.financingInstallment.update({
-      where: { id },
-      data: {
-        status: 'PAGO',
-        valorPago: dto.valorPago,
-        dataPagamento: parseDateOnlyUtc(dto.dataPagamento),
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const installment = await tx.financingInstallment.findFirst({
+        where: { id, tenantId, projectId, deletedAt: null },
+      });
+      if (!installment) throw new NotFoundException('Parcela não encontrada');
+
+      const dataPagamento = parseDateOnlyUtc(dto.dataPagamento);
+      const updated = await tx.financingInstallment.update({
+        where: { id },
+        data: { status: 'PAGO', valorPago: dto.valorPago, dataPagamento },
+      });
+
+      // Sincroniza a despesa espelho (#276): sem isso, marcar a parcela paga
+      // aqui deixava o consolidado (faltaPagarMes/Contas Vencidas) desatualizado
+      // (#294). Parcela fora da janela rolling (sem expenseId) não tem espelho
+      // — nada a sincronizar, não é erro.
+      if (installment.expenseId) {
+        await this.expenseService.markPaidInPlace(tenantId, installment.expenseId, dataPagamento, tx);
+      }
+
+      return updated;
     });
   }
 

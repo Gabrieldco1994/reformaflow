@@ -465,6 +465,105 @@ describe('ExpenseService', () => {
     });
   });
 
+  describe('markPaidInPlace (#294 — sync do espelho do financiamento)', () => {
+    const dataPagamento = new Date('2026-02-10T00:00:00.000Z');
+
+    it('marca a despesa PAGO in-place (sem clone) e regenera o cashflow com status PAGO', async () => {
+      const expense = {
+        id: 'fin-espelho-1',
+        projectId,
+        tenantId,
+        tipoDespesa: 'FINANCIAMENTO',
+        categoriaMaoDeObra: null,
+        roomId: null,
+        valorTotal: 340_000,
+        formaPagamento: 'A_VISTA',
+        dataPagamento: null,
+        quantidadeParcela: null,
+        dataInicioParcela: null,
+        status: 'PLANEJADO',
+        settledByExpenseId: null,
+        deletedAt: null,
+        room: null,
+      };
+      prisma.expense.findFirst.mockResolvedValue(expense);
+      prisma.expense.findUnique.mockResolvedValue(expense);
+      // regenerateCashFlow relê a despesa via findUnique — simula o update real
+      // mutando o mesmo objeto que o mock devolve (senão o findUnique ainda veria
+      // status PLANEJADO por trás do update mockado).
+      prisma.expense.update.mockImplementation(async ({ data }: any) => {
+        Object.assign(expense, data);
+        return expense;
+      });
+
+      let createdEntries: any[] = [];
+      prisma.cashFlowEntry.createMany.mockImplementation(async ({ data }: any) => {
+        createdEntries = data;
+        return { count: data.length };
+      });
+
+      await service.markPaidInPlace(tenantId, 'fin-espelho-1', dataPagamento, prisma as any);
+
+      expect(prisma.expense.update).toHaveBeenCalledWith({
+        where: { id: 'fin-espelho-1' },
+        data: { status: 'PAGO', dataPagamento },
+      });
+      expect(createdEntries).toHaveLength(1);
+      expect(createdEntries[0].status).toBe('PAGO');
+    });
+
+    it('não é chamado (no-op) quando a despesa já é alvo de rateio — caminho PESSOAL→financiamento (#276) governa', async () => {
+      prisma.rateioAllocation.findUnique.mockResolvedValue({
+        targetExpenseId: 'fin-espelho-1',
+        sourceExpenseId: 'src-pessoal',
+      });
+
+      await service.markPaidInPlace(tenantId, 'fin-espelho-1', dataPagamento, prisma as any);
+
+      expect(prisma.expense.findFirst).not.toHaveBeenCalled();
+      expect(prisma.expense.update).not.toHaveBeenCalled();
+    });
+
+    it('não quebra quando a despesa não existe (id inválido/tenant errado)', async () => {
+      prisma.expense.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.markPaidInPlace(tenantId, 'inexistente', dataPagamento, prisma as any),
+      ).resolves.toBeUndefined();
+      expect(prisma.expense.update).not.toHaveBeenCalled();
+    });
+
+    it('idempotente: chamar 2× não duplica cashFlowEntry (regenerateCashFlow soft-deleta antes de recriar)', async () => {
+      const expense = {
+        id: 'fin-espelho-1',
+        projectId,
+        tenantId,
+        tipoDespesa: 'FINANCIAMENTO',
+        categoriaMaoDeObra: null,
+        roomId: null,
+        valorTotal: 340_000,
+        formaPagamento: 'A_VISTA',
+        dataPagamento: null,
+        quantidadeParcela: null,
+        dataInicioParcela: null,
+        status: 'PLANEJADO',
+        settledByExpenseId: null,
+        deletedAt: null,
+        room: null,
+      };
+      prisma.expense.findFirst.mockResolvedValue(expense);
+      prisma.expense.findUnique.mockResolvedValue(expense);
+
+      await service.markPaidInPlace(tenantId, 'fin-espelho-1', dataPagamento, prisma as any);
+      await service.markPaidInPlace(tenantId, 'fin-espelho-1', dataPagamento, prisma as any);
+
+      // Cada chamada soft-deleta as entries antigas antes de recriar — 2 chamadas
+      // devem gerar 2 rodadas de updateMany(soft-delete) + createMany, nunca acúmulo.
+      expect(prisma.cashFlowEntry.updateMany).toHaveBeenCalledTimes(2);
+      expect(prisma.cashFlowEntry.createMany).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe('parcelamento — datas geradas em UTC (regressão de timezone)', () => {
     it('PARCELADO mensal: 01/07 +1 = 01/08 (não 31/07) mesmo em local time BRT', async () => {
       // Repro: setMonth em local time com TZ=America/Sao_Paulo move 01/07Z → 31/07Z.

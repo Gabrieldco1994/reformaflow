@@ -769,10 +769,12 @@ mesmo motor PRICE/SAC, mesmas regras abaixo.
   normalmente e pode ser vinculada/rateada com o PESSOAL como qualquer outra
   despesa planejada (regras 14/15). Antes desta materialização, a parcela real
   era invisível no caixa consolidado.
-- **Marcar como paga** (na tela do Financiamento) só registra o valor/data na
-  parcela em si — não altera a despesa espelho nem o caixa consolidado; quitar
-  de fato é feito no PESSOAL (vínculo/rateio), que também tira a parcela da
-  fila "falta pagar".
+- **Marcar como paga** (na tela do Financiamento) registra o valor/data na
+  parcela **e** sincroniza a despesa espelho: ela vira PAGO e o caixa
+  consolidado (faltaPagarMes/Contas Vencidas) é atualizado junto — não é mais
+  preciso quitar pelo PESSOAL para a parcela sumir da fila "falta pagar" (#294).
+  Se a parcela também for quitada via vínculo/rateio do PESSOAL, esse caminho
+  continua governando o espelho normalmente (#276) — os dois não conflitam.
 - Ao editar o contrato, parcelas já pagas ou já vinculadas ao PESSOAL
   permanecem intocadas; somente as parcelas futuras não vinculadas são
   recalculadas (e sua despesa espelho, atualizada).
