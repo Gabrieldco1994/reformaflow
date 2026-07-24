@@ -38,6 +38,8 @@ export const PROJECT_FEATURES: Record<ProjectType, ProjectFeature[]> = {
   [ProjectType.CARRO]: [
     'dashboard', 'recurringBills', 'maintenance', 'reminders',
     'expenses',
+    // Financiamento de veículo (singleton por projeto, mesmo motor PRICE/SAC de CASA).
+    'financing',
   ],
   [ProjectType.PESSOAL]: [
     'monthlyOverview', 'dashboard', 'expenses', 'receipts', 'cashFlow', 'creditCards', 'bankAccounts',

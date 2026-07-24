@@ -9,7 +9,7 @@ import { moneyGlance } from '@/lib/money';
 import { isBillOverdue } from '@/lib/recurring-bill-status';
 import {
   BillCategoryLabels, BillFrequencyLabels,
-  ReminderPriorityLabels,
+  ReminderPriorityLabels, hasFeature, type ProjectType,
 } from '@reformaflow/domain';
 import ManagementGlance from './ManagementGlance';
 import ManagementFocus from './ManagementFocus';
@@ -34,7 +34,7 @@ export interface FinancingSummary {
 }
 
 export default function ManagementDashboard({ projectId, projectType }: { projectId: string; projectType: string }) {
-  const isCasa = projectType === 'CASA';
+  const hasFinancing = hasFeature(projectType as ProjectType, 'financing');
   const isCarro = projectType === 'CARRO';
   const { hasModule } = useAuth();
   const canViewVehicleDocuments = isCarro && hasModule('vehicleDocuments');
@@ -53,7 +53,7 @@ export default function ManagementDashboard({ projectId, projectType }: { projec
   const { data: financing } = useQuery<FinancingSummary | null>({
     queryKey: ['financing', projectId],
     queryFn: () => api.get(`/projects/${projectId}/financing`),
-    enabled: isCasa,
+    enabled: hasFinancing,
   });
   const { data: vehicleDocuments } = useQuery<VehicleDocument[]>({
     queryKey: ['vehicle-documents', projectId],
@@ -118,7 +118,7 @@ export default function ManagementDashboard({ projectId, projectType }: { projec
         ))}
       </div>
 
-      {isCasa && financing && (
+      {hasFinancing && financing && (
         <section className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-editorial italic text-lg md:text-xl text-darc-velvet">🏦 Financiamento</h2>

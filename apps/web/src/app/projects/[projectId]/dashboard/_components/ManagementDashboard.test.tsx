@@ -135,16 +135,14 @@ describe.each(["CASA", "CARRO"])(
       expect(document.body).not.toHaveTextContent(
         /quilometragem|veículo|placa|combustível/i,
       );
-      if (projectType === "CASA") {
-        expect(screen.getByRole("progressbar", { name: "Progresso do financiamento" }))
-          .toHaveAttribute("aria-valuenow", "3");
-        expect(screen.getByRole("link", { name: "Ver detalhes" })).toHaveAttribute(
-          "href",
-          "/projects/project-7/financing",
-        );
-      } else {
-        expect(screen.queryByText("Saldo Devedor")).not.toBeInTheDocument();
-      }
+      // Financing agora é feature de CASA e CARRO (issue #293 — mesmo motor
+      // PRICE/SAC), então o card "Financiamento" aparece igual nos dois tipos.
+      expect(screen.getByRole("progressbar", { name: "Progresso do financiamento" }))
+        .toHaveAttribute("aria-valuenow", "3");
+      expect(screen.getByRole("link", { name: "Ver detalhes" })).toHaveAttribute(
+        "href",
+        "/projects/project-7/financing",
+      );
     });
   },
 );

@@ -81,4 +81,33 @@ describe('ModulesGuard', () => {
       guard.canActivate(context(['cashFlow'])),
     ).rejects.toThrow('Sem permissão para este tipo de projeto');
   });
+
+  // Regression-lock da issue #293 — CARRO passou a ter financing (motor
+  // PRICE/SAC compartilhado com CASA); só falha aqui se TYPE_MODULES[CARRO]
+  // perder o slug 'financing'.
+  it("permite 'financing' para projeto CARRO (issue #293)", async () => {
+    reflector.getAllAndOverride.mockReturnValue('financing');
+    prisma.project.findFirst.mockResolvedValue({ type: 'CARRO' });
+    const carroContext = (allowedModules: string[]) =>
+      ({
+        getHandler: jest.fn(),
+        getClass: jest.fn(),
+        switchToHttp: () => ({
+          getRequest: () => ({
+            params: { projectId: 'project-1' },
+            user: {
+              role: 'USER',
+              tenantId: 'tenant-1',
+              allowedProjectTypes: ['CARRO'],
+              allowedModules,
+            },
+          }),
+        }),
+      }) as any;
+    const guard = new ModulesGuard(reflector as any, prisma as any);
+
+    await expect(
+      guard.canActivate(carroContext(['financing'])),
+    ).resolves.toBe(true);
+  });
 });

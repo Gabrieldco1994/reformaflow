@@ -45,7 +45,7 @@ módulos (abas) ficam disponíveis:
 | **PESSOAL** | Controle do dinheiro pessoal (o "cockpit" da sua vida financeira) | Cockpit, Visão Conta, Cartões, Metas, Planning, Budget, DRE, Fluxo de Caixa (+ drill-downs: Despesas/Recebimentos) |
 | **REFORMA** | Controle financeiro e visual de uma obra/reforma | Dashboard, Despesas, Recebimentos, Fluxo de Caixa, Cômodos, Plantas, Simulação, Cronograma, Comparar Preço, Pendências |
 | **CASA** | Gestão da casa (financiamento, contas fixas, manutenções, lembretes) | Dashboard, Financiamento, Contas recorrentes, Manutenção, Lembretes, Despesas |
-| **CARRO** | Gestão do carro | Dashboard, Carro (dados), Documentos, Contas recorrentes, Manutenção, Lembretes, Despesas |
+| **CARRO** | Gestão do carro | Dashboard, Carro (dados), Documentos, Financiamento, Contas recorrentes, Manutenção, Lembretes, Despesas |
 | **COMPRA** | Acompanhar uma compra grande (casa, carro etc.) | Dashboard, Despesas, Preços |
 
 > Os módulos e sua ordem de navegação por tipo vivem em
@@ -757,7 +757,9 @@ financiamento cadastrado, mostra saldo devedor, valor pago, progresso e próxima
 parcela, com acesso aos detalhes.
 
 ### 6.2 Financiamento (`/financing`)
-Registra um financiamento imobiliário por projeto e gera sua projeção mensal.
+Registra um financiamento por projeto e gera sua projeção mensal. Também
+disponível em **CARRO** (financiamento de veículo, issue #293) — mesma tela,
+mesmo motor PRICE/SAC, mesmas regras abaixo.
 - Sistemas de amortização **PRICE** e **SAC**, com valor financiado, taxa mensal,
   prazo, primeira parcela e dia de vencimento.
 - Resumo com total, valor pago, saldo devedor, progresso e próxima parcela.
@@ -826,7 +828,7 @@ nesta tela (o vínculo com o PESSOAL continua existindo via módulo
 ## 7. Projeto CARRO
 
 Igual ao CASA (Contas recorrentes, Manutenção, Lembretes, Despesas — lista
-enxuta do §6.6) **mais** o módulo específico:
+enxuta do §6.6, **Financiamento** — §6.2, veja lá) **mais** o módulo específico:
 
 ### 7.1 Carro — dados (`/car-info`)
 Ficha do veículo (é um registro 1:1 com o projeto).
