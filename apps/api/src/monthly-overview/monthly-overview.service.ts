@@ -530,9 +530,10 @@ export class MonthlyOverviewService {
       isInRange(purchaseDate(e), monthStart, monthEnd),
     );
 
-    // Espelhos PESSOAL pagos em carteira sem settlement são lançamentos de caixa
-    // reais; a origem foreign não tem como representar sua data efetiva. Mantém
-    // o espelho na lista e suprime as parcelas pagas do alvo no mesmo mês abaixo.
+    // Espelhos PESSOAL pagos em carteira são lançamentos de caixa reais; a origem
+    // foreign não tem como representar sua data efetiva. Mantém o espelho na lista
+    // e suprime as parcelas pagas do alvo no mesmo mês abaixo. Settlements de
+    // outras parcelas do mesmo alvo não anulam esse lançamento de carteira.
     const manualWalletMirrorTargetsThisMonth = new Set(
       expenses
         .filter(
@@ -541,7 +542,6 @@ export class MonthlyOverviewService {
             !expense.cardLast4 &&
             !expense.bankLast4 &&
             expense.status === 'PAGO' &&
-            !settlements.some((settlement) => settlement.targetExpenseId === expense.linkedExpenseId) &&
             isInRange(purchaseDate(expense), monthStart, monthEnd),
         )
         .map((expense) => expense.linkedExpenseId as string),
@@ -551,8 +551,8 @@ export class MonthlyOverviewService {
     // por voz sem meio de pagamento informado) — a "Carteira". Regra de ouro 14:
     // nunca sumir com origin:'none' do consolidado. Sem cartão/conta elas saem
     // direto do caixa como dinheiro; espelha o tratamento das foreign carteira,
-    // mas para o projeto atual. Espelhos com settlement seguem excluídos, pois
-    // já possuem uma representação por parcela; espelho manual em carteira fica.
+    // mas para o projeto atual. Espelho em carteira fica como a representação de
+    // caixa, mesmo se outras parcelas do alvo tiverem settlement.
     const localCarteiraPaidThisMonth = expenses.filter(
       (expense) =>
         !expense.cardLast4 &&

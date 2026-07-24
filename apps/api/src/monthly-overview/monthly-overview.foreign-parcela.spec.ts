@@ -313,7 +313,7 @@ describe('MonthlyOverviewService.getAccountView — origem POR PARCELA (P3) + co
     });
   });
 
-  describe('#309: espelho PESSOAL pago em carteira sem settlement', () => {
+  describe('#309: espelho PESSOAL pago em carteira', () => {
     const TARGET = 'cmow625mr00fmb3i5uh8l1oc2';
     const MIRROR = 'cmrpdd8x50001t8x33qqf0rdv';
 
@@ -340,7 +340,11 @@ describe('MonthlyOverviewService.getAccountView — origem POR PARCELA (P3) + co
     beforeEach(() => {
       jest.setSystemTime(new Date('2026-07-24T12:00:00.000Z'));
       prisma.expense.findMany.mockResolvedValue([foreign, walletMirror]);
-      prisma.crossProjectSettlement.findMany.mockResolvedValue([]);
+      // Produção tinha settlements históricos para outras parcelas do mesmo alvo:
+      // isso não pode esconder o espelho de caixa de 17/07.
+      prisma.crossProjectSettlement.findMany.mockResolvedValue([
+        { tenantId, targetExpenseId: TARGET, parcelaIndex: 0, sourceExpenseId: 'older-mirror', realValor: 800000, plannedValor: 800000, plannedStatus: 'PLANEJADO' },
+      ]);
     });
 
     it('mostra o espelho de caixa na data real e não duplica as parcelas pagas do alvo no mesmo mês', async () => {
