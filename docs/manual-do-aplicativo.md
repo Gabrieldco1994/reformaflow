@@ -120,6 +120,12 @@ saiu do caixa pessoal, mas o gasto é atribuído ao projeto de destino. O app
 **deduplica** espelhos para não contar o mesmo valor duas vezes no consolidado.
 O **rateio** permite dividir uma despesa entre vários destinos.
 
+Se uma parcela de uma despesa de outro projeto (CASA/CARRO/REFORMA/COMPRA) for
+marcada como paga **direto no projeto de origem** (sem passar pelo vínculo do
+PESSOAL), ela continua aparecendo na Conta do PESSOAL — agora como **realizada**
+("Paga"), em vez de desaparecer da lista. O dinheiro que já saiu não some do
+consolidado só porque não houve uma conciliação formal.
+
 ### 2.6 Status dos lançamentos
 - Despesa: **Planejado** (previsto, ainda não pago) ou **Pago** (já saiu).
 - Recebimento: **Previsto** (ainda não caiu) ou **Em Caixa/Recebido** (já caiu).

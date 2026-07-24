@@ -217,4 +217,99 @@ describe('MonthlyOverviewService.getAccountView — origem POR PARCELA (P3) + co
       expect(res.faltaPagarMes).toBe(800000);
     });
   });
+
+  // ── #306: parcela marcada paga (paidParcelas) SEM nenhum crossProjectSettlement
+  // (caso real de prod: setParcelaStatus direto no projeto de origem, sem passar
+  // pelo vínculo/rateio/conciliação do PESSOAL) não pode sumir do consolidado.
+  describe('#306: parcela paga sem settlement/vínculo não some do consolidado', () => {
+    const TARGET2 = 'foreign-306';
+    const target = (paidParcelas: string | null) => ({
+      id: TARGET2, tenantId, projectId: 'reforma-1', tipoDespesa: 'MAO_DE_OBRA',
+      titulo: 'Infra 306', fornecedor: 'Julio',
+      valor: 800000, valorTotal: 8000000, formaPagamento: 'QUINZENAL', dataPagamento: null,
+      dataInicioParcela: new Date('2026-06-08T00:00:00.000Z'), quantidadeParcela: 10, status: 'PLANEJADO',
+      cardLast4: null, bankLast4: null, importId: null, createdAt: new Date('2026-05-08T00:00:00.000Z'),
+      linkedExpenseId: null, settledByExpenseId: null, settlesInvoiceKey: null, paidParcelas,
+      project: { id: 'reforma-1', name: 'Reforma', type: 'REFORMA' },
+    });
+    // Espelho PESSOAL (vínculo simples do #276, sem rateio e sem settlement) que
+    // classifica a origem como 'bank' — é o que existe no caso real de prod
+    // (a despesa em si não carrega bankLast4; quem carrega é o espelho vinculado).
+    // Data fora de qualquer range testado para não poluir accountExpenseList.
+    const bankEspelho = {
+      id: 'espelho-306', tenantId, projectId, tipoDespesa: 'MAO_DE_OBRA', titulo: 'Infra 306 (vínculo)',
+      fornecedor: 'Julio', valor: 8000000, valorTotal: 8000000, formaPagamento: 'A_VISTA',
+      dataPagamento: new Date('2026-01-01T00:00:00.000Z'), dataInicioParcela: null, quantidadeParcela: null,
+      status: 'PLANEJADO', cardLast4: null, bankLast4: '3636', importId: null,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'), linkedExpenseId: TARGET2,
+      settledByExpenseId: null, settlesInvoiceKey: null, paidParcelas: null,
+      project: { id: projectId, name: 'Pessoal', type: 'PESSOAL' },
+    };
+
+    beforeEach(() => {
+      jest.setSystemTime(new Date('2026-07-15T12:00:00.000Z'));
+      prisma.bankAccount.findMany.mockResolvedValue([
+        { id: 'acc-itau', openingBalanceCents: 0, openingBalanceDate: null, last4: '3636', nickname: 'Itau', institution: 'ITAU' },
+      ]);
+      prisma.crossProjectSettlement.findMany.mockResolvedValue([]);
+    });
+
+    it('parcela paga via paidParcelas SEM settlement: aparece REALIZADA, não vaza pro faltaPagar mas conta em saiuMes', async () => {
+      prisma.expense.findMany.mockResolvedValue([target('[0,1,2,3]'), bankEspelho]);
+      const res: any = await service.getAccountView(tenantId, projectId, '2026-07');
+      const p2 = res.saidas.find((s: any) => s.id === `${TARGET2}#2`);
+      const p3 = res.saidas.find((s: any) => s.id === `${TARGET2}#3`);
+      expect(p2).toBeDefined();
+      expect(p2.realizado).toBe(true);
+      expect(p2.status).toBe('PAGO');
+      expect(p2.valor).toBe(800000);
+      expect(p2.origem).toEqual({ tipo: 'conta', bankLast4: '3636' });
+      expect(p3).toBeDefined();
+      expect(p3.realizado).toBe(true);
+      // Já pagas: não pesam em faltaPagarMes...
+      expect(res.faltaPagarMes).toBe(0);
+      // ...mas o dinheiro não some: conta em saiuMes (2 parcelas de 8.000).
+      expect(res.saiuMes).toBe(1600000);
+    });
+
+    it('parcela futura ainda não paga continua pendente normalmente (regressão zero)', async () => {
+      prisma.expense.findMany.mockResolvedValue([target('[0,1,2,3]'), bankEspelho]);
+      const res: any = await service.getAccountView(tenantId, projectId, '2026-08');
+      const p4 = res.saidas.find((s: any) => s.id === `${TARGET2}#4`);
+      expect(p4).toBeDefined();
+      expect(p4.realizado).toBe(false);
+      expect(p4.status).toBe('PLANEJADO');
+      expect(res.faltaPagarMes).toBeGreaterThanOrEqual(800000);
+    });
+
+    it('parcela quitada por settlement continua suprimida mesmo com paidParcelas também marcado (dedupe intacto)', async () => {
+      const mirror306 = {
+        id: 'mirror-306', tenantId, projectId, tipoDespesa: 'MAO_DE_OBRA', titulo: 'Infra 306 parcela',
+        fornecedor: 'Julio', valor: 800000, valorTotal: 800000, formaPagamento: 'A_VISTA',
+        dataPagamento: new Date('2026-06-08T00:00:00.000Z'), dataInicioParcela: null, quantidadeParcela: null,
+        status: 'PAGO', cardLast4: null, bankLast4: '3636', importId: null,
+        createdAt: new Date('2026-06-08T00:00:00.000Z'), linkedExpenseId: TARGET2,
+        settledByExpenseId: null, settlesInvoiceKey: null, paidParcelas: null,
+        project: { id: projectId, name: 'Pessoal', type: 'PESSOAL' },
+      };
+      prisma.expense.findMany.mockResolvedValue([target('[0]'), mirror306]);
+      prisma.crossProjectSettlement.findMany.mockResolvedValue([
+        { tenantId, targetExpenseId: TARGET2, parcelaIndex: 0, sourceExpenseId: 'mirror-306', realValor: 800000, plannedValor: 800000, plannedStatus: 'PLANEJADO' },
+      ]);
+      const res: any = await service.getAccountView(tenantId, projectId, '2026-06');
+      const p0 = res.saidas.find((s: any) => s.id === `${TARGET2}#0`);
+      expect(p0).toBeUndefined(); // suprimida pelo settlement — minha mudança não duplica
+    });
+
+    it('origin "none" (sem cartão/conta vinculados): parcela paga aparece realizada como carteira', async () => {
+      // Sem espelho nenhum (nem bankEspelho) → classifyForeignOrigin cai em 'none'.
+      prisma.expense.findMany.mockResolvedValue([target('[0]')]);
+      const res: any = await service.getAccountView(tenantId, projectId, '2026-06');
+      const p0 = res.saidas.find((s: any) => s.id === `${TARGET2}#0`);
+      expect(p0).toBeDefined();
+      expect(p0.realizado).toBe(true);
+      expect(p0.status).toBe('PAGO');
+      expect(p0.origem).toEqual({ tipo: 'carteira' });
+    });
+  });
 });
