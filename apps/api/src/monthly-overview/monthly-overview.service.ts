@@ -743,13 +743,15 @@ export class MonthlyOverviewService {
       .filter((row) => row.dueMonth === mesSelecionado)
       .sort((a, b) => b.data.localeCompare(a.data));
 
-    // Planejado de outros projetos que ainda sairá da conta pessoal (o PESSOAL é o
-    // consolidador). Deduplicado contra planejados já liquidados (settledByExpenseId)
-    // e contra a ORIGEM de pagamento do espelho pessoal (classifyForeignOrigin):
+    // Planejado/realizado de outros projetos que sai (ou já saiu) da conta pessoal
+    // (o PESSOAL é o consolidador). Deduplicado contra planejados já liquidados
+    // (settledByExpenseId) e contra a ORIGEM de pagamento do espelho pessoal
+    // (classifyForeignOrigin):
     //  - card  → a fatura do cartão já cobre; não emite saída de conta (evita dobra).
     //  - bank à-vista → o espelho bank quitado já aparece em accountExpenseList.
-    //  - bank parcelado/quinzenal → emite as parcelas FUTURAS não pagas (paidParcelas),
-    //    cada uma no mês do próprio vencimento.
+    //  - bank/carteira parcelado/quinzenal → emite CADA parcela no mês do próprio
+    //    vencimento, pendente se não paga, realizado se já paga via paidParcelas
+    //    (mantém a linha visível mesmo paga — bug #306, dinheiro não pode sumir).
     //  - sem espelho → mantém o lump (valorTotal) na data de compra (comportamento legado).
     const foreignPendingItems: Array<any> = foreignExpenses
       .filter((expense) => {
@@ -808,9 +810,11 @@ export class MonthlyOverviewService {
           return perParcela.flatMap((parcela, index) => {
             // Parcela quitada cross-project → coberta pela fatura/espelho, não re-emite.
             if (parcelaOrigins.has(index)) return [];
-            // Parcela já paga por outra via (paidParcelas) → não re-emite.
-            if (paidByOther.has(index)) return [];
             if (!isInRange(parcela.data, monthStart, monthEnd)) return [];
+            // Parcela já paga por outra via (paidParcelas), sem settlement cobrindo-a:
+            // mantém a linha como REALIZADO em vez de descartar — senão o valor some
+            // do consolidado sem nenhuma substituta (bug #306).
+            const paidHere = paidByOther.has(index);
             // Determine origem based on the foreign expense origin
             const itemOrigem = origin.origem === 'bank'
               ? { tipo: 'conta' as const, bankLast4: origin.bankLast4 }
@@ -823,8 +827,8 @@ export class MonthlyOverviewService {
                 data: parcela.data.toISOString(),
                 forma,
                 valor: parcela.valor,
-                realizado: false,
-                status: expense.status,
+                realizado: paidHere,
+                status: paidHere ? 'PAGO' : expense.status,
                 cardLast4: null as string | null,
                 bankLast4: null as string | null,
                 tipoDespesa: expense.tipoDespesa,
@@ -891,8 +895,10 @@ export class MonthlyOverviewService {
             paidNone = new Set<number>();
           }
           return parcelasNone.flatMap((parcela, index) => {
-            if (paidNone.has(index)) return [];
             if (!isInRange(parcela.data, monthStart, monthEnd)) return [];
+            // Parcela já paga (paidParcelas): mantém a linha como REALIZADO em vez de
+            // descartar — senão o valor some do consolidado sem substituta (bug #306).
+            const paidHere = paidNone.has(index);
             return [
               {
                 id: `${expense.id}#${index}` as string | null,
@@ -901,8 +907,8 @@ export class MonthlyOverviewService {
                 data: parcela.data.toISOString(),
                 forma,
                 valor: parcela.valor,
-                realizado: false,
-                status: expense.status,
+                realizado: paidHere,
+                status: paidHere ? 'PAGO' : expense.status,
                 cardLast4: null as string | null,
                 bankLast4: null as string | null,
                 tipoDespesa: expense.tipoDespesa,
@@ -922,8 +928,9 @@ export class MonthlyOverviewService {
         // accountExpenseList → não re-emite.
         if (isSinglePaymentForm(expense.formaPagamento)) return [];
 
-        // Parcelado/quinzenal bank-paid: emite as parcelas futuras não pagas, cada
-        // uma no mês do próprio vencimento.
+        // Parcelado/quinzenal bank-paid: emite cada parcela no mês do próprio
+        // vencimento — pendente se ainda não paga, realizado se já paga via
+        // paidParcelas (mantém a linha em vez de descartar; bug #306).
         const parcelas = buildInstallments({
           valorTotal: expense.valorTotal,
           formaPagamento: expense.formaPagamento,
@@ -940,10 +947,10 @@ export class MonthlyOverviewService {
         }
 
         return parcelas.flatMap((parcela, index) => {
-          if (paidSet.has(index)) return [];
           if (!isInRange(parcela.data, monthStart, monthEnd)) return [];
           // Only reach here when origin.origem === 'bank'
           if (origin.origem !== 'bank') return [];
+          const paidHere = paidSet.has(index);
           return [
             {
               id: `${expense.id}#${index}` as string | null,
@@ -952,8 +959,8 @@ export class MonthlyOverviewService {
               data: parcela.data.toISOString(),
               forma,
               valor: parcela.valor,
-              realizado: false,
-              status: expense.status,
+              realizado: paidHere,
+              status: paidHere ? 'PAGO' : expense.status,
               cardLast4: null as string | null,
               bankLast4: origin.bankLast4,
               tipoDespesa: expense.tipoDespesa,
