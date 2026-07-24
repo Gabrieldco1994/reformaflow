@@ -241,6 +241,10 @@ financeiro em tela própria (chat em tela cheia no mobile).
   Durante o aquecimento da voz, a resposta já fica disponível para leitura.
 - A ação **Editar** em sugestões abre o mesmo sheet de lançamento usado no app.
 - Também pode consultar monitoramento de preços (watchlist) e busca avulsa de preços por produto via chat/voz.
+- Também responde sobre manutenção de **CASA/CARRO/PLANTAS** (ex.: "quando foi
+  a última troca de óleo?"), lendo os registros de manutenção do projeto —
+  data, quilometragem (se veículo) e próxima prevista. Só leitura (v1); criar
+  manutenção continua sendo feito no módulo Manutenção do projeto.
 
 ### 3.5 Notificações (sino)
 Mostra avisos e pendências do sistema. O contador no sino indica quantos itens não
