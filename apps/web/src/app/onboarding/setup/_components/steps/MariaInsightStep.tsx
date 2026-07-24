@@ -1,8 +1,9 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
-import { ArrowRight, SkipForward, Sparkles } from 'lucide-react';
+import { useState } from 'react';
+import { ArrowRight, CheckCircle2, SkipForward, Sparkles } from 'lucide-react';
 import { setPendingMariaPrompt } from '@/app/projects/[projectId]/maria/_lib/pending-prompt';
+import { MariaChatBody } from '@/app/projects/[projectId]/maria/_components/MariaChatBody';
 import { buildOnboardingMariaPrompts } from '../../_lib/build-onboarding-maria-prompts';
 
 interface MariaInsightStepProps {
@@ -11,21 +12,48 @@ interface MariaInsightStepProps {
   createdExpense: { tipoDespesa: string; categoriaLabel: string };
   /** Pular por agora — avança sem falar com a Maria. */
   onSkip: () => void;
+  /** Concluir a jornada (após conversar com a Maria) — avança pro "Pronto". */
+  onDone: () => void;
 }
 
 /**
  * Passo pós-despesa (só aparece quando a 1ª despesa foi criada): oferece
  * chips de pergunta pré-formatada, derivados da CATEGORIA real da despesa.
- * Tocar num chip grava o prompt na ponte (sessionStorage) e abre a Maria, que
- * auto-envia uma vez. Nenhum backend novo — as tools de análise já existem.
+ * Tocar num chip abre a conversa com a Maria AQUI MESMO (embutida via
+ * `MariaChatBody`, o mesmo corpo da tela cheia) — sem navegar pra fora do
+ * wizard, mantendo a régua de progresso visível. "Concluir" encerra o
+ * onboarding e redireciona pro cockpit (fluxo já existente do wizard).
  */
-export function MariaInsightStep({ projectId, createdExpense, onSkip }: MariaInsightStepProps) {
-  const router = useRouter();
+export function MariaInsightStep({ projectId, createdExpense, onSkip, onDone }: MariaInsightStepProps) {
   const prompts = buildOnboardingMariaPrompts(createdExpense);
+  const [chatOpen, setChatOpen] = useState(false);
 
   function askMaria(prompt: string) {
     setPendingMariaPrompt(prompt);
-    router.push(`/projects/${projectId}/maria`);
+    setChatOpen(true);
+  }
+
+  if (chatOpen) {
+    return (
+      <section className="flex h-[70vh] min-h-0 flex-col rounded-[18px] border border-lifeone-hairline bg-lifeone-card p-4 shadow-lifeone-card">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-lifeone-ink text-white">
+              <Sparkles className="h-4 w-4" />
+            </div>
+            <h2 className="text-[16px] font-bold text-lifeone-ink">Maria</h2>
+          </div>
+          <button
+            type="button"
+            onClick={onDone}
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-xl bg-lifeone-blue px-3 text-[13px] font-semibold text-white"
+          >
+            <CheckCircle2 className="h-3.5 w-3.5" /> Concluir
+          </button>
+        </div>
+        <MariaChatBody projectId={projectId} />
+      </section>
+    );
   }
 
   return (

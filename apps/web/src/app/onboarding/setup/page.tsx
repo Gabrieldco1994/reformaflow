@@ -122,11 +122,14 @@ function OnboardingSetupForm() {
         {currentKey === 'done' && <DoneStep />}
 
         {projectId && currentKey === 'maria-insight' && createdExpense && (
-          <MariaInsightStep
-            projectId={projectId}
-            createdExpense={createdExpense}
-            onSkip={advance}
-          />
+          <ProjectProvider value={{ projectId, projectType: type, projectName: '' }}>
+            <MariaInsightStep
+              projectId={projectId}
+              createdExpense={createdExpense}
+              onSkip={advance}
+              onDone={advance}
+            />
+          </ProjectProvider>
         )}
 
         {projectId &&
