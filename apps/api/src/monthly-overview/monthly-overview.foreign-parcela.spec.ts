@@ -312,4 +312,58 @@ describe('MonthlyOverviewService.getAccountView — origem POR PARCELA (P3) + co
       expect(p0.origem).toEqual({ tipo: 'carteira' });
     });
   });
+
+  describe('#309: espelho PESSOAL pago em carteira sem settlement', () => {
+    const TARGET = 'cmow625mr00fmb3i5uh8l1oc2';
+    const MIRROR = 'cmrpdd8x50001t8x33qqf0rdv';
+
+    const foreign = {
+      id: TARGET, tenantId, projectId: 'reforma-1', tipoDespesa: 'MAO_DE_OBRA',
+      titulo: 'Infra+Eletrica+Hidraulica+Demolição', fornecedor: 'Julio',
+      valor: 800000, valorTotal: 8000000, formaPagamento: 'QUINZENAL', dataPagamento: null,
+      dataInicioParcela: new Date('2026-06-08T00:00:00.000Z'), quantidadeParcela: 10, status: 'PLANEJADO',
+      cardLast4: null, bankLast4: '3636', importId: null, createdAt: new Date('2026-05-08T00:00:00.000Z'),
+      linkedExpenseId: null, settledByExpenseId: null, settlesInvoiceKey: null, paidParcelas: '[0,1,2,3]',
+      project: { id: 'reforma-1', name: 'Reforma', type: 'REFORMA' },
+    };
+    const walletMirror = {
+      id: MIRROR, tenantId, projectId, tipoDespesa: 'OUTROS',
+      titulo: 'Infra+Eletrica+Hidraulica+Demolição', fornecedor: null,
+      valor: 800000, valorTotal: 800000, formaPagamento: 'A_VISTA',
+      dataPagamento: new Date('2026-07-17T00:00:00.000Z'), dataInicioParcela: null, quantidadeParcela: null,
+      status: 'PAGO', cardLast4: null, bankLast4: null, importId: null,
+      createdAt: new Date('2026-07-17T20:07:20.676Z'), linkedExpenseId: TARGET,
+      settledByExpenseId: null, settlesInvoiceKey: null, paidParcelas: null,
+      project: { id: projectId, name: 'Pessoal', type: 'PESSOAL' },
+    };
+
+    beforeEach(() => {
+      jest.setSystemTime(new Date('2026-07-24T12:00:00.000Z'));
+      prisma.expense.findMany.mockResolvedValue([foreign, walletMirror]);
+      prisma.crossProjectSettlement.findMany.mockResolvedValue([]);
+    });
+
+    it('mostra o espelho de caixa na data real e não duplica as parcelas pagas do alvo no mesmo mês', async () => {
+      const res: any = await service.getAccountView(tenantId, projectId, '2026-07');
+
+      const mirror = res.saidas.find((s: any) => s.id === MIRROR);
+      expect(mirror).toMatchObject({
+        data: '2026-07-17T00:00:00.000Z',
+        valor: 800000,
+        realizado: true,
+        status: 'PAGO',
+        origem: { tipo: 'carteira' },
+      });
+      expect(res.saidas.find((s: any) => s.id === `${TARGET}#2`)).toBeUndefined();
+      expect(res.saidas.find((s: any) => s.id === `${TARGET}#3`)).toBeUndefined();
+      expect(res.saiuMes).toBe(800000);
+      expect(res.faltaPagarMes).toBe(0);
+    });
+
+    it('mantém a próxima parcela pendente no mês seguinte', async () => {
+      const res: any = await service.getAccountView(tenantId, projectId, '2026-08');
+      const next = res.saidas.find((s: any) => s.id === `${TARGET}#4`);
+      expect(next).toMatchObject({ realizado: false, status: 'PLANEJADO', valor: 800000 });
+    });
+  });
 });

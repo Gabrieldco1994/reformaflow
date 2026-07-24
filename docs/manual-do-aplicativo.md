@@ -126,6 +126,10 @@ PESSOAL), ela continua aparecendo na Conta do PESSOAL — agora como **realizada
 ("Paga"), em vez de desaparecer da lista. O dinheiro que já saiu não some do
 consolidado só porque não houve uma conciliação formal.
 
+Um espelho pago no PESSOAL por **Carteira** também aparece na data real de seu
+pagamento. Nesse vínculo legado, ele é a única representação do caixa: o app
+não duplica a parcela planejada do projeto de destino no mesmo mês.
+
 ### 2.6 Status dos lançamentos
 - Despesa: **Planejado** (previsto, ainda não pago) ou **Pago** (já saiu).
 - Recebimento: **Previsto** (ainda não caiu) ou **Em Caixa/Recebido** (já caiu).

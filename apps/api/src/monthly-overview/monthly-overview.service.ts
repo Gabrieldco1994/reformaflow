@@ -530,17 +530,34 @@ export class MonthlyOverviewService {
       isInRange(purchaseDate(e), monthStart, monthEnd),
     );
 
+    // Espelhos PESSOAL pagos em carteira sem settlement são lançamentos de caixa
+    // reais; a origem foreign não tem como representar sua data efetiva. Mantém
+    // o espelho na lista e suprime as parcelas pagas do alvo no mesmo mês abaixo.
+    const manualWalletMirrorTargetsThisMonth = new Set(
+      expenses
+        .filter(
+          (expense) =>
+            !!expense.linkedExpenseId &&
+            !expense.cardLast4 &&
+            !expense.bankLast4 &&
+            expense.status === 'PAGO' &&
+            !settlements.some((settlement) => settlement.targetExpenseId === expense.linkedExpenseId) &&
+            isInRange(purchaseDate(expense), monthStart, monthEnd),
+        )
+        .map((expense) => expense.linkedExpenseId as string),
+    );
+
     // Despesas LOCAIS do próprio projeto sem cartão E sem conta (ex.: lançadas
     // por voz sem meio de pagamento informado) — a "Carteira". Regra de ouro 14:
     // nunca sumir com origin:'none' do consolidado. Sem cartão/conta elas saem
     // direto do caixa como dinheiro; espelha o tratamento das foreign carteira,
-    // mas para o projeto atual. Exclui espelhos (linkedExpenseId), já contados
-    // pela via do foreign que liquidam.
+    // mas para o projeto atual. Espelhos com settlement seguem excluídos, pois
+    // já possuem uma representação por parcela; espelho manual em carteira fica.
     const localCarteiraPaidThisMonth = expenses.filter(
       (expense) =>
         !expense.cardLast4 &&
         !expense.bankLast4 &&
-        !expense.linkedExpenseId &&
+        (!expense.linkedExpenseId || manualWalletMirrorTargetsThisMonth.has(expense.linkedExpenseId)) &&
         expense.status === 'PAGO' &&
         !isNeutralExpenseType(expense.tipoDespesa) &&
         isInRange(purchaseDate(expense), monthStart, monthEnd),
@@ -815,6 +832,9 @@ export class MonthlyOverviewService {
             // mantém a linha como REALIZADO em vez de descartar — senão o valor some
             // do consolidado sem nenhuma substituta (bug #306).
             const paidHere = paidByOther.has(index);
+            // Espelho PESSOAL manual em carteira representa o caixa com sua data
+            // real; não duplicar a parcela planejada do alvo no mesmo mês (#309).
+            if (paidHere && manualWalletMirrorTargetsThisMonth.has(expense.id)) return [];
             // Determine origem based on the foreign expense origin
             const itemOrigem = origin.origem === 'bank'
               ? { tipo: 'conta' as const, bankLast4: origin.bankLast4 }
@@ -899,6 +919,7 @@ export class MonthlyOverviewService {
             // Parcela já paga (paidParcelas): mantém a linha como REALIZADO em vez de
             // descartar — senão o valor some do consolidado sem substituta (bug #306).
             const paidHere = paidNone.has(index);
+            if (paidHere && manualWalletMirrorTargetsThisMonth.has(expense.id)) return [];
             return [
               {
                 id: `${expense.id}#${index}` as string | null,
@@ -951,6 +972,7 @@ export class MonthlyOverviewService {
           // Only reach here when origin.origem === 'bank'
           if (origin.origem !== 'bank') return [];
           const paidHere = paidSet.has(index);
+          if (paidHere && manualWalletMirrorTargetsThisMonth.has(expense.id)) return [];
           return [
             {
               id: `${expense.id}#${index}` as string | null,
