@@ -2,18 +2,33 @@
 
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
+import { AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { KpiTile } from '@/components/KpiTile';
 import { moneyGlance } from '@/lib/money';
-import { isBillOverdue } from '@/lib/recurring-bill-status';
+import { daysUntilDue } from '@/lib/recurring-bill-status';
 import {
-  BillCategoryLabels, BillFrequencyLabels,
+  BillFrequencyLabels,
   ReminderPriorityLabels, hasFeature, type ProjectType,
 } from '@reformaflow/domain';
 import ManagementGlance from './ManagementGlance';
 import ManagementFocus from './ManagementFocus';
 import { useAuth } from '@/contexts/auth-context';
+
+/** "vence em N dias" / "vence hoje" / "Vencida" — mesma fonte que o badge de atraso. */
+export function dueDateLabel(dias: number): string {
+  if (dias < 0) return 'Vencida';
+  if (dias === 0) return 'vence hoje';
+  return `vence em ${dias} dia${dias === 1 ? '' : 's'}`;
+}
+
+/** "em N dias" / "hoje" / "atrasada" — mesma contagem, sem o prefixo "vence" (usado após substantivos como "próxima parcela"). */
+function inDaysLabel(dias: number): string {
+  if (dias < 0) return 'atrasada';
+  if (dias === 0) return 'hoje';
+  return `em ${dias} dia${dias === 1 ? '' : 's'}`;
+}
 
 export interface Bill { id: string; nome: string; valor: number; categoria: string; frequencia: string; diaVencimento: number; status: string; }
 export interface Maintenance { id: string; tipo: string; dataRealizada: string; dataProxima?: string; custo: number; fornecedor?: string; }
@@ -75,7 +90,7 @@ export default function ManagementDashboard({ projectId, projectType }: { projec
     .sort((a, b) => new Date(a.data).getTime() - new Date(b.data).getTime())
     .slice(0, 5);
 
-  const overdueBills = activeBills.filter(b => isBillOverdue(b.diaVencimento, today));
+  const overdueBills = activeBills.filter(b => daysUntilDue(b.diaVencimento, today) < 0);
 
   const kpis: { label: string; value: string; tone: 'positive' | 'negative' | 'neutral' | 'warning' }[] = [
     { label: 'Contas Ativas', value: `${activeBills.length}`, tone: 'neutral' },
@@ -119,101 +134,109 @@ export default function ManagementDashboard({ projectId, projectType }: { projec
       </div>
 
       {hasFinancing && financing && (
-        <section className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-editorial italic text-lg md:text-xl text-darc-velvet">🏦 Financiamento</h2>
-            <Link href={`/projects/${projectId}/financing`} className="inline-flex min-h-[44px] items-center text-sm text-darc-velvet/70 hover:underline">
+        <section className="rounded-2xl border border-lifeone-hairline bg-lifeone-card p-4 shadow-lifeone-card md:p-5">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-lifeone-ink-3">Financiamento</p>
+            <Link href={`/projects/${projectId}/financing`} className="inline-flex min-h-[44px] items-center text-sm text-lifeone-blue hover:underline">
               Ver detalhes
             </Link>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div>
-              <p className="text-xs text-darc-velvet/60">Saldo Devedor</p>
-              <p className="font-bold text-darc-velvet">{formatCurrency(financing.summary.saldoDevedor / 100)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-darc-velvet/60">Progresso</p>
-              <p className="font-bold text-darc-velvet">
-                {financing.summary.progresso}% ({financing.summary.parcelasPagas}/{financing.summary.totalParcelas})
-              </p>
-              <div
-                role="progressbar"
-                aria-label="Progresso do financiamento"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={financing.summary.progresso}
-                className="mt-2 h-2 overflow-hidden rounded-full bg-darc-linen"
-              >
-                <div
-                  className="h-full bg-darc-red"
-                  style={{ width: `${financing.summary.progresso}%` }}
-                />
-              </div>
-            </div>
-            <div>
-              <p className="text-xs text-darc-velvet/60">Valor Pago</p>
-              <p className="font-bold text-darc-velvet">{formatCurrency(financing.summary.valorPago / 100)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-darc-velvet/60">Próxima Parcela</p>
-              <p className="font-bold text-darc-velvet">
-                {financing.summary.proximaParcela
-                  ? `${formatCurrency(financing.summary.proximaParcela.valorPrevisto / 100)} · ${formatDateBR(financing.summary.proximaParcela.dataVencimento)}`
-                  : 'Quitado'}
-              </p>
-            </div>
+          <p className="font-geist text-2xl font-bold tabular-nums text-lifeone-ink md:text-[28px]">
+            {formatCurrency(financing.summary.valorPago / 100)}
+          </p>
+          <p className="mt-1 text-sm text-lifeone-ink-3">
+            de {formatCurrency(financing.valorTotalFinanciado / 100)}
+            {financing.summary.proximaParcela
+              ? ` · próxima parcela ${inDaysLabel(daysBetween(financing.summary.proximaParcela.dataVencimento, today))}`
+              : ' · financiamento quitado'}
+          </p>
+          <div
+            role="progressbar"
+            aria-label="Progresso do financiamento"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={financing.summary.progresso}
+            className="mt-3 h-2 overflow-hidden rounded-full bg-lifeone-hairline-3"
+          >
+            <div
+              className={`h-full ${projectType === 'CASA' ? 'bg-type-casa' : 'bg-lifeone-blue'}`}
+              style={{ width: `${financing.summary.progresso}%` }}
+            />
           </div>
+          <p className="mt-2 text-xs text-lifeone-ink-3">
+            Saldo devedor {formatCurrency(financing.summary.saldoDevedor / 100)} · {financing.summary.parcelasPagas}/{financing.summary.totalParcelas} parcelas pagas
+          </p>
         </section>
       )}
 
       {canViewVehicleDocuments && (
-        <section className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5">
+        <section className="rounded-2xl border border-lifeone-hairline bg-lifeone-card p-4 shadow-lifeone-card md:p-5">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h2 className="font-editorial italic text-lg md:text-xl text-darc-velvet">📄 Documentos</h2>
-              <p className="mt-1 text-sm text-darc-velvet/60">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-lifeone-ink-3">Documentos</p>
+              <p className="mt-1 text-sm text-lifeone-ink-3">
                 {(vehicleDocuments ?? []).length === 0
                   ? 'Cadastre IPVA, seguro e licenciamento.'
                   : `${vehicleDocuments?.length} documento(s) acompanhado(s).`}
               </p>
             </div>
-            <Link href={`/projects/${projectId}/vehicle-documents`} className="inline-flex min-h-[44px] items-center text-sm text-darc-velvet/70 hover:underline">
+            <Link href={`/projects/${projectId}/vehicle-documents`} className="inline-flex min-h-[44px] items-center text-sm text-lifeone-blue hover:underline">
               Ver documentos
             </Link>
           </div>
           {(vehicleDocuments ?? []).slice(0, 3).map((document) => (
-            <div key={document.id} className="mt-3 flex items-center justify-between gap-3 border-t border-darc-linen pt-3 text-sm">
-              <span className="min-w-0 truncate font-medium text-darc-velvet">{document.titulo}</span>
-              <span className="whitespace-nowrap text-darc-velvet/60">{formatDateBR(document.dataVencimento)}</span>
+            <div key={document.id} className="mt-3 flex items-center justify-between gap-3 border-t border-lifeone-hairline pt-3 text-sm">
+              <span className="min-w-0 truncate font-medium text-lifeone-ink">{document.titulo}</span>
+              <span className="whitespace-nowrap font-geist tabular-nums text-lifeone-ink-3">{formatDateBR(document.dataVencimento)}</span>
             </div>
           ))}
         </section>
       )}
 
-      <section className="hidden md:block rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5">
-        <h2 className="font-editorial italic text-lg md:text-xl text-darc-velvet mb-3">📋 Contas Recorrentes</h2>
-        {activeBills.length === 0 ? (
-          <p className="text-darc-velvet/60 text-sm">Nenhuma conta cadastrada.</p>
+      <div>
+        {overdueBills.length === 0 ? (
+          <div className="flex items-start gap-2.5 rounded-2xl border border-[#BFE6CC] bg-[#E3F6EA] px-3.5 py-3">
+            <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-[#1E924A]" />
+            <div className="leading-snug">
+              <p className="text-sm font-bold text-[#1E924A]">Tudo em dia</p>
+              <p className="mt-0.5 text-xs text-lifeone-ink-3">Nenhuma conta atrasada este mês.</p>
+            </div>
+          </div>
         ) : (
-          <div className="divide-y divide-darc-linen">
+          <div className="flex items-start gap-2.5 rounded-2xl border border-[#F2C6C1] bg-[#FCEBE9] px-3.5 py-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-[#D92D20]" />
+            <div className="leading-snug">
+              <p className="text-sm font-bold text-[#D92D20]">
+                {overdueBills.length} conta{overdueBills.length === 1 ? '' : 's'} atrasada{overdueBills.length === 1 ? '' : 's'} este mês
+              </p>
+              <p className="mt-0.5 text-xs text-[#B5803A]">Regularize para não acumular juros e multas.</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <section className="hidden rounded-2xl border border-lifeone-hairline bg-lifeone-card p-4 shadow-lifeone-card md:block md:p-5">
+        <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-lifeone-ink-3">Contas do Mês</p>
+        {activeBills.length === 0 ? (
+          <p className="text-sm text-lifeone-ink-3">Nenhuma conta cadastrada.</p>
+        ) : (
+          <div className="divide-y divide-lifeone-hairline">
             {activeBills.map((bill) => {
-              const isOverdue = today.getDate() > bill.diaVencimento;
+              const dias = daysUntilDue(bill.diaVencimento, today);
+              const isOverdue = dias < 0;
               return (
-                <div key={bill.id} className={`flex items-center justify-between gap-3 py-3 ${isOverdue ? 'bg-darc-red-bright/5 -mx-2 px-2 rounded-lg' : ''}`}>
+                <div key={bill.id} className={`flex items-center justify-between gap-3 py-3 ${isOverdue ? '-mx-2 rounded-lg bg-[#FCEBE9] px-2' : ''}`}>
                   <div className="min-w-0 flex-1">
-                    <p className="font-medium text-darc-velvet truncate">
+                    <p className="truncate text-sm font-semibold text-lifeone-ink">
                       {bill.nome}
-                      {isOverdue && <span className="ml-2 text-xs text-darc-red">⚠ Vencida</span>}
+                      {isOverdue && <span className="ml-2 text-xs font-semibold text-[#D92D20]">Vencida</span>}
                     </p>
-                    <p className="text-xs text-darc-velvet/60 mt-0.5">
-                      {BillCategoryLabels[bill.categoria as keyof typeof BillCategoryLabels] ?? bill.categoria}
-                      {' · '}
-                      Dia {bill.diaVencimento}
-                      {' · '}
-                      {BillFrequencyLabels[bill.frequencia as keyof typeof BillFrequencyLabels] ?? bill.frequencia}
+                    <p className="mt-0.5 truncate text-[11px] text-lifeone-ink-3">
+                      {bill.frequencia !== 'MENSAL' ? `${BillFrequencyLabels[bill.frequencia as keyof typeof BillFrequencyLabels] ?? bill.frequencia} · ` : ''}
+                      {isOverdue ? 'venceu' : dueDateLabel(dias)}
                     </p>
                   </div>
-                  <span className="text-sm font-bold text-darc-velvet whitespace-nowrap">{formatCurrency(bill.valor / 100)}</span>
+                  <span className="whitespace-nowrap font-geist text-sm font-bold tabular-nums text-lifeone-ink">{formatCurrency(bill.valor / 100)}</span>
                 </div>
               );
             })}
@@ -221,22 +244,24 @@ export default function ManagementDashboard({ projectId, projectType }: { projec
         )}
       </section>
 
-      <section className="hidden md:block rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5">
-        <h2 className="font-editorial italic text-lg md:text-xl text-darc-velvet mb-3">🔧 Próximas Manutenções</h2>
+      <section className="hidden rounded-2xl border border-lifeone-hairline bg-lifeone-card p-4 shadow-lifeone-card md:block md:p-5">
+        <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-lifeone-ink-3">Próximas Manutenções</p>
         {upcomingMaintenance.length === 0 ? (
-          <p className="text-darc-velvet/60 text-sm">Nenhuma manutenção agendada.</p>
+          <p className="text-sm text-lifeone-ink-3">Nenhuma manutenção agendada.</p>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
             {upcomingMaintenance.map((m) => {
-              const daysUntil = Math.ceil((new Date(m.dataProxima!).getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-              const accent = daysUntil <= 7 ? 'bg-darc-red-bright' : daysUntil <= 30 ? 'bg-darc-sunfire' : 'bg-darc-mist';
+              const daysUntil = daysBetween(m.dataProxima!, today);
+              const accent = daysUntil <= 7 ? 'bg-[#D92D20]' : daysUntil <= 30 ? 'bg-[#B5803A]' : 'bg-lifeone-ink-4';
               return (
-                <div key={m.id} className="rounded-xl bg-darc-linen/40 p-3 relative overflow-hidden">
-                  <span className={`absolute left-0 top-3 bottom-3 w-1 rounded-r-full ${accent}`} />
-                  <p className="font-semibold text-darc-velvet pl-2">{m.tipo}</p>
-                  <p className="text-sm text-darc-velvet/70 mt-1 pl-2">Próxima: {formatDateBR(m.dataProxima!)}</p>
-                  <p className="text-xs text-darc-velvet/60 pl-2">{daysUntil <= 0 ? '⚠ Atrasada!' : `Em ${daysUntil} dias`}</p>
-                  {m.fornecedor && <p className="text-xs text-darc-velvet/50 mt-1 pl-2">📞 {m.fornecedor}</p>}
+                <div key={m.id} className="relative overflow-hidden rounded-xl bg-lifeone-surface p-3">
+                  <span className={`absolute bottom-3 left-0 top-3 w-1 rounded-r-full ${accent}`} />
+                  <p className="pl-2 text-sm font-semibold text-lifeone-ink">{m.tipo}</p>
+                  <p className="mt-1 pl-2 text-xs text-lifeone-ink-3">Próxima: {formatDateBR(m.dataProxima!)}</p>
+                  <p className={`pl-2 text-xs ${daysUntil <= 0 ? 'font-semibold text-[#D92D20]' : 'text-lifeone-ink-3'}`}>
+                    {daysUntil <= 0 ? 'Atrasada' : `Em ${daysUntil} dias`}
+                  </p>
+                  {m.fornecedor && <p className="mt-1 pl-2 text-xs text-lifeone-ink-4">{m.fornecedor}</p>}
                 </div>
               );
             })}
@@ -244,31 +269,31 @@ export default function ManagementDashboard({ projectId, projectType }: { projec
         )}
       </section>
 
-      <section className="hidden md:block rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 md:p-5">
-        <h2 className="font-editorial italic text-lg md:text-xl text-darc-velvet mb-3">🔔 Lembretes Pendentes</h2>
+      <section className="hidden rounded-2xl border border-lifeone-hairline bg-lifeone-card p-4 shadow-lifeone-card md:block md:p-5">
+        <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-lifeone-ink-3">Lembretes Pendentes</p>
         {pendingReminders.length === 0 ? (
-          <p className="text-darc-velvet/60 text-sm">Nenhum lembrete pendente.</p>
+          <p className="text-sm text-lifeone-ink-3">Nenhum lembrete pendente.</p>
         ) : (
           <div className="space-y-2">
             {pendingReminders.map((r) => {
-              const daysUntil = Math.ceil((new Date(r.data).getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+              const daysUntil = daysBetween(r.data, today);
               const priorityColors: Record<string, string> = {
-                URGENTE: 'border-l-darc-red-bright',
-                ALTA: 'border-l-darc-sunfire',
-                MEDIA: 'border-l-darc-pink',
-                BAIXA: 'border-l-darc-mist',
+                URGENTE: 'border-l-[#D92D20]',
+                ALTA: 'border-l-[#B5803A]',
+                MEDIA: 'border-l-lifeone-blue',
+                BAIXA: 'border-l-lifeone-ink-4',
               };
               return (
-                <div key={r.id} className={`border-l-4 ${priorityColors[r.prioridade] ?? 'border-l-darc-mist'} bg-darc-linen/40 rounded-r-lg p-3`}>
+                <div key={r.id} className={`rounded-r-lg border-l-4 bg-lifeone-surface p-3 ${priorityColors[r.prioridade] ?? 'border-l-lifeone-ink-4'}`}>
                   <div className="flex items-center justify-between gap-2">
-                    <p className="font-medium text-darc-velvet">{r.titulo}</p>
-                    <span className="text-[10px] uppercase tracking-[0.15em] px-2 py-0.5 rounded-full bg-white border border-darc-linen text-darc-velvet/70">
+                    <p className="text-sm font-semibold text-lifeone-ink">{r.titulo}</p>
+                    <span className="rounded-full border border-lifeone-hairline bg-lifeone-card px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-lifeone-ink-3">
                       {ReminderPriorityLabels[r.prioridade as keyof typeof ReminderPriorityLabels] ?? r.prioridade}
                     </span>
                   </div>
-                  {r.descricao && <p className="text-sm text-darc-velvet/70 mt-1">{r.descricao}</p>}
-                  <p className="text-xs text-darc-velvet/60 mt-1">
-                    {formatDateBR(r.data)} · {daysUntil <= 0 ? '⚠ Atrasado!' : `Em ${daysUntil} dias`}
+                  {r.descricao && <p className="mt-1 text-sm text-lifeone-ink-3">{r.descricao}</p>}
+                  <p className={`mt-1 text-xs ${daysUntil <= 0 ? 'font-semibold text-[#D92D20]' : 'text-lifeone-ink-3'}`}>
+                    {formatDateBR(r.data)} · {daysUntil <= 0 ? 'Atrasado' : `Em ${daysUntil} dias`}
                   </p>
                 </div>
               );
@@ -278,4 +303,9 @@ export default function ManagementDashboard({ projectId, projectType }: { projec
       </section>
     </div>
   );
+}
+
+/** Dias (arredondados para cima) entre hoje e uma data-calendário completa (não dia-do-mês). */
+function daysBetween(dateStr: string, today: Date): number {
+  return Math.ceil((new Date(dateStr).getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 }
