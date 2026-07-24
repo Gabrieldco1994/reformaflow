@@ -2416,6 +2416,44 @@ describe("MonthlyOverviewService.getAccountView", () => {
       // Nenhuma linha "a pagar" para o financiamento: já foi paga (via espelho).
       expect(res.faltaPagarMes).toBe(0);
     });
+
+    it("financiamento (CARRO): parcela paga direto pelo dashboard (payInstallment, #294) sai de falta pagar sem precisar de rateio", async () => {
+      // Diferente do teste acima (rateio PESSOAL→financiamento, #276): aqui o
+      // usuário marca a parcela paga direto no dashboard do financiamento
+      // (financing.service::payInstallment). Não há RateioAllocation nenhum —
+      // markPaidInPlace só põe a Expense espelho em status PAGO. Do ponto de
+      // vista do consolidado, o efeito tem que ser o mesmo: some de "a pagar".
+      const carro = { id: "carro-1", name: "Carro", type: "CARRO" };
+      prisma.expense.findMany.mockResolvedValue([
+        base({
+          id: "fin-inst-carro-1",
+          projectId: carro.id,
+          tipoDespesa: "FINANCIAMENTO",
+          titulo: "Parcela 1/48",
+          valorTotal: 120_000,
+          valor: 120_000,
+          formaPagamento: "A_VISTA",
+          status: "PAGO",
+          dataPagamento: new Date("2026-06-15T00:00:00.000Z"),
+          project: carro,
+        }),
+      ]);
+
+      const res: any = await service.getAccountView(
+        tenantId,
+        projectId,
+        "2026-06",
+      );
+
+      const parcela = res.saidas.find((s: any) => s.id === "fin-inst-carro-1");
+      expect(parcela).toBeDefined();
+      expect(parcela.realizado).toBe(true);
+      expect(parcela.projetoOrigem).toEqual(
+        expect.objectContaining({ type: "CARRO" }),
+      );
+      // Já paga: não conta mais como "falta pagar".
+      expect(res.faltaPagarMes).toBe(0);
+    });
   });
 });
 
