@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth, ALL_MODULES, type ModuleSlug, type AuthUser } from '@/contexts/auth-context';
 import { api } from '@/lib/api';
 import { ProjectStatsCharts, type ProjectStats } from './_components/ProjectStatsCharts';
+import { FeedbackRatingChart } from './_components/FeedbackRatingChart';
 
 interface AdminUser extends AuthUser {
   email?: string | null;
@@ -45,6 +46,7 @@ interface Feedback {
   userId: string;
   username: string;
   message: string;
+  rating?: number | null;
   createdAt: string;
 }
 
@@ -429,12 +431,23 @@ export default function AdminUsersPage() {
       {/* Feedbacks section */}
       {feedbacks.length > 0 && (
         <div className="max-w-4xl mx-auto mt-8">
+          <div className="mb-4">
+            <FeedbackRatingChart feedbacks={feedbacks} />
+          </div>
           <h2 className="text-lg font-bold text-gray-900 mb-3">Feedbacks ({feedbacks.length})</h2>
           <div className="flex flex-col gap-3">
             {feedbacks.map((fb) => (
               <div key={fb.id} className="bg-white rounded-xl border border-gray-200 px-4 py-3">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-sm font-semibold text-gray-800">{fb.username}</span>
+                  <span className="flex items-center gap-2 text-sm font-semibold text-gray-800">
+                    {fb.username}
+                    {typeof fb.rating === 'number' && (
+                      <span className="text-xs font-medium text-amber-500">
+                        {'★'.repeat(fb.rating)}
+                        <span className="text-gray-300">{'★'.repeat(5 - fb.rating)}</span>
+                      </span>
+                    )}
+                  </span>
                   <span className="text-xs text-gray-400">
                     {new Date(fb.createdAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                   </span>

@@ -31,14 +31,15 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => mocks.searchParams,
 }));
 
-/** Per-type sequence of skip-button name regexes to click through every anchor step. */
+/** Per-type sequence of skip-button name regexes to click through every anchor step
+ *  (o passo final "Feedback" com seu botão "Pular" é comum a todos os tipos). */
 const SKIP_SEQUENCES: Record<string, RegExp[]> = {
-  PESSOAL: [/pular por agora/i, /pular — cadastro depois/i, /pular por agora/i, /pular — importar depois/i, /pular por agora/i],
-  REFORMA: [/pular por agora/i],
-  COMPRA: [/pular por agora/i],
-  CASA: [/cancelar/i],
-  CARRO: [/pular por agora/i],
-  PLANTAS: [/pular por agora/i],
+  PESSOAL: [/pular por agora/i, /pular — cadastro depois/i, /pular por agora/i, /pular — importar depois/i, /pular por agora/i, /^pular$/i],
+  REFORMA: [/pular por agora/i, /^pular$/i],
+  COMPRA: [/pular por agora/i, /^pular$/i],
+  CASA: [/cancelar/i, /^pular$/i],
+  CARRO: [/pular por agora/i, /^pular$/i],
+  PLANTAS: [/pular por agora/i, /^pular$/i],
 };
 
 async function skipEverything(user: ReturnType<typeof userEvent.setup>, type: string) {
