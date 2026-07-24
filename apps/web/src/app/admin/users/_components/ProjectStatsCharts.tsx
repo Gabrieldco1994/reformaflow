@@ -31,6 +31,8 @@ export interface ProjectStats {
   contentTodayTotal: number;
   expensesByType: TypeBreakdown[];
   expensesTotal: number;
+  expensesTodayByType: TypeBreakdown[];
+  expensesTodayTotal: number;
   windowStart: string;
   windowEnd: string;
 }
@@ -107,6 +109,7 @@ function TypeBarCard({
   tooltipLabel,
   byType,
   emptyText,
+  filter,
 }: {
   title: string;
   total: number;
@@ -114,6 +117,7 @@ function TypeBarCard({
   tooltipLabel: string;
   byType: TypeBreakdown[];
   emptyText: string;
+  filter?: React.ReactNode;
 }) {
   const data = byType.map((r) => ({ ...r, ...meta(r.type) }));
   const [selected, setSelected] = useState<string | null>(null);
@@ -122,7 +126,10 @@ function TypeBarCard({
     <div className="bg-white border border-gray-200 rounded-xl p-4">
       <div className="flex items-baseline justify-between mb-2">
         <h2 className="text-sm font-semibold text-gray-900">{title}</h2>
-        <span className="text-xs text-gray-500">{plural(total)}</span>
+        <div className="flex items-center gap-2">
+          {filter}
+          <span className="text-xs text-gray-500">{plural(total)}</span>
+        </div>
       </div>
       {data.length === 0 ? (
         <p className="text-xs text-gray-400 py-10 text-center">{emptyText}</p>
@@ -165,10 +172,17 @@ export function ProjectStatsCharts({ stats }: { stats: ProjectStats }) {
   const byType = stats.byType ?? [];
   const contentByType = stats.contentTodayByType ?? [];
   const expensesByType = stats.expensesByType ?? [];
+  const expensesTodayByType = stats.expensesTodayByType ?? [];
   const distribution = byType.map((r) => ({ ...r, ...meta(r.type) }));
   const totalProjects = distribution.reduce((sum, r) => sum + r.count, 0);
   const contentTotal = stats.contentTodayTotal ?? contentByType.reduce((s, r) => s + r.count, 0);
   const expensesTotal = stats.expensesTotal ?? expensesByType.reduce((s, r) => s + r.count, 0);
+  const expensesTodayTotal =
+    stats.expensesTodayTotal ?? expensesTodayByType.reduce((s, r) => s + r.count, 0);
+
+  const [expensesWindow, setExpensesWindow] = useState<'today' | 'always'>('always');
+  const expensesData = expensesWindow === 'today' ? expensesTodayByType : expensesByType;
+  const expensesDataTotal = expensesWindow === 'today' ? expensesTodayTotal : expensesTotal;
 
   const [selectedDist, setSelectedDist] = useState<string | null>(null);
   const toggle =
@@ -248,11 +262,26 @@ export function ProjectStatsCharts({ stats }: { stats: ProjectStats }) {
 
       <TypeBarCard
         title="Despesas por tipo"
-        total={expensesTotal}
+        total={expensesDataTotal}
         unit="despesa"
         tooltipLabel="Total de despesas"
-        byType={expensesByType}
-        emptyText="Sem despesas."
+        byType={expensesData}
+        emptyText={expensesWindow === 'today' ? 'Nenhuma despesa criada hoje.' : 'Sem despesas.'}
+        filter={
+          <div className="flex rounded-md border border-gray-200 text-[11px] overflow-hidden">
+            {(['today', 'always'] as const).map((w) => (
+              <button
+                key={w}
+                onClick={() => setExpensesWindow(w)}
+                className={`px-2 py-0.5 ${
+                  expensesWindow === w ? 'bg-brand-600 text-white' : 'text-gray-500 hover:bg-gray-50'
+                }`}
+              >
+                {w === 'today' ? 'Hoje' : 'Sempre'}
+              </button>
+            ))}
+          </div>
+        }
       />
     </div>
   );

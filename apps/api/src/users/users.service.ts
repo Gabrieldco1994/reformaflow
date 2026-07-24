@@ -263,6 +263,14 @@ export class UsersService {
       : [];
     const expenseProjMeta = new Map(expenseProjects.map((p) => [p.id, p]));
 
+    // Mesmo total, mas só despesas criadas hoje (janela SP) — pro filtro
+    // "Hoje | Sempre" do card "Despesas por tipo".
+    const expenseCountsToday = await this.prisma.expense.groupBy({
+      by: ['projectId'],
+      where: { deletedAt: null, createdAt: { gte: start, lt: end } },
+      _count: { _all: true },
+    });
+
     // Resolve nomes de todos os donos envolvidos (projetos, conteúdo de hoje e
     // despesas).
     const ownerIds = new Set<string>();
@@ -304,12 +312,27 @@ export class UsersService {
     );
     const expensesTotal = expensesByType.reduce((sum, t) => sum + t.count, 0);
 
+    const expensesTodayByType = summarizeByType(
+      expenseCountsToday
+        .map((e) => {
+          const p = e.projectId ? expenseProjMeta.get(e.projectId) : undefined;
+          return p
+            ? { type: p.type, userId: p.createdByUserId, count: e._count?._all ?? 0 }
+            : null;
+        })
+        .filter((r): r is TypeUserRow => r !== null),
+      ownerLabel,
+    );
+    const expensesTodayTotal = expensesTodayByType.reduce((sum, t) => sum + t.count, 0);
+
     return {
       byType,
       contentTodayByType,
       contentTodayTotal: touchedProjects.length,
       expensesByType,
       expensesTotal,
+      expensesTodayByType,
+      expensesTodayTotal,
       windowStart: start.toISOString(),
       windowEnd: end.toISOString(),
     };
