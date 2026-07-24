@@ -160,4 +160,34 @@ describe('UsersService.getProjectStats', () => {
       },
     ]);
   });
+
+  it('also counts expenses by type restricted to today (filtro "Hoje" do card)', async () => {
+    const prisma = makePrisma();
+    // Ramifica pela presença de where.createdAt: só a query "hoje" filtra por data.
+    prisma.expense.groupBy.mockImplementation((args: any) =>
+      Promise.resolve(
+        args?.where?.createdAt
+          ? [{ projectId: 'p1', _count: { _all: 2 } }]
+          : args?._count
+            ? [
+                { projectId: 'p1', _count: { _all: 5 } },
+                { projectId: 'p2', _count: { _all: 3 } },
+              ]
+            : [],
+      ),
+    );
+    prisma.project.findMany.mockResolvedValue([
+      { id: 'p1', type: 'PESSOAL', createdByUserId: 'u1' },
+      { id: 'p2', type: 'CASA', createdByUserId: 'u2' },
+    ]);
+    prisma.user.findMany.mockResolvedValue([{ id: 'u1', name: 'Ana' }]);
+
+    const stats = await new UsersService(prisma).getProjectStats();
+
+    expect(stats.expensesTotal).toBe(8); // sempre: 5 + 3
+    expect(stats.expensesTodayTotal).toBe(2); // hoje: só p1
+    expect(stats.expensesTodayByType).toEqual([
+      { type: 'PESSOAL', count: 2, users: [{ userId: 'u1', name: 'Ana', count: 2 }] },
+    ]);
+  });
 });
