@@ -805,14 +805,24 @@ Tarefas com prazo e prioridade.
   **status**. Ações: **Concluir**, **Adiar**, **Editar**, **Excluir**.
 
 ### 6.6 Despesas (`/expenses`)
-Despesas avulsas do lar (mesma mecânica do §4.4, com tipos próprios de casa).
+Lista enxuta de despesas avulsas do lar — **dieta** (issue #292): sem
+assistente de importação de fatura/extrato e sem vínculo cross-projeto
+nesta tela (o vínculo com o PESSOAL continua existindo via módulo
+`expenses`, só não tem atalho aqui). Fluxo simplificado:
+- **Lista**: cada linha mostra título, categoria/data e valor (sempre em
+  uma coluna à direita, sem quebra), com chip de status
+  **A pagar ⇄ Paga** (clicável) e ações de editar/excluir.
+- **"+ Nova despesa"**: modal único com título, valor, tipo, data e forma
+  de pagamento — sem estepper, sem parcelamento, sem cartão/conta.
+- Estado vazio: "Nenhuma despesa cadastrada ainda" com CTA para criar a
+  primeira.
 
 ---
 
 ## 7. Projeto CARRO
 
-Igual ao CASA (Contas recorrentes, Manutenção, Lembretes, Despesas) **mais** o
-módulo específico:
+Igual ao CASA (Contas recorrentes, Manutenção, Lembretes, Despesas — lista
+enxuta do §6.6) **mais** o módulo específico:
 
 ### 7.1 Carro — dados (`/car-info`)
 Ficha do veículo (é um registro 1:1 com o projeto).
