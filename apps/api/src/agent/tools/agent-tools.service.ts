@@ -143,6 +143,70 @@ export class AgentToolsService {
         },
       },
 
+      get_maintenance_status: {
+        def: {
+          name: 'get_maintenance_status',
+          description:
+            'Consulta o status de manutenção de um projeto (CASA/CARRO/PLANTAS): quando foi a última ' +
+            'manutenção realizada — com quilometragem, se for carro — e a próxima prevista. Use para ' +
+            'perguntas como "quando foi a última troca de óleo?" ou "quando vence a próxima manutenção?". ' +
+            'Filtra por tipo (ex: TROCA_OLEO) quando informado, senão retorna a mais recente de qualquer tipo.',
+          parameters: {
+            type: 'object',
+            properties: {
+              projectId: {
+                type: 'string',
+                description:
+                  'Projeto CASA/CARRO/PLANTAS. Se omitido, resolve pelo único projeto elegível no escopo ou pelo projeto em foco.',
+              },
+              tipo: {
+                type: 'string',
+                description:
+                  'Tipo de manutenção (ex: TROCA_OLEO, FILTRO_OLEO, PNEUS, REVISAO, PINTURA). Se omitido, retorna a manutenção mais recente de qualquer tipo.',
+              },
+            },
+            additionalProperties: false,
+          },
+        },
+        run: async (ctx, args) => {
+          const project = await this.resolveMaintenanceProject(ctx, args['projectId']);
+          const tipo = this.optStr(args['tipo']);
+
+          const log = await this.prisma.maintenanceLog.findFirst({
+            where: {
+              tenantId: ctx.tenantId,
+              projectId: project.id,
+              deletedAt: null,
+              ...(tipo ? { tipo } : {}),
+            },
+            orderBy: { dataRealizada: 'desc' },
+          });
+
+          if (!log) {
+            return {
+              projectId: project.id,
+              projeto: project.name,
+              encontrado: false,
+              mensagem: tipo
+                ? `Não há registro de manutenção do tipo "${tipo}" para ${project.name}.`
+                : `Não há registro de manutenção para ${project.name}.`,
+            };
+          }
+
+          return {
+            projectId: project.id,
+            projeto: project.name,
+            encontrado: true,
+            tipo: log.tipo,
+            dataRealizada: log.dataRealizada.toISOString().slice(0, 10),
+            quilometragem: log.quilometragem ?? null,
+            dataProxima: log.dataProxima ? log.dataProxima.toISOString().slice(0, 10) : null,
+            custoCentavos: log.custo ?? null,
+            fornecedor: log.fornecedor ?? null,
+          };
+        },
+      },
+
       list_price_monitor_items: {
         def: {
           name: 'list_price_monitor_items',
@@ -1301,6 +1365,57 @@ export class AgentToolsService {
       throw new Error('Nenhum projeto com monitoramento de preços disponível no seu escopo.');
     }
     return eligible;
+  }
+
+  /**
+   * Resolve o projeto-alvo de uma consulta de manutenção (CASA/CARRO/PLANTAS):
+   * - Se rawProjectId informado: valida existência, ACL e que o tipo suporta
+   *   o módulo 'maintenance'.
+   * - Senão: se houver exatamente UM projeto elegível no escopo, usa-o; se o
+   *   projeto em foco for elegível, usa-o; caso contrário, pede para especificar
+   *   (evita vazar manutenção de outro carro/casa).
+   */
+  private async resolveMaintenanceProject(
+    ctx: ToolContext,
+    rawProjectId: unknown,
+  ): Promise<{ id: string; name: string; type: string }> {
+    const scope = ctx.projectScope ?? null;
+    const explicit = typeof rawProjectId === 'string' && rawProjectId.trim() ? rawProjectId.trim() : '';
+
+    if (explicit) {
+      const project = await this.prisma.project.findFirst({
+        where: { id: explicit, tenantId: ctx.tenantId, deletedAt: null },
+        select: { id: true, name: true, type: true },
+      });
+      if (!project) throw new Error('Projeto não encontrado.');
+      if (!userCanAccessProject(ctx.role, scope ?? undefined, project.id)) {
+        throw new Error('Sem permissão para acessar este projeto.');
+      }
+      if (!projectTypeHasModule(project.type, 'maintenance')) {
+        throw new Error(`Projetos do tipo "${project.type}" não têm registro de manutenção.`);
+      }
+      return project;
+    }
+
+    const projects = await this.prisma.project.findMany({
+      where: { tenantId: ctx.tenantId, deletedAt: null, ...(scope ? { id: { in: scope } } : {}) },
+      select: { id: true, name: true, type: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const eligible = projects.filter((p) => projectTypeHasModule(p.type, 'maintenance'));
+
+    if (eligible.length === 0) {
+      throw new Error('Nenhum projeto com manutenção disponível no seu escopo.');
+    }
+    if (eligible.length === 1) return eligible[0]!;
+
+    const focused = eligible.find((p) => p.id === ctx.projectId);
+    if (focused) return focused;
+
+    const nomes = eligible.map((p) => `"${p.name}"`).join(', ');
+    throw new Error(
+      `Há mais de um projeto com manutenção (${nomes}). Peça ao usuário para indicar qual (projectId).`,
+    );
   }
 
   /**
