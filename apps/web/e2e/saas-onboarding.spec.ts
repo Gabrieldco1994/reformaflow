@@ -134,7 +134,7 @@ test("escolhe CARRO sozinho -> chega no passo Veículo, sem passos de conta/cart
   await page.getByRole("button", { name: /criar e continuar/i }).click();
 
   await expect(page.getByText(/dados do seu carro/i)).toBeVisible();
-  await expect(page.getByText(/passo 1 de 1/i)).toBeVisible();
+  await expect(page.getByText(/passo 1 de 2/i)).toBeVisible();
   await expect(page.getByText(/sem o saldo, o caixa/i)).not.toBeVisible();
   await expect(page.getByText(/pular — cadastro depois/i)).not.toBeVisible();
 });
@@ -192,5 +192,5 @@ test("escolhe CASA + CARRO -> vai para a jornada PESSOAL, primeiro passo é Cont
   await page.getByRole("button", { name: /criar e continuar/i }).click();
 
   await expect(page.getByText(/sem o saldo, o caixa/i)).toBeVisible();
-  await expect(page.getByText(/passo 1 de 5/i)).toBeVisible();
+  await expect(page.getByText(/passo 1 de 6/i)).toBeVisible();
 });
