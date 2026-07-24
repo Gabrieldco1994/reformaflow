@@ -46,7 +46,7 @@ módulos (abas) ficam disponíveis:
 | **REFORMA** | Controle financeiro e visual de uma obra/reforma | Dashboard, Despesas, Recebimentos, Fluxo de Caixa, Cômodos, Plantas, Simulação, Cronograma, Comparar Preço, Pendências |
 | **CASA** | Gestão da casa (financiamento, contas fixas, manutenções, lembretes) | Dashboard, Financiamento, Contas recorrentes, Manutenção, Lembretes, Despesas |
 | **CARRO** | Gestão do carro | Dashboard, Carro (dados), Documentos, Contas recorrentes, Manutenção, Lembretes, Despesas |
-| **COMPRA** | Acompanhar uma compra grande (casa, carro etc.) | Dashboard, Despesas, Recebimentos, Fluxo de Caixa, Preços |
+| **COMPRA** | Acompanhar uma compra grande (casa, carro etc.) | Dashboard, Despesas, Preços |
 
 > Os módulos e sua ordem de navegação por tipo vivem em
 > `packages/domain/src/config/module-navigator.ts`.
@@ -853,8 +853,9 @@ Igual ao §6.3, com coluna **Km** adicional na tabela.
 ## 8. Projeto COMPRA
 
 Para acompanhar uma compra grande (casa, carro, etc.).
-- Módulos: **Dashboard**, **Despesas**, **Recebimentos**, **Fluxo de Caixa**, **Preços** —
-  mesma mecânica descrita nas seções do PESSOAL/REFORMA.
+- Módulos: **Dashboard**, **Despesas**, **Preços** — mesma mecânica descrita nas
+  seções do PESSOAL/REFORMA. (Recebimentos e Fluxo de Caixa foram removidos:
+  dado real do banco mostrou 0 usos em projetos COMPRA — dieta #291.)
 - Em **Preços** (`/price-compare`), há uma tela própria de watchlist para monitorar produtos e atualizar cotações.
   Cada item monitorado tem o botão **"Simular impacto"**, que abre o Planejador de
   Compras (§4.12) do projeto PESSOAL com nome e melhor preço já pré-carregados —

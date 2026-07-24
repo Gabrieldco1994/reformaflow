@@ -18,7 +18,9 @@ export type DashboardVariant = 'financial' | 'management' | 'plants' | null;
 export function resolveDashboardVariant(projectType: ProjectType): DashboardVariant {
   if (projectType === ProjectType.PESSOAL) return null; // redireciona para /monthly
   if (hasFeature(projectType, 'recurringBills')) return 'management';
-  if (hasFeature(projectType, 'cashFlow')) return 'financial';
+  // #291: dieta removeu 'cashFlow' de COMPRA (0 usos reais) — 'priceCompare'
+  // é a feature que hoje distingue exatamente REFORMA/COMPRA dos demais tipos.
+  if (hasFeature(projectType, 'priceCompare')) return 'financial';
   if (projectType === ProjectType.PLANTAS) return 'plants';
   return null;
 }
