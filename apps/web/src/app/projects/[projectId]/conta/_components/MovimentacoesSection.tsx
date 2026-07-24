@@ -10,6 +10,7 @@ import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { tipoLabel } from '@/lib/expense-options';
 import { getExpenseIcon } from '@/lib/expense-icons';
+import { groupByMovementDay } from '../_lib';
 import { Modal } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
 import type { Expense } from '@/types';
@@ -435,6 +436,8 @@ export function MovimentacoesSection({
         : summaryQuickFilter === 'faltaPagarMes'
           ? 'Ainda falta pagar'
           : null;
+
+  const movementsByDay = useMemo(() => groupByMovementDay(filtered), [filtered]);
 
   const { totalSaidas, totalEntradasRecebido, totalEntradasPrevisto } = useMemo(() => {
     let saidas = 0;
@@ -965,41 +968,52 @@ export function MovimentacoesSection({
           })}
         </div>
       ) : (
-        <div className="space-y-2">
-          {filtered.map((item) => {
-            const card = item.kind === 'saida' && item.isInvoice ? item.cardLast4 : null;
-            const compras = card ? comprasByCard.get(card) ?? [] : [];
-            const isExpanded = card ? expandedCards.has(card) : false;
-            const q = search.trim().toLowerCase();
-            const nested =
-              card && isExpanded
-                ? q
-                  ? compras.filter((c) => c.descricao.toLowerCase().includes(q))
-                  : compras
-                : [];
-            if (nested.length === 0) {
-              return renderRow(
-                item,
-                card && compras.length > 0
-                  ? { expandable: true, expanded: isExpanded, onToggleExpand: () => toggleCard(card) }
-                  : undefined,
-              );
-            }
-            return (
-              <div key={`grp-${rowKey(item)}`} className="space-y-2">
-                {renderRow(item, {
-                  expandable: true,
-                  expanded: isExpanded,
-                  onToggleExpand: () => toggleCard(card!),
-                })}
-                {/* Compras da fatura reveladas inline. Não entram nos totais do header
-                    (a fatura já é o evento de caixa) — são só o detalhamento. */}
-                <div className="ml-4 space-y-2 border-l-2 border-lifeone-hairline pl-2 md:ml-6 md:pl-3">
-                  {nested.map((c) => renderRow(c))}
-                </div>
+        <div className="space-y-5">
+          {movementsByDay.map(({ day, label, movements }) => (
+            <section key={day} aria-label={`Movimentações de ${label}`}>
+              <div className="mb-2 flex items-center gap-2">
+                <span className="h-px flex-1 bg-lifeone-hairline" />
+                <h3 className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.14em] text-lifeone-ink-3">
+                  {label}
+                </h3>
+                <span className="h-px flex-1 bg-lifeone-hairline" />
               </div>
-            );
-          })}
+              <div className="space-y-2">
+                {movements.map((item) => {
+                  const card = item.kind === 'saida' && item.isInvoice ? item.cardLast4 : null;
+                  const compras = card ? comprasByCard.get(card) ?? [] : [];
+                  const isExpanded = card ? expandedCards.has(card) : false;
+                  const q = search.trim().toLowerCase();
+                  const nested =
+                    card && isExpanded
+                      ? q
+                        ? compras.filter((c) => c.descricao.toLowerCase().includes(q))
+                        : compras
+                      : [];
+                  if (nested.length === 0) {
+                    return renderRow(
+                      item,
+                      card && compras.length > 0
+                        ? { expandable: true, expanded: isExpanded, onToggleExpand: () => toggleCard(card) }
+                        : undefined,
+                    );
+                  }
+                  return (
+                    <div key={`grp-${rowKey(item)}`} className="space-y-2">
+                      {renderRow(item, {
+                        expandable: true,
+                        expanded: isExpanded,
+                        onToggleExpand: () => toggleCard(card!),
+                      })}
+                      <div className="ml-4 space-y-2 border-l-2 border-lifeone-hairline pl-2 md:ml-6 md:pl-3">
+                        {nested.map((c) => renderRow(c))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
         </div>
       )}
 
