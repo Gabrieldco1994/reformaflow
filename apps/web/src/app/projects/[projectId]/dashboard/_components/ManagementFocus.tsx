@@ -11,6 +11,7 @@ import {
 } from '@reformaflow/domain';
 import type { Bill, Maintenance, Reminder } from './ManagementDashboard';
 import { dueDateLabel } from './ManagementDashboard';
+import { computeMaintenanceProgress } from '../_lib/maintenance-progress';
 
 /** Dias (arredondados para cima) entre hoje e uma data-calendário completa (não dia-do-mês). */
 function daysBetween(dateStr: string, today: Date): number {
@@ -71,12 +72,14 @@ export default function ManagementFocus({
   upcomingMaintenance,
   pendingReminders,
   today,
+  carKmAtual,
 }: {
   projectId: string;
   activeBills: Bill[];
   upcomingMaintenance: Maintenance[];
   pendingReminders: Reminder[];
   today: Date;
+  carKmAtual?: number | null;
 }) {
   return (
     <div className="space-y-3">
@@ -115,7 +118,13 @@ export default function ManagementFocus({
 
       <Disclosure
         title="Próximas Manutenções"
-        summary={upcomingMaintenance.length === 0 ? 'Nenhuma manutenção agendada' : `${upcomingMaintenance.length} agendadas`}
+        summary={
+          upcomingMaintenance.length === 0
+            ? 'Nenhuma manutenção agendada'
+            : carKmAtual != null
+              ? `${upcomingMaintenance.length} agendadas · ${carKmAtual.toLocaleString('pt-BR')} km atuais`
+              : `${upcomingMaintenance.length} agendadas`
+        }
         href={`/projects/${projectId}/maintenance`}
         hrefLabel="Ver todas as manutenções"
       >
@@ -126,6 +135,7 @@ export default function ManagementFocus({
             {upcomingMaintenance.map((m) => {
               const daysUntil = daysBetween(m.dataProxima!, today);
               const accent = daysUntil <= 7 ? 'bg-[#D92D20]' : daysUntil <= 30 ? 'bg-[#B5803A]' : 'bg-lifeone-ink-4';
+              const progress = computeMaintenanceProgress(m.dataRealizada, m.dataProxima!, today);
               return (
                 <div key={m.id} className="relative overflow-hidden rounded-xl bg-lifeone-surface p-3">
                   <span className={`absolute bottom-3 left-0 top-3 w-1 rounded-r-full ${accent}`} />
@@ -134,6 +144,16 @@ export default function ManagementFocus({
                   <p className={`pl-2 text-xs ${daysUntil <= 0 ? 'font-semibold text-[#D92D20]' : 'text-lifeone-ink-3'}`}>
                     {daysUntil <= 0 ? 'Atrasada' : `Em ${daysUntil} dias`}
                   </p>
+                  <div
+                    role="progressbar"
+                    aria-label={`Progresso até a próxima manutenção: ${m.tipo}`}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={progress.percentComplete}
+                    className="ml-2 mt-2 h-1.5 overflow-hidden rounded-full bg-lifeone-hairline-3"
+                  >
+                    <div className={`h-full ${accent}`} style={{ width: `${progress.percentComplete}%` }} />
+                  </div>
                   {m.fornecedor && <p className="mt-1 pl-2 text-xs text-lifeone-ink-4">{m.fornecedor}</p>}
                 </div>
               );

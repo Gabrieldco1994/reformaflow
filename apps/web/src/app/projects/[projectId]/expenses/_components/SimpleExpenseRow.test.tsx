@@ -99,7 +99,7 @@ describe('SimpleExpenseRow', () => {
         onDelete={vi.fn()}
       />,
     );
-    expect(screen.getByText('Gasolina')).toBeInTheDocument();
+    expect(screen.getByText('Combustível')).toBeInTheDocument();
     expect(screen.queryByText(/^- ·/)).not.toBeInTheDocument();
   });
 });

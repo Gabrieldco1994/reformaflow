@@ -31,6 +31,19 @@ vi.mock("@tanstack/react-query", () => ({
         ],
       };
     if (queryKey[0] === "vehicle-documents") return { data: [] };
+    if (queryKey[0] === "car-info") return { data: { kmAtual: 45231 } };
+    if (queryKey[0] === "expenses")
+      return {
+        data: {
+          items: [
+            {
+              tipoDespesa: "GASOLINA",
+              valorTotal: 25000,
+              dataCompra: "2026-07-05T12:00:00-03:00",
+            },
+          ],
+        },
+      };
     if (queryKey[0] === "financing")
       return {
         data: {
@@ -132,17 +145,27 @@ describe.each(["CASA", "CARRO"])(
       expect(
         screen.getAllByText("Trocar filtro").length,
       ).toBeGreaterThanOrEqual(1);
-      expect(document.body).not.toHaveTextContent(
-        /quilometragem|veículo|placa|combustível/i,
-      );
-      // Financing agora é feature de CASA e CARRO (issue #293 — mesmo motor
-      // PRICE/SAC), então o card "Financiamento" aparece igual nos dois tipos.
-      expect(screen.getByRole("progressbar", { name: "Progresso do financiamento" }))
-        .toHaveAttribute("aria-valuenow", "3");
-      expect(screen.getByRole("link", { name: "Ver detalhes" })).toHaveAttribute(
-        "href",
-        "/projects/project-7/financing",
-      );
+      if (projectType === "CASA") {
+        expect(document.body).not.toHaveTextContent(
+          /quilometragem|veículo|placa|combustível/i,
+        );
+        expect(screen.getByRole("progressbar", { name: "Progresso do financiamento" }))
+          .toHaveAttribute("aria-valuenow", "3");
+        expect(screen.getByRole("link", { name: "Ver detalhes" })).toHaveAttribute(
+          "href",
+          "/projects/project-7/financing",
+        );
+      } else {
+        expect(screen.queryByText("Saldo Devedor")).not.toBeInTheDocument();
+        expect(screen.getAllByText(/Gasto com Combustível/i).length).toBeGreaterThanOrEqual(1);
+        expect(screen.getAllByText(/45\.231 km atuais/).length).toBeGreaterThanOrEqual(1);
+        expect(screen.getAllByText("R$ 250,00").length).toBeGreaterThanOrEqual(1);
+        const maintenanceBars = screen.getAllByRole("progressbar", {
+          name: /Progresso até a próxima manutenção/,
+        });
+        expect(maintenanceBars.length).toBeGreaterThanOrEqual(1);
+        expect(maintenanceBars[0]).toHaveAttribute("aria-valuenow", "82");
+      }
     });
   },
 );
