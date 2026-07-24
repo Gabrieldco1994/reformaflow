@@ -91,7 +91,7 @@ export function parseXlsx(buffer: Buffer, cardId: string): ParseResult {
       const date = parseFlexibleDate(dateRaw);
       if (!date) continue;
 
-      let amountCents = parseBrlMoney(amountRaw);
+      const amountCents = -parseBrlMoney(amountRaw);
       if (amountCents === 0) continue;
 
       const { current, total, cleanMerchant } = detectInstallment(descRaw);
@@ -104,7 +104,7 @@ export function parseXlsx(buffer: Buffer, cardId: string): ParseResult {
         installmentCurrent: current,
         installmentTotal: total,
       });
-      totalAmountCents += amountCents;
+      if (amountCents > 0) totalAmountCents += amountCents;
     }
 
     // Atribui ordinal por bucket para diferenciar N linhas idênticas no mesmo dia.
