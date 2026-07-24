@@ -60,4 +60,25 @@ describe('ModulesGuard', () => {
       guard.canActivate(context(['simulation'])),
     ).rejects.toThrow('Sem permissão para este tipo de projeto');
   });
+
+  // #291: dieta — receipts/cashFlow tinham 0 usos reais em COMPRA (dado real
+  // do banco), removidos de TYPE_MODULES. Se estes testes quebrarem, alguém
+  // reabriu a superfície sem passar pelo PO.
+  it("nega 'receipts' para projeto COMPRA (dieta #291 — 0 usos reais)", async () => {
+    reflector.getAllAndOverride.mockReturnValue('receipts');
+    const guard = new ModulesGuard(reflector as any, prisma as any);
+
+    await expect(
+      guard.canActivate(context(['receipts'])),
+    ).rejects.toThrow('Sem permissão para este tipo de projeto');
+  });
+
+  it("nega 'cashFlow' para projeto COMPRA (dieta #291 — 0 usos reais)", async () => {
+    reflector.getAllAndOverride.mockReturnValue('cashFlow');
+    const guard = new ModulesGuard(reflector as any, prisma as any);
+
+    await expect(
+      guard.canActivate(context(['cashFlow'])),
+    ).rejects.toThrow('Sem permissão para este tipo de projeto');
+  });
 });

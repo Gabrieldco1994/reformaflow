@@ -34,10 +34,16 @@ describe('hasFeature', () => {
 
   it('COMPRA tem features financeiras + comparação de preços (sem planta/simulação)', () => {
     expect(hasFeature(ProjectType.COMPRA, 'expenses')).toBe(true);
-    expect(hasFeature(ProjectType.COMPRA, 'cashFlow')).toBe(true);
     expect(hasFeature(ProjectType.COMPRA, 'floorPlans')).toBe(false);
     expect(hasFeature(ProjectType.COMPRA, 'simulation')).toBe(false);
     expect(hasFeature(ProjectType.COMPRA, 'priceCompare')).toBe(true);
+  });
+
+  // #291: dieta — receipts/cashFlow tinham 0 usos reais em COMPRA; removidos.
+  // 'expenses' fica (âncora de vínculo/rateio e base do Planejador).
+  it('#291: COMPRA NÃO tem mais receipts/cashFlow (dieta — superfície morta)', () => {
+    expect(hasFeature(ProjectType.COMPRA, 'receipts')).toBe(false);
+    expect(hasFeature(ProjectType.COMPRA, 'cashFlow')).toBe(false);
   });
 
   it('CASA tem gestão de bens + despesas avulsas (one-off)', () => {

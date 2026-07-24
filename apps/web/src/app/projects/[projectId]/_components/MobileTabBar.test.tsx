@@ -48,8 +48,8 @@ const NON_PERSONAL_MATRIX = [
   },
   {
     type: ProjectType.COMPRA,
-    labels: ["Dashboard", "Despesas", "Recebimentos"],
-    slugs: ["dashboard", "expenses", "receipts"],
+    labels: ["Dashboard", "Despesas", "Preços"],
+    slugs: ["dashboard", "expenses", "price-compare"],
     accent: "#7A3FC2",
   },
   {

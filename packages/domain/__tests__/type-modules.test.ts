@@ -35,7 +35,8 @@ describe('TYPE_MODULES (single source of truth for the access gate)', () => {
         'creditCards',
         'pendencias',
       ],
-      COMPRA: ['dashboard', 'expenses', 'receipts', 'cashFlow', 'creditCards', 'priceCompare'],
+      // #291: receipts/cashFlow removidos — 0 usos reais em COMPRA (dieta).
+      COMPRA: ['dashboard', 'expenses', 'creditCards', 'priceCompare'],
       PESSOAL: [
         'dashboard',
         'expenses',
@@ -83,6 +84,13 @@ describe('projectTypeHasModule', () => {
   it('true for a gated module, false for a non-gated one', () => {
     expect(projectTypeHasModule('PESSOAL', 'monthlyOverview')).toBe(true);
     expect(projectTypeHasModule('COMPRA', 'rooms')).toBe(false);
+  });
+
+  // #291: dieta — receipts/cashFlow tinham 0 usos reais em COMPRA; removidos
+  // de TYPE_MODULES. Se este teste quebrar, alguém reabriu o módulo sem PO.
+  it("#291: 'receipts' e 'cashFlow' não são mais gated para COMPRA (dieta)", () => {
+    expect(projectTypeHasModule('COMPRA', 'receipts')).toBe(false);
+    expect(projectTypeHasModule('COMPRA', 'cashFlow')).toBe(false);
   });
 
   it('unknown type -> false, no throw', () => {

@@ -33,8 +33,6 @@ export const PROJECT_NAV: Record<ProjectType, NavModule[]> = {
   [ProjectType.COMPRA]: [
     { slug: 'dashboard', label: 'Dashboard', iconName: 'LayoutDashboard', module: 'dashboard' },
     { slug: 'expenses', label: 'Despesas', iconName: 'Receipt', module: 'expenses' },
-    { slug: 'receipts', label: 'Recebimentos', iconName: 'Wallet', module: 'receipts' },
-    { slug: 'cash-flow', label: 'Fluxo de Caixa', iconName: 'ArrowLeftRight', module: 'cashFlow' },
     { slug: 'price-compare', label: 'Preços', iconName: 'Tags', module: 'priceCompare' },
   ],
   [ProjectType.PESSOAL]: [
