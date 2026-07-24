@@ -8,6 +8,7 @@ import { ProjectProvider } from '@/contexts/project-context';
 import { ProgressDots, type ProgressDotsStep } from './_components/ProgressDots';
 import { ProjectNameStep } from './_components/ProjectNameStep';
 import { MariaInsightStep } from './_components/steps/MariaInsightStep';
+import { FeedbackStep } from './_components/steps/FeedbackStep';
 import { DoneStep } from './_components/DoneStep';
 import { ANCHOR_STEPS } from './_lib/steps-config';
 import type { StepDonePayload } from './_types';
@@ -54,16 +55,16 @@ function OnboardingSetupForm() {
   // criada (pulou a despesa → createdExpense fica null → passo não aparece).
   const showMariaStep = type === ProjectType.PESSOAL && createdExpense != null;
 
-  // Anchors na ordem de fluxo, com o passo dinâmico da Maria no FINAL do setup
-  // (após todos os anchors, antes do "Pronto"): assim tocar num chip abre a
-  // Maria sem abandonar passos restantes — todos já foram concluídos. Serve
-  // tanto para renderizar quanto para a régua (Passo X).
+  // Anchors na ordem de fluxo, com o passo dinâmico da Maria e, por último, o
+  // de feedback (1-5 estrelas + comentário) — este último aparece para
+  // QUALQUER tipo de projeto, sempre como o passo final antes do "Pronto".
   const flowSteps: ProgressDotsStep[] = useMemo(() => {
     const list: ProgressDotsStep[] = anchorSteps.map((anchor) => ({
       key: anchor.key,
       label: anchor.label,
     }));
     if (showMariaStep) list.push({ key: 'maria-insight', label: 'Maria' });
+    list.push({ key: 'feedback', label: 'Feedback' });
     return list;
   }, [anchorSteps, showMariaStep]);
 
@@ -131,6 +132,8 @@ function OnboardingSetupForm() {
             />
           </ProjectProvider>
         )}
+
+        {projectId && currentKey === 'feedback' && <FeedbackStep onDone={advance} />}
 
         {projectId &&
           anchorSteps.map((anchor) => {

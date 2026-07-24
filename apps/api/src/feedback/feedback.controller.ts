@@ -27,10 +27,22 @@ export class FeedbackController {
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { id: string; username: string },
     @Body('message') message: string,
+    @Body('rating') rating?: number,
   ) {
     if (!message?.trim()) return { ok: false };
+    const parsedRating = Number(rating);
+    const validRating =
+      Number.isInteger(parsedRating) && parsedRating >= 1 && parsedRating <= 5
+        ? parsedRating
+        : undefined;
     await this.prisma.feedback.create({
-      data: { tenantId, userId: user.id, username: user.username, message: message.trim() },
+      data: {
+        tenantId,
+        userId: user.id,
+        username: user.username,
+        message: message.trim(),
+        rating: validRating,
+      },
     });
     return { ok: true };
   }

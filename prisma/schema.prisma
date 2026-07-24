@@ -1087,6 +1087,7 @@ model Feedback {
   userId    String   @map("user_id")
   username  String
   message   String
+  rating    Int? // 1-5 estrelas, opcional (ex.: onboarding "quão fácil foi usar o app")
   createdAt DateTime @default(now()) @map("created_at")
 
   @@index([tenantId])
