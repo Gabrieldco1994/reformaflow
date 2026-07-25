@@ -245,7 +245,7 @@ export class PendenciaService {
       }));
 
     const recebimentosAtrasados: FinancialQueueItem[] = accountView.entradas
-      .filter((r) => r.status === 'PREVISTO' && !!r.id && !!r.bankLast4)
+      .filter((r) => r.status === 'PREVISTO' && !!r.id)
       .filter((r) => new Date(r.data) < startToday)
       .sort((a, b) => b.valor - a.valor)
       .map((r) => ({
@@ -261,7 +261,7 @@ export class PendenciaService {
     // Recebimento sem conta corrente associada. Carteira é uma origem resolvida e não
     // deve aparecer como "Associar conta"; só entradas bancárias sem conta chegam aqui.
     const recebimentosSemConta: FinancialQueueItem[] = accountView.entradas
-      .filter((r) => !!r.id && !!r.bankLast4 === false && r.origem?.tipo !== 'carteira')
+      .filter((r) => !!r.id && !r.bankLast4 && r.origem?.tipo !== 'carteira')
       .sort((a, b) => b.valor - a.valor)
       .map((r) => ({
         id: `recebimento-sem-conta-${r.id}`,
