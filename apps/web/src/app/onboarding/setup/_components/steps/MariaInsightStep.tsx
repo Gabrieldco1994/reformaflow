@@ -14,6 +14,10 @@ interface MariaInsightStepProps {
   onSkip: () => void;
   /** Concluir a jornada (após conversar com a Maria) — avança pro "Pronto". */
   onDone: () => void;
+  /** Texto de apoio vindo da jornada (o admin pode reescrever). */
+  subtitle?: string;
+  /** `false` = tela obrigatória na jornada: não oferece "Pular". */
+  canSkip?: boolean;
 }
 
 /**
@@ -24,7 +28,7 @@ interface MariaInsightStepProps {
  * wizard, mantendo a régua de progresso visível. "Concluir" encerra o
  * onboarding e redireciona pro cockpit (fluxo já existente do wizard).
  */
-export function MariaInsightStep({ projectId, createdExpense, onSkip, onDone }: MariaInsightStepProps) {
+export function MariaInsightStep({ projectId, createdExpense, onSkip, onDone, subtitle, canSkip = true }: MariaInsightStepProps) {
   const prompts = buildOnboardingMariaPrompts(createdExpense);
   const [chatOpen, setChatOpen] = useState(false);
 
@@ -65,7 +69,7 @@ export function MariaInsightStep({ projectId, createdExpense, onSkip, onDone }: 
         <h2 className="text-[18px] font-bold text-lifeone-ink">Pergunte à Maria sobre esse gasto</h2>
       </div>
       <p className="mt-2 text-[13px] text-lifeone-ink-3">
-        A Maria já sabe do seu mês. Toque numa pergunta e veja a resposta na hora.
+        {subtitle || 'A Maria já sabe do seu mês. Toque numa pergunta e veja a resposta na hora.'}
       </p>
 
       <div className="mt-4 flex flex-col gap-2">
@@ -82,15 +86,17 @@ export function MariaInsightStep({ projectId, createdExpense, onSkip, onDone }: 
         ))}
       </div>
 
-      <div className="mt-5">
-        <button
-          type="button"
-          onClick={onSkip}
-          className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] text-lifeone-ink-3 hover:text-lifeone-ink"
-        >
-          <SkipForward className="h-3.5 w-3.5" /> Pular por agora
-        </button>
-      </div>
+      {canSkip && (
+        <div className="mt-5">
+          <button
+            type="button"
+            onClick={onSkip}
+            className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] text-lifeone-ink-3 hover:text-lifeone-ink"
+          >
+            <SkipForward className="h-3.5 w-3.5" /> Pular por agora
+          </button>
+        </div>
+      )}
     </section>
   );
 }

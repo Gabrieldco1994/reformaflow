@@ -12,7 +12,7 @@ import type { OnboardingStepProps } from '../../_types';
  * car-info record is not a useful anchor); everything-empty must go through
  * "Pular por agora" instead.
  */
-export function CarInfoStep({ projectId, onDone, onSkip }: OnboardingStepProps) {
+export function CarInfoStep({ projectId, onDone, onSkip, subtitle, canSkip = true }: OnboardingStepProps) {
   const [marca, setMarca] = useState('');
   const [modelo, setModelo] = useState('');
   const [placa, setPlaca] = useState('');
@@ -44,7 +44,9 @@ export function CarInfoStep({ projectId, onDone, onSkip }: OnboardingStepProps) 
   return (
     <section className="rounded-[18px] border border-lifeone-hairline bg-lifeone-card p-6 shadow-lifeone-card">
       <h2 className="text-[18px] font-bold text-lifeone-ink">Dados do seu carro</h2>
-      <p className="text-[13px] text-lifeone-ink-3">Comece com a marca — o resto você completa quando quiser</p>
+      <p className="text-[13px] text-lifeone-ink-3">
+        {subtitle || 'Comece com a marca — o resto você completa quando quiser'}
+      </p>
 
       <div className="mt-4 space-y-3">
         <div>
@@ -103,12 +105,14 @@ export function CarInfoStep({ projectId, onDone, onSkip }: OnboardingStepProps) 
           {saving ? 'Salvando…' : 'Criar e continuar'}
           {!saving && <ArrowRight className="h-4 w-4" />}
         </button>
-        <button
-          onClick={onSkip}
-          className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] text-lifeone-ink-3 hover:text-lifeone-ink"
-        >
-          <SkipForward className="h-3.5 w-3.5" /> Pular por agora
-        </button>
+        {canSkip && (
+          <button
+            onClick={onSkip}
+            className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] text-lifeone-ink-3 hover:text-lifeone-ink"
+          >
+            <SkipForward className="h-3.5 w-3.5" /> Pular por agora
+          </button>
+        )}
       </div>
     </section>
   );
