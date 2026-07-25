@@ -20,20 +20,35 @@ describe('QuickReceiptStep', () => {
     render(<QuickReceiptStep projectId="p1" projectType={ProjectType.PESSOAL} onDone={vi.fn()} onSkip={vi.fn()} />);
     const button = screen.getByRole('button', { name: /criar e continuar/i });
     expect(button).toBeDisabled();
-    fireEvent.change(screen.getByLabelText(/valor/i), { target: { value: '10,00' } });
+    fireEvent.change(screen.getByLabelText(/valor \(r\$\)/i), { target: { value: '10,00' } });
     expect(button).not.toBeDisabled();
   });
 
-  it('submits POST /projects/:id/receipts with {valor, data, tipo, status: PREVISTO}, then calls onDone', async () => {
+  it('submits POST /projects/:id/receipts with {valor, data, tipo, status: PREVISTO} when not checked', async () => {
     apiPostMock.mockResolvedValue({});
     const onDone = vi.fn();
     render(<QuickReceiptStep projectId="p1" projectType={ProjectType.PESSOAL} onDone={onDone} onSkip={vi.fn()} />);
-    fireEvent.change(screen.getByLabelText(/valor/i), { target: { value: '10,00' } });
+    fireEvent.change(screen.getByLabelText(/valor \(r\$\)/i), { target: { value: '10,00' } });
     fireEvent.click(screen.getByRole('button', { name: /criar e continuar/i }));
 
     await waitFor(() => expect(apiPostMock).toHaveBeenCalledWith(
       '/projects/p1/receipts',
       expect.objectContaining({ valor: 10, status: 'PREVISTO' }),
+    ));
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it('submits POST /projects/:id/receipts with status EM_CAIXA when "Já recebi esse valor" is checked', async () => {
+    apiPostMock.mockResolvedValue({});
+    const onDone = vi.fn();
+    render(<QuickReceiptStep projectId="p1" projectType={ProjectType.PESSOAL} onDone={onDone} onSkip={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText(/valor \(r\$\)/i), { target: { value: '20,00' } });
+    fireEvent.click(screen.getByLabelText(/já recebi esse valor/i));
+    fireEvent.click(screen.getByRole('button', { name: /criar e continuar/i }));
+
+    await waitFor(() => expect(apiPostMock).toHaveBeenCalledWith(
+      '/projects/p1/receipts',
+      expect.objectContaining({ valor: 20, status: 'EM_CAIXA' }),
     ));
     expect(onDone).toHaveBeenCalledTimes(1);
   });
@@ -50,7 +65,7 @@ describe('QuickReceiptStep', () => {
     apiPostMock.mockRejectedValue(new Error('Erro ao salvar recebimento'));
     const onDone = vi.fn();
     render(<QuickReceiptStep projectId="p1" projectType={ProjectType.PESSOAL} onDone={onDone} onSkip={vi.fn()} />);
-    fireEvent.change(screen.getByLabelText(/valor/i), { target: { value: '10,00' } });
+    fireEvent.change(screen.getByLabelText(/valor \(r\$\)/i), { target: { value: '10,00' } });
     fireEvent.click(screen.getByRole('button', { name: /criar e continuar/i }));
 
     await waitFor(() => expect(screen.getByText('Erro ao salvar recebimento')).toBeInTheDocument());
