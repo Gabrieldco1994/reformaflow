@@ -87,6 +87,7 @@ export class MonthlyOverviewService {
         receipt: {
           select: {
             tipo: true,
+            bankLast4: true,
           },
         },
       },
@@ -175,6 +176,20 @@ export class MonthlyOverviewService {
       .map((p) => ({ id: p.id, name: p.name, type: p.type }));
 
     const caixa = await this.computeCaixaConta(tenantId, pessoalProjectId);
+    const carteiraHoje = entries.reduce((total, entry) => {
+      if (entry.projectId !== pessoalProjectId) return total;
+      if (entry.tipo === 'DESPESA') {
+        return !entry.expense?.cardLast4 &&
+          !entry.expense?.bankLast4 &&
+          entry.status === 'PAGO'
+          ? total - entry.valor
+          : total;
+      }
+      return !entry.receipt?.bankLast4 && entry.status === 'EM_CAIXA'
+        ? total + entry.valor
+        : total;
+    }, 0);
+    const caixaComCarteira = { ...caixa, carteiraHoje };
 
     // Projeção de caixa do MÊS CORRENTE (eixo de caixa, §10) — fonte única para o
     // card "Projeção fim do mês" do cockpit, para casar EXATAMENTE com a Visão Conta.
@@ -193,6 +208,7 @@ export class MonthlyOverviewService {
           faltaPagarMes: number;
           recebimentosPrevistosMes: number;
           sobraPrevista: number;
+          carteiraHoje: number;
         }
       | { mes: string; status: typeof PROJECTION_STATUS.DEGRADED };
     try {
@@ -206,6 +222,7 @@ export class MonthlyOverviewService {
         faltaPagarMes: av.faltaPagarMes,
         recebimentosPrevistosMes: av.recebimentosPrevistosMes,
         sobraPrevista: av.sobraPrevista,
+        carteiraHoje: av.carteiraHoje,
       };
     } catch {
       projecao = { mes: projectionMonth, status: PROJECTION_STATUS.DEGRADED };
@@ -231,7 +248,7 @@ export class MonthlyOverviewService {
       mesAtualEntries: currentMonthEntries,
       entries: allEntries,
       projetos: contributingProjects,
-      caixa,
+      caixa: caixaComCarteira,
       cards,
       projecao,
     };
@@ -1146,6 +1163,9 @@ export class MonthlyOverviewService {
         tipo: receiptTypeKey(receipt.tipo),
         valor: receipt.valor,
         bankLast4: receipt.bankLast4,
+        origem: receipt.bankLast4
+          ? { tipo: 'conta' as const, bankLast4: receipt.bankLast4 }
+          : { tipo: 'carteira' as const },
         status: receipt.status,
       }));
 
@@ -1244,10 +1264,23 @@ export class MonthlyOverviewService {
         last4: account.last4,
         nome: account.nickname?.trim() || account.institution || `Conta ${account.last4}`,
       }));
+    const carteiraHoje =
+      sumBy(
+        expenses.filter(
+          (expense) =>
+            !expense.cardLast4 && !expense.bankLast4 && expense.status === 'PAGO',
+        ),
+        (expense) => -expense.valorTotal,
+      ) +
+      sumBy(
+        receipts.filter((receipt) => !receipt.bankLast4 && receipt.status === 'EM_CAIXA'),
+        (receipt) => receipt.valor,
+      );
 
     return {
       mesSelecionado,
       caixaHoje: caixa.hoje,
+      carteiraHoje,
       entrouMes,
       saiuMes: recalculatedSaiuMes,
       faltaPagarMes: recalculatedFaltaPagarMes,

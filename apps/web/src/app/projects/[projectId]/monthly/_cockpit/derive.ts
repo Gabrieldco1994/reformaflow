@@ -737,7 +737,9 @@ export function deriveCockpitTop(
 ): CockpitTopDerived {
   const totals = deriveTotals(data);
   const temSaldo = data.caixa?.temSaldoInicial ?? false;
-  const caixaValor = temSaldo ? data.caixa!.hoje : totals.fluxoRealizado;
+  const caixaValor = temSaldo
+    ? data.caixa!.hoje
+    : (data.caixa?.carteiraHoje ?? totals.fluxoRealizado);
 
   const spark = (data.caixa?.porMes ?? []).map((p) => p.caixa);
   const caixaDelta =
@@ -778,7 +780,14 @@ export function deriveCockpitTop(
   const projectionDegraded = !canonicalProjection;
   const aReceberMes = canonicalProjection?.recebimentosPrevistosMes ?? ((aggAtual?.totalRec ?? 0) - resultadoEntrou);
   const aPagarMes = canonicalProjection?.faltaPagarMes ?? ((aggAtual?.totalDesp ?? 0) - resultadoGastou);
-  const projecaoMes = canonicalProjection?.sobraPrevista ?? (caixaValor + aReceberMes - aPagarMes);
+  const carteiraBase = !temSaldo && canonicalProjection?.carteiraHoje != null
+    ? canonicalProjection.carteiraHoje
+    : 0;
+  const projecaoMes = canonicalProjection
+    ? (temSaldo
+        ? canonicalProjection.sobraPrevista
+        : carteiraBase + aReceberMes - aPagarMes)
+    : (caixaValor + aReceberMes - aPagarMes);
 
   // Entrou/Saídas do mês no eixo de CAIXA (§10, mesma fonte da projeção). Fallback
   // para competência (entries) quando `projecao` ausente. "Já saiu" (saiuMes) inclui

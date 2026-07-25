@@ -16,6 +16,7 @@ export function QuickReceiptStep({ projectId, projectType, onDone, onSkip }: Onb
   const [tipo, setTipo] = useState(options[0]?.value ?? '');
   const [valor, setValor] = useState('');
   const [data, setData] = useState(() => new Date().toISOString().slice(0, 10));
+  const [jaRecebi, setJaRecebi] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,7 +31,7 @@ export function QuickReceiptStep({ projectId, projectType, onDone, onSkip }: Onb
         valor: currencyInputToNumber(valor),
         data,
         tipo,
-        status: 'PREVISTO',
+        status: jaRecebi ? 'EM_CAIXA' : 'PREVISTO',
       });
       onDone();
     } catch (e) {
@@ -79,6 +80,19 @@ export function QuickReceiptStep({ projectId, projectType, onDone, onSkip }: Onb
               className="min-h-11 w-full rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-3.5 py-2.5 text-[14px]"
             />
           </div>
+        </div>
+
+        <div className="flex items-center gap-2 mt-3">
+          <input
+            id="qr-ja-recebi"
+            type="checkbox"
+            checked={jaRecebi}
+            onChange={(e) => setJaRecebi(e.target.checked)}
+            className="h-4 w-4 rounded border border-lifeone-hairline cursor-pointer"
+          />
+          <label htmlFor="qr-ja-recebi" className="text-[13px] font-medium text-lifeone-ink cursor-pointer">
+            Já recebi esse valor
+          </label>
         </div>
       </div>
 

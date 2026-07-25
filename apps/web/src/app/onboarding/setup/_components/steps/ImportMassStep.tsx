@@ -110,6 +110,14 @@ export function ImportMassStep({ projectId, onDone, onSkip }: OnboardingStepProp
             onClick={openExtrato}
           />
         )}
+
+        {cards.length === 0 && accounts.length === 0 && (
+          <div className="rounded-[10px] bg-lifeone-surface border border-lifeone-hairline p-4">
+            <p className="text-[13px] text-lifeone-ink-3">
+              Importação de extrato ou fatura requer uma conta ou cartão cadastrado. Você pode adicionar isso em <strong>Configurações</strong> quando quiser.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Card picker: lista quando >1 cartão, empty state quando 0 cartões */}

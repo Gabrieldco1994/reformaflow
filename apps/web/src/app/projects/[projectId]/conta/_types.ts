@@ -79,6 +79,8 @@ export interface AccountViewTicketMedio {
 export interface AccountViewResponse {
   mesSelecionado: string;
   caixaHoje: number;
+  /** Centavos: fluxo líquido realizado em espécie (sem conta/cartão). */
+  carteiraHoje?: number;
   entrouMes: number;
   saiuMes: number;
   faltaPagarMes: number;
