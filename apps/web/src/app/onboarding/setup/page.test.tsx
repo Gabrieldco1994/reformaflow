@@ -2,9 +2,11 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ProjectType, resolveJourney, type ResolvedJourneyStep } from '@reformaflow/domain';
 import OnboardingSetupPage from './page';
 
 const mocks = vi.hoisted(() => ({
+  apiGet: vi.fn(),
   apiPost: vi.fn(),
   apiPatch: vi.fn(),
   apiPut: vi.fn(),
@@ -23,7 +25,7 @@ vi.mock('@/lib/api', () => ({
     patch: mocks.apiPatch,
     put: mocks.apiPut,
     upload: mocks.apiUpload,
-    get: vi.fn().mockResolvedValue([]),
+    get: mocks.apiGet,
   },
 }));
 vi.mock('next/navigation', () => ({
@@ -63,6 +65,13 @@ describe('OnboardingSetupPage', () => {
     vi.clearAllMocks();
     mocks.searchParams = new URLSearchParams();
     vi.useFakeTimers({ shouldAdvanceTime: true });
+    // Por padrão a API devolve exatamente a jornada default do catálogo — os
+    // testes que exercitam configuração/queda sobrescrevem este mock.
+    mocks.apiGet.mockImplementation((path: string) => {
+      const match = /^\/onboarding\/journey\/(.+)$/.exec(path);
+      if (match) return Promise.resolve(resolveJourney(match[1] as ProjectType));
+      return Promise.resolve([]);
+    });
     mocks.apiPost.mockImplementation((path: string) => {
       if (path === '/projects') return Promise.resolve({ id: 'proj-1', type: mocks.searchParams.get('type') });
       return Promise.resolve({});
@@ -143,5 +152,103 @@ describe('OnboardingSetupPage', () => {
     await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledTimes(1));
 
     vi.useRealTimers();
+  });
+
+  describe('jornada configurável', () => {
+    function step(over: Partial<ResolvedJourneyStep> & { key: string }): ResolvedJourneyStep {
+      return {
+        label: over.key,
+        subtitle: '',
+        enabled: true,
+        skippable: true,
+        alwaysAvailable: true,
+        ...over,
+      };
+    }
+
+    function mockJourney(steps: ResolvedJourneyStep[] | 'fail') {
+      mocks.apiGet.mockImplementation((path: string) => {
+        if (!path.startsWith('/onboarding/journey')) return Promise.resolve([]);
+        return steps === 'fail'
+          ? Promise.reject(new Error('offline'))
+          : Promise.resolve(steps);
+      });
+    }
+
+    it('a ordem das telas vem da jornada da API, não do catálogo', async () => {
+      mocks.searchParams = new URLSearchParams({ type: 'PESSOAL', projectId: 'p1' });
+      mockJourney([
+        step({ key: 'receipt', label: 'Recebimento', subtitle: 'TELA A' }),
+        step({ key: 'bank', label: 'Conta', subtitle: 'TELA B' }),
+      ]);
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      renderPage();
+
+      await screen.findByText('TELA A');
+      expect(screen.queryByText('TELA B')).not.toBeInTheDocument();
+
+      await user.click(await screen.findByText(/pular por agora/i));
+      expect(await screen.findByText('TELA B')).toBeInTheDocument();
+
+      vi.useRealTimers();
+    });
+
+    it('tela desligada não aparece no fluxo', async () => {
+      mocks.searchParams = new URLSearchParams({ type: 'CASA', projectId: 'p1' });
+      mockJourney([
+        step({ key: 'bill', label: 'Conta', subtitle: 'CONTA FIXA', enabled: false }),
+        step({ key: 'feedback', label: 'Feedback', subtitle: 'FEEDBACK AQUI' }),
+      ]);
+      renderPage();
+
+      expect(await screen.findByText('FEEDBACK AQUI')).toBeInTheDocument();
+      expect(screen.queryByText('CONTA FIXA')).not.toBeInTheDocument();
+
+      vi.useRealTimers();
+    });
+
+    it('tela obrigatória (skippable=false) não oferece "Pular"', async () => {
+      mocks.searchParams = new URLSearchParams({ type: 'CARRO', projectId: 'p1' });
+      mockJourney([
+        step({ key: 'car', label: 'Veículo', subtitle: 'DADOS DO CARRO', skippable: false }),
+        step({ key: 'feedback', label: 'Feedback' }),
+      ]);
+      renderPage();
+
+      await screen.findByText('DADOS DO CARRO');
+      expect(screen.queryByText(/pular/i)).not.toBeInTheDocument();
+
+      vi.useRealTimers();
+    });
+
+    it('API da jornada falhando: cai no default do catálogo e o wizard continua funcionando', async () => {
+      mocks.searchParams = new URLSearchParams({ type: 'PESSOAL' });
+      mockJourney('fail');
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      renderPage();
+
+      await user.click(await screen.findByRole('button', { name: /criar e continuar/i }));
+      await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith('/projects', expect.objectContaining({ type: 'PESSOAL' })));
+
+      await skipEverything(user, 'PESSOAL');
+      await screen.findByText(/tudo pronto/i);
+      vi.advanceTimersByTime(1500);
+
+      await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith('/projects/proj-1/monthly'));
+      vi.useRealTimers();
+    });
+
+    it('API da jornada pendurada (sem resposta): usa o default e não trava num spinner', async () => {
+      mocks.searchParams = new URLSearchParams({ type: 'CARRO', projectId: 'p1' });
+      mocks.apiGet.mockImplementation((path: string) =>
+        path.startsWith('/onboarding/journey') ? new Promise(() => {}) : Promise.resolve([]),
+      );
+      renderPage();
+
+      const [first] = resolveJourney(ProjectType.CARRO);
+      expect(await screen.findByText(first.subtitle)).toBeInTheDocument();
+
+      vi.useRealTimers();
+    });
   });
 });

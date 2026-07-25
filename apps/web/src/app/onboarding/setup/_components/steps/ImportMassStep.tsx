@@ -43,7 +43,7 @@ function OptionButton({ icon: Icon, label, onClick }: OptionButtonProps) {
  * inverte o sinal errado e mistura despesa de cartão com caixa real.
  * Espelha o padrão já usado em ImportLauncher.tsx.
  */
-export function ImportMassStep({ projectId, onDone, onSkip }: OnboardingStepProps) {
+export function ImportMassStep({ projectId, onDone, onSkip, subtitle, canSkip = true }: OnboardingStepProps) {
   const { data: cards = [] } = useQuery<TenantCard[]>({
     queryKey: ['tenant', 'credit-cards'],
     queryFn: () => api.get('/tenant/credit-cards'),
@@ -94,7 +94,7 @@ export function ImportMassStep({ projectId, onDone, onSkip }: OnboardingStepProp
     <section className="rounded-[18px] border border-lifeone-hairline bg-lifeone-card p-6 shadow-lifeone-card">
       <h2 className="text-[18px] font-bold text-lifeone-ink">Importe seus lançamentos de uma vez</h2>
       <p className="text-[13px] text-lifeone-ink-3">
-        Use o extrato ou fatura que já tem — detectamos os valores automaticamente
+        {subtitle || 'Use o extrato ou fatura que já tem — detectamos os valores automaticamente'}
       </p>
 
       <div className="space-y-2.5 mt-4">
@@ -174,12 +174,14 @@ export function ImportMassStep({ projectId, onDone, onSkip }: OnboardingStepProp
       </p>
 
       <div className="mt-5">
-        <button
-          onClick={onSkip}
-          className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] text-lifeone-ink-3 hover:text-lifeone-ink"
-        >
-          <SkipForward className="h-3.5 w-3.5" /> Pular — importar depois
-        </button>
+        {canSkip && (
+          <button
+            onClick={onSkip}
+            className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] text-lifeone-ink-3 hover:text-lifeone-ink"
+          >
+            <SkipForward className="h-3.5 w-3.5" /> Pular — importar depois
+          </button>
+        )}
       </div>
 
       {/* Modals */}

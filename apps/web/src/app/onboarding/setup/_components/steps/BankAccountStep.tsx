@@ -9,11 +9,12 @@ import type { OnboardingStepProps } from '../../_types';
  * two-tier skip UX ("Pular por agora" → warning card → "Pular mesmo assim")
  * preserved verbatim from the original PESSOAL-only wizard.
  */
-export function BankAccountStep({ projectId, onDone, onSkip }: OnboardingStepProps) {
+export function BankAccountStep({ projectId, onDone, onSkip, subtitle, canSkip = true }: OnboardingStepProps) {
   return (
     <section className="rounded-[18px] border border-lifeone-hairline bg-lifeone-card p-6 shadow-lifeone-card">
       <p className="mb-4 text-[12px] text-lifeone-ink-3">
-        Sem o saldo, o Caixa mostra só o fluxo. Dá pra definir depois em Contas Bancárias.
+        {subtitle ||
+          'Sem o saldo, o Caixa mostra só o fluxo. Dá pra definir depois em Contas Bancárias.'}
       </p>
       <BankAccountFormModal
         projectId={projectId}
@@ -24,12 +25,14 @@ export function BankAccountStep({ projectId, onDone, onSkip }: OnboardingStepPro
         hideCancel
       />
 
-      <button
-        onClick={onSkip}
-        className="mt-3 flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] text-lifeone-ink-3 hover:text-lifeone-ink"
-      >
-        <SkipForward className="h-3.5 w-3.5" /> Pular por agora
-      </button>
+      {canSkip && (
+        <button
+          onClick={onSkip}
+          className="mt-3 flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] text-lifeone-ink-3 hover:text-lifeone-ink"
+        >
+          <SkipForward className="h-3.5 w-3.5" /> Pular por agora
+        </button>
+      )}
     </section>
   );
 }

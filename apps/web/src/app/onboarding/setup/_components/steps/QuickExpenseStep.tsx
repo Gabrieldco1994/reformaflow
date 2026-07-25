@@ -27,7 +27,7 @@ interface TenantProject { id: string; name: string; type: string }
  * Only `despesa` mode calls POST; voz/foto advance via their own flows.
  * Modos carregados do catálogo centralizado (launch-modes.ts).
  */
-export function QuickExpenseStep({ projectId, projectType, onDone, onSkip }: OnboardingStepProps) {
+export function QuickExpenseStep({ projectId, projectType, onDone, onSkip, subtitle, canSkip = true }: OnboardingStepProps) {
   const options = getExpenseOptions(projectType);
   const showVinculos = hasFeature(projectType, 'bankAccounts') || hasFeature(projectType, 'creditCards');
   const [mode, setMode] = useState<EntryMode>('despesa');
@@ -131,7 +131,9 @@ export function QuickExpenseStep({ projectId, projectType, onDone, onSkip }: Onb
   return (
     <section className="rounded-[18px] border border-lifeone-hairline bg-lifeone-card p-6 shadow-lifeone-card">
       <h2 className="text-[18px] font-bold text-lifeone-ink">Sua primeira despesa</h2>
-      <p className="text-[13px] text-lifeone-ink-3">Registre um gasto recente para começar a acompanhar o caixa</p>
+      <p className="text-[13px] text-lifeone-ink-3">
+        {subtitle || 'Registre um gasto recente para começar a acompanhar o caixa'}
+      </p>
 
       {/* Mode picker — inline, works on desktop + mobile */}
       <div className="mt-4 flex gap-1.5 rounded-[10px] border border-lifeone-hairline bg-lifeone-surface p-1">
@@ -253,12 +255,14 @@ export function QuickExpenseStep({ projectId, projectType, onDone, onSkip }: Onb
               {!saving && <ArrowRight className="h-4 w-4" />}
             </button>
             {!canSubmit && <p id="qe-helper" className="text-[12px] text-lifeone-ink-3">Informe o valor para continuar.</p>}
-            <button
-              onClick={onSkip}
-              className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] text-lifeone-ink-3 hover:text-lifeone-ink"
-            >
-              <SkipForward className="h-3.5 w-3.5" /> Pular por agora
-            </button>
+            {canSkip && (
+              <button
+                onClick={onSkip}
+                className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] text-lifeone-ink-3 hover:text-lifeone-ink"
+              >
+                <SkipForward className="h-3.5 w-3.5" /> Pular por agora
+              </button>
+            )}
           </div>
         </>
       )}
@@ -290,12 +294,14 @@ export function QuickExpenseStep({ projectId, projectType, onDone, onSkip }: Onb
             currentProjectId={projectId}
           />
           <div className="mt-5">
-            <button
-              onClick={onSkip}
-              className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] text-lifeone-ink-3 hover:text-lifeone-ink"
-            >
-              <SkipForward className="h-3.5 w-3.5" /> Pular por agora
-            </button>
+            {canSkip && (
+              <button
+                onClick={onSkip}
+                className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] text-lifeone-ink-3 hover:text-lifeone-ink"
+              >
+                <SkipForward className="h-3.5 w-3.5" /> Pular por agora
+              </button>
+            )}
           </div>
         </>
       )}
@@ -327,12 +333,14 @@ export function QuickExpenseStep({ projectId, projectType, onDone, onSkip }: Onb
             </button>
           </div>
           <div className="mt-2 flex flex-col gap-2">
-            <button
-              onClick={onSkip}
-              className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] text-lifeone-ink-3 hover:text-lifeone-ink"
-            >
-              <SkipForward className="h-3.5 w-3.5" /> Pular por agora
-            </button>
+            {canSkip && (
+              <button
+                onClick={onSkip}
+                className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] text-lifeone-ink-3 hover:text-lifeone-ink"
+              >
+                <SkipForward className="h-3.5 w-3.5" /> Pular por agora
+              </button>
+            )}
           </div>
         </>
       )}

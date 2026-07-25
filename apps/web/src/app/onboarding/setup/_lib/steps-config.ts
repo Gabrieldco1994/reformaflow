@@ -1,5 +1,4 @@
 import type { ComponentType } from 'react';
-import { ProjectType } from '@reformaflow/domain';
 import type { OnboardingStepProps } from '../_types';
 import { BankAccountStep } from '../_components/steps/BankAccountStep';
 import { CreditCardStep } from '../_components/steps/CreditCardStep';
@@ -10,30 +9,24 @@ import { CarInfoStep } from '../_components/steps/CarInfoStep';
 import { PlantStep } from '../_components/steps/PlantStep';
 import { ImportMassStep } from '../_components/steps/ImportMassStep';
 
-export interface AnchorStepDef {
-  /** stable id, also stepper-dot label key */
-  key: string;
-  /** stepper-dot short label */
-  label: string;
-  Component: ComponentType<OnboardingStepProps>;
-}
-
 /**
- * Config-driven per-type anchor-step list. The wizard shell renders
- * whichever step is active generically — it never branches on project type
- * beyond looking up this registry.
+ * Registro `key → Componente React` das telas do onboarding. SÓ isso: a ordem,
+ * o rótulo, o texto de apoio e o "pode pular" vêm da jornada resolvida
+ * (`ONBOARDING_JOURNEY_DEFAULTS`/`resolveJourney` em `@reformaflow/domain`,
+ * com os overrides que o admin salvou). Uma chave sem componente aqui
+ * simplesmente não é renderizada — o wizard não quebra.
+ *
+ * `maria-insight` e `feedback` não estão aqui porque têm props próprias
+ * (contexto da despesa criada / envio de feedback) e são montados
+ * explicitamente pelo shell.
  */
-export const ANCHOR_STEPS: Record<ProjectType, AnchorStepDef[]> = {
-  [ProjectType.PESSOAL]: [
-    { key: 'bank', label: 'Conta', Component: BankAccountStep },
-    { key: 'card', label: 'Cartão', Component: CreditCardStep },
-    { key: 'expense', label: 'Despesa', Component: QuickExpenseStep },
-    { key: 'import', label: 'Importar', Component: ImportMassStep },
-    { key: 'receipt', label: 'Recebimento', Component: QuickReceiptStep },
-  ],
-  [ProjectType.REFORMA]: [{ key: 'expense', label: 'Despesa', Component: QuickExpenseStep }],
-  [ProjectType.COMPRA]: [{ key: 'expense', label: 'Despesa', Component: QuickExpenseStep }],
-  [ProjectType.CASA]: [{ key: 'bill', label: 'Conta', Component: RecurringBillStep }],
-  [ProjectType.CARRO]: [{ key: 'car', label: 'Veículo', Component: CarInfoStep }],
-  [ProjectType.PLANTAS]: [{ key: 'plant', label: 'Planta', Component: PlantStep }],
+export const STEP_COMPONENTS: Record<string, ComponentType<OnboardingStepProps>> = {
+  bank: BankAccountStep,
+  card: CreditCardStep,
+  expense: QuickExpenseStep,
+  import: ImportMassStep,
+  receipt: QuickReceiptStep,
+  bill: RecurringBillStep,
+  car: CarInfoStep,
+  plant: PlantStep,
 };

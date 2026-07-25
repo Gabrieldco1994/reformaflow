@@ -1105,3 +1105,24 @@ model UserActivityLog {
   @@index([tenantId, createdAt(sort: Desc)])
   @@map("user_activity_logs")
 }
+
+// ─── Jornada de Onboarding (config global do admin) ───────────
+// Escopo GLOBAL de propósito: uma jornada por tipo de projeto, válida para
+// todos os tenants. Linha ausente = default do catálogo em
+// `@reformaflow/domain` (ONBOARDING_JOURNEY_DEFAULTS), então config vazia
+// ainda entrega a jornada padrão completa.
+model OnboardingJourneyStep {
+  id               String   @id @default(cuid())
+  projectType      String   @map("project_type")
+  stepKey          String   @map("step_key")
+  order            Int
+  enabled          Boolean  @default(true)
+  skippable        Boolean  @default(true)
+  labelOverride    String?  @map("label_override")
+  subtitleOverride String?  @map("subtitle_override")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@unique([projectType, stepKey])
+  @@map("onboarding_journey_steps")
+}

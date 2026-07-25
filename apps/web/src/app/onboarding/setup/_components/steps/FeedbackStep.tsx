@@ -7,6 +7,10 @@ import { api } from '@/lib/api';
 interface FeedbackStepProps {
   /** Chamado ao concluir (com ou sem envio) — avança para o "Pronto"/cockpit. */
   onDone: () => void;
+  /** Texto de apoio vindo da jornada (o admin pode reescrever). */
+  subtitle?: string;
+  /** `false` = tela obrigatória na jornada: não oferece "Pular". */
+  canSkip?: boolean;
 }
 
 const RATING_LABELS: Record<number, string> = {
@@ -27,7 +31,7 @@ const RATING_LABELS: Record<number, string> = {
  * depois usa "Pular" (hábito dos outros passos do wizard), a nota não se
  * perde — só pula de fato quando nada foi preenchido.
  */
-export function FeedbackStep({ onDone }: FeedbackStepProps) {
+export function FeedbackStep({ onDone, subtitle, canSkip = true }: FeedbackStepProps) {
   const [rating, setRating] = useState(0);
   const [message, setMessage] = useState('');
   const [status, setStatus] = useState<'idle' | 'sending'>('idle');
@@ -59,7 +63,7 @@ export function FeedbackStep({ onDone }: FeedbackStepProps) {
         <h2 className="text-[18px] font-bold text-lifeone-ink">O que achou do LifeOne até aqui?</h2>
       </div>
       <p className="mt-2 text-[13px] text-lifeone-ink-3">
-        O quanto fácil achou usar o app nesse começo?
+        {subtitle || 'O quanto fácil achou usar o app nesse começo?'}
       </p>
 
       <div className="mt-4 flex items-center justify-center gap-1.5">
@@ -102,14 +106,16 @@ export function FeedbackStep({ onDone }: FeedbackStepProps) {
         >
           {status === 'sending' ? 'Enviando…' : 'Enviar e concluir'}
         </button>
-        <button
-          type="button"
-          onClick={handleSubmit}
-          disabled={status === 'sending'}
-          className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] text-lifeone-ink-3 hover:text-lifeone-ink disabled:opacity-60"
-        >
-          <SkipForward className="h-3.5 w-3.5" /> Pular
-        </button>
+        {canSkip && (
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={status === 'sending'}
+            className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] text-lifeone-ink-3 hover:text-lifeone-ink disabled:opacity-60"
+          >
+            <SkipForward className="h-3.5 w-3.5" /> Pular
+          </button>
+        )}
       </div>
     </section>
   );

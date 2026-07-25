@@ -11,7 +11,7 @@ import type { OnboardingStepProps } from '../../_types';
  * Purpose-built quick-add receipt step — own local state, own POST call.
  * PESSOAL-only anchor (only caller in `ANCHOR_STEPS`).
  */
-export function QuickReceiptStep({ projectId, projectType, onDone, onSkip }: OnboardingStepProps) {
+export function QuickReceiptStep({ projectId, projectType, onDone, onSkip, subtitle, canSkip = true }: OnboardingStepProps) {
   const options = getReceiptTipoOptions(projectType);
   const [tipo, setTipo] = useState(options[0]?.value ?? '');
   const [valor, setValor] = useState('');
@@ -44,7 +44,7 @@ export function QuickReceiptStep({ projectId, projectType, onDone, onSkip }: Onb
   return (
     <section className="rounded-[18px] border border-lifeone-hairline bg-lifeone-card p-6 shadow-lifeone-card">
       <h2 className="text-[18px] font-bold text-lifeone-ink">Seu primeiro recebimento</h2>
-      <p className="text-[13px] text-lifeone-ink-3">Registre uma entrada esperada para começar a prever o caixa</p>
+      <p className="text-[13px] text-lifeone-ink-3">{subtitle || 'Registre uma entrada esperada para começar a prever o caixa'}</p>
 
       <div className="mt-4 space-y-3">
         <div>
@@ -107,12 +107,14 @@ export function QuickReceiptStep({ projectId, projectType, onDone, onSkip }: Onb
           {saving ? 'Salvando…' : 'Criar e continuar'}
           {!saving && <ArrowRight className="h-4 w-4" />}
         </button>
-        <button
-          onClick={onSkip}
-          className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] text-lifeone-ink-3 hover:text-lifeone-ink"
-        >
-          <SkipForward className="h-3.5 w-3.5" /> Pular por agora
-        </button>
+        {canSkip && (
+          <button
+            onClick={onSkip}
+            className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] text-lifeone-ink-3 hover:text-lifeone-ink"
+          >
+            <SkipForward className="h-3.5 w-3.5" /> Pular por agora
+          </button>
+        )}
       </div>
     </section>
   );
