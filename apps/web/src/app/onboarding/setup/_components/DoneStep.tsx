@@ -9,9 +9,9 @@ export function DoneStep() {
       <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#E8F5EE]">
         <CheckCircle2 className="h-8 w-8 text-[#1E924A]" />
       </div>
-      <h2 className="mt-4 text-[22px] font-bold text-lifeone-ink">Tudo pronto!</h2>
+      <h2 className="mt-4 text-[22px] font-bold text-lifeone-ink">Tudo pronto para começar!</h2>
       <p className="mt-2 text-[14px] text-lifeone-ink-3">
-        Seu Cockpit está configurado. Levando você para lá…
+        Conta e cartão são opcionais — adicione quando quiser em Configurações.
       </p>
       <div className="mt-4 flex justify-center">
         <div className="h-1 w-24 overflow-hidden rounded-full bg-lifeone-hairline">
