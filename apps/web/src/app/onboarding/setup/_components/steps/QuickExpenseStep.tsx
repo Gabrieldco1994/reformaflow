@@ -202,36 +202,41 @@ export function QuickExpenseStep({ projectId, projectType, onDone, onSkip }: Onb
             </div>
 
             {showVinculos && (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label htmlFor="qe-conta" className="mb-1 block text-[12px] font-medium text-lifeone-ink-2">Conta bancária</label>
-                  <select
-                    id="qe-conta"
-                    value={bankAccountId}
-                    onChange={(e) => setBankAccountId(e.target.value)}
-                    className="min-h-11 w-full rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-3 py-2.5 text-[14px]"
-                  >
-                    <option value="">Nenhuma</option>
-                    {accounts.map((a) => (
-                      <option key={a.id} value={a.id}>{a.nickname || a.institution}</option>
-                    ))}
-                  </select>
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label htmlFor="qe-conta" className="mb-1 block text-[12px] font-medium text-lifeone-ink-2">Conta bancária</label>
+                    <select
+                      id="qe-conta"
+                      value={bankAccountId}
+                      onChange={(e) => setBankAccountId(e.target.value)}
+                      className="min-h-11 w-full rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-3 py-2.5 text-[14px]"
+                    >
+                      <option value="">{accounts.length === 0 ? 'Dinheiro / Carteira' : 'Nenhuma'}</option>
+                      {accounts.map((a) => (
+                        <option key={a.id} value={a.id}>{a.nickname || a.institution}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="qe-cartao" className="mb-1 block text-[12px] font-medium text-lifeone-ink-2">Cartão</label>
+                    <select
+                      id="qe-cartao"
+                      value={creditCardId}
+                      onChange={(e) => setCreditCardId(e.target.value)}
+                      className="min-h-11 w-full rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-3 py-2.5 text-[14px]"
+                    >
+                      <option value="">{cards.length === 0 ? 'Dinheiro / Carteira' : 'Nenhum'}</option>
+                      {cards.map((c) => (
+                        <option key={c.id} value={c.id}>{c.nickname || `${c.brand} ••${c.last4}`}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-                <div>
-                  <label htmlFor="qe-cartao" className="mb-1 block text-[12px] font-medium text-lifeone-ink-2">Cartão</label>
-                  <select
-                    id="qe-cartao"
-                    value={creditCardId}
-                    onChange={(e) => setCreditCardId(e.target.value)}
-                    className="min-h-11 w-full rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-3 py-2.5 text-[14px]"
-                  >
-                    <option value="">Nenhum</option>
-                    {cards.map((c) => (
-                      <option key={c.id} value={c.id}>{c.nickname || `${c.brand} ••${c.last4}`}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+                {accounts.length === 0 && cards.length === 0 && (
+                  <p className="text-[12px] text-lifeone-ink-3 mt-1">Sem cartão nem conta: lançamento vai para Carteira automaticamente.</p>
+                )}
+              </>
             )}
           </div>
 
