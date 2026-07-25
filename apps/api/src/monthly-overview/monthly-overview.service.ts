@@ -1146,6 +1146,9 @@ export class MonthlyOverviewService {
         tipo: receiptTypeKey(receipt.tipo),
         valor: receipt.valor,
         bankLast4: receipt.bankLast4,
+        origem: receipt.bankLast4
+          ? { tipo: 'conta' as const, bankLast4: receipt.bankLast4 }
+          : { tipo: 'carteira' as const },
         status: receipt.status,
       }));
 
