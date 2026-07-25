@@ -644,8 +644,12 @@ describe("MonthlyOverviewService.getAccountView", () => {
     expect(ids).toContain("rec-em-caixa-sem-conta");
     expect(ids).toContain("rec-previsto-sem-conta");
     expect(res.entradas.find((e: any) => e.id === "rec-em-caixa-sem-conta").bankLast4).toBeNull();
+    expect(res.entradas.find((e: any) => e.id === "rec-em-caixa-sem-conta").origem).toEqual({
+      tipo: "carteira",
+    });
     expect(res.entrouMes).toBe(15_000);
     expect(res.recebimentosPrevistosMes).toBe(5_000);
+    expect(res.carteiraHoje).toBe(15_000);
     // §10 puro: recebimento sem conta NÃO entra no saldo reconciliado com o banco.
     expect(res.caixaHoje).toBe(100_000);
   });
@@ -2961,5 +2965,6 @@ describe("MonthlyOverviewService.getAccountView — Carteira (origem='none')", (
     expect(item.realizado).toBe(true);
     expect(res.saiuMes).toBe(1_500);
     expect(res.faltaPagarMes).toBe(0);
+    expect(res.carteiraHoje).toBe(-1_500);
   });
 });
