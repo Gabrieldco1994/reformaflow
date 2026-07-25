@@ -321,9 +321,11 @@ export class PendenciaService {
       }));
 
     const groups: Array<[FinancialQueueType, FinancialQueueItem[]]> = [
+      // Primeiro grupo de propósito: é o único erro da fila em que o dinheiro
+      // está contado 2× no consolidado — os demais são só falta de detalhe.
+      ['PAGAMENTO_FATURA_SEM_CARTAO', pagamentoSemCartao],
       ['SEM_CONTA', semConta],
       ['SEM_CATEGORIA', semCategoria],
-      ['PAGAMENTO_FATURA_SEM_CARTAO', pagamentoSemCartao],
       ['FATURA_NAO_PAGA', faturasNaoPagas],
       ['PARCELA_FOREIGN_PENDENTE', foreignPendentes],
       ['RECEBIMENTO_SEM_CONTA', recebimentosSemConta],
