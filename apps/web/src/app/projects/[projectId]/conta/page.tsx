@@ -231,6 +231,7 @@ export default function ContaPage() {
             <>
               <ResumoCards
                 caixaHoje={data.caixaHoje}
+                carteiraHoje={data.carteiraHoje}
                 entrouMes={data.entrouMes}
                 saiuMes={data.saiuMes}
                 faltaPagarMes={data.faltaPagarMes}

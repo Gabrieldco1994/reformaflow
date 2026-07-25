@@ -87,4 +87,26 @@ describe('deriveCockpitTop — projeção de fim de mês (eixo de caixa, §10)',
     expect(t.aReceberMes).toBe(2_523_200); // competência: recebimento planejado
     expect(t.projecaoMes).toBe(6_901_652 + 2_523_200 - 2_224_902);
   });
+
+  it('usa a Carteira como base da projeção quando não há saldo inicial', () => {
+    const data = baseData({
+      caixa: { hoje: 0, saldoInicial: 0, temSaldoInicial: false, porMes: [], carteiraHoje: 5_000 },
+      projecao: {
+        status: 'canonical',
+        mes: '2026-07',
+        caixaHoje: 0,
+        carteiraHoje: 5_000,
+        entrouMes: 0,
+        saiuMes: 0,
+        faltaPagarMes: 2_000,
+        recebimentosPrevistosMes: 1_000,
+        sobraPrevista: 0,
+      },
+    });
+
+    const t = deriveCockpitTop(data);
+
+    expect(t.caixaValor).toBe(5_000);
+    expect(t.projecaoMes).toBe(4_000);
+  });
 });

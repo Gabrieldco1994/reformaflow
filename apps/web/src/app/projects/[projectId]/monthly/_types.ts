@@ -63,6 +63,8 @@ export interface MonthlyEntry {
 export interface CaixaConta {
   /** Saldo da conta hoje = saldo inicial + lançamentos realizados da conta. */
   hoje: number;
+  /** Fluxo líquido realizado em espécie, sem conta/cartão vinculado. */
+  carteiraHoje?: number;
   /** Soma dos saldos iniciais cadastrados nas contas do projeto. */
   saldoInicial: number;
   /** Há saldo inicial cadastrado? Se não, `hoje` é só o fluxo (não bate com o banco). */
@@ -101,5 +103,7 @@ export interface MonthlyOverviewResponse {
     faltaPagarMes: number;
     recebimentosPrevistosMes: number;
     sobraPrevista: number;
+    /** Fluxo líquido realizado em espécie, sem conta/cartão vinculado. */
+    carteiraHoje?: number;
   };
 }

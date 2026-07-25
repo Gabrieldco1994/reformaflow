@@ -50,6 +50,7 @@ const PROJECTION_KEYS = ['faltaPagarMes', 'sobraPrevista'] as const;
 
 export function ResumoCards({
   caixaHoje,
+  carteiraHoje,
   entrouMes,
   saiuMes,
   faltaPagarMes,
@@ -60,6 +61,7 @@ export function ResumoCards({
   onQuickFilterSelect,
 }: {
   caixaHoje: number;
+  carteiraHoje?: number;
   entrouMes: number;
   saiuMes: number;
   faltaPagarMes: number;
@@ -70,6 +72,8 @@ export function ResumoCards({
   activeQuickFilter: ResumoQuickFilterKey | null;
   onQuickFilterSelect: (key: ResumoQuickFilterKey) => void;
 }) {
+  const modoCarteira = caixaHoje === 0 && (carteiraHoje ?? 0) !== 0;
+
   const values: Record<SummaryKey, number> = {
     entrouMes,
     saiuMes,
@@ -123,17 +127,23 @@ export function ResumoCards({
     <section className="grid gap-2.5 xl:grid-cols-12 xl:gap-4">
       <article className="rounded-2xl border border-lifeone-hairline bg-lifeone-card p-3 shadow-lifeone-card xl:col-span-4 xl:flex xl:min-h-full xl:flex-col xl:justify-between xl:rounded-3xl xl:p-6">
         <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-lifeone-ink-3">
-          Tenho na conta hoje
+          {modoCarteira ? 'Carteira (dinheiro)' : 'Tenho na conta hoje'}
           <InfoHint
-            text="O dinheiro disponível de verdade na conta agora, reconciliado com o banco. Compras no cartão só entram aqui quando a fatura é paga."
+            text={
+              modoCarteira
+                ? 'Fluxo líquido de dinheiro em espécie: recebimentos já em mãos menos despesas já pagas em dinheiro. Sem conta bancária vinculada.'
+                : 'O dinheiro disponível de verdade na conta agora, reconciliado com o banco. Compras no cartão só entram aqui quando a fatura é paga.'
+            }
             className="text-lifeone-ink-3"
           />
         </p>
         <p className="mt-1.5 font-geist text-[22px] font-bold tabular-nums tracking-tight text-lifeone-ink xl:mt-2 xl:text-[34px]">
-          {formatCurrency(caixaHoje / 100)}
+          {formatCurrency((modoCarteira ? (carteiraHoje ?? 0) : caixaHoje) / 100)}
         </p>
         <p className="mt-1.5 max-w-sm text-[11px] leading-3.5 text-lifeone-ink-3 xl:mt-2 xl:text-xs xl:leading-5">
-          é o dinheiro disponível agora, de verdade, na sua conta
+          {modoCarteira
+            ? 'resultado do que entrou e saiu em dinheiro/espécie neste período'
+            : 'é o dinheiro disponível agora, de verdade, na sua conta'}
         </p>
       </article>
 
