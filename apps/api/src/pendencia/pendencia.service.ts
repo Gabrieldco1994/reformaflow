@@ -3,6 +3,11 @@ import { ExpenseType } from '@reformaflow/domain';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePendenciaDto, UpdatePendenciaDto, MovePendenciaDto } from './dto/pendencia.dto';
 import { MonthlyOverviewService } from '../monthly-overview/monthly-overview.service';
+import { BankAccountService } from '../bank-account/bank-account.service';
+import {
+  rankCardCandidates,
+  type CardInvoiceCandidate,
+} from '../bank-account/card-invoice-match';
 import {
   MerchantClassifierService,
   MERCHANT_TO_EXPENSE_TYPE,
@@ -31,6 +36,7 @@ export interface PendenciaDto {
 type FinancialQueueType =
   | 'SEM_CONTA'
   | 'SEM_CATEGORIA'
+  | 'PAGAMENTO_FATURA_SEM_CARTAO'
   | 'FATURA_NAO_PAGA'
   | 'PARCELA_FOREIGN_PENDENTE'
   | 'RECEBIMENTO_PREVISTO_ATRASADO'
@@ -50,6 +56,7 @@ export interface FinancialQueueItem {
   foreignExpenseId?: string;
   parcelaIndex?: number;
   suggestionTipoDespesa?: string;
+  cardCandidates?: CardInvoiceCandidate[];
 }
 
 export interface FinancialQueueGroup {
@@ -70,12 +77,21 @@ const INCLUDE = {
   scheduleTask: { select: { nome: true, numero: true } },
 } as const;
 
+/** Janela de compras considerada ao ranquear faturas candidatas (±120 dias). */
+const CARD_WINDOW_MS = 120 * 24 * 60 * 60 * 1000;
+
+function monthRangeUtc(monthKey: string): [Date, Date] {
+  const [year, month] = monthKey.split('-').map((value) => parseInt(value, 10));
+  return [new Date(Date.UTC(year, month - 1, 1)), new Date(Date.UTC(year, month, 1))];
+}
+
 @Injectable()
 export class PendenciaService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly monthlyOverviewService: MonthlyOverviewService,
     private readonly merchantClassifierService: MerchantClassifierService,
+    private readonly bankAccountService: BankAccountService,
   ) {}
 
   private toDto(p: any): PendenciaDto {
@@ -135,6 +151,7 @@ export class PendenciaService {
   private static groupLabel(tipo: FinancialQueueType): string {
     if (tipo === 'SEM_CONTA') return 'Sem conta';
     if (tipo === 'SEM_CATEGORIA') return 'Sem categoria';
+    if (tipo === 'PAGAMENTO_FATURA_SEM_CARTAO') return 'Pagamento de fatura sem cartão';
     if (tipo === 'FATURA_NAO_PAGA') return 'Fatura a vencer ou vencida';
     if (tipo === 'PARCELA_FOREIGN_PENDENTE') return 'Parcela cross-project pendente';
     if (tipo === 'RECEBIMENTO_SEM_CONTA') return 'Recebimento sem conta';
@@ -196,8 +213,46 @@ export class PendenciaService {
       .filter((item): item is FinancialQueueItem => item !== null)
       .sort((a, b) => b.valor - a.valor);
 
-    const faturasNaoPagas: FinancialQueueItem[] = accountView.cartoes
-      .filter((c) => c.status !== 'paga' && c.faturaPendente > 0)
+    // Rede de segurança: pagamento de fatura que nasceu sem cartão identificado.
+    // Não dá para sourcear de accountView.saidas — accountExpenseList exclui
+    // tipos neutros, e PAGAMENTO_FATURA_CARTAO é neutro. Sem esta query o item
+    // fica invisível em TODA a UI enquanto sai do caixa e deixa a fatura em
+    // aberto (o mesmo dinheiro contado 2×).
+    const [monthStart, monthEnd] = monthRangeUtc(accountView.mesSelecionado);
+    const pagamentosOrfaos = await this.prisma.expense.findMany({
+      where: {
+        tenantId,
+        projectId,
+        deletedAt: null,
+        tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+        cardLast4: null,
+        dataPagamento: { gte: monthStart, lt: monthEnd },
+      },
+      select: { id: true, titulo: true, fornecedor: true, valor: true, dataPagamento: true },
+      orderBy: { valor: 'desc' },
+    });
+
+    let pagamentoSemCartao: FinancialQueueItem[] = [];
+    if (pagamentosOrfaos.length > 0) {
+      const dates = pagamentosOrfaos.map((p) => p.dataPagamento!.getTime());
+      const cards = await this.bankAccountService.loadCardsWithEntries(
+        tenantId,
+        new Date(Math.min(...dates) - CARD_WINDOW_MS),
+        new Date(Math.max(...dates) + CARD_WINDOW_MS),
+      );
+      pagamentoSemCartao = pagamentosOrfaos.map((p) => ({
+        id: `fatura-sem-cartao-${p.id}`,
+        tipo: 'PAGAMENTO_FATURA_SEM_CARTAO' as const,
+        label: 'Escolher cartão',
+        descricao: p.titulo ?? p.fornecedor ?? 'Pagamento de fatura',
+        valor: p.valor,
+        data: p.dataPagamento!.toISOString(),
+        expenseId: p.id,
+        cardCandidates: rankCardCandidates(cards, p.valor, p.dataPagamento!),
+      }));
+    }
+
+    const faturasNaoPagas: FinancialQueueItem[] = accountView.cartoes      .filter((c) => c.status !== 'paga' && c.faturaPendente > 0)
       .filter((c) => {
         const dueDate = new Date(c.vencimento);
         return dueDate >= startToday && dueDate <= sevenDays;
@@ -266,6 +321,9 @@ export class PendenciaService {
       }));
 
     const groups: Array<[FinancialQueueType, FinancialQueueItem[]]> = [
+      // Primeiro grupo de propósito: é o único erro da fila em que o dinheiro
+      // está contado 2× no consolidado — os demais são só falta de detalhe.
+      ['PAGAMENTO_FATURA_SEM_CARTAO', pagamentoSemCartao],
       ['SEM_CONTA', semConta],
       ['SEM_CATEGORIA', semCategoria],
       ['FATURA_NAO_PAGA', faturasNaoPagas],

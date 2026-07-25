@@ -4,6 +4,7 @@ import { PendenciaService } from './pendencia.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { MonthlyOverviewService } from '../monthly-overview/monthly-overview.service';
 import { MerchantClassifierService } from '../merchant-classifier/merchant-classifier.service';
+import { BankAccountService } from '../bank-account/bank-account.service';
 
 const TENANT = 't1';
 const PROJECT = 'reforma1';
@@ -34,6 +35,7 @@ describe('PendenciaService', () => {
   let prisma: any;
   let monthlyOverviewService: any;
   let merchantClassifierService: any;
+  let bankAccountService: any;
 
   beforeEach(async () => {
     prisma = {
@@ -46,9 +48,11 @@ describe('PendenciaService', () => {
       },
       room: { findFirst: jest.fn() },
       scheduleTask: { findFirst: jest.fn() },
+      expense: { findMany: jest.fn().mockResolvedValue([]) },
     };
     monthlyOverviewService = { getAccountView: jest.fn() };
     merchantClassifierService = { fromCache: jest.fn() };
+    bankAccountService = { loadCardsWithEntries: jest.fn().mockResolvedValue([]) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -56,6 +60,7 @@ describe('PendenciaService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: MonthlyOverviewService, useValue: monthlyOverviewService },
         { provide: MerchantClassifierService, useValue: merchantClassifierService },
+        { provide: BankAccountService, useValue: bankAccountService },
       ],
     }).compile();
 
@@ -184,6 +189,7 @@ describe('PendenciaService', () => {
       const dueSoon = new Date();
       dueSoon.setDate(dueSoon.getDate() + 2);
       monthlyOverviewService.getAccountView.mockResolvedValue({
+        mesSelecionado: '2026-07',
         cartoes: [
           {
             nickname: 'Nubank',
@@ -256,6 +262,56 @@ describe('PendenciaService', () => {
       expect(semConta.itens[0].label).toBe('Associar conta');
       const atrasado = res.grupos.find((g: any) => g.tipo === 'RECEBIMENTO_PREVISTO_ATRASADO')!;
       expect(atrasado.itens[0].receiptId).toBe('r1');
+    });
+
+    // Rede de segurança do bug real (jul/2026): o pagamento de fatura sem
+    // cardLast4 é neutro, então accountExpenseList o exclui e ele não aparece
+    // em NENHUMA lista da Visão Conta — enquanto sai do caixa e deixa a fatura
+    // em aberto. A fila é a única superfície que pode denunciá-lo.
+    it('lista pagamento de fatura sem cartão com os cartões candidatos ranqueados', async () => {
+      monthlyOverviewService.getAccountView.mockResolvedValue({
+        mesSelecionado: '2026-07',
+        cartoes: [],
+        saidas: [],
+        entradas: [],
+      });
+      prisma.expense.findMany.mockResolvedValue([
+        {
+          id: 'exp-fatura',
+          titulo: 'FATURA PAGA Itau Personn',
+          fornecedor: 'FATURA PAGA Itau Personn',
+          valor: 1765585,
+          dataPagamento: new Date('2026-07-21T00:00:00.000Z'),
+        },
+      ]);
+      bankAccountService.loadCardsWithEntries.mockResolvedValue([
+        {
+          last4: '5572',
+          nickname: 'Visa ****5572',
+          closingDay: null,
+          dueDay: 5,
+          entries: [{ data: new Date('2026-08-10T00:00:00.000Z'), valor: 1842813 }],
+        },
+      ]);
+
+      const res = await service.findFinancialQueue(TENANT, PROJECT, '2026-07');
+
+      expect(prisma.expense.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+            cardLast4: null,
+          }),
+        }),
+      );
+      const grupo = res.grupos.find((g: any) => g.tipo === 'PAGAMENTO_FATURA_SEM_CARTAO');
+      expect(grupo).toBeDefined();
+      expect(grupo!.itens[0].expenseId).toBe('exp-fatura');
+      expect(grupo!.itens[0].label).toBe('Escolher cartão');
+      // Delta de R$ 772,28 — match exato não acharia; o candidato ainda aparece.
+      expect(grupo!.itens[0].cardCandidates).toEqual([
+        expect.objectContaining({ cardLast4: '5572', dueMonth: '2026-08', deltaCents: 77228 }),
+      ]);
     });
   });
 });

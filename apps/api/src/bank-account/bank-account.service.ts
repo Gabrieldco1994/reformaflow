@@ -54,6 +54,12 @@ import {
 } from '../merchant-classifier/merchant-classifier.service';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import { CardInvoiceSettlementService } from '../credit-card/card-invoice-settlement.service';
+import {
+  pickUniqueCardMatch,
+  rankCardCandidates,
+  type CardInvoiceCandidate,
+  type CardWithEntries,
+} from './card-invoice-match';
 import { buildInstallments, NEUTRAL_EXPENSE_TYPES } from '@reformaflow/domain';
 
 export interface BankImportDecision {
@@ -65,6 +71,12 @@ export interface BankImportDecision {
     titulo?: string;
     valorCents?: number;
     category?: string;
+    /**
+     * Cartão que esta linha quita, escolhido pelo usuário na tela de importação.
+     * Manda mais que qualquer heurística: com ele o pagamento nasce com
+     * `cardLast4` preenchido e a fatura é liquidada no mesmo commit.
+     */
+    cardLast4?: string;
   };
 }
 
@@ -403,6 +415,13 @@ export class BankAccountService {
         });
     }
 
+    const cardWindow = this.cardEntryWindow(parsed.transactions);
+    const cardsWithEntries = await this.loadCardsWithEntries(
+      tenantId,
+      cardWindow.from,
+      cardWindow.to,
+    );
+
     const preview = await Promise.all(parsed.transactions.map(async (tx) => {
       let isCardPay = tx.amountCents > 0 && detectCardPayment(tx.merchant).isCardPayment;
       // Match async por valor para "Pagamento PIX" / "PgConta" sem texto explícito
@@ -410,6 +429,14 @@ export class BankAccountService {
         const matched = await this.findCardPaymentByAmount(tenantId, tx.amountCents, tx.date);
         if (matched) isCardPay = true;
       }
+      // Candidatos de fatura só interessam para pagamento de fatura. O usuário
+      // escolhe na tela — o pagamento nunca deveria nascer sem cartão.
+      const cardCandidates = isCardPay
+        ? rankCardCandidates(cardsWithEntries, tx.amountCents, tx.date)
+        : [];
+      const autoCard = isCardPay
+        ? (detectCardPayment(tx.merchant).last4 ?? pickUniqueCardMatch(cardCandidates)?.cardLast4 ?? null)
+        : null;
       const matches = tx.amountCents < 0
         ? findReceiptMatches(tx)         // crédito → match com Receipt PLANEJADO
         : findExpenseMatches(tx);        // débito → match com Expense PLANEJADO
@@ -432,6 +459,8 @@ export class BankAccountService {
           : (fastClassify(tx.merchant) === 'MOVIMENTACAO_INTERNA' ? 'MOVIMENTACAO_INTERNA' : 'RECEITA'),
         categoriaFonte:
           tx.amountCents > 0 && !isCardPay && manualExpenseType ? 'regra' : null,
+        cardCandidates,
+        suggestedCardLast4: autoCard,
         crossProjectMatches: matches,
       };
     }));
@@ -511,8 +540,15 @@ export class BankAccountService {
     let inserted = 0;
     let receiptsInserted = 0;
     let cardPayments = 0;
+    let unlinkedCardPayments = 0;
     let skipped = 0;
     let linked = 0;
+    const cardWindow = this.cardEntryWindow(toInsert);
+    const cardsWithEntries = await this.loadCardsWithEntries(
+      tenantId,
+      cardWindow.from,
+      cardWindow.to,
+    );
     for (const tx of toInsert) {
       const d = decisionByExt.get(tx.externalId);
       const adjustedTx: NormalizedTx = {
@@ -529,10 +565,19 @@ export class BankAccountService {
           importRecord.id,
           d?.overrides?.category,
           createdByUserId,
+          {
+            override: d?.overrides?.cardLast4 ?? null,
+            candidates: rankCardCandidates(
+              cardsWithEntries,
+              Math.abs(adjustedTx.amountCents),
+              adjustedTx.date,
+            ),
+          },
         );
         if (result.inserted) inserted++;
         if (result.receiptInserted) receiptsInserted++;
         if (result.cardPayment) cardPayments++;
+        if (result.unlinkedCardPayment) unlinkedCardPayments++;
 
         // Link cross-project
         if (d?.action === 'link') {
@@ -575,6 +620,9 @@ export class BankAccountService {
         message: [
           receiptsInserted > 0 ? `${receiptsInserted} recebimento(s)` : null,
           cardPayments > 0 ? `${cardPayments} pagto(s) de cartão vinculado(s)` : null,
+          unlinkedCardPayments > 0
+            ? `${unlinkedCardPayments} pagto(s) de fatura SEM cartão identificado`
+            : null,
           linked > 0 ? `${linked} vinculada(s) a planejado` : null,
           aiReclassified > 0 ? `${aiReclassified} categoria(s) por regra` : null,
           recurrencesCreated > 0 ? `${recurrencesCreated} recorrência(s) propagada(s)` : null,
@@ -592,6 +640,7 @@ export class BankAccountService {
       duplicated,
       receiptsInserted,
       cardPayments,
+      unlinkedCardPayments,
       aiReclassified,
       recurrencesCreated,
       skipped: skipped + userSkipped,
@@ -1060,7 +1109,8 @@ export class BankAccountService {
     importId: string,
     categoryOverride?: string,
     createdByUserId: string | null = null,
-  ): Promise<{ inserted: boolean; receiptInserted: boolean; cardPayment: boolean; expenseId?: string; receiptId?: string }> {
+    cardHint?: { override?: string | null; candidates?: CardInvoiceCandidate[] },
+  ): Promise<{ inserted: boolean; receiptInserted: boolean; cardPayment: boolean; unlinkedCardPayment: boolean; expenseId?: string; receiptId?: string }> {
     if (tx.amountCents < 0) {
       const receiptAmount = -tx.amountCents;
       // Movimentação interna (resgate de aplicação/cofrinho etc.) entra como
@@ -1101,7 +1151,7 @@ export class BankAccountService {
             status: 'EM_CAIXA',
           },
         });
-        return { inserted: false, receiptInserted: true, cardPayment: false, receiptId: receipt.id };
+        return { inserted: false, receiptInserted: true, cardPayment: false, unlinkedCardPayment: false, receiptId: receipt.id };
       }
       const tipoReceipt = classifyCreditType(tx.merchant);
       const receipt = await this.prisma.receipt.create({
@@ -1132,23 +1182,29 @@ export class BankAccountService {
           status: 'EM_CAIXA',
         },
       });
-      return { inserted: false, receiptInserted: true, cardPayment: false, receiptId: receipt.id };
+      return { inserted: false, receiptInserted: true, cardPayment: false, unlinkedCardPayment: false, receiptId: receipt.id };
     }
 
     // ─── Detecção de pagamento de fatura de cartão ─────────────
-    // (a) por texto explícito ("FATURA PAGA", "PAGTO CART CRED" etc.)
+    // (a) escolha explícita do usuário na tela de importação — manda em tudo
+    // (b) por texto explícito ("FATURA PAGA", "PAGTO CART CRED" etc.)
+    // (c) por valor — transferência de saída sem texto explícito
     const cardPaymentInfo = detectCardPayment(tx.merchant);
     let matchedCard: { id: string; last4: string; nickname: string } | null = null;
     let isCardPayment = cardPaymentInfo.isCardPayment;
-    if (isCardPayment) {
+    if (cardHint?.override && (!categoryOverride || categoryOverride === 'PAGAMENTO_FATURA_CARTAO')) {
+      matchedCard = await this.findCardByLast4(tenantId, cardHint.override);
+      if (matchedCard) isCardPayment = true;
+    } else if (isCardPayment) {
       matchedCard = await this.findMatchingCreditCard(
         tenantId,
         tx.amountCents,
         tx.date,
         cardPaymentInfo.last4,
+        cardHint?.candidates ?? [],
       );
     } else if (looksLikeOutboundTransfer(tx.merchant) && !categoryOverride) {
-      // (b) match por valor — apenas transferências de saída sem texto explícito.
+      // (c) match por valor — apenas transferências de saída sem texto explícito.
       // Ex.: "Pagamento PIX" da fatura 7777, "PgConta NU PAGAMENTOS SA" etc.
       // Critério estrito (±R$ 0,50, ±10 dias) para evitar falso positivo.
       matchedCard = await this.findCardPaymentByAmount(tenantId, tx.amountCents, tx.date);
@@ -1203,7 +1259,15 @@ export class BankAccountService {
         }
       }
 
-      return { inserted: false, receiptInserted: false, cardPayment: true, expenseId: e.id };
+      return {
+        inserted: false,
+        receiptInserted: false,
+        // Só é "vinculado" se de fato achamos o cartão. Sem cartão, o pagamento
+        // sai do caixa (§10) mas NÃO quita fatura nenhuma — o commit avisa.
+        cardPayment: !!matchedCard,
+        unlinkedCardPayment: !matchedCard,
+        expenseId: e.id,
+      };
     }
 
     const manualExpenseType = categoryOverride ? null : await this.merchantClassifier.manualExpenseType(tx.merchant);
@@ -1242,7 +1306,7 @@ export class BankAccountService {
     // Tipos neutros (movimentação interna entre contas próprias) NÃO geram
     // cashflow — não afetam o saldo consolidado nem o total de despesas.
     if (expenseType === 'MOVIMENTACAO_INTERNA') {
-      return { inserted: false, receiptInserted: false, cardPayment: false, expenseId: expense.id };
+      return { inserted: false, receiptInserted: false, cardPayment: false, unlinkedCardPayment: false, expenseId: expense.id };
     }
 
     await this.prisma.cashFlowEntry.create({
@@ -1260,7 +1324,78 @@ export class BankAccountService {
       },
     });
 
-    return { inserted: true, receiptInserted: false, cardPayment: false, expenseId: expense.id };
+    return { inserted: true, receiptInserted: false, cardPayment: false, unlinkedCardPayment: false, expenseId: expense.id };
+  }
+
+  /**
+   * Carrega, para cada cartão do tenant, os lançamentos de caixa das COMPRAS
+   * (não-neutras) numa janela de datas — insumo puro de `rankCardCandidates`.
+   *
+   * ponytail: uma query por import (não por transação). Se um dia o tenant tiver
+   * dezenas de milhares de lançamentos, restringir a janela ou agregar em SQL.
+   */
+  /** Cartões do tenant com suas compras no período — base do ranking de faturas candidatas. */
+  async loadCardsWithEntries(
+    tenantId: string,
+    from: Date,
+    to: Date,
+  ): Promise<CardWithEntries[]> {
+    const cards = await this.prisma.creditCard.findMany({
+      where: { tenantId, deletedAt: null },
+      select: { last4: true, nickname: true, brand: true, closingDay: true, dueDay: true },
+    });
+    if (cards.length === 0) return [];
+
+    const entries = await this.prisma.cashFlowEntry.findMany({
+      where: {
+        tenantId,
+        tipo: 'DESPESA',
+        deletedAt: null,
+        data: { gte: from, lte: to },
+        expense: {
+          cardLast4: { not: null },
+          deletedAt: null,
+          tipoDespesa: { notIn: Array.from(NEUTRAL_EXPENSE_TYPES) },
+        },
+      },
+      select: { valor: true, data: true, expense: { select: { cardLast4: true } } },
+    });
+
+    const byLast4 = new Map<string, Array<{ data: Date; valor: number }>>();
+    for (const entry of entries) {
+      const last4 = entry.expense?.cardLast4;
+      if (!last4) continue;
+      const list = byLast4.get(last4) ?? [];
+      list.push({ data: entry.data, valor: entry.valor });
+      byLast4.set(last4, list);
+    }
+
+    return cards.map((card) => ({
+      last4: card.last4,
+      nickname: card.nickname?.trim() || `${card.brand} ••${card.last4}`,
+      closingDay: card.closingDay,
+      dueDay: card.dueDay,
+      entries: byLast4.get(card.last4) ?? [],
+    }));
+  }
+
+  /** Janela de datas que cobre as faturas relacionadas às transações do arquivo. */
+  private cardEntryWindow(transactions: Array<{ date: Date }>): { from: Date; to: Date } {
+    const times = transactions.map((t) => t.date.getTime());
+    const min = times.length > 0 ? Math.min(...times) : Date.now();
+    const max = times.length > 0 ? Math.max(...times) : Date.now();
+    const from = new Date(min);
+    from.setUTCDate(from.getUTCDate() - 120);
+    const to = new Date(max);
+    to.setUTCDate(to.getUTCDate() + 120);
+    return { from, to };
+  }
+
+  private async findCardByLast4(tenantId: string, last4: string) {
+    return this.prisma.creditCard.findFirst({
+      where: { tenantId, last4, deletedAt: null },
+      select: { id: true, last4: true, nickname: true },
+    });
   }
 
   /**
@@ -1269,13 +1404,17 @@ export class BankAccountService {
    *   1. Se hint de last4 detectado na descrição: match exato.
    *   2. Senão: procurar CreditCardStatementImport com totalAmountCents ≈ amountCents
    *      (±R$ 1) e cuja fatura está num período compatível (até 60 dias antes do pagamento).
-   *   3. Senão: qualquer cartão único do tenant (fallback se houver 1 só).
+   *   3. Senão: casar contra o total da fatura EM ABERTO (derivado das compras do
+   *      cartão por mês de vencimento) — não exige que a fatura tenha sido
+   *      importada. Só aceita match sem ambiguidade.
+   *   4. Senão: qualquer cartão único do tenant (fallback se houver 1 só).
    */
   private async findMatchingCreditCard(
     tenantId: string,
     amountCents: number,
     paymentDate: Date,
     hintLast4: string | null,
+    cardCandidates: CardInvoiceCandidate[] = [],
   ): Promise<{ id: string; last4: string; nickname: string } | null> {
     if (hintLast4) {
       const byHint = await this.prisma.creditCard.findFirst({
@@ -1299,6 +1438,13 @@ export class BankAccountService {
       orderBy: { createdAt: 'desc' },
     });
     if (matchedImport?.card) return matchedImport.card;
+
+    // Fatura em aberto com o mesmo total — funciona mesmo sem a fatura importada.
+    const byInvoiceTotal = pickUniqueCardMatch(cardCandidates);
+    if (byInvoiceTotal) {
+      const card = await this.findCardByLast4(tenantId, byInvoiceTotal.cardLast4);
+      if (card) return card;
+    }
 
     const cards = await this.prisma.creditCard.findMany({
       where: { tenantId, deletedAt: null },

@@ -25,6 +25,8 @@ export interface BankImportDecision {
     titulo?: string;
     valorCents?: number;
     category?: string;
+    /** Cartão cuja fatura esta linha quita. */
+    cardLast4?: string;
   };
 }
 
@@ -64,11 +66,22 @@ export default function ImportBankStatementModal({ projectId, account, onClose, 
       setPreview(res);
       const auto: Record<string, BankTxState> = {};
       for (const tx of res.preview ?? []) {
+        // Pagamento de fatura com cartão detectado sem ambiguidade já vem
+        // pré-selecionado — o usuário só confirma (ou troca) antes de importar.
+        if (tx.isCardPayment && tx.suggestedCardLast4) {
+          auto[tx.externalId] = {
+            decision: {
+              externalId: tx.externalId,
+              overrides: { cardLast4: tx.suggestedCardLast4 },
+            },
+          };
+        }
         const matches = tx.crossProjectMatches ?? [];
         if (matches.length === 1 && Math.abs(matches[0].deltaCents) < 100) {
           const m = matches[0];
           auto[tx.externalId] = {
             decision: {
+              ...auto[tx.externalId]?.decision,
               externalId: tx.externalId,
               action: 'link',
               linkToExpenseId: m.kind === 'expense' ? m.expenseId : undefined,
@@ -297,6 +310,12 @@ function CommittedView({ result, onClose }: { result: BankCommitResult; onClose:
         <p><strong>{result.receiptsInserted}</strong> recebimentos criados</p>
         <p><strong>{result.duplicated}</strong> ignoradas (duplicadas)</p>
         {!!result.cardPayments && <p><strong>{result.cardPayments}</strong> pagamentos de fatura detectados</p>}
+        {!!result.unlinkedCardPayments && (
+          <p className="text-amber-700">
+            <strong>{result.unlinkedCardPayments}</strong> pagamento(s) de fatura sem cartão
+            identificado — saíram do saldo, mas nenhuma fatura foi quitada.
+          </p>
+        )}
         {!!result.aiReclassified && <p><strong>{result.aiReclassified}</strong> reclassificadas pela IA</p>}
         {!!result.skipped && <p><strong>{result.skipped}</strong> ignoradas pelo usuário</p>}
         <p className="text-sm text-gray-500 mt-2">Período: {result.periodLabel}</p>
