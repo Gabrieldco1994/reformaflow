@@ -338,3 +338,54 @@ emitem `isNeutralConsumo=true`; `caixa.hoje` permaneceu R$ 69.016,52.
 **Interação com espelho cross-project:** itens Carteira podem ser alvos de vínculo/rateio cross-project (origem PESSOAL). O vínculo gera espelho; o espelho herda o `bankAccountId` definido no PESSOAL.
 
 **Filtro "Sem conta":** em `MovimentacoesSection`, o toggle "Sem conta" (estado `semContaFilter`) restringe a lista a itens `isCarteiraItem`. Oculto na aba Entradas.
+
+## §12 Pagamento de fatura sem cartão identificado (jul/2026)
+
+**O bug real:** o import de extrato criou uma despesa `PAGAMENTO_FATURA_CARTAO` de
+R$ 17.655,85 com `cardLast4: null` — `findMatchingCreditCard` só sabia casar contra o
+total de uma `CreditCardStatementImport`, e a fatura nunca tinha sido importada.
+
+**Por que é grave — dinheiro contado 2×:**
+
+| motor | comportamento com `cardLast4: null` |
+|---|---|
+| `computeCaixaConta` §10 | debita o caixa (olha `status='PAGO'` + `bankLast4`) — correto, o dinheiro saiu |
+| `getAccountView` (quitação de fatura) | **ignora** (exige `!!cardLast4`) → a fatura continua em aberto |
+| `accountExpenseList` | **exclui** (tipo neutro) → o item não aparece em nenhuma lista da Conta |
+| fila "Precisa de você" (`SEM_CONTA`) | não pegava (filtra `!bankLast4`, e o pagamento tem banco) |
+
+Resultado: o valor saía do saldo E continuava sendo cobrado como fatura pendente, sem
+nenhuma pista na UI.
+
+**Identificação do cartão (`bank-account/card-invoice-match.ts`, módulo puro):**
+a fatura em aberto **não precisa ter sido importada** — o total dela é derivado das
+compras do cartão agrupadas por mês de vencimento com `caixaMonthForCardPurchase`, a
+mesma regra que a Visão Conta usa para montar `invoiceByMonthCard`.
+
+- `aggregateInvoiceTotals(card)` → total por mês de vencimento.
+- `rankCardCandidates(cards, valor, data)` → candidatos nos meses `[-1, 0, +1]`
+  relativos ao pagamento, ordenados por `|delta|` (limite 6).
+- `pickUniqueCardMatch(candidates)` → auto-match **estrito**: só decide quando todos os
+  candidatos dentro de `CARD_MATCH_TOLERANCE_CENTS` (R$ 2) são do MESMO cartão. Dois
+  cartões empatados = ambíguo, e chutar é pior que perguntar.
+
+**Por que o auto-match não basta:** no caso real a fatura ago/2026 do cartão 5572 somava
+R$ 18.428,13 contra um pagamento de R$ 17.655,85 — delta de R$ 772,28. Pagamento parcial,
+encargos e compras lançadas depois fazem o valor exato ser exceção, não regra. Daí o
+desenho em três camadas:
+
+1. **Preview do import** — a linha mostra o seletor "qual cartão isso quita?" com os
+   candidatos ranqueados; `decisions[].overrides.cardLast4` carrega a escolha.
+2. **Resultado do commit** — `unlinkedCardPayments` conta os pagamentos que ficaram sem
+   cartão (antes o contador dizia "vinculado" mesmo sem vincular nada).
+3. **Rede de segurança** — o que escapar vira pendência `PAGAMENTO_FATURA_SEM_CARTAO` na
+   fila "Precisa de você". Ela **não** pode ser sourceada de `accountView.saidas`
+   (neutros são excluídos de `accountExpenseList`): `pendencia.service.ts` faz query
+   própria em `Expense`. Resolver = `PATCH /expenses/:id { creditCardId }`, sem mutação nova.
+
+**Invariante:** nenhuma despesa `PAGAMENTO_FATURA_CARTAO` deve existir com
+`cardLast4: null`. Se existir, ela é invisível na Conta e o caixa está errado — a fila é
+a única superfície que a denuncia.
+
+**Correção do dado histórico:** basta preencher `cardLast4`. A quitação é calculada em
+leitura (`computeInvoiceSettlementTotals`), não persistida — não há status a corrigir.

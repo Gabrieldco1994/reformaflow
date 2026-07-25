@@ -326,10 +326,17 @@ A tela-mãe do PESSOAL. Responde "como está meu mês?".
   projeção de fechamento e quanto cortar por dia para equilibrar, maior gasto
   variável, contas a vencer, e status da reserva de emergência.
 - **Card "Precisa de você (N)"** (quando `N > 0`): mostra pendências financeiras
-  acionáveis (sem conta, sem categoria com sugestão, fatura a vencer, parcela
-  cross-project pendente e recebimento previsto atrasado). Ao tocar, abre um
+  acionáveis (sem conta, sem categoria com sugestão, **pagamento de fatura sem
+  cartão identificado**, fatura a vencer, parcela cross-project pendente e
+  recebimento previsto atrasado). Ao tocar, abre um
   painel que dispara os modais já existentes (vincular, pagar fatura, quitar
   parcela, editar despesa/recebimento) sem criar um fluxo paralelo.
+  - **Pagamento de fatura sem cartão**: um pagamento de fatura que ficou sem cartão
+    vinculado sai do seu caixa mas deixa a fatura em aberto — o mesmo dinheiro conta
+    duas vezes. A fila é a única superfície que mostra esse item (ele é neutro, então
+    não aparece nas Movimentações). Ao tocar em **"Escolher cartão"**, o app lista os
+    cartões cuja fatura em aberto mais se aproxima do valor pago (com mês de vencimento,
+    total da fatura e a diferença), e vincular já faz a Visão Conta reconhecer a quitação.
 
 **KPIs do mês (eixo caixa):**
 | KPI | O que representa |
@@ -602,6 +609,14 @@ Gestão das contas.
   débitos viram despesas, créditos viram recebimentos, pagamentos de fatura são
   detectados automaticamente (evita dupla contagem); contas de utilidades e IPVA
   viram recorrências nos projetos de Casa/Carro automaticamente.
+- **Pré-visualização — pagamento de fatura:** toda linha detectada como pagamento de
+  fatura mostra o bloco **"💳 Pagamento de fatura — qual cartão isso quita?"** com um
+  seletor de cartão. O app sugere o cartão cuja fatura em aberto mais se aproxima do
+  valor (mostrando mês de vencimento, total da fatura e a diferença) e pré-seleciona
+  quando o valor bate exatamente. Se a linha ficar sem cartão, um aviso âmbar explica
+  que o valor vai sair do caixa sem abater a fatura — e o resultado do import informa
+  quantos pagamentos ficaram sem cartão. Os que escaparem viram pendência no card
+  **"Precisa de você"** do cockpit.
 - **Card por conta:** instituição, **final**, **agência**, **conta**, **saldo**;
   configuração de **saldo inicial** (base do caixa real §10). Ações: **Vincular
   despesas**, **Vincular recebimentos**, **Editar**, **Excluir** (confirmação).
