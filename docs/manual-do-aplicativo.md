@@ -106,6 +106,12 @@ Há **dois graus** de neutro (não confundir):
   "**Guardado**" (informação, não despesa); rendimentos (juros) são receita real
   e contam normalmente.
 
+Na lista de despesas (mobile), o **aporte em investimento debitado da conta
+aparece na lista** — marcado como neutro e fora do total "gastei de verdade" —,
+e o toggle **"Mostrar investimentos"** permite escondê-lo. Já os neutros de
+liquidação (pagamento de fatura, transferência interna) debitados na conta não
+são listados, porque a saída real já está contada no outro lançamento.
+
 ### 2.4 Faturas de cartão
 Uma **fatura** é a soma das compras de um cartão com vencimento num certo mês. O
 app agrupa as compras por cartão + mês de vencimento (calculado a partir do dia de
