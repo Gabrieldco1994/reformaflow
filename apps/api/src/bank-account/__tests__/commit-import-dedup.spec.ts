@@ -120,6 +120,29 @@ describe('commitImport — decisão skip não contabiliza a linha', () => {
   });
 });
 
+describe('commitImport — múltiplos arquivos no mesmo import não perdem transação por colisão de externalId', () => {
+  it('2 arquivos xlsx, cada um com 1 transação idêntica (mesma data/desc/valor) -> gera 2 despesas distintas, não 1', async () => {
+    const prisma = makePrismaMock();
+    prisma.bankAccount.findFirst.mockResolvedValue({ id: 'acc1', last4: '1234', nickname: 'Conta X', tenantId: 't1' });
+    const service = await buildService(prisma);
+
+    const headerAndRow = [
+      ['data', 'descricao', 'valor'],
+      ['15/07/2026', 'MERCADO ABC', '-100,00'],
+    ];
+    const file1 = xlsxBuf(headerAndRow);
+    const file2 = xlsxBuf(headerAndRow); // linha idêntica em outro arquivo (2 exports/contas)
+
+    const preview = await service.previewImport('t1', 'pessoal1', 'acc1', [file1, file2], 'ext.xlsx', 'AUTO');
+    expect(preview.total).toBe(2);
+
+    prisma.expense.create.mockClear();
+    const res = await service.commitImport('t1', 'pessoal1', 'acc1', [file1, file2], 'ext.xlsx', 'AUTO');
+    expect(res.inserted).toBe(2);
+    expect(prisma.expense.create).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('commitImport — excluir (soft-delete) um lançamento importado e reimportar o mesmo extrato', () => {
   it('NÃO recria a despesa: findExistingExternalIds enxerga registros soft-deletados via $queryRaw', async () => {
     const prisma = makePrismaMock();
