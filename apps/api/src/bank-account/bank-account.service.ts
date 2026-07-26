@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBankAccountDto, UpdateBankAccountDto } from './dto/bank-account.dto';
 import { parseBankStatementBuffers, type BankSourceHint } from './parsers';
@@ -101,11 +102,11 @@ export function fastClassify(merchant: string): string | null {
   if (/\b(APLICA[CÇ][AÃ]O|RESG(ATE)?|AG\.?\s*EST\s+RESG|COFRINHO|FUNDO\s+(DI|RF|MULTI)|POUPAN[CÇ]A|CDB|TESOURO|LCI|LCA|PERSONDIF)\b/i.test(m))
     return 'MOVIMENTACAO_INTERNA';
   // PIX entre pessoas físicas / TED → transferência (não é consumo)
-  if (/^PIX\s+TRANSF\b/.test(m)) return 'TRANSFERENCIA';
-  if (/^PIX\s+CARTAO\b/.test(m)) return 'TRANSFERENCIA';
-  if (/^TED\b/.test(m)) return 'TRANSFERENCIA';
-  if (/^DOC\b/.test(m)) return 'TRANSFERENCIA';
-  if (/\bNU\s+PAGAMENT|NUBANK\b/.test(m)) return 'TRANSFERENCIA';
+  if (/^PIX\s+TRANSF\b/.test(m)) return 'TRANSFERENCIA_TED';
+  if (/^PIX\s+CARTAO\b/.test(m)) return 'TRANSFERENCIA_TED';
+  if (/^TED\b/.test(m)) return 'TRANSFERENCIA_TED';
+  if (/^DOC\b/.test(m)) return 'TRANSFERENCIA_TED';
+  if (/\bNU\s+PAGAMENT|NUBANK\b/.test(m)) return 'TRANSFERENCIA_TED';
   // Tarifas bancárias e impostos financeiros
   if (/\bIOF\b|^TARIFA|^TAR\s|JUROS\s+ROTAT/.test(m)) return 'OUTROS';
   // Débitos automáticos de utilities/telco
@@ -136,7 +137,7 @@ export function fastClassify(merchant: string): string | null {
   if (/^PAY\s+(LATAM|GOL|AZUL|DECOLAR|BOOKING|AIRBNB|HOTEL|CINEMA|TEATRO|INGRESSO|ZIG|CINE)/.test(m)) return 'LAZER';
   if (/^RSCSS\s+LAZY\s+DOG\b|^PAY\s+(PETZ|COBASI|PETSHOP|PET\s*SHOP|VETERIN|FOTO|CINEMA|CINE)|^RSCSS\s+CONVENIENCIA/.test(m)) return 'LAZER';
   // PIX vendor: marketplaces e contrapartes específicas
-  if (/^PIX\s+QRS\s+(PIX\s+MARKETP|NU\s+PAGAMENT|MERCADO\s*PAGO|MERCADOPAG)/.test(m)) return 'TRANSFERENCIA';
+  if (/^PIX\s+QRS\s+(PIX\s+MARKETP|NU\s+PAGAMENT|MERCADO\s*PAGO|MERCADOPAG)/.test(m)) return 'TRANSFERENCIA_TED';
   return null;
 }
 
@@ -1080,19 +1081,26 @@ export class BankAccountService {
     ids: string[],
   ): Promise<Set<string>> {
     if (ids.length === 0) return new Set();
+    // $queryRaw (não findMany) de propósito: findMany passa pelo middleware de
+    // soft-delete (prisma.service.ts) que força deletedAt=null, então uma linha
+    // que o usuário excluiu deixaria de "existir" pro importador e reimportar o
+    // mesmo extrato a recriaria. O check de duplicidade precisa enxergar
+    // deletadas também — exclusão é definitiva, não "esqueça que já importei".
     const [expenses, receipts] = await Promise.all([
-      this.prisma.expense.findMany({
-        where: { tenantId, projectId, externalId: { in: ids }, deletedAt: null },
-        select: { externalId: true },
-      }),
-      this.prisma.receipt.findMany({
-        where: { tenantId, projectId, externalId: { in: ids }, deletedAt: null },
-        select: { externalId: true },
-      }),
+      this.prisma.$queryRaw<{ external_id: string }[]>`
+        SELECT external_id FROM expenses
+        WHERE tenant_id = ${tenantId} AND project_id = ${projectId}
+          AND external_id IN (${Prisma.join(ids)})
+      `,
+      this.prisma.$queryRaw<{ external_id: string }[]>`
+        SELECT external_id FROM receipts
+        WHERE tenant_id = ${tenantId} AND project_id = ${projectId}
+          AND external_id IN (${Prisma.join(ids)})
+      `,
     ]);
     const set = new Set<string>();
-    for (const r of expenses) if (r.externalId) set.add(r.externalId);
-    for (const r of receipts) if (r.externalId) set.add(r.externalId);
+    for (const r of expenses) if (r.external_id) set.add(r.external_id);
+    for (const r of receipts) if (r.external_id) set.add(r.external_id);
     return set;
   }
 
@@ -1531,7 +1539,7 @@ function classifyCreditType(merchant: string): string {
   if (/REMUNERACAO|SALARIO|PAGAMENTO\s+SALARIO/.test(m)) return 'PAGAMENTO';
   if (/REND\s+PAGO|RENDIMENTO|JUROS|DIVIDENDO|RESGATE|COR\s+TES|INT\s+RESGATE|AG\.?\s*RESGATE|CDB/.test(m))
     return 'RENDIMENTO';
-  if (/^PIX\s+TRANSF|^TED|^DOC|TRANSFER[EÊ]NCIA|CREDITO\s+LIBERAD/.test(m)) return 'TRANSFERENCIA';
+  if (/^PIX\s+TRANSF|^TED|^DOC|TRANSFER[EÊ]NCIA|CREDITO\s+LIBERAD/.test(m)) return 'TRANSFERENCIA_PROPRIA';
   if (/SISPAG|REEMBOLSO|RESTITUI/.test(m)) return 'PAGAMENTO';
   return 'OUTROS';
 }
