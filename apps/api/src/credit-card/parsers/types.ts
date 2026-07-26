@@ -21,10 +21,39 @@ export interface ParseResult {
 }
 
 /**
- * Mescla vários ParseResult (ex.: upload de múltiplas imagens de fatura/extrato
- * em lote) num único resultado. Deduplica transações por externalId (mesma
- * imagem enviada 2x, ou linha repetida entre prints sobrepostos) e soma os
- * totais. Preserva a ordem por data.
+ * Adiciona uma transação ao mapa de merge, tratando colisão de externalId.
+ *
+ * IMAGE (fotos de página de extrato/fatura sobrepostas): colisão = a MESMA
+ * transação capturada 2x por fotos que se sobrepõem → dedupe (mantém 1),
+ * comportamento original e intencional.
+ *
+ * Outras fontes (XLSX/CSV/OFX/PDF): 2 arquivos são exports distintos, não
+ * fotos manuais da mesma página. Uma colisão aqui quase sempre é 2 transações
+ * REAIS e diferentes que coincidem em data+descrição+valor (o ordinal reinicia
+ * por arquivo — ver assignOrdinals) — não é seguro presumir duplicata e
+ * descartar (perda silenciosa de dinheiro). Mantém as duas, derivando um novo
+ * externalId estável para a 2ª+ ocorrência (mesmo lote reimportado gera o
+ * mesmo resultado, preservando idempotência).
+ */
+function addMerged(map: Map<string, NormalizedTx>, t: NormalizedTx, dedupeOnCollision: boolean) {
+  if (!map.has(t.externalId)) {
+    map.set(t.externalId, t);
+    return;
+  }
+  if (dedupeOnCollision) return;
+  let n = 1;
+  let key = `${t.externalId}::merge${n}`;
+  while (map.has(key)) {
+    n++;
+    key = `${t.externalId}::merge${n}`;
+  }
+  map.set(key, { ...t, externalId: key });
+}
+
+/**
+ * Mescla vários ParseResult (ex.: upload de múltiplos arquivos/imagens de
+ * fatura/extrato em lote) num único resultado e soma os totais. Preserva a
+ * ordem por data. Ver `addMerged` para a regra de dedupe por fonte.
  */
 export function mergeParseResults(results: ParseResult[]): ParseResult {
   if (results.length === 1) return results[0]!;
@@ -36,11 +65,12 @@ export function mergeParseResults(results: ParseResult[]): ParseResult {
 
   for (const r of results) {
     sources.add(r.source);
+    const dedupeOnCollision = r.source === 'IMAGE';
     for (const t of r.transactions) {
-      if (!txByExt.has(t.externalId)) txByExt.set(t.externalId, t);
+      addMerged(txByExt, t, dedupeOnCollision);
     }
     for (const t of r.futureInstallments ?? []) {
-      if (!futByExt.has(t.externalId)) futByExt.set(t.externalId, t);
+      addMerged(futByExt, t, dedupeOnCollision);
     }
   }
 
