@@ -10,6 +10,7 @@ import type { OnboardingStepProps } from '../../_types';
 /**
  * Purpose-built quick-add receipt step — own local state, own POST call.
  * PESSOAL-only anchor (only caller in `ANCHOR_STEPS`).
+ * Sempre envia status EM_CAIXA — no onboarding, todo recebimento é uma entrada já realizada (issue #320).
  */
 export function QuickReceiptStep({ projectId, projectType, onDone, onSkip }: OnboardingStepProps) {
   const options = getReceiptTipoOptions(projectType);
@@ -30,7 +31,7 @@ export function QuickReceiptStep({ projectId, projectType, onDone, onSkip }: Onb
         valor: currencyInputToNumber(valor),
         data,
         tipo,
-        status: 'PREVISTO',
+        status: 'EM_CAIXA',
       });
       onDone();
     } catch (e) {
@@ -43,7 +44,7 @@ export function QuickReceiptStep({ projectId, projectType, onDone, onSkip }: Onb
   return (
     <section className="rounded-[18px] border border-lifeone-hairline bg-lifeone-card p-6 shadow-lifeone-card">
       <h2 className="text-[18px] font-bold text-lifeone-ink">Seu primeiro recebimento</h2>
-      <p className="text-[13px] text-lifeone-ink-3">Registre uma entrada esperada para começar a prever o caixa</p>
+      <p className="text-[13px] text-lifeone-ink-3">Registre uma entrada já realizada para começar a acompanhar o caixa</p>
 
       <div className="mt-4 space-y-3">
         <div>

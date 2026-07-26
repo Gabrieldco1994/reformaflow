@@ -3,8 +3,8 @@
 import { useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, Camera, SkipForward } from 'lucide-react';
-import { ExpenseType, hasFeature } from '@reformaflow/domain';
+import { ArrowLeft, ArrowRight, Camera, CreditCard, Landmark, SkipForward, Wallet } from 'lucide-react';
+import { ExpenseType } from '@reformaflow/domain';
 import { api } from '@/lib/api';
 import { maskCurrencyInput, currencyInputToNumber } from '@/lib/currency-input';
 import { getExpenseOptions } from '@/app/projects/[projectId]/expenses/_types';
@@ -16,47 +16,47 @@ import type { ExpenseFormData } from '@/types';
 import type { OnboardingStepProps } from '../../_types';
 
 type EntryMode = Extract<LaunchMode, 'despesa' | 'voz' | 'foto'>;
+type ExpenseScreen = 'form' | 'fonte';
+type FonteChoice = 'carteira' | 'bankAccount' | 'creditCard';
 
 interface TenantCard { id: string; nickname?: string | null; brand: string; last4: string }
 interface TenantAccount { id: string; nickname?: string | null; institution: string; last4?: string | null }
 interface TenantProject { id: string; name: string; type: string }
 
 /**
- * Purpose-built quick-add expense step — own local state, own POST call.
- * Modes: despesa (form), voz (VoiceExpenseModal), foto (image picker → advance).
- * Only `despesa` mode calls POST; voz/foto advance via their own flows.
- * Modos carregados do catálogo centralizado (launch-modes.ts).
+ * Fluxo de 2 telas (issue #320):
+ * Tela 1: tipo, descrição, valor, data — sem selects de conta/cartão.
+ * Tela 2 (só se funding existe): escolha mutuamente exclusiva Carteira / conta / cartão.
+ * Sem funding → salva direto como Carteira (PAGO, bankAccountId: null, creditCardId: null).
  */
-export function QuickExpenseStep({ projectId, projectType, onDone, onSkip }: OnboardingStepProps) {
+export function QuickExpenseStep({ projectId, projectType, onDone, onSkip, funding }: OnboardingStepProps) {
   const options = getExpenseOptions(projectType);
-  const showVinculos = hasFeature(projectType, 'bankAccounts') || hasFeature(projectType, 'creditCards');
   const [mode, setMode] = useState<EntryMode>('despesa');
+  const [expenseScreen, setExpenseScreen] = useState<ExpenseScreen>('form');
+  const [fonteChoice, setFonteChoice] = useState<FonteChoice>('carteira');
 
   // ─── Despesa form state ───────────────────────────────────────────────────
   const [tipoDespesa, setTipoDespesa] = useState<string>(options[0]?.value ?? '');
   const [valor, setValor] = useState('');
   const [titulo, setTitulo] = useState('');
   const [dataPagamento, setDataPagamento] = useState(() => new Date().toISOString().slice(0, 10));
-  const [creditCardId, setCreditCardId] = useState('');
-  const [bankAccountId, setBankAccountId] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // ─── Foto ref ─────────────────────────────────────────────────────────────
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // ─── Tenant queries (needed for both despesa vinculos and voice context) ──
+  // ─── Tenant queries (voz context + labels na tela de fonte) ───────────────
+  const hasFunding = !!(funding?.bankAccount || funding?.creditCard);
   const { data: cards = [] } = useQuery<TenantCard[]>({
     queryKey: ['tenant', 'credit-cards'],
     queryFn: () => api.get('/tenant/credit-cards'),
     staleTime: 60_000,
-    enabled: showVinculos,
   });
   const { data: accounts = [] } = useQuery<TenantAccount[]>({
     queryKey: ['tenant', 'bank-accounts'],
     queryFn: () => api.get('/tenant/bank-accounts'),
     staleTime: 60_000,
-    enabled: showVinculos,
   });
   const { data: tenantProjects = [] } = useQuery<TenantProject[]>({
     queryKey: ['tenant', 'projects'],
@@ -73,14 +73,8 @@ export function QuickExpenseStep({ projectId, projectType, onDone, onSkip }: Onb
     onCreate: (data: ExpenseFormData, onSuccess: () => void) => {
       api
         .post(`/projects/${projectId}/expenses`, data)
-        .then(() => {
-          onSuccess();
-          onDone();
-        })
-        .catch(() => {
-          // Voice modal already shows its own error state via saveDisabled;
-          // surface nothing extra here — user can retry or cancel.
-        });
+        .then(() => { onSuccess(); onDone(); })
+        .catch(() => {});
     },
     cards,
     accounts,
@@ -88,30 +82,53 @@ export function QuickExpenseStep({ projectId, projectType, onDone, onSkip }: Onb
     currentProjectId: projectId,
   });
 
-  const canSubmit = valor.trim().length > 0;
+  const canSubmit = valor.trim().length > 0 && currencyInputToNumber(valor) > 0;
+  const savingRef = useRef(false);
 
-  async function handleSave() {
-    if (!canSubmit || mode !== 'despesa') return;
+  function buildPayload(bankAccountId: string | null, creditCardId: string | null) {
+    return {
+      tipoDespesa,
+      valor: currencyInputToNumber(valor),
+      quantidade: 1,
+      formaPagamento: 'A_VISTA',
+      status: 'PAGO',
+      dataPagamento,
+      titulo: titulo.trim() || undefined,
+      creditCardId,
+      bankAccountId,
+    };
+  }
+
+  async function handleSave(bankAccountId: string | null, creditCardId: string | null) {
+    if (savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     setError(null);
     try {
-      await api.post(`/projects/${projectId}/expenses`, {
-        tipoDespesa,
-        valor: currencyInputToNumber(valor),
-        quantidade: 1,
-        formaPagamento: 'A_VISTA',
-        status: 'PAGO',
-        dataPagamento,
-        titulo,
-        creditCardId: creditCardId || null,
-        bankAccountId: bankAccountId || null,
-      });
+      await api.post(`/projects/${projectId}/expenses`, buildPayload(bankAccountId, creditCardId));
       onDone();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao salvar despesa');
     } finally {
       setSaving(false);
+      savingRef.current = false;
     }
+  }
+
+  function handleFormContinuar() {
+    if (!canSubmit) return;
+    if (!hasFunding) {
+      // Sem fontes → salva direto como Carteira
+      void handleSave(null, null);
+    } else {
+      setExpenseScreen('fonte');
+    }
+  }
+
+  function handleFonteSubmit() {
+    const bankAccountId = fonteChoice === 'bankAccount' ? (funding?.bankAccount?.id ?? null) : null;
+    const creditCardId = fonteChoice === 'creditCard' ? (funding?.creditCard?.id ?? null) : null;
+    void handleSave(bankAccountId, creditCardId);
   }
 
   function handleFotoSelected(e: ChangeEvent<HTMLInputElement>) {
@@ -121,32 +138,38 @@ export function QuickExpenseStep({ projectId, projectType, onDone, onSkip }: Onb
     }
   }
 
+  // Labels para a tela de fonte
+  const fundingAccount = accounts.find((a) => a.id === funding?.bankAccount?.id);
+  const fundingCard = cards.find((c) => c.id === funding?.creditCard?.id);
+
   return (
     <section className="rounded-[18px] border border-lifeone-hairline bg-lifeone-card p-6 shadow-lifeone-card">
       <h2 className="text-[18px] font-bold text-lifeone-ink">Sua primeira despesa</h2>
       <p className="text-[13px] text-lifeone-ink-3">Registre um gasto recente para começar a acompanhar o caixa</p>
 
-      {/* Mode picker — inline, works on desktop + mobile */}
-      <div className="mt-4 flex gap-1.5 rounded-[10px] border border-lifeone-hairline bg-lifeone-surface p-1">
-        {ONBOARDING_MODES.filter((m) => m.value !== 'voz' || voice.voiceSupported).map((m) => (
-          <button
-            key={m.value}
-            type="button"
-            onClick={() => setMode(m.value as EntryMode)}
-            className={[
-              'flex-1 min-h-11 rounded-[8px] px-3 py-2 text-[13px] font-medium transition-colors',
-              mode === m.value
-                ? 'bg-lifeone-blue text-white shadow-sm'
-                : 'text-lifeone-ink-2 hover:bg-lifeone-hairline/60',
-            ].join(' ')}
-          >
-            {m.label}
-          </button>
-        ))}
-      </div>
+      {/* Mode picker — só na tela form */}
+      {expenseScreen === 'form' && (
+        <div className="mt-4 flex gap-1.5 rounded-[10px] border border-lifeone-hairline bg-lifeone-surface p-1">
+          {ONBOARDING_MODES.filter((m) => m.value !== 'voz' || voice.voiceSupported).map((m) => (
+            <button
+              key={m.value}
+              type="button"
+              onClick={() => setMode(m.value as EntryMode)}
+              className={[
+                'flex-1 min-h-11 rounded-[8px] px-3 py-2 text-[13px] font-medium transition-colors',
+                mode === m.value
+                  ? 'bg-lifeone-blue text-white shadow-sm'
+                  : 'text-lifeone-ink-2 hover:bg-lifeone-hairline/60',
+              ].join(' ')}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+      )}
 
-      {/* ─── DESPESA mode ─────────────────────────────────────────────────── */}
-      {mode === 'despesa' && (
+      {/* ─── TELA 1: Formulário ────────────────────────────────────────── */}
+      {expenseScreen === 'form' && mode === 'despesa' && (
         <>
           <div className="mt-4 space-y-3">
             <div>
@@ -193,46 +216,13 @@ export function QuickExpenseStep({ projectId, projectType, onDone, onSkip }: Onb
                 />
               </div>
             </div>
-
-            {showVinculos && (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label htmlFor="qe-conta" className="mb-1 block text-[12px] font-medium text-lifeone-ink-2">Conta bancária</label>
-                  <select
-                    id="qe-conta"
-                    value={bankAccountId}
-                    onChange={(e) => setBankAccountId(e.target.value)}
-                    className="min-h-11 w-full rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-3 py-2.5 text-[14px]"
-                  >
-                    <option value="">Nenhuma</option>
-                    {accounts.map((a) => (
-                      <option key={a.id} value={a.id}>{a.nickname || a.institution}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label htmlFor="qe-cartao" className="mb-1 block text-[12px] font-medium text-lifeone-ink-2">Cartão</label>
-                  <select
-                    id="qe-cartao"
-                    value={creditCardId}
-                    onChange={(e) => setCreditCardId(e.target.value)}
-                    className="min-h-11 w-full rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-3 py-2.5 text-[14px]"
-                  >
-                    <option value="">Nenhum</option>
-                    {cards.map((c) => (
-                      <option key={c.id} value={c.id}>{c.nickname || `${c.brand} ••${c.last4}`}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            )}
           </div>
 
           {error && <p className="mt-3 text-[13px] text-[#B42318]">{error}</p>}
 
           <div className="mt-5 flex flex-col gap-2">
             <button
-              onClick={handleSave}
+              onClick={handleFormContinuar}
               disabled={!canSubmit || saving}
               aria-describedby={!canSubmit ? 'qe-helper' : undefined}
               className="flex min-h-11 w-full items-center justify-center gap-2 rounded-[10px] bg-lifeone-blue px-4 py-3 text-[14px] font-semibold text-white hover:brightness-95 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
@@ -240,7 +230,7 @@ export function QuickExpenseStep({ projectId, projectType, onDone, onSkip }: Onb
               {saving ? 'Salvando…' : 'Criar e continuar'}
               {!saving && <ArrowRight className="h-4 w-4" />}
             </button>
-            {!canSubmit && <p id="qe-helper" className="text-[12px] text-lifeone-ink-3">Informe o valor para continuar.</p>}
+            {!canSubmit && <p id="qe-helper" className="text-[12px] text-lifeone-ink-3">Informe um valor maior que zero para continuar.</p>}
             <button
               onClick={onSkip}
               className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] text-lifeone-ink-3 hover:text-lifeone-ink"
@@ -251,8 +241,89 @@ export function QuickExpenseStep({ projectId, projectType, onDone, onSkip }: Onb
         </>
       )}
 
+      {/* ─── TELA 2: Escolha de fonte (mutuamente exclusiva) ──────────── */}
+      {expenseScreen === 'fonte' && (
+        <>
+          <p className="mt-4 text-[13px] text-lifeone-ink-2">Como foi pago?</p>
+          <div className="mt-3 space-y-2">
+            {/* Carteira */}
+            <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-4 py-3 transition-colors has-[:checked]:border-lifeone-blue has-[:checked]:bg-lifeone-blue/5">
+              <input
+                type="radio"
+                name="fonte"
+                value="carteira"
+                checked={fonteChoice === 'carteira'}
+                onChange={() => setFonteChoice('carteira')}
+                className="accent-lifeone-blue"
+              />
+              <Wallet className="h-4 w-4 shrink-0 text-lifeone-ink-3" />
+              <span className="text-[14px] text-lifeone-ink">Carteira</span>
+            </label>
+
+            {/* Conta bancária */}
+            {funding?.bankAccount && (
+              <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-4 py-3 transition-colors has-[:checked]:border-lifeone-blue has-[:checked]:bg-lifeone-blue/5">
+                <input
+                  type="radio"
+                  name="fonte"
+                  value="bankAccount"
+                  checked={fonteChoice === 'bankAccount'}
+                  onChange={() => setFonteChoice('bankAccount')}
+                  className="accent-lifeone-blue"
+                />
+                <Landmark className="h-4 w-4 shrink-0 text-lifeone-ink-3" />
+                <span className="text-[14px] text-lifeone-ink">
+                  {fundingAccount
+                    ? (fundingAccount.nickname || `${fundingAccount.institution}${fundingAccount.last4 ? ` ••${fundingAccount.last4}` : ''}`)
+                    : 'Conta bancária'}
+                </span>
+              </label>
+            )}
+
+            {/* Cartão */}
+            {funding?.creditCard && (
+              <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-4 py-3 transition-colors has-[:checked]:border-lifeone-blue has-[:checked]:bg-lifeone-blue/5">
+                <input
+                  type="radio"
+                  name="fonte"
+                  value="creditCard"
+                  checked={fonteChoice === 'creditCard'}
+                  onChange={() => setFonteChoice('creditCard')}
+                  className="accent-lifeone-blue"
+                />
+                <CreditCard className="h-4 w-4 shrink-0 text-lifeone-ink-3" />
+                <span className="text-[14px] text-lifeone-ink">
+                  {fundingCard
+                    ? (fundingCard.nickname || `${fundingCard.brand} ••${fundingCard.last4}`)
+                    : 'Cartão de crédito'}
+                </span>
+              </label>
+            )}
+          </div>
+
+          {error && <p className="mt-3 text-[13px] text-[#B42318]">{error}</p>}
+
+          <div className="mt-5 flex flex-col gap-2">
+            <button
+              onClick={handleFonteSubmit}
+              disabled={saving}
+              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-[10px] bg-lifeone-blue px-4 py-3 text-[14px] font-semibold text-white hover:brightness-95 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {saving ? 'Salvando…' : 'Confirmar'}
+              {!saving && <ArrowRight className="h-4 w-4" />}
+            </button>
+            <button
+              onClick={() => { setExpenseScreen('form'); setError(null); }}
+              className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] text-lifeone-ink-3 hover:text-lifeone-ink"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" /> Voltar
+            </button>
+          </div>
+        </>
+      )}
+
       {/* ─── VOZ mode ─────────────────────────────────────────────────────── */}
-      {mode === 'voz' && (
+      {expenseScreen === 'form' && mode === 'voz' && (
         <>
           <VoiceExpenseModal
             open
@@ -289,7 +360,7 @@ export function QuickExpenseStep({ projectId, projectType, onDone, onSkip }: Onb
       )}
 
       {/* ─── FOTO mode ────────────────────────────────────────────────────── */}
-      {mode === 'foto' && (
+      {expenseScreen === 'form' && mode === 'foto' && (
         <>
           <div className="mt-6 flex flex-col items-center gap-4 py-4">
             <div className="flex h-16 w-16 items-center justify-center rounded-full bg-lifeone-surface">

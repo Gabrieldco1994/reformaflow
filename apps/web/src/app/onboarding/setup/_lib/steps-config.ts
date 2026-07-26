@@ -1,8 +1,7 @@
 import type { ComponentType } from 'react';
 import { ProjectType } from '@reformaflow/domain';
 import type { OnboardingStepProps } from '../_types';
-import { BankAccountStep } from '../_components/steps/BankAccountStep';
-import { CreditCardStep } from '../_components/steps/CreditCardStep';
+import { FundingStep } from '../_components/steps/FundingStep';
 import { QuickExpenseStep } from '../_components/steps/QuickExpenseStep';
 import { QuickReceiptStep } from '../_components/steps/QuickReceiptStep';
 import { RecurringBillStep } from '../_components/steps/RecurringBillStep';
@@ -25,8 +24,7 @@ export interface AnchorStepDef {
  */
 export const ANCHOR_STEPS: Record<ProjectType, AnchorStepDef[]> = {
   [ProjectType.PESSOAL]: [
-    { key: 'bank', label: 'Conta', Component: BankAccountStep },
-    { key: 'card', label: 'Cartão', Component: CreditCardStep },
+    { key: 'funding', label: 'Contas & cartões', Component: FundingStep },
     { key: 'expense', label: 'Despesa', Component: QuickExpenseStep },
     { key: 'import', label: 'Importar', Component: ImportMassStep },
     { key: 'receipt', label: 'Recebimento', Component: QuickReceiptStep },
