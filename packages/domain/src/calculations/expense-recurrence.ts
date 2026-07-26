@@ -10,11 +10,28 @@
  * - `MENSAL`: mesmo dia do mês, do início ao fim (clamp para o último dia do mês
  *   quando o dia não existe, ex.: 31 → 30/28). Espelha a regra de `buildInstallments`.
  * - `QUINZENAL`: a cada 15 dias corridos.
+ * - `BIMESTRAL`/`TRIMESTRAL`/`SEMESTRAL`/`ANUAL`: mesma regra de MENSAL, com
+ *   passo de 2/3/6/12 meses.
  *
  * As datas são geradas em UTC (sem deslocamento de fuso), inclusivas nos limites.
  */
 
-export type RecurrenceFrequency = 'MENSAL' | 'QUINZENAL';
+export type RecurrenceFrequency =
+  | 'MENSAL'
+  | 'QUINZENAL'
+  | 'BIMESTRAL'
+  | 'TRIMESTRAL'
+  | 'SEMESTRAL'
+  | 'ANUAL';
+
+/** Passo em meses de cada frequência (QUINZENAL é o único em dias corridos). */
+const MONTH_STEP: Record<Exclude<RecurrenceFrequency, 'QUINZENAL'>, number> = {
+  MENSAL: 1,
+  BIMESTRAL: 2,
+  TRIMESTRAL: 3,
+  SEMESTRAL: 6,
+  ANUAL: 12,
+};
 
 export interface RecurrenceInput {
   /** Data da primeira ocorrência (inclusive). */
@@ -28,7 +45,7 @@ export interface RecurrenceInput {
 
 /** Retorna `true` se a string é uma frequência de recorrência válida. */
 export function isRecurrenceFrequency(v: string | null | undefined): v is RecurrenceFrequency {
-  return v === 'MENSAL' || v === 'QUINZENAL';
+  return v === 'QUINZENAL' || (!!v && v in MONTH_STEP);
 }
 
 /**
@@ -56,11 +73,12 @@ export function buildRecurrenceDates(input: RecurrenceInput): Date[] {
     return dates;
   }
 
-  // MENSAL: mesmo dia-do-mês, com clamp para o último dia do mês.
+  // Mensais-múltiplos: mesmo dia-do-mês, com clamp para o último dia do mês.
+  const step = MONTH_STEP[frequencia];
   const anchorDay = start.getUTCDate();
   let i = 0;
   while (i < maxOcorrencias) {
-    const d = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + i, 1));
+    const d = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + i * step, 1));
     const lastDay = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
     d.setUTCDate(Math.min(anchorDay, lastDay));
     if (d.getTime() > end.getTime()) break;

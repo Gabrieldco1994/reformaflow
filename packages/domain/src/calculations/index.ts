@@ -3,6 +3,7 @@ import type { CashFlowEntry, CashFlowEntryComputed } from '../types';
 
 export * from './expense-installments';
 export * from './expense-recurrence';
+export * from './recurrence-detector';
 export * from './recurring-occurrences';
 export * from './card-cash-month';
 export * from './local-date-utc';

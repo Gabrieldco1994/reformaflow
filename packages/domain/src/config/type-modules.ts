@@ -16,6 +16,7 @@ export type TypeModuleSlug =
   | 'simulation'
   | 'priceCompare'
   | 'recurringBills'
+  | 'recurrences'
   | 'maintenance'
   | 'reminders'
   | 'carInfo'
@@ -73,6 +74,7 @@ export const TYPE_MODULES: Record<ProjectType, TypeModuleSlug[]> = {
     'bankAccounts',
     'monthlyOverview',
     'pendencias',
+    'recurrences',
   ],
   [ProjectType.CASA]: ['dashboard', 'recurringBills', 'maintenance', 'reminders', 'expenses', 'financing'],
   [ProjectType.CARRO]: [
