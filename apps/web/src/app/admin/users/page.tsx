@@ -6,6 +6,8 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth, ALL_MODULES, type ModuleSlug, type AuthUser } from '@/contexts/auth-context';
 import { api } from '@/lib/api';
+import { ProjectStatsCharts, type ProjectStats } from './_components/ProjectStatsCharts';
+import { FeedbackRatingChart } from './_components/FeedbackRatingChart';
 
 interface AdminUser extends AuthUser {
   email?: string | null;
@@ -44,6 +46,7 @@ interface Feedback {
   userId: string;
   username: string;
   message: string;
+  rating?: number | null;
   createdAt: string;
 }
 
@@ -52,6 +55,7 @@ export default function AdminUsersPage() {
   const router = useRouter();
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
+  const [projectStats, setProjectStats] = useState<ProjectStats | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [feedbackWarning, setFeedbackWarning] = useState<string | null>(null);
@@ -85,6 +89,14 @@ export default function AdminUsersPage() {
         // ponytail: feedback não pode derrubar a tela de usuários
         setFeedbacks([]);
         setFeedbackWarning('Feedbacks indisponíveis no momento.');
+      }
+
+      try {
+        const stats = await api.get<ProjectStats>('/users/stats/projects');
+        setProjectStats(stats);
+      } catch {
+        // ponytail: estatísticas não podem derrubar a tela de usuários
+        setProjectStats(null);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao carregar usuários');
@@ -233,6 +245,12 @@ export default function AdminUsersPage() {
             </div>
           );
         })()}
+
+        {projectStats && (
+          <div className="mb-4">
+            <ProjectStatsCharts stats={projectStats} />
+          </div>
+        )}
 
         <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto">
           {todayFilter !== 'none' && (
@@ -424,6 +442,9 @@ export default function AdminUsersPage() {
       {/* Feedbacks section */}
       {feedbacks.length > 0 && (
         <div className="max-w-4xl mx-auto mt-8">
+          <div className="mb-4">
+            <FeedbackRatingChart feedbacks={feedbacks} />
+          </div>
           <h2 className="text-lg font-bold text-gray-900 mb-3">Feedbacks ({feedbacks.length})</h2>
           <div className="flex flex-col gap-3">
             {feedbacks.map((fb) => (
