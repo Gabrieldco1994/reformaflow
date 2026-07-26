@@ -4,6 +4,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type React from 'react';
 import { PendenciasQueueCard } from './PendenciasQueueCard';
 import { api } from '@/lib/api';
+import { toast } from 'sonner';
+
+vi.mock('sonner', () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
 
 vi.mock('@/lib/api', () => ({
   api: { get: vi.fn(), patch: vi.fn(), post: vi.fn() },
@@ -219,6 +224,61 @@ describe('PendenciasQueueCard', () => {
         tipoDespesa: 'TRANSPORTE',
       });
     });
+  });
+
+  // Bug real: a categoria mudava e o usuário via "Não foi possível confirmar
+  // categoria" porque a criação da regra (passo secundário) falhava depois.
+  it('mantém a troca de categoria mesmo quando a regra de merchant falha', async () => {
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url.includes('/pendencias/financeiras')) {
+        return {
+          total: 1,
+          grupos: [
+            {
+              tipo: 'SEM_CATEGORIA',
+              label: 'Sem categoria',
+              count: 1,
+              valorTotal: 65000,
+              itens: [
+                {
+                  id: 'i-apto',
+                  tipo: 'SEM_CATEGORIA',
+                  label: 'Confirmar categoria',
+                  descricao: 'Pagamento APTO',
+                  valor: 65000,
+                  data: '2026-08-10T00:00:00.000Z',
+                  expenseId: 'e-apto',
+                  suggestionTipoDespesa: 'MORADIA',
+                },
+              ],
+            },
+          ],
+        };
+      }
+      if (url.includes('/monthly-overview/account-view')) return { cartoes: [], contas: [] };
+      if (url.includes('/expenses/e-apto')) {
+        return { id: 'e-apto', tipoDespesa: 'MORADIA', fornecedor: 'Pagamento APTO' };
+      }
+      return null;
+    });
+    vi.mocked(api.post).mockRejectedValue(new Error('Bad Request'));
+
+    renderWithQuery(<PendenciasQueueCard projectId="p1" monthKey="2026-08" projectType="PESSOAL" />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Resolver/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Confirmar categoria$/i }));
+    fireEvent.change(await screen.findByRole('combobox'), {
+      target: { value: 'INVESTIMENTOS' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^Confirmar categoria$/i }));
+
+    await waitFor(() => {
+      expect(api.patch).toHaveBeenCalledWith('/projects/p1/expenses/e-apto', {
+        tipoDespesa: 'INVESTIMENTOS',
+      });
+      expect(toast.success).toHaveBeenCalled();
+    });
+    expect(toast.error).not.toHaveBeenCalled();
   });
 
   it('without suggestion still shows category selector list and confirms chosen type', async () => {

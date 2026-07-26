@@ -68,6 +68,8 @@ type ConfirmUndoPayload = {
   expenseId: string;
   previousTipoDespesa: string;
   merchant: string;
+  /** Se a regra "esse fornecedor é sempre X" chegou a ser criada. */
+  ruleCreated?: boolean;
 };
 
 export function PendenciasQueueCard({
@@ -218,27 +220,45 @@ export function PendenciasQueueCard({
         titulo?: string | null;
       };
       const merchant = (expense.fornecedor ?? expense.titulo ?? item.descricao ?? '').trim();
-      if (!merchant) throw new Error('Fornecedor/título ausente para criar regra');
       const previousTipoDespesa = expense.tipoDespesa ?? 'OUTROS';
+      // A categoria é o compromisso; a regra é conveniência. Mudar a categoria
+      // vem primeiro e, se a regra não puder ser criada (tipo sem categoria de
+      // merchant equivalente, fornecedor ausente, rede), NÃO se desfaz nem se
+      // reporta erro — a mudança já valeu. Antes isso virava "não foi possível"
+      // com a categoria alterada mesmo assim.
       await api.patch(`/projects/${projectId}/expenses/${item.expenseId}`, {
         tipoDespesa,
       });
-      await api.post('/merchant-categories/confirm-rule', {
-        merchant,
-        tipoDespesa,
-      });
-      return { expenseId: item.expenseId, previousTipoDespesa, merchant };
+      let ruleCreated = false;
+      if (merchant) {
+        try {
+          const res = (await api.post('/merchant-categories/confirm-rule', {
+            merchant,
+            tipoDespesa,
+          })) as { ruleCreated?: boolean } | null;
+          ruleCreated = res?.ruleCreated ?? false;
+        } catch {
+          ruleCreated = false;
+        }
+      }
+      return { expenseId: item.expenseId, previousTipoDespesa, merchant, ruleCreated };
     },
     onSuccess: (undoPayload, vars) => {
       refreshQueue();
       setCategoriaItem(null);
       setCategoriaEscolhida('');
-      toast.success(`Regra criada: ${undoPayload.merchant} → ${tipoLabel(vars.tipoDespesa)} · desfazer`, {
-        action: {
-          label: 'Desfazer',
-          onClick: () => undoCategoriaMutation.mutate(undoPayload),
+      const label = tipoLabel(vars.tipoDespesa);
+      toast.success(
+        undoPayload.ruleCreated
+          ? `Regra criada: ${undoPayload.merchant} → ${label}`
+          : `Categoria alterada para ${label} — sem regra automática para esse tipo`,
+        {
+          action: {
+            label: 'Desfazer',
+            onClick: () => undoCategoriaMutation.mutate(undoPayload),
+          },
         },
-      });
+      );
     },
     onError: (error: Error) => {
       toast.error(`Não foi possível confirmar categoria: ${error.message}`);
