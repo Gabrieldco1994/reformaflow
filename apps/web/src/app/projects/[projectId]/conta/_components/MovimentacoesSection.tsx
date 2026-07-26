@@ -4,8 +4,8 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowDownUp, CreditCard, Filter, Layers, LayoutList, PieChart, Settings, X } from 'lucide-react';
-import { isConsumptionNeutralExpenseType, isNeutralReceiptType } from '@reformaflow/domain';
+import { ArrowDownUp, CreditCard, Eye, EyeOff, Filter, Layers, LayoutList, PieChart, Settings, X } from 'lucide-react';
+import { ExpenseType, isConsumptionNeutralExpenseType, isNeutralReceiptType } from '@reformaflow/domain';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { tipoLabel } from '@/lib/expense-options';
@@ -40,15 +40,19 @@ type MerchantSuggestion = {
 };
 type MerchantSuggestionMap = Record<string, MerchantSuggestion>;
 
-// Movimento "neutro" = transferência interna / resgate / aporte (investimento,
-// pagamento da casa). Some da LISTA de movimentações da Conta para não poluir a
-// leitura de entradas/saídas reais — mas continua no caixa real dos KPIs (cards
-// Entrou/Caixa hoje vêm dos agregados do backend; invariante "neutro é caixa").
+// Movimento "neutro" = transferência interna / resgate / pagamento da casa.
+// Some da LISTA de movimentações da Conta para não poluir a leitura de
+// entradas/saídas reais — mas continua no caixa real dos KPIs (cards Entrou/
+// Caixa hoje vêm dos agregados do backend; invariante "neutro é caixa").
 // As faturas de cartão (PAGAMENTO_FATURA_CARTAO / isInvoice) NÃO são escondidas:
 // é na Conta que se paga a fatura.
-function isNeutralMovimentacao(m: AccountViewMovimentacao): boolean {
+// INVESTIMENTOS também NÃO entra aqui: o aporte saiu da conta de verdade e some
+// da tela ao ser recategorizado. Quem controla sua exibição é o filtro
+// "Investimentos" da toolbar — nunca um descarte silencioso.
+export function isNeutralMovimentacao(m: AccountViewMovimentacao): boolean {
   if (m.kind === 'entrada') return isNeutralReceiptType(m.tipo);
   if (m.isInvoice) return false;
+  if (m.tipoDespesa === ExpenseType.INVESTIMENTOS) return false;
   return m.tipoDespesa !== 'PAGAMENTO_FATURA_CARTAO' && isConsumptionNeutralExpenseType(m.tipoDespesa);
 }
 
@@ -87,6 +91,7 @@ export function MovimentacoesSection({
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [viewMode, setViewMode] = useState<ViewMode>('lista');
   const [semContaFilter, setSemContaFilter] = useState(false);
+  const [showInvestimentos, setShowInvestimentos] = useState(true);
   // Faturas expandidas inline (por cardLast4): revela as compras do cartão na Lista.
   const [expandedCards, setExpandedCards] = useState<Set<string>>(() => new Set());
   const toggleCard = (last4: string) =>
@@ -406,6 +411,12 @@ export function MovimentacoesSection({
         if (!isCarteiraItem(m)) return false;
       }
 
+      // Aporte é saída real de caixa, mas não é consumo: quem quiser ler só o
+      // gasto desliga o chip "Investimentos". Explícito e reversível na tela —
+      // nunca some sozinho ao recategorizar.
+      if (!showInvestimentos && m.kind === 'saida' && m.tipoDespesa === ExpenseType.INVESTIMENTOS)
+        return false;
+
       if (originFilter) {
         const last4 = m.kind === 'saida' ? m.cardLast4 ?? m.bankLast4 : m.bankLast4;
         if (last4 !== originFilter) return false;
@@ -431,7 +442,7 @@ export function MovimentacoesSection({
       if (q && !m.descricao.toLowerCase().includes(q)) return false;
       return true;
     },
-    [summaryQuickFilter, semContaFilter, originFilter, statusFilter, catFilter, projetoFilter, search, projectId],
+    [summaryQuickFilter, semContaFilter, showInvestimentos, originFilter, statusFilter, catFilter, projetoFilter, search, projectId],
   );
 
   const filtered = useMemo(() => {
@@ -462,6 +473,8 @@ export function MovimentacoesSection({
     let recebido = 0;
     let previsto = 0;
     for (const m of filtered) {
+      // Aporte aparece na lista, mas não é gasto: fora do total de saídas.
+      if (m.kind === 'saida' && m.tipoDespesa === ExpenseType.INVESTIMENTOS) continue;
       if (m.kind === 'saida') saidas += m.valor;
       else if (m.status === 'EM_CAIXA') recebido += m.valor;
       else if (m.status === 'PREVISTO') previsto += m.valor;
@@ -583,7 +596,10 @@ export function MovimentacoesSection({
 
   // Nº de filtros de conteúdo ativos (categoria + projeto + sem conta) — badge do botão "Filtros".
   const activeFilterCount =
-    (catFilter !== 'todas' ? 1 : 0) + (projetoFilter !== 'todos' ? 1 : 0) + (semContaFilter ? 1 : 0);
+    (catFilter !== 'todas' ? 1 : 0) +
+    (projetoFilter !== 'todos' ? 1 : 0) +
+    (semContaFilter ? 1 : 0) +
+    (showInvestimentos ? 0 : 1);
 
   // Qualquer filtro de conteúdo ativo (inclui busca, status, origem e filtro rápido) —
   // controla a visibilidade do botão "Limpar filtros".
@@ -602,6 +618,7 @@ export function MovimentacoesSection({
     setProjetoFilter('todos');
     setStatusFilter('todos');
     setSemContaFilter(false);
+    setShowInvestimentos(true);
     if (originFilter) onClearOrigin();
     if (summaryQuickFilter) onClearSummaryQuickFilter();
   };
@@ -651,6 +668,30 @@ export function MovimentacoesSection({
           title="Mostrar apenas lançamentos sem conta vinculada"
         >
           Sem conta
+        </button>
+      )}
+      {tab !== 'entradas' && (
+        <button
+          type="button"
+          onClick={() => setShowInvestimentos((v) => !v)}
+          aria-pressed={!showInvestimentos}
+          className={`flex h-11 items-center gap-1.5 rounded-xl border px-3 text-sm font-medium transition md:h-10 ${
+            showInvestimentos
+              ? 'border-lifeone-hairline bg-lifeone-card text-lifeone-ink hover:border-lifeone-blue'
+              : 'border-lifeone-blue bg-[#E6EFFE] text-lifeone-blue'
+          } ${stacked ? 'w-full justify-center' : ''}`}
+          title={
+            showInvestimentos
+              ? 'Ocultar aportes em investimento da lista'
+              : 'Aportes em investimento estão ocultos — clique para mostrar'
+          }
+        >
+          {showInvestimentos ? (
+            <Eye className="h-3.5 w-3.5" />
+          ) : (
+            <EyeOff className="h-3.5 w-3.5" />
+          )}
+          Investimentos
         </button>
       )}
       <button
