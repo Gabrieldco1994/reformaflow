@@ -13,6 +13,7 @@ import { TenantModule } from './tenant/tenant.module';
 import { ProjectModule } from './project/project.module';
 import { ReceiptModule } from './receipt/receipt.module';
 import { ExpenseModule } from './expense/expense.module';
+import { RecurrenceModule } from './recurrence/recurrence.module';
 import { CashFlowModule } from './cash-flow/cash-flow.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { MonthlyOverviewModule } from './monthly-overview/monthly-overview.module';
@@ -64,6 +65,7 @@ const UPLOADS_DIR = (() => {
     ProjectModule,
     ReceiptModule,
     ExpenseModule,
+    RecurrenceModule,
     CashFlowModule,
     DashboardModule,
     MonthlyOverviewModule,

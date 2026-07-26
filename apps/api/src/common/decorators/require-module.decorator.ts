@@ -12,6 +12,7 @@ export type ModuleSlug =
   | 'simulation'
   | 'priceCompare'
   | 'recurringBills'
+  | 'recurrences'
   | 'maintenance'
   | 'reminders'
   | 'carInfo'
