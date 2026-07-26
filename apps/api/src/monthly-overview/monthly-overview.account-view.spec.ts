@@ -1395,7 +1395,10 @@ describe("MonthlyOverviewService.getAccountView", () => {
     const plan = res.saidas.find((s: any) => s.id === "ref-plan");
     expect(plan).toBeTruthy();
     expect(plan.realizado).toBe(false);
-    expect(plan.editavel).toBe(false);
+    // Editável mesmo sendo foreign — usuário pode corrigir/excluir o planejamento
+    // cross-project direto da Conta pessoal (feature "sem conta" editar/excluir).
+    expect(plan.editavel).toBe(true);
+    expect(plan.foreignExpenseId).toBe("ref-plan");
     expect(plan.projetoOrigem).toEqual(
       expect.objectContaining({ type: "REFORMA" }),
     );

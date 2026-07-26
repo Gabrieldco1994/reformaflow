@@ -313,4 +313,121 @@ describe('MovimentacaoRow — saída', () => {
       );
     });
   });
+
+  describe('cross-project: editar/excluir despesa "sem conta" de outro projeto', () => {
+    it('linha foreign carteira (editavel=true) mostra ações de editar e excluir', () => {
+      renderRow({
+        item: makeSaida({
+          id: 'exp-casa-1',
+          foreignExpenseId: 'exp-casa-1',
+          projetoOrigem: { id: 'proj-casa', name: 'Casa Praia', type: 'CASA' },
+          realizado: true,
+          status: 'PAGO',
+          cardLast4: null,
+          bankLast4: null,
+          editavel: true,
+        }),
+      });
+
+      expect(screen.getByRole('button', { name: 'Editar' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Excluir' })).toBeInTheDocument();
+    });
+
+    it('editar chama onEditExpense com o item completo (a resolução do id real fica na section)', () => {
+      const onEditExpense = vi.fn();
+      const item = makeSaida({
+        id: 'exp-casa-1',
+        foreignExpenseId: 'exp-casa-1',
+        projetoOrigem: { id: 'proj-casa', name: 'Casa Praia', type: 'CASA' },
+        realizado: true,
+        status: 'PAGO',
+        cardLast4: null,
+        bankLast4: null,
+        editavel: true,
+      });
+      renderRow({ item, onEditExpense });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Editar' }));
+      expect(onEditExpense).toHaveBeenCalledWith(item);
+    });
+
+    it('excluir resolve o id REAL da despesa (foreignExpenseId) + o projectId dono, não o id composto', () => {
+      const onRemoveExpense = vi.fn();
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+      renderRow({
+        item: makeSaida({
+          // id composto de linha por-parcela: NÃO é o id real da despesa.
+          id: 'exp-casa-1#2',
+          foreignExpenseId: 'exp-casa-1',
+          parcelaIndex: 2,
+          projetoOrigem: { id: 'proj-casa', name: 'Casa Praia', type: 'CASA' },
+          realizado: true,
+          status: 'PAGO',
+          cardLast4: null,
+          bankLast4: null,
+          editavel: true,
+        }),
+        onRemoveExpense,
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Excluir' }));
+      expect(onRemoveExpense).toHaveBeenCalledWith('exp-casa-1', 'proj-casa');
+      confirmSpy.mockRestore();
+    });
+
+    it('toggle rápido de status fica bloqueado (inerte) para linha foreign, mesmo editável', () => {
+      const onToggleExpense = vi.fn();
+      renderRow({
+        item: makeSaida({
+          id: 'exp-casa-1',
+          foreignExpenseId: 'exp-casa-1',
+          projetoOrigem: { id: 'proj-casa', name: 'Casa Praia', type: 'CASA' },
+          realizado: true,
+          status: 'PAGO',
+          cardLast4: null,
+          bankLast4: null,
+          editavel: true,
+        }),
+        onToggleExpense,
+      });
+
+      const status = screen.getByRole('button', { name: /paga/i });
+      expect(status).toBeDisabled();
+      fireEvent.click(status);
+      expect(onToggleExpense).not.toHaveBeenCalled();
+    });
+
+    it('item PESSOAL "solto" (não foreign) mantém o toggle rápido funcionando normalmente', () => {
+      const onToggleExpense = vi.fn();
+      renderRow({
+        item: makeSaida({
+          id: 'exp-1',
+          foreignExpenseId: null,
+          projetoOrigem: null,
+          realizado: false,
+          status: 'PLANEJADO',
+          editavel: true,
+        }),
+        onToggleExpense,
+      });
+
+      const status = screen.getByRole('button', { name: /a pagar/i });
+      expect(status).not.toBeDisabled();
+      fireEvent.click(status);
+      expect(onToggleExpense).toHaveBeenCalledWith('exp-1', false);
+    });
+
+    it('excluir despesa PESSOAL "solta" não passa projectId (undefined) — a section usa o projeto atual', () => {
+      const onRemoveExpense = vi.fn();
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+      renderRow({
+        item: makeSaida({ id: 'exp-1', foreignExpenseId: null, projetoOrigem: null, editavel: true }),
+        onRemoveExpense,
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Excluir' }));
+      expect(onRemoveExpense).toHaveBeenCalledWith('exp-1', undefined);
+      confirmSpy.mockRestore();
+    });
+  });
 });

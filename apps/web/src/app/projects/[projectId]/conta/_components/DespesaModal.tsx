@@ -36,6 +36,8 @@ export function DespesaModal({
   projectId,
   editExpenseId,
   defaultData,
+  targetProjectId,
+  targetProjectType,
 }: {
   open: boolean;
   onClose: () => void;
@@ -44,15 +46,29 @@ export function DespesaModal({
   editExpenseId?: string | null;
   /** Data inicial (ISO YYYY-MM-DD) para novos lançamentos. */
   defaultData?: string;
+  /**
+   * Presente quando a despesa editada pertence a OUTRO projeto (Carteira "sem
+   * conta" de CASA/CARRO/REFORMA mostrada no consolidado PESSOAL) — o GET/PATCH
+   * precisam ir para o projeto DONO, não para `projectId` (PESSOAL).
+   */
+  targetProjectId?: string;
+  /** Tipo do projeto dono, para carregar as opções de tipoDespesa corretas. */
+  targetProjectType?: string;
 }) {
   const queryClient = useQueryClient();
   const isEdit = !!editExpenseId;
+  // Projeto que efetivamente possui a despesa sendo editada/criada. Criação
+  // nunca é cross-project (targetProjectId só existe em modo edição).
+  const effectiveProjectId = targetProjectId ?? projectId;
 
-  const tipoOptions = useMemo(() => getExpenseOptions('PESSOAL'), []);
+  const tipoOptions = useMemo(
+    () => getExpenseOptions(targetProjectType ?? 'PESSOAL'),
+    [targetProjectType],
+  );
 
   const { data: editing = null } = useQuery<Expense | null>({
-    queryKey: ['expense', projectId, editExpenseId],
-    queryFn: () => api.get(`/projects/${projectId}/expenses/${editExpenseId}`),
+    queryKey: ['expense', effectiveProjectId, editExpenseId],
+    queryFn: () => api.get(`/projects/${effectiveProjectId}/expenses/${editExpenseId}`),
     enabled: open && isEdit,
   });
 
@@ -123,6 +139,11 @@ export function DespesaModal({
 
   const invalidate = () => {
     invalidateExpenseQueries(queryClient, projectId);
+    // Cross-project: também invalida as queries do projeto DONO da despesa, senão
+    // a página do projeto de origem (ex.: Despesas do CASA) fica com dado velho.
+    if (targetProjectId && targetProjectId !== projectId) {
+      invalidateExpenseQueries(queryClient, targetProjectId);
+    }
   };
 
   const createMutation = useMutation({
@@ -137,7 +158,7 @@ export function DespesaModal({
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: ExpenseFormData }) =>
-      api.patch(`/projects/${projectId}/expenses/${id}`, data),
+      api.patch(`/projects/${effectiveProjectId}/expenses/${id}`, data),
     onSuccess: () => {
       toast.success('Despesa atualizada');
       invalidate();
@@ -150,9 +171,9 @@ export function DespesaModal({
   // parcela escolhida do alvo com o valor desta despesa. Espelha ExpensesView.
   const conciliarMutation = useMutation({
     mutationFn: ({ sourceId, targetExpenseId, parcelaIndex }: { sourceId: string; targetExpenseId: string; parcelaIndex: number }) =>
-      api.post(`/projects/${projectId}/expenses/${sourceId}/conciliar-parcela`, { targetExpenseId, parcelaIndex }),
+      api.post(`/projects/${effectiveProjectId}/expenses/${sourceId}/conciliar-parcela`, { targetExpenseId, parcelaIndex }),
     onSuccess: () => {
-      invalidateExpenseQueries(queryClient, projectId);
+      invalidate();
       toast.success('Despesa conciliada com a parcela do outro projeto');
     },
     onError: (e: Error) => toast.error(`Erro ao conciliar parcela: ${e.message}`),
@@ -160,7 +181,8 @@ export function DespesaModal({
 
   // Rateio: distribui UMA compra (fonte, PESSOAL) entre N planejadas de outro
   // projeto. A soma das alocações fecha o total da compra. Não toca no motor
-  // backend (ratearSource/unratearSource) — só reusa os endpoints.
+  // backend (ratearSource/unratearSource) — só reusa os endpoints. Não se aplica
+  // a edição de despesa de outro projeto (onRatear fica desabilitado nesse caso).
   const ratearMutation = useMutation({
     mutationFn: ({ sourceId, allocations }: { sourceId: string; allocations: { targetExpenseId: string; allocation: number }[] }) =>
       api.post(`/projects/${projectId}/expenses/${sourceId}/ratear`, { allocations }),
@@ -289,12 +311,14 @@ export function DespesaModal({
         setDataInicioParcela={setDataInicioParcela}
         formVinculos={formVinculos}
         setFormVinculos={setFormVinculos}
-        projectId={projectId}
+        projectId={effectiveProjectId}
         showRooms={false}
         tipoDespesaOptions={tipoOptions}
         roomOptions={[]}
         isPending={createMutation.isPending || updateMutation.isPending}
-        onRatear={isEdit && editing ? () => { setRatearSource(editing); onClose(); } : undefined}
+        // Ratear só faz sentido para uma compra-fonte PESSOAL "solta"; editando a
+        // despesa de OUTRO projeto diretamente, o botão fica desabilitado.
+        onRatear={!targetProjectId && isEdit && editing ? () => { setRatearSource(editing); onClose(); } : undefined}
         linkedExpenseDraft={{
           titulo,
           fornecedor,
