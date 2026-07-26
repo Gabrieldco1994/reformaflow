@@ -52,6 +52,9 @@ export default function AdminJornadasPage() {
     <main className="min-h-screen bg-lifeone-canvas px-4 py-6 font-geist sm:px-6">
       <div className="mx-auto w-full max-w-6xl">
         <header className="mb-5">
+          <a href="/admin/users" className="mb-3 inline-flex items-center gap-1 text-[12px] text-lifeone-ink-3 hover:text-lifeone-ink">
+            ← Usuários
+          </a>
           <h1 className="text-[22px] font-bold text-lifeone-ink">Jornadas de onboarding</h1>
           <p className="mt-1 text-[13px] text-lifeone-ink-2">
             A trilha abaixo é o que a pessoa vê ao criar um projeto, na ordem em que vê. Arraste

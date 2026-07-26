@@ -6,8 +6,6 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth, ALL_MODULES, type ModuleSlug, type AuthUser } from '@/contexts/auth-context';
 import { api } from '@/lib/api';
-import { ProjectStatsCharts, type ProjectStats } from './_components/ProjectStatsCharts';
-import { FeedbackRatingChart } from './_components/FeedbackRatingChart';
 
 interface AdminUser extends AuthUser {
   email?: string | null;
@@ -46,7 +44,6 @@ interface Feedback {
   userId: string;
   username: string;
   message: string;
-  rating?: number | null;
   createdAt: string;
 }
 
@@ -55,7 +52,6 @@ export default function AdminUsersPage() {
   const router = useRouter();
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
-  const [projectStats, setProjectStats] = useState<ProjectStats | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [feedbackWarning, setFeedbackWarning] = useState<string | null>(null);
@@ -89,13 +85,6 @@ export default function AdminUsersPage() {
         // ponytail: feedback não pode derrubar a tela de usuários
         setFeedbacks([]);
         setFeedbackWarning('Feedbacks indisponíveis no momento.');
-      }
-
-      try {
-        setProjectStats(await api.get<ProjectStats>('/users/stats/projects'));
-      } catch {
-        // ponytail: gráficos são acessórios, não derrubam a tela
-        setProjectStats(null);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao carregar usuários');
@@ -163,6 +152,12 @@ export default function AdminUsersPage() {
             >
               ← Voltar
             </a>
+            <a
+              href="/admin/jornadas"
+              className="text-sm text-gray-600 hover:text-gray-900 border border-gray-200 rounded-lg px-3 py-1.5"
+            >
+              Jornadas
+            </a>
             <button
               onClick={() => setShowCreate(true)}
               className="bg-brand-600 hover:bg-brand-700 text-white text-sm px-4 py-2 rounded-lg"
@@ -182,8 +177,6 @@ export default function AdminUsersPage() {
             {feedbackWarning}
           </div>
         )}
-
-        {projectStats && <ProjectStatsCharts stats={projectStats} />}
 
         {/* Stats bar */}
         {users.length > 0 && (() => {
@@ -431,23 +424,12 @@ export default function AdminUsersPage() {
       {/* Feedbacks section */}
       {feedbacks.length > 0 && (
         <div className="max-w-4xl mx-auto mt-8">
-          <div className="mb-4">
-            <FeedbackRatingChart feedbacks={feedbacks} />
-          </div>
           <h2 className="text-lg font-bold text-gray-900 mb-3">Feedbacks ({feedbacks.length})</h2>
           <div className="flex flex-col gap-3">
             {feedbacks.map((fb) => (
               <div key={fb.id} className="bg-white rounded-xl border border-gray-200 px-4 py-3">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="flex items-center gap-2 text-sm font-semibold text-gray-800">
-                    {fb.username}
-                    {typeof fb.rating === 'number' && (
-                      <span className="text-xs font-medium text-amber-500">
-                        {'★'.repeat(fb.rating)}
-                        <span className="text-gray-300">{'★'.repeat(5 - fb.rating)}</span>
-                      </span>
-                    )}
-                  </span>
+                  <span className="text-sm font-semibold text-gray-800">{fb.username}</span>
                   <span className="text-xs text-gray-400">
                     {new Date(fb.createdAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                   </span>
