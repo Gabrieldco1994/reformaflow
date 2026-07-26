@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ComponentType } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { SkipForward, CreditCard, Landmark, ArrowRight } from 'lucide-react';
@@ -36,32 +36,64 @@ function OptionButton({ icon: Icon, label, onClick }: OptionButtonProps) {
 }
 
 /**
- * Onboarding step that lets users bulk-import transactions from a card
- * statement or bank statement they already have.
- * "Fatura do cartão" fica sempre visível (mesmo sem cartão cadastrado) —
- * escondê-la empurra quem tem fatura na mão para "Extrato da conta", que
- * inverte o sinal errado e mistura despesa de cartão com caixa real.
- * Espelha o padrão já usado em ImportLauncher.tsx.
+ * Importação reutiliza a fonte preferida do passo funding (issue #320):
+ * - só conta: abre extrato diretamente
+ * - só cartão: abre fatura diretamente
+ * - ambos: pergunta Extrato ou Fatura (usa IDs já escolhidos)
+ * - nenhuma: estado vazio com CTA
+ * ID stale/removido: descarta e volta ao seletor.
+ * Fechar modal não reabre em loop.
  */
-export function ImportMassStep({ projectId, onDone, onSkip, subtitle, canSkip = true }: OnboardingStepProps) {
-  const { data: cards = [] } = useQuery<TenantCard[]>({
+export function ImportMassStep({ projectId, onDone, onSkip, subtitle, canSkip = true, funding }: OnboardingStepProps) {
+  const { data: cards = [], isLoading: cardsLoading } = useQuery<TenantCard[]>({
     queryKey: ['tenant', 'credit-cards'],
     queryFn: () => api.get('/tenant/credit-cards'),
     staleTime: 60_000,
   });
-  const { data: accounts = [] } = useQuery<TenantAccount[]>({
+  const { data: accounts = [], isLoading: accountsLoading } = useQuery<TenantAccount[]>({
     queryKey: ['tenant', 'bank-accounts'],
     queryFn: () => api.get('/tenant/bank-accounts'),
     staleTime: 60_000,
   });
 
+  const isLoading = cardsLoading || accountsLoading;
+
   const [importType, setImportType] = useState<'fatura' | 'extrato' | null>(null);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
-  // card picker shown when >1 card exists (also reused for the "sem cartão" empty state)
   const [showCardPicker, setShowCardPicker] = useState(false);
-  // account picker shown when >1 account exists
   const [showAccountPicker, setShowAccountPicker] = useState(false);
+
+  // ponytail: guard — fechar modal não reabre em loop
+  const modalClosedByUser = useRef(false);
+
+  // Ao carregar dados, validar IDs preferidos e auto-abrir se preferido é válido
+  useEffect(() => {
+    if (isLoading || modalClosedByUser.current) return;
+
+    const preferredCardId = funding?.creditCard?.id ?? null;
+    const preferredAccountId = funding?.bankAccount?.id ?? null;
+
+    const validCard = preferredCardId ? cards.find((c) => c.id === preferredCardId) : null;
+    const validAccount = preferredAccountId ? accounts.find((a) => a.id === preferredAccountId) : null;
+
+    if (validCard && validAccount) {
+      // ambos: não auto-abre — usuário escolhe o tipo
+      return;
+    }
+    if (validCard && !validAccount) {
+      setSelectedCardId(validCard.id);
+      setImportType('fatura');
+      return;
+    }
+    if (validAccount && !validCard) {
+      setSelectedAccountId(validAccount.id);
+      setImportType('extrato');
+      return;
+    }
+  // ponytail: só re-executa quando os dados chegam — não inclui importType para não reabrir
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading, cards, accounts]);
 
   function openFatura() {
     if (cards.length === 1) {
@@ -82,13 +114,19 @@ export function ImportMassStep({ projectId, onDone, onSkip, subtitle, canSkip = 
   }
 
   function closeModal() {
+    modalClosedByUser.current = true;
     setImportType(null);
     setSelectedCardId(null);
     setSelectedAccountId(null);
   }
 
-  const activeCard = cards.find((c: TenantCard) => c.id === selectedCardId) ?? null;
-  const activeAccount = accounts.find((a: TenantAccount) => a.id === selectedAccountId) ?? null;
+  const activeCard = cards.find((c) => c.id === selectedCardId) ?? null;
+  const activeAccount = accounts.find((a) => a.id === selectedAccountId) ?? null;
+
+  const hasBothFunding = !!(funding?.creditCard && funding?.bankAccount);
+  const hasCardFunding = !!funding?.creditCard;
+  const hasAccountFunding = !!funding?.bankAccount;
+  const noFunding = !hasCardFunding && !hasAccountFunding;
 
   return (
     <section className="rounded-[18px] border border-lifeone-hairline bg-lifeone-card p-6 shadow-lifeone-card">
@@ -97,30 +135,54 @@ export function ImportMassStep({ projectId, onDone, onSkip, subtitle, canSkip = 
         {subtitle || 'Use o extrato ou fatura que já tem — detectamos os valores automaticamente'}
       </p>
 
-      <div className="space-y-2.5 mt-4">
-        <OptionButton
-          icon={CreditCard}
-          label="Fatura do cartão"
-          onClick={openFatura}
-        />
-        {accounts.length > 0 && (
-          <OptionButton
-            icon={Landmark}
-            label="Extrato da conta"
-            onClick={openExtrato}
-          />
-        )}
+      {/* Sem fonte: estado vazio */}
+      {noFunding && (
+        <div className="mt-4 rounded-[12px] border border-lifeone-hairline bg-lifeone-surface p-4">
+          <p className="text-[13px] font-medium text-lifeone-ink-2">Nenhuma fonte configurada</p>
+          <p className="text-[12px] text-lifeone-ink-3 mt-1">
+            Volte ao passo Contas &amp; cartões para adicionar uma conta ou cartão, ou pule por agora.
+          </p>
+        </div>
+      )}
 
-        {cards.length === 0 && accounts.length === 0 && (
-          <div className="rounded-[10px] bg-lifeone-surface border border-lifeone-hairline p-4">
-            <p className="text-[13px] text-lifeone-ink-3">
-              Importação de extrato ou fatura requer uma conta ou cartão cadastrado. Você pode adicionar isso em <strong>Configurações</strong> quando quiser.
-            </p>
-          </div>
-        )}
-      </div>
+      {/* Ambos: escolha de tipo */}
+      {hasBothFunding && !importType && (
+        <div className="space-y-2.5 mt-4">
+          <OptionButton icon={CreditCard} label="Fatura do cartão" onClick={openFatura} />
+          <OptionButton icon={Landmark} label="Extrato da conta" onClick={openExtrato} />
+        </div>
+      )}
 
-      {/* Card picker: lista quando >1 cartão, empty state quando 0 cartões */}
+      {/* Só conta (sem auto-abertura ativa, ou após fechar) */}
+      {!hasBothFunding && hasAccountFunding && !importType && !isLoading && (
+        <div className="space-y-2.5 mt-4">
+          <OptionButton icon={Landmark} label="Extrato da conta" onClick={openExtrato} />
+          {hasCardFunding && (
+            <OptionButton icon={CreditCard} label="Fatura do cartão" onClick={openFatura} />
+          )}
+        </div>
+      )}
+
+      {/* Só cartão (sem auto-abertura ativa) */}
+      {!hasBothFunding && hasCardFunding && !hasAccountFunding && !importType && !isLoading && (
+        <div className="space-y-2.5 mt-4">
+          <OptionButton icon={CreditCard} label="Fatura do cartão" onClick={openFatura} />
+        </div>
+      )}
+
+      {/* Fallback manual quando não há funding preferido mas há fontes no sistema */}
+      {noFunding && cards.length > 0 && (
+        <div className="space-y-2.5 mt-3">
+          <OptionButton icon={CreditCard} label="Fatura do cartão" onClick={openFatura} />
+        </div>
+      )}
+      {noFunding && accounts.length > 0 && (
+        <div className="space-y-2.5 mt-2">
+          <OptionButton icon={Landmark} label="Extrato da conta" onClick={openExtrato} />
+        </div>
+      )}
+
+      {/* Card picker */}
       {showCardPicker && (
         <div className="mt-3 space-y-1.5">
           {cards.length === 0 ? (
@@ -147,28 +209,36 @@ export function ImportMassStep({ projectId, onDone, onSkip, subtitle, canSkip = 
         </div>
       )}
 
-      {/* Account picker when >1 account */}
+      {/* Account picker */}
       {showAccountPicker && (
         <div className="mt-3 space-y-1.5">
-          <p className="text-[12px] font-medium text-lifeone-ink-2">Qual conta?</p>
-          {accounts.map((a) => (
-            <button
-              key={a.id}
-              type="button"
-              onClick={() => {
-                setSelectedAccountId(a.id);
-                setImportType('extrato');
-                setShowAccountPicker(false);
-              }}
-              className="flex min-h-11 w-full items-center gap-2 rounded-[8px] border border-lifeone-hairline bg-lifeone-surface px-3 py-2.5 text-[13px] text-lifeone-ink hover:bg-lifeone-hairline/60 transition-colors"
-            >
-              {a.nickname || a.institution}
-            </button>
-          ))}
+          {accounts.length === 0 ? (
+            <div className="rounded-[12px] border border-lifeone-hairline bg-lifeone-surface p-3">
+              <p className="text-[12px] font-medium text-lifeone-ink-2">Nenhuma conta cadastrada</p>
+              <p className="text-[12px] text-lifeone-ink-3 mt-1">Cadastre uma conta bancária antes de importar o extrato.</p>
+            </div>
+          ) : (
+            <>
+              <p className="text-[12px] font-medium text-lifeone-ink-2">Qual conta?</p>
+              {accounts.map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedAccountId(a.id);
+                    setImportType('extrato');
+                    setShowAccountPicker(false);
+                  }}
+                  className="flex min-h-11 w-full items-center gap-2 rounded-[8px] border border-lifeone-hairline bg-lifeone-surface px-3 py-2.5 text-[13px] text-lifeone-ink hover:bg-lifeone-hairline/60 transition-colors"
+                >
+                  {a.nickname || a.institution}
+                </button>
+              ))}
+            </>
+          )}
         </div>
       )}
 
-      {/* CSV/PDF tip */}
       <p className="text-[11px] text-lifeone-ink-4 mt-3">
         Aceita PDF, CSV, OFX, TXT e imagens. Excel? Exporte como CSV primeiro.
       </p>
@@ -184,16 +254,12 @@ export function ImportMassStep({ projectId, onDone, onSkip, subtitle, canSkip = 
         )}
       </div>
 
-      {/* Modals */}
       {importType === 'fatura' && activeCard && (
         <ImportStatementModal
           projectId={projectId}
           card={activeCard as unknown as CardRow}
           onClose={closeModal}
-          onCommitted={() => {
-            closeModal();
-            onDone();
-          }}
+          onCommitted={() => { closeModal(); onDone(); }}
         />
       )}
       {importType === 'extrato' && activeAccount && (
@@ -201,10 +267,7 @@ export function ImportMassStep({ projectId, onDone, onSkip, subtitle, canSkip = 
           projectId={projectId}
           account={activeAccount as unknown as BankAccountRow}
           onClose={closeModal}
-          onCommitted={() => {
-            closeModal();
-            onDone();
-          }}
+          onCommitted={() => { closeModal(); onDone(); }}
         />
       )}
     </section>

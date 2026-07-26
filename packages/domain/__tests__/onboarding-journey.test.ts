@@ -17,9 +17,9 @@ describe('resolveJourney', () => {
   it('reordena pelo campo order salvo pelo admin', () => {
     const resolved = resolveJourney(ProjectType.PESSOAL, [
       { stepKey: 'expense', order: 0 },
-      { stepKey: 'bank', order: 1 },
+      { stepKey: 'funding', order: 1 },
     ]);
-    expect(resolved.slice(0, 2).map((s) => s.key)).toEqual(['expense', 'bank']);
+    expect(resolved.slice(0, 2).map((s) => s.key)).toEqual(['expense', 'funding']);
   });
 
   it('aplica enabled, skippable e textos sobrescritos', () => {

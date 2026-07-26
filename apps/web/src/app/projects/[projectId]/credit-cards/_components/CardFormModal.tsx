@@ -10,7 +10,7 @@ interface Props {
   projectId: string;
   card: CardRow | null;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (id: string) => void;
   /** ponytail: skip the fixed overlay when embedded inside AccountFormModal's own overlay */
   bare?: boolean;
   /** Hide the "Cancelar" button — used when embedded in a flow that already has its own skip affordance (e.g. onboarding wizard). */
@@ -65,10 +65,11 @@ export default function CardFormModal({ projectId, card, onClose, onSaved, bare,
 
       if (card) {
         await api.patch(`/projects/${projectId}/credit-cards/${card.id}`, body);
+        onSaved(card.id);
       } else {
-        await api.post(`/projects/${projectId}/credit-cards`, body);
+        const created = await api.post<{ id: string }>(`/projects/${projectId}/credit-cards`, body);
+        onSaved(created.id);
       }
-      onSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao salvar');
     } finally {

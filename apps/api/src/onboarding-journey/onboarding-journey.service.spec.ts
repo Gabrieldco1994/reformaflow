@@ -8,7 +8,7 @@ function makeRow(over: Partial<any> = {}) {
   return {
     id: 'j1',
     projectType: ProjectType.PESSOAL,
-    stepKey: 'bank',
+    stepKey: 'funding',
     order: 0,
     enabled: true,
     skippable: true,
@@ -58,25 +58,25 @@ describe('OnboardingJourneyService', () => {
       prisma.onboardingJourneyStep.findMany.mockResolvedValue([
         makeRow({ stepKey: 'expense', order: 0 }),
         makeRow({
-          stepKey: 'bank',
+          stepKey: 'funding',
           order: 1,
           skippable: false,
           labelOverride: 'Banco',
           subtitleOverride: 'Informe seu saldo',
         }),
-        makeRow({ stepKey: 'card', order: 2, enabled: false }),
+        makeRow({ stepKey: 'receipt', order: 2, enabled: false }),
       ]);
 
       const journey = await service.getJourney(ProjectType.PESSOAL);
 
       expect(journey[0]!.key).toBe('expense');
       expect(journey[1]!).toMatchObject({
-        key: 'bank',
+        key: 'funding',
         label: 'Banco',
         subtitle: 'Informe seu saldo',
         skippable: false,
       });
-      expect(journey.find((s) => s.key === 'card')!.enabled).toBe(false);
+      expect(journey.find((s) => s.key === 'receipt')!.enabled).toBe(false);
       expect(prisma.onboardingJourneyStep.findMany).toHaveBeenCalledWith({
         where: { projectType: ProjectType.PESSOAL },
         orderBy: { order: 'asc' },
@@ -110,21 +110,21 @@ describe('OnboardingJourneyService', () => {
   describe('saveJourney', () => {
     it('faz upsert por [projectType, stepKey] e devolve a jornada resolvida', async () => {
       prisma.onboardingJourneyStep.findMany.mockResolvedValue([
-        makeRow({ stepKey: 'bank', order: 3, enabled: false }),
+        makeRow({ stepKey: 'funding', order: 3, enabled: false }),
       ]);
 
       const result = await service.saveJourney(ProjectType.PESSOAL, {
-        steps: [{ stepKey: 'bank', order: 3, enabled: false, skippable: true }],
+        steps: [{ stepKey: 'funding', order: 3, enabled: false, skippable: true }],
       });
 
       expect(prisma.onboardingJourneyStep.upsert).toHaveBeenCalledTimes(1);
       const arg = prisma.onboardingJourneyStep.upsert.mock.calls[0][0];
       expect(arg.where).toEqual({
-        projectType_stepKey: { projectType: ProjectType.PESSOAL, stepKey: 'bank' },
+        projectType_stepKey: { projectType: ProjectType.PESSOAL, stepKey: 'funding' },
       });
       expect(arg.create).toMatchObject({
         projectType: ProjectType.PESSOAL,
-        stepKey: 'bank',
+        stepKey: 'funding',
         order: 3,
         enabled: false,
         skippable: true,
@@ -132,13 +132,13 @@ describe('OnboardingJourneyService', () => {
         subtitleOverride: null,
       });
       expect(arg.update).toMatchObject({ order: 3, enabled: false, skippable: true });
-      expect(result.find((s) => s.key === 'bank')!.enabled).toBe(false);
+      expect(result.find((s) => s.key === 'funding')!.enabled).toBe(false);
     });
 
     it('normaliza texto vazio/em branco para null (cai no default)', async () => {
       await service.saveJourney(ProjectType.PESSOAL, {
         steps: [
-          { stepKey: 'bank', order: 0, enabled: true, skippable: true, label: '  ', subtitle: null },
+          { stepKey: 'funding', order: 0, enabled: true, skippable: true, label: '  ', subtitle: null },
         ],
       });
 
@@ -151,7 +151,7 @@ describe('OnboardingJourneyService', () => {
       await expect(
         service.saveJourney(ProjectType.PESSOAL, {
           steps: [
-            { stepKey: 'bank', order: 0, enabled: true, skippable: true },
+            { stepKey: 'funding', order: 0, enabled: true, skippable: true },
             { stepKey: 'nao-existe', order: 1, enabled: true, skippable: true },
           ],
         }),
@@ -164,7 +164,7 @@ describe('OnboardingJourneyService', () => {
     it('stepKey de outro tipo de projeto → 400 (não vaza tela entre tipos)', async () => {
       await expect(
         service.saveJourney(ProjectType.REFORMA, {
-          steps: [{ stepKey: 'bank', order: 0, enabled: true, skippable: true }],
+          steps: [{ stepKey: 'funding', order: 0, enabled: true, skippable: true }],
         }),
       ).rejects.toBeInstanceOf(BadRequestException);
       expect(prisma.onboardingJourneyStep.upsert).not.toHaveBeenCalled();
@@ -174,8 +174,8 @@ describe('OnboardingJourneyService', () => {
       await expect(
         service.saveJourney(ProjectType.PESSOAL, {
           steps: [
-            { stepKey: 'bank', order: 0, enabled: true, skippable: true },
-            { stepKey: 'bank', order: 1, enabled: false, skippable: true },
+            { stepKey: 'funding', order: 0, enabled: true, skippable: true },
+            { stepKey: 'funding', order: 1, enabled: false, skippable: true },
           ],
         }),
       ).rejects.toBeInstanceOf(BadRequestException);
@@ -185,7 +185,7 @@ describe('OnboardingJourneyService', () => {
     it('projectType inválido → 400 e nada persistido', async () => {
       await expect(
         service.saveJourney('BANANA' as ProjectType, {
-          steps: [{ stepKey: 'bank', order: 0, enabled: true, skippable: true }],
+          steps: [{ stepKey: 'funding', order: 0, enabled: true, skippable: true }],
         }),
       ).rejects.toBeInstanceOf(BadRequestException);
       expect(prisma.onboardingJourneyStep.upsert).not.toHaveBeenCalled();

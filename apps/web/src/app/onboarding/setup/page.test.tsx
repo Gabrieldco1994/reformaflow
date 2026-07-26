@@ -36,7 +36,7 @@ vi.mock('next/navigation', () => ({
 /** Per-type sequence of skip-button name regexes to click through every anchor step
  *  (o passo final "Feedback" com seu botão "Pular" é comum a todos os tipos). */
 const SKIP_SEQUENCES: Record<string, RegExp[]> = {
-  PESSOAL: [/pular por agora/i, /pular — cadastro depois/i, /pular por agora/i, /pular — importar depois/i, /pular por agora/i, /^pular$/i],
+  PESSOAL: [/pular por agora/i, /pular por agora/i, /pular — importar depois/i, /pular por agora/i, /^pular$/i],
   REFORMA: [/pular por agora/i, /^pular$/i],
   COMPRA: [/pular por agora/i, /^pular$/i],
   CASA: [/cancelar/i, /^pular$/i],
@@ -179,7 +179,7 @@ describe('OnboardingSetupPage', () => {
       mocks.searchParams = new URLSearchParams({ type: 'PESSOAL', projectId: 'p1' });
       mockJourney([
         step({ key: 'receipt', label: 'Recebimento', subtitle: 'TELA A' }),
-        step({ key: 'bank', label: 'Conta', subtitle: 'TELA B' }),
+        step({ key: 'funding', label: 'Contas & cartões', subtitle: 'TELA B' }),
       ]);
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
       renderPage();

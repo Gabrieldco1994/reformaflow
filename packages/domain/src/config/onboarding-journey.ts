@@ -21,6 +21,24 @@ import { ProjectType } from '../enums';
 /** Telas que o admin NÃO pode reordenar nem desligar (bookends do fluxo). */
 export const ONBOARDING_FIXED_STEPS = ['project', 'done'] as const;
 
+// ─── Tipos de runtime do passo `funding` (transitório — não persistir) ───────
+
+export type FundingKind = 'bankAccount' | 'creditCard';
+export type FundingOrigin = 'existing' | 'created';
+
+export interface FundingSourceRef {
+  kind: FundingKind;
+  id: string;
+  ownerProjectId: string;
+  origin: FundingOrigin;
+}
+
+/** Estado transitório do passo `funding` — vive só no ciclo de vida do wizard. */
+export interface OnboardingFunding {
+  bankAccount: FundingSourceRef | null;
+  creditCard: FundingSourceRef | null;
+}
+
 export interface JourneyStepDef {
   /** Id estável — casa com a chave do componente em `steps-config.ts`. */
   key: string;
@@ -46,17 +64,10 @@ export interface JourneyStepDef {
 export const ONBOARDING_JOURNEY_DEFAULTS: Record<ProjectType, JourneyStepDef[]> = {
   [ProjectType.PESSOAL]: [
     {
-      key: 'bank',
-      label: 'Conta',
+      key: 'funding',
+      label: 'Contas & cartões',
       defaultSubtitle:
-        'Sem o saldo, o Caixa mostra só o fluxo. Dá pra definir depois em Contas Bancárias.',
-      alwaysAvailable: true,
-      skippableByDefault: true,
-    },
-    {
-      key: 'card',
-      label: 'Cartão',
-      defaultSubtitle: 'Cadastre o cartão que você mais usa para as faturas baterem certo.',
+        'Sem conta ou cartão, o Caixa mostra só o fluxo. Dá pra definir depois em Contas Bancárias e Cartões.',
       alwaysAvailable: true,
       skippableByDefault: true,
     },

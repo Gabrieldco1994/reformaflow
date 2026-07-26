@@ -3,30 +3,22 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ProjectType } from '@reformaflow/domain';
 import { ImportMassStep } from './ImportMassStep';
+import type { OnboardingFunding } from '../../_types';
 
 const apiGetMock = vi.fn();
 const mockPush = vi.fn();
 
 vi.mock('@/lib/api', () => ({
-  api: {
-    get: (...args: unknown[]) => apiGetMock(...args),
-  },
+  api: { get: (...args: unknown[]) => apiGetMock(...args) },
 }));
 
-vi.mock('next/navigation', () => ({
-  useRouter: () => ({
-    push: mockPush,
-  }),
-}));
-
-// Stub modals — call onCommitted when rendered to simulate a completed import
 vi.mock(
   '@/app/projects/[projectId]/credit-cards/_components/ImportStatementModal',
   () => ({
-    default: ({ onCommitted, onClose }: { onCommitted: () => void; onClose: () => void }) => (
-      <div data-testid="import-statement-modal">
-        <button onClick={onCommitted}>commit-fatura</button>
-        <button onClick={onClose}>close-fatura</button>
+    default: ({ onClose, onCommitted }: { onClose: () => void; onCommitted: () => void }) => (
+      <div data-testid="import-fatura">
+        <button onClick={onCommitted}>Commitar fatura</button>
+        <button onClick={onClose}>Fechar fatura</button>
       </div>
     ),
   }),
@@ -35,127 +27,146 @@ vi.mock(
 vi.mock(
   '@/app/projects/[projectId]/bank-accounts/_components/ImportBankStatementModal',
   () => ({
-    default: ({ onCommitted, onClose }: { onCommitted: () => void; onClose: () => void }) => (
-      <div data-testid="import-bank-modal">
-        <button onClick={onCommitted}>commit-extrato</button>
-        <button onClick={onClose}>close-extrato</button>
+    default: ({ onClose, onCommitted }: { onClose: () => void; onCommitted: () => void }) => (
+      <div data-testid="import-extrato">
+        <button onClick={onCommitted}>Commitar extrato</button>
+        <button onClick={onClose}>Fechar extrato</button>
       </div>
     ),
   }),
 );
 
-const defaultProps = {
-  projectId: 'p1',
-  projectType: ProjectType.PESSOAL,
-  onDone: vi.fn(),
-  onSkip: vi.fn(),
+vi.mock('@/app/projects/[projectId]/_components/SemCartaoEmptyState', () => ({
+  SemCartaoEmptyState: () => <div data-testid="sem-cartao" />,
+}));
+
+const CARD = { id: 'cc1', brand: 'Visa', last4: '1234', nickname: null };
+const ACCOUNT = { id: 'ba1', institution: 'NUBANK', last4: '5678', nickname: null };
+
+const cardFunding: OnboardingFunding = {
+  bankAccount: null,
+  creditCard: { kind: 'creditCard', id: 'cc1', ownerProjectId: 'p1', origin: 'created' },
+};
+const accountFunding: OnboardingFunding = {
+  bankAccount: { kind: 'bankAccount', id: 'ba1', ownerProjectId: 'p1', origin: 'created' },
+  creditCard: null,
+};
+const bothFunding: OnboardingFunding = {
+  bankAccount: { kind: 'bankAccount', id: 'ba1', ownerProjectId: 'p1', origin: 'created' },
+  creditCard: { kind: 'creditCard', id: 'cc1', ownerProjectId: 'p1', origin: 'created' },
 };
 
-function renderStep(
-  overrides?: Partial<typeof defaultProps>,
-  precache?: { cards?: unknown[]; accounts?: unknown[] },
-) {
+function wrap(ui: React.ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  if (precache?.cards) client.setQueryData(['tenant', 'credit-cards'], precache.cards);
-  if (precache?.accounts) client.setQueryData(['tenant', 'bank-accounts'], precache.accounts);
-  return render(
-    <QueryClientProvider client={client}>
-      <ImportMassStep {...defaultProps} {...overrides} />
-    </QueryClientProvider>,
-  );
+  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
 }
 
-describe('ImportMassStep', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    apiGetMock.mockResolvedValue([]);
+function defaultProps(overrides = {}) {
+  return {
+    projectId: 'p1',
+    projectType: ProjectType.PESSOAL,
+    onDone: vi.fn(),
+    onSkip: vi.fn(),
+    ...overrides,
+  };
+}
+
+beforeEach(() => {
+  apiGetMock.mockReset();
+  apiGetMock.mockImplementation((path: string) => {
+    if (path === '/tenant/credit-cards') return Promise.resolve([CARD]);
+    if (path === '/tenant/bank-accounts') return Promise.resolve([ACCOUNT]);
+    return Promise.resolve([]);
+  });
+});
+
+describe('ImportMassStep — auto-abre com cartão preferido', () => {
+  it('cartão preferido válido: abre ImportStatementModal diretamente', async () => {
+    wrap(<ImportMassStep {...defaultProps({ funding: cardFunding })} />);
+    await waitFor(() => expect(screen.getByTestId('import-fatura')).toBeInTheDocument());
   });
 
-  it('shows "Fatura do cartão" even with no cards and no accounts, and clicking it opens the empty state (not "Extrato")', async () => {
-    apiGetMock.mockResolvedValue([]);
-    renderStep();
-
-    await waitFor(() =>
-      expect(screen.getByText(/fatura do cartão/i)).toBeInTheDocument(),
-    );
-
-    // "Extrato da conta" continua sem conta cadastrada — a correção é só o cartão.
-    expect(screen.queryByText(/extrato da conta/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/pular — importar depois/i)).toBeInTheDocument();
-
-    // Clicar em "Fatura do cartão" sem cartão cadastrado abre o empty state (#248),
-    // permitindo cadastrar sem sair do onboarding — não uma tela em branco nem "Extrato".
-    fireEvent.click(screen.getByText(/fatura do cartão/i));
-    await waitFor(() =>
-      expect(screen.getByText(/nenhum cartão cadastrado/i)).toBeInTheDocument(),
-    );
-    expect(screen.queryByTestId('import-statement-modal')).not.toBeInTheDocument();
+  it('conta preferida válida: abre ImportBankStatementModal diretamente', async () => {
+    wrap(<ImportMassStep {...defaultProps({ funding: accountFunding })} />);
+    await waitFor(() => expect(screen.getByTestId('import-extrato')).toBeInTheDocument());
   });
 
-  it('shows "Fatura do cartão" button when at least one card exists', async () => {
+  it('ambos: não auto-abre — exibe botões de escolha Extrato/Fatura', async () => {
+    wrap(<ImportMassStep {...defaultProps({ funding: bothFunding })} />);
+    await waitFor(() => {
+      expect(screen.queryByTestId('import-fatura')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('import-extrato')).not.toBeInTheDocument();
+    });
+    expect(screen.getByText('Fatura do cartão')).toBeInTheDocument();
+    expect(screen.getByText('Extrato da conta')).toBeInTheDocument();
+  });
+});
+
+describe('ImportMassStep — preferido vence mesmo com múltiplas fontes', () => {
+  it('cartão preferido cc1 auto-abre fatura mesmo havendo cc2 no sistema', async () => {
     apiGetMock.mockImplementation((path: string) => {
-      if (path === '/tenant/credit-cards')
-        return Promise.resolve([{ id: 'cc1', brand: 'Visa', last4: '1234' }]);
+      if (path === '/tenant/credit-cards') return Promise.resolve([CARD, { id: 'cc2', brand: 'Master', last4: '9999', nickname: null }]);
+      if (path === '/tenant/bank-accounts') return Promise.resolve([]);
       return Promise.resolve([]);
     });
-    renderStep();
-
-    await waitFor(() =>
-      expect(screen.getByText(/fatura do cartão/i)).toBeInTheDocument(),
-    );
+    wrap(<ImportMassStep {...defaultProps({ funding: cardFunding })} />);
+    await waitFor(() => expect(screen.getByTestId('import-fatura')).toBeInTheDocument());
   });
+});
 
-  it('shows "Extrato da conta" button when at least one account exists', async () => {
+describe('ImportMassStep — ID stale não abre modal', () => {
+  it('cartão preferido não existe nas queries: não auto-abre', async () => {
     apiGetMock.mockImplementation((path: string) => {
-      if (path === '/tenant/bank-accounts')
-        return Promise.resolve([{ id: 'ba1', institution: 'Nubank' }]);
+      if (path === '/tenant/credit-cards') return Promise.resolve([]); // cc1 removido
+      if (path === '/tenant/bank-accounts') return Promise.resolve([]);
       return Promise.resolve([]);
     });
-    renderStep();
-
-    await waitFor(() =>
-      expect(screen.getByText(/extrato da conta/i)).toBeInTheDocument(),
-    );
+    wrap(<ImportMassStep {...defaultProps({ funding: cardFunding })} />);
+    await waitFor(() => expect(screen.queryByTestId('import-fatura')).not.toBeInTheDocument());
   });
+});
 
-  it('clicking "Pular" calls onSkip without opening any modal', async () => {
-    const onSkip = vi.fn();
-    renderStep({ onSkip });
-
-    const skipBtn = screen.getByText(/pular — importar depois/i);
-    fireEvent.click(skipBtn);
-
-    expect(onSkip).toHaveBeenCalledTimes(1);
-    expect(screen.queryByTestId('import-statement-modal')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('import-bank-modal')).not.toBeInTheDocument();
+describe('ImportMassStep — fechar modal não reabre', () => {
+  it('fechar fatura não reabre automaticamente', async () => {
+    wrap(<ImportMassStep {...defaultProps({ funding: cardFunding })} />);
+    await waitFor(() => expect(screen.getByTestId('import-fatura')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Fechar fatura'));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByTestId('import-fatura')).not.toBeInTheDocument();
   });
+});
 
-  it('onCommitted triggers onDone', async () => {
+describe('ImportMassStep — sem fonte', () => {
+  it('sem funding e sem fontes no sistema: exibe estado vazio', async () => {
+    apiGetMock.mockResolvedValue([]);
+    wrap(<ImportMassStep {...defaultProps()} />);
+    await waitFor(() => expect(screen.getByText(/nenhuma fonte configurada/i)).toBeInTheDocument());
+  });
+});
+
+describe('ImportMassStep — commit e skip', () => {
+  it('commitar fatura chama onDone uma vez', async () => {
     const onDone = vi.fn();
-    apiGetMock.mockImplementation((path: string) => {
-      if (path === '/tenant/credit-cards')
-        return Promise.resolve([{ id: 'cc1', brand: 'Visa', last4: '9999' }]);
-      return Promise.resolve([]);
-    });
-    // Precarrega o cache para evitar corrida: agora "Fatura do cartão" renderiza
-    // antes do fetch resolver (é sempre visível), então o clique precisa achar
-    // cards.length já resolvido para 1 e auto-selecionar em vez de abrir o picker.
-    renderStep({ onDone }, { cards: [{ id: 'cc1', brand: 'Visa', last4: '9999' }] });
-
-    await waitFor(() =>
-      expect(screen.getByText(/fatura do cartão/i)).toBeInTheDocument(),
-    );
-
-    // Click "Fatura do cartão" → auto-selects the single card → modal opens
-    fireEvent.click(screen.getByText(/fatura do cartão/i));
-
-    await waitFor(() =>
-      expect(screen.getByTestId('import-statement-modal')).toBeInTheDocument(),
-    );
-
-    // Simulate commit
-    fireEvent.click(screen.getByText('commit-fatura'));
-
+    wrap(<ImportMassStep {...defaultProps({ onDone, funding: cardFunding })} />);
+    await waitFor(() => screen.getByTestId('import-fatura'));
+    fireEvent.click(screen.getByText('Commitar fatura'));
     expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it('commitar extrato chama onDone uma vez', async () => {
+    const onDone = vi.fn();
+    wrap(<ImportMassStep {...defaultProps({ onDone, funding: accountFunding })} />);
+    await waitFor(() => screen.getByTestId('import-extrato'));
+    fireEvent.click(screen.getByText('Commitar extrato'));
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it('skip chama onSkip uma vez', async () => {
+    apiGetMock.mockResolvedValue([]);
+    const onSkip = vi.fn();
+    wrap(<ImportMassStep {...defaultProps({ onSkip })} />);
+    await waitFor(() => screen.getByText(/pular — importar depois/i));
+    fireEvent.click(screen.getByText(/pular — importar depois/i));
+    expect(onSkip).toHaveBeenCalledTimes(1);
   });
 });

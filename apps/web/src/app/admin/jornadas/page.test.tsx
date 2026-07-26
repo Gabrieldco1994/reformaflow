@@ -82,7 +82,7 @@ describe('AdminJornadasPage', () => {
     await waitForTrack();
 
     const before = trackLabels();
-    await user.click(screen.getByRole('button', { name: /mover "Conta" para depois/i }));
+    await user.click(screen.getByRole('button', { name: /mover "Contas & cartões" para depois/i }));
 
     expect(trackLabels()[0]).toBe(before[1]);
     expect(trackLabels()[1]).toBe(before[0]);
@@ -93,8 +93,8 @@ describe('AdminJornadasPage', () => {
     const [path, body] = mocks.apiPut.mock.calls[0];
     expect(path).toBe('/admin/onboarding/journeys/PESSOAL');
     expect(body.steps.map((s: { stepKey: string }) => s.stepKey).slice(0, 2)).toEqual([
-      'card',
-      'bank',
+      'expense',
+      'funding',
     ]);
     expect(body.steps.map((s: { order: number }) => s.order)).toEqual(
       body.steps.map((_: unknown, i: number) => i),
