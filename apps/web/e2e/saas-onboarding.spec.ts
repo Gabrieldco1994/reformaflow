@@ -139,7 +139,7 @@ test("escolhe CARRO sozinho -> chega no passo Veículo, sem passos de conta/cart
   await expect(page.getByText(/pular — cadastro depois/i)).not.toBeVisible();
 });
 
-test("escolhe CASA + CARRO -> vai para a jornada PESSOAL, primeiro passo é Conta", async ({
+test("escolhe CASA + CARRO -> vai para a jornada PESSOAL, primeiro passo é Contas & cartões", async ({
   page,
 }) => {
   await page.route("**/auth/config", (route) =>
@@ -191,6 +191,6 @@ test("escolhe CASA + CARRO -> vai para a jornada PESSOAL, primeiro passo é Cont
   await page.getByLabel(/nome do projeto/i).fill("Minha Vida Financeira");
   await page.getByRole("button", { name: /criar e continuar/i }).click();
 
-  await expect(page.getByText(/sem o saldo, o caixa/i)).toBeVisible();
-  await expect(page.getByText(/passo 1 de 6/i)).toBeVisible();
+  await expect(page.getByText(/sem conta ou cartão, o caixa/i)).toBeVisible();
+  await expect(page.getByText(/passo 1 de 5/i)).toBeVisible();
 });

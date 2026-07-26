@@ -1,7 +1,6 @@
 import type { ComponentType } from 'react';
 import type { OnboardingStepProps } from '../_types';
-import { BankAccountStep } from '../_components/steps/BankAccountStep';
-import { CreditCardStep } from '../_components/steps/CreditCardStep';
+import { FundingStep } from '../_components/steps/FundingStep';
 import { QuickExpenseStep } from '../_components/steps/QuickExpenseStep';
 import { QuickReceiptStep } from '../_components/steps/QuickReceiptStep';
 import { RecurringBillStep } from '../_components/steps/RecurringBillStep';
@@ -19,10 +18,12 @@ import { ImportMassStep } from '../_components/steps/ImportMassStep';
  * `maria-insight` e `feedback` não estão aqui porque têm props próprias
  * (contexto da despesa criada / envio de feedback) e são montados
  * explicitamente pelo shell.
+ *
+ * `funding` unifica conta bancária + cartão de crédito num único passo
+ * (issue #320) — substitui os antigos `bank`/`card` separados.
  */
 export const STEP_COMPONENTS: Record<string, ComponentType<OnboardingStepProps>> = {
-  bank: BankAccountStep,
-  card: CreditCardStep,
+  funding: FundingStep,
   expense: QuickExpenseStep,
   import: ImportMassStep,
   receipt: QuickReceiptStep,

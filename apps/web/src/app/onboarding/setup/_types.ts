@@ -1,4 +1,5 @@
 import type { ProjectType } from '@reformaflow/domain';
+import type { OnboardingFunding } from '@reformaflow/domain';
 
 /**
  * Interface every embeddable anchor step (bank account, credit card, quick
@@ -22,6 +23,12 @@ export interface OnboardingStepProps {
   subtitle?: string;
   /** Whether this step can be skipped (from jornada). */
   canSkip?: boolean;
+  /** Transitório: fontes financeiras selecionadas/criadas no passo funding. */
+  funding?: OnboardingFunding | null;
+  /** Atualiza o runtime state do wizard shell com as fontes escolhidas. */
+  onFundingChange?: (next: OnboardingFunding) => void;
+  /** Se true, o passo exige ao menos uma ação antes de avançar. */
+  stepRequired?: boolean;
 }
 
 /** Dados que um passo pode propagar ao concluir, consumidos pelo wizard shell. */
@@ -34,3 +41,6 @@ export interface StepDonePayload {
     categoriaLabel: string;
   };
 }
+
+// Re-export for convenience (steps import from _types, not from domain directly)
+export type { OnboardingFunding };

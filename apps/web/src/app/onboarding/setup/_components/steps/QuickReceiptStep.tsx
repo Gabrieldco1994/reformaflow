@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ArrowRight, SkipForward } from 'lucide-react';
 import { api } from '@/lib/api';
 import { maskCurrencyInput, currencyInputToNumber } from '@/lib/currency-input';
@@ -10,20 +10,22 @@ import type { OnboardingStepProps } from '../../_types';
 /**
  * Purpose-built quick-add receipt step — own local state, own POST call.
  * PESSOAL-only anchor (only caller in `ANCHOR_STEPS`).
+ * Sempre envia status EM_CAIXA — no onboarding, todo recebimento é uma entrada já realizada (issue #320).
  */
 export function QuickReceiptStep({ projectId, projectType, onDone, onSkip, subtitle, canSkip = true }: OnboardingStepProps) {
   const options = getReceiptTipoOptions(projectType);
   const [tipo, setTipo] = useState(options[0]?.value ?? '');
   const [valor, setValor] = useState('');
   const [data, setData] = useState(() => new Date().toISOString().slice(0, 10));
-  const [jaRecebi, setJaRecebi] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const savingRef = useRef(false);
 
   const canSubmit = valor.trim().length > 0;
 
   async function handleSave() {
-    if (!canSubmit) return;
+    if (!canSubmit || savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     setError(null);
     try {
@@ -31,20 +33,21 @@ export function QuickReceiptStep({ projectId, projectType, onDone, onSkip, subti
         valor: currencyInputToNumber(valor),
         data,
         tipo,
-        status: jaRecebi ? 'EM_CAIXA' : 'PREVISTO',
+        status: 'EM_CAIXA',
       });
       onDone();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao salvar recebimento');
     } finally {
       setSaving(false);
+      savingRef.current = false;
     }
   }
 
   return (
     <section className="rounded-[18px] border border-lifeone-hairline bg-lifeone-card p-6 shadow-lifeone-card">
       <h2 className="text-[18px] font-bold text-lifeone-ink">Seu primeiro recebimento</h2>
-      <p className="text-[13px] text-lifeone-ink-3">{subtitle || 'Registre uma entrada esperada para começar a prever o caixa'}</p>
+      <p className="text-[13px] text-lifeone-ink-3">{subtitle || 'Registre uma entrada já realizada para começar a acompanhar o caixa'}</p>
 
       <div className="mt-4 space-y-3">
         <div>
@@ -80,19 +83,6 @@ export function QuickReceiptStep({ projectId, projectType, onDone, onSkip, subti
               className="min-h-11 w-full rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-3.5 py-2.5 text-[14px]"
             />
           </div>
-        </div>
-
-        <div className="flex items-center gap-2 mt-3">
-          <input
-            id="qr-ja-recebi"
-            type="checkbox"
-            checked={jaRecebi}
-            onChange={(e) => setJaRecebi(e.target.checked)}
-            className="h-4 w-4 rounded border border-lifeone-hairline cursor-pointer"
-          />
-          <label htmlFor="qr-ja-recebi" className="text-[13px] font-medium text-lifeone-ink cursor-pointer">
-            Já recebi esse valor
-          </label>
         </div>
       </div>
 

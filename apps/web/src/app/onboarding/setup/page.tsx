@@ -3,6 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ProjectType, type ResolvedJourneyStep } from '@reformaflow/domain';
+import type { OnboardingFunding } from '@reformaflow/domain';
 import { LifeOneLogo } from '@/components/LifeOneLogo';
 import { ProjectProvider } from '@/contexts/project-context';
 import { ProgressDots } from './_components/ProgressDots';
@@ -57,6 +58,12 @@ function OnboardingSetupForm() {
   const [createdExpense, setCreatedExpense] = useState<
     NonNullable<StepDonePayload['createdExpense']> | null
   >(null);
+
+  // ponytail: transitório — não persistir além do ciclo de vida do wizard
+  const [funding, setFunding] = useState<OnboardingFunding>({
+    bankAccount: null,
+    creditCard: null,
+  });
 
   useEffect(() => {
     if (!type) {
@@ -122,7 +129,7 @@ function OnboardingSetupForm() {
   // tipo de projeto; quem decide o que aparece (e em que ordem) é a jornada.
   const CurrentComponent = currentKey ? STEP_COMPONENTS[currentKey] : undefined;
 
-  // Enquanto o passo atual é um passo de fluxo (bank/card/expense/maria/...), a
+  // Enquanto o passo atual é um passo de fluxo (funding/expense/maria/...), a
   // régua mostra o progresso DENTRO da fase de setup do tipo, não o total
   // incluindo o nome do projeto e o "Pronto" — esses dois são bookends.
   const flowIndex = flowSteps.findIndex((step) => step.key === currentKey);
@@ -183,6 +190,8 @@ function OnboardingSetupForm() {
               onSkip={advance}
               subtitle={currentStep.subtitle}
               canSkip={currentStep.skippable}
+              funding={funding}
+              onFundingChange={setFunding}
             />
           </ProjectProvider>
         )}

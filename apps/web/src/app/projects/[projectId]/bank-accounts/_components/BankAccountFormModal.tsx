@@ -10,7 +10,7 @@ interface Props {
   projectId: string;
   account: BankAccountRow | null;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (id: string) => void;
   /** ponytail: skip the fixed overlay when embedded inside AccountFormModal's own overlay */
   bare?: boolean;
   /** Hide the "Cancelar" button — used when embedded in a flow that already has its own skip affordance (e.g. onboarding wizard). */
@@ -63,10 +63,11 @@ export default function BankAccountFormModal({ projectId, account, onClose, onSa
       if (openingDate) body.openingBalanceDate = new Date(`${openingDate}T00:00:00.000Z`).toISOString();
       if (account) {
         await api.patch(`/projects/${projectId}/bank-accounts/${account.id}`, body);
+        onSaved(account.id);
       } else {
-        await api.post(`/projects/${projectId}/bank-accounts`, body);
+        const created = await api.post<{ id: string }>(`/projects/${projectId}/bank-accounts`, body);
+        onSaved(created.id);
       }
-      onSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao salvar');
     } finally {

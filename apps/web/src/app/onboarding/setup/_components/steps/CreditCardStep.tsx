@@ -19,7 +19,7 @@ export function CreditCardStep({ projectId, onDone, onSkip, subtitle, canSkip = 
         projectId={projectId}
         card={null}
         onClose={onSkip}
-        onSaved={onDone}
+        onSaved={() => onDone()}
         bare
         hideCancel
       />

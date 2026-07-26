@@ -20,7 +20,7 @@ export function BankAccountStep({ projectId, onDone, onSkip, subtitle, canSkip =
         projectId={projectId}
         account={null}
         onClose={onSkip}
-        onSaved={onDone}
+        onSaved={() => onDone()}
         bare
         hideCancel
       />
