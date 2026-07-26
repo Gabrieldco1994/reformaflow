@@ -23,8 +23,9 @@
    - 3.6 Maria
    - 3.7 Notificações
    - 3.8 Saúde financeira consolidada
-   - 3.9 Admin
-   - 3.10 Tratamento de Erros e Estados de Carregamento
+   - 3.9 Admin — Usuários
+   - 3.10 Admin — Jornadas de onboarding
+   - 3.11 Tratamento de Erros e Estados de Carregamento
 4. [Projeto PESSOAL](#4-projeto-pessoal)
 5. [Projeto REFORMA](#5-projeto-reforma)
 6. [Projeto CASA](#6-projeto-casa)
@@ -163,7 +164,10 @@ PESSOAL. O stepper tem 3 partes:
    Pulado quando o projeto já existe (ex.: criado pelo botão "Novo Projeto" do
    Hub, que já chega no assistente com `projectId` na URL).
 2. **Passo(s) de âncora, específico(s) do tipo** — cada tipo tem seu próprio
-   conjunto, sempre **pulável**:
+   conjunto, **configurável pelo admin** em `/admin/jornadas` (ver §3.9): ordem,
+   quais telas aparecem, os textos e se cada tela é pulável ou obrigatória. A
+   lista abaixo é o **padrão de fábrica**, usado enquanto ninguém alterou a
+   jornada — e também quando a configuração não pode ser lida:
    - **Pessoal:** Conta bancária (com o campo-herói "Quanto você tem na conta
      hoje?" — base do Caixa Real) → Cartão de crédito → Despesa rápida →
      Recebimento rápido → **Pergunte à Maria** (ver abaixo, último passo do
@@ -194,6 +198,7 @@ PESSOAL. O stepper tem 3 partes:
 O critério central permanece o mesmo do fluxo original do PESSOAL: quem segue o
 caminho feliz sai do assistente com pelo menos um lançamento/dado real
 cadastrado, e sempre passa pelo guia de apoio antes do cockpit.
+
 
 ### 3.2 Hub — Meus Projetos (`/projects`)
 Ponto de entrada depois do login. Lista todos os projetos que o usuário pode ver.
@@ -275,7 +280,34 @@ específicos**. Essas permissões são o que controla o que cada pessoa vê no a
 O painel também mostra **Projetos criados** e **Despesas criadas** por usuário,
 para auditoria rápida de atividade.
 
-### 3.8 Tratamento de Erros e Estados de Carregamento
+### 3.8 Admin — Jornadas de onboarding (`/admin/jornadas`)
+Área do administrador que controla **o que a pessoa vê ao criar um projeto**
+(o assistente do §3.1c). Cada tipo de projeto aparece como uma **trilha de
+mini-telas numeradas**, na ordem em que o usuário as vê — dá para entender a
+jornada batendo o olho. Por telinha, o admin pode:
+
+- **reordenar** — arrastando pela alça, ou pelos botões ←/→ (funciona também
+  só pelo teclado);
+- **ligar/desligar** — a tela desligada fica esmaecida, marcada "Fora da
+  jornada", e some do onboarding real;
+- **reescrever os textos** — o título curto e o texto de apoio da tela;
+- **marcar obrigatória ou pulável** — obrigatória esconde o "Pular por agora".
+
+As mudanças são **globais** (valem para todos os usuários daquele tipo de
+projeto) e entram em vigor no próximo onboarding, sem deploy. Só passam a valer
+depois de **Salvar jornada** — enquanto houver edição pendente, o painel avisa
+"alterações não salvas".
+
+Duas limitações propositais: o painel **reordena e configura as telas que
+existem**, não cria telas novas (cada tela é uma funcionalidade do app); e
+telas marcadas **"Condicional"** (ex.: "Pergunte à Maria") só aparecem quando
+a condição delas acontece — ligá-la no painel não burla a condição.
+
+Se a configuração não puder ser lida, o onboarding cai no **padrão de fábrica**
+em vez de falhar: essa é a primeira experiência da pessoa no produto e não
+depende do painel estar no ar.
+
+### 3.9 Tratamento de Erros e Estados de Carregamento
 
 #### Estados de Carregamento
 Quando uma página está carregando dados, aparece um **skeleton animado** com a mesma
