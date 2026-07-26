@@ -43,8 +43,12 @@ describe('fastClassify — MOVIMENTACAO_INTERNA guards', () => {
   });
 
   // Outros casos esperados
-  it('classifica PIX TRANSF como TRANSFERENCIA', () => {
-    expect(fastClassify('PIX TRANSF MARIA')).toBe('TRANSFERENCIA');
+  it('classifica PIX TRANSF como TRANSFERENCIA_TED', () => {
+    expect(fastClassify('PIX TRANSF MARIA')).toBe('TRANSFERENCIA_TED');
+  });
+
+  it('classifica PIX CARTAO como TRANSFERENCIA_TED', () => {
+    expect(fastClassify('PIX CARTAO ALESSAN 18/07')).toBe('TRANSFERENCIA_TED');
   });
 });
 

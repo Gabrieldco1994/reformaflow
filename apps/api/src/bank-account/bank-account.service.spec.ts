@@ -55,6 +55,7 @@ function makePrismaMock() {
       count: jest.fn().mockResolvedValue(0),
     },
     $transaction: jest.fn(),
+    $queryRaw: jest.fn().mockResolvedValue([]),
   } as any;
 }
 
@@ -476,6 +477,28 @@ describe('BankAccountService', () => {
       expect(res.cardPayments).toBe(1);
       expect(res.unlinkedCardPayments).toBe(0);
       expect(settleSpy).toHaveBeenCalled();
+    });
+  });
+
+  describe('commitImport — transferências bancárias', () => {
+    it('crédito "CREDITO LIBERAD PIX" vira recebimento de transferência própria', async () => {
+      const ofx = buildBankOfx(ofxBankFor('20260720', -350000, 'CREDITO LIBERAD PIX 6933', 'TRF1'));
+
+      prisma.receipt.create.mockClear();
+      await service.commitImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX');
+
+      const created = prisma.receipt.create.mock.calls[0][0].data;
+      expect(created.tipo).toBe('TRANSFERENCIA_PROPRIA');
+    });
+
+    it('débito "PIX CARTAO" vira transferência TED', async () => {
+      const ofx = buildBankOfx(ofxBankFor('20260720', 350000, 'PIX CARTAO ALESSAN18/07', 'TRF2'));
+
+      prisma.expense.create.mockClear();
+      await service.commitImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX');
+
+      const created = prisma.expense.create.mock.calls[0][0].data;
+      expect(created.tipoDespesa).toBe('TRANSFERENCIA_TED');
     });
   });
 
