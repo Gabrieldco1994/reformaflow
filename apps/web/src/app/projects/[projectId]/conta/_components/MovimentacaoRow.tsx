@@ -83,7 +83,7 @@ export function MovimentacaoRow({
   onAdjustInvoice: (cardLast4: string) => void;
   onSettleWithResidual: (cardLast4: string) => void;
   onQuitar: (target: QuitarTarget) => void;
-  onRemoveExpense: (id: string) => void;
+  onRemoveExpense: (id: string, projectId?: string) => void;
   onRemoveReceita: (id: string) => void;
   /** Ratear uma compra PESSOAL entre planejadas de outro projeto. */
   onRatear?: (item: AccountViewSaida) => void;
@@ -160,7 +160,17 @@ export function MovimentacaoRow({
         ? { txt: 'Paga', cls: 'text-[#1E924A]' }
         : { txt: 'A pagar', cls: 'text-[#B5803A]' };
 
-  const canToggle = item.kind === 'saida' && item.editavel && !item.isInvoice;
+  // Linha "saída" com edição/exclusão habilitadas no backend (item.editavel).
+  const isSaidaEditavelBase = item.kind === 'saida' && item.editavel && !item.isInvoice;
+  // Despesa de OUTRO projeto mostrada aqui só porque saiu/sai da carteira PESSOAL
+  // (Carteira/"Sem conta"). Editar/excluir é permitido (feature "sem conta"), mas o
+  // toggle RÁPIDO de status fica bloqueado: ele faria um PATCH {status} cru sem gerar
+  // nenhum espelho de caixa, sumindo dinheiro do consolidado (regra de ouro 14) — só
+  // "Quitar" (que gera o espelho) ou a edição feita no projeto de origem podem marcar
+  // PAGO/PLANEJADO essas linhas.
+  const belongsToForeignProject =
+    item.kind === 'saida' && item.foreignExpenseId != null && item.projetoOrigem != null;
+  const canToggle = isSaidaEditavelBase && !belongsToForeignProject;
   const canEditInvoicePayment =
     item.kind === 'saida' && item.isInvoice && item.editavel && !!item.id;
   // Parcela cross-project ainda PENDENTE: precisa ser QUITADA (gera espelho + concilia).
@@ -170,8 +180,15 @@ export function MovimentacaoRow({
     !item.realizado &&
     item.parcelaIndex != null &&
     !!item.foreignExpenseId;
-  const canEdit = canToggle || canEditInvoicePayment || (isEntrada && !!item.id);
+  const canEdit = isSaidaEditavelBase || canEditInvoicePayment || (isEntrada && !!item.id);
   const canToggleReceita = item.kind === 'entrada' && !!item.id;
+  // Linhas de outro projeto usam `id` composto (`${expenseId}#${parcelaIndex}`) só p/
+  // key de React; a API precisa do id REAL da despesa + do projeto DONO dela (não o
+  // PESSOAL). foreignExpenseId sempre carrega o id real quando a linha é foreign.
+  const effectiveExpenseId =
+    item.kind === 'saida' && item.foreignExpenseId ? item.foreignExpenseId : item.id;
+  const effectiveProjectId =
+    item.kind === 'saida' && belongsToForeignProject ? (item.projetoOrigem?.id ?? undefined) : undefined;
   // Compra PESSOAL "solta" (não fatura, editável, sem vínculo cross) → pode ratear/vincular.
   const canCrossLink =
     item.kind === 'saida' && !item.isInvoice && item.editavel && !!item.id && item.projetoOrigem == null;
@@ -191,7 +208,7 @@ export function MovimentacaoRow({
   const doDelete = () => {
     if (!item.id) return;
     if (item.kind === 'saida') {
-      if (confirm('Excluir lançamento?')) onRemoveExpense(item.id);
+      if (confirm('Excluir lançamento?')) onRemoveExpense(effectiveExpenseId!, effectiveProjectId);
     } else if (item.kind === 'entrada') {
       if (confirm('Excluir recebimento?')) onRemoveReceita(item.id);
     }

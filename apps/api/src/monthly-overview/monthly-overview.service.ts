@@ -871,7 +871,13 @@ export class MonthlyOverviewService {
                 bankLast4: null as string | null,
                 tipoDespesa: expense.tipoDespesa,
                 isInvoice: false,
-                editavel: false,
+                // Editável (edit/excluir) mesmo sendo foreign: o usuário pode corrigir/
+                // apagar o planejamento cross-project direto da Conta pessoal (mesma
+                // ação que faria abrindo o projeto de origem). O toggle RÁPIDO de status
+                // continua bloqueado no front (canToggle) — só "Quitar" (que gera o
+                // espelho de caixa) ou a edição do projeto de origem podem marcar PAGO,
+                // nunca esta ação sozinha (evitaria dinheiro fantasma no consolidado).
+                editavel: true,
                 dueMonth: null as string | null,
                 projetoOrigem,
                 parcelaIndex: index as number | null,
@@ -908,7 +914,9 @@ export class MonthlyOverviewService {
                 bankLast4: null as string | null,
                 tipoDespesa: expense.tipoDespesa,
                 isInvoice: false,
-                editavel: false,
+                // Editável (edit/excluir) mesmo sendo foreign — ver comentário no
+                // caminho por-parcela acima. Sem toggle rápido de status aqui também.
+                editavel: true,
                 dueMonth: null as string | null,
                 projetoOrigem,
                 parcelaIndex: null as number | null,
@@ -952,7 +960,9 @@ export class MonthlyOverviewService {
                 bankLast4: null as string | null,
                 tipoDespesa: expense.tipoDespesa,
                 isInvoice: false,
-                editavel: false,
+                // Editável (edit/excluir) mesmo sendo foreign — ver comentário no
+                // caminho por-parcela acima. Sem toggle rápido de status aqui também.
+                editavel: true,
                 dueMonth: null as string | null,
                 projetoOrigem,
                 parcelaIndex: index as number | null,
@@ -1095,7 +1105,10 @@ export class MonthlyOverviewService {
           bankLast4: null as string | null,
           tipoDespesa: expense.tipoDespesa,
           isInvoice: false,
-          editavel: false,
+          // Editável (edit/excluir) mesmo sendo foreign — mesma regra das outras
+          // linhas "carteira" acima. O toggle rápido de status continua bloqueado
+          // no front (canToggle) mesmo já estando PAGO aqui.
+          editavel: true,
           dueMonth: null as string | null,
           projetoOrigem: expense.project
             ? { id: expense.project.id, name: expense.project.name, type: expense.project.type }

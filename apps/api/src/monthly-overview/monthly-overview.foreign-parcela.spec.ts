@@ -80,7 +80,10 @@ describe('MonthlyOverviewService.getAccountView — origem POR PARCELA (P3) + co
     const p1 = res.saidas.find((s: any) => s.id === `${foreignId}#1`);
     expect(p1).toBeDefined();
     expect(p1.valor).toBe(10000);
-    expect(p1.editavel).toBe(false);
+    // Editável (edit/excluir) mesmo sendo foreign e ainda pendente — o front bloqueia
+    // o toggle rápido de status para essas linhas (só "Quitar" marca PAGO), mas
+    // editar campos / excluir o planejamento já é permitido daqui (feature "sem conta").
+    expect(p1.editavel).toBe(true);
     // contrato P7: carrega parcelaIndex + foreignExpenseId p/ o front abrir a quitação.
     expect(p1.parcelaIndex).toBe(1);
     expect(p1.foreignExpenseId).toBe(foreignId);

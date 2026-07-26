@@ -103,6 +103,10 @@ export function MovimentacoesSection({
     });
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const [editExpenseId, setEditExpenseId] = useState<string | null>(null);
+  // Quando a linha editada pertence a OUTRO projeto (Carteira "sem conta" de
+  // CASA/CARRO/REFORMA mostrada aqui no consolidado PESSOAL): guarda o projeto
+  // dono para o DespesaModal chamar a API certa (a despesa não existe em PESSOAL).
+  const [editExpenseTarget, setEditExpenseTarget] = useState<{ id: string; type: string } | null>(null);
   const [editReceita, setEditReceita] = useState<ReceitaEditing | null>(null);
   const [quitarTarget, setQuitarTarget] = useState<QuitarTarget | null>(null);
   // Ratear/Vincular por linha: guarda o id da compra e a ação; a despesa completa
@@ -141,10 +145,22 @@ export function MovimentacoesSection({
     queryClient.invalidateQueries({ queryKey: ['receipts', projectId] });
   };
 
+  // Mutations de despesa desta tela agem, por padrão, no projeto PESSOAL — mas uma
+  // linha "Carteira" de outro projeto (CASA/CARRO/REFORMA) precisa que o toggle/
+  // remoção chamem a API do projeto DONO da despesa (a despesa não existe em
+  // PESSOAL). O 2º argumento opcional carrega esse projectId quando aplicável;
+  // invalida também as queries do projeto estrangeiro para refletir lá.
+  const invalidateForeign = (foreignProjectId?: string) => {
+    invalidate();
+    if (foreignProjectId && foreignProjectId !== projectId) {
+      invalidateExpenseQueries(queryClient, foreignProjectId);
+    }
+  };
+
   const toggleStatus = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: 'PAGO' | 'PLANEJADO' }) =>
-      api.patch(`/projects/${projectId}/expenses/${id}`, { status }),
-    onSuccess: invalidate,
+    mutationFn: ({ id, status, targetProjectId }: { id: string; status: 'PAGO' | 'PLANEJADO'; targetProjectId?: string }) =>
+      api.patch(`/projects/${targetProjectId ?? projectId}/expenses/${id}`, { status }),
+    onSuccess: (_d, vars) => invalidateForeign(vars.targetProjectId),
     onError: (e: Error) => toast.error(`Erro ao alterar status: ${e.message}`),
   });
 
@@ -157,10 +173,11 @@ export function MovimentacoesSection({
   });
 
   const removeExpense = useMutation({
-    mutationFn: (id: string) => api.delete(`/projects/${projectId}/expenses/${id}`),
-    onSuccess: () => {
+    mutationFn: ({ id, targetProjectId }: { id: string; targetProjectId?: string }) =>
+      api.delete(`/projects/${targetProjectId ?? projectId}/expenses/${id}`),
+    onSuccess: (_d, vars) => {
       toast.success('Lançamento excluído');
-      invalidate();
+      invalidateForeign(vars.targetProjectId);
     },
     onError: (e: Error) => toast.error(`Erro ao excluir: ${e.message}`),
   });
@@ -519,7 +536,14 @@ export function MovimentacoesSection({
   };
 
   const openEditExpense = (item: AccountViewSaida) => {
-    if (item.id) setEditExpenseId(item.id);
+    // Carteira de outro projeto: item.id pode ser composto (`${expenseId}#${idx}`)
+    // usado só como key de React — o id/projeto REAIS para a API vêm de
+    // foreignExpenseId/projetoOrigem (sempre presentes juntos nessas linhas).
+    const isForeign = item.foreignExpenseId != null && item.projetoOrigem != null;
+    const realId = isForeign ? item.foreignExpenseId : item.id;
+    if (!realId) return;
+    setEditExpenseId(realId);
+    setEditExpenseTarget(isForeign ? { id: item.projetoOrigem!.id, type: item.projetoOrigem!.type } : null);
   };
   const openEditReceita = (item: AccountViewEntrada) => {
     if (item.id) {
@@ -571,7 +595,7 @@ export function MovimentacoesSection({
       onAdjustInvoice={onAdjustInvoice}
       onSettleWithResidual={onSettleWithResidual}
       onQuitar={setQuitarTarget}
-      onRemoveExpense={(id) => removeExpense.mutate(id)}
+      onRemoveExpense={(id, targetProjectId) => removeExpense.mutate({ id, targetProjectId })}
       onRemoveReceita={(id) => removeReceita.mutate(id)}
       onRatear={openRatear}
       onVincular={openVincular}
@@ -1078,9 +1102,14 @@ export function MovimentacoesSection({
 
       <DespesaModal
         open={editExpenseId != null}
-        onClose={() => setEditExpenseId(null)}
+        onClose={() => {
+          setEditExpenseId(null);
+          setEditExpenseTarget(null);
+        }}
         projectId={projectId}
         editExpenseId={editExpenseId}
+        targetProjectId={editExpenseTarget?.id}
+        targetProjectType={editExpenseTarget?.type}
       />
       <ReceitaModal
         open={editReceita != null}
