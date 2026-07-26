@@ -79,4 +79,23 @@ describe('useBulkLinkExecution', () => {
     expect(postMock).toHaveBeenCalledTimes(1);
     expect(result.current.rows.map((r) => r.status)).toEqual(['success', 'success', 'success']);
   });
+
+  it('ignora uma segunda execução enquanto a primeira ainda está em andamento', async () => {
+    let resolveFirst!: (value: { id: string }) => void;
+    postMock.mockImplementationOnce(
+      () => new Promise<{ id: string }>((resolve) => { resolveFirst = resolve; }),
+    );
+
+    const { result } = renderHook(() => useBulkLinkExecution(makeRows()));
+    let firstRun!: Promise<void>;
+    await act(async () => {
+      firstRun = result.current.execute();
+      await Promise.resolve();
+      await result.current.execute();
+    });
+
+    expect(postMock).toHaveBeenCalledTimes(1);
+    resolveFirst({ id: 'ok' });
+    await act(async () => { await firstRun; });
+  });
 });

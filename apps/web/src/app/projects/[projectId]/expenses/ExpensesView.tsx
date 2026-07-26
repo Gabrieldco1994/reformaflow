@@ -191,11 +191,20 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
   const [formDataInicioParcela, setFormDataInicioParcela] = useState('');
 
   // Estado do bloco "Vínculos" do modal de despesa
-  const [formVinculos, setFormVinculos] = useState<{ creditCardId: string; bankAccountId: string; linkedExpenseId: string; linkedParcelaIndex?: number | null }>({
+  const [formVinculos, setFormVinculos] = useState<{
+    creditCardId: string;
+    bankAccountId: string;
+    linkedExpenseId: string;
+    linkedParcelaIndex?: number | null;
+    creditCardTouched?: boolean;
+    bankAccountTouched?: boolean;
+  }>({
     creditCardId: '',
     bankAccountId: '',
     linkedExpenseId: '',
     linkedParcelaIndex: null,
+    creditCardTouched: false,
+    bankAccountTouched: false,
   });
 
   const defaultExpenseType = (TIPO_DESPESA_OPTIONS[0]?.value ?? ExpenseType.MATERIAL_CONSTRUCAO) as ExpenseType;
@@ -661,6 +670,8 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
       bankAccountId: '',
       linkedExpenseId: expense.linkedExpenseId ?? '',
       linkedParcelaIndex: null,
+      creditCardTouched: false,
+      bankAccountTouched: false,
     });
     setFormModalOpen(true);
   }
@@ -784,8 +795,15 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
       data.recorrenciaFim = null;
     }
     // Vínculos (cards/contas/cross-project) — '' equivale a null pro backend
-    data.creditCardId = formVinculos.creditCardId || null;
-    data.bankAccountId = formVinculos.bankAccountId || null;
+    // On edit, last4 is the persisted source of truth while the select ID is
+    // resolved asynchronously. Do not clear it just because the user saved
+    // before the account/card query finished.
+    data.creditCardId = formVinculos.creditCardTouched
+      ? formVinculos.creditCardId || null
+      : undefined;
+    data.bankAccountId = formVinculos.bankAccountTouched
+      ? formVinculos.bankAccountId || null
+      : undefined;
     const linkedId = formVinculos.linkedExpenseId || null;
     const parcelaIdx = formVinculos.linkedParcelaIndex;
     // Quando o usuário escolheu uma PARCELA específica do alvo, a conciliação
