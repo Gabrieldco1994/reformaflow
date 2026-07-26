@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { MerchantClassifierService, type MerchantCategory } from './merchant-classifier.service';
 import { MERCHANT_TO_EXPENSE_TYPE } from './merchant-classifier.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -51,14 +51,23 @@ export class MerchantClassifierController {
     return this.svc.setManual(body.merchant, body.category, body.subcategory ?? null);
   }
 
+  /**
+   * Cria a regra "esse fornecedor é sempre dessa categoria".
+   *
+   * Nem todo tipo de despesa tem categoria de merchant equivalente (só ~10 dos
+   * ~30 têm). Isso NÃO é erro: quem chama já mudou a categoria da despesa antes
+   * de chegar aqui, e devolver 4xx transformava um sucesso parcial em "falhou"
+   * na cara do usuário — a categoria mudava e a mensagem dizia que não. Sem
+   * mapeamento, só não há regra a criar: `ruleCreated: false`.
+   */
   @Post('confirm-rule')
   async confirmRule(@Body() body: { merchant: string; tipoDespesa: string }) {
     const category = MerchantClassifierService.toMerchantCategory(body.tipoDespesa);
     if (!category) {
-      throw new BadRequestException('Tipo de despesa sem mapeamento para regra de merchant');
+      return { merchantKey: '', category: null, ruleCreated: false };
     }
     const saved = await this.svc.setManual(body.merchant, category, null);
-    return { merchantKey: saved?.merchantKey ?? '', category };
+    return { merchantKey: saved?.merchantKey ?? '', category, ruleCreated: true };
   }
 
   @Post('remove-rule')

@@ -248,27 +248,45 @@ export function MovimentacoesSection({
         titulo?: string | null;
       };
       const merchant = (expense.fornecedor ?? expense.titulo ?? item.descricao ?? '').trim();
-      if (!merchant) throw new Error('Fornecedor/título ausente para criar regra');
       const previousTipoDespesa = expense.tipoDespesa ?? 'OUTROS';
+      // Categoria primeiro (é o compromisso); regra depois, best-effort. Falha
+      // ao criar a regra não desfaz nem reporta erro — ver PendenciasQueueCard.
       await api.patch(`/projects/${projectId}/expenses/${item.id}`, { tipoDespesa });
-      await api.post('/merchant-categories/confirm-rule', { merchant, tipoDespesa });
-      return { merchant, previousTipoDespesa, expenseId: item.id, tipoDespesa };
+      let ruleCreated = false;
+      if (merchant) {
+        try {
+          const res = (await api.post('/merchant-categories/confirm-rule', {
+            merchant,
+            tipoDespesa,
+          })) as { ruleCreated?: boolean } | null;
+          ruleCreated = res?.ruleCreated ?? false;
+        } catch {
+          ruleCreated = false;
+        }
+      }
+      return { merchant, previousTipoDespesa, expenseId: item.id, tipoDespesa, ruleCreated };
     },
     onSuccess: (payload) => {
       invalidate();
       queryClient.invalidateQueries({ queryKey: ['merchant-rules'] });
       queryClient.invalidateQueries({ queryKey: ['merchant-suggest-conta'] });
-      toast.success(`Regra criada: ${payload.merchant} → ${tipoLabel(payload.tipoDespesa)} · desfazer`, {
-        action: {
-          label: 'Desfazer',
-          onClick: () =>
-            undoCategoriaMutation.mutate({
-              expenseId: payload.expenseId,
-              previousTipoDespesa: payload.previousTipoDespesa,
-              merchant: payload.merchant,
-            }),
+      const label = tipoLabel(payload.tipoDespesa);
+      toast.success(
+        payload.ruleCreated
+          ? `Regra criada: ${payload.merchant} → ${label}`
+          : `Categoria alterada para ${label} — sem regra automática para esse tipo`,
+        {
+          action: {
+            label: 'Desfazer',
+            onClick: () =>
+              undoCategoriaMutation.mutate({
+                expenseId: payload.expenseId,
+                previousTipoDespesa: payload.previousTipoDespesa,
+                merchant: payload.merchant,
+              }),
+          },
         },
-      });
+      );
     },
     onError: (e: Error) => toast.error(`Não foi possível confirmar categoria: ${e.message}`),
   });
