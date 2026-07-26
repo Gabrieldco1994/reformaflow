@@ -300,7 +300,7 @@ test.describe("Expenses — phase-AB mobile quick wins", () => {
           .filter({ visible: true }),
       ).toBeVisible();
 
-      // Piso v3.1: chips de filtro com alvo ≥44px + toggle de neutros presente.
+      // Piso v3.1: chips de filtro com alvo ≥44px + toggle de investimentos presente.
       const todosChip = page
         .getByRole("button", { name: "Todos", exact: true })
         .filter({ visible: true });
@@ -310,7 +310,7 @@ test.describe("Expenses — phase-AB mobile quick wins", () => {
       );
       await expect(
         page
-          .getByText("Mostrar neutros", { exact: true })
+          .getByText("Mostrar investimentos", { exact: true })
           .filter({ visible: true }),
       ).toBeVisible();
     });

@@ -972,6 +972,71 @@ describe("MonthlyOverviewService.getAccountView", () => {
     expect(res.total).toBe(12_000);
   });
 
+  it("getOriginItemsYearly (kind=all) NÃO descarta INVESTIMENTOS debitado da conta", async () => {
+    // Consumption-neutral sai de CONSUMO, mas o dinheiro saiu da conta de verdade:
+    // permanece no eixo de caixa. Descartar aqui faz a despesa sumir da tela.
+    prisma.creditCard.findMany.mockResolvedValue([]);
+    prisma.bankAccount.findMany.mockResolvedValue([
+      { nickname: "Nu", institution: "Nubank", last4: "1234" },
+    ]);
+    prisma.cashFlowEntry.findMany.mockResolvedValue([
+      {
+        valor: 65_000,
+        data: new Date("2026-08-10T00:00:00.000Z"),
+        status: "PAGO",
+        expense: {
+          tipoDespesa: "INVESTIMENTOS",
+          titulo: "Pagamento APTO",
+          fornecedor: null,
+          cardLast4: null,
+          bankLast4: "1234",
+          linkedExpenseId: null,
+          project: { id: projectId, name: "Pessoal", type: "PESSOAL" },
+        },
+      },
+    ]);
+
+    const res: any = await service.getOriginItemsYearly(tenantId, projectId, {
+      year: 2026,
+      kind: "all",
+    });
+
+    expect(res.items).toHaveLength(1);
+    expect(res.items[0].tipoDespesa).toBe("INVESTIMENTOS");
+    // Aporte aparece na lista, mas não soma como gasto.
+    expect(res.total).toBe(0);
+  });
+
+  it("getOriginItemsYearly (kind=all) segue descartando settlement debitado da conta", async () => {
+    prisma.creditCard.findMany.mockResolvedValue([]);
+    prisma.bankAccount.findMany.mockResolvedValue([
+      { nickname: "Nu", institution: "Nubank", last4: "1234" },
+    ]);
+    prisma.cashFlowEntry.findMany.mockResolvedValue([
+      {
+        valor: 65_000,
+        data: new Date("2026-08-10T00:00:00.000Z"),
+        status: "PAGO",
+        expense: {
+          tipoDespesa: "PAGAMENTO_FATURA_CARTAO",
+          titulo: "Pagto fatura",
+          fornecedor: null,
+          cardLast4: null,
+          bankLast4: "1234",
+          linkedExpenseId: null,
+          project: { id: projectId, name: "Pessoal", type: "PESSOAL" },
+        },
+      },
+    ]);
+
+    const res: any = await service.getOriginItemsYearly(tenantId, projectId, {
+      year: 2026,
+      kind: "all",
+    });
+
+    expect(res.items).toHaveLength(0);
+  });
+
   it("calcula ticket médio, variação mensal e média de 6 meses por competência", async () => {
     prisma.bankAccount.findMany.mockResolvedValue([]);
     prisma.receipt.findMany.mockResolvedValue([]);

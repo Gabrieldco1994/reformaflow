@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { isConsumptionNeutralExpenseType } from '@reformaflow/domain';
+import { ExpenseType, isConsumptionNeutralExpenseType } from '@reformaflow/domain';
 import { api } from '@/lib/api';
 import { moneyDetail } from '@/lib/money';
 import { tipoLabel } from '@/lib/expense-options';
@@ -68,7 +68,7 @@ export function MobileExpensesScreen() {
   const [month, setMonth] = useState(currentMonthKey());
   const [originFilter, setOriginFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
-  const [showNeutral, setShowNeutral] = useState(true);
+  const [showInvestimentos, setShowInvestimentos] = useState(true);
 
   const year = month.slice(0, 4);
 
@@ -123,8 +123,9 @@ export function MobileExpensesScreen() {
   }, [monthItems]);
 
   const filtered = monthItems.filter((item) => {
-    const isNeutral = isConsumptionNeutralExpenseType(item.tipoDespesa);
-    if (!showNeutral && isNeutral) return false;
+    // Só investimento é alternável: os demais neutros (fatura, movimentação
+    // interna) nem chegam aqui — o backend não os lista na conta.
+    if (!showInvestimentos && item.tipoDespesa === ExpenseType.INVESTIMENTOS) return false;
     if (originFilter !== 'all') {
       const key = item.origem ? `${item.origem.kind}:${item.origem.last4}` : 'none';
       if (key !== originFilter) return false;
@@ -269,10 +270,10 @@ export function MobileExpensesScreen() {
 
       <label className="minimal-soft-card flex items-center justify-between rounded-2xl border border-lifeone-hairline bg-lifeone-surface px-3 py-2.5 text-xs text-lifeone-ink-2">
         <span>
-          <strong className="text-sm text-lifeone-ink">Mostrar neutros</strong>
-          <span className="block text-[11px] text-lifeone-ink-3">pagamento de fatura, movimentação e aporte</span>
+          <strong className="text-sm text-lifeone-ink">Mostrar investimentos</strong>
+          <span className="block text-[11px] text-lifeone-ink-3">aportes saem da conta, mas não contam como gasto</span>
         </span>
-        <input type="checkbox" checked={showNeutral} onChange={(event) => setShowNeutral(event.target.checked)} className="h-4 w-4" />
+        <input type="checkbox" checked={showInvestimentos} onChange={(event) => setShowInvestimentos(event.target.checked)} className="h-4 w-4" />
       </label>
 
       <section className="space-y-3 pb-24">

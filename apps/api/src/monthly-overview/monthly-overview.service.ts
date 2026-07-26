@@ -7,6 +7,7 @@ import {
   caixaMonthForCardPurchase,
   compareMonths,
   ExpenseTypeLabels,
+  ExpenseType,
   ReceiptTypeLabels,
   isNeutralExpenseType,
   isConsumptionNeutralExpenseType,
@@ -2125,6 +2126,20 @@ export class MonthlyOverviewService {
     };
   }
 
+  /**
+   * Itens debitados na CONTA que não devem sequer aparecer na lista de despesas.
+   *
+   * Settlement (pagamento de fatura, movimentação interna) e `PAGAMENTO_CASA`
+   * ficam de fora — a compra real já está no cartão / no outro projeto.
+   * `INVESTIMENTOS`, porém, ENTRA: o dinheiro saiu da conta de verdade e a
+   * despesa tem que continuar visível (o toggle "mostrar investimentos" da tela
+   * é quem decide exibir ou não). Antes usava-se `isConsumptionNeutral`, que
+   * engolia investimento junto e fazia a despesa sumir ao trocar a categoria.
+   */
+  private isHiddenFromAccountItems(tipo: string): boolean {
+    return isConsumptionNeutralExpenseType(tipo) && tipo !== ExpenseType.INVESTIMENTOS;
+  }
+
   async getOriginItemsYearly(
     tenantId: string,
     projectId: string,
@@ -2201,7 +2216,7 @@ export class MonthlyOverviewService {
         if (isNeutralExpenseType(tipo) && entry.expense?.bankLast4) continue;
         mes = caixaMonthForCardPurchase(entry.data, card?.closingDay ?? null, card?.dueDay ?? null);
       } else {
-        if (isConsumptionNeutralExpenseType(tipo)) continue;
+        if (this.isHiddenFromAccountItems(tipo)) continue;
         mes = monthKeyOf(entry.data);
       }
       if (!mes.startsWith(`${targetYear}-`)) continue;
@@ -2225,7 +2240,15 @@ export class MonthlyOverviewService {
     }
 
     void projectById; // projetoOrigem usa expense.project diretamente (mesmo projeto = PESSOAL)
-    const total = items.reduce((sum, item) => sum + item.valor, 0);
+    // Investimento agora aparece na lista, mas é aporte, não gasto: fica fora do
+    // total da CONTA. No cartão, tudo que foi cobrado compõe a fatura e soma.
+    const total = items.reduce(
+      (sum, item) =>
+        kind !== 'card' && isConsumptionNeutralExpenseType(item.tipoDespesa)
+          ? sum
+          : sum + item.valor,
+      0,
+    );
 
     return { year: targetYear, kind, last4, items, total };
   }
@@ -2314,7 +2337,7 @@ export class MonthlyOverviewService {
         mes = caixaMonthForCardPurchase(entry.data, card?.closingDay ?? null, card?.dueDay ?? null);
         origem = { kind: 'card', last4: cardLast4, nickname: card?.nickname?.trim() || `Cartão ${cardLast4}` };
       } else if (bankLast4) {
-        if (isConsumptionNeutralExpenseType(tipo)) continue;
+        if (this.isHiddenFromAccountItems(tipo)) continue;
         mes = monthKeyOf(entry.data);
         origem = {
           kind: 'conta',
@@ -2350,7 +2373,14 @@ export class MonthlyOverviewService {
       });
     }
 
-    const total = items.reduce((sum, item) => sum + item.valor, 0);
+    // Idem: aporte na conta/carteira não é gasto; cobrança no cartão compõe a fatura.
+    const total = items.reduce(
+      (sum, item) =>
+        item.origem.kind !== 'card' && isConsumptionNeutralExpenseType(item.tipoDespesa)
+          ? sum
+          : sum + item.valor,
+      0,
+    );
     return { year: targetYear, kind: 'all' as const, last4: '', items, total };
   }
 
