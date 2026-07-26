@@ -69,3 +69,24 @@ describe('RecurrenceService.seriesKey — data colada no nome', () => {
     expect(RecurrenceService.seriesKey('Financiamento Casa')).toBe('financiamento casa');
   });
 });
+
+describe('RecurrenceService — carimbo vence heurística', () => {
+  it('série carimbada com 2 ocorrências aparece (heurística exigiria 3 meses)', () => {
+    const impl = RecurrenceService as unknown as {
+      toDetectorRows: (rows: unknown[]) => { detector: { key: string }[] };
+    };
+    const rows = [
+      { id: 'a', titulo: 'Aninha', tipoDespesa: 'AJUDA', valorTotal: 35000,
+        dataPagamento: new Date(Date.UTC(2026, 7, 15)), dataCompra: null,
+        status: 'PLANEJADO', createdAt: new Date(), linkedExpenseId: null,
+        recurrenceKey: 'rec_abc' },
+      { id: 'b', titulo: 'Aninha (renomeada)', tipoDespesa: 'AJUDA', valorTotal: 35000,
+        dataPagamento: new Date(Date.UTC(2026, 8, 15)), dataCompra: null,
+        status: 'PLANEJADO', createdAt: new Date(), linkedExpenseId: null,
+        recurrenceKey: 'rec_abc' },
+    ];
+    const { detector } = impl.toDetectorRows(rows);
+    // Título diferente entre as duas, mas o carimbo as mantém na MESMA série.
+    expect(new Set(detector.map((d) => d.key))).toEqual(new Set(['rec_abc']));
+  });
+});

@@ -78,6 +78,7 @@ static seriesKey(titulo: string): string {
         status: true,
         createdAt: true,
         linkedExpenseId: true,
+        recurrenceKey: true,
       },
     });
   }
@@ -92,7 +93,9 @@ static seriesKey(titulo: string): string {
       // toggle estão como PLANEJADO e precisam ser detectadas do mesmo jeito.
       const data = r.dataPagamento ?? r.dataCompra ?? r.createdAt;
       if (!data) continue;
-      const key = RecurrenceService.seriesKey(r.titulo ?? '');
+      // Carimbo explícito vence a heurística: quem nasceu do fluxo de
+      // recorrência é série por FATO, não por parecer uma.
+      const key = r.recurrenceKey ?? RecurrenceService.seriesKey(r.titulo ?? '');
       if (!key) continue;
       byId.set(r.id, r);
       detector.push({
@@ -109,7 +112,13 @@ static seriesKey(titulo: string): string {
   async list(tenantId: string, projectId: string) {
     const rows = await this.loadRows(tenantId, projectId);
     const { detector, byId } = RecurrenceService.toDetectorRows(rows);
-    const series = detectRecurringSeries(detector);
+    // Séries carimbadas não passam pelo detector: bastam 2 ocorrências, e o
+    // título pode ter sido editado — a identidade é o carimbo.
+    const stamped = detector.filter((r) => r.key.startsWith('rec_'));
+    const series = [
+      ...detectRecurringSeries(detector.filter((r) => !r.key.startsWith('rec_'))),
+      ...detectRecurringSeries(stamped, { minMeses: 1, maxPorMes: Number.POSITIVE_INFINITY }),
+    ];
     const cutoff = RecurrenceService.cutoff();
 
     return series.map((s) => {
@@ -158,7 +167,10 @@ static seriesKey(titulo: string): string {
   private async futureOccurrences(tenantId: string, projectId: string, key: string) {
     const rows = await this.loadRows(tenantId, projectId);
     const { detector, byId } = RecurrenceService.toDetectorRows(rows);
-    const serie = detectRecurringSeries(detector).find((s) => s.key === key);
+    const serie = detectRecurringSeries(detector, {
+      minMeses: key.startsWith('rec_') ? 1 : 3,
+      maxPorMes: key.startsWith('rec_') ? Number.POSITIVE_INFINITY : 2,
+    }).find((s) => s.key === key);
     if (!serie) throw new NotFoundException('Recorrência não encontrada');
 
     const cutoff = RecurrenceService.cutoff();
