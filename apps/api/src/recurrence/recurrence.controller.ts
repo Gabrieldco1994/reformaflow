@@ -17,7 +17,12 @@ import { RequireModule } from '../common/decorators/require-module.decorator';
 @ApiTags('recurrences')
 @ApiBearerAuth()
 @UseInterceptors(TenantInterceptor)
-@RequireModule('recurrences')
+// Gate por 'expenses', não por 'recurrences': a permissão do usuário é uma lista
+// PERSISTIDA no signup, e quem já tem conta não teria 'recurrences' — tomaria 403.
+// Não há exposição nova de dado: uma recorrência é uma leitura derivada das
+// despesas que o usuário já pode ler. 'recurrences' segue em TYPE_MODULES /
+// PROJECT_FEATURES para gatear a navegação por tipo de projeto.
+@RequireModule('expenses')
 @Controller('projects/:projectId/recurrences')
 export class RecurrenceController {
   constructor(private readonly service: RecurrenceService) {}

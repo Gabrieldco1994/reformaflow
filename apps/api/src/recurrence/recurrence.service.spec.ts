@@ -51,3 +51,21 @@ describe('RecurrenceService — chave da série na URL', () => {
     expect(RecurrenceService.decodeKey(encoded)).toBe(key);
   });
 });
+
+describe('RecurrenceService.seriesKey — data colada no nome', () => {
+  it('agrupa PIX TRANSF LUCIANA de meses diferentes na MESMA série', () => {
+    const keys = new Set(
+      ['PIX TRANSF LUCIANA13/03', 'PIX TRANSF LUCIANA15/04', 'PIX TRANSF LUCIANA19/02'].map((t) =>
+        RecurrenceService.seriesKey(t),
+      ),
+    );
+    expect(keys.size).toBe(1);
+  });
+
+  it('não colapsa merchants diferentes', () => {
+    expect(RecurrenceService.seriesKey('Aninha')).not.toBe(
+      RecurrenceService.seriesKey('Luciana'),
+    );
+    expect(RecurrenceService.seriesKey('Financiamento Casa')).toBe('financiamento casa');
+  });
+});

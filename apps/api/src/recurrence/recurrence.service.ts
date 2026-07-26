@@ -28,7 +28,23 @@ export class RecurrenceService {
     private readonly expenses: ExpenseService,
   ) {}
 
-  /** Início do dia de hoje em UTC — fronteira entre passado imutável e futuro editável. */
+/**
+ * Chave da série a partir do título.
+ *
+ * `normalizeKey` só remove data com fronteira de palavra, então "LUCIANA13/03"
+ * vira "luciana13 03" e cada mês produz uma chave diferente — a série some.
+ * Limpo a data ANTES (inclusive colada no nome) em vez de mexer no
+ * `normalizeKey`, que é compartilhado e tem regras de merchant já persistidas
+ * no banco com as chaves atuais.
+ */
+static seriesKey(titulo: string): string {
+  const semData = (titulo ?? '')
+    .replace(/\d{1,2}\/\d{1,2}(?:\/\d{2,4})?/g, ' ')
+    .replace(/\d+\s*$/, ' ');
+  return MerchantClassifierService.normalizeKey(semData);
+}
+
+/** Início do dia de hoje em UTC — fronteira entre passado imutável e futuro editável. */
   private static cutoff(): Date {
     const now = new Date();
     return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
@@ -76,7 +92,7 @@ export class RecurrenceService {
       // toggle estão como PLANEJADO e precisam ser detectadas do mesmo jeito.
       const data = r.dataPagamento ?? r.dataCompra ?? r.createdAt;
       if (!data) continue;
-      const key = MerchantClassifierService.normalizeKey(r.titulo ?? '');
+      const key = RecurrenceService.seriesKey(r.titulo ?? '');
       if (!key) continue;
       byId.set(r.id, r);
       detector.push({
