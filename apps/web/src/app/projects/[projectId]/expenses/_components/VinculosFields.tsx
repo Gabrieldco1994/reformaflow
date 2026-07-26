@@ -97,6 +97,8 @@ interface Props {
     linkedExpenseId: string;
     /** Parcela 0-based do alvo escolhida (null = nenhuma seleção por parcela). */
     linkedParcelaIndex?: number | null;
+    creditCardTouched?: boolean;
+    bankAccountTouched?: boolean;
   };
   /** Quando o usuário muda algum campo. */
   onChange: (next: Props['value']) => void;
@@ -271,7 +273,7 @@ export function VinculosFields({
         name="creditCardId"
         options={cardOptions}
         value={value.creditCardId}
-        onChange={(e) => onChange({ ...value, creditCardId: e.target.value })}
+        onChange={(e) => onChange({ ...value, creditCardId: e.target.value, creditCardTouched: true })}
       />
 
       <Select
@@ -279,7 +281,7 @@ export function VinculosFields({
         name="bankAccountId"
         options={accountOptions}
         value={value.bankAccountId}
-        onChange={(e) => onChange({ ...value, bankAccountId: e.target.value })}
+        onChange={(e) => onChange({ ...value, bankAccountId: e.target.value, bankAccountTouched: true })}
       />
 
       <div>

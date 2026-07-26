@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import type { RatearMixedPayload } from '../_lib/wizardPayload';
 
@@ -24,16 +24,23 @@ export type BulkLinkExecutionRowWithStatus = BulkLinkExecutionRow & { status: Bu
 export function useBulkLinkExecution(rows: BulkLinkExecutionRow[]) {
   // ponytail: status por id, assim `rows` prop pode mudar livremente sem resetar successes
   const [statuses, setStatuses] = useState<Record<string, BulkLinkRowStatus>>({});
+  const executingRef = useRef(false);
 
   const execute = async () => {
-    for (const row of rows) {
-      if (statuses[row.sourceId] === 'success') continue;
-      try {
-        await api.post(`/projects/${row.projectId}/expenses/${row.sourceId}/ratear-mixed`, row.payload);
-        setStatuses((prev) => ({ ...prev, [row.sourceId]: 'success' }));
-      } catch {
-        setStatuses((prev) => ({ ...prev, [row.sourceId]: 'error' }));
+    if (executingRef.current) return;
+    executingRef.current = true;
+    try {
+      for (const row of rows) {
+        if (statuses[row.sourceId] === 'success') continue;
+        try {
+          await api.post(`/projects/${row.projectId}/expenses/${row.sourceId}/ratear-mixed`, row.payload);
+          setStatuses((prev) => ({ ...prev, [row.sourceId]: 'success' }));
+        } catch {
+          setStatuses((prev) => ({ ...prev, [row.sourceId]: 'error' }));
+        }
       }
+    } finally {
+      executingRef.current = false;
     }
   };
 

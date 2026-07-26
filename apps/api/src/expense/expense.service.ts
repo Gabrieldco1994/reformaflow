@@ -568,6 +568,17 @@ export class ExpenseService {
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
+      // Re-read inside the transaction. A stale pre-transaction read allowed
+      // two rapid requests to create two mirror sets for the same source.
+      const sourceInTx = await tx.expense.findFirst({
+        where: { id: source.id, tenantId, projectId, deletedAt: null },
+        select: { id: true, linkedExpenseId: true },
+      });
+      if (!sourceInTx) throw new NotFoundException('Despesa não encontrada');
+      if (sourceInTx.linkedExpenseId) {
+        throw new BadRequestException('Esta despesa já está vinculada a outro projeto.');
+      }
+
       const createdTargetIds: string[] = [];
       const allocations: RateioItem[] = existing.map((e) => ({
         targetExpenseId: e.targetExpenseId,
