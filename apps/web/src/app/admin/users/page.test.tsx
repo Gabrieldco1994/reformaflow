@@ -32,6 +32,9 @@ describe('/admin/users analytics', () => {
 
   it('renders the project/expense creation columns and values', async () => {
     apiGetMock.mockImplementation((path: string) => {
+      if (path.startsWith('/users/stats')) {
+        return Promise.resolve(null);
+      }
       if (path.startsWith('/users')) {
         return Promise.resolve([
           {
@@ -68,6 +71,9 @@ describe('/admin/users analytics', () => {
 
   it('shows zeros for users with no creation history', async () => {
     apiGetMock.mockImplementation((path: string) => {
+      if (path.startsWith('/users/stats')) {
+        return Promise.resolve(null);
+      }
       if (path.startsWith('/users')) {
         return Promise.resolve([
           {
@@ -105,6 +111,9 @@ describe('/admin/users analytics', () => {
     vi.setSystemTime(new Date('2026-07-19T12:00:00.000Z'));
     try {
       apiGetMock.mockImplementation((path: string) => {
+        if (path.startsWith('/users/stats')) {
+          return Promise.resolve(null);
+        }
         if (path.startsWith('/users')) {
           return Promise.resolve([
             {
