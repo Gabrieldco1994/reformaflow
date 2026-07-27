@@ -152,7 +152,7 @@ describe('ImportMassStep — sem fonte', () => {
   it('sem funding e sem fontes no sistema: exibe opção de importar sem conta', async () => {
     apiGetMock.mockResolvedValue([]);
     wrap(<ImportMassStep {...defaultProps()} />);
-    await waitFor(() => expect(screen.getByText(/importar sem conta/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/PDF, CSV, OFX, TXT/i)).toBeInTheDocument());
   });
 
   it('sem funding mas com fontes: exibe ambas as opções', async () => {
@@ -165,7 +165,7 @@ describe('ImportMassStep — sem fonte', () => {
     await waitFor(() => {
       expect(screen.getAllByText('Fatura do cartão').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('Extrato da conta').length).toBeGreaterThanOrEqual(1);
-      expect(screen.getByText(/importar sem conta/i)).toBeInTheDocument();
+      expect(screen.getByText(/PDF, CSV, OFX, TXT/i)).toBeInTheDocument();
     });
   });
 });
@@ -191,9 +191,9 @@ describe('ImportMassStep — commit e skip', () => {
     const onDone = vi.fn();
     apiGetMock.mockResolvedValue([]);
     wrap(<ImportMassStep {...defaultProps({ onDone })} />);
-    // Primeiro, clicar no botão "Importar sem conta"
-    await waitFor(() => expect(screen.getByText(/importar sem conta/i)).toBeInTheDocument());
-    const importButton = screen.getByText(/importar sem conta \(carteira\)/i);
+    // Primeiro, clicar no botão "PDF, CSV, OFX, TXT" (importar sem conta)
+    await waitFor(() => expect(screen.getByText(/PDF, CSV, OFX, TXT/i)).toBeInTheDocument());
+    const importButton = screen.getByText(/PDF, CSV, OFX, TXT/i);
     fireEvent.click(importButton);
     // Agora a modal deve estar visível
     await waitFor(() => screen.getByTestId('import-sem-conta'));
