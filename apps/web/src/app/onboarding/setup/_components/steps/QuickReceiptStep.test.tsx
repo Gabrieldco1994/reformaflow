@@ -47,6 +47,50 @@ describe('QuickReceiptStep', () => {
     expect(onDone).toHaveBeenCalledTimes(1);
   });
 
+  it('Saldo Inicial mode: sends tipo=ORCAMENTO_INICIAL and disables tipo select', async () => {
+    apiPostMock.mockResolvedValue({});
+    const onDone = vi.fn();
+    render(<QuickReceiptStep projectId="p1" projectType={ProjectType.PESSOAL} onDone={onDone} onSkip={vi.fn()} />);
+    
+    // Click "Saldo Inicial" radio
+    fireEvent.click(screen.getByLabelText(/Saldo Inicial/i));
+    
+    // Tipo select should be disabled
+    const tipoSelect = screen.getByLabelText(/Tipo/i) as HTMLSelectElement;
+    expect(tipoSelect).toBeDisabled();
+    
+    // Fill valor
+    fireEvent.change(screen.getByLabelText(/valor \(r\$\)/i), { target: { value: '5000,00' } });
+    fireEvent.click(screen.getByRole('button', { name: /criar e continuar/i }));
+
+    await waitFor(() => expect(apiPostMock).toHaveBeenCalledWith(
+      '/projects/p1/receipts',
+      expect.objectContaining({ tipo: 'ORCAMENTO_INICIAL', status: 'EM_CAIXA' }),
+    ));
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it('Recebimento mode: tipo select is enabled (default)', async () => {
+    apiPostMock.mockResolvedValue({});
+    const onDone = vi.fn();
+    render(<QuickReceiptStep projectId="p1" projectType={ProjectType.PESSOAL} onDone={onDone} onSkip={vi.fn()} />);
+    
+    // Default is Recebimento (not Saldo Inicial)
+    const tipoSelect = screen.getByLabelText(/Tipo/i) as HTMLSelectElement;
+    expect(tipoSelect).not.toBeDisabled();
+    
+    // Change tipo and submit
+    fireEvent.change(tipoSelect, { target: { value: 'SALARIO' } });
+    fireEvent.change(screen.getByLabelText(/valor \(r\$\)/i), { target: { value: '3000,00' } });
+    fireEvent.click(screen.getByRole('button', { name: /criar e continuar/i }));
+
+    await waitFor(() => expect(apiPostMock).toHaveBeenCalledWith(
+      '/projects/p1/receipts',
+      expect.objectContaining({ tipo: 'SALARIO', status: 'EM_CAIXA' }),
+    ));
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
   it('clicking the skip affordance calls onSkip without any api.post call', () => {
     const onSkip = vi.fn();
     render(<QuickReceiptStep projectId="p1" projectType={ProjectType.PESSOAL} onDone={vi.fn()} onSkip={onSkip} />);
