@@ -42,6 +42,9 @@ export const PROJECT_NAV: Record<ProjectType, NavModule[]> = {
     { slug: 'neutros', label: 'Neutros', iconName: 'Shuffle', module: 'monthlyOverview' },
     { slug: 'expenses', label: 'Despesas', iconName: 'Receipt', module: 'expenses' },
     { slug: 'receipts', label: 'Recebimentos', iconName: 'Wallet', module: 'receipts' },
+    // module 'expenses' (não 'recurrences'): a permissão do usuário é persistida
+    // no signup, e quem já tem conta não teria 'recurrences' — sumiria do menu.
+    { slug: 'recorrentes', label: 'Recorrentes', iconName: 'Repeat', module: 'expenses' },
     { slug: 'metas', label: 'Metas', iconName: 'Target', module: 'expenses' },
     { slug: 'planning', label: 'Planning', iconName: 'CalendarClock', module: 'monthlyOverview' },
     { slug: 'planejador', label: 'Planejador', iconName: 'Calculator', module: 'monthlyOverview' },

@@ -20,6 +20,7 @@ import {
   Tags,
   FileText,
   Calculator,
+  Repeat,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -50,6 +51,7 @@ export const NAV_ICONS: Record<string, LucideIcon> = {
   Tags,
   FileText,
   Calculator,
+  Repeat,
 };
 
 /** Fallback icon for any unmapped token (defensive, never crashes). */
