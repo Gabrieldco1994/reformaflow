@@ -43,6 +43,7 @@ describe("canonical objective authorization", () => {
         "vehicleDocuments",
         "bankAccounts",
         "monthlyOverview",
+        "recurrences",
         "plantsAi",
       ],
     });

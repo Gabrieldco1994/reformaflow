@@ -624,6 +624,23 @@ Projeção e realizado, lançamento a lançamento, por data.
   cards equivalente.
 - **Estado vazio:** "Sem lançamentos no período".
 
+### 4.6b Recorrentes (`/recorrentes`) — apenas PESSOAL
+As contas que se repetem todo mês, em um lugar só.
+
+- **O que aparece:** apenas o que **você criou** como despesa recorrente (o
+  toggle "repetir" ao lançar uma despesa). A tela **não adivinha** assinaturas a
+  partir do extrato do cartão — merchant que se repete continua sendo despesa
+  comum. Parcelamento não entra: tem fim, não é recorrência.
+- **KPIs:** **Ativas** (séries com ocorrência futura) e **Por mês** (soma do
+  valor atual das ativas).
+- **Linha:** categoria, próxima data, quantas ocorrências a série tem e o valor.
+  À direita, quantas ainda estão **a pagar**. O chip **Vinculada** marca série
+  espelhada em outro projeto — editar aqui propaga para lá.
+- **Editar** (valor e categoria) e **Excluir** valem **apenas para as
+  ocorrências futuras**. O histórico já pago nunca é reescrito nem apagado — o
+  aviso aparece no próprio modal, com a contagem do que será alterado.
+- **Estado vazio:** "Nenhuma despesa recorrente ainda."
+
 ### 4.7 Cartões (`/credit-cards`)
 Gestão dos cartões de crédito.
 

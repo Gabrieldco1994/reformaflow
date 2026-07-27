@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConciliacaoService, RateioItem, SettleParcelaInput } from '../conciliacao/conciliacao.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
@@ -128,6 +129,7 @@ export class ExpenseService {
         status: dto.status,
         recorrente: dto.recorrente ?? false,
         recorrenciaFim: dto.recorrenciaFim ? new Date(dto.recorrenciaFim) : null,
+        recurrenceKey: dto.recurrenceKey ?? null,
         cardLast4: links.cardLast4 ?? undefined,
         bankLast4: links.bankLast4 ?? undefined,
         linkedExpenseId: links.linkedExpenseId ?? undefined,
@@ -213,6 +215,11 @@ export class ExpenseService {
 
     const quantidade = dto.quantidade && dto.quantidade >= 1 ? dto.quantidade : 1;
 
+    // Carimbo da série: identidade EXPLÍCITA da recorrência. Sem ele a série só
+    // existiria como palpite (agrupar por título/cadência), e uma recorrência
+    // curta ou renomeada desapareceria da tela de gestão.
+    const recurrenceKey = `rec_${randomUUID()}`;
+
     // Rastreia TUDO que foi criado (projectId + id) para rollback total em falha.
     const createdRefs: Array<{ projectId: string; id: string }> = [];
     const rollback = async () => {
@@ -241,6 +248,7 @@ export class ExpenseService {
             status: 'PLANEJADO',
             dataPagamento: iso,
             dataCompra: iso,
+            recurrenceKey,
           } as CreateExpenseDto, createdByUserId);
           createdRefs.push({ projectId: dto.obraProjectId!, id: canonico.id });
 
@@ -259,6 +267,7 @@ export class ExpenseService {
             creditCardId: dto.creditCardId,
             bankAccountId: dto.bankAccountId,
             linkedExpenseId: canonico.id,
+            recurrenceKey,
           } as CreateExpenseDto, createdByUserId);
           createdRefs.push({ projectId: projectId, id: espelho.id });
         } else {
@@ -278,6 +287,7 @@ export class ExpenseService {
             dataCompra: iso,
             creditCardId: dto.creditCardId,
             bankAccountId: dto.bankAccountId,
+            recurrenceKey,
           } as CreateExpenseDto, createdByUserId);
           createdRefs.push({ projectId: projectId, id: expense.id });
         }

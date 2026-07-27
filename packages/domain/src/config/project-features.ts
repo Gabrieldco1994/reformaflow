@@ -11,6 +11,9 @@ export type ProjectFeature =
   | 'simulation'
   | 'priceCompare'
   | 'recurringBills'
+  // Séries de despesa recorrente do PESSOAL (detectadas + gerenciadas).
+  // Distinta de `recurringBills`, que é o catálogo de contas de CASA/CARRO.
+  | 'recurrences'
   | 'maintenance'
   | 'reminders'
   | 'creditCards'
@@ -43,6 +46,7 @@ export const PROJECT_FEATURES: Record<ProjectType, ProjectFeature[]> = {
   ],
   [ProjectType.PESSOAL]: [
     'monthlyOverview', 'dashboard', 'expenses', 'receipts', 'cashFlow', 'creditCards', 'bankAccounts',
+    'recurrences',
   ],
   [ProjectType.PLANTAS]: [
     'dashboard', 'maintenance', 'reminders', 'plantsAi',

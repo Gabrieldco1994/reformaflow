@@ -101,10 +101,10 @@ describe("self-service registration contract", () => {
         role: "USER",
         isGuest: false,
         allowedProjectTypes: JSON.stringify(["PESSOAL"]), // default
-        // PESSOAL allows: dashboard, expenses, receipts, cashFlow, creditCards, bankAccounts, monthlyOverview, pendencias
+        // PESSOAL allows: dashboard, expenses, receipts, cashFlow, creditCards, bankAccounts, monthlyOverview, pendencias, recurrences
         allowedModules: JSON.stringify([
           "dashboard", "expenses", "receipts", "cashFlow", "creditCards",
-          "bankAccounts", "monthlyOverview", "pendencias",
+          "bankAccounts", "monthlyOverview", "pendencias", "recurrences",
         ]),
       }),
     });

@@ -75,6 +75,12 @@ export class CreateExpenseDto {
   @IsDateString()
   dataCompra?: string | null;
 
+  /** Carimbo de série recorrente — preenchido só pelo fluxo de recorrência. */
+  @ApiPropertyOptional({ description: 'Chave da série recorrente (uso interno)' })
+  @IsOptional()
+  @IsString()
+  recurrenceKey?: string | null;
+
   @ApiProperty({ enum: Object.values(ExpenseStatus) })
   @IsString()
   @IsIn(Object.values(ExpenseStatus))
