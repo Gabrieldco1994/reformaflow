@@ -218,7 +218,7 @@ export default function AdminUsersPage() {
           }).length;
           const never = users.filter((u) => !lastSeen(u)).length;
           return (
-            <div className="grid grid-cols-8 gap-3 mb-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 mb-4">
               {[
                 { label: 'Total', value: total, color: 'text-gray-900' },
                 { label: 'Admins', value: admins, color: 'text-purple-700' },
@@ -232,7 +232,7 @@ export default function AdminUsersPage() {
                 <div
                   key={s.label}
                   onClick={s.filterKey ? () => setTodayFilter((v) => (v === s.filterKey ? 'none' : s.filterKey)) : undefined}
-                  className={`bg-white border rounded-xl px-4 py-3 text-center transition-all ${
+                  className={`bg-white border rounded-xl px-2 sm:px-4 py-3 text-center transition-all ${
                     s.filterKey
                       ? 'cursor-pointer hover:border-brand-400 ' + (todayFilter === s.filterKey ? 'border-brand-500 ring-2 ring-brand-200' : 'border-gray-200')
                       : 'border-gray-200'
