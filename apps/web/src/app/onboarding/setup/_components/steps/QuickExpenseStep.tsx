@@ -250,7 +250,7 @@ export function QuickExpenseStep({
             {!canSubmit && <p id="qe-helper" className="text-[12px] text-lifeone-ink-3">Informe um valor maior que zero para continuar.</p>}
             <button
               onClick={onSkip}
-              className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] text-lifeone-ink-3 hover:text-lifeone-ink"
+              className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-4 py-3 text-[13px] font-medium text-lifeone-ink-2 hover:bg-lifeone-hairline/60 transition-colors"
             >
               <SkipForward className="h-3.5 w-3.5" /> Pular por agora
             </button>
@@ -331,7 +331,7 @@ export function QuickExpenseStep({
             </button>
             <button
               onClick={() => { setExpenseScreen('form'); setError(null); }}
-              className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] text-lifeone-ink-3 hover:text-lifeone-ink"
+              className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-4 py-3 text-[13px] font-medium text-lifeone-ink-2 hover:bg-lifeone-hairline/60 transition-colors"
             >
               <ArrowLeft className="h-3.5 w-3.5" /> Voltar
             </button>
@@ -369,7 +369,7 @@ export function QuickExpenseStep({
             {canSkip && (
               <button
                 onClick={onSkip}
-                className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] text-lifeone-ink-3 hover:text-lifeone-ink"
+                className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-4 py-3 text-[13px] font-medium text-lifeone-ink-2 hover:bg-lifeone-hairline/60 transition-colors"
               >
                 <SkipForward className="h-3.5 w-3.5" /> Pular por agora
               </button>
@@ -408,7 +408,7 @@ export function QuickExpenseStep({
             {canSkip && (
               <button
                 onClick={onSkip}
-                className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] text-lifeone-ink-3 hover:text-lifeone-ink"
+                className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-4 py-3 text-[13px] font-medium text-lifeone-ink-2 hover:bg-lifeone-hairline/60 transition-colors"
               >
                 <SkipForward className="h-3.5 w-3.5" /> Pular por agora
               </button>

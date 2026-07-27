@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useRef, useState } from 'react';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, ArrowLeft } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/auth-context';
 import type { ProjectType } from '@reformaflow/domain';
@@ -10,6 +10,7 @@ import { PROJECT_ONBOARDING_COPY } from '../_lib/project-copy';
 interface ProjectNameStepProps {
   projectType: ProjectType;
   onCreated: (projectId: string) => void;
+  onBack?: () => void;
 }
 
 /**
@@ -18,7 +19,7 @@ interface ProjectNameStepProps {
  * not state, because a fast double-click can land both handlers before the
  * first `setCreating(true)` render commits).
  */
-export function ProjectNameStep({ projectType, onCreated }: ProjectNameStepProps) {
+export function ProjectNameStep({ projectType, onCreated, onBack }: ProjectNameStepProps) {
   const { refresh } = useAuth();
   const copy = PROJECT_ONBOARDING_COPY[projectType];
   const [projectName, setProjectName] = useState(copy.defaultName);
@@ -74,6 +75,14 @@ export function ProjectNameStep({ projectType, onCreated }: ProjectNameStepProps
         {creating ? 'Criando…' : 'Criar e continuar'}
         {!creating && <ArrowRight className="h-4 w-4" />}
       </button>
+      {onBack && (
+        <button
+          onClick={onBack}
+          className="mt-3 flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] font-medium text-lifeone-ink-2 hover:text-lifeone-ink transition-colors"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" /> Voltar para objetivos
+        </button>
+      )}
     </section>
   );
 }

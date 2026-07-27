@@ -24,7 +24,7 @@ export function PlantStep({ onDone, onSkip, subtitle, canSkip = true }: Onboardi
         <div className="mt-3">
           <button
             onClick={onSkip}
-            className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] text-lifeone-ink-3 hover:text-lifeone-ink"
+            className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-4 py-3 text-[13px] font-medium text-lifeone-ink-2 hover:bg-lifeone-hairline/60 transition-colors"
           >
             <SkipForward className="h-3.5 w-3.5" /> Pular por agora
           </button>

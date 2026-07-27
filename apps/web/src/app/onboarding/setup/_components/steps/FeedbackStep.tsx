@@ -7,6 +7,8 @@ import { api } from '@/lib/api';
 interface FeedbackStepProps {
   /** Chamado ao concluir (com ou sem envio) — avança para o "Pronto"/cockpit. */
   onDone: () => void;
+  /** Voltar para etapa anterior. */
+  onBack?: () => void;
   /** Texto de apoio vindo da jornada (o admin pode reescrever). */
   subtitle?: string;
   /** `false` = tela obrigatória na jornada: não oferece "Pular". */

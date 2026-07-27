@@ -112,6 +112,10 @@ function OnboardingSetupForm() {
     setStepIdx((i) => i + 1);
   }, []);
 
+  const goBack = useCallback(() => {
+    setStepIdx((i) => Math.max(0, i - 1));
+  }, []);
+
   useEffect(() => {
     if (stepIdx === steps.length - 1 && projectId && type) {
       const timer = setTimeout(() => {
@@ -154,6 +158,7 @@ function OnboardingSetupForm() {
               setProjectId(id);
               advance();
             }}
+            onBack={stepIdx > 0 ? goBack : undefined}
           />
         )}
 
@@ -166,6 +171,7 @@ function OnboardingSetupForm() {
               createdExpense={createdExpense}
               onSkip={advance}
               onDone={advance}
+              onBack={goBack}
               subtitle={currentStep?.subtitle}
               canSkip={currentStep?.skippable}
             />
@@ -173,7 +179,7 @@ function OnboardingSetupForm() {
         )}
 
         {projectId && currentKey === 'feedback' && (
-          <FeedbackStep onDone={advance} subtitle={currentStep?.subtitle} canSkip={currentStep?.skippable} />
+          <FeedbackStep onDone={advance} onBack={goBack} subtitle={currentStep?.subtitle} canSkip={currentStep?.skippable} />
         )}
 
         {projectId && CurrentComponent && currentStep && (
@@ -189,6 +195,7 @@ function OnboardingSetupForm() {
                 advance();
               }}
               onSkip={advance}
+              onBack={goBack}
               subtitle={currentStep.subtitle}
               canSkip={currentStep.skippable}
               funding={funding}

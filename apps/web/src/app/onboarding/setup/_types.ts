@@ -19,6 +19,8 @@ export interface OnboardingStepProps {
   onDone: (payload?: StepDonePayload) => void;
   /** Called when the user explicitly skips — advances the shell to the next step without saving. */
   onSkip: () => void;
+  /** Called when the user wants to go back to the previous step. */
+  onBack?: () => void;
   /** Subtitle from jornada (customizable per project type). */
   subtitle?: string;
   /** Whether this step can be skipped (from jornada). */
