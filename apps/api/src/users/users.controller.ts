@@ -38,6 +38,11 @@ export class UsersController {
     return this.users.list(tenantId, includeAllTenants);
   }
 
+  @Get('stats/projects')
+  projectStats() {
+    return this.users.getProjectStats();
+  }
+
   @Get(':id/activity')
   getActivity(@Param('id') id: string) {
     return this.users.getActivity(id);

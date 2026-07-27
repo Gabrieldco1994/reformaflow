@@ -41,8 +41,9 @@ function makePrismaMock() {
     creditCardStatementImport: {
       update: jest.fn().mockResolvedValue({}),
       findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn().mockResolvedValue(null),
     },
-    creditCard: { findMany: jest.fn().mockResolvedValue([]) },
+    creditCard: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn().mockResolvedValue(null), findUnique: jest.fn().mockResolvedValue(null) },
     recurringBill: { create: jest.fn(), findFirst: jest.fn() },
     crossProjectSettlement: {
       findUnique: jest.fn().mockResolvedValue(null),
@@ -89,6 +90,7 @@ describe('BankAccountService', () => {
   let service: BankAccountService;
   let prisma: ReturnType<typeof makePrismaMock>;
   let classifier: any;
+  let settlement: CardInvoiceSettlementService;
 
   beforeEach(async () => {
     prisma = makePrismaMock();
@@ -103,6 +105,7 @@ describe('BankAccountService', () => {
       ],
     }).compile();
     service = module.get(BankAccountService);
+    settlement = module.get(CardInvoiceSettlementService);
 
     prisma.bankAccount.findFirst.mockResolvedValue({
       id: 'acc1',
@@ -318,6 +321,42 @@ describe('BankAccountService', () => {
     });
   });
 
+  describe('previewImport — warning: fatura de cartão importada como extrato (Bug A)', () => {
+    it('cabeçalho Nubank "date,title,amount" dispara warning looks_like_card_invoice', async () => {
+      const csv = ['date,title,amount', '2026-05-12,IFOOD RESTAURANTE,89.90', '2026-05-13,UBER,32.50'].join('\n');
+      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(csv), 'fatura.csv', 'CSV_GENERIC');
+      expect(result.warning?.code).toBe('looks_like_card_invoice');
+    });
+
+    it('"Parcela N/M" na descrição dispara warning mesmo sem o cabeçalho Nubank', async () => {
+      const csv = ['data;descricao;valor', '12/05/2026;LOJA XYZ PARC 2/4;250,00'].join('\n');
+      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(csv), 'fatura.csv', 'CSV_GENERIC');
+      expect(result.warning?.code).toBe('looks_like_card_invoice');
+    });
+
+    it('>90% das linhas viram recebimento dispara warning (cobre extrato Bradesco/BB/Caixa tudo positivo)', async () => {
+      // Cabeçalho Itaú (não dispara pelo critério de header) com 10 despesas na fatura,
+      // que ao inverter para extrato viram 10 recebimentos (100% > 90%).
+      const csvItau = [
+        'data;descricao;valor',
+        ...Array.from({ length: 10 }, (_, i) => `${10 + i}/05/2026;COMPRA ${i};50,00`),
+      ].join('\n');
+      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(csvItau), 'extrato.csv', 'CSV_GENERIC');
+      expect(result.totalCredits).toBe(10);
+      expect(result.warning?.code).toBe('looks_like_card_invoice');
+    });
+
+    it('extrato bancário normal (débitos e créditos misturados, sem parcela) NÃO dispara warning', async () => {
+      const ofx = buildBankOfx(
+        ofxBankFor('20260401', 10000, 'MERCADO', 'B1'),
+        ofxBankFor('20260402', -50000, 'SALARIO', 'B2'),
+        ofxBankFor('20260403', 5000, 'FARMACIA', 'B3'),
+      );
+      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX');
+      expect(result.warning).toBeUndefined();
+    });
+  });
+
   describe('commitImport — decisions', () => {
     it('decision.skip ignora transação (não cria expense)', async () => {
       const ofx = buildBankOfx(
@@ -381,6 +420,84 @@ describe('BankAccountService', () => {
 
       expect(prisma.expense.create).toHaveBeenCalledTimes(1);
       expect(prisma.expense.create.mock.calls[0][0].data.createdByUserId).toBe('user-abc');
+    });
+  });
+
+  // Bug real (jul/2026): "FATURA PAGA Itaú Personn" de R$ 17.655,85 entrou com
+  // cardLast4 null porque nenhuma heurística achou o cartão. Sem cardLast4 o
+  // pagamento sai do caixa (§10) mas getAccountView não o reconhece como
+  // quitação — a fatura fica em aberto e o mesmo dinheiro conta 2×.
+  describe('commitImport — pagamento de fatura sem cartão identificado', () => {
+    const faturaOfx = buildBankOfx(
+      ofxBankFor('20260721', 1765585, 'FATURA PAGA Itau Personn', 'FP1'),
+    );
+
+    it('sem cartão identificado, marca unlinkedCardPayment em vez de dizer que vinculou', async () => {
+      prisma.expense.create.mockClear();
+      const res = await service.commitImport(
+        't1', 'pessoal1', 'acc1',
+        Buffer.from(faturaOfx), 'ext.ofx', 'OFX',
+      );
+
+      const created = prisma.expense.create.mock.calls[0][0].data;
+      expect(created.tipoDespesa).toBe('PAGAMENTO_FATURA_CARTAO');
+      expect(created.cardLast4).toBeNull();
+      expect(res.cardPayments).toBe(0);
+      expect(res.unlinkedCardPayments).toBe(1);
+    });
+
+    it('decision.overrides.cardLast4 grava o cartão escolhido e liquida a fatura', async () => {
+      prisma.creditCard.findFirst.mockResolvedValue({
+        id: 'card5572', last4: '5572', nickname: 'Visa ****5572',
+      });
+      prisma.creditCard.findUnique.mockResolvedValue({
+        id: 'card5572', last4: '5572', closingDay: null, dueDay: 5,
+      });
+      const settleSpy = jest
+        .spyOn(settlement, 'settleInvoice')
+        .mockResolvedValue({ settledExpenses: 3, settledParcelas: 3 });
+
+      prisma.expense.create.mockClear();
+      const preview = await service.previewImport(
+        't1', 'pessoal1', 'acc1', Buffer.from(faturaOfx), 'ext.ofx', 'OFX',
+      );
+      const ext = preview.preview[0].externalId;
+
+      const res = await service.commitImport(
+        't1', 'pessoal1', 'acc1',
+        Buffer.from(faturaOfx), 'ext.ofx', 'OFX',
+        undefined, undefined,
+        [{ externalId: ext, overrides: { cardLast4: '5572' } }],
+      );
+
+      const created = prisma.expense.create.mock.calls[0][0].data;
+      expect(created.tipoDespesa).toBe('PAGAMENTO_FATURA_CARTAO');
+      expect(created.cardLast4).toBe('5572');
+      expect(res.cardPayments).toBe(1);
+      expect(res.unlinkedCardPayments).toBe(0);
+      expect(settleSpy).toHaveBeenCalled();
+    });
+  });
+
+  describe('commitImport — transferências bancárias', () => {
+    it('crédito "CREDITO LIBERAD PIX" vira recebimento de transferência própria', async () => {
+      const ofx = buildBankOfx(ofxBankFor('20260720', -350000, 'CREDITO LIBERAD PIX 6933', 'TRF1'));
+
+      prisma.receipt.create.mockClear();
+      await service.commitImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX');
+
+      const created = prisma.receipt.create.mock.calls[0][0].data;
+      expect(created.tipo).toBe('TRANSFERENCIA_PROPRIA');
+    });
+
+    it('débito "PIX CARTAO" vira transferência TED', async () => {
+      const ofx = buildBankOfx(ofxBankFor('20260720', 350000, 'PIX CARTAO ALESSAN18/07', 'TRF2'));
+
+      prisma.expense.create.mockClear();
+      await service.commitImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX');
+
+      const created = prisma.expense.create.mock.calls[0][0].data;
+      expect(created.tipoDespesa).toBe('TRANSFERENCIA_TED');
     });
   });
 

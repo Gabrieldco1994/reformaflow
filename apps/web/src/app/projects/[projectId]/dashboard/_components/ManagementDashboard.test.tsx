@@ -30,6 +30,25 @@ vi.mock("@tanstack/react-query", () => ({
           },
         ],
       };
+    if (queryKey[0] === "financing")
+      return {
+        data: {
+          sistema: "PRICE",
+          valorTotalFinanciado: 30000000,
+          summary: {
+            valorPago: 1000000,
+            saldoDevedor: 29000000,
+            progresso: 3,
+            totalParcelas: 360,
+            parcelasPagas: 10,
+            proximaParcela: {
+              numeroParcela: 11,
+              dataVencimento: "2026-08-10T00:00:00.000Z",
+              valorPrevisto: 250000,
+            },
+          },
+        },
+      };
     return {
       data: [
         {
@@ -112,6 +131,16 @@ describe.each(["CASA", "CARRO"])(
       expect(document.body).not.toHaveTextContent(
         /quilometragem|veículo|placa|combustível/i,
       );
+      if (projectType === "CASA") {
+        expect(screen.getByRole("progressbar", { name: "Progresso do financiamento" }))
+          .toHaveAttribute("aria-valuenow", "3");
+        expect(screen.getByRole("link", { name: "Ver detalhes" })).toHaveAttribute(
+          "href",
+          "/projects/project-7/financing",
+        );
+      } else {
+        expect(screen.queryByText("Saldo Devedor")).not.toBeInTheDocument();
+      }
     });
   },
 );

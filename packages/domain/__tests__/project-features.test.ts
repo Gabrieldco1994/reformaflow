@@ -50,6 +50,15 @@ describe('hasFeature', () => {
     expect(hasFeature(ProjectType.CASA, 'receipts')).toBe(false);
   });
 
+  it('CASA tem financing (singleton de financiamento imobiliário); demais tipos não', () => {
+    expect(hasFeature(ProjectType.CASA, 'financing')).toBe(true);
+    expect(hasFeature(ProjectType.CARRO, 'financing')).toBe(false);
+    expect(hasFeature(ProjectType.REFORMA, 'financing')).toBe(false);
+    expect(hasFeature(ProjectType.COMPRA, 'financing')).toBe(false);
+    expect(hasFeature(ProjectType.PESSOAL, 'financing')).toBe(false);
+    expect(hasFeature(ProjectType.PLANTAS, 'financing')).toBe(false);
+  });
+
   it('CARRO espelha CASA + carInfo via PROJECT_FEATURES (inclui expenses avulsas)', () => {
     expect(hasFeature(ProjectType.CARRO, 'dashboard')).toBe(true);
     expect(hasFeature(ProjectType.CARRO, 'recurringBills')).toBe(true);

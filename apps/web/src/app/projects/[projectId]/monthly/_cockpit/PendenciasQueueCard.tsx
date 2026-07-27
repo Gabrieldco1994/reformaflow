@@ -19,9 +19,18 @@ import type { AccountViewResponse } from '../../conta/_types';
 type QueueType =
   | 'SEM_CONTA'
   | 'SEM_CATEGORIA'
+  | 'PAGAMENTO_FATURA_SEM_CARTAO'
   | 'FATURA_NAO_PAGA'
   | 'PARCELA_FOREIGN_PENDENTE'
   | 'RECEBIMENTO_PREVISTO_ATRASADO';
+
+type CardCandidate = {
+  cardLast4: string;
+  nickname: string;
+  dueMonth: string;
+  invoiceTotalCents: number;
+  deltaCents: number;
+};
 
 type QueueItem = {
   id: string;
@@ -37,6 +46,7 @@ type QueueItem = {
   foreignExpenseId?: string;
   parcelaIndex?: number;
   suggestionTipoDespesa?: string;
+  cardCandidates?: CardCandidate[];
 };
 
 type QueueGroup = {
@@ -74,6 +84,8 @@ export function PendenciasQueueCard({
   const [categoriaItem, setCategoriaItem] = useState<QueueItem | null>(null);
   const [categoriaEscolhida, setCategoriaEscolhida] = useState('');
   const [payCardLast4, setPayCardLast4] = useState<string | null>(null);
+  const [cartaoItem, setCartaoItem] = useState<QueueItem | null>(null);
+  const [cartaoEscolhido, setCartaoEscolhido] = useState('');
   const [quitar, setQuitar] = useState<{
     foreignExpenseId: string;
     parcelaIndex: number;
@@ -117,6 +129,40 @@ export function PendenciasQueueCard({
     queryFn: () => api.get(`/projects/${projectId}/expenses/${vincularExpenseId}`),
     enabled: vincularExpenseId != null,
   });
+
+  const { data: tenantCards } = useQuery<Array<{ id: string; last4: string; nickname?: string | null; brand?: string | null }>>({
+    queryKey: ['tenant', 'credit-cards'],
+    queryFn: () => api.get('/tenant/credit-cards'),
+    enabled: cartaoItem != null,
+  });
+
+  // Candidatos ranqueados primeiro (trazem o total da fatura e a diferença),
+  // demais cartões do tenant depois — o usuário pode ter pago uma fatura fora
+  // da janela de ranking.
+  const cartaoOptions = useMemo(() => {
+    const cards = tenantCards ?? [];
+    const idByLast4 = new Map(cards.map((c) => [c.last4, c.id]));
+    const seen = new Set<string>();
+    const options: Array<{ id: string; label: string }> = [];
+    for (const candidate of cartaoItem?.cardCandidates ?? []) {
+      const id = idByLast4.get(candidate.cardLast4);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      const diff = Math.abs(candidate.deltaCents);
+      options.push({
+        id,
+        label:
+          `${candidate.nickname} · fatura ${candidate.dueMonth} ${formatCurrency(candidate.invoiceTotalCents / 100)}` +
+          (diff === 0 ? ' (valor exato)' : ` (dif. ${formatCurrency(diff / 100)})`),
+      });
+    }
+    for (const card of cards) {
+      if (seen.has(card.id)) continue;
+      seen.add(card.id);
+      options.push({ id: card.id, label: card.nickname?.trim() || `${card.brand ?? 'Cartão'} ••${card.last4}` });
+    }
+    return options;
+  }, [tenantCards, cartaoItem]);
 
   const selectedCard = useMemo(() => {
     const cartoes = accountView?.cartoes ?? [];
@@ -196,6 +242,21 @@ export function PendenciasQueueCard({
     },
   });
 
+  const vincularCartaoMutation = useMutation({
+    mutationFn: async ({ expenseId, creditCardId }: { expenseId: string; creditCardId: string }) => {
+      await api.patch(`/projects/${projectId}/expenses/${expenseId}`, { creditCardId });
+    },
+    onSuccess: () => {
+      toast.success('Pagamento vinculado ao cartão — a fatura já reflete a quitação');
+      setCartaoItem(null);
+      setCartaoEscolhido('');
+      refreshQueue();
+    },
+    onError: (error: Error) => {
+      toast.error(`Não foi possível vincular o cartão: ${error.message}`);
+    },
+  });
+
   const handleItemAction = (item: QueueItem) => {
     if (item.tipo === 'SEM_CONTA' && item.foreignExpenseId && item.parcelaIndex != null) {
       setOpen(false);
@@ -221,6 +282,12 @@ export function PendenciasQueueCard({
           : (categoriaOptions[0]?.value ?? 'OUTROS');
       setCategoriaEscolhida(defaultCategoria);
       setCategoriaItem(item);
+      return;
+    }
+    if (item.tipo === 'PAGAMENTO_FATURA_SEM_CARTAO' && item.expenseId) {
+      setOpen(false);
+      setCartaoEscolhido('');
+      setCartaoItem(item);
       return;
     }
     if (item.tipo === 'FATURA_NAO_PAGA' && item.cardLast4) {
@@ -365,8 +432,61 @@ export function PendenciasQueueCard({
         )}
       </Modal>
 
-      <BulkLinkModal
-        open={vincularExpense != null}
+      <Modal
+        open={cartaoItem != null}
+        onClose={() => {
+          setCartaoItem(null);
+          setCartaoEscolhido('');
+          reopenQueue();
+        }}
+        title="Qual cartão este pagamento quita?"
+        variant="sheet"
+        size="sm"
+      >
+        {cartaoItem && (
+          <div className="space-y-3 pb-2">
+            <div className="rounded-xl border border-lifeone-hairline bg-lifeone-card p-3">
+              <p className="truncate text-[13px] font-medium text-lifeone-ink">{cartaoItem.descricao}</p>
+              <p className="text-[11px] text-lifeone-ink-3">
+                {formatCurrency(cartaoItem.valor / 100)} · {new Date(cartaoItem.data).toLocaleDateString('pt-BR')}
+              </p>
+            </div>
+            <p className="text-[11px] text-lifeone-ink-3">
+              Sem o cartão, esse valor sai do seu caixa mas a fatura continua em aberto — o mesmo dinheiro conta duas vezes.
+            </p>
+            <label className="block space-y-1">
+              <span className="text-[11px] font-semibold text-lifeone-ink-3">Cartão</span>
+              <select
+                value={cartaoEscolhido}
+                onChange={(e) => setCartaoEscolhido(e.target.value)}
+                className="h-11 w-full rounded-xl border border-lifeone-hairline bg-lifeone-card px-3 text-sm text-lifeone-ink outline-none focus:border-lifeone-blue"
+              >
+                <option value="">Selecione o cartão</option>
+                {cartaoOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              disabled={!cartaoEscolhido || vincularCartaoMutation.isPending}
+              onClick={() =>
+                vincularCartaoMutation.mutate({
+                  expenseId: cartaoItem.expenseId!,
+                  creditCardId: cartaoEscolhido,
+                })
+              }
+              className="inline-flex min-h-[44px] w-full items-center justify-center rounded-xl bg-lifeone-blue px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Vincular cartão
+            </button>
+          </div>
+        )}
+      </Modal>
+
+      <BulkLinkModal        open={vincularExpense != null}
         onClose={() => {
           setVincularExpenseId(null);
           reopenQueue();

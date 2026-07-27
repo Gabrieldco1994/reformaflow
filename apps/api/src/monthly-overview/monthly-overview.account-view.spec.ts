@@ -874,6 +874,43 @@ describe("MonthlyOverviewService.getAccountView", () => {
     expect(res.total).toBe(15_000);
   });
 
+  it("getOriginItemsYearly (kind=all) não descarta despesa PESSOAL sem cartão e sem conta — vira Carteira", async () => {
+    // Reproduz o caso da despesa lançada por voz sem meio de pagamento informado
+    // (regra de ouro 14: origin:'none' nunca é filtrado para fora em silêncio).
+    prisma.creditCard.findMany.mockResolvedValue([]);
+    prisma.bankAccount.findMany.mockResolvedValue([]);
+    prisma.cashFlowEntry.findMany.mockResolvedValue([
+      {
+        valor: 12_000,
+        data: new Date("2026-04-10T00:00:00.000Z"),
+        status: "PAGO",
+        expense: {
+          tipoDespesa: "MERCADO",
+          titulo: "Feira",
+          fornecedor: null,
+          cardLast4: null,
+          bankLast4: null,
+          linkedExpenseId: null,
+          project: { id: projectId, name: "Pessoal", type: "PESSOAL" },
+        },
+      },
+    ]);
+
+    const res: any = await service.getOriginItemsYearly(tenantId, projectId, {
+      year: 2026,
+      kind: "all",
+    });
+
+    expect(res.items).toHaveLength(1);
+    expect(res.items[0].origem).toEqual({
+      kind: "carteira",
+      last4: "",
+      nickname: "Carteira",
+    });
+    expect(res.items[0].mes).toBe("2026-04");
+    expect(res.total).toBe(12_000);
+  });
+
   it("calcula ticket médio, variação mensal e média de 6 meses por competência", async () => {
     prisma.bankAccount.findMany.mockResolvedValue([]);
     prisma.receipt.findMany.mockResolvedValue([]);

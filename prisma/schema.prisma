@@ -125,6 +125,7 @@ model Project {
   plants                  Plant[]
   invoiceAdjustments      InvoiceAdjustment[]
   priceMonitorItems       PriceMonitorItem[]
+  financing               Financing?
 
   @@map("projects")
 }
@@ -558,6 +559,57 @@ model MaintenanceLog {
   @@index([projectId])
   @@index([plantId])
   @@map("maintenance_logs")
+}
+
+// ─── Financiamento (CASA) ────────────────────────────────────
+// Singleton por projeto (@@unique projectId). A tabela de parcelas serve
+// tanto para a projeção (status PREVISTO, gerada em lote pelo sistema
+// PRICE/SAC) quanto para o histórico realmente pago (status PAGO).
+
+model Financing {
+  id                   String    @id @default(cuid())
+  projectId            String    @unique @map("project_id")
+  tenantId             String    @map("tenant_id")
+  instituicao          String?
+  sistema              String    @default("PRICE") // PRICE | SAC
+  valorTotalFinanciado Int       @map("valor_total_financiado") // centavos
+  taxaJurosMensalBps   Int       @map("taxa_juros_mensal_bps") // basis points (1% = 100)
+  prazoMeses           Int       @map("prazo_meses")
+  dataPrimeiraParcela  DateTime  @map("data_primeira_parcela")
+  diaVencimento        Int       @map("dia_vencimento") // 1-31
+  status               String    @default("ATIVO") // ATIVO | QUITADO
+  observacoes          String?
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+  deletedAt            DateTime? @map("deleted_at")
+
+  project      Project                @relation(fields: [projectId], references: [id])
+  installments FinancingInstallment[]
+
+  @@map("financings")
+}
+
+model FinancingInstallment {
+  id                   String    @id @default(cuid())
+  financingId          String    @map("financing_id")
+  projectId            String    @map("project_id")
+  tenantId             String    @map("tenant_id")
+  numeroParcela        Int       @map("numero_parcela")
+  dataVencimento       DateTime  @map("data_vencimento")
+  valorPrevisto        Int       @map("valor_previsto") // centavos
+  saldoDevedorPrevisto Int       @map("saldo_devedor_previsto") // centavos, após esta parcela
+  status               String    @default("PREVISTO") // PREVISTO | PAGO
+  valorPago            Int?      @map("valor_pago") // centavos
+  dataPagamento        DateTime? @map("data_pagamento")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+  deletedAt            DateTime? @map("deleted_at")
+
+  financing Financing @relation(fields: [financingId], references: [id], onDelete: Cascade)
+
+  @@unique([financingId, numeroParcela])
+  @@index([projectId, dataVencimento])
+  @@map("financing_installments")
 }
 
 // ─── Lembretes ──────────────────────────────────────────────

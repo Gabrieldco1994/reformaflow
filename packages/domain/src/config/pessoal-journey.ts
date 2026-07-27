@@ -65,6 +65,7 @@ export const PESSOAL_JOURNEY_CATALOG: JourneyStepDef[] = [
     defaultSubtitle: 'Importe seus lançamentos de uma vez.',
     alwaysAvailable: true,
     skippableByDefault: true,
+    // ponytail: desabilitar este passo para unificar Despesa + Importar (via admin/jornadas toggle enabled=false)
   },
   {
     key: 'receipt',

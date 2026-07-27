@@ -38,6 +38,16 @@ export interface BankCrossReceiptMatch {
 
 export type BankCrossProjectMatch = BankCrossExpenseMatch | BankCrossReceiptMatch;
 
+export interface BankCardCandidate {
+  cardLast4: string;
+  nickname: string;
+  /** Mês de vencimento da fatura, "YYYY-MM". */
+  dueMonth: string;
+  invoiceTotalCents: number;
+  /** invoiceTotal − pagamento. Negativo = pagamento maior que a fatura. */
+  deltaCents: number;
+}
+
 export interface BankPreviewTx {
   externalId: string;
   date: string;
@@ -48,6 +58,10 @@ export interface BankPreviewTx {
   isCredit?: boolean;
   isCardPayment?: boolean;
   suggestedCategory?: string;
+  /** Faturas em aberto que este pagamento pode estar quitando (mais provável primeiro). */
+  cardCandidates?: BankCardCandidate[];
+  /** Cartão detectado sem ambiguidade, quando houve. */
+  suggestedCardLast4?: string | null;
   crossProjectMatches?: BankCrossProjectMatch[];
 }
 
@@ -61,6 +75,8 @@ export interface BankPreviewResult {
   totalDebits?: number;
   totalCredits?: number;
   inserted?: number;
+  /** Sinal de que o arquivo parece uma fatura de cartão, não um extrato (Bug A). Não bloqueia. */
+  warning?: { code: 'looks_like_card_invoice'; message: string };
 }
 
 export interface BankCommitResult {
@@ -71,6 +87,8 @@ export interface BankCommitResult {
   duplicated: number;
   receiptsInserted: number;
   cardPayments: number;
+  /** Pagamentos de fatura que entraram SEM cartão identificado (saem do caixa, não quitam fatura). */
+  unlinkedCardPayments?: number;
   aiReclassified: number;
   recurrencesCreated: number;
   skipped: number;

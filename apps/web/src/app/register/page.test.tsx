@@ -25,6 +25,14 @@ describe("/register 3-field registration", () => {
   it("exists as an explicit public registration page", () => {
     expect(RegisterPage).toBeDefined();
   });
+
+  it("renders the value-prop headline, the Maria card, and a single registration form", () => {
+    render(<RegisterPage />);
+
+    expect(screen.getByText(/controle, planeje tudo em um só app/i)).toBeInTheDocument();
+    expect(screen.getByText(/maria, sua copiloto no lifeone/i)).toBeInTheDocument();
+    expect(screen.getAllByLabelText(/seu nome/i)).toHaveLength(1);
+  });
 });
 
 describe("/register form behavior", () => {
@@ -46,7 +54,7 @@ describe("/register form behavior", () => {
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   });
 
-  it("submits 3-field payload and routes to PESSOAL onboarding", async () => {
+  it("submits 3-field payload and routes to the objective picker", async () => {
     let finishRegistration!: (value: { id: string }) => void;
     mocks.register.mockImplementationOnce(
       () => new Promise((resolve) => { finishRegistration = resolve; }),
@@ -68,7 +76,7 @@ describe("/register form behavior", () => {
     }, expect.any(String));
     finishRegistration({ id: "u1" });
     await waitFor(() =>
-      expect(mocks.replace).toHaveBeenCalledWith("/onboarding/setup?type=PESSOAL"),
+      expect(mocks.replace).toHaveBeenCalledWith("/onboarding/objetivos"),
     );
   });
 

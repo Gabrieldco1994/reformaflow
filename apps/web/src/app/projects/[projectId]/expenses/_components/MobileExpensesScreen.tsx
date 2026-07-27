@@ -41,6 +41,11 @@ function total(items: Array<{ valor: number }>) {
   return items.reduce((acc, item) => acc + item.valor, 0);
 }
 
+// Carteira não tem last4 (não é cartão nem conta) — evita renderizar "Carteira •" com bullet solto.
+function origemLabel(origem: { nickname: string; last4: string }) {
+  return origem.last4 ? `${origem.nickname} •${origem.last4}` : origem.nickname;
+}
+
 const filterChipClass = (active: boolean) =>
   `min-h-[44px] whitespace-nowrap rounded-full border px-4 text-xs font-semibold ${
     active
@@ -102,7 +107,7 @@ export function MobileExpensesScreen() {
       const key = `${item.origem.kind}:${item.origem.last4}`;
       map.set(key, {
         key,
-        label: `${item.origem.nickname} •${item.origem.last4}`,
+        label: origemLabel(item.origem),
       });
     }
     return Array.from(map.values());
@@ -290,7 +295,7 @@ export function MobileExpensesScreen() {
                         </div>
                         <p className="truncate text-[15px] font-semibold">{entry.descricao}</p>
                       </div>
-                      <p className="mt-1 truncate text-[11px] text-lifeone-ink-3 ml-9">{tipoLabel(entry.tipoDespesa)}{entry.origem ? ` · ${entry.origem.nickname} •${entry.origem.last4}` : ''}</p>
+                      <p className="mt-1 truncate text-[11px] text-lifeone-ink-3 ml-9">{tipoLabel(entry.tipoDespesa)}{entry.origem ? ` · ${origemLabel(entry.origem)}` : ''}</p>
                     </div>
                     <strong className={`shrink-0 whitespace-nowrap text-[15px] ${entry.valor < 0 ? 'text-emerald-700' : ''}`}>{moneyDetail(entry.valor)}</strong>
                   </div>

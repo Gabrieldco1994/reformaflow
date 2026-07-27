@@ -44,7 +44,7 @@ módulos (abas) ficam disponíveis:
 |---|---|---|
 | **PESSOAL** | Controle do dinheiro pessoal (o "cockpit" da sua vida financeira) | Cockpit, Visão Conta, Cartões, Metas, Planning, Budget, DRE, Fluxo de Caixa (+ drill-downs: Despesas/Recebimentos) |
 | **REFORMA** | Controle financeiro e visual de uma obra/reforma | Dashboard, Despesas, Recebimentos, Fluxo de Caixa, Cômodos, Plantas, Simulação, Cronograma, Comparar Preço, Pendências |
-| **CASA** | Gestão da casa (contas fixas, manutenções, lembretes) | Dashboard, Contas recorrentes, Manutenção, Lembretes, Despesas |
+| **CASA** | Gestão da casa (financiamento, contas fixas, manutenções, lembretes) | Dashboard, Financiamento, Contas recorrentes, Manutenção, Lembretes, Despesas |
 | **CARRO** | Gestão do carro | Dashboard, Carro (dados), Contas recorrentes, Manutenção, Lembretes, Despesas |
 | **COMPRA** | Acompanhar uma compra grande (casa, carro etc.) | Dashboard, Despesas, Recebimentos, Fluxo de Caixa, Preços |
 
@@ -297,10 +297,17 @@ A tela-mãe do PESSOAL. Responde "como está meu mês?".
   projeção de fechamento e quanto cortar por dia para equilibrar, maior gasto
   variável, contas a vencer, e status da reserva de emergência.
 - **Card "Precisa de você (N)"** (quando `N > 0`): mostra pendências financeiras
-  acionáveis (sem conta, sem categoria com sugestão, fatura a vencer, parcela
-  cross-project pendente e recebimento previsto atrasado). Ao tocar, abre um
+  acionáveis (sem conta, sem categoria com sugestão, **pagamento de fatura sem
+  cartão identificado**, fatura a vencer, parcela cross-project pendente e
+  recebimento previsto atrasado). Ao tocar, abre um
   painel que dispara os modais já existentes (vincular, pagar fatura, quitar
   parcela, editar despesa/recebimento) sem criar um fluxo paralelo.
+  - **Pagamento de fatura sem cartão**: um pagamento de fatura que ficou sem cartão
+    vinculado sai do seu caixa mas deixa a fatura em aberto — o mesmo dinheiro conta
+    duas vezes. A fila é a única superfície que mostra esse item (ele é neutro, então
+    não aparece nas Movimentações). Ao tocar em **"Escolher cartão"**, o app lista os
+    cartões cuja fatura em aberto mais se aproxima do valor pago (com mês de vencimento,
+    total da fatura e a diferença), e vincular já faz a Visão Conta reconhecer a quitação.
 
 **KPIs do mês (eixo caixa):**
 | KPI | O que representa |
@@ -573,6 +580,14 @@ Gestão das contas.
   débitos viram despesas, créditos viram recebimentos, pagamentos de fatura são
   detectados automaticamente (evita dupla contagem); contas de utilidades e IPVA
   viram recorrências nos projetos de Casa/Carro automaticamente.
+- **Pré-visualização — pagamento de fatura:** toda linha detectada como pagamento de
+  fatura mostra o bloco **"💳 Pagamento de fatura — qual cartão isso quita?"** com um
+  seletor de cartão. O app sugere o cartão cuja fatura em aberto mais se aproxima do
+  valor (mostrando mês de vencimento, total da fatura e a diferença) e pré-seleciona
+  quando o valor bate exatamente. Se a linha ficar sem cartão, um aviso âmbar explica
+  que o valor vai sair do caixa sem abater a fatura — e o resultado do import informa
+  quantos pagamentos ficaram sem cartão. Os que escaparem viram pendência no card
+  **"Precisa de você"** do cockpit.
 - **Card por conta:** instituição, **final**, **agência**, **conta**, **saldo**;
   configuração de **saldo inicial** (base do caixa real §10). Ações: **Vincular
   despesas**, **Vincular recebimentos**, **Editar**, **Excluir** (confirmação).
@@ -694,12 +709,24 @@ Quadro de pendências da obra.
 
 ## 6. Projeto CASA
 
-Gestão da casa: contas fixas, manutenções e lembretes.
+Gestão da casa: financiamento, contas fixas, manutenções e lembretes.
 
 ### 6.1 Dashboard (`/dashboard`)
-Visão geral da casa (KPIs gerais, resumo, próximas pendências).
+Visão geral da casa (KPIs gerais, resumo, próximas pendências). Quando há um
+financiamento cadastrado, mostra saldo devedor, valor pago, progresso e próxima
+parcela, com acesso aos detalhes.
 
-### 6.2 Contas recorrentes (`/bills`)
+### 6.2 Financiamento (`/financing`)
+Registra um financiamento imobiliário por projeto e gera sua projeção mensal.
+- Sistemas de amortização **PRICE** e **SAC**, com valor financiado, taxa mensal,
+  prazo, primeira parcela e dia de vencimento.
+- Resumo com total, valor pago, saldo devedor, progresso e próxima parcela.
+- Tabela de parcelas previstas/pagas. **Marcar como paga** registra o valor
+  previsto e a data atual sem criar uma despesa ou alterar o caixa consolidado.
+- Ao editar o contrato, parcelas já pagas permanecem no histórico; somente as
+  parcelas futuras são recalculadas.
+
+### 6.3 Contas recorrentes (`/bills`)
 Contas fixas (luz, água, internet, gás…) e avulsas.
 - **Abas "Recorrentes / Avulsas".**
 - **"Total mensal estimado"** somando as recorrentes.
@@ -716,7 +743,7 @@ Contas fixas (luz, água, internet, gás…) e avulsas.
   ações), com **Nova despesa avulsa** (Título, Valor, Categoria, Forma de
   pagamento, Data do pagamento, Fornecedor, Observações).
 
-### 6.3 Manutenção (`/maintenance`)
+### 6.4 Manutenção (`/maintenance`)
 Histórico e agenda de manutenções.
 - **Botão "Nova Manutenção".**
 - **"Próximas manutenções":** cards com o tipo, quando ("em X dias") e a data.
@@ -724,7 +751,7 @@ Histórico e agenda de manutenções.
   rola horizontalmente. Ações: editar, excluir.
 - Formulário: tipo, datas, custo, **Fornecedor (opcional)**, **Observações**.
 
-### 6.4 Lembretes (`/reminders`)
+### 6.5 Lembretes (`/reminders`)
 Tarefas com prazo e prioridade.
 - **Botão "Novo Lembrete"** (Título, Descrição opcional, data, prioridade,
   frequência).
@@ -732,7 +759,7 @@ Tarefas com prazo e prioridade.
 - **Card de lembrete:** título, data, frequência, badges de **prioridade** e
   **status**. Ações: **Concluir**, **Adiar**, **Editar**, **Excluir**.
 
-### 6.5 Despesas (`/expenses`)
+### 6.6 Despesas (`/expenses`)
 Despesas avulsas do lar (mesma mecânica do §4.4, com tipos próprios de casa).
 
 ---

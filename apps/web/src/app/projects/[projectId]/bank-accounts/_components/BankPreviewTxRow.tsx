@@ -3,8 +3,44 @@
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { centsToReaisInput, currencyInputToCents, maskCurrencyInput } from '@/lib/currency-input';
 import { Trash2, Link2, RotateCcw, Check, ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
-import type { BankPreviewTx, BankCrossProjectMatch } from '../_types';
+import type { BankPreviewTx, BankCrossProjectMatch, BankCardCandidate } from '../_types';
 import type { BankImportDecision, BankTxState } from './ImportBankStatementModal';
+
+/** "2026-08" → "ago/2026". */
+function formatDueMonth(dueMonth: string): string {
+  const [year, month] = dueMonth.split('-').map(Number);
+  if (!year || !month) return dueMonth;
+  const nome = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+  return `${nome[month - 1] ?? month}/${year}`;
+}
+
+/**
+ * Uma opção por cartão (a fatura mais próxima do valor pago, que vem primeiro),
+ * garantindo que o cartão já selecionado esteja sempre na lista — ele pode ter
+ * vindo do last4 do texto do extrato, sem fatura em aberto para casar.
+ */
+function dedupeByCard(
+  candidates: BankCardCandidate[],
+  selected: string | null,
+): BankCardCandidate[] {
+  const seen = new Set<string>();
+  const out: BankCardCandidate[] = [];
+  for (const c of candidates) {
+    if (seen.has(c.cardLast4)) continue;
+    seen.add(c.cardLast4);
+    out.push(c);
+  }
+  if (selected && !seen.has(selected)) {
+    out.unshift({
+      cardLast4: selected,
+      nickname: 'Cartão',
+      dueMonth: '',
+      invoiceTotalCents: 0,
+      deltaCents: 0,
+    });
+  }
+  return out;
+}
 
 const DEBIT_CATEGORIES = [
   { value: 'MORADIA', label: 'Moradia' },
@@ -54,6 +90,12 @@ export function BankPreviewTxRow({ tx, state, onChange, onClearDecision }: RowPr
   const titulo = state.decision?.overrides?.titulo ?? tx.merchant;
   const categories = isCredit ? CREDIT_CATEGORIES : DEBIT_CATEGORIES;
   const category = state.decision?.overrides?.category ?? tx.suggestedCategory ?? (isCredit ? 'OUTROS' : 'OUTROS');
+  const cardLast4 = state.decision?.overrides?.cardLast4 ?? null;
+  // Mostra o seletor sempre que a linha for tratada como pagamento de fatura —
+  // seja por detecção do backend (que já sugere a categoria) ou por escolha
+  // manual. Some se o usuário recategorizar a linha.
+  const isCardPaymentRow = !isCredit && category === 'PAGAMENTO_FATURA_CARTAO';
+  const cardOptions = dedupeByCard(tx.cardCandidates ?? [], cardLast4);
 
   function setOverride(patch: Partial<NonNullable<BankImportDecision['overrides']>>) {
     onChange({
@@ -157,6 +199,38 @@ export function BankPreviewTxRow({ tx, state, onChange, onClearDecision }: RowPr
       {tx.duplicate && (
         <div className="text-xs text-yellow-700 mt-1 italic">
           ↻ Já importada anteriormente (será ignorada)
+        </div>
+      )}
+
+      {isCardPaymentRow && !isSkipped && (
+        <div className="mt-2 pl-3 border-l-2 border-purple-300 space-y-1">
+          <div className="text-xs text-purple-800 font-medium">
+            💳 Pagamento de fatura — qual cartão isso quita?
+          </div>
+          <select
+            value={cardLast4 ?? ''}
+            onChange={(e) => setOverride({ cardLast4: e.target.value || undefined })}
+            className="w-full px-2 py-1.5 border rounded text-sm min-h-11"
+          >
+            <option value="">Não identificado — não quita fatura nenhuma</option>
+            {cardOptions.map((c) => (
+              <option key={`${c.cardLast4}-${c.dueMonth}`} value={c.cardLast4}>
+                {c.dueMonth
+                  ? `${c.nickname} ••${c.cardLast4} · fatura ${formatDueMonth(c.dueMonth)} · ${formatCurrency(c.invoiceTotalCents / 100)}${
+                      c.deltaCents === 0
+                        ? ' (valor exato)'
+                        : ` (dif. ${formatCurrency(Math.abs(c.deltaCents) / 100)})`
+                    }`
+                  : `${c.nickname} ••${c.cardLast4} · sem fatura em aberto para casar`}
+              </option>
+            ))}
+          </select>
+          {!cardLast4 && (
+            <div className="text-xs text-amber-700">
+              ⚠ Sem cartão, o valor sai do seu saldo mas a fatura continua em aberto — o
+              mesmo dinheiro conta duas vezes.
+            </div>
+          )}
         </div>
       )}
 

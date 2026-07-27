@@ -10,11 +10,14 @@ import type { OnboardingStepProps } from '../../_types';
 /**
  * Purpose-built quick-add receipt step — own local state, own POST call.
  * PESSOAL-only anchor (only caller in `ANCHOR_STEPS`).
- * Sempre envia status EM_CAIXA — no onboarding, todo recebimento é uma entrada já realizada (issue #320).
+ * Allows: Saldo Inicial (ORCAMENTO_INICIAL) or Receipt (other types).
+ * Status always EM_CAIXA — in onboarding, any receipt is already realized (issue #320).
  */
 export function QuickReceiptStep({ projectId, projectType, onDone, onSkip }: OnboardingStepProps) {
   const options = getReceiptTipoOptions(projectType);
-  const [tipo, setTipo] = useState(options[0]?.value ?? '');
+  const [isSaldoInicial, setIsSaldoInicial] = useState(false);
+  const [tipoCustom, setTipoCustom] = useState(options.find(o => o.value !== 'ORCAMENTO_INICIAL')?.value ?? '');
+  const tipo = isSaldoInicial ? 'ORCAMENTO_INICIAL' : tipoCustom;
   const [valor, setValor] = useState('');
   const [data, setData] = useState(() => new Date().toISOString().slice(0, 10));
   const [saving, setSaving] = useState(false);
@@ -47,15 +50,42 @@ export function QuickReceiptStep({ projectId, projectType, onDone, onSkip }: Onb
       <p className="text-[13px] text-lifeone-ink-3">Registre uma entrada já realizada para começar a acompanhar o caixa</p>
 
       <div className="mt-4 space-y-3">
+        <div className="flex gap-4">
+          <label className="flex items-center gap-2 text-[14px] font-medium text-lifeone-ink-2">
+            <input
+              type="radio"
+              name="receipt-type"
+              value="saldo"
+              checked={isSaldoInicial}
+              onChange={() => setIsSaldoInicial(true)}
+              className="h-4 w-4"
+            />
+            Saldo Inicial
+          </label>
+          <label className="flex items-center gap-2 text-[14px] font-medium text-lifeone-ink-2">
+            <input
+              type="radio"
+              name="receipt-type"
+              value="recebimento"
+              checked={!isSaldoInicial}
+              onChange={() => setIsSaldoInicial(false)}
+              className="h-4 w-4"
+            />
+            Recebimento
+          </label>
+        </div>
         <div>
           <label htmlFor="qr-tipo" className="mb-1 block text-[12px] font-medium text-lifeone-ink-2">Tipo</label>
           <select
             id="qr-tipo"
             value={tipo}
-            onChange={(e) => setTipo(e.target.value)}
-            className="min-h-11 w-full rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-3 py-2.5 text-[14px]"
+            onChange={(e) => setTipoCustom(e.target.value)}
+            disabled={isSaldoInicial}
+            className="min-h-11 w-full rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-3 py-2.5 text-[14px] disabled:opacity-60"
           >
-            {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            {options
+              .filter(o => !isSaldoInicial || o.value === 'ORCAMENTO_INICIAL')
+              .map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </div>
         <div className="grid grid-cols-2 gap-3">

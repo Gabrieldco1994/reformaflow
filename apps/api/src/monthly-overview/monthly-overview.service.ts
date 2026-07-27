@@ -2196,7 +2196,7 @@ export class MonthlyOverviewService {
       tipoDespesa: string;
       status: string;
       projetoOrigem: { id: string; name: string; type: string } | null;
-      origem: { kind: 'card' | 'conta'; last4: string; nickname: string };
+      origem: { kind: 'card' | 'conta' | 'carteira'; last4: string; nickname: string };
     }> = [];
 
     for (const entry of entries) {
@@ -2205,7 +2205,7 @@ export class MonthlyOverviewService {
       const tipo = entry.expense?.tipoDespesa ?? 'OUTROS';
 
       let mes: string;
-      let origem: { kind: 'card' | 'conta'; last4: string; nickname: string };
+      let origem: { kind: 'card' | 'conta' | 'carteira'; last4: string; nickname: string };
       if (cardLast4) {
         if (isNeutralExpenseType(tipo) && bankLast4) continue;
         const card = cardByLast4.get(cardLast4) ?? null;
@@ -2220,7 +2220,12 @@ export class MonthlyOverviewService {
           nickname: Array.from(accountNamesByLast4.get(bankLast4) ?? []).join(' / ') || `Conta ${bankLast4}`,
         };
       } else {
-        continue;
+        // Sem cartão E sem conta (ex.: lançada por voz sem meio de pagamento informado)
+        // não é erro — é o "Carteira" que já existe em getAccountView ({ tipo: 'carteira' }).
+        // Regra de ouro 14: nunca filtrar origin:'none' para fora em silêncio, ou o
+        // dinheiro some do consolidado mesmo afetando o caixa real.
+        mes = monthKeyOf(entry.data);
+        origem = { kind: 'carteira', last4: '', nickname: 'Carteira' };
       }
       if (!mes.startsWith(`${targetYear}-`)) continue;
 

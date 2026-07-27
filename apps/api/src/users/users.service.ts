@@ -74,6 +74,26 @@ function mapCounts(rows: Array<{ createdByUserId: string | null; _count: { _all:
   return counts;
 }
 
+// ponytail: offset fixo -3; Brasil não tem horário de verão desde 2019.
+// Se voltar o DST, trocar por Intl/timezone-aware.
+function saoPauloTodayWindow(now = new Date()): { start: Date; end: Date } {
+  const OFFSET_MS = 3 * 60 * 60 * 1000;
+  const sp = new Date(now.getTime() - OFFSET_MS);
+  const start = new Date(
+    Date.UTC(sp.getUTCFullYear(), sp.getUTCMonth(), sp.getUTCDate()) + OFFSET_MS,
+  );
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  return { start, end };
+}
+
+export interface ProjectStats {
+  byType: Array<{ type: string; count: number }>;
+  contentTodayByType: Array<{ type: string; count: number }>;
+  contentTodayTotal: number;
+  windowStart: string;
+  windowEnd: string;
+}
+
 @Injectable()
 export class UsersService {
   constructor(private prisma: PrismaService) {}
@@ -152,6 +172,69 @@ export class UsersService {
     return {
       summary: summary.map((s) => ({ action: s.action, count: s._count._all })).sort((a, b) => b.count - a.count),
       recent,
+    };
+  }
+
+  async getProjectStats(now = new Date()): Promise<ProjectStats> {
+    const { start, end } = saoPauloTodayWindow(now);
+
+    const byTypeRaw = await this.prisma.project.groupBy({
+      by: ['type'],
+      where: { deletedAt: null },
+      _count: { _all: true },
+    });
+    const byType = byTypeRaw
+      .map((r) => ({ type: r.type, count: r._count._all }))
+      .sort((a, b) => b.count - a.count);
+
+    // Projetos que criaram conteúdo hoje (janela SP). VehicleDocument fica de
+    // fora: liga em carro, não em projeto.
+    const w = { createdAt: { gte: start, lt: end } };
+    const contentGroups = await Promise.all([
+      this.prisma.expense.groupBy({ by: ['projectId'], where: w }),
+      this.prisma.receipt.groupBy({ by: ['projectId'], where: w }),
+      this.prisma.recurringBill.groupBy({ by: ['projectId'], where: w }),
+      this.prisma.creditCard.groupBy({ by: ['projectId'], where: w }),
+      this.prisma.bankAccount.groupBy({ by: ['projectId'], where: w }),
+      this.prisma.carInfo.groupBy({ by: ['projectId'], where: w }),
+      this.prisma.plant.groupBy({ by: ['projectId'], where: w }),
+      this.prisma.floorPlan.groupBy({ by: ['projectId'], where: w }),
+      this.prisma.financing.groupBy({ by: ['projectId'], where: w }),
+      this.prisma.reminder.groupBy({ by: ['projectId'], where: w }),
+      this.prisma.maintenanceLog.groupBy({ by: ['projectId'], where: w }),
+      this.prisma.scheduleTask.groupBy({ by: ['projectId'], where: w }),
+      this.prisma.pendencia.groupBy({ by: ['projectId'], where: w }),
+      this.prisma.priceMonitorItem.groupBy({ by: ['projectId'], where: w }),
+      this.prisma.categoryBudget.groupBy({ by: ['projectId'], where: w }),
+      this.prisma.cashFlowEntry.groupBy({ by: ['projectId'], where: w }),
+    ]);
+    const activeProjectIds = new Set<string>();
+    for (const rows of contentGroups) {
+      for (const r of rows) {
+        if (r.projectId) activeProjectIds.add(r.projectId);
+      }
+    }
+
+    const touchedProjects = activeProjectIds.size
+      ? await this.prisma.project.findMany({
+          where: { id: { in: [...activeProjectIds] }, deletedAt: null },
+          select: { type: true },
+        })
+      : [];
+    const contentMap = new Map<string, number>();
+    for (const p of touchedProjects) {
+      contentMap.set(p.type, (contentMap.get(p.type) ?? 0) + 1);
+    }
+    const contentTodayByType = [...contentMap]
+      .map(([type, count]) => ({ type, count }))
+      .sort((a, b) => b.count - a.count);
+
+    return {
+      byType,
+      contentTodayByType,
+      contentTodayTotal: touchedProjects.length,
+      windowStart: start.toISOString(),
+      windowEnd: end.toISOString(),
     };
   }
 

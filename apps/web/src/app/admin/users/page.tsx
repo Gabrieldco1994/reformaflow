@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth, ALL_MODULES, type ModuleSlug, type AuthUser } from '@/contexts/auth-context';
 import { api } from '@/lib/api';
+import { ProjectStatsCharts, type ProjectStats } from './_components/ProjectStatsCharts';
 
 interface AdminUser extends AuthUser {
   email?: string | null;
@@ -52,6 +53,7 @@ export default function AdminUsersPage() {
   const router = useRouter();
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
+  const [projectStats, setProjectStats] = useState<ProjectStats | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [feedbackWarning, setFeedbackWarning] = useState<string | null>(null);
@@ -85,6 +87,14 @@ export default function AdminUsersPage() {
         // ponytail: feedback não pode derrubar a tela de usuários
         setFeedbacks([]);
         setFeedbackWarning('Feedbacks indisponíveis no momento.');
+      }
+
+      try {
+        const projectStatsData = await api.get<ProjectStats>('/users/stats/projects');
+        setProjectStats(projectStatsData);
+      } catch {
+        // ponytail: project stats não pode derrubar a tela de usuários
+        setProjectStats(null);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao carregar usuários');
@@ -152,6 +162,12 @@ export default function AdminUsersPage() {
             >
               ← Voltar
             </a>
+            <a
+              href="/admin/jornadas"
+              className="text-sm text-gray-600 hover:text-gray-900 border border-gray-200 rounded-lg px-3 py-1.5"
+            >
+              Jornadas
+            </a>
             <button
               onClick={() => setShowCreate(true)}
               className="bg-brand-600 hover:bg-brand-700 text-white text-sm px-4 py-2 rounded-lg"
@@ -171,6 +187,9 @@ export default function AdminUsersPage() {
             {feedbackWarning}
           </div>
         )}
+
+        {/* Project stats charts */}
+        {projectStats && <ProjectStatsCharts stats={projectStats} />}
 
         {/* Stats bar */}
         {users.length > 0 && (() => {
