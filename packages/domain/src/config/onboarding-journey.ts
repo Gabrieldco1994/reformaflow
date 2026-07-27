@@ -87,6 +87,13 @@ export const ONBOARDING_JOURNEY_DEFAULTS: Record<ProjectType, JourneyStepDef[]> 
       // ponytail: desabilitar este passo via API para unificar Despesa + Importar (via admin UI toggle)
     },
     {
+      key: 'expense-import',
+      label: 'Despesa + Importar',
+      defaultSubtitle: 'Lance um gasto ou importe múltiplos em uma única tela.',
+      alwaysAvailable: true,
+      skippableByDefault: true,
+    },
+    {
       key: 'receipt',
       label: 'Recebimento',
       defaultSubtitle: 'Cadastre o que entra para a sobra do mês fazer sentido.',

@@ -7,6 +7,7 @@ import { RecurringBillStep } from '../_components/steps/RecurringBillStep';
 import { CarInfoStep } from '../_components/steps/CarInfoStep';
 import { PlantStep } from '../_components/steps/PlantStep';
 import { ImportMassStep } from '../_components/steps/ImportMassStep';
+import { ExpenseAndImportUnifiedStep } from '../_components/steps/ExpenseAndImportUnifiedStep';
 
 /**
  * Registro `key → Componente React` das telas do onboarding. SÓ isso: a ordem,
@@ -26,6 +27,7 @@ export const STEP_COMPONENTS: Record<string, ComponentType<OnboardingStepProps>>
   funding: FundingStep,
   expense: QuickExpenseStep,
   import: ImportMassStep,
+  'expense-import': ExpenseAndImportUnifiedStep,
   receipt: QuickReceiptStep,
   bill: RecurringBillStep,
   car: CarInfoStep,

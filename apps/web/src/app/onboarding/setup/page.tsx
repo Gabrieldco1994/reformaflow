@@ -129,12 +129,13 @@ function OnboardingSetupForm() {
   // tipo de projeto; quem decide o que aparece (e em que ordem) é a jornada.
   const CurrentComponent = currentKey ? STEP_COMPONENTS[currentKey] : undefined;
 
-  // Enquanto o passo atual é um passo de fluxo (funding/expense/maria/...), a
-  // régua mostra o progresso DENTRO da fase de setup do tipo, não o total
-  // incluindo o nome do projeto e o "Pronto" — esses dois são bookends.
+  // A régua de progresso mostra APENAS os passos do fluxo (excluindo os
+  // bookends "project" e "done"). Enquanto a jornada carrega (journey ainda
+  // está sendo fetched da API), usar o "flowSteps" da jornada atual, que
+  // reflete em tempo real os steps habilitados.
+  const progressSteps = flowSteps;
   const flowIndex = flowSteps.findIndex((step) => step.key === currentKey);
-  const progressSteps = flowIndex >= 0 ? flowSteps : steps;
-  const progressIndex = flowIndex >= 0 ? flowIndex : stepIdx;
+  const progressIndex = flowIndex >= 0 ? flowIndex : 0;
 
   return (
     <main className="min-h-screen bg-lifeone-canvas px-4 py-6 font-geist sm:px-6 sm:py-10">
