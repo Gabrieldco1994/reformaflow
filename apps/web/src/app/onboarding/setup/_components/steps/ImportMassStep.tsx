@@ -150,10 +150,7 @@ export function ImportMassStep({ projectId, onDone, onSkip, subtitle, canSkip = 
             <OptionButton icon={Landmark} label="Extrato da conta" onClick={openExtrato} />
           )}
           <div className="rounded-[12px] border border-lifeone-hairline bg-lifeone-surface p-4">
-            <p className="text-[13px] font-medium text-lifeone-ink-2 mb-2">Quer importar sem vincular a uma conta?</p>
-            <p className="text-[12px] text-lifeone-ink-3 mb-3">
-              Importe usando a carteira (rascunho inicial). Depois você pode vincular a uma conta real para reconciliação automática.
-            </p>
+            <p className="text-[12px] text-lifeone-ink-3 mb-3">PDF, CSV, OFX, TXT</p>
             <button
               type="button"
               onClick={openSemConta}
@@ -260,10 +257,6 @@ export function ImportMassStep({ projectId, onDone, onSkip, subtitle, canSkip = 
           )}
         </div>
       )}
-
-      <p className="text-[11px] text-lifeone-ink-4 mt-3">
-        Aceita PDF, CSV, OFX, TXT e imagens. Excel? Exporte como CSV primeiro.
-      </p>
 
       <div className="mt-5">
         {canSkip && (
