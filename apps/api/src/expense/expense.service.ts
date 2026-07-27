@@ -22,16 +22,21 @@ export class ExpenseService {
   /**
    * Resolve creditCardId/bankAccountId/linkedExpenseId em valores armazenáveis.
    * - creditCardId → cardLast4 (denormalizado)
-   * - bankAccountId → bankLast4 (denormalizado)
+   * - bankAccountId → bankLast4 + accountId (denormalizado + FK)
    * - linkedExpenseId → valida que pertence ao mesmo tenant e que NÃO é do projeto atual
-   * Retorna { cardLast4?, bankLast4?, linkedExpenseId? } com null explícito para "limpar".
+   * Retorna { cardLast4?, bankLast4?, accountId?, linkedExpenseId? } com null explícito para "limpar".
    */
   private async resolveLinks(
     tenantId: string,
     currentProjectId: string,
     dto: Pick<CreateExpenseDto, 'creditCardId' | 'bankAccountId' | 'linkedExpenseId'>,
     db: ExpenseDb = this.prisma,
-  ): Promise<{ cardLast4?: string | null; bankLast4?: string | null; linkedExpenseId?: string | null }> {
+  ): Promise<{
+    cardLast4?: string | null;
+    bankLast4?: string | null;
+    accountId?: string | null;
+    linkedExpenseId?: string | null;
+  }> {
     // Parallel queries for better performance
     const [cardRow, accRow, linkedRow] = await Promise.all([
       dto.creditCardId && dto.creditCardId !== null && dto.creditCardId !== ''
@@ -43,7 +48,7 @@ export class ExpenseService {
       dto.bankAccountId && dto.bankAccountId !== null && dto.bankAccountId !== ''
         ? db.bankAccount.findFirst({
             where: { id: dto.bankAccountId, tenantId, deletedAt: null },
-            select: { last4: true },
+            select: { id: true, last4: true },
           })
         : null,
       dto.linkedExpenseId && dto.linkedExpenseId !== null && dto.linkedExpenseId !== ''
@@ -54,7 +59,12 @@ export class ExpenseService {
         : null,
     ]);
 
-    const out: { cardLast4?: string | null; bankLast4?: string | null; linkedExpenseId?: string | null } = {};
+    const out: {
+      cardLast4?: string | null;
+      bankLast4?: string | null;
+      accountId?: string | null;
+      linkedExpenseId?: string | null;
+    } = {};
 
     if (dto.creditCardId !== undefined) {
       if (!dto.creditCardId) {
@@ -69,10 +79,12 @@ export class ExpenseService {
     if (dto.bankAccountId !== undefined) {
       if (!dto.bankAccountId) {
         out.bankLast4 = null;
+        out.accountId = null;
       } else if (!accRow) {
         throw new BadRequestException('Conta bancária não encontrada neste tenant');
       } else {
         out.bankLast4 = accRow.last4 ?? null;
+        out.accountId = accRow.id;
       }
     }
 
@@ -106,6 +118,10 @@ export class ExpenseService {
 
     const links = await this.resolveLinks(tenantId, projectId, dto, db);
 
+    // Determine origin: 'import' if has card/bank link, else 'none'
+    const origin =
+      links.cardLast4 || links.bankLast4 ? 'import' : 'none';
+
     const expense = await db.expense.create({
       data: {
         projectId,
@@ -132,6 +148,8 @@ export class ExpenseService {
         recurrenceKey: dto.recurrenceKey ?? null,
         cardLast4: links.cardLast4 ?? undefined,
         bankLast4: links.bankLast4 ?? undefined,
+        accountId: links.accountId ?? undefined,
+        origin,
         linkedExpenseId: links.linkedExpenseId ?? undefined,
       },
       include: { room: true },

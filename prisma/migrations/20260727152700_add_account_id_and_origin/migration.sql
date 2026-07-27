@@ -11,3 +11,7 @@ CREATE INDEX "receipts_account_id_idx" ON "receipts"("account_id");
 
 -- CreateIndex for Expense.accountId
 CREATE INDEX "expenses_account_id_idx" ON "expenses"("account_id");
+
+-- Note: Foreign key constraints are defined in schema.prisma and are
+-- automatically managed by Prisma. PRAGMA statements are SQLite-specific
+-- and break in PostgreSQL CI environments, so they are not used here.

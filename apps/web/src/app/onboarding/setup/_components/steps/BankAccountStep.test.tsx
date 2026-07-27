@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ProjectType } from '@reformaflow/domain';
 import { BankAccountStep } from './BankAccountStep';
 
@@ -16,13 +17,18 @@ function fillLast4() {
   fireEvent.change(screen.getAllByPlaceholderText('1234')[0], { target: { value: '1234' } });
 }
 
+function renderWithQueryClient(element: React.ReactElement) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(<QueryClientProvider client={queryClient}>{element}</QueryClientProvider>);
+}
+
 describe('BankAccountStep', () => {
   beforeEach(() => {
     apiPostMock.mockReset();
   });
 
   it('renders BankAccountFormModal in bare mode (no fixed inset-0 overlay wrapper present in the DOM)', () => {
-    const { container } = render(
+    const { container } = renderWithQueryClient(
       <BankAccountStep projectId="p1" projectType={ProjectType.PESSOAL} onDone={vi.fn()} onSkip={vi.fn()} />,
     );
     expect(container.querySelector('.fixed.inset-0')).not.toBeInTheDocument();
@@ -31,7 +37,7 @@ describe('BankAccountStep', () => {
   it('saving successfully (mock api.post resolves) calls onDone exactly once', async () => {
     apiPostMock.mockResolvedValue({});
     const onDone = vi.fn();
-    render(<BankAccountStep projectId="p1" projectType={ProjectType.PESSOAL} onDone={onDone} onSkip={vi.fn()} />);
+    renderWithQueryClient(<BankAccountStep projectId="p1" projectType={ProjectType.PESSOAL} onDone={onDone} onSkip={vi.fn()} />);
     fillLast4();
     fireEvent.click(screen.getByText('Salvar'));
     await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
@@ -39,13 +45,13 @@ describe('BankAccountStep', () => {
 
   it('clicking "Pular por agora" calls onSkip directly (no warning modal)', () => {
     const onSkip = vi.fn();
-    render(<BankAccountStep projectId="p1" projectType={ProjectType.PESSOAL} onDone={vi.fn()} onSkip={onSkip} />);
+    renderWithQueryClient(<BankAccountStep projectId="p1" projectType={ProjectType.PESSOAL} onDone={vi.fn()} onSkip={onSkip} />);
     fireEvent.click(screen.getByText(/pular por agora/i));
     expect(onSkip).toHaveBeenCalledTimes(1);
   });
 
   it('renders non-blocking hint about skipping bank account (no warning card)', () => {
-    render(<BankAccountStep projectId="p1" projectType={ProjectType.PESSOAL} onDone={vi.fn()} onSkip={vi.fn()} />);
+    renderWithQueryClient(<BankAccountStep projectId="p1" projectType={ProjectType.PESSOAL} onDone={vi.fn()} onSkip={vi.fn()} />);
     expect(screen.getByText(/sem o saldo, o caixa mostra só o fluxo/i)).toBeInTheDocument();
     // Warning card should NOT exist
     expect(screen.queryByText(/pular mesmo assim/i)).not.toBeInTheDocument();
@@ -55,7 +61,7 @@ describe('BankAccountStep', () => {
     apiPostMock.mockRejectedValue(new Error('Erro ao salvar'));
     const onDone = vi.fn();
     const onSkip = vi.fn();
-    render(<BankAccountStep projectId="p1" projectType={ProjectType.PESSOAL} onDone={onDone} onSkip={onSkip} />);
+    renderWithQueryClient(<BankAccountStep projectId="p1" projectType={ProjectType.PESSOAL} onDone={onDone} onSkip={onSkip} />);
     fillLast4();
     fireEvent.click(screen.getByText('Salvar'));
     await waitFor(() => expect(screen.getByText('Erro ao salvar')).toBeInTheDocument());

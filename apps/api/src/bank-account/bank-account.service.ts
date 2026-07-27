@@ -243,7 +243,7 @@ export class BankAccountService {
     await this.ensureProject(tenantId, projectId);
     const nickname = dto.nickname?.trim() || `${dto.institution} ****${dto.last4}`;
     const { openingBalanceDate, ...rest } = dto;
-    return this.prisma.bankAccount.create({
+    const bankAccount = await this.prisma.bankAccount.create({
       data: {
         ...rest,
         nickname,
@@ -252,6 +252,22 @@ export class BankAccountService {
         ...(openingBalanceDate ? { openingBalanceDate: new Date(openingBalanceDate) } : {}),
       },
     });
+
+    // Count receipts without account (origin='none') to offer linking
+    const receiptsWithoutAccount = await this.prisma.receipt.count({
+      where: {
+        projectId,
+        tenantId,
+        accountId: null,
+        origin: 'none',
+        deletedAt: null,
+      },
+    });
+
+    return {
+      bankAccount,
+      receiptsWithoutAccount,
+    };
   }
 
   async updateAccount(tenantId: string, projectId: string, id: string, dto: UpdateBankAccountDto) {

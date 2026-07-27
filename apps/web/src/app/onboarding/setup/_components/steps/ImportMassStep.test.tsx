@@ -36,6 +36,18 @@ vi.mock(
   }),
 );
 
+vi.mock(
+  '@/app/projects/[projectId]/bank-accounts/_components/ImportWithoutAccountModal',
+  () => ({
+    default: ({ onClose, onCommitted }: { onClose: () => void; onCommitted: () => void }) => (
+      <div data-testid="import-sem-conta">
+        <button onClick={onCommitted}>Commitar sem conta</button>
+        <button onClick={onClose}>Fechar sem conta</button>
+      </div>
+    ),
+  }),
+);
+
 vi.mock('@/app/projects/[projectId]/_components/SemCartaoEmptyState', () => ({
   SemCartaoEmptyState: () => <div data-testid="sem-cartao" />,
 }));
@@ -137,10 +149,24 @@ describe('ImportMassStep — fechar modal não reabre', () => {
 });
 
 describe('ImportMassStep — sem fonte', () => {
-  it('sem funding e sem fontes no sistema: exibe estado vazio', async () => {
+  it('sem funding e sem fontes no sistema: exibe opção de importar sem conta', async () => {
     apiGetMock.mockResolvedValue([]);
     wrap(<ImportMassStep {...defaultProps()} />);
-    await waitFor(() => expect(screen.getByText(/nenhuma fonte configurada/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/importar sem conta/i)).toBeInTheDocument());
+  });
+
+  it('sem funding mas com fontes: exibe ambas as opções', async () => {
+    apiGetMock.mockImplementation((path: string) => {
+      if (path === '/tenant/credit-cards') return Promise.resolve([CARD]);
+      if (path === '/tenant/bank-accounts') return Promise.resolve([ACCOUNT]);
+      return Promise.resolve([]);
+    });
+    wrap(<ImportMassStep {...defaultProps()} />);
+    await waitFor(() => {
+      expect(screen.getAllByText('Fatura do cartão').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText('Extrato da conta').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText(/importar sem conta/i)).toBeInTheDocument();
+    });
   });
 });
 
@@ -158,6 +184,20 @@ describe('ImportMassStep — commit e skip', () => {
     wrap(<ImportMassStep {...defaultProps({ onDone, funding: accountFunding })} />);
     await waitFor(() => screen.getByTestId('import-extrato'));
     fireEvent.click(screen.getByText('Commitar extrato'));
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it('commitar sem conta chama onDone uma vez', async () => {
+    const onDone = vi.fn();
+    apiGetMock.mockResolvedValue([]);
+    wrap(<ImportMassStep {...defaultProps({ onDone })} />);
+    // Primeiro, clicar no botão "Importar sem conta"
+    await waitFor(() => expect(screen.getByText(/importar sem conta/i)).toBeInTheDocument());
+    const importButton = screen.getByText(/importar sem conta \(carteira\)/i);
+    fireEvent.click(importButton);
+    // Agora a modal deve estar visível
+    await waitFor(() => screen.getByTestId('import-sem-conta'));
+    fireEvent.click(screen.getByText('Commitar sem conta'));
     expect(onDone).toHaveBeenCalledTimes(1);
   });
 
