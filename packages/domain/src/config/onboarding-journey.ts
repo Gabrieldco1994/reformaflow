@@ -84,7 +84,13 @@ export const ONBOARDING_JOURNEY_DEFAULTS: Record<ProjectType, JourneyStepDef[]> 
       defaultSubtitle: 'Traga seu extrato ou fatura de uma vez em vez de digitar tudo.',
       alwaysAvailable: true,
       skippableByDefault: true,
-      // ponytail: desabilitar este passo via API para unificar Despesa + Importar (via admin UI toggle)
+    },
+    {
+      key: 'expense-import',
+      label: 'Despesa + Importar',
+      defaultSubtitle: 'Lance um gasto ou importe múltiplos em uma única tela.',
+      alwaysAvailable: true,
+      skippableByDefault: true,
     },
     {
       key: 'receipt',
