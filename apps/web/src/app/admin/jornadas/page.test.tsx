@@ -106,15 +106,15 @@ describe('AdminJornadasPage', () => {
     renderPage();
     await waitForTrack();
 
-    await user.click(screen.getByRole('button', { name: /desligar "Importar"/i }));
+    await user.click(screen.getByRole('button', { name: /desligar "Recebimento"/i }));
 
-    const card = screen.getByTestId('journey-card-import');
+    const card = screen.getByTestId('journey-card-receipt');
     expect(within(card).getByText(/fora da jornada/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /salvar jornada/i }));
     await waitFor(() => expect(mocks.apiPut).toHaveBeenCalled());
     const body = mocks.apiPut.mock.calls[0][1];
-    expect(body.steps.find((s: { stepKey: string }) => s.stepKey === 'import')).toMatchObject({
+    expect(body.steps.find((s: { stepKey: string }) => s.stepKey === 'receipt')).toMatchObject({
       enabled: false,
     });
   });
@@ -169,7 +169,7 @@ describe('AdminJornadasPage', () => {
     await waitForTrack();
 
     expect(screen.queryByText(/alterações não salvas/i)).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /desligar "Importar"/i }));
+    await user.click(screen.getByRole('button', { name: /desligar "Recebimento"/i }));
     expect(screen.getByText(/alterações não salvas/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /salvar jornada/i }));
@@ -203,7 +203,7 @@ describe('AdminJornadasPage', () => {
     renderPage();
     await waitForTrack();
 
-    await user.click(screen.getByRole('button', { name: /desligar "Importar"/i }));
+    await user.click(screen.getByRole('button', { name: /desligar "Recebimento"/i }));
     await user.click(screen.getByRole('button', { name: /salvar jornada/i }));
 
     await waitFor(() => expect(mocks.toastError).toHaveBeenCalled());
