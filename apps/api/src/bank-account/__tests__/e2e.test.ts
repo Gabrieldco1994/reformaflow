@@ -44,14 +44,12 @@ async function main() {
 
   // ───── 1) Cria 2 contas ────────────────────────────────────
   header('1) Múltiplas contas bancárias');
-  const itauResult = await svc.createAccount(tenant.id, pessoal.id, {
+  const itau = await svc.createAccount(tenant.id, pessoal.id, {
     institution: 'ITAU', nickname: 'Itaú Conta Corrente', agency: '7057', accountNumber: '077424-7', last4: '4247',
   } as any);
-  const itau = itauResult.bankAccount;
-  const nubankResult = await svc.createAccount(tenant.id, pessoal.id, {
+  const nubank = await svc.createAccount(tenant.id, pessoal.id, {
     institution: 'NUBANK', nickname: 'Nubank Conta', last4: '9999',
   } as any);
-  const nubank = nubankResult.bankAccount;
   const accounts = await svc.listAccounts(tenant.id, pessoal.id);
   assert(accounts.length === 2, 'lista 2 contas');
   assert(accounts.every((a: any) => !!a.nickname), 'todas com nickname');

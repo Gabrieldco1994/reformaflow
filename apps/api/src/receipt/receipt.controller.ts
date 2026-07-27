@@ -63,15 +63,4 @@ export class ReceiptController {
   ) {
     return this.service.remove(tenantId, projectId, id);
   }
-
-  @Post(':id/link-account')
-  @ApiOperation({ summary: 'Vincular recebimento a uma conta bancária retroativamente' })
-  linkAccount(
-    @CurrentTenant() tenantId: string,
-    @Param('projectId') projectId: string,
-    @Param('id') id: string,
-    @Body() body: { accountId: string },
-  ) {
-    return this.service.linkAccount(tenantId, projectId, id, body.accountId);
-  }
 }

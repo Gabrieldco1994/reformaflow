@@ -3,11 +3,10 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ComponentType } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { SkipForward, CreditCard, Landmark, Wallet, ArrowRight } from 'lucide-react';
+import { SkipForward, CreditCard, Landmark, ArrowRight } from 'lucide-react';
 import { api } from '@/lib/api';
 import ImportStatementModal from '@/app/projects/[projectId]/credit-cards/_components/ImportStatementModal';
 import ImportBankStatementModal from '@/app/projects/[projectId]/bank-accounts/_components/ImportBankStatementModal';
-import ImportWithoutAccountModal from '@/app/projects/[projectId]/bank-accounts/_components/ImportWithoutAccountModal';
 import { SemCartaoEmptyState } from '@/app/projects/[projectId]/_components/SemCartaoEmptyState';
 import type { CardRow } from '@/app/projects/[projectId]/credit-cards/_types';
 import type { BankAccountRow } from '@/app/projects/[projectId]/bank-accounts/_types';
@@ -59,7 +58,7 @@ export function ImportMassStep({ projectId, onDone, onSkip, subtitle, canSkip = 
 
   const isLoading = cardsLoading || accountsLoading;
 
-  const [importType, setImportType] = useState<'fatura' | 'extrato' | 'sem-conta' | null>(null);
+  const [importType, setImportType] = useState<'fatura' | 'extrato' | null>(null);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [showCardPicker, setShowCardPicker] = useState(false);
@@ -114,10 +113,6 @@ export function ImportMassStep({ projectId, onDone, onSkip, subtitle, canSkip = 
     }
   }
 
-  function openSemConta() {
-    setImportType('sem-conta');
-  }
-
   function closeModal() {
     modalClosedByUser.current = true;
     setImportType(null);
@@ -140,30 +135,13 @@ export function ImportMassStep({ projectId, onDone, onSkip, subtitle, canSkip = 
         {subtitle || 'Use o extrato ou fatura que já tem — detectamos os valores automaticamente'}
       </p>
 
-      {/* Sem fonte: estado vazio com CTA "Sem conta" */}
+      {/* Sem fonte: estado vazio */}
       {noFunding && (
-        <div className="space-y-2.5 mt-4">
-          {cards.length > 0 && (
-            <OptionButton icon={CreditCard} label="Fatura do cartão" onClick={openFatura} />
-          )}
-          {accounts.length > 0 && (
-            <OptionButton icon={Landmark} label="Extrato da conta" onClick={openExtrato} />
-          )}
-          <div className="rounded-[12px] border border-lifeone-hairline bg-lifeone-surface p-4">
-            <p className="text-[13px] font-medium text-lifeone-ink-2 mb-2">Quer importar sem vincular a uma conta?</p>
-            <p className="text-[12px] text-lifeone-ink-3 mb-3">
-              Importe usando a carteira (rascunho inicial). Depois você pode vincular a uma conta real para reconciliação automática.
-            </p>
-            <button
-              type="button"
-              onClick={openSemConta}
-              className="flex min-h-11 w-full items-center gap-3 rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-4 py-3 text-[14px] font-medium text-lifeone-ink hover:bg-lifeone-hairline/60 active:scale-[0.99] transition-colors"
-            >
-              <Wallet className="h-4 w-4 shrink-0 text-lifeone-ink-3" />
-              <span className="flex-1 text-left">Importar sem conta (carteira)</span>
-              <ArrowRight className="h-4 w-4 shrink-0 text-lifeone-ink-4" />
-            </button>
-          </div>
+        <div className="mt-4 rounded-[12px] border border-lifeone-hairline bg-lifeone-surface p-4">
+          <p className="text-[13px] font-medium text-lifeone-ink-2">Nenhuma fonte configurada</p>
+          <p className="text-[12px] text-lifeone-ink-3 mt-1">
+            Volte ao passo Contas &amp; cartões para adicionar uma conta ou cartão, ou pule por agora.
+          </p>
         </div>
       )}
 
@@ -288,13 +266,6 @@ export function ImportMassStep({ projectId, onDone, onSkip, subtitle, canSkip = 
         <ImportBankStatementModal
           projectId={projectId}
           account={activeAccount as unknown as BankAccountRow}
-          onClose={closeModal}
-          onCommitted={() => { closeModal(); onDone(); }}
-        />
-      )}
-      {importType === 'sem-conta' && (
-        <ImportWithoutAccountModal
-          projectId={projectId}
           onClose={closeModal}
           onCommitted={() => { closeModal(); onDone(); }}
         />

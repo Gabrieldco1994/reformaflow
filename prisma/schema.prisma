@@ -186,21 +186,17 @@ model Receipt {
   importId        String?   @map("import_id") // ref BankStatementImport — opcional
   externalId      String?   @map("external_id") // hash idempotente da transação importada
   bankLast4       String?   @map("bank_last4") // últimos 4 da conta bancária de origem
-  accountId       String?   @map("account_id") // FK BankAccount: origem da importação ou vínculo retroativo (null = sem vínculo)
-  origin          String    @default("none") @map("origin") // none | import | account — controla visibilidade/comportamento na Conta
   linkedReceiptId String?   @map("linked_receipt_id") // quando importado do extrato é vinculado a recebimento planejado de outro projeto (evita dupla contagem)
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
   deletedAt       DateTime? @map("deleted_at")
 
   project           Project            @relation(fields: [projectId], references: [id])
-  bankAccount       BankAccount?       @relation("ReceiptBankAccount", fields: [accountId], references: [id])
   cashFlow          CashFlowEntry[]
   budgetAllocations BudgetAllocation[]
 
   @@index([projectId, externalId])
   @@index([linkedReceiptId])
-  @@index([accountId])
   @@map("receipts")
 }
 
@@ -238,8 +234,6 @@ model Expense {
   seriesKey          String?   @map("series_key") // identifica compra parcelada (cardId|merchantNorm|amountPerInstall|total) — para casar parcelas futuras
   cardLast4          String?   @map("card_last4") // últimos 4 do cartão de origem (denormalizado)
   bankLast4          String?   @map("bank_last4") // últimos 4 da conta bancária de origem
-  accountId          String?   @map("account_id") // FK BankAccount: origem da importação ou vínculo. null quando origin='none' (despesa sem conta)
-  origin             String    @default("none") @map("origin") // none | import | account — controla visibilidade/comportamento na Conta
   linkedExpenseId    String?   @map("linked_expense_id") // quando importada do cartão é vinculada a despesa de outro projeto (evita dupla contagem)
   settlesInvoiceKey  String?   @map("settles_invoice_key") // quando esta despesa (cobrança cartão-paga-cartão ou PIX) quita a fatura de OUTRO cartão: "{cardLast4}:{dueMonth}"
   createdAt          DateTime  @default(now()) @map("created_at")
@@ -248,7 +242,6 @@ model Expense {
 
   project             Project                  @relation(fields: [projectId], references: [id])
   room                Room?                    @relation(fields: [roomId], references: [id])
-  bankAccount         BankAccount?             @relation("ExpenseBankAccount", fields: [accountId], references: [id])
   plannedExpense      Expense?                 @relation("ExpenseSettlement", fields: [plannedExpenseId], references: [id])
   settledBy           Expense?                 @relation("ExpenseSettlement")
   cashFlow            CashFlowEntry[]
@@ -262,7 +255,6 @@ model Expense {
   @@index([linkedExpenseId])
   @@index([seriesKey])
   @@index([recurrenceKey])
-  @@index([accountId])
   @@map("expenses")
 }
 
@@ -1004,8 +996,6 @@ model BankAccount {
 
   project Project               @relation(fields: [projectId], references: [id])
   imports BankStatementImport[]
-  receipts Receipt[]            @relation("ReceiptBankAccount")
-  expenses Expense[]            @relation("ExpenseBankAccount")
 
   @@index([projectId])
   @@index([tenantId])

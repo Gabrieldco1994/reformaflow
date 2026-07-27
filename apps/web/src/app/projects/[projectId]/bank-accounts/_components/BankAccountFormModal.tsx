@@ -1,12 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { X } from 'lucide-react';
 import { centsToReaisInput, currencyInputToCents, maskCurrencyInput } from '@/lib/currency-input';
-import RecebimentosVinculadorModal, { type ReceiptWithoutAccount } from './RecebimentosVinculadorModal';
 import type { BankAccountRow } from '../_types';
 
 interface Props {
@@ -34,8 +31,6 @@ const INSTITUTIONS = [
 ];
 
 export default function BankAccountFormModal({ projectId, account, onClose, onSaved, bare, hideCancel }: Props) {
-  const queryClient = useQueryClient();
-
   const [institution, setInstitution] = useState(account?.institution ?? 'ITAU');
   const [nickname, setNickname] = useState(account?.nickname ?? '');
   const [last4, setLast4] = useState(account?.last4 ?? '');
@@ -49,11 +44,6 @@ export default function BankAccountFormModal({ projectId, account, onClose, onSa
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Estado para modal de vinculação de recebimentos
-  const [showLinkModal, setShowLinkModal] = useState(false);
-  const [createdAccountId, setCreatedAccountId] = useState<string | null>(null);
-  const [receiptsWithoutAccount, setReceiptsWithoutAccount] = useState<ReceiptWithoutAccount[]>([]);
 
   async function handleSave() {
     setError(null);
@@ -71,46 +61,17 @@ export default function BankAccountFormModal({ projectId, account, onClose, onSa
       // Saldo inicial (base da reconciliação §10). Em branco = mantém/zera.
       body.openingBalanceCents = openingBalance ? currencyInputToCents(openingBalance) : 0;
       if (openingDate) body.openingBalanceDate = new Date(`${openingDate}T00:00:00.000Z`).toISOString();
-      
       if (account) {
         await api.patch(`/projects/${projectId}/bank-accounts/${account.id}`, body);
-        toast.success('Conta atualizada com sucesso');
         onSaved(account.id);
       } else {
-        const created = await api.post<{
-          id: string;
-          receiptsWithoutAccount?: ReceiptWithoutAccount[];
-        }>(`/projects/${projectId}/bank-accounts`, body);
-
-        setCreatedAccountId(created.id);
-
-        // Se há recebimentos sem conta, mostrar modal de vinculação
-        if (created.receiptsWithoutAccount && created.receiptsWithoutAccount.length > 0) {
-          setReceiptsWithoutAccount(created.receiptsWithoutAccount);
-          setShowLinkModal(true);
-          toast.success('Conta criada. Vamos vincular seus recebimentos anteriores?');
-        } else {
-          // Se não há recebimentos, fechar direto
-          toast.success('Conta criada com sucesso');
-          onSaved(created.id);
-        }
+        const created = await api.post<{ id: string }>(`/projects/${projectId}/bank-accounts`, body);
+        onSaved(created.id);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao salvar');
     } finally {
       setSaving(false);
-    }
-  }
-
-  async function handleLinkingSuccess() {
-    // Refetch account view e close modals
-    await queryClient.refetchQueries({ queryKey: ['accountView', projectId] });
-    setShowLinkModal(false);
-    
-    toast.success(`${receiptsWithoutAccount.length} recebimento(s) vinculado(s) com sucesso!`);
-
-    if (createdAccountId) {
-      onSaved(createdAccountId);
     }
   }
 
@@ -186,23 +147,6 @@ export default function BankAccountFormModal({ projectId, account, onClose, onSa
         </div>
       </div>
   );
-
-  // Se há modal de vinculação aberta, mostrar ela em vez da modal principal
-  if (showLinkModal && createdAccountId && receiptsWithoutAccount.length > 0) {
-    return (
-      <RecebimentosVinculadorModal
-        projectId={projectId}
-        accountId={createdAccountId}
-        receipts={receiptsWithoutAccount}
-        onClose={() => {
-          setShowLinkModal(false);
-          onClose();
-        }}
-        onSuccess={handleLinkingSuccess}
-      />
-    );
-  }
-
   if (bare) return content;
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
