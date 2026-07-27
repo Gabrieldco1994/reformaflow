@@ -50,7 +50,9 @@ describe('OnboardingJourneyService', () => {
       const defaults = ONBOARDING_JOURNEY_DEFAULTS[ProjectType.PESSOAL];
       expect(journey).toHaveLength(defaults.length);
       expect(journey.map((s) => s.key)).toEqual(defaults.map((d) => d.key));
-      expect(journey.every((s) => s.enabled)).toBe(true);
+      // ponytail: expense+import são desabilitados automaticamente quando expense-import está ativo
+      const enabledKeys = journey.filter((s) => s.enabled).map((s) => s.key);
+      expect(enabledKeys).toEqual(['funding', 'expense-import', 'receipt', 'maria-insight', 'feedback']);
       expect(journey[0]!.subtitle).toBe(defaults[0]!.defaultSubtitle);
     });
 

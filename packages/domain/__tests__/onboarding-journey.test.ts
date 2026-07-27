@@ -11,7 +11,9 @@ describe('resolveJourney', () => {
     expect(resolved.map((s) => s.key)).toEqual(
       ONBOARDING_JOURNEY_DEFAULTS[ProjectType.PESSOAL].map((s) => s.key),
     );
-    expect(resolved.every((s) => s.enabled)).toBe(true);
+    // ponytail: expense+import são desabilitados automaticamente quando expense-import está ativo
+    const enabledKeys = resolved.filter((s) => s.enabled).map((s) => s.key);
+    expect(enabledKeys).toEqual(['funding', 'expense-import', 'receipt', 'maria-insight', 'feedback']);
   });
 
   it('reordena pelo campo order salvo pelo admin', () => {
