@@ -283,6 +283,49 @@ describe('ExpenseService', () => {
         }),
       );
     });
+
+    it('creates expense with origin="none" when accountId and creditCardId are null', async () => {
+      const created = { id: 'e1', valor: 5000, quantidade: 1, valorTotal: 5000 };
+      prisma.expense.create.mockResolvedValue(created);
+      prisma.expense.findUnique.mockResolvedValue({
+        ...created,
+        projectId,
+        tenantId,
+        tipoDespesa: 'MATERIAL_CONSTRUCAO',
+        categoriaMaoDeObra: null,
+        roomId: null,
+        formaPagamento: 'A_VISTA',
+        dataPagamento: null,
+        quantidadeParcela: null,
+        dataInicioParcela: null,
+        status: 'PLANEJADO',
+        settledByExpenseId: null,
+        room: null,
+        origin: 'none',
+        accountId: null,
+      });
+
+      await service.create(tenantId, projectId, {
+        tipoDespesa: 'MATERIAL_CONSTRUCAO',
+        valor: 50,
+        quantidade: 1,
+        formaPagamento: 'A_VISTA',
+        status: 'PLANEJADO',
+        creditCardId: undefined,
+        bankAccountId: undefined,
+      } as any);
+
+      expect(prisma.expense.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            origin: 'none',
+            accountId: undefined,
+            cardLast4: undefined,
+            bankLast4: undefined,
+          }),
+        }),
+      );
+    });
   });
 
   describe('update — undefined vs null em campos de data (regressão)', () => {

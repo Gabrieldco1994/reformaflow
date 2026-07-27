@@ -124,6 +124,51 @@ export class ReceiptService {
     });
   }
 
+  /**
+   * Link a receipt retroactively to a bank account.
+   * - Validates receipt belongs to the project
+   * - Updates receipt.accountId and receipt.bankLast4
+   * - Sets origin='account' to mark as explicitly linked
+   * - Idempotent: if already linked to same account, returns without error
+   */
+  async linkAccount(
+    tenantId: string,
+    projectId: string,
+    receiptId: string,
+    accountId: string,
+  ) {
+    // Validate project exists
+    await this.validateProject(tenantId, projectId);
+
+    // Fetch the receipt (verify it belongs to this project)
+    const receipt = await this.prisma.receipt.findFirst({
+      where: { id: receiptId, projectId, tenantId },
+    });
+    if (!receipt) throw new NotFoundException('Recebimento não encontrado');
+
+    // Fetch the bank account (verify it exists and belongs to this project)
+    const account = await this.prisma.bankAccount.findFirst({
+      where: { id: accountId, projectId, tenantId, deletedAt: null },
+      select: { last4: true },
+    });
+    if (!account) throw new NotFoundException('Conta bancária não encontrada');
+
+    // Idempotency: if already linked to same account, return as-is
+    if (receipt.accountId === accountId) {
+      return receipt;
+    }
+
+    // Update receipt: link account, set bankLast4, mark origin as 'account'
+    return this.prisma.receipt.update({
+      where: { id: receiptId },
+      data: {
+        accountId,
+        bankLast4: account.last4,
+        origin: 'account',
+      },
+    });
+  }
+
   private async regenerateCashFlow(
     tx: Parameters<Parameters<PrismaService['$transaction']>[0]>[0],
     receipt: { id: string; projectId: string; tenantId: string; valor: number; data: Date; tipo: string; status: string },
