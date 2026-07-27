@@ -105,16 +105,59 @@ describe('RecurrenceService.isParcela — parcelamento não é recorrência', ()
   );
 });
 
-describe('RecurrenceService.isParcela — parcelamento não é recorrência', () => {
-  it.each([
-    'Reisman Aliancas - Parcela 7/10',
-    'Sodimac - Parcela 3/3',
-    'WWW-CASASBAHIA-COM (6/10)',
-    'PEX SETIMO OFICIAL - Parcela 2/4',
-  ])('rejeita %s', (t) => expect(RecurrenceService.isParcela(t)).toBe(true));
+/**
+ * A tela mostra o que o USUÁRIO criou, não o que o extrato parece repetir.
+ * Detectar assinatura no extrato trazia 64 séries de ruído em produção.
+ */
+describe('RecurrenceService.manualBatchIds — só o que foi criado pelo app', () => {
+  const impl = RecurrenceService as unknown as {
+    manualBatchIds: (rows: unknown[]) => Set<string>;
+  };
+  const row = (
+    id: string,
+    titulo: string,
+    valorTotal: number,
+    atMs: number,
+    extra: Record<string, unknown> = {},
+  ) => ({ id, titulo, valorTotal, createdAt: new Date(atMs), importId: null, recurrenceKey: null, ...extra });
 
-  it.each(['Aninha', 'EBN*SPOTIFY', 'NETFLIX ENTRETENIMENTO', 'DA ELETROPAULO'])(
-    'mantém %s',
-    (t) => expect(RecurrenceService.isParcela(t)).toBe(false),
-  );
+  const t0 = Date.UTC(2026, 5, 1, 10, 0, 0);
+
+  it('pega as N ocorrências gravadas no mesmo instante', () => {
+    const ids = impl.manualBatchIds([
+      row('a', 'Aninha', 35000, t0),
+      row('b', 'Aninha', 35000, t0 + 300),
+      row('c', 'Aninha', 35000, t0 + 700),
+    ]);
+    expect([...ids].sort()).toEqual(['a', 'b', 'c']);
+  });
+
+  it('ignora linhas de extrato importadas, mesmo gravadas em lote', () => {
+    const ids = impl.manualBatchIds([
+      row('a', 'IFD*IFOOD CLUB', 795, t0, { importId: 'imp1' }),
+      row('b', 'IFD*IFOOD CLUB', 795, t0 + 100, { importId: 'imp1' }),
+      row('c', 'IFD*IFOOD CLUB', 795, t0 + 200, { importId: 'imp1' }),
+    ]);
+    expect(ids.size).toBe(0);
+  });
+
+  it('ignora despesas iguais digitadas em dias diferentes (não é uma recorrência)', () => {
+    const ids = impl.manualBatchIds([
+      row('a', 'Pizza', 5000, t0),
+      row('b', 'Pizza', 5000, t0 + 86_400_000),
+    ]);
+    expect(ids.size).toBe(0);
+  });
+
+  it('ignora despesa avulsa única', () => {
+    expect(impl.manualBatchIds([row('a', 'Alimentação', 5000, t0)]).size).toBe(0);
+  });
+
+  it('ignora parcelamento digitado à mão', () => {
+    const ids = impl.manualBatchIds([
+      row('a', 'Sodimac - Parcela 1/3', 22284, t0),
+      row('b', 'Sodimac - Parcela 1/3', 22284, t0 + 100),
+    ]);
+    expect(ids.size).toBe(0);
+  });
 });

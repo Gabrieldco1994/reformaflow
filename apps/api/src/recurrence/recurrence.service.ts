@@ -21,6 +21,9 @@ import {
  * ela comporta (pausar uma série sem nenhuma ocorrência futura, ou dispensar
  * uma detecção).
  */
+/** Sem corte de cadência: o que entra no detector já é recorrência confirmada. */
+const ALL = { minMeses: 1, maxPorMes: Number.POSITIVE_INFINITY };
+
 @Injectable()
 export class RecurrenceService {
   constructor(
@@ -89,8 +92,46 @@ static seriesKey(titulo: string): string {
         createdAt: true,
         linkedExpenseId: true,
         recurrenceKey: true,
+        importId: true,
       },
     });
+  }
+
+  /**
+   * Ids das despesas que nasceram de UMA criação de recorrência antes do
+   * carimbo `recurrenceKey` existir.
+   *
+   * Materializar uma recorrência grava N despesas de mesmo título e valor no
+   * mesmo instante — assinatura que nenhuma linha de extrato produz. Restrinjo
+   * a `importId: null` porque uma importação também grava em lote.
+   *
+   * ponytail: sem heurística de extrato aqui. Detectar assinatura no extrato
+   * trazia 64 séries, quase tudo ruído de título truncado pelo banco; o usuário
+   * quer ver só o que ELE criou. Se um dia quiser "achei estas assinaturas no
+   * seu extrato", isso é uma aba separada, não o conteúdo desta.
+   */
+  private static manualBatchIds(
+    rows: Awaited<ReturnType<RecurrenceService['loadRows']>>,
+  ): Set<string> {
+    const BATCH_WINDOW_MS = 120_000;
+    const groups = new Map<string, { id: string; at: number }[]>();
+    for (const r of rows) {
+      if (r.recurrenceKey || r.importId) continue;
+      if (RecurrenceService.isParcela(r.titulo ?? '')) continue;
+      const g = `${(r.titulo ?? '').trim().toLowerCase()}|${r.valorTotal}`;
+      (groups.get(g) ?? groups.set(g, []).get(g)!).push({
+        id: r.id,
+        at: r.createdAt.getTime(),
+      });
+    }
+    const ids = new Set<string>();
+    for (const g of groups.values()) {
+      if (g.length < 2) continue;
+      const at = g.map((x) => x.at);
+      if (Math.max(...at) - Math.min(...at) > BATCH_WINDOW_MS) continue;
+      for (const x of g) ids.add(x.id);
+    }
+    return ids;
   }
 
   private static toDetectorRows(
@@ -98,6 +139,7 @@ static seriesKey(titulo: string): string {
   ): { detector: RecurrenceDetectorRow[]; byId: Map<string, (typeof rows)[number]> } {
     const byId = new Map<string, (typeof rows)[number]>();
     const detector: RecurrenceDetectorRow[] = [];
+    const manual = RecurrenceService.manualBatchIds(rows);
     for (const r of rows) {
       // Cadência independe de pagamento: as séries que o usuário criou pelo
       // toggle estão como PLANEJADO e precisam ser detectadas do mesmo jeito.
@@ -105,7 +147,7 @@ static seriesKey(titulo: string): string {
       if (!data) continue;
       // Carimbo explícito vence a heurística: quem nasceu do fluxo de
       // recorrência é série por FATO, não por parecer uma.
-      if (!r.recurrenceKey && RecurrenceService.isParcela(r.titulo ?? '')) continue;
+      if (!r.recurrenceKey && !manual.has(r.id)) continue;
       const key = r.recurrenceKey ?? RecurrenceService.seriesKey(r.titulo ?? '');
       if (!key) continue;
       byId.set(r.id, r);
@@ -123,13 +165,9 @@ static seriesKey(titulo: string): string {
   async list(tenantId: string, projectId: string) {
     const rows = await this.loadRows(tenantId, projectId);
     const { detector, byId } = RecurrenceService.toDetectorRows(rows);
-    // Séries carimbadas não passam pelo detector: bastam 2 ocorrências, e o
-    // título pode ter sido editado — a identidade é o carimbo.
-    const stamped = detector.filter((r) => r.key.startsWith('rec_'));
-    const series = [
-      ...detectRecurringSeries(detector.filter((r) => !r.key.startsWith('rec_'))),
-      ...detectRecurringSeries(stamped, { minMeses: 1, maxPorMes: Number.POSITIVE_INFINITY }),
-    ];
+    // Toda linha que chega aqui já é recorrência por FATO (carimbo ou lote de
+    // criação); o detector só agrupa e calcula frequência, não decide.
+    const series = detectRecurringSeries(detector, ALL);
     const cutoff = RecurrenceService.cutoff();
 
     return series.map((s) => {
@@ -178,10 +216,7 @@ static seriesKey(titulo: string): string {
   private async futureOccurrences(tenantId: string, projectId: string, key: string) {
     const rows = await this.loadRows(tenantId, projectId);
     const { detector, byId } = RecurrenceService.toDetectorRows(rows);
-    const serie = detectRecurringSeries(detector, {
-      minMeses: key.startsWith('rec_') ? 1 : 3,
-      maxPorMes: key.startsWith('rec_') ? Number.POSITIVE_INFINITY : 2,
-    }).find((s) => s.key === key);
+    const serie = detectRecurringSeries(detector, ALL).find((s) => s.key === key);
     if (!serie) throw new NotFoundException('Recorrência não encontrada');
 
     const cutoff = RecurrenceService.cutoff();
