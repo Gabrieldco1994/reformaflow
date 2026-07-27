@@ -192,5 +192,5 @@ test("escolhe CASA + CARRO -> vai para a jornada PESSOAL, primeiro passo é Cont
   await page.getByRole("button", { name: /criar e continuar/i }).click();
 
   await expect(page.getByText(/sem conta ou cartão, o caixa/i)).toBeVisible();
-  await expect(page.getByText(/passo 1 de 5/i)).toBeVisible();
+  await expect(page.getByText(/passo 1 de 4/i)).toBeVisible();
 });
