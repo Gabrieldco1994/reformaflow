@@ -53,6 +53,7 @@ describe('getMobilePrimary', () => {
     expect(secondary.map((module) => module.slug)).toEqual([
       'expenses',
       'receipts',
+      'recorrentes',
       'metas',
       'planejador',
       'credit-cards',
