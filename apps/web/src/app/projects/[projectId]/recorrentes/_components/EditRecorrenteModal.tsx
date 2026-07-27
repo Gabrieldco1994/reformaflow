@@ -26,7 +26,9 @@ export function EditRecorrenteModal({
   onSave: (dto: { valor?: number; tipoDespesa?: string }) => void;
   saving: boolean;
 }) {
-  const [valor, setValor] = useState((serie.valorCents / 100).toFixed(2));
+  const [valor, setValor] = useState(
+    (serie.valorCents / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 }),
+  );
   const [tipoDespesa, setTipo] = useState(serie.tipoDespesa);
 
   const valorNum = Number(valor.replace(/\./g, '').replace(',', '.'));
@@ -37,7 +39,9 @@ export function EditRecorrenteModal({
       <div className="space-y-4">
         <p className="rounded-xl bg-[#FFF6E6] px-3 py-2 text-[12px] leading-snug text-[#8A5A11]">
           A mudança vale só para as <strong>{serie.ocorrenciasFuturas}</strong> ocorrências
-          futuras. As {serie.ocorrenciasPagas} já pagas ficam como estão.
+          futuras.
+          {serie.ocorrenciasPagas > 0 &&
+            ` As ${serie.ocorrenciasPagas} já pagas ficam como estão.`}
         </p>
 
         <label className="block">

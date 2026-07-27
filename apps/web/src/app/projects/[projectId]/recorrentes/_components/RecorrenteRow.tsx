@@ -36,14 +36,15 @@ export function RecorrenteRow({
 
   const proxima = dataCurta(serie.proximaData);
   const meta = [
-    `Todo dia ${serie.diaVencimento}`,
+    proxima ? `Próx. ${proxima}` : `Todo dia ${serie.diaVencimento}`,
     serie.tipoDespesaLabel,
     `${serie.ocorrencias}x`,
   ].join(' · ');
 
-  const status = serie.ocorrenciasFuturas > 0
-    ? { txt: `${serie.ocorrenciasFuturas} a pagar`, cls: 'text-[#B5803A]' }
-    : { txt: 'Encerrada', cls: 'text-lifeone-ink-3' };
+  const status =
+    serie.ocorrenciasFuturas > 0
+      ? { txt: `${serie.ocorrenciasFuturas} a pagar`, cls: 'text-[#B5803A]' }
+      : { txt: 'Encerrada', cls: 'text-lifeone-ink-3' };
 
   const actions = [
     { key: 'edit', label: 'Editar', Icon: Pencil, onClick: onEdit, danger: false },
@@ -61,7 +62,7 @@ export function RecorrenteRow({
 
         <div className="min-w-0 flex-1">
           <button type="button" onClick={onEdit} className="w-full text-left" title="Editar recorrência">
-            <span className="block truncate pr-1 text-[14px] font-semibold leading-tight text-lifeone-ink md:text-[15px]">
+            <span className="block line-clamp-2 pr-1 text-[14px] font-semibold leading-tight text-lifeone-ink md:text-[15px]">
               {serie.nome}
             </span>
           </button>
@@ -73,7 +74,7 @@ export function RecorrenteRow({
                 title="Espelhada em outro projeto — a edição propaga para lá"
               >
                 <Link2 className="h-3 w-3" />
-                Vinculada
+                <span className="hidden sm:inline">Vinculada</span>
               </span>
             )}
           </div>
@@ -84,7 +85,7 @@ export function RecorrenteRow({
             − {formatCurrency(serie.valorCents / 100)}
           </span>
           <span className={`inline-flex min-h-6 items-center justify-end text-[11px] font-semibold leading-none md:min-h-[30px] ${status.cls}`}>
-            {proxima && serie.ocorrenciasFuturas > 0 ? `Próx. ${proxima}` : status.txt}
+            {status.txt}
           </span>
         </div>
 
