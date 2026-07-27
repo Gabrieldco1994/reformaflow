@@ -90,3 +90,31 @@ describe('RecurrenceService — carimbo vence heurística', () => {
     expect(new Set(detector.map((d) => d.key))).toEqual(new Set(['rec_abc']));
   });
 });
+
+describe('RecurrenceService.isParcela — parcelamento não é recorrência', () => {
+  it.each([
+    'Reisman Aliancas - Parcela 7/10',
+    'Sodimac - Parcela 3/3',
+    'WWW-CASASBAHIA-COM (6/10)',
+    'PEX SETIMO OFICIAL - Parcela 2/4',
+  ])('rejeita %s', (t) => expect(RecurrenceService.isParcela(t)).toBe(true));
+
+  it.each(['Aninha', 'EBN*SPOTIFY', 'NETFLIX ENTRETENIMENTO', 'DA ELETROPAULO'])(
+    'mantém %s',
+    (t) => expect(RecurrenceService.isParcela(t)).toBe(false),
+  );
+});
+
+describe('RecurrenceService.isParcela — parcelamento não é recorrência', () => {
+  it.each([
+    'Reisman Aliancas - Parcela 7/10',
+    'Sodimac - Parcela 3/3',
+    'WWW-CASASBAHIA-COM (6/10)',
+    'PEX SETIMO OFICIAL - Parcela 2/4',
+  ])('rejeita %s', (t) => expect(RecurrenceService.isParcela(t)).toBe(true));
+
+  it.each(['Aninha', 'EBN*SPOTIFY', 'NETFLIX ENTRETENIMENTO', 'DA ELETROPAULO'])(
+    'mantém %s',
+    (t) => expect(RecurrenceService.isParcela(t)).toBe(false),
+  );
+});

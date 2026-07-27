@@ -37,6 +37,16 @@ export class RecurrenceService {
  * `normalizeKey`, que é compartilhado e tem regras de merchant já persistidas
  * no banco com as chaves atuais.
  */
+/**
+ * Título de parcelamento ("Reisman - Parcela 7/10", "Sodimac (3/3)").
+ * Parcela repete todo mês como recorrência, mas tem fim e não é assinatura —
+ * entraria na tela como falso positivo. `seriesKey` (parcelamento vindo da
+ * fatura) só cobre parte; o digitado à mão não tem carimbo nenhum.
+ */
+static isParcela(titulo: string): boolean {
+  return /\b(parcela|parc\.?)\b|\(\s*\d{1,2}\s*\/\s*\d{1,2}\s*\)/i.test(titulo ?? '');
+}
+
 static seriesKey(titulo: string): string {
   const semData = (titulo ?? '')
     .replace(/\d{1,2}\/\d{1,2}(?:\/\d{2,4})?/g, ' ')
@@ -95,6 +105,7 @@ static seriesKey(titulo: string): string {
       if (!data) continue;
       // Carimbo explícito vence a heurística: quem nasceu do fluxo de
       // recorrência é série por FATO, não por parecer uma.
+      if (!r.recurrenceKey && RecurrenceService.isParcela(r.titulo ?? '')) continue;
       const key = r.recurrenceKey ?? RecurrenceService.seriesKey(r.titulo ?? '');
       if (!key) continue;
       byId.set(r.id, r);
