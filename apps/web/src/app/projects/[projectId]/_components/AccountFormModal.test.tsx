@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import AccountFormModal from "./AccountFormModal";
 
@@ -7,10 +8,15 @@ vi.mock("@/lib/api", () => ({
   api: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() },
 }));
 
+function wrap(ui: React.ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+}
+
 describe("AccountFormModal", () => {
   it("starts on the credit card form and switches to bank account on toggle", async () => {
     const user = userEvent.setup();
-    render(
+    wrap(
       <AccountFormModal projectId="p1" defaultType="CARD" onClose={vi.fn()} onSaved={vi.fn()} />,
     );
 
@@ -22,7 +28,7 @@ describe("AccountFormModal", () => {
   });
 
   it("starts on the bank account form when defaultType is BANK", () => {
-    render(
+    wrap(
       <AccountFormModal projectId="p1" defaultType="BANK" onClose={vi.fn()} onSaved={vi.fn()} />,
     );
 
