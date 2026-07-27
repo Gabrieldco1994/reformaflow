@@ -150,14 +150,13 @@ export function ImportMassStep({ projectId, onDone, onSkip, subtitle, canSkip = 
             <OptionButton icon={Landmark} label="Extrato da conta" onClick={openExtrato} />
           )}
           <div className="rounded-[12px] border border-lifeone-hairline bg-lifeone-surface p-4">
-            <p className="text-[12px] text-lifeone-ink-3 mb-3">PDF, CSV, OFX, TXT</p>
             <button
               type="button"
               onClick={openSemConta}
               className="flex min-h-11 w-full items-center gap-3 rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-4 py-3 text-[14px] font-medium text-lifeone-ink hover:bg-lifeone-hairline/60 active:scale-[0.99] transition-colors"
             >
               <Wallet className="h-4 w-4 shrink-0 text-lifeone-ink-3" />
-              <span className="flex-1 text-left">Importar sem conta (carteira)</span>
+              <span className="flex-1 text-left">PDF, CSV, OFX, TXT</span>
               <ArrowRight className="h-4 w-4 shrink-0 text-lifeone-ink-4" />
             </button>
           </div>
