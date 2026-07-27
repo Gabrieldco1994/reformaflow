@@ -36,14 +36,12 @@ vi.mock('next/navigation', () => ({
 /** Per-type sequence of skip-button name regexes to click through every anchor step
  *  (o passo final "Feedback" com seu botão "Pular" é comum a todos os tipos).
  *  
- *  PESSOAL ordem: funding → expense → import → expense-import → receipt → maria-insight (skip)
- *  → feedback. */
+ *  PESSOAL ordem (com expense-import unificado): funding → expense-import → receipt → feedback
+ *  (expense + import separados são desabilitados automaticamente quando expense-import está habilitado). */
 const SKIP_SEQUENCES: Record<string, RegExp[]> = {
   PESSOAL: [
     /pular por agora/i, // funding
-    /pular por agora/i, // expense
-    /pular — importar depois/i, // import
-    /pular por agora/i, // expense-import (QuickExpenseStep em abas)
+    /pular por agora/i, // expense-import (unificado)
     /pular por agora/i, // receipt
     /^pular$/i, // feedback
   ],

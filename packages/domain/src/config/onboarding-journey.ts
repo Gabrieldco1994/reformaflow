@@ -235,7 +235,7 @@ export function resolveJourney(
   const defaults = ONBOARDING_JOURNEY_DEFAULTS[projectType] ?? [];
   const byKey = new Map(overrides.map((o) => [o.stepKey, o]));
 
-  return defaults
+  const resolved = defaults
     .map((def, index) => {
       const override = byKey.get(def.key);
       return {
@@ -253,4 +253,16 @@ export function resolveJourney(
     })
     .sort((a, b) => (a.order - b.order) || (a.index - b.index))
     .map((entry) => entry.step);
+
+  // ponytail: PESSOAL: se expense-import está habilitado, desabilita expense + import separados (evita redundância)
+  if (projectType === ProjectType.PESSOAL) {
+    const hasExpenseImport = resolved.some((s) => s.key === 'expense-import' && s.enabled);
+    if (hasExpenseImport) {
+      return resolved.map((s) =>
+        (s.key === 'expense' || s.key === 'import') && s.enabled ? { ...s, enabled: false } : s,
+      );
+    }
+  }
+
+  return resolved;
 }
