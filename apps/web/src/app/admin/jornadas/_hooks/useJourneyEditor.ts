@@ -1,21 +1,26 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { ResolvedJourneyStep } from "@reformaflow/domain";
+import type { JourneyStepDefinition, JourneyTriggerType } from "@reformaflow/domain";
 import {
   createMockJourney,
   listMockJourneys,
   saveMockJourney,
 } from "../_lib/mock-journeys";
-import type { EditorJourney, JourneyDraftPatch } from "../_types";
+import type { EditorJourney, EditorStep, EditorTrigger, JourneyDraftPatch } from "../_types";
 
 function move<T>(list: T[], from: number, to: number) {
-  if (from < 0 || to < 0 || from >= list.length || to >= list.length)
-    return list;
+  if (from < 0 || to < 0 || from >= list.length || to >= list.length) return list;
   const next = list.slice();
   const [item] = next.splice(from, 1);
   next.splice(to, 0, item);
   return next;
+}
+
+let triggerIdSeq = 0;
+function nextTriggerId(): string {
+  triggerIdSeq += 1;
+  return `draft-trigger-${triggerIdSeq}`;
 }
 
 export function useJourneyEditor() {
@@ -33,23 +38,17 @@ export function useJourneyEditor() {
         setSelectedKey(loaded[0]?.key ?? "");
       })
       .catch((reason: unknown) =>
-        setError(
-          reason instanceof Error
-            ? reason
-            : new Error("Falha ao carregar jornadas."),
-        ),
+        setError(reason instanceof Error ? reason : new Error("Falha ao carregar jornadas.")),
       )
       .finally(() => setLoading(false));
   }, []);
 
-  const selected =
-    journeys.find((journey) => journey.key === selectedKey) ?? null;
+  const selected = journeys.find((journey) => journey.key === selectedKey) ?? null;
+
   const updateSelected = useCallback(
     (patch: Partial<EditorJourney>) => {
       setJourneys((current) =>
-        current.map((journey) =>
-          journey.key === selectedKey ? { ...journey, ...patch } : journey,
-        ),
+        current.map((journey) => (journey.key === selectedKey ? { ...journey, ...patch } : journey)),
       );
       setDirty(true);
     },
@@ -57,12 +56,9 @@ export function useJourneyEditor() {
   );
 
   const patchStep = useCallback(
-    (key: string, patch: Partial<ResolvedJourneyStep>) => {
+    (key: string, patch: Partial<EditorStep>) => {
       updateSelected({
-        steps:
-          selected?.steps.map((step) =>
-            step.key === key ? { ...step, ...patch } : step,
-          ) ?? [],
+        steps: selected?.steps.map((step) => (step.key === key ? { ...step, ...patch } : step)) ?? [],
       });
     },
     [selected, updateSelected],
@@ -87,9 +83,64 @@ export function useJourneyEditor() {
     [selected, updateSelected],
   );
 
-  const patchJourney = useCallback(
-    (patch: JourneyDraftPatch) => updateSelected(patch),
-    [updateSelected],
+  const addStep = useCallback(
+    (definition: JourneyStepDefinition) => {
+      if (!selected || selected.steps.some((step) => step.key === definition.key)) return;
+      updateSelected({
+        steps: [
+          ...selected.steps,
+          {
+            key: definition.key,
+            label: definition.label,
+            subtitle: definition.defaultSubtitle,
+            enabled: true,
+            skippable: definition.skippableByDefault,
+            alwaysAvailable: definition.alwaysAvailable,
+            experience: "SUMMARY",
+          },
+        ],
+      });
+    },
+    [selected, updateSelected],
+  );
+
+  const removeStep = useCallback(
+    (key: string) => {
+      if (!selected) return;
+      updateSelected({ steps: selected.steps.filter((step) => step.key !== key) });
+    },
+    [selected, updateSelected],
+  );
+
+  const patchJourney = useCallback((patch: JourneyDraftPatch) => updateSelected(patch), [updateSelected]);
+
+  const addTrigger = useCallback(
+    (type: JourneyTriggerType = "SIGNUP_COMPLETED") => {
+      if (!selected) return;
+      const trigger: EditorTrigger = { id: nextTriggerId(), type, key: null };
+      updateSelected({ triggers: [...selected.triggers, trigger] });
+    },
+    [selected, updateSelected],
+  );
+
+  const removeTrigger = useCallback(
+    (id: string) => {
+      if (!selected || selected.triggers.length <= 1) return;
+      updateSelected({ triggers: selected.triggers.filter((trigger) => trigger.id !== id) });
+    },
+    [selected, updateSelected],
+  );
+
+  const patchTrigger = useCallback(
+    (id: string, patch: Partial<EditorTrigger>) => {
+      if (!selected) return;
+      updateSelected({
+        triggers: selected.triggers.map((trigger) =>
+          trigger.id === id ? { ...trigger, ...patch } : trigger,
+        ),
+      });
+    },
+    [selected, updateSelected],
   );
 
   const save = useCallback(async () => {
@@ -98,15 +149,10 @@ export function useJourneyEditor() {
     setError(null);
     try {
       const saved = await saveMockJourney(selected.key, selected);
-      setJourneys((current) =>
-        current.map((journey) => (journey.key === saved.key ? saved : journey)),
-      );
+      setJourneys((current) => current.map((journey) => (journey.key === saved.key ? saved : journey)));
       setDirty(false);
     } catch (reason) {
-      const nextError =
-        reason instanceof Error
-          ? reason
-          : new Error("Não foi possível salvar a jornada.");
+      const nextError = reason instanceof Error ? reason : new Error("Não foi possível salvar a jornada.");
       setError(nextError);
       throw nextError;
     } finally {
@@ -122,10 +168,7 @@ export function useJourneyEditor() {
       setSelectedKey(created.key);
       setDirty(false);
     } catch (reason) {
-      const nextError =
-        reason instanceof Error
-          ? reason
-          : new Error("Não foi possível criar a jornada.");
+      const nextError = reason instanceof Error ? reason : new Error("Não foi possível criar a jornada.");
       setError(nextError);
       throw nextError;
     }
@@ -143,6 +186,11 @@ export function useJourneyEditor() {
     patchStep,
     moveStep,
     reorder,
+    addStep,
+    removeStep,
+    addTrigger,
+    removeTrigger,
+    patchTrigger,
     save,
     create,
     loading,

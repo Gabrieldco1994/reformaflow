@@ -4,18 +4,15 @@ export const dynamic = "force-dynamic";
 
 import { useEffect, useState, type FormEvent } from "react";
 import { AlertTriangle, Eye, Loader2, Plus, Save } from "lucide-react";
-import { JOURNEY_TRIGGER_TYPES, ProjectType } from "@reformaflow/domain";
+import { JOURNEY_CATALOG } from "@reformaflow/domain";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
 import { JourneyTrack } from "./_components/JourneyTrack";
+import { TargetSection } from "./_components/TargetSection";
+import { TriggersSection } from "./_components/TriggersSection";
 import { useJourneyEditor } from "./_hooks/useJourneyEditor";
-import {
-  PROJECT_TYPE_LABELS,
-  TRIGGER_TYPE_LABELS,
-  type EditorJourney,
-} from "./_types";
-
-const TYPES = Object.values(ProjectType);
+import { listStepCatalog } from "./_lib/mock-journeys";
+import type { EditorJourney } from "./_types";
 
 export default function AdminJornadasPage() {
   const { user, isAdmin, loading: authLoading } = useAuth();
@@ -25,12 +22,17 @@ export default function AdminJornadasPage() {
   const [newName, setNewName] = useState("");
   const [templateKey, setTemplateKey] = useState("");
   const [notice, setNotice] = useState("");
+  const [stepCatalog, setStepCatalog] = useState<ReturnType<typeof listStepCatalog>>([]);
 
   useEffect(() => {
     if (authLoading) return;
     if (!user) router.replace("/login");
     else if (!isAdmin) router.replace("/no-permission");
   }, [authLoading, isAdmin, router, user]);
+
+  useEffect(() => {
+    setStepCatalog(listStepCatalog());
+  }, []);
 
   async function handleSave() {
     try {
@@ -212,88 +214,17 @@ export default function AdminJornadasPage() {
                   </p>
                 )}
 
-                <div className="mb-5 grid gap-3 rounded-[14px] border border-lifeone-hairline bg-lifeone-surface p-3 md:grid-cols-2">
-                  <label className="text-[12px] font-semibold text-lifeone-ink-2">
-                    Onde aparece
-                    <select
-                      aria-label="Onde aparece"
-                      value={editor.selected.trigger.targetProjectType ?? ""}
-                      onChange={(event) =>
-                        editor.patchJourney({
-                          trigger: {
-                            ...editor.selected!.trigger,
-                            targetProjectType: (event.target.value ||
-                              null) as ProjectType | null,
-                          },
-                        })
-                      }
-                      className="mt-1 min-h-11 w-full rounded-[10px] border border-lifeone-hairline bg-lifeone-card px-3 text-[13px]"
-                    >
-                      <option value="">Todos os projetos</option>
-                      {TYPES.map((type) => (
-                        <option key={type} value={type}>
-                          {PROJECT_TYPE_LABELS[type]}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="text-[12px] font-semibold text-lifeone-ink-2">
-                    Começa quando
-                    <select
-                      aria-label="Começa quando"
-                      value={editor.selected.startsWhen}
-                      onChange={(event) =>
-                        editor.patchJourney({
-                          startsWhen: event.target
-                            .value as typeof editor.selected.startsWhen,
-                        })
-                      }
-                      className="mt-1 min-h-11 w-full rounded-[10px] border border-lifeone-hairline bg-lifeone-card px-3 text-[13px]"
-                    >
-                      {JOURNEY_TRIGGER_TYPES.map((type) => (
-                        <option key={type} value={type}>
-                          {TRIGGER_TYPE_LABELS[type]}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="text-[12px] font-semibold text-lifeone-ink-2">
-                    Dispositivo
-                    <select
-                      aria-label="Dispositivo"
-                      value={editor.selected.trigger.device}
-                      onChange={(event) =>
-                        editor.patchJourney({
-                          trigger: {
-                            ...editor.selected!.trigger,
-                            device: event.target
-                              .value as EditorJourney["trigger"]["device"],
-                          },
-                        })
-                      }
-                      className="mt-1 min-h-11 w-full rounded-[10px] border border-lifeone-hairline bg-lifeone-card px-3 text-[13px]"
-                    >
-                      <option value="any">Web e mobile</option>
-                      <option value="web">Web</option>
-                      <option value="mobile">Mobile</option>
-                    </select>
-                  </label>
-                  <label className="flex min-h-11 items-center gap-2 text-[12px] font-semibold text-lifeone-ink-2">
-                    <input
-                      type="checkbox"
-                      checked={editor.selected.trigger.crossProject}
-                      onChange={(event) =>
-                        editor.patchJourney({
-                          trigger: {
-                            ...editor.selected!.trigger,
-                            crossProject: event.target.checked,
-                          },
-                        })
-                      }
-                      className="h-4 w-4"
-                    />
-                    Pode atravessar projetos
-                  </label>
+                <div className="mb-5 grid gap-4 lg:grid-cols-2">
+                  <TargetSection
+                    journey={editor.selected}
+                    onPatch={editor.patchJourney}
+                  />
+                  <TriggersSection
+                    journey={editor.selected}
+                    onAdd={() => editor.addTrigger()}
+                    onRemove={editor.removeTrigger}
+                    onPatch={editor.patchTrigger}
+                  />
                 </div>
 
                 <div className="mb-2 flex items-center gap-2">
@@ -304,9 +235,12 @@ export default function AdminJornadasPage() {
                 </div>
                 <JourneyTrack
                   steps={editor.selected.steps}
+                  availableSteps={stepCatalog}
                   onReorder={editor.reorder}
                   onMove={editor.moveStep}
                   onPatch={editor.patchStep}
+                  onAddStep={editor.addStep}
+                  onRemoveStep={editor.removeStep}
                 />
 
                 <div

@@ -8,22 +8,26 @@ import {
   ChevronRight,
   GripVertical,
   Lock,
+  Maximize2,
+  Minimize2,
   Pencil,
   Power,
   Sparkles,
+  Trash2,
   Unlock,
 } from 'lucide-react';
-import type { ResolvedJourneyStep } from '@reformaflow/domain';
+import type { EditorStep } from '../_types';
 
 interface Props {
-  step: ResolvedJourneyStep;
+  step: EditorStep;
   /** Posição na trilha (1-based) — é o número impresso na telinha. */
   position: number;
   total: number;
   editing: boolean;
   onToggleEditing: () => void;
   onMove: (direction: -1 | 1) => void;
-  onPatch: (patch: Partial<ResolvedJourneyStep>) => void;
+  onPatch: (patch: Partial<EditorStep>) => void;
+  onRemove: () => void;
 }
 
 const CHIP = 'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold';
@@ -43,6 +47,7 @@ export function StepScreenCard({
   onToggleEditing,
   onMove,
   onPatch,
+  onRemove,
 }: Props) {
   const fieldId = useId();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -139,6 +144,15 @@ export function StepScreenCard({
               <Sparkles className="h-3 w-3" /> Condicional
             </span>
           )}
+          <span
+            className={`${CHIP} ${
+              step.experience === 'FULL'
+                ? 'bg-lifeone-blue/10 text-lifeone-blue'
+                : 'bg-lifeone-info text-lifeone-ink-2'
+            }`}
+          >
+            {step.experience === 'FULL' ? 'Completa' : 'Resumida'}
+          </span>
         </div>
 
         {!step.alwaysAvailable && (
@@ -191,6 +205,26 @@ export function StepScreenCard({
             onClick={onToggleEditing}
           >
             <Pencil className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            className={ACTION}
+            aria-label={`Tornar "${step.label}" ${step.experience === 'FULL' ? 'resumida' : 'completa'}`}
+            onClick={() => onPatch({ experience: step.experience === 'FULL' ? 'SUMMARY' : 'FULL' })}
+          >
+            {step.experience === 'FULL' ? (
+              <Minimize2 className="h-4 w-4" />
+            ) : (
+              <Maximize2 className="h-4 w-4" />
+            )}
+          </button>
+          <button
+            type="button"
+            className={ACTION}
+            aria-label={`Remover "${step.label}" da trilha`}
+            onClick={onRemove}
+          >
+            <Trash2 className="h-4 w-4" />
           </button>
         </div>
 
