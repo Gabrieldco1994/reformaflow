@@ -17,6 +17,11 @@ const PUBLIC_PATHS = [
   '/prototype/agent-monitor',
   '/skin-mobile-base.css',
   '/hero-cockpit-mobile.png',
+  // Fallback de offline do service worker. Precisa vir aqui porque o matcher
+  // libera estáticos por extensão mas mantém `.html` protegido (os protótipos
+  // em public/). Sem sessão E sem rede, redirecionar para /login não ajudaria
+  // ninguém — a tela de offline é justamente o que deve aparecer.
+  '/offline.html',
 ];
 
 export function middleware(req: NextRequest) {

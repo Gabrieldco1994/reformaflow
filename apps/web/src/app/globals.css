@@ -2,24 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
-/* LifeOne design system — Material Symbols Rounded base class.
-   Font loaded via <link> in app/layout.tsx. Usage: <span class="material-symbols-rounded">home</span> */
-.material-symbols-rounded {
-  font-family: 'Material Symbols Rounded';
-  font-weight: normal;
-  font-style: normal;
-  font-size: 24px;
-  line-height: 1;
-  letter-spacing: normal;
-  text-transform: none;
-  display: inline-block;
-  white-space: nowrap;
-  word-wrap: normal;
-  direction: ltr;
-  -webkit-font-feature-settings: 'liga';
-  -webkit-font-smoothing: antialiased;
-  font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
-}
+/* A classe `.material-symbols-rounded` foi removida junto com o <link> do
+   Google Fonts em app/layout.tsx: não havia UM uso dela em todo o app — os
+   ícones vêm de `lucide-react` (174 arquivos). Manter a classe sem a fonte
+   seria pior que remover: renderizaria a ligadura como texto literal
+   ("home" em vez do ícone). Se um dia precisar de ícone em fonte, recarregue
+   a folha junto com a classe. */
 
 @layer base {
   :root {

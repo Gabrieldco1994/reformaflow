@@ -6,6 +6,7 @@ import './globals.css';
 import { Providers } from '@/lib/providers';
 import { Toaster } from 'sonner';
 import { ClarityInit } from './_components/ClarityInit';
+import { ServiceWorkerInit } from './_components/ServiceWorkerInit';
 
 const inter = Inter({
   subsets: ["latin"],
@@ -73,18 +74,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="pt-BR" className={`${jost.variable} ${cormorant.variable} ${inter.variable} ${GeistSans.variable}`}>
-      <head>
-        {/* Material Symbols (ícones) via Google Fonts. O Geist agora vem do
-            pacote `geist` (next/font/local) para eliminar o CLS de troca de fonte. */}
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link
-          rel="stylesheet"
-          href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,300,0,0&display=swap"
-        />
-      </head>
       <body className={jost.className}>
         <ClarityInit />
+        <ServiceWorkerInit />
         <Providers>
           <Toaster richColors position="top-right" />
           {children}

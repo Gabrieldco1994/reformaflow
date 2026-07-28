@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#eef0f3" />
+    <title>Sem conexão — LifeOne</title>
+    <style>
+      /* Sem dependência externa de propósito: esta página precisa funcionar
+         justamente quando não há rede. */
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: #eef0f3;
+        color: #111214;
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        text-align: center;
+      }
+      .card {
+        max-width: 360px;
+        padding: 32px 24px;
+        border-radius: 20px;
+        background: #fff;
+        border: 1px solid #e8eaee;
+        box-shadow: 0 1px 2px rgba(17, 18, 20, 0.03), 0 12px 32px rgba(17, 18, 20, 0.06);
+      }
+      img { width: 56px; height: 56px; border-radius: 14px; }
+      h1 { margin: 16px 0 8px; font-size: 20px; letter-spacing: -0.02em; }
+      p { margin: 0; font-size: 15px; line-height: 1.5; color: #5b6068; }
+      button {
+        margin-top: 24px;
+        width: 100%;
+        min-height: 48px;
+        border: 0;
+        border-radius: 12px;
+        background: #0a6cf0;
+        color: #fff;
+        font-size: 15px;
+        font-weight: 600;
+        font-family: inherit;
+        cursor: pointer;
+      }
+      button:active { opacity: 0.6; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <img src="/icon-192.png" alt="LifeOne" />
+      <h1>Você está sem conexão</h1>
+      <p>
+        Seus dados financeiros estão seguros — só não dá para carregá-los agora.
+        Assim que a internet voltar, é só tentar de novo.
+      </p>
+      <button type="button" onclick="location.reload()">Tentar de novo</button>
+    </div>
+  </body>
+</html>
