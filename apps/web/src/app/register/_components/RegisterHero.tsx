@@ -40,8 +40,11 @@ function RegisterHeroIntro() {
         Controle, planeje tudo em um só app
       </h2>
       {/* Descrição só no desktop — no mobile o Maria/Benefícios/Confiança
-          já ficam escondidos, então esse parágrafo só ocuparia espaço. */}
-      <p className="mt-3 hidden text-[15px] leading-relaxed text-lifeone-ink-2 lg:block">
+          já ficam escondidos, então esse parágrafo só ocuparia espaço.
+          max-w em ch trava a largura da linha numa faixa legível mesmo
+          com a coluna esquerda mais larga (container cresceu p/ dar mais
+          espaço ao form) — sem isso o texto correria ~85+ caracteres/linha. */}
+      <p className="mt-3 hidden max-w-[46ch] text-[15px] leading-relaxed text-lifeone-ink-2 lg:block">
         Dinheiro, reformas, manutenções, casa, carro, qualquer tipo de projeto num só lugar. Use a Maria,
         que te ajuda a controlar e planejar de forma inteligente.
       </p>
