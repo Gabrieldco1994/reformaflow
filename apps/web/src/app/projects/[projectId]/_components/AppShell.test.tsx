@@ -126,10 +126,11 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-const project = (type: ProjectType): ProjectInfo => ({
+const project = (type: ProjectType, onboardedAt: string | null = "2026-01-01T00:00:00.000Z"): ProjectInfo => ({
   id: "project-1",
   name: "Projeto teste",
   type,
+  onboardedAt,
 });
 
 const PROJECT_SKIN_MATRIX = [
@@ -195,6 +196,31 @@ describe("AppShell mobile navigation orchestration", () => {
     await vi.waitFor(() => {
       expect(mocks.router.replace).toHaveBeenCalledWith("/no-permission");
     });
+  });
+
+  it("redirects to the onboarding wizard on first access (onboardedAt null)", async () => {
+    mocks.apiGet.mockResolvedValue(project(ProjectType.CASA, null));
+    mocks.hasModule.mockReturnValue(true);
+
+    render(<AppShell>Conteúdo</AppShell>);
+
+    await vi.waitFor(() => {
+      expect(mocks.router.replace).toHaveBeenCalledWith(
+        "/onboarding/setup?projectId=project-1&type=CASA",
+      );
+    });
+  });
+
+  it("does not redirect to onboarding once onboardedAt is set", async () => {
+    mocks.apiGet.mockResolvedValue(project(ProjectType.CASA));
+    mocks.hasModule.mockReturnValue(true);
+
+    render(<AppShell>Conteúdo</AppShell>);
+
+    await screen.findByText("Conteúdo");
+    expect(mocks.router.replace).not.toHaveBeenCalledWith(
+      expect.stringContaining("/onboarding/setup"),
+    );
   });
 
   it("splits the permission-filtered REFORMA modules and omits the personal launch sheet", async () => {
@@ -303,6 +329,7 @@ describe("AppShell mobile navigation orchestration", () => {
         id: "reforma-new",
         name: "Reforma atual",
         type: ProjectType.REFORMA,
+        onboardedAt: "2026-01-01T00:00:00.000Z",
       });
     });
 

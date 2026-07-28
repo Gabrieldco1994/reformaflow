@@ -19,6 +19,7 @@ interface Project {
   type: string;
   description?: string;
   createdAt: string;
+  onboardedAt?: string | null;
 }
 
 export default function ProjectsPage() {

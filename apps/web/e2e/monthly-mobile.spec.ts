@@ -149,6 +149,7 @@ async function openMonthly(page: Page, viewport: ViewportSize) {
           id: projectId,
           name: "Pessoal Teste",
           type: "PESSOAL",
+          onboardedAt: "2026-01-01T00:00:00.000Z",
           rooms: [],
         }),
       );

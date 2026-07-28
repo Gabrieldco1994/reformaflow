@@ -36,10 +36,15 @@ function RegisterHeroIntro() {
         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-lifeone-success" aria-hidden="true" />
         Comece grátis em 1 minuto
       </p>
-      <h2 className="mt-3 text-[27px] font-bold leading-tight tracking-[-0.035em] text-lifeone-ink sm:text-[34px]">
+      <h2 className="mt-3 text-[22px] font-bold leading-tight tracking-[-0.035em] text-lifeone-ink lg:text-[38px]">
         Controle, planeje tudo em um só app
       </h2>
-      <p className="mt-3 text-[15px] leading-relaxed text-lifeone-ink-2">
+      {/* Descrição só no desktop — no mobile o Maria/Benefícios/Confiança
+          já ficam escondidos, então esse parágrafo só ocuparia espaço.
+          max-w em ch trava a largura da linha numa faixa legível mesmo
+          com a coluna esquerda mais larga (container cresceu p/ dar mais
+          espaço ao form) — sem isso o texto correria ~85+ caracteres/linha. */}
+      <p className="mt-3 hidden max-w-[46ch] text-[15px] leading-relaxed text-lifeone-ink-2 lg:block">
         Dinheiro, reformas, manutenções, casa, carro, qualquer tipo de projeto num só lugar. Use a Maria,
         que te ajuda a controlar e planejar de forma inteligente.
       </p>
@@ -49,13 +54,13 @@ function RegisterHeroIntro() {
 
 function RegisterHeroMaria() {
   return (
-    <div className="rounded-2xl border border-lifeone-hairline bg-lifeone-card p-4 shadow-lifeone-card">
+    <div className="rounded-2xl border border-lifeone-hairline bg-lifeone-card p-4 shadow-lifeone-card lg:p-5">
       <div className="flex items-start gap-3">
         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-lifeone-blue text-white ring-4 ring-lifeone-info">
           <Bot className="h-5 w-5" aria-hidden="true" />
         </span>
         <div className="min-w-0">
-          <p className="text-[14px] leading-relaxed text-lifeone-ink">
+          <p className="text-[14px] leading-relaxed text-lifeone-ink lg:text-[15px]">
             &ldquo;Se manter esse ritmo, o mês fecha com R$ 640 sobrando. Quer que eu reserve pra
             reforma?&rdquo;
           </p>
@@ -68,7 +73,7 @@ function RegisterHeroMaria() {
 
 function RegisterHeroBenefits() {
   return (
-    <ul className="space-y-4">
+    <ul className="space-y-4 lg:space-y-5">
       {BENEFITS.map((benefit) => (
         <li key={benefit.title} className="flex items-start gap-3">
           <span className={`flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] ${benefit.tileClass}`}>

@@ -180,6 +180,17 @@ export class ProjectService {
     });
   }
 
+  // Marca o wizard de onboarding como visto (1º acesso ao projeto). Endpoint
+  // aberto (sem @Roles('ADMIN')) porque quem precisa chamar é a própria
+  // pessoa que acabou de criar/abrir o projeto.
+  async completeOnboarding(tenantId: string, id: string) {
+    await this.findByIdInternal(tenantId, id);
+    return this.prisma.project.update({
+      where: { id },
+      data: { onboardedAt: new Date() },
+    });
+  }
+
   async remove(tenantId: string, id: string) {
     await this.findByIdInternal(tenantId, id);
     await this.prisma.project.delete({ where: { id } });

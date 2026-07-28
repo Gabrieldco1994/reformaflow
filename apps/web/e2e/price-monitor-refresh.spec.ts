@@ -56,7 +56,7 @@ test("clicar em Atualizar chama o refresh real e mostra sucesso (não 404 silenc
     }
     if (path === `/projects/${projectId}` && method === "GET") {
       return route.fulfill(
-        json({ id: projectId, name: "Compra Teste", type: "COMPRA", rooms: [] }),
+        json({ id: projectId, name: "Compra Teste", type: "COMPRA", onboardedAt: "2026-01-01T00:00:00.000Z", rooms: [] }),
       );
     }
     if (

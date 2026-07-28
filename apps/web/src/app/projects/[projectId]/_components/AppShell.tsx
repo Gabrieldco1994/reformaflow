@@ -102,6 +102,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       router.replace('/no-permission');
       return;
     }
+    // Primeiro acesso ao projeto: onboarding ainda não visto (onboardedAt
+    // nulo). Único gate — cobre tanto o fluxo de registro quanto o "+".
+    if (!project.onboardedAt) {
+      router.replace(`/onboarding/setup?projectId=${project.id}&type=${project.type}`);
+      return;
+    }
     const basePath = `/projects/${projectId}`;
     if (pathname === basePath) return;
     const slug = pathname.replace(basePath + '/', '').split('/')[0];

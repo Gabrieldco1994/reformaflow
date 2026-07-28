@@ -5,6 +5,7 @@ export interface ProjectInfo {
   name: string;
   type: string;
   description?: string;
+  onboardedAt?: string | null;
 }
 
 export type { NavModule };
