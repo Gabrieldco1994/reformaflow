@@ -391,9 +391,11 @@ test.describe("Monthly cockpit — Phase C mobile relance", () => {
       page.getByRole("heading", { name: "Lançar", exact: true }),
     ).toBeVisible();
 
-    // origens SÓ do projeto atual (2): conta + cartão com labels próprios.
+    // origens SÓ do projeto atual (2: conta + cartão, com labels próprios) mais
+    // a pseudo-origem Carteira, sempre ofertada para permitir lançar sem conta.
     const origins = page.locator('button[aria-label^="Origem "]');
-    await expect(origins).toHaveCount(2);
+    await expect(origins).toHaveCount(3);
+    await expect(page.getByRole("button", { name: "Origem Carteira" })).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Origem Itaú Personnalité" }),
     ).toBeVisible();
