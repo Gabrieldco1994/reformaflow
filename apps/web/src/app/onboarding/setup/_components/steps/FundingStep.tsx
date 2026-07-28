@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, CreditCard, Landmark, SkipForward, X } from 'lucide-react';
+import { Check, ChevronLeft, CreditCard, Landmark, SkipForward, X } from 'lucide-react';
 import BankAccountFormModal from '@/app/projects/[projectId]/bank-accounts/_components/BankAccountFormModal';
 import CardFormModal from '@/app/projects/[projectId]/credit-cards/_components/CardFormModal';
 import { api } from '@/lib/api';
@@ -34,6 +34,7 @@ export function FundingStep({
   projectId,
   onDone,
   onSkip,
+  onBack,
   onFundingChange,
   subtitle,
   stepRequired = false,
@@ -283,6 +284,15 @@ export function FundingStep({
             className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-4 py-3 text-[13px] font-medium text-lifeone-ink-2 hover:bg-lifeone-hairline/60 transition-colors"
           >
             <SkipForward className="h-3.5 w-3.5" /> Pular por agora
+          </button>
+        )}
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] font-medium text-lifeone-ink-3 hover:text-lifeone-ink transition-colors"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" /> Voltar
           </button>
         )}
       </div>

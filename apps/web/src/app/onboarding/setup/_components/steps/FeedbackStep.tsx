@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { MessageSquareHeart, SkipForward, Star } from 'lucide-react';
+import { ChevronLeft, MessageSquareHeart, SkipForward, Star } from 'lucide-react';
 import { api } from '@/lib/api';
 
 interface FeedbackStepProps {
@@ -33,7 +33,7 @@ const RATING_LABELS: Record<number, string> = {
  * depois usa "Pular" (hábito dos outros passos do wizard), a nota não se
  * perde — só pula de fato quando nada foi preenchido.
  */
-export function FeedbackStep({ onDone, subtitle, canSkip = true }: FeedbackStepProps) {
+export function FeedbackStep({ onDone, onBack, subtitle, canSkip = true }: FeedbackStepProps) {
   const [rating, setRating] = useState(0);
   const [message, setMessage] = useState('');
   const [status, setStatus] = useState<'idle' | 'sending'>('idle');
@@ -113,9 +113,18 @@ export function FeedbackStep({ onDone, subtitle, canSkip = true }: FeedbackStepP
             type="button"
             onClick={handleSubmit}
             disabled={status === 'sending'}
-            className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] text-lifeone-ink-3 hover:text-lifeone-ink disabled:opacity-60"
+            className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-4 py-3 text-[13px] font-medium text-lifeone-ink-2 hover:bg-lifeone-hairline/60 transition-colors disabled:opacity-60"
           >
             <SkipForward className="h-3.5 w-3.5" /> Pular
+          </button>
+        )}
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] font-medium text-lifeone-ink-3 hover:text-lifeone-ink transition-colors"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" /> Voltar
           </button>
         )}
       </div>

@@ -1,6 +1,6 @@
 'use client';
 
-import { SkipForward } from 'lucide-react';
+import { SkipForward, ChevronLeft } from 'lucide-react';
 import { CreatePlantModal } from '@/app/projects/[projectId]/plants/_components/CreatePlantModal';
 import type { OnboardingStepProps } from '../../_types';
 
@@ -12,7 +12,7 @@ import type { OnboardingStepProps } from '../../_types';
  * — the wizard shell wraps every anchor-step render in `<ProjectProvider>`
  * to satisfy that dependency.
  */
-export function PlantStep({ onDone, onSkip, subtitle, canSkip = true }: OnboardingStepProps) {
+export function PlantStep({ onDone, onSkip, onBack, subtitle, canSkip = true }: OnboardingStepProps) {
   return (
     <section className="rounded-[18px] border border-lifeone-hairline bg-lifeone-card p-6 shadow-lifeone-card">
       <p className="mb-4 text-[12px] text-lifeone-ink-3">
@@ -29,6 +29,14 @@ export function PlantStep({ onDone, onSkip, subtitle, canSkip = true }: Onboardi
             <SkipForward className="h-3.5 w-3.5" /> Pular por agora
           </button>
         </div>
+      )}
+      {onBack && (
+        <button
+          onClick={onBack}
+          className="mt-2 flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] font-medium text-lifeone-ink-3 hover:text-lifeone-ink transition-colors"
+        >
+          <ChevronLeft className="h-3.5 w-3.5" /> Voltar
+        </button>
       )}
     </section>
   );

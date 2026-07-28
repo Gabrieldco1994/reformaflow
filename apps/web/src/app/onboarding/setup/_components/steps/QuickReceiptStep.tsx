@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { ArrowRight, SkipForward } from 'lucide-react';
+import { ArrowRight, SkipForward, ChevronLeft } from 'lucide-react';
 import { api } from '@/lib/api';
 import { maskCurrencyInput, currencyInputToNumber } from '@/lib/currency-input';
 import { getReceiptTipoOptions } from '@/app/projects/[projectId]/receipts/_lib/tipo-options';
@@ -13,7 +13,7 @@ import type { OnboardingStepProps } from '../../_types';
  * Allows: Saldo Inicial (ORCAMENTO_INICIAL) or Receipt (other types).
  * Status always EM_CAIXA — in onboarding, any receipt is already realized (issue #320).
  */
-export function QuickReceiptStep({ projectId, projectType, onDone, onSkip, subtitle, canSkip = true }: OnboardingStepProps) {
+export function QuickReceiptStep({ projectId, projectType, onDone, onSkip, onBack, subtitle, canSkip = true }: OnboardingStepProps) {
   const options = getReceiptTipoOptions(projectType);
   const [isSaldoInicial, setIsSaldoInicial] = useState(false);
   const [tipoCustom, setTipoCustom] = useState(options.find(o => o.value !== 'ORCAMENTO_INICIAL')?.value ?? '');
@@ -133,6 +133,14 @@ export function QuickReceiptStep({ projectId, projectType, onDone, onSkip, subti
             className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-4 py-3 text-[13px] font-medium text-lifeone-ink-2 hover:bg-lifeone-hairline/60 transition-colors"
           >
             <SkipForward className="h-3.5 w-3.5" /> Pular por agora
+          </button>
+        )}
+        {onBack && (
+          <button
+            onClick={onBack}
+            className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] font-medium text-lifeone-ink-3 hover:text-lifeone-ink transition-colors"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" /> Voltar
           </button>
         )}
       </div>

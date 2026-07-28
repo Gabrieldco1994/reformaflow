@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowRight, CheckCircle2, SkipForward, Sparkles } from 'lucide-react';
+import { ArrowRight, CheckCircle2, ChevronLeft, SkipForward, Sparkles } from 'lucide-react';
 import { setPendingMariaPrompt } from '@/app/projects/[projectId]/maria/_lib/pending-prompt';
 import { MariaChatBody } from '@/app/projects/[projectId]/maria/_components/MariaChatBody';
 import { buildOnboardingMariaPrompts } from '../../_lib/build-onboarding-maria-prompts';
@@ -30,7 +30,7 @@ interface MariaInsightStepProps {
  * wizard, mantendo a régua de progresso visível. "Concluir" encerra o
  * onboarding e redireciona pro cockpit (fluxo já existente do wizard).
  */
-export function MariaInsightStep({ projectId, createdExpense, onSkip, onDone, subtitle, canSkip = true }: MariaInsightStepProps) {
+export function MariaInsightStep({ projectId, createdExpense, onSkip, onDone, onBack, subtitle, canSkip = true }: MariaInsightStepProps) {
   const prompts = buildOnboardingMariaPrompts(createdExpense);
   const [chatOpen, setChatOpen] = useState(false);
 
@@ -98,6 +98,15 @@ export function MariaInsightStep({ projectId, createdExpense, onSkip, onDone, su
             <SkipForward className="h-3.5 w-3.5" /> Pular por agora
           </button>
         </div>
+      )}
+      {onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          className="mt-2 flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] font-medium text-lifeone-ink-3 hover:text-lifeone-ink transition-colors"
+        >
+          <ChevronLeft className="h-3.5 w-3.5" /> Voltar
+        </button>
       )}
     </section>
   );

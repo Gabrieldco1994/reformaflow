@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowRight, SkipForward } from 'lucide-react';
+import { ArrowRight, SkipForward, ChevronLeft } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { OnboardingStepProps } from '../../_types';
 
@@ -12,7 +12,7 @@ import type { OnboardingStepProps } from '../../_types';
  * car-info record is not a useful anchor); everything-empty must go through
  * "Pular por agora" instead.
  */
-export function CarInfoStep({ projectId, onDone, onSkip, subtitle, canSkip = true }: OnboardingStepProps) {
+export function CarInfoStep({ projectId, onDone, onSkip, onBack, subtitle, canSkip = true }: OnboardingStepProps) {
   const [marca, setMarca] = useState('');
   const [modelo, setModelo] = useState('');
   const [placa, setPlaca] = useState('');
@@ -111,6 +111,14 @@ export function CarInfoStep({ projectId, onDone, onSkip, subtitle, canSkip = tru
             className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-4 py-3 text-[13px] font-medium text-lifeone-ink-2 hover:bg-lifeone-hairline/60 transition-colors"
           >
             <SkipForward className="h-3.5 w-3.5" /> Pular por agora
+          </button>
+        )}
+        {onBack && (
+          <button
+            onClick={onBack}
+            className="flex min-h-11 w-full items-center justify-center gap-1.5 text-[13px] font-medium text-lifeone-ink-3 hover:text-lifeone-ink transition-colors"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" /> Voltar
           </button>
         )}
       </div>
