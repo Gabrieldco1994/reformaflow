@@ -9,8 +9,7 @@ export * from './seed';
 export * from './config';
 export * from './voice/expense-voice-parser';
 export * from './price-monitor';
-// Builders de fixture de Jornada. Dado puro (sem framework de teste), exportado
-// pelo barrel porque três runners diferentes os consomem: vitest no domínio,
-// jest na API e vitest no web.
-export * from './testing/journey-builders';
-
+// NÃO exportar `./testing/*` aqui: são builders de fixture (com sequência
+// mutável de ids) e não fazem parte da API pública do domínio. Testes os
+// importam pelo caminho direto do módulo — ver o cabeçalho de
+// `testing/journey-builders.ts`.

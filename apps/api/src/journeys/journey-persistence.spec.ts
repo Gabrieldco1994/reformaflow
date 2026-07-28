@@ -1,12 +1,14 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { JourneyDefinition, ProjectType, resolveJourneyPlan } from '@reformaflow/domain';
+// Builders de fixture: caminho direto do módulo, fora do barrel público do
+// domínio (têm sequência mutável de ids e não são API de produção). Pelo
+// `dist` porque `apps/api` fixa `rootDir: ./src` — importar o `.ts` do domínio
+// direto é TS6059. É o mesmo caminho por onde a API já consome o domínio.
 import {
-  JourneyDefinition,
-  ProjectType,
   makeJourney,
   makeSteps,
-  resolveJourneyPlan,
   resetJourneyBuilderSequence,
-} from '@reformaflow/domain';
+} from '@reformaflow/domain/dist/testing/journey-builders';
 import { PrismaService } from '../prisma/prisma.service';
 import { JourneyBootstrapService } from './journey-bootstrap.service';
 

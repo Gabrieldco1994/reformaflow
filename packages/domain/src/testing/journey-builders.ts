@@ -17,7 +17,19 @@ import type { JourneyRepeatPolicy, JourneyTriggerType } from '../config/journey-
  *
  * Ficam em `src/testing/` (e não em `__tests__/`) porque são consumidos por
  * três runners diferentes: vitest no domínio, jest na API e vitest no web.
- * São dado puro: nenhum import de framework de teste, nenhum efeito colateral.
+ * São dado puro: nenhum import de framework de teste.
+ *
+ * NÃO são exportados pelo barrel `@reformaflow/domain`: mantêm uma sequência
+ * mutável de ids (`resetJourneyBuilderSequence`) e não são API de produção.
+ * Os testes importam este módulo pelo caminho direto, cada pacote pelo caminho
+ * que ele já usa para consumir o domínio:
+ *
+ *   - domínio: `../src/testing/journey-builders` (relativo);
+ *   - web:     `@reformaflow/domain/testing/journey-builders` (fonte, como o
+ *              alias do vitest e o `paths` do tsconfig já resolvem);
+ *   - API:     `@reformaflow/domain/dist/testing/journey-builders` (compilado —
+ *              `apps/api` fixa `rootDir: ./src` e importar `.ts` de fora dá
+ *              TS6059).
  */
 
 let seq = 0;

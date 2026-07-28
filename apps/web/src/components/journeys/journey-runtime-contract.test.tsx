@@ -7,14 +7,18 @@ import {
   currentJourneyStep,
   initialJourneyFlowState,
   journeyProgress,
-  makeJourney,
-  makeStep,
-  makeSteps,
-  resetJourneyBuilderSequence,
   resolveJourneyPlan,
   type JourneyPlan,
   type PlannedJourneyStep,
 } from "@reformaflow/domain";
+// Builders de fixture: caminho direto do módulo, fora do barrel público do
+// domínio (têm sequência mutável de ids e não são API de produção).
+import {
+  makeJourney,
+  makeStep,
+  makeSteps,
+  resetJourneyBuilderSequence,
+} from "@reformaflow/domain/testing/journey-builders";
 
 /**
  * CONTRATO DO EXECUTOR WEB (Etapa D do épico #338).
