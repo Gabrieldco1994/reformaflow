@@ -1,24 +1,41 @@
-import type { ProjectType, ResolvedJourneyStep } from '@reformaflow/domain';
+import type {
+  JourneyDefinition,
+  JourneyStepOverride,
+  JourneyTriggerDefinition,
+  JourneyTriggerType,
+  ProjectType,
+  ResolvedJourneyStep,
+} from "@reformaflow/domain";
 
-/** Jornada resolvida de cada tipo de projeto, como a API devolve. */
-export type JourneyMap = Record<ProjectType, ResolvedJourneyStep[]>;
-
-/** Item do corpo do PUT `/admin/onboarding/journeys/:projectType`. */
-export interface JourneyStepPayload {
-  stepKey: string;
-  order: number;
-  enabled: boolean;
-  skippable: boolean;
-  label?: string;
-  subtitle?: string;
+export interface EditorJourney {
+  key: string;
+  name: string;
+  description: string;
+  steps: ResolvedJourneyStep[];
+  trigger: JourneyTriggerDefinition;
+  startsWhen: JourneyTriggerType;
 }
 
-/** Cores/rótulos da barra de tipos — o mesmo vocabulário do resto do admin. */
-export const PROJECT_TYPE_LABELS: Record<string, string> = {
-  PESSOAL: 'Pessoal',
-  REFORMA: 'Reforma',
-  COMPRA: 'Compra',
-  CASA: 'Casa',
-  CARRO: 'Carro',
-  PLANTAS: 'Plantas',
+export type JourneyDraftPatch = Partial<
+  Pick<EditorJourney, "name" | "description" | "trigger" | "startsWhen">
+>;
+
+export type JourneyStepPayload = JourneyStepOverride & { order: number };
+
+export const PROJECT_TYPE_LABELS: Record<ProjectType, string> = {
+  PESSOAL: "Pessoal",
+  REFORMA: "Reforma",
+  COMPRA: "Compra",
+  CASA: "Casa",
+  CARRO: "Carro",
+  PLANTAS: "Plantas",
 };
+
+export const TRIGGER_TYPE_LABELS: Record<JourneyTriggerType, string> = {
+  SIGNUP_COMPLETED: "Cadastro concluído",
+  PROJECT_CREATED: "Projeto criado",
+  SCREEN_VISIT: "Visita a uma tela",
+  ACTION: "Ação realizada",
+};
+
+export type JourneyDefinitionInput = JourneyDefinition;
