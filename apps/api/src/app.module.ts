@@ -44,6 +44,7 @@ import { FinancingModule } from './financing/financing.module';
 import { VehicleDocumentModule } from './vehicle-document/vehicle-document.module';
 import { PurchasePlannerModule } from './purchase-planner/purchase-planner.module';
 import { OnboardingJourneyModule } from './onboarding-journey/onboarding-journey.module';
+import { JourneysModule } from './journeys/journeys.module';
 import { ActivityLogInterceptor } from './common/interceptors/activity-log.interceptor';
 
 const UPLOADS_DIR = (() => {
@@ -95,6 +96,7 @@ const UPLOADS_DIR = (() => {
     FinancingModule,
     VehicleDocumentModule,
     PurchasePlannerModule,
+    JourneysModule,
     OnboardingJourneyModule,
   ],
   providers: [
