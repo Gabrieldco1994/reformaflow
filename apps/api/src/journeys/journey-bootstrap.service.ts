@@ -13,8 +13,14 @@ export class JourneyBootstrapService implements OnModuleInit {
     await this.bootstrap();
   }
 
-  async bootstrap(): Promise<void> {
-    for (const journey of Object.values(JOURNEY_CATALOG)) {
+  /**
+   * `catalog` existe como seam de teste: a suíte de persistência entre
+   * publishes precisa simular DOIS deploys com catálogos diferentes sem mutar
+   * o `JOURNEY_CATALOG` compartilhado (que vazaria entre suítes). Em produção
+   * é sempre o catálogo real.
+   */
+  async bootstrap(catalog: Record<string, JourneyDefinition> = JOURNEY_CATALOG): Promise<void> {
+    for (const journey of Object.values(catalog)) {
       const existing = await this.prisma.journey.findUnique({
         where: { key: journey.key },
         select: { id: true },
