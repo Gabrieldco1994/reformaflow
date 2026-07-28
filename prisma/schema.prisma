@@ -1138,3 +1138,124 @@ model OnboardingJourneyStep {
   @@unique([projectType, stepKey])
   @@map("onboarding_journey_steps")
 }
+
+// ─── Jornadas (fundação genérica — épico #338 Etapa A) ────────────────────
+// Sucessor de `OnboardingJourneyStep`: onde aquele modela SÓ o onboarding por
+// tipo de projeto, este modela N jornadas — cada uma com sua própria chave
+// (`Journey.key`, casa com `@reformaflow/domain#JOURNEY_CATALOG`), seus
+// passos ordenados (`JourneyStep`), seus gatilhos (`JourneyTrigger` — quando
+// ela nasce: pós-cadastro, pós-criação-de-projeto, visita a uma tela ou
+// execução de uma ação segura) e seu registro de conclusão por
+// usuário/projeto (`JourneyCompletion`).
+//
+// Escopo GLOBAL de propósito, como `OnboardingJourneyStep`: a DEFINIÇÃO da
+// jornada (nome, passos, gatilhos) vale para todos os tenants — só a
+// CONCLUSÃO (`JourneyCompletion`) é por tenant/usuário/projeto.
+//
+// `OnboardingJourneyStep` continua existindo nesta PR (compat legada); a
+// migração do onboarding para cima destas tabelas é uma fase futura.
+model Journey {
+  id          String    @id @default(cuid())
+  key         String    @unique // casa com `Journey.key` do domínio, ex.: "onboarding:PESSOAL"
+  name        String
+  description String?
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  triggers    JourneyTrigger[]
+  steps       JourneyStep[]
+  completions JourneyCompletion[]
+
+  @@map("journeys")
+}
+
+// Quando e onde uma jornada pode nascer. `triggerType` é um dos 4 valores de
+// `JOURNEY_TRIGGER_TYPES` (domínio): SIGNUP_COMPLETED, PROJECT_CREATED,
+// SCREEN_VISIT, ACTION. `screenKey`/`actionKey` só fazem sentido para o
+// triggerType correspondente (SCREEN_VISIT/ACTION) — nulos nos outros casos.
+model JourneyTrigger {
+  id     String @id @default(cuid())
+  journeyId String @map("journey_id")
+
+  triggerType String @map("trigger_type")
+
+  // `null` = jornada não restrita a um tipo de projeto (global).
+  targetProjectType String? @map("target_project_type")
+  // `null` = não amarrada a um projeto específico (qualquer um do tipo/global).
+  targetProjectId   String? @map("target_project_id")
+  // `true` = pode disparar a partir de um projeto e apontar/afetar outro
+  // (ex.: jornada do PESSOAL que orienta a vincular uma despesa da CASA).
+  crossProject      Boolean @default(false) @map("cross_project")
+
+  // Preenchido quando triggerType = SCREEN_VISIT (slug de `PROJECT_NAV`).
+  screenKey String? @map("screen_key")
+  // Preenchido quando triggerType = ACTION (token de `JOURNEY_SAFE_ACTIONS`).
+  actionKey String? @map("action_key")
+
+  device        String  @default("any") @map("device") // web | mobile | any
+  repeatPolicy   String  @default("ONCE_PER_USER") @map("repeat_policy")
+  dismissPolicy  String  @default("manual") @map("dismiss_policy") // manual | auto | none
+  active         Boolean @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  journey Journey @relation(fields: [journeyId], references: [id])
+
+  @@unique([journeyId, triggerType, targetProjectType, targetProjectId, screenKey, actionKey])
+  @@index([journeyId])
+  @@map("journey_triggers")
+}
+
+// Um passo ordenado dentro de uma jornada. `experience` é um dos 2 valores de
+// `JOURNEY_STEP_EXPERIENCES` (domínio): SUMMARY (resumida) ou FULL (completa).
+model JourneyStep {
+  id        String @id @default(cuid())
+  journeyId String @map("journey_id")
+
+  stepKey    String  @map("step_key")
+  order      Int
+  experience String  @default("FULL") @map("experience")
+  label      String
+  subtitle   String?
+  enabled    Boolean @default(true)
+  skippable  Boolean @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  journey Journey @relation(fields: [journeyId], references: [id])
+
+  @@unique([journeyId, stepKey])
+  @@index([journeyId])
+  @@map("journey_steps")
+}
+
+// Registro de conclusão/dispensa de uma jornada para um usuário/projeto. A
+// `completionKey` é a chave estável usada para checar "já concluiu?" sem
+// precisar recompor tenantId+userId+projectId toda vez (ex.:
+// `${tenantId}:${userId}:${projectId ?? 'none'}`).
+model JourneyCompletion {
+  id        String @id @default(cuid())
+  journeyId String @map("journey_id")
+
+  tenantId  String  @map("tenant_id")
+  userId    String? @map("user_id")
+  projectId String? @map("project_id")
+
+  completionKey String @map("completion_key")
+
+  completedAt DateTime? @map("completed_at")
+  dismissedAt DateTime? @map("dismissed_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  journey Journey @relation(fields: [journeyId], references: [id])
+
+  @@unique([journeyId, completionKey])
+  @@index([tenantId])
+  @@map("journey_completions")
+}
