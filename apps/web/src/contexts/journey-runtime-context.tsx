@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
@@ -14,14 +15,15 @@ import {
   completeJourney,
   getEligibleJourneys,
   listJourneyProjects,
-  type EligibleJourney,
   type EligibleJourneyStep,
   type JourneyEligibilityContext,
   type JourneyProject,
+  type RuntimeJourney,
+  normalizeJourney,
 } from "@/lib/journeys/runtime";
 
 interface ActiveJourney {
-  journey: EligibleJourney;
+  journey: RuntimeJourney;
   stepIndex: number;
   projectId?: string;
 }
@@ -87,11 +89,12 @@ export function JourneyRuntimeProvider({
   const pathname = usePathname();
   const router = useRouter();
   const [active, setActive] = useState<ActiveJourney | null>(null);
-  const [queue, setQueue] = useState<EligibleJourney[]>([]);
+  const [queue, setQueue] = useState<RuntimeJourney[]>([]);
   const [restored, setRestored] = useState(false);
   const [projects, setProjects] = useState<JourneyProject[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const completedKeys = useRef(new Set<string>());
 
   useEffect(() => {
     setActive(readStored());
@@ -108,8 +111,10 @@ export function JourneyRuntimeProvider({
       setLoading(true);
       setError(null);
       try {
-        const eligible = await getEligibleJourneys(context);
-        const [journey] = eligible;
+        const journeys = (await getEligibleJourneys(context))
+          .map(normalizeJourney)
+          .filter((journey) => !completedKeys.current.has(journey.key));
+        const [journey] = journeys;
         if (journey?.steps.length) {
           if (journey.crossProject) {
             void listJourneyProjects()
@@ -121,7 +126,7 @@ export function JourneyRuntimeProvider({
             stepIndex: 0,
             projectId: context.projectId,
           });
-          setQueue(eligible);
+          setQueue(journeys);
         }
       } catch {
         // The runtime is additive: an unavailable journey API must not break the app.
@@ -182,27 +187,28 @@ export function JourneyRuntimeProvider({
 
   const finish = useCallback(async () => {
     if (!active) return;
+    const completed = active;
+    completedKeys.current.add(completed.journey.key);
+    const nextJourney = queue[1];
+    if (nextJourney) {
+      setQueue((current) => current.slice(1));
+      setActive({
+        journey: nextJourney,
+        stepIndex: 0,
+        projectId: active.projectId,
+      });
+    } else {
+      setQueue([]);
+      setActive(null);
+    }
     try {
       await completeJourney(
-        active.journey.journeyId,
-        active.journey.triggerId,
-        active.projectId,
+        completed.journey.journeyId,
+        completed.journey.triggerId,
+        completed.projectId,
       );
     } catch {
       // Completion is best effort for the overlay; the next eligibility check remains authoritative.
-    } finally {
-      const nextJourney = queue[1];
-      if (nextJourney) {
-        setQueue((current) => current.slice(1));
-        setActive({
-          journey: nextJourney,
-          stepIndex: 0,
-          projectId: active.projectId,
-        });
-      } else {
-        setQueue([]);
-        setActive(null);
-      }
     }
   }, [active, queue]);
 
@@ -229,8 +235,15 @@ export function JourneyRuntimeProvider({
 
   const skip = useCallback(() => {
     if (!active) return;
-    if (active.journey.steps[active.stepIndex]?.skippable) next();
-  }, [active, next]);
+    const step = active.journey.steps[active.stepIndex];
+    if (!step?.skippable) return;
+    if (step.blocked) {
+      if (active.stepIndex >= active.journey.steps.length - 1) void finish();
+      else setActive({ ...active, stepIndex: active.stepIndex + 1 });
+      return;
+    }
+    next();
+  }, [active, finish, next]);
 
   const chooseProject = useCallback(
     (projectId: string) => {
@@ -305,6 +318,7 @@ function JourneyRuntimeOverlay() {
   return (
     <aside
       role="dialog"
+      data-journey-panel
       aria-modal="false"
       aria-label={`Jornada: ${active.journey.name}`}
       className="fixed inset-x-3 bottom-3 z-[70] mx-auto max-w-lg rounded-[18px] border border-lifeone-hairline bg-lifeone-card p-4 shadow-2xl"
@@ -312,9 +326,16 @@ function JourneyRuntimeOverlay() {
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wide text-lifeone-blue">
-            Jornada · {active.stepIndex + 1}/{active.journey.steps.length}
+            Jornada ·{" "}
+            <span data-journey-progress>
+              {active.stepIndex + 1}/{active.journey.steps.length}
+            </span>
           </p>
-          <h2 className="text-[17px] font-bold text-lifeone-ink">
+          <h2
+            data-journey-step={step.stepKey}
+            data-journey-experience={step.experience}
+            className="text-[17px] font-bold text-lifeone-ink"
+          >
             {step.label}
           </h2>
         </div>
@@ -336,6 +357,11 @@ function JourneyRuntimeOverlay() {
         </p>
       ) : (
         <p className="text-[13px] text-lifeone-ink-2">{step.subtitle}</p>
+      )}
+      {step.blocked && (
+        <p className="mt-3 text-[13px] text-lifeone-ink-2">
+          Esta etapa aguarda uma condição para continuar.
+        </p>
       )}
 
       {active.journey.crossProject && <ProjectPicker runtime={runtime} />}
@@ -361,6 +387,7 @@ function JourneyRuntimeOverlay() {
         <button
           type="button"
           onClick={runtime.next}
+          disabled={step.blocked}
           className="min-h-11 rounded-[10px] bg-lifeone-blue px-4 text-[13px] font-semibold text-white"
         >
           {active.stepIndex === active.journey.steps.length - 1
