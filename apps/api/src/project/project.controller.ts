@@ -71,6 +71,15 @@ export class ProjectController {
     return this.projectService.update(tenantId, id, dto);
   }
 
+  @Post(':id/complete-onboarding')
+  @ApiOperation({ summary: 'Marcar onboarding do projeto como concluído (1º acesso)' })
+  completeOnboarding(
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+  ) {
+    return this.projectService.completeOnboarding(tenantId, id);
+  }
+
   @Delete(':id')
   @Roles('ADMIN')
   @ApiOperation({ summary: 'Remover projeto (soft delete)' })
