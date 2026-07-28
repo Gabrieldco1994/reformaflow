@@ -5,6 +5,8 @@ import RegisterPage from "./page";
 
 const mocks = vi.hoisted(() => ({
   register: vi.fn(),
+  refresh: vi.fn(),
+  apiPost: vi.fn(),
   replace: vi.fn(),
 }));
 
@@ -12,8 +14,15 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mocks.replace }),
 }));
 vi.mock("@/contexts/auth-context", () => ({
-  useAuth: () => ({ register: mocks.register }),
+  useAuth: () => ({ register: mocks.register, refresh: mocks.refresh }),
 }));
+vi.mock("@/lib/api", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
+  return {
+    ...actual,
+    api: { ...actual.api, post: mocks.apiPost },
+  };
+});
 
 async function fillValidForm(browser: ReturnType<typeof userEvent.setup>) {
   await browser.type(screen.getByLabelText(/seu nome/i), "Maria");
@@ -41,8 +50,6 @@ describe("/register 3-field registration", () => {
     expect(screen.getByText(/veja se sobra ou falta/i)).toBeInTheDocument();
     expect(screen.getByText(/simule antes de gastar/i)).toBeInTheDocument();
     expect(screen.getByText(/projetos ilimitados/i)).toBeInTheDocument();
-    expect(screen.queryByText(/^casa$/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/^compra$/i)).not.toBeInTheDocument();
   });
 
   it("shows the 3-item trust row instead of the single privacy line", () => {
@@ -67,22 +74,24 @@ describe("/register form behavior", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.register.mockResolvedValue({ id: "u1" });
+    mocks.refresh.mockResolvedValue(undefined);
+    mocks.apiPost.mockResolvedValue({ id: "p1" });
   });
 
-  it("exposes name, email, and password fields only", () => {
+  it("exposes name, email, and password fields plus the objective picker", () => {
     render(<RegisterPage />);
 
     expect(screen.getByLabelText(/seu nome/i)).toBeRequired();
     expect(screen.getByLabelText(/email/i)).toBeRequired();
     expect(screen.getByLabelText(/^senha$/i)).toBeRequired();
-    
+
     expect(screen.queryByLabelText(/nome do seu espaço/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/usuário/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/confirmar senha/i)).not.toBeInTheDocument();
-    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /^Reformar/i })).toBeInTheDocument();
   });
 
-  it("submits 3-field payload and routes to the objective picker", async () => {
+  it("submits the payload with the chosen objectives, creates one project per type, and routes to /projects", async () => {
     let finishRegistration!: (value: { id: string }) => void;
     mocks.register.mockImplementationOnce(
       () => new Promise((resolve) => { finishRegistration = resolve; }),
@@ -90,6 +99,7 @@ describe("/register form behavior", () => {
     const browser = userEvent.setup();
     render(<RegisterPage />);
     await fillValidForm(browser);
+    await browser.click(screen.getByRole("checkbox", { name: /^Reformar/i }));
 
     const submit = screen.getByRole("button", { name: /criar minha conta/i });
     await browser.click(submit);
@@ -101,11 +111,34 @@ describe("/register form behavior", () => {
       ownerName: "Maria",
       email: "maria@example.com",
       password: "segredo1",
+      projectTypes: ["REFORMA"],
     }, expect.any(String));
     finishRegistration({ id: "u1" });
-    await waitFor(() =>
-      expect(mocks.replace).toHaveBeenCalledWith("/onboarding/objetivos"),
+
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/projects", {
+      name: "Minha reforma",
+      type: "REFORMA",
+    }));
+    await waitFor(() => expect(mocks.refresh).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/projects"));
+  });
+
+  it("creates one project per selected objective, sequentially", async () => {
+    const browser = userEvent.setup();
+    render(<RegisterPage />);
+    await fillValidForm(browser);
+    await browser.click(screen.getByRole("checkbox", { name: /^Reformar/i }));
+    await browser.click(screen.getByRole("checkbox", { name: /^Cuidar da casa/i }));
+    await browser.click(screen.getByRole("button", { name: /criar minha conta/i }));
+
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledTimes(2));
+    expect(mocks.apiPost).toHaveBeenNthCalledWith(1, "/projects", { name: "Minha reforma", type: "REFORMA" });
+    expect(mocks.apiPost).toHaveBeenNthCalledWith(2, "/projects", { name: "Minha casa", type: "CASA" });
+    expect(mocks.register).toHaveBeenCalledWith(
+      expect.objectContaining({ projectTypes: ["REFORMA", "CASA"] }),
+      expect.any(String),
     );
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/projects"));
   });
 
   it("validates name minimum length", async () => {
@@ -113,6 +146,7 @@ describe("/register form behavior", () => {
     render(<RegisterPage />);
     await browser.type(screen.getByLabelText(/email/i), "test@example.com");
     await browser.type(screen.getByLabelText(/^senha$/i), "segredo1");
+    await browser.click(screen.getByRole("checkbox", { name: /^Reformar/i }));
     await browser.click(screen.getByRole("button", { name: /criar minha conta/i }));
 
     expect(mocks.register).not.toHaveBeenCalled();
@@ -125,6 +159,7 @@ describe("/register form behavior", () => {
     await browser.type(screen.getByLabelText(/seu nome/i), "Maria");
     await browser.type(screen.getByLabelText(/email/i), "invalid");
     await browser.type(screen.getByLabelText(/^senha$/i), "segredo1");
+    await browser.click(screen.getByRole("checkbox", { name: /^Reformar/i }));
     await browser.click(screen.getByRole("button", { name: /criar minha conta/i }));
 
     expect(mocks.register).not.toHaveBeenCalled();
@@ -137,10 +172,21 @@ describe("/register form behavior", () => {
     await browser.type(screen.getByLabelText(/seu nome/i), "Maria");
     await browser.type(screen.getByLabelText(/email/i), "maria@example.com");
     await browser.type(screen.getByLabelText(/^senha$/i), "short");
+    await browser.click(screen.getByRole("checkbox", { name: /^Reformar/i }));
     await browser.click(screen.getByRole("button", { name: /criar minha conta/i }));
 
     expect(mocks.register).not.toHaveBeenCalled();
     expect(screen.getByText(/crie uma senha com pelo menos 8 caracteres/i)).toBeInTheDocument();
+  });
+
+  it("requires at least one objective to be selected", async () => {
+    const browser = userEvent.setup();
+    render(<RegisterPage />);
+    await fillValidForm(browser);
+    await browser.click(screen.getByRole("button", { name: /criar minha conta/i }));
+
+    expect(mocks.register).not.toHaveBeenCalled();
+    expect(screen.getByText(/escolha ao menos um objetivo para continuar/i)).toBeInTheDocument();
   });
 
   it("prevents double submission", async () => {
@@ -148,6 +194,7 @@ describe("/register form behavior", () => {
     const browser = userEvent.setup();
     render(<RegisterPage />);
     await fillValidForm(browser);
+    await browser.click(screen.getByRole("checkbox", { name: /^Reformar/i }));
     const submit = screen.getByRole("button", { name: /criar minha conta/i });
     await browser.click(submit);
     await browser.click(submit);
@@ -161,6 +208,7 @@ describe("/register form behavior", () => {
     const browser = userEvent.setup();
     render(<RegisterPage />);
     await fillValidForm(browser);
+    await browser.click(screen.getByRole("checkbox", { name: /^Reformar/i }));
     await browser.click(screen.getByRole("button", { name: /criar minha conta/i }));
 
     await waitFor(() => expect(mocks.register).toHaveBeenCalledTimes(1));

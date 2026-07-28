@@ -23,7 +23,7 @@ export default function RegisterPage() {
             <RegisterHero.Intro />
           </div>
 
-          <div className="lg:col-start-1 lg:row-start-2">
+          <div className="hidden lg:col-start-1 lg:row-start-2 lg:block">
             <RegisterHero.Maria />
           </div>
 
@@ -37,11 +37,11 @@ export default function RegisterPage() {
             </div>
           </div>
 
-          <div className="lg:col-start-1 lg:row-start-3">
+          <div className="hidden lg:col-start-1 lg:row-start-3 lg:block">
             <RegisterHero.Benefits />
           </div>
 
-          <div className="lg:col-start-1 lg:row-start-4">
+          <div className="hidden lg:col-start-1 lg:row-start-4 lg:block">
             <RegisterHero.Trust />
           </div>
         </div>

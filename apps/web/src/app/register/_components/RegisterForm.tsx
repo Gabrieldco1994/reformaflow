@@ -3,7 +3,10 @@
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
-import { ApiResponseError } from '@/lib/api';
+import { ApiResponseError, api } from '@/lib/api';
+import { ObjectiveSelector } from '@/components/objectives/ObjectiveSelector';
+import { type ObjectiveType } from '@/components/objectives/objective-options';
+import { PROJECT_ONBOARDING_COPY } from '@/app/onboarding/setup/_lib/project-copy';
 
 const fieldClass =
   'min-h-11 w-full rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-3.5 py-2.5 text-[14px] text-lifeone-ink placeholder:text-lifeone-ink-4 focus:border-lifeone-blue focus:outline-none focus:ring-2 focus:ring-lifeone-blue/25';
@@ -15,11 +18,12 @@ function newIdempotencyKey() {
 
 export function RegisterForm() {
   const router = useRouter();
-  const { register } = useAuth();
+  const { register, refresh } = useAuth();
   const [ownerName, setOwnerName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [selectedTypes, setSelectedTypes] = useState<ObjectiveType[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const errorRef = useRef<HTMLDivElement>(null);
@@ -30,6 +34,7 @@ export function RegisterForm() {
     if (ownerName.trim().length < 2) return 'Informe seu nome.';
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return 'Informe um email válido.';
     if (password.length < 8) return 'Crie uma senha com pelo menos 8 caracteres.';
+    if (selectedTypes.length === 0) return 'Escolha ao menos um objetivo para continuar.';
     return null;
   }
 
@@ -51,10 +56,18 @@ export function RegisterForm() {
           ownerName: ownerName.trim(),
           email: email.trim(),
           password,
+          projectTypes: selectedTypes,
         },
         idempotencyKey.current,
       );
-      router.replace('/onboarding/objetivos');
+      for (const type of selectedTypes) {
+        await api.post('/projects', {
+          name: PROJECT_ONBOARDING_COPY[type].defaultName,
+          type,
+        });
+      }
+      await refresh();
+      router.replace('/projects');
     } catch (caught) {
       if (caught instanceof ApiResponseError) idempotencyKey.current = newIdempotencyKey();
       setError(caught instanceof Error ? caught.message : 'Não foi possível criar sua conta. Tente novamente.');
@@ -110,6 +123,11 @@ export function RegisterForm() {
             </button>
           </div>
         </div>
+      </div>
+
+      <div className="mt-6">
+        <p className="text-[12px] font-medium text-lifeone-ink-2">O que você quer organizar?</p>
+        <ObjectiveSelector selected={selectedTypes} onChange={setSelectedTypes} disabled={submitting} />
       </div>
 
       <button type="submit" disabled={submitting} className="mt-6 flex min-h-11 w-full items-center justify-center rounded-[10px] bg-lifeone-blue px-4 py-3 text-[14px] font-semibold text-white shadow-lifeone-card transition-transform hover:brightness-95 active:scale-[0.99] disabled:cursor-wait disabled:opacity-60 motion-reduce:transition-none">
