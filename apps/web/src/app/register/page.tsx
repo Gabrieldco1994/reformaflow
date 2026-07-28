@@ -5,9 +5,9 @@ import { RegisterForm } from './_components/RegisterForm';
 
 export default function RegisterPage() {
   return (
-    <main className="min-h-screen bg-lifeone-canvas px-4 py-8 font-geist sm:px-6 sm:py-12">
-      <div className="mx-auto w-full max-w-md lg:max-w-none lg:w-[clamp(896px,90vw,1560px)]">
-        <header className="mb-8 flex items-center justify-between gap-4">
+    <main className="flex min-h-screen flex-col bg-lifeone-canvas px-4 py-6 font-geist sm:px-6 sm:py-10">
+      <div className="mx-auto w-full max-w-md lg:my-auto lg:max-w-none lg:w-[clamp(960px,90vw,1280px)]">
+        <header className="mb-6 flex items-center justify-between gap-4">
           <LifeOneLogo compact />
           <Link href="/login" className="flex min-h-11 items-center rounded-[10px] border border-lifeone-hairline bg-white px-4 text-[13px] font-semibold text-lifeone-blue shadow-lifeone-card hover:bg-lifeone-blue/5">
             Entrar
@@ -23,20 +23,24 @@ export default function RegisterPage() {
           flex independente (não é grid com row-span dividindo espaço com
           itens de 1 linha — isso é o que abria os buracos entre eles antes).
 
-          Container fluido: `clamp(896px, 90vw, 1560px)` (um único salto
-          fixo de largura, tipo max-w-4xl->max-w-6xl, NÃO escala a partir
-          daí — em 1920px a folga de fundo batia ~39%, sensação de "sobra
-          muito espaço"). Com o clamp a folga de fundo fica estável em
-          ~10% até a largura teoricamente crescer além do teto de 1560px,
-          onde estabiliza em ~19% (medido em 1920px) — dentro da faixa de
-          ~15-20% pedida, sem deixar o card do form minúsculo em telas
-          grandes.
-          Coluna do form: `clamp(480px, 32vw, 560px)` cresce junto com o
-          container (não fica presa em 480px fixo) mas com teto em 560px
-          pra não esticar demais os inputs (320-560px é a faixa confortável
-          de leitura/uso; 600px já começa a prejudicar).
+          Container ESTREITA (`clamp(960px, 90vw, 1280px)`, era 1560px).
+          As tentativas anteriores alargaram o container achando que a
+          sobra estava nas laterais da página — não estava: o vazio era
+          DENTRO da coluna esquerda. Com 1560px a coluna do hero chegava a
+          ~952px enquanto o texto dela é capado em 46ch (~430px), ou seja
+          ~520px de buraco interno. Teto em 1280px mantém a coluna do hero
+          próxima da largura que o texto realmente ocupa.
+          Coluna do form: `clamp(440px, 36vw, 520px)` — proporção maior do
+          total (36vw) justamente porque o container encolheu, com teto em
+          520px pra não esticar demais os inputs.
+          `lg:items-start` saiu de propósito: as duas colunas esticam pra
+          mesma altura e o bloco de Confiança usa `lg:mt-auto` pra
+          encostar no mesmo rodapé do card do form.
+          Centragem vertical via `my-auto` no container (+ `flex flex-col`
+          no main), NÃO `justify-center`: com justify-center o topo é
+          cortado quando o conteúdo estoura a viewport.
         */}
-        <div className="lg:grid lg:grid-cols-[1fr_clamp(480px,32vw,560px)] lg:items-start lg:gap-12">
+        <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_clamp(440px,36vw,520px)] lg:gap-14">
           <div className="mb-5 lg:mb-0 lg:flex lg:flex-col lg:gap-7">
             <RegisterHero.Intro />
             <div className="hidden lg:block">
@@ -45,7 +49,7 @@ export default function RegisterPage() {
             <div className="hidden lg:block">
               <RegisterHero.Benefits />
             </div>
-            <div className="hidden lg:block">
+            <div className="hidden lg:mt-auto lg:block">
               <RegisterHero.Trust />
             </div>
           </div>

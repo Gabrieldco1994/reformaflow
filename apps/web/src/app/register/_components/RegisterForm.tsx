@@ -78,8 +78,8 @@ export function RegisterForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate aria-busy={submitting} className="rounded-[22px] border border-lifeone-hairline bg-lifeone-card p-6 shadow-lifeone-card sm:p-8">
-      <h1 className="text-[27px] font-bold leading-tight tracking-[-0.035em] text-lifeone-ink sm:text-[32px]">Criar conta grátis</h1>
+    <form onSubmit={handleSubmit} noValidate aria-busy={submitting} className="rounded-[22px] border border-lifeone-hairline bg-lifeone-card p-5 shadow-lifeone-card sm:p-7">
+      <h1 className="text-[24px] font-bold leading-tight tracking-[-0.035em] text-lifeone-ink sm:text-[28px]">Criar conta grátis</h1>
       <p className="mt-2 text-[14px] leading-relaxed text-lifeone-ink-3">Leva menos de 1 minuto.</p>
 
       {error && (
@@ -89,7 +89,7 @@ export function RegisterForm() {
         </div>
       )}
 
-      <div className="mt-6 space-y-4">
+      <div className="mt-5 space-y-4">
         <div>
           <label htmlFor="ownerName" className="mb-1.5 block text-[12px] font-medium text-lifeone-ink-2">Seu nome</label>
           <input id="ownerName" name="ownerName" autoComplete="name" required minLength={2} value={ownerName} onChange={(event) => setOwnerName(event.target.value)} className={fieldClass} />
@@ -125,14 +125,15 @@ export function RegisterForm() {
         </div>
       </div>
 
-      <div className="mt-6">
+      <div className="mt-5">
         <p className="text-[12px] font-medium text-lifeone-ink-2">O que você quer organizar?</p>
-        {/* compact: este form vive numa coluna fixa de 420px mesmo em telas
-            grandes — o card "cheio" (com descrição) fica espremido ali. */}
+        {/* compact: grade de chips de 2 colunas — o card "cheio" (com
+            descrição) ocupava ~43% da altura do form e jogava o submit
+            pra baixo da dobra. */}
         <ObjectiveSelector selected={selectedTypes} onChange={setSelectedTypes} disabled={submitting} compact />
       </div>
 
-      <button type="submit" disabled={submitting} className="mt-6 flex min-h-11 w-full items-center justify-center rounded-[10px] bg-lifeone-blue px-4 py-3 text-[14px] font-semibold text-white shadow-lifeone-card transition-transform hover:brightness-95 active:scale-[0.99] disabled:cursor-wait disabled:opacity-60 motion-reduce:transition-none">
+      <button type="submit" disabled={submitting} className="mt-5 flex min-h-11 w-full items-center justify-center rounded-[10px] bg-lifeone-blue px-4 py-3 text-[14px] font-semibold text-white shadow-lifeone-card transition-transform hover:brightness-95 active:scale-[0.99] disabled:cursor-wait disabled:opacity-60 motion-reduce:transition-none">
         {submitting ? 'Criando sua conta…' : 'Criar minha conta grátis'}
       </button>
     </form>

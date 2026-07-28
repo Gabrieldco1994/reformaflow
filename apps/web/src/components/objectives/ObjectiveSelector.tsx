@@ -8,11 +8,10 @@ interface ObjectiveSelectorProps {
   disabled?: boolean;
   legend?: string;
   /**
-   * Lista vertical de linhas (ícone + rótulo, 1 por linha) em vez dos
-   * cartões 2 colunas com descrição. Usar onde o seletor mora numa coluna de
-   * largura fixa e estreita (ex.: /register, 420px) — lá os cartões restritos
-   * ficavam com rótulos longos espremidos e os curtos com vazio sobrando,
-   * porque o grid estica todo mundo da mesma linha pra mesma altura.
+   * Grade compacta de 2 colunas (chip: ícone + rótulo curto, sem descrição)
+   * em vez dos cartões altos com descrição. Usar onde o seletor mora numa
+   * coluna estreita e a altura é cara (ex.: /register, onde o seletor
+   * empurrava o botão de submit pra baixo da dobra).
    */
   compact?: boolean;
 }
@@ -38,7 +37,12 @@ export function ObjectiveSelector({
     return (
       <fieldset disabled={disabled} className="min-w-0">
         <legend className="sr-only">{legend}</legend>
-        <div className="mt-4 flex flex-col gap-2" data-testid="objective-constellation">
+        {/* 1 coluna no mobile, 2 só no desktop: a 390px cada chip de uma
+            grade 2x sobra ~110px de texto e "Organizar minha vida
+            financeira" quebra em 3 linhas, deixando as linhas da grade com
+            alturas desiguais. No desktop a coluna do form tem ~518px, aí
+            2 colunas cabem em no máximo 2 linhas. */}
+        <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-2" data-testid="objective-constellation">
           {OBJECTIVE_TYPES.map((type) => {
             const details = OBJECTIVE_DETAILS[type];
             const accent = typeAccent(type);
@@ -47,9 +51,9 @@ export function ObjectiveSelector({
             return (
               <label
                 key={type}
-                className={`flex min-h-11 cursor-pointer items-center gap-3 rounded-[12px] border-2 bg-lifeone-card px-3 py-2.5 transition-[border-color,box-shadow] motion-reduce:transition-none ${
+                className={`flex min-h-11 cursor-pointer items-center gap-2.5 rounded-[12px] border-2 bg-lifeone-card px-2.5 py-2 transition-[border-color,box-shadow] focus-within:ring-2 focus-within:ring-lifeone-blue/30 motion-reduce:transition-none ${
                   checked
-                    ? 'border-lifeone-blue shadow-lifeone-card'
+                    ? 'border-lifeone-blue bg-lifeone-info shadow-lifeone-card'
                     : 'border-lifeone-hairline hover:border-lifeone-ink-4'
                 } ${disabled ? 'cursor-not-allowed opacity-60' : ''}`}
               >
@@ -60,14 +64,16 @@ export function ObjectiveSelector({
                   checked={checked}
                   onChange={() => toggle(type)}
                   aria-describedby={descriptionId}
-                  className="h-5 w-5 shrink-0 rounded border-lifeone-hairline text-lifeone-blue accent-[#0A6CF0]"
+                  className="sr-only"
                 />
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px]" style={{ backgroundColor: accent.fill }}>
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[10px]" style={{ backgroundColor: accent.fill }}>
                   <TypeIcon type={type} className="h-4 w-4" style={{ color: accent.color }} />
                 </span>
-                <span className="min-w-0 flex-1 text-[13.5px] font-semibold leading-snug text-lifeone-ink">{details.label}</span>
+                <span className="min-w-0 flex-1 text-[13px] font-semibold leading-snug text-lifeone-ink">{details.label}</span>
                 <span id={descriptionId} className="sr-only">{details.description}</span>
-                {checked && <Check className="h-5 w-5 shrink-0 text-lifeone-blue" aria-hidden="true" />}
+                <span className="h-4 w-4 shrink-0">
+                  {checked && <Check className="h-4 w-4 text-lifeone-blue" aria-hidden="true" />}
+                </span>
               </label>
             );
           })}
