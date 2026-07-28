@@ -36,11 +36,26 @@ export const metadata: Metadata = {
   title: 'LifeOne — SaaS de gestão Financeira e Vida',
   description: 'Gestão financeira e de vida: controle seus projetos, contas, metas e o dia a dia em um só lugar',
   icons: {
-    icon: '/lifeone-mark.svg',
-    shortcut: '/lifeone-mark.svg',
-    apple: '/lifeone-mark.svg',
+    // SVG primeiro (nítido em qualquer densidade) com PNGs de fallback: o
+    // Safari não usa SVG como ícone de tela inicial.
+    icon: [
+      { url: '/lifeone-mark.svg', type: 'image/svg+xml' },
+      { url: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icon-512.png', sizes: '512x512', type: 'image/png' },
+    ],
+    shortcut: '/icon-192.png',
+    // O iOS ignora SVG aqui e cai num screenshot borrado da página. Precisa
+    // ser PNG opaco e sangrando até a borda — o próprio iOS arredonda.
+    apple: '/apple-touch-icon.png',
   },
   manifest: '/manifest.json',
+  // Instalado na tela inicial: abre sem a barra do Safari e usa este nome
+  // embaixo do ícone (sem isso, vira o <title> inteiro, que é comprido).
+  appleWebApp: {
+    capable: true,
+    title: 'LifeOne',
+    statusBarStyle: 'default',
+  },
 };
 
 export const viewport: Viewport = {

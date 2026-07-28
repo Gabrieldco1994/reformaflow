@@ -48,5 +48,16 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|uploads).*)'],
+  // Além dos internos do Next, exclui assets estáticos por extensão. Sem isso
+  // TUDO que mora em `public/` cai no guard de sessão e responde 307 → /login:
+  // era o caso de `manifest.json` e dos ícones do PWA, que o navegador busca
+  // antes de qualquer login e, redirecionados, inviabilizam a instalação na
+  // tela inicial. Era também por isso que `skin-mobile-base.css` e
+  // `hero-cockpit-mobile.png` precisaram ser listados um a um em PUBLIC_PATHS.
+  //
+  // `.html` fica DE FORA da lista de propósito: os protótipos em `public/`
+  // (app-*.html, cockpit-*.html) continuam exigindo sessão.
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|uploads|.*\\.(?:png|jpg|jpeg|gif|webp|avif|svg|ico|css|js|map|woff|woff2|ttf|otf|json|txt|xml)$).*)',
+  ],
 };
