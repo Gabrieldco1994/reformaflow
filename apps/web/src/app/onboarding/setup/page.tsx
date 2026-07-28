@@ -1,9 +1,10 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ProjectType, type ResolvedJourneyStep } from '@reformaflow/domain';
 import type { OnboardingFunding } from '@reformaflow/domain';
+import { api } from '@/lib/api';
 import { LifeOneLogo } from '@/components/LifeOneLogo';
 import { ProjectProvider } from '@/contexts/project-context';
 import { ProgressDots } from './_components/ProgressDots';
@@ -116,8 +117,18 @@ function OnboardingSetupForm() {
     setStepIdx((i) => Math.max(0, i - 1));
   }, []);
 
+  const completedOnboardingRef = useRef(false);
+
   useEffect(() => {
     if (stepIdx === steps.length - 1 && projectId && type) {
+      // Fire-and-forget: o onboarding é a primeira experiência da pessoa no
+      // produto — nunca travar (ou atrasar) o redirect por causa de uma
+      // chamada de rede (mesma filosofia de useJourney.ts). O guard em ref
+      // evita chamada duplicada caso este efeito re-rode antes do timer.
+      if (!completedOnboardingRef.current) {
+        completedOnboardingRef.current = true;
+        api.post(`/projects/${projectId}/complete-onboarding`, {}).catch(() => {});
+      }
       const timer = setTimeout(() => {
         router.replace(getProjectHomePath(projectId, type));
       }, 1500);

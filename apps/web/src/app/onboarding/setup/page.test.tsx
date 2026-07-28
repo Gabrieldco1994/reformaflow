@@ -107,6 +107,7 @@ describe('OnboardingSetupPage', () => {
     await skipEverything(user, type);
 
     await screen.findByText(/tudo pronto/i);
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith('/projects/proj-1/complete-onboarding', {}));
     vi.advanceTimersByTime(1500);
 
     await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith(expectedHome));
