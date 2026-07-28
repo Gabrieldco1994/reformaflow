@@ -36,10 +36,12 @@ function RegisterHeroIntro() {
         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-lifeone-success" aria-hidden="true" />
         Comece grátis em 1 minuto
       </p>
-      <h2 className="mt-3 text-[27px] font-bold leading-tight tracking-[-0.035em] text-lifeone-ink sm:text-[34px]">
+      <h2 className="mt-3 text-[22px] font-bold leading-tight tracking-[-0.035em] text-lifeone-ink lg:text-[34px]">
         Controle, planeje tudo em um só app
       </h2>
-      <p className="mt-3 text-[15px] leading-relaxed text-lifeone-ink-2">
+      {/* Descrição só no desktop — no mobile o Maria/Benefícios/Confiança
+          já ficam escondidos, então esse parágrafo só ocuparia espaço. */}
+      <p className="mt-3 hidden text-[15px] leading-relaxed text-lifeone-ink-2 lg:block">
         Dinheiro, reformas, manutenções, casa, carro, qualquer tipo de projeto num só lugar. Use a Maria,
         que te ajuda a controlar e planejar de forma inteligente.
       </p>

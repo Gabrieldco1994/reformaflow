@@ -15,19 +15,29 @@ export default function RegisterPage() {
         </header>
 
         {/*
-          Mobile: single column, natural DOM order (Intro -> Maria -> Form -> Benefits -> Trust).
-          Desktop: two independent columns via explicit grid placement (form fixed on the right).
+          Intro renderiza 1x só (o próprio componente esconde a descrição
+          longa abaixo de `lg`) — nada de duplicar o mesmo bloco pra
+          mobile/desktop, senão os testes (jsdom não aplica media query)
+          encontram o texto 2x.
+          Maria/Benefícios/Confiança só aparecem no desktop, numa coluna
+          flex independente (não é grid com row-span dividindo espaço com
+          itens de 1 linha — isso é o que abria os buracos entre eles antes).
         */}
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_420px] lg:auto-rows-min lg:items-start lg:gap-x-10 lg:gap-y-8">
-          <div className="lg:col-start-1 lg:row-start-1">
+        <div className="lg:grid lg:grid-cols-[1fr_420px] lg:items-start lg:gap-10">
+          <div className="mb-5 lg:mb-0 lg:flex lg:flex-col lg:gap-7">
             <RegisterHero.Intro />
+            <div className="hidden lg:block">
+              <RegisterHero.Maria />
+            </div>
+            <div className="hidden lg:block">
+              <RegisterHero.Benefits />
+            </div>
+            <div className="hidden lg:block">
+              <RegisterHero.Trust />
+            </div>
           </div>
 
-          <div className="hidden lg:col-start-1 lg:row-start-2 lg:block">
-            <RegisterHero.Maria />
-          </div>
-
-          <div className="lg:col-start-2 lg:row-start-1 lg:row-span-4">
+          <div>
             <RegisterForm />
             <p className="mt-3 text-center text-[11.5px] text-lifeone-ink-4">
               Ao criar a conta você concorda com os Termos e a Política de Privacidade.
@@ -35,14 +45,6 @@ export default function RegisterPage() {
             <div className="mt-4">
               <RegisterHero.SocialProof />
             </div>
-          </div>
-
-          <div className="hidden lg:col-start-1 lg:row-start-3 lg:block">
-            <RegisterHero.Benefits />
-          </div>
-
-          <div className="hidden lg:col-start-1 lg:row-start-4 lg:block">
-            <RegisterHero.Trust />
           </div>
         </div>
       </div>

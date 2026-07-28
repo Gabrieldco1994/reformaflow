@@ -127,7 +127,9 @@ export function RegisterForm() {
 
       <div className="mt-6">
         <p className="text-[12px] font-medium text-lifeone-ink-2">O que você quer organizar?</p>
-        <ObjectiveSelector selected={selectedTypes} onChange={setSelectedTypes} disabled={submitting} />
+        {/* compact: este form vive numa coluna fixa de 420px mesmo em telas
+            grandes — o card "cheio" (com descrição) fica espremido ali. */}
+        <ObjectiveSelector selected={selectedTypes} onChange={setSelectedTypes} disabled={submitting} compact />
       </div>
 
       <button type="submit" disabled={submitting} className="mt-6 flex min-h-11 w-full items-center justify-center rounded-[10px] bg-lifeone-blue px-4 py-3 text-[14px] font-semibold text-white shadow-lifeone-card transition-transform hover:brightness-95 active:scale-[0.99] disabled:cursor-wait disabled:opacity-60 motion-reduce:transition-none">
