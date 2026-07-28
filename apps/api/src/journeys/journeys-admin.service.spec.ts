@@ -93,9 +93,20 @@ interface PrismaMock {
   };
   journeyTrigger: {
     findMany: AnyFn;
+    findFirst: AnyFn;
     create: AnyFn;
     createMany: AnyFn;
-    upsert: AnyFn;
+    update: AnyFn;
+    // Deliberadamente SEM `upsert`: a chave natural de `JourneyTrigger` tem
+    // 4 campos nullable (`targetProjectType`/`targetProjectId`/`screenKey`/
+    // `actionKey`) e o `WhereUniqueInput` compound que o Prisma Client REAL
+    // gera para essa tupla exige `string`, não `string | null` — passar
+    // `null` ali só "funcionava" no mock antigo porque ele fazia igualdade
+    // de JS, não refletia a rejeição real do Prisma. Se a implementação
+    // regredir para `tx.journeyTrigger.upsert(...)`, este mock explode com
+    // "is not a function" e o teste falha alto, do mesmo jeito que o
+    // comentário sobre `.delete()` no topo do arquivo já garante para
+    // deleção física.
   };
   project: { findFirst: AnyFn };
   $transaction: AnyFn;
@@ -189,6 +200,23 @@ function makePrismaMock(
         .mockImplementation(({ where }: any) =>
           Promise.resolve(triggers.filter((t) => t.journeyId === where.journeyId)),
         ),
+      // Filtro por campos simples — inclusive `null` nos 4 opcionais — é
+      // exatamente o que o Prisma Client real aceita para esses campos
+      // (`StringNullableFilter | string | null`). Isso é o que substitui o
+      // `upsert` de chave composta que não existe mais aqui.
+      findFirst: jest.fn().mockImplementation(({ where }: any) =>
+        Promise.resolve(
+          triggers.find(
+            (t) =>
+              t.journeyId === where.journeyId &&
+              t.triggerType === where.triggerType &&
+              t.targetProjectType === where.targetProjectType &&
+              t.targetProjectId === where.targetProjectId &&
+              t.screenKey === where.screenKey &&
+              t.actionKey === where.actionKey,
+          ) ?? null,
+        ),
+      ),
       create: jest.fn().mockImplementation(({ data }: any) => {
         const row: JourneyTriggerRow = { id: nextId('trigger'), ...data };
         triggers.push(row);
@@ -199,24 +227,9 @@ function makePrismaMock(
         triggers.push(...rows);
         return Promise.resolve({ count: rows.length });
       }),
-      upsert: jest.fn().mockImplementation(({ where, create, update }: any) => {
-        const key =
-          where.journeyId_triggerType_targetProjectType_targetProjectId_screenKey_actionKey;
-        const existing = triggers.find(
-          (t) =>
-            t.journeyId === key.journeyId &&
-            t.triggerType === key.triggerType &&
-            t.targetProjectType === key.targetProjectType &&
-            t.targetProjectId === key.targetProjectId &&
-            t.screenKey === key.screenKey &&
-            t.actionKey === key.actionKey,
-        );
-        if (existing) {
-          Object.assign(existing, update);
-          return Promise.resolve(existing);
-        }
-        const row: JourneyTriggerRow = { id: nextId('trigger'), ...create };
-        triggers.push(row);
+      update: jest.fn().mockImplementation(({ where, data }: any) => {
+        const row = triggers.find((t) => t.id === where.id)!;
+        Object.assign(row, data);
         return Promise.resolve(row);
       }),
     },
@@ -1030,6 +1043,131 @@ describe('JourneysAdminService', () => {
         NotFoundException,
       );
       expect(prisma.journey.update).not.toHaveBeenCalled();
+    });
+
+    // Regressão: `JourneyTrigger.@@unique([journeyId, triggerType,
+    // targetProjectType, targetProjectId, screenKey, actionKey])` tem 4
+    // campos nullable. O Prisma Client REAL gera o `WhereUniqueInput`
+    // compound dessa tupla exigindo `string` (não `string | null`) em cada
+    // um deles — um `upsert` com esse `where` composto e algum campo `null`
+    // rejeita em runtime (só "passava" no código antigo com um `as any` que
+    // escondia o erro de tipo, não o de execução). O mock acima reflete
+    // isso: não existe mais `journeyTrigger.upsert`, só `findFirst` +
+    // `create`/`update` — se a implementação regredir para `upsert` com a
+    // chave composta, `prisma.journeyTrigger.upsert` explode com "is not a
+    // function" e este teste (e todos os outros que passam por
+    // `triggerPatches`) falha alto.
+    it('resolves an existing trigger whose natural key has null fields via findFirst+update (never upsert on the compound key)', async () => {
+      const existingTrigger = minimalTrigger({
+        id: 't1',
+        journeyId: 'j1',
+        triggerType: 'PROJECT_CREATED',
+        targetProjectType: ProjectType.PESSOAL,
+        targetProjectId: null,
+        screenKey: null,
+        actionKey: null,
+        active: true,
+      }) as any;
+      await build({
+        journeys: [
+          {
+            id: 'j1',
+            key: 'a',
+            name: 'A',
+            description: null,
+            active: true,
+            deletedAt: null,
+          },
+        ],
+        steps: [],
+        triggers: [existingTrigger],
+      });
+
+      const result = await service.update('j1', {
+        triggers: [
+          {
+            triggerType: 'PROJECT_CREATED',
+            targetProjectType: ProjectType.PESSOAL,
+            active: false,
+          },
+        ],
+      } as any);
+
+      // Encontrou a linha existente com filtros simples (inclusive `null`
+      // explícito nos campos opcionais) — nunca um `where` de chave
+      // composta.
+      expect(prisma.journeyTrigger.findFirst).toHaveBeenCalledWith({
+        where: {
+          journeyId: 'j1',
+          triggerType: 'PROJECT_CREATED',
+          targetProjectType: ProjectType.PESSOAL,
+          targetProjectId: null,
+          screenKey: null,
+          actionKey: null,
+        },
+      });
+      // Atualizou a linha existente (por `id`) em vez de duplicar.
+      expect(prisma.journeyTrigger.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 't1' } }),
+      );
+      expect(prisma.journeyTrigger.create).not.toHaveBeenCalled();
+      expect(prisma._triggers).toHaveLength(1);
+      expect(result.triggers).toHaveLength(1);
+      expect(result.triggers[0]).toMatchObject({ id: 't1', active: false });
+    });
+
+    it('creates a brand-new trigger (does not match the existing natural key) via create, not upsert', async () => {
+      const existingTrigger = minimalTrigger({
+        id: 't1',
+        journeyId: 'j1',
+        triggerType: 'PROJECT_CREATED',
+        targetProjectType: ProjectType.PESSOAL,
+        targetProjectId: null,
+        screenKey: null,
+        actionKey: null,
+      }) as any;
+      await build({
+        journeys: [
+          {
+            id: 'j1',
+            key: 'a',
+            name: 'A',
+            description: null,
+            active: true,
+            deletedAt: null,
+          },
+        ],
+        steps: [],
+        triggers: [existingTrigger],
+      });
+
+      const result = await service.update('j1', {
+        triggers: [
+          {
+            triggerType: 'PROJECT_CREATED',
+            targetProjectType: ProjectType.PESSOAL,
+          },
+          {
+            triggerType: 'ACTION',
+            actionKey: 'expense.new',
+          },
+        ],
+      } as any);
+
+      expect(prisma.journeyTrigger.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            journeyId: 'j1',
+            triggerType: 'ACTION',
+            actionKey: 'expense.new',
+          }),
+        }),
+      );
+      expect(prisma._triggers).toHaveLength(2);
+      expect(result.triggers.map((t: any) => t.triggerType).sort()).toEqual([
+        'ACTION',
+        'PROJECT_CREATED',
+      ]);
     });
 
     it('re-applies the same SCREEN_VISIT/ACTION coherence validations as create', async () => {

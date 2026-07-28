@@ -263,26 +263,42 @@ export class JourneysAdminService {
         });
       }
       for (const trigger of triggerPatches) {
-        await tx.journeyTrigger.upsert({
+        // A chave natural de `JourneyTrigger` tem 4 campos NULLABLE
+        // (`targetProjectType`/`targetProjectId`/`screenKey`/`actionKey`). O
+        // `WhereUniqueInput` composto que o Prisma Client REAL gera para essa
+        // tupla exige `string` — não `string | null` — então um `upsert` com
+        // essa chave e qualquer campo `null` (o caso comum: gatilho global,
+        // sem projeto/tela/ação) é rejeitado em runtime. O `as any` que
+        // existia aqui escondia o erro de TIPO, nunca o de EXECUÇÃO.
+        // `findFirst` + `create`/`update` usa filtros simples, que aceitam
+        // `null` — mesmo padrão de `journeys-completion.service.ts`. Tudo
+        // dentro da MESMA transação: meia jornada salva é pior que erro.
+        const existing = await tx.journeyTrigger.findFirst({
           where: {
-            journeyId_triggerType_targetProjectType_targetProjectId_screenKey_actionKey: {
-              journeyId: id,
-              triggerType: trigger.triggerType,
-              targetProjectType: trigger.targetProjectType,
-              targetProjectId: trigger.targetProjectId,
-              screenKey: trigger.screenKey,
-              actionKey: trigger.actionKey,
-            } as any,
-          },
-          create: { journeyId: id, ...trigger },
-          update: {
-            crossProject: trigger.crossProject,
-            device: trigger.device,
-            repeatPolicy: trigger.repeatPolicy,
-            dismissPolicy: trigger.dismissPolicy,
-            active: trigger.active,
+            journeyId: id,
+            triggerType: trigger.triggerType,
+            targetProjectType: trigger.targetProjectType,
+            targetProjectId: trigger.targetProjectId,
+            screenKey: trigger.screenKey,
+            actionKey: trigger.actionKey,
           },
         });
+        if (existing) {
+          await tx.journeyTrigger.update({
+            where: { id: existing.id },
+            data: {
+              crossProject: trigger.crossProject,
+              device: trigger.device,
+              repeatPolicy: trigger.repeatPolicy,
+              dismissPolicy: trigger.dismissPolicy,
+              active: trigger.active,
+            },
+          });
+        } else {
+          await tx.journeyTrigger.create({
+            data: { journeyId: id, ...trigger },
+          });
+        }
       }
     });
 
