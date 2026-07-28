@@ -750,3 +750,87 @@
     font-size: 16px;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Fallback de `dvh` para navegadores sem suporte (iOS < 15.4 / Chrome < 108).
+
+   `100vh` no mobile é calculado sobre a altura da tela SEM a barra do
+   navegador — que aparece/some ao rolar — então um `max-h-[90vh]` numa folha
+   deixa o rodapé escondido atrás da barra do Safari. Trocamos essas classes
+   por `dvh` (acompanha a barra em tempo real), mas em navegador que não
+   conhece `dvh` a regra inteira é ignorada pelo parser e o elemento fica SEM
+   nenhum limite de altura — pior que o bug original. Este bloco redeclara o
+   valor em `vh` (comportamento antigo, aceitável) só quando `dvh` não é
+   suportado. Remover quando o piso de suporte do produto subir acima de
+   iOS 15.4 / Chrome 108. */
+@supports not (height: 1dvh) {
+  .max-h-\[45dvh\] { max-height: 45vh; }
+  .max-h-\[52dvh\] { max-height: 52vh; }
+  .max-h-\[55dvh\] { max-height: 55vh; }
+  .h-\[60dvh\] { height: 60vh; }
+  .h-\[70dvh\] { height: 70vh; }
+  .max-h-\[75dvh\] { max-height: 75vh; }
+  .max-h-\[80dvh\] { max-height: 80vh; }
+  .max-h-\[85dvh\] { max-height: 85vh; }
+  .max-h-\[88dvh\] { max-height: 88vh; }
+  .max-h-\[90dvh\] { max-height: 90vh; }
+  .max-h-\[92dvh\] { max-height: 92vh; }
+  /* Estas três já usavam `dvh` antes desta mudança e estavam sem fallback —
+     mesmo risco, incluídas aqui para o bloco cobrir tudo que usa a unidade. */
+  .max-h-\[96dvh\] { max-height: 96vh; }
+  .h-\[100dvh\] { height: 100vh; }
+  .min-h-\[100dvh\] { min-height: 100vh; }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Ajustes de toque mobile — cara de app, não de site.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Remove o flash cinza retangular que o navegador desenha ao tocar em
+   botões/links/inputs — sem isso, cada toque "pisca" um retângulo que
+   entrega a origem de site (browser chrome) em vez de app nativo. */
+button,
+a,
+[role="button"],
+input,
+select,
+textarea,
+label {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Substituto do flash removido acima. Sem isto o app fica PIOR, não melhor:
+   dos ~689 botões do app só ~47 declaram um `active:` próprio, então os
+   outros ~93% ficariam sem nenhum retorno visual ao toque — a pessoa toca e
+   não vê nada acontecer até a tela mudar, o que lê como travado.
+
+   Só em ponteiro grosseiro (`hover: none` = touch), para não mexer nos
+   estados de hover/active do desktop. As utilities `active:*` do Tailwind têm
+   especificidade maior (classe + pseudo) e continuam vencendo onde existem. */
+@media (hover: none) {
+  button:active,
+  a:active,
+  [role="button"]:active {
+    opacity: 0.6;
+  }
+}
+
+/* Remove o atraso de ~300ms herdado da detecção de double-tap-to-zoom do
+   navegador mobile — sem isso, todo toque em botão/link parece "lento". */
+button,
+a,
+[role="button"] {
+  touch-action: manipulation;
+}
+
+/* Impede que a rolagem dentro de uma folha/modal mobile "vaze" para a página
+   por trás quando chega no topo/fundo do conteúdo — sem isso, o navegador
+   interpreta o gesto como pull-to-refresh (ou rola a página de fundo) e a
+   pessoa perde o que estava digitando na folha. Cobre a convenção explícita
+   `data-mobile-sheet` e os diálogos com `role="dialog"` (padrão já usado nas
+   folhas ad-hoc do app: MaisSheet, RunwayActionSheet, painel de cômodo das
+   plantas, filtros de despesas mobile). */
+[data-mobile-sheet],
+[role="dialog"] {
+  overscroll-behavior: contain;
+}

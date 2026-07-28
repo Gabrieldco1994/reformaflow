@@ -270,7 +270,7 @@ export default function ImportBankStatementModal({ projectId, account, onClose, 
                     <span className="w-44">Categoria</span>
                     <span className="w-12"></span>
                   </div>
-                  <div className="max-h-[45vh] overflow-y-auto divide-y divide-gray-100">
+                  <div className="max-h-[45dvh] overflow-y-auto divide-y divide-gray-100">
                     {preview.preview.map((tx) => (
                       <BankPreviewTxRow
                         key={tx.externalId}

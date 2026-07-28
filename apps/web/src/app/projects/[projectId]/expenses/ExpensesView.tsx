@@ -1192,7 +1192,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
           {/* Search bar skeleton */}
           <div className="h-[34px] rounded-lg bg-gray-100" />
           {/* Tabela skeleton */}
-          <div className="h-[60vh] min-h-[400px] rounded-lg border border-gray-200 bg-white" />
+          <div className="h-[60dvh] min-h-[400px] rounded-lg border border-gray-200 bg-white" />
         </div>
       ) : (
         <>

@@ -41,7 +41,7 @@ export function MariaInsightStep({ projectId, createdExpense, onSkip, onDone, on
 
   if (chatOpen) {
     return (
-      <section className="flex h-[70vh] min-h-0 flex-col rounded-[18px] border border-lifeone-hairline bg-lifeone-card p-4 shadow-lifeone-card">
+      <section className="flex h-[70dvh] min-h-0 flex-col rounded-[18px] border border-lifeone-hairline bg-lifeone-card p-4 shadow-lifeone-card">
         <div className="mb-2 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-lifeone-ink text-white">

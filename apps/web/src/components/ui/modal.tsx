@@ -62,10 +62,10 @@ export function Modal({
       : 'items-end justify-center md:items-center';
 
   const panelClasses = isCenterOnly
-    ? `${sizeMap[size]} max-h-[90vh] rounded-2xl mx-4 transition-all duration-200 ${mounted ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`
+    ? `${sizeMap[size]} max-h-[90dvh] rounded-2xl mx-4 transition-all duration-200 ${mounted ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`
     : isSheetOnly
-      ? `w-full ${sizeMap[size]} max-h-[92vh] rounded-t-3xl transition-transform duration-300 ${mounted ? 'translate-y-0' : 'translate-y-full'}`
-      : `w-full ${sizeMap[size]} max-h-[92vh] rounded-t-3xl md:rounded-2xl md:mx-4 transition-all duration-300 ${mounted ? 'translate-y-0 md:opacity-100 md:scale-100' : 'translate-y-full md:translate-y-0 md:opacity-0 md:scale-95'}`;
+      ? `w-full ${sizeMap[size]} max-h-[92dvh] rounded-t-3xl transition-transform duration-300 ${mounted ? 'translate-y-0' : 'translate-y-full'}`
+      : `w-full ${sizeMap[size]} max-h-[92dvh] rounded-t-3xl md:rounded-2xl md:mx-4 transition-all duration-300 ${mounted ? 'translate-y-0 md:opacity-100 md:scale-100' : 'translate-y-full md:translate-y-0 md:opacity-0 md:scale-95'}`;
 
   const content = (
     <div
@@ -76,6 +76,7 @@ export function Modal({
       }}
     >
       <div
+        data-mobile-sheet="modal"
         className={`bg-white shadow-darc-hero overflow-y-auto border border-darc-linen ${panelClasses}`}
       >
         {!isCenterOnly && (

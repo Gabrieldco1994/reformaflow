@@ -186,7 +186,7 @@ export default function ImportStatementModal({ projectId, card, onClose, onCommi
                   <span className="w-40">Categoria</span>
                   <span className="w-12"></span>
                 </div>
-                <div className="max-h-[45vh] overflow-y-auto divide-y divide-gray-100">
+                <div className="max-h-[45dvh] overflow-y-auto divide-y divide-gray-100">
                   {preview.preview.map((tx) => (
                     <PreviewTxRow
                       key={tx.externalId}

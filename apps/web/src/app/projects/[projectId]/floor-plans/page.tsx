@@ -354,7 +354,7 @@ function RoomDetailPanel({
         className={[
           'fixed z-50 bg-white shadow-darc-strong overflow-hidden flex flex-col',
           // Mobile: bottom sheet
-          'inset-x-0 bottom-0 max-h-[88vh] rounded-t-2xl',
+          'inset-x-0 bottom-0 max-h-[88dvh] rounded-t-2xl',
           // Desktop: sidebar lateral
           'md:inset-y-0 md:right-0 md:left-auto md:bottom-auto md:top-0 md:h-full md:max-h-none md:w-[22rem] md:rounded-none md:border-l md:border-darc-linen',
         ].join(' ')}
@@ -738,7 +738,7 @@ function MarkerLinkModal({
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-darc-velvet/80 backdrop-blur-sm">
-      <div className="w-full max-w-2xl bg-white rounded-2xl shadow-darc-strong overflow-hidden flex flex-col max-h-[85vh]">
+      <div className="w-full max-w-2xl bg-white rounded-2xl shadow-darc-strong overflow-hidden flex flex-col max-h-[85dvh]">
         <div className="px-5 py-4 border-b border-darc-linen flex items-center justify-between">
           <div>
             <h3 className="font-bold text-darc-velvet text-base flex items-center gap-2">
@@ -1020,7 +1020,7 @@ function RoomLinkModal({
           </div>
         )}
 
-        <div className="p-5 max-h-[55vh] overflow-y-auto">
+        <div className="p-5 max-h-[55dvh] overflow-y-auto">
           {mode === 'existing' && projectRooms.length === 0 && (
             <p className="text-sm text-darc-velvet/60 italic">
               Nenhum ambiente cadastrado no projeto. Use &quot;Nome livre&quot;.
@@ -1483,7 +1483,7 @@ function FloorPlanViewer({
                     alt={floorPlan.name}
                     width={1600}
                     height={1200}
-                    className="max-w-full max-h-[75vh] w-auto h-auto select-none"
+                    className="max-w-full max-h-[75dvh] w-auto h-auto select-none"
                     draggable={false}
                     onClick={() => {
                       if (drawingMode || markerDrawingMode || cropMode) return;
@@ -1702,7 +1702,7 @@ function FloorPlanViewer({
               <ChevronDown className="w-3 h-3" />
             </button>
           ) : (
-            <div className="absolute right-3 top-3 w-44 bg-white/95 backdrop-blur rounded-xl shadow-lg p-2 z-20 max-h-[55vh] overflow-y-auto">
+            <div className="absolute right-3 top-3 w-44 bg-white/95 backdrop-blur rounded-xl shadow-lg p-2 z-20 max-h-[55dvh] overflow-y-auto">
               <div className="flex items-center justify-between gap-1 mb-1.5 px-1">
                 <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
                   Cômodos ({floorPlan.rooms.length})

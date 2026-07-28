@@ -129,7 +129,7 @@ export function FinancialAgentWidget() {
 
       {/* Painel */}
       {open && (
-        <div className="fixed bottom-4 right-4 md:bottom-6 md:right-6 z-50 flex flex-col w-[calc(100vw-2rem)] sm:w-96 h-[70vh] max-h-[600px] rounded-2xl bg-white border border-darc-linen shadow-2xl overflow-hidden">
+        <div className="fixed bottom-4 right-4 md:bottom-6 md:right-6 z-50 flex flex-col w-[calc(100vw-2rem)] sm:w-96 h-[70dvh] max-h-[600px] rounded-2xl bg-white border border-darc-linen shadow-2xl overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 bg-darc-velvet text-white">
             <div className="flex items-center gap-2">

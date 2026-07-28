@@ -151,7 +151,7 @@ export default function RemindersPage() {
       {/* Form modal */}
       {showForm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-xl max-h-[90dvh] overflow-y-auto">
             <h2 className="text-lg font-bold mb-4">{editingId ? 'Editar Lembrete' : 'Novo Lembrete'}</h2>
             <div className="space-y-3">
               <input type="text" placeholder="Título" value={form.titulo}

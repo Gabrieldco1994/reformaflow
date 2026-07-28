@@ -141,7 +141,7 @@ export function MaisSheet({
             <X className="h-5 w-5" />
           </button>
         </div>
-        <div className="max-h-[52vh] overflow-y-auto px-4 pb-3 pt-1">
+        <div className="max-h-[52dvh] overflow-y-auto px-4 pb-3 pt-1">
           <div className="grid grid-cols-4 gap-2.5">
             {secondary.map((item) => {
               const fullHref = `${basePath}/${item.slug}`;

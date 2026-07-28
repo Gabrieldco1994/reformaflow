@@ -207,7 +207,7 @@ export function RunwayActionSheet({
       aria-label="Como fechar no azul?"
       className="fixed inset-0 z-50 flex items-end justify-center bg-lifeone-ink/40 p-0 sm:items-center sm:p-4"
     >
-      <div className="w-full max-w-md rounded-t-3xl bg-[var(--ck-surface)] shadow-lifeone-dialog sm:rounded-3xl max-h-[85vh] flex flex-col">
+      <div className="w-full max-w-md rounded-t-3xl bg-[var(--ck-surface)] shadow-lifeone-dialog sm:rounded-3xl max-h-[85dvh] flex flex-col">
         {/* Header */}
         <div className="flex items-start justify-between gap-3 p-5 pb-3 shrink-0">
           <div>
