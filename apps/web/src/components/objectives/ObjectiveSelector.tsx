@@ -51,12 +51,16 @@ export function ObjectiveSelector({
             return (
               <label
                 key={type}
-                className={`flex min-h-11 cursor-pointer items-center gap-2.5 rounded-[12px] border-2 bg-lifeone-card px-2.5 py-2 transition-[border-color,box-shadow] focus-within:ring-2 focus-within:ring-lifeone-blue/30 motion-reduce:transition-none ${
+                className={`relative flex min-h-11 cursor-pointer items-center gap-2.5 rounded-[12px] border-2 bg-lifeone-card px-2.5 py-2 transition-[border-color,box-shadow] focus-within:ring-2 focus-within:ring-lifeone-blue/30 motion-reduce:transition-none ${
                   checked
                     ? 'border-lifeone-blue bg-lifeone-info shadow-lifeone-card'
                     : 'border-lifeone-hairline hover:border-lifeone-ink-4'
                 } ${disabled ? 'cursor-not-allowed opacity-60' : ''}`}
               >
+                {/* Invisível mas cobrindo o chip inteiro (não `sr-only`): o
+                    estado de seleção já é dado pela borda + check, e assim o
+                    alvo de clique/toque é o chip todo, não 1px escondido
+                    atrás do ícone. */}
                 <input
                   type="checkbox"
                   name="projectTypes"
@@ -64,7 +68,7 @@ export function ObjectiveSelector({
                   checked={checked}
                   onChange={() => toggle(type)}
                   aria-describedby={descriptionId}
-                  className="sr-only"
+                  className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
                 />
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[10px]" style={{ backgroundColor: accent.fill }}>
                   <TypeIcon type={type} className="h-4 w-4" style={{ color: accent.color }} />
