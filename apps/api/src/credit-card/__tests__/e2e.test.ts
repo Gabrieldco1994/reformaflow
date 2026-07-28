@@ -14,7 +14,13 @@
  *   6) Visão consolidada mensal continua somando despesas dos 2 cartões corretamente
  *
  * Execução isolada num tenant temporário (criado e removido ao final).
+ *
+ * Roda contra o banco descartável do worktree (prisma/test.db), nunca o dev.db:
+ * o import da trava abaixo precisa vir ANTES de qualquer `new PrismaClient()`.
+ * Prepare o banco uma vez com `npm run test:db:prepare` na raiz do repo.
  */
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+require('../../../../../scripts/test-db-env.cjs');
 import { PrismaClient } from '@prisma/client';
 import { CreditCardService } from '../credit-card.service';
 import { ConciliacaoService } from '../../conciliacao/conciliacao.service';
