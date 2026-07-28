@@ -91,6 +91,62 @@ describe('MobileLaunchSheet', () => {
     );
   });
 
+  it('sem conta e sem cartão: lança na Carteira em vez de travar o botão', async () => {
+    const user = userEvent.setup();
+    const onLaunch = vi.fn(async () => undefined);
+
+    render(
+      <MobileLaunchSheet
+        open
+        onClose={vi.fn()}
+        onLaunch={onLaunch}
+        launching={false}
+        accounts={[]}
+        cards={[]}
+        recentDescriptions={[]}
+        projectType="PESSOAL"
+      />,
+    );
+
+    // Carteira é ofertada mesmo sem nenhuma fonte cadastrada.
+    expect(screen.getByRole('button', { name: 'Origem Carteira' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '5' }));
+    await user.click(screen.getByRole('button', { name: '0' }));
+
+    const launchButton = screen.getByRole('button', { name: 'Lançar despesa' });
+    expect(launchButton).toBeEnabled();
+
+    await user.click(launchButton);
+
+    expect(onLaunch).toHaveBeenCalledWith(
+      expect.objectContaining({ valor: 0.5, bankAccountId: null, creditCardId: null }),
+    );
+  });
+
+  it('com conta cadastrada, a conta continua sendo o padrão (não a Carteira)', async () => {
+    const user = userEvent.setup();
+    const onLaunch = vi.fn(async () => undefined);
+
+    render(
+      <MobileLaunchSheet
+        open
+        onClose={vi.fn()}
+        onLaunch={onLaunch}
+        launching={false}
+        accounts={[{ id: 'acc-1', nickname: 'Conta Itaú', last4: '4247' }]}
+        cards={[]}
+        recentDescriptions={[]}
+        projectType="PESSOAL"
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '9' }));
+    await user.click(screen.getByRole('button', { name: 'Lançar despesa' }));
+
+    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ bankAccountId: 'acc-1' }));
+  });
+
   it('usa fluxo de planejamento no mobile quando mode=PLANEJAR', async () => {
     const user = userEvent.setup();
     const onLaunch = vi.fn(async () => undefined);

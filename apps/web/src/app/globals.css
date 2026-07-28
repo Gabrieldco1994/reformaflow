@@ -724,3 +724,29 @@
     color: var(--minimal-ink-3);
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Piso de 16px em campos de formulário no mobile.
+
+   O iOS Safari dá zoom automático ao focar QUALQUER campo com font-size < 16px
+   e nunca desfaz esse zoom — a pessoa fica presa com a tela ampliada e precisa
+   fazer pinch na mão pra voltar. Um piso de 16px mata o gatilho na raiz, sem
+   recorrer a `maximum-scale=1` no viewport (que quebraria o pinch-zoom de quem
+   depende dele por acessibilidade).
+
+   Fica FORA de `@layer base` de propósito: as utilities do Tailwind (`text-sm`,
+   `text-[13px]`, …) são emitidas depois da base e venceriam a regra em
+   `select`/`textarea`, onde o seletor de elemento tem especificidade menor que
+   a da classe. Aqui, no fim do arquivo e sem layer, a ordem de origem garante
+   a vitória.
+
+   Só abaixo de 768px: no desktop os tamanhos menores do design continuam
+   valendo e o comportamento do iOS não existe.
+   ───────────────────────────────────────────────────────────────────────── */
+@media (max-width: 767px) {
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}

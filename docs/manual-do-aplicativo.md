@@ -239,7 +239,8 @@ Ao entrar num projeto, aparece a **casca** comum a todos os módulos:
 - **Barra inferior (celular):**
   - No **PESSOAL**, mostra **"Cockpit"**, **"Conta"**, **"Maria"** e **"Cartões"**, com botão circular **"Lançar"** separado.
     - O **"+"** abre um **menu de modo** com as jornadas: **Despesa** (teclado numérico rápido), **Recebimento**, **Voz** (dita a despesa, mesma IA da Maria) e **Foto** (importa print/foto de **fatura de cartão** ou **extrato de conta**).
-    - No modo **Escrito**, as **categorias aparecem direto** (atalho das mais usadas + "ver todas"): tocar numa categoria já **preenche o título por trás**; o campo de texto vira detalhe opcional. Parcelas de cartão saem num seletor nativo **1–18x** ("À vista" para 1).
+    - No modo **Escrito**, o **valor e o teclado numérico ficam juntos no topo** da folha, para o valor continuar à vista enquanto se digita. Logo abaixo vem **"De onde sai"**, que sempre oferece a **Carteira** (dinheiro / sem conta) além das contas e cartões cadastrados — dá para lançar **sem ter conta nem cartão**, e nesse caso a despesa entra no consolidado como Carteira. Quem já tem conta ou cartão continua caindo neles por padrão.
+    - As **categorias aparecem direto** (atalho das 6 mais usadas + "ver todas"): tocar numa categoria já **preenche o título por trás**; o campo de texto vira detalhe opcional. Parcelas de cartão saem num seletor nativo **1–18x** ("À vista" para 1).
   - Nos demais tipos, mostra os três primeiros módulos autorizados para a pessoa,
     conforme a ordem de navegação do tipo.
   - O item ativo usa a **cor de destaque do tipo do projeto**.

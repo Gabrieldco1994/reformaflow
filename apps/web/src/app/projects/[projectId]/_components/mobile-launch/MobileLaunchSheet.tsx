@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, CreditCard, Sparkles, Wallet, X } from 'lucide-react';
+import { ChevronDown, CreditCard, Landmark, Sparkles, Wallet, X } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import { moneyGlance } from '@/lib/money';
 import { tipoLabel } from '@/lib/expense-options';
@@ -12,6 +12,7 @@ import { faturaDestino } from '../../_lib/fatura-destino';
 import type { LaunchAccountOption, LaunchCardOption, LaunchPayload } from './types';
 
 type OriginOption =
+  | { key: string; kind: 'wallet'; id: null; label: string; hint: string }
   | { key: string; kind: 'account'; id: string; label: string; hint: string }
   | {
       key: string;
@@ -22,6 +23,20 @@ type OriginOption =
       closingDay: number | null;
       dueDay: number | null;
     };
+
+/**
+ * Pseudo-origem Carteira: toda despesa sem conta/cartão pertence a ela e
+ * entra no consolidado como `bankAccountId: null, creditCardId: null`
+ * (regra de ouro 14 — item sem origem visível = dinheiro sumido no caixa).
+ * Sempre presente, para dar pra lançar antes de cadastrar qualquer fonte.
+ */
+const WALLET_ORIGIN: OriginOption = {
+  key: 'wallet',
+  kind: 'wallet',
+  id: null,
+  label: 'Carteira',
+  hint: 'dinheiro / sem conta',
+};
 
 interface Props {
   open: boolean;
@@ -38,10 +53,11 @@ interface Props {
 
 // ponytail: atalho de categorias PESSOAL do dia a dia no lançamento rápido;
 // ajustar aqui se o mix mudar. O resto das categorias fica atrás de "ver todas".
+// Mantido em 6 (2 linhas de chips): com 12 a lista empurrava o resto da folha
+// pra fora da tela no mobile.
 const COMMON_TIPOS = [
-  'SUPERMERCADO', 'ALIMENTACAO', 'TRANSPORTE', 'SAUDE',
-  'LAZER', 'CONTAS_UTILIDADES', 'ASSINATURAS', 'MORADIA',
-  'BELEZA', 'PETS', 'EDUCACAO', 'ACADEMIA',
+  'SUPERMERCADO', 'ALIMENTACAO', 'TRANSPORTE',
+  'SAUDE', 'LAZER', 'CONTAS_UTILIDADES',
 ];
 
 function normalizeDigits(value: string): string {
@@ -77,7 +93,7 @@ export function MobileLaunchSheet({
       closingDay: card.closingDay ?? null,
       dueDay: card.dueDay ?? null,
     }));
-    return [...accountOrigins, ...cardOrigins];
+    return [WALLET_ORIGIN, ...accountOrigins, ...cardOrigins];
   }, [accounts, cards]);
 
   const [digits, setDigits] = useState('');
@@ -114,7 +130,10 @@ export function MobileLaunchSheet({
     setParcelas(1);
     setTipoOverride(null);
     setShowAllTipos(false);
-    setOriginKey(origins[0]?.key ?? '');
+    // Carteira é sempre ofertada, mas só vira o padrão quando não há conta nem
+    // cartão — quem tem fonte cadastrada continua caindo nela por default.
+    const preferred = origins.find((origin) => origin.kind !== 'wallet') ?? origins[0];
+    setOriginKey(preferred?.key ?? '');
   }, [open, origins]);
 
   if (!open) return null;
@@ -168,9 +187,45 @@ export function MobileLaunchSheet({
           </p>
         </div>
 
+        {/* Valor + teclado ficam juntos e no topo: antes o teclado estava no fim
+            da folha e, ao digitar, o valor já tinha rolado pra fora da tela. */}
         <div className="pt-4 text-center">
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-darc-velvet/55">Quanto?</p>
           <p className="pt-1 font-geist text-5xl font-bold tracking-tight text-lifeone-ink">{formatCurrency(cents / 100)}</p>
+        </div>
+
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((key) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setDigits((current) => normalizeDigits(current + key))}
+              className="pessoal-minimal-key min-h-[54px] rounded-xl bg-white text-xl font-semibold text-lifeone-ink shadow-lifeone-card"
+            >
+              {key}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setDigits('')}
+            className="pessoal-minimal-key min-h-[54px] rounded-xl bg-lifeone-surface text-sm font-semibold text-darc-velvet/70"
+          >
+            limpar
+          </button>
+          <button
+            type="button"
+            onClick={() => setDigits((current) => normalizeDigits(current + '0'))}
+            className="pessoal-minimal-key min-h-[54px] rounded-xl bg-white text-xl font-semibold text-lifeone-ink shadow-lifeone-card"
+          >
+            0
+          </button>
+          <button
+            type="button"
+            onClick={() => setDigits((current) => current.slice(0, -1))}
+            className="pessoal-minimal-key min-h-[54px] rounded-xl bg-lifeone-surface text-sm font-semibold text-darc-velvet/70"
+          >
+            ⌫
+          </button>
         </div>
 
         <p className="pt-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-darc-velvet/55">De onde sai</p>
@@ -178,7 +233,7 @@ export function MobileLaunchSheet({
           {origins.map((origin) => {
             const active = origin.key === originKey;
             const isCard = origin.kind === 'card';
-            const OriginIcon = isCard ? CreditCard : Wallet;
+            const OriginIcon = isCard ? CreditCard : origin.kind === 'account' ? Landmark : Wallet;
             return (
               <button
                 key={origin.key}
@@ -315,40 +370,6 @@ export function MobileLaunchSheet({
             Lança como <strong className="font-semibold text-darc-velvet/80">{tituloPreview}</strong>
           </p>
         )}
-
-        <div className="mt-4 grid grid-cols-3 gap-2">
-          {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((key) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setDigits((current) => normalizeDigits(current + key))}
-              className="pessoal-minimal-key min-h-[54px] rounded-xl bg-white text-xl font-semibold text-lifeone-ink shadow-lifeone-card"
-            >
-              {key}
-            </button>
-          ))}
-          <button
-            type="button"
-            onClick={() => setDigits('')}
-            className="pessoal-minimal-key min-h-[54px] rounded-xl bg-lifeone-surface text-sm font-semibold text-darc-velvet/70"
-          >
-            limpar
-          </button>
-          <button
-            type="button"
-            onClick={() => setDigits((current) => normalizeDigits(current + '0'))}
-            className="pessoal-minimal-key min-h-[54px] rounded-xl bg-white text-xl font-semibold text-lifeone-ink shadow-lifeone-card"
-          >
-            0
-          </button>
-          <button
-            type="button"
-            onClick={() => setDigits((current) => current.slice(0, -1))}
-            className="pessoal-minimal-key min-h-[54px] rounded-xl bg-lifeone-surface text-sm font-semibold text-darc-velvet/70"
-          >
-            ⌫
-          </button>
-        </div>
 
         <button
           type="button"
