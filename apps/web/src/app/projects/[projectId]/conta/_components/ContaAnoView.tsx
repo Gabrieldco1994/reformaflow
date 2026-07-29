@@ -5,10 +5,9 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { LoadingBlock } from '@/app/_components/LoadingBlock';
 import { originLast4FromKey, sumSaidasSemConta } from '../_lib';
-import { FaturasAnuaisChart } from './FaturasAnuaisChart';
 import { MovimentacoesSection } from './MovimentacoesSection';
 import { ResumoCards, type ResumoQuickFilterKey } from './ResumoCards';
-import type { AccountViewYearlyResponse, CardInvoicesYearlyResponse } from '../_types';
+import type { AccountViewYearlyResponse } from '../_types';
 
 /**
  * Visão Conta do ANO inteiro.
@@ -51,15 +50,6 @@ export function ContaAnoView({
 }) {
   const [monthFilter, setMonthFilter] = useState<string | null>(null);
 
-  const { data: yearlyData, isLoading: yearlyLoading } = useQuery<CardInvoicesYearlyResponse>({
-    queryKey: ['card-invoices-yearly', projectId, year],
-    queryFn: () =>
-      api.get(`/projects/${projectId}/monthly-overview/card-invoices-yearly?year=${year}`),
-    enabled: !!projectId,
-  });
-
-  // Movimentações do ano inteiro: mesma agregação canônica (getAccountView),
-  // consolidada nos 12 meses no backend — nunca uma 2ª agregação.
   const { data: accountData, isLoading: accountLoading } = useQuery<AccountViewYearlyResponse>({
     queryKey: ['account-view-yearly', projectId, year],
     queryFn: () =>
@@ -67,29 +57,8 @@ export function ContaAnoView({
     enabled: !!projectId,
   });
 
-  // Fonte única do filtro de origem: o `last4` da lista. A chave do gráfico
-  // (`card:1234`) é derivada dele, então chip e lista nunca divergem.
-  const selectedOriginKey = useMemo(
-    () => yearlyData?.origins.find((origin) => origin.last4 === originFilter)?.key ?? null,
-    [yearlyData, originFilter],
-  );
-
   return (
     <>
-      {yearlyLoading && <div className="h-[380px] animate-pulse rounded-2xl bg-lifeone-surface" />}
-      {yearlyData && !yearlyLoading && (
-        <FaturasAnuaisChart
-          data={yearlyData}
-          selectedKey={selectedOriginKey}
-          onSelectKey={(key) => {
-            onOriginFilterChange(originLast4FromKey(key));
-            setMonthFilter(null);
-          }}
-          selectedMonth={monthFilter}
-          onSelectMonth={setMonthFilter}
-        />
-      )}
-
       {accountLoading && <LoadingBlock />}
 
       {accountData && !accountLoading && (
