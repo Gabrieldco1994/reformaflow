@@ -497,3 +497,47 @@ própria lista que a originou.
 **Testes:** `apps/api/src/monthly-overview/monthly-overview.account-view-yearly.spec.ts`
 (backend), `conta/_lib.test.ts`, `conta/_components/MovimentacoesSection.anual.test.tsx`,
 `conta/_components/ResumoCards.periodo.test.tsx` (frontend).
+
+---
+
+## §14 Desfazer pagamento de fatura (jul/2026)
+
+**O que faz:** `POST /projects/:projectId/monthly-overview/undo-invoice-payment`
+(`monthly-overview.service.ts`, `undoInvoicePayment`) reverte um pagamento manual
+de fatura registrado por `payInvoice`: as compras/parcelas que aquele pagamento
+liquidou voltam a `PLANEJADO` (`CardInvoiceSettlementService.unsettleInvoice`,
+inverso de `settleByDueMonth`/`applyPaid`) e a `Expense` `PAGAMENTO_FATURA_CARTAO`
+é soft-deletada (`deletedAt`), nunca hard-deletada.
+
+**Restrição de segurança (v1 deliberadamente restrita):** só desfaz quando existe
+**exatamente um** pagamento implícito casado com a fatura-alvo. Reaproveita
+`assignImplicitPayments` — a MESMA função que `getAccountView` usa pra decidir
+`card.status`, garantindo que "desfazer" nunca discorda do que a tela já mostrava
+como pago. 0 pagamentos casados → 404. 2+ (pagamento parcial, ou import trouxe
+outro) → 400, sem heurística de desambiguação — fora de escopo (exigiria
+persistir o vínculo do settlement, que `settleInvoice` hoje não grava).
+
+**Armadilha respeitada (regra de ouro #4):** o soft-delete do pagamento roda
+DENTRO da `$transaction` como `update({ data: { deletedAt: new Date() } })`
+explícito — nunca `.delete()`, que seria hard delete real (`$transaction` ignora
+o middleware `$use`).
+
+**Invariante provado por teste:** pagar → desfazer devolve TODOS os agregados de
+`getAccountView` (caixa, faturas, saídas, comprasCartao etc.) ao valor exato de
+antes — deep-equal, não "parecido". Ver
+`apps/api/src/monthly-overview/undo-invoice-payment.spec.ts`.
+
+**UI:**
+
+- **Desktop** (`CartoesSection`, grid `hidden md:grid`): botão "Desfazer
+  pagamento" direto no `CreditCardTile`, visível quando `card.status !== 'a
+  pagar'`.
+- **Mobile** (carrossel compacto, `md:hidden`): o cartão não tem espaço para
+  empilhar botões, então o toque abre `MobileCardActionsSheet.tsx` — um
+  seletor de ações (Desfazer pagamento / Ajustar fatura / Quitar c/ resíduo,
+  conforme aplicável) em vez de rotear fixo para uma delas. Status "a pagar"
+  continua com toque direto (`onPayInvoice`), sem ambiguidade. Essa era uma
+  lacuna pré-existente (nenhuma ação de fatura era alcançável no mobile,
+  nem "Ajustar…") — corrigida junto com este PR.
+- Ambos abrem `UndoInvoicePaymentDialog.tsx` (bottom-sheet responsivo), com
+  foco inicial em "Cancelar" (nunca na ação), focus trap e Escape sem mutar.

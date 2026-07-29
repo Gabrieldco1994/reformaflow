@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { caixaMonthForCardPurchase, NEUTRAL_EXPENSE_TYPES, isSinglePaymentForm } from '@reformaflow/domain';
 
@@ -114,6 +115,121 @@ export class CardInvoiceSettlementService {
     }
 
     return { settledExpenses, settledParcelas };
+  }
+
+  /**
+   * Inverso de `settleInvoice` para uma fatura específica (`dueMonth`): volta
+   * `CashFlowEntry.status` de PAGO para PLANEJADO e recomputa
+   * `Expense.status`/`paidParcelas` das compras daquele ciclo.
+   *
+   * Aceita um `tx` opcional (client de transação) para rodar dentro da
+   * `$transaction` do caller — todas as queries usam `params.tx ?? this.prisma`.
+   */
+  async unsettleInvoice(params: {
+    tenantId: string;
+    card: SettleCard;
+    dueMonth: string;
+    tx?: Prisma.TransactionClient;
+  }): Promise<{ revertedExpenses: number; revertedParcelas: number }> {
+    const { tenantId, card, dueMonth } = params;
+    const client = params.tx ?? this.prisma;
+    let revertedExpenses = 0;
+    let revertedParcelas = 0;
+
+    const neutral = Array.from(NEUTRAL_EXPENSE_TYPES);
+    const purchases = (await client.expense.findMany({
+      where: {
+        tenantId,
+        cardLast4: card.last4,
+        deletedAt: null,
+        tipoDespesa: { notIn: neutral },
+      },
+    })) as ExpenseRow[];
+
+    for (const e of purchases) {
+      const n = await this.unsettleByDueMonth(client, e, card, dueMonth);
+      if (n > 0) {
+        revertedExpenses++;
+        revertedParcelas += n;
+      }
+    }
+
+    return { revertedExpenses, revertedParcelas };
+  }
+
+  private async unsettleByDueMonth(
+    client: PrismaService | Prisma.TransactionClient,
+    e: ExpenseRow,
+    card: SettleCard,
+    dueMonth: string,
+  ): Promise<number> {
+    const all = (await client.cashFlowEntry.findMany({
+      where: { expenseId: e.id, deletedAt: null },
+    })) as EntryRow[];
+
+    const toRevert = all.filter(
+      (en) => en.status === 'PAGO' && caixaMonthForCardPurchase(en.data, card.closingDay, card.dueDay) === dueMonth,
+    );
+    if (toRevert.length === 0) return 0;
+
+    for (const en of toRevert) {
+      await client.cashFlowEntry.update({ where: { id: en.id }, data: { status: 'PLANEJADO' } });
+    }
+    await this.applyUnpaid(client, e, toRevert);
+    return toRevert.length;
+  }
+
+  /**
+   * Inverso de `applyPaid`: recomputa `paidParcelas`/`status` da despesa após
+   * reverter `paidEntries` para PLANEJADO.
+   */
+  private async applyUnpaid(
+    client: PrismaService | Prisma.TransactionClient,
+    e: ExpenseRow,
+    revertedEntries: EntryRow[],
+  ): Promise<void> {
+    const n = e.quantidadeParcela ?? 1;
+
+    if (isSinglePaymentForm(e.formaPagamento) || n <= 1) {
+      await client.expense.update({
+        where: { id: e.id },
+        data: { status: 'PLANEJADO', paidParcelas: null },
+      });
+      return;
+    }
+
+    // Reverte os índices desta chamada a partir do que estava marcado pago.
+    const set =
+      e.status === 'PAGO'
+        ? new Set<number>(Array.from({ length: n }, (_, i) => i))
+        : new Set<number>(this.parsePaid(e.paidParcelas, n));
+
+    for (const en of revertedEntries) {
+      const idx = this.parcelaIndex(en.parcela);
+      if (idx != null) set.delete(idx);
+    }
+
+    // Confirma contra o que AINDA está PAGO no cashflow (fonte de verdade),
+    // evitando divergência se `e.paidParcelas` estivesse desatualizado.
+    const remainingPaid = (await client.cashFlowEntry.findMany({
+      where: { expenseId: e.id, deletedAt: null, status: 'PAGO' },
+    })) as EntryRow[];
+    const remainingSet = new Set<number>();
+    for (const en of remainingPaid) {
+      const idx = this.parcelaIndex(en.parcela);
+      if (idx != null && idx >= 0 && idx < n) remainingSet.add(idx);
+    }
+
+    const allPaid = remainingSet.size === n;
+    const paidParcelas =
+      allPaid || remainingSet.size === 0
+        ? null
+        : JSON.stringify(Array.from(remainingSet).sort((a, b) => a - b));
+
+    await client.expense.update({
+      where: { id: e.id },
+      data: { status: allPaid ? 'PAGO' : 'PLANEJADO', paidParcelas },
+    });
   }
 
   private async settleByDueMonth(e: ExpenseRow, card: SettleCard, target: string): Promise<number> {

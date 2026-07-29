@@ -138,6 +138,7 @@ function renderSection(
         onPayInvoice={vi.fn()}
         onAdjustInvoice={vi.fn()}
         onSettleWithResidual={vi.fn()}
+        onUndoPayment={vi.fn()}
         summaryQuickFilter={null}
         onClearSummaryQuickFilter={vi.fn()}
         {...overrides}

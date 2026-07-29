@@ -10,6 +10,7 @@ import {
   Link2,
   MoreHorizontal,
   Pencil,
+  RotateCcw,
   SlidersHorizontal,
   Split,
   Trash2,
@@ -63,6 +64,7 @@ export function MovimentacaoRow({
   onPayInvoice,
   onAdjustInvoice,
   onSettleWithResidual,
+  onUndoPayment,
   onQuitar,
   onRemoveExpense,
   onRemoveReceita,
@@ -82,6 +84,8 @@ export function MovimentacaoRow({
   onPayInvoice: (cardLast4: string) => void;
   onAdjustInvoice: (cardLast4: string) => void;
   onSettleWithResidual: (cardLast4: string) => void;
+  /** Desfazer pagamento de fatura já registrado (linha de fatura paga/parcial). */
+  onUndoPayment?: (cardLast4: string) => void;
   onQuitar: (target: QuitarTarget) => void;
   onRemoveExpense: (id: string, projectId?: string) => void;
   onRemoveReceita: (id: string) => void;
@@ -226,6 +230,8 @@ export function MovimentacaoRow({
     actions.push({ key: 'ajustar', label: 'Ajustar fatura', Icon: SlidersHorizontal, onClick: () => onAdjustInvoice(card) });
     if (!item.realizado)
       actions.push({ key: 'residuo', label: 'Quitar com resíduo', Icon: CircleDollarSign, onClick: () => onSettleWithResidual(card) });
+    if (item.realizado && onUndoPayment)
+      actions.push({ key: 'desfazer', label: 'Desfazer pagamento', Icon: RotateCcw, onClick: () => onUndoPayment(card) });
   }
   if (canEdit)
     actions.push({

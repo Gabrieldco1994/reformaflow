@@ -15,6 +15,7 @@ export function CreditCardTile({
   onPayInvoice,
   onAdjustInvoice,
   onSettleWithResidual,
+  onUndoPayment,
 }: {
   card: AccountViewCardSummary;
   active: boolean;
@@ -22,6 +23,7 @@ export function CreditCardTile({
   onPayInvoice: (cardLast4: string) => void;
   onAdjustInvoice: (cardLast4: string) => void;
   onSettleWithResidual: (cardLast4: string) => void;
+  onUndoPayment: (cardLast4: string) => void;
 }) {
   const paga = card.status === 'paga';
   const parcial = card.status === 'parcial';
@@ -100,6 +102,18 @@ export function CreditCardTile({
                 className="inline-flex h-5.5 w-full items-center justify-center rounded-lg border border-white/35 bg-transparent text-[11px] font-semibold text-white transition hover:bg-white/10 md:h-7"
               >
                 Quitar c/ resíduo…
+              </button>
+            )}
+            {card.status !== 'a pagar' && (
+              <button
+                type="button"
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  onUndoPayment(card.last4);
+                }}
+                className="inline-flex h-5.5 w-full items-center justify-center rounded-lg border border-white/35 bg-transparent text-[11px] font-semibold text-white transition hover:bg-white/10 md:h-7"
+              >
+                Desfazer pagamento
               </button>
             )}
           </div>

@@ -44,7 +44,7 @@ export function ContaAnoView({
   onQuickFilterChange: (key: ResumoQuickFilterKey | null) => void;
   /** Fatura clicada no ano → abre o mês dela (dueMonth) com o diálogo certo. */
   onInvoiceAction: (
-    action: 'pay' | 'adjust' | 'residual',
+    action: 'pay' | 'adjust' | 'residual' | 'undo',
     cardLast4: string,
     dueMonth: string | null,
   ) => void;
@@ -123,6 +123,7 @@ export function ContaAnoView({
             onSettleWithResidual={(last4, dueMonth) =>
               onInvoiceAction('residual', last4, dueMonth ?? null)
             }
+            onUndoPayment={(last4, dueMonth) => onInvoiceAction('undo', last4, dueMonth ?? null)}
             summaryQuickFilter={quickFilter}
             onClearSummaryQuickFilter={() => onQuickFilterChange(null)}
           />

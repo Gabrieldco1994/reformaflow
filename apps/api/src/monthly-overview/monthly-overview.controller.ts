@@ -117,4 +117,20 @@ export class MonthlyOverviewController {
   ) {
     return this.service.payInvoice(tenantId, projectId, body, requester.id);
   }
+
+  @Post('undo-invoice-payment')
+  @ApiOperation({
+    summary: 'Desfazer pagamento manual de fatura de cartão (reverte pay-invoice)',
+  })
+  undoInvoicePayment(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Body()
+    body: {
+      cardLast4?: string;
+      dueMonth?: string;
+    },
+  ) {
+    return this.service.undoInvoicePayment(tenantId, projectId, body);
+  }
 }

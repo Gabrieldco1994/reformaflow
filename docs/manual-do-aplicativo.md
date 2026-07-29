@@ -480,6 +480,14 @@ movimentações abaixo.
   o espelho da fatura (valor bancário) sem virar consumo/caixa.
 - **Marcar quitada com resíduo…** registra o resíduo declarado (com nota) e fecha a
   fatura mesmo com diferença de centavos/contestação.
+- **Desfazer pagamento** (desktop) aparece quando a fatura não está "A pagar".
+  Abre um diálogo de confirmação (foco inicial em "Cancelar") explicando que as
+  compras da fatura voltam a ficar pendentes e o lançamento de pagamento é
+  removido. Só funciona quando há exatamente um pagamento casado com a fatura —
+  se houver mais de um (pagamento parcial/duplicado), a ação é recusada com
+  mensagem explicando que o desfazer automático não é seguro nesse caso. Hoje
+  disponível só no grid de cartões do desktop; o carrossel compacto do mobile
+  ainda não expõe nenhuma ação de fatura (ver `docs/visao-conta-faturas.md §13`).
 
 **Precisa de você (fila de pendências):**
 - Quando há pendências financeiras no mês, a Conta exibe o card **"Precisa de você"**
