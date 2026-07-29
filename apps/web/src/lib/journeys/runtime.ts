@@ -2,6 +2,7 @@ import type { ProjectType } from "@reformaflow/domain";
 import {
   resolveJourneyPlan,
   type JourneyPlan,
+  type JourneyPlanContext,
   type PersistedJourney,
 } from "@reformaflow/domain";
 import { api } from "@/lib/api";
@@ -88,7 +89,10 @@ export async function getEligibleJourneys(
   return api.get<EligibleJourney[]>(`/journeys/eligible?${params.toString()}`);
 }
 
-export function normalizeJourney(journey: EligibleJourney): RuntimeJourney {
+export function normalizeJourney(
+  journey: EligibleJourney,
+  ctx: JourneyPlanContext = {},
+): RuntimeJourney {
   const persisted: PersistedJourney = {
     key: journey.key,
     name: journey.name,
@@ -113,7 +117,7 @@ export function normalizeJourney(journey: EligibleJourney): RuntimeJourney {
     })),
     triggers: journey.triggers ?? [],
   };
-  const plan = resolveJourneyPlan(persisted);
+  const plan = resolveJourneyPlan(persisted, ctx);
   // `PlannedJourneyStep` carrega só o que o domínio decide (quais passos rodam,
   // ordem, posição, blocked). Campos de transporte web — hoje `slug`, usado
   // pela experiência FULL para navegar até a tela real — não existem no domínio
@@ -151,4 +155,17 @@ export async function completeJourney(
 
 export async function listJourneyProjects(): Promise<JourneyProject[]> {
   return api.get<JourneyProject[]>("/projects");
+}
+
+/**
+ * Tipo do projeto ativo — o painel de jornada precisa disso para resolver o
+ * componente operacional/resumo informativo certo de uma etapa SUMMARY.
+ * `JourneyRuntimeProvider` é montado ACIMA de qualquer `ProjectProvider` de
+ * rota (irmão, não descendente, da árvore de páginas) — por isso não dá para
+ * usar `useProject()` aqui; o painel busca o tipo pelo id, uma vez por troca
+ * de projeto ativo.
+ */
+export async function getProjectType(projectId: string): Promise<ProjectType> {
+  const project = await api.get<{ type: ProjectType }>(`/projects/${projectId}`);
+  return project.type;
 }

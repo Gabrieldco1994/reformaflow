@@ -368,3 +368,19 @@ export function getCatalogItem(
   const catalog = getSummaryCatalog(projectType);
   return catalog.find((page) => page.slug === slug);
 }
+
+/**
+ * Every distinct slug across every project type's catalog — the set of
+ * `stepKey`s a Jornada SUMMARY step can target for an informational summary
+ * (Etapa E, parte 2). Deduped: the same slug (e.g. `dashboard`) means a
+ * different screen per project type, but is a single valid `stepKey` — the
+ * runtime resolves the actual `SummaryPageDef` with the ACTIVE project's own
+ * type via `getCatalogItem`, never by assuming which type a slug "belongs" to.
+ */
+export function listSummaryCatalogSlugs(): string[] {
+  const slugs = new Set<string>();
+  for (const pages of Object.values(SUMMARY_CATALOG)) {
+    for (const page of pages) slugs.add(page.slug);
+  }
+  return [...slugs];
+}

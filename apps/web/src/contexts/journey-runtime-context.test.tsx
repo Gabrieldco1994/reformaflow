@@ -24,6 +24,14 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/projects/current/monthly",
   useRouter: () => ({ push: mocks.push }),
 }));
+// Este arquivo testa a lógica de NAVEGAÇÃO/fluxo com stepKeys sintéticos
+// ("a", "b") — não a resolução real de componente por stepKey (isso é
+// `SummaryStepPanel.test.tsx`). `knownStepKeys` filtraria "a"/"b" como
+// desconhecidos e zeraria o plano inteiro; mocado aqui para não acoplar
+// este arquivo ao catálogo real de produção.
+vi.mock("@/lib/journeys/known-step-keys", () => ({
+  getKnownJourneyStepKeys: () => ["a", "b"],
+}));
 
 function Fixture() {
   const runtime = useJourneyRuntime();

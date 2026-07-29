@@ -1,10 +1,11 @@
 import {
   JOURNEY_CATALOG,
+  getSummaryCatalog,
   type JourneyStepDefinition,
   type JourneyRepeatPolicy,
   type JourneyStepExperience,
   type JourneyTriggerType,
-  type ProjectType,
+  ProjectType,
 } from "@reformaflow/domain";
 import { api } from "@/lib/api";
 import type {
@@ -69,6 +70,30 @@ const STEP_CATALOG: Record<string, JourneyStepDefinition> = Object.values(JOURNE
   },
   {} as Record<string, JourneyStepDefinition>,
 );
+
+/**
+ * Telas informativas (Etapa E, parte 2 — todo #6): todo slug do catálogo de
+ * resumos (`summary-catalog.ts` do domínio) vira uma opção de passo SUMMARY
+ * adicional, para além dos passos operacionais acima. Deduplicado por slug —
+ * o mesmo slug (ex.: `dashboard`) existe em vários tipos de projeto com
+ * conteúdo diferente; a label/descrição aqui é só o default do primeiro tipo
+ * encontrado, e o admin pode sobrescrever label/subtitle por jornada (mesmo
+ * mecanismo de override que já existe para os passos operacionais). Não há
+ * colisão de chave com `STEP_CATALOG`: nenhum slug informativo repete uma key
+ * operacional.
+ */
+for (const type of Object.values(ProjectType)) {
+  for (const page of getSummaryCatalog(type)) {
+    if (STEP_CATALOG[page.slug]) continue;
+    STEP_CATALOG[page.slug] = {
+      key: page.slug,
+      label: page.title,
+      defaultSubtitle: page.description ?? '',
+      alwaysAvailable: true,
+      skippableByDefault: true,
+    };
+  }
+}
 
 export function listStepCatalog(): JourneyStepDefinition[] {
   return Object.values(STEP_CATALOG);
