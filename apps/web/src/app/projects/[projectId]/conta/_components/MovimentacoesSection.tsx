@@ -10,7 +10,7 @@ import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { tipoLabel } from '@/lib/expense-options';
 import { getExpenseIcon } from '@/lib/expense-icons';
-import { groupByMovementDay } from '../_lib';
+import { computeMovementTotals, groupByMovementDay, groupByMovementMonth, monthLabelLong } from '../_lib';
 import { Modal } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
 import type { Expense } from '@/types';
@@ -28,6 +28,7 @@ import type {
   AccountViewMovimentacao,
   AccountViewResponse,
   AccountViewSaida,
+  AccountViewYearlyResponse,
 } from '../_types';
 
 type Tab = 'saidas' | 'entradas' | 'tudo';
@@ -71,16 +72,29 @@ export function MovimentacoesSection({
   onSettleWithResidual,
   summaryQuickFilter,
   onClearSummaryQuickFilter,
+  mode = 'mes',
+  monthFilter = null,
+  onMonthFilterChange,
 }: {
-  data: AccountViewResponse;
+  data: AccountViewResponse | AccountViewYearlyResponse;
   projectId: string;
   originFilter: string | null;
   onClearOrigin: () => void;
-  onPayInvoice: (cardLast4: string) => void;
-  onAdjustInvoice: (cardLast4: string) => void;
-  onSettleWithResidual: (cardLast4: string) => void;
+  /**
+   * `dueMonth` só é preenchido pela linha de fatura: na visão anual ele diz de
+   * QUAL mês é a fatura clicada (sem ele, o diálogo pagaria a fatura do mês
+   * selecionado — a errada). Na visão do mês o 2º argumento é ignorado.
+   */
+  onPayInvoice: (cardLast4: string, dueMonth?: string | null) => void;
+  onAdjustInvoice: (cardLast4: string, dueMonth?: string | null) => void;
+  onSettleWithResidual: (cardLast4: string, dueMonth?: string | null) => void;
   summaryQuickFilter: ResumoQuickFilterKey | null;
   onClearSummaryQuickFilter: () => void;
+  /** 'ano' agrupa por mês (Visão Conta anual) em vez de por dia. */
+  mode?: 'mes' | 'ano';
+  /** Só no modo 'ano': recorta a lista num mês (`YYYY-MM`) — clique na barra do gráfico. */
+  monthFilter?: string | null;
+  onMonthFilterChange?: (mes: string | null) => void;
 }) {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<Tab>('tudo');
@@ -439,6 +453,11 @@ export function MovimentacoesSection({
         if (last4 !== originFilter) return false;
       }
 
+      // Recorte por mês da visão anual (barra do gráfico ou select de mês).
+      // Restaura o drill "mês da origem" que existia na DespesasRelacionadas e o
+      // filtro "Mês" da TodasDespesasAno.
+      if (monthFilter && m.data.slice(0, 7) !== monthFilter) return false;
+
       if (statusFilter !== 'todos') {
         const realizado = m.kind === 'saida' ? m.realizado : m.status === 'EM_CAIXA';
         if (statusFilter === 'pago' && !realizado) return false;
@@ -459,7 +478,7 @@ export function MovimentacoesSection({
       if (q && !m.descricao.toLowerCase().includes(q)) return false;
       return true;
     },
-    [summaryQuickFilter, semContaFilter, showInvestimentos, originFilter, statusFilter, catFilter, projetoFilter, search, projectId],
+    [summaryQuickFilter, semContaFilter, showInvestimentos, originFilter, monthFilter, statusFilter, catFilter, projetoFilter, search, projectId],
   );
 
   const filtered = useMemo(() => {
@@ -474,30 +493,55 @@ export function MovimentacoesSection({
     return result.sort((a, b) => a.data.localeCompare(b.data));
   }, [merged, tab, sortDir, passesContentFilters]);
 
+  const isAno = mode === 'ano';
+  const periodoLabel = isAno ? 'no ano' : 'no mês';
+
   const summaryQuickFilterLabel =
     summaryQuickFilter === 'entrouMes'
-      ? 'Entrou no mês'
+      ? `Entrou ${periodoLabel}`
       : summaryQuickFilter === 'saiuMes'
-        ? 'Saiu no mês'
+        ? `Saiu ${periodoLabel}`
         : summaryQuickFilter === 'faltaPagarMes'
           ? 'Ainda falta pagar'
           : null;
 
-  const movementsByDay = useMemo(() => groupByMovementDay(filtered), [filtered]);
+  const movementsByDay = useMemo(
+    () => (isAno ? groupByMovementMonth(filtered) : groupByMovementDay(filtered)),
+    [filtered, isAno],
+  );
 
-  const { totalSaidas, totalEntradasRecebido, totalEntradasPrevisto } = useMemo(() => {
-    let saidas = 0;
-    let recebido = 0;
-    let previsto = 0;
-    for (const m of filtered) {
-      // Aporte aparece na lista, mas não é gasto: fora do total de saídas.
-      if (m.kind === 'saida' && m.tipoDespesa === ExpenseType.INVESTIMENTOS) continue;
-      if (m.kind === 'saida') saidas += m.valor;
-      else if (m.status === 'EM_CAIXA') recebido += m.valor;
-      else if (m.status === 'PREVISTO') previsto += m.valor;
-    }
-    return { totalSaidas: saidas, totalEntradasRecebido: recebido, totalEntradasPrevisto: previsto };
-  }, [filtered]);
+  // Subtotal + contagem por grupo: no ano, cada cabeçalho de mês fecha o próprio
+  // saldo (era o que a TodasDespesasAno/DespesasRelacionadas mostravam por mês).
+  const groupTotals = useMemo(() => {
+    if (!isAno) return new Map<string, { saidas: number; entradas: number; count: number }>();
+    return new Map(
+      movementsByDay.map(({ day, movements }) => {
+        const totals = computeMovementTotals(movements);
+        return [
+          day,
+          {
+            saidas: totals.totalSaidas,
+            entradas: totals.totalEntradasRecebido + totals.totalEntradasPrevisto,
+            count: movements.length,
+          },
+        ] as const;
+      }),
+    );
+  }, [isAno, movementsByDay]);
+
+  // Meses disponíveis para o select da visão anual (ordem cronológica).
+  const mesesDisponiveis = useMemo(() => {
+    if (!isAno) return [] as string[];
+    const set = new Set<string>();
+    for (const m of merged) set.add(m.data.slice(0, 7));
+    if (monthFilter) set.add(monthFilter);
+    return Array.from(set).sort();
+  }, [isAno, merged, monthFilter]);
+
+  const { totalSaidas, totalEntradasRecebido, totalEntradasPrevisto } = useMemo(
+    () => computeMovementTotals(filtered),
+    [filtered],
+  );
 
   // Agrupa as saídas visíveis por categoria (tipo de despesa) para a visão resumida.
   const porCategoria = useMemo(() => {
@@ -569,7 +613,12 @@ export function MovimentacoesSection({
   const renderRow = (
     item: AccountViewMovimentacao,
     expand?: { expandable: boolean; expanded: boolean; onToggleExpand: () => void },
-  ) => (
+  ) => {
+    // Mês de vencimento da fatura desta linha — carimba as ações de fatura para
+    // a visão anual abrir o mês certo (ver props onPayInvoice/onAdjustInvoice).
+    const invoiceDueMonth =
+      item.kind === 'saida' && item.isInvoice ? item.dueMonth ?? item.data.slice(0, 7) : null;
+    return (
     <MovimentacaoRow
       key={rowKey(item)}
       item={
@@ -591,9 +640,9 @@ export function MovimentacoesSection({
         toggleStatus.mutate({ id, status: realizado ? 'PLANEJADO' : 'PAGO' })
       }
       onToggleReceita={(id, nextStatus) => toggleReceiptStatus.mutate({ id, status: nextStatus })}
-      onPayInvoice={onPayInvoice}
-      onAdjustInvoice={onAdjustInvoice}
-      onSettleWithResidual={onSettleWithResidual}
+      onPayInvoice={(last4) => onPayInvoice(last4, invoiceDueMonth)}
+      onAdjustInvoice={(last4) => onAdjustInvoice(last4, invoiceDueMonth)}
+      onSettleWithResidual={(last4) => onSettleWithResidual(last4, invoiceDueMonth)}
       onQuitar={setQuitarTarget}
       onRemoveExpense={(id, targetProjectId) => removeExpense.mutate({ id, targetProjectId })}
       onRemoveReceita={(id) => removeReceita.mutate(id)}
@@ -604,7 +653,8 @@ export function MovimentacoesSection({
       expanded={expand?.expanded}
       onToggleExpand={expand?.onToggleExpand}
     />
-  );
+    );
+  };
 
   const tabs: Array<{ key: Tab; label: string }> = [
     { key: 'saidas', label: 'Saídas' },
@@ -623,6 +673,7 @@ export function MovimentacoesSection({
     (catFilter !== 'todas' ? 1 : 0) +
     (projetoFilter !== 'todos' ? 1 : 0) +
     (semContaFilter ? 1 : 0) +
+    (monthFilter ? 1 : 0) +
     (showInvestimentos ? 0 : 1);
 
   // Qualquer filtro de conteúdo ativo (inclui busca, status, origem e filtro rápido) —
@@ -634,6 +685,7 @@ export function MovimentacoesSection({
     statusFilter !== 'todos' ||
     semContaFilter ||
     originFilter != null ||
+    monthFilter != null ||
     summaryQuickFilter != null;
 
   const clearAllFilters = () => {
@@ -644,6 +696,7 @@ export function MovimentacoesSection({
     setSemContaFilter(false);
     setShowInvestimentos(true);
     if (originFilter) onClearOrigin();
+    if (monthFilter && onMonthFilterChange) onMonthFilterChange(null);
     if (summaryQuickFilter) onClearSummaryQuickFilter();
   };
 
@@ -651,6 +704,21 @@ export function MovimentacoesSection({
   // empilhados no sheet (mobile) — mesma lógica/estado, só muda a largura.
   const renderFilterControls = (stacked: boolean) => (
     <>
+      {isAno && mesesDisponiveis.length > 0 && onMonthFilterChange && (
+        <select
+          value={monthFilter ?? ''}
+          onChange={(e) => onMonthFilterChange(e.target.value || null)}
+          aria-label="Mês do ano"
+          className={`h-11 rounded-xl border border-lifeone-hairline bg-lifeone-card px-3 text-sm font-medium text-lifeone-ink outline-none focus:border-lifeone-blue md:h-10 ${stacked ? 'w-full' : ''}`}
+        >
+          <option value="">Todos os meses</option>
+          {mesesDisponiveis.map((mes) => (
+            <option key={mes} value={mes}>
+              {monthLabelLong(mes)}
+            </option>
+          ))}
+        </select>
+      )}
       {tab !== 'entradas' && catOptions.length > 0 && (
         <select
           value={catFilter}
@@ -818,7 +886,7 @@ export function MovimentacoesSection({
       <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-lifeone-ink-3">
-            Movimentações do mês
+            {isAno ? 'Movimentações do ano' : 'Movimentações do mês'}
           </p>
           <h2
             className="mt-0.5 text-lg font-bold text-lifeone-ink font-geist not-italic"
@@ -911,6 +979,22 @@ export function MovimentacoesSection({
           >
             limpar
           </button>
+        </div>
+      )}
+
+      {/* Recorte de mês da visão anual (barra do gráfico / select "Mês"). */}
+      {isAno && monthFilter && (
+        <div className="mb-3 flex items-center gap-2 rounded-xl bg-lifeone-surface px-3 py-2 text-[12px] text-lifeone-ink-2">
+          <span className="font-semibold">Mês: {monthLabelLong(monthFilter)}</span>
+          {onMonthFilterChange && (
+            <button
+              type="button"
+              onClick={() => onMonthFilterChange(null)}
+              className="ml-auto font-semibold text-lifeone-blue hover:text-[#0857C4]"
+            >
+              limpar mês
+            </button>
+          )}
         </div>
       )}
 
@@ -1052,7 +1136,9 @@ export function MovimentacoesSection({
         </div>
       ) : (
         <div className="space-y-5">
-          {movementsByDay.map(({ day, label, movements }) => (
+          {movementsByDay.map(({ day, label, movements }) => {
+            const totals = groupTotals.get(day);
+            return (
             <section key={day} aria-label={`Movimentações de ${label}`}>
               <div className="mb-2 flex items-center gap-2">
                 <span className="h-px flex-1 bg-lifeone-hairline" />
@@ -1061,6 +1147,21 @@ export function MovimentacoesSection({
                 </h3>
                 <span className="h-px flex-1 bg-lifeone-hairline" />
               </div>
+              {/* Fechamento do mês (visão anual): rótulo à esquerda, valores nowrap
+                  à direita — mesmo padrão de linha financeira da MovimentacaoRow. */}
+              {totals && (
+                <div className="mb-2 flex items-center justify-between gap-3 rounded-xl bg-lifeone-surface px-3 py-1.5">
+                  <span className="min-w-0 truncate text-[11px] font-semibold text-lifeone-ink-3">
+                    {totals.count} lançamento{totals.count === 1 ? '' : 's'}
+                  </span>
+                  <span className="flex shrink-0 items-center gap-2 whitespace-nowrap text-[12px] font-semibold tabular-nums font-geist">
+                    {totals.entradas > 0 && (
+                      <span className="text-[#1E924A]">+ {formatCurrency(totals.entradas / 100)}</span>
+                    )}
+                    <span className="text-lifeone-ink-2">− {formatCurrency(totals.saidas / 100)}</span>
+                  </span>
+                </div>
+              )}
               <div className="space-y-2">
                 {movements.map((item) => {
                   const card = item.kind === 'saida' && item.isInvoice ? item.cardLast4 : null;
@@ -1096,7 +1197,8 @@ export function MovimentacoesSection({
                 })}
               </div>
             </section>
-          ))}
+            );
+          })}
         </div>
       )}
 
