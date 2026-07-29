@@ -511,11 +511,32 @@ inverso de `settleByDueMonth`/`applyPaid`) e a `Expense` `PAGAMENTO_FATURA_CARTA
 
 **Restrição de segurança (v1 deliberadamente restrita):** só desfaz quando existe
 **exatamente um** pagamento implícito casado com a fatura-alvo. Reaproveita
-`assignImplicitPayments` — a MESMA função que `getAccountView` usa pra decidir
-`card.status`, garantindo que "desfazer" nunca discorda do que a tela já mostrava
-como pago. 0 pagamentos casados → 404. 2+ (pagamento parcial, ou import trouxe
-outro) → 400, sem heurística de desambiguação — fora de escopo (exigiria
-persistir o vínculo do settlement, que `settleInvoice` hoje não grava).
+`assignImplicitPayments` sobre a lista de **TODAS** as faturas do cartão
+(`buildCardInvoiceAggregates`) — a MESMA agregação que `getAccountView` usa pra
+decidir `card.status`, garantindo que "desfazer" nunca discorda do que a tela já
+mostrava como pago. 0 pagamentos casados → 404. 2+ (pagamento parcial, ou import
+trouxe outro) → 400 com a lista dos pagamentos casados (`id`/`amountCents`/`data`,
+pra UI mostrar) — sem heurística de desambiguação automática, isso é decisão manual
+do usuário (exigiria persistir o vínculo do settlement, que `settleInvoice` hoje
+não grava).
+
+**Hotfix (jul/2026): lista de faturas não podia ter um elemento só.** A v1
+original montava `invoices = [{ dueMonth-alvo, ... }]` — só a fatura sendo
+desfeita. Mas `assignImplicitPayments` decide por DISPUTA: pra cada pagamento,
+filtra as faturas do mesmo cartão cujo `dueMonth` caia na janela
+`{payMonth, payMonth+1}` e escolhe a mais próxima por valor restante. Com UM
+elemento na lista, não existe concorrente pra absorver pagamentos de OUTROS
+meses cuja janela alcance o dueMonth-alvo — todo pagamento do cartão feito no
+mês anterior era empurrado pra lá, inflando a contagem pra 2+ e disparando o 400
+no fluxo NORMAL (cartão com faturas em meses consecutivos pagas), não no
+excepcional. Correção: `undoInvoicePayment` agora busca `CashFlowEntry` +
+`InvoiceAdjustment` do cartão inteiro (todos os meses) e chama
+`buildCardInvoiceAggregates` — a MESMA função usada por `getAccountView` — pra
+montar a lista completa, só filtrando por `targetKey` DEPOIS do
+`assignImplicitPayments`. Uma segunda montagem paralela (como a v1 fazia) é
+exatamente como essa divergência nasceu; qualquer novo consumidor de "quais
+faturas existem e quanto cada uma soma" tem que passar por
+`buildCardInvoiceAggregates`, não reimplementar.
 
 **Armadilha respeitada (regra de ouro #4):** o soft-delete do pagamento roda
 DENTRO da `$transaction` como `update({ data: { deletedAt: new Date() } })`
@@ -541,3 +562,6 @@ antes — deep-equal, não "parecido". Ver
   nem "Ajustar…") — corrigida junto com este PR.
 - Ambos abrem `UndoInvoicePaymentDialog.tsx` (bottom-sheet responsivo), com
   foco inicial em "Cancelar" (nunca na ação), focus trap e Escape sem mutar.
+- No 400 de ambiguidade, o diálogo troca a confirmação por uma lista dos
+  pagamentos casados (data + valor) e fecha a ação automática — o usuário edita
+  o lançamento duplicado/importado manualmente na Conta.

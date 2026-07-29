@@ -27,7 +27,7 @@ interface RequestExtra {
 }
 
 export class ApiResponseError extends Error {
-  constructor(message: string, public readonly status: number) {
+  constructor(message: string, public readonly status: number, public readonly body?: unknown) {
     super(message);
     this.name = 'ApiResponseError';
   }
@@ -75,7 +75,7 @@ async function request<T>(
       const msg = Array.isArray(error.message)
         ? error.message.join('; ')
         : (error.message ?? `HTTP ${res.status}`);
-      throw new ApiResponseError(msg, res.status);
+      throw new ApiResponseError(msg, res.status, error);
     }
 
     return res.json();
