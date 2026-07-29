@@ -333,6 +333,13 @@ As mudanças são **globais** e entram em vigor na próxima execução da jornad
 deploy. Só passam a valer depois de **Salvar jornada** — enquanto houver edição
 pendente, o painel avisa "alterações não salvas".
 
+> Os gatilhos **cadastro concluído** e **projeto criado** já apareciam como opção
+> aqui, mas até a Fase A do motor genérico de Jornadas nenhum fluxo de produto os
+> disparava de fato — só **acesso a uma tela** funcionava. Os dois agora disparam:
+> o primeiro logo após o cadastro público, o segundo logo após criar um projeto
+> em `/projects`.
+
+
 Duas limitações propositais: o painel **reordena e configura as telas que
 existem**, não cria telas novas (cada tela é uma funcionalidade do app); e
 telas marcadas **"Condicional"** (ex.: "Pergunte à Maria") só aparecem quando

@@ -3,10 +3,15 @@ import { readdirSync, readFileSync, existsSync } from 'fs';
 import { join, relative } from 'path';
 import { JOURNEY_SAFE_ACTIONS } from '../src/config/journey-catalog';
 
+// Um destino pode ter mais de um CTA marcado (ex.: botão desktop + FAB mobile
+// equivalente para o mesmo `data-journey-action`) — a invariante real é
+// cobertura (>=1), não unicidade. Ver A2/A3 do briefing de Fase A.
+const DATA_JOURNEY_ACTION_RE = /data-journey-action=["']([^"']+)["']/g;
+
 describe('Journey Action Markers', () => {
-  it('should have exactly one CTA marked with each safe action in the codebase', () => {
+  it('every safe action has at least one CTA, and no marker points outside the catalog', () => {
     const webRoot = join(__dirname, '../../../apps/web/src');
-    
+
     // Fail loudly if web directory doesn't exist — test is broken, not skippable
     if (!existsSync(webRoot)) {
       throw new Error(
@@ -15,88 +20,72 @@ describe('Journey Action Markers', () => {
       );
     }
 
-    const CTAsByAction = new Map<string, string[]>();
+    const knownActions = new Set<string>(JOURNEY_SAFE_ACTIONS);
+    const locationsByAction = new Map<string, string[]>();
+    const unknownKeys = new Map<string, string[]>();
 
-    // Initialize with all safe actions
-    JOURNEY_SAFE_ACTIONS.forEach((action) => {
-      CTAsByAction.set(action, []);
-    });
-
-    // Walk the web directory and find all elements with data-journey-action
     walkDir(webRoot, (filePath: string) => {
-      const content = readFileSync(filePath, 'utf-8');
-      
-      JOURNEY_SAFE_ACTIONS.forEach((action) => {
-        // Match the exact attribute: data-journey-action="value" or data-journey-action='value'
-        // Count non-overlapping occurrences of the full attribute reference
-        const pattern = `data-journey-action=["']?${action.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["']?`;
-        const regex = new RegExp(pattern, 'g');
-        const matches = content.match(regex);
-        
-        if (matches && matches.length > 0) {
-          const existing = CTAsByAction.get(action) || [];
-          // Store both file path AND count to detect duplicates
-          existing.push(`${relative(webRoot, filePath)}:${matches.length}`);
-          CTAsByAction.set(action, existing);
-        }
-      });
-    });
+      // Specs referenciam chaves reais só para simular DOM em teste — não são
+      // CTAs de produção e não contam para cobertura nem para chave inválida.
+      if (/\.(test|spec)\.tsx?$/.test(filePath)) return;
 
-    // Verify each safe action has exactly one CTA
-    const failures: string[] = [];
-    CTAsByAction.forEach((entries, action) => {
-      if (entries.length === 0) {
-        failures.push(`  ❌ ${action}: NO CTA FOUND (expected 1, found 0)`);
-      } else if (entries.length > 1) {
-        failures.push(
-          `  ⚠️  ${action}: DUPLICATED (expected 1, found ${entries.length})\n` +
-          `      Locations: ${entries.join('; ')}`
-        );
-      } else {
-        // entries.length === 1, but check if there are multiple occurrences in the file
-        const [entry] = entries;
-        const [filePath, countStr] = entry.split(':');
-        const count = parseInt(countStr, 10) || 1;
-        if (count > 1) {
-          failures.push(
-            `  ⚠️  ${action}: MULTIPLE IN SAME FILE (expected 1, found ${count})\n` +
-            `      File: ${filePath}`
-          );
+      const content = readFileSync(filePath, 'utf-8');
+      for (const match of content.matchAll(DATA_JOURNEY_ACTION_RE)) {
+        const key = match[1];
+        const location = relative(webRoot, filePath);
+        if (knownActions.has(key)) {
+          const existing = locationsByAction.get(key) ?? [];
+          existing.push(location);
+          locationsByAction.set(key, existing);
+        } else {
+          const existing = unknownKeys.get(key) ?? [];
+          existing.push(location);
+          unknownKeys.set(key, existing);
         }
       }
+    });
+
+    const failures: string[] = [];
+
+    JOURNEY_SAFE_ACTIONS.forEach((action) => {
+      if (!locationsByAction.has(action)) {
+        failures.push(`  ❌ ${action}: NO CTA FOUND (expected at least 1, found 0)`);
+      }
+    });
+
+    unknownKeys.forEach((files, key) => {
+      failures.push(
+        `  ❌ "${key}" is not in JOURNEY_SAFE_ACTIONS but is used as data-journey-action\n` +
+        `      Locations: ${files.join('; ')}`
+      );
     });
 
     if (failures.length > 0) {
       throw new Error(
-        `\nJourney Safe Actions not properly marked:\n${failures.join('\n')}\n\n` +
-        `Each safe action must have exactly ONE CTA marked with data-journey-action.`
+        `\nJourney Safe Actions coverage problem:\n${failures.join('\n')}\n\n` +
+        `Each safe action needs at least one marked CTA, and every marked key must exist in the catalog.`
       );
     }
 
-    // Summary
-    console.log(`\n✅ All ${JOURNEY_SAFE_ACTIONS.length} journey safe actions have exactly one CTA marked.`);
+    console.log(`\n✅ All ${JOURNEY_SAFE_ACTIONS.length} journey safe actions have at least one CTA marked.`);
   });
 });
 
 function walkDir(dir: string, callback: (filePath: string) => void): void {
-  try {
-    const files = readdirSync(dir, { withFileTypes: true });
+  const files = readdirSync(dir, { withFileTypes: true });
 
-    files.forEach((file) => {
-      const fullPath = join(dir, file.name);
-      
-      // Skip node_modules, .next, etc.
-      if (file.name.startsWith('.') || file.name === 'node_modules' || file.name === '.next') {
-        return;
-      }
+  files.forEach((file) => {
+    const fullPath = join(dir, file.name);
 
-      if (file.isDirectory()) {
-        walkDir(fullPath, callback);
-      } else if (file.name.endsWith('.tsx') || file.name.endsWith('.ts')) {
-        callback(fullPath);
-      }
-    });
-  } catch (error) {
-    // Directory doesn't exist or can't be read
-  }
+    // Skip node_modules, .next, etc.
+    if (file.name.startsWith('.') || file.name === 'node_modules' || file.name === '.next') {
+      return;
+    }
+
+    if (file.isDirectory()) {
+      walkDir(fullPath, callback);
+    } else if (file.name.endsWith('.tsx') || file.name.endsWith('.ts')) {
+      callback(fullPath);
+    }
+  });
 }

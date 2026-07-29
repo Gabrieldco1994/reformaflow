@@ -16,6 +16,9 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/contexts/auth-context", () => ({
   useAuth: () => ({ register: mocks.register, refresh: mocks.refresh }),
 }));
+vi.mock("@/contexts/journey-runtime-context", () => ({
+  useJourneyRuntime: () => ({ emitSignupCompleted: vi.fn() }),
+}));
 vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
   return {
