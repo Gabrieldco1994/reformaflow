@@ -7,10 +7,12 @@ describe('Journey Action Markers', () => {
   it('should have exactly one CTA marked with each safe action in the codebase', () => {
     const webRoot = join(__dirname, '../../../apps/web/src');
     
-    // Skip test if web directory doesn't exist (running in isolation)
+    // Fail loudly if web directory doesn't exist — test is broken, not skippable
     if (!existsSync(webRoot)) {
-      console.log(`⏭️  Skipping test: web root not found at ${webRoot}`);
-      return;
+      throw new Error(
+        `BROKEN TEST: web root not found at ${webRoot}\n` +
+        `The test is unable to scan for CTAs. This path must exist to validate coverage.`
+      );
     }
 
     const CTAsByAction = new Map<string, string[]>();
@@ -25,11 +27,16 @@ describe('Journey Action Markers', () => {
       const content = readFileSync(filePath, 'utf-8');
       
       JOURNEY_SAFE_ACTIONS.forEach((action) => {
-        const regex = new RegExp(`data-journey-action=["']?${action}["']?`, 'g');
+        // Match the exact attribute: data-journey-action="value" or data-journey-action='value'
+        // Count non-overlapping occurrences of the full attribute reference
+        const pattern = `data-journey-action=["']?${action.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["']?`;
+        const regex = new RegExp(pattern, 'g');
         const matches = content.match(regex);
-        if (matches) {
+        
+        if (matches && matches.length > 0) {
           const existing = CTAsByAction.get(action) || [];
-          existing.push(`${relative(webRoot, filePath)}`);
+          // Store both file path AND count to detect duplicates
+          existing.push(`${relative(webRoot, filePath)}:${matches.length}`);
           CTAsByAction.set(action, existing);
         }
       });
@@ -37,11 +44,25 @@ describe('Journey Action Markers', () => {
 
     // Verify each safe action has exactly one CTA
     const failures: string[] = [];
-    CTAsByAction.forEach((files, action) => {
-      if (files.length === 0) {
-        failures.push(`  ❌ ${action}: NOT FOUND (0 occurrences)`);
-      } else if (files.length > 1) {
-        failures.push(`  ⚠️  ${action}: MULTIPLE (${files.length} occurrences)`);
+    CTAsByAction.forEach((entries, action) => {
+      if (entries.length === 0) {
+        failures.push(`  ❌ ${action}: NO CTA FOUND (expected 1, found 0)`);
+      } else if (entries.length > 1) {
+        failures.push(
+          `  ⚠️  ${action}: DUPLICATED (expected 1, found ${entries.length})\n` +
+          `      Locations: ${entries.join('; ')}`
+        );
+      } else {
+        // entries.length === 1, but check if there are multiple occurrences in the file
+        const [entry] = entries;
+        const [filePath, countStr] = entry.split(':');
+        const count = parseInt(countStr, 10) || 1;
+        if (count > 1) {
+          failures.push(
+            `  ⚠️  ${action}: MULTIPLE IN SAME FILE (expected 1, found ${count})\n` +
+            `      File: ${filePath}`
+          );
+        }
       }
     });
 
