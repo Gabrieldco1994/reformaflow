@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { RotateCcw, X } from 'lucide-react';
@@ -26,6 +27,9 @@ export function UndoInvoicePaymentDialog({
   onClose: () => void;
   onUndone?: () => void;
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+
   const undo = useMutation({
     mutationFn: () =>
       api.post<UndoInvoicePaymentResponse>(
@@ -48,9 +52,54 @@ export function UndoInvoicePaymentDialog({
     onError: (e: Error) => toast.error(`Erro ao desfazer pagamento: ${e.message}`),
   });
 
+  // Diálogo destrutivo: foco inicial na ação SEGURA (Cancelar), Escape fecha,
+  // Tab fica preso no diálogo e o foco volta ao gatilho ao sair.
+  // Mesmo padrão do MaisSheet (_components/MaisSheet.tsx).
+  useEffect(() => {
+    const trigger = document.activeElement as HTMLElement | null;
+    const dialog = dialogRef.current;
+    const focusableSelector =
+      'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+    cancelRef.current?.focus();
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab' || !dialog) return;
+
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(focusableSelector));
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      trigger?.focus();
+    };
+  }, [onClose]);
+
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-lifeone-ink/40 p-0 sm:items-center sm:p-4">
-      <div className="w-full max-w-md rounded-t-3xl bg-lifeone-card p-5 shadow-lifeone-dialog sm:rounded-3xl">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="undo-invoice-payment-title"
+        className="w-full max-w-md rounded-t-3xl bg-lifeone-card p-5 shadow-lifeone-dialog sm:rounded-3xl"
+      >
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
             <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-lifeone-surface text-lifeone-ink-2">
@@ -58,6 +107,7 @@ export function UndoInvoicePaymentDialog({
             </span>
             <div>
               <h3
+                id="undo-invoice-payment-title"
                 className="text-base font-bold text-lifeone-ink font-geist not-italic"
                 style={{ fontFamily: "'Geist', var(--font-sans), system-ui, sans-serif", fontStyle: 'normal' }}
               >
@@ -86,6 +136,7 @@ export function UndoInvoicePaymentDialog({
 
           <div className="flex gap-2">
             <button
+              ref={cancelRef}
               type="button"
               onClick={onClose}
               disabled={undo.isPending}
