@@ -1,11 +1,13 @@
 'use client';
 
+import { useState } from 'react';
 import { Landmark } from 'lucide-react';
 import Link from 'next/link';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { pickCardGradient } from '@/components/CreditCardVisual';
 import type { AccountViewCardSummary, AccountViewConta } from '../_types';
 import { CreditCardTile } from './CreditCardTile';
+import { MobileCardActionsSheet } from './MobileCardActionsSheet';
 
 export function CartoesSection({
   projectId,
@@ -16,6 +18,7 @@ export function CartoesSection({
   onPayInvoice,
   onAdjustInvoice,
   onSettleWithResidual,
+  onUndoPayment,
 }: {
   projectId: string;
   cartoes: AccountViewCardSummary[];
@@ -25,17 +28,21 @@ export function CartoesSection({
   onPayInvoice: (cardLast4: string) => void;
   onAdjustInvoice: (cardLast4: string) => void;
   onSettleWithResidual: (cardLast4: string) => void;
+  onUndoPayment: (cardLast4: string) => void;
 }) {
+  const [actionsSheetCard, setActionsSheetCard] = useState<AccountViewCardSummary | null>(null);
+
   if (cartoes.length === 0 && contas.length === 0) return null;
 
   function handleCompactCardTap(card: AccountViewCardSummary) {
     onSelect(card.last4);
-    if (card.status === 'parcial' && card.faturaPendente > 0) {
-      onSettleWithResidual(card.last4);
-      return;
-    }
-    if (card.status === 'paga') {
-      onAdjustInvoice(card.last4);
+    // "a pagar" tem uma única ação óbvia (pagar) — sem ambiguidade, tap direto.
+    // "paga"/"parcial" já têm 2+ ações possíveis (ajustar, desfazer pagamento,
+    // quitar c/ resíduo); o carrossel compacto não tem espaço pra botões
+    // empilhados (ver CreditCardTile, só no grid desktop), então abrimos um
+    // seletor em vez de rotear fixo pra uma delas.
+    if (card.status !== 'a pagar') {
+      setActionsSheetCard(card);
       return;
     }
     if (card.faturaAtual > 0) {
@@ -140,6 +147,7 @@ export function CartoesSection({
             onPayInvoice={onPayInvoice}
             onAdjustInvoice={onAdjustInvoice}
             onSettleWithResidual={onSettleWithResidual}
+            onUndoPayment={onUndoPayment}
           />
         ))}
 
@@ -168,6 +176,16 @@ export function CartoesSection({
           );
         })}
       </div>
+
+      {actionsSheetCard && (
+        <MobileCardActionsSheet
+          card={actionsSheetCard}
+          onClose={() => setActionsSheetCard(null)}
+          onAdjustInvoice={onAdjustInvoice}
+          onUndoPayment={onUndoPayment}
+          onSettleWithResidual={onSettleWithResidual}
+        />
+      )}
     </section>
   );
 }

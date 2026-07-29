@@ -70,6 +70,7 @@ export function MovimentacoesSection({
   onPayInvoice,
   onAdjustInvoice,
   onSettleWithResidual,
+  onUndoPayment,
   summaryQuickFilter,
   onClearSummaryQuickFilter,
   mode = 'mes',
@@ -88,6 +89,7 @@ export function MovimentacoesSection({
   onPayInvoice: (cardLast4: string, dueMonth?: string | null) => void;
   onAdjustInvoice: (cardLast4: string, dueMonth?: string | null) => void;
   onSettleWithResidual: (cardLast4: string, dueMonth?: string | null) => void;
+  onUndoPayment: (cardLast4: string, dueMonth?: string | null) => void;
   summaryQuickFilter: ResumoQuickFilterKey | null;
   onClearSummaryQuickFilter: () => void;
   /** 'ano' agrupa por mês (Visão Conta anual) em vez de por dia. */
@@ -643,6 +645,7 @@ export function MovimentacoesSection({
       onPayInvoice={(last4) => onPayInvoice(last4, invoiceDueMonth)}
       onAdjustInvoice={(last4) => onAdjustInvoice(last4, invoiceDueMonth)}
       onSettleWithResidual={(last4) => onSettleWithResidual(last4, invoiceDueMonth)}
+      onUndoPayment={(last4) => onUndoPayment(last4, invoiceDueMonth)}
       onQuitar={setQuitarTarget}
       onRemoveExpense={(id, targetProjectId) => removeExpense.mutate({ id, targetProjectId })}
       onRemoveReceita={(id) => removeReceita.mutate(id)}

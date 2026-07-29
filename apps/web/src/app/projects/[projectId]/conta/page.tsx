@@ -13,6 +13,7 @@ import { ResumoCards, type ResumoQuickFilterKey } from './_components/ResumoCard
 import { CartoesSection } from './_components/CartoesSection';
 import { MovimentacoesSection } from './_components/MovimentacoesSection';
 import { PagarFaturaDialog } from './_components/PagarFaturaDialog';
+import { UndoInvoicePaymentDialog } from './_components/UndoInvoicePaymentDialog';
 import { InvoiceInterventionDialog } from './_components/InvoiceInterventionDialog';
 import { ContaAnoView } from './_components/ContaAnoView';
 import { ContaQuickActions } from './_components/ContaQuickActions';
@@ -30,6 +31,7 @@ export default function ContaPage() {
   const [payCardLast4, setPayCardLast4] = useState<string | null>(null);
   const [adjustCardLast4, setAdjustCardLast4] = useState<string | null>(null);
   const [residualCardLast4, setResidualCardLast4] = useState<string | null>(null);
+  const [undoCardLast4, setUndoCardLast4] = useState<string | null>(null);
   const [originFilter, setOriginFilter] = useState<string | null>(null);
   const [resumoQuickFilter, setResumoQuickFilter] = useState<ResumoQuickFilterKey | null>(null);
   const openNovaDespesaRef = useRef<() => void>(() => undefined);
@@ -225,6 +227,7 @@ export default function ContaPage() {
                 onPayInvoice={setPayCardLast4}
                 onAdjustInvoice={setAdjustCardLast4}
                 onSettleWithResidual={setResidualCardLast4}
+                onUndoPayment={setUndoCardLast4}
               />
               <MovimentacoesSection
                 data={data}
@@ -234,6 +237,7 @@ export default function ContaPage() {
                 onPayInvoice={setPayCardLast4}
                 onAdjustInvoice={setAdjustCardLast4}
                 onSettleWithResidual={setResidualCardLast4}
+                onUndoPayment={setUndoCardLast4}
                 summaryQuickFilter={resumoQuickFilter}
                 onClearSummaryQuickFilter={() => setResumoQuickFilter(null)}
               />
@@ -277,6 +281,19 @@ export default function ContaPage() {
             card={card}
             mode="residual"
             onClose={() => setResidualCardLast4(null)}
+          />
+        );
+      })()}
+
+      {undoCardLast4 && data && (() => {
+        const card = data.cartoes.find((c) => c.last4 === undoCardLast4);
+        if (!card) return null;
+        return (
+          <UndoInvoicePaymentDialog
+            projectId={projectId}
+            card={card}
+            onClose={() => setUndoCardLast4(null)}
+            onUndone={invalidateConta}
           />
         );
       })()}
