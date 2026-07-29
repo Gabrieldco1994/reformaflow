@@ -275,7 +275,12 @@ test.describe("jornada dirigida pela configuração devolvida por /journeys/elig
 
     await page.goto("/projects/p1/monthly");
 
-    await expect(page.locator(PANEL).getByRole("button", { name: "Pular" })).toHaveCount(0);
+    // O painel precisa estar de pé: sem isto o `toHaveCount(0)` abaixo passa
+    // vacuamente quando a jornada nem abre.
+    await expect(page.locator(PANEL)).toBeVisible();
+    await expect(
+      page.locator(PANEL).getByRole("button", { name: "Pular" }),
+    ).toHaveCount(0);
   });
 
   test("configuração alterada entre duas execuções: 4 etapas, depois 6, sem rebuild", async ({

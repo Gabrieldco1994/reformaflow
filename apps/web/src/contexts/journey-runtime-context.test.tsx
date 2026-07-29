@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ProjectType } from "@reformaflow/domain";
@@ -63,7 +63,11 @@ function Fixture() {
 function renderRuntime() {
   return render(
     <JourneyRuntimeProvider>
-      <Fixture />
+      {/* `main` real: é o landmark de fallback para onde o foco volta quando
+          a jornada abriu sem clique de gatilho (caminho SCREEN_VISIT). */}
+      <main data-testid="page-main">
+        <Fixture />
+      </main>
     </JourneyRuntimeProvider>,
   );
 }
@@ -425,6 +429,117 @@ describe("JourneyRuntimeProvider", () => {
       await userEvent.setup().keyboard("{Escape}");
 
       expect(screen.getByRole("dialog")).toBe(panel);
+    });
+  });
+
+  // Regressão: SCREEN_VISIT é o ÚNICO gatilho automático vivo (o bootstrap só
+  // semeia PROJECT_CREATED e nenhum consumidor de emitProjectCreated existe na
+  // web). Nele, dispensar não escrevia nada em lugar nenhum: o effect de
+  // SCREEN_VISIT re-rodava com `active === null`, o mesmo `pathname` voltava a
+  // ser elegível (o backend só filtra por JourneyCompletion, e não há endpoint
+  // de dismiss) e o painel reabria — fechar virava no-op. Os testes antigos
+  // stubam SCREEN_VISIT como [] e usam PROJECT_CREATED, imunes ao bug.
+  describe("dispensa no gatilho SCREEN_VISIT (o que roda em produção)", () => {
+    function setupScreenVisitJourney() {
+      mocks.apiGet.mockImplementation((path: string) => {
+        const context = Object.fromEntries(
+          new URL(`http://localhost${path}`).searchParams,
+        ) as { triggerType?: string };
+        return Promise.resolve(
+          context.triggerType === "SCREEN_VISIT"
+            ? [
+                {
+                  journeyId: "j1",
+                  key: "tour:screen-visit",
+                  name: "Visita",
+                  triggerId: "t1",
+                  repeatPolicy: "ALWAYS",
+                  dismissPolicy: "DISMISS_UNTIL_LOGIN",
+                  crossProject: false,
+                  steps: [
+                    {
+                      stepKey: "a",
+                      order: 0,
+                      experience: "SUMMARY",
+                      label: "A",
+                      subtitle: "Resumo",
+                      skippable: true,
+                    },
+                  ],
+                },
+              ]
+            : [],
+        );
+      });
+    }
+
+    function screenVisitCalls() {
+      return mocks.apiGet.mock.calls.filter((call: unknown[]) =>
+        String(call[0]).includes("triggerType=SCREEN_VISIT"),
+      ).length;
+    }
+
+    /** Espera a re-avaliação de elegibilidade que segue o fechamento. */
+    async function waitForRecheck(previousCalls: number) {
+      await waitFor(() =>
+        expect(screenVisitCalls()).toBeGreaterThan(previousCalls),
+      );
+      await act(async () => {
+        await Promise.resolve();
+      });
+    }
+
+    it("does NOT reopen the panel after dismissing on the same pathname", async () => {
+      setupScreenVisitJourney();
+      renderRuntime();
+
+      const panel = await screen.findByRole("dialog");
+      const callsWhileOpen = screenVisitCalls();
+
+      await userEvent
+        .setup()
+        .click(within(panel).getByRole("button", { name: "Fechar jornada" }));
+
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+      );
+      await waitForRecheck(callsWhileOpen);
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    it("does NOT reopen the panel after Escape on the same pathname", async () => {
+      setupScreenVisitJourney();
+      renderRuntime();
+
+      await screen.findByRole("dialog");
+      const callsWhileOpen = screenVisitCalls();
+
+      await userEvent.setup().keyboard("{Escape}");
+
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+      );
+      await waitForRecheck(callsWhileOpen);
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    // Sem clique de gatilho não há elemento anterior para restaurar, e o painel
+    // levou o foco consigo ao abrir: desmontar deixava o foco no <body> e o Tab
+    // recomeçava do topo da página.
+    it("returns focus to the page landmark when there was no trigger click", async () => {
+      setupScreenVisitJourney();
+      renderRuntime();
+
+      const panel = await screen.findByRole("dialog");
+      await waitFor(() => expect(panel).toHaveFocus());
+
+      await userEvent.setup().keyboard("{Escape}");
+
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+      );
+      expect(screen.getByTestId("page-main")).toHaveFocus();
+      expect(document.body).not.toHaveFocus();
     });
   });
 });

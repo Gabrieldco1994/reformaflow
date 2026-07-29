@@ -101,6 +101,11 @@ export function JourneyRuntimeProvider({
     setRestored(true);
   }, []);
 
+  // ponytail: sob React StrictMode (dev, double-invoke) este effect roda uma
+  // vez com `active === null` na montagem e faz `removeItem` ANTES do valor
+  // restaurado acima commitar — o resume por sessionStorage se perde. Produção
+  // não faz double-invoke, então o comportamento entregue está correto; um E2E
+  // futuro de "resume após reload" que rodar em dev vai tropeçar aqui.
   useEffect(() => {
     writeStored(active);
   }, [active]);
@@ -259,6 +264,12 @@ export function JourneyRuntimeProvider({
     if (!active) return;
     const step = active.journey.steps[active.stepIndex];
     if (!step?.skippable) return;
+    // Sem isto, fechar é no-op no gatilho SCREEN_VISIT: o effect re-roda com
+    // `active === null` no MESMO pathname, a API devolve a mesma jornada (ela
+    // não foi concluída, e não existe endpoint de dismiss) e o painel reabre.
+    // `completedKeys` é a única supressão client-side e vive enquanto a aba
+    // vive — exatamente a semântica de `DISMISS_UNTIL_LOGIN`.
+    completedKeys.current.add(active.journey.key);
     setQueue([]);
     setActive(null);
   }, [active]);
@@ -311,6 +322,20 @@ export function useJourneyRuntime() {
   return context;
 }
 
+function focusPageLandmark() {
+  const landmark =
+    document.querySelector<HTMLElement>("main") ??
+    document.querySelector<HTMLElement>("h1");
+  if (!landmark) return;
+  // `main`/`h1` não são focáveis por padrão. `tabIndex = -1` os torna alvo
+  // programático sem entrar na ordem do Tab — e é a partir dali que o Tab
+  // seguinte continua, em vez de reiniciar do topo do documento.
+  if (!landmark.hasAttribute("tabindex")) landmark.tabIndex = -1;
+  // `preventScroll`: o landmark costuma ser o container rolável da tela
+  // (`AppShell`), e focar sem isto joga o usuário de volta pro topo.
+  landmark.focus({ preventScroll: true });
+}
+
 function JourneyRuntimeOverlay() {
   const runtime = useJourneyRuntime();
   const active = runtime.active;
@@ -340,6 +365,12 @@ function JourneyRuntimeOverlay() {
       // ativa (navegação da experiência Completa, re-render da tela real).
       if (previouslyFocusedRef.current?.isConnected) {
         previouslyFocusedRef.current.focus();
+      } else {
+        // Caminho COMUM (SCREEN_VISIT): a jornada abriu sem clique de gatilho,
+        // então não há nada para restaurar — mas o painel levou o foco consigo
+        // na abertura. Desmontar sem fallback devolve o foco ao `<body>` e o
+        // Tab reinicia do topo. Cai no landmark estável da página.
+        focusPageLandmark();
       }
       previouslyFocusedRef.current = null;
     }
