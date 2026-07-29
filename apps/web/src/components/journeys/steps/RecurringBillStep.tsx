@@ -2,7 +2,7 @@
 
 import { ChevronLeft } from 'lucide-react';
 import RecurringBillFormModal from '@/app/projects/[projectId]/bills/_components/RecurringBillFormModal';
-import type { OnboardingStepProps } from '../../_types';
+import type { OnboardingStepProps } from '@/app/onboarding/setup/_types';
 
 /** Wraps `RecurringBillFormModal` in `bare` mode inside the wizard (CASA/CARRO anchor). */
 export function RecurringBillStep({ projectId, projectType, onDone, onSkip, onBack, subtitle }: OnboardingStepProps) {

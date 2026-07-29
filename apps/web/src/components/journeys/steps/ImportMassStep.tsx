@@ -11,7 +11,7 @@ import ImportWithoutAccountModal from '@/app/projects/[projectId]/bank-accounts/
 import { SemCartaoEmptyState } from '@/app/projects/[projectId]/_components/SemCartaoEmptyState';
 import type { CardRow } from '@/app/projects/[projectId]/credit-cards/_types';
 import type { BankAccountRow } from '@/app/projects/[projectId]/bank-accounts/_types';
-import type { OnboardingStepProps } from '../../_types';
+import type { OnboardingStepProps } from '@/app/onboarding/setup/_types';
 
 interface TenantCard { id: string; nickname?: string | null; brand: string; last4: string }
 interface TenantAccount { id: string; nickname?: string | null; institution: string; last4?: string | null }

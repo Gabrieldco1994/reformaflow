@@ -1,7 +1,7 @@
 'use client';
 
 import { Suspense, useState } from 'react';
-import type { OnboardingStepProps } from '../../_types';
+import type { OnboardingStepProps } from '@/app/onboarding/setup/_types';
 import { QuickExpenseStep } from './QuickExpenseStep';
 import { ImportMassStep } from './ImportMassStep';
 

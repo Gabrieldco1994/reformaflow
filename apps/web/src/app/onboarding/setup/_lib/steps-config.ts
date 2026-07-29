@@ -1,13 +1,13 @@
 import type { ComponentType } from 'react';
 import type { OnboardingStepProps } from '../_types';
-import { FundingStep } from '../_components/steps/FundingStep';
-import { QuickExpenseStep } from '../_components/steps/QuickExpenseStep';
-import { QuickReceiptStep } from '../_components/steps/QuickReceiptStep';
-import { RecurringBillStep } from '../_components/steps/RecurringBillStep';
-import { CarInfoStep } from '../_components/steps/CarInfoStep';
-import { PlantStep } from '../_components/steps/PlantStep';
-import { ImportMassStep } from '../_components/steps/ImportMassStep';
-import { ExpenseAndImportUnifiedStep } from '../_components/steps/ExpenseAndImportUnifiedStep';
+import { FundingStep } from '@/components/journeys/steps/FundingStep';
+import { QuickExpenseStep } from '@/components/journeys/steps/QuickExpenseStep';
+import { QuickReceiptStep } from '@/components/journeys/steps/QuickReceiptStep';
+import { RecurringBillStep } from '@/components/journeys/steps/RecurringBillStep';
+import { CarInfoStep } from '@/components/journeys/steps/CarInfoStep';
+import { PlantStep } from '@/components/journeys/steps/PlantStep';
+import { ImportMassStep } from '@/components/journeys/steps/ImportMassStep';
+import { ExpenseAndImportUnifiedStep } from '@/components/journeys/steps/ExpenseAndImportUnifiedStep';
 
 /**
  * Registro `key → Componente React` das telas do onboarding. SÓ isso: a ordem,

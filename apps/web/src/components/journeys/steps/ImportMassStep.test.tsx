@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ProjectType } from '@reformaflow/domain';
 import { ImportMassStep } from './ImportMassStep';
-import type { OnboardingFunding } from '../../_types';
+import type { OnboardingFunding } from '@/app/onboarding/setup/_types';
 
 const apiGetMock = vi.fn();
 const mockPush = vi.fn();
