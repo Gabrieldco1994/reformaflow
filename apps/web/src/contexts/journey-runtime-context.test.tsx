@@ -31,7 +31,11 @@ function Fixture() {
     <>
       <button
         type="button"
-        data-journey-action="expense.new"
+        // Valor fictício, de propósito: não é um JOURNEY_SAFE_ACTIONS real.
+        // journey-action-markers.test.ts (domain) varre TODO apps/web/src,
+        // inclusive arquivos de teste — usar uma chave real aqui contaria
+        // como um segundo CTA marcado e quebraria aquele teste de cobertura.
+        data-journey-action="__test-fixture-action__"
         onClick={() => undefined}
       >
         Ação segura
