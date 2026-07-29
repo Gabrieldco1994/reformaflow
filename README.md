@@ -40,8 +40,13 @@ tools           # ferramentas de apoio (ex.: reconcile.py)
 npm ci                       # instala (npm workspaces)
 npm run dev                  # web (3000) + api (3001) via Turbo
 # ou a API isolada e estável em background:
-./start-api.sh
+./start-api.sh               # PORT=3011 ./start-api.sh para uma segunda instância
 ```
+
+`start-api.sh` carrega o `.env` do próprio diretório (seguro em git worktree), respeita um
+`DATABASE_URL` já exportado, imprime um resumo do que vai usar antes de subir, grava log em
+`/tmp/reformaflow-api-<dir>-<porta>.log` e **aborta** se a porta já estiver ocupada (nunca mata
+o processo de outra instância).
 
 A API usa SQLite em `prisma/dev.db`. **Nunca** rode `prisma migrate reset` / `db push --force-reset` — há dados reais; faça backup antes de qualquer migration.
 

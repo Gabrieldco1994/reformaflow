@@ -34,7 +34,7 @@ Se mudou `prisma/schema.prisma`: **backup obrigatório** `cp prisma/dev.db prism
 
 ```bash
 npm run dev                                       # tudo (Turbo: web + api)
-./start-api.sh                                    # API estável em background (sobrevive ao shell)
+./start-api.sh                                    # API estável em background (sobrevive ao shell); PORT=3011 ./start-api.sh p/ paralelo
 npx turbo run build --filter=@reformaflow/web     # build de um app
 cd apps/web && npx tsc --noEmit                   # type-check rápido (idem apps/api, packages/domain)
 cd apps/api && npx jest                           # testes API (jest, *.spec.ts)
@@ -80,7 +80,7 @@ npm run test:db:prepare                           # (raiz) aplica migrations no 
 5. `nest build`/`tsc` às vezes geram `.js`/`.d.ts` dentro de `apps/*/src/app` → "Duplicate page". Limpar: `find apps/*/src -name 'page.js' -delete`.
 6. `CarInfo` é 1:1 com `Project` → endpoint usa `PUT` + Prisma `upsert`.
 7. Em `FloorPlanRoom.reanalyze`, use `deleteMany({where})` simples — FK cascade cuida do resto (não há soft-delete nesse modelo).
-8. **API NestJS morre se o shell que iniciou fechar.** Use `./start-api.sh` ou `bash` async detached. Atenção: o script NÃO carrega o `.env` — exporte antes (`set -a && source .env && set +a`) ou a API cai com `DATABASE_URL` ausente.
+8. **API NestJS morre se o shell que iniciou fechar.** Use `./start-api.sh` ou `bash` async detached. O script (corrigido em 2026-07-29) é seguro para worktree: carrega o `.env` **do próprio diretório dele**, respeita um `DATABASE_URL` já exportado, imprime um resumo (diretório · `.env` · `DATABASE_URL` · porta · log) **antes** de subir, aceita `PORT`/`$1`, grava log por instância (`/tmp/reformaflow-api-<worktree>-<porta>.log`) e **aborta** se a porta estiver ocupada (nunca mata a API de outro agente). Em worktree **sem `.env` próprio** ele reaproveita as chaves do checkout principal mas **ignora o `DATABASE_URL` dele** e aborta pedindo um explícito — foi exatamente assim que em 2026-07-29 uma API de agente abriu o `dev.db` REAL (76 projetos / 2098 despesas / 48 usuários) e gravou 6 jornadas de bootstrap. Em worktree: `export DATABASE_URL="file:$PWD/prisma/dev.db"` ou crie um `.env` local.
 9. **EMU bloqueia `gh`/`git push` no repo pessoal.** Solução: `unset GH_TOKEN && gh auth switch -u Gabrieldco1994` antes de operações no GitHub.
 10. **NUNCA apagar `apps/web/src/app/prototype/agent-monitor/**` nem `tools/agent-monitor/**`.** É a página de monitoramento de agentes em produção (`/prototype/agent-monitor`, pública no `middleware.ts`), não um protótipo descartável apesar do nome da pasta. Já foi apagada sem querer por um checkpoint automático de sessão — se algum diff/checkout/limpeza remover esses arquivos, restaure antes de commitar.
 
