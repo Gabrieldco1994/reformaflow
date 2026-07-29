@@ -418,8 +418,8 @@ número do ano divergir do mês, o bug está no mês.
 |---|---|---|---|
 | `entrouMes` | fluxo | **soma dos 12 meses** | "Entrou no ano" |
 | `saiuMes` | fluxo | **soma dos 12 meses** | "Saiu no ano" |
-| `faltaPagarMes` | fluxo | **soma dos 12 meses** | "Ainda falta pagar no ano" |
-| `recebimentosPrevistosMes` | fluxo | **soma dos 12 meses** | "previsto ainda a entrar" |
+| `faltaPagarMes` | fluxo (**só saídas**) | **soma dos 12 meses** | "Ainda falta pagar no ano" |
+| `recebimentosPrevistosMes` | fluxo (**só entradas**) | **soma dos 12 meses** | nota "inclui … previsto ainda a entrar" no card **Sobra prevista** |
 | `saidas[]`, `entradas[]`, `comprasCartao[]` | fluxo (listas) | **concatenação dos 12 meses** | lista agrupada por mês |
 | `caixaHoje` | **PONTUAL** | valor de **um** mês (idênticos) | "Tenho na conta **hoje**" |
 | `carteiraHoje` | **PONTUAL** | valor de **um** mês | "Carteira (dinheiro) **hoje**" |

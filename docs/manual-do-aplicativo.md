@@ -445,8 +445,8 @@ mês (‹ › + calendário).
 | **Tenho na conta hoje** | O dinheiro disponível de verdade na conta agora, reconciliado com o banco (caixa real). Compras no cartão só entram quando a fatura é paga. |
 | **Entrou no mês** | Recebimentos que já caíram na conta neste mês. |
 | **Saiu no mês** | Tudo que já foi pago até hoje — **inclui lançamentos sem conta vinculada (Carteira)**. Quando há lançamentos Carteira, aparece a nota "inclui R$ X sem conta vinculada" abaixo do valor. |
-| **Ainda falta pagar** | O que ainda vai sair até o fim do mês: faturas de cartão e contas em aberto. Clicável → filtra o que falta pagar. |
-| **Sobra prevista** | Previsão do saldo no fim do mês: o que tem hoje + o que ainda entra − o que ainda falta pagar. Negativo = a conta deve fechar no vermelho. |
+| **Ainda falta pagar** | O que ainda vai sair até o fim do mês: faturas de cartão e contas em aberto. **Só saídas** — recebimentos previstos não entram aqui. Clicável → filtra o que falta pagar. |
+| **Sobra prevista** | Previsão do saldo no fim do mês: o que tem hoje + o que ainda entra − o que ainda falta pagar. Quando há recebimentos previstos, aparece a nota "inclui R$ X previsto ainda a entrar" abaixo do valor. Negativo = a conta deve fechar no vermelho. |
 
 Os cards "Entrou/Saiu/Falta pagar" funcionam como **filtros rápidos** das
 movimentações abaixo.

@@ -149,10 +149,12 @@ export function ResumoCards({
             <p className="mt-1 text-[11px] font-semibold leading-3.5 text-lifeone-ink-3 md:text-[11px] md:leading-4">
               inclui {formatCurrency((saiuSemConta ?? 0) / 100)} sem conta vinculada
             </p>
-          ) : key === 'faltaPagarMes' && recebimentosPrevistosMes > 0 ? (
-            <p className="mt-1 text-[11px] font-semibold leading-3.5 text-[#B5803A] md:text-[11px] md:leading-4">
-              + {formatCurrency(recebimentosPrevistosMes / 100)} previsto ainda
-              a entrar
+          ) : key === 'sobraPrevista' && recebimentosPrevistosMes > 0 ? (
+            // Fica no card da SOBRA porque é lá que essa entrada entra na conta
+            // (a projeção já soma o que ainda está previsto entrar). No card
+            // "Ainda falta pagar" ela lia como se a entrada fosse algo a sair.
+            <p className="mt-1 text-[11px] font-semibold leading-3.5 opacity-80 md:text-[11px] md:leading-4">
+              já conta {formatCurrency(recebimentosPrevistosMes / 100)} a entrar
             </p>
           ) : undefined
         }
@@ -161,8 +163,8 @@ export function ResumoCards({
   }
 
   return (
-    <section className="grid gap-2.5 xl:grid-cols-12 xl:gap-4">
-      <article className="rounded-2xl border border-lifeone-hairline bg-lifeone-card p-3 shadow-lifeone-card xl:col-span-4 xl:flex xl:min-h-full xl:flex-col xl:justify-between xl:rounded-3xl xl:p-6">
+    <section className="grid gap-2 xl:grid-cols-12 xl:gap-4">
+      <article className="rounded-2xl border border-lifeone-hairline bg-lifeone-card p-2.5 shadow-lifeone-card xl:col-span-4 xl:flex xl:min-h-full xl:flex-col xl:justify-between xl:rounded-3xl xl:p-6">
         <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-lifeone-ink-3">
           {modoCarteira
             ? // Carteira também é saldo PONTUAL: na visão anual o rótulo precisa
@@ -180,10 +182,10 @@ export function ResumoCards({
             className="text-lifeone-ink-3"
           />
         </p>
-        <p className="mt-1.5 font-geist text-[22px] font-bold tabular-nums tracking-tight text-lifeone-ink xl:mt-2 xl:text-[34px]">
+        <p className="mt-1 font-geist text-[22px] font-bold tabular-nums tracking-tight text-lifeone-ink xl:mt-2 xl:text-[34px]">
           {formatCurrency((modoCarteira ? (carteiraHoje ?? 0) : caixaHoje) / 100)}
         </p>
-        <p className="mt-1.5 max-w-sm text-[11px] leading-3.5 text-lifeone-ink-3 xl:mt-2 xl:text-xs xl:leading-5">
+        <p className="mt-1 max-w-sm text-[11px] leading-3.5 text-lifeone-ink-3 xl:mt-2 xl:text-xs xl:leading-5">
           {modoCarteira
             ? period === 'ano'
               ? 'é o dinheiro em espécie que você tem hoje — não é a soma do ano'
@@ -192,17 +194,17 @@ export function ResumoCards({
         </p>
       </article>
 
-      <div className="space-y-3 xl:col-span-8 xl:grid xl:auto-rows-fr xl:grid-cols-4 xl:gap-4 xl:space-y-0">
-        <section aria-label="Realizado" className="space-y-1.5 xl:contents">
-          <h2 className="text-[13px] font-semibold text-lifeone-ink xl:hidden">
+      <div className="space-y-2 xl:col-span-8 xl:grid xl:auto-rows-fr xl:grid-cols-4 xl:gap-4 xl:space-y-0">
+        <section aria-label="Realizado" className="space-y-1 xl:contents">
+          <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-lifeone-ink-3 xl:hidden">
             Realizado
           </h2>
           <div className="grid grid-cols-2 gap-2 xl:contents">
             {REALIZED_KEYS.map(renderTile)}
           </div>
         </section>
-        <section aria-label="Projeção" className="space-y-1.5 xl:contents">
-          <h2 className="text-[13px] font-semibold text-lifeone-ink xl:hidden">
+        <section aria-label="Projeção" className="space-y-1 xl:contents">
+          <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-lifeone-ink-3 xl:hidden">
             Projeção
           </h2>
           <div className="grid grid-cols-2 gap-2 xl:contents">
