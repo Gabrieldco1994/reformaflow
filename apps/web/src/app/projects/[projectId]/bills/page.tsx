@@ -159,6 +159,7 @@ function RecorrentesContent({
         <button
           onClick={onCreateClick}
           className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700"
+          data-journey-action="recurring-bill.new"
         >
           <Plus className="w-4 h-4" /> Nova conta recorrente
         </button>

@@ -380,7 +380,7 @@ export default function ReceiptsPage() {
         <h1 className="text-2xl font-bold text-gray-900">Recebimentos</h1>
         <div className="flex items-center gap-3">
           <ViewToggle value={viewMode} onChange={setViewMode} />
-          <Button onClick={openCreate}><Plus className="w-4 h-4" /> Novo Recebimento</Button>
+          <Button onClick={openCreate} data-journey-action="receipt.new"><Plus className="w-4 h-4" /> Novo Recebimento</Button>
         </div>
       </div>
 

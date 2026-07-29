@@ -97,7 +97,7 @@ export default function ImportLauncher({ projectId, onImported }: Props) {
 
   return (
     <div className="relative" ref={wrapperRef}>
-      <Button variant="secondary" onClick={() => setMenuOpen((v) => !v)}>
+      <Button variant="secondary" onClick={() => setMenuOpen((v) => !v)} data-journey-action="import.start">
         <Upload className="w-4 h-4" />
         Importar
         <ChevronDown className="w-3 h-3 ml-1" />
