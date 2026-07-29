@@ -145,6 +145,126 @@ describe("JourneyRuntimeProvider", () => {
     );
   });
 
+  // Regressão: navegar de dentro de next() só cobria a transição PARA a
+  // próxima etapa — a etapa 0 (ativada direto por emit(), nunca passa por
+  // next()) e uma jornada de UMA etapa FULL (nunca chama next() antes de
+  // finish()) não navegavam nunca. O fix navega em função da etapa ATUAL via
+  // useEffect, disparado na ativação e em toda troca de índice.
+  describe("navega para a rota real da etapa FULL na ativação, não só na transição", () => {
+    function mockSingleJourney(steps: unknown[]) {
+      mocks.apiGet.mockImplementation((path: string) => {
+        const context = Object.fromEntries(
+          new URL(`http://localhost${path}`).searchParams,
+        ) as { triggerType?: string };
+        return Promise.resolve(
+          context.triggerType === "PROJECT_CREATED"
+            ? [
+                {
+                  journeyId: "j1",
+                  key: "tour:full-nav",
+                  name: "Tour",
+                  triggerId: "t1",
+                  repeatPolicy: "ALWAYS",
+                  dismissPolicy: "DISMISS_UNTIL_LOGIN",
+                  crossProject: false,
+                  steps,
+                },
+              ]
+            : [],
+        );
+      });
+    }
+
+    it("navigates on activation when the FIRST step is FULL (single-step journey)", async () => {
+      mockSingleJourney([
+        {
+          stepKey: "b",
+          order: 0,
+          experience: "FULL",
+          label: "B",
+          subtitle: null,
+          skippable: false,
+          slug: "expenses",
+        },
+      ]);
+      renderRuntime();
+
+      await userEvent
+        .setup()
+        .click(screen.getByRole("button", { name: "Criar projeto" }));
+      expect(await screen.findByTestId("active")).toHaveTextContent("Tour:0");
+      expect(mocks.push).toHaveBeenCalledWith("/projects/current/expenses");
+    });
+
+    it("navigates on activation when step 0 is FULL, in a multi-step journey", async () => {
+      mockSingleJourney([
+        {
+          stepKey: "b",
+          order: 0,
+          experience: "FULL",
+          label: "B",
+          subtitle: null,
+          skippable: true,
+          slug: "receipts",
+        },
+        {
+          stepKey: "a",
+          order: 1,
+          experience: "SUMMARY",
+          label: "A",
+          subtitle: "Resumo",
+          skippable: true,
+        },
+      ]);
+      renderRuntime();
+
+      await userEvent
+        .setup()
+        .click(screen.getByRole("button", { name: "Criar projeto" }));
+      expect(await screen.findByTestId("active")).toHaveTextContent("Tour:0");
+      expect(mocks.push).toHaveBeenCalledWith("/projects/current/receipts");
+    });
+
+    it("navigates when the LAST step (reached via next()) is FULL", async () => {
+      mockSingleJourney([
+        {
+          stepKey: "a",
+          order: 0,
+          experience: "SUMMARY",
+          label: "A",
+          subtitle: "Resumo",
+          skippable: true,
+        },
+        {
+          stepKey: "b",
+          order: 1,
+          experience: "FULL",
+          label: "B",
+          subtitle: null,
+          skippable: false,
+          slug: "bills",
+        },
+      ]);
+      renderRuntime();
+
+      await userEvent
+        .setup()
+        .click(screen.getByRole("button", { name: "Criar projeto" }));
+      await screen.findByTestId("active");
+      expect(mocks.push).not.toHaveBeenCalledWith("/projects/current/bills");
+
+      await userEvent
+        .setup()
+        .click(
+          within(screen.getByTestId("active")).getByRole("button", {
+            name: "Continuar",
+          }),
+        );
+      expect(screen.getByTestId("active")).toHaveTextContent("Tour:1");
+      expect(mocks.push).toHaveBeenCalledWith("/projects/current/bills");
+    });
+  });
+
   it("resumes an active journey from sessionStorage", async () => {
     sessionStorage.setItem(
       "lifeone:journey-runtime",

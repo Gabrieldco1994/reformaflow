@@ -185,6 +185,19 @@ export function JourneyRuntimeProvider({
     return () => document.removeEventListener("click", onAction);
   }, [authLoading, emit, user]);
 
+  // Navega para a rota real da etapa ATUAL — na ativação (índice 0, inclusive
+  // jornada de uma única etapa) e em toda troca de índice/projeto. Navegar de
+  // dentro de next() só cobria a transição PARA a próxima etapa: a primeira
+  // etapa (ativada direto por emit(), sem passar por next()) e uma jornada de
+  // etapa única (nunca chama next() antes de finish()) nunca navegavam.
+  useEffect(() => {
+    if (!active) return;
+    const step = active.journey.steps[active.stepIndex];
+    if (step?.experience === "FULL" && step.slug && active.projectId) {
+      router.push(`/projects/${active.projectId}/${step.slug}`);
+    }
+  }, [active?.journey, active?.stepIndex, active?.projectId, router]);
+
   const finish = useCallback(async () => {
     if (!active) return;
     const completed = active;
@@ -215,20 +228,8 @@ export function JourneyRuntimeProvider({
   const next = useCallback(() => {
     if (!active) return;
     if (active.stepIndex >= active.journey.steps.length - 1) void finish();
-    else {
-      const nextStep = active.journey.steps[active.stepIndex + 1];
-      if (
-        nextStep?.experience === "FULL" &&
-        nextStep.slug &&
-        active.projectId
-      ) {
-        // Composto com o projeto ATIVO agora, nunca assado por antecipação —
-        // sobrevive ao usuário trocar de projeto no ProjectPicker.
-        router.push(`/projects/${active.projectId}/${nextStep.slug}`);
-      }
-      setActive({ ...active, stepIndex: active.stepIndex + 1 });
-    }
-  }, [active, finish, router]);
+    else setActive({ ...active, stepIndex: active.stepIndex + 1 });
+  }, [active, finish]);
 
   const back = useCallback(() => {
     if (active)
@@ -323,13 +324,23 @@ function JourneyRuntimeOverlay() {
   useEffect(() => {
     const isOpen = !!active;
     if (isOpen && !wasOpenRef.current) {
+      // `<body>` não é um "gatilho" de verdade — em toque mobile (sem CTA
+      // marcado disparando a jornada, ex.: SCREEN_VISIT), frequentemente
+      // nada específico está focado quando a jornada abre. Restaurar foco
+      // pro body é um no-op silencioso; melhor não guardar nada para
+      // restaurar do que guardar um alvo sem sentido.
+      const activeEl = document.activeElement;
       previouslyFocusedRef.current =
-        document.activeElement instanceof HTMLElement
-          ? document.activeElement
+        activeEl instanceof HTMLElement && activeEl !== document.body
+          ? activeEl
           : null;
       panelRef.current?.focus();
     } else if (!isOpen && wasOpenRef.current) {
-      previouslyFocusedRef.current?.focus();
+      // `isConnected`: o alvo pode ter desmontado enquanto a jornada estava
+      // ativa (navegação da experiência Completa, re-render da tela real).
+      if (previouslyFocusedRef.current?.isConnected) {
+        previouslyFocusedRef.current.focus();
+      }
       previouslyFocusedRef.current = null;
     }
     wasOpenRef.current = isOpen;
