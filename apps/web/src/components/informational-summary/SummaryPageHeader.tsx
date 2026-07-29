@@ -86,11 +86,11 @@ export function SummaryPageHeader({ pageData, children }: SummaryPageHeaderProps
           </div>
         )}
         <div className="flex-1 min-w-0">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+          <h1 className="text-3xl font-bold text-gray-900">
             {pageData.title}
           </h1>
           {pageData.description && (
-            <p className="mt-2 text-base text-gray-600 dark:text-gray-400">
+            <p className="mt-2 text-base text-gray-600">
               {pageData.description}
             </p>
           )}

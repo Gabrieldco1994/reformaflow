@@ -10,10 +10,17 @@ import {
   useState,
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import type { ProjectType, OnboardingFunding } from "@reformaflow/domain";
 import { useAuth } from "@/contexts/auth-context";
+import {
+  SummaryStepPanel,
+  hasOperationalSummaryComponent,
+} from "@/components/journeys/SummaryStepPanel";
+import { getKnownJourneyStepKeys } from "@/lib/journeys/known-step-keys";
 import {
   completeJourney,
   getEligibleJourneys,
+  getProjectType,
   listJourneyProjects,
   type EligibleJourneyStep,
   type JourneyEligibilityContext,
@@ -116,8 +123,9 @@ export function JourneyRuntimeProvider({
       setLoading(true);
       setError(null);
       try {
+        const knownStepKeys = getKnownJourneyStepKeys();
         const journeys = (await getEligibleJourneys(context))
-          .map(normalizeJourney)
+          .map((j) => normalizeJourney(j, { knownStepKeys }))
           .filter((journey) => !completedKeys.current.has(journey.key));
         const [journey] = journeys;
         if (journey?.steps.length) {
@@ -342,6 +350,45 @@ function JourneyRuntimeOverlay() {
   const panelRef = useRef<HTMLElement>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
   const wasOpenRef = useRef(false);
+  const [activeProjectType, setActiveProjectType] = useState<ProjectType | null>(null);
+  // ponytail: transitório — não persistir além da sessão do painel, mesmo
+  // rationale do onboarding (`onboarding/setup/page.tsx`): conta/cartão
+  // escolhidos numa etapa `funding` alimentam despesa/recebimento seguintes.
+  const [funding, setFunding] = useState<OnboardingFunding>({
+    bankAccount: null,
+    creditCard: null,
+  });
+
+  // `JourneyRuntimeProvider` é irmão (não descendente) de qualquer
+  // `ProjectProvider` de rota — não dá para usar `useProject()` aqui. Busca o
+  // tipo do projeto ativo pelo id, uma vez por troca de projeto/jornada; sem
+  // isso, uma etapa SUMMARY operacional não sabe que `projectType` passar
+  // para o componente (contrato exige `ProjectType`, nunca `null`).
+  useEffect(() => {
+    const projectId = active?.projectId;
+    if (!projectId) {
+      setActiveProjectType(null);
+      return;
+    }
+    let cancelled = false;
+    getProjectType(projectId)
+      .then((type) => {
+        if (!cancelled) setActiveProjectType(type);
+      })
+      .catch(() => {
+        if (!cancelled) setActiveProjectType(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [active?.projectId]);
+
+  // Reseta o `funding` transitório a cada jornada nova (não entre etapas da
+  // MESMA jornada — senão a conta escolhida em `funding` se perderia ao
+  // avançar para `expense`).
+  useEffect(() => {
+    setFunding({ bankAccount: null, creditCard: null });
+  }, [active?.journey.key]);
 
   // Foco inicial ao abrir + retorno de foco ao fechar. Só nas bordas
   // aberto<->fechado — não a cada troca de passo dentro da mesma sessão do
@@ -396,6 +443,14 @@ function JourneyRuntimeOverlay() {
     active.journey.steps[active.stepIndex];
   if (!step) return null;
 
+  // A etapa operacional tem as próprias ações de salvar/pular — o rodapé
+  // genérico (Voltar/Pular/Continuar) só faz sentido para SUMMARY informativo
+  // e para o fallback de texto simples, nunca junto de um formulário real.
+  const suppressGenericActions =
+    step.experience === "SUMMARY" &&
+    !!active.projectId &&
+    hasOperationalSummaryComponent(step.stepKey);
+
   return (
     <aside
       ref={panelRef}
@@ -438,7 +493,22 @@ function JourneyRuntimeOverlay() {
           Você está na tela real da funcionalidade. Use o painel para continuar
           a jornada.
         </p>
+      ) : active.projectId ? (
+        <SummaryStepPanel
+          step={step}
+          projectId={active.projectId}
+          projectType={activeProjectType}
+          funding={funding}
+          onFundingChange={setFunding}
+          onDone={() => runtime.next()}
+          onSkip={runtime.skip}
+          onBack={active.stepIndex > 0 ? runtime.back : undefined}
+        />
       ) : (
+        // Cross-project sem projeto escolhido ainda (o `ProjectPicker`
+        // abaixo resolve isso) — nenhum componente sabe o que renderizar
+        // sem um `projectId`, então o texto de apoio puro é o único caminho
+        // seguro aqui, igual ao comportamento anterior a esta mudança.
         <p className="text-[13px] text-lifeone-ink-2">{step.subtitle}</p>
       )}
       {step.blocked && (
@@ -449,35 +519,37 @@ function JourneyRuntimeOverlay() {
 
       {active.journey.crossProject && <ProjectPicker runtime={runtime} />}
 
-      <div className="mt-4 flex justify-end gap-2">
-        <button
-          type="button"
-          onClick={runtime.back}
-          disabled={active.stepIndex === 0}
-          className="min-h-11 rounded-[10px] border border-lifeone-hairline px-3 text-[13px] disabled:opacity-40"
-        >
-          Voltar
-        </button>
-        {step.skippable && (
+      {!suppressGenericActions && (
+        <div className="mt-4 flex justify-end gap-2">
           <button
             type="button"
-            onClick={runtime.skip}
-            className="min-h-11 rounded-[10px] px-3 text-[13px] text-lifeone-ink-2"
+            onClick={runtime.back}
+            disabled={active.stepIndex === 0}
+            className="min-h-11 rounded-[10px] border border-lifeone-hairline px-3 text-[13px] disabled:opacity-40"
           >
-            Pular
+            Voltar
           </button>
-        )}
-        <button
-          type="button"
-          onClick={runtime.next}
-          disabled={step.blocked}
-          className="min-h-11 rounded-[10px] bg-lifeone-blue px-4 text-[13px] font-semibold text-white"
-        >
-          {active.stepIndex === active.journey.steps.length - 1
-            ? "Concluir"
-            : "Continuar"}
-        </button>
-      </div>
+          {step.skippable && (
+            <button
+              type="button"
+              onClick={runtime.skip}
+              className="min-h-11 rounded-[10px] px-3 text-[13px] text-lifeone-ink-2"
+            >
+              Pular
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={runtime.next}
+            disabled={step.blocked}
+            className="min-h-11 rounded-[10px] bg-lifeone-blue px-4 text-[13px] font-semibold text-white"
+          >
+            {active.stepIndex === active.journey.steps.length - 1
+              ? "Concluir"
+              : "Continuar"}
+          </button>
+        </div>
+      )}
     </aside>
   );
 }

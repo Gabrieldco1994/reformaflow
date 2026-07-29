@@ -7,6 +7,8 @@ import {
   advanceJourneyFlow,
   currentJourneyStep,
 } from "../src/config/journey-plan";
+import { JOURNEY_CATALOG, listAllCatalogStepKeys } from "../src/config/journey-catalog";
+import { listSummaryCatalogSlugs } from "../src/config/summary-catalog";
 import {
   makeJourney,
   makeStep,
@@ -251,6 +253,44 @@ describe("resolveJourneyPlan — chave desconhecida não derruba a jornada", () 
 
     expect(plan.warnings).toEqual([]);
     expect(plan.total).toBe(journey.steps.length);
+  });
+
+  // Etapa E, parte 2 (todo #338, #4 "ATIVAR knownStepKeys"): o web monta
+  // `knownStepKeys` unindo `listAllCatalogStepKeys()` (todo stepKey já usado
+  // por alguma jornada do catálogo — cobre o bootstrap por construção) +
+  // chaves do registry operacional + `listSummaryCatalogSlugs()` (as ~18
+  // telas do resumo informativo, novo nesta fatia). Prova aqui, com o
+  // catálogo REAL do domínio (não um fixture inventado), que essa união
+  // nunca derruba nenhum stepKey do catálogo de onboarding nem os slugs do
+  // catálogo de resumos informativos — as duas fontes que a Etapa E, parte 2
+  // precisa manter "conhecidas" para não regredir o que já roda em produção.
+  it("a união real (catálogo de onboarding + registry + resumos informativos) nunca marca UNKNOWN_STEP_KEY para um stepKey do próprio catálogo", () => {
+    const knownStepKeys = [...listAllCatalogStepKeys(), ...listSummaryCatalogSlugs()];
+
+    for (const definition of Object.values(JOURNEY_CATALOG)) {
+      const journey = makeJourney({
+        steps: definition.steps.map((s, index) =>
+          makeStep({ stepKey: s.key, order: index }),
+        ),
+      });
+
+      const plan = resolveJourneyPlan(journey, { knownStepKeys });
+
+      expect(plan.warnings).toEqual([]);
+      expect(plan.total).toBe(definition.steps.length);
+    }
+  });
+
+  it("um stepKey do catálogo de resumos informativos (ex.: dashboard) é conhecido pela mesma união", () => {
+    const knownStepKeys = [...listAllCatalogStepKeys(), ...listSummaryCatalogSlugs()];
+    const journey = makeJourney({
+      steps: [makeStep({ stepKey: "dashboard", order: 0 })],
+    });
+
+    const plan = resolveJourneyPlan(journey, { knownStepKeys });
+
+    expect(plan.warnings).toEqual([]);
+    expect(plan.steps.map((s) => s.stepKey)).toEqual(["dashboard"]);
   });
 });
 

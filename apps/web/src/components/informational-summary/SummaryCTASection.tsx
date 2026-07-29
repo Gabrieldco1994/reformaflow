@@ -21,14 +21,14 @@ function getButtonClasses(variant?: SummaryCTA['variant']): string {
 
   switch (variant) {
     case 'primary':
-      return `${baseClasses} bg-brand-600 text-white hover:bg-brand-700 dark:hover:bg-brand-500`;
+      return `${baseClasses} bg-brand-600 text-white hover:bg-brand-700`;
     case 'secondary':
-      return `${baseClasses} bg-gray-100 text-gray-900 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700`;
+      return `${baseClasses} bg-gray-100 text-gray-900 hover:bg-gray-200`;
     case 'outline':
-      return `${baseClasses} border border-gray-300 text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-900`;
+      return `${baseClasses} border border-gray-300 text-gray-700 hover:bg-gray-50`;
     case 'ghost':
     default:
-      return `${baseClasses} text-gray-600 hover:text-gray-900 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-900`;
+      return `${baseClasses} text-gray-600 hover:text-gray-900 hover:bg-gray-50`;
   }
 }
 

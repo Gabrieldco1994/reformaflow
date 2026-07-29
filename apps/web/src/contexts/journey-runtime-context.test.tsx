@@ -107,7 +107,7 @@ describe("JourneyRuntimeProvider", () => {
                 crossProject: false,
                 steps: [
                   {
-                    stepKey: "a",
+                    stepKey: "feedback",
                     order: 0,
                     experience: "SUMMARY",
                     label: "A",
@@ -115,7 +115,7 @@ describe("JourneyRuntimeProvider", () => {
                     skippable: true,
                   },
                   {
-                    stepKey: "b",
+                    stepKey: "expense",
                     order: 1,
                     experience: "FULL",
                     label: "B",
@@ -182,7 +182,7 @@ describe("JourneyRuntimeProvider", () => {
     it("navigates on activation when the FIRST step is FULL (single-step journey)", async () => {
       mockSingleJourney([
         {
-          stepKey: "b",
+          stepKey: "expense",
           order: 0,
           experience: "FULL",
           label: "B",
@@ -203,7 +203,7 @@ describe("JourneyRuntimeProvider", () => {
     it("navigates on activation when step 0 is FULL, in a multi-step journey", async () => {
       mockSingleJourney([
         {
-          stepKey: "b",
+          stepKey: "receipt",
           order: 0,
           experience: "FULL",
           label: "B",
@@ -212,7 +212,7 @@ describe("JourneyRuntimeProvider", () => {
           slug: "receipts",
         },
         {
-          stepKey: "a",
+          stepKey: "feedback",
           order: 1,
           experience: "SUMMARY",
           label: "A",
@@ -232,7 +232,7 @@ describe("JourneyRuntimeProvider", () => {
     it("navigates when the LAST step (reached via next()) is FULL", async () => {
       mockSingleJourney([
         {
-          stepKey: "a",
+          stepKey: "feedback",
           order: 0,
           experience: "SUMMARY",
           label: "A",
@@ -240,7 +240,7 @@ describe("JourneyRuntimeProvider", () => {
           skippable: true,
         },
         {
-          stepKey: "b",
+          stepKey: "bill",
           order: 1,
           experience: "FULL",
           label: "B",
@@ -283,7 +283,7 @@ describe("JourneyRuntimeProvider", () => {
           crossProject: false,
           steps: [
             {
-              stepKey: "a",
+              stepKey: "feedback",
               order: 0,
               experience: "SUMMARY",
               label: "A",
@@ -328,7 +328,7 @@ describe("JourneyRuntimeProvider", () => {
                 crossProject: true,
                 steps: [
                   {
-                    stepKey: "a",
+                    stepKey: "feedback",
                     order: 0,
                     experience: "SUMMARY",
                     label: "A",
@@ -369,7 +369,7 @@ describe("JourneyRuntimeProvider", () => {
                   crossProject: false,
                   steps: [
                     {
-                      stepKey: "a",
+                      stepKey: "feedback",
                       order: 0,
                       experience: "SUMMARY",
                       label: "A",
@@ -458,7 +458,7 @@ describe("JourneyRuntimeProvider", () => {
                   crossProject: false,
                   steps: [
                     {
-                      stepKey: "a",
+                      stepKey: "feedback",
                       order: 0,
                       experience: "SUMMARY",
                       label: "A",

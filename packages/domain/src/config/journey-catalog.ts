@@ -428,6 +428,19 @@ export function getJourneyScreenKeys(type: ProjectType): string[] {
 }
 
 /**
+ * Todo `stepKey` usado por QUALQUER jornada do catálogo — a base do conjunto
+ * "known" que a Etapa Completa e o motor de plano (`resolveJourneyPlan`)
+ * usam para não silenciar uma etapa nova por engano. Bootstrap (`journey-
+ * bootstrap.service.ts`) materializa exatamente a partir de `JOURNEY_CATALOG`,
+ * então toda jornada persistida hoje tem seus `stepKey`s cobertos por
+ * construção — nunca precisa de migration para "aprender" uma chave nova
+ * daqui.
+ */
+export function listAllCatalogStepKeys(): string[] {
+  return [...new Set(Object.values(JOURNEY_CATALOG).flatMap((j) => j.steps.map((s) => s.key)))];
+}
+
+/**
  * Primitiva de regressão de cobertura: varre `PROJECT_NAV` inteiro e devolve
  * toda rota renderizada que NÃO tem entrada correspondente no catálogo de
  * jornadas, por tipo. Vazio = catálogo completo. Uma rota nova adicionada a
@@ -496,10 +509,7 @@ export function hasJourneyStepSlug(stepKey: string): boolean {
  * Completa dele silenciosamente não navega para lugar nenhum.
  */
 export function findUnclassifiedStepKeys(): string[] {
-  const known = new Set(
-    Object.values(JOURNEY_CATALOG).flatMap((j) => j.steps.map((s) => s.key)),
-  );
-  return [...known].filter(
+  return listAllCatalogStepKeys().filter(
     (key) => !(key in JOURNEY_STEP_SLUGS) && !JOURNEY_STEPS_WITHOUT_SLUG.has(key),
   );
 }
