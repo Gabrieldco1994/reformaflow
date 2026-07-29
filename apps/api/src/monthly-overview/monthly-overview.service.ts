@@ -597,59 +597,13 @@ export class MonthlyOverviewService {
     sumBy(carteiraPaidThisMonth, (expense) => expense.valorTotal);
 
     const cardByLast4 = new Map(cards.map((card) => [card.last4, card] as const));
-    const invoiceByMonthCard = new Map<string, CardInvoiceAggregate>();
+    const invoiceByMonthCard = buildCardInvoiceAggregates(entries, cards, invoiceAdjustments);
 
-    for (const entry of entries) {
-      if (entry.tipo !== 'DESPESA' || !entry.expense?.cardLast4) continue;
-      // Neutros pagos a partir de uma CONTA (bankLast4) liquidam fatura e não entram
-      // em nenhuma fatura. Mas um neutro lançado como COBRANÇA no cartão (cardLast4
-      // setado, sem bankLast4) — ex.: usar este cartão para pagar a fatura de outro
-      // ou "Pix no crédito" — é uma cobrança real na fatura deste cartão e espelha o
-      // valor cobrado pelo banco. Continua neutro no gasto real (cash-axis/comprasCartao).
-      if (isNeutralExpenseType(entry.expense.tipoDespesa) && entry.expense.bankLast4) continue;
-
-      const card = cardByLast4.get(entry.expense.cardLast4) ?? null;
-      const dueMonth = caixaMonthForCardPurchase(
-        entry.data,
-        card?.closingDay ?? null,
-        card?.dueDay ?? null,
-      );
-      const invoiceKey = `${dueMonth}__${entry.expense.cardLast4}`;
-      let invoice = invoiceByMonthCard.get(invoiceKey);
-      if (!invoice) {
-        invoice = {
-          dueMonth,
-          cardLast4: entry.expense.cardLast4,
-          nickname: card?.nickname?.trim() || `Cartao ${entry.expense.cardLast4}`,
-          dueDay: card?.dueDay ?? null,
-          total: 0,
-          pending: 0,
-          realized: 0,
-          paidAmount: 0,
-          residualDeclared: 0,
-          adjustmentAmount: 0,
-          hasManualIntervention: false,
-        };
-        invoiceByMonthCard.set(invoiceKey, invoice);
-      }
-
-      invoice.total += entry.valor;
-    }
-
-    const adjustmentByInvoice = new Map<string, number>();
     const residualByInvoice = new Map<string, number>();
-    const hasManualInterventionByInvoice = new Set<string>();
     for (const adj of invoiceAdjustments) {
+      if (adj.reason !== 'QUITACAO_RESIDUO') continue;
       const key = `${adj.dueMonth}__${adj.cardLast4}`;
-      hasManualInterventionByInvoice.add(key);
-      if (adj.reason === 'QUITACAO_RESIDUO') {
-        residualByInvoice.set(key, (residualByInvoice.get(key) ?? 0) + Math.max(adj.amountCents, 0));
-        continue;
-      }
-      adjustmentByInvoice.set(key, (adjustmentByInvoice.get(key) ?? 0) + adj.amountCents);
-    }
-    for (const [invoiceKey, invoice] of invoiceByMonthCard) {
-      invoice.total += adjustmentByInvoice.get(invoiceKey) ?? 0;
+      residualByInvoice.set(key, (residualByInvoice.get(key) ?? 0) + Math.max(adj.amountCents, 0));
     }
 
     // Faturas quitadas por dois mecanismos (ver computePaidInvoiceKeys):
@@ -712,8 +666,6 @@ export class MonthlyOverviewService {
       }
       invoice.paidAmount = paidAmount;
       invoice.residualDeclared = residualDeclared;
-      invoice.adjustmentAmount = adjustmentByInvoice.get(invoiceKey) ?? 0;
-      invoice.hasManualIntervention = hasManualInterventionByInvoice.has(invoiceKey);
     }
 
     const invoiceRows = Array.from(invoiceByMonthCard.values());
@@ -2770,9 +2722,13 @@ export class MonthlyOverviewService {
    *
    * Segurança: só desfaz quando existe EXATAMENTE UM pagamento implícito
    * (`PAGAMENTO_FATURA_CARTAO`, PAGO, com `bankLast4`, sem `settlesInvoiceKey`)
-   * casado com a fatura-alvo — reaproveita `assignImplicitPayments`, a MESMA
-   * lógica que decide `card.status` em `getAccountView`, garantindo consistência.
-   * 0 casamentos → 404. 2+ (ambíguo) → 400 (não inventamos heurística aqui).
+   * casado com a fatura-alvo — reaproveita `assignImplicitPayments` sobre a
+   * lista de TODAS as faturas do cartão (`buildCardInvoiceAggregates`, a MESMA
+   * agregação que decide `card.status` em `getAccountView`). Precisa ser a
+   * lista inteira, não só a fatura-alvo: `assignImplicitPayments` decide por
+   * DISPUTA entre faturas candidatas na janela `{payMonth, payMonth+1}` de cada
+   * pagamento — com uma fatura só, pagamentos de OUTROS meses "vazam" pra cá.
+   * 0 casamentos → 404. 2+ (ambíguo) → 400 com a lista dos pagamentos casados.
    */
   async undoInvoicePayment(
     tenantId: string,
@@ -2791,8 +2747,36 @@ export class MonthlyOverviewService {
     });
     if (!card) throw new NotFoundException('Cartão não encontrado.');
 
-    const total = await this.computeInvoiceTotalForCard(tenantId, card, dueMonth);
-    const invoices: InvoiceForMatch[] = [{ dueMonth, cardLast4: card.last4, total }];
+    // Lista TODAS as faturas do cartão (todo mês com CashFlowEntry/ajuste), não só a
+    // fatura-alvo — a MESMA lista que `getAccountView` monta via
+    // `buildCardInvoiceAggregates`. Com uma fatura só na lista, `assignImplicitPayments`
+    // não tinha concorrente pro pagamento de OUTRO mês cuja janela [payMonth, payMonth+1]
+    // alcançasse o dueMonth-alvo, e forçava esse pagamento pra cá — ambiguidade falsa
+    // sempre que o cartão tinha pagamento no mês anterior (o caso normal, não o raro).
+    const [cardEntries, cardInvoiceAdjustments] = await Promise.all([
+      this.prisma.cashFlowEntry.findMany({
+        where: {
+          tenantId,
+          projectId,
+          deletedAt: null,
+          tipo: 'DESPESA',
+          expense: { deletedAt: null, cardLast4: card.last4 },
+        },
+        select: {
+          tipo: true,
+          data: true,
+          valor: true,
+          expense: { select: { cardLast4: true, bankLast4: true, tipoDespesa: true } },
+        },
+      }),
+      this.prisma.invoiceAdjustment.findMany({
+        where: { tenantId, projectId, deletedAt: null, cardLast4: card.last4 },
+        select: { cardLast4: true, dueMonth: true, amountCents: true, reason: true },
+      }),
+    ]);
+    const invoices: InvoiceForMatch[] = Array.from(
+      buildCardInvoiceAggregates(cardEntries, [card], cardInvoiceAdjustments).values(),
+    ).map((invoice) => ({ dueMonth: invoice.dueMonth, cardLast4: invoice.cardLast4, total: invoice.total }));
 
     const candidates = await this.prisma.expense.findMany({
       where: {
@@ -2831,9 +2815,22 @@ export class MonthlyOverviewService {
       throw new NotFoundException('Nenhum pagamento encontrado para essa fatura.');
     }
     if (assignments.length > 1) {
-      throw new BadRequestException(
-        'Há mais de um pagamento para essa fatura — o desfazer automático não é seguro nesse caso.',
-      );
+      // Beco sem saída vira diagnóstico: devolve QUAIS pagamentos foram casados
+      // (data, valor, id) pra UI mostrar — usuário reconhece "cliquei duas vezes"
+      // ou "veio do import" e decide o que fazer manualmente.
+      const matchedPayments = assignments.map((assignment) => {
+        const candidate = candidates.find((c) => c.id === assignment.payment.expenseId);
+        const date = candidate?.dataPagamento ?? candidate?.createdAt ?? null;
+        return {
+          id: assignment.payment.expenseId,
+          amountCents: assignment.payment.amount,
+          data: date ? date.toISOString() : null,
+        };
+      });
+      throw new BadRequestException({
+        message: 'Há mais de um pagamento para essa fatura — o desfazer automático não é seguro nesse caso.',
+        payments: matchedPayments,
+      });
     }
 
     const paymentExpenseId = assignments[0].payment.expenseId;
@@ -2864,43 +2861,6 @@ export class MonthlyOverviewService {
       revertedExpenses: reverted.revertedExpenses,
       revertedParcelas: reverted.revertedParcelas,
     };
-  }
-
-  /**
-   * Soma o total da fatura de um cartão para um `dueMonth` específico, a
-   * partir dos `CashFlowEntry` de despesas naquele cartão (mesma derivação de
-   * vencimento usada em `getAccountView`, mas isolada aqui — não reaproveita
-   * o método existente para manter o impacto mínimo).
-   */
-  private async computeInvoiceTotalForCard(
-    tenantId: string,
-    card: { last4: string; closingDay: number | null; dueDay: number | null },
-    dueMonth: string,
-  ): Promise<number> {
-    const entries = await this.prisma.cashFlowEntry.findMany({
-      where: {
-        tenantId,
-        deletedAt: null,
-        tipo: 'DESPESA',
-        expense: { deletedAt: null, cardLast4: card.last4 },
-      },
-      select: {
-        valor: true,
-        data: true,
-        expense: { select: { tipoDespesa: true, bankLast4: true } },
-      },
-    });
-
-    let total = 0;
-    for (const entry of entries) {
-      const tipo = entry.expense?.tipoDespesa;
-      // Mesma regra de `getAccountView`: neutro pago via CONTA (bankLast4) é o
-      // pagamento em si, não entra na fatura. Neutro cobrado no cartão continua.
-      if (tipo && isNeutralExpenseType(tipo) && entry.expense?.bankLast4) continue;
-      const key = caixaMonthForCardPurchase(entry.data, card.closingDay, card.dueDay);
-      if (key === dueMonth) total += entry.valor;
-    }
-    return total;
   }
 
   async createInvoiceAdjustment(
@@ -3027,6 +2987,76 @@ const INVOICE_ADJUSTMENT_REASONS = new Set<InvoiceAdjustmentReasonValue>([
   'OUTRO',
   'QUITACAO_RESIDUO',
 ]);
+
+/**
+ * Agrega `CashFlowEntry` (+ `InvoiceAdjustment`) em faturas por `{dueMonth, cardLast4}`
+ * — a MESMA lista que `getAccountView` usa para decidir `card.status`. Qualquer
+ * consumidor que precise "quais faturas existem e quanto cada uma soma" (matching de
+ * pagamento incluso) tem que passar por aqui: uma segunda montagem paralela é como o
+ * bug do `undoInvoicePayment` com fatura isolada nasceu (ver `computeInvoiceTotalForCard`,
+ * removido — cada card-mês tem que competir pelos mesmos pagamentos implícitos).
+ */
+export function buildCardInvoiceAggregates(
+  entries: Array<{
+    tipo: string;
+    data: Date;
+    valor: number;
+    expense: { cardLast4: string | null; bankLast4: string | null; tipoDespesa: string } | null;
+  }>,
+  cards: Array<{ last4: string; nickname: string | null; closingDay: number | null; dueDay: number | null }>,
+  invoiceAdjustments: Array<{ cardLast4: string; dueMonth: string; amountCents: number; reason: string }>,
+): Map<string, CardInvoiceAggregate> {
+  const cardByLast4 = new Map(cards.map((card) => [card.last4, card] as const));
+  const invoiceByMonthCard = new Map<string, CardInvoiceAggregate>();
+
+  for (const entry of entries) {
+    if (entry.tipo !== 'DESPESA' || !entry.expense?.cardLast4) continue;
+    // Neutros pagos a partir de uma CONTA (bankLast4) liquidam fatura e não entram
+    // em nenhuma fatura. Mas um neutro lançado como COBRANÇA no cartão (cardLast4
+    // setado, sem bankLast4) — ex.: usar este cartão para pagar a fatura de outro
+    // ou "Pix no crédito" — é uma cobrança real na fatura deste cartão e espelha o
+    // valor cobrado pelo banco. Continua neutro no gasto real (cash-axis/comprasCartao).
+    if (isNeutralExpenseType(entry.expense.tipoDespesa) && entry.expense.bankLast4) continue;
+
+    const card = cardByLast4.get(entry.expense.cardLast4) ?? null;
+    const dueMonth = caixaMonthForCardPurchase(entry.data, card?.closingDay ?? null, card?.dueDay ?? null);
+    const invoiceKey = `${dueMonth}__${entry.expense.cardLast4}`;
+    let invoice = invoiceByMonthCard.get(invoiceKey);
+    if (!invoice) {
+      invoice = {
+        dueMonth,
+        cardLast4: entry.expense.cardLast4,
+        nickname: card?.nickname?.trim() || `Cartao ${entry.expense.cardLast4}`,
+        dueDay: card?.dueDay ?? null,
+        total: 0,
+        pending: 0,
+        realized: 0,
+        paidAmount: 0,
+        residualDeclared: 0,
+        adjustmentAmount: 0,
+        hasManualIntervention: false,
+      };
+      invoiceByMonthCard.set(invoiceKey, invoice);
+    }
+    invoice.total += entry.valor;
+  }
+
+  const adjustmentByInvoice = new Map<string, number>();
+  const hasManualInterventionByInvoice = new Set<string>();
+  for (const adj of invoiceAdjustments) {
+    const key = `${adj.dueMonth}__${adj.cardLast4}`;
+    hasManualInterventionByInvoice.add(key);
+    if (adj.reason === 'QUITACAO_RESIDUO') continue; // residual: tratado à parte pelo chamador
+    adjustmentByInvoice.set(key, (adjustmentByInvoice.get(key) ?? 0) + adj.amountCents);
+  }
+  for (const [invoiceKey, invoice] of invoiceByMonthCard) {
+    invoice.total += adjustmentByInvoice.get(invoiceKey) ?? 0;
+    invoice.adjustmentAmount = adjustmentByInvoice.get(invoiceKey) ?? 0;
+    invoice.hasManualIntervention = hasManualInterventionByInvoice.has(invoiceKey);
+  }
+
+  return invoiceByMonthCard;
+}
 
 /**
  * Casa pagamentos de fatura (`PAGAMENTO_FATURA_CARTAO` pagos via conta) às faturas

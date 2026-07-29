@@ -4,12 +4,21 @@ import { describe, expect, it, vi } from 'vitest';
 import { UndoInvoicePaymentDialog } from './UndoInvoicePaymentDialog';
 import type { AccountViewCardSummary } from '../_types';
 
-const apiPost = vi.fn();
+const { apiPost, MockApiResponseError } = vi.hoisted(() => {
+  class MockApiResponseError extends Error {
+    constructor(message: string, public readonly status: number, public readonly body?: unknown) {
+      super(message);
+      this.name = 'ApiResponseError';
+    }
+  }
+  return { apiPost: vi.fn(), MockApiResponseError };
+});
 
 vi.mock('@/lib/api', () => ({
   api: {
     post: (...args: unknown[]) => apiPost(...args),
   },
+  ApiResponseError: MockApiResponseError,
 }));
 
 vi.mock('sonner', () => ({
@@ -107,5 +116,26 @@ describe('UndoInvoicePaymentDialog — diálogo destrutivo', () => {
 
     expect(trigger).toHaveFocus();
     trigger.remove();
+  });
+
+  it('num 400 de ambiguidade, mostra os pagamentos casados (data+valor) em vez de um beco sem saída', async () => {
+    apiPost.mockRejectedValueOnce(
+      new MockApiResponseError('Há mais de um pagamento para essa fatura', 400, {
+        message: 'Há mais de um pagamento para essa fatura',
+        payments: [
+          { id: 'pay-1', amountCents: 5_000, data: '2026-05-20T00:00:00.000Z' },
+          { id: 'pay-2', amountCents: 3_000, data: '2026-05-22T00:00:00.000Z' },
+        ],
+      }),
+    );
+    renderDialog();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Desfazer pagamento' }));
+
+    expect(await screen.findByText('R$ 50,00')).toBeInTheDocument();
+    expect(screen.getByText('R$ 30,00')).toBeInTheDocument();
+    // A ação automática some — o usuário só pode fechar e agir manualmente.
+    expect(screen.queryByRole('button', { name: 'Desfazer pagamento' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Entendi' })).toBeInTheDocument();
   });
 });

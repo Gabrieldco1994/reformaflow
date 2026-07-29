@@ -422,9 +422,126 @@ describe('MonthlyOverviewService.undoInvoicePayment', () => {
     expect(paymentRow?.deletedAt).not.toBeNull();
   });
 
-  it('recusa com 400 quando há mais de um pagamento casado com a mesma fatura, sem mutar nada', async () => {
+  it('desfaz com sucesso o pagamento do MÊS SEGUINTE quando o cartão tem pagamentos em dois meses consecutivos', async () => {
+    // Reproduz o bug de produção: `undoInvoicePayment` montava a lista de
+    // faturas com UM elemento só (a fatura-alvo). Sem a fatura de maio como
+    // concorrente, `assignImplicitPayments` empurrava o pagamento de maio
+    // (janela [05, 06]) para a única fatura da lista (06), inflando a
+    // contagem de casamentos para 2 e disparando o 400 de ambiguidade — no
+    // fluxo NORMAL de duas faturas seguidas pagas, não no excepcional.
     const expenses = baseExpenses();
-    expenses.push(
+    const entries = baseEntries();
+    const prisma = buildPrisma({ tenantId, projectId, card, account, expenses, entries });
+    const service = await buildService(prisma);
+
+    const payMay = await service.payInvoice(
+      tenantId,
+      projectId,
+      {
+        cardLast4: '1234',
+        month: '2026-05',
+        amountCents: 8_000, // a1 (5000) + b1 (3000)
+        bankLast4: '9999',
+        paymentDate: '2026-05-25T00:00:00.000Z',
+      },
+      'user-1',
+    );
+    expect(payMay.ok).toBe(true);
+
+    const payJune = await service.payInvoice(
+      tenantId,
+      projectId,
+      {
+        cardLast4: '1234',
+        month: '2026-06',
+        amountCents: 5_000, // a2
+        bankLast4: '9999',
+        paymentDate: '2026-06-20T00:00:00.000Z',
+      },
+      'user-1',
+    );
+    expect(payJune.ok).toBe(true);
+    expect(entries.find((e) => e.id === 'a2')?.status).toBe('PAGO');
+
+    const undo = await service.undoInvoicePayment(tenantId, projectId, {
+      cardLast4: '1234',
+      dueMonth: '2026-06',
+    });
+
+    expect(undo).toMatchObject({
+      ok: true,
+      undonePaymentExpenseId: payJune.paymentExpenseId,
+      cardLast4: '1234',
+      dueMonth: '2026-06',
+      revertedExpenses: 1,
+      revertedParcelas: 1,
+    });
+
+    // Só a fatura de junho foi desfeita — maio continua liquidado.
+    expect(entries.find((e) => e.id === 'a2')?.status).toBe('PLANEJADO');
+    expect(entries.find((e) => e.id === 'a1')?.status).toBe('PAGO');
+    expect(entries.find((e) => e.id === 'b1')?.status).toBe('PAGO');
+    const mayPaymentRow = expenses.find((e) => e.id === payMay.paymentExpenseId);
+    expect(mayPaymentRow?.deletedAt).toBeNull();
+    const junePaymentRow = expenses.find((e) => e.id === payJune.paymentExpenseId);
+    expect(junePaymentRow?.deletedAt).not.toBeNull();
+  });
+
+  it('recusa com 400 quando há mais de um pagamento casado com a mesma fatura, sem mutar nada', async () => {
+    // Fatura ISOLADA de propósito (cartão sem nenhuma compra em outro mês): a
+    // ambiguidade real é "2 pagamentos pra 1 fatura", não um efeito colateral
+    // de uma fatura concorrente absorvendo um deles.
+    const expenses = [
+      {
+        id: 'exp-a',
+        tenantId,
+        projectId,
+        project,
+        tipoDespesa: 'ALIMENTACAO',
+        titulo: 'Mercado',
+        fornecedor: 'Mercado',
+        valor: 5_000,
+        valorTotal: 5_000,
+        cardLast4: '1234',
+        bankLast4: null,
+        formaPagamento: 'A_VISTA',
+        quantidadeParcela: null,
+        dataPagamento: null,
+        dataInicioParcela: null,
+        createdAt: d('2026-05-05'),
+        importId: null,
+        linkedExpenseId: null,
+        settledByExpenseId: null,
+        status: 'PAGO',
+        paidParcelas: null,
+        settlesInvoiceKey: null,
+        deletedAt: null,
+      },
+      {
+        id: 'exp-b',
+        tenantId,
+        projectId,
+        project,
+        tipoDespesa: 'LAZER',
+        titulo: 'Cinema',
+        fornecedor: 'Cinemark',
+        valor: 3_000,
+        valorTotal: 3_000,
+        cardLast4: '1234',
+        bankLast4: null,
+        formaPagamento: 'A_VISTA',
+        quantidadeParcela: null,
+        dataPagamento: null,
+        dataInicioParcela: null,
+        createdAt: d('2026-05-08'),
+        importId: null,
+        linkedExpenseId: null,
+        settledByExpenseId: null,
+        status: 'PAGO',
+        paidParcelas: null,
+        settlesInvoiceKey: null,
+        deletedAt: null,
+      },
       {
         id: 'pay-1',
         tenantId,
@@ -459,18 +576,31 @@ describe('MonthlyOverviewService.undoInvoicePayment', () => {
         createdAt: d('2026-05-22'),
         deletedAt: null,
       },
-    );
-    const entries = baseEntries();
-    entries.find((e) => e.id === 'a1')!.status = 'PAGO';
-    entries.find((e) => e.id === 'b1')!.status = 'PAGO';
+    ];
+    const entries = [
+      { id: 'a1', expenseId: 'exp-a', receiptId: null, tenantId, projectId, tipo: 'DESPESA', status: 'PAGO', categoria: 'ALIMENTACAO', subcategoria: null, formaPagamento: 'CARTAO_CREDITO', parcela: null, data: d('2026-05-05'), createdAt: d('2026-05-05'), valor: 5_000, deletedAt: null },
+      { id: 'b1', expenseId: 'exp-b', receiptId: null, tenantId, projectId, tipo: 'DESPESA', status: 'PAGO', categoria: 'LAZER', subcategoria: null, formaPagamento: 'CARTAO_CREDITO', parcela: null, data: d('2026-05-08'), createdAt: d('2026-05-08'), valor: 3_000, deletedAt: null },
+    ];
     const prisma = buildPrisma({ tenantId, projectId, card, account, expenses, entries });
     const service = await buildService(prisma);
 
     const before = JSON.parse(JSON.stringify({ expenses, entries }));
 
-    await expect(
-      service.undoInvoicePayment(tenantId, projectId, { cardLast4: '1234', dueMonth: '2026-05' }),
-    ).rejects.toThrow('Há mais de um pagamento');
+    const rejection = await service
+      .undoInvoicePayment(tenantId, projectId, { cardLast4: '1234', dueMonth: '2026-05' })
+      .then(() => null, (err) => err);
+    expect(rejection).not.toBeNull();
+    expect(rejection.message).toContain('Há mais de um pagamento');
+    // Melhoria pedida no hotfix: o 400 devolve QUAIS pagamentos foram casados
+    // (id, valor, data) — sem isso a UI não tem como o usuário reconhecer
+    // "cliquei duas vezes" / "veio do import" e agir manualmente.
+    const responsePayments = rejection.getResponse().payments;
+    expect(responsePayments).toHaveLength(2);
+    expect(responsePayments.map((p: any) => p.id).sort()).toEqual(['pay-1', 'pay-2']);
+    expect(responsePayments.find((p: any) => p.id === 'pay-1')).toMatchObject({
+      amountCents: 5_000,
+      data: '2026-05-20T00:00:00.000Z',
+    });
 
     expect(JSON.parse(JSON.stringify({ expenses, entries }))).toEqual(before);
   });
