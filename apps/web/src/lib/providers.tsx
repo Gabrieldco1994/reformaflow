@@ -1,8 +1,9 @@
-'use client';
+"use client";
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useState } from 'react';
-import { AuthProvider } from '@/contexts/auth-context';
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useState } from "react";
+import { AuthProvider } from "@/contexts/auth-context";
+import { JourneyRuntimeProvider } from "@/contexts/journey-runtime-context";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -13,10 +14,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
             staleTime: 60 * 1000,
             gcTime: 5 * 60 * 1000,
             refetchOnWindowFocus: false,
-            refetchOnReconnect: 'always',
+            refetchOnReconnect: "always",
             retry: (failureCount, error: unknown) => {
               const status =
-                error && typeof error === 'object' && 'status' in error
+                error && typeof error === "object" && "status" in error
                   ? (error as { status?: number }).status
                   : undefined;
               if (status && status >= 400 && status < 500) return false;
@@ -32,7 +33,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>{children}</AuthProvider>
+      <AuthProvider>
+        <JourneyRuntimeProvider>{children}</JourneyRuntimeProvider>
+      </AuthProvider>
     </QueryClientProvider>
   );
 }

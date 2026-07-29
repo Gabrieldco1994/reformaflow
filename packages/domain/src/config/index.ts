@@ -4,5 +4,6 @@ export * from './type-modules';
 export * from './pendencia';
 export * from './onboarding-objectives';
 export * from './journey-catalog';
+export * from './journey-plan';
 export * from './onboarding-journey';
 export * from './summary-catalog';

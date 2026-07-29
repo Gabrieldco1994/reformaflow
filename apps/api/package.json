@@ -79,6 +79,7 @@
       "<rootDir>/../../../scripts/test-db-env.cjs"
     ],
     "moduleNameMapper": {
+      "^@reformaflow/domain/dist/(.*)$": "<rootDir>/../../../packages/domain/dist/$1",
       "^@reformaflow/domain(.*)$": "<rootDir>/../../../packages/domain/src$1"
     }
   }

@@ -16,7 +16,8 @@
     "plugins": [{ "name": "next" }],
     "paths": {
       "@/*": ["./src/*"],
-      "@reformaflow/domain": ["../../packages/domain/src"]
+      "@reformaflow/domain": ["../../packages/domain/src"],
+      "@reformaflow/domain/*": ["../../packages/domain/src/*"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
