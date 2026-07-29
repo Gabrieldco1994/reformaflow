@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
+import { useJourneyRuntime } from '@/contexts/journey-runtime-context';
 import { ApiResponseError, api } from '@/lib/api';
 import { ObjectiveSelector } from '@/components/objectives/ObjectiveSelector';
 import { type ObjectiveType } from '@/components/objectives/objective-options';
@@ -19,6 +20,7 @@ function newIdempotencyKey() {
 export function RegisterForm() {
   const router = useRouter();
   const { register, refresh } = useAuth();
+  const { emitSignupCompleted } = useJourneyRuntime();
   const [ownerName, setOwnerName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -60,6 +62,7 @@ export function RegisterForm() {
         },
         idempotencyKey.current,
       );
+      void emitSignupCompleted();
       for (const type of selectedTypes) {
         await api.post('/projects', {
           name: PROJECT_ONBOARDING_COPY[type].defaultName,

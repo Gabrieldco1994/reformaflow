@@ -4,6 +4,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/auth-context';
+import { useJourneyRuntime } from '@/contexts/journey-runtime-context';
+import type { ProjectType } from '@reformaflow/domain';
 import { Plus, ChevronRight, LineChart, Search, Settings } from 'lucide-react';
 import Link from 'next/link';
 import { NotificationsBell } from '@/components/notifications/NotificationsBell';
@@ -25,6 +27,7 @@ interface Project {
 export default function ProjectsPage() {
   const router = useRouter();
   const { hasProjectType, hasProjectAccess, canCreateProjectType, hasModule, isAdmin, user, refresh } = useAuth();
+  const { emitProjectCreated } = useJourneyRuntime();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -111,6 +114,7 @@ export default function ProjectsPage() {
       // Recarrega o usuário: se restrito, o backend acabou de conceder acesso
       // ao novo projeto — sem isso o layout redirecionaria para /no-permission.
       await refresh();
+      void emitProjectCreated(created.id, created.type as ProjectType);
       // Primeiro acesso ao projeto: manda pelo assistente de onboarding guiado
       // (que sempre termina no guia de apoio, antes do cockpit/dashboard).
       router.push(`/onboarding/setup?projectId=${created.id}&type=${created.type}`);
@@ -322,6 +326,7 @@ export default function ProjectsPage() {
             type="button"
             onClick={openCreate}
             aria-label="Novo projeto"
+            data-journey-action="project.new"
             className="md:hidden fixed bottom-20 right-4 z-40 w-14 h-14 rounded-full bg-lifeone-blue text-[#FFFFFF] shadow-lifeone-fab flex items-center justify-center active:scale-95 transition-all"
           >
             <Plus className="w-6 h-6" />

@@ -23,6 +23,9 @@ vi.mock('@/contexts/auth-context', () => ({
     refresh: refreshMock,
   }),
 }));
+vi.mock('@/contexts/journey-runtime-context', () => ({
+  useJourneyRuntime: () => ({ emitProjectCreated: vi.fn() }),
+}));
 vi.mock('@/lib/api', () => ({
   api: {
     get: apiGetMock,
