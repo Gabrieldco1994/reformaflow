@@ -11,6 +11,8 @@ import {
   resolveJourneySteps,
   getJourneyDefinition,
   listJourneyKeys,
+  findUnclassifiedStepKeys,
+  findInvalidStepSlugs,
 } from "../src/config/journey-catalog";
 
 /**
@@ -285,6 +287,14 @@ describe("journey-catalog — RED spec: still missing (Etapa A Escopo, #338)", (
       expect(typeof findUncoveredNavRoutes).toBe("function");
       if (typeof findUncoveredNavRoutes !== "function") return;
       expect(findUncoveredNavRoutes()).toEqual([]);
+    });
+
+    it("findUnclassifiedStepKeys() is empty — every catalog stepKey has a slug or is explicitly slug-less", () => {
+      expect(findUnclassifiedStepKeys()).toEqual([]);
+    });
+
+    it("findInvalidStepSlugs() is empty — every mapped slug is a real PROJECT_NAV slug", () => {
+      expect(findInvalidStepSlugs()).toEqual([]);
     });
 
     it("a nav-only screen key never claims a module outside TYPE_MODULES[type] (no orphaned catalog entry)", () => {

@@ -1,5 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { JOURNEY_TRIGGER_DEVICES, JOURNEY_TRIGGER_TYPES, ProjectType } from '@reformaflow/domain';
+import {
+  JOURNEY_STEP_SLUGS,
+  JOURNEY_TRIGGER_DEVICES,
+  JOURNEY_TRIGGER_TYPES,
+  ProjectType,
+} from '@reformaflow/domain';
 import { PrismaService } from '../prisma/prisma.service';
 
 /** Dispositivo de quem está perguntando "o que é elegível agora?" — sempre concreto, nunca `'any'` (isso é um valor de configuração de gatilho, não de contexto de chamada). */
@@ -22,6 +27,13 @@ export interface EligibleStepView {
   label: string;
   subtitle: string | null;
   skippable: boolean;
+  /**
+   * Slug de `PROJECT_NAV` (não a rota completa — `/projects/:id/` fica por
+   * conta do runtime, que compõe com o projeto ATIVO na hora de navegar,
+   * nunca com o projeto do momento da elegibilidade). Ausente para passos
+   * SUMMARY ou sem tela própria (`JOURNEY_STEP_SLUGS`); nunca vem do banco.
+   */
+  slug?: string;
 }
 
 export interface EligibleJourneyView {
@@ -136,6 +148,7 @@ export class JourneysEligibilityService {
           label: s.label,
           subtitle: s.subtitle,
           skippable: s.skippable,
+          slug: JOURNEY_STEP_SLUGS[s.stepKey],
         }));
 
       eligible.push({

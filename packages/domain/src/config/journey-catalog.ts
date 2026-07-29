@@ -447,3 +447,73 @@ export function findUncoveredNavRoutes(): Array<{ type: ProjectType; slug: strin
   }
   return uncovered;
 }
+
+// ─── Mapa stepKey → slug (Etapa Completa navega para a tela real) ──────────
+
+/**
+ * Slug de `PROJECT_NAV` para onde a experiência Completa navega, por
+ * `stepKey`. NUNCA persistido — o banco só guarda `stepKey`; o slug vem
+ * sempre daqui, resolvido pela API (`journeys-eligibility.service.ts`) e
+ * composto pelo runtime web com o projeto ATIVO no momento da navegação
+ * (`/projects/${projectId}/${slug}`), nunca assado por antecipação — é o que
+ * faz cross-project funcionar por construção: se o usuário troca de projeto
+ * no `ProjectPicker`, a composição usa o projeto novo, não o do momento da
+ * elegibilidade.
+ *
+ * Ausência aqui = o passo não tem tela própria (composto, como `funding`, ou
+ * não é uma página, como `feedback`/`maria-insight`) — ver
+ * `JOURNEY_STEPS_WITHOUT_SLUG`. Etapa Completa é PROIBIDA para esses,
+ * rejeitada na escrita (`journeys-admin.service.ts`), nunca degradada em
+ * silêncio no runtime.
+ */
+export const JOURNEY_STEP_SLUGS: Partial<Record<string, string>> = {
+  expense: 'expenses',
+  import: 'expenses',
+  'expense-import': 'expenses',
+  receipt: 'receipts',
+  bill: 'bills',
+  car: 'car-info',
+  plant: 'plants',
+};
+
+/**
+ * `stepKey`s do catálogo deliberadamente sem tela própria — Etapa Completa
+ * nunca é permitida para eles. Existe só para `findUnclassifiedStepKeys`
+ * distinguir "esquecido" de "sem rota de propósito".
+ */
+export const JOURNEY_STEPS_WITHOUT_SLUG = new Set(['funding', 'maria-insight', 'feedback']);
+
+export function hasJourneyStepSlug(stepKey: string): boolean {
+  return stepKey in JOURNEY_STEP_SLUGS;
+}
+
+/**
+ * Primitiva de regressão de cobertura: todo `stepKey` usado por QUALQUER
+ * jornada do catálogo precisa estar classificado — com slug
+ * (`JOURNEY_STEP_SLUGS`) ou explicitamente sem tela
+ * (`JOURNEY_STEPS_WITHOUT_SLUG`). Vazio = catálogo completo. Um `stepKey`
+ * novo sem entrada em nenhum dos dois aparece aqui — sem isso, a Etapa
+ * Completa dele silenciosamente não navega para lugar nenhum.
+ */
+export function findUnclassifiedStepKeys(): string[] {
+  const known = new Set(
+    Object.values(JOURNEY_CATALOG).flatMap((j) => j.steps.map((s) => s.key)),
+  );
+  return [...known].filter(
+    (key) => !(key in JOURNEY_STEP_SLUGS) && !JOURNEY_STEPS_WITHOUT_SLUG.has(key),
+  );
+}
+
+/**
+ * Primitiva de regressão de cobertura: todo slug em `JOURNEY_STEP_SLUGS`
+ * precisa ser um slug REAL de `PROJECT_NAV` (de algum tipo de projeto) —
+ * pega typo/rota removida antes de virar 404 em produção.
+ */
+export function findInvalidStepSlugs(): string[] {
+  const allNavSlugs = new Set(
+    Object.values(ProjectType).flatMap((type) => getProjectNavModules(type).map((m) => m.slug)),
+  );
+  return Object.entries(JOURNEY_STEP_SLUGS)
+    .filter(([, slug]) => slug !== undefined && !allNavSlugs.has(slug))
+    .map(([key]) => key);
+}
