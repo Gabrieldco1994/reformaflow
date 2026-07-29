@@ -24,7 +24,7 @@
    - 3.7 Notificações
    - 3.8 Saúde financeira consolidada
    - 3.9 Admin — Usuários
-   - 3.10 Admin — Jornadas de onboarding
+   - 3.10 Admin — Jornadas
    - 3.11 Tratamento de Erros e Estados de Carregamento
 4. [Projeto PESSOAL](#4-projeto-pessoal)
 5. [Projeto REFORMA](#5-projeto-reforma)
@@ -289,23 +289,30 @@ específicos**. Essas permissões são o que controla o que cada pessoa vê no a
 O painel também mostra **Projetos criados** e **Despesas criadas** por usuário,
 para auditoria rápida de atividade.
 
-### 3.8 Admin — Jornadas de onboarding (`/admin/jornadas`)
-Área do administrador que controla **o que a pessoa vê ao criar um projeto**
-(o assistente do §3.1c). Cada tipo de projeto aparece como uma **trilha de
-mini-telas numeradas**, na ordem em que o usuário as vê — dá para entender a
-jornada batendo o olho. Por telinha, o admin pode:
+### 3.8 Admin — Jornadas (`/admin/jornadas`)
+Área do administrador que controla **as jornadas guiadas do app** — inclusive o
+assistente que aparece ao criar um projeto (§3.1c). A tela tem uma **lista de
+todas as jornadas** à esquerda e o **editor da selecionada** à direita.
 
-- **reordenar** — arrastando pela alça, ou pelos botões ←/→ (funciona também
-  só pelo teclado);
-- **ligar/desligar** — a tela desligada fica esmaecida, marcada "Fora da
-  jornada", e some do onboarding real;
-- **reescrever os textos** — o título curto e o texto de apoio da tela;
-- **marcar obrigatória ou pulável** — obrigatória esconde o "Pular por agora".
+- **Nova jornada** — cria uma jornada a partir de outra existente, usada como
+  modelo (copia etapas e gatilhos, que depois são editados à vontade).
+- **Onde aparece** — escopo do alvo (todos os projetos, um tipo de projeto ou um
+  projeto específico), dispositivo (desktop, mobile ou ambos), repetição (uma vez
+  por usuário, uma vez por projeto ou sempre), o que fazer quando a pessoa fecha
+  antes de concluir, se pode atravessar projetos, e ativa/inativa.
+- **Quando começa** — um ou mais gatilhos: cadastro concluído, projeto criado,
+  acesso a uma tela ou clique numa ação.
+- **Trilha de passos** — as etapas como **mini-telas numeradas**, na ordem em que
+  o usuário as vê. Por etapa dá para **reordenar** (arrastando pela alça, pelos
+  botões ←/→ ou só pelo teclado), **ligar/desligar** (a desligada fica esmaecida,
+  marcada "Fora da jornada", e some da jornada real), **reescrever os textos**
+  (título curto e texto de apoio), **marcar obrigatória ou pulável** (obrigatória
+  esconde o "Pular por agora") e escolher entre experiência **Resumida** (o
+  formulário embutido no painel) e **Completa** (leva à tela real do app).
 
-As mudanças são **globais** (valem para todos os usuários daquele tipo de
-projeto) e entram em vigor no próximo onboarding, sem deploy. Só passam a valer
-depois de **Salvar jornada** — enquanto houver edição pendente, o painel avisa
-"alterações não salvas".
+As mudanças são **globais** e entram em vigor na próxima execução da jornada, sem
+deploy. Só passam a valer depois de **Salvar jornada** — enquanto houver edição
+pendente, o painel avisa "alterações não salvas".
 
 Duas limitações propositais: o painel **reordena e configura as telas que
 existem**, não cria telas novas (cada tela é uma funcionalidade do app); e
