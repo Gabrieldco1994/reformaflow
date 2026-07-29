@@ -47,12 +47,39 @@ function step(
   };
 }
 
+/**
+ * `stepKey`s REAIS do catálogo (`knownStepKeys`, ativo desde a Etapa E parte 2)
+ * — nunca sintéticos como "step-1". Com o guard ligado, um `stepKey` que o
+ * runtime não reconhece é filtrado do plano (`UNKNOWN_STEP_KEY`), então um
+ * fixture com chave inventada simplesmente não aparece na tela, e os testes
+ * que dependem de "a etapa N está visível" quebram por engano — não porque o
+ * runtime tem bug, mas porque o fixture nunca existiu no catálogo. Pool
+ * grande o bastante para as jornadas de várias etapas deste arquivo (até 6)
+ * sem repetir chave dentro da mesma jornada.
+ */
+const KNOWN_STEP_KEY_POOL = [
+  "expense",
+  "receipt",
+  "bill",
+  "car",
+  "plant",
+  "dashboard",
+  "cash-flow",
+  "conta",
+  "dre",
+  "neutros",
+];
+
 function steps(
   count: number,
   decorate: (index: number) => Partial<EligibleStep> = () => ({}),
 ) {
   return Array.from({ length: count }, (_, index) =>
-    step({ stepKey: `step-${index + 1}`, order: index, ...decorate(index) }),
+    step({
+      stepKey: KNOWN_STEP_KEY_POOL[index % KNOWN_STEP_KEY_POOL.length],
+      order: index,
+      ...decorate(index),
+    }),
   );
 }
 
@@ -235,10 +262,13 @@ test.describe("jornada dirigida pela configuração devolvida por /journeys/elig
   });
 
   test("reorder do admin muda a ordem percorrida", async ({ page }) => {
+    // Chaves REAIS do catálogo (não "primeiro"/"meio"/"ultimo" — esses eram
+    // só rótulos semânticos). A ordem é sempre a do campo `order`, nunca a do
+    // nome da chave nem a da posição no array declarado abaixo.
     const config = [
-      step({ stepKey: "ultimo", order: 9 }),
-      step({ stepKey: "primeiro", order: 0 }),
-      step({ stepKey: "meio", order: 5 }),
+      step({ stepKey: "dashboard", order: 9 }), // último, apesar de vir primeiro no array
+      step({ stepKey: "expense", order: 0 }), // primeiro
+      step({ stepKey: "receipt", order: 5 }), // meio
     ];
     await stubSession(page);
     await stubEligible(page, [journey({ steps: config })]);
@@ -248,12 +278,22 @@ test.describe("jornada dirigida pela configuração devolvida por /journeys/elig
     await walkJourney(page, expectedSteps(config));
   });
 
+  // Regressão (Etapa E parte 2): um `stepKey` operacional (`expense`, `bill`
+  // etc.) some com o rodapé genérico quando a experiência é SUMMARY — o
+  // componente real assume as próprias ações. Este teste mede o painel
+  // GENÉRICO (que renderiza `data-journey-experience` e avança via
+  // "Continuar"/"Concluir"), então usa chaves SUMMARY do catálogo
+  // INFORMATIVO (sem componente operacional) para as etapas resumidas —
+  // "expense"/"bill" continuam cobertos, só que como etapas FULL aqui.
   test("mistura SUMMARY/FULL: cada etapa renderiza a experiência configurada", async ({
     page,
   }) => {
-    const config = steps(4, (index) => ({
-      experience: index % 2 === 0 ? ("SUMMARY" as const) : ("FULL" as const),
-    }));
+    const config = [
+      step({ stepKey: "conta", order: 0, experience: "SUMMARY" }),
+      step({ stepKey: "expense", order: 1, experience: "FULL" }),
+      step({ stepKey: "cash-flow", order: 2, experience: "SUMMARY" }),
+      step({ stepKey: "bill", order: 3, experience: "FULL" }),
+    ];
     await stubSession(page);
     await stubEligible(page, [journey({ steps: config })]);
 
@@ -281,6 +321,35 @@ test.describe("jornada dirigida pela configuração devolvida por /journeys/elig
     await expect(
       page.locator(PANEL).getByRole("button", { name: "Pular" }),
     ).toHaveCount(0);
+  });
+
+  // Regressão: com `knownStepKeys` ativo (Etapa E, parte 2), um `stepKey` que
+  // o runtime não reconhece é filtrado do plano (`UNKNOWN_STEP_KEY`,
+  // resolveJourneyPlan) — nunca aparece na trilha, e a jornada segue com os
+  // passos conhecidos ao redor dele, sem travar nem quebrar a tela. É o
+  // "fallback seguro" ponta-a-ponta: o admin pode ter salvo uma etapa cujo
+  // componente saiu de um deploy futuro, e ninguém trava por causa disso.
+  test("stepKey desconhecido some do plano (fallback seguro) e não derruba a aplicação", async ({
+    page,
+  }) => {
+    const config = [
+      step({ stepKey: "expense", order: 0 }),
+      step({ stepKey: "chave-nunca-cadastrada-no-catalogo", order: 1 }),
+      step({ stepKey: "receipt", order: 2 }),
+    ];
+    await stubSession(page);
+    await stubEligible(page, [journey({ steps: config })]);
+
+    await page.goto("/projects/p1/monthly");
+
+    const expectedKnown = config.filter(
+      (s) => s.stepKey !== "chave-nunca-cadastrada-no-catalogo",
+    );
+    await walkJourney(page, expectedKnown);
+
+    // A aplicação segue de pé depois de concluir — nenhuma etapa desconhecida
+    // derrubou a tela nem travou o fluxo no meio do caminho.
+    await expect(page.locator("body")).toBeVisible();
   });
 
   test("configuração alterada entre duas execuções: 4 etapas, depois 6, sem rebuild", async ({
