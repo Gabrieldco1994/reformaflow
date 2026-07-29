@@ -294,7 +294,9 @@ describe('JourneysAdminService', () => {
         key: 'tour:new-feature',
         name: 'Tour de recurso novo',
         description: 'desc',
-        steps: [{ stepKey: 'intro', order: 0, label: 'Intro', subtitle: 'sub' }],
+        steps: [
+          { stepKey: 'intro', order: 0, label: 'Intro', subtitle: 'sub', experience: 'SUMMARY' },
+        ],
         triggers: [minimalTrigger()],
       } as any);
 
@@ -493,6 +495,29 @@ describe('JourneysAdminService', () => {
           triggers: [minimalTrigger({ dismissPolicy: 'silent' as any })],
         } as any),
       ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('rejects experience:FULL for a stepKey without a slug (funding/feedback/maria-insight — no page to navigate to)', async () => {
+      await build();
+      await expect(
+        service.create({
+          key: 'k',
+          name: 'x',
+          steps: [{ stepKey: 'feedback', order: 0, label: 'Feedback', experience: 'FULL' }],
+          triggers: [minimalTrigger()],
+        } as any),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('accepts experience:FULL for a stepKey WITH a slug (expense → expenses)', async () => {
+      await build();
+      const result = await service.create({
+        key: 'k',
+        name: 'x',
+        steps: [{ stepKey: 'expense', order: 0, label: 'Despesa', experience: 'FULL' }],
+        triggers: [minimalTrigger()],
+      } as any);
+      expect(result.steps[0].experience).toBe('FULL');
     });
 
     it('SCREEN_VISIT without screenKey is rejected', async () => {
@@ -1063,7 +1088,7 @@ describe('JourneysAdminService', () => {
       });
 
       const result = await service.update('j1', {
-        steps: [{ stepKey: 'y', order: 1, label: 'Y' }],
+        steps: [{ stepKey: 'y', order: 1, label: 'Y', experience: 'SUMMARY' }],
       } as any);
 
       expect(result.steps.map((s: any) => s.stepKey).sort()).toEqual(['x', 'y']);

@@ -14,6 +14,7 @@ import {
   JOURNEY_TRIGGER_TYPES,
   ProjectType,
   getJourneyScreenKeys,
+  hasJourneyStepSlug,
 } from '@reformaflow/domain';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -112,6 +113,22 @@ function normalizeOptionalText(
     throw new BadRequestException(`${field} excede ${maxLength} caracteres.`);
   }
   return trimmed;
+}
+
+/**
+ * Etapa Completa navega para a tela real via `JOURNEY_STEP_SLUGS[stepKey]`
+ * (resolvido pela API em `journeys-eligibility.service.ts`, nunca persistido).
+ * `stepKey`s sem slug (compostos como `funding`, ou sem tela própria como
+ * `feedback`/`maria-insight`) não têm para onde navegar — rejeitar na escrita
+ * é a única opção sã: degradar em silêncio no runtime foi exatamente o bug
+ * que fez toda Etapa Completa parar de navegar sem nenhum erro visível.
+ */
+function assertFullExperienceHasSlug(stepKey: string, experience: string): void {
+  if (experience === 'FULL' && !hasJourneyStepSlug(stepKey)) {
+    throw new BadRequestException(
+      `"${stepKey}" não tem tela própria — não pode ser experience:FULL (só SUMMARY).`,
+    );
+  }
 }
 
 /** Chave natural de um gatilho — MESMA tupla do `@@unique` em `JourneyTrigger`. */
@@ -376,6 +393,7 @@ export class JourneysAdminService {
           `experience inválida para "${stepKey}": "${experience}". Válidas: ${JOURNEY_STEP_EXPERIENCES.join(', ')}`,
         );
       }
+      assertFullExperienceHasSlug(stepKey, experience);
       return {
         stepKey,
         order: typeof raw?.order === 'number' ? raw.order : index,
@@ -416,6 +434,7 @@ export class JourneysAdminService {
         if (!(JOURNEY_STEP_EXPERIENCES as readonly string[]).includes(experience)) {
           throw new BadRequestException(`experience inválida para "${stepKey}": "${experience}".`);
         }
+        assertFullExperienceHasSlug(stepKey, experience);
         return {
           stepKey,
           isNew: true,
@@ -455,6 +474,7 @@ export class JourneysAdminService {
         if (!(JOURNEY_STEP_EXPERIENCES as readonly string[]).includes(raw.experience)) {
           throw new BadRequestException(`experience inválida para "${stepKey}": "${raw.experience}".`);
         }
+        assertFullExperienceHasSlug(stepKey, raw.experience);
         data.experience = raw.experience;
       }
       return { stepKey, isNew: false, data };

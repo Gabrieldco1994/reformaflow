@@ -771,5 +771,65 @@ describe('JourneysEligibilityService', () => {
         crossProject: true,
       });
     });
+
+    // Regressão: o `route`/`slug` de uma etapa Completa precisa vir da
+    // RESPOSTA REAL do serviço (`JOURNEY_STEP_SLUGS` resolvido aqui, no
+    // servidor), nunca de um fixture de teste preenchido à mão do lado do
+    // consumidor — foi exatamente um fixture com `route` chumbado que deixou
+    // o bug original passar verde: o CONSUMO (runtime web) foi corrigido sem
+    // que nunca tivesse existido PRODUÇÃO (a API nunca mandava o campo).
+    // Só `JourneysEligibilityService` real está sob teste aqui — Prisma é o
+    // único mock.
+    it('resolves slug from JOURNEY_STEP_SLUGS for a FULL step with a known stepKey (no fixture route/slug supplied)', async () => {
+      await build({
+        journeys: [journey],
+        triggers: [trigger({ id: 'trigger-full' })],
+        steps: [
+          {
+            id: 's1',
+            journeyId: 'j1',
+            stepKey: 'expense',
+            order: 0,
+            experience: 'FULL',
+            label: 'Despesa',
+            subtitle: null,
+            enabled: true,
+            skippable: true,
+          },
+        ],
+      });
+      const [entry] = await service.getEligible(
+        { triggerType: 'PROJECT_CREATED', device: 'web' },
+        'tenant-a',
+        'user-1',
+      );
+      expect(entry.steps[0]).toMatchObject({ stepKey: 'expense', slug: 'expenses' });
+    });
+
+    it('omits slug for a stepKey without a real page (SUMMARY-only, e.g. feedback)', async () => {
+      await build({
+        journeys: [journey],
+        triggers: [trigger({ id: 'trigger-summary' })],
+        steps: [
+          {
+            id: 's1',
+            journeyId: 'j1',
+            stepKey: 'feedback',
+            order: 0,
+            experience: 'SUMMARY',
+            label: 'Feedback',
+            subtitle: null,
+            enabled: true,
+            skippable: true,
+          },
+        ],
+      });
+      const [entry] = await service.getEligible(
+        { triggerType: 'PROJECT_CREATED', device: 'web' },
+        'tenant-a',
+        'user-1',
+      );
+      expect(entry.steps[0].slug).toBeUndefined();
+    });
   });
 });
