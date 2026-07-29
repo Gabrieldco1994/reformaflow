@@ -307,8 +307,27 @@ todas as jornadas** à esquerda e o **editor da selecionada** à direita.
   botões ←/→ ou só pelo teclado), **ligar/desligar** (a desligada fica esmaecida,
   marcada "Fora da jornada", e some da jornada real), **reescrever os textos**
   (título curto e texto de apoio), **marcar obrigatória ou pulável** (obrigatória
-  esconde o "Pular por agora") e escolher entre experiência **Resumida** (o
-  formulário embutido no painel) e **Completa** (leva à tela real do app).
+  esconde o "Pular por agora") e escolher entre experiência **Resumida** (fica
+  sobre a tela atual, sem navegar) e **Completa** (leva à tela real do app).
+  A trilha oferece tanto os **passos operacionais** de sempre (Despesa,
+  Recebimento, Contas & cartões, Conta recorrente, Veículo, Planta) quanto,
+  agora, as **telas do catálogo de resumos** (Dashboard, Cockpit, Visão Conta,
+  DRE, Fluxo de Caixa, Recorrentes, Metas, Planejador, entre outras) — dá para
+  montar uma jornada guiada usando qualquer uma delas.
+- **O que a experiência Resumida realmente mostra** — depende do que a etapa
+  representa, resolvido automaticamente pelo executor, nesta ordem:
+  1. Se a etapa tem um formulário operacional de verdade (Despesa, Recebimento,
+     Contas & cartões etc.), a **mini-tela embute o formulário real** — a pessoa
+     lança a despesa, cadastra a conta etc. sem sair do painel, com as mesmas
+     regras e validações da tela cheia.
+  2. Se a etapa é uma tela analítica do catálogo de resumos (Dashboard, Cockpit,
+     Visão Conta, DRE, Gantt, comparação de simulações etc.), o painel mostra um
+     **resumo com título, descrição e atalhos** ("Adicionar despesa", "Ver
+     detalhes"…) para a tela real — nunca reproduz o dashboard/gráfico/lista
+     inteiros dentro do painel.
+  3. Se a etapa não se encaixa em nenhum dos dois casos (ex.: "Pergunte à Maria",
+     "Feedback"), o painel mostra só o **texto de apoio** configurado — nunca
+     quebra por causa de uma etapa sem tela própria.
 
 As mudanças são **globais** e entram em vigor na próxima execução da jornada, sem
 deploy. Só passam a valer depois de **Salvar jornada** — enquanto houver edição
