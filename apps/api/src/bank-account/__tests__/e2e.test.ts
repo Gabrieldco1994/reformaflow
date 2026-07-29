@@ -10,7 +10,13 @@
  *   5) Suggest-links retorna candidatos próximos por valor + data
  *
  * Execução isolada num tenant temporário.
+ *
+ * Roda contra o banco descartável do worktree (prisma/test.db), nunca o dev.db:
+ * o import da trava abaixo precisa vir ANTES de qualquer `new PrismaClient()`.
+ * Prepare o banco uma vez com `npm run test:db:prepare` na raiz do repo.
  */
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+require('../../../../../scripts/test-db-env.cjs');
 import { PrismaClient } from '@prisma/client';
 import { BankAccountService } from '../bank-account.service';
 import { MerchantClassifierService } from '../../merchant-classifier/merchant-classifier.service';

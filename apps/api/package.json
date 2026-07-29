@@ -74,6 +74,10 @@
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node",
+    "globalSetup": "<rootDir>/../test/jest.global-setup.cjs",
+    "setupFiles": [
+      "<rootDir>/../../../scripts/test-db-env.cjs"
+    ],
     "moduleNameMapper": {
       "^@reformaflow/domain(.*)$": "<rootDir>/../../../packages/domain/src$1"
     }

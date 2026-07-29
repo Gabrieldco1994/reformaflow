@@ -15,7 +15,10 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
-    setupFiles: ['./vitest.setup.ts'],
+    // A trava de banco vem primeiro: nenhum teste pode enxergar o dev.db real
+    // (ver scripts/test-db-env.cjs). O web não usa Prisma hoje, mas o setup é
+    // uniforme entre os três runners do monorepo.
+    setupFiles: ['../../scripts/test-db-env.cjs', './vitest.setup.ts'],
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
     exclude: ['node_modules', '.next', 'e2e', 'tests-e2e', '**/*.spec.e2e.*'],
   },

@@ -39,7 +39,13 @@ npx turbo run build --filter=@reformaflow/web     # build de um app
 cd apps/web && npx tsc --noEmit                   # type-check rápido (idem apps/api, packages/domain)
 cd apps/api && npx jest                           # testes API (jest, *.spec.ts)
 cd packages/domain && npx vitest run              # testes domínio (vitest, __tests__/*.test.ts)
+npm run test:db:prepare                           # (raiz) aplica migrations no prisma/test.db descartável
 ```
+
+> **Testes nunca tocam o `dev.db`.** Os três runners (jest da API, vitest do domínio e do web) carregam
+> `scripts/test-db-env.cjs` como setup file, que sobrescreve `DATABASE_URL` para o `prisma/test.db` **do
+> worktree atual** e aborta com erro legível se o alvo for um `dev.db` ou um arquivo fora do worktree.
+> Vale de qualquer worktree, sem exportar nada. `npm run dev` não passa por essa trava e continua no `dev.db`.
 
 ## Tipos de projeto (em `packages/domain/src/config/project-features.ts` — fonte de verdade)
 
@@ -85,6 +91,7 @@ cd packages/domain && npx vitest run              # testes domínio (vitest, __t
 14. **Toda movimentação do PESSOAL sem cartão/conta pertence à pseudo-origem Carteira e DEVE aparecer na Visão Conta e nos totais** (`getAccountView`). Nunca filtrar `origin:'none'` para fora silenciosamente — item invisível = dinheiro sumido no consolidado. Frontend exibe chip "Sem conta" clicável (→ fluxo de vínculo). Docs: `docs/visao-conta-faturas.md §11`.
 15. **Fila "Precisa de você" agrega fontes existentes (`GET /projects/:id/pendencias/financeiras`) e não cria mutação nova.** Cada pendência deve apenas rotear para um modal já existente (vincular, pagar fatura, quitar parcela, editar despesa/recebimento). Nova pendência = nova fonte no agregador, não fluxo paralelo.
 16. **Regra de categoria (`MerchantCategory`) só muda CATEGORIA, nunca valor/caixa.** Auto-aplicação no ingest só para regra manual confirmada; PIX PF nunca auto-aplica sem regra prévia. Retroativo (se habilitado) deve ser transacional.
+17. **Nenhum runner de teste pode enxergar o `dev.db`.** Worktrees não têm `.env` próprio e a API lê `process.env.DATABASE_URL` puro (sem ConfigModule/dotenv) — em 2026-07-28 uma rodada de testes aplicou migration e materializou linhas no banco real, quase levando a um `prisma migrate reset` (proibido pela #1). A trava é `scripts/test-db-env.cjs`, carregado como `setupFiles` do jest (apps/api) e do vitest (packages/domain, apps/web) e por `scripts/prepare-test-db.mjs`. **Runner novo ou script avulso que instancie `PrismaClient` fora do runtime da API tem que carregar essa trava antes do `new PrismaClient()`** (ver os `__tests__/e2e.test.ts` de credit-card e bank-account). Ferramentas que DEVEM mesmo escrever no dev.db (`prisma/seed.ts`, `scripts/*.mjs` de backfill, e2e do Playwright contra a API rodando) ficam de fora — são intencionais e não são a suíte.
 
 ## Notas técnicas (consulte quando tocar o módulo)
 
