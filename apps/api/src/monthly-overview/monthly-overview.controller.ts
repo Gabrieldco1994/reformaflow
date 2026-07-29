@@ -35,6 +35,18 @@ export class MonthlyOverviewController {
     return this.service.getAccountView(tenantId, projectId, month);
   }
 
+  @Get('account-view-yearly')
+  @ApiOperation({
+    summary: 'Visão Conta real (caixa) consolidada para o ano inteiro — 12 meses agregados (PESSOAL)',
+  })
+  getAccountViewYearly(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Query('year') year?: string,
+  ) {
+    return this.service.getAccountViewYearly(tenantId, projectId, year);
+  }
+
   @Get('card-invoices-yearly')
   @ApiOperation({
     summary: 'Faturas de cada cartão por mês de vencimento ao longo do ano (PESSOAL)',
