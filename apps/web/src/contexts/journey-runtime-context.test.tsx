@@ -113,7 +113,7 @@ describe("JourneyRuntimeProvider", () => {
                     label: "B",
                     subtitle: null,
                     skippable: false,
-                    route: "expenses",
+                    slug: "expenses",
                   },
                 ],
               },

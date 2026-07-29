@@ -219,10 +219,12 @@ export function JourneyRuntimeProvider({
       const nextStep = active.journey.steps[active.stepIndex + 1];
       if (
         nextStep?.experience === "FULL" &&
-        nextStep.route &&
+        nextStep.slug &&
         active.projectId
       ) {
-        router.push(`/projects/${active.projectId}/${nextStep.route}`);
+        // Composto com o projeto ATIVO agora, nunca assado por antecipação —
+        // sobrevive ao usuário trocar de projeto no ProjectPicker.
+        router.push(`/projects/${active.projectId}/${nextStep.slug}`);
       }
       setActive({ ...active, stepIndex: active.stepIndex + 1 });
     }

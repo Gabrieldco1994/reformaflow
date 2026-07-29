@@ -18,7 +18,14 @@ export interface EligibleJourneyStep {
   conditionUnmetBehavior?: "SKIP" | "BLOCK";
   targetProjectType?: ProjectType | null;
   blocked?: boolean;
-  route?: string;
+  /**
+   * Slug de `PROJECT_NAV` (resolvido pela API, nunca persistido) — não a
+   * rota completa. O runtime compõe `/projects/${projectId}/${slug}` com o
+   * projeto ATIVO no momento da navegação, nunca com o projeto do momento da
+   * elegibilidade — é o que faz cross-project funcionar quando o usuário
+   * troca de projeto no `ProjectPicker`.
+   */
+  slug?: string;
 }
 
 export interface EligibleJourney {
@@ -108,10 +115,11 @@ export function normalizeJourney(journey: EligibleJourney): RuntimeJourney {
   };
   const plan = resolveJourneyPlan(persisted);
   // `PlannedJourneyStep` carrega só o que o domínio decide (quais passos rodam,
-  // ordem, posição, blocked). Campos de transporte web — hoje `route`, usado
+  // ordem, posição, blocked). Campos de transporte web — hoje `slug`, usado
   // pela experiência FULL para navegar até a tela real — não existem no domínio
   // e precisam voltar do payload original, senão uma etapa FULL vira uma etapa
-  // que não navega para lugar nenhum.
+  // que não navega para lugar nenhum. `slug` é sempre resolvido pela API
+  // (JOURNEY_STEP_SLUGS, server-side) — nunca inventado aqui.
   const byKey = new Map(
     journey.steps.map((step) => [`${step.stepKey}#${step.order}`, step]),
   );
@@ -126,7 +134,7 @@ export function normalizeJourney(journey: EligibleJourney): RuntimeJourney {
     plan,
     steps: plan.steps.map((step) => ({
       ...step,
-      route: byKey.get(`${step.stepKey}#${step.order}`)?.route,
+      slug: byKey.get(`${step.stepKey}#${step.order}`)?.slug,
       label: step.label ?? step.stepKey,
       subtitle: step.subtitle,
     })),
