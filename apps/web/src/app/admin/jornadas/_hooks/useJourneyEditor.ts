@@ -1,129 +1,201 @@
-'use client';
+"use client";
 
-import { useCallback, useMemo, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ProjectType, ResolvedJourneyStep } from '@reformaflow/domain';
-import { api } from '@/lib/api';
-import type { JourneyMap, JourneyStepPayload } from '../_types';
+import { useCallback, useEffect, useState } from "react";
+import type { JourneyStepDefinition, JourneyTriggerType } from "@reformaflow/domain";
+import {
+  createMockJourney,
+  listMockJourneys,
+  saveMockJourney,
+} from "../_lib/mock-journeys";
+import type { EditorJourney, EditorStep, EditorTrigger, JourneyDraftPatch } from "../_types";
 
-const QUERY_KEY = ['admin', 'onboarding-journeys'] as const;
-
-function move<T>(list: T[], from: number, to: number): T[] {
-  if (to < 0 || to >= list.length) return list;
+function move<T>(list: T[], from: number, to: number) {
+  if (from < 0 || to < 0 || from >= list.length || to >= list.length) return list;
   const next = list.slice();
   const [item] = next.splice(from, 1);
   next.splice(to, 0, item);
   return next;
 }
 
-function toPayload(steps: ResolvedJourneyStep[]): JourneyStepPayload[] {
-  return steps.map((step, index) => ({
-    stepKey: step.key,
-    order: index,
-    enabled: step.enabled,
-    skippable: step.skippable,
-    label: step.label,
-    subtitle: step.subtitle,
-  }));
+let triggerIdSeq = 0;
+function nextTriggerId(): string {
+  triggerIdSeq += 1;
+  return `draft-trigger-${triggerIdSeq}`;
 }
 
-/**
- * Estado do editor de jornadas: uma cópia local ("draft") por tipo de projeto,
- * editada livremente, e só enviada ao servidor no "Salvar jornada".
- *
- * O draft nasce do que o servidor devolveu e é comparado com ele para saber se
- * há alterações não salvas — sem isso o admin não teria como perceber que
- * arrastou um card e esqueceu de salvar.
- */
-export function useJourneyEditor(projectType: ProjectType) {
-  const queryClient = useQueryClient();
-  const query = useQuery({
-    queryKey: QUERY_KEY,
-    queryFn: () => api.get<JourneyMap>('/admin/onboarding/journeys'),
-    retry: false,
-  });
+export function useJourneyEditor() {
+  const [journeys, setJourneys] = useState<EditorJourney[]>([]);
+  const [selectedKey, setSelectedKey] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
 
-  // Overrides locais por tipo; ausente = ainda igual ao servidor.
-  const [drafts, setDrafts] = useState<Partial<Record<string, ResolvedJourneyStep[]>>>({});
+  useEffect(() => {
+    listMockJourneys()
+      .then((loaded) => {
+        setJourneys(loaded);
+        setSelectedKey(loaded[0]?.key ?? "");
+      })
+      .catch((reason: unknown) =>
+        setError(reason instanceof Error ? reason : new Error("Falha ao carregar jornadas.")),
+      )
+      .finally(() => setLoading(false));
+  }, []);
 
-  const serverSteps = useMemo<ResolvedJourneyStep[]>(
-    () => query.data?.[projectType] ?? [],
-    [query.data, projectType],
-  );
-  const steps = drafts[projectType] ?? serverSteps;
+  const selected = journeys.find((journey) => journey.key === selectedKey) ?? null;
 
-  const dirty = useMemo(
-    () => JSON.stringify(steps) !== JSON.stringify(serverSteps),
-    [steps, serverSteps],
-  );
-
-  const setSteps = useCallback(
-    (updater: (current: ResolvedJourneyStep[]) => ResolvedJourneyStep[]) => {
-      setDrafts((current) => ({
-        ...current,
-        [projectType]: updater(current[projectType] ?? serverSteps),
-      }));
+  const updateSelected = useCallback(
+    (patch: Partial<EditorJourney>) => {
+      setJourneys((current) =>
+        current.map((journey) => (journey.key === selectedKey ? { ...journey, ...patch } : journey)),
+      );
+      setDirty(true);
     },
-    [projectType, serverSteps],
+    [selectedKey],
   );
 
   const patchStep = useCallback(
-    (key: string, patch: Partial<ResolvedJourneyStep>) => {
-      setSteps((current) =>
-        current.map((step) => (step.key === key ? { ...step, ...patch } : step)),
-      );
+    (key: string, patch: Partial<EditorStep>) => {
+      updateSelected({
+        steps: selected?.steps.map((step) => (step.key === key ? { ...step, ...patch } : step)) ?? [],
+      });
     },
-    [setSteps],
+    [selected, updateSelected],
   );
 
   const moveStep = useCallback(
     (key: string, direction: -1 | 1) => {
-      setSteps((current) => {
-        const index = current.findIndex((step) => step.key === key);
-        return index < 0 ? current : move(current, index, index + direction);
-      });
+      if (!selected) return;
+      const index = selected.steps.findIndex((step) => step.key === key);
+      updateSelected({ steps: move(selected.steps, index, index + direction) });
     },
-    [setSteps],
+    [selected, updateSelected],
   );
 
   const reorder = useCallback(
     (activeKey: string, overKey: string) => {
-      setSteps((current) => {
-        const from = current.findIndex((step) => step.key === activeKey);
-        const to = current.findIndex((step) => step.key === overKey);
-        return from < 0 || to < 0 ? current : move(current, from, to);
-      });
+      if (!selected) return;
+      const from = selected.steps.findIndex((step) => step.key === activeKey);
+      const to = selected.steps.findIndex((step) => step.key === overKey);
+      updateSelected({ steps: move(selected.steps, from, to) });
     },
-    [setSteps],
+    [selected, updateSelected],
   );
 
-  const reset = useCallback(() => {
-    setDrafts((current) => ({ ...current, [projectType]: undefined }));
-  }, [projectType]);
-
-  const saveMutation = useMutation({
-    mutationFn: (next: ResolvedJourneyStep[]) =>
-      api.put<ResolvedJourneyStep[]>(`/admin/onboarding/journeys/${projectType}`, {
-        steps: toPayload(next),
-      }),
-    onSuccess: (saved) => {
-      queryClient.setQueryData<JourneyMap>(QUERY_KEY, (current) =>
-        current ? { ...current, [projectType]: saved } : current,
-      );
-      setDrafts((current) => ({ ...current, [projectType]: undefined }));
+  const addStep = useCallback(
+    (definition: JourneyStepDefinition) => {
+      if (!selected || selected.steps.some((step) => step.key === definition.key)) return;
+      updateSelected({
+        steps: [
+          ...selected.steps,
+          {
+            key: definition.key,
+            label: definition.label,
+            subtitle: definition.defaultSubtitle,
+            enabled: true,
+            skippable: definition.skippableByDefault,
+            alwaysAvailable: definition.alwaysAvailable,
+            experience: "SUMMARY",
+          },
+        ],
+      });
     },
-  });
+    [selected, updateSelected],
+  );
+
+  const removeStep = useCallback(
+    (key: string) => {
+      if (!selected) return;
+      updateSelected({ steps: selected.steps.filter((step) => step.key !== key) });
+    },
+    [selected, updateSelected],
+  );
+
+  const patchJourney = useCallback((patch: JourneyDraftPatch) => updateSelected(patch), [updateSelected]);
+
+  const addTrigger = useCallback(
+    (type: JourneyTriggerType = "SIGNUP_COMPLETED") => {
+      if (!selected) return;
+      const trigger: EditorTrigger = { id: nextTriggerId(), type, key: null };
+      updateSelected({ triggers: [...selected.triggers, trigger] });
+    },
+    [selected, updateSelected],
+  );
+
+  const removeTrigger = useCallback(
+    (id: string) => {
+      if (!selected || selected.triggers.length <= 1) return;
+      updateSelected({ triggers: selected.triggers.filter((trigger) => trigger.id !== id) });
+    },
+    [selected, updateSelected],
+  );
+
+  const patchTrigger = useCallback(
+    (id: string, patch: Partial<EditorTrigger>) => {
+      if (!selected) return;
+      updateSelected({
+        triggers: selected.triggers.map((trigger) =>
+          trigger.id === id ? { ...trigger, ...patch } : trigger,
+        ),
+      });
+    },
+    [selected, updateSelected],
+  );
+
+  const save = useCallback(async () => {
+    if (!selected) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const saved = await saveMockJourney(selected.key, selected);
+      setJourneys((current) => current.map((journey) => (journey.key === saved.key ? saved : journey)));
+      setDirty(false);
+    } catch (reason) {
+      const nextError = reason instanceof Error ? reason : new Error("Não foi possível salvar a jornada.");
+      setError(nextError);
+      throw nextError;
+    } finally {
+      setSaving(false);
+    }
+  }, [selected]);
+
+  const create = useCallback(async (name: string, templateKey: string) => {
+    setError(null);
+    try {
+      const created = await createMockJourney(name, templateKey);
+      setJourneys((current) => [...current, created]);
+      setSelectedKey(created.key);
+      setDirty(false);
+    } catch (reason) {
+      const nextError = reason instanceof Error ? reason : new Error("Não foi possível criar a jornada.");
+      setError(nextError);
+      throw nextError;
+    }
+  }, []);
 
   return {
-    steps,
-    loading: query.isLoading,
-    error: query.error as Error | null,
-    dirty,
-    saving: saveMutation.isPending,
+    journeys,
+    selected,
+    selectedKey,
+    select: (key: string) => {
+      setSelectedKey(key);
+      setDirty(false);
+    },
+    patchJourney,
     patchStep,
     moveStep,
     reorder,
-    reset,
-    save: () => saveMutation.mutateAsync(steps),
+    addStep,
+    removeStep,
+    addTrigger,
+    removeTrigger,
+    patchTrigger,
+    save,
+    create,
+    loading,
+    saving,
+    dirty,
+    error,
   };
 }
