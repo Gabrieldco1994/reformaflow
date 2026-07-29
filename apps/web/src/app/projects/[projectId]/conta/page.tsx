@@ -183,6 +183,7 @@ export default function ContaPage() {
             setViewMode('mes');
             if (action === 'pay') setPayCardLast4(cardLast4);
             else if (action === 'adjust') setAdjustCardLast4(cardLast4);
+            else if (action === 'undo') setUndoCardLast4(cardLast4);
             else setResidualCardLast4(cardLast4);
           }}
         />

@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import { X, Undo2, SlidersHorizontal, HandCoins } from 'lucide-react';
 import type { AccountViewCardSummary } from '../_types';
 
@@ -23,6 +24,47 @@ export function MobileCardActionsSheet({
   onSettleWithResidual: (cardLast4: string) => void;
 }) {
   const parcial = card.status === 'parcial';
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Mesmo padrão do MaisSheet/UndoInvoicePaymentDialog: foco inicial num
+  // controle seguro (fechar), Tab preso no sheet, Escape fecha sem mutar, e o
+  // foco volta ao gatilho ao sair.
+  useEffect(() => {
+    const trigger = document.activeElement as HTMLElement | null;
+    const dialog = dialogRef.current;
+    const focusableSelector =
+      'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+    closeButtonRef.current?.focus();
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab' || !dialog) return;
+
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(focusableSelector));
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      trigger?.focus();
+    };
+  }, [onClose]);
 
   const actions = [
     parcial && card.faturaPendente > 0
@@ -54,7 +96,10 @@ export function MobileCardActionsSheet({
       aria-label={`Ações da fatura · ${card.nickname}`}
       className="fixed inset-0 z-50 flex items-end justify-center bg-lifeone-ink/40 p-0 sm:items-center sm:p-4"
     >
-      <div className="w-full max-w-md rounded-t-3xl bg-lifeone-card p-5 shadow-lifeone-dialog sm:rounded-3xl">
+      <div
+        ref={dialogRef}
+        className="w-full max-w-md rounded-t-3xl bg-lifeone-card p-5 shadow-lifeone-dialog sm:rounded-3xl"
+      >
         <div className="mb-3 flex items-start justify-between gap-3">
           <div>
             <h3 className="text-base font-bold text-lifeone-ink">Ações da fatura</h3>
@@ -63,6 +108,7 @@ export function MobileCardActionsSheet({
             </p>
           </div>
           <button
+            ref={closeButtonRef}
             type="button"
             aria-label="Fechar"
             onClick={onClose}
