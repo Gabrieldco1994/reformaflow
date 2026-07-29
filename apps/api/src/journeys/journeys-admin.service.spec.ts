@@ -89,7 +89,7 @@ interface PrismaMock {
     findMany: AnyFn;
     create: AnyFn;
     createMany: AnyFn;
-    upsert: AnyFn;
+    update: AnyFn;
   };
   journeyTrigger: {
     findMany: AnyFn;
@@ -179,20 +179,24 @@ function makePrismaMock(
         steps.push(...rows);
         return Promise.resolve({ count: rows.length });
       }),
-      upsert: jest.fn().mockImplementation(({ where, create, update }: any) => {
+      update: jest.fn().mockImplementation(({ where, data }: any) => {
         const existing = steps.find(
           (s) =>
             s.journeyId === where.journeyId_stepKey.journeyId &&
             s.stepKey === where.journeyId_stepKey.stepKey,
         );
-        if (existing) {
-          Object.assign(existing, update);
-          return Promise.resolve(existing);
-        }
-        const row: JourneyStepRow = { id: nextId('step'), ...create };
-        steps.push(row);
-        return Promise.resolve(row);
+        if (!existing) return Promise.reject(new Error('journeyStep.update: registro não existe'));
+        Object.assign(existing, data);
+        return Promise.resolve(existing);
       }),
+      // Deliberadamente SEM `upsert`, pela mesma razão de `journeyTrigger`
+      // abaixo: o Prisma real VALIDA o payload `create` de um upsert mesmo
+      // quando o registro já existe e o branch tomado é o `update`. Para um
+      // passo já salvo, o patch é PARCIAL (sem `stepKey`), então o `create`
+      // era rejeitado em runtime e todo `PUT` com etapas devolvia 500. O mock
+      // antigo tinha `upsert` e fazia igualdade de JS, então nunca reproduziu
+      // a rejeição. Se a implementação regredir para `tx.journeyStep.upsert`,
+      // este mock explode com "is not a function" e o teste falha alto.
     },
     journeyTrigger: {
       findMany: jest
@@ -980,6 +984,54 @@ describe('JourneysAdminService', () => {
       const stepAfter = result.steps.find((s: any) => s.stepKey === 'x')!;
       expect(stepAfter.enabled).toBe(false);
       expect(prisma._steps).toHaveLength(1); // never physically removed
+    });
+
+    it('patches an EXISTING step via journeyStep.update — nunca pelo caminho de create', async () => {
+      // Regressão: a implementação antiga usava `journeyStep.upsert`, cujo
+      // payload `create` o Prisma real VALIDA mesmo tomando o branch de
+      // update. Como o patch de um passo existente é parcial (sem `stepKey`),
+      // todo `PUT` com etapas devolvia 500 em runtime. Este teste prende o
+      // caminho: passo existente → `update`, e `create` nunca é chamado.
+      await build({
+        journeys: [
+          { id: 'j1', key: 'a', name: 'A', description: null, active: true, deletedAt: null },
+        ],
+        steps: [
+          {
+            id: 's1',
+            journeyId: 'j1',
+            stepKey: 'x',
+            order: 0,
+            experience: 'FULL',
+            label: 'X',
+            subtitle: null,
+            enabled: true,
+            skippable: true,
+          },
+        ],
+        triggers: [minimalTrigger({ id: 't1', journeyId: 'j1' }) as any],
+      });
+
+      const result = await service.update('j1', {
+        steps: [{ stepKey: 'x', order: 3 }],
+      } as any);
+
+      expect(prisma.journeyStep.update).toHaveBeenCalledTimes(1);
+      expect(prisma.journeyStep.update).toHaveBeenCalledWith({
+        where: { journeyId_stepKey: { journeyId: 'j1', stepKey: 'x' } },
+        data: { order: 3 },
+      });
+      expect(prisma.journeyStep.create).not.toHaveBeenCalled();
+
+      // efeitos colaterais: só `order` muda, o resto da linha sobrevive
+      const row = prisma._steps.find((s) => s.stepKey === 'x')!;
+      expect(row.order).toBe(3);
+      expect(row.label).toBe('X');
+      expect(row.experience).toBe('FULL');
+      expect(row.enabled).toBe(true);
+      expect(row.skippable).toBe(true);
+      expect(prisma._steps).toHaveLength(1);
+      expect(result.steps.find((s: any) => s.stepKey === 'x')!.order).toBe(3);
     });
 
     it('adds a brand-new step via update (upsert-create path) leaving existing ones untouched', async () => {

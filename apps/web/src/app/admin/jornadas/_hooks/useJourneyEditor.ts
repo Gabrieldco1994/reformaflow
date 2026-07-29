@@ -3,10 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 import type { JourneyStepDefinition, JourneyTriggerType } from "@reformaflow/domain";
 import {
-  createMockJourney,
-  listMockJourneys,
-  saveMockJourney,
-} from "../_lib/mock-journeys";
+  createJourney,
+  listJourneys,
+  saveJourney,
+} from "../_lib/journeys-api";
 import type { EditorJourney, EditorStep, EditorTrigger, JourneyDraftPatch } from "../_types";
 
 function move<T>(list: T[], from: number, to: number) {
@@ -32,7 +32,7 @@ export function useJourneyEditor() {
   const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
-    listMockJourneys()
+    listJourneys()
       .then((loaded) => {
         setJourneys(loaded);
         setSelectedKey(loaded[0]?.key ?? "");
@@ -148,7 +148,7 @@ export function useJourneyEditor() {
     setSaving(true);
     setError(null);
     try {
-      const saved = await saveMockJourney(selected.key, selected);
+      const saved = await saveJourney(selected, selected);
       setJourneys((current) => current.map((journey) => (journey.key === saved.key ? saved : journey)));
       setDirty(false);
     } catch (reason) {
@@ -160,19 +160,25 @@ export function useJourneyEditor() {
     }
   }, [selected]);
 
-  const create = useCallback(async (name: string, templateKey: string) => {
-    setError(null);
-    try {
-      const created = await createMockJourney(name, templateKey);
-      setJourneys((current) => [...current, created]);
-      setSelectedKey(created.key);
-      setDirty(false);
-    } catch (reason) {
-      const nextError = reason instanceof Error ? reason : new Error("Não foi possível criar a jornada.");
-      setError(nextError);
-      throw nextError;
-    }
-  }, []);
+  const create = useCallback(
+    async (name: string, templateKey: string) => {
+      setError(null);
+      try {
+        const template = journeys.find((journey) => journey.key === templateKey);
+        if (!template) throw new Error("Template de jornada não encontrado.");
+        const created = await createJourney(name, template);
+        setJourneys((current) => [...current, created]);
+        setSelectedKey(created.key);
+        setDirty(false);
+      } catch (reason) {
+        const nextError =
+          reason instanceof Error ? reason : new Error("Não foi possível criar a jornada.");
+        setError(nextError);
+        throw nextError;
+      }
+    },
+    [journeys],
+  );
 
   return {
     journeys,

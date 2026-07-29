@@ -9,10 +9,10 @@ import type {
 /**
  * Modelo do editor — segue o modelo `Journey` descrito no plano (device,
  * targetScope, repeatPolicy, dismissPolicy e `allowCrossProjectNavigation`
- * no nível da jornada; `JourneyTrigger` só carrega tipo + chave). A API real
- * (#339, ainda em RED) desnormaliza esses mesmos campos por gatilho — quando
- * ela aterrissar, o mapeamento fica no seam de `_lib/mock-journeys.ts`
- * (`toApiShape`/`fromApiShape`), sem espalhar a decisão pelos componentes.
+ * no nível da jornada; `JourneyTrigger` só carrega tipo + chave). A API
+ * desnormaliza esses mesmos campos por gatilho — o mapeamento mora no seam de
+ * `_lib/journeys-api.ts` (`toApiShape`/`fromApiShape`), sem espalhar a decisão
+ * pelos componentes.
  */
 
 export type EditorDevice = "DESKTOP" | "MOBILE" | "BOTH";
@@ -85,6 +85,9 @@ export interface EditorStep extends ResolvedJourneyStep {
 }
 
 export interface EditorJourney {
+  /** Id da linha `Journey` — o `PUT /admin/journeys/:id` usa este campo
+   * (o editor navega por `key`, que é a identidade estável do catálogo). */
+  id: string;
   key: string;
   name: string;
   description: string;
