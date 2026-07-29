@@ -11,7 +11,7 @@ import { JourneyTrack } from "./_components/JourneyTrack";
 import { TargetSection } from "./_components/TargetSection";
 import { TriggersSection } from "./_components/TriggersSection";
 import { useJourneyEditor } from "./_hooks/useJourneyEditor";
-import { listStepCatalog } from "./_lib/mock-journeys";
+import { listStepCatalog } from "./_lib/journeys-api";
 import type { EditorJourney } from "./_types";
 
 export default function AdminJornadasPage() {

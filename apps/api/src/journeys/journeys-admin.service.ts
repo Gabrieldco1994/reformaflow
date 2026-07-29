@@ -256,11 +256,25 @@ export class JourneysAdminService {
         await tx.journey.update({ where: { id }, data: journeyData });
       }
       for (const patch of stepPatches) {
-        await tx.journeyStep.upsert({
-          where: { journeyId_stepKey: { journeyId: id, stepKey: patch.stepKey } },
-          create: { journeyId: id, ...(patch.data as NormalizedStep) },
-          update: patch.data,
-        });
+        // Sem `upsert`: o `create` de um upsert é VALIDADO pelo Prisma mesmo
+        // quando o registro já existe e o branch tomado é o `update`. Para um
+        // passo já salvo, `patch.data` é um patch PARCIAL (sem `stepKey`, e
+        // possivelmente sem `label`), então o `create` era rejeitado em runtime
+        // com PrismaClientValidationError — todo `PUT` com etapas dava 500. O
+        // `as NormalizedStep` mentia para o TS e escondia isso. `isNew` já foi
+        // calculado em `normalizeStepsForUpdate`; usá-lo é mais simples e não
+        // exige montar um `create` fictício. Mesmo padrão de `journeyTrigger`
+        // logo abaixo.
+        if (patch.isNew) {
+          await tx.journeyStep.create({
+            data: { journeyId: id, ...(patch.data as NormalizedStep) },
+          });
+        } else {
+          await tx.journeyStep.update({
+            where: { journeyId_stepKey: { journeyId: id, stepKey: patch.stepKey } },
+            data: patch.data,
+          });
+        }
       }
       for (const trigger of triggerPatches) {
         // A chave natural de `JourneyTrigger` tem 4 campos NULLABLE
