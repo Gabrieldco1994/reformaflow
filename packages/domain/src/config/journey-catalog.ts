@@ -63,7 +63,7 @@ export interface JourneyTriggerDefinition {
   targetProjectId: string | null;
   /** `true` = pode disparar a partir de um projeto e afetar/apontar para outro. */
   crossProject: boolean;
-  device: 'web' | 'mobile' | 'any';
+  device: JourneyDevice;
   /**
    * MESMO vocabulário que `JOURNEY_REPEAT_POLICIES` (abaixo) — o valor
    * persistido cru na coluna `JourneyTrigger.repeatPolicy`, nunca um
@@ -355,6 +355,11 @@ export type JourneyTriggerType = (typeof JOURNEY_TRIGGER_TYPES)[number];
 export const JOURNEY_REPEAT_POLICIES = ['ONCE_PER_USER', 'ONCE_PER_PROJECT', 'ALWAYS'] as const;
 
 export type JourneyRepeatPolicy = (typeof JOURNEY_REPEAT_POLICIES)[number];
+
+/** `'any'` = a jornada dispara em qualquer dispositivo ("mobile" = navegador em tela pequena). */
+export const JOURNEY_TRIGGER_DEVICES = ['web', 'mobile', 'any'] as const;
+
+export type JourneyDevice = (typeof JOURNEY_TRIGGER_DEVICES)[number];
 
 /**
  * O que fazer quando o usuário fecha a jornada antes de concluir.
