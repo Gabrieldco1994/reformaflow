@@ -5,7 +5,7 @@ import { ArrowRight, SkipForward, ChevronLeft } from 'lucide-react';
 import { api } from '@/lib/api';
 import { maskCurrencyInput, currencyInputToNumber } from '@/lib/currency-input';
 import { getReceiptTipoOptions } from '@/app/projects/[projectId]/receipts/_lib/tipo-options';
-import type { OnboardingStepProps } from '../../_types';
+import type { OnboardingStepProps } from '@/app/onboarding/setup/_types';
 
 /**
  * Purpose-built quick-add receipt step — own local state, own POST call.

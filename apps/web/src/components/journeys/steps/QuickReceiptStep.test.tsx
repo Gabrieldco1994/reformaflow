@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { ProjectType } from '@reformaflow/domain';
 import { QuickReceiptStep } from './QuickReceiptStep';
 
@@ -67,7 +67,11 @@ describe('QuickReceiptStep', () => {
   });
 
   it('clique duplo no botão não faz POST duas vezes', async () => {
-    apiPostMock.mockImplementation(() => new Promise((r) => setTimeout(r, 100)));
+    let resolvePromise: () => void = () => {};
+    const promise = new Promise<void>((r) => {
+      resolvePromise = r;
+    });
+    apiPostMock.mockReturnValue(promise);
     const onDone = vi.fn();
     render(<QuickReceiptStep projectId="p1" projectType={ProjectType.PESSOAL} onDone={onDone} onSkip={vi.fn()} />);
     fireEvent.change(screen.getByLabelText(/valor \(r\$\)/i), { target: { value: '50,00' } });
@@ -75,6 +79,10 @@ describe('QuickReceiptStep', () => {
     fireEvent.click(btn);
     fireEvent.click(btn);
     await waitFor(() => expect(apiPostMock).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      resolvePromise();
+      await promise;
+    });
   });
 
   it('limite monetário: 0,00 inválido (botão desabilitado)', () => {

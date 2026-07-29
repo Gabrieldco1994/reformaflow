@@ -13,7 +13,7 @@ import { VoiceExpenseModal } from '@/app/projects/[projectId]/expenses/_componen
 import { ONBOARDING_MODES } from '@/app/projects/[projectId]/_components/mobile-launch/launch-modes';
 import type { LaunchMode } from '@/app/projects/[projectId]/_components/mobile-launch/launch-modes';
 import type { ExpenseFormData } from '@/types';
-import type { OnboardingStepProps } from '../../_types';
+import type { OnboardingStepProps } from '@/app/onboarding/setup/_types';
 
 type EntryMode = Extract<LaunchMode, 'despesa' | 'voz' | 'foto'>;
 type ExpenseScreen = 'form' | 'fonte';

@@ -2,7 +2,7 @@
 
 import { SkipForward, ChevronLeft } from 'lucide-react';
 import CardFormModal from '@/app/projects/[projectId]/credit-cards/_components/CardFormModal';
-import type { OnboardingStepProps } from '../../_types';
+import type { OnboardingStepProps } from '@/app/onboarding/setup/_types';
 
 /**
  * Wraps `CardFormModal` in `bare` mode inside the wizard, with the

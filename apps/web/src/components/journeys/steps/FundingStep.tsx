@@ -6,7 +6,7 @@ import { Check, ChevronLeft, CreditCard, Landmark, SkipForward, X } from 'lucide
 import BankAccountFormModal from '@/app/projects/[projectId]/bank-accounts/_components/BankAccountFormModal';
 import CardFormModal from '@/app/projects/[projectId]/credit-cards/_components/CardFormModal';
 import { api } from '@/lib/api';
-import type { OnboardingStepProps, OnboardingFunding } from '../../_types';
+import type { OnboardingStepProps, OnboardingFunding } from '@/app/onboarding/setup/_types';
 
 interface TenantAccount { id: string; nickname?: string | null; institution: string; last4?: string | null }
 interface TenantCard { id: string; nickname?: string | null; brand: string; last4: string }
