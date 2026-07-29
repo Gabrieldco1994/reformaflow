@@ -8,7 +8,7 @@ export function ContaQuickActions({
   onOpenLaunch: () => void;
 }) {
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="hidden flex-wrap gap-2 md:flex">
       <button
         type="button"
         onClick={onOpenLaunch}

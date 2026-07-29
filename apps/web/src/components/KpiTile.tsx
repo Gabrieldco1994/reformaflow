@@ -104,11 +104,14 @@ export function KpiTile({
 
   const base =
     isState
-      ? `rounded-2xl border ${mobileCompact ? 'p-2.5 md:p-3' : 'p-3'} shadow-lifeone-card ${getTintedClasses(tone)}`
-      : `rounded-2xl border border-lifeone-hairline bg-lifeone-card ${mobileCompact ? 'p-2.5 md:p-3' : 'p-3'} shadow-lifeone-card ${isHero ? 'md:p-4' : ''}`;
+      ? `rounded-2xl border ${mobileCompact ? 'p-2 md:p-3' : 'p-3'} shadow-lifeone-card ${getTintedClasses(tone)}`
+      : `rounded-2xl border border-lifeone-hairline bg-lifeone-card ${mobileCompact ? 'p-2 md:p-3' : 'p-3'} shadow-lifeone-card ${isHero ? 'md:p-4' : ''}`;
 
   const interactive = onClick
-    ? `cursor-pointer text-left transition ${active ? 'ring-2 ring-lifeone-blue' : ''}`
+    ? // <button> centraliza verticalmente o próprio conteúdo quando a altura vem
+      // esticada pelo grid — dois KPIs lado a lado saíam com valores em linhas de
+      // base diferentes. flex-col volta a ancorar no topo.
+      `flex flex-col cursor-pointer text-left transition ${active ? 'ring-2 ring-lifeone-blue' : ''}`
     : '';
 
   const labelColor = isState ? '' : 'text-lifeone-ink-3';
@@ -121,7 +124,7 @@ export function KpiTile({
         <span className="min-w-0 truncate">{label}</span>
         {info && <InfoHint text={info} className={isState ? undefined : 'text-lifeone-ink-3'} />}
       </p>
-      <p className={`${mobileCompact ? 'mt-1.5 md:mt-2' : 'mt-2'} font-geist tabular-nums font-bold tracking-tight leading-tight ${valueSize} ${valueColor}`}>
+      <p className={`${mobileCompact ? 'mt-1 md:mt-2' : 'mt-2'} font-geist tabular-nums font-bold tracking-tight leading-tight ${valueSize} ${valueColor}`}>
         {value}
       </p>
       {delta && (
@@ -132,7 +135,7 @@ export function KpiTile({
       {extra}
       {context && (
         <p
-          className={`${mobileCompact ? 'mt-1.5 text-[10px] leading-3.5 md:mt-2 md:text-[11px] md:leading-4' : 'mt-2 text-[11px] leading-4'} ${isState ? 'opacity-80' : 'text-lifeone-ink-3'}`}
+          className={`${mobileCompact ? 'mt-1 text-[10px] leading-3.5 md:mt-2 md:text-[11px] md:leading-4' : 'mt-2 text-[11px] leading-4'} ${isState ? 'opacity-80' : 'text-lifeone-ink-3'}`}
         >
           {context}
         </p>

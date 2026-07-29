@@ -33,7 +33,12 @@ describe("ResumoCards", () => {
     const projection = screen.getByRole("region", { name: "Projeção" });
     expect(projection).toHaveTextContent("Ainda falta pagar");
     expect(projection).toHaveTextContent("R$ 404,04");
-    expect(projection).toHaveTextContent("+ R$ 505,05 previsto ainda a entrar");
+    expect(projection).toHaveTextContent("já conta R$ 505,05 a entrar");
+    // A nota de entrada prevista pertence à Sobra (onde ela entra na conta),
+    // nunca ao card de saídas "Ainda falta pagar".
+    expect(
+      screen.getByRole("button", { name: /Ainda falta pagar/ }),
+    ).not.toHaveTextContent("R$ 505,05");
     expect(projection).toHaveTextContent("Sobra prevista");
     expect(projection).toHaveTextContent("R$ 606,06");
     expect(projection).not.toHaveTextContent("R$ 202,02");
