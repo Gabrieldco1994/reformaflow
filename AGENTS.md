@@ -94,6 +94,18 @@ npm run test:db:prepare                           # (raiz) aplica migrations no 
 17. **Nenhum runner de teste pode enxergar o `dev.db`.** Worktrees não têm `.env` próprio e a API lê `process.env.DATABASE_URL` puro (sem ConfigModule/dotenv) — em 2026-07-28 uma rodada de testes aplicou migration e materializou linhas no banco real, quase levando a um `prisma migrate reset` (proibido pela #1). A trava é `scripts/test-db-env.cjs`, carregado como `setupFiles` do jest (apps/api) e do vitest (packages/domain, apps/web) e por `scripts/prepare-test-db.mjs`. **Runner novo ou script avulso que instancie `PrismaClient` fora do runtime da API tem que carregar essa trava antes do `new PrismaClient()`** (ver os `__tests__/e2e.test.ts` de credit-card e bank-account). Ferramentas que DEVEM mesmo escrever no dev.db (`prisma/seed.ts`, `scripts/*.mjs` de backfill, e2e do Playwright contra a API rodando) ficam de fora — são intencionais e não são a suíte.
 18. **`git stash` é PROIBIDO neste repo.** A stash list é do **repositório**, compartilhada entre TODOS os worktrees — um `stash`/`stash pop` alcança trabalho de outra sessão. Em 2026-07-29 um `pop` colidiu com uma entrada antiga de outro agente e um diff foi perdido. Para guardar trabalho temporário use patch nomeado, que é por-worktree: `git diff > /tmp/<descritivo>.patch`, `git checkout -- <arquivo>`, e depois `git apply /tmp/<descritivo>.patch`.
 
+## Trabalhando com vários agentes em paralelo
+
+Quando a sessão for coordenar mais de um agente, use o agente **`fleet-po`**
+(`.claude/agents/fleet-po.md`). Ele carrega a dinâmica que este repo exige:
+**verificar no código o que cada agente reporta** antes de repassar (relatos de boa-fé
+erram o suficiente para checar sair mais barato), um dono por branch, proteção do
+working tree compartilhado, os cinco padrões de bug recorrentes daqui, e o formato de
+prompt auto-contido com pontos de parada explícitos para agentes sem contexto.
+
+Ele decide titularidade, ordem de merge e escopo; **não implementa e não mergeia** —
+prontidão é dito, o merge é do PO.
+
 ## Notas técnicas (consulte quando tocar o módulo)
 
 - **Status consolidado do Cockpit PESSOAL**: ver `docs/estado-atual-cockpit-pessoal.md` antes de qualquer análise de escopo.
