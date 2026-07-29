@@ -23,6 +23,22 @@
 
 `projectTypes` aceita um ou mais valores únicos entre `REFORMA`, `COMPRA`, `CASA`, `CARRO`, `PESSOAL` e `PLANTAS`. O servidor cria tenant e usuário na mesma transação, normaliza o username e força o papel `USER`; o autocadastro nunca concede `ADMIN`.
 
+## Gatilhos de Jornadas
+
+O front emite dois gatilhos do motor genérico de Jornadas
+(`packages/domain/src/config/journey-catalog.ts`, `JOURNEY_TRIGGER_TYPES`):
+
+- `SIGNUP_COMPLETED`: `RegisterForm` chama `emitSignupCompleted()` logo após
+  `register()` responder, antes de criar os projetos por objetivo.
+- `PROJECT_CREATED`: `projects/page.tsx` chama
+  `emitProjectCreated(created.id, created.type)` após `refresh()` e antes do
+  redirect para `/onboarding/setup` — cobre tanto a criação manual quanto
+  qualquer fluxo futuro que passe por esse mesmo formulário.
+
+Os dois consomem `useJourneyRuntime()` (`journey-runtime-context.tsx`), que já
+existia mas não tinha nenhum chamador de produção — `SCREEN_VISIT` era o único
+gatilho realmente disparado até então.
+
 O cadastro não cria projeto. Após autenticar, a web redireciona para `/projects?onboarding=1`, abre o modal e limita o primeiro projeto aos tipos escolhidos.
 
 ## Objetivos
