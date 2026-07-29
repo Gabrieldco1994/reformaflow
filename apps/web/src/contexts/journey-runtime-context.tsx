@@ -253,10 +253,11 @@ export function JourneyRuntimeProvider({
   );
 
   const dismiss = useCallback(() => {
-    if (active?.journey.dismissPolicy !== "none") {
-      setQueue([]);
-      setActive(null);
-    }
+    if (!active) return;
+    const step = active.journey.steps[active.stepIndex];
+    if (!step?.skippable) return;
+    setQueue([]);
+    setActive(null);
   }, [active]);
 
   const value = useMemo(
@@ -310,6 +311,42 @@ export function useJourneyRuntime() {
 function JourneyRuntimeOverlay() {
   const runtime = useJourneyRuntime();
   const active = runtime.active;
+  const panelRef = useRef<HTMLElement>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+  const wasOpenRef = useRef(false);
+
+  // Foco inicial ao abrir + retorno de foco ao fechar. Só nas bordas
+  // aberto<->fechado — não a cada troca de passo dentro da mesma sessão do
+  // painel, senão cada "Continuar" rouba o foco do usuário.
+  useEffect(() => {
+    const isOpen = !!active;
+    if (isOpen && !wasOpenRef.current) {
+      previouslyFocusedRef.current =
+        document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null;
+      panelRef.current?.focus();
+    } else if (!isOpen && wasOpenRef.current) {
+      previouslyFocusedRef.current?.focus();
+      previouslyFocusedRef.current = null;
+    }
+    wasOpenRef.current = isOpen;
+  }, [active]);
+
+  const currentStep = active?.journey.steps[active.stepIndex];
+
+  // Escape só quando o passo atual é pulável — mesma regra do botão "×"
+  // (disabled={!step.skippable}), aplicada aqui porque dismiss() já se
+  // protege sozinho contra passo obrigatório.
+  useEffect(() => {
+    if (!active || !currentStep) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") runtime.dismiss();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [active, currentStep, runtime]);
+
   if (!active) return null;
   const step: EligibleJourneyStep | undefined =
     active.journey.steps[active.stepIndex];
@@ -317,6 +354,8 @@ function JourneyRuntimeOverlay() {
 
   return (
     <aside
+      ref={panelRef}
+      tabIndex={-1}
       role="dialog"
       data-journey-panel
       aria-modal="false"

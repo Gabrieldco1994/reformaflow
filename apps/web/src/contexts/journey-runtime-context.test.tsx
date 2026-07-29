@@ -221,4 +221,86 @@ describe("JourneyRuntimeProvider", () => {
       await screen.findByRole("combobox", { name: "Projeto da jornada" }),
     ).toBeInTheDocument();
   });
+
+  describe("acessibilidade do painel", () => {
+    function setupJourney(skippable: boolean) {
+      mocks.apiGet.mockImplementation((path: string) => {
+        const context = Object.fromEntries(
+          new URL(`http://localhost${path}`).searchParams,
+        ) as { triggerType?: string };
+        return Promise.resolve(
+          context.triggerType === "PROJECT_CREATED"
+            ? [
+                {
+                  journeyId: "j1",
+                  key: "tour:a11y",
+                  name: "A11y",
+                  triggerId: "t1",
+                  repeatPolicy: "ALWAYS",
+                  dismissPolicy: "DISMISS_UNTIL_LOGIN",
+                  crossProject: false,
+                  steps: [
+                    {
+                      stepKey: "a",
+                      order: 0,
+                      experience: "SUMMARY",
+                      label: "A",
+                      subtitle: "Resumo",
+                      skippable,
+                    },
+                  ],
+                },
+              ]
+            : [],
+        );
+      });
+    }
+
+    it("moves focus into the panel on open and returns it to the trigger on close", async () => {
+      setupJourney(true);
+      renderRuntime();
+      const trigger = screen.getByRole("button", { name: "Criar projeto" });
+      await userEvent.setup().click(trigger);
+
+      const panel = await screen.findByRole("dialog");
+      await waitFor(() => expect(panel).toHaveFocus());
+
+      await userEvent
+        .setup()
+        .click(within(panel).getByRole("button", { name: "Fechar jornada" }));
+
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+      );
+      expect(trigger).toHaveFocus();
+    });
+
+    it("closes on Escape when the current step is skippable", async () => {
+      setupJourney(true);
+      renderRuntime();
+      await userEvent
+        .setup()
+        .click(screen.getByRole("button", { name: "Criar projeto" }));
+      await screen.findByRole("dialog");
+
+      await userEvent.setup().keyboard("{Escape}");
+
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+      );
+    });
+
+    it("ignores Escape when the current step is NOT skippable", async () => {
+      setupJourney(false);
+      renderRuntime();
+      await userEvent
+        .setup()
+        .click(screen.getByRole("button", { name: "Criar projeto" }));
+      const panel = await screen.findByRole("dialog");
+
+      await userEvent.setup().keyboard("{Escape}");
+
+      expect(screen.getByRole("dialog")).toBe(panel);
+    });
+  });
 });
