@@ -513,8 +513,25 @@ movimentações abaixo.
   compras que as compõem (no celular, tocando na linha). Nas linhas de fatura há
   ações rápidas **Ajustar** e **Resíduo**, além do status.
 
-**Visão Ano todo:** gráfico de faturas por origem/cartão ao longo do ano, com
-drill-down por origem (despesas relacionadas).
+**Visão Ano todo:** o toggle **"Ano todo"** estica a Visão Conta para os 12 meses do
+ano — é a mesma tela, não um resumo separado:
+
+- **Gráfico de faturas** por origem/cartão ao longo do ano. Clicar num chip de origem
+  ou numa barra de mês **filtra a lista abaixo** (o drill-down por origem/mês).
+- **Cards de resumo** com os fluxos do ano: "Entrou no ano", "Saiu no ano" e
+  "Ainda falta pagar no ano" — cada um é a **soma exata dos 12 meses**.
+- **"Tenho na conta hoje"** continua sendo o saldo de **hoje**, não uma soma do ano.
+  Saldo é uma foto do momento; somar 12 fotas iguais daria 12× o valor real.
+- **"Sobra prevista no ano"** responde *"com o caixa de hoje, eu atravesso o ano?"*:
+  parte do saldo de hoje e desconta tudo que ainda falta pagar até dezembro, somando o
+  que ainda deve entrar. Negativo = o ano fecha no vermelho mantendo o plano atual.
+- **Lista de movimentações do ano**: as mesmas linhas da visão mensal, agrupadas **por
+  mês** (cada mês fecha o próprio subtotal), com os mesmos filtros — busca, tipo de
+  despesa, status, projeto, origem — mais um filtro **"Mês do ano"**. Despesas sem
+  conta/cartão (Carteira) aparecem normalmente, com o chip **"Sem conta"**.
+- **Cartões não têm tiles aqui** e pagar fatura pelo ano não é possível de propósito: o
+  número do ano é a soma de 12 faturas. Ao acionar uma fatura na lista, o app **troca
+  para o mês daquela fatura** e abre o pagamento lá, com o valor certo.
 
 ### 4.3 DRE (`/dre`) — Demonstrativo de Resultado
 Mostra o resultado (receitas − despesas) de forma estruturada.
