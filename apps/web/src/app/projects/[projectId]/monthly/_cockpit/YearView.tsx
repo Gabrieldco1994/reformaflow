@@ -2,8 +2,11 @@
 
 import { useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
+import { useQuery } from '@tanstack/react-query';
 import { ArrowUpCircle, ArrowDownCircle, Scale, Receipt } from 'lucide-react';
+import { api } from '@/lib/api';
 import type { MonthlyOverviewResponse, MonthlyEntry } from '../_types';
+import type { CardInvoicesYearlyResponse } from '../../conta/_types';
 import { KpiCard, Card } from './ui';
 import { fmtMoney } from './format';
 import { deriveYear, colorForCategoria, categoriasDoAno, gastoMedioMensal, type CategoriaBarra } from './derive';
@@ -19,6 +22,10 @@ const FluxoCaixaAnualChart = dynamic(() => import('./FluxoCaixaAnualChart'), {
 const EvolucaoPatrimonioChart = dynamic(() => import('./EvolucaoPatrimonioChart'), {
   ssr: false,
   loading: () => <div className="h-[280px] rounded-xl bg-[var(--ck-surface-2)] animate-pulse" />,
+});
+const FaturasAnuaisChart = dynamic(() => import('../../conta/_components/FaturasAnuaisChart').then(m => ({ default: m.FaturasAnuaisChart })), {
+  ssr: false,
+  loading: () => <div className="h-[380px] rounded-2xl bg-[var(--ck-surface-2)] animate-pulse" />,
 });
 
 export default function YearView({
@@ -39,6 +46,14 @@ export default function YearView({
   const [catStatusMode, setCatStatusMode] = useState<'real' | 'realPlus'>('realPlus');
   const [fluxoMode, setFluxoMode] = useState<'mensal' | 'acumuladaReal' | 'acumuladaRealPlus'>('mensal');
   const [catAberta, setCatAberta] = useState<string | null>(null);
+  const [selectedInvoiceKey, setSelectedInvoiceKey] = useState<string | null>(null);
+  const [selectedInvoiceMonth, setSelectedInvoiceMonth] = useState<string | null>(null);
+
+  const { data: yearlyInvoices } = useQuery<CardInvoicesYearlyResponse>({
+    queryKey: ['card-invoices-yearly', projectId, year],
+    queryFn: () => api.get(`/projects/${projectId}/monthly-overview/card-invoices-yearly?year=${year}`),
+    enabled: !!projectId,
+  });
 
   const yearEntries = useMemo(
     () => (entries ?? data.entries ?? []).filter((e) => (e.data ?? '').slice(0, 4) === String(year)),
@@ -132,6 +147,16 @@ export default function YearView({
       <Card title="Evolução do patrimônio" hint={`base: ${fmtMoney(y.patrimonioInicioAno)}`}>
         <EvolucaoPatrimonioChart meses={y.meses} />
       </Card>
+
+      {yearlyInvoices && (
+        <FaturasAnuaisChart
+          data={yearlyInvoices}
+          selectedKey={selectedInvoiceKey}
+          onSelectKey={setSelectedInvoiceKey}
+          selectedMonth={selectedInvoiceMonth}
+          onSelectMonth={setSelectedInvoiceMonth}
+        />
+      )}
 
       <CategoriasBarras
         categorias={categoriasAno}
