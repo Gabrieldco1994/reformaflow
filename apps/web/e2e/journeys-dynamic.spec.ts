@@ -151,7 +151,7 @@ async function walkJourney(page: Page, expected: EligibleStep[]) {
     await expect(page.locator(PROGRESS)).toHaveText(
       `${index + 1}/${expected.length}`,
     );
-    await page.getByRole("button", { name: /Continuar|Concluir/ }).click();
+    await page.locator(PANEL).getByRole("button", { name: /Continuar|Concluir/ }).click();
   }
   await expect(page.locator(PANEL)).toHaveCount(0);
 }
@@ -225,9 +225,9 @@ test.describe("jornada dirigida pela configuração devolvida por /journeys/elig
     );
     await expect(page.locator(PROGRESS)).toHaveText("1/2");
     await expect(
-      page.getByRole("button", { name: "Continuar" }),
+      page.locator(PANEL).getByRole("button", { name: "Continuar" }),
     ).toBeDisabled();
-    await page.getByRole("button", { name: "Pular" }).click();
+    await page.locator(PANEL).getByRole("button", { name: "Pular" }).click();
     await expect(page.locator(STEP)).toHaveAttribute(
       "data-journey-step",
       expected[1].stepKey,
@@ -264,7 +264,7 @@ test.describe("jornada dirigida pela configuração devolvida por /journeys/elig
         "data-journey-experience",
         expected.experience,
       );
-      await page.getByRole("button", { name: /Continuar|Concluir/ }).click();
+      await page.locator(PANEL).getByRole("button", { name: /Continuar|Concluir/ }).click();
     }
   });
 
@@ -275,7 +275,7 @@ test.describe("jornada dirigida pela configuração devolvida por /journeys/elig
 
     await page.goto("/projects/p1/monthly");
 
-    await expect(page.getByRole("button", { name: "Pular" })).toHaveCount(0);
+    await expect(page.locator(PANEL).getByRole("button", { name: "Pular" })).toHaveCount(0);
   });
 
   test("configuração alterada entre duas execuções: 4 etapas, depois 6, sem rebuild", async ({
