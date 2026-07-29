@@ -94,6 +94,7 @@ export default function CreditCardsPage() {
         <button
           onClick={() => { setEditing(null); setFormOpen(true); }}
           className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2"
+          data-journey-action="credit-card.new"
         >
           <Plus className="w-4 h-4" /> Novo cartão
         </button>

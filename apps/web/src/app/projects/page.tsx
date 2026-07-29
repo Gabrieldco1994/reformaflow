@@ -170,6 +170,7 @@ export default function ProjectsPage() {
               disabled={!canCreate}
               className="hidden md:flex items-center gap-2 px-4 py-2.5 bg-lifeone-blue text-[#FFFFFF] text-[14px] font-semibold rounded-[10px] hover:brightness-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               title={canCreate ? 'Criar novo projeto' : 'Você não tem módulos liberados para criar projetos'}
+              data-journey-action="project.new"
             >
               <Plus className="w-4 h-4" />
               Novo Projeto

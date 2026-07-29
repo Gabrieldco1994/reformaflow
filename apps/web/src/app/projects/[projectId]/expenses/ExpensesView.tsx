@@ -1080,7 +1080,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
         </div>
         {activeTab === 'despesas' && (
           <div className="hidden md:flex flex-wrap gap-2 items-center">
-            <Button onClick={openPayOptions}>
+            <Button onClick={openPayOptions} data-journey-action="expense.new">
               <Plus className="w-4 h-4" /> Nova despesa
             </Button>
           </div>

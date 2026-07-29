@@ -91,6 +91,7 @@ export function FeedbackButton({ variant = 'dark', className = '' }: FeedbackBut
               onClick={handleSubmit}
               disabled={!message.trim() || status === 'sending'}
               className="min-h-[44px] w-full rounded-xl bg-darc-maroon px-4 py-3 text-sm font-semibold text-white disabled:opacity-40 active:scale-[.98] transition-transform"
+              data-journey-action="feedback.submit"
             >
               {status === 'sending' ? 'Enviando…' : 'Enviar'}
             </button>
