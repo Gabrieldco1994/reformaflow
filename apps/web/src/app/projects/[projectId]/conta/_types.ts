@@ -95,6 +95,23 @@ export interface AccountViewResponse {
   ticketMedio: AccountViewTicketMedio;
 }
 
+/**
+ * Resposta de `getAccountViewYearly` — mesmos campos de `AccountViewResponse`,
+ * exceto `ticketMedio` (série de 12 meses, não 6). `MovimentacoesSection` só
+ * consome os campos comuns (saidas/comprasCartao/entradas/cartoes/contas), por
+ * isso aceita as duas respostas via união em vez de duplicar o componente.
+ */
+export interface AccountViewYearlyResponse extends Omit<AccountViewResponse, 'ticketMedio'> {
+  ticketMedio: {
+    valor: number;
+    nCompras: number;
+    totalCompras: number;
+    serie12m: AccountViewTicketSeriePoint[];
+    mediaAnual: number;
+    deltaVsMediaPct: number | null;
+  };
+}
+
 export interface CardInvoicesYearlyOrigin {
   key: string;
   kind: 'card' | 'conta';

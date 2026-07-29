@@ -21,6 +21,10 @@ export function invalidateExpenseQueries(queryClient: QueryClient, projectId: st
   queryClient.invalidateQueries({ queryKey: ['cross-project-expenses', projectId] });
   // Visão Conta / Visão Mês são caixa: qualquer mutação de despesa pode movê-las.
   queryClient.invalidateQueries({ queryKey: ['account-view', projectId] });
+  // A visão ANUAL da Conta é a mesma agregação consolidada nos 12 meses: sem
+  // invalidar aqui, editar uma linha no "Ano todo" não refletia na própria lista.
+  queryClient.invalidateQueries({ queryKey: ['account-view-yearly', projectId] });
+  queryClient.invalidateQueries({ queryKey: ['card-invoices-yearly', projectId] });
   queryClient.invalidateQueries({ queryKey: ['monthly-overview', projectId] });
   // Fila "Precisa de você": reverter por outras telas deve reaparecer sem refresh.
   queryClient.invalidateQueries({ queryKey: ['pendencias-financeiras', projectId] });

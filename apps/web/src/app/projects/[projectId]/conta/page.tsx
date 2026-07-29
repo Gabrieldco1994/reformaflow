@@ -7,24 +7,18 @@ import { useRef, useState, useEffect } from 'react';
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
 import { LoadingBlock } from '@/app/_components/LoadingBlock';
-import { currentMonthKey, monthLabelLong } from './_lib';
+import { currentMonthKey, monthLabelLong, sumSaidasSemConta } from './_lib';
 import { ContaMonthPicker } from './_components/ContaMonthPicker';
 import { ResumoCards, type ResumoQuickFilterKey } from './_components/ResumoCards';
 import { CartoesSection } from './_components/CartoesSection';
 import { MovimentacoesSection } from './_components/MovimentacoesSection';
 import { PagarFaturaDialog } from './_components/PagarFaturaDialog';
 import { InvoiceInterventionDialog } from './_components/InvoiceInterventionDialog';
-import { FaturasAnuaisChart } from './_components/FaturasAnuaisChart';
-import { DespesasRelacionadas } from './_components/DespesasRelacionadas';
-import { TodasDespesasAno } from './_components/TodasDespesasAno';
+import { ContaAnoView } from './_components/ContaAnoView';
 import { ContaQuickActions } from './_components/ContaQuickActions';
 import { NovaDespesaLauncher } from '../expenses/_components/NovaDespesaLauncher';
 import { PendenciasQueueCard } from '../monthly/_cockpit/PendenciasQueueCard';
-import type {
-  AccountViewResponse,
-  CardInvoicesYearlyResponse,
-  OriginItemsYearlyResponse,
-} from './_types';
+import type { AccountViewResponse } from './_types';
 import type { DreOverviewResponse } from '../dre/_types';
 
 export default function ContaPage() {
@@ -33,8 +27,6 @@ export default function ContaPage() {
   const { projectType } = useProject();
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
   const [viewMode, setViewMode] = useState<'mes' | 'ano'>('mes');
-  const [selectedOriginKey, setSelectedOriginKey] = useState<string | null>(null);
-  const [selectedYearMonth, setSelectedYearMonth] = useState<string | null>(null);
   const [payCardLast4, setPayCardLast4] = useState<string | null>(null);
   const [adjustCardLast4, setAdjustCardLast4] = useState<string | null>(null);
   const [residualCardLast4, setResidualCardLast4] = useState<string | null>(null);
@@ -56,7 +48,15 @@ export default function ContaPage() {
   const queryClient = useQueryClient();
 
   const invalidateConta = () => {
-    for (const key of ['account-view', 'expenses', 'cash-flow', 'dashboard', 'cross-project-expenses']) {
+    for (const key of [
+      'account-view',
+      'account-view-yearly',
+      'card-invoices-yearly',
+      'expenses',
+      'cash-flow',
+      'dashboard',
+      'cross-project-expenses',
+    ]) {
       queryClient.invalidateQueries({ queryKey: [key, projectId] });
     }
   };
@@ -80,15 +80,6 @@ export default function ContaPage() {
     enabled: !!projectId && viewMode === 'mes' && selectedYear === currentYear,
   });
 
-  const { data: yearlyData, isLoading: yearlyLoading } = useQuery<CardInvoicesYearlyResponse>({
-    queryKey: ['card-invoices-yearly', projectId, selectedYear],
-    queryFn: () =>
-      api.get(`/projects/${projectId}/monthly-overview/card-invoices-yearly?year=${selectedYear}`),
-    enabled: !!projectId && viewMode === 'ano',
-  });
-
-  const selectedOrigin = yearlyData?.origins.find((o) => o.key === selectedOriginKey) ?? null;
-
   // "Sobra prevista" ACUMULADA: saldo projetado do mês selecionado, lido da mesma
   // série do cockpit (carrega o que sobrou/faltou dos meses anteriores, em vez de
   // recomeçar do caixa de hoje a cada mês). Fallback para a sobra do mês
@@ -96,22 +87,6 @@ export default function ContaPage() {
   const sobraPrevistaAcumulada = dreData?.anual.saldoAcumuladoSerie.find(
     (row) => row.mes === selectedMonth,
   )?.saldoProjetado;
-  const { data: originItems, isLoading: originItemsLoading } = useQuery<OriginItemsYearlyResponse>({
-    queryKey: ['origin-items-yearly', projectId, selectedYear, selectedOrigin?.kind, selectedOrigin?.last4],
-    queryFn: () =>
-      api.get(
-        `/projects/${projectId}/monthly-overview/origin-items-yearly?year=${selectedYear}&kind=${selectedOrigin!.kind}&last4=${selectedOrigin!.last4}`,
-      ),
-    enabled: !!projectId && viewMode === 'ano' && !!selectedOrigin,
-  });
-
-  // "Todos" (nenhuma origem selecionada): todas as despesas do ano, todas as origens.
-  const { data: allItems, isLoading: allItemsLoading } = useQuery<OriginItemsYearlyResponse>({
-    queryKey: ['origin-items-yearly', projectId, selectedYear, 'all'],
-    queryFn: () =>
-      api.get(`/projects/${projectId}/monthly-overview/origin-items-yearly?year=${selectedYear}&kind=all`),
-    enabled: !!projectId && viewMode === 'ano' && !selectedOriginKey,
-  });
 
   if (projectType && projectType !== 'PESSOAL') {
     return (
@@ -147,8 +122,7 @@ export default function ContaPage() {
               type="button"
               onClick={() => {
                 setViewMode('mes');
-                setSelectedOriginKey(null);
-                setSelectedYearMonth(null);
+                setOriginFilter(null);
               }}
               className={`h-9 rounded-lg px-3 text-xs font-semibold transition ${
                 viewMode === 'mes' ? 'bg-lifeone-card text-lifeone-ink shadow-lifeone-card' : 'text-lifeone-ink-3 hover:text-lifeone-ink-2'
@@ -158,7 +132,10 @@ export default function ContaPage() {
             </button>
             <button
               type="button"
-              onClick={() => setViewMode('ano')}
+              onClick={() => {
+                setViewMode('ano');
+                setOriginFilter(null);
+              }}
               className={`h-9 rounded-lg px-3 text-xs font-semibold transition ${
                 viewMode === 'ano' ? 'bg-lifeone-card text-lifeone-ink shadow-lifeone-card' : 'text-lifeone-ink-3 hover:text-lifeone-ink-2'
               }`}
@@ -190,33 +167,23 @@ export default function ContaPage() {
       />
 
       {viewMode === 'ano' ? (
-        <>
-          {yearlyLoading && <div className="h-[380px] animate-pulse rounded-2xl bg-lifeone-surface" />}
-          {yearlyData && !yearlyLoading && (
-            <>
-              <FaturasAnuaisChart
-                data={yearlyData}
-                selectedKey={selectedOriginKey}
-                onSelectKey={(key) => {
-                  setSelectedOriginKey(key);
-                  setSelectedYearMonth(null);
-                }}
-                selectedMonth={selectedYearMonth}
-                onSelectMonth={setSelectedYearMonth}
-              />
-              {selectedOrigin ? (
-                <DespesasRelacionadas
-                  origin={selectedOrigin}
-                  data={originItems}
-                  isLoading={originItemsLoading}
-                  selectedMonth={selectedYearMonth}
-                />
-              ) : (
-                <TodasDespesasAno data={allItems} isLoading={allItemsLoading} year={selectedYear} />
-              )}
-            </>
-          )}
-        </>
+        <ContaAnoView
+          projectId={projectId}
+          year={selectedYear}
+          originFilter={originFilter}
+          onOriginFilterChange={setOriginFilter}
+          quickFilter={resumoQuickFilter}
+          onQuickFilterChange={setResumoQuickFilter}
+          onInvoiceAction={(action, cardLast4, dueMonth) => {
+            // Fatura clicada no ano: vai para o MÊS dela e abre o diálogo lá — os
+            // números do ano são a soma de 12 faturas, pagar por eles pagaria errado.
+            if (dueMonth) setSelectedMonth(dueMonth);
+            setViewMode('mes');
+            if (action === 'pay') setPayCardLast4(cardLast4);
+            else if (action === 'adjust') setAdjustCardLast4(cardLast4);
+            else setResidualCardLast4(cardLast4);
+          }}
+        />
       ) : (
         <>
           {isLoading && <LoadingBlock />}
@@ -237,9 +204,7 @@ export default function ContaPage() {
                 faltaPagarMes={data.faltaPagarMes}
                 recebimentosPrevistosMes={data.recebimentosPrevistosMes}
                 sobraPrevista={sobraPrevistaAcumulada ?? data.sobraPrevista}
-                saiuSemConta={data.saidas
-                  .filter((s) => !s.isInvoice && !s.cardLast4 && !s.bankLast4 && s.realizado)
-                  .reduce((acc, s) => acc + s.valor, 0)}
+                saiuSemConta={sumSaidasSemConta(data.saidas)}
                 activeQuickFilter={resumoQuickFilter}
                 onQuickFilterSelect={(key) => {
                   setOriginFilter(null);

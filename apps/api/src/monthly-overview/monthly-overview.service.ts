@@ -1317,6 +1317,121 @@ export class MonthlyOverviewService {
     };
   }
 
+  async getAccountViewYearly(tenantId: string, projectId: string, year?: string | number) {
+    await this.ensurePessoalProject(tenantId, projectId);
+
+    const targetYear = normalizeYear(year);
+    const months = Array.from({ length: 12 }, (_, index) =>
+      `${targetYear}-${String(index + 1).padStart(2, '0')}`,
+    );
+
+    // ponytail: 12 chamadas pesadas em paralelo — só serializar/limitar concorrência
+    // se medição mostrar esgotamento do pool do SQLite; não otimizar às cegas.
+    const accountViewsByMonth = await Promise.all(
+      months.map((month) => this.getAccountView(tenantId, projectId, month)),
+    );
+
+    // Consolidar resultados: concatenar todos os itens e somar agregados
+    const saidas = accountViewsByMonth.flatMap((av) => av.saidas);
+    const comprasCartao = accountViewsByMonth.flatMap((av) => av.comprasCartao);
+    const entradas = accountViewsByMonth.flatMap((av) => av.entradas);
+
+    // `caixaHoje`/`carteiraHoje` são saldos PONTUAIS (computados sobre todo o
+    // histórico, não filtrados por mês) — computeCaixaConta e o cálculo de
+    // carteiraHoje ignoram `mesSelecionado`, então os 12 meses devolvem o MESMO
+    // valor. Por isso pegamos de qualquer um dos 12 (aqui, o 1º) em vez de somar:
+    // somar inflaria em 12x um número que já representa "hoje" inteiro.
+    const firstAccountView = accountViewsByMonth[0]!;
+    const contas = firstAccountView.contas; // estático (tenant), não varia por mês
+    const caixaHoje = firstAccountView.caixaHoje;
+    const carteiraHoje = firstAccountView.carteiraHoje;
+
+    // `devoCartaoTotal` é da MESMA natureza pontual: em getAccountView ele soma
+    // `invoiceRows` (TODAS as faturas do histórico com saldo pendente), que NÃO é
+    // filtrado por `mesSelecionado` — só `selectedInvoices`/`comprasCartao` são.
+    // Logo os 12 meses devolvem o mesmo saldo devedor e somar inflaria 12x.
+    const devoCartaoTotal = firstAccountView.devoCartaoTotal;
+
+    // Cartões: agregar os campos de fatura (mensais por natureza) ao longo do
+    // ano em vez de zerá-los — a UI anual precisa saber quanto foi faturado,
+    // pago e quanto ainda falta pagar no ano por cartão.
+    const cartoes = firstAccountView.cartoes.map((card) => {
+      const monthlyCards = accountViewsByMonth.map(
+        (av) => av.cartoes.find((c) => c.last4 === card.last4)!,
+      );
+      const faturaAtual = sumBy(monthlyCards, (c) => c.faturaAtual);
+      const faturaPendente = sumBy(monthlyCards, (c) => c.faturaPendente);
+      const faturaPaga = sumBy(monthlyCards, (c) => c.faturaPaga);
+      const residualDeclarado = sumBy(monthlyCards, (c) => c.residualDeclarado);
+      const ajusteManualTotal = sumBy(monthlyCards, (c) => c.ajusteManualTotal);
+      return {
+        ...card,
+        faturaAtual,
+        faturaPendente,
+        faturaPaga,
+        residualDeclarado,
+        possuiIntervencaoManual: monthlyCards.some((c) => c.possuiIntervencaoManual),
+        ajusteManualTotal,
+        // status do ano: "a pagar" se sobra alguma fatura pendente no ano,
+        // "parcial" se já pagou algo mas ainda falta, "paga" se quitou tudo.
+        status: (faturaPendente === 0
+          ? 'paga'
+          : faturaPaga > 0
+            ? 'parcial'
+            : 'a pagar') as 'paga' | 'parcial' | 'a pagar',
+      };
+    });
+
+    // Somar agregados do ano inteiro (fluxos genuínos: cada `getAccountView(mes)`
+    // já filtra por aquele mês, então somar os 12 é a soma do ano)
+    const entrouMes = accountViewsByMonth.reduce((sum, av) => sum + av.entrouMes, 0);
+    const saiuMes = accountViewsByMonth.reduce((sum, av) => sum + av.saiuMes, 0);
+    const faltaPagarMes = accountViewsByMonth.reduce((sum, av) => sum + av.faltaPagarMes, 0);
+    const recebimentosPrevistosMes = accountViewsByMonth.reduce((sum, av) => sum + av.recebimentosPrevistosMes, 0);
+
+    // Ticket médio: DERIVADO dos 12 resultados mensais, nunca recomputado de outra
+    // base. Recomputar a partir de `saidas` (que exclui `comprasCartao`) daria um
+    // número diferente do que a tela mensal mostra para o mesmo mês — a mesma
+    // métrica divergindo entre duas telas. Cada `getAccountView(mes)` já devolve
+    // `nCompras`/`totalCompras` daquele mês, então a série é cópia e o ano é soma.
+    const ticketSerie = months.map((mes, index) => ({
+      mes,
+      valor: accountViewsByMonth[index]!.ticketMedio.valor,
+      deltaPct: null,
+    }));
+    const totalTickets = sumBy(accountViewsByMonth, (av) => av.ticketMedio.totalCompras);
+    const countTickets = sumBy(accountViewsByMonth, (av) => av.ticketMedio.nCompras);
+    const ticketAnual = countTickets > 0 ? Math.round(totalTickets / countTickets) : 0;
+
+    return {
+      mesSelecionado: `${targetYear}-01`,
+      caixaHoje, // saldo pontual de hoje — idêntico em qualquer um dos 12 meses
+      carteiraHoje, // idem: saldo pontual, não fluxo
+      entrouMes, // = soma do ano
+      saiuMes, // = soma do ano
+      faltaPagarMes, // = soma do ano
+      recebimentosPrevistosMes, // = soma do ano
+      // Projeção: saldo de hoje contra tudo que falta pagar/receber no ano inteiro.
+      sobraPrevista: caixaHoje - faltaPagarMes + recebimentosPrevistosMes,
+      devoCartaoTotal, // saldo pontual de faturas em aberto — idem, não é fluxo mensal
+      cartoes,
+      contas,
+      saidas: saidas.sort((a, b) => b.data.localeCompare(a.data)),
+      comprasCartao: comprasCartao.sort((a, b) => b.data.localeCompare(a.data)),
+      entradas: entradas.sort((a, b) => b.data.localeCompare(a.data)),
+      ticketMedio: {
+        valor: ticketAnual,
+        nCompras: countTickets,
+        totalCompras: totalTickets,
+        // Série de 12 meses (não 6) — nome próprio para não confundir com o
+        // `ticketMedio.serie6m` do getAccountView mensal.
+        serie12m: ticketSerie,
+        mediaAnual: ticketAnual,
+        deltaVsMediaPct: null,
+      },
+    };
+  }
+
   async getDreOverview(
     tenantId: string,
     projectId: string,

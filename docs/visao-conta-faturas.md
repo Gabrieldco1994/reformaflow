@@ -36,6 +36,10 @@
 19. **§7-4:** Quitação explícita soma por alvo; quitação implícita exige tolerância.
 20. **§7-5:** Pagamento próximo do vencimento casa no mês de vencimento (não no mês do pagamento).
 21. **§7-6:** Neutro-de-consumo (aporte/resgate) sai do consumo, mas permanece no caixa.
+22. **§13-1:** Na visão ANUAL, todo campo de **fluxo** e toda **lista** é exatamente a soma/concatenação dos 12 meses (`ano.X === Σ mes[i].X`).
+23. **§13-2:** Saldos **pontuais** (`caixaHoje`, `carteiraHoje`, `devoCartaoTotal`) nunca são somados e, se exibidos no ano, são rotulados **"hoje"** — nunca "no ano".
+24. **§13-3:** `sobraPrevista` anual mistura `caixaHoje` (pontual) com fluxo do ano **de propósito** ("com o caixa de hoje, eu atravesso o ano?") — não é bug, e o rótulo do card precisa dizer isso.
+25. **§13-4:** A visão do **mês** é a tela em produção: `mode`/`period`/`monthFilter` são opcionais com default mensal e o comportamento mensal não pode mudar.
 
 ## Referência de implementação
 
@@ -186,10 +190,13 @@ Origem: commit `01affbcb` (`feat(conta): cartão paga cartão quita a fatura do 
     `totalAno` do `getCardInvoicesYearly`. Alimenta a opção **"Todos"**.
 - **Endpoints:** `GET .../card-invoices-yearly?year` e
   `GET .../origin-items-yearly?year&kind&last4` (ou `kind=all`).
-- **Frontend:** `conta/page.tsx` (toggle Mês/Ano, filtro de origem, clique no mês),
-  `_components/FaturasAnuaisChart.tsx`, `_components/DespesasRelacionadas.tsx`,
-  `_components/TodasDespesasAno.tsx` (chip **Todos**: lista todas as despesas com
-  filtros de **tipo de despesa** e **mês**).
+- **Frontend:** `conta/page.tsx` (toggle Mês/Ano) → `_components/ContaAnoView.tsx`
+  (filtro de origem, clique no mês) + `_components/FaturasAnuaisChart.tsx`.
+  A **lista** do ano é a `MovimentacoesSection` no `mode="ano"` — ver §13.
+  > Os componentes `DespesasRelacionadas.tsx` e `TodasDespesasAno.tsx` foram
+  > **removidos** em favor da lista canônica (§13). `getOriginItemsYearly` continua
+  > vivo e é consumido por outras telas (`MobileExpensesScreen`,
+  > `CategoriaDespesasModal`, `MobileLaunchSheetContainer`).
 
 Origem: commits `7e901b15` (gráfico), `f7be2bff` (filtro origem + conta + despesas),
 `e41461c7` (clique na barra do mês filtra despesas).
@@ -389,3 +396,104 @@ a única superfície que a denuncia.
 
 **Correção do dado histórico:** basta preencher `cardLast4`. A quitação é calculada em
 leitura (`computeInvoiceSettlementTotals`), não persistida — não há status a corrigir.
+
+---
+
+## §13 Visão Conta ANUAL (jul/2026)
+
+A aba **"Ano todo"** deixou de ser só um gráfico de faturas: passou a ser a mesma
+Visão Conta do mês, com o período esticado para 12 meses.
+
+**Backend:** `getAccountViewYearly(tenant, project, year)` (`monthly-overview.service.ts`),
+`GET .../monthly-overview/account-view-yearly?year=YYYY`. Ele chama
+`getAccountView(mes)` **12 vezes** e consolida. Não existe uma segunda agregação: se o
+número do ano divergir do mês, o bug está no mês.
+
+**Frontend:** `conta/_components/ContaAnoView.tsx` (orquestra as 2 queries) →
+`FaturasAnuaisChart` + `ResumoCards period="ano"` + `MovimentacoesSection mode="ano"`.
+
+### 13.1 Campos de FLUXO vs campos PONTUAIS (a distinção que não pode ser perdida)
+
+| Campo | Natureza | Ano é… | Rótulo na UI anual |
+|---|---|---|---|
+| `entrouMes` | fluxo | **soma dos 12 meses** | "Entrou no ano" |
+| `saiuMes` | fluxo | **soma dos 12 meses** | "Saiu no ano" |
+| `faltaPagarMes` | fluxo | **soma dos 12 meses** | "Ainda falta pagar no ano" |
+| `recebimentosPrevistosMes` | fluxo | **soma dos 12 meses** | "previsto ainda a entrar" |
+| `saidas[]`, `entradas[]`, `comprasCartao[]` | fluxo (listas) | **concatenação dos 12 meses** | lista agrupada por mês |
+| `caixaHoje` | **PONTUAL** | valor de **um** mês (idênticos) | "Tenho na conta **hoje**" |
+| `carteiraHoje` | **PONTUAL** | valor de **um** mês | "Carteira (dinheiro) **hoje**" |
+| `devoCartaoTotal` | **PONTUAL** | valor de **um** mês | não exibido no ano |
+
+**Por que pontual nunca soma:** `computeCaixaConta` e o cálculo de `carteiraHoje`/
+`devoCartaoTotal` varrem **todo o histórico** e ignoram `mesSelecionado` — os 12 meses
+devolvem o MESMO número. Somar inflaria 12×. Medido no banco de QA:
+`caixaHoje` do ano = `-20.506.238` (igual ao mês); a soma dos 12 seria `-246.074.856`.
+
+**Invariante de aceite** (provado contra a API real, e travado em teste):
+`ano.X === Σ mes[i].X` para `entrouMes`, `saiuMes`, `faltaPagarMes`,
+`recebimentosPrevistosMes` e para o **comprimento e a soma** de `saidas[]`,
+`entradas[]`, `comprasCartao[]`. Idêntico, não "parecido".
+
+### 13.2 `sobraPrevista` anual — mistura pontual com fluxo DE PROPÓSITO
+
+```ts
+sobraPrevista = caixaHoje - faltaPagarMes + recebimentosPrevistosMes
+//               ^pontual    ^fluxo do ano     ^fluxo do ano
+```
+
+Isto **não é um bug** e já foi reaberto como tal antes. A pergunta que o card responde é:
+
+> "Com o caixa que eu tenho **hoje**, eu atravesso o ano?"
+
+Uma "sobra do ano" puramente de fluxo (`entrou − saiu`) responderia outra pergunta e
+seria inútil para decidir hoje. Por isso o rótulo do card diz na cara
+`"com o caixa de hoje, atravessando o ano"` (`CARDS_ANO.sobraPrevista` em
+`ResumoCards.tsx`) — **não remova esse rótulo**, ele é o que impede a releitura errada.
+Negativo = o ano fecha no vermelho mantendo o plano atual.
+
+### 13.3 Cartões não têm tiles na visão anual
+
+`CartoesSection` **não** é renderizada no ano: o `faturaAtual` anual é a soma de 12
+faturas e o `vencimento` é o de janeiro — pagar a partir desse número pagaria a fatura
+errada. Quem quer pagar clica na **linha da fatura** na lista; a linha carimba o
+`dueMonth` dela, o app troca para a visão daquele **mês** e só então abre o diálogo
+(`onInvoiceAction` em `ContaAnoView` → `page.tsx`). Lá o número é o da fatura real.
+
+### 13.4 A lista do ano é a lista do mês (uma tela só)
+
+`MovimentacoesSection` ganhou `mode` (`'mes'` default | `'ano'`). No `'ano'`:
+
+- agrupa por **mês** (`groupByMovementMonth`) em vez de por dia, mantendo o `sortDir`
+  (default `desc` = mais recentes primeiro, como as listas anuais antigas faziam);
+- cada cabeçalho de mês fecha o próprio subtotal (nº de lançamentos + entradas/saídas);
+- ganha um filtro **"Mês do ano"**, alimentado também pelo clique na barra do gráfico;
+- filtro de **tipo de despesa**, busca, status, projeto e origem são os mesmos do mês.
+
+Isso substituiu `DespesasRelacionadas.tsx` (drill origem+mês) e `TodasDespesasAno.tsx`
+(lista "Todos" com filtros tipo/mês). Ganho real: aquelas listas liam
+`getOriginItemsYearly` — uma **segunda** agregação, que podia divergir do mês. Agora a
+lista anual é literalmente a mesma da mensal, sobre a mesma base.
+
+**"O mês não regride"** é invariante: `mode`, `monthFilter` e `period` são opcionais com
+default mensal, e há teste explícito de que sem eles a tela em produção continua
+idêntica (`MovimentacoesSection.anual.test.tsx`, `ResumoCards.periodo.test.tsx`).
+
+### 13.5 Regra de ouro 14 vale igual no ano
+
+Movimentação sem cartão/conta pertence à pseudo-origem **Carteira** (§11) e aparece na
+lista e nos totais do ano, com o chip **"Sem conta"** clicável. `origin:'none'` **nunca**
+é filtrado para fora. No banco de QA são 170 saídas sem conta no ano — todas visíveis.
+O card "Saiu no ano" mostra `inclui R$ X sem conta vinculada` (`sumSaidasSemConta`,
+extraída para `_lib.ts` justamente para mês e ano usarem a MESMA conta).
+
+### 13.6 Cache
+
+Mutação de despesa invalida `account-view-yearly` e `card-invoices-yearly` além de
+`account-view` (`expenses/_hooks/useExpenseMutations.ts` + `invalidateConta` em
+`conta/page.tsx`). Sem isso, editar uma linha dentro do "Ano todo" não refletia na
+própria lista que a originou.
+
+**Testes:** `apps/api/src/monthly-overview/monthly-overview.account-view-yearly.spec.ts`
+(backend), `conta/_lib.test.ts`, `conta/_components/MovimentacoesSection.anual.test.tsx`,
+`conta/_components/ResumoCards.periodo.test.tsx` (frontend).

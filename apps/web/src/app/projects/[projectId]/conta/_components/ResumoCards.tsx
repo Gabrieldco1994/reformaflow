@@ -7,6 +7,8 @@ import { formatCurrency } from '@/lib/utils';
 type Tone = 'emerald' | 'slate' | 'amber' | 'rose';
 export type ResumoQuickFilterKey = 'entrouMes' | 'saiuMes' | 'faltaPagarMes';
 type SummaryKey = ResumoQuickFilterKey | 'sobraPrevista';
+/** 'mes' = Visão Conta do mês (default, tela em produção); 'ano' = visão anual. */
+export type ResumoPeriod = 'mes' | 'ano';
 
 const TONE_MAP: Record<Tone, KpiTone> = {
   emerald: 'positive',
@@ -45,6 +47,37 @@ const CARDS: Record<
   },
 };
 
+/**
+ * Rótulos da visão ANUAL. Só os campos de FLUXO (entrou/saiu/falta pagar) viram
+ * "no ano" — eles são a soma dos 12 meses. `sobraPrevista` anual mistura, DE
+ * PROPÓSITO, o saldo PONTUAL de hoje com o fluxo do ano inteiro ("com o caixa de
+ * hoje, eu atravesso o ano?"), então o rótulo diz isso na cara. O card de saldo
+ * pontual (caixa/carteira) continua rotulado "hoje" nos dois períodos — saldo
+ * pontual nunca é somado nem lido como fluxo do período.
+ */
+const CARDS_ANO: Record<SummaryKey, { title: string; help: string; info: string }> = {
+  entrouMes: {
+    title: 'Entrou no ano',
+    help: 'soma dos 12 meses do ano',
+    info: 'Tudo que entrou na conta no ano (soma dos 12 meses, mesma base da visão mensal). Clique para filtrar as entradas abaixo.',
+  },
+  saiuMes: {
+    title: 'Saiu no ano',
+    help: 'soma dos 12 meses do ano',
+    info: 'Tudo que já saiu da conta no ano (soma dos 12 meses, mesma base da visão mensal). Clique para filtrar as saídas abaixo.',
+  },
+  faltaPagarMes: {
+    title: 'Ainda falta pagar no ano',
+    help: 'faturas e contas em aberto no ano',
+    info: 'O que ainda vai sair até o fim do ano: faturas de cartão e contas em aberto dos 12 meses. Clique para filtrar o que falta pagar.',
+  },
+  sobraPrevista: {
+    title: 'Sobra prevista no ano',
+    help: 'com o caixa de hoje, atravessando o ano',
+    info: 'Projeção do ano: parte do caixa de HOJE (saldo pontual) e desconta tudo que ainda falta pagar no ano, somando o que ainda está previsto entrar. Mistura saldo pontual com fluxo anual de propósito — a pergunta é "com o caixa de hoje, eu atravesso o ano?". Negativo = o ano fecha no vermelho.',
+  },
+};
+
 const REALIZED_KEYS = ['entrouMes', 'saiuMes'] as const;
 const PROJECTION_KEYS = ['faltaPagarMes', 'sobraPrevista'] as const;
 
@@ -59,6 +92,7 @@ export function ResumoCards({
   saiuSemConta,
   activeQuickFilter,
   onQuickFilterSelect,
+  period = 'mes',
 }: {
   caixaHoje: number;
   carteiraHoje?: number;
@@ -71,6 +105,8 @@ export function ResumoCards({
   saiuSemConta?: number;
   activeQuickFilter: ResumoQuickFilterKey | null;
   onQuickFilterSelect: (key: ResumoQuickFilterKey) => void;
+  /** Rotula os fluxos como do mês (default) ou do ano. Saldo pontual é sempre "hoje". */
+  period?: ResumoPeriod;
 }) {
   const modoCarteira = caixaHoje === 0 && (carteiraHoje ?? 0) !== 0;
 
@@ -82,7 +118,8 @@ export function ResumoCards({
   };
 
   function renderTile(key: SummaryKey) {
-    const card = CARDS[key];
+    const base = CARDS[key];
+    const card = period === 'ano' ? { ...base, ...CARDS_ANO[key] } : base;
     const value = values[key];
     const quickFilterKey = key === 'sobraPrevista' ? null : key;
     const tone =
@@ -127,7 +164,13 @@ export function ResumoCards({
     <section className="grid gap-2.5 xl:grid-cols-12 xl:gap-4">
       <article className="rounded-2xl border border-lifeone-hairline bg-lifeone-card p-3 shadow-lifeone-card xl:col-span-4 xl:flex xl:min-h-full xl:flex-col xl:justify-between xl:rounded-3xl xl:p-6">
         <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-lifeone-ink-3">
-          {modoCarteira ? 'Carteira (dinheiro)' : 'Tenho na conta hoje'}
+          {modoCarteira
+            ? // Carteira também é saldo PONTUAL: na visão anual o rótulo precisa
+              // dizer "hoje", senão o número é lido como fluxo do ano inteiro.
+              period === 'ano'
+              ? 'Carteira (dinheiro) hoje'
+              : 'Carteira (dinheiro)'
+            : 'Tenho na conta hoje'}
           <InfoHint
             text={
               modoCarteira
@@ -142,7 +185,9 @@ export function ResumoCards({
         </p>
         <p className="mt-1.5 max-w-sm text-[11px] leading-3.5 text-lifeone-ink-3 xl:mt-2 xl:text-xs xl:leading-5">
           {modoCarteira
-            ? 'resultado do que entrou e saiu em dinheiro/espécie neste período'
+            ? period === 'ano'
+              ? 'é o dinheiro em espécie que você tem hoje — não é a soma do ano'
+              : 'resultado do que entrou e saiu em dinheiro/espécie neste período'
             : 'é o dinheiro disponível agora, de verdade, na sua conta'}
         </p>
       </article>

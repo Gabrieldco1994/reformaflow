@@ -54,6 +54,78 @@ export function groupByMovementDay<T extends { data: string }>(items: T[]) {
   }));
 }
 
+/**
+ * Mesmo agrupamento de `groupByMovementDay`, mas por mês — usado na Visão
+ * Conta anual (`MovimentacoesSection` no `mode="ano"`) para não duplicar a
+ * lista/filtros/mutations em um componente à parte.
+ */
+export function groupByMovementMonth<T extends { data: string }>(items: T[]) {
+  const groups = new Map<string, T[]>();
+  for (const item of items) {
+    const month = item.data.slice(0, 7);
+    const group = groups.get(month);
+    if (group) group.push(item);
+    else groups.set(month, [item]);
+  }
+
+  return Array.from(groups, ([month, movements]) => ({
+    day: month,
+    label: monthLabelLong(month),
+    movements,
+  }));
+}
+
+/**
+ * Chave de origem do gráfico anual (`card:1234` / `conta:5678`) → `last4`, que é
+ * a moeda de troca do filtro de origem da lista (MovimentacoesSection/CartoesSection).
+ * Sem isso, clicar num chip do gráfico não filtra a lista (regressão da
+ * DespesasRelacionadas, que buscava os itens já filtrados pela origem).
+ */
+export function originLast4FromKey(key: string | null | undefined): string | null {
+  if (!key) return null;
+  const [kind, last4] = key.split(':');
+  if ((kind !== 'card' && kind !== 'conta') || !last4) return null;
+  return last4;
+}
+
+/**
+ * Totais da lista de movimentações — extraído do componente para ser testável
+ * sozinho (é aqui que mora o invariante "ano == soma dos 12 meses": somar os 12
+ * conjuntos mensais tem que dar exatamente o total do conjunto anual).
+ * Aporte em INVESTIMENTOS sai da conta, mas não é consumo: fica fora do total de
+ * saídas (mesma regra da lista).
+ */
+export function computeMovementTotals(
+  items: Array<
+    | { kind: 'saida'; valor: number; tipoDespesa: string }
+    | { kind: 'entrada'; valor: number; status: 'EM_CAIXA' | 'PREVISTO' }
+  >,
+) {
+  let totalSaidas = 0;
+  let totalEntradasRecebido = 0;
+  let totalEntradasPrevisto = 0;
+  for (const m of items) {
+    if (m.kind === 'saida') {
+      if (m.tipoDespesa === 'INVESTIMENTOS') continue;
+      totalSaidas += m.valor;
+    } else if (m.status === 'EM_CAIXA') totalEntradasRecebido += m.valor;
+    else if (m.status === 'PREVISTO') totalEntradasPrevisto += m.valor;
+  }
+  return { totalSaidas, totalEntradasRecebido, totalEntradasPrevisto };
+}
+
+/**
+ * Soma das saídas realizadas SEM conta/cartão vinculado (pseudo-origem Carteira,
+ * regra de ouro 14). Mesma conta no mês e no ano — por isso mora aqui, não na page.
+ */
+export function sumSaidasSemConta(
+  saidas: Array<{ isInvoice: boolean; cardLast4: string | null; bankLast4: string | null; realizado: boolean; valor: number }>,
+) {
+  return saidas
+    .filter((s) => !s.isInvoice && !s.cardLast4 && !s.bankLast4 && s.realizado)
+    .reduce((acc, s) => acc + s.valor, 0);
+}
+
 export function formatDeltaPct(value: number | null) {
   if (value == null) return '—';
   const rounded = Math.round(value * 10) / 10;
