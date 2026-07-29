@@ -2765,6 +2765,144 @@ export class MonthlyOverviewService {
     };
   }
 
+  /**
+   * Desfaz um pagamento manual de fatura de cartão (`payInvoice`).
+   *
+   * Segurança: só desfaz quando existe EXATAMENTE UM pagamento implícito
+   * (`PAGAMENTO_FATURA_CARTAO`, PAGO, com `bankLast4`, sem `settlesInvoiceKey`)
+   * casado com a fatura-alvo — reaproveita `assignImplicitPayments`, a MESMA
+   * lógica que decide `card.status` em `getAccountView`, garantindo consistência.
+   * 0 casamentos → 404. 2+ (ambíguo) → 400 (não inventamos heurística aqui).
+   */
+  async undoInvoicePayment(
+    tenantId: string,
+    projectId: string,
+    dto: { cardLast4?: string; dueMonth?: string },
+  ) {
+    await this.ensurePessoalProject(tenantId, projectId);
+
+    if (!dto.cardLast4) throw new BadRequestException('Cartão obrigatório.');
+    if (!dto.dueMonth) throw new BadRequestException('Mês de vencimento obrigatório.');
+    const dueMonth = normalizeMonthKey(dto.dueMonth);
+
+    const card = await this.prisma.creditCard.findFirst({
+      where: { tenantId, projectId, last4: dto.cardLast4, deletedAt: null },
+      select: { id: true, last4: true, nickname: true, closingDay: true, dueDay: true },
+    });
+    if (!card) throw new NotFoundException('Cartão não encontrado.');
+
+    const total = await this.computeInvoiceTotalForCard(tenantId, card, dueMonth);
+    const invoices: InvoiceForMatch[] = [{ dueMonth, cardLast4: card.last4, total }];
+
+    const candidates = await this.prisma.expense.findMany({
+      where: {
+        tenantId,
+        projectId,
+        tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+        cardLast4: card.last4,
+        status: 'PAGO',
+        bankLast4: { not: null },
+        settlesInvoiceKey: null,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        cardLast4: true,
+        valorTotal: true,
+        dataPagamento: true,
+        createdAt: true,
+      },
+    });
+
+    const payments: Array<{ expenseId: string; payMonth: string; cardLast4: string; amount: number }> =
+      candidates.map((expense) => ({
+        expenseId: expense.id,
+        payMonth: monthKeyOf(accountExpenseDate(expense)),
+        cardLast4: expense.cardLast4 as string,
+        amount: expense.valorTotal,
+      }));
+
+    const targetKey = `${dueMonth}__${card.last4}`;
+    const assignments = assignImplicitPayments(invoices, payments).filter(
+      (assignment) => assignment.invoiceKey === targetKey,
+    );
+
+    if (assignments.length === 0) {
+      throw new NotFoundException('Nenhum pagamento encontrado para essa fatura.');
+    }
+    if (assignments.length > 1) {
+      throw new BadRequestException(
+        'Há mais de um pagamento para essa fatura — o desfazer automático não é seguro nesse caso.',
+      );
+    }
+
+    const paymentExpenseId = assignments[0].payment.expenseId;
+
+    // ARMADILHA (regra de ouro #4): `$transaction` ignora o middleware `$use`
+    // de soft-delete. `tx.expense.delete(...)` seria HARD DELETE de verdade —
+    // por isso o soft-delete abaixo é um `update({ data: { deletedAt } })`
+    // explícito, nunca `.delete()`.
+    const reverted = await this.prisma.$transaction(async (tx) => {
+      const result = await this.cardSettlement.unsettleInvoice({
+        tenantId,
+        card,
+        dueMonth,
+        tx,
+      });
+      await tx.expense.update({
+        where: { id: paymentExpenseId },
+        data: { deletedAt: new Date() },
+      });
+      return result;
+    });
+
+    return {
+      ok: true,
+      undonePaymentExpenseId: paymentExpenseId,
+      cardLast4: card.last4,
+      dueMonth,
+      revertedExpenses: reverted.revertedExpenses,
+      revertedParcelas: reverted.revertedParcelas,
+    };
+  }
+
+  /**
+   * Soma o total da fatura de um cartão para um `dueMonth` específico, a
+   * partir dos `CashFlowEntry` de despesas naquele cartão (mesma derivação de
+   * vencimento usada em `getAccountView`, mas isolada aqui — não reaproveita
+   * o método existente para manter o impacto mínimo).
+   */
+  private async computeInvoiceTotalForCard(
+    tenantId: string,
+    card: { last4: string; closingDay: number | null; dueDay: number | null },
+    dueMonth: string,
+  ): Promise<number> {
+    const entries = await this.prisma.cashFlowEntry.findMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+        tipo: 'DESPESA',
+        expense: { deletedAt: null, cardLast4: card.last4 },
+      },
+      select: {
+        valor: true,
+        data: true,
+        expense: { select: { tipoDespesa: true, bankLast4: true } },
+      },
+    });
+
+    let total = 0;
+    for (const entry of entries) {
+      const tipo = entry.expense?.tipoDespesa;
+      // Mesma regra de `getAccountView`: neutro pago via CONTA (bankLast4) é o
+      // pagamento em si, não entra na fatura. Neutro cobrado no cartão continua.
+      if (tipo && isNeutralExpenseType(tipo) && entry.expense?.bankLast4) continue;
+      const key = caixaMonthForCardPurchase(entry.data, card.closingDay, card.dueDay);
+      if (key === dueMonth) total += entry.valor;
+    }
+    return total;
+  }
+
   async createInvoiceAdjustment(
     tenantId: string,
     projectId: string,
@@ -3000,7 +3138,7 @@ function computeInvoiceSettlementTotals(
   return { paidInvoiceKeys, paidAmountByInvoice };
 }
 
-function assignImplicitPayments<T extends PaymentForMatch>(
+export function assignImplicitPayments<T extends PaymentForMatch>(
   invoices: InvoiceForMatch[],
   payments: T[],
 ): Array<{ payment: T; invoiceKey: string }> {
