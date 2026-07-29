@@ -24,14 +24,6 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/projects/current/monthly",
   useRouter: () => ({ push: mocks.push }),
 }));
-// Este arquivo testa a lógica de NAVEGAÇÃO/fluxo com stepKeys sintéticos
-// ("a", "b") — não a resolução real de componente por stepKey (isso é
-// `SummaryStepPanel.test.tsx`). `knownStepKeys` filtraria "a"/"b" como
-// desconhecidos e zeraria o plano inteiro; mocado aqui para não acoplar
-// este arquivo ao catálogo real de produção.
-vi.mock("@/lib/journeys/known-step-keys", () => ({
-  getKnownJourneyStepKeys: () => ["a", "b"],
-}));
 
 function Fixture() {
   const runtime = useJourneyRuntime();
@@ -115,7 +107,7 @@ describe("JourneyRuntimeProvider", () => {
                 crossProject: false,
                 steps: [
                   {
-                    stepKey: "a",
+                    stepKey: "feedback",
                     order: 0,
                     experience: "SUMMARY",
                     label: "A",
@@ -123,7 +115,7 @@ describe("JourneyRuntimeProvider", () => {
                     skippable: true,
                   },
                   {
-                    stepKey: "b",
+                    stepKey: "expense",
                     order: 1,
                     experience: "FULL",
                     label: "B",
@@ -190,7 +182,7 @@ describe("JourneyRuntimeProvider", () => {
     it("navigates on activation when the FIRST step is FULL (single-step journey)", async () => {
       mockSingleJourney([
         {
-          stepKey: "b",
+          stepKey: "expense",
           order: 0,
           experience: "FULL",
           label: "B",
@@ -211,7 +203,7 @@ describe("JourneyRuntimeProvider", () => {
     it("navigates on activation when step 0 is FULL, in a multi-step journey", async () => {
       mockSingleJourney([
         {
-          stepKey: "b",
+          stepKey: "receipt",
           order: 0,
           experience: "FULL",
           label: "B",
@@ -220,7 +212,7 @@ describe("JourneyRuntimeProvider", () => {
           slug: "receipts",
         },
         {
-          stepKey: "a",
+          stepKey: "feedback",
           order: 1,
           experience: "SUMMARY",
           label: "A",
@@ -240,7 +232,7 @@ describe("JourneyRuntimeProvider", () => {
     it("navigates when the LAST step (reached via next()) is FULL", async () => {
       mockSingleJourney([
         {
-          stepKey: "a",
+          stepKey: "feedback",
           order: 0,
           experience: "SUMMARY",
           label: "A",
@@ -248,7 +240,7 @@ describe("JourneyRuntimeProvider", () => {
           skippable: true,
         },
         {
-          stepKey: "b",
+          stepKey: "bill",
           order: 1,
           experience: "FULL",
           label: "B",
@@ -291,7 +283,7 @@ describe("JourneyRuntimeProvider", () => {
           crossProject: false,
           steps: [
             {
-              stepKey: "a",
+              stepKey: "feedback",
               order: 0,
               experience: "SUMMARY",
               label: "A",
@@ -336,7 +328,7 @@ describe("JourneyRuntimeProvider", () => {
                 crossProject: true,
                 steps: [
                   {
-                    stepKey: "a",
+                    stepKey: "feedback",
                     order: 0,
                     experience: "SUMMARY",
                     label: "A",
@@ -377,7 +369,7 @@ describe("JourneyRuntimeProvider", () => {
                   crossProject: false,
                   steps: [
                     {
-                      stepKey: "a",
+                      stepKey: "feedback",
                       order: 0,
                       experience: "SUMMARY",
                       label: "A",
@@ -466,7 +458,7 @@ describe("JourneyRuntimeProvider", () => {
                   crossProject: false,
                   steps: [
                     {
-                      stepKey: "a",
+                      stepKey: "feedback",
                       order: 0,
                       experience: "SUMMARY",
                       label: "A",

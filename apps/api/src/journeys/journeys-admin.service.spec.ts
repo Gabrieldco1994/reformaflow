@@ -520,6 +520,26 @@ describe('JourneysAdminService', () => {
       expect(result.steps[0].experience).toBe('FULL');
     });
 
+    // Etapa E, parte 2 (todo #338): stepKey do catálogo de resumos
+    // INFORMATIVOS (`summary-catalog.ts`) nunca tem rota de "Etapa Completa"
+    // — a mesma regra que já protege `feedback`/`funding` acima também
+    // precisa valer para as ~18 telas novas do resumo informativo, senão um
+    // admin poderia configurar uma jornada que tenta navegar para um
+    // dashboard/Gantt/canvas inteiro como "etapa guiada", violando a regra
+    // do plano ("a etapa nunca reproduz dashboard, canvas, gráfico, Gantt ou
+    // lista completa").
+    it('rejects experience:FULL for um stepKey do catálogo de resumo informativo (dashboard — sem rota de Etapa Completa)', async () => {
+      await build();
+      await expect(
+        service.create({
+          key: 'k',
+          name: 'x',
+          steps: [{ stepKey: 'dashboard', order: 0, label: 'Dashboard', experience: 'FULL' }],
+          triggers: [minimalTrigger()],
+        } as any),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
     it('SCREEN_VISIT without screenKey is rejected', async () => {
       await build();
       await expect(

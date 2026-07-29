@@ -831,5 +831,40 @@ describe('JourneysEligibilityService', () => {
       );
       expect(entry.steps[0].slug).toBeUndefined();
     });
+
+    // Etapa E, parte 2 (todo #338): stepKey novo do catálogo de resumos
+    // INFORMATIVOS (`summary-catalog.ts`, não `onboarding-journey.ts`) — o
+    // painel resolve o resumo pelo catálogo do domínio no cliente, nunca por
+    // um `slug` vindo do servidor (essas telas não têm rota de "Etapa
+    // Completa" — `dashboard` nunca está em `JOURNEY_STEP_SLUGS`). Mesma
+    // proteção estrutural do teste acima: serviço REAL, Prisma é o único
+    // mock — garante que o servidor nunca inventa um slug para uma tela que
+    // só existe como resumo informativo do lado do cliente.
+    it('omits slug for an informational-summary-only stepKey (e.g. dashboard)', async () => {
+      await build({
+        journeys: [journey],
+        triggers: [trigger({ id: 'trigger-informational' })],
+        steps: [
+          {
+            id: 's1',
+            journeyId: 'j1',
+            stepKey: 'dashboard',
+            order: 0,
+            experience: 'SUMMARY',
+            label: 'Dashboard',
+            subtitle: null,
+            enabled: true,
+            skippable: true,
+          },
+        ],
+      });
+      const [entry] = await service.getEligible(
+        { triggerType: 'PROJECT_CREATED', device: 'web' },
+        'tenant-a',
+        'user-1',
+      );
+      expect(entry.steps[0]).toMatchObject({ stepKey: 'dashboard', experience: 'SUMMARY' });
+      expect(entry.steps[0].slug).toBeUndefined();
+    });
   });
 });
