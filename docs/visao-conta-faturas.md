@@ -180,8 +180,25 @@ Origem: commit `01affbcb` (`feat(conta): cartão paga cartão quita a fatura do 
 ## 5. Gráfico anual de faturas (Visão Ano)
 
 - **`getCardInvoicesYearly(tenant, project, year)`** → `{ origins[], months[].porOrigem }`.
-  `origins` inclui **cartões** (`kind:'card'`) e **conta corrente** (`kind:'conta'`).
+  `origins` inclui **cartões** (`kind:'card'`), **conta corrente** (`kind:'conta'`) e a
+  pseudo-origem **Carteira** (`kind:'carteira'`, `last4:''`) — despesa sem cartão E sem
+  conta (§11 / regra de ouro 14): só aparece quando há dado no ano, e segue a mesma
+  regra da conta (neutro de consumo fora, mês por competência), igual à variante
+  `kind='all'` do `getOriginItemsYearly`.
   Aplica a regra de neutros (seção 2) na composição de cada fatura.
+  - **`transferenciasPorOrigem` / `transferenciasAno`** (aditivo, jul/2026): a parcela de
+    `porOrigem` que é **"cartão paga cartão"** — cobrança neutra no cartão com
+    `settlesInvoiceKey` (quita a fatura de OUTRO cartão). **Já está DENTRO de `porOrigem`** e
+    permanece lá: a fatura tem de bater com o banco (§7-1). O campo existe porque **somar as
+    faturas de todos os cartões conta esse dinheiro duas vezes** — as compras originais já
+    estão na fatura de origem —, então a tela qualifica o total agregado ("inclui R$ X de
+    fatura paga com outro cartão") **sem alterar barra nenhuma**. Cobrança neutra no cartão
+    SEM vínculo não entra na conta: sem `settlesInvoiceKey` o app não sabe que houve quitação.
+- **Este total NÃO é comparável ao KPI "Despesa &lt;ano&gt;" do Cockpit** — são grandezas
+  distintas de propósito. Gráfico = **faturas**, escopo PESSOAL, inclui espelho cross-project
+  e neutro-no-cartão. KPI = **gasto real**, consolidado (todos os projetos), sem neutros e
+  sem espelho (conta o canônico do outro projeto). Divergir é o comportamento correto;
+  não "conserte" um para casar com o outro.
 - **`getOriginItemsYearly(tenant, project, {year, kind, last4})`** → despesas de uma
   origem agrupadas por mês (para a lista "despesas relacionadas").
   - **`kind='all'`** (sem `last4`): agrega **todas as origens** do ano num só
@@ -345,6 +362,12 @@ emitem `isNeutralConsumo=true`; `caixa.hoje` permaneceu R$ 69.016,52.
 **Interação com espelho cross-project:** itens Carteira podem ser alvos de vínculo/rateio cross-project (origem PESSOAL). O vínculo gera espelho; o espelho herda o `bankAccountId` definido no PESSOAL.
 
 **Filtro "Sem conta":** em `MovimentacoesSection`, o toggle "Sem conta" (estado `semContaFilter`) restringe a lista a itens `isCarteiraItem`. Oculto na aba Entradas.
+
+**Gráfico anual (jul/2026):** `getCardInvoicesYearly` descartava a Carteira em silêncio (`else { continue }`),
+violando esta regra — o item aparecia na lista de `getOriginItemsYearly(kind='all')` mas sumia do total do
+gráfico, então a mesma tela mostrava dois universos diferentes. Hoje a Carteira é uma pseudo-origem do
+gráfico (`kind:'carteira'`, `key:'carteira'`, `last4:''`), emitida só quando há dado no ano, com a MESMA
+regra da conta: neutro-de-consumo fora, mês por competência. Chip com ícone `Wallet` e rótulo sem `last4`.
 
 ## §12 Pagamento de fatura sem cartão identificado (jul/2026)
 
