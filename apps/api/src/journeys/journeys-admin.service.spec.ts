@@ -90,6 +90,7 @@ interface PrismaMock {
     create: AnyFn;
     createMany: AnyFn;
     update: AnyFn;
+    deleteMany: AnyFn;
   };
   journeyTrigger: {
     findMany: AnyFn;
@@ -188,6 +189,18 @@ function makePrismaMock(
         if (!existing) return Promise.reject(new Error('journeyStep.update: registro não existe'));
         Object.assign(existing, data);
         return Promise.resolve(existing);
+      }),
+      deleteMany: jest.fn().mockImplementation(({ where }: any) => {
+        const removed = steps.filter(
+          (s) =>
+            s.journeyId === where.journeyId &&
+            (where.stepKey === undefined || where.stepKey.in.includes(s.stepKey)),
+        );
+        removed.forEach((r) => {
+          const idx = steps.indexOf(r);
+          if (idx >= 0) steps.splice(idx, 1);
+        });
+        return Promise.resolve({ count: removed.length });
       }),
       // Deliberadamente SEM `upsert`, pela mesma razão de `journeyTrigger`
       // abaixo: o Prisma real VALIDA o payload `create` de um upsert mesmo
@@ -1126,7 +1139,7 @@ describe('JourneysAdminService', () => {
       expect(result.steps.find((s: any) => s.stepKey === 'x')!.order).toBe(3);
     });
 
-    it('adds a brand-new step via update (upsert-create path) leaving existing ones untouched', async () => {
+    it('adds a brand-new step via update (upsert-create path) along with existing ones if BOTH are in the payload', async () => {
       await build({
         journeys: [
           {
@@ -1154,11 +1167,236 @@ describe('JourneysAdminService', () => {
         triggers: [minimalTrigger({ id: 't1', journeyId: 'j1' }) as any],
       });
 
+      // Include both 'x' and 'y' in the payload — both should exist after update
       const result = await service.update('j1', {
-        steps: [{ stepKey: 'y', order: 1, label: 'Y', experience: 'SUMMARY' }],
+        steps: [
+          { stepKey: 'x', order: 0 },
+          { stepKey: 'y', order: 1, label: 'Y', experience: 'SUMMARY' },
+        ],
       } as any);
 
       expect(result.steps.map((s: any) => s.stepKey).sort()).toEqual(['x', 'y']);
+    });
+
+    it('removes a single step from the trail (hard delete — JourneyStep has no deletedAt)', async () => {
+      await build({
+        journeys: [
+          {
+            id: 'j1',
+            key: 'a',
+            name: 'A',
+            description: null,
+            active: true,
+            deletedAt: null,
+          },
+        ],
+        steps: [
+          {
+            id: 's1',
+            journeyId: 'j1',
+            stepKey: 'x',
+            order: 0,
+            experience: 'FULL',
+            label: 'X',
+            subtitle: null,
+            enabled: true,
+            skippable: true,
+          },
+          {
+            id: 's2',
+            journeyId: 'j1',
+            stepKey: 'y',
+            order: 1,
+            experience: 'SUMMARY',
+            label: 'Y',
+            subtitle: null,
+            enabled: true,
+            skippable: true,
+          },
+        ],
+        triggers: [minimalTrigger({ id: 't1', journeyId: 'j1' }) as any],
+      });
+
+      // Send only 'x', omit 'y' — should DELETE 'y'
+      const result = await service.update('j1', {
+        steps: [{ stepKey: 'x', order: 0 }],
+      } as any);
+
+      expect(result.steps.map((s: any) => s.stepKey)).toEqual(['x']);
+      expect(prisma._steps.filter((s) => s.journeyId === 'j1')).toHaveLength(1);
+      expect(prisma.journeyStep.deleteMany).toHaveBeenCalledWith({
+        where: { journeyId: 'j1', stepKey: { in: ['y'] } },
+      });
+    });
+
+    it('removes multiple steps in one update', async () => {
+      await build({
+        journeys: [
+          {
+            id: 'j1',
+            key: 'a',
+            name: 'A',
+            description: null,
+            active: true,
+            deletedAt: null,
+          },
+        ],
+        steps: [
+          {
+            id: 's1',
+            journeyId: 'j1',
+            stepKey: 'a',
+            order: 0,
+            experience: 'FULL',
+            label: 'A',
+            subtitle: null,
+            enabled: true,
+            skippable: true,
+          },
+          {
+            id: 's2',
+            journeyId: 'j1',
+            stepKey: 'b',
+            order: 1,
+            experience: 'SUMMARY',
+            label: 'B',
+            subtitle: null,
+            enabled: true,
+            skippable: true,
+          },
+          {
+            id: 's3',
+            journeyId: 'j1',
+            stepKey: 'c',
+            order: 2,
+            experience: 'SUMMARY',
+            label: 'C',
+            subtitle: null,
+            enabled: true,
+            skippable: true,
+          },
+        ],
+        triggers: [minimalTrigger({ id: 't1', journeyId: 'j1' }) as any],
+      });
+
+      // Keep only 'a', remove 'b' and 'c'
+      const result = await service.update('j1', {
+        steps: [{ stepKey: 'a', order: 0 }],
+      } as any);
+
+      expect(result.steps.map((s: any) => s.stepKey)).toEqual(['a']);
+      expect(prisma._steps.filter((s) => s.journeyId === 'j1')).toHaveLength(1);
+      expect(prisma.journeyStep.deleteMany).toHaveBeenCalledWith({
+        where: { journeyId: 'j1', stepKey: { in: expect.arrayContaining(['b', 'c']) } },
+      });
+    });
+
+    it('removes a step and adds a new one in the same update', async () => {
+      await build({
+        journeys: [
+          {
+            id: 'j1',
+            key: 'a',
+            name: 'A',
+            description: null,
+            active: true,
+            deletedAt: null,
+          },
+        ],
+        steps: [
+          {
+            id: 's1',
+            journeyId: 'j1',
+            stepKey: 'old',
+            order: 0,
+            experience: 'FULL',
+            label: 'Old',
+            subtitle: null,
+            enabled: true,
+            skippable: true,
+          },
+        ],
+        triggers: [minimalTrigger({ id: 't1', journeyId: 'j1' }) as any],
+      });
+
+      // Remove 'old', add 'new'
+      const result = await service.update('j1', {
+        steps: [{ stepKey: 'new', order: 0, label: 'New', experience: 'SUMMARY' }],
+      } as any);
+
+      expect(result.steps.map((s: any) => s.stepKey)).toEqual(['new']);
+      expect(prisma._steps.filter((s) => s.journeyId === 'j1')).toHaveLength(1);
+      expect(prisma.journeyStep.deleteMany).toHaveBeenCalledWith({
+        where: { journeyId: 'j1', stepKey: { in: ['old'] } },
+      });
+      expect(prisma.journeyStep.create).toHaveBeenCalled();
+    });
+
+    it('keeps order sequential without duplicates after removal', async () => {
+      await build({
+        journeys: [
+          {
+            id: 'j1',
+            key: 'a',
+            name: 'A',
+            description: null,
+            active: true,
+            deletedAt: null,
+          },
+        ],
+        steps: [
+          {
+            id: 's1',
+            journeyId: 'j1',
+            stepKey: 'first',
+            order: 0,
+            experience: 'FULL',
+            label: 'First',
+            subtitle: null,
+            enabled: true,
+            skippable: true,
+          },
+          {
+            id: 's2',
+            journeyId: 'j1',
+            stepKey: 'middle',
+            order: 1,
+            experience: 'SUMMARY',
+            label: 'Middle',
+            subtitle: null,
+            enabled: true,
+            skippable: true,
+          },
+          {
+            id: 's3',
+            journeyId: 'j1',
+            stepKey: 'last',
+            order: 2,
+            experience: 'SUMMARY',
+            label: 'Last',
+            subtitle: null,
+            enabled: true,
+            skippable: true,
+          },
+        ],
+        triggers: [minimalTrigger({ id: 't1', journeyId: 'j1' }) as any],
+      });
+
+      // Remove middle, keep first and last with new orders (renumbered by editor)
+      const result = await service.update('j1', {
+        steps: [
+          { stepKey: 'first', order: 0 },
+          { stepKey: 'last', order: 1 },
+        ],
+      } as any);
+
+      const sortedSteps = result.steps.sort((a: any, b: any) => a.order - b.order);
+      expect(sortedSteps.map((s: any) => s.stepKey)).toEqual(['first', 'last']);
+
+      // Verify no order duplicates
+      const orders = sortedSteps.map((s: any) => s.order);
+      expect(orders).toEqual(expect.arrayContaining([0, 1]));
+      expect(new Set(orders).size).toBe(orders.length); // All unique
     });
 
     it('an update with no fields is a no-op that returns the current state unchanged', async () => {

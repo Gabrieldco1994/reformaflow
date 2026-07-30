@@ -251,6 +251,7 @@ export class JourneysAdminService {
     }
 
     let stepPatches: { stepKey: string; isNew: boolean; data: Partial<NormalizedStep> }[] = [];
+    let stepsToDelete: string[] = [];
     if (dto?.steps !== undefined) {
       if (!Array.isArray(dto.steps)) {
         throw new BadRequestException('steps precisa ser um array.');
@@ -258,6 +259,10 @@ export class JourneysAdminService {
       const currentSteps = await this.prisma.journeyStep.findMany({ where: { journeyId: id } });
       const currentKeys = new Set(currentSteps.map((s) => s.stepKey));
       stepPatches = this.normalizeStepsForUpdate(dto.steps, currentKeys);
+
+      // Calcula quais passos foram removidos: estavam no banco mas não vêm no payload
+      const incomingKeys = new Set(stepPatches.map((p) => p.stepKey));
+      stepsToDelete = Array.from(currentKeys).filter((key) => !incomingKeys.has(key));
     }
 
     let triggerPatches: NormalizedTrigger[] = [];
@@ -272,6 +277,14 @@ export class JourneysAdminService {
       if (Object.keys(journeyData).length > 0) {
         await tx.journey.update({ where: { id }, data: journeyData });
       }
+
+      // Remove passos que foram tirados da trilha (hard delete — não há deletedAt em JourneyStep)
+      if (stepsToDelete.length > 0) {
+        await tx.journeyStep.deleteMany({
+          where: { journeyId: id, stepKey: { in: stepsToDelete } },
+        });
+      }
+
       for (const patch of stepPatches) {
         // Sem `upsert`: o `create` de um upsert é VALIDADO pelo Prisma mesmo
         // quando o registro já existe e o branch tomado é o `update`. Para um
