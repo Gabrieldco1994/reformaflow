@@ -497,13 +497,13 @@ export function findUncoveredNavRoutes(): Array<{ type: ProjectType; slug: strin
  * no `ProjectPicker`, a composição usa o projeto novo, não o do momento da
  * elegibilidade.
  *
- * Ausência aqui = o passo não tem tela própria (composto, como `funding`, ou
- * não é uma página, como `feedback`/`maria-insight`) — ver
- * `JOURNEY_STEPS_WITHOUT_SLUG`. Etapa Completa é PROIBIDA para esses,
+ * Ausência aqui = o passo não tem tela própria (ex.: `feedback`/`maria-insight`) —
+ * ver `JOURNEY_STEPS_WITHOUT_SLUG`. Etapa Completa é PROIBIDA para esses,
  * rejeitada na escrita (`journeys-admin.service.ts`), nunca degradada em
  * silêncio no runtime.
  */
 export const JOURNEY_STEP_SLUGS: Partial<Record<string, string>> = {
+  funding: 'conta',
   expense: 'expenses',
   import: 'expenses',
   'expense-import': 'expenses',
@@ -518,7 +518,7 @@ export const JOURNEY_STEP_SLUGS: Partial<Record<string, string>> = {
  * nunca é permitida para eles. Existe só para `findUnclassifiedStepKeys`
  * distinguir "esquecido" de "sem rota de propósito".
  */
-export const JOURNEY_STEPS_WITHOUT_SLUG = new Set(['funding', 'maria-insight', 'feedback']);
+export const JOURNEY_STEPS_WITHOUT_SLUG = new Set(['maria-insight', 'feedback']);
 
 export function hasJourneyStepSlug(stepKey: string): boolean {
   return stepKey in JOURNEY_STEP_SLUGS;

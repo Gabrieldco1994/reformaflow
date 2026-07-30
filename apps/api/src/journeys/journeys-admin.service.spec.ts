@@ -497,13 +497,25 @@ describe('JourneysAdminService', () => {
       ).rejects.toBeInstanceOf(BadRequestException);
     });
 
-    it('rejects experience:FULL for a stepKey without a slug (funding/feedback/maria-insight — no page to navigate to)', async () => {
+    it('rejects experience:FULL for a stepKey without a slug (feedback/maria-insight — no page to navigate to)', async () => {
       await build();
       await expect(
         service.create({
           key: 'k',
           name: 'x',
           steps: [{ stepKey: 'feedback', order: 0, label: 'Feedback', experience: 'FULL' }],
+          triggers: [minimalTrigger()],
+        } as any),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('rejects experience:FULL for maria-insight (no page to navigate to)', async () => {
+      await build();
+      await expect(
+        service.create({
+          key: 'k',
+          name: 'x',
+          steps: [{ stepKey: 'maria-insight', order: 0, label: 'Maria', experience: 'FULL' }],
           triggers: [minimalTrigger()],
         } as any),
       ).rejects.toBeInstanceOf(BadRequestException);
@@ -520,9 +532,20 @@ describe('JourneysAdminService', () => {
       expect(result.steps[0].experience).toBe('FULL');
     });
 
+    it('accepts experience:FULL for funding (composite step mapped to Visão Conta → conta)', async () => {
+      await build();
+      const result = await service.create({
+        key: 'k',
+        name: 'x',
+        steps: [{ stepKey: 'funding', order: 0, label: 'Contas & cartões', experience: 'FULL' }],
+        triggers: [minimalTrigger()],
+      } as any);
+      expect(result.steps[0].experience).toBe('FULL');
+    });
+
     // Etapa E, parte 2 (todo #338): stepKey do catálogo de resumos
     // INFORMATIVOS (`summary-catalog.ts`) nunca tem rota de "Etapa Completa"
-    // — a mesma regra que já protege `feedback`/`funding` acima também
+    // — a mesma regra que já protege `feedback`/`maria-insight` acima também
     // precisa valer para as ~18 telas novas do resumo informativo, senão um
     // admin poderia configurar uma jornada que tenta navegar para um
     // dashboard/Gantt/canvas inteiro como "etapa guiada", violando a regra
