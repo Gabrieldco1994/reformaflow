@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -33,6 +34,9 @@ interface ActiveJourney {
   journey: RuntimeJourney;
   stepIndex: number;
   projectId?: string;
+  // undefined = ainda não buscado (projectId chegou depois, via chooseProject);
+  // null = buscado e sem tipo (falhou ou não havia projectId no emit()).
+  projectType?: ProjectType | null;
 }
 
 interface JourneyRuntimeContextValue {
@@ -97,22 +101,24 @@ export function JourneyRuntimeProvider({
   const router = useRouter();
   const [active, setActive] = useState<ActiveJourney | null>(null);
   const [queue, setQueue] = useState<RuntimeJourney[]>([]);
-  const [restored, setRestored] = useState(false);
   const [projects, setProjects] = useState<JourneyProject[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const completedKeys = useRef(new Set<string>());
 
-  useEffect(() => {
-    setActive(readStored());
-    setRestored(true);
+  // `useLayoutEffect`, não `useState(() => readStored())`: o componente é
+  // renderizado no servidor também (client component com SSR), onde
+  // `readStored()` sempre é `null` — usar o initializer do `useState` faria o
+  // PRIMEIRO render do cliente (hidratação) já ler o sessionStorage real,
+  // divergindo do HTML do servidor (`<aside>` presente vs. ausente) e
+  // disparando "Hydration failed". `useLayoutEffect` roda síncrono, DEPOIS da
+  // hidratação (que já viu `null`, igual ao servidor) e ANTES do browser
+  // pintar — restaura a jornada sem o usuário ver o frame vazio.
+  useLayoutEffect(() => {
+    const stored = readStored();
+    if (stored) setActive(stored);
   }, []);
 
-  // ponytail: sob React StrictMode (dev, double-invoke) este effect roda uma
-  // vez com `active === null` na montagem e faz `removeItem` ANTES do valor
-  // restaurado acima commitar — o resume por sessionStorage se perde. Produção
-  // não faz double-invoke, então o comportamento entregue está correto; um E2E
-  // futuro de "resume após reload" que rodar em dev vai tropeçar aqui.
   useEffect(() => {
     writeStored(active);
   }, [active]);
@@ -124,7 +130,18 @@ export function JourneyRuntimeProvider({
       setError(null);
       try {
         const knownStepKeys = getKnownJourneyStepKeys();
-        const journeys = (await getEligibleJourneys(context))
+        // Dispara junto com a checagem de elegibilidade, não depois dela: o
+        // projectId (quando existe) já é conhecido ANTES da resposta de
+        // elegibilidade, então esperar essa resposta para só então buscar o
+        // tipo do projeto era um segundo round-trip sequencial sem motivo.
+        const projectTypePromise = context.projectId
+          ? getProjectType(context.projectId).catch(() => null)
+          : Promise.resolve(null);
+        const [eligible, projectType] = await Promise.all([
+          getEligibleJourneys(context),
+          projectTypePromise,
+        ]);
+        const journeys = eligible
           .map((j) => normalizeJourney(j, { knownStepKeys }))
           .filter((journey) => !completedKeys.current.has(journey.key));
         const [journey] = journeys;
@@ -138,6 +155,7 @@ export function JourneyRuntimeProvider({
             journey,
             stepIndex: 0,
             projectId: context.projectId,
+            projectType,
           });
           setQueue(journeys);
         }
@@ -167,7 +185,7 @@ export function JourneyRuntimeProvider({
   );
 
   useEffect(() => {
-    if (!restored || !user || authLoading || !pathname || active) return;
+    if (!user || authLoading || !pathname || active) return;
     const projectId = currentProjectId(pathname);
     void emit({
       triggerType: "SCREEN_VISIT",
@@ -175,7 +193,7 @@ export function JourneyRuntimeProvider({
       projectId,
       screenKey: pathname.split("/").pop() || undefined,
     });
-  }, [active, authLoading, emit, pathname, restored, user]);
+  }, [active, authLoading, emit, pathname, user]);
 
   useEffect(() => {
     if (!user || authLoading) return;
@@ -263,7 +281,10 @@ export function JourneyRuntimeProvider({
 
   const chooseProject = useCallback(
     (projectId: string) => {
-      if (active) setActive({ ...active, projectId });
+      // `projectType: undefined` marca "ainda não buscado" — o efeito no
+      // Overlay busca sob demanda quando o projeto só é escolhido aqui
+      // (cross-project), caso em que não dava para paralelizar no emit().
+      if (active) setActive({ ...active, projectId, projectType: undefined });
     },
     [active],
   );
@@ -360,14 +381,19 @@ function JourneyRuntimeOverlay() {
   });
 
   // `JourneyRuntimeProvider` é irmão (não descendente) de qualquer
-  // `ProjectProvider` de rota — não dá para usar `useProject()` aqui. Busca o
-  // tipo do projeto ativo pelo id, uma vez por troca de projeto/jornada; sem
-  // isso, uma etapa SUMMARY operacional não sabe que `projectType` passar
-  // para o componente (contrato exige `ProjectType`, nunca `null`).
+  // `ProjectProvider` de rota — não dá para usar `useProject()` aqui. Na
+  // maioria dos gatilhos, `emit()` já buscou o tipo em paralelo com a
+  // elegibilidade (`active.projectType` chega pronto); este efeito só busca
+  // sob demanda quando falta (projeto escolhido depois, via `chooseProject`
+  // no fluxo cross-project).
   useEffect(() => {
     const projectId = active?.projectId;
     if (!projectId) {
       setActiveProjectType(null);
+      return;
+    }
+    if (active?.projectType !== undefined) {
+      setActiveProjectType(active.projectType);
       return;
     }
     let cancelled = false;
@@ -381,7 +407,7 @@ function JourneyRuntimeOverlay() {
     return () => {
       cancelled = true;
     };
-  }, [active?.projectId]);
+  }, [active?.projectId, active?.projectType]);
 
   // Reseta o `funding` transitório a cada jornada nova (não entre etapas da
   // MESMA jornada — senão a conta escolhida em `funding` se perderia ao

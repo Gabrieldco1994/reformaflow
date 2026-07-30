@@ -11,17 +11,19 @@ const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
   apiPost: vi.fn(),
   push: vi.fn(),
-  user: { id: "u1" },
+  user: { id: "u1" } as { id: string } | null,
+  authLoading: false,
+  pathname: "/projects/current/monthly",
 }));
 
 vi.mock("@/contexts/auth-context", () => ({
-  useAuth: () => ({ user: mocks.user, loading: false }),
+  useAuth: () => ({ user: mocks.user, loading: mocks.authLoading }),
 }));
 vi.mock("@/lib/api", () => ({
   api: { get: mocks.apiGet, post: mocks.apiPost },
 }));
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/projects/current/monthly",
+  usePathname: () => mocks.pathname,
   useRouter: () => ({ push: mocks.push }),
 }));
 
@@ -76,6 +78,9 @@ describe("JourneyRuntimeProvider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sessionStorage.clear();
+    mocks.user = { id: "u1" };
+    mocks.authLoading = false;
+    mocks.pathname = "/projects/current/monthly";
     mocks.apiGet.mockImplementation((path: string) => {
       const context = Object.fromEntries(
         new URL(`http://localhost${path}`).searchParams,
@@ -540,6 +545,120 @@ describe("JourneyRuntimeProvider", () => {
       );
       expect(screen.getByTestId("page-main")).toHaveFocus();
       expect(document.body).not.toHaveFocus();
+    });
+  });
+
+  // Regressão: o gatilho SCREEN_VISIT antes esperava um boolean `restored`
+  // (setado num effect de montagem) além de auth/pathname/`!active` — dois
+  // gates sequenciais e um round-trip antes do painel poder existir. Agora a
+  // retomada é lida de forma síncrona no initializer do `useState`, então só
+  // resta o gate de auth real.
+  describe("disparo do SCREEN_VISIT (retomada síncrona + gate de auth)", () => {
+    function screenVisitCalls() {
+      return mocks.apiGet.mock.calls.filter((call: unknown[]) =>
+        String(call[0]).includes("triggerType=SCREEN_VISIT"),
+      ).length;
+    }
+
+    it("resumes an active journey from sessionStorage even while auth is still resolving", async () => {
+      mocks.authLoading = true;
+      sessionStorage.setItem(
+        "lifeone:journey-runtime",
+        JSON.stringify({
+          journey: {
+            journeyId: "j1",
+            key: "tour:test",
+            name: "Retomada",
+            triggerId: "t1",
+            repeatPolicy: "ALWAYS",
+            dismissPolicy: "DISMISS_UNTIL_LOGIN",
+            crossProject: false,
+            steps: [
+              {
+                stepKey: "feedback",
+                order: 0,
+                experience: "SUMMARY",
+                label: "A",
+                subtitle: "Resumo",
+                skippable: true,
+              },
+            ],
+          },
+          stepIndex: 0,
+          projectId: "current",
+        }),
+      );
+      renderRuntime();
+      // Retomada é lida no initializer, no primeiro render — não depende de
+      // auth ter resolvido.
+      expect(screen.getByTestId("active")).toHaveTextContent("Retomada:0");
+      expect(screenVisitCalls()).toBe(0);
+      await act(async () => {
+        await Promise.resolve();
+      });
+    });
+
+    it("does not emit SCREEN_VISIT before auth resolves, then emits once auth resolves", async () => {
+      mocks.authLoading = true;
+      const { rerender } = renderRuntime();
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(screenVisitCalls()).toBe(0);
+
+      mocks.authLoading = false;
+      rerender(
+        <JourneyRuntimeProvider>
+          <main data-testid="page-main">
+            <Fixture />
+          </main>
+        </JourneyRuntimeProvider>,
+      );
+      await waitFor(() => expect(screenVisitCalls()).toBe(1));
+    });
+
+    it("does not emit SCREEN_VISIT twice for the same navigation on extra re-renders", async () => {
+      const { rerender } = renderRuntime();
+      await waitFor(() => expect(screenVisitCalls()).toBe(1));
+
+      rerender(
+        <JourneyRuntimeProvider>
+          <main data-testid="page-main">
+            <Fixture />
+          </main>
+        </JourneyRuntimeProvider>,
+      );
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(screenVisitCalls()).toBe(1);
+    });
+  });
+
+  // Regressão: `activeProjectType` era buscado num efeito separado, encadeado
+  // DEPOIS da resposta de elegibilidade — um segundo round-trip sequencial.
+  // `emit()` agora busca `getProjectType` em paralelo com `getEligibleJourneys`
+  // quando o projectId já é conhecido (SCREEN_VISIT/PROJECT_CREATED).
+  it("fetches the project type in parallel with eligibility, not after it resolves", async () => {
+    let resolveEligible!: (value: unknown[]) => void;
+    const eligiblePromise = new Promise<unknown[]>((resolve) => {
+      resolveEligible = resolve;
+    });
+    mocks.apiGet.mockImplementation((path: string) => {
+      if (path.startsWith("/journeys/eligible")) return eligiblePromise;
+      if (path === "/projects/current") return Promise.resolve({ type: "PESSOAL" });
+      return Promise.resolve([]);
+    });
+
+    renderRuntime();
+    await waitFor(() =>
+      expect(mocks.apiGet).toHaveBeenCalledWith("/projects/current"),
+    );
+    // O tipo do projeto já foi disparado ANTES da elegibilidade responder —
+    // não esperou o `setActive` de um efeito encadeado.
+    resolveEligible([]);
+    await act(async () => {
+      await Promise.resolve();
     });
   });
 });
