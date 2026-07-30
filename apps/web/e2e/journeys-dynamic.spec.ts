@@ -387,6 +387,15 @@ test.describe("jornada dirigida pela configuração devolvida por /journeys/elig
     await page.reload();
     await expect(page.locator(PANEL)).toBeVisible();
 
+    // A retomada por sessionStorage é para jornada EM ANDAMENTO — o painel
+    // reaberto pelo ALWAYS acima ainda não foi concluído/dispensado, então
+    // ele PRECISA sobreviver a um reload (regra de ouro #13 da sessão: jornada
+    // em andamento continua sendo retomada). Sem concluir aqui, o próximo
+    // reload reabriria este MESMO painel a partir do sessionStorage,
+    // independente do que a API responder — não seria uma checagem real de
+    // "ONCE_PER_USER não reabre", e sim um alarme falso.
+    await walkJourney(page, expectedSteps(steps(1)));
+
     // Concluída para ONCE_PER_USER: a API deixa de devolvê-la.
     await page.unroute("**/journeys/eligible*");
     await stubEligible(page, []);
