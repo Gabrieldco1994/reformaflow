@@ -56,7 +56,10 @@ export class JourneyBootstrapService implements OnModuleInit {
       experience: 'FULL',
       label: step.label,
       subtitle: step.defaultSubtitle,
-      enabled: true,
+      // `enabledByDefault` é DADO do catálogo (journey-catalog.ts), nunca uma
+      // regra reimplementada aqui — ex.: PESSOAL `expense`/`import` nascem
+      // desligados porque `expense-import` já é a versão unificada das duas.
+      enabled: step.enabledByDefault ?? true,
       skippable: step.skippableByDefault,
     };
   }

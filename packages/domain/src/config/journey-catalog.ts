@@ -54,6 +54,16 @@ export interface JourneyStepDefinition {
   alwaysAvailable: boolean;
   /** Default de "pode pular". O admin pode tornar a tela obrigatória. */
   skippableByDefault: boolean;
+  /**
+   * `false` = a tela nasce DESLIGADA (sem override do admin) — nunca
+   * hardcoded fora do catálogo. Único uso hoje: `expense`/`import` em
+   * PESSOAL nascem desligados porque `expense-import` já é a versão
+   * unificada das duas (mostrar as três juntas faria a pessoa lançar a
+   * mesma 1ª despesa três vezes seguidas). Ausente ⇒ `true` — a config é
+   * DADO do catálogo, nunca uma regra escondida em código de consumidor
+   * (bootstrap/adaptador legado só materializam o que este campo diz).
+   */
+  enabledByDefault?: boolean;
 }
 
 export interface JourneyTriggerDefinition {
@@ -135,7 +145,7 @@ export function resolveJourneySteps(
           key: def.key,
           label: normalizeText(override?.label) ?? def.label,
           subtitle: normalizeText(override?.subtitle) ?? def.defaultSubtitle,
-          enabled: override?.enabled ?? true,
+          enabled: override?.enabled ?? def.enabledByDefault ?? true,
           skippable: override?.skippable ?? def.skippableByDefault,
           alwaysAvailable: def.alwaysAvailable,
         },
@@ -168,6 +178,11 @@ const ONBOARDING_STEPS: Record<ProjectType, JourneyStepDefinition[]> = {
       defaultSubtitle: 'Lance um gasto de hoje para o app começar a te mostrar algo real.',
       alwaysAvailable: true,
       skippableByDefault: true,
+      // Nasce desligado: `expense-import` (abaixo) já unifica esta tela +
+      // `import`. Sem isto a pessoa veria as 3 seguidas pedindo a mesma 1ª
+      // despesa. O admin pode religar em /admin/jornadas se quiser as
+      // telas separadas.
+      enabledByDefault: false,
     },
     {
       key: 'import',
@@ -175,7 +190,7 @@ const ONBOARDING_STEPS: Record<ProjectType, JourneyStepDefinition[]> = {
       defaultSubtitle: 'Traga seu extrato ou fatura de uma vez em vez de digitar tudo.',
       alwaysAvailable: true,
       skippableByDefault: true,
-      // ponytail: desabilitar este passo via API para unificar Despesa + Importar (via admin UI toggle)
+      enabledByDefault: false,
     },
     {
       key: 'expense-import',
@@ -293,14 +308,23 @@ export function onboardingJourneyKey(projectType: ProjectType): string {
   return `onboarding:${projectType}`;
 }
 
-/** Trigger default do onboarding: dispara só para o próprio tipo de projeto. */
+/**
+ * Trigger default do onboarding: dispara só para o próprio tipo de projeto.
+ *
+ * `repeatPolicy: 'ONCE_PER_PROJECT'` — não `ONCE_PER_USER` — reproduz a
+ * semântica do shell legado, onde o gate era `Project.onboardedAt` (coluna
+ * DO PROJETO, não do usuário). Um usuário com DUAS REFORMAs, por exemplo,
+ * via onboarding nas duas; `ONCE_PER_USER` (chave `tenantId:userId:none`)
+ * bloquearia a segunda depois da primeira conclusão — regressão real,
+ * pega pelos testes de paridade da migração do shell (Fase B, Jornadas).
+ */
 function onboardingTrigger(projectType: ProjectType): JourneyTriggerDefinition {
   return {
     targetProjectType: projectType,
     targetProjectId: null,
     crossProject: false,
     device: 'any',
-    repeatPolicy: 'ONCE_PER_USER',
+    repeatPolicy: 'ONCE_PER_PROJECT',
     dismissPolicy: 'DISMISS_UNTIL_LOGIN',
   };
 }

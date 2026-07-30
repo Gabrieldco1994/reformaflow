@@ -94,7 +94,13 @@ describe("journey-catalog — generic foundation (landed)", () => {
     }
   });
 
-  it("the onboarding trigger targets exactly its own project type, is not cross-project, and never repeats endlessly", () => {
+  // repeatPolicy ONCE_PER_PROJECT (não ONCE_PER_USER) reproduz a semântica do
+  // shell legado: o gate era `Project.onboardedAt`, uma coluna DO PROJETO —
+  // um usuário com duas REFORMAs via onboarding nas duas. ONCE_PER_USER
+  // (chave `tenantId:userId:none`, ignora projectId) bloquearia a segunda
+  // depois da primeira conclusão — regressão pega pelos testes de paridade
+  // da migração do shell (Fase B, Jornadas).
+  it("the onboarding trigger targets exactly its own project type, is not cross-project, and repeats once PER PROJECT (never per user)", () => {
     for (const t of projectTypes) {
       const def = getJourneyDefinition(onboardingJourneyKey(t))!;
       expect(def.triggers).toHaveLength(1);
@@ -104,7 +110,7 @@ describe("journey-catalog — generic foundation (landed)", () => {
         targetProjectId: null,
         crossProject: false,
         device: "any",
-        repeatPolicy: "ONCE_PER_USER",
+        repeatPolicy: "ONCE_PER_PROJECT",
         dismissPolicy: "DISMISS_UNTIL_LOGIN",
       });
     }
@@ -116,6 +122,26 @@ describe("journey-catalog — generic foundation (landed)", () => {
         JOURNEY_CATALOG[onboardingJourneyKey(t)].steps,
       );
     }
+  });
+
+  // Regressão: `journey-bootstrap.service.ts` materializa `JourneyStep.enabled`
+  // direto do catálogo (`step.enabledByDefault ?? true`), SEM reimplementar a
+  // regra "expense-import substitui expense+import" — essa regra precisa
+  // estar CODIFICADA AQUI, no dado do catálogo, e em NENHUM outro lugar
+  // (bootstrap e o adaptador legado `onboarding-journey.ts` só leem este
+  // campo). Sem isto, qualquer jornada PESSOAL nova materializada pelo
+  // bootstrap mostraria expense + import + expense-import juntas — três
+  // pedidos seguidos pra lançar a mesma 1ª despesa.
+  it("PESSOAL: expense/import nascem desligados no CATÁLOGO (expense-import já é a versão unificada das duas)", () => {
+    const pessoalSteps = JOURNEY_CATALOG[onboardingJourneyKey(ProjectType.PESSOAL)].steps;
+    const expense = pessoalSteps.find((s) => s.key === "expense")!;
+    const importStep = pessoalSteps.find((s) => s.key === "import")!;
+    const expenseImport = pessoalSteps.find((s) => s.key === "expense-import")!;
+
+    expect(expense.enabledByDefault).toBe(false);
+    expect(importStep.enabledByDefault).toBe(false);
+    // expense-import continua ligado por default (ausência de enabledByDefault ⇒ true).
+    expect(expenseImport.enabledByDefault).not.toBe(false);
   });
 
   describe("resolveJourneySteps (generic resolution mechanics)", () => {
@@ -156,6 +182,28 @@ describe("journey-catalog — generic foundation (landed)", () => {
           alwaysAvailable: false,
         },
       ]);
+    });
+
+    it("enabledByDefault: false -> step nasce desligado sem override (a config vem do catálogo, não de código de consumidor)", () => {
+      const stepsWithDefaultOff = [
+        ...steps,
+        {
+          key: "c",
+          label: "C",
+          defaultSubtitle: "default C",
+          alwaysAvailable: true,
+          skippableByDefault: true,
+          enabledByDefault: false,
+        },
+      ];
+      const resolved = resolveJourneySteps(stepsWithDefaultOff);
+      expect(resolved.find((s) => s.key === "c")).toMatchObject({ enabled: false });
+      // Um override explícito ainda vence o default do catálogo (mesma regra
+      // de qualquer outro campo — override > catálogo).
+      const withOverride = resolveJourneySteps(stepsWithDefaultOff, [
+        { stepKey: "c", enabled: true },
+      ]);
+      expect(withOverride.find((s) => s.key === "c")).toMatchObject({ enabled: true });
     });
 
     it("order override reorders; a tie falls back to catalog index", () => {

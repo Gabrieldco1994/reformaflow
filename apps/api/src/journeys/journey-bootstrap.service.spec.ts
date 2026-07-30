@@ -254,7 +254,10 @@ describe("JourneyBootstrapService", () => {
           const stepDef = def.steps[i];
           expect(row.stepKey).toBe(stepDef.key);
           expect(row.order).toBe(i);
-          expect(row.enabled).toBe(true);
+          // `enabledByDefault` é DADO do catálogo (ex.: PESSOAL expense/import
+          // nascem desligados — expense-import já é a versão unificada das
+          // duas). Ausência ⇒ `true` — nunca hardcoded aqui.
+          expect(row.enabled).toBe(stepDef.enabledByDefault ?? true);
           expect(row.skippable).toBe(stepDef.skippableByDefault);
           // `label`/`subtitle` are NOT NULL on `JourneyStep` (unlike
           // `OnboardingJourneyStep.labelOverride/subtitleOverride`): bootstrap
@@ -326,6 +329,29 @@ describe("JourneyBootstrapService", () => {
       expect(reformaSteps.length).toBe(
         JOURNEY_CATALOG[onboardingJourneyKey(ProjectType.REFORMA)].steps.length,
       );
+    });
+
+    // Regressão de produção: `journey-bootstrap.service.ts` já materializou
+    // PESSOAL com `expense`/`import`/`expense-import` TODOS `enabled: true`
+    // antes deste fix — 3 pedidos seguidos pra lançar a mesma 1ª despesa. A
+    // fonte da verdade é o catálogo (`enabledByDefault`), nunca uma regra
+    // reescrita aqui no bootstrap.
+    it("PESSOAL: expense/import materializam DESLIGADOS (expense-import já é a versão unificada), sem regra reimplementada no bootstrap", () => {
+      const pessoalId = prisma._journeys.get(
+        onboardingJourneyKey(ProjectType.PESSOAL),
+      )!.id;
+      const pessoalSteps = prisma._steps.filter((s) => s.journeyId === pessoalId);
+
+      const byKey = new Map(pessoalSteps.map((s) => [s.stepKey, s]));
+      expect(byKey.get("expense")?.enabled).toBe(false);
+      expect(byKey.get("import")?.enabled).toBe(false);
+      expect(byKey.get("expense-import")?.enabled).toBe(true);
+
+      // Só UMA etapa de lançamento fica visível por default — não três.
+      const launchSteps = ["expense", "import", "expense-import"].filter(
+        (key) => byKey.get(key)?.enabled,
+      );
+      expect(launchSteps).toEqual(["expense-import"]);
     });
   });
 
