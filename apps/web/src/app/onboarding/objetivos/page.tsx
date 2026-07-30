@@ -35,8 +35,10 @@ export default function OnboardingObjetivosPage() {
       // Persiste TODOS os tipos marcados — mesmo os que não vão definir a
       // jornada inicial. deriveObjectiveAccess libera os módulos dos dois.
       await api.patch('/auth/objectives', { projectTypes: selected });
-      const destination = resolveDestination(selected);
-      router.replace(`/onboarding/setup?type=${destination}`);
+      // Navega para a página de projetos onde o usuário pode criar seu primeiro
+      // projeto. A jornada de onboarding do tipo escolhido será gatilhada por
+      // PROJECT_CREATED quando o projeto for criado (Fase A).
+      router.replace('/projects');
     } catch (caught) {
       setError(
         caught instanceof Error

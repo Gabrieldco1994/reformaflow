@@ -115,9 +115,10 @@ export default function ProjectsPage() {
       // ao novo projeto — sem isso o layout redirecionaria para /no-permission.
       await refresh();
       void emitProjectCreated(created.id, created.type as ProjectType);
-      // Primeiro acesso ao projeto: manda pelo assistente de onboarding guiado
-      // (que sempre termina no guia de apoio, antes do cockpit/dashboard).
-      router.push(`/onboarding/setup?projectId=${created.id}&type=${created.type}`);
+      // Primeiro acesso ao projeto: o painel de onboarding aparecerá na dashboard
+      // via o trigger PROJECT_CREATED (Fase A da jornada), não via rota dedicada
+      // como era no shell antigo.
+      router.push(`/projects/${created.id}`);
     } catch (err) {
       console.error('Erro ao criar projeto:', err);
       setCreateError(err instanceof Error ? err.message : 'Erro ao criar projeto');

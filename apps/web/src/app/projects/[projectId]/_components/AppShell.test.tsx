@@ -201,17 +201,17 @@ describe("AppShell mobile navigation orchestration", () => {
     });
   });
 
-  it("redirects to the onboarding wizard on first access (onboardedAt null)", async () => {
+  it("no longer redirects to onboarding on first access (onboardedAt null) — jornada is shown by PROJECT_CREATED trigger", async () => {
     mocks.apiGet.mockResolvedValue(project(ProjectType.CASA, null));
     mocks.hasModule.mockReturnValue(true);
 
     render(<AppShell>Conteúdo</AppShell>);
 
-    await vi.waitFor(() => {
-      expect(mocks.router.replace).toHaveBeenCalledWith(
-        "/onboarding/setup?projectId=project-1&type=CASA",
-      );
-    });
+    // Painel de jornada aparecerá via PROJECT_CREATED, não via redirect
+    await screen.findByText("Conteúdo");
+    expect(mocks.router.replace).not.toHaveBeenCalledWith(
+      expect.stringContaining("/onboarding"),
+    );
   });
 
   it("does not redirect to onboarding once onboardedAt is set", async () => {
@@ -222,7 +222,7 @@ describe("AppShell mobile navigation orchestration", () => {
 
     await screen.findByText("Conteúdo");
     expect(mocks.router.replace).not.toHaveBeenCalledWith(
-      expect.stringContaining("/onboarding/setup"),
+      expect.stringContaining("/onboarding"),
     );
   });
 

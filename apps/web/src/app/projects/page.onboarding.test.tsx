@@ -109,7 +109,7 @@ describe("first project onboarding", () => {
     });
     expect(mocks.refresh).toHaveBeenCalledTimes(1);
     expect(mocks.push).toHaveBeenCalledWith(
-      "/onboarding/setup?projectId=casa-1&type=CASA",
+      "/projects/casa-1",
     );
   });
 });

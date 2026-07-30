@@ -1124,21 +1124,9 @@ model UserActivityLog {
 // todos os tenants. Linha ausente = default do catálogo em
 // `@reformaflow/domain` (ONBOARDING_JOURNEY_DEFAULTS), então config vazia
 // ainda entrega a jornada padrão completa.
-model OnboardingJourneyStep {
-  id               String   @id @default(cuid())
-  projectType      String   @map("project_type")
-  stepKey          String   @map("step_key")
-  order            Int
-  enabled          Boolean  @default(true)
-  skippable        Boolean  @default(true)
-  labelOverride    String?  @map("label_override")
-  subtitleOverride String?  @map("subtitle_override")
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
-
-  @@unique([projectType, stepKey])
-  @@map("onboarding_journey_steps")
-}
+// onboarding_journey_steps foi removido em Fase B — migrado para a genérica
+// Journey/JourneyStep/JourneyTrigger. A coluna Project.onboardedAt fica como
+// prova auditória; sai numa fatia futura.
 
 // ─── Jornadas (fundação genérica — épico #338 Etapa A) ────────────────────
 // Sucessor de `OnboardingJourneyStep`: onde aquele modela SÓ o onboarding por

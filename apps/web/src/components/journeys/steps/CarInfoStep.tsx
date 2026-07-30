@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { ArrowRight, SkipForward, ChevronLeft } from 'lucide-react';
 import { api } from '@/lib/api';
-import type { OnboardingStepProps } from '@/app/onboarding/setup/_types';
+import type { OnboardingStepProps } from '../_types';
 
 /**
  * Purpose-built quick-add car-info step — own local state, own PUT call

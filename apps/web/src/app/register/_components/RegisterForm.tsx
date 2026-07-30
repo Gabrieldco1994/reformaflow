@@ -7,7 +7,7 @@ import { useJourneyRuntime } from '@/contexts/journey-runtime-context';
 import { ApiResponseError, api } from '@/lib/api';
 import { ObjectiveSelector } from '@/components/objectives/ObjectiveSelector';
 import { type ObjectiveType } from '@/components/objectives/objective-options';
-import { PROJECT_ONBOARDING_COPY } from '@/app/onboarding/setup/_lib/project-copy';
+import { PROJECT_ONBOARDING_COPY } from '@/components/journeys/_lib/project-copy';
 
 const fieldClass =
   'min-h-11 w-full rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-3.5 py-2.5 text-[14px] text-lifeone-ink placeholder:text-lifeone-ink-4 focus:border-lifeone-blue focus:outline-none focus:ring-2 focus:ring-lifeone-blue/25';

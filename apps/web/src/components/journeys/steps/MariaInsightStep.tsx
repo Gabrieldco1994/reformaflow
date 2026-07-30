@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { ArrowRight, CheckCircle2, ChevronLeft, SkipForward, Sparkles } from 'lucide-react';
 import { setPendingMariaPrompt } from '@/app/projects/[projectId]/maria/_lib/pending-prompt';
 import { MariaChatBody } from '@/app/projects/[projectId]/maria/_components/MariaChatBody';
-import { buildOnboardingMariaPrompts } from '@/app/onboarding/setup/_lib/build-onboarding-maria-prompts';
+import { buildOnboardingMariaPrompts } from '../_lib/build-onboarding-maria-prompts';
 
 interface MariaInsightStepProps {
   projectId: string;
