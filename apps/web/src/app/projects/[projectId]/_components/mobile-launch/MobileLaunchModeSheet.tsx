@@ -103,6 +103,27 @@ export function MobileLaunchModeSheet({ open, onClose, onPick, voiceSupported = 
               const isVozAndNotSupported = mode.value === 'voz' && !voiceSupported;
               if (isVozAndNotSupported) return null;
 
+              // Despesa mode: render with journey action marker for mobile
+              if (mode.value === 'despesa') {
+                return (
+                  <button
+                    key={mode.value}
+                    type="button"
+                    data-journey-action="expense.new"
+                    onClick={() => onPick(mode.value)}
+                    className="flex min-h-[68px] w-full items-center gap-3.5 rounded-2xl border border-darc-linen bg-lifeone-surface px-4 py-3 text-left transition-transform active:scale-[0.99]"
+                  >
+                    <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${accentMap[mode.value]}`}>
+                      <Icon className="h-5 w-5" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-[15px] font-semibold leading-tight text-darc-velvet">{mode.label}</span>
+                      <span className="mt-0.5 block truncate text-[12px] leading-tight text-darc-velvet/60">{mode.subtitle ?? ''}</span>
+                    </span>
+                  </button>
+                );
+              }
+
               return (
                 <OptionCard
                   key={mode.value}
