@@ -157,51 +157,45 @@ não duplica a parcela planejada do projeto de destino no mesmo mês.
 - **Propósito:** criar uma nova conta (tenant + usuário).
 - **Campos:** nome do espaço, nome do usuário, usuário (login), senha,
   confirmação de senha, objetivos (seletor de tipos de projeto).
-- **Ação "Criar conta e continuar":** cria a conta e redireciona todo mundo para o
-  **assistente de onboarding guiado** (`/onboarding/setup?type=X`), onde `X` é o
-  tipo de objetivo "principal" da seleção: PESSOAL tem prioridade se estiver entre
-  os escolhidos; senão, vale o primeiro tipo na ordem canônica dos objetivos
-  (Reforma, Compra, Casa, Carro, Pessoal, Plantas).
+- **Ação "Criar conta e continuar":** cria a conta e redireciona para o
+  **Hub — Meus Projetos** (`/projects`), onde o usuário é convidado a criar o
+  primeiro projeto. Ao criar, o painel de onboarding aparece automaticamente
+  sobre o Dashboard via o trigger `PROJECT_CREATED` (jornada genérica, ver §3.1c).
 
-### 3.1c Onboarding guiado (`/onboarding/setup?type=X`)
+### 3.1c Onboarding (painel sobre Dashboard)
 Assistente **genérico**, dirigido por configuração — todos os 6 tipos de projeto
-(Reforma, Compra, Casa, Carro, Pessoal, Plantas) passam por ele, não só o
-PESSOAL. O stepper tem 3 partes:
+(Reforma, Compra, Casa, Carro, Pessoal, Plantas) passam por ele. Agora é um
+**painel que flutua sobre o Dashboard**, não uma rota dedicada (`/onboarding/setup`).
+O painel é acionado pelo trigger `PROJECT_CREATED` ao criar novo projeto e contém
+3 seções:
 
-1. **Projeto:** cria automaticamente o projeto do tipo escolhido (nome editável).
-   Pulado quando o projeto já existe (ex.: criado pelo botão "Novo Projeto" do
-   Hub, que já chega no assistente com `projectId` na URL).
-2. **Passo(s) de âncora, específico(s) do tipo** — cada tipo tem seu próprio
+1. **Etapas de âncora, específicas do tipo** — cada tipo tem seu próprio
    conjunto, **configurável pelo admin** em `/admin/jornadas` (ver §3.9): ordem,
    quais telas aparecem, os textos e se cada tela é pulável ou obrigatória. A
    lista abaixo é o **padrão de fábrica**, usado enquanto ninguém alterou a
    jornada — e também quando a configuração não pode ser lida:
    - **Pessoal:** Conta bancária (com o campo-herói "Quanto você tem na conta
      hoje?" — base do Caixa Real) → Cartão de crédito → Despesa rápida →
-     Recebimento rápido → **Pergunte à Maria** (ver abaixo, último passo do
-     setup).
+     Recebimento rápido → **Pergunte à Maria** (ver abaixo, último passo).
    - **Reforma:** Despesa rápida.
    - **Compra:** Despesa rápida.
    - **Casa:** Conta recorrente (água, luz, condomínio…).
    - **Carro:** Dados do veículo (placa, modelo, ano…).
    - **Plantas:** Cadastro de planta (nome, espécie, ambiente…).
    - **Pergunte à Maria (só PESSOAL, só após criar a 1ª despesa):** é o
-    **último passo do setup**, logo antes do "Pronto" — assim tocar numa
+    **último passo**, logo antes de fechar o painel — assim tocar numa
     pergunta não abandona nenhum passo pendente (todos já foram concluídos).
     Aparece um passo opcional "Pergunte à Maria sobre esse gasto" com 2–3
     perguntas prontas, a primeira **derivada da categoria real** que a pessoa
     lançou (ex.: Mercado → "Quanto já gastei em Mercado este mês?"). Tocar numa
     pergunta abre a Maria já com o texto e **envia automaticamente uma vez** — a
     resposta usa os dados reais recém cadastrados. "Pular por agora" (um toque,
-    sem confirmação) vai direto ao "Pronto". Se a despesa foi pulada, este passo
+    sem confirmação) fecha o painel. Se a despesa foi pulada, este passo
     **não aparece**.
-3. **Pronto:** tela final de confirmação; redireciona automaticamente para o
-   **guia de apoio do projeto** (`/projects/:id/apoio`) — nunca direto para o
-   Cockpit/Dashboard (`/monthly` ou similar).
-4. **Passo final no guia de apoio:** no fim da timeline de primeiros passos, há
-   uma seção "Último passo: envie seu feedback" explicando como abrir o balão
-   de feedback (no cabeçalho mobile ou menu lateral desktop), escrever a
-   mensagem e enviar para o time.
+
+2. **Comportamento de saída:** ao fechar o painel (botão de X, clique fora ou "Concluir"),
+   o usuário volta ao **Dashboard/Cockpit do projeto**. Diferentemente do fluxo anterior,
+   não há rota dedicada pós-onboarding — tudo acontece no mesmo Dashboard.
 
 O critério central permanece o mesmo do fluxo original do PESSOAL: quem segue o
 caminho feliz sai do assistente com pelo menos um lançamento/dado real
@@ -224,9 +218,8 @@ Ponto de entrada depois do login. Lista todos os projetos que o usuário pode ve
 - **Botão "Novo Projeto" / FAB "+":** abre o modal de criação. Só habilitado se o
   usuário tem permissão para criar ao menos um tipo (`canCreateProjectType`).
   - Modal de criação: **Nome**, **Tipo** (apenas os tipos permitidos ao usuário) e
-    **Descrição**. Ao criar, o projeto entra no **assistente de onboarding guiado**
-    (`/onboarding/setup?projectId=X&type=Y`, ver §3.1c) em vez de abrir direto no
-    Dashboard.
+    **Descrição**. Ao criar, o projeto abre no Dashboard com o painel de onboarding
+    flutuando automaticamente (não há rota dedicada; tudo acontece no mesmo lugar).
 - **Estados:** carregando (spinner); vazio ("Nenhum projeto ainda" ou "Você não
   tem acesso a nenhum projeto", com orientação para pedir liberação ao admin).
 
