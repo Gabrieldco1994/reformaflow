@@ -521,6 +521,30 @@ describe('JourneysAdminService', () => {
       ).rejects.toBeInstanceOf(BadRequestException);
     });
 
+    it('accepts experience:SUMMARY for feedback (steps without slugs can only be SUMMARY)', async () => {
+      await build();
+      const result = await service.create({
+        key: 'k',
+        name: 'x',
+        steps: [{ stepKey: 'feedback', order: 0, label: 'Feedback', experience: 'SUMMARY' }],
+        triggers: [minimalTrigger()],
+      } as any);
+      expect(result.steps[0].experience).toBe('SUMMARY');
+      expect(result.steps[0].stepKey).toBe('feedback');
+    });
+
+    it('accepts experience:SUMMARY for maria-insight (steps without slugs can only be SUMMARY)', async () => {
+      await build();
+      const result = await service.create({
+        key: 'k',
+        name: 'x',
+        steps: [{ stepKey: 'maria-insight', order: 0, label: 'Maria', experience: 'SUMMARY' }],
+        triggers: [minimalTrigger()],
+      } as any);
+      expect(result.steps[0].experience).toBe('SUMMARY');
+      expect(result.steps[0].stepKey).toBe('maria-insight');
+    });
+
     it('accepts experience:FULL for a stepKey WITH a slug (expense → expenses)', async () => {
       await build();
       const result = await service.create({

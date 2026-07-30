@@ -1,5 +1,5 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { JOURNEY_CATALOG, JourneyDefinition } from '@reformaflow/domain';
+import { JOURNEY_CATALOG, JourneyDefinition, hasJourneyStepSlug } from '@reformaflow/domain';
 import { PrismaService } from '../prisma/prisma.service';
 
 type JourneyStepSeed = JourneyDefinition['steps'][number];
@@ -53,7 +53,12 @@ export class JourneyBootstrapService implements OnModuleInit {
       journeyId,
       stepKey: step.key,
       order,
-      experience: 'FULL',
+      // Passos SEM tela própria (ex.: maria-insight, feedback) devem nascer
+      // com SUMMARY — a validação `assertFullExperienceHasSlug` em
+      // `journeys-admin.service.ts` nega qualquer save de FULL para um passo
+      // sem slug. Usar MESMA fonte que o validador (hasJourneyStepSlug) garante
+      // coerência: NUNCA reimplementar essa regra aqui.
+      experience: hasJourneyStepSlug(step.key) ? 'FULL' : 'SUMMARY',
       label: step.label,
       subtitle: step.defaultSubtitle,
       // `enabledByDefault` é DADO do catálogo (journey-catalog.ts), nunca uma

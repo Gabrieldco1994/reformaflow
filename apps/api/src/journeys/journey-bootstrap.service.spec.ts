@@ -4,6 +4,7 @@ import {
   ProjectType,
   listJourneyKeys,
   onboardingJourneyKey,
+  hasJourneyStepSlug,
   type JourneyDefinition,
 } from "@reformaflow/domain";
 import { PrismaService } from "../prisma/prisma.service";
@@ -268,12 +269,18 @@ describe("JourneyBootstrapService", () => {
       }
     });
 
-    it("every step experience is a valid JOURNEY_STEP_EXPERIENCES value (defaults to FULL for legacy full-page onboarding)", () => {
+    it("every step experience is a valid JOURNEY_STEP_EXPERIENCES value, with FULL only for steps that have a slug", () => {
       for (const row of prisma._steps) {
         expect(["SUMMARY", "FULL"]).toContain(row.experience);
+        // Passos SEM tela própria (sem slug) nascem com SUMMARY; passos COM
+        // tela própria (com slug) nascem com FULL. Mesma regra usada no
+        // validador assertFullExperienceHasSlug — source of truth é
+        // hasJourneyStepSlug do catálogo.
+        const shouldBeFullOrSummary = hasJourneyStepSlug(row.stepKey)
+          ? "FULL"
+          : "SUMMARY";
+        expect(row.experience).toBe(shouldBeFullOrSummary);
       }
-      // Onboarding steps are full pages today, never a summary widget.
-      expect(prisma._steps.every((s) => s.experience === "FULL")).toBe(true);
     });
 
     it("materializes every trigger of every catalog journey with matching targeting/device/policy fields", () => {
@@ -352,6 +359,22 @@ describe("JourneyBootstrapService", () => {
         (key) => byKey.get(key)?.enabled,
       );
       expect(launchSteps).toEqual(["expense-import"]);
+    });
+
+    // Regressão: passos SEM tela própria (maria-insight, feedback) devem nascer
+    // com SUMMARY, não FULL. Passos COM tela própria (ex.: funding) devem nascer
+    // com FULL. Usa-se MESMA fonte que o validador (hasJourneyStepSlug).
+    it("PESSOAL: maria-insight (sem slug) materializa SUMMARY; funding (com slug) materializa FULL", () => {
+      const pessoalId = prisma._journeys.get(
+        onboardingJourneyKey(ProjectType.PESSOAL),
+      )!.id;
+      const pessoalSteps = prisma._steps.filter((s) => s.journeyId === pessoalId);
+
+      const byKey = new Map(pessoalSteps.map((s) => [s.stepKey, s]));
+      // maria-insight não tem tela própria → SUMMARY
+      expect(byKey.get("maria-insight")?.experience).toBe("SUMMARY");
+      // funding tem tela própria (conta) → FULL
+      expect(byKey.get("funding")?.experience).toBe("FULL");
     });
   });
 
