@@ -1,6 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { ProjectType } from '@reformaflow/domain';
+import { JOURNEY_CATALOG, ProjectType, onboardingJourneyKey } from '@reformaflow/domain';
 import { PrismaService } from '../prisma/prisma.service';
 import { JourneysEligibilityService } from './journeys-eligibility.service';
 
@@ -687,6 +687,62 @@ describe('JourneysEligibilityService', () => {
         'user-1',
       );
       expect(result).toHaveLength(1);
+    });
+
+    // Regressão de escopo real (Fase B, Jornadas — corrigida no mesmo PR que
+    // achou o bug): o trigger de onboarding usava `repeatPolicy:
+    // 'ONCE_PER_USER'` (chave `tenantId:userId:none`, ignora projectId). O
+    // gate legado (`Project.onboardedAt`) é uma coluna DO PROJETO — um
+    // usuário com DUAS REFORMAs via o onboarding nas duas. `ONCE_PER_USER`
+    // bloquearia a segunda depois da 1ª conclusão. Este teste usa o
+    // `repeatPolicy` REAL do catálogo (`JOURNEY_CATALOG`, não um literal
+    // hardcoded) — se alguém reverter para `ONCE_PER_USER` numa refatoração
+    // futura do catálogo, este teste quebra sozinho, sem precisar lembrar
+    // da regra.
+    it('usuário com DOIS projetos do mesmo tipo vê o onboarding nos dois (repeatPolicy real do catálogo)', async () => {
+      const realOnboardingRepeatPolicy =
+        JOURNEY_CATALOG[onboardingJourneyKey(ProjectType.REFORMA)].triggers[0].repeatPolicy;
+
+      await build({
+        journeys: [{ ...journey, key: onboardingJourneyKey(ProjectType.REFORMA) }],
+        triggers: [
+          trigger({
+            repeatPolicy: realOnboardingRepeatPolicy,
+            targetProjectType: ProjectType.REFORMA,
+          }),
+        ],
+        steps: [],
+        completions: [
+          {
+            id: 'c1',
+            journeyId: 'j1',
+            tenantId: 'tenant-a',
+            userId: 'user-1',
+            projectId: 'reforma-1',
+            completionKey: 'tenant-a:user-1:reforma-1',
+            completedAt: new Date('2026-01-01'),
+            dismissedAt: null,
+          },
+        ],
+        projects: [
+          { id: 'reforma-1', tenantId: 'tenant-a', type: ProjectType.REFORMA, deletedAt: null },
+          { id: 'reforma-2', tenantId: 'tenant-a', type: ProjectType.REFORMA, deletedAt: null },
+        ],
+      });
+
+      const firstReforma = await service.getEligible(
+        { triggerType: 'PROJECT_CREATED', device: 'web', projectId: 'reforma-1' },
+        'tenant-a',
+        'user-1',
+      );
+      expect(firstReforma).toEqual([]); // já concluiu nesta
+
+      const secondReforma = await service.getEligible(
+        { triggerType: 'PROJECT_CREATED', device: 'web', projectId: 'reforma-2' },
+        'tenant-a',
+        'user-1',
+      );
+      expect(secondReforma).toHaveLength(1); // segunda REFORMA continua elegível
     });
   });
 
