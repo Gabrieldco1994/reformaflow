@@ -1944,7 +1944,7 @@ export class MonthlyOverviewService {
           valor: true,
           data: true,
           expense: {
-            select: { cardLast4: true, bankLast4: true, tipoDespesa: true },
+            select: { cardLast4: true, bankLast4: true, tipoDespesa: true, settlesInvoiceKey: true },
           },
         },
       }),
@@ -1983,12 +1983,21 @@ export class MonthlyOverviewService {
       accountNamesByLast4.set(account.last4, set);
     }
 
-    const originKey = (kind: 'card' | 'conta', last4: string) => `${kind}:${last4}`;
+    const originKey = (kind: 'card' | 'conta' | 'carteira', last4: string) =>
+      kind === 'carteira' ? 'carteira' : `${kind}:${last4}`;
 
     // Mapa: `${YYYY-MM}__${originKey}` -> total em centavos (apenas o ano alvo).
     const totalsByMonthOrigin = new Map<string, number>();
+    // Idem, mas só a parcela que é TRANSFERÊNCIA entre cartões ("cartão paga cartão"):
+    // cobrança neutra no cartão com `settlesInvoiceKey`, isto é, quita a fatura de OUTRO
+    // cartão. Compõe a fatura (contrato §7-1) e por isso permanece em `totalsByMonthOrigin`,
+    // mas somar as faturas de todos os cartões conta esse dinheiro duas vezes (as compras
+    // originais já estão na fatura de origem). Exposto à parte para a tela poder qualificar
+    // o total agregado SEM alterar o valor de nenhuma fatura.
+    const transfersByMonthOrigin = new Map<string, number>();
     const cardsWithData = new Set<string>();
     const accountsWithData = new Set<string>();
+    let carteiraHasData = false;
 
     for (const entry of entries) {
       const cardLast4 = entry.expense?.cardLast4;
@@ -1997,6 +2006,7 @@ export class MonthlyOverviewService {
 
       let key: string;
       let mes: string;
+      let isCardTransfer = false;
 
       if (cardLast4) {
         // Cartão: neutros liquidados via conta ficam de fora; cobrança neutra no
@@ -2006,6 +2016,8 @@ export class MonthlyOverviewService {
         mes = caixaMonthForCardPurchase(entry.data, card?.closingDay ?? null, card?.dueDay ?? null);
         key = originKey('card', cardLast4);
         cardsWithData.add(cardLast4);
+        // "Cartão paga cartão": cobrança no cartão que quita a fatura de outro.
+        isCardTransfer = !bankLast4 && !!entry.expense?.settlesInvoiceKey;
       } else if (bankLast4) {
         // Conta corrente: exclui neutros de consumo (settlement de fatura E aporte de
         // investimento — nenhum é "gasto da conta"); agrupa pelo mês do débito.
@@ -2014,12 +2026,22 @@ export class MonthlyOverviewService {
         key = originKey('conta', bankLast4);
         accountsWithData.add(bankLast4);
       } else {
-        continue;
+        // Sem cartão E sem conta = "Carteira" (ex.: lançada por voz sem meio de
+        // pagamento). Regra de ouro 14: nunca sumir com origin:'none' em silêncio.
+        // Mesma regra da conta (neutro de consumo fora, mês por competência), igual
+        // ao que getAllOriginItemsYearly já faz na lista da mesma tela.
+        if (isConsumptionNeutralExpenseType(tipo)) continue;
+        mes = monthKeyOf(entry.data);
+        key = originKey('carteira', '');
+        carteiraHasData = true;
       }
 
       if (!mes.startsWith(`${targetYear}-`)) continue;
       const mapKey = `${mes}__${key}`;
       totalsByMonthOrigin.set(mapKey, (totalsByMonthOrigin.get(mapKey) ?? 0) + entry.valor);
+      if (isCardTransfer) {
+        transfersByMonthOrigin.set(mapKey, (transfersByMonthOrigin.get(mapKey) ?? 0) + entry.valor);
+      }
     }
 
     for (const adjustment of invoiceAdjustments) {
@@ -2054,24 +2076,30 @@ export class MonthlyOverviewService {
         nickname:
           Array.from(accountNamesByLast4.get(last4) ?? []).join(' / ') || `Conta ${last4}`,
       })),
+      ...(carteiraHasData
+        ? [{ key: originKey('carteira', ''), kind: 'carteira' as const, last4: '', nickname: 'Carteira' }]
+        : []),
     ];
 
     const monthLabels = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
     const months = Array.from({ length: 12 }, (_, index) => {
       const mes = `${targetYear}-${String(index + 1).padStart(2, '0')}`;
       const porOrigem: Record<string, number> = {};
+      const transferenciasPorOrigem: Record<string, number> = {};
       let total = 0;
       for (const origin of origins) {
         const value = totalsByMonthOrigin.get(`${mes}__${origin.key}`) ?? 0;
         porOrigem[origin.key] = value;
+        transferenciasPorOrigem[origin.key] = transfersByMonthOrigin.get(`${mes}__${origin.key}`) ?? 0;
         total += value;
       }
-      return { mes, label: monthLabels[index], porOrigem, total };
+      return { mes, label: monthLabels[index], porOrigem, transferenciasPorOrigem, total };
     });
 
     const totalAno = months.reduce((sum, month) => sum + month.total, 0);
+    const transferenciasAno = Array.from(transfersByMonthOrigin.values()).reduce((sum, v) => sum + v, 0);
 
-    return { year: targetYear, origins, months, totalAno };
+    return { year: targetYear, origins, months, totalAno, transferenciasAno };
   }
 
   /**

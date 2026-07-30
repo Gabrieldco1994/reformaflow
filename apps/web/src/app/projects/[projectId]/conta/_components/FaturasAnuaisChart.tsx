@@ -10,7 +10,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { CreditCard, Landmark } from 'lucide-react';
+import { CreditCard, Landmark, Wallet } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import type { CardInvoicesYearlyResponse } from '../_types';
 
@@ -62,6 +62,16 @@ export function FaturasAnuaisChart({
     0,
   );
 
+  // "Cartão paga cartão" já está dentro de totalVisivel (a fatura tem que bater com o
+  // banco). Somar as faturas de todos os cartões conta esse dinheiro duas vezes — as
+  // compras originais já estão na fatura de origem —, então qualificamos o total em vez
+  // de alterar qualquer barra.
+  const transferenciasVisiveis = data.months.reduce(
+    (sum, month) =>
+      sum + visibleOrigins.reduce((s, o) => s + (month.transferenciasPorOrigem?.[o.key] ?? 0), 0),
+    0,
+  );
+
   const hasData = totalVisivel > 0;
 
   const selectedMonthLabel = selectedMonth
@@ -77,6 +87,11 @@ export function FaturasAnuaisChart({
             {data.year}
           </p>
           <p className="text-lg font-bold text-lifeone-ink font-geist tabular-nums">{formatCurrency(totalVisivel / 100)}</p>
+          {transferenciasVisiveis > 0 && (
+            <p className="text-[11px] text-lifeone-ink-2">
+              inclui {formatCurrency(transferenciasVisiveis / 100)} de fatura paga com outro cartão
+            </p>
+          )}
         </div>
         {selectedKey ? (
           selectedMonthLabel ? (
@@ -112,7 +127,7 @@ export function FaturasAnuaisChart({
         {data.origins.map((origin) => {
           const active = selectedKey === origin.key;
           const color = colorByKey.get(origin.key);
-          const Icon = origin.kind === 'conta' ? Landmark : CreditCard;
+          const Icon = origin.kind === 'conta' ? Landmark : origin.kind === 'carteira' ? Wallet : CreditCard;
           return (
             <button
               key={origin.key}
@@ -130,7 +145,7 @@ export function FaturasAnuaisChart({
                 style={{ backgroundColor: active ? '#fff' : color }}
               />
               <Icon className="h-3 w-3" />
-              {origin.nickname} · {origin.last4}
+              {origin.last4 ? `${origin.nickname} · ${origin.last4}` : origin.nickname}
             </button>
           );
         })}
@@ -172,7 +187,11 @@ export function FaturasAnuaisChart({
                                 className="inline-block h-2 w-2 rounded-full"
                                 style={{ backgroundColor: item.color }}
                               />
-                              {origin ? `${origin.nickname} · ${origin.last4}` : (item.dataKey as string)}
+                              {origin
+                                ? origin.last4
+                                  ? `${origin.nickname} · ${origin.last4}`
+                                  : origin.nickname
+                                : (item.dataKey as string)}
                             </span>
                             <span className="font-medium text-lifeone-ink">
                               {formatCurrency(Number(item.value))}

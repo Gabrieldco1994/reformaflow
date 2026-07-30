@@ -114,7 +114,7 @@ export interface AccountViewYearlyResponse extends Omit<AccountViewResponse, 'ti
 
 export interface CardInvoicesYearlyOrigin {
   key: string;
-  kind: 'card' | 'conta';
+  kind: 'card' | 'conta' | 'carteira';
   last4: string;
   nickname: string;
 }
@@ -123,6 +123,13 @@ export interface CardInvoicesYearlyMonth {
   mes: string;
   label: string;
   porOrigem: Record<string, number>;
+  /**
+   * Parcela de `porOrigem` que é "cartão paga cartão" (cobrança no cartão com
+   * `settlesInvoiceKey`). Já está DENTRO de `porOrigem` — a fatura tem que bater com o
+   * banco (contrato §7-1). Serve só para qualificar o total agregado, que ao somar as
+   * faturas de todos os cartões conta esse dinheiro duas vezes.
+   */
+  transferenciasPorOrigem: Record<string, number>;
   total: number;
 }
 
@@ -131,6 +138,7 @@ export interface CardInvoicesYearlyResponse {
   origins: CardInvoicesYearlyOrigin[];
   months: CardInvoicesYearlyMonth[];
   totalAno: number;
+  transferenciasAno: number;
 }
 
 export interface OriginYearlyItem {

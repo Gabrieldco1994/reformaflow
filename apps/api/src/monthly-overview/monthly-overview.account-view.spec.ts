@@ -882,6 +882,93 @@ describe("MonthlyOverviewService.getAccountView", () => {
     expect(res.totalAno).toBe(17_500);
   });
 
+  it("getCardInvoicesYearly inclui a Carteira (sem cartão E sem conta) — regra de ouro 14", async () => {
+    prisma.cashFlowEntry.findMany.mockResolvedValue([
+      {
+        // gasto sem meio de pagamento (ex.: lançado por voz): é Carteira, não some
+        valor: 3_300,
+        data: new Date("2026-02-08T00:00:00.000Z"),
+        status: "PAGO",
+        expense: { cardLast4: null, bankLast4: null, tipoDespesa: "ALIMENTACAO" },
+      },
+      {
+        // neutro de consumo sem meio de pagamento: FORA (mesma regra da conta)
+        valor: 50_000,
+        data: new Date("2026-02-09T00:00:00.000Z"),
+        status: "PAGO",
+        expense: { cardLast4: null, bankLast4: null, tipoDespesa: "INVESTIMENTOS" },
+      },
+      {
+        valor: 2_500,
+        data: new Date("2026-05-10T00:00:00.000Z"),
+        status: "PAGO",
+        expense: { cardLast4: null, bankLast4: "4247", tipoDespesa: "MORADIA" },
+      },
+    ]);
+    prisma.creditCard.findMany.mockResolvedValue([]);
+    prisma.bankAccount.findMany.mockResolvedValue([
+      { nickname: "Itau", institution: "ITAU", last4: "4247" },
+    ]);
+
+    const res: any = await service.getCardInvoicesYearly(tenantId, projectId, 2026);
+
+    expect(res.origins.map((o: any) => o.key)).toEqual(["conta:4247", "carteira"]);
+    expect(res.origins.find((o: any) => o.kind === "carteira").nickname).toBe("Carteira");
+    expect(res.months.find((m: any) => m.mes === "2026-02").porOrigem["carteira"]).toBe(3_300);
+    expect(res.totalAno).toBe(5_800); // 3.300 carteira + 2.500 conta (aporte de 50.000 fora)
+  });
+
+  it("getCardInvoicesYearly separa 'cartão paga cartão' sem alterar a fatura", async () => {
+    prisma.cashFlowEntry.findMany.mockResolvedValue([
+      {
+        // compra normal no cartão
+        valor: 10_000,
+        data: new Date("2026-04-30T00:00:00.000Z"),
+        status: "PLANEJADO",
+        expense: { cardLast4: "9999", bankLast4: null, tipoDespesa: "OUTROS", settlesInvoiceKey: null },
+      },
+      {
+        // cobrança no cartão que QUITA a fatura de outro cartão: compõe a fatura
+        // (contrato §7-1) mas é transferência, não gasto novo
+        valor: 4_000,
+        data: new Date("2026-04-30T00:00:00.000Z"),
+        status: "PAGO",
+        expense: {
+          cardLast4: "9999",
+          bankLast4: null,
+          tipoDespesa: "PAGAMENTO_FATURA_CARTAO",
+          settlesInvoiceKey: "8888:2026-05",
+        },
+      },
+      {
+        // neutro no cartão SEM vínculo: fica na fatura e NÃO é contado como transferência
+        valor: 1_000,
+        data: new Date("2026-04-30T00:00:00.000Z"),
+        status: "PAGO",
+        expense: {
+          cardLast4: "9999",
+          bankLast4: null,
+          tipoDespesa: "PAGAMENTO_FATURA_CARTAO",
+          settlesInvoiceKey: null,
+        },
+      },
+    ]);
+    prisma.creditCard.findMany.mockResolvedValue([
+      { nickname: "Latam", last4: "9999", closingDay: 25, dueDay: 1 },
+    ]);
+    prisma.bankAccount.findMany.mockResolvedValue([]);
+
+    const res: any = await service.getCardInvoicesYearly(tenantId, projectId, 2026);
+
+    const jun = res.months.find((m: any) => m.mes === "2026-06");
+    // A fatura permanece intacta (10.000 + 4.000 + 1.000) — nunca alteramos o espelho.
+    expect(jun.porOrigem["card:9999"]).toBe(15_000);
+    expect(res.totalAno).toBe(15_000);
+    // Só a cobrança vinculada é reportada como transferência entre cartões.
+    expect(jun.transferenciasPorOrigem["card:9999"]).toBe(4_000);
+    expect(res.transferenciasAno).toBe(4_000);
+  });
+
   it("getOriginItemsYearly lista despesas da origem aplicando regra de neutros", async () => {
     prisma.project.findMany.mockResolvedValue([
       { id: projectId, name: "Pessoal", type: "PESSOAL" },
