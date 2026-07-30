@@ -64,7 +64,6 @@ import {
   toCaixaBase,
   toDisplayBase,
 } from './_lib/personal-hierarchy';
-import ImportLauncher from './_components/ImportLauncher';
 import ImportStatementModal from '../credit-cards/_components/ImportStatementModal';
 import ImportBankStatementModal from '../bank-accounts/_components/ImportBankStatementModal';
 import { QuitarParcelaModal } from '../conta/_components/QuitarParcelaModal';
