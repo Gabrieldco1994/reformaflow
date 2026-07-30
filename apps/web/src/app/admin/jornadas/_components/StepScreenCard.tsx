@@ -16,6 +16,7 @@ import {
   Trash2,
   Unlock,
 } from 'lucide-react';
+import { hasJourneyStepSlug } from '@reformaflow/domain';
 import type { EditorStep } from '../_types';
 
 interface Props {
@@ -210,6 +211,8 @@ export function StepScreenCard({
             type="button"
             className={ACTION}
             aria-label={`Tornar "${step.label}" ${step.experience === 'FULL' ? 'resumida' : 'completa'}`}
+            disabled={!hasJourneyStepSlug(step.key)}
+            title={!hasJourneyStepSlug(step.key) ? 'Este passo não tem tela própria' : undefined}
             onClick={() => onPatch({ experience: step.experience === 'FULL' ? 'SUMMARY' : 'FULL' })}
           >
             {step.experience === 'FULL' ? (
