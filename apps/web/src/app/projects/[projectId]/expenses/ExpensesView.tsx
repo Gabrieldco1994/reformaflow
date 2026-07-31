@@ -1387,7 +1387,15 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
       </>
       )}
 
-      <ExpenseMobileFab activeTab={activeTab} onClick={openPayOptions} personal={isPersonal} />
+      {/* PESSOAL não renderiza o FAB: nesta rota o `ExpensesView` mora dentro
+          de `hidden lg:block` (page.tsx) — um container só-desktop — e o FAB é
+          `md:hidden`, só-mobile. A caixa nunca era gerada (rect 0×0). A
+          superfície mobile do PESSOAL é o `MobileExpensesScreen`, e lançar ali
+          é o "Lançar" central do `MobileTabBar`; o `openPayOptions` daqui é o
+          MESMO handler do botão de desktop, não um fluxo próprio de mobile. */}
+      {!isPersonal && (
+        <ExpenseMobileFab activeTab={activeTab} onClick={openPayOptions} />
+      )}
 
       <VoiceExpenseModal
         open={voiceModalOpen}
