@@ -581,6 +581,28 @@ export class MonthlyOverviewService {
         isInRange(purchaseDate(expense), monthStart, monthEnd),
     );
 
+    // Carteira LOCAL ainda NÃO paga (PLANEJADO). Espelha exatamente o filtro de
+    // cima trocando o status — a única diferença é `realizado: false` na hora de
+    // emitir, para cair em `faltaPagarMes` em vez de `saiuMes`.
+    //
+    // Sem isto, uma despesa planejada sem cartão nem conta some da Visão Conta:
+    // ela aparecia na lista de Despesas e no Cockpit, mas não aqui — dinheiro
+    // invisível no consolidado, exatamente o que a regra de ouro 14 proíbe. O
+    // caso PAGO acima já tinha sido corrigido; o pendente ficou de fora, e a
+    // combinação "planejado + sem origem" era a única das quatro que falhava
+    // (paga sem conta, planejada com conta e recebimento previsto sem conta
+    // sempre apareceram).
+    const localCarteiraPendingThisMonth = expenses.filter(
+      (expense) =>
+        !expense.cardLast4 &&
+        !expense.bankLast4 &&
+        (!expense.linkedExpenseId || manualWalletMirrorTargetsThisMonth.has(expense.linkedExpenseId)) &&
+        expense.status !== 'PAGO' &&
+        !expense.settledByExpenseId &&
+        !isNeutralExpenseType(expense.tipoDespesa) &&
+        isInRange(purchaseDate(expense), monthStart, monthEnd),
+    );
+
     const saiuMes = sumBy(
       expenses.filter(
         (expense) =>
@@ -1083,6 +1105,32 @@ export class MonthlyOverviewService {
         ),
         valor: expense.valorTotal,
         realizado: true,
+        status: expense.status,
+        cardLast4: null as string | null,
+        bankLast4: null as string | null,
+        tipoDespesa: expense.tipoDespesa,
+        isInvoice: false,
+        editavel: true,
+        dueMonth: null as string | null,
+        projetoOrigem: null as { id: string; name: string; type: string } | null,
+        parcelaIndex: null as number | null,
+        foreignExpenseId: null as string | null,
+        origem: { tipo: 'carteira' as const },
+      })),
+      // PLANEJADO carteira LOCAL — mesma origem "carteira" do bloco acima, só que
+      // ainda não pago: entra com `realizado: false` para somar em `faltaPagarMes`
+      // e não em `saiuMes`. Ver `localCarteiraPendingThisMonth` para o porquê.
+      ...localCarteiraPendingThisMonth.map((expense) => ({
+        id: expense.id as string | null,
+        kind: 'saida' as const,
+        descricao: expenseDisplayName(expense.tipoDespesa, expense.titulo, expense.fornecedor),
+        data: purchaseDate(expense).toISOString(),
+        forma: inferCashForm(
+          `${expense.titulo ?? ''} ${expense.fornecedor ?? ''}`,
+          expense.formaPagamento,
+        ),
+        valor: expense.valorTotal,
+        realizado: false,
         status: expense.status,
         cardLast4: null as string | null,
         bankLast4: null as string | null,
