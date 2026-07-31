@@ -20,7 +20,7 @@ describe('MerchantClassifierController.suggest', () => {
   });
 
   it('texto vazio → resposta neutra sem chamar classifyBatch', async () => {
-    const res = await controller.suggest({ text: '' });
+    const res = await controller.suggest('tenant-1', { text: '' });
     expect(res).toEqual({
       category: null,
       subcategory: null,
@@ -32,7 +32,7 @@ describe('MerchantClassifierController.suggest', () => {
   });
 
   it('texto com 2 chars (abaixo do mínimo 3) → resposta neutra sem chamar classifyBatch', async () => {
-    const res = await controller.suggest({ text: 'ab' });
+    const res = await controller.suggest('tenant-1', { text: 'ab' });
     expect(res).toEqual({
       category: null,
       subcategory: null,
@@ -61,8 +61,8 @@ describe('MerchantClassifierController.suggest', () => {
       ]),
     );
 
-    const res = await controller.suggest({ text });
-    expect(svc.classifyBatch).toHaveBeenCalledWith([text]);
+    const res = await controller.suggest('tenant-1', { text });
+    expect(svc.classifyBatch).toHaveBeenCalledWith([text], 'tenant-1');
     expect(res).toEqual({
       category: 'alimentação',
       subcategory: 'delivery',
@@ -74,7 +74,7 @@ describe('MerchantClassifierController.suggest', () => {
 
   it('texto válido SEM hit (Map vazio) → tudo null, sem lançar', async () => {
     svc.classifyBatch.mockResolvedValue(new Map());
-    const res = await controller.suggest({ text: 'xyz desconhecido' });
+    const res = await controller.suggest('tenant-1', { text: 'xyz desconhecido' });
     expect(res).toEqual({
       category: null,
       subcategory: null,

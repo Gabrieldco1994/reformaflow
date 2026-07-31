@@ -312,7 +312,7 @@ export class CreditCardService {
 
     const preview = await Promise.all(
       parsed.transactions.map(async (tx) => {
-        const manualExpenseType = await this.merchantClassifier.manualExpenseType(tx.merchant);
+        const manualExpenseType = await this.merchantClassifier.manualExpenseType(tx.merchant, tenantId);
         return {
           ...tx,
           date: tx.date.toISOString().slice(0, 10),
@@ -326,7 +326,7 @@ export class CreditCardService {
 
     const futureInstallments = await Promise.all(
       (parsed.futureInstallments ?? []).map(async (tx) => {
-        const manualExpenseType = await this.merchantClassifier.manualExpenseType(tx.merchant);
+        const manualExpenseType = await this.merchantClassifier.manualExpenseType(tx.merchant, tenantId);
         return {
           ...tx,
           date: tx.date.toISOString().slice(0, 10),
@@ -682,7 +682,7 @@ export class CreditCardService {
       // Estorno/crédito real (refund, desconto, ajuste). Cria Expense com valor
       // NEGATIVO para abater do total da fatura — soma corretamente no cashflow.
       const manualExpenseType =
-        categoryOverride ? null : await this.merchantClassifier.manualExpenseType(tx.merchant);
+        categoryOverride ? null : await this.merchantClassifier.manualExpenseType(tx.merchant, tenantId);
       const expenseType =
         categoryOverride || manualExpenseType || (PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS');
       const tituloEst = `Estorno: ${tx.merchant}`.slice(0, 200);
@@ -726,7 +726,7 @@ export class CreditCardService {
     }
 
     const manualExpenseType =
-      categoryOverride ? null : await this.merchantClassifier.manualExpenseType(tx.merchant);
+      categoryOverride ? null : await this.merchantClassifier.manualExpenseType(tx.merchant, tenantId);
     const expenseType =
       categoryOverride || manualExpenseType || (PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS');
     const total = tx.installmentTotal && tx.installmentTotal > 1 ? tx.installmentTotal : 1;

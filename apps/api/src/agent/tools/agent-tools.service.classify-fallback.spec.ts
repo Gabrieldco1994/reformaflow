@@ -63,7 +63,7 @@ describe('create_expense — fallback do MerchantClassifier', () => {
       fornecedor: 'Ifood',
     });
 
-    expect(classifier.classifyBatch).toHaveBeenCalledWith(['Ifood']);
+    expect(classifier.classifyBatch).toHaveBeenCalledWith(['Ifood'], 'tenant-1');
     expect(res.error).toBeUndefined();
     expect(res.despesa.tipoDespesa).toBe('ALIMENTACAO');
     expect(expenses.create).toHaveBeenCalledWith(

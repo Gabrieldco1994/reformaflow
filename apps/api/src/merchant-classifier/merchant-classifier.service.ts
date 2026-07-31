@@ -104,10 +104,21 @@ export class MerchantClassifierService {
     return EXPENSE_TYPE_TO_MERCHANT_CATEGORY[expenseType as ExpenseType] ?? null;
   }
 
-  async fromCache(raw: string): Promise<ClassifyResult | null> {
+  /**
+   * Resolve a regra de uma chave normalizada: tenta o tenant primeiro e só então
+   * cai no global (`tenantId` null). Nunca cruza para regra de outro tenant.
+   */
+  private async lookup(key: string, tenantId: string) {
+    const rows = await this.prisma.merchantCategory.findMany({
+      where: { merchantKey: key, OR: [{ tenantId }, { tenantId: null }] },
+    });
+    return rows.find((r) => r.tenantId === tenantId) ?? rows.find((r) => r.tenantId === null) ?? null;
+  }
+
+  async fromCache(raw: string, tenantId: string): Promise<ClassifyResult | null> {
     const key = MerchantClassifierService.normalizeKey(raw);
     if (!key) return null;
-    const row = await this.prisma.merchantCategory.findUnique({ where: { merchantKey: key } });
+    const row = await this.lookup(key, tenantId);
     if (!row) return null;
     return {
       merchant: raw,
@@ -118,8 +129,8 @@ export class MerchantClassifierService {
     };
   }
 
-  async manualExpenseType(raw: string): Promise<ExpenseType | null> {
-    const row = await this.fromCache(raw);
+  async manualExpenseType(raw: string, tenantId: string): Promise<ExpenseType | null> {
+    const row = await this.fromCache(raw, tenantId);
     if (!row || row.source !== 'MANUAL') return null;
     const expenseType = MERCHANT_TO_EXPENSE_TYPE[row.category];
     if (!expenseType || expenseType === ExpenseType.OUTROS) return null;
@@ -132,7 +143,7 @@ export class MerchantClassifierService {
    *   2. Gemini para os faltantes (1 chamada)
    *   3. Persiste no cache
    */
-  async classifyBatch(merchants: string[]): Promise<Map<string, ClassifyResult>> {
+  async classifyBatch(merchants: string[], tenantId: string): Promise<Map<string, ClassifyResult>> {
     const result = new Map<string, ClassifyResult>();
     if (!merchants.length) return result;
 
@@ -143,10 +154,17 @@ export class MerchantClassifierService {
     }
     const keys = [...uniqueByKey.keys()];
 
-    const cached = await this.prisma.merchantCategory.findMany({
-      where: { merchantKey: { in: keys } },
+    const cachedRows = await this.prisma.merchantCategory.findMany({
+      where: { merchantKey: { in: keys }, OR: [{ tenantId }, { tenantId: null }] },
     });
-    const cachedMap = new Map(cached.map((c) => [c.merchantKey, c]));
+    // tenant-first, global fallback por chave
+    const cachedMap = new Map<string, (typeof cachedRows)[number]>();
+    for (const row of cachedRows) {
+      const cur = cachedMap.get(row.merchantKey);
+      if (!cur || (cur.tenantId === null && row.tenantId === tenantId)) {
+        cachedMap.set(row.merchantKey, row);
+      }
+    }
 
     const pending: { key: string; sample: string }[] = [];
     for (const [key, sample] of uniqueByKey) {
@@ -184,8 +202,9 @@ export class MerchantClassifierService {
               confidence: r.confidence ?? 0.8,
             });
             return this.prisma.merchantCategory.upsert({
-              where: { merchantKey: key },
+              where: { tenantId_merchantKey: { tenantId, merchantKey: key } },
               create: {
+                tenantId,
                 merchantKey: key,
                 merchantSample: slice[j].sample.slice(0, 200),
                 category: cat,
@@ -216,14 +235,21 @@ export class MerchantClassifierService {
   }
 
   /**
-   * Override manual (UI corrige). Persiste no cache com source=MANUAL e confidence=1.0.
+   * Override manual (UI corrige). Persiste no cache do tenant com source=MANUAL e
+   * confidence=1.0. Nunca toca regra global nem de outro tenant.
    */
-  async setManual(raw: string, category: MerchantCategory, subcategory?: string | null) {
+  async setManual(
+    raw: string,
+    category: MerchantCategory,
+    subcategory: string | null,
+    tenantId: string,
+  ) {
     const key = MerchantClassifierService.normalizeKey(raw);
     if (!key) return null;
     return this.prisma.merchantCategory.upsert({
-      where: { merchantKey: key },
+      where: { tenantId_merchantKey: { tenantId, merchantKey: key } },
       create: {
+        tenantId,
         merchantKey: key,
         merchantSample: raw.slice(0, 200),
         category,
@@ -240,11 +266,37 @@ export class MerchantClassifierService {
     });
   }
 
-  async removeManual(raw: string): Promise<{ merchantKey: string; deleted: boolean }> {
+  /**
+   * Promove uma regra a GLOBAL (`tenantId` null) — visível para todos os tenants
+   * como fallback. Só ADMIN chega aqui (gate no controller). Substitui a global
+   * anterior da mesma chave (upsert seria inseguro: null em unique composto no
+   * SQLite não casa em findUnique).
+   */
+  async promoteGlobal(raw: string, category: MerchantCategory, subcategory?: string | null) {
+    const key = MerchantClassifierService.normalizeKey(raw);
+    if (!key) return null;
+    const [, created] = await this.prisma.$transaction([
+      this.prisma.merchantCategory.deleteMany({ where: { tenantId: null, merchantKey: key } }),
+      this.prisma.merchantCategory.create({
+        data: {
+          tenantId: null,
+          merchantKey: key,
+          merchantSample: raw.slice(0, 200),
+          category,
+          subcategory: subcategory ?? null,
+          source: 'MANUAL',
+          confidence: 1.0,
+        },
+      }),
+    ]);
+    return created;
+  }
+
+  async removeManual(raw: string, tenantId: string): Promise<{ merchantKey: string; deleted: boolean }> {
     const key = MerchantClassifierService.normalizeKey(raw);
     if (!key) return { merchantKey: '', deleted: false };
     const deleted = await this.prisma.merchantCategory.deleteMany({
-      where: { merchantKey: key, source: 'MANUAL' },
+      where: { merchantKey: key, tenantId, source: 'MANUAL' },
     });
     return { merchantKey: key, deleted: deleted.count > 0 };
   }

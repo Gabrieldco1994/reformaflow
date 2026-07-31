@@ -1,7 +1,10 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { MerchantClassifierService, type MerchantCategory } from './merchant-classifier.service';
 import { MERCHANT_TO_EXPENSE_TYPE } from './merchant-classifier.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { CurrentTenant } from '../common/decorators/tenant.decorator';
+import { Roles } from '../common/decorators/roles.decorator';
+import { RolesGuard } from '../common/guards/roles.guard';
 
 const SUGGEST_MIN_LENGTH = 3;
 
@@ -29,9 +32,14 @@ export class MerchantClassifierController {
   ) {}
 
   @Get()
-  list(@Query('q') q?: string, @Query('source') source?: string) {
+  list(
+    @CurrentTenant() tenantId: string,
+    @Query('q') q?: string,
+    @Query('source') source?: string,
+  ) {
     return this.prisma.merchantCategory.findMany({
       where: {
+        OR: [{ tenantId }, { tenantId: null }], // regras do tenant + globais
         ...(q ? { merchantKey: { contains: q.toLowerCase() } } : {}),
         ...(source ? { source: source.toUpperCase() } : {}),
       },
@@ -41,14 +49,17 @@ export class MerchantClassifierController {
   }
 
   @Post('classify')
-  async classify(@Body() body: { merchants: string[] }) {
-    const map = await this.svc.classifyBatch(body.merchants ?? []);
+  async classify(@CurrentTenant() tenantId: string, @Body() body: { merchants: string[] }) {
+    const map = await this.svc.classifyBatch(body.merchants ?? [], tenantId);
     return Object.fromEntries(map);
   }
 
   @Post('override')
-  override(@Body() body: { merchant: string; category: MerchantCategory; subcategory?: string }) {
-    return this.svc.setManual(body.merchant, body.category, body.subcategory ?? null);
+  override(
+    @CurrentTenant() tenantId: string,
+    @Body() body: { merchant: string; category: MerchantCategory; subcategory?: string },
+  ) {
+    return this.svc.setManual(body.merchant, body.category, body.subcategory ?? null, tenantId);
   }
 
   /**
@@ -61,18 +72,43 @@ export class MerchantClassifierController {
    * mapeamento, só não há regra a criar: `ruleCreated: false`.
    */
   @Post('confirm-rule')
-  async confirmRule(@Body() body: { merchant: string; tipoDespesa: string }) {
+  async confirmRule(
+    @CurrentTenant() tenantId: string,
+    @Body() body: { merchant: string; tipoDespesa: string },
+  ) {
     const category = MerchantClassifierService.toMerchantCategory(body.tipoDespesa);
     if (!category) {
       return { merchantKey: '', category: null, ruleCreated: false };
     }
-    const saved = await this.svc.setManual(body.merchant, category, null);
+    const saved = await this.svc.setManual(body.merchant, category, null, tenantId);
     return { merchantKey: saved?.merchantKey ?? '', category, ruleCreated: true };
   }
 
   @Post('remove-rule')
-  removeRule(@Body() body: { merchant: string }) {
-    return this.svc.removeManual(body.merchant);
+  removeRule(@CurrentTenant() tenantId: string, @Body() body: { merchant: string }) {
+    return this.svc.removeManual(body.merchant, tenantId);
+  }
+
+  /**
+   * Promove um fornecedor a regra GLOBAL (vale para todos os tenants como
+   * fallback). Só ADMIN. `role` é por-tenant (não superadmin de plataforma):
+   * ponytail: admin de um tenant pode escrever o namespace global compartilhado —
+   * aceitável no modelo atual; virar gate de plataforma se surgir multi-tenant real.
+   */
+  @Post('promote-global')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  async promoteGlobal(
+    @Body() body: { merchant: string; tipoDespesa?: string; category?: MerchantCategory },
+  ) {
+    const category =
+      body.category ??
+      (body.tipoDespesa ? MerchantClassifierService.toMerchantCategory(body.tipoDespesa) : null);
+    if (!category) {
+      return { merchantKey: '', category: null, ruleCreated: false };
+    }
+    const saved = await this.svc.promoteGlobal(body.merchant, category, null);
+    return { merchantKey: saved?.merchantKey ?? '', category, ruleCreated: true };
   }
 
   /**
@@ -81,13 +117,16 @@ export class MerchantClassifierController {
    * quando o texto é curto demais para ser um sinal útil.
    */
   @Post('suggest')
-  async suggest(@Body() body: { text: string }): Promise<SuggestCategoryResponse> {
+  async suggest(
+    @CurrentTenant() tenantId: string,
+    @Body() body: { text: string },
+  ): Promise<SuggestCategoryResponse> {
     const text = (body?.text ?? '').trim();
     if (text.length < SUGGEST_MIN_LENGTH) {
       return { ...NEUTRAL_SUGGESTION };
     }
 
-    const map = await this.svc.classifyBatch([text]);
+    const map = await this.svc.classifyBatch([text], tenantId);
     const key = MerchantClassifierService.normalizeKey(text);
     const result = map.get(key);
     if (!result) {

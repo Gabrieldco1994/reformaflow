@@ -504,7 +504,7 @@ export class AgentToolsService {
           // que o agente já resolveu para algo diferente de OUTROS.
           if (tipoDespesa === 'OUTROS' && (titulo || fornecedor)) {
             const classifyText = titulo || fornecedor || '';
-            const classified = await this.merchantClassifier.classifyBatch([classifyText]);
+            const classified = await this.merchantClassifier.classifyBatch([classifyText], ctx.tenantId);
             const key = MerchantClassifierService.normalizeKey(classifyText);
             const suggestion = classified.get(key);
             const mapped = suggestion ? MERCHANT_TO_EXPENSE_TYPE[suggestion.category] : undefined;
