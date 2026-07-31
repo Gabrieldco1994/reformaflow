@@ -516,8 +516,12 @@ function JourneyRuntimeOverlay() {
 
       {step.experience === "FULL" ? (
         <p className="text-[13px] text-lifeone-ink-2">
-          Você está na tela real da funcionalidade. Use o painel para continuar
-          a jornada.
+          {/* `subtitle` é `String?` no banco: pode vir null E pode vir vazio/só
+              espaços (`??` deixaria o vazio passar e renderizaria um parágrafo
+              em branco). Só cai na frase genérica quando não há texto real. */}
+          {step.subtitle && step.subtitle.trim().length > 0
+            ? step.subtitle
+            : "Você está na tela real da funcionalidade. Use o painel para continuar a jornada."}
         </p>
       ) : active.projectId ? (
         <SummaryStepPanel
