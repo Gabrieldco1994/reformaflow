@@ -3122,4 +3122,84 @@ describe("MonthlyOverviewService.getAccountView — Carteira (origem='none')", (
     expect(res.faltaPagarMes).toBe(0);
     expect(res.carteiraHoje).toBe(-1_500);
   });
+
+  // Regressão (regra de ouro 14): o caso PAGO acima já era coberto, mas a
+  // variante PLANEJADA sem cartão nem conta sumia da Visão Conta — aparecia na
+  // lista de Despesas e no Cockpit e não aqui, ou seja, dinheiro invisível no
+  // consolidado. Das quatro combinações, esta era a ÚNICA que falhava: paga sem
+  // conta, planejada COM conta e recebimento previsto sem conta sempre
+  // apareceram. Um teste que verificasse só uma tela não pegaria isso.
+  it("T7: despesa LOCAL PLANEJADA sem cartão e sem conta aparece como carteira e soma em faltaPagarMes", async () => {
+    prisma.expense.findMany.mockResolvedValue([
+      base({
+        id: "local-carteira-pendente",
+        projectId,
+        tipoDespesa: "ALIMENTACAO",
+        titulo: "Feira a pagar",
+        fornecedor: "Feira livre",
+        valorTotal: 2_500,
+        valor: 2_500,
+        formaPagamento: "A_VISTA",
+        dataPagamento: new Date("2026-06-20T00:00:00.000Z"),
+        status: "PLANEJADO",
+        project: { id: projectId, name: "Pessoal", type: "PESSOAL" },
+      }),
+    ]);
+    prisma.receipt.findMany.mockResolvedValue([]);
+    prisma.cashFlowEntry.findMany.mockResolvedValue([]);
+    prisma.creditCard.findMany.mockResolvedValue([]);
+
+    const res: any = await service.getAccountView(tenantId, projectId, "2026-06");
+
+    const item = res.saidas.find((s: any) => s.id === "local-carteira-pendente");
+    expect(item).toBeDefined();
+    expect(item.origem).toEqual({ tipo: "carteira" });
+    expect(item.valor).toBe(2_500);
+    // `realizado: false` é o que decide o bucket: sai de `saiuMes` e entra em
+    // `faltaPagarMes`. Asseverar só a presença deixaria passar um item que
+    // aparece na lista mas contamina o total de "já saiu".
+    expect(item.realizado).toBe(false);
+    expect(res.faltaPagarMes).toBe(2_500);
+    expect(res.saiuMes).toBe(0);
+  });
+
+  it("T8: carteira paga e planejada no mesmo mês caem em buckets distintos", async () => {
+    prisma.expense.findMany.mockResolvedValue([
+      base({
+        id: "carteira-paga",
+        projectId,
+        tipoDespesa: "ALIMENTACAO",
+        titulo: "Feira paga",
+        valorTotal: 1_000,
+        valor: 1_000,
+        formaPagamento: "A_VISTA",
+        dataPagamento: new Date("2026-06-10T00:00:00.000Z"),
+        status: "PAGO",
+        project: { id: projectId, name: "Pessoal", type: "PESSOAL" },
+      }),
+      base({
+        id: "carteira-planejada",
+        projectId,
+        tipoDespesa: "ALIMENTACAO",
+        titulo: "Feira a pagar",
+        valorTotal: 700,
+        valor: 700,
+        formaPagamento: "A_VISTA",
+        dataPagamento: new Date("2026-06-25T00:00:00.000Z"),
+        status: "PLANEJADO",
+        project: { id: projectId, name: "Pessoal", type: "PESSOAL" },
+      }),
+    ]);
+    prisma.receipt.findMany.mockResolvedValue([]);
+    prisma.cashFlowEntry.findMany.mockResolvedValue([]);
+    prisma.creditCard.findMany.mockResolvedValue([]);
+
+    const res: any = await service.getAccountView(tenantId, projectId, "2026-06");
+
+    expect(res.saidas.find((s: any) => s.id === "carteira-paga")).toBeDefined();
+    expect(res.saidas.find((s: any) => s.id === "carteira-planejada")).toBeDefined();
+    // Os dois totais somados NÃO podem contar a mesma despesa duas vezes.
+    expect(res.saiuMes).toBe(1_000);
+    expect(res.faltaPagarMes).toBe(700);
+  });
 });
