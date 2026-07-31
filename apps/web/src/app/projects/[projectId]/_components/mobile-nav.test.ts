@@ -26,13 +26,14 @@ const NON_PERSONAL_MATRIX = [
   },
   {
     type: ProjectType.CASA,
-    primary: ['dashboard', 'bills', 'expenses'],
-    secondary: ['financing', 'maintenance', 'reminders'],
+    // expenses removed from PROJECT_NAV: Avulsas em /bills é a superfície única para CASA/CARRO.
+    primary: ['dashboard', 'bills', 'financing'],
+    secondary: ['maintenance', 'reminders'],
   },
   {
     type: ProjectType.CARRO,
     primary: ['dashboard', 'car-info', 'bills'],
-    secondary: ['expenses', 'vehicle-documents', 'financing', 'maintenance', 'reminders'],
+    secondary: ['vehicle-documents', 'financing', 'maintenance', 'reminders'],
   },
   {
     type: ProjectType.PLANTAS,

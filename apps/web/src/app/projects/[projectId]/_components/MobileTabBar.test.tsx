@@ -54,8 +54,8 @@ const NON_PERSONAL_MATRIX = [
   },
   {
     type: ProjectType.CASA,
-    labels: ["Dashboard", "Contas", "Despesas"],
-    slugs: ["dashboard", "bills", "expenses"],
+    labels: ["Dashboard", "Contas", "Financiamento"],
+    slugs: ["dashboard", "bills", "financing"],
     accent: "#1E924A",
   },
   {

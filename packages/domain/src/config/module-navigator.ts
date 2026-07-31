@@ -56,7 +56,6 @@ export const PROJECT_NAV: Record<ProjectType, NavModule[]> = {
   [ProjectType.CASA]: [
     { slug: 'dashboard', label: 'Dashboard', iconName: 'LayoutDashboard', module: 'dashboard' },
     { slug: 'bills', label: 'Contas', iconName: 'CreditCard', module: 'recurringBills' },
-    { slug: 'expenses', label: 'Despesas', iconName: 'Receipt', module: 'expenses' },
     { slug: 'financing', label: 'Financiamento', iconName: 'Landmark', module: 'financing' },
     { slug: 'maintenance', label: 'Manutenções', iconName: 'Wrench', module: 'maintenance' },
     { slug: 'reminders', label: 'Lembretes', iconName: 'Bell', module: 'reminders' },
@@ -65,7 +64,6 @@ export const PROJECT_NAV: Record<ProjectType, NavModule[]> = {
     { slug: 'dashboard', label: 'Dashboard', iconName: 'LayoutDashboard', module: 'dashboard' },
     { slug: 'car-info', label: 'Meu Carro', iconName: 'Car', module: 'carInfo' },
     { slug: 'bills', label: 'Contas', iconName: 'CreditCard', module: 'recurringBills' },
-    { slug: 'expenses', label: 'Despesas', iconName: 'Receipt', module: 'expenses' },
     { slug: 'vehicle-documents', label: 'Documentos', iconName: 'FileText', module: 'vehicleDocuments' },
     { slug: 'financing', label: 'Financiamento', iconName: 'Landmark', module: 'financing' },
     { slug: 'maintenance', label: 'Manutenções', iconName: 'Wrench', module: 'maintenance' },
@@ -86,6 +84,18 @@ export const PROJECT_NAV: Record<ProjectType, NavModule[]> = {
  */
 export function getProjectNavModules(type: ProjectType): NavModule[] {
   return (PROJECT_NAV[type] ?? []).map((m) => ({ ...m }));
+}
+
+/**
+ * True when `slug` is a live product route for `type` (present in
+ * `PROJECT_NAV[type]`). Source of truth for "does this type still expose this
+ * screen as a nav destination" — used e.g. by routes that must self-redirect
+ * when their slug is removed from the navigator (a feature can remain gated
+ * via `hasFeature` for cross-project purposes without still being a routable
+ * screen; see issue #369, CASA/CARRO `expenses`).
+ */
+export function hasNavRoute(type: ProjectType, slug: string): boolean {
+  return (PROJECT_NAV[type] ?? []).some((m) => m.slug === slug);
 }
 
 /**

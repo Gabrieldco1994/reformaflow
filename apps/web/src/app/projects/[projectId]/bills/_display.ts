@@ -74,7 +74,9 @@ export interface AvulsaRow {
   tipoDespesa: string;
   titulo?: string | null;
   fornecedor?: string | null;
+  valor: number;
   valorTotal: number;
+  quantidade?: number;
   status: 'PLANEJADO' | 'PAGO';
   formaPagamento: string;
   dataPagamento?: string | null;

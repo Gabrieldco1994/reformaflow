@@ -2,6 +2,7 @@
 
 import { useProject } from '@/contexts/project-context';
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { Plus } from 'lucide-react';
 import type { ProjectType } from '@reformaflow/domain';
@@ -16,7 +17,9 @@ type RecurringBill = RecurringBillRow;
 
 export default function BillsPage() {
   const { projectId, projectType } = useProject();
-  const [activeTab, setActiveTab] = useState<'recorrentes' | 'avulsas'>('recorrentes');
+  const searchParams = useSearchParams();
+  const initialTab = searchParams.get('tab') === 'avulsas' ? 'avulsas' : 'recorrentes';
+  const [activeTab, setActiveTab] = useState<'recorrentes' | 'avulsas'>(initialTab);
   const [bills, setBills] = useState<RecurringBill[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);

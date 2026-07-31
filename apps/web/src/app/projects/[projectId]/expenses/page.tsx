@@ -1,25 +1,44 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { hasNavRoute, type ProjectType } from '@reformaflow/domain';
 import { useProject } from '@/contexts/project-context';
 import { ExpensesView } from './ExpensesView';
 import { MobileExpensesScreen } from './_components/MobileExpensesScreen';
-import { SimpleExpensesView } from './_components/SimpleExpensesView';
 
 /**
  * Desktop mantém a view analítica existente. No mobile (<lg) renderizamos a
  * superfície "app" simplificada.
  *
- * CASA/CARRO (issue #292 — dieta de despesas): tela dedicada e enxuta, sem a
- * complexidade de import fatura/extrato e vínculo cross-project do PESSOAL —
- * o módulo `expenses` continua existindo como âncora de vínculo/rateio
- * (feito a partir do PESSOAL) e fonte das despesas de combustível (#289).
+ * Issue #369 — superfície única de despesas: quando o tipo de projeto perdeu
+ * `expenses` como rota de nav (`PROJECT_NAV`, via `hasNavRoute`) E ganhou
+ * `bills` como a superfície equivalente (aba Avulsas), `/expenses`
+ * redireciona para lá. Hoje isso cobre só CASA/CARRO — a checagem exige as
+ * DUAS condições (não só "sumiu de expenses") porque PLANTAS também não tem
+ * `expenses` na nav mas não tem `bills` como destino válido; sem a segunda
+ * checagem, PLANTAS seria redirecionado para uma rota que ele não expõe. O
+ * módulo `expenses` (feature) continua existindo como âncora de
+ * vínculo/rateio (feito a partir do PESSOAL) e fonte das despesas de
+ * combustível (#289) — só a rota de produto some, a capacidade permanece.
  */
 export default function ExpensesPage() {
   const { projectType, projectId } = useProject();
+  const params = useParams();
+  const router = useRouter();
+  const routeProjectId = String(params?.projectId ?? projectId);
+  const type = projectType as ProjectType;
+  const shouldRedirectToAvulsas = !hasNavRoute(type, 'expenses') && hasNavRoute(type, 'bills');
 
-  if (projectType === 'CASA' || projectType === 'CARRO') {
-    return <SimpleExpensesView />;
+  useEffect(() => {
+    if (shouldRedirectToAvulsas) {
+      router.replace(`/projects/${routeProjectId}/bills?tab=avulsas`);
+    }
+  }, [shouldRedirectToAvulsas, routeProjectId, router]);
+
+  if (shouldRedirectToAvulsas) {
+    return null;
   }
 
   if (projectType !== 'PESSOAL') {
