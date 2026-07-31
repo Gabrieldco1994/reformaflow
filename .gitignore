@@ -59,3 +59,12 @@ prisma/seed.d.ts.map
 .vercel
 .env.vercel.local
 .husky/_/
+
+# Datasets grandes: binário/CSV versionado é peso permanente no clone de todo
+# mundo (o histórico guarda toda versão, mesmo depois de apagado). Em 2026-07
+# `data/livelo_ci_csv/` (6,7 MB, 55k linhas) estava versionado sem nenhum
+# consumidor no app — só poluía o diff de PRs que mexiam em outra coisa.
+# Dado de análise/experimento fica fora do repo.
+data/
+*.xlsx
+~$*
