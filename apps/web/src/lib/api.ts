@@ -78,7 +78,9 @@ async function request<T>(
       throw new ApiResponseError(msg, res.status, error);
     }
 
-    return res.json();
+    const text = await res.text();
+    if (text.trim() === '') return null as T;
+    return JSON.parse(text) as T;
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
       throw new ApiTimeoutError();

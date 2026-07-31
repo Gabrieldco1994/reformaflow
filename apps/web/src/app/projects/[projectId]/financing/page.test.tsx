@@ -28,6 +28,13 @@ vi.mock('@/lib/api', () => ({
 describe('FinancingPage', () => {
   beforeEach(() => mutate.mockClear());
 
+  it('renderiza o form de criação (não mensagem de erro) quando não há financiamento', () => {
+    render(<FinancingPage />);
+
+    expect(screen.getByRole('button', { name: 'Salvar financiamento' })).toBeInTheDocument();
+    expect(screen.queryByText('Erro ao carregar o financiamento.')).not.toBeInTheDocument();
+  });
+
   it('converte reais e percentual para centavos e basis points ao salvar', async () => {
     const { api } = await import('@/lib/api');
     render(<FinancingPage />);
