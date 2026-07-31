@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, Camera, CreditCard, Landmark, SkipForward, Wallet } from 'lucide-react';
 import { ExpenseType } from '@reformaflow/domain';
 import { api } from '@/lib/api';
-import { maskCurrencyInput, currencyInputToNumber } from '@/lib/currency-input';
+import { maskCurrencyInput, centsToReaisInput, currencyInputToNumber } from '@/lib/currency-input';
 import { getExpenseOptions } from '@/app/projects/[projectId]/expenses/_types';
 import { invalidateExpenseQueries } from '@/app/projects/[projectId]/expenses/_hooks/useExpenseMutations';
 import { useVoiceExpense } from '@/app/projects/[projectId]/expenses/_hooks/useVoiceExpense';
@@ -42,16 +42,43 @@ export function QuickExpenseStep({
 }: OnboardingStepProps) {
   const options = getExpenseOptions(projectType);
   const queryClient = useQueryClient();
+  /**
+   * Categoria padrão: `OUTROS` quando o tipo de projeto o oferece, senão o
+   * primeiro da lista.
+   *
+   * NÃO usar `options[0]` direto: em PESSOAL o primeiro é `CARTAO_CREDITO`, que
+   * na taxonomia tem `essentiality: 'NEUTRO'` e existe para *pagamento de
+   * fatura* — uma despesa não classificada nascia com um tipo que o sistema
+   * trata como não-consumo, sumindo dos gastos por categoria e do resultado.
+   * E amarrar em `options[0]` faz o padrão depender da ORDEM da lista:
+   * reordenar categorias o mudaria sem ninguém perceber.
+   *
+   * O `find` é necessário porque nem todo tipo tem `OUTROS`: REFORMA e PLANTAS
+   * não oferecem (ver `getExpenseTypesForProject`), e forçá-lo ali produziria
+   * um tipo inválido para o projeto — trocaria um bug por outro.
+   *
+   * UMA constante só, usada pelo select do formulário E pelo fallback da voz:
+   * eram dois pontos com a mesma regra, e corrigir um deixava o outro errado —
+   * foi exatamente o que a QA visual da foto pegou.
+   */
+  const defaultExpenseType =
+    (options.find((o) => o.value === ExpenseType.OUTROS)?.value as ExpenseType | undefined) ??
+    (options[0]?.value as ExpenseType) ??
+    ExpenseType.OUTROS;
   const [mode, setMode] = useState<EntryMode>('despesa');
   const [expenseScreen, setExpenseScreen] = useState<ExpenseScreen>('form');
   const [fonteChoice, setFonteChoice] = useState<FonteChoice>('carteira');
 
   // ─── Despesa form state ───────────────────────────────────────────────────
-  const [tipoDespesa, setTipoDespesa] = useState<string>(options[0]?.value ?? '');
+  const [tipoDespesa, setTipoDespesa] = useState<string>(defaultExpenseType);
   const [valor, setValor] = useState('');
   const [titulo, setTitulo] = useState('');
   const [dataPagamento, setDataPagamento] = useState(() => new Date().toISOString().slice(0, 10));
   const [saving, setSaving] = useState(false);
+  // Leitura da foto do comprovante: separado de `saving` porque são etapas
+  // diferentes — a foto é interpretada ANTES de salvar, e o usuário ainda vai
+  // confirmar os campos no formulário.
+  const [scanning, setScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // ─── Foto ref ─────────────────────────────────────────────────────────────
@@ -77,23 +104,6 @@ export function QuickExpenseStep({
   });
 
   // ─── Voice expense hook ───────────────────────────────────────────────────
-  // Fallback de categoria quando a voz não identifica: `OUTROS` quando o tipo
-  // de projeto o oferece, senão o primeiro da lista.
-  //
-  // NÃO usar `options[0]` direto: no PESSOAL o primeiro é `CARTAO_CREDITO`, que
-  // na taxonomia é `essentiality: 'NEUTRO'` e existe para *pagamento de fatura*
-  // — uma despesa não classificada nascia com tipo que o sistema trata como
-  // não-consumo, sumindo dos gastos por categoria e do resultado. E `options[0]`
-  // faz o padrão depender da ORDEM da lista: reordenar categorias o mudaria sem
-  // ninguém perceber.
-  //
-  // O `find` é necessário porque nem todo tipo tem `OUTROS`: REFORMA e PLANTAS
-  // não oferecem (verificado em `getExpenseTypesForProject`), e forçá-lo ali
-  // produziria um tipo inválido para o projeto — trocar um bug por outro.
-  const defaultExpenseType =
-    (options.find((o) => o.value === ExpenseType.OUTROS)?.value as ExpenseType | undefined) ??
-    (options[0]?.value as ExpenseType) ??
-    ExpenseType.OUTROS;
   const voice = useVoiceExpense({
     allowedExpenseTypes: options.map((o) => o.value as ExpenseType),
     defaultExpenseType,
@@ -183,10 +193,56 @@ export function QuickExpenseStep({
     void handleSave(bankAccountId, creditCardId);
   }
 
-  function handleFotoSelected(e: ChangeEvent<HTMLInputElement>) {
-    if (e.target.files && e.target.files.length > 0) {
-      // ponytail: foto advances wizard without uploading; full receipt-OCR flow is future work
-      onDone();
+  /**
+   * Foto de comprovante (cupom, print de PIX, recibo) → OCR → **formulário
+   * preenchido para conferência**, nunca gravação direta.
+   *
+   * Antes isto era um stub que só chamava `onDone()`: o usuário fotografava, a
+   * tela avançava e nada era salvo. Agora envia a imagem, e o que a IA leu cai
+   * nos campos do formulário para o usuário conferir e salvar — mesmo contrato
+   * do fluxo de voz, que também interpreta e deixa a decisão com quem lançou.
+   * Gravar direto a partir de OCR seria dinheiro entrando no consolidado sem
+   * ninguém ter olhado o valor.
+   *
+   * Campo que a IA não leu fica em branco (ou no default) em vez de chutar.
+   */
+  async function handleFotoSelected(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    // Limpa o input para permitir reenviar a MESMA foto depois de um erro —
+    // sem isto o `change` não dispara de novo e o botão parece morto.
+    e.target.value = '';
+    if (!file) return;
+
+    setError(null);
+    setScanning(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const scan = await api.upload<{
+        valorCents: number | null;
+        fornecedor: string | null;
+        descricao: string | null;
+        data: string | null;
+      }>(`/projects/${projectId}/expenses/scan-receipt`, fd, { timeoutMs: 70000 });
+
+      if (scan.valorCents != null) setValor(centsToReaisInput(scan.valorCents));
+      const tituloLido = scan.descricao ?? scan.fornecedor;
+      if (tituloLido) setTitulo(tituloLido);
+      if (scan.data) setDataPagamento(scan.data);
+
+      if (scan.valorCents == null) {
+        setError(
+          'Não consegui ler o valor nessa foto. Confira os campos e complete o que faltar.',
+        );
+      }
+      // Volta para o formulário com o que foi lido — o usuário confirma pelo
+      // fluxo normal ("Criar e continuar"), inclusive escolhendo a fonte.
+      setMode('despesa');
+      setExpenseScreen('form');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao ler a foto do comprovante');
+    } finally {
+      setScanning(false);
     }
   }
 
@@ -439,7 +495,9 @@ export function QuickExpenseStep({
               <Camera className="h-8 w-8 text-lifeone-ink-3" />
             </div>
             <p className="text-center text-[14px] text-lifeone-ink-2">
-              Fotografe o comprovante ou nota fiscal
+              {scanning
+                ? 'Lendo o comprovante…'
+                : 'Fotografe o comprovante ou nota fiscal'}
             </p>
             <input
               type="file"
@@ -451,11 +509,19 @@ export function QuickExpenseStep({
             />
             <button
               type="button"
+              disabled={scanning}
               onClick={() => fileRef.current?.click()}
-              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-[10px] bg-lifeone-blue px-4 py-3 text-[14px] font-semibold text-white hover:brightness-95 active:scale-[0.99]"
+              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-[10px] bg-lifeone-blue px-4 py-3 text-[14px] font-semibold text-white hover:brightness-95 active:scale-[0.99] disabled:opacity-60"
             >
-              <Camera className="h-4 w-4" /> Tirar foto / escolher imagem
+              <Camera className="h-4 w-4" />{' '}
+              {scanning ? 'Lendo…' : 'Tirar foto / escolher imagem'}
             </button>
+            {/* O erro precisa aparecer AQUI: numa falha de leitura o usuário
+                continua no modo foto, e sem este bloco a mensagem ficava só no
+                bloco de `despesa` — invisível, e a tela parecia travada. */}
+            {error && (
+              <p className="mt-1 text-center text-[13px] text-[#B42318]">{error}</p>
+            )}
           </div>
           <div className="mt-2 flex flex-col gap-2">
             {canSkip && (
