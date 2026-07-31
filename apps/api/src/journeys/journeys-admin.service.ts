@@ -20,7 +20,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   JOURNEY_LABEL_MAX_LENGTH,
   JOURNEY_SUBTITLE_MAX_LENGTH,
-} from '../onboarding-journey/dto/save-journey.dto';
+} from './constants';
 import { CreateJourneyDto } from './dto/create-journey.dto';
 import { JourneyStepInputDto } from './dto/journey-step-input.dto';
 import { JourneyTriggerInputDto } from './dto/journey-trigger-input.dto';

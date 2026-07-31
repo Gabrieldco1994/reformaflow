@@ -45,108 +45,108 @@ describe("/onboarding/objetivos", () => {
     }
   });
 
-  it("PESSOAL alone -> replace('/onboarding/setup?type=PESSOAL')", async () => {
+  it("PESSOAL alone -> replace('/projects')", async () => {
     const browser = userEvent.setup();
     render(<OnboardingObjetivosPage />);
     await toggle(browser, "PESSOAL");
     await browser.click(screen.getByRole("button", { name: /continuar/i }));
 
     await waitFor(() =>
-      expect(mocks.replace).toHaveBeenCalledWith("/onboarding/setup?type=PESSOAL"),
+      expect(mocks.replace).toHaveBeenCalledWith("/projects"),
     );
   });
 
-  it("REFORMA alone -> replace('/onboarding/setup?type=REFORMA')", async () => {
+  it("REFORMA alone -> replace('/projects')", async () => {
     const browser = userEvent.setup();
     render(<OnboardingObjetivosPage />);
     await toggle(browser, "REFORMA");
     await browser.click(screen.getByRole("button", { name: /continuar/i }));
 
     await waitFor(() =>
-      expect(mocks.replace).toHaveBeenCalledWith("/onboarding/setup?type=REFORMA"),
+      expect(mocks.replace).toHaveBeenCalledWith("/projects"),
     );
   });
 
-  it("COMPRA alone -> replace('/onboarding/setup?type=COMPRA')", async () => {
+  it("COMPRA alone -> replace('/projects')", async () => {
     const browser = userEvent.setup();
     render(<OnboardingObjetivosPage />);
     await toggle(browser, "COMPRA");
     await browser.click(screen.getByRole("button", { name: /continuar/i }));
 
     await waitFor(() =>
-      expect(mocks.replace).toHaveBeenCalledWith("/onboarding/setup?type=COMPRA"),
+      expect(mocks.replace).toHaveBeenCalledWith("/projects"),
     );
   });
 
-  it("CASA alone -> replace('/onboarding/setup?type=CASA')", async () => {
+  it("CASA alone -> replace('/projects')", async () => {
     const browser = userEvent.setup();
     render(<OnboardingObjetivosPage />);
     await toggle(browser, "CASA");
     await browser.click(screen.getByRole("button", { name: /continuar/i }));
 
     await waitFor(() =>
-      expect(mocks.replace).toHaveBeenCalledWith("/onboarding/setup?type=CASA"),
+      expect(mocks.replace).toHaveBeenCalledWith("/projects"),
     );
   });
 
-  it("CARRO alone -> replace('/onboarding/setup?type=CARRO')", async () => {
+  it("CARRO alone -> replace('/projects')", async () => {
     const browser = userEvent.setup();
     render(<OnboardingObjetivosPage />);
     await toggle(browser, "CARRO");
     await browser.click(screen.getByRole("button", { name: /continuar/i }));
 
     await waitFor(() =>
-      expect(mocks.replace).toHaveBeenCalledWith("/onboarding/setup?type=CARRO"),
+      expect(mocks.replace).toHaveBeenCalledWith("/projects"),
     );
   });
 
-  it("PLANTAS alone -> replace('/onboarding/setup?type=PLANTAS')", async () => {
+  it("PLANTAS alone -> replace('/projects')", async () => {
     const browser = userEvent.setup();
     render(<OnboardingObjetivosPage />);
     await toggle(browser, "PLANTAS");
     await browser.click(screen.getByRole("button", { name: /continuar/i }));
 
     await waitFor(() =>
-      expect(mocks.replace).toHaveBeenCalledWith("/onboarding/setup?type=PLANTAS"),
+      expect(mocks.replace).toHaveBeenCalledWith("/projects"),
     );
   });
 
-  it("CASA + CARRO -> replace('.../setup?type=PESSOAL') and PATCH carries both", async () => {
+  it("CASA + CARRO -> replace('/projects') and PATCH carries both", async () => {
     const browser = userEvent.setup();
     render(<OnboardingObjetivosPage />);
     await toggle(browser, "CASA", "CARRO");
     await browser.click(screen.getByRole("button", { name: /continuar/i }));
 
     await waitFor(() =>
-      expect(mocks.replace).toHaveBeenCalledWith("/onboarding/setup?type=PESSOAL"),
+      expect(mocks.replace).toHaveBeenCalledWith("/projects"),
     );
     expect(mocks.patch).toHaveBeenCalledWith("/auth/objectives", {
       projectTypes: ["CASA", "CARRO"],
     });
   });
 
-  it("CASA + CARRO + REFORMA -> PESSOAL, PATCH carries all three", async () => {
+  it("CASA + CARRO + REFORMA -> PESSOAL decision becomes irrelevant, PATCH carries all three", async () => {
     const browser = userEvent.setup();
     render(<OnboardingObjetivosPage />);
     await toggle(browser, "CASA", "CARRO", "REFORMA");
     await browser.click(screen.getByRole("button", { name: /continuar/i }));
 
     await waitFor(() =>
-      expect(mocks.replace).toHaveBeenCalledWith("/onboarding/setup?type=PESSOAL"),
+      expect(mocks.replace).toHaveBeenCalledWith("/projects"),
     );
     expect(mocks.patch).toHaveBeenCalledWith("/auth/objectives", {
       projectTypes: ["CASA", "CARRO", "REFORMA"],
     });
   });
 
-  it("PESSOAL + CARRO -> PESSOAL, PATCH carries both", async () => {
+  it("PESSOAL + CARRO -> navigate to /projects, PATCH carries both", async () => {
     const browser = userEvent.setup();
     render(<OnboardingObjetivosPage />);
     await toggle(browser, "PESSOAL", "CARRO");
     await browser.click(screen.getByRole("button", { name: /continuar/i }));
 
     await waitFor(() =>
-      expect(mocks.replace).toHaveBeenCalledWith("/onboarding/setup?type=PESSOAL"),
+      expect(mocks.replace).toHaveBeenCalledWith("/projects"),
     );
     expect(mocks.patch).toHaveBeenCalledWith("/auth/objectives", {
       projectTypes: ["PESSOAL", "CARRO"],
@@ -163,7 +163,7 @@ describe("/onboarding/objetivos", () => {
     expect(screen.getByText(/escolha pelo menos um/i)).toBeInTheDocument();
   });
 
-  it("resolves the PATCH before navigating (setup must not run without permission)", async () => {
+  it("resolves the PATCH before navigating (permissions must be set before project creation)", async () => {
     let resolvePatch!: () => void;
     mocks.patch.mockImplementationOnce(
       () => new Promise<void>((resolve) => { resolvePatch = resolve; }),
@@ -178,7 +178,7 @@ describe("/onboarding/objetivos", () => {
 
     resolvePatch();
     await waitFor(() =>
-      expect(mocks.replace).toHaveBeenCalledWith("/onboarding/setup?type=CARRO"),
+      expect(mocks.replace).toHaveBeenCalledWith("/projects"),
     );
   });
 

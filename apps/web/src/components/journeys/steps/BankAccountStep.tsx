@@ -2,7 +2,7 @@
 
 import { SkipForward, ChevronLeft } from 'lucide-react';
 import BankAccountFormModal from '@/app/projects/[projectId]/bank-accounts/_components/BankAccountFormModal';
-import type { OnboardingStepProps } from '@/app/onboarding/setup/_types';
+import type { OnboardingStepProps } from '../_types';
 
 /**
  * Wraps `BankAccountFormModal` in `bare` mode inside the wizard, with the

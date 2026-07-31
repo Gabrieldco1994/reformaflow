@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ProjectType } from '@reformaflow/domain';
 import { QuickExpenseStep } from './QuickExpenseStep';
-import type { OnboardingFunding } from '@/app/onboarding/setup/_types';
+import type { OnboardingFunding } from '../_types';
 
 // Stub VoiceExpenseModal so voice tests don't need full Modal/Speech setup
 vi.mock(

@@ -1,6 +1,6 @@
 import { IsBoolean, IsIn, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 import { JOURNEY_STEP_EXPERIENCES } from '@reformaflow/domain';
-import { JOURNEY_LABEL_MAX_LENGTH, JOURNEY_SUBTITLE_MAX_LENGTH } from '../../onboarding-journey/dto/save-journey.dto';
+import { JOURNEY_LABEL_MAX_LENGTH, JOURNEY_SUBTITLE_MAX_LENGTH } from '../constants';
 
 /**
  * Shape crua de UM passo — usada tanto em `POST /admin/journeys` (todo passo

@@ -20,9 +20,10 @@ const apiUser = {
 /**
  * O cadastro deixou de ser um funil de 3 telas (register -> objetivos ->
  * setup). Agora `/register` já coleta os objetivos, cria um projeto por
- * objetivo marcado e cai em `/projects`; quem leva ao wizard é o gate do
- * AppShell (`onboardedAt` nulo) via
- * `/onboarding/setup?projectId=<id>&type=<tipo>`.
+ * objetivo marcado e cai em `/projects`. Desde a Fase B (#339), o onboarding
+ * do projeto em si não é mais uma rota dedicada (`/onboarding/setup`) — é a
+ * jornada disparada por `PROJECT_CREATED`/`SCREEN_VISIT`, renderizada como
+ * painel sobre o dashboard (ver `journeys-dynamic.spec.ts`).
  */
 
 /** Sessão fake + rotas de auth que todo teste de cadastro precisa. */
@@ -150,25 +151,84 @@ test("cadastro sem objetivo não cria conta e explica o que falta", async ({
   expect(registerBodies).toEqual([]);
 });
 
-test("wizard de CARRO abre no passo Veículo, sem passos de conta/cartão", async ({
+/**
+ * O wizard dedicado morreu com a Fase B: o onboarding de um projeto novo
+ * agora é a jornada (`/journeys/eligible`) disparada por `PROJECT_CREATED`/
+ * `SCREEN_VISIT` e renderizada como painel sobre o dashboard (ver
+ * `journeys-dynamic.spec.ts`). O passo "Dados do seu carro" continua
+ * existindo — é `CarInfoStep`, registrado em `operational-summaries/registry`
+ * sob a chave `car` — só mudou de casa. Este teste passou a exercitar o
+ * painel novo em vez da rota removida.
+ */
+test("jornada de CARRO abre no passo carro, sem passo de conta/cartão", async ({
   page,
 }) => {
   await stubAuth(page);
-  // Este teste entra direto no wizard (não passa pelo cadastro), então a
-  // sessão precisa existir antes — senão o middleware manda pro /login.
+  // `apiUser` (topo do arquivo) só libera CASA; este teste precisa de CARRO.
+  await page.route("**/auth/me", (route) =>
+    route.fulfill({
+      json: { ...apiUser, allowedProjectTypes: ["CASA", "CARRO"] },
+    }),
+  );
   await page.context().addCookies([
     { name: "rf_token", value: "test-session", url: "http://localhost:3013" },
   ]);
+  await page.route("**/projects", (route) =>
+    route.fulfill({
+      json: [{ id: "carro-1", name: "Meu carro", type: "CARRO" }],
+    }),
+  );
   await page.route("**/projects/carro-1", (route) =>
     route.fulfill({
       json: { id: "carro-1", name: "Meu carro", type: "CARRO" },
     }),
   );
+  await page.route("**/journeys/eligible*", (route) =>
+    route.fulfill({
+      json: [
+        {
+          key: "onboarding:carro",
+          name: "Onboarding CARRO",
+          active: true,
+          targetScope: "PROJECT_TYPE",
+          targetProjectType: "CARRO",
+          targetProjectId: null,
+          repeatPolicy: "ONCE_PER_PROJECT",
+          allowCrossProjectNavigation: false,
+          steps: [
+            {
+              stepKey: "car",
+              order: 0,
+              enabled: true,
+              skippable: true,
+              experience: "SUMMARY",
+              label: "car",
+              subtitle: null,
+              conditionKey: null,
+              conditionUnmetBehavior: "SKIP",
+              targetProjectType: null,
+            },
+          ],
+          triggers: [
+            {
+              triggerType: "SCREEN_VISIT",
+              screenKey: "dashboard",
+              actionKey: null,
+              device: "any",
+              active: true,
+            },
+          ],
+        },
+      ],
+    }),
+  );
+  await page.route("**/journeys/*/complete", (route) =>
+    route.fulfill({ status: 204, body: "" }),
+  );
 
-  // URL que o gate do AppShell monta quando o projeto ainda não foi
-  // "onboardado" (projectId presente => o wizard não pede o nome de novo).
-  await page.goto("/onboarding/setup?projectId=carro-1&type=CARRO");
+  await page.goto("/projects/carro-1/dashboard");
 
+  await expect(page.locator('[data-journey-step="car"]')).toBeVisible();
   await expect(page.getByText(/dados do seu carro/i)).toBeVisible();
   await expect(page.getByText(/sem o saldo, o caixa/i)).not.toBeVisible();
 });

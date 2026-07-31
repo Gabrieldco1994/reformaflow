@@ -31,9 +31,9 @@ O front emite dois gatilhos do motor genérico de Jornadas
 - `SIGNUP_COMPLETED`: `RegisterForm` chama `emitSignupCompleted()` logo após
   `register()` responder, antes de criar os projetos por objetivo.
 - `PROJECT_CREATED`: `projects/page.tsx` chama
-  `emitProjectCreated(created.id, created.type)` após `refresh()` e antes do
-  redirect para `/onboarding/setup` — cobre tanto a criação manual quanto
-  qualquer fluxo futuro que passe por esse mesmo formulário.
+  `emitProjectCreated(created.id, created.type)` após `refresh()` — cobre tanto a criação manual quanto
+  qualquer fluxo futuro que passe por esse mesmo formulário. O painel de onboarding
+  aparece automaticamente sobre o Dashboard (não há rota dedicada como no shell antigo).
 
 Os dois consomem `useJourneyRuntime()` (`journey-runtime-context.tsx`), que já
 existia mas não tinha nenhum chamador de produção — `SCREEN_VISIT` era o único

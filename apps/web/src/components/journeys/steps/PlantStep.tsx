@@ -2,7 +2,7 @@
 
 import { SkipForward, ChevronLeft } from 'lucide-react';
 import { CreatePlantModal } from '@/app/projects/[projectId]/plants/_components/CreatePlantModal';
-import type { OnboardingStepProps } from '@/app/onboarding/setup/_types';
+import type { OnboardingStepProps } from '../_types';
 
 /**
  * Thin wrapper around `CreatePlantModal` (already self-contained: photo→AI
