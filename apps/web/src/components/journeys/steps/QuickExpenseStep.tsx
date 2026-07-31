@@ -2,12 +2,13 @@
 
 import { useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, Camera, CreditCard, Landmark, SkipForward, Wallet } from 'lucide-react';
 import { ExpenseType } from '@reformaflow/domain';
 import { api } from '@/lib/api';
 import { maskCurrencyInput, currencyInputToNumber } from '@/lib/currency-input';
 import { getExpenseOptions } from '@/app/projects/[projectId]/expenses/_types';
+import { invalidateExpenseQueries } from '@/app/projects/[projectId]/expenses/_hooks/useExpenseMutations';
 import { useVoiceExpense } from '@/app/projects/[projectId]/expenses/_hooks/useVoiceExpense';
 import { VoiceExpenseModal } from '@/app/projects/[projectId]/expenses/_components/VoiceExpenseModal';
 import { ONBOARDING_MODES } from '@/app/projects/[projectId]/_components/mobile-launch/launch-modes';
@@ -40,6 +41,7 @@ export function QuickExpenseStep({
   funding,
 }: OnboardingStepProps) {
   const options = getExpenseOptions(projectType);
+  const queryClient = useQueryClient();
   const [mode, setMode] = useState<EntryMode>('despesa');
   const [expenseScreen, setExpenseScreen] = useState<ExpenseScreen>('form');
   const [fonteChoice, setFonteChoice] = useState<FonteChoice>('carteira');
@@ -75,15 +77,46 @@ export function QuickExpenseStep({
   });
 
   // ─── Voice expense hook ───────────────────────────────────────────────────
-  const defaultExpenseType = (options[0]?.value as ExpenseType) ?? ExpenseType.OUTROS;
+  // Fallback de categoria quando a voz não identifica: `OUTROS` quando o tipo
+  // de projeto o oferece, senão o primeiro da lista.
+  //
+  // NÃO usar `options[0]` direto: no PESSOAL o primeiro é `CARTAO_CREDITO`, que
+  // na taxonomia é `essentiality: 'NEUTRO'` e existe para *pagamento de fatura*
+  // — uma despesa não classificada nascia com tipo que o sistema trata como
+  // não-consumo, sumindo dos gastos por categoria e do resultado. E `options[0]`
+  // faz o padrão depender da ORDEM da lista: reordenar categorias o mudaria sem
+  // ninguém perceber.
+  //
+  // O `find` é necessário porque nem todo tipo tem `OUTROS`: REFORMA e PLANTAS
+  // não oferecem (verificado em `getExpenseTypesForProject`), e forçá-lo ali
+  // produziria um tipo inválido para o projeto — trocar um bug por outro.
+  const defaultExpenseType =
+    (options.find((o) => o.value === ExpenseType.OUTROS)?.value as ExpenseType | undefined) ??
+    (options[0]?.value as ExpenseType) ??
+    ExpenseType.OUTROS;
   const voice = useVoiceExpense({
     allowedExpenseTypes: options.map((o) => o.value as ExpenseType),
     defaultExpenseType,
     onCreate: (data: ExpenseFormData, onSuccess: () => void) => {
+      // Sem `.catch(() => {})`: engolir o erro aqui fazia a despesa por voz
+      // falhar em silêncio — o modal fechava, o passo avançava, e o usuário só
+      // descobria depois que nada tinha sido salvo. Agora a falha aparece no
+      // mesmo `setError` que o formulário manual já usa, e o passo NÃO avança.
+      setError(null);
       api
         .post(`/projects/${projectId}/expenses`, data)
-        .then(() => { onSuccess(); onDone(expenseDonePayload(data.tipoDespesa)); })
-        .catch(() => {});
+        .then(() => {
+          // Sem invalidar, a despesa salva não aparecia nas listas já carregadas
+          // (Despesas, Cockpit, Visão Conta) — o usuário lançava e "sumia".
+          // Reusa o MESMO helper da tela normal para não divergir: se um dia
+          // entrar uma query nova lá, a jornada acompanha de graça.
+          invalidateExpenseQueries(queryClient, projectId);
+          onSuccess();
+          onDone(expenseDonePayload(data.tipoDespesa));
+        })
+        .catch((e: unknown) => {
+          setError(e instanceof Error ? e.message : 'Erro ao salvar despesa por voz');
+        });
     },
     cards,
     accounts,
@@ -122,6 +155,9 @@ export function QuickExpenseStep({
     setError(null);
     try {
       await api.post(`/projects/${projectId}/expenses`, buildPayload(bankAccountId, creditCardId));
+      // Mesmo motivo do caminho por voz: sem invalidar, a despesa salva não
+      // aparece nas listas já carregadas quando a jornada termina.
+      invalidateExpenseQueries(queryClient, projectId);
       onDone(expenseDonePayload(tipoDespesa));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao salvar despesa');
