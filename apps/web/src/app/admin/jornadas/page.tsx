@@ -236,6 +236,7 @@ export default function AdminJornadasPage() {
                 <JourneyTrack
                   steps={editor.selected.steps}
                   availableSteps={stepCatalog}
+                  targetProjectType={editor.selected.targetProjectType}
                   onReorder={editor.reorder}
                   onMove={editor.moveStep}
                   onPatch={editor.patchStep}

@@ -224,42 +224,45 @@ describe("executor: Pular, Voltar e etapas bloqueadas", () => {
     expect(screen.getByTestId("step-key")).toHaveTextContent(plan.steps[0].stepKey);
   });
 
-  it("etapa com condição BLOCK não satisfeita desabilita Continuar e aguarda", () => {
-    const plan = resolveJourneyPlan(
-      makeJourney({
-        steps: [
-          makeStep({
-            stepKey: "aguarda",
-            order: 0,
-            conditionKey: "tem-conta",
-            conditionUnmetBehavior: "BLOCK",
-          }),
-          makeStep({ stepKey: "depois", order: 1 }),
-        ],
-      }),
-      { conditions: { "tem-conta": false } },
-    );
+  // A condição BLOCK por passo (`conditionKey`/`conditionUnmetBehavior`) nunca
+  // existiu no modelo Prisma `JourneyStep` — era código morto em
+  // `resolveJourneyPlan`, removido em `journey-plan.ts`. `blocked` continua
+  // existindo em `PlannedJourneyStep` (fixo em `false` hoje) só porque
+  // `journey-runtime-context.tsx` já o consome; o teste abaixo monta o plano
+  // à mão (não via `resolveJourneyPlan`, que nunca produz `blocked: true`
+  // sozinho) para continuar cobrindo o consumo de `blocked` pelo executor.
+  it("etapa com blocked=true desabilita Continuar e aguarda", () => {
+    const plan: JourneyPlan = {
+      steps: [
+        {
+          stepKey: "aguarda",
+          order: 0,
+          position: 1,
+          skippable: false,
+          experience: "FULL",
+          label: null,
+          subtitle: null,
+          blocked: true,
+        },
+        {
+          stepKey: "depois",
+          order: 1,
+          position: 2,
+          skippable: false,
+          experience: "FULL",
+          label: null,
+          subtitle: null,
+          blocked: false,
+        },
+      ],
+      total: 2,
+      warnings: [],
+    };
 
     render(<JourneyRunner plan={plan} registry={registryFor(plan)} />);
 
     expect(screen.getByRole("button", { name: "Continuar" })).toBeDisabled();
     expect(screen.getByTestId("progress")).toHaveTextContent("1/2");
-  });
-
-  it("etapa com condição SKIP não satisfeita nem aparece nem conta no progresso", () => {
-    const plan = resolveJourneyPlan(
-      makeJourney({
-        steps: makeSteps(4, (index) =>
-          index === 0 ? { conditionKey: "off", conditionUnmetBehavior: "SKIP" } : {},
-        ),
-      }),
-      { conditions: { off: false } },
-    );
-
-    render(<JourneyRunner plan={plan} registry={registryFor(plan)} />);
-
-    expect(screen.getByTestId("progress")).toHaveTextContent("1/3");
-    expect(screen.getByTestId("step-key")).not.toHaveTextContent("step-1");
   });
 });
 

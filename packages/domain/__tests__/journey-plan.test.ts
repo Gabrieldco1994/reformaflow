@@ -6,6 +6,7 @@ import {
   initialJourneyFlowState,
   advanceJourneyFlow,
   currentJourneyStep,
+  type JourneyPlan,
 } from "../src/config/journey-plan";
 import { JOURNEY_CATALOG, listAllCatalogStepKeys } from "../src/config/journey-catalog";
 import { listSummaryCatalogSlugs } from "../src/config/summary-catalog";
@@ -166,64 +167,13 @@ describe("resolveJourneyPlan — dirigido pela configuração", () => {
   });
 });
 
-describe("resolveJourneyPlan — condições SKIP/BLOCK", () => {
-  it("condição NÃO satisfeita com SKIP: passo some e sai do denominador", () => {
-    const journey = makeJourney({
-      steps: makeSteps(4, (index) =>
-        index === 1
-          ? { conditionKey: "tem-despesa", conditionUnmetBehavior: "SKIP" }
-          : {},
-      ),
-    });
-
-    const plan = resolveJourneyPlan(journey, { conditions: { "tem-despesa": false } });
-
-    expect(plan.total).toBe(journey.steps.length - 1);
-    expect(plan.steps.some((s) => s.stepKey === "step-2")).toBe(false);
-  });
-
-  it("condição NÃO satisfeita com BLOCK: passo aparece, conta no denominador e vem bloqueado", () => {
-    const journey = makeJourney({
-      steps: makeSteps(4, (index) =>
-        index === 1
-          ? { conditionKey: "tem-despesa", conditionUnmetBehavior: "BLOCK" }
-          : {},
-      ),
-    });
-
-    const plan = resolveJourneyPlan(journey, { conditions: { "tem-despesa": false } });
-
-    expect(plan.total).toBe(journey.steps.length);
-    expect(plan.steps.find((s) => s.stepKey === "step-2")?.blocked).toBe(true);
-  });
-
-  it("condição satisfeita: SKIP e BLOCK se comportam igual (ambos entram desbloqueados)", () => {
-    const build = (behavior: "SKIP" | "BLOCK") =>
-      makeJourney({
-        steps: makeSteps(4, (index) =>
-          index === 1 ? { conditionKey: "ok", conditionUnmetBehavior: behavior } : {},
-        ),
-      });
-
-    const conditions = { ok: true };
-    const skipPlan = resolveJourneyPlan(build("SKIP"), { conditions });
-    const blockPlan = resolveJourneyPlan(build("BLOCK"), { conditions });
-
-    expect(skipPlan.steps.map((s) => s.stepKey)).toEqual(
-      blockPlan.steps.map((s) => s.stepKey),
-    );
-    expect(skipPlan.steps.every((s) => !s.blocked)).toBe(true);
-    expect(blockPlan.steps.every((s) => !s.blocked)).toBe(true);
-  });
-
-  it("condição ausente do contexto é tratada como NÃO satisfeita (fail-safe)", () => {
-    const journey = makeJourney({
-      steps: [makeStep({ stepKey: "só", conditionKey: "nunca-informada" })],
-    });
-
-    expect(resolveJourneyPlan(journey, { conditions: {} }).steps).toEqual([]);
-  });
-});
+// A suíte "condições SKIP/BLOCK" foi removida (não substituída): o modelo
+// Prisma `JourneyStep` nunca teve `conditionKey`/`conditionUnmetBehavior`
+// (ver `journey-plan.ts` — `PersistedJourneyStep`), então essa suíte testava
+// só o fixture (`makeStep` chegou a preencher os três campos à mão) e nunca o
+// código de produção. `blocked` continua existindo em `PlannedJourneyStep`,
+// fixo em `false` — a suíte de fluxo abaixo ("Pular, Voltar...") cobre o
+// consumo desse campo construindo um `JourneyPlan` manualmente.
 
 describe("resolveJourneyPlan — chave desconhecida não derruba a jornada", () => {
   it("passo com `stepKey` órfão é ignorado com aviso diagnosticável, e o resto roda", () => {
@@ -294,7 +244,14 @@ describe("resolveJourneyPlan — chave desconhecida não derruba a jornada", () 
   });
 });
 
-describe("resolveJourneyPlan — alvo e cross-project", () => {
+// A suíte "cross-project" foi removida (não substituída): `PersistedJourneyStep`
+// nunca teve `targetProjectType` por passo persistido no banco, então
+// `isCross`/`CROSS_PROJECT_NOT_ALLOWED` nunca disparavam em produção — só o
+// fixture (`makeStep`) preenchia o campo. `crossProject`/
+// `allowCrossProjectNavigation` (nível de JORNADA) continuam vivos; o teste
+// abaixo prova que o alvo (nível de jornada) nunca alterou o PLANO de passos
+// — responsabilidade que sempre foi só de `JourneysEligibilityService`.
+describe("resolveJourneyPlan — alvo (nível de jornada) não altera o plano de passos", () => {
   it.each([
     ["ALL_PROJECTS" as const, null],
     ["PROJECT_TYPE" as const, ProjectType.CASA],
@@ -315,58 +272,6 @@ describe("resolveJourneyPlan — alvo e cross-project", () => {
       expect(plan.steps.map((s) => s.stepKey)).toEqual(steps.map((s) => s.stepKey));
     },
   );
-
-  it("passo cross-project é mantido quando a jornada permite navegação cross", () => {
-    const journey = makeJourney({
-      allowCrossProjectNavigation: true,
-      steps: makeSteps(4, (index) =>
-        index === 2 ? { targetProjectType: ProjectType.CASA } : {},
-      ),
-    });
-
-    const plan = resolveJourneyPlan(journey, {
-      currentProjectType: ProjectType.PESSOAL,
-    });
-
-    expect(plan.total).toBe(journey.steps.length);
-    expect(plan.steps.find((s) => s.stepKey === "step-3")?.targetProjectType).toBe(
-      ProjectType.CASA,
-    );
-    expect(plan.warnings).toEqual([]);
-  });
-
-  it("passo cross-project é descartado com aviso quando a jornada NÃO permite cross", () => {
-    const journey = makeJourney({
-      allowCrossProjectNavigation: false,
-      steps: makeSteps(4, (index) =>
-        index === 2 ? { targetProjectType: ProjectType.CASA } : {},
-      ),
-    });
-
-    const plan = resolveJourneyPlan(journey, {
-      currentProjectType: ProjectType.PESSOAL,
-    });
-
-    expect(plan.steps.some((s) => s.stepKey === "step-3")).toBe(false);
-    expect(plan.total).toBe(journey.steps.length - 1);
-    expect(plan.warnings).toEqual([
-      { code: "CROSS_PROJECT_NOT_ALLOWED", stepKey: "step-3" },
-    ]);
-  });
-
-  it("passo cujo alvo é o tipo do projeto atual nunca é cross (não exige permissão)", () => {
-    const journey = makeJourney({
-      allowCrossProjectNavigation: false,
-      steps: makeSteps(3, () => ({ targetProjectType: ProjectType.PESSOAL })),
-    });
-
-    const plan = resolveJourneyPlan(journey, {
-      currentProjectType: ProjectType.PESSOAL,
-    });
-
-    expect(plan.total).toBe(journey.steps.length);
-    expect(plan.warnings).toEqual([]);
-  });
 });
 
 describe("journeyProgress — sempre posição/total derivados do plano", () => {
@@ -385,14 +290,12 @@ describe("journeyProgress — sempre posição/total derivados do plano", () => 
     },
   );
 
-  it("passos SKIPados não inflam o denominador", () => {
+  it("passos desligados não inflam o denominador", () => {
     const journey = makeJourney({
-      steps: makeSteps(6, (index) =>
-        index >= 4 ? { conditionKey: "off", conditionUnmetBehavior: "SKIP" } : {},
-      ),
+      steps: makeSteps(6, (index) => (index >= 4 ? { enabled: false } : {})),
     });
 
-    const plan = resolveJourneyPlan(journey, { conditions: { off: false } });
+    const plan = resolveJourneyPlan(journey);
 
     expect(journeyProgress(plan, 0).total).toBe(4);
   });
@@ -461,43 +364,47 @@ describe("fluxo (Voltar/Continuar/Pular/conclusão) derivado da jornada ativa", 
   });
 
   it("etapa BLOQUEADA e obrigatória segura o Continuar; se for pulável, libera", () => {
-    const blockedRequired = resolveJourneyPlan(
-      makeJourney({
-        steps: [
-          makeStep({
-            stepKey: "trava",
-            order: 0,
-            skippable: false,
-            conditionKey: "c",
-            conditionUnmetBehavior: "BLOCK",
-          }),
-          makeStep({ stepKey: "depois", order: 1 }),
-        ],
-      }),
-      { conditions: { c: false } },
-    );
+    // `blocked` não nasce mais de `resolveJourneyPlan` (nada no plano
+    // bloqueia hoje — ver comentário de `PlannedJourneyStep`), mas o campo
+    // continua consumido pelo fluxo (`advanceJourneyFlow`) e pelo executor
+    // web (`journey-runtime-context.tsx`, frente separada). Construímos o
+    // `JourneyPlan` à mão para provar que esse trecho do fluxo — a única
+    // parte real que resta do contrato de bloqueio — continua funcionando.
+    const makeBlockedPlan = (skippable: boolean): JourneyPlan => ({
+      steps: [
+        {
+          stepKey: "trava",
+          order: 0,
+          position: 1,
+          skippable,
+          experience: "FULL",
+          label: null,
+          subtitle: null,
+          blocked: true,
+        },
+        {
+          stepKey: "depois",
+          order: 1,
+          position: 2,
+          skippable: true,
+          experience: "FULL",
+          label: null,
+          subtitle: null,
+          blocked: false,
+        },
+      ],
+      total: 2,
+      warnings: [],
+    });
 
+    const blockedRequired = makeBlockedPlan(false);
     const state = initialJourneyFlowState(blockedRequired);
     expect(advanceJourneyFlow(blockedRequired, state, "next")).toEqual(state);
 
-    const blockedSkippable = resolveJourneyPlan(
-      makeJourney({
-        steps: [
-          makeStep({
-            stepKey: "trava",
-            order: 0,
-            skippable: true,
-            conditionKey: "c",
-            conditionUnmetBehavior: "BLOCK",
-          }),
-          makeStep({ stepKey: "depois", order: 1 }),
-        ],
-      }),
-      { conditions: { c: false } },
-    );
-
+    const blockedSkippable = makeBlockedPlan(true);
     expect(
-      advanceJourneyFlow(blockedSkippable, initialJourneyFlowState(blockedSkippable), "skip").index,
+      advanceJourneyFlow(blockedSkippable, initialJourneyFlowState(blockedSkippable), "skip")
+        .index,
     ).toBe(1);
   });
 

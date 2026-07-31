@@ -15,9 +15,6 @@ export interface EligibleJourneyStep {
   subtitle: string | null;
   skippable: boolean;
   enabled?: boolean;
-  conditionKey?: string | null;
-  conditionUnmetBehavior?: "SKIP" | "BLOCK";
-  targetProjectType?: ProjectType | null;
   blocked?: boolean;
   /**
    * Slug de `PROJECT_NAV` (resolvido pela API, nunca persistido) — não a
@@ -111,9 +108,6 @@ export function normalizeJourney(
       experience: step.experience,
       label: step.label,
       subtitle: step.subtitle,
-      conditionKey: step.conditionKey ?? null,
-      conditionUnmetBehavior: step.conditionUnmetBehavior ?? "SKIP",
-      targetProjectType: step.targetProjectType ?? null,
     })),
     triggers: journey.triggers ?? [],
   };
