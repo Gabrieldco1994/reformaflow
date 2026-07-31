@@ -45,8 +45,8 @@ módulos (abas) ficam disponíveis:
 |---|---|---|
 | **PESSOAL** | Controle do dinheiro pessoal (o "cockpit" da sua vida financeira) | Cockpit, Visão Conta, Cartões, Metas, Planning, Budget, DRE, Fluxo de Caixa (+ drill-downs: Despesas/Recebimentos) |
 | **REFORMA** | Controle financeiro e visual de uma obra/reforma | Dashboard, Despesas, Recebimentos, Fluxo de Caixa, Cômodos, Plantas, Simulação, Cronograma, Comparar Preço, Pendências |
-| **CASA** | Gestão da casa (financiamento, contas fixas, manutenções, lembretes) | Dashboard, Financiamento, Contas recorrentes, Manutenção, Lembretes, Despesas |
-| **CARRO** | Gestão do carro | Dashboard, Carro (dados), Documentos, Financiamento, Contas recorrentes, Manutenção, Lembretes, Despesas |
+| **CASA** | Gestão da casa (financiamento, contas fixas, manutenções, lembretes) | Dashboard, Financiamento, Contas recorrentes + Avulsas, Manutenção, Lembretes |
+| **CARRO** | Gestão do carro | Dashboard, Carro (dados), Documentos, Financiamento, Contas recorrentes + Avulsas, Manutenção, Lembretes |
 | **COMPRA** | Acompanhar uma compra grande (casa, carro etc.) | Dashboard, Despesas, Preços |
 
 > Os módulos e sua ordem de navegação por tipo vivem em
@@ -935,7 +935,11 @@ Contas fixas (luz, água, internet, gás…) e avulsas.
   para não cortar colunas/ações.
 - **Aba Avulsas:** despesas pontuais (Data, Título, Categoria, Valor, Status,
   ações), com **Nova despesa avulsa** (Título, Valor, Categoria, Forma de
-  pagamento, Data do pagamento, Fornecedor, Observações).
+  pagamento, Data do pagamento, Fornecedor, Observações). **Superfície única**
+  de despesas avulsas para CASA/CARRO (issue #369) — a antiga tela dedicada
+  `/expenses` foi descontinuada para esses dois tipos e redireciona para cá
+  (veja §6.6). O módulo `expenses` (dados/permissão) continua existindo por
+  baixo — só a tela dedicada saiu do ar.
 
 ### 6.4 Manutenção (`/maintenance`)
 Histórico e agenda de manutenções.
@@ -953,25 +957,27 @@ Tarefas com prazo e prioridade.
 - **Card de lembrete:** título, data, frequência, badges de **prioridade** e
   **status**. Ações: **Concluir**, **Adiar**, **Editar**, **Excluir**.
 
-### 6.6 Despesas (`/expenses`)
-Lista enxuta de despesas avulsas do lar — **dieta** (issue #292): sem
-assistente de importação de fatura/extrato e sem vínculo cross-projeto
-nesta tela (o vínculo com o PESSOAL continua existindo via módulo
-`expenses`, só não tem atalho aqui). Fluxo simplificado:
-- **Lista**: cada linha mostra título, categoria/data e valor (sempre em
-  uma coluna à direita, sem quebra), com chip de status
-  **A pagar ⇄ Paga** (clicável) e ações de editar/excluir.
-- **"+ Nova despesa"**: modal único com título, valor, tipo, data e forma
-  de pagamento — sem estepper, sem parcelamento, sem cartão/conta.
-- Estado vazio: "Nenhuma despesa cadastrada ainda" com CTA para criar a
-  primeira.
+### 6.6 Despesas (`/expenses`) — descontinuada para CASA/CARRO (issue #369)
+CASA e CARRO tinham duas superfícies para a mesma coisa: a aba **Avulsas**
+dentro de **Contas** (§6.3) e esta tela dedicada — ambas liam/escreviam na
+mesma tabela de despesas, com formulários divergentes (o `quantidade` fixo
+em 1 nesta tela, por exemplo, zerava silenciosamente despesas com
+quantidade > 1 editadas por aqui). O produto decidiu manter **uma
+superfície só**: a aba Avulsas. Acessar `/expenses` num projeto CASA ou
+CARRO agora redireciona automaticamente para **Contas → Avulsas**
+(`/bills?tab=avulsas`); o item some do menu (dock mobile de CASA cai de 3
+para 2 abas: Dashboard e Contas) mas o dado e o módulo `expenses` (usado
+para vínculo/rateio cross-project a partir do PESSOAL e como fonte das
+despesas de combustível de CARRO, §7.4) continuam intactos por baixo.
+REFORMA, COMPRA e PESSOAL **não são afetados** — continuam usando
+`/expenses` normalmente (ver §4.4/§8).
 
 ---
 
 ## 7. Projeto CARRO
 
-Igual ao CASA (Contas recorrentes, Manutenção, Lembretes, Despesas — lista
-enxuta do §6.6, **Financiamento** — §6.2, veja lá) **mais** o módulo específico:
+Igual ao CASA (Contas recorrentes + Avulsas — §6.3, Manutenção, Lembretes,
+**Financiamento** — §6.2, veja lá) **mais** o módulo específico:
 
 ### 7.1 Carro — dados (`/car-info`)
 Ficha do veículo (é um registro 1:1 com o projeto).
@@ -1000,7 +1006,9 @@ Além dos cartões gerais (§6.1), o dashboard de CARRO mostra:
   uma **barra de progresso** do tempo decorrido desde a última troca até a
   próxima data prevista, além de "Em X dias" e o fornecedor.
 - **"⛽ Gasto com Combustível":** soma das despesas do tipo Combustível
-  (rótulo atual do tipo `GASOLINA`) lançadas em `/expenses` **neste mês** e a
+  (rótulo atual do tipo `GASOLINA`) lançadas na aba **Avulsas de Contas**
+  (`/bills?tab=avulsas` — §6.3; a própria despesa é gravada no módulo
+  `expenses`, só a tela dedicada saiu do ar, §6.6) **neste mês** e a
   **média mensal** dos últimos 3 meses com lançamento. Card só aparece para
   projetos CARRO; some silenciosamente sem despesas de combustível lançadas.
 

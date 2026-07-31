@@ -184,15 +184,18 @@ describe("AppShell mobile navigation orchestration", () => {
   });
 
   it("blocks a forged direct module URL even for an otherwise permitted project", async () => {
-    mocks.pathname = "/projects/project-1/expenses";
+    // CASA nav não tem mais 'expenses' (issue #369: Avulsas em /bills é a
+    // superfície única) — usa 'financing', que ainda está na nav de CASA, para
+    // exercitar o mesmo bloqueio de módulo negado via URL forjada.
+    mocks.pathname = "/projects/project-1/financing";
     mocks.apiGet.mockResolvedValue(project(ProjectType.CASA));
     mocks.hasModule.mockImplementation(
-      (module: string) => module !== "expenses",
+      (module: string) => module !== "financing",
     );
 
-    render(<AppShell>Despesas diretas</AppShell>);
+    render(<AppShell>Financiamento direto</AppShell>);
 
-    await screen.findByText("Despesas diretas");
+    await screen.findByText("Financiamento direto");
     await vi.waitFor(() => {
       expect(mocks.router.replace).toHaveBeenCalledWith("/no-permission");
     });

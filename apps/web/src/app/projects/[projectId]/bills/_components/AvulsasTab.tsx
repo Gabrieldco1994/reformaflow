@@ -42,6 +42,8 @@ interface DraftForm {
   dataPagamento: string;
   quantidadeParcela: string;
   dataInicioParcela: string;
+  /** Quantidade original da despesa (preservada na edição; não exposta no form). */
+  quantidade: number;
 }
 
 function emptyDraft(defaultTipo: string): DraftForm {
@@ -56,6 +58,7 @@ function emptyDraft(defaultTipo: string): DraftForm {
     dataPagamento: toIsoDate(new Date()),
     quantidadeParcela: '',
     dataInicioParcela: '',
+    quantidade: 1,
   };
 }
 
@@ -112,7 +115,10 @@ export function AvulsasTab({ projectId, projectType }: Props) {
       const payload: Record<string, unknown> = {
         tipoDespesa: d.tipoDespesa,
         valor: valorNum,
-        quantidade: 1,
+        // Criação: form não expõe quantidade, 1 é o default correto.
+        // Edição: preserva a quantidade original — sobrescrever com 1 aqui
+        // zera silenciosamente despesas com quantidade > 1 (bug #369).
+        quantidade: d.id ? d.quantidade : 1,
         titulo: d.titulo || undefined,
         fornecedor: d.fornecedor || undefined,
         formaPagamento: d.formaPagamento,
@@ -148,12 +154,13 @@ export function AvulsasTab({ projectId, projectType }: Props) {
       tipoDespesa: e.tipoDespesa,
       titulo: e.titulo ?? '',
       fornecedor: e.fornecedor ?? '',
-      valor: centsToReaisInput(e.valorTotal ?? 0),
+      valor: centsToReaisInput(e.valor ?? e.valorTotal ?? 0),
       formaPagamento: e.formaPagamento ?? 'A_VISTA',
       status: e.status,
       dataPagamento: e.dataPagamento?.slice(0, 10) ?? '',
       quantidadeParcela: e.quantidadeParcela ? String(e.quantidadeParcela) : '',
       dataInicioParcela: e.dataInicioParcela?.slice(0, 10) ?? '',
+      quantidade: e.quantidade ?? 1,
     });
     setShowForm(true);
   }

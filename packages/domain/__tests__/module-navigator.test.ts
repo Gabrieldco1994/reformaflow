@@ -3,8 +3,32 @@ import {
   PROJECT_NAV,
   getProjectNavModules,
   splitMobileNav,
+  hasNavRoute,
 } from '../src/config/module-navigator';
 import { ProjectType } from '../src/enums';
+
+describe('hasNavRoute', () => {
+  it('is false for CASA/CARRO "expenses" (issue #369: rota removida, feature preservada)', () => {
+    expect(hasNavRoute(ProjectType.CASA, 'expenses')).toBe(false);
+    expect(hasNavRoute(ProjectType.CARRO, 'expenses')).toBe(false);
+  });
+
+  it('is true for REFORMA/COMPRA/PESSOAL "expenses" (não afetados pela dieta de CASA/CARRO)', () => {
+    expect(hasNavRoute(ProjectType.REFORMA, 'expenses')).toBe(true);
+    expect(hasNavRoute(ProjectType.COMPRA, 'expenses')).toBe(true);
+    expect(hasNavRoute(ProjectType.PESSOAL, 'expenses')).toBe(true);
+  });
+
+  it('is true for slugs still present in CASA/CARRO nav (financing, bills, maintenance...)', () => {
+    for (const slug of ['dashboard', 'bills', 'financing', 'maintenance', 'reminders']) {
+      expect(hasNavRoute(ProjectType.CASA, slug)).toBe(true);
+    }
+  });
+
+  it('is false for an unknown slug', () => {
+    expect(hasNavRoute(ProjectType.CASA, 'nope-not-a-route')).toBe(false);
+  });
+});
 
 describe('getProjectNavModules', () => {
   it('PESSOAL first module is Cockpit (slug "monthly")', () => {
@@ -78,23 +102,21 @@ describe('getProjectNavModules', () => {
     expect(pend?.label).toBe('Pendências');
   });
 
-  it('reproduces legacy FEATURE_NAV ordering for CASA', () => {
+  it('reproduces legacy FEATURE_NAV ordering for CASA (expenses removed: Avulsas em /bills é a superfície única)', () => {
     expect(getProjectNavModules(ProjectType.CASA).map((m) => m.slug)).toEqual([
       'dashboard',
       'bills',
-      'expenses',
       'financing',
       'maintenance',
       'reminders',
     ]);
   });
 
-  it('includes vehicle documents and financing in the CARRO navigation', () => {
+  it('includes vehicle documents and financing in the CARRO navigation (expenses removed: Avulsas em /bills é a superfície única)', () => {
     expect(getProjectNavModules(ProjectType.CARRO).map((m) => m.slug)).toEqual([
       'dashboard',
       'car-info',
       'bills',
-      'expenses',
       'vehicle-documents',
       'financing',
       'maintenance',
