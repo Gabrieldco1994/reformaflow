@@ -18,12 +18,22 @@ vi.mock(
   }),
 );
 
-// Stub useVoiceExpense — voiceSupported toggleable via module-level variable
+// Stub useVoiceExpense — voiceSupported toggleable via module-level variable.
+// `capturedVoiceConfig` guarda o objeto que o componente passa ao hook, para os
+// testes poderem exercitar o `onCreate` REAL (o que salva a despesa por voz) em
+// vez de só verificar que o botão existe. Sem isso, o mock esconderia justamente
+// o caminho onde os bugs D e E viviam.
+let capturedVoiceConfig: {
+  onCreate?: (data: unknown, onSuccess: () => void) => void;
+  defaultExpenseType?: string;
+} = {};
 let mockVoiceSupported = true;
 vi.mock(
   '@/app/projects/[projectId]/expenses/_hooks/useVoiceExpense',
   () => ({
-    useVoiceExpense: () => ({
+    useVoiceExpense: (config: Record<string, unknown>) => {
+      capturedVoiceConfig = config as typeof capturedVoiceConfig;
+      return {
       voiceModalOpen: false,
       voiceSupported: mockVoiceSupported,
       voiceListening: false,
@@ -41,7 +51,8 @@ vi.mock(
       clearVoiceTranscript: vi.fn(),
       startVoiceCapture: vi.fn(),
       saveVoiceExpense: vi.fn(),
-    }),
+      };
+    },
   }),
 );
 
@@ -331,3 +342,83 @@ describe('QuickExpenseStep', () => {
     });
   });
 });
+
+  /**
+   * Bugs D e E, ambos no caminho de VOZ e ambos invisíveis para os testes
+   * antigos: o mock do `useVoiceExpense` escondia o `onCreate`, então dava para
+   * verificar que o botão de voz existia sem nunca exercitar o que ele faz.
+   */
+  describe('lançamento por voz — erro e categoria (bugs D e E)', () => {
+    it('E: fallback de categoria é OUTROS, não o primeiro da lista (que em PESSOAL é CARTAO_CREDITO, tipo neutro)', () => {
+      renderStep({
+        projectId: 'p1',
+        projectType: ProjectType.PESSOAL,
+        onDone: vi.fn(),
+        onSkip: vi.fn(),
+      });
+
+      // CARTAO_CREDITO é o primeiro de `getExpenseOptions(PESSOAL)` e tem
+      // `essentiality: 'NEUTRO'` — existe para pagamento de fatura. Uma despesa
+      // que a voz não classificou não pode nascer com ele.
+      expect(capturedVoiceConfig.defaultExpenseType).toBe('OUTROS');
+      expect(capturedVoiceConfig.defaultExpenseType).not.toBe('CARTAO_CREDITO');
+    });
+
+    it('E: em tipo de projeto SEM a categoria OUTROS (REFORMA), cai no primeiro válido em vez de um tipo inexistente', () => {
+      renderStep({
+        projectId: 'p1',
+        projectType: ProjectType.REFORMA,
+        onDone: vi.fn(),
+        onSkip: vi.fn(),
+      });
+
+      // REFORMA não oferece OUTROS: forçá-lo produziria um tipo inválido para o
+      // projeto — trocaria um bug por outro.
+      expect(capturedVoiceConfig.defaultExpenseType).toBe('MATERIAL_CONSTRUCAO');
+    });
+
+    it('D: falha ao salvar por voz mostra erro e NÃO avança o passo', async () => {
+      const onDone = vi.fn();
+      apiPostMock.mockRejectedValueOnce(new Error('Erro de validação da API'));
+
+      renderStep({
+        projectId: 'p1',
+        projectType: ProjectType.PESSOAL,
+        onDone,
+        onSkip: vi.fn(),
+      });
+
+      const onSuccess = vi.fn();
+      capturedVoiceConfig.onCreate?.({ tipoDespesa: 'OUTROS', valor: 100 }, onSuccess);
+
+      // Antes: `.catch(() => {})` — o erro sumia, o passo avançava, e o usuário
+      // só descobria depois que nada tinha sido salvo.
+      await waitFor(() =>
+        expect(screen.getByText('Erro de validação da API')).toBeInTheDocument(),
+      );
+      expect(onDone).not.toHaveBeenCalled();
+      expect(onSuccess).not.toHaveBeenCalled();
+    });
+
+    it('D: sucesso por voz avança o passo e propaga a categoria criada', async () => {
+      const onDone = vi.fn();
+      apiPostMock.mockResolvedValueOnce({ id: 'e1' });
+
+      renderStep({
+        projectId: 'p1',
+        projectType: ProjectType.PESSOAL,
+        onDone,
+        onSkip: vi.fn(),
+      });
+
+      const onSuccess = vi.fn();
+      capturedVoiceConfig.onCreate?.({ tipoDespesa: 'ALIMENTACAO', valor: 100 }, onSuccess);
+
+      await waitFor(() => expect(onSuccess).toHaveBeenCalled());
+      expect(onDone).toHaveBeenCalledWith(
+        expect.objectContaining({
+          createdExpense: expect.objectContaining({ tipoDespesa: 'ALIMENTACAO' }),
+        }),
+      );
+    });
+  });
