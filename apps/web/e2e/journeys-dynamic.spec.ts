@@ -25,9 +25,6 @@ interface EligibleStep {
   experience: "SUMMARY" | "FULL";
   label: string;
   subtitle: string | null;
-  conditionKey: string | null;
-  conditionUnmetBehavior: "SKIP" | "BLOCK";
-  targetProjectType: string | null;
 }
 
 /** Builder do payload de `eligible` — espelho do `makeStep` do domínio. */
@@ -40,9 +37,6 @@ function step(
     experience: "FULL",
     label: overrides.stepKey,
     subtitle: null,
-    conditionKey: null,
-    conditionUnmetBehavior: "SKIP",
-    targetProjectType: null,
     ...overrides,
   };
 }
@@ -154,18 +148,8 @@ async function stubEligible(
 }
 
 /** Passos que o executor DEVE mostrar, derivados do payload (mesma regra do domínio). */
-function expectedSteps(
-  config: EligibleStep[],
-  conditions: Record<string, boolean> = {},
-) {
-  return [...config]
-    .sort((a, b) => a.order - b.order)
-    .filter((s) => s.enabled)
-    .filter((s) => {
-      if (!s.conditionKey) return true;
-      const met = conditions[s.conditionKey] === true;
-      return met || s.conditionUnmetBehavior === "BLOCK";
-    });
+function expectedSteps(config: EligibleStep[]) {
+  return [...config].sort((a, b) => a.order - b.order).filter((s) => s.enabled);
 }
 
 /** Percorre TODO o plano clicando em Continuar, sem conhecer o tamanho. */
@@ -228,38 +212,12 @@ test.describe("jornada dirigida pela configuração devolvida por /journeys/elig
     await walkJourney(page, expectedSteps(config));
   });
 
-  test("condição SKIP some e BLOCK permanece no plano sem avançar", async ({
-    page,
-  }) => {
-    const config = steps(3, (index) =>
-      index === 0
-        ? { conditionKey: "missing", conditionUnmetBehavior: "SKIP" as const }
-        : index === 1
-          ? {
-              conditionKey: "missing",
-              conditionUnmetBehavior: "BLOCK" as const,
-            }
-          : {},
-    );
-    await stubSession(page);
-    await stubEligible(page, [journey({ steps: config })]);
-
-    await page.goto("/projects/p1/monthly");
-    const expected = expectedSteps(config);
-    await expect(page.locator(STEP)).toHaveAttribute(
-      "data-journey-step",
-      expected[0].stepKey,
-    );
-    await expect(page.locator(PROGRESS)).toHaveText("1/2");
-    await expect(
-      page.locator(PANEL).getByRole("button", { name: "Continuar" }),
-    ).toBeDisabled();
-    await page.locator(PANEL).getByRole("button", { name: "Pular" }).click();
-    await expect(page.locator(STEP)).toHaveAttribute(
-      "data-journey-step",
-      expected[1].stepKey,
-    );
-  });
+  // A condição SKIP/BLOCK por passo (`conditionKey`/`conditionUnmetBehavior`)
+  // nunca existiu no modelo Prisma `JourneyStep` — o código que a consumia em
+  // `resolveJourneyPlan` era morto (nunca executou em produção) e foi removido
+  // em `packages/domain/src/config/journey-plan.ts`. O teste que existia aqui
+  // ("condição SKIP some e BLOCK permanece no plano sem avançar") testava só
+  // o fixture do e2e, não o comportamento real da API — removido junto.
 
   test("reorder do admin muda a ordem percorrida", async ({ page }) => {
     // Chaves REAIS do catálogo (não "primeiro"/"meio"/"ultimo" — esses eram

@@ -16,13 +16,19 @@ import {
   sortableKeyboardCoordinates,
 } from '@dnd-kit/sortable';
 import { ChevronRight, Plus } from 'lucide-react';
-import type { JourneyStepDefinition } from '@reformaflow/domain';
+import type { JourneyStepDefinition, ProjectType } from '@reformaflow/domain';
 import type { EditorStep } from '../_types';
+import { stepKeysForProjectType } from '../_lib/journeys-api';
 import { StepScreenCard } from './StepScreenCard';
 
 interface Props {
   steps: EditorStep[];
   availableSteps: JourneyStepDefinition[];
+  /** Tipo alvo da jornada (nível de jornada, do gatilho) — `null` = jornada
+   * `ALL_PROJECTS`, sem tipo definido. Restringe as opções de "Adicionar
+   * tela à trilha" ao catálogo desse tipo; `null` não filtra (ver aviso
+   * abaixo do seletor). */
+  targetProjectType: ProjectType | null;
   onReorder: (activeKey: string, overKey: string) => void;
   onMove: (key: string, direction: -1 | 1) => void;
   onPatch: (key: string, patch: Partial<EditorStep>) => void;
@@ -38,6 +44,7 @@ interface Props {
 export function JourneyTrack({
   steps,
   availableSteps,
+  targetProjectType,
   onReorder,
   onMove,
   onPatch,
@@ -46,7 +53,10 @@ export function JourneyTrack({
 }: Props) {
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const usedKeys = new Set(steps.map((step) => step.key));
-  const candidates = availableSteps.filter((step) => !usedKeys.has(step.key));
+  const allowedStepKeys = stepKeysForProjectType(targetProjectType);
+  const candidates = availableSteps.filter(
+    (step) => !usedKeys.has(step.key) && (allowedStepKeys === null || allowedStepKeys.has(step.key)),
+  );
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -113,6 +123,12 @@ export function JourneyTrack({
             ))}
           </select>
         </label>
+      )}
+      {allowedStepKeys === null && (
+        <p className="mt-1.5 text-[11px] text-lifeone-ink-3">
+          Jornada sem tipo de projeto definido (escopo "Todos os projetos") — o catálogo acima não
+          está filtrado por tipo. Escolha um tipo em "Onde aparece" para restringir as opções.
+        </p>
       )}
       {steps.length === 0 && (
         <p className="mt-1 flex items-center gap-1.5 text-[12px] text-lifeone-ink-3">

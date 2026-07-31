@@ -60,9 +60,6 @@ export function makeStep(options: MakeStepOptions = {}): PersistedJourneyStep {
     experience: options.experience ?? 'FULL',
     label: options.label ?? stepKey,
     subtitle: options.subtitle ?? null,
-    conditionKey: options.conditionKey ?? null,
-    conditionUnmetBehavior: options.conditionUnmetBehavior ?? 'SKIP',
-    targetProjectType: options.targetProjectType ?? null,
   };
 }
 

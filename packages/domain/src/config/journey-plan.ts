@@ -25,10 +25,17 @@ import type {
 
 export type JourneyTargetScope = 'ALL_PROJECTS' | 'PROJECT_TYPE' | 'PROJECT';
 
-/** O que fazer quando a `conditionKey` da etapa não está satisfeita. */
-export type JourneyConditionUnmetBehavior = 'SKIP' | 'BLOCK';
-
-/** Um passo como está salvo no banco (`JourneyStep`), antes de qualquer regra. */
+/**
+ * Um passo como está salvo no banco (`JourneyStep`), antes de qualquer regra.
+ *
+ * NÃO tem `conditionKey`/`conditionUnmetBehavior`/`targetProjectType` (por
+ * passo): o modelo Prisma `JourneyStep` nunca teve essas três colunas — eram
+ * consumidas aqui mas nunca produzidas por nenhum escritor real, então
+ * `SKIP`/`BLOCK`/`CROSS_PROJECT_NOT_ALLOWED` nunca disparavam em produção.
+ * Removidas (não substituídas) até que uma fatia futura persista a condição
+ * de verdade. `crossProject`/`allowCrossProjectNavigation` (nível de JORNADA,
+ * não de passo) continuam vivos — ver `PersistedJourney` abaixo.
+ */
 export interface PersistedJourneyStep {
   stepKey: string;
   order: number;
@@ -37,11 +44,6 @@ export interface PersistedJourneyStep {
   experience: JourneyStepExperience;
   label: string | null;
   subtitle: string | null;
-  /** `null` = etapa incondicional. */
-  conditionKey: string | null;
-  conditionUnmetBehavior: JourneyConditionUnmetBehavior;
-  /** `null` = roda no projeto atual. Preenchido = etapa cross-project. */
-  targetProjectType: ProjectType | null;
 }
 
 /** Um gatilho como está salvo no banco (`JourneyTrigger`), na parte que trafega. */
@@ -69,40 +71,40 @@ export interface PersistedJourney {
 
 export interface JourneyPlanContext {
   /**
-   * Condições satisfeitas AGORA. Chave ausente = NÃO satisfeita (fail-safe:
-   * um runtime que ainda não sabe responder nunca "libera" uma etapa por
-   * omissão).
-   */
-  conditions?: Record<string, boolean>;
-  /**
    * `stepKey`s que o executor sabe renderizar. `undefined` = aceita tudo (o
    * caso da API, que não conhece componentes). Uma chave fora desta lista é
    * ignorada com aviso em vez de derrubar a jornada inteira.
    */
   knownStepKeys?: readonly string[];
-  /** Tipo do projeto em que a jornada está rodando, quando há um. */
-  currentProjectType?: ProjectType | null;
 }
 
-export type JourneyPlanWarningCode = 'UNKNOWN_STEP_KEY' | 'CROSS_PROJECT_NOT_ALLOWED';
+export type JourneyPlanWarningCode = 'UNKNOWN_STEP_KEY';
 
 export interface JourneyPlanWarning {
   code: JourneyPlanWarningCode;
   stepKey: string;
 }
 
-/** Um passo que de fato vai rodar, já posicionado dentro do plano. */
+/**
+ * Um passo que de fato vai rodar, já posicionado dentro do plano.
+ *
+ * `blocked` fica fixo em `false`: nada no plano bloqueia mais um passo (a
+ * única fonte de bloqueio era a `conditionKey`/`conditionUnmetBehavior` por
+ * passo, removida por nunca ter sido persistida — ver `PersistedJourneyStep`).
+ * O campo continua aqui de propósito porque `journey-runtime-context.tsx`
+ * (frente separada) já o lê para desabilitar "Continuar" — dívida deliberada,
+ * documentada para follow-up quando aquela frente puder revisitar o contrato.
+ */
 export interface PlannedJourneyStep {
   stepKey: string;
   order: number;
-  /** 1-based dentro do plano — já descontando desligados/SKIPados. */
+  /** 1-based dentro do plano — já descontando desligados. */
   position: number;
   skippable: boolean;
   experience: JourneyStepExperience;
   label: string | null;
   subtitle: string | null;
-  targetProjectType: ProjectType | null;
-  /** `true` = condição BLOCK não satisfeita: aparece, mas aguarda. */
+  /** Sempre `false` hoje — ver comentário da interface. */
   blocked: boolean;
 }
 
@@ -113,15 +115,9 @@ export interface JourneyPlan {
   warnings: JourneyPlanWarning[];
 }
 
-function isConditionMet(step: PersistedJourneyStep, ctx: JourneyPlanContext): boolean {
-  if (!step.conditionKey) return true;
-  return ctx.conditions?.[step.conditionKey] === true;
-}
-
 /**
- * Aplica, nesta ordem: desligados fora → chave órfã fora (aviso) →
- * cross-project proibido fora (aviso) → condição SKIP não satisfeita fora.
- * Só então numera as posições, para o denominador do progresso já nascer certo.
+ * Aplica, nesta ordem: desligados fora → chave órfã fora (aviso). Só então
+ * numera as posições, para o denominador do progresso já nascer certo.
  */
 export function resolveJourneyPlan(
   journey: PersistedJourney,
@@ -129,7 +125,6 @@ export function resolveJourneyPlan(
 ): JourneyPlan {
   const warnings: JourneyPlanWarning[] = [];
   const known = ctx.knownStepKeys ? new Set(ctx.knownStepKeys) : null;
-  const currentProjectType = ctx.currentProjectType ?? null;
 
   const ordered = journey.steps
     .map((step, index) => ({ step, index }))
@@ -145,19 +140,6 @@ export function resolveJourneyPlan(
       continue;
     }
 
-    const isCross =
-      step.targetProjectType !== null &&
-      currentProjectType !== null &&
-      step.targetProjectType !== currentProjectType;
-
-    if (isCross && !journey.allowCrossProjectNavigation) {
-      warnings.push({ code: 'CROSS_PROJECT_NOT_ALLOWED', stepKey: step.stepKey });
-      continue;
-    }
-
-    const met = isConditionMet(step, ctx);
-    if (!met && step.conditionUnmetBehavior === 'SKIP') continue;
-
     steps.push({
       stepKey: step.stepKey,
       order: step.order,
@@ -166,8 +148,7 @@ export function resolveJourneyPlan(
       experience: step.experience,
       label: step.label,
       subtitle: step.subtitle,
-      targetProjectType: step.targetProjectType,
-      blocked: !met,
+      blocked: false,
     });
   }
 

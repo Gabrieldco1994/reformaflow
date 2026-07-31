@@ -99,6 +99,32 @@ export function listStepCatalog(): JourneyStepDefinition[] {
   return Object.values(STEP_CATALOG);
 }
 
+/**
+ * `stepKey`s do catálogo disponíveis para uma jornada de um tipo de projeto
+ * específico — `JOURNEY_CATALOG` filtrado pelo tipo (toda jornada cujo
+ * primeiro gatilho mira esse tipo, mais as globais, `targetProjectType:
+ * null`) + `getSummaryCatalog(tipo)`. `null` (jornada `ALL_PROJECTS`, sem
+ * tipo definido) devolve `null` — sinal para o chamador NÃO filtrar (mostra
+ * o catálogo completo hoje; ver `JourneyTrack`, que também avisa o admin).
+ *
+ * Deliberadamente NÃO deriva de `PROJECT_NAV`/`getJourneyScreenKeys`: essa
+ * cadeia (`GENERIC_JOURNEY_SCREEN_CATALOG`) está sob mudança em paralelo por
+ * outra frente (remoção de `expenses` de `PROJECT_NAV[CASA/CARRO]`), e
+ * amarrar o filtro nela criaria conflito semântico entre os dois PRs.
+ * `JOURNEY_CATALOG`/`getSummaryCatalog` não derivam de `PROJECT_NAV`.
+ */
+export function stepKeysForProjectType(type: ProjectType | null): Set<string> | null {
+  if (type === null) return null;
+  const keys = new Set<string>();
+  for (const journeyDef of Object.values(JOURNEY_CATALOG)) {
+    const journeyTarget = journeyDef.triggers[0]?.targetProjectType ?? null;
+    if (journeyTarget !== null && journeyTarget !== type) continue;
+    for (const step of journeyDef.steps) keys.add(step.key);
+  }
+  for (const page of getSummaryCatalog(type)) keys.add(page.slug);
+  return keys;
+}
+
 const DEVICE_TO_API: Record<EditorDevice, string> = {
   BOTH: "any",
   DESKTOP: "web",
