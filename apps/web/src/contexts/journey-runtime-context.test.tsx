@@ -140,13 +140,11 @@ describe("JourneyRuntimeProvider", () => {
       .setup()
       .click(screen.getByRole("button", { name: "Criar projeto" }));
     expect(await screen.findByTestId("active")).toHaveTextContent("Tour:0");
-    await userEvent
-      .setup()
-      .click(
-        within(screen.getByTestId("active")).getByRole("button", {
-          name: "Continuar",
-        }),
-      );
+    await userEvent.setup().click(
+      within(screen.getByTestId("active")).getByRole("button", {
+        name: "Continuar",
+      }),
+    );
     expect(screen.getByTestId("active")).toHaveTextContent("Tour:1");
     expect(mocks.push).toHaveBeenCalledWith("/projects/current/expenses");
     expect(sessionStorage.getItem("lifeone:journey-runtime")).toContain(
@@ -262,13 +260,11 @@ describe("JourneyRuntimeProvider", () => {
       await screen.findByTestId("active");
       expect(mocks.push).not.toHaveBeenCalledWith("/projects/current/bills");
 
-      await userEvent
-        .setup()
-        .click(
-          within(screen.getByTestId("active")).getByRole("button", {
-            name: "Continuar",
-          }),
-        );
+      await userEvent.setup().click(
+        within(screen.getByTestId("active")).getByRole("button", {
+          name: "Continuar",
+        }),
+      );
       expect(screen.getByTestId("active")).toHaveTextContent("Tour:1");
       expect(mocks.push).toHaveBeenCalledWith("/projects/current/bills");
     });
@@ -635,6 +631,92 @@ describe("JourneyRuntimeProvider", () => {
     });
   });
 
+  // Regressão: o painel da etapa FULL imprimia sempre a frase genérica e
+  // descartava o `subtitle` real do passo — que existe e está preenchido nos 17
+  // passos do catálogo. O branch de fallback logo abaixo já usava `step.subtitle`.
+  describe("painel da etapa FULL usa o subtitle real do passo", () => {
+    const GENERIC =
+      "Você está na tela real da funcionalidade. Use o painel para continuar a jornada.";
+
+    function setupFullStep(subtitle: string | null) {
+      mocks.apiGet.mockImplementation((path: string) => {
+        const context = Object.fromEntries(
+          new URL(`http://localhost${path}`).searchParams,
+        ) as { triggerType?: string };
+        return Promise.resolve(
+          context.triggerType === "PROJECT_CREATED"
+            ? [
+                {
+                  journeyId: "j1",
+                  key: "tour:full-subtitle",
+                  name: "Onboarding",
+                  triggerId: "t1",
+                  repeatPolicy: "ALWAYS",
+                  dismissPolicy: "DISMISS_UNTIL_LOGIN",
+                  crossProject: false,
+                  steps: [
+                    {
+                      stepKey: "bill",
+                      order: 0,
+                      experience: "FULL",
+                      label: "Conta recorrente",
+                      subtitle,
+                      skippable: true,
+                      slug: "bills",
+                    },
+                  ],
+                },
+              ]
+            : [],
+        );
+      });
+    }
+
+    async function openPanel() {
+      renderRuntime();
+      await userEvent
+        .setup()
+        .click(screen.getByRole("button", { name: "Criar projeto" }));
+      return screen.findByRole("dialog");
+    }
+
+    it("renders the step subtitle instead of the generic sentence", async () => {
+      setupFullStep(
+        "Cadastre uma conta que se repete todo mês (água, luz, condomínio…).",
+      );
+      const panel = await openPanel();
+
+      expect(
+        within(panel).getByText(
+          "Cadastre uma conta que se repete todo mês (água, luz, condomínio…).",
+        ),
+      ).toBeInTheDocument();
+      expect(within(panel).queryByText(GENERIC)).not.toBeInTheDocument();
+    });
+
+    it("falls back to the generic sentence when subtitle is null", async () => {
+      setupFullStep(null);
+      const panel = await openPanel();
+
+      expect(within(panel).getByText(GENERIC)).toBeInTheDocument();
+    });
+
+    // `??` não cobre string vazia: "" passaria e renderizaria um parágrafo em
+    // branco no lugar do texto de apoio.
+    it.each([
+      ["empty string", ""],
+      ["blank string", "   "],
+    ])(
+      "falls back to the generic sentence when subtitle is an %s",
+      async (_label, subtitle) => {
+        setupFullStep(subtitle);
+        const panel = await openPanel();
+
+        expect(within(panel).getByText(GENERIC)).toBeInTheDocument();
+      },
+    );
+  });
+
   // Regressão: `activeProjectType` era buscado num efeito separado, encadeado
   // DEPOIS da resposta de elegibilidade — um segundo round-trip sequencial.
   // `emit()` agora busca `getProjectType` em paralelo com `getEligibleJourneys`
@@ -646,7 +728,8 @@ describe("JourneyRuntimeProvider", () => {
     });
     mocks.apiGet.mockImplementation((path: string) => {
       if (path.startsWith("/journeys/eligible")) return eligiblePromise;
-      if (path === "/projects/current") return Promise.resolve({ type: "PESSOAL" });
+      if (path === "/projects/current")
+        return Promise.resolve({ type: "PESSOAL" });
       return Promise.resolve([]);
     });
 
