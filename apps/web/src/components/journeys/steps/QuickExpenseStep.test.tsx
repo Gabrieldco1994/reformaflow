@@ -58,11 +58,13 @@ vi.mock(
 
 const apiPostMock = vi.fn();
 const apiGetMock = vi.fn();
+const apiUploadMock = vi.fn();
 
 vi.mock('@/lib/api', () => ({
   api: {
     post: (...args: unknown[]) => apiPostMock(...args),
     get: (...args: unknown[]) => apiGetMock(...args),
+    upload: (...args: unknown[]) => apiUploadMock(...args),
   },
 }));
 
@@ -92,6 +94,7 @@ describe('QuickExpenseStep', () => {
   beforeEach(() => {
     apiPostMock.mockReset();
     apiGetMock.mockReset();
+    apiUploadMock.mockReset();
     apiGetMock.mockResolvedValue([]);
   });
 
@@ -315,20 +318,97 @@ describe('QuickExpenseStep', () => {
       mockVoiceSupported = true;
     });
 
-    it('foto mode: clicking Foto shows camera CTA; selecting a file calls onDone without api.post', async () => {
+    it('foto mode: envia a imagem para OCR e preenche o formulário para conferência (não salva sozinho)', async () => {
       const onDone = vi.fn();
+      apiUploadMock.mockResolvedValueOnce({
+        valorCents: 8990,
+        fornecedor: 'Padaria Central',
+        descricao: 'pães e leite',
+        data: '2026-07-15',
+      });
+
       renderStep({ projectId: 'p1', projectType: ProjectType.PESSOAL, onDone, onSkip: vi.fn() });
       fireEvent.click(screen.getByRole('button', { name: /foto/i }));
       await waitFor(() =>
         expect(screen.getByText(/fotografe o comprovante/i)).toBeInTheDocument(),
       );
       const input = document.querySelector('input[type="file"]') as HTMLInputElement;
-      expect(input).not.toBeNull();
       fireEvent.change(input, {
         target: { files: [new File(['img'], 'receipt.jpg', { type: 'image/jpeg' })] },
       });
-      expect(onDone).toHaveBeenCalledTimes(1);
+
+      // Antes isto era um stub: só chamava `onDone()` e nada era enviado nem
+      // salvo. Agora a imagem vai para o OCR...
+      await waitFor(() =>
+        expect(apiUploadMock).toHaveBeenCalledWith(
+          '/projects/p1/expenses/scan-receipt',
+          expect.any(FormData),
+          expect.objectContaining({ timeoutMs: expect.any(Number) }),
+        ),
+      );
+
+      // ...e o que a IA leu cai nos campos para o usuário CONFERIR. Gravar
+      // direto a partir de OCR seria dinheiro entrando no consolidado sem
+      // ninguém ter olhado o valor.
+      await waitFor(() =>
+        expect(screen.getByDisplayValue('89,90')).toBeInTheDocument(),
+      );
+      expect(screen.getByDisplayValue('pães e leite')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('2026-07-15')).toBeInTheDocument();
+
+      // O passo NÃO avança e NADA foi salvo — a confirmação é do usuário.
+      expect(onDone).not.toHaveBeenCalled();
       expect(apiPostMock).not.toHaveBeenCalled();
+    });
+
+    it('foto mode: valor ilegível avisa e mantém os demais campos lidos', async () => {
+      apiUploadMock.mockResolvedValueOnce({
+        valorCents: null,
+        fornecedor: 'Posto Shell',
+        descricao: null,
+        data: '2026-07-10',
+      });
+
+      renderStep({
+        projectId: 'p1',
+        projectType: ProjectType.PESSOAL,
+        onDone: vi.fn(),
+        onSkip: vi.fn(),
+      });
+      fireEvent.click(screen.getByRole('button', { name: /foto/i }));
+      await waitFor(() =>
+        expect(screen.getByText(/fotografe o comprovante/i)).toBeInTheDocument(),
+      );
+      fireEvent.change(document.querySelector('input[type="file"]') as HTMLInputElement, {
+        target: { files: [new File(['img'], 'r.jpg', { type: 'image/jpeg' })] },
+      });
+
+      // Obrigar a redigitar tudo por causa de um campo seria pior que o OCR
+      // não existir: o que foi lido é preservado.
+      await waitFor(() =>
+        expect(screen.getByText(/não consegui ler o valor/i)).toBeInTheDocument(),
+      );
+      expect(screen.getByDisplayValue('Posto Shell')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('2026-07-10')).toBeInTheDocument();
+    });
+
+    it('foto mode: falha na leitura mostra o erro e não avança o passo', async () => {
+      const onDone = vi.fn();
+      apiUploadMock.mockRejectedValueOnce(new Error('A leitura da foto demorou demais'));
+
+      renderStep({ projectId: 'p1', projectType: ProjectType.PESSOAL, onDone, onSkip: vi.fn() });
+      fireEvent.click(screen.getByRole('button', { name: /foto/i }));
+      await waitFor(() =>
+        expect(screen.getByText(/fotografe o comprovante/i)).toBeInTheDocument(),
+      );
+      fireEvent.change(document.querySelector('input[type="file"]') as HTMLInputElement, {
+        target: { files: [new File(['img'], 'r.jpg', { type: 'image/jpeg' })] },
+      });
+
+      await waitFor(() =>
+        expect(screen.getByText(/a leitura da foto demorou demais/i)).toBeInTheDocument(),
+      );
+      expect(onDone).not.toHaveBeenCalled();
     });
 
     it('voz mode: clicking Voz renders VoiceExpenseModal stub', () => {

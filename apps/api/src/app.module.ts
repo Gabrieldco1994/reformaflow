@@ -12,6 +12,7 @@ import { ProjectAccessGuard } from './common/guards/project-access.guard';
 import { TenantModule } from './tenant/tenant.module';
 import { ProjectModule } from './project/project.module';
 import { ReceiptModule } from './receipt/receipt.module';
+import { ReceiptScanModule } from './receipt-scan/receipt-scan.module';
 import { ExpenseModule } from './expense/expense.module';
 import { RecurrenceModule } from './recurrence/recurrence.module';
 import { CashFlowModule } from './cash-flow/cash-flow.module';
@@ -64,6 +65,7 @@ const UPLOADS_DIR = (() => {
     TenantModule,
     ProjectModule,
     ReceiptModule,
+    ReceiptScanModule,
     ExpenseModule,
     RecurrenceModule,
     CashFlowModule,
