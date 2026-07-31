@@ -500,3 +500,89 @@ describe('AuthService signup/guest/claim', () => {
     expect(prisma.user.update).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * O `allowedModules` gravado no signup é uma FOTO. Quando um módulo novo entra
+ * em `TYPE_MODULES`, quem já tinha conta ficava para trás: menu sumia e a API
+ * respondia 403 num módulo que o tipo dele concede. `buildPublicUser` passa a
+ * reconciliar em tempo de leitura, então o problema não volta no próximo módulo.
+ */
+describe('AuthService.buildPublicUser — reconciliação do snapshot de autorização', () => {
+  const service = new AuthService({} as any, {} as JwtService);
+
+  /** Usuário como está no banco: os dois campos são JSON em coluna TEXT. */
+  function row(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'u1',
+      username: 'maria',
+      name: 'Maria',
+      role: 'USER',
+      tenantId: 't1',
+      allowedModules: JSON.stringify(['dashboard', 'recurringBills']),
+      allowedProjectTypes: JSON.stringify([ProjectType.CASA]),
+      ...overrides,
+    };
+  }
+
+  it('concede módulo que o tipo passou a ter depois do cadastro (CASA → financing)', () => {
+    // Snapshot antigo: gravado antes de `financing` existir em TYPE_MODULES.
+    const out = service.buildPublicUser(row());
+    expect(out.allowedModules).toContain('financing');
+  });
+
+  it('vale para CARRO também — o backfill antigo cobria só este tipo', () => {
+    const out = service.buildPublicUser(
+      row({ allowedProjectTypes: JSON.stringify([ProjectType.CARRO]) }),
+    );
+    expect(out.allowedModules).toContain('financing');
+    expect(out.allowedModules).toContain('vehicleDocuments');
+  });
+
+  it('vale para qualquer módulo, não só financing (PESSOAL → recurrences/pendencias)', () => {
+    const out = service.buildPublicUser(
+      row({
+        allowedProjectTypes: JSON.stringify([ProjectType.PESSOAL]),
+        allowedModules: JSON.stringify(['dashboard', 'expenses']),
+      }),
+    );
+    expect(out.allowedModules).toContain('recurrences');
+    expect(out.allowedModules).toContain('pendencias');
+  });
+
+  it('NUNCA remove: módulo concedido fora do mapa do tipo é preservado', () => {
+    const out = service.buildPublicUser(
+      row({
+        allowedModules: JSON.stringify(['dashboard', 'concedido-pelo-suporte']),
+      }),
+    );
+    expect(out.allowedModules).toContain('concedido-pelo-suporte');
+  });
+
+  it('não duplica módulo que o usuário já tinha', () => {
+    const out = service.buildPublicUser(row());
+    expect(out.allowedModules.filter((m) => m === 'dashboard')).toHaveLength(1);
+  });
+
+  it('usuário legado sem tipos não é tocado — deriva acesso por outro caminho', () => {
+    const out = service.buildPublicUser(
+      row({ allowedProjectTypes: '[]', allowedModules: JSON.stringify(['dashboard']) }),
+    );
+    expect(out.allowedModules).toEqual(['dashboard']);
+  });
+
+  it('a união bate exatamente com o que o signup gravaria hoje', () => {
+    const tipos = [ProjectType.CASA, ProjectType.CARRO];
+    const out = service.buildPublicUser(
+      row({ allowedProjectTypes: JSON.stringify(tipos), allowedModules: '[]' }),
+    );
+    const esperado = deriveObjectiveAccess(tipos).allowedModules;
+    expect(out.allowedModules.sort()).toEqual([...esperado].sort());
+  });
+
+  it('JSON corrompido não derruba o login — degrada para lista vazia', () => {
+    const out = service.buildPublicUser(
+      row({ allowedModules: '{corrompido', allowedProjectTypes: '[]' }),
+    );
+    expect(out.allowedModules).toEqual([]);
+  });
+});

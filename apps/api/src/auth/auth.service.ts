@@ -7,7 +7,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
-import { deriveObjectiveAccess, ProjectType } from '@reformaflow/domain';
+import { deriveObjectiveAccess, ProjectType, reconcileUserModules } from '@reformaflow/domain';
 import { Prisma } from '@prisma/client';
 import { JwtPayload } from './jwt.strategy';
 
@@ -361,6 +361,17 @@ export class AuthService {
     } catch {
       allowedProjectTypes = [];
     }
+
+    // Reconciliação em tempo de leitura — ver `reconcileUserModules` no domínio
+    // para o porquê. Resumo: `allowedModules` é uma FOTO do signup, e módulo
+    // novo em `TYPE_MODULES` não alcançava quem já tinha conta.
+    //
+    // Este é UM dos dois pontos de leitura do snapshot. O outro é
+    // `JwtStrategy.validate`, que monta o `request.user` do `ModulesGuard`.
+    // Os dois precisam reconciliar: só aqui faria o menu aparecer no web e a
+    // API responder 403 — pior que o bug original.
+    allowedModules = reconcileUserModules(allowedModules, allowedProjectTypes);
+
     return {
       id: user.id,
       username: user.username,

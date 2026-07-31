@@ -1,6 +1,7 @@
 export * from './project-features';
 export * from './module-navigator';
 export * from './type-modules';
+export * from './reconcile-user-modules';
 export * from './pendencia';
 export * from './onboarding-objectives';
 export * from './journey-catalog';

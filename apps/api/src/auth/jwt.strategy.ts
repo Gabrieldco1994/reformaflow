@@ -3,6 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { Request } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
+import { reconcileUserModules } from '@reformaflow/domain';
 
 export interface JwtPayload {
   sub: string;
@@ -99,7 +100,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       username: user.username,
       name: user.name,
       role: user.role,
-      allowedModules,
+      // Reconciliação em tempo de leitura — este `request.user` é o que o
+      // `ModulesGuard` consulta. Sem isto, um usuário antigo recebe o módulo
+      // na resposta de login (o web mostra o menu) mas leva 403 ao clicar.
+      // Ver `reconcileUserModules` no domínio.
+      allowedModules: reconcileUserModules(allowedModules, allowedProjectTypes),
       allowedProjects,
       allowedProjectTypes,
       isGuest: user.isGuest,
