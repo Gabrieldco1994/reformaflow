@@ -458,7 +458,7 @@ export class BankAccountService {
         ? findReceiptMatches(tx)         // crédito → match com Receipt PLANEJADO
         : findExpenseMatches(tx);        // débito → match com Expense PLANEJADO
       const manualExpenseType =
-        tx.amountCents > 0 ? await this.merchantClassifier.manualExpenseType(tx.merchant) : null;
+        tx.amountCents > 0 ? await this.merchantClassifier.manualExpenseType(tx.merchant, tenantId) : null;
       const isPixPf = tx.amountCents > 0 && MerchantClassifierService.isLikelyPixPessoaFisica(tx.merchant);
       return {
         ...tx,
@@ -687,7 +687,7 @@ export class BankAccountService {
     let updated = 0;
     for (const c of candidates) {
       if (!c.fornecedor) continue;
-      const manualType = await this.merchantClassifier.manualExpenseType(c.fornecedor);
+      const manualType = await this.merchantClassifier.manualExpenseType(c.fornecedor, tenantId);
       if (!manualType) continue;
       await this.prisma.$transaction([
         this.prisma.expense.update({
@@ -1294,7 +1294,7 @@ export class BankAccountService {
       };
     }
 
-    const manualExpenseType = categoryOverride ? null : await this.merchantClassifier.manualExpenseType(tx.merchant);
+    const manualExpenseType = categoryOverride ? null : await this.merchantClassifier.manualExpenseType(tx.merchant, tenantId);
     const isPixPfWithoutRule =
       !categoryOverride &&
       !manualExpenseType &&

@@ -201,7 +201,7 @@ export class PendenciaService {
     );
     const semCategoriaWithSuggestion: Array<FinancialQueueItem | null> = await Promise.all(
       semCategoriaBase.map(async (s) => {
-        const cached = await this.merchantClassifierService.fromCache(s.descricao);
+        const cached = await this.merchantClassifierService.fromCache(s.descricao, tenantId);
         if (!cached) return null;
         const suggested = PendenciaService.merchantCategoryToExpenseType(cached.category);
         if (suggested === ExpenseType.OUTROS) return null;

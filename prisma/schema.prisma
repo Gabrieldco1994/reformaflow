@@ -1038,13 +1038,16 @@ model BankStatementImport {
   @@map("bank_statement_imports")
 }
 
-// ─── Merchant categorization cache (global, sem tenant) ──────
-// Cache de classificação de estabelecimento. A chave é o nome
-// normalizado (lowercase, sem datas/números). Compartilhado entre tenants.
+// ─── Merchant categorization cache (tenant-scoped) ───────────
+// Cache/regra de classificação de estabelecimento. A chave é o nome
+// normalizado (lowercase, sem datas/números). Escopo por tenant:
+// `tenantId` nulo = regra GLOBAL (só ADMIN promove). Lookup tenta o
+// tenant primeiro e só então cai no global. Regra nunca muta valor/caixa.
 
 model MerchantCategory {
   id             String   @id @default(cuid())
-  merchantKey    String   @unique @map("merchant_key") // chave normalizada (lowercase, alpha)
+  tenantId       String?  @map("tenant_id") // null = regra global (ADMIN)
+  merchantKey    String   @map("merchant_key") // chave normalizada (lowercase, alpha)
   merchantSample String   @map("merchant_sample") // exemplo original (para auditoria)
   category       String // taxonomia: alimentação | transporte | assinaturas | viagem | saúde | compras | educação | casa | moradia | servicos | beleza | pets | impostos | outros
   subcategory    String? // detalhe livre (ex: "restaurante", "posto combustível")
@@ -1054,6 +1057,7 @@ model MerchantCategory {
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
+  @@unique([tenantId, merchantKey])
   @@index([category])
   @@map("merchant_categories")
 }
