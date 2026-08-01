@@ -616,10 +616,7 @@ export class ReceiptService {
           quantidade: 1,
           valorTotal: transaction.amountCents,
           formaPagamento: PaymentForm.A_VISTA,
-          dataPagamento:
-            documentType === RECEIPT_IMPORT_DOCUMENT_TYPE_CARD && !isRefund
-              ? null
-              : transaction.date,
+          dataPagamento: transaction.date,
           dataCompra: transaction.date,
           status,
           importId: null,
