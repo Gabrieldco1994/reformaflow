@@ -134,7 +134,7 @@ describe('redirects into the onboarding wizard (not straight to /apoio) after cr
     canCreateProjectTypeMock.mockReturnValue(true);
   });
 
-  it('routes to /projects/<projectId> after creating a new CARRO project', async () => {
+  it('routes to the project HOME after creating a new CARRO project', async () => {
     apiPostMock.mockResolvedValue({ id: 'proj-42', name: 'Meu Carro', type: 'CARRO', createdAt: '2026-07-11T12:00:00-03:00' });
     const user = userEvent.setup();
     render(<ProjectsPage />);
@@ -144,11 +144,11 @@ describe('redirects into the onboarding wizard (not straight to /apoio) after cr
     await user.click(screen.getByRole('button', { name: 'Criar' }));
 
     await waitFor(() =>
-      expect(pushMock).toHaveBeenCalledWith('/projects/proj-42'),
+      expect(pushMock).toHaveBeenCalledWith('/projects/proj-42/dashboard'),
     );
   });
 
-  it('routes to /projects/<projectId> for a PLANTAS project too', async () => {
+  it('routes to the project HOME for a PLANTAS project too', async () => {
     apiPostMock.mockResolvedValue({ id: 'proj-99', name: 'Minhas Plantas', type: 'PLANTAS', createdAt: '2026-07-11T12:00:00-03:00' });
     const user = userEvent.setup();
     render(<ProjectsPage />);
@@ -158,7 +158,7 @@ describe('redirects into the onboarding wizard (not straight to /apoio) after cr
     await user.click(screen.getByRole('button', { name: 'Criar' }));
 
     await waitFor(() =>
-      expect(pushMock).toHaveBeenCalledWith('/projects/proj-99'),
+      expect(pushMock).toHaveBeenCalledWith('/projects/proj-99/dashboard'),
     );
   });
 
