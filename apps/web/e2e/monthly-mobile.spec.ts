@@ -370,7 +370,7 @@ test.describe("Monthly cockpit — Phase C mobile relance", () => {
       await fab.evaluate((el) => getComputedStyle(el).backgroundColor),
     ).toBe("rgb(255, 255, 255)");
 
-    // O "+" abre PRIMEIRO o menu de modo (Despesa / Recebimento / Voz / Fatura / Extrato) — não vai direto
+    // O "+" abre PRIMEIRO o menu de modo (Despesa / Recebimento / Voz / Foto) — não vai direto
     // ao sheet de lançamento.
     await fab.click();
     const launchModeSheet = page.locator('[data-mobile-sheet="launch-mode"]');
@@ -381,7 +381,7 @@ test.describe("Monthly cockpit — Phase C mobile relance", () => {
       launchModeSheet.getByRole("button", { name: /^Despesa\b/ }),
     ).toBeVisible();
     await expect(
-      launchModeSheet.getByRole("button", { name: /^Fatura \/ Extrato\b/ }),
+      launchModeSheet.getByRole("button", { name: /^Foto\b/ }),
     ).toBeVisible();
 
     // Despesa → sheet de lançamento rápido.

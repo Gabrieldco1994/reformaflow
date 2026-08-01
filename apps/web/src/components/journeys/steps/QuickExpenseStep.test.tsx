@@ -308,7 +308,7 @@ describe('QuickExpenseStep', () => {
       renderStep({ projectId: 'p1', projectType: ProjectType.PESSOAL, onDone: vi.fn(), onSkip: vi.fn() });
       expect(screen.getByRole('button', { name: /despesa/i })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /voz/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /fatura \/ extrato/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /foto/i })).toBeInTheDocument();
     });
 
     it('hides Voz button when voiceSupported=false', () => {
@@ -328,7 +328,7 @@ describe('QuickExpenseStep', () => {
       });
 
       renderStep({ projectId: 'p1', projectType: ProjectType.PESSOAL, onDone, onSkip: vi.fn() });
-      fireEvent.click(screen.getByRole('button', { name: /fatura \/ extrato/i }));
+      fireEvent.click(screen.getByRole('button', { name: /foto/i }));
       await waitFor(() =>
         expect(screen.getByText(/fotografe o comprovante/i)).toBeInTheDocument(),
       );
@@ -375,7 +375,7 @@ describe('QuickExpenseStep', () => {
         onDone: vi.fn(),
         onSkip: vi.fn(),
       });
-      fireEvent.click(screen.getByRole('button', { name: /fatura \/ extrato/i }));
+      fireEvent.click(screen.getByRole('button', { name: /foto/i }));
       await waitFor(() =>
         expect(screen.getByText(/fotografe o comprovante/i)).toBeInTheDocument(),
       );
@@ -397,7 +397,7 @@ describe('QuickExpenseStep', () => {
       apiUploadMock.mockRejectedValueOnce(new Error('A leitura da foto demorou demais'));
 
       renderStep({ projectId: 'p1', projectType: ProjectType.PESSOAL, onDone, onSkip: vi.fn() });
-      fireEvent.click(screen.getByRole('button', { name: /fatura \/ extrato/i }));
+      fireEvent.click(screen.getByRole('button', { name: /foto/i }));
       await waitFor(() =>
         expect(screen.getByText(/fotografe o comprovante/i)).toBeInTheDocument(),
       );
