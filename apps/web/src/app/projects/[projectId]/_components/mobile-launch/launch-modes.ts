@@ -46,18 +46,18 @@ export const LAUNCH_MODES: LaunchModeOption[] = [
   },
   {
     value: 'fatura',
-    label: 'Fatura do cartão',
-    subtitle: 'PDF, CSV, OFX, XLS/XLSX, TXT ou foto/print',
+    label: 'Foto da fatura',
+    subtitle: 'Print/foto da fatura do cartão',
   },
   {
     value: 'extrato',
-    label: 'Extrato bancário',
-    subtitle: 'PDF, CSV, OFX, XLS/XLSX, TXT ou foto/print',
+    label: 'Foto do extrato',
+    subtitle: 'Print/foto do extrato da conta',
   },
   {
     value: 'foto',
-    label: 'Fatura / Extrato',
-    subtitle: 'PDF, CSV, OFX, XLS/XLSX, TXT ou foto/print',
+    label: 'Foto',
+    subtitle: 'Print ou foto de fatura / extrato',
   },
 ];
 
