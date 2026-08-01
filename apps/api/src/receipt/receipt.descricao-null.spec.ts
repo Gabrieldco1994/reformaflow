@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ReceiptService } from './receipt.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { MerchantClassifierService } from '../merchant-classifier/merchant-classifier.service';
 
 /**
  * Regressão de borda: PATCH /receipts com `descricao: null` (Maria / clientes
@@ -28,12 +29,25 @@ describe('ReceiptService.update — descricao null (borda)', () => {
     // bankLast4 já setado → pula o backfill/lookup de conta.
     prisma.receipt.findFirst.mockResolvedValue({ id: 'r1', bankLast4: '4247' });
     prisma.receipt.update.mockImplementation(async ({ data }: any) => ({
-      id: 'r1', projectId: 'p1', tenantId: 't1', valor: 1000,
-      data: new Date(), tipo: 'SALARIO', status: 'EM_CAIXA', ...data,
+      id: 'r1',
+      projectId: 'p1',
+      tenantId: 't1',
+      valor: 1000,
+      data: new Date(),
+      tipo: 'SALARIO',
+      status: 'EM_CAIXA',
+      ...data,
     }));
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [ReceiptService, { provide: PrismaService, useValue: prisma }],
+      providers: [
+        ReceiptService,
+        { provide: PrismaService, useValue: prisma },
+        {
+          provide: MerchantClassifierService,
+          useValue: { manualExpenseType: jest.fn().mockResolvedValue(null) },
+        },
+      ],
     }).compile();
     service = module.get(ReceiptService);
   });
@@ -43,7 +57,9 @@ describe('ReceiptService.update — descricao null (borda)', () => {
       service.update('t1', 'p1', 'r1', { descricao: null } as any),
     ).resolves.toBeDefined();
     expect(prisma.receipt.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ descricao: null }) }),
+      expect.objectContaining({
+        data: expect.objectContaining({ descricao: null }),
+      }),
     );
   });
 

@@ -734,6 +734,26 @@ Gestão das contas.
   (sem saldo inicial), leva para esta tela com o formulário de edição aberto.
 - **Estado vazio:** "Nenhuma conta cadastrada".
 
+#### 4.8.1 Importar para Carteira (sem conta vinculada)
+
+Permite importar um extrato ou fatura sem associar a uma conta cadastrada. O fluxo é:
+
+1. **Tipo de documento** — escolha entre **Extrato bancário** ou **Fatura de cartão**.
+2. **Seleção de arquivos** — envie um ou mais arquivos (OFX, CSV, PDF, imagem, XLSX).
+   Se o PDF estiver protegido por senha, o app solicita a senha antes de prosseguir.
+3. **Pré-visualização somente leitura** — o upload gera uma tabela com cada
+   lançamento encontrado (data, descrição, valor, tipo e status). Nenhum dado é
+   gravado nesta etapa; a prévia existe apenas para revisão.
+4. **Confirmação explícita** — somente ao clicar em **Confirmar importação** os
+   lançamentos são criados. Os registros vão para **Carteira / Sem conta** com os
+   seguintes valores-padrão por origem:
+
+   | Origem | Tipo | Status |
+   |---|---|---|
+   | Extrato — débito (saída) | Despesa | PAGO |
+   | Extrato — crédito (entrada) | Recebimento | EM_CAIXA |
+   | Fatura de cartão — compra | Despesa | PLANEJADO |
+
 ### 4.9 Metas (`/metas`)
 Limites de gasto por categoria no mês.
 
