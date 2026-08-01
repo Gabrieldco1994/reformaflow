@@ -132,9 +132,19 @@ function detectPaymentForm(normalized: string): PaymentForm {
 }
 
 function detectStatus(normalized: string): ExpenseStatus {
-  return normalized.includes('paguei') || normalized.includes('pago') || normalized.includes('foi pago')
-    ? ExpenseStatus.PAGO
-    : ExpenseStatus.PLANEJADO;
+  const planningPatterns = [
+    /\b(vou|iremos|irei)\s+(pagar|gastar|comprar)\b/,
+    /\bpreciso\s+(pagar|gastar|comprar)\b/,
+    /\bplanej[oa]\s+(pagar|gastar|comprar)\b/,
+    /\bpretendo\s+(pagar|gastar|comprar)\b/,
+    /\bquero\s+(pagar|gastar|comprar)\b/,
+    /\btenho que\s+(pagar|gastar|comprar)\b/,
+    /\bamanha\s+(pagar|gastar|comprar)\b/,
+    /\bdespesa\s+(futura|prevista)\b/,
+  ];
+  return planningPatterns.some((pattern) => pattern.test(normalized))
+    ? ExpenseStatus.PLANEJADO
+    : ExpenseStatus.PAGO;
 }
 
 function parseInstallments(normalized: string, payment: PaymentForm): number | null {
