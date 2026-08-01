@@ -849,7 +849,7 @@ describe("accountless import approved contract", () => {
         valor: 12_345,
         valorTotal: 12_345,
         status: "PLANEJADO",
-        dataPagamento: null,
+        dataPagamento: date,
         origin: "none",
         accountId: null,
         bankLast4: null,
