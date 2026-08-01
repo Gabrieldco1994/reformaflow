@@ -27,7 +27,7 @@ interface Project {
 export default function ProjectsPage() {
   const router = useRouter();
   const { hasProjectType, hasProjectAccess, canCreateProjectType, hasModule, isAdmin, user, refresh } = useAuth();
-  const { emitProjectCreated } = useJourneyRuntime();
+  const { emitProjectsCreated } = useJourneyRuntime();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -114,7 +114,7 @@ export default function ProjectsPage() {
       // Recarrega o usuário: se restrito, o backend acabou de conceder acesso
       // ao novo projeto — sem isso o layout redirecionaria para /no-permission.
       await refresh();
-      void emitProjectCreated(created.id, created.type as ProjectType);
+      void emitProjectsCreated([{ id: created.id, type: created.type as ProjectType }]);
       // Primeiro acesso ao projeto: o painel de onboarding aparecerá na dashboard
       // via o trigger PROJECT_CREATED (Fase A da jornada), não via rota dedicada
       // como era no shell antigo.

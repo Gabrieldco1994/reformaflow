@@ -3,6 +3,7 @@
 import { X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useOverlayLock } from './use-overlay-lock';
 
 interface ModalProps {
   open: boolean;
@@ -39,16 +40,13 @@ export function Modal({
 
   useEffect(() => {
     if (open) {
-      document.body.style.overflow = 'hidden';
       requestAnimationFrame(() => setMounted(true));
     } else {
-      document.body.style.overflow = '';
       setMounted(false);
     }
-    return () => {
-      document.body.style.overflow = '';
-    };
   }, [open]);
+
+  useOverlayLock(open);
 
   if (!open) return null;
 

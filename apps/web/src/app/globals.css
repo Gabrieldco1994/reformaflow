@@ -822,3 +822,13 @@ a,
 [role="dialog"] {
   overscroll-behavior: contain;
 }
+
+/* O painel da jornada vive em z-[70], acima de qualquer modal (z-50) e do
+   overlay de voz (z-[60]) — de propósito, para acompanhar o usuário na tela
+   real. Mas com um overlay de tela cheia aberto isso virava um cartão claro
+   flutuando sobre o backdrop escuro, tapando justamente o formulário que a
+   jornada mandou preencher. Enquanto houver overlay, o painel sai da frente e
+   volta sozinho quando ele fecha (o atributo vem de `useOverlayLock`). */
+body[data-overlay-open] [data-journey-panel] {
+  display: none;
+}

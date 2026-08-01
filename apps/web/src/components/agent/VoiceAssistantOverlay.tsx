@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Mic, X, AudioLines, Loader2 } from 'lucide-react';
 import { streamSpeak, type StreamTtsHandle } from '@/lib/streaming-tts';
 import { useSpeechRecognition } from './useSpeechRecognition';
+import { useOverlayLock } from '@/components/ui/use-overlay-lock';
 import type { ChatMessage } from './useFinancialAgent';
 
 // `preparing`: texto já chegou e está visível, mas o primeiro PCM real do TTS
@@ -36,6 +37,9 @@ const WARMUP_HINT = 'A voz está aquecendo. Você já pode ler a resposta.';
 const WARMUP_DELAY_MS = 3000;
 
 export function VoiceAssistantOverlay({ onClose, send, autoStart = false }: VoiceAssistantOverlayProps) {
+  // Só é montado quando aberto: ocupa a tela inteira em z-[60] e precisa afastar
+  // o painel da jornada, que vive acima disso.
+  useOverlayLock(true);
   const speech = useSpeechRecognition();
   const [state, setState] = useState<VoiceState>('idle');
   const [lastUser, setLastUser] = useState('');
