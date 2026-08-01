@@ -753,6 +753,17 @@ Permite importar um extrato ou fatura sem associar a uma conta cadastrada. O flu
    | Extrato — débito (saída) | Despesa | PAGO |
    | Extrato — crédito (entrada) | Recebimento | EM_CAIXA |
    | Fatura de cartão — compra | Despesa | PLANEJADO |
+5. **Tela de conclusão (pós-processamento)** — depois de importar, o app pergunta
+   **se você quer vincular agora**:
+   - **Extrato bancário:** oferece as contas do projeto para vincular imediatamente
+     os lançamentos criados; se você não escolher nenhuma, tudo permanece em
+     **Carteira / Sem conta**.
+   - **Fatura de cartão:** oferece os cartões do projeto para vincular
+     imediatamente as despesas importadas; se você não escolher nenhum, elas
+     continuam em **Carteira / Sem conta**.
+
+   Ou seja: o upload **não bloqueia mais** por falta de conta/cartão. A decisão de
+   vínculo foi movida para o fim do fluxo.
 
 ### 4.9 Metas (`/metas`)
 Limites de gasto por categoria no mês.

@@ -1,19 +1,35 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { AlertCircle, Loader2, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { formatCurrency, formatDateBR } from "@/lib/utils";
 
 interface Props {
   projectId: string;
+  fixedDocumentType?: DocumentType;
   onClose: () => void;
   onCommitted: () => void;
 }
 
-type DocumentType = "bank" | "card";
+export type DocumentType = "bank" | "card";
 type RowType = "DESPESA" | "RECEBIMENTO";
 type RowStatus = "PAGO" | "PLANEJADO" | "EM_CAIXA" | "PREVISTO";
+
+interface ProjectAccountOption {
+  id: string;
+  nickname?: string | null;
+  institution?: string | null;
+  last4?: string | null;
+}
+
+interface ProjectCardOption {
+  id: string;
+  nickname?: string | null;
+  brand?: string | null;
+  last4: string;
+}
 
 interface ApiPreviewRow {
   externalId: string;
@@ -67,6 +83,14 @@ interface ApiCommitResult {
   failed?: number;
   skipped?: number;
   duplicated?: number;
+  expenseIds?: string[];
+  receiptIds?: string[];
+}
+
+interface CommitResult {
+  count: number;
+  expenseIds: string[];
+  receiptIds: string[];
 }
 
 const MAX_FILES = 5;
@@ -173,8 +197,17 @@ function signedCurrency(amountCents: number) {
   return value;
 }
 
+function accountLabel(account: ProjectAccountOption) {
+  return `${account.nickname || account.institution || "Conta"}${account.last4 ? ` •••• ${account.last4}` : ""}`;
+}
+
+function cardLabel(card: ProjectCardOption) {
+  return `${card.nickname || card.brand || "Cartão"} •••• ${card.last4}`;
+}
+
 export default function ImportWithoutAccountModal({
   projectId,
+  fixedDocumentType,
   onClose,
   onCommitted,
 }: Props) {
@@ -187,14 +220,33 @@ export default function ImportWithoutAccountModal({
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const committedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const committedNotifiedRef = useRef(false);
-  const [documentType, setDocumentType] = useState<DocumentType>("bank");
+  const [documentType, setDocumentType] = useState<DocumentType>(
+    fixedDocumentType ?? "bank",
+  );
   const [files, setFiles] = useState<File[]>([]);
   const [password, setPassword] = useState("");
   const [needsPassword, setNeedsPassword] = useState(false);
   const [preview, setPreview] = useState<PreviewResult | null>(null);
-  const [committedCount, setCommittedCount] = useState<number | null>(null);
+  const [committedResult, setCommittedResult] = useState<CommitResult | null>(
+    null,
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
+
+  const { data: projectAccounts = [] } = useQuery<ProjectAccountOption[]>({
+    queryKey: ["project", projectId, "bank-accounts"],
+    queryFn: () => api.get(`/projects/${projectId}/bank-accounts`),
+    enabled: committedResult !== null && documentType === "bank",
+    staleTime: 60_000,
+  });
+
+  const { data: projectCards = [] } = useQuery<ProjectCardOption[]>({
+    queryKey: ["project", projectId, "credit-cards"],
+    queryFn: () => api.get(`/projects/${projectId}/credit-cards`),
+    enabled: committedResult !== null && documentType === "card",
+    staleTime: 60_000,
+  });
 
   const restorePreviousFocus = useCallback(() => {
     previousFocusRef.current?.focus();
@@ -213,12 +265,12 @@ export default function ImportWithoutAccountModal({
   const handleClose = useCallback(() => {
     if (loading) return;
     restorePreviousFocus();
-    if (committedCount !== null) {
+    if (committedResult !== null) {
       notifyCommitted();
     } else {
       onClose();
     }
-  }, [committedCount, loading, notifyCommitted, onClose, restorePreviousFocus]);
+  }, [committedResult, loading, notifyCommitted, onClose, restorePreviousFocus]);
 
   useEffect(() => {
     previousFocusRef.current =
@@ -236,10 +288,16 @@ export default function ImportWithoutAccountModal({
   }, [restorePreviousFocus]);
 
   useEffect(() => {
-    if (committedCount !== null) {
+    if (committedResult !== null) {
       successHeadingRef.current?.focus();
     }
-  }, [committedCount]);
+  }, [committedResult]);
+
+  useEffect(() => {
+    if (!fixedDocumentType) return;
+    setDocumentType(fixedDocumentType);
+    setSelectedTargetId(null);
+  }, [fixedDocumentType]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -377,19 +435,65 @@ export default function ImportWithoutAccountModal({
         (result.expensesInserted ?? 0) + (result.receiptsInserted ?? 0);
       const failed = result.failed ?? 0;
       if (failed > 0) {
-        setCommittedCount(null);
+        setCommittedResult(null);
         setError(
           `Importação parcial: ${inserted} lançamento(s) importado(s) e ${failed} com falha. Tente novamente para concluir os pendentes.`,
         );
         return;
       }
 
-      setCommittedCount(inserted);
-      if (!committedNotifiedRef.current && committedTimerRef.current === null) {
-        committedTimerRef.current = setTimeout(notifyCommitted, 1500);
-      }
+      setSelectedTargetId(null);
+      setCommittedResult({
+        count: inserted,
+        expenseIds: result.expenseIds ?? [],
+        receiptIds: result.receiptIds ?? [],
+      });
     } catch (caught) {
       showImportError(caught, "Não foi possível concluir a importação.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleLinkNow() {
+    if (!committedResult) return;
+    if (!selectedTargetId) {
+      setError(
+        documentType === "bank"
+          ? "Selecione a conta para vincular os lançamentos agora."
+          : "Selecione o cartão para vincular os lançamentos agora.",
+      );
+      return;
+    }
+
+    setError(null);
+    setLoading(true);
+    try {
+      if (documentType === "bank") {
+        await Promise.all([
+          ...committedResult.expenseIds.map((expenseId) =>
+            api.post(`/projects/${projectId}/expenses/${expenseId}/link-account`, {
+              accountId: selectedTargetId,
+            }),
+          ),
+          ...committedResult.receiptIds.map((receiptId) =>
+            api.post(`/projects/${projectId}/receipts/${receiptId}/link-account`, {
+              accountId: selectedTargetId,
+            }),
+          ),
+        ]);
+      } else {
+        await Promise.all(
+          committedResult.expenseIds.map((expenseId) =>
+            api.post(`/projects/${projectId}/expenses/${expenseId}/link-card`, {
+              cardId: selectedTargetId,
+            }),
+          ),
+        );
+      }
+      notifyCommitted();
+    } catch (caught) {
+      showImportError(caught, "Não foi possível vincular os lançamentos importados.");
     } finally {
       setLoading(false);
     }
@@ -398,7 +502,8 @@ export default function ImportWithoutAccountModal({
   function handleFilesChange(event: React.ChangeEvent<HTMLInputElement>) {
     const selected = Array.from(event.currentTarget.files ?? []);
     setPreview(null);
-    setCommittedCount(null);
+    setCommittedResult(null);
+    setSelectedTargetId(null);
     committedNotifiedRef.current = false;
     if (committedTimerRef.current) {
       clearTimeout(committedTimerRef.current);
@@ -426,7 +531,8 @@ export default function ImportWithoutAccountModal({
   function selectDocumentType(value: DocumentType) {
     setDocumentType(value);
     setPreview(null);
-    setCommittedCount(null);
+    setCommittedResult(null);
+    setSelectedTargetId(null);
     committedNotifiedRef.current = false;
     if (committedTimerRef.current) {
       clearTimeout(committedTimerRef.current);
@@ -436,6 +542,13 @@ export default function ImportWithoutAccountModal({
     setNeedsPassword(false);
     setError(null);
   }
+
+  const isDocumentTypeLocked = fixedDocumentType !== undefined;
+  const hasBankTargets =
+    committedResult !== null &&
+    (committedResult.expenseIds.length > 0 || committedResult.receiptIds.length > 0);
+  const hasCardTargets =
+    committedResult !== null && committedResult.expenseIds.length > 0;
 
   return (
     <div
@@ -448,8 +561,8 @@ export default function ImportWithoutAccountModal({
       tabIndex={-1}
     >
       <div className="max-h-[90dvh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white p-5 sm:p-6">
-        {committedCount !== null ? (
-          <div className="py-6 text-center" aria-live="polite">
+        {committedResult !== null ? (
+          <div className="py-2" aria-live="polite">
             <h2
               id={titleId}
               ref={successHeadingRef}
@@ -459,9 +572,142 @@ export default function ImportWithoutAccountModal({
               Importação concluída!
             </h2>
             <p className="text-sm text-gray-600">
-              {committedCount} lançamento(s) importado(s) sem conta. Você poderá
-              vincular uma conta depois.
+              {committedResult.count} lançamento(s) importado(s) para a Carteira.
             </p>
+
+            <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4 text-left">
+              <p className="text-sm font-medium text-gray-900">
+                {documentType === "bank"
+                  ? "Quer vincular esses lançamentos a uma conta agora?"
+                  : "Quer vincular essas despesas a um cartão agora?"}
+              </p>
+              <p className="mt-1 text-xs text-gray-600">
+                {documentType === "bank"
+                  ? "Se preferir, deixe tudo na Carteira por enquanto e vincule depois."
+                  : "Se preferir, deixe tudo na Carteira por enquanto e vincule o cartão depois."}
+              </p>
+
+              {documentType === "bank" ? (
+                hasBankTargets ? (
+                  projectAccounts.length > 0 ? (
+                    <div className="mt-4 space-y-2">
+                      {projectAccounts.map((account) => (
+                        <button
+                          key={account.id}
+                          type="button"
+                          onClick={() => setSelectedTargetId(account.id)}
+                          disabled={loading}
+                          aria-pressed={selectedTargetId === account.id}
+                          className={`flex min-h-11 w-full items-center rounded-lg border px-3 py-2 text-left text-sm font-medium ${
+                            selectedTargetId === account.id
+                              ? "border-blue-600 bg-blue-50 text-blue-700"
+                              : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                          }`}
+                        >
+                          {accountLabel(account)}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-4 text-sm text-gray-600">
+                      Nenhuma conta cadastrada neste projeto. Você pode deixar os
+                      lançamentos na Carteira por enquanto.
+                    </p>
+                  )
+                ) : (
+                  <p className="mt-4 text-sm text-gray-600">
+                    Este lote não gerou lançamentos compatíveis para vínculo
+                    imediato.
+                  </p>
+                )
+              ) : hasCardTargets ? (
+                projectCards.length > 0 ? (
+                  <div className="mt-4 space-y-2">
+                    {projectCards.map((card) => (
+                      <button
+                        key={card.id}
+                        type="button"
+                        onClick={() => setSelectedTargetId(card.id)}
+                        disabled={loading}
+                        aria-pressed={selectedTargetId === card.id}
+                        className={`flex min-h-11 w-full items-center rounded-lg border px-3 py-2 text-left text-sm font-medium ${
+                          selectedTargetId === card.id
+                            ? "border-blue-600 bg-blue-50 text-blue-700"
+                            : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                        }`}
+                      >
+                        {cardLabel(card)}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-4 text-sm text-gray-600">
+                    Nenhum cartão cadastrado neste projeto. Você pode deixar as
+                    despesas na Carteira por enquanto.
+                  </p>
+                )
+              ) : (
+                <p className="mt-4 text-sm text-gray-600">
+                  Este lote não gerou despesas compatíveis para vínculo imediato.
+                </p>
+              )}
+            </div>
+
+            {error && (
+              <div
+                className="mt-4 flex gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-left"
+                role="alert"
+              >
+                <AlertCircle
+                  className="h-5 w-5 shrink-0 text-red-600"
+                  aria-hidden="true"
+                />
+                <p className="text-sm text-red-700">{error}</p>
+              </div>
+            )}
+
+            <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={notifyCommitted}
+                disabled={loading}
+                className="min-h-11 rounded-lg bg-gray-100 px-4 py-2 text-gray-700 hover:bg-gray-200 disabled:opacity-50"
+              >
+                Deixar na Carteira
+              </button>
+              {documentType === "bank" && projectAccounts.length > 0 && hasBankTargets && (
+                <button
+                  type="button"
+                  onClick={handleLinkNow}
+                  disabled={loading || !selectedTargetId}
+                  className="flex min-h-11 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {loading && (
+                    <Loader2
+                      className="h-4 w-4 animate-spin"
+                      aria-hidden="true"
+                    />
+                  )}
+                  Vincular agora a uma conta
+                </button>
+              )}
+              {documentType === "card" && projectCards.length > 0 && hasCardTargets && (
+                <button
+                  type="button"
+                  onClick={handleLinkNow}
+                  disabled={loading || !selectedTargetId}
+                  className="flex min-h-11 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {loading && (
+                    <Loader2
+                      className="h-4 w-4 animate-spin"
+                      aria-hidden="true"
+                    />
+                  )}
+                  Vincular agora a um cartão
+                </button>
+              )}
+            </div>
           </div>
         ) : (
           <>
@@ -485,34 +731,36 @@ export default function ImportWithoutAccountModal({
               Importe para a Carteira sem vincular uma conta ou cartão agora.
             </p>
 
-            <fieldset className="mb-4">
-              <legend className="mb-2 text-sm font-medium text-gray-700">
-                Tipo de documento
-              </legend>
-              <div className="flex gap-2">
-                {(
-                  [
-                    ["bank", "Extrato bancário"],
-                    ["card", "Fatura de cartão"],
-                  ] as const
-                ).map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => selectDocumentType(value)}
-                    disabled={loading}
-                    aria-pressed={documentType === value}
-                    className={`min-h-11 flex-1 rounded-lg border px-3 py-2 text-sm font-medium ${
-                      documentType === value
-                        ? "border-blue-600 bg-blue-50 text-blue-700"
-                        : "border-gray-300 text-gray-600 hover:bg-gray-50"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </fieldset>
+            {!isDocumentTypeLocked && (
+              <fieldset className="mb-4">
+                <legend className="mb-2 text-sm font-medium text-gray-700">
+                  Tipo de documento
+                </legend>
+                <div className="flex gap-2">
+                  {(
+                    [
+                      ["bank", "Extrato bancário"],
+                      ["card", "Fatura de cartão"],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => selectDocumentType(value)}
+                      disabled={loading}
+                      aria-pressed={documentType === value}
+                      className={`min-h-11 flex-1 rounded-lg border px-3 py-2 text-sm font-medium ${
+                        documentType === value
+                          ? "border-blue-600 bg-blue-50 text-blue-700"
+                          : "border-gray-300 text-gray-600 hover:bg-gray-50"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+            )}
 
             <div className="mb-4">
               <label
@@ -556,7 +804,8 @@ export default function ImportWithoutAccountModal({
                   onChange={(event) => {
                     setPassword(event.currentTarget.value);
                     setPreview(null);
-                    setCommittedCount(null);
+                    setCommittedResult(null);
+                    setSelectedTargetId(null);
                     setError(null);
                   }}
                   disabled={loading}

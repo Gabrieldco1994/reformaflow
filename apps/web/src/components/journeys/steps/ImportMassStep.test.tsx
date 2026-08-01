@@ -39,8 +39,19 @@ vi.mock(
 vi.mock(
   '@/app/projects/[projectId]/bank-accounts/_components/ImportWithoutAccountModal',
   () => ({
-    default: ({ onClose, onCommitted }: { onClose: () => void; onCommitted: () => void }) => (
-      <div data-testid="import-sem-conta">
+    default: ({
+      onClose,
+      onCommitted,
+      fixedDocumentType,
+    }: {
+      onClose: () => void;
+      onCommitted: () => void;
+      fixedDocumentType?: 'bank' | 'card';
+    }) => (
+      <div
+        data-testid="import-sem-conta"
+        data-document-type={fixedDocumentType ?? 'chooser'}
+      >
         <button onClick={onCommitted}>Commitar sem conta</button>
         <button onClick={onClose}>Fechar sem conta</button>
       </div>
@@ -93,21 +104,24 @@ beforeEach(() => {
 });
 
 describe('ImportMassStep — auto-abre com cartão preferido', () => {
-  it('cartão preferido válido: abre ImportStatementModal diretamente', async () => {
+  it('cartão preferido válido: abre importação em modo fatura sem pedir cartão antes', async () => {
     wrap(<ImportMassStep {...defaultProps({ funding: cardFunding })} />);
-    await waitFor(() => expect(screen.getByTestId('import-fatura')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByTestId('import-sem-conta')).toHaveAttribute('data-document-type', 'card'),
+    );
   });
 
-  it('conta preferida válida: abre ImportBankStatementModal diretamente', async () => {
+  it('conta preferida válida: abre importação em modo extrato sem pedir conta antes', async () => {
     wrap(<ImportMassStep {...defaultProps({ funding: accountFunding })} />);
-    await waitFor(() => expect(screen.getByTestId('import-extrato')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByTestId('import-sem-conta')).toHaveAttribute('data-document-type', 'bank'),
+    );
   });
 
   it('ambos: não auto-abre — exibe botões de escolha Extrato/Fatura', async () => {
     wrap(<ImportMassStep {...defaultProps({ funding: bothFunding })} />);
     await waitFor(() => {
-      expect(screen.queryByTestId('import-fatura')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('import-extrato')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('import-sem-conta')).not.toBeInTheDocument();
     });
     expect(screen.getByText('Fatura do cartão')).toBeInTheDocument();
     expect(screen.getByText('Extrato da conta')).toBeInTheDocument();
@@ -115,14 +129,16 @@ describe('ImportMassStep — auto-abre com cartão preferido', () => {
 });
 
 describe('ImportMassStep — preferido vence mesmo com múltiplas fontes', () => {
-  it('cartão preferido cc1 auto-abre fatura mesmo havendo cc2 no sistema', async () => {
+  it('cartão preferido cc1 auto-abre o modo fatura mesmo havendo cc2 no sistema', async () => {
     apiGetMock.mockImplementation((path: string) => {
       if (path === '/tenant/credit-cards') return Promise.resolve([CARD, { id: 'cc2', brand: 'Master', last4: '9999', nickname: null }]);
       if (path === '/tenant/bank-accounts') return Promise.resolve([]);
       return Promise.resolve([]);
     });
     wrap(<ImportMassStep {...defaultProps({ funding: cardFunding })} />);
-    await waitFor(() => expect(screen.getByTestId('import-fatura')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByTestId('import-sem-conta')).toHaveAttribute('data-document-type', 'card'),
+    );
   });
 });
 
@@ -134,17 +150,17 @@ describe('ImportMassStep — ID stale não abre modal', () => {
       return Promise.resolve([]);
     });
     wrap(<ImportMassStep {...defaultProps({ funding: cardFunding })} />);
-    await waitFor(() => expect(screen.queryByTestId('import-fatura')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByTestId('import-sem-conta')).not.toBeInTheDocument());
   });
 });
 
 describe('ImportMassStep — fechar modal não reabre', () => {
-  it('fechar fatura não reabre automaticamente', async () => {
+  it('fechar importação não reabre automaticamente', async () => {
     wrap(<ImportMassStep {...defaultProps({ funding: cardFunding })} />);
-    await waitFor(() => expect(screen.getByTestId('import-fatura')).toBeInTheDocument());
-    fireEvent.click(screen.getByText('Fechar fatura'));
+    await waitFor(() => expect(screen.getByTestId('import-sem-conta')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Fechar sem conta'));
     await new Promise((r) => setTimeout(r, 50));
-    expect(screen.queryByTestId('import-fatura')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('import-sem-conta')).not.toBeInTheDocument();
   });
 });
 
@@ -174,16 +190,20 @@ describe('ImportMassStep — commit e skip', () => {
   it('commitar fatura chama onDone uma vez', async () => {
     const onDone = vi.fn();
     wrap(<ImportMassStep {...defaultProps({ onDone, funding: cardFunding })} />);
-    await waitFor(() => screen.getByTestId('import-fatura'));
-    fireEvent.click(screen.getByText('Commitar fatura'));
+    await waitFor(() =>
+      expect(screen.getByTestId('import-sem-conta')).toHaveAttribute('data-document-type', 'card'),
+    );
+    fireEvent.click(screen.getByText('Commitar sem conta'));
     expect(onDone).toHaveBeenCalledTimes(1);
   });
 
   it('commitar extrato chama onDone uma vez', async () => {
     const onDone = vi.fn();
     wrap(<ImportMassStep {...defaultProps({ onDone, funding: accountFunding })} />);
-    await waitFor(() => screen.getByTestId('import-extrato'));
-    fireEvent.click(screen.getByText('Commitar extrato'));
+    await waitFor(() =>
+      expect(screen.getByTestId('import-sem-conta')).toHaveAttribute('data-document-type', 'bank'),
+    );
+    fireEvent.click(screen.getByText('Commitar sem conta'));
     expect(onDone).toHaveBeenCalledTimes(1);
   });
 

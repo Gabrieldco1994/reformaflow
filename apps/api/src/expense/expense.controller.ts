@@ -146,6 +146,28 @@ export class ExpenseController {
     return this.service.linkCrossProject(tenantId, projectId, id, body.targetExpenseId);
   }
 
+  @Post(':id/link-account')
+  @ApiOperation({ summary: 'Vincular despesa a uma conta bancária retroativamente' })
+  linkAccount(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Param('id') id: string,
+    @Body() body: { accountId: string },
+  ) {
+    return this.service.linkAccount(tenantId, projectId, id, body.accountId);
+  }
+
+  @Post(':id/link-card')
+  @ApiOperation({ summary: 'Vincular despesa a um cartão retroativamente' })
+  linkCard(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Param('id') id: string,
+    @Body() body: { cardId: string },
+  ) {
+    return this.service.linkCard(tenantId, projectId, id, body.cardId);
+  }
+
   @Delete(':id/link')
   @ApiOperation({ summary: 'Remover vínculo cross-project desta despesa' })
   unlink(
