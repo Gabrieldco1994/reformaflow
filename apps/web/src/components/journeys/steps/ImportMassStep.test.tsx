@@ -152,10 +152,14 @@ describe('ImportMassStep — sem fonte', () => {
   it('sem funding e sem fontes no sistema: exibe opção de importar sem conta', async () => {
     apiGetMock.mockResolvedValue([]);
     wrap(<ImportMassStep {...defaultProps()} />);
-    await waitFor(() => expect(screen.getByText(/PDF, CSV, OFX, TXT/i)).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText('Importar sem vincular')).toBeInTheDocument(),
+    );
   });
 
-  it('sem funding mas com fontes: exibe ambas as opções', async () => {
+  // `toBeGreaterThanOrEqual(1)` passa com DOIS — foi assim que a duplicata
+  // sobreviveu ao CI enquanto o usuário via o mesmo botão repetido na tela.
+  it('sem funding mas com fontes: exibe cada opção UMA vez', async () => {
     apiGetMock.mockImplementation((path: string) => {
       if (path === '/tenant/credit-cards') return Promise.resolve([CARD]);
       if (path === '/tenant/bank-accounts') return Promise.resolve([ACCOUNT]);
@@ -163,10 +167,48 @@ describe('ImportMassStep — sem fonte', () => {
     });
     wrap(<ImportMassStep {...defaultProps()} />);
     await waitFor(() => {
-      expect(screen.getAllByText('Fatura do cartão').length).toBeGreaterThanOrEqual(1);
-      expect(screen.getAllByText('Extrato da conta').length).toBeGreaterThanOrEqual(1);
-      expect(screen.getByText(/PDF, CSV, OFX, TXT/i)).toBeInTheDocument();
+      expect(screen.getAllByText('Fatura do cartão')).toHaveLength(1);
+      expect(screen.getAllByText('Extrato da conta')).toHaveLength(1);
+      expect(screen.getByText('Importar sem vincular')).toBeInTheDocument();
     });
+  });
+
+  // Regressão do que o PO viu: botão repetido é invisível para quem rola a
+  // tela e óbvio para uma contagem. Vale para QUALQUER combinação de fontes.
+  it.each([
+    ['sem fonte nenhuma', [], []],
+    ['só cartão', [CARD], []],
+    ['só conta', [], [ACCOUNT]],
+    ['cartão e conta', [CARD], [ACCOUNT]],
+  ])('nenhum botão repetido — %s', async (_nome, cartoes, contas) => {
+    apiGetMock.mockImplementation((path: string) => {
+      if (path === '/tenant/credit-cards') return Promise.resolve(cartoes);
+      if (path === '/tenant/bank-accounts') return Promise.resolve(contas);
+      return Promise.resolve([]);
+    });
+    const { container } = wrap(<ImportMassStep {...defaultProps()} />);
+    await waitFor(() =>
+      expect(screen.getByText('Importar sem vincular')).toBeInTheDocument(),
+    );
+    const rotulos = [...container.querySelectorAll('button')]
+      .map((b) => b.textContent?.trim())
+      .filter(Boolean);
+    const repetidos = rotulos.filter((t, i) => rotulos.indexOf(t) !== i);
+    expect(repetidos).toEqual([]);
+  });
+
+  // O gate que o PO reclamou: com cartão preferido cadastrado, "importar sem
+  // vincular" continuava escondido e o vínculo virava obrigatório antes de subir.
+  it('com fonte preferida, ainda oferece importar sem vincular', async () => {
+    apiGetMock.mockImplementation((path: string) => {
+      if (path === '/tenant/credit-cards') return Promise.resolve([]);
+      if (path === '/tenant/bank-accounts') return Promise.resolve([ACCOUNT]);
+      return Promise.resolve([]);
+    });
+    wrap(<ImportMassStep {...defaultProps({ funding: accountFunding })} />);
+    await waitFor(() =>
+      expect(screen.getByText('Importar sem vincular')).toBeInTheDocument(),
+    );
   });
 });
 
@@ -191,9 +233,10 @@ describe('ImportMassStep — commit e skip', () => {
     const onDone = vi.fn();
     apiGetMock.mockResolvedValue([]);
     wrap(<ImportMassStep {...defaultProps({ onDone })} />);
-    // Primeiro, clicar no botão "PDF, CSV, OFX, TXT" (importar sem conta)
-    await waitFor(() => expect(screen.getByText(/PDF, CSV, OFX, TXT/i)).toBeInTheDocument());
-    const importButton = screen.getByText(/PDF, CSV, OFX, TXT/i);
+    await waitFor(() =>
+      expect(screen.getByText('Importar sem vincular')).toBeInTheDocument(),
+    );
+    const importButton = screen.getByText('Importar sem vincular');
     fireEvent.click(importButton);
     // Agora a modal deve estar visível
     await waitFor(() => screen.getByTestId('import-sem-conta'));

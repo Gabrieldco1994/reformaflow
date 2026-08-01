@@ -128,10 +128,8 @@ export function ImportMassStep({ projectId, onDone, onSkip, onBack, subtitle, ca
   const activeCard = cards.find((c) => c.id === selectedCardId) ?? null;
   const activeAccount = accounts.find((a) => a.id === selectedAccountId) ?? null;
 
-  const hasBothFunding = !!(funding?.creditCard && funding?.bankAccount);
   const hasCardFunding = !!funding?.creditCard;
   const hasAccountFunding = !!funding?.bankAccount;
-  const noFunding = !hasCardFunding && !hasAccountFunding;
 
   return (
     <section className="rounded-[18px] border border-lifeone-hairline bg-lifeone-card p-6 shadow-lifeone-card">
@@ -140,63 +138,24 @@ export function ImportMassStep({ projectId, onDone, onSkip, onBack, subtitle, ca
         {subtitle || 'Use o extrato ou fatura que já tem — detectamos os valores automaticamente'}
       </p>
 
-      {/* Sem fonte: estado vazio com CTA "Sem conta" */}
-      {noFunding && (
+      {/* UM bloco só. Antes eram cinco condicionais sobrepostas: com
+          `noFunding && cards.length > 0` o bloco geral e o "fallback manual"
+          renderiam "Fatura do cartão" DUAS vezes na mesma tela. Com um bloco
+          único a duplicata deixa de ser possível por construção.
+
+          "Importar sem vincular" agora aparece SEMPRE, não só quando não há
+          cartão/conta: exigir o vínculo antes de subir o arquivo era o que
+          travava quem já tinha uma fonte cadastrada. O vínculo é oferecido
+          depois, na conclusão do import. */}
+      {!importType && (
         <div className="space-y-2.5 mt-4">
-          {cards.length > 0 && (
+          {(hasCardFunding || cards.length > 0) && (
             <OptionButton icon={CreditCard} label="Fatura do cartão" onClick={openFatura} />
           )}
-          {accounts.length > 0 && (
+          {(hasAccountFunding || accounts.length > 0) && (
             <OptionButton icon={Landmark} label="Extrato da conta" onClick={openExtrato} />
           )}
-          <div className="rounded-[12px] border border-lifeone-hairline bg-lifeone-surface p-4">
-            <button
-              type="button"
-              onClick={openSemConta}
-              className="flex min-h-11 w-full items-center gap-3 rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-4 py-3 text-[14px] font-medium text-lifeone-ink hover:bg-lifeone-hairline/60 active:scale-[0.99] transition-colors"
-            >
-              <Wallet className="h-4 w-4 shrink-0 text-lifeone-ink-3" />
-              <span className="flex-1 text-left">PDF, CSV, OFX, TXT</span>
-              <ArrowRight className="h-4 w-4 shrink-0 text-lifeone-ink-4" />
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Ambos: escolha de tipo */}
-      {hasBothFunding && !importType && (
-        <div className="space-y-2.5 mt-4">
-          <OptionButton icon={CreditCard} label="Fatura do cartão" onClick={openFatura} />
-          <OptionButton icon={Landmark} label="Extrato da conta" onClick={openExtrato} />
-        </div>
-      )}
-
-      {/* Só conta (sem auto-abertura ativa, ou após fechar) */}
-      {!hasBothFunding && hasAccountFunding && !importType && !isLoading && (
-        <div className="space-y-2.5 mt-4">
-          <OptionButton icon={Landmark} label="Extrato da conta" onClick={openExtrato} />
-          {hasCardFunding && (
-            <OptionButton icon={CreditCard} label="Fatura do cartão" onClick={openFatura} />
-          )}
-        </div>
-      )}
-
-      {/* Só cartão (sem auto-abertura ativa) */}
-      {!hasBothFunding && hasCardFunding && !hasAccountFunding && !importType && !isLoading && (
-        <div className="space-y-2.5 mt-4">
-          <OptionButton icon={CreditCard} label="Fatura do cartão" onClick={openFatura} />
-        </div>
-      )}
-
-      {/* Fallback manual quando não há funding preferido mas há fontes no sistema */}
-      {noFunding && cards.length > 0 && (
-        <div className="space-y-2.5 mt-3">
-          <OptionButton icon={CreditCard} label="Fatura do cartão" onClick={openFatura} />
-        </div>
-      )}
-      {noFunding && accounts.length > 0 && (
-        <div className="space-y-2.5 mt-2">
-          <OptionButton icon={Landmark} label="Extrato da conta" onClick={openExtrato} />
+          <OptionButton icon={Wallet} label="Importar sem vincular" onClick={openSemConta} />
         </div>
       )}
 
