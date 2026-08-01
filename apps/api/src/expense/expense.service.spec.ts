@@ -1078,6 +1078,78 @@ describe('ExpenseService', () => {
       const arg = prisma.expense.update.mock.calls[0]![0];
       expect(arg.data.cardLast4).toBeNull();
     });
+
+    it('linkAccount vincula retroativamente uma despesa de Carteira a uma conta bancária', async () => {
+      prisma.expense.findFirst.mockResolvedValueOnce({
+        id: 'e-wallet',
+        projectId,
+        tenantId,
+        accountId: null,
+        bankLast4: null,
+        cardLast4: null,
+        origin: 'none',
+        deletedAt: null,
+      });
+      prisma.bankAccount.findFirst.mockResolvedValueOnce({
+        id: 'acc-1',
+        last4: '4242',
+      });
+      prisma.expense.update.mockResolvedValueOnce({
+        id: 'e-wallet',
+        accountId: 'acc-1',
+        bankLast4: '4242',
+        cardLast4: null,
+        origin: 'import',
+      });
+
+      await service.linkAccount(tenantId, projectId, 'e-wallet', 'acc-1');
+
+      expect(prisma.expense.update).toHaveBeenCalledWith({
+        where: { id: 'e-wallet' },
+        data: {
+          accountId: 'acc-1',
+          bankLast4: '4242',
+          cardLast4: null,
+          origin: 'import',
+        },
+      });
+    });
+
+    it('linkCard vincula retroativamente uma despesa de Carteira a um cartão', async () => {
+      prisma.expense.findFirst.mockResolvedValueOnce({
+        id: 'e-wallet-card',
+        projectId,
+        tenantId,
+        accountId: null,
+        bankLast4: null,
+        cardLast4: null,
+        origin: 'none',
+        deletedAt: null,
+      });
+      prisma.creditCard.findFirst.mockResolvedValueOnce({
+        id: 'card-1',
+        last4: '1111',
+      });
+      prisma.expense.update.mockResolvedValueOnce({
+        id: 'e-wallet-card',
+        accountId: null,
+        bankLast4: null,
+        cardLast4: '1111',
+        origin: 'import',
+      });
+
+      await service.linkCard(tenantId, projectId, 'e-wallet-card', 'card-1');
+
+      expect(prisma.expense.update).toHaveBeenCalledWith({
+        where: { id: 'e-wallet-card' },
+        data: {
+          accountId: null,
+          bankLast4: null,
+          cardLast4: '1111',
+          origin: 'import',
+        },
+      });
+    });
   });
 
   describe('findCrossProject', () => {

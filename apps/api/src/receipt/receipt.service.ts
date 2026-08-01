@@ -51,9 +51,9 @@ const IMPORT_OUTCOME_RECEIPT = 'receipt';
 
 type ExternalIdLookupClient = Pick<Prisma.TransactionClient, '$queryRaw'>;
 type ReceiptImportOutcome =
-  | typeof IMPORT_OUTCOME_DUPLICATE
-  | typeof IMPORT_OUTCOME_EXPENSE
-  | typeof IMPORT_OUTCOME_RECEIPT;
+  | { kind: typeof IMPORT_OUTCOME_DUPLICATE }
+  | { kind: typeof IMPORT_OUTCOME_EXPENSE; id: string }
+  | { kind: typeof IMPORT_OUTCOME_RECEIPT; id: string };
 
 export interface ReceiptImportPreviewRow {
   externalId: string;
@@ -88,6 +88,8 @@ export interface ReceiptImportCommitResult {
   duplicated: number;
   skipped: number;
   failed: number;
+  expenseIds: string[];
+  receiptIds: string[];
 }
 
 @Injectable()
@@ -483,6 +485,8 @@ export class ReceiptService {
     let duplicated = 0;
     let skipped = 0;
     let failed = 0;
+    const expenseIds: string[] = [];
+    const receiptIds: string[] = [];
 
     for (const transaction of parsed.transactions) {
       if (existing.has(transaction.externalId)) {
@@ -519,12 +523,14 @@ export class ReceiptService {
         );
         existing.add(transaction.externalId);
 
-        if (outcome === IMPORT_OUTCOME_DUPLICATE) {
+        if (outcome.kind === IMPORT_OUTCOME_DUPLICATE) {
           duplicated++;
-        } else if (outcome === IMPORT_OUTCOME_EXPENSE) {
+        } else if (outcome.kind === IMPORT_OUTCOME_EXPENSE) {
           expensesInserted++;
+          expenseIds.push(outcome.id);
         } else {
           receiptsInserted++;
+          receiptIds.push(outcome.id);
         }
       } catch {
         failed++;
@@ -540,6 +546,8 @@ export class ReceiptService {
       duplicated,
       skipped,
       failed,
+      expenseIds,
+      receiptIds,
     };
   }
 
@@ -602,7 +610,7 @@ export class ReceiptService {
         db,
       );
       if (existing.has(transaction.externalId)) {
-        return IMPORT_OUTCOME_DUPLICATE;
+        return { kind: IMPORT_OUTCOME_DUPLICATE };
       }
 
       const expense = await db.expense.create({
@@ -641,7 +649,7 @@ export class ReceiptService {
           status,
         },
       });
-      return IMPORT_OUTCOME_EXPENSE;
+      return { kind: IMPORT_OUTCOME_EXPENSE, id: expense.id };
     });
   }
 
@@ -665,7 +673,7 @@ export class ReceiptService {
         db,
       );
       if (existing.has(transaction.externalId)) {
-        return IMPORT_OUTCOME_DUPLICATE;
+        return { kind: IMPORT_OUTCOME_DUPLICATE };
       }
 
       const receipt = await db.receipt.create({
@@ -697,7 +705,7 @@ export class ReceiptService {
           status: ReceiptStatus.EM_CAIXA,
         },
       });
-      return IMPORT_OUTCOME_RECEIPT;
+      return { kind: IMPORT_OUTCOME_RECEIPT, id: receipt.id };
     });
   }
 
