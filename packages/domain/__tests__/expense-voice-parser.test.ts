@@ -4,7 +4,7 @@ import { ExpenseStatus, ExpenseType, PaymentForm, parseVoiceExpense } from '../s
 describe('parseVoiceExpense', () => {
   const now = new Date('2026-05-22T12:00:00.000Z');
 
-  it('interpreta frase pessoal com valor, categoria e forma', () => {
+  it('interpreta frase pessoal com valor, categoria e forma como paga por padrão', () => {
     const parsed = parseVoiceExpense({
       transcript: 'Gastei 85 reais no mercado no cartao hoje',
       allowedExpenseTypes: [
@@ -19,8 +19,27 @@ describe('parseVoiceExpense', () => {
     expect(parsed.valor).toBe(85);
     expect(parsed.tipoDespesa).toBe(ExpenseType.ALIMENTACAO);
     expect(parsed.formaPagamento).toBe(PaymentForm.PARCELADO);
-    expect(parsed.status).toBe(ExpenseStatus.PLANEJADO);
+    expect(parsed.status).toBe(ExpenseStatus.PAGO);
     expect(parsed.dataReferencia).toBe('2026-05-22');
+  });
+
+  it('mantem capacidade de detectar linguagem futura como planejada', () => {
+    const parsed = parseVoiceExpense({
+      transcript: 'Vou pagar 85 reais no mercado no cartao amanha',
+      allowedExpenseTypes: [
+        ExpenseType.ALIMENTACAO,
+        ExpenseType.CARTAO_CREDITO,
+        ExpenseType.TRANSPORTE,
+      ],
+      defaultExpenseType: ExpenseType.ALIMENTACAO,
+      now,
+    });
+
+    expect(parsed.valor).toBe(85);
+    expect(parsed.tipoDespesa).toBe(ExpenseType.ALIMENTACAO);
+    expect(parsed.formaPagamento).toBe(PaymentForm.PARCELADO);
+    expect(parsed.status).toBe(ExpenseStatus.PLANEJADO);
+    expect(parsed.dataReferencia).toBe('2026-05-23');
   });
 
   it('identifica parcela e status pago', () => {
