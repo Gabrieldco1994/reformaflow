@@ -12,7 +12,9 @@ import { invalidateExpenseQueries } from '../../expenses/_hooks/useExpenseMutati
 import { getExpenseOptions } from '../../expenses/_types';
 import { useVoiceExpense } from '../../expenses/_hooks/useVoiceExpense';
 import { VoiceExpenseModal } from '../../expenses/_components/VoiceExpenseModal';
-import ImportWithoutAccountModal from '../../bank-accounts/_components/ImportWithoutAccountModal';
+import { SemCartaoEmptyState } from '../SemCartaoEmptyState';
+import ImportStatementModal from '../../credit-cards/_components/ImportStatementModal';
+import ImportBankStatementModal from '../../bank-accounts/_components/ImportBankStatementModal';
 import { currentMonthKey } from '../../conta/_lib';
 import { ReceitaModal } from '../../conta/_components/ReceitaModal';
 import type { AccountViewResponse, OriginItemsYearlyResponse } from '../../conta/_types';
@@ -41,11 +43,15 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
   const year = month.slice(0, 4);
 
   const [screen, setScreen] = useState<LaunchScreen>('choose');
+  const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
 
   // Cada abertura do "+" recomeça na escolha de modo (critério de aceite).
   useEffect(() => {
     if (open) {
       setScreen('choose');
+      setSelectedCardId(null);
+      setSelectedAccountId(null);
     }
   }, [open]);
 
@@ -139,6 +145,8 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
   });
   const handleClose = useCallback(() => {
     setScreen('choose');
+    setSelectedCardId(null);
+    setSelectedAccountId(null);
     onClose();
   }, [onClose]);
 
@@ -163,6 +171,14 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
     projects: tenantProjects,
     currentProjectId: projectId,
   });
+
+  // Cartão/conta únicos → pula o "para qual?" e vai direto ao import (menos 1 toque).
+  useEffect(() => {
+    if (open && screen === 'fatura' && cards.length === 1) setSelectedCardId(cards[0].id);
+  }, [open, screen, cards]);
+  useEffect(() => {
+    if (open && screen === 'extrato' && accounts.length === 1) setSelectedAccountId(accounts[0].id);
+  }, [open, screen, accounts]);
 
   const recentDescriptions = useMemo(() => {
     const unique = new Set<string>();
@@ -267,10 +283,61 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
         </Modal>
       )}
 
-      {open && (screen === 'fatura' || screen === 'extrato') && (
-        <ImportWithoutAccountModal
+      {open && screen === 'fatura' && !selectedCardId && (
+        <Modal open onClose={handleClose} title="Para qual cartão é essa fatura?">
+          {cards.length === 0 ? (
+            <SemCartaoEmptyState projectId={projectId} />
+          ) : (
+            <div className="space-y-2">
+              {cards.map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => setSelectedCardId(c.id)}
+                  className="flex min-h-11 w-full items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-left hover:border-orange-300 hover:bg-orange-50"
+                >
+                  <CreditCard className="h-4 w-4 text-orange-500" />
+                  <span className="text-sm font-medium">{cardLabel(c)}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </Modal>
+      )}
+      {open && screen === 'fatura' && selectedCardId && (
+        <ImportStatementModal
           projectId={projectId}
-          fixedDocumentType={screen === 'fatura' ? 'card' : 'bank'}
+          card={(cards.find((c) => c.id === selectedCardId) ?? { id: selectedCardId }) as never}
+          onClose={handleClose}
+          onCommitted={handleImported}
+        />
+      )}
+
+      {open && screen === 'extrato' && !selectedAccountId && (
+        <Modal open onClose={handleClose} title="Para qual conta é esse extrato?">
+          {accounts.length === 0 ? (
+            <p className="text-sm text-gray-600">
+              Nenhuma conta cadastrada. Cadastre em <strong>Contas Bancárias</strong> antes de importar o extrato.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {accounts.map((a) => (
+                <button
+                  key={a.id}
+                  onClick={() => setSelectedAccountId(a.id)}
+                  className="flex min-h-11 w-full items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-left hover:border-teal-300 hover:bg-teal-50"
+                >
+                  <Landmark className="h-4 w-4 text-teal-500" />
+                  <span className="text-sm font-medium">{accountLabel(a)}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </Modal>
+      )}
+      {open && screen === 'extrato' && selectedAccountId && (
+        <ImportBankStatementModal
+          projectId={projectId}
+          account={(accounts.find((a) => a.id === selectedAccountId) ?? { id: selectedAccountId }) as never}
           onClose={handleClose}
           onCommitted={handleImported}
         />

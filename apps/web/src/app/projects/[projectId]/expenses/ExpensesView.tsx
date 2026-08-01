@@ -25,6 +25,7 @@ import { ExpenseKpiCards } from './_components/ExpenseKpiCards';
 import { ExpenseFiltersBar } from './_components/ExpenseFiltersBar';
 import { VoiceExpenseModal } from './_components/VoiceExpenseModal';
 import { ExpenseFormModal } from './_components/ExpenseFormModal';
+import { SemCartaoEmptyState } from '../_components/SemCartaoEmptyState';
 import { RatearCompraModal } from './_components/RatearCompraModal';
 import { PayOptionsModal } from './_components/PayOptionsModal';
 import { NovaDespesaWizard } from './_components/NovaDespesaWizard';
@@ -63,7 +64,8 @@ import {
   toCaixaBase,
   toDisplayBase,
 } from './_lib/personal-hierarchy';
-import ImportWithoutAccountModal from '../bank-accounts/_components/ImportWithoutAccountModal';
+import ImportStatementModal from '../credit-cards/_components/ImportStatementModal';
+import ImportBankStatementModal from '../bank-accounts/_components/ImportBankStatementModal';
 import { QuitarParcelaModal } from '../conta/_components/QuitarParcelaModal';
 import { suggestParcelaQuitacao, suggestParcelaQuitacaoAt } from './_lib/quitarParcelaCross';
 import { useExpenseQueryState } from './_hooks/useExpenseQueryState';
@@ -171,7 +173,9 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardMode, setWizardMode] = useState<'PLANEJAR' | 'PAGA'>('PLANEJAR');
   const [recorrenteOpen, setRecorrenteOpen] = useState(false);
-  const [importDocumentType, setImportDocumentType] = useState<null | 'card' | 'bank'>(null);
+  const [importStep, setImportStep] = useState<null | 'pick-card' | 'pick-account'>(null);
+  const [selectedCard, setSelectedCard] = useState<{ id: string; last4: string; nickname?: string | null } | null>(null);
+  const [selectedAccount, setSelectedAccount] = useState<{ id: string; last4?: string | null; nickname?: string | null; institution?: string | null } | null>(null);
   const [editing, setEditing] = useState<Expense | null>(null);
   const [ratearSource, setRatearSource] = useState<Expense | null>(null);
   const [formStatus, setFormStatus] = useState<'PLANEJADO' | 'PAGO'>('PLANEJADO');
@@ -913,6 +917,18 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
     staleTime: 30_000,
   });
 
+  const { data: importCards = [], isFetching: loadingCards } = useQuery<Array<{ id: string; last4: string; nickname?: string | null; brand?: string | null }>>({
+    queryKey: ['credit-cards', PROJECT_ID],
+    queryFn: () => api.get(`/projects/${PROJECT_ID}/credit-cards`),
+    enabled: importStep === 'pick-card',
+    staleTime: 30_000,
+  });
+  const { data: importAccounts = [], isFetching: loadingAccounts } = useQuery<Array<{ id: string; last4?: string | null; nickname?: string | null; institution?: string | null }>>({
+    queryKey: ['bank-accounts', PROJECT_ID],
+    queryFn: () => api.get(`/projects/${PROJECT_ID}/bank-accounts`),
+    enabled: importStep === 'pick-account',
+    staleTime: 30_000,
+  });
   const limitsByTipo = useMemo(() => {
     const m = new Map<string, number>();
     for (const b of categoryBudgets) m.set(b.tipoDespesa, b.valorLimiteCents);
@@ -1429,8 +1445,8 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
           setPayModalOpen(false);
           openVoiceModal();
         }}
-        onImportCard={() => { setPayModalOpen(false); setImportDocumentType('card'); }}
-        onImportAccount={() => { setPayModalOpen(false); setImportDocumentType('bank'); }}
+        onImportCard={() => { setPayModalOpen(false); setImportStep('pick-card'); }}
+        onImportAccount={() => { setPayModalOpen(false); setImportStep('pick-account'); }}
       />
 
       <NovaDespesaWizard
@@ -1457,15 +1473,75 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
         onCreated={() => invalidate()}
       />
 
-      {importDocumentType && (
-        <ImportWithoutAccountModal
+      {importStep === 'pick-card' && !selectedCard && (
+        <Modal open onClose={() => setImportStep(null)} title="Para qual cartão é essa fatura?">
+          {loadingCards && <p className="text-sm text-gray-500">Carregando cartões…</p>}
+          {!loadingCards && importCards.length === 0 && (
+            <SemCartaoEmptyState projectId={PROJECT_ID} />
+          )}
+          {!loadingCards && importCards.length > 0 && (
+            <div className="space-y-2">
+              {importCards.map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => setSelectedCard(c)}
+                  className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-gray-200 hover:border-orange-300 hover:bg-orange-50 text-left"
+                >
+                  <span className="flex items-center gap-2">
+                    <CreditCard className="w-4 h-4 text-orange-500" />
+                    <span className="text-sm font-medium">{c.nickname || c.brand} •••• {c.last4}</span>
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-gray-400" />
+                </button>
+              ))}
+            </div>
+          )}
+        </Modal>
+      )}
+
+      {importStep === 'pick-account' && !selectedAccount && (
+        <Modal open onClose={() => setImportStep(null)} title="Para qual conta é esse extrato?">
+          {loadingAccounts && <p className="text-sm text-gray-500">Carregando contas…</p>}
+          {!loadingAccounts && importAccounts.length === 0 && (
+            <p className="text-sm text-gray-600">
+              Nenhuma conta cadastrada. Cadastre em <strong>Contas Bancárias</strong> antes de importar.
+            </p>
+          )}
+          {!loadingAccounts && importAccounts.length > 0 && (
+            <div className="space-y-2">
+              {importAccounts.map((a) => (
+                <button
+                  key={a.id}
+                  onClick={() => setSelectedAccount(a)}
+                  className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-gray-200 hover:border-teal-300 hover:bg-teal-50 text-left"
+                >
+                  <span className="flex items-center gap-2">
+                    <Landmark className="w-4 h-4 text-teal-500" />
+                    <span className="text-sm font-medium">{a.nickname || a.institution}{a.last4 ? ` •••• ${a.last4}` : ''}</span>
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-gray-400" />
+                </button>
+              ))}
+            </div>
+          )}
+        </Modal>
+      )}
+
+      {selectedCard && (
+        <ImportStatementModal
           projectId={PROJECT_ID}
-          fixedDocumentType={importDocumentType}
-          onClose={() => setImportDocumentType(null)}
-          onCommitted={() => {
-            setImportDocumentType(null);
-            invalidate();
-          }}
+          card={selectedCard as any}
+          onClose={() => { setSelectedCard(null); setImportStep(null); }}
+          onCommitted={() => { setSelectedCard(null); setImportStep(null); invalidate(); }}
+        />
+      )}
+
+      {selectedAccount && (
+        <ImportBankStatementModal
+          projectId={PROJECT_ID}
+          account={selectedAccount as any}
+          onClose={() => { setSelectedAccount(null); setImportStep(null); }}
+          onCommitted={() => { setSelectedAccount(null); setImportStep(null); invalidate(); }}
         />
       )}
 

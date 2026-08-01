@@ -656,8 +656,6 @@ describe("accountless import approved contract", () => {
       duplicated: 0,
       skipped: 1,
       failed: 0,
-      expenseIds: ["expense-1"],
-      receiptIds: ["receipt-3"],
     });
     expect(state.expenses).toEqual([
       expect.objectContaining({
@@ -727,16 +725,12 @@ describe("accountless import approved contract", () => {
       expensesInserted: 1,
       receiptsInserted: 1,
       failed: 0,
-      expenseIds: ["expense-1"],
-      receiptIds: ["receipt-3"],
     });
     await expect(commit(service, "card")).resolves.toMatchObject({
       count: 2,
       expensesInserted: 2,
       receiptsInserted: 0,
       failed: 0,
-      expenseIds: ["expense-5", "expense-7"],
-      receiptIds: [],
     });
 
     expect(classifier.manualExpenseType.mock.calls).toEqual([
@@ -905,8 +899,6 @@ describe("accountless import approved contract", () => {
       duplicated: 0,
       skipped: 0,
       failed: 0,
-      expenseIds: ["expense-1"],
-      receiptIds: ["receipt-3"],
     });
     await expect(commit(service, "bank")).resolves.toEqual({
       source: "OFX",
@@ -917,8 +909,6 @@ describe("accountless import approved contract", () => {
       duplicated: 2,
       skipped: 0,
       failed: 0,
-      expenseIds: [],
-      receiptIds: [],
     });
     expect(state.expenses).toHaveLength(1);
     expect(state.receipts).toHaveLength(1);
