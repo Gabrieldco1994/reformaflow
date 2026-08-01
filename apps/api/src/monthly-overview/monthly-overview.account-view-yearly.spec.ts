@@ -260,4 +260,123 @@ describe("MonthlyOverviewService.getAccountViewYearly", () => {
     // sanity: a fixture tem compras (inclusive de cartão), senão o assert é vazio.
     expect(yearly.ticketMedio.nCompras).toBeGreaterThan(0);
   });
+
+  it("sobraPrevista anual segue a matriz conta/carteira sem dupla contagem", async () => {
+    const scenarios = [
+      {
+        id: "paga-com-conta",
+        expense: {
+          id: "exp-paga-com-conta",
+          tenantId,
+          projectId,
+          tipoDespesa: "ALIMENTACAO",
+          titulo: "Despesa paga com conta",
+          fornecedor: "Fornecedor",
+          valorTotal: 5_500,
+          valor: 5_500,
+          formaPagamento: "A_VISTA",
+          dataPagamento: new Date("2026-08-15T00:00:00.000Z"),
+          dataInicioParcela: null,
+          createdAt: new Date("2026-08-15T00:00:00.000Z"),
+          quantidadeParcela: null,
+          status: "PAGO",
+          cardLast4: null,
+          bankLast4: "4247",
+          origin: "account",
+          accountId: "acc-1",
+          linkedExpenseId: null,
+        },
+        expected: { caixaHoje: 94_500, carteiraHoje: 0, faltaPagarMes: 0, sobraPrevista: 94_500 },
+      },
+      {
+        id: "paga-sem-conta",
+        expense: {
+          id: "exp-paga-sem-conta",
+          tenantId,
+          projectId,
+          tipoDespesa: "ALIMENTACAO",
+          titulo: "Despesa paga sem conta",
+          fornecedor: "Fornecedor",
+          valorTotal: 5_500,
+          valor: 5_500,
+          formaPagamento: "A_VISTA",
+          dataPagamento: new Date("2026-08-15T00:00:00.000Z"),
+          dataInicioParcela: null,
+          createdAt: new Date("2026-08-15T00:00:00.000Z"),
+          quantidadeParcela: null,
+          status: "PAGO",
+          cardLast4: null,
+          bankLast4: null,
+          origin: "none",
+          accountId: null,
+          linkedExpenseId: null,
+        },
+        expected: { caixaHoje: 100_000, carteiraHoje: -5_500, faltaPagarMes: 0, sobraPrevista: 94_500 },
+      },
+      {
+        id: "pendente-com-conta",
+        expense: {
+          id: "exp-pendente-com-conta",
+          tenantId,
+          projectId,
+          tipoDespesa: "ALIMENTACAO",
+          titulo: "Despesa pendente com conta",
+          fornecedor: "Fornecedor",
+          valorTotal: 5_500,
+          valor: 5_500,
+          formaPagamento: "A_VISTA",
+          dataPagamento: new Date("2026-08-20T00:00:00.000Z"),
+          dataInicioParcela: null,
+          createdAt: new Date("2026-08-20T00:00:00.000Z"),
+          quantidadeParcela: null,
+          status: "PLANEJADO",
+          cardLast4: null,
+          bankLast4: "4247",
+          origin: "account",
+          accountId: "acc-1",
+          linkedExpenseId: null,
+        },
+        expected: { caixaHoje: 100_000, carteiraHoje: 0, faltaPagarMes: 5_500, sobraPrevista: 94_500 },
+      },
+      {
+        id: "pendente-sem-conta",
+        expense: {
+          id: "exp-pendente-sem-conta",
+          tenantId,
+          projectId,
+          tipoDespesa: "ALIMENTACAO",
+          titulo: "Despesa pendente sem conta",
+          fornecedor: "Fornecedor",
+          valorTotal: 5_500,
+          valor: 5_500,
+          formaPagamento: "A_VISTA",
+          dataPagamento: new Date("2026-08-20T00:00:00.000Z"),
+          dataInicioParcela: null,
+          createdAt: new Date("2026-08-20T00:00:00.000Z"),
+          quantidadeParcela: null,
+          status: "PLANEJADO",
+          cardLast4: null,
+          bankLast4: null,
+          origin: "none",
+          accountId: null,
+          linkedExpenseId: null,
+        },
+        expected: { caixaHoje: 100_000, carteiraHoje: 0, faltaPagarMes: 5_500, sobraPrevista: 94_500 },
+      },
+    ] as const;
+
+    prisma.receipt.findMany.mockResolvedValue([]);
+    prisma.cashFlowEntry.findMany.mockResolvedValue([]);
+    prisma.creditCard.findMany.mockResolvedValue([]);
+
+    for (const scenario of scenarios) {
+      prisma.expense.findMany.mockResolvedValue([scenario.expense]);
+      const yearly = await service.getAccountViewYearly(tenantId, projectId, 2026);
+
+      expect(yearly.caixaHoje).toBe(scenario.expected.caixaHoje);
+      expect(yearly.carteiraHoje).toBe(scenario.expected.carteiraHoje);
+      expect(yearly.faltaPagarMes).toBe(scenario.expected.faltaPagarMes);
+      expect(yearly.sobraPrevista).toBe(scenario.expected.sobraPrevista);
+    }
+  });
 });
