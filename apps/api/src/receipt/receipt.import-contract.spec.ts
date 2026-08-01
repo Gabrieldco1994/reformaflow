@@ -19,9 +19,9 @@ jest.mock("../bank-account/parsers", () => {
 });
 jest.mock("../credit-card/parsers", () => ({
   parseStatementBuffers: jest.fn(),
-}));
-jest.mock("../bank-account/bank-account.service", () => ({
-  classifyCreditType: jest.fn(() => "OUTROS"),
+  PdfPasswordRequiredError: class PdfPasswordRequiredError extends Error {},
+  PdfWrongPasswordError: class PdfWrongPasswordError extends Error {},
+  ImageOcrError: class ImageOcrError extends Error {},
 }));
 
 const bankParser = parseBankStatementBuffers as jest.Mock;
@@ -97,6 +97,14 @@ function harness() {
     state.cashFlows.push(created);
     return created;
   });
+  const queryRaw = jest.fn((strings: TemplateStringsArray) => {
+    const rows = strings.join(" ").includes("receipts")
+      ? state.receipts
+      : state.expenses;
+    return rows.map(({ externalId }) => ({
+      external_id: externalId,
+    }));
+  });
   const tx: any = {
     expense: {
       create: expenseCreate,
@@ -119,6 +127,7 @@ function harness() {
       ),
     },
     cashFlowEntry: { create: cashFlowCreate },
+    $queryRaw: queryRaw,
   };
   const prisma: any = {
     ...tx,
@@ -129,15 +138,7 @@ function harness() {
         type: "PESSOAL",
       })),
     },
-    $queryRaw: jest.fn((strings: TemplateStringsArray) => {
-      const rows = strings.join(" ").includes("receipts")
-        ? state.receipts
-        : state.expenses;
-      return rows.map(({ externalId }) => ({
-        external_id: externalId,
-        externalId,
-      }));
-    }),
+    $queryRaw: queryRaw,
     $transaction: jest.fn(async (callback: (client: typeof tx) => unknown) => {
       const lengths = [
         state.expenses.length,
@@ -177,6 +178,7 @@ const commit = (
     "secret",
     decisions,
     "user-1",
+    "statement.csv",
   );
 
 describe("accountless import approved contract", () => {
@@ -216,13 +218,13 @@ describe("accountless import approved contract", () => {
     ).resolves.not.toHaveLength(0);
   });
 
-  it("defaults to preview, slices to five files, and reports missing files", async () => {
+  it("defaults to preview and rejects file counts outside 1..5", async () => {
     const service = {
       previewImport: jest.fn().mockResolvedValue({ mode: "preview" }),
       commitImport: jest.fn(),
     };
     const controller = new ReceiptController(service as any);
-    const files = Array.from({ length: 6 }, (_, index) => ({
+    const files = Array.from({ length: 5 }, (_, index) => ({
       buffer: Buffer.from(String(index)),
       originalname: `${index}.ofx`,
     })) as any;
@@ -244,10 +246,12 @@ describe("accountless import approved contract", () => {
     expect(service.previewImport).toHaveBeenCalledWith(
       "tenant-1",
       "project-1",
-      files.slice(0, 5).map((file: any) => file.buffer),
+      files.map((file: any) => file.buffer),
       "bank",
       "OFX",
+      undefined,
       "secret",
+      "0.ofx",
     );
     expect(service.commitImport).not.toHaveBeenCalled();
 
@@ -259,7 +263,16 @@ describe("accountless import approved contract", () => {
         undefined,
         { origin: "none", documentType: "bank" } as any,
       ),
-    ).resolves.toEqual({ error: "arquivo ausente" });
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      controller.importReceipts(
+        "tenant-1",
+        { id: "user-1" },
+        "project-1",
+        [...files, { buffer: Buffer.from("6"), originalname: "6.ofx" }] as any,
+        { origin: "none", documentType: "bank" } as any,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
     expect(service.previewImport).toHaveBeenCalledTimes(1);
   });
 
@@ -302,6 +315,7 @@ describe("accountless import approved contract", () => {
       "secret",
       decisions,
       "user-1",
+      "card.csv",
     );
 
     service.commitImport.mockClear();
@@ -337,6 +351,9 @@ describe("accountless import approved contract", () => {
       [Buffer.from("bank")],
       "bank",
       "OFX",
+      undefined,
+      "secret",
+      "bank.ofx",
     );
 
     expect(result).toMatchObject({
@@ -348,7 +365,7 @@ describe("accountless import approved contract", () => {
         {
           externalId: "debit",
           date: "2026-07-15",
-          merchant: "Mercado",
+          description: "Mercado",
           amountCents: 12_345,
           type: "expense",
           status: "PAGO",
@@ -358,7 +375,7 @@ describe("accountless import approved contract", () => {
         {
           externalId: "credit",
           date: "2026-07-15",
-          merchant: "Salário",
+          description: "Salário",
           amountCents: -50_000,
           type: "receipt",
           status: "EM_CAIXA",
@@ -370,6 +387,13 @@ describe("accountless import approved contract", () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(prisma.expense.create).not.toHaveBeenCalled();
     expect(prisma.receipt.create).not.toHaveBeenCalled();
+    expect(bankParser).toHaveBeenLastCalledWith(
+      [Buffer.from("bank")],
+      "receipts-import:project-1:bank",
+      "OFX",
+      "bank.ofx",
+      "secret",
+    );
 
     bankParser.mockResolvedValue(parsed([]));
     cardParser.mockResolvedValue(parsed([]));
@@ -564,6 +588,28 @@ describe("accountless import approved contract", () => {
       duplicated: 1,
     });
     expect(state.expenses).toHaveLength(1);
+  });
+
+  it("rechecks idempotency inside the row transaction before writing", async () => {
+    const { service, prisma } = harness();
+    bankParser.mockResolvedValue(parsed([row("racing-id", 1_000)]));
+    let rawQueryCount = 0;
+    prisma.$queryRaw.mockImplementation((strings: TemplateStringsArray) => {
+      rawQueryCount++;
+      const isExpenseQuery = strings.join(" ").includes("expenses");
+      return rawQueryCount >= 3 && isExpenseQuery
+        ? [{ external_id: "racing-id" }]
+        : [];
+    });
+
+    await expect(commit(service, "bank")).resolves.toMatchObject({
+      count: 0,
+      duplicated: 1,
+      failed: 0,
+    });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(prisma.expense.create).not.toHaveBeenCalled();
+    expect(prisma.cashFlowEntry.create).not.toHaveBeenCalled();
   });
 
   it.each([

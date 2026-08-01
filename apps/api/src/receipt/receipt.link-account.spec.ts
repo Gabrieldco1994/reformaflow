@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ReceiptController } from './receipt.controller';
 import { ReceiptService } from './receipt.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { MerchantClassifierService } from '../merchant-classifier/merchant-classifier.service';
 
 describe('ReceiptController - link-account (RED test)', () => {
   let controller: ReceiptController;
@@ -28,6 +29,10 @@ describe('ReceiptController - link-account (RED test)', () => {
             },
             $transaction: jest.fn((fn) => fn({})),
           },
+        },
+        {
+          provide: MerchantClassifierService,
+          useValue: { manualExpenseType: jest.fn().mockResolvedValue(null) },
         },
       ],
     }).compile();
@@ -67,9 +72,15 @@ describe('ReceiptController - link-account (RED test)', () => {
         last4: '1234',
       };
 
-      (prisma.project.findFirst as jest.Mock).mockResolvedValueOnce(projectData);
-      (prisma.receipt.findFirst as jest.Mock).mockResolvedValueOnce(receiptData);
-      (prisma.bankAccount.findFirst as jest.Mock).mockResolvedValueOnce(accountData);
+      (prisma.project.findFirst as jest.Mock).mockResolvedValueOnce(
+        projectData,
+      );
+      (prisma.receipt.findFirst as jest.Mock).mockResolvedValueOnce(
+        receiptData,
+      );
+      (prisma.bankAccount.findFirst as jest.Mock).mockResolvedValueOnce(
+        accountData,
+      );
       (prisma.receipt.update as jest.Mock).mockResolvedValueOnce({
         ...receiptData,
         accountId,
