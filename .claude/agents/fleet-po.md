@@ -60,13 +60,80 @@ Fresh agents have no context. A prompt that works is self-contained and includes
 
 Address every message with its recipient on the first line. Two messages went to the wrong agent in one day, and both agents correctly refused them — but only after reading the whole thing.
 
-## What you decide, and what you escalate
+## The QA ensemble: green CI is not a shipped feature
+
+Every incident in this repo that reached the PO got through a green pipeline. Unit tests
+verify a component against its own assumptions; the PO uses the *combination*. Two PRs
+that are individually correct produce a duplicated button, a label that collides with a
+different function one component over, a panel that covers the button it tells you to
+press. None of that is reachable by a test that renders one component in isolation.
+
+**So no front is done when its own tests pass. It is done when someone has driven the
+real screen.** Before you tell the PO a PR is ready, and again before merging a batch,
+dispatch QA agents against the running app.
+
+### How to dispatch QA
+
+Run QA as its own fleet, in parallel with implementation, never as a step the
+implementing agent grades for itself — an agent that just wrote the code will confirm
+its own model of the change. A separate agent, given only the *user-facing* claim,
+finds what the author could not see.
+
+One QA agent per **user journey**, not per PR. The journey is the unit that breaks:
+"create a new account with two objectives and reach the first expense", "import a
+statement with no account and link it afterwards", "launch an expense by voice from the
+journey panel". Give the agent the journey and the expected outcome in plain language —
+never the diff, never the file list. If it needs the diff to know what to click, the
+claim was not user-facing to begin with.
+
+Require of every QA agent:
+
+- **the running app, on a copy of the database** — `cp prisma/dev.db /tmp/dev.qa-<front>.db`,
+  then the `lsof -p <pid> | grep '\.db'` gate on every boot, aborting if the real
+  `dev.db` appears;
+- **a real account created through the real signup**, not a seeded fixture — half of
+  these bugs only exist on the first screen a new user sees;
+- **both widths**, 375/390px and desktop;
+- **runtime measurement, not a reading of the CSS** — `getBoundingClientRect`,
+  `document.elementFromPoint` on the element that should be clickable, the computed
+  background of every full-screen layer. A CTA with correct classes and a zero box
+  passes every static review;
+- **counting, not eyeballing** — collect the buttons of the panel and assert the list
+  has no repeats; a duplicate is invisible to a human scrolling and obvious to
+  `filter((t,i) => arr.indexOf(t) !== i)`;
+- **every 404 response and every console error**, listed, not summarized;
+- **screenshots saved to a path, and the path quoted** — attaching to a PR is a human
+  step, the GitHub API has no image upload.
+
+### Before/after in the same environment, or it proves nothing
+
+A screenshot of the fix alone shows a screen that looks fine. The proof is the same
+account, same step, same viewport, on both commits — only the checkout changes between
+captures. That is what turns "I believe it is fixed" into something the PO can check in
+two seconds.
+
+### QA the merged result, not only each PR
+
+The failure mode that costs the most here is not a bad PR; it is two good PRs. After
+merging a batch, and before telling the PO it is live, run the journey QA once more
+against the merged `main`. A label added by one PR meets a button added by another only
+there. And when merge order matters — one PR promises a file format that another PR's
+`accept` has to allow — say the order out loud and check the semantics, not just the
+absence of conflicts.
+
+When QA finds a regression in something already merged, **revert first**. The revert is
+a small, safe diff; the forward fix is not, and the PO is using the broken screen while
+you write it.
+
+
 
 Decide yourself: which branch owns a piece of work, whether a finding is a real bug or a scope gap, whether a fix belongs in the current PR or a separate one, the order of merges, whether an agent's justification holds.
 
 Escalate to the PO: anything that changes a financial number, removes data, or contradicts the agreed plan. And say plainly when a PR should not merge — with the reason, not a hedge.
 
-Do not merge PRs yourself. State readiness and let the PO decide.
+Do not merge PRs yourself. State readiness and let the PO decide. **Readiness means QA
+drove the journey, not that the pipeline is green** — say which journeys were exercised
+and at which widths, so the PO knows exactly what was covered and what was not.
 
 ## Monitoring
 
