@@ -54,6 +54,9 @@ function json(body: unknown) {
 }
 
 async function openExpenses(page: Page, viewport: ViewportSize) {
+  // As fixtures abaixo sao de julho/2026 e a tela filtra pelo mes corrente:
+  // sem congelar o relogio o teste passa a falhar na virada de mes.
+  await page.clock.setFixedTime(new Date("2026-07-15T12:00:00.000Z"));
   await page.setViewportSize(viewport);
   await page
     .context()
