@@ -118,7 +118,15 @@ export default function ProjectsPage() {
       // Primeiro acesso ao projeto: o painel de onboarding aparecerá na dashboard
       // via o trigger PROJECT_CREATED (Fase A da jornada), não via rota dedicada
       // como era no shell antigo.
-      router.push(`/projects/${created.id}`);
+      //
+      // `getProjectHomePath`, NUNCA `/projects/${id}` cru: não existe `page.tsx`
+      // em `projects/[projectId]/` (só layout/loading/error), então a rota crua é
+      // 404. Quando a jornada dispara e navega para a tela do primeiro passo, ela
+      // encobre o 404 por acaso — mas quem já concluiu o onboarding daquele tipo
+      // fica no "This page could not be found", com o painel da jornada boiando
+      // sobre a página de erro. Os outros dois pontos de navegação desta tela já
+      // usavam o helper.
+      router.push(getProjectHomePath(created.id, created.type));
     } catch (err) {
       console.error('Erro ao criar projeto:', err);
       setCreateError(err instanceof Error ? err.message : 'Erro ao criar projeto');

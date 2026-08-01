@@ -108,8 +108,35 @@ describe("first project onboarding", () => {
       description: "",
     });
     expect(mocks.refresh).toHaveBeenCalledTimes(1);
-    expect(mocks.push).toHaveBeenCalledWith(
-      "/projects/casa-1",
+    // NÃO `/projects/casa-1`: não existe `page.tsx` em `projects/[projectId]/`,
+    // então a rota crua é 404. Este teste afirmava a rota quebrada e por isso
+    // ficou verde enquanto o usuário caía em "This page could not be found".
+    expect(mocks.push).toHaveBeenCalledWith("/projects/casa-1/dashboard");
+  });
+
+  // Regressão: quem já concluiu o onboarding daquele tipo não tem jornada para
+  // disparar, então nada navega depois — e o 404 fica na tela, com o painel da
+  // jornada (quando existe) boiando sobre a página de erro.
+  it("nunca navega para a raiz do projeto, que não tem página", async () => {
+    mocks.apiPost.mockResolvedValue({
+      id: "pessoal-9",
+      name: "Minha vida",
+      type: "PESSOAL",
+      createdAt: "2026-07-14T12:00:00-03:00",
+    });
+    const browser = userEvent.setup();
+    render(<ProjectsPage />);
+
+    await screen.findByRole("button", { name: "Criar Projeto" });
+    await browser.click(screen.getByRole("button", { name: "Criar Projeto" }));
+    await browser.type(screen.getByLabelText("Nome do projeto"), "Minha vida");
+    await browser.click(
+      screen.getByRole("button", { name: "Confirmar projeto" }),
     );
+
+    await waitFor(() => expect(mocks.push).toHaveBeenCalled());
+    for (const [destino] of mocks.push.mock.calls) {
+      expect(destino).not.toMatch(/^\/projects\/[^/]+$/);
+    }
   });
 });
