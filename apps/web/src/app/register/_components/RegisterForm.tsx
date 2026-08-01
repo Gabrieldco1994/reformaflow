@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useJourneyRuntime } from '@/contexts/journey-runtime-context';
 import { ApiResponseError, api } from '@/lib/api';
+import type { ProjectType } from '@reformaflow/domain';
 import { ObjectiveSelector } from '@/components/objectives/ObjectiveSelector';
 import { type ObjectiveType } from '@/components/objectives/objective-options';
 import { PROJECT_ONBOARDING_COPY } from '@/components/journeys/_lib/project-copy';
@@ -20,7 +21,7 @@ function newIdempotencyKey() {
 export function RegisterForm() {
   const router = useRouter();
   const { register, refresh } = useAuth();
-  const { emitSignupCompleted } = useJourneyRuntime();
+  const { emitSignupCompleted, emitProjectCreated } = useJourneyRuntime();
   const [ownerName, setOwnerName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -63,13 +64,21 @@ export function RegisterForm() {
         idempotencyKey.current,
       );
       void emitSignupCompleted();
+      // O projeto do cadastro nasce aqui, não na tela de projetos — sem este
+      // emit nenhum PROJECT_CREATED chega ao runtime e a jornada de onboarding
+      // nunca abre para quem acabou de criar a conta.
+      let firstCreated: { id: string; type: string } | null = null;
       for (const type of selectedTypes) {
-        await api.post('/projects', {
+        const created = await api.post<{ id: string; type: string }>('/projects', {
           name: PROJECT_ONBOARDING_COPY[type].defaultName,
           type,
         });
+        firstCreated ??= created;
       }
       await refresh();
+      if (firstCreated) {
+        void emitProjectCreated(firstCreated.id, firstCreated.type as ProjectType);
+      }
       router.replace('/projects');
     } catch (caught) {
       if (caught instanceof ApiResponseError) idempotencyKey.current = newIdempotencyKey();

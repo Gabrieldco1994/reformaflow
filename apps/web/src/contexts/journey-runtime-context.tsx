@@ -123,9 +123,23 @@ export function JourneyRuntimeProvider({
     writeStored(active);
   }, [active]);
 
+  // Gatilho emitido ANTES de a autenticação resolver não pode ser descartado:
+  // no cadastro, `emit` é chamado de dentro de um `handleSubmit` cujo closure
+  // ainda enxerga `user === null` (o `setUser` do `register()` só chega no
+  // render seguinte), então a jornada de onboarding morria em silêncio — sem
+  // nem uma requisição. Guardamos o contexto e reemitimos quando o usuário
+  // aparece, o que preserva "nunca disparar sem usuário autenticado" sem
+  // perder o gatilho.
+  const pendingEmit = useRef<JourneyEligibilityContext | null>(null);
+
   const emit = useCallback(
     async (context: JourneyEligibilityContext) => {
-      if (!user || authLoading || active) return;
+      if (active) return;
+      if (!user || authLoading) {
+        pendingEmit.current = context;
+        return;
+      }
+      pendingEmit.current = null;
       setLoading(true);
       setError(null);
       try {
@@ -183,6 +197,13 @@ export function JourneyRuntimeProvider({
       }),
     [emit],
   );
+
+  // Drena o gatilho que chegou cedo demais, assim que a autenticação resolve.
+  useEffect(() => {
+    const pending = pendingEmit.current;
+    if (!pending || !user || authLoading || active) return;
+    void emit(pending);
+  }, [active, authLoading, emit, user]);
 
   useEffect(() => {
     if (!user || authLoading || !pathname || active) return;

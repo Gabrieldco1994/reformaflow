@@ -629,6 +629,70 @@ describe("JourneyRuntimeProvider", () => {
       });
       expect(screenVisitCalls()).toBe(1);
     });
+
+    // Regressão do cadastro: `emitProjectCreated` é chamado de dentro do
+    // `handleSubmit` do RegisterForm, cujo closure ainda vê `user === null`
+    // (o `setUser` do register só chega no render seguinte). O gatilho era
+    // descartado em silêncio — nenhuma requisição — e a jornada de onboarding
+    // nunca abria para conta nova.
+    function projectCreatedCalls() {
+      return mocks.apiGet.mock.calls.filter((call) =>
+        String(call[0]).includes("triggerType=PROJECT_CREATED"),
+      ).length;
+    }
+
+    it("guarda PROJECT_CREATED emitido antes de auth resolver e reemite quando o usuário chega", async () => {
+      mocks.authLoading = true;
+      mocks.user = null;
+      const { rerender } = renderRuntime();
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      await act(async () => {
+        await userEvent.click(screen.getByText("Criar projeto"));
+      });
+      expect(projectCreatedCalls()).toBe(0);
+
+      mocks.authLoading = false;
+      mocks.user = { id: "u1" };
+      rerender(
+        <JourneyRuntimeProvider>
+          <main data-testid="page-main">
+            <Fixture />
+          </main>
+        </JourneyRuntimeProvider>,
+      );
+
+      await waitFor(() => expect(projectCreatedCalls()).toBe(1));
+    });
+
+    it("não reemite o gatilho guardado numa segunda passagem", async () => {
+      mocks.authLoading = true;
+      mocks.user = null;
+      const { rerender } = renderRuntime();
+      await act(async () => {
+        await userEvent.click(screen.getByText("Criar projeto"));
+      });
+
+      mocks.authLoading = false;
+      mocks.user = { id: "u1" };
+      const tree = (
+        <JourneyRuntimeProvider>
+          <main data-testid="page-main">
+            <Fixture />
+          </main>
+        </JourneyRuntimeProvider>
+      );
+      rerender(tree);
+      await waitFor(() => expect(projectCreatedCalls()).toBe(1));
+
+      rerender(tree);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(projectCreatedCalls()).toBe(1);
+    });
   });
 
   // Regressão: o painel da etapa FULL imprimia sempre a frase genérica e
