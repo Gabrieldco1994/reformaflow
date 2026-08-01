@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { AlertCircle, Loader2, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { formatCurrency, formatDateBR } from "@/lib/utils";
@@ -60,9 +60,13 @@ interface PreviewResult {
 
 interface ApiCommitResult {
   error?: string;
+  inserted?: number;
   count?: number;
   expensesInserted?: number;
   receiptsInserted?: number;
+  failed?: number;
+  skipped?: number;
+  duplicated?: number;
 }
 
 const MAX_FILES = 5;
@@ -163,8 +167,10 @@ function normalizePreview(
 }
 
 function signedCurrency(amountCents: number) {
-  const value = formatCurrency(amountCents / 100);
-  return amountCents > 0 ? `+${value}` : value;
+  const value = formatCurrency(Math.abs(amountCents) / 100);
+  if (amountCents > 0) return `-${value}`;
+  if (amountCents < 0) return `+${value}`;
+  return value;
 }
 
 export default function ImportWithoutAccountModal({
@@ -174,22 +180,163 @@ export default function ImportWithoutAccountModal({
 }: Props) {
   const titleId = useId();
   const inputId = useId();
+  const passwordId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const successHeadingRef = useRef<HTMLHeadingElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const committedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const committedNotifiedRef = useRef(false);
   const [documentType, setDocumentType] = useState<DocumentType>("bank");
   const [files, setFiles] = useState<File[]>([]);
+  const [password, setPassword] = useState("");
+  const [needsPassword, setNeedsPassword] = useState(false);
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [committedCount, setCommittedCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const restorePreviousFocus = useCallback(() => {
+    previousFocusRef.current?.focus();
+  }, []);
+
+  const notifyCommitted = useCallback(() => {
+    if (committedNotifiedRef.current) return;
+    committedNotifiedRef.current = true;
+    if (committedTimerRef.current) {
+      clearTimeout(committedTimerRef.current);
+      committedTimerRef.current = null;
+    }
+    onCommitted();
+  }, [onCommitted]);
+
+  const handleClose = useCallback(() => {
+    if (loading) return;
+    restorePreviousFocus();
+    if (committedCount !== null) {
+      notifyCommitted();
+    } else {
+      onClose();
+    }
+  }, [committedCount, loading, notifyCommitted, onClose, restorePreviousFocus]);
+
+  useEffect(() => {
+    previousFocusRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    closeButtonRef.current?.focus();
+
+    return () => {
+      if (committedTimerRef.current) {
+        clearTimeout(committedTimerRef.current);
+      }
+      restorePreviousFocus();
+    };
+  }, [restorePreviousFocus]);
+
+  useEffect(() => {
+    if (committedCount !== null) {
+      successHeadingRef.current?.focus();
+    }
+  }, [committedCount]);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+
+      if (event.key === "Escape") {
+        if (!loading) {
+          event.preventDefault();
+          handleClose();
+        }
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      );
+      if (!focusable.length) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const activeElement = document.activeElement;
+      if (
+        event.shiftKey &&
+        (activeElement === first || !dialog.contains(activeElement))
+      ) {
+        event.preventDefault();
+        last.focus();
+      } else if (
+        !event.shiftKey &&
+        (activeElement === last || !dialog.contains(activeElement))
+      ) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [handleClose, loading]);
+
+  const isPdf = files.some(
+    (file) =>
+      file.type === "application/pdf" ||
+      file.name.toLowerCase().endsWith(".pdf"),
+  );
+
   function url(mode: "preview" | "commit") {
-    const query = new URLSearchParams({ origin: "none", documentType, mode });
-    return `/projects/${projectId}/receipts/import?${query}`;
+    const query = new URLSearchParams({
+      origin: "none",
+      documentType,
+      source: "AUTO",
+      mode,
+    });
+    if (password) query.set("password", password);
+    return `/projects/${projectId}/receipts/import?${query.toString()}`;
   }
 
   function formData() {
     const data = new FormData();
     files.forEach((file) => data.append("files", file));
     return data;
+  }
+
+  function showImportError(caught: unknown, fallback: string) {
+    const message = caught instanceof Error ? caught.message : fallback;
+    if (
+      /pdf_wrong_password|wrong password|senha.{0,30}(incorret|inválid|errad)/i.test(
+        message,
+      )
+    ) {
+      setNeedsPassword(true);
+      setError("Senha do PDF incorreta. Tente novamente.");
+      return;
+    }
+    if (
+      /pdf_password_required|password.{0,20}required|pdf.{0,30}(proteg|senha)|senha/i.test(
+        message,
+      )
+    ) {
+      setNeedsPassword(true);
+      setError(
+        /pdf_password_required/i.test(message)
+          ? "Este PDF está protegido. Informe a senha e tente novamente."
+          : message,
+      );
+      return;
+    }
+    setError(message);
   }
 
   async function handlePreview() {
@@ -206,12 +353,9 @@ export default function ImportWithoutAccountModal({
         formData(),
       );
       setPreview(normalizePreview(result, documentType));
+      setNeedsPassword(false);
     } catch (caught) {
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : "Não foi possível ler os arquivos.",
-      );
+      showImportError(caught, "Não foi possível ler os arquivos.");
     } finally {
       setLoading(false);
     }
@@ -227,17 +371,25 @@ export default function ImportWithoutAccountModal({
         formData(),
       );
       if (result.error) throw new Error(result.error);
-      setCommittedCount(
+      const inserted =
+        result.inserted ??
         result.count ??
-          (result.expensesInserted ?? 0) + (result.receiptsInserted ?? 0),
-      );
-      setTimeout(onCommitted, 1500);
+        (result.expensesInserted ?? 0) + (result.receiptsInserted ?? 0);
+      const failed = result.failed ?? 0;
+      if (failed > 0) {
+        setCommittedCount(null);
+        setError(
+          `Importação parcial: ${inserted} lançamento(s) importado(s) e ${failed} com falha. Tente novamente para concluir os pendentes.`,
+        );
+        return;
+      }
+
+      setCommittedCount(inserted);
+      if (!committedNotifiedRef.current && committedTimerRef.current === null) {
+        committedTimerRef.current = setTimeout(notifyCommitted, 1500);
+      }
     } catch (caught) {
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : "Não foi possível concluir a importação.",
-      );
+      showImportError(caught, "Não foi possível concluir a importação.");
     } finally {
       setLoading(false);
     }
@@ -246,6 +398,14 @@ export default function ImportWithoutAccountModal({
   function handleFilesChange(event: React.ChangeEvent<HTMLInputElement>) {
     const selected = Array.from(event.currentTarget.files ?? []);
     setPreview(null);
+    setCommittedCount(null);
+    committedNotifiedRef.current = false;
+    if (committedTimerRef.current) {
+      clearTimeout(committedTimerRef.current);
+      committedTimerRef.current = null;
+    }
+    setPassword("");
+    setNeedsPassword(false);
     setError(null);
     if (selected.length > MAX_FILES) {
       setFiles([]);
@@ -266,6 +426,14 @@ export default function ImportWithoutAccountModal({
   function selectDocumentType(value: DocumentType) {
     setDocumentType(value);
     setPreview(null);
+    setCommittedCount(null);
+    committedNotifiedRef.current = false;
+    if (committedTimerRef.current) {
+      clearTimeout(committedTimerRef.current);
+      committedTimerRef.current = null;
+    }
+    setPassword("");
+    setNeedsPassword(false);
     setError(null);
   }
 
@@ -276,11 +444,18 @@ export default function ImportWithoutAccountModal({
       aria-modal="true"
       aria-labelledby={titleId}
       aria-busy={loading}
+      ref={dialogRef}
+      tabIndex={-1}
     >
       <div className="max-h-[90dvh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white p-5 sm:p-6">
         {committedCount !== null ? (
           <div className="py-6 text-center" aria-live="polite">
-            <h2 id={titleId} className="mb-2 text-lg font-bold text-green-700">
+            <h2
+              id={titleId}
+              ref={successHeadingRef}
+              tabIndex={-1}
+              className="mb-2 text-lg font-bold text-green-700 outline-none"
+            >
               Importação concluída!
             </h2>
             <p className="text-sm text-gray-600">
@@ -296,9 +471,10 @@ export default function ImportWithoutAccountModal({
               </h2>
               <button
                 type="button"
-                onClick={onClose}
+                onClick={handleClose}
                 disabled={loading}
                 aria-label="Fechar"
+                ref={closeButtonRef}
                 className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 disabled:opacity-50"
               >
                 <X className="h-5 w-5" aria-hidden="true" />
@@ -359,6 +535,36 @@ export default function ImportWithoutAccountModal({
                 imagem.
               </p>
             </div>
+
+            {(isPdf || needsPassword) && (
+              <div className="mb-4">
+                <label
+                  htmlFor={passwordId}
+                  className="mb-2 block text-sm font-medium text-gray-700"
+                >
+                  Senha do PDF{" "}
+                  {!needsPassword && (
+                    <span className="font-normal text-gray-500">
+                      (se houver)
+                    </span>
+                  )}
+                </label>
+                <input
+                  id={passwordId}
+                  type="password"
+                  value={password}
+                  onChange={(event) => {
+                    setPassword(event.currentTarget.value);
+                    setPreview(null);
+                    setCommittedCount(null);
+                    setError(null);
+                  }}
+                  disabled={loading}
+                  autoComplete="off"
+                  className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700"
+                />
+              </div>
+            )}
 
             {preview && (
               <section className="mb-4">
@@ -429,7 +635,7 @@ export default function ImportWithoutAccountModal({
             <footer className="flex flex-col-reverse gap-2 border-t pt-3 sm:flex-row sm:justify-end">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={handleClose}
                 disabled={loading}
                 className="min-h-11 rounded-lg bg-gray-100 px-4 py-2 text-gray-700 hover:bg-gray-200 disabled:opacity-50"
               >
