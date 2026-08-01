@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ProjectType } from '@reformaflow/domain';
@@ -48,9 +48,18 @@ function getValorInput(container: HTMLElement) {
 
 describe('AvulsasTab — preservação de quantidade na edição (issue #369)', () => {
   beforeEach(() => {
+    // AvulsasTab filtra a lista pelo mês corrente (new Date()); fixar o relógio
+    // torna o teste determinístico independente de fuso/dia — sem isso, a
+    // virada de mês (ou UTC vs. horário local do CI) esvazia a lista mockada.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-15T12:00:00.000Z'));
     vi.clearAllMocks();
     apiMock.get.mockResolvedValue({ items: [makeExpense()], total: 1 });
     apiMock.patch.mockResolvedValue({});
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('PATCH preserva quantidade=3 ao editar despesa avulsa, em vez de forçar 1', async () => {
