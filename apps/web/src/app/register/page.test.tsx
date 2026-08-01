@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   refresh: vi.fn(),
   apiPost: vi.fn(),
   replace: vi.fn(),
+  emitSignupCompleted: vi.fn(),
+  emitProjectCreated: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -17,7 +19,10 @@ vi.mock("@/contexts/auth-context", () => ({
   useAuth: () => ({ register: mocks.register, refresh: mocks.refresh }),
 }));
 vi.mock("@/contexts/journey-runtime-context", () => ({
-  useJourneyRuntime: () => ({ emitSignupCompleted: vi.fn() }),
+  useJourneyRuntime: () => ({
+    emitSignupCompleted: mocks.emitSignupCompleted,
+    emitProjectCreated: mocks.emitProjectCreated,
+  }),
 }));
 vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
@@ -137,11 +142,26 @@ describe("/register form behavior", () => {
     await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledTimes(2));
     expect(mocks.apiPost).toHaveBeenNthCalledWith(1, "/projects", { name: "Minha reforma", type: "REFORMA" });
     expect(mocks.apiPost).toHaveBeenNthCalledWith(2, "/projects", { name: "Minha casa", type: "CASA" });
-    expect(mocks.register).toHaveBeenCalledWith(
-      expect.objectContaining({ projectTypes: ["REFORMA", "CASA"] }),
-      expect.any(String),
-    );
     await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/projects"));
+  });
+
+  // Regressão: o cadastro criava o projeto direto pela API e nunca emitia
+  // PROJECT_CREATED — que é o ÚNICO gatilho da jornada de onboarding no
+  // catálogo. Conta nova entrava sem jornada nenhuma.
+  it("emite PROJECT_CREATED do projeto criado no cadastro, depois de refresh", async () => {
+    mocks.apiPost.mockResolvedValueOnce({ id: "p1", type: "REFORMA" });
+    const browser = userEvent.setup();
+    render(<RegisterPage />);
+    await fillValidForm(browser);
+    await browser.click(screen.getByRole("checkbox", { name: /^Reformar/i }));
+    await browser.click(screen.getByRole("button", { name: /criar minha conta/i }));
+
+    await waitFor(() =>
+      expect(mocks.emitProjectCreated).toHaveBeenCalledWith("p1", "REFORMA"),
+    );
+    expect(mocks.refresh.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.emitProjectCreated.mock.invocationCallOrder[0],
+    );
   });
 
   it("validates name minimum length", async () => {

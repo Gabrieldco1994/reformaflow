@@ -93,6 +93,51 @@ test("CTA do login leva ao cadastro, que cria a sessão e o projeto do objetivo 
   ]);
 });
 
+// Regressão: os demais testes deste arquivo stubam `/journeys/eligible` com a
+// jornada já pronta — provam que o painel RENDERIZA, nunca que o gatilho
+// DISPARA. Foi por isso que "conta nova não vê onboarding" passou pelo CI
+// inteiro verde. Aqui a asserção é sobre a consulta que o cadastro emite.
+test("cadastro emite PROJECT_CREATED do projeto criado — é o único gatilho do onboarding", async ({
+  page,
+}) => {
+  const eligibleQueries: string[] = [];
+
+  await stubAuth(page, []);
+  await page.route("**/projects", async (route) => {
+    if (route.request().method() === "POST") {
+      await route.fulfill({
+        status: 201,
+        json: { id: "pessoal-1", name: "Minha vida financeira", type: "PESSOAL" },
+      });
+      return;
+    }
+    await route.fulfill({ json: [] });
+  });
+  await page.route("**/journeys/eligible*", async (route) => {
+    eligibleQueries.push(new URL(route.request().url()).search);
+    await route.fulfill({ json: [] });
+  });
+
+  await page.goto("/register");
+  await fillCredentials(page);
+  await page
+    .getByRole("checkbox", { name: /organizar minha vida financeira/i })
+    .check();
+  await page.getByRole("button", { name: /criar minha conta/i }).click();
+
+  await expect(page).toHaveURL(/\/projects$/);
+  await expect
+    .poll(() =>
+      eligibleQueries.filter(
+        (q) =>
+          q.includes("triggerType=PROJECT_CREATED") &&
+          q.includes("projectId=pessoal-1") &&
+          q.includes("projectType=PESSOAL"),
+      ).length,
+    )
+    .toBe(1);
+});
+
 test("um projeto por objetivo marcado, na ordem em que aparecem", async ({
   page,
 }) => {
