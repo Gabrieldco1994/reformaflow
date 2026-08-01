@@ -46,27 +46,45 @@ export const LAUNCH_MODES: LaunchModeOption[] = [
   },
   {
     value: 'fatura',
-    label: 'Foto da fatura',
-    subtitle: 'Print/foto da fatura do cartão',
+    // Subtítulo lista SÓ o que o `accept` de ImportStatementModal realmente
+    // aceita (.ofx/.csv/.txt/.pdf/.xlsx/.xls + imagem). Prometer um formato que
+    // o seletor recusa é pior que um rótulo genérico: o usuário tenta e falha.
+    label: 'Fatura do cartão',
+    subtitle: 'PDF, CSV, OFX, XLS/XLSX, TXT ou foto',
   },
   {
     value: 'extrato',
-    label: 'Foto do extrato',
-    subtitle: 'Print/foto do extrato da conta',
+    label: 'Extrato bancário',
+    subtitle: 'PDF, CSV, OFX, XLS/XLSX, TXT ou foto',
   },
   {
     value: 'foto',
-    label: 'Foto',
-    subtitle: 'Print ou foto de fatura / extrato',
+    label: 'Fatura / Extrato',
+    subtitle: 'PDF, CSV, OFX, XLS/XLSX, TXT ou foto',
   },
 ];
 
 /**
  * Modos disponíveis no onboarding: despesa, voz, foto (sem recebimento, pois há QuickReceiptStep).
+ *
+ * Os rótulos do onboarding são PRÓPRIOS, não herdados de `LAUNCH_MODES`, por
+ * dois motivos concretos:
+ *
+ * 1. No painel da jornada já existe um botão **"Importar"**. Herdar o rótulo
+ *    "Fatura / Extrato" do modo `foto` criava dois caminhos com o mesmo nome
+ *    para funções diferentes na MESMA tela.
+ * 2. O `accept` do modo `foto` no onboarding é `image/*` — só imagem. O
+ *    subtítulo do menu "+" (que promete PDF/CSV/XLS) descreve os modos
+ *    `fatura`/`extrato`, cujos modais aceitam esses formatos; aqui ele seria
+ *    falso.
  */
+const ONBOARDING_OVERRIDES: Partial<Record<LaunchMode, Pick<LaunchModeOption, 'label' | 'subtitle'>>> = {
+  foto: { label: 'Foto', subtitle: 'Print ou foto do comprovante' },
+};
+
 export const ONBOARDING_MODES: LaunchModeOption[] = LAUNCH_MODES.filter(
   (m) => m.value === 'despesa' || m.value === 'voz' || m.value === 'foto'
-);
+).map((m) => ({ ...m, ...(ONBOARDING_OVERRIDES[m.value] ?? {}) }));
 
 /**
  * Modos principais do "+": despesa, planejar, recebimento, voz, foto.

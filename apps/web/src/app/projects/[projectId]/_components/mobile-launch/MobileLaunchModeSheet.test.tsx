@@ -11,7 +11,7 @@ describe('MobileLaunchModeSheet', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('mostra despesa/planejar/recebimento/foto e emite pick', async () => {
+  it('mostra despesa/planejar/recebimento/fatura-extrato e emite pick', async () => {
     const user = userEvent.setup();
     const onPick = vi.fn();
     render(<MobileLaunchModeSheet open onClose={vi.fn()} onPick={onPick} />);
@@ -20,7 +20,7 @@ describe('MobileLaunchModeSheet', () => {
     expect(screen.getByRole('button', { name: /Planejar/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Recebimento/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Voz/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Foto/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Fatura \/ Extrato/ })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /^Despesa Teclado rápido/i }));
     expect(onPick).toHaveBeenCalledWith('despesa');
@@ -41,21 +41,21 @@ describe('MobileLaunchModeSheet', () => {
     expect(screen.getByRole('button', { name: /^Despesa Teclado rápido/i })).toBeInTheDocument();
   });
 
-  it('Foto abre a sub-tela e emite fatura/extrato; Voltar retorna à raiz', async () => {
+  it('Fatura / Extrato abre a sub-tela e emite fatura/extrato; Voltar retorna à raiz', async () => {
     const user = userEvent.setup();
     const onPick = vi.fn();
     render(<MobileLaunchModeSheet open onClose={vi.fn()} onPick={onPick} />);
 
-    await user.click(screen.getByRole('button', { name: /Foto/ }));
+    await user.click(screen.getByRole('button', { name: /Fatura \/ Extrato/ }));
     // Sub-tela: some o modo Despesa, aparecem as duas fontes.
     expect(screen.queryByRole('button', { name: /^Despesa Teclado rápido/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Foto da fatura/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Fatura do cartão/ })).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /Foto da fatura/ }));
+    await user.click(screen.getByRole('button', { name: /Fatura do cartão/ }));
     expect(onPick).toHaveBeenCalledWith('fatura');
 
-    // Reabre Foto e testa Voltar → raiz mostra Despesa de novo.
-    await user.click(screen.getByRole('button', { name: /Foto do extrato/ }));
+    // Reabre Fatura / Extrato e testa Voltar → raiz mostra Despesa de novo.
+    await user.click(screen.getByRole('button', { name: /Extrato bancário/ }));
     expect(onPick).toHaveBeenCalledWith('extrato');
     await user.click(screen.getByRole('button', { name: /Voltar/ }));
     expect(screen.getByRole('button', { name: /^Despesa Teclado rápido/i })).toBeInTheDocument();
