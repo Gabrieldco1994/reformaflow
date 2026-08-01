@@ -39,6 +39,18 @@ interface ActiveJourney {
   projectType?: ProjectType | null;
 }
 
+/**
+ * A fila carrega o projeto de CADA jornada, não só a jornada. Um cadastro com
+ * vários objetivos cria um projeto por tipo e cada um tem a sua jornada de
+ * onboarding — sem isso a segunda jornada herdava o projectId da primeira e
+ * abria no projeto errado.
+ */
+interface QueuedJourney {
+  journey: RuntimeJourney;
+  projectId?: string;
+  projectType?: ProjectType | null;
+}
+
 interface JourneyRuntimeContextValue {
   active: ActiveJourney | null;
   projects: JourneyProject[];
@@ -46,9 +58,8 @@ interface JourneyRuntimeContextValue {
   error: string | null;
   emit: (context: JourneyEligibilityContext) => Promise<void>;
   emitSignupCompleted: () => Promise<void>;
-  emitProjectCreated: (
-    projectId: string,
-    projectType: JourneyProject["type"],
+  emitProjectsCreated: (
+    projects: Array<{ id: string; type: JourneyProject["type"] }>,
   ) => Promise<void>;
   next: () => void;
   back: () => void;
@@ -100,7 +111,7 @@ export function JourneyRuntimeProvider({
   const pathname = usePathname();
   const router = useRouter();
   const [active, setActive] = useState<ActiveJourney | null>(null);
-  const [queue, setQueue] = useState<RuntimeJourney[]>([]);
+  const [queue, setQueue] = useState<QueuedJourney[]>([]);
   const [projects, setProjects] = useState<JourneyProject[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -130,13 +141,13 @@ export function JourneyRuntimeProvider({
   // nem uma requisição. Guardamos o contexto e reemitimos quando o usuário
   // aparece, o que preserva "nunca disparar sem usuário autenticado" sem
   // perder o gatilho.
-  const pendingEmit = useRef<JourneyEligibilityContext | null>(null);
+  const pendingEmit = useRef<JourneyEligibilityContext[] | null>(null);
 
-  const emit = useCallback(
-    async (context: JourneyEligibilityContext) => {
-      if (active) return;
+  const emitMany = useCallback(
+    async (contexts: JourneyEligibilityContext[]) => {
+      if (active || contexts.length === 0) return;
       if (!user || authLoading) {
-        pendingEmit.current = context;
+        pendingEmit.current = contexts;
         return;
       }
       pendingEmit.current = null;
@@ -144,34 +155,56 @@ export function JourneyRuntimeProvider({
       setError(null);
       try {
         const knownStepKeys = getKnownJourneyStepKeys();
-        // Dispara junto com a checagem de elegibilidade, não depois dela: o
-        // projectId (quando existe) já é conhecido ANTES da resposta de
-        // elegibilidade, então esperar essa resposta para só então buscar o
-        // tipo do projeto era um segundo round-trip sequencial sem motivo.
-        const projectTypePromise = context.projectId
-          ? getProjectType(context.projectId).catch(() => null)
-          : Promise.resolve(null);
-        const [eligible, projectType] = await Promise.all([
-          getEligibleJourneys(context),
-          projectTypePromise,
-        ]);
-        const journeys = eligible
-          .map((j) => normalizeJourney(j, { knownStepKeys }))
-          .filter((journey) => !completedKeys.current.has(journey.key));
-        const [journey] = journeys;
-        if (journey?.steps.length) {
-          if (journey.crossProject) {
+        // Um gatilho por projeto, todos em paralelo: o cadastro com N objetivos
+        // cria N projetos e cada tipo tem a sua jornada.
+        const perContext = await Promise.all(
+          contexts.map(async (context) => {
+            // Dispara junto com a checagem de elegibilidade, não depois dela: o
+            // projectId (quando existe) já é conhecido ANTES da resposta de
+            // elegibilidade, então esperar essa resposta para só então buscar o
+            // tipo do projeto era um segundo round-trip sequencial sem motivo.
+            const projectTypePromise = context.projectId
+              ? getProjectType(context.projectId).catch(() => null)
+              : Promise.resolve(null);
+            const [eligible, projectType] = await Promise.all([
+              getEligibleJourneys(context).catch(() => []),
+              projectTypePromise,
+            ]);
+            return eligible.map((j) => ({
+              journey: normalizeJourney(j, { knownStepKeys }),
+              projectId: context.projectId,
+              projectType,
+            }));
+          }),
+        );
+
+        const seen = new Set<string>();
+        const entries: QueuedJourney[] = [];
+        for (const entry of perContext.flat()) {
+          if (!entry.journey.steps.length) continue;
+          if (completedKeys.current.has(entry.journey.key)) continue;
+          // Chave por jornada E projeto: dois projetos do mesmo tipo têm cada
+          // um a sua jornada (repeatPolicy é ONCE_PER_PROJECT).
+          const dedupeKey = `${entry.journey.key}:${entry.projectId ?? ""}`;
+          if (seen.has(dedupeKey)) continue;
+          seen.add(dedupeKey);
+          entries.push(entry);
+        }
+
+        const [first] = entries;
+        if (first) {
+          if (first.journey.crossProject) {
             void listJourneyProjects()
               .then(setProjects)
               .catch(() => setProjects([]));
           }
           setActive({
-            journey,
+            journey: first.journey,
             stepIndex: 0,
-            projectId: context.projectId,
-            projectType,
+            projectId: first.projectId,
+            projectType: first.projectType,
           });
-          setQueue(journeys);
+          setQueue(entries);
         }
       } catch {
         // The runtime is additive: an unavailable journey API must not break the app.
@@ -182,28 +215,35 @@ export function JourneyRuntimeProvider({
     [active, authLoading, user],
   );
 
+  const emit = useCallback(
+    (context: JourneyEligibilityContext) => emitMany([context]),
+    [emitMany],
+  );
+
   const emitSignupCompleted = useCallback(
     () => emit({ triggerType: "SIGNUP_COMPLETED", device: device() }),
     [emit],
   );
 
-  const emitProjectCreated = useCallback(
-    (projectId: string, projectType: JourneyProject["type"]) =>
-      emit({
-        triggerType: "PROJECT_CREATED",
-        device: device(),
-        projectId,
-        projectType,
-      }),
-    [emit],
+  const emitProjectsCreated = useCallback(
+    (projects: Array<{ id: string; type: JourneyProject["type"] }>) =>
+      emitMany(
+        projects.map((project) => ({
+          triggerType: "PROJECT_CREATED",
+          device: device(),
+          projectId: project.id,
+          projectType: project.type,
+        })),
+      ),
+    [emitMany],
   );
 
   // Drena o gatilho que chegou cedo demais, assim que a autenticação resolve.
   useEffect(() => {
     const pending = pendingEmit.current;
     if (!pending || !user || authLoading || active) return;
-    void emit(pending);
-  }, [active, authLoading, emit, user]);
+    void emitMany(pending);
+  }, [active, authLoading, emitMany, user]);
 
   useEffect(() => {
     if (!user || authLoading || !pathname || active) return;
@@ -258,9 +298,10 @@ export function JourneyRuntimeProvider({
     if (nextJourney) {
       setQueue((current) => current.slice(1));
       setActive({
-        journey: nextJourney,
+        journey: nextJourney.journey,
         stepIndex: 0,
-        projectId: active.projectId,
+        projectId: nextJourney.projectId,
+        projectType: nextJourney.projectType,
       });
     } else {
       setQueue([]);
@@ -332,7 +373,7 @@ export function JourneyRuntimeProvider({
       error,
       emit,
       emitSignupCompleted,
-      emitProjectCreated,
+      emitProjectsCreated,
       next,
       back,
       skip,
@@ -345,7 +386,7 @@ export function JourneyRuntimeProvider({
       chooseProject,
       dismiss,
       emit,
-      emitProjectCreated,
+      emitProjectsCreated,
       emitSignupCompleted,
       error,
       loading,
@@ -390,6 +431,30 @@ function JourneyRuntimeOverlay() {
   const runtime = useJourneyRuntime();
   const active = runtime.active;
   const panelRef = useRef<HTMLElement>(null);
+
+  // Publica a altura real do painel para quem precisa sair de baixo dele — o
+  // FAB de "Nova despesa" é `fixed bottom` em z-30 e ficava debaixo do painel
+  // (z-70), ou seja: a jornada mandava lançar a primeira despesa e tapava o
+  // único botão que faz isso no mobile. Altura MEDIDA, não constante: o painel
+  // cresce com o texto do passo.
+  useEffect(() => {
+    const panel = panelRef.current;
+    const root = document.body;
+    if (!panel) {
+      root.style.removeProperty("--journey-panel-h");
+      return;
+    }
+    const publish = () =>
+      root.style.setProperty("--journey-panel-h", `${panel.offsetHeight}px`);
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(panel);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty("--journey-panel-h");
+    };
+  });
+
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
   const wasOpenRef = useRef(false);
   const [activeProjectType, setActiveProjectType] = useState<ProjectType | null>(null);

@@ -21,7 +21,7 @@ function newIdempotencyKey() {
 export function RegisterForm() {
   const router = useRouter();
   const { register, refresh } = useAuth();
-  const { emitSignupCompleted, emitProjectCreated } = useJourneyRuntime();
+  const { emitSignupCompleted, emitProjectsCreated } = useJourneyRuntime();
   const [ownerName, setOwnerName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -64,21 +64,20 @@ export function RegisterForm() {
         idempotencyKey.current,
       );
       void emitSignupCompleted();
-      // O projeto do cadastro nasce aqui, não na tela de projetos — sem este
+      // Os projetos do cadastro nascem aqui, não na tela de projetos — sem este
       // emit nenhum PROJECT_CREATED chega ao runtime e a jornada de onboarding
-      // nunca abre para quem acabou de criar a conta.
-      let firstCreated: { id: string; type: string } | null = null;
+      // nunca abre para quem acabou de criar a conta. Um objetivo marcado = um
+      // projeto = uma jornada, e todas entram na fila do runtime.
+      const created: Array<{ id: string; type: ProjectType }> = [];
       for (const type of selectedTypes) {
-        const created = await api.post<{ id: string; type: string }>('/projects', {
+        const project = await api.post<{ id: string; type: string }>('/projects', {
           name: PROJECT_ONBOARDING_COPY[type].defaultName,
           type,
         });
-        firstCreated ??= created;
+        created.push({ id: project.id, type: project.type as ProjectType });
       }
       await refresh();
-      if (firstCreated) {
-        void emitProjectCreated(firstCreated.id, firstCreated.type as ProjectType);
-      }
+      void emitProjectsCreated(created);
       router.replace('/projects');
     } catch (caught) {
       if (caught instanceof ApiResponseError) idempotencyKey.current = newIdempotencyKey();

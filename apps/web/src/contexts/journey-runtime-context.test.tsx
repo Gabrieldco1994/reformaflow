@@ -45,14 +45,28 @@ function Fixture() {
       <button
         type="button"
         onClick={() =>
-          void runtime.emitProjectCreated("current", ProjectType.PESSOAL)
+          void runtime.emitProjectsCreated([
+            { id: "current", type: ProjectType.PESSOAL },
+          ])
         }
       >
         Criar projeto
       </button>
+      <button
+        type="button"
+        onClick={() =>
+          void runtime.emitProjectsCreated([
+            { id: "p-reforma", type: ProjectType.REFORMA },
+            { id: "p-casa", type: ProjectType.CASA },
+          ])
+        }
+      >
+        Criar dois projetos
+      </button>
       {runtime.active && (
         <div data-testid="active">
           {runtime.active.journey.name}:{runtime.active.stepIndex}
+          <span data-testid="active-project">{runtime.active.projectId}</span>
           <button type="button" onClick={runtime.next}>
             Continuar
           </button>
@@ -667,8 +681,7 @@ describe("JourneyRuntimeProvider", () => {
       await waitFor(() => expect(projectCreatedCalls()).toBe(1));
     });
 
-    it("não reemite o gatilho guardado numa segunda passagem", async () => {
-      mocks.authLoading = true;
+    it("não reemite o gatilho guardado numa segunda passagem", async () => {      mocks.authLoading = true;
       mocks.user = null;
       const { rerender } = renderRuntime();
       await act(async () => {
@@ -693,6 +706,157 @@ describe("JourneyRuntimeProvider", () => {
       });
       expect(projectCreatedCalls()).toBe(1);
     });
+  });
+
+  // Cadastro com vários objetivos cria um projeto por tipo, e cada tipo tem a
+  // sua jornada de onboarding. A fila precisa carregar o projeto de CADA
+  // jornada: antes ela guardava só a jornada e a segunda herdava o projectId
+  // da primeira, abrindo no projeto errado.
+  describe("uma jornada por projeto criado", () => {
+    function journeyFor(type: string, id: string) {
+      return {
+        journeyId: `j-${type}`,
+        key: `onboarding:${type}`,
+        name: `Onboarding ${type}`,
+        triggerId: `t-${type}`,
+        repeatPolicy: "ONCE_PER_PROJECT",
+        dismissPolicy: "DISMISS_UNTIL_LOGIN",
+        crossProject: false,
+        steps: [
+          {
+            stepKey: "feedback",
+            order: 0,
+            experience: "SUMMARY",
+            label: `Passo de ${id}`,
+            subtitle: "Resumo",
+            skippable: true,
+          },
+        ],
+      };
+    }
+
+    beforeEach(() => {
+      mocks.apiGet.mockImplementation((path: string) => {
+        const params = new URL(`http://localhost${path}`).searchParams;
+        if (params.get("triggerType") !== "PROJECT_CREATED")
+          return Promise.resolve([]);
+        const projectId = params.get("projectId") ?? "";
+        const type = params.get("projectType") ?? "";
+        return Promise.resolve([journeyFor(type, projectId)]);
+      });
+    });
+
+    it("enfileira uma jornada por projeto e cada uma abre no seu próprio projeto", async () => {
+      renderRuntime();
+      await act(async () => {
+        await userEvent.click(screen.getByText("Criar dois projetos"));
+      });
+
+      // Uma consulta de elegibilidade por projeto, não uma só.
+      const queried = mocks.apiGet.mock.calls
+        .map((call) => String(call[0]))
+        .filter((url) => url.includes("triggerType=PROJECT_CREATED"));
+      expect(queried).toHaveLength(2);
+      expect(queried.some((u) => u.includes("projectId=p-reforma"))).toBe(true);
+      expect(queried.some((u) => u.includes("projectId=p-casa"))).toBe(true);
+
+      await waitFor(() =>
+        expect(screen.getByTestId("active")).toHaveTextContent(
+          "Onboarding REFORMA:0",
+        ),
+      );
+      expect(screen.getByTestId("active-project")).toHaveTextContent(
+        "p-reforma",
+      );
+
+      // Concluída a primeira, a segunda assume — com o SEU projeto.
+      await act(async () => {
+        await userEvent.click(
+          within(screen.getByTestId("active")).getByRole("button", {
+            name: "Continuar",
+          }),
+        );
+      });
+
+      await waitFor(() =>
+        expect(screen.getByTestId("active")).toHaveTextContent(
+          "Onboarding CASA:0",
+        ),
+      );
+      expect(screen.getByTestId("active-project")).toHaveTextContent("p-casa");
+    });
+
+    it("encerra a fila depois da última jornada", async () => {
+      renderRuntime();
+      await act(async () => {
+        await userEvent.click(screen.getByText("Criar dois projetos"));
+      });
+      await waitFor(() => expect(screen.getByTestId("active")).toBeTruthy());
+
+      for (let i = 0; i < 2; i += 1) {
+        await act(async () => {
+          await userEvent.click(
+            within(screen.getByTestId("active")).getByRole("button", {
+              name: "Continuar",
+            }),
+          );
+        });
+      }
+
+      await waitFor(() =>
+        expect(screen.queryByTestId("active")).not.toBeInTheDocument(),
+      );
+    });
+  });
+
+  // O FAB de "Nova despesa" é `fixed bottom` em z-30 e o painel em z-70: sem a
+  // altura MEDIDA do painel, ele tapava o único botão que a própria jornada
+  // manda apertar. Constante não serve — o painel cresce com o texto do passo.
+  it("publica a altura do painel em --journey-panel-h e limpa ao fechar", async () => {
+    mocks.apiGet.mockImplementation((path: string) => {
+      const params = new URL(`http://localhost${path}`).searchParams;
+      if (params.get("triggerType") !== "PROJECT_CREATED")
+        return Promise.resolve([]);
+      return Promise.resolve([
+        {
+          journeyId: "j1",
+          key: "tour:altura",
+          name: "Altura",
+          triggerId: "t1",
+          repeatPolicy: "ALWAYS",
+          dismissPolicy: "DISMISS_UNTIL_LOGIN",
+          crossProject: false,
+          steps: [
+            {
+              stepKey: "feedback",
+              order: 0,
+              experience: "SUMMARY",
+              label: "A",
+              subtitle: "Resumo",
+              skippable: true,
+            },
+          ],
+        },
+      ]);
+    });
+
+    expect(
+      document.body.style.getPropertyValue("--journey-panel-h"),
+    ).toBe("");
+
+    const { unmount } = renderRuntime();
+    await act(async () => {
+      await userEvent.click(screen.getByText("Criar projeto"));
+    });
+
+    await waitFor(() =>
+      expect(
+        document.body.style.getPropertyValue("--journey-panel-h"),
+      ).not.toBe(""),
+    );
+
+    unmount();
+    expect(document.body.style.getPropertyValue("--journey-panel-h")).toBe("");
   });
 
   // Regressão: o painel da etapa FULL imprimia sempre a frase genérica e

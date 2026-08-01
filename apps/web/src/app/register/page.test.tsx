@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   apiPost: vi.fn(),
   replace: vi.fn(),
   emitSignupCompleted: vi.fn(),
-  emitProjectCreated: vi.fn(),
+  emitProjectsCreated: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -21,7 +21,7 @@ vi.mock("@/contexts/auth-context", () => ({
 vi.mock("@/contexts/journey-runtime-context", () => ({
   useJourneyRuntime: () => ({
     emitSignupCompleted: mocks.emitSignupCompleted,
-    emitProjectCreated: mocks.emitProjectCreated,
+    emitProjectsCreated: mocks.emitProjectsCreated,
   }),
 }));
 vi.mock("@/lib/api", async () => {
@@ -145,7 +145,7 @@ describe("/register form behavior", () => {
     await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/projects"));
   });
 
-  // Regressão: o cadastro criava o projeto direto pela API e nunca emitia
+  // Regressão: o cadastro criava os projetos direto pela API e nunca emitia
   // PROJECT_CREATED — que é o ÚNICO gatilho da jornada de onboarding no
   // catálogo. Conta nova entrava sem jornada nenhuma.
   it("emite PROJECT_CREATED do projeto criado no cadastro, depois de refresh", async () => {
@@ -157,10 +157,33 @@ describe("/register form behavior", () => {
     await browser.click(screen.getByRole("button", { name: /criar minha conta/i }));
 
     await waitFor(() =>
-      expect(mocks.emitProjectCreated).toHaveBeenCalledWith("p1", "REFORMA"),
+      expect(mocks.emitProjectsCreated).toHaveBeenCalledWith([
+        { id: "p1", type: "REFORMA" },
+      ]),
     );
     expect(mocks.refresh.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.emitProjectCreated.mock.invocationCallOrder[0],
+      mocks.emitProjectsCreated.mock.invocationCallOrder[0],
+    );
+  });
+
+  // Um objetivo marcado = um projeto = uma jornada. Marcar dois objetivos tem
+  // que levar as DUAS jornadas ao runtime, cada uma com o seu projeto.
+  it("emite todos os projetos criados, um por objetivo marcado", async () => {
+    mocks.apiPost
+      .mockResolvedValueOnce({ id: "p-reforma", type: "REFORMA" })
+      .mockResolvedValueOnce({ id: "p-casa", type: "CASA" });
+    const browser = userEvent.setup();
+    render(<RegisterPage />);
+    await fillValidForm(browser);
+    await browser.click(screen.getByRole("checkbox", { name: /^Reformar/i }));
+    await browser.click(screen.getByRole("checkbox", { name: /^Cuidar da casa/i }));
+    await browser.click(screen.getByRole("button", { name: /criar minha conta/i }));
+
+    await waitFor(() =>
+      expect(mocks.emitProjectsCreated).toHaveBeenCalledWith([
+        { id: "p-reforma", type: "REFORMA" },
+        { id: "p-casa", type: "CASA" },
+      ]),
     );
   });
 
