@@ -1,7 +1,16 @@
 import { BadRequestException } from "@nestjs/common";
 import { validate } from "class-validator";
-import { parseBankStatementBuffers } from "../bank-account/parsers";
-import { parseStatementBuffers } from "../credit-card/parsers";
+import {
+  ImageOcrError,
+  PdfPasswordRequiredError as BankPdfPasswordRequiredError,
+  PdfWrongPasswordError as BankPdfWrongPasswordError,
+  parseBankStatementBuffers,
+} from "../bank-account/parsers";
+import {
+  PdfPasswordRequiredError as CardPdfPasswordRequiredError,
+  PdfWrongPasswordError as CardPdfWrongPasswordError,
+  parseStatementBuffers,
+} from "../credit-card/parsers";
 import { ReceiptController } from "./receipt.controller";
 import { ImportReceiptQueryDto } from "./dto/import-receipt.dto";
 import { ReceiptService } from "./receipt.service";
@@ -157,6 +166,7 @@ function harness() {
   };
   const classifier = { manualExpenseType: jest.fn().mockResolvedValue(null) };
   return {
+    classifier,
     prisma,
     state,
     service: new ReceiptService(prisma, classifier as any),
@@ -205,8 +215,22 @@ describe("accountless import approved contract", () => {
         errors({ origin: "none", documentType: "card", source }),
       ).resolves.toHaveLength(0);
     }
+    for (const mode of ["preview", "commit"]) {
+      await expect(
+        errors({ origin: "none", documentType: "bank", mode }),
+      ).resolves.toHaveLength(0);
+    }
+    await expect(
+      errors({ origin: "none", documentType: "bank" }),
+    ).resolves.toHaveLength(0);
     await expect(errors({ documentType: "bank" })).resolves.not.toHaveLength(0);
     await expect(errors({ origin: "none" })).resolves.not.toHaveLength(0);
+    await expect(
+      errors({ origin: "none", documentType: "spreadsheet" }),
+    ).resolves.not.toHaveLength(0);
+    await expect(
+      errors({ origin: "none", documentType: "bank", mode: "write" }),
+    ).resolves.not.toHaveLength(0);
     await expect(
       errors({ origin: "account", documentType: "bank" }),
     ).resolves.not.toHaveLength(0);
@@ -273,6 +297,21 @@ describe("accountless import approved contract", () => {
         { origin: "none", documentType: "bank" } as any,
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      controller.importReceipts(
+        "tenant-1",
+        { id: "user-1" },
+        "project-1",
+        [
+          {
+            buffer: Buffer.from("oversized"),
+            originalname: "oversized.pdf",
+            size: 10 * 1024 * 1024 + 1,
+          },
+        ] as any,
+        { origin: "none", documentType: "bank" } as any,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
     expect(service.previewImport).toHaveBeenCalledTimes(1);
   });
 
@@ -330,7 +369,88 @@ describe("accountless import approved contract", () => {
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(service.commitImport).not.toHaveBeenCalled();
+
+    await expect(
+      (controller.importReceipts as any)(
+        "tenant-1",
+        { id: "user-1" },
+        "project-1",
+        files,
+        { origin: "none", documentType: "bank", mode: "commit" },
+        {
+          decisions: JSON.stringify([
+            { externalId: "A", action: "link", linkToExpenseId: "expense-1" },
+          ]),
+        },
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(service.commitImport).not.toHaveBeenCalled();
   });
+
+  it.each([
+    {
+      documentType: "bank" as const,
+      error: new BankPdfPasswordRequiredError(),
+      code: "pdf_password_required",
+      message: "PDF protegido por senha.",
+    },
+    {
+      documentType: "card" as const,
+      error: new CardPdfPasswordRequiredError(),
+      code: "pdf_password_required",
+      message: "PDF protegido por senha.",
+    },
+    {
+      documentType: "bank" as const,
+      error: new BankPdfWrongPasswordError(),
+      code: "pdf_wrong_password",
+      message: "Senha do PDF incorreta.",
+    },
+    {
+      documentType: "card" as const,
+      error: new CardPdfWrongPasswordError(),
+      code: "pdf_wrong_password",
+      message: "Senha do PDF incorreta.",
+    },
+    {
+      documentType: "card" as const,
+      error: new ImageOcrError("OCR indisponível"),
+      code: "image_ocr_failed",
+      message: "OCR indisponível",
+    },
+  ])(
+    "maps parser failure $code for $documentType documents",
+    async ({ documentType, error, code, message }) => {
+      const service = {
+        previewImport: jest.fn().mockRejectedValue(error),
+        commitImport: jest.fn(),
+      };
+      const controller = new ReceiptController(service as any);
+
+      const thrown = await controller
+        .importReceipts(
+          "tenant-1",
+          { id: "user-1" },
+          "project-1",
+          [
+            {
+              buffer: Buffer.from("document"),
+              originalname: "document.pdf",
+            },
+          ] as any,
+          { origin: "none", documentType } as any,
+        )
+        .catch((caught) => caught);
+
+      expect(thrown).toBeInstanceOf(BadRequestException);
+      expect((thrown as BadRequestException).getResponse()).toEqual({
+        code,
+        message,
+      });
+      expect(service.previewImport).toHaveBeenCalledTimes(1);
+      expect(service.commitImport).not.toHaveBeenCalled();
+    },
+  );
 
   it("previews typed outcomes read-only and uses a stable project/document seed", async () => {
     const { service, prisma, state } = harness();
@@ -420,6 +540,93 @@ describe("accountless import approved contract", () => {
     expect(cardParser.mock.calls.at(-1)[1]).not.toBe(bankSeeds[0]);
   });
 
+  it("previews card purchases, refunds, invoice payments, and zero as readable typed rows", async () => {
+    const { service, prisma } = harness();
+    cardParser.mockResolvedValue(
+      parsed(
+        [
+          row("purchase", 12_345, "Mercado"),
+          row("refund", -2_000, "Estorno mercado"),
+          row("payment", -5_000, "PGTO FATURA"),
+          row("zero", 0, "Linha zero"),
+        ],
+        "PDF",
+      ),
+    );
+
+    await expect(
+      service.previewImport(
+        "tenant-1",
+        "project-1",
+        [Buffer.from("card")],
+        "card",
+        "PDF",
+        "2026-08",
+        "secret",
+        "card.pdf",
+      ),
+    ).resolves.toEqual({
+      source: "PDF",
+      periodLabel: "2026-08",
+      total: 4,
+      totalAmountCents: 5_345,
+      duplicated: 0,
+      preview: [
+        {
+          externalId: "purchase",
+          date: "2026-07-15",
+          description: "Mercado",
+          amountCents: 12_345,
+          type: "expense",
+          status: "PLANEJADO",
+          duplicate: false,
+          willImport: true,
+        },
+        {
+          externalId: "refund",
+          date: "2026-07-15",
+          description: "Estorno mercado",
+          amountCents: -2_000,
+          type: "expense",
+          status: "PAGO",
+          duplicate: false,
+          willImport: true,
+        },
+        {
+          externalId: "payment",
+          date: "2026-07-15",
+          description: "PGTO FATURA",
+          amountCents: -5_000,
+          type: "expense",
+          status: "PAGO",
+          duplicate: false,
+          willImport: false,
+        },
+        {
+          externalId: "zero",
+          date: "2026-07-15",
+          description: "Linha zero",
+          amountCents: 0,
+          type: "expense",
+          status: "PLANEJADO",
+          duplicate: false,
+          willImport: false,
+        },
+      ],
+    });
+    expect(cardParser).toHaveBeenCalledWith(
+      [Buffer.from("card")],
+      "receipts-import:project-1:card",
+      "PDF",
+      "card.pdf",
+      "secret",
+    );
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.expense.create).not.toHaveBeenCalled();
+    expect(prisma.receipt.create).not.toHaveBeenCalled();
+    expect(prisma.cashFlowEntry.create).not.toHaveBeenCalled();
+  });
+
   it("commits bank debit/credit as atomic unlinked wallet rows and applies create/skip overrides", async () => {
     const { service, prisma, state } = harness();
     bankParser.mockResolvedValue(
@@ -497,6 +704,125 @@ describe("accountless import approved contract", () => {
     expect(prisma.$transaction).toHaveBeenCalledTimes(2);
   });
 
+  it("lets MerchantCategory change only category, never amount, sign, status, or cash", async () => {
+    const { classifier, service, state } = harness();
+    classifier.manualExpenseType.mockResolvedValue("MORADIA");
+    bankParser.mockResolvedValue(
+      parsed([
+        row("bank-debit", 4_321, "Condomínio"),
+        row("bank-credit", -6_500, "Crédito"),
+      ]),
+    );
+    cardParser.mockResolvedValue(
+      parsed([
+        row("card-purchase", 7_654, "Loja"),
+        row("card-refund", -876, "Estorno loja"),
+      ]),
+    );
+
+    await expect(commit(service, "bank")).resolves.toMatchObject({
+      count: 2,
+      expensesInserted: 1,
+      receiptsInserted: 1,
+      failed: 0,
+    });
+    await expect(commit(service, "card")).resolves.toMatchObject({
+      count: 2,
+      expensesInserted: 2,
+      receiptsInserted: 0,
+      failed: 0,
+    });
+
+    expect(classifier.manualExpenseType.mock.calls).toEqual([
+      ["Condomínio", "tenant-1"],
+      ["Loja", "tenant-1"],
+      ["Estorno loja", "tenant-1"],
+    ]);
+    expect(
+      state.expenses.map(
+        ({ externalId, tipoDespesa, valor, valorTotal, status }) => ({
+          externalId,
+          tipoDespesa,
+          valor,
+          valorTotal,
+          status,
+        }),
+      ),
+    ).toEqual([
+      {
+        externalId: "bank-debit",
+        tipoDespesa: "MORADIA",
+        valor: 4_321,
+        valorTotal: 4_321,
+        status: "PAGO",
+      },
+      {
+        externalId: "card-purchase",
+        tipoDespesa: "MORADIA",
+        valor: 7_654,
+        valorTotal: 7_654,
+        status: "PLANEJADO",
+      },
+      {
+        externalId: "card-refund",
+        tipoDespesa: "MORADIA",
+        valor: -876,
+        valorTotal: -876,
+        status: "PAGO",
+      },
+    ]);
+    expect(state.receipts).toEqual([
+      expect.objectContaining({
+        externalId: "bank-credit",
+        tipo: "OUTROS",
+        valor: 6_500,
+        status: "EM_CAIXA",
+      }),
+    ]);
+    expect(
+      state.cashFlows.map(
+        ({ expenseId, receiptId, valor, tipo, categoria, status }) => ({
+          externalId:
+            state.expenses.find(({ id }) => id === expenseId)?.externalId ??
+            state.receipts.find(({ id }) => id === receiptId)?.externalId,
+          valor,
+          tipo,
+          categoria,
+          status,
+        }),
+      ),
+    ).toEqual([
+      {
+        externalId: "bank-debit",
+        valor: 4_321,
+        tipo: "DESPESA",
+        categoria: "MORADIA",
+        status: "PAGO",
+      },
+      {
+        externalId: "bank-credit",
+        valor: 6_500,
+        tipo: "RECEBIMENTO",
+        categoria: "OUTROS",
+        status: "EM_CAIXA",
+      },
+      {
+        externalId: "card-purchase",
+        valor: 7_654,
+        tipo: "DESPESA",
+        categoria: "MORADIA",
+        status: "PLANEJADO",
+      },
+      {
+        externalId: "card-refund",
+        valor: -876,
+        tipo: "DESPESA",
+        categoria: "MORADIA",
+        status: "PAGO",
+      },
+    ]);
+  });
+
   it("commits card purchase/refund and ignores textual invoice payment and zero", async () => {
     const { service, prisma, state } = harness();
     cardParser.mockResolvedValue(
@@ -558,6 +884,38 @@ describe("accountless import approved contract", () => {
     expect(prisma.$transaction).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps exact counters and row counts stable on a repeated commit", async () => {
+    const { service, prisma, state } = harness();
+    bankParser.mockResolvedValue(
+      parsed([row("repeat-debit", 1_234), row("repeat-credit", -5_678)]),
+    );
+
+    await expect(commit(service, "bank")).resolves.toEqual({
+      source: "OFX",
+      periodLabel: "2026-07",
+      count: 2,
+      expensesInserted: 1,
+      receiptsInserted: 1,
+      duplicated: 0,
+      skipped: 0,
+      failed: 0,
+    });
+    await expect(commit(service, "bank")).resolves.toEqual({
+      source: "OFX",
+      periodLabel: "2026-07",
+      count: 0,
+      expensesInserted: 0,
+      receiptsInserted: 0,
+      duplicated: 2,
+      skipped: 0,
+      failed: 0,
+    });
+    expect(state.expenses).toHaveLength(1);
+    expect(state.receipts).toHaveLength(1);
+    expect(state.cashFlows).toHaveLength(2);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+  });
+
   it("deduplicates in-batch, on repeat after soft-delete, and across Expense/Receipt", async () => {
     const { service, state } = harness();
     bankParser.mockResolvedValue(
@@ -570,12 +928,13 @@ describe("accountless import approved contract", () => {
     expect(state.expenses).toHaveLength(1);
 
     state.expenses[0].deletedAt = new Date("2026-07-20T12:00:00.000Z");
-    bankParser.mockResolvedValue(parsed([row("same-id", 1_000)]));
+    bankParser.mockResolvedValue(parsed([row("same-id", -1_000)]));
     await expect(commit(service, "bank")).resolves.toMatchObject({
       count: 0,
       duplicated: 1,
     });
     expect(state.expenses).toHaveLength(1);
+    expect(state.receipts).toHaveLength(0);
 
     state.receipts.push({
       id: "soft-receipt",
@@ -588,29 +947,42 @@ describe("accountless import approved contract", () => {
       duplicated: 1,
     });
     expect(state.expenses).toHaveLength(1);
+    expect(state.receipts).toHaveLength(1);
   });
 
-  it("rechecks idempotency inside the row transaction before writing", async () => {
-    const { service, prisma } = harness();
-    bankParser.mockResolvedValue(parsed([row("racing-id", 1_000)]));
-    let rawQueryCount = 0;
-    prisma.$queryRaw.mockImplementation((strings: TemplateStringsArray) => {
-      rawQueryCount++;
-      const isExpenseQuery = strings.join(" ").includes("expenses");
-      return rawQueryCount >= 3 && isExpenseQuery
-        ? [{ external_id: "racing-id" }]
-        : [];
-    });
+  it.each([
+    { amountCents: 1_000, duplicateTable: "expenses" },
+    { amountCents: -1_000, duplicateTable: "receipts" },
+  ])(
+    "rechecks $duplicateTable idempotency inside the row transaction before writing",
+    async ({ amountCents, duplicateTable }) => {
+      const { service, prisma } = harness();
+      bankParser.mockResolvedValue(parsed([row("racing-id", amountCents)]));
+      let rawQueryCount = 0;
+      prisma.$queryRaw.mockImplementation((strings: TemplateStringsArray) => {
+        rawQueryCount++;
+        const isDuplicateTableQuery = strings
+          .join(" ")
+          .includes(duplicateTable);
+        return rawQueryCount >= 3 && isDuplicateTableQuery
+          ? [{ external_id: "racing-id" }]
+          : [];
+      });
 
-    await expect(commit(service, "bank")).resolves.toMatchObject({
-      count: 0,
-      duplicated: 1,
-      failed: 0,
-    });
-    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-    expect(prisma.expense.create).not.toHaveBeenCalled();
-    expect(prisma.cashFlowEntry.create).not.toHaveBeenCalled();
-  });
+      await expect(commit(service, "bank")).resolves.toMatchObject({
+        count: 0,
+        expensesInserted: 0,
+        receiptsInserted: 0,
+        duplicated: 1,
+        skipped: 0,
+        failed: 0,
+      });
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.expense.create).not.toHaveBeenCalled();
+      expect(prisma.receipt.create).not.toHaveBeenCalled();
+      expect(prisma.cashFlowEntry.create).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     { externalId: "A", action: "link" },
@@ -633,9 +1005,9 @@ describe("accountless import approved contract", () => {
   );
 
   it("rolls back a failed parent/cashflow pair, counts it, and continues", async () => {
-    const { service, state } = harness();
+    const { service, prisma, state } = harness();
     bankParser.mockResolvedValue(
-      parsed([row("fails-cashflow", 1_000), row("survives", 2_000)]),
+      parsed([row("fails-cashflow", -1_000), row("survives", 2_000)]),
     );
 
     await expect(commit(service, "bank")).resolves.toMatchObject({
@@ -649,7 +1021,9 @@ describe("accountless import approved contract", () => {
     expect(state.expenses.map(({ externalId }) => externalId)).toEqual([
       "survives",
     ]);
+    expect(state.receipts).toHaveLength(0);
     expect(state.cashFlows).toHaveLength(1);
     expect(state.cashFlows[0].expenseId).toBe(state.expenses[0].id);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
   });
 });
