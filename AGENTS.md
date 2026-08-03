@@ -120,6 +120,10 @@ prompt auto-contido com pontos de parada explícitos para agentes sem contexto.
 Ele decide titularidade, ordem de merge e escopo; **não implementa e não mergeia** —
 prontidão é dito, o merge é do PO.
 
+O mapa completo de papéis, skills, lacunas e ciclo de vida está em
+`docs/landscape-agentes-skills-saas.md`. Ao revisar a estrutura ou após um incidente,
+use a skill versionada **`agent-landscape-audit`**; não atualize o landscape por memória.
+
 ## Notas técnicas (consulte quando tocar o módulo)
 
 - **Decisão de produto pendente — `ImportLauncher`**: existe em `wip/import-launcher-preservado` (commit `64363829`), **fora de qualquer PR**. Componente de 205 linhas que seria um botão "Importar" dedicado na tela de Despesas. **Nunca foi renderizado** (só `import`, sem `<ImportLauncher />` no JSX) e a capacidade dele já existe: hoje importa-se fatura/extrato por **"Lançar" → "Foto (print ou foto de fatura/extrato)"** (`ExpensesView.tsx`, `onImportCard`/`onImportAccount`), e o `NovaDespesaLauncher` usa os mesmos dois modais. É **conveniência (um clique a menos), não capacidade** — nada quebrado enquanto não se decide. Opções: descartar / integrar de verdade / manter parado.
