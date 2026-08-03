@@ -28,7 +28,11 @@ These are the competence-slice rules for backend work. Read your project's `AGEN
 Canonical source: `AGENTS.md` (auto-loaded) + business rules in `docs/cockpit-caixa-real.md`, `docs/visao-conta-faturas.md`, `docs/estado-atual-cockpit-pessoal.md`. The rules below are the **scars** — violating them has broken prod before.
 
 - **Stack/ports.** NestJS API on **3001**, SQLite at `prisma/dev.db`. `cd apps/api`. No `pnpm` on this machine for scripts — call `npx` directly (`npx jest`, `npx tsc --noEmit`, `npx prisma …`). The API dies if the shell that started it closes — for a long-lived API use `./start-api.sh` or an async-detached bash, never a foreground call you depend on.
-- **Soft-delete middleware (`prisma.service.ts` `$use`).** `delete`→`update {deletedAt}`. A model with **no** `deletedAt` column MUST be added to `modelsWithoutSoftDelete` (currently `SimulationValue`, `Simulation`, `FloorPlanRoom`, `RoomImage`, `FloorPlanMarker`, `CarInfo`, `MerchantCategory`, `CrossProjectSettlement`, `RateioAllocation`) or `$use` injects a bad write. New model without `deletedAt` → update that list in the same change.
+- **Soft-delete middleware (`prisma.service.ts` `$use`).** `delete`→`update {deletedAt}`. Before
+  touching a model, read the live `modelsWithoutSoftDelete` set in
+  `apps/api/src/prisma/prisma.service.ts`; never rely on a copied list in agent instructions.
+  A new model without `deletedAt` MUST enter that set in the same change or `$use` injects a bad
+  write.
 - **`$transaction` bypasses `$use`.** Inside a tx, a `delete` is a hard delete and `findX` won't get the soft-delete filter. Pattern: return the **id** from inside the tx and call `findById` **outside** it. For hard cleanup inside a tx use `deleteMany({where})` and let FK cascade do the rest (e.g. `FloorPlanRoom.reanalyze`).
 - **Migrations — DB has REAL data.** **NEVER** `prisma migrate reset` / `db push --force-reset` / `rm prisma/dev.db`. Backup FIRST: `cp prisma/dev.db prisma/dev.db.bak-$(date +%Y%m%d-%H%M%S)`, then from `apps/api`: `npx prisma migrate dev --name <desc> --schema=../../prisma/schema.prisma`. Migrations apply in prod via the Dockerfile entrypoint `prisma migrate deploy` — a green Fly deploy guarantees the migration ran.
 - **Domain barrel.** Business rules/enums live in `packages/domain` — import only via `@reformaflow/domain` (barrel), never deep paths. After editing `packages/domain/src/`, run `cd packages/domain && npm run build` (the `dist` is what the apps consume) BEFORE committing, or the pre-commit `tsc` fails.

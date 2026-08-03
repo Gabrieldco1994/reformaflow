@@ -124,6 +124,10 @@ O mapa completo de papéis, skills, lacunas e ciclo de vida está em
 `docs/landscape-agentes-skills-saas.md`. Ao revisar a estrutura ou após um incidente,
 use a skill versionada **`agent-landscape-audit`**; não atualize o landscape por memória.
 
+Arquivos de agente usam **um único nome canônico em kebab-case minúsculo**
+(`.claude/agents/fleet-po.md`). Nunca crie cópias com espaços, capitalização alternativa
+ou sufixo `.agent.md`: o VS Code pode carregar a cópia obsoleta e executar regras diferentes.
+
 ## Notas técnicas (consulte quando tocar o módulo)
 
 - **Decisão de produto pendente — `ImportLauncher`**: existe em `wip/import-launcher-preservado` (commit `64363829`), **fora de qualquer PR**. Componente de 205 linhas que seria um botão "Importar" dedicado na tela de Despesas. **Nunca foi renderizado** (só `import`, sem `<ImportLauncher />` no JSX) e a capacidade dele já existe: hoje importa-se fatura/extrato por **"Lançar" → "Foto (print ou foto de fatura/extrato)"** (`ExpensesView.tsx`, `onImportCard`/`onImportAccount`), e o `NovaDespesaLauncher` usa os mesmos dois modais. É **conveniência (um clique a menos), não capacidade** — nada quebrado enquanto não se decide. Opções: descartar / integrar de verdade / manter parado.

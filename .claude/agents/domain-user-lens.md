@@ -73,6 +73,19 @@ pointers, not copies. Replace this list with your persona's genuine rules. For e
 - **<the authorization boundary>** that keeps a non-<PERSONA> out of this surface.
 - **<the lifecycle/state rules>** this persona's actions must respect.
 
+### Live-map protocol (mandatory for every specialized lens)
+
+Do not trust a copied module list in an agent body, README, handoff, or old plan. At the start of
+both phases, read the current maps:
+
+- product capability: `packages/domain/src/config/project-features.ts` (`PROJECT_FEATURES`);
+- API/web access gate: `packages/domain/src/config/type-modules.ts` (`TYPE_MODULES`);
+- rendered navigation: `apps/web/src/app/projects/[projectId]/_components/module-navigator.ts`
+  (`PROJECT_NAV`).
+
+They answer different questions and intentional divergence is possible. Cite the live map in the
+report instead of copying its full current contents back into this file.
+
 ## What to probe (both phases)
 
 The same axes drive both phases. In **Phase 1** you walk the *issue* against each axis and emit a

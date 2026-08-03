@@ -283,6 +283,7 @@ A **shared-surface touch** (a change to a layout/predicate/style/route more than
                     ▼
   [Verify] INDEPENDENT (generator≠evaluator):
             qa-engineer (correctness) · persona lenses re-dispatched (acceptance) · doc-librarian
+            + journey-qa for every visible/user-journey change
                     │  (gaps route BACK to the owning implementer; re-verify until clean)
                     ▼
   [Phase 8] the PR & review cycle (unchanged), run in the orchestrator
@@ -292,7 +293,10 @@ A **shared-surface touch** (a change to a layout/predicate/style/route more than
 
 **Build/fix fan-out — separation of concerns.** Both the initial build and the fix cycle fan concerns out to the specialist whose layer each lives in (server → `backend-expert`, view → `frontend-expert`, tests → `qa-engineer`, design → `architect`). Never brief one kitchen-sink agent to "fix everything" — that re-serializes the work the gate parallelized. When multiple agents share one worktree, partition the touched files into non-overlapping sets and have each commit only its own (`git add <explicit paths>`, never `-A`).
 
-The roster lives in [`agents/`](../../agents/): `architect`, `backend-expert`, `frontend-expert`, `qa-engineer`, `doc-librarian`, `issue-maintainer`, and `domain-user-lens` (a TEMPLATE — copy it once per user persona in your product).
+The roster lives in [`agents/`](../../agents/): `architect`, `backend-expert`,
+`frontend-expert`, `qa-engineer`, `journey-qa`, `platform-sre`, `doc-librarian`,
+`issue-maintainer`, and `domain-user-lens` (a TEMPLATE — copy it once per user persona in
+your product).
 
 ---
 

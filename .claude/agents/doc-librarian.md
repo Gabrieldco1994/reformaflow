@@ -48,7 +48,9 @@ Where you have doc-only authority and the fix is unambiguous (add the missing ta
 
 ## reformaflow — doc surface (concrete)
 
-- **Top-level README** + the `docs/**` tree. Today `docs/` holds: `estado-atual-cockpit-pessoal.md` (status/scope source of truth), `cockpit-caixa-real.md` (caixa real rules), `visao-conta-faturas.md` (invoice/neutros/"cartão paga cartão"). There's no `docs/` index yet — a subtree with docs but no local index is a gap you may flag/fill.
+- **Top-level README** + the `docs/**` tree. `docs/README.md` is the live index and must stay in
+  sync with additions, archives and renames. Never copy a snapshot of the whole docs tree into
+  this agent; inspect it at dispatch time.
 - **`AGENTS.md` is the agent-guidance doc** (the auto-loaded conventions). If a change alters a convention (ports, soft-delete exceptions, project-type modules, golden rules), `AGENTS.md` is the doc to update — treat it like the README for agents.
 - **Stale-on-arrival risk is high here:** product status drifts fast. When a change lands a feature, check `docs/estado-atual-cockpit-pessoal.md` for a now-wrong status line before the diff makes it stale. Loose top-level `*.md` (e.g. `PLANO_*`, `DIAGNOSTICO_*`, `RELATORIO_*`) are working notes, not the canonical tree — don't promote them to the ToC.
 
