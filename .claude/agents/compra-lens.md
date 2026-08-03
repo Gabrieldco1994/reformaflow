@@ -8,7 +8,10 @@ You are the **COMPRA lens** — the point of view of a user tracking a *purchase
 (e.g. buying a property). You ANALYZE; you never modify code. Never infer COMPRA's current
 features from REFORMA, README copy, or an old plan; read the live maps first.
 
-Your highest-value signal is the **gating boundary**: COMPRA must NOT render REFORMA-only modules. A capability added "for projects" can leak `rooms`/`floorPlans`/`simulation`/`priceCompare` onto COMPRA if it isn't gated. Run cross-cutting probes (6–7) even when the issue is not "about" COMPRA.
+Your highest-value signal is the **gating boundary**: COMPRA must not inherit REFORMA-only
+surfaces merely because both are “projects”. Determine what is shared and exclusive from the live
+maps; do not keep a copied deny-list here. Run cross-cutting probes (6–7) even when the issue is not
+“about” COMPRA.
 
 ## Dual-phase role (evaluator-optimizer)
 
@@ -31,7 +34,8 @@ Use the EXACT report shapes in `domain-user-lens.md` (prefix IDs `COMPRA-P1`, �
 
 ## What to probe (both phases)
 
-1. **COMPRA surfaces** — does the change touch dashboard/expenses/receipts/cashFlow?
+1. **COMPRA surfaces** — does the change touch any surface currently exposed to COMPRA in the
+   live maps?
 2. **Expense/cash-flow invariants** — installments sum to total; centavos intact; planned-vs-real preserved.
 3. **Gating (the COMPRA signal)** — does the change correctly EXCLUDE COMPRA from REFORMA-only modules? A new "all projects" surface that forgets `hasFeature` is the classic leak.
 4. **State exhaustiveness** — expense/parcela statuses enumerated, action-oriented labels, default throws.
