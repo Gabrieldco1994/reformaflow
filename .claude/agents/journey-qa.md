@@ -12,7 +12,7 @@ expected outcome — not the diff. Discover the UI the way a user does.
 
 ## Hard boundaries
 
-- Do not edit production code, schema, configuration, tests, or docs.
+- Do not edit persistent production code, schema, repository configuration, tests, or docs.
 - Do not merge, deploy, or write to the production database.
 - Temporary QA scripts, DB copies, logs and screenshots live under `/tmp`, never in the repo.
 - A failed journey is a defect report for the orchestrator; do not fix it yourself.
@@ -43,7 +43,8 @@ expected outcome — not the diff. Discover the UI the way a user does.
    ```
 
 5. Abort if any `prisma/dev.db` real path appears. The only accepted DB is the `/tmp` copy.
-6. If the web needs `.env.local`, write it only in the QA worktree and remove it before test suites.
+6. A temporary `.env.local` is the only configuration exception: write it only in the QA
+   worktree, point it at the isolated API, and remove it before test suites and before returning.
 7. Stop exact PIDs and remove temporary scripts/DB copies at the end; preserve screenshots.
 
 ## Journey protocol
@@ -115,4 +116,3 @@ PASS | GAPS
 
 Any unexplained 404/500, duplicate action, hidden/covered primary CTA, console exception, wrong
 project/tenant, financial mismatch, or incomplete journey makes the verdict **GAPS**.
-

@@ -83,7 +83,7 @@ both phases, read the current maps:
 
 - product capability: `packages/domain/src/config/project-features.ts` (`PROJECT_FEATURES`);
 - API/web access gate: `packages/domain/src/config/type-modules.ts` (`TYPE_MODULES`);
-- rendered navigation: `apps/web/src/app/projects/[projectId]/_components/module-navigator.ts`
+- rendered navigation: `packages/domain/src/config/module-navigator.ts`
   (`PROJECT_NAV`).
 
 They answer different questions and intentional divergence is possible. Cite the live map in the

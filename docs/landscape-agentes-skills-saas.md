@@ -119,15 +119,16 @@ máquina ou agente por clone limpo.
 
 ## 5. Lacunas verificadas
 
-### P0 — E2E não bloqueia build/deploy
+### P0 — E2E bloqueia build/deploy ✅
 
-No workflow de CI, `e2e-web` roda em paralelo, mas `build-web` e `build-api` não
-dependem dele. O deploy depende dos builds. Portanto:
+Até o PR #399, `e2e-web` rodava em paralelo, mas os builds não dependiam dele.
+Desde o merge `147c276c`, `build-web` e `build-api` incluem `e2e-web` em `needs`;
+o deploy depende dos dois builds. Portanto:
 
-> E2E vermelho pode coexistir com deploy verde.
+> E2E vermelho bloqueia os builds e, por consequência, o deploy.
 
-Correção recomendada: incluir `e2e-web` em `needs` de um gate pré-deploy ou dos
-builds/deploy.
+O próprio workflow do PR provou a ordem: Playwright terminou antes de ambos os
+builds iniciarem.
 
 ### P0 — agentes duplicam fatos mutáveis e apodrecem
 
@@ -232,7 +233,7 @@ Dois modos:
 Usar em migration, auth/tenant, release com vários PRs, incidente de produção,
 uploads e jobs.
 
-### P1 — criar depois
+### P1 — criados
 
 #### `security-tenant-lens` ✅
 
@@ -268,7 +269,7 @@ empty states.
 Usar em `/admin/users`, editor de jornadas, tenant, regras globais, analytics,
 override e ações destrutivas.
 
-### P2 — evolução operacional
+### P2 — criados
 
 #### `product-analytics-lens` ✅
 
@@ -385,7 +386,7 @@ Fleet PO / próximo ciclo
 
 ### Imediato
 
-1. 🚧 Fazer E2E bloquear deploy — PR #399.
+1. ✅ Fazer E2E bloquear deploy — PR #399 / `147c276c`.
 2. ✅ Remover o Fleet PO duplicado.
 3. ✅ Auditar e atualizar agentes obsoletos.
 4. ✅ Criar `journey-qa`.
@@ -393,14 +394,16 @@ Fleet PO / próximo ciclo
 6. ✅ Versionar skills essenciais.
 7. ✅ Auditar e reduzir worktrees (89 → 33).
 
-### Próximo ciclo
+### Próximo ciclo concluído
 
-1. Criar `security-tenant-lens`.
-2. Criar `ai-quality-engineer`.
-3. Criar `plantas-lens`.
-4. Criar `new-user-lens`.
-5. Criar `admin-owner-lens`.
-6. Corrigir docs e README contra mapas reais.
+1. ✅ Criar `security-tenant-lens`.
+2. ✅ Criar `ai-quality-engineer`.
+3. ✅ Criar `plantas-lens`.
+4. ✅ Criar `new-user-lens`.
+5. ✅ Criar `admin-owner-lens`.
+6. ✅ Criar `product-analytics-lens`.
+7. ✅ Criar `support-triage`.
+8. ✅ Corrigir agentes/docs contra mapas reais.
 
 ### Quando entrar em comercialização
 
