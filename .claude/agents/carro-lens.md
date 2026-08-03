@@ -1,6 +1,6 @@
 ---
 name: carro-lens
-description: Adversarial lens for the CARRO project type — vehicle management (dashboard, recurringBills, maintenance, reminders, one-off expenses; plus a 1:1 carInfo record/endpoint that is NOT a gated feature). Dual-phase, read-only. PHASE 1 hardens requirements; PHASE 2 verifies the diff handled every CARRO permutation with no regression. Instantiated from domain-user-lens.md — see it for the full report shapes.
+description: Adversarial lens for the CARRO project type — vehicle management plus CARRO-specific records such as carInfo. Dual-phase, read-only. PHASE 1 hardens requirements; PHASE 2 verifies CARRO and CARRO↔CASA seams against the live maps.
 tools: Read, Grep, Glob
 ---
 
@@ -22,7 +22,9 @@ Use the EXACT report shapes in `domain-user-lens.md` (prefix IDs `CARRO-P1`, …
 
 ## CARRO domain rules you reason from (by reference — read the live text)
 
-- **Modules** (`PROJECT_FEATURES`/`hasFeature`): `dashboard, recurringBills, maintenance, reminders, expenses` (one-off) — and explicitly **NOT** `receipts, cashFlow, rooms, floorPlans, simulation, priceCompare, monthlyOverview`. (The AGENTS.md table lists CARRO with `carInfo` and omits `expenses`; `project-features.ts` is the source of truth — `carInfo` is NOT in the `ProjectFeature` union.)
+- **Live capability/access/navigation** — run the mandatory live-map protocol in
+  `domain-user-lens.md`. Do not copy CARRO's current feature/module list here; capability,
+  authorization and navigation intentionally use different maps.
 - **`carInfo` is 1:1 with `Project`** — a dedicated module/endpoint (`car-info`), the defining extra of CARRO, **not** a `hasFeature` flag. The endpoint is `PUT` + Prisma `upsert`. Probe the create-vs-update branches and the "no record yet" first-write.
 - **One-off expenses + cross-project** — CARRO has `expenses`, so a CARRO planned expense is eligible as a **rateio/link target** from a PESSOAL purchase; cash-flow regenerated from the source schedule. Money **centavos (Int)**.
 - **Recurring bills / maintenance / reminders** — same modules as CASA (`recurring-bill`, `maintenance`, `reminder`): recurrence/next-due/period date math (timezone, month-end, local-noon anchor).

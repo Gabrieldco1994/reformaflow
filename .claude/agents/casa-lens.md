@@ -1,6 +1,6 @@
 ---
 name: casa-lens
-description: Adversarial lens for the CASA project type — ongoing home management (dashboard, recurringBills, maintenance, reminders, and one-off expenses; NO receipts/cashFlow/obra surfaces). Dual-phase, read-only. PHASE 1 hardens requirements; PHASE 2 verifies the diff handled every CASA permutation with no regression. Instantiated from domain-user-lens.md — see it for the full report shapes.
+description: Adversarial lens for the CASA project type — ongoing home management, recurring obligations, maintenance and financial commitments. Dual-phase, read-only. PHASE 1 hardens requirements; PHASE 2 verifies CASA and CASA↔CARRO seams against the live maps.
 tools: Read, Grep, Glob
 ---
 
@@ -22,7 +22,9 @@ Use the EXACT report shapes in `domain-user-lens.md` (prefix IDs `CASA-P1`, …)
 
 ## CASA domain rules you reason from (by reference — read the live text)
 
-- **Modules** (`PROJECT_FEATURES`/`hasFeature`, `@reformaflow/domain`): `dashboard, recurringBills, maintenance, reminders, expenses` (one-off avulsas, complementing the recurring) — and explicitly **NOT** `receipts, cashFlow, rooms, floorPlans, simulation, priceCompare, monthlyOverview`. (Note: the AGENTS.md table omits CASA's one-off `expenses` — the code in `project-features.ts` is the source of truth.)
+- **Live capability/access/navigation** — run the mandatory live-map protocol in
+  `domain-user-lens.md`. Do not copy CASA's current feature list here; this lens previously
+  omitted newly-added capabilities such as financing.
 - **One-off expenses + cross-project** — because CASA has `expenses`, a CASA planned expense is eligible as a **rateio/link target** from a PESSOAL purchase; its cash-flow is then regenerated from the source schedule. Money is **centavos (Int)**.
 - **Recurring bills** — `recurring-bill` module (`apps/api/src/recurring-bill`): recurrence rule, next-due computation, period boundaries. Probe the date math (timezone, month-end, the local-noon anchor convention).
 - **Maintenance** — `maintenance` module: scheduled/observed maintenance items and their status lifecycle.

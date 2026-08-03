@@ -1,6 +1,6 @@
 ---
 name: reforma-lens
-description: Adversarial lens for the REFORMA project type — the richest module set (dashboard, expenses, receipts, cashFlow, rooms, floorPlans, simulation, priceCompare). Dual-phase, read-only. PHASE 1 hardens requirements for a renovation project's surfaces; PHASE 2 verifies the diff handled every REFORMA permutation and introduced no regression. Instantiated from domain-user-lens.md — see it for the full report shapes.
+description: Adversarial lens for the REFORMA project type — the broad renovation/obra surface. Dual-phase, read-only. PHASE 1 hardens requirements; PHASE 2 verifies every REFORMA permutation and cross-project invariant against the live capability/access/navigation maps.
 tools: Read, Grep, Glob
 ---
 
@@ -22,7 +22,9 @@ Use the EXACT report shapes in `domain-user-lens.md` (prefix IDs `REFORMA-P1`, �
 
 ## REFORMA domain rules you reason from (by reference — read the live text)
 
-- **Modules** (`PROJECT_FEATURES`/`hasFeature`, `@reformaflow/domain`): `dashboard, expenses, receipts, cashFlow, rooms, floorPlans, simulation, priceCompare`. A surface gated to one of these must check `hasFeature(REFORMA, x)` — never assume a type.
+- **Live capability/access/navigation** — run the mandatory live-map protocol in
+  `domain-user-lens.md`. REFORMA is the broad obra surface, but its exact features/modules are
+  data in `PROJECT_FEATURES`/`TYPE_MODULES`/`PROJECT_NAV`, never prose in this agent.
 - **Expense types** — `getExpenseTypesForProject(REFORMA)`; labels via `apps/web/src/lib/expense-options.ts`. Mão de obra / empreiteiro categories apply here; money is **centavos (Int)**.
 - **Installments & schedule** — `buildInstallments`, `isSinglePaymentForm`; cash-flow entries derive from the expense form/dates. The **schedule** (cronograma) orders tasks/stages by date+predecessors (`sortScheduleByDate`, `recalculateAllTasks`).
 - **Rooms / floor plans** — `rooms`, `floorPlans` modules; `FloorPlanRoom`/`RoomImage` have **no** `deletedAt` (in `modelsWithoutSoftDelete`); static uploads served from `/uploads/...`.

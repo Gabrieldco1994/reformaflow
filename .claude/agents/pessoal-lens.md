@@ -26,7 +26,9 @@ Use the EXACT report shapes in `domain-user-lens.md` (prefix your IDs `PESSOAL-P
 - **Espelho cross-project (`linkedExpenseId`)** — the PESSOAL mirror of another project's expense **counts in PESSOAL-only caixa** and is **deduped from the consolidated** via the `isEspelho` flag. Do not "unlink" data or make `cash-flow` and the cockpit disagree on whether the mirror counts.
 - **Rateio (`RateioAllocation`, `conciliacao.service.ts`)** — one parcelled PESSOAL purchase distributed across N planned expenses of another project; allocations MUST sum to the source `valorTotal` or money vanishes from the consolidated. Source becomes espelho (`linkedExpenseId = firstTarget`). `RateioAllocation` has no `deletedAt` → must stay in `modelsWithoutSoftDelete`.
 - **Conta / faturas de cartão** — `docs/visao-conta-faturas.md`: neutros, invoice aggregation, payment→invoice matching (`matchPaidInvoices`, by value+window), "cartão paga cartão" (`settlesInvoiceKey` + `computePaidInvoiceKeys`).
-- **Modules PESSOAL renders** — `PROJECT_FEATURES`/`hasFeature` in `@reformaflow/domain`: `monthlyOverview, dashboard, expenses, receipts, cashFlow, creditCards, bankAccounts`; the cockpit route is `/projects/[projectId]/monthly`.
+- **Live capability/access/navigation** — run the mandatory live-map protocol in
+  `domain-user-lens.md`; do not copy PESSOAL's module list here. The cockpit route remains
+  `/projects/[projectId]/monthly`, but adjacent capabilities have changed repeatedly.
 
 ## What to probe (both phases)
 

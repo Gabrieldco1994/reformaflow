@@ -69,8 +69,8 @@ different function one component over, a panel that covers the button it tells y
 press. None of that is reachable by a test that renders one component in isolation.
 
 **So no front is done when its own tests pass. It is done when someone has driven the
-real screen.** Before you tell the PO a PR is ready, and again before merging a batch,
-dispatch QA agents against the running app.
+real screen.** Before you tell the PO a visible PR is ready, and again after a merged batch,
+dispatch the repository agent **`journey-qa`** against the running app.
 
 ### How to dispatch QA
 
@@ -124,6 +124,10 @@ absence of conflicts.
 When QA finds a regression in something already merged, **revert first**. The revert is
 a small, safe diff; the forward fix is not, and the PO is using the broken screen while
 you write it.
+
+For migrations, multi-PR releases and production incidents, dispatch **`platform-sre`**.
+It proves that the tested SHA is the deployed SHA, verifies Fly/Vercel/migrations/smokes and
+returns a release or incident verdict; it never replaces the PO's merge decision.
 
 
 

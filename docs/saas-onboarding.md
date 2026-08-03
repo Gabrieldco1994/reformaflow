@@ -30,16 +30,17 @@ O front emite dois gatilhos do motor genérico de Jornadas
 
 - `SIGNUP_COMPLETED`: `RegisterForm` chama `emitSignupCompleted()` logo após
   `register()` responder, antes de criar os projetos por objetivo.
-- `PROJECT_CREATED`: `projects/page.tsx` chama
-  `emitProjectCreated(created.id, created.type)` após `refresh()` — cobre tanto a criação manual quanto
-  qualquer fluxo futuro que passe por esse mesmo formulário. O painel de onboarding
-  aparece automaticamente sobre o Dashboard (não há rota dedicada como no shell antigo).
+- `PROJECT_CREATED`: tanto o cadastro quanto a criação manual em `projects/page.tsx`
+  chamam `emitProjectsCreated(...)` após `refresh()`. O cadastro envia todos os projetos
+  criados por objetivo numa só chamada; o runtime enfileira uma jornada por projeto.
+  A jornada navega para a rota real do primeiro passo Completo (não há rota dedicada
+  como no shell antigo).
 
-Os dois consomem `useJourneyRuntime()` (`journey-runtime-context.tsx`), que já
-existia mas não tinha nenhum chamador de produção — `SCREEN_VISIT` era o único
-gatilho realmente disparado até então.
+Os dois consomem `useJourneyRuntime()` (`journey-runtime-context.tsx`).
 
-O cadastro não cria projeto. Após autenticar, a web redireciona para `/projects?onboarding=1`, abre o modal e limita o primeiro projeto aos tipos escolhidos.
+O cadastro cria um projeto por objetivo selecionado, atualiza a sessão, emite os
+gatilhos `PROJECT_CREATED` e redireciona para `/projects`; o runtime ativa e
+enfileira as jornadas elegíveis.
 
 ## Objetivos
 

@@ -74,6 +74,8 @@ Regra:
 | `backend-expert` | NestJS, Prisma, migrations, regras, jobs e autorização | Mudança server-side |
 | `frontend-expert` | Next.js, React, formulários, navegação, estado e responsividade | Mudança visível/client-side |
 | `qa-engineer` | Testes, mutation mindset e cobertura dos critérios | Durante e depois da implementação |
+| `journey-qa` | QA independente da aplicação rodando | Mudança visível, onboarding, importação, voz, navegação e lote de PRs |
+| `platform-sre` | Release guardian, incident response e recovery | Migration, release, incidente e pós-deploy |
 | `doc-librarian` | Documentação normativa, manual e índice | Mudança observável ou de regra |
 
 `qa-engineer` valida código e testes. Ele **não substitui** QA da aplicação
@@ -93,11 +95,16 @@ GREEN. Elas não executam a aplicação.
 
 ## 4. Skills atuais
 
-### 4.1 Versionada
+### 4.1 Versionadas
 
 | Skill | Uso |
 |---|---|
 | `wizard` | Ciclo completo para tarefa complexa |
+| `agent-landscape-audit` | Refazer este landscape a partir das fontes vivas |
+| `agent-contract-audit` | Detectar drift e duplicidade nos agentes/skills |
+| `journey-qa-runbook` | Executar QA real com banco isolado e evidência runtime |
+| `release-verification` | Provar SHA, checks, deploy, migration e smoke |
+| `repo-hygiene` | Auditar e reduzir branches/worktrees com segurança |
 
 ### 4.2 Disponíveis localmente, mas ignoradas pelo Git
 
@@ -161,14 +168,16 @@ Existem Clarity, Speed Insights e error boundaries, mas não foram encontrados:
 
 ### P1 — pressão de branches/worktrees
 
-Na fotografia de 2026-08-03:
+Antes da limpeza imediata de 2026-08-03:
 
 - 254 branches locais;
 - 89 worktrees;
 - 45 branches locais já mergeadas.
 
-Isso exige inventário e limpeza segura automatizada. Nunca usar `stash` e nunca
-limpar worktree sem confirmar titularidade.
+A auditoria conservadora removeu worktrees limpos que eram ancestrais de `main`
+ou cujo tip era exatamente o head de um PR mergeado. O total caiu para **33**,
+sem `--force`; dirty, detached e não mergeados foram preservados. Branches de
+PR squash-mergeado também foram preservadas.
 
 ### P1 — hotspots de manutenção
 
@@ -186,9 +195,9 @@ programa de abstração especulativo.
 
 ## 6. Agentes recomendados
 
-### P0 — criar primeiro
+### P0 — criados
 
-#### `journey-qa`
+#### `journey-qa` ✅
 
 QA independente da jornada real.
 
@@ -213,7 +222,7 @@ Contrato mínimo:
 7. screenshots antes/depois;
 8. repetição no `main` combinado após merges.
 
-#### `platform-sre`
+#### `platform-sre` ✅
 
 Dois modos:
 
@@ -284,13 +293,14 @@ Não criar agente de billing antes de existir decisão real sobre:
 
 ## 7. Skills recomendadas
 
-### P0 — versionar no projeto
+### P0 — versionadas
 
 | Skill | Função |
 |---|---|
 | `journey-qa-runbook` | Ambiente isolado, cadastro real, viewports, screenshots, 404/console/duplicatas |
 | `release-verification` | Checks do HEAD, migrations, Fly, Vercel e smoke |
 | `agent-contract-audit` | Comparar agentes com fontes canônicas e detectar drift |
+| `repo-hygiene` | Inventário e limpeza conservadora de branches/worktrees |
 
 ### P1
 
@@ -374,13 +384,13 @@ Fleet PO / próximo ciclo
 
 ### Imediato
 
-1. Fazer E2E bloquear deploy.
-2. Remover o Fleet PO duplicado.
-3. Auditar e atualizar agentes obsoletos.
-4. Criar `journey-qa`.
-5. Criar `platform-sre`.
-6. Versionar skills essenciais.
-7. Auditar e reduzir worktrees.
+1. 🚧 Fazer E2E bloquear deploy — PR #399.
+2. ✅ Remover o Fleet PO duplicado.
+3. ✅ Auditar e atualizar agentes obsoletos.
+4. ✅ Criar `journey-qa`.
+5. ✅ Criar `platform-sre`.
+6. ✅ Versionar skills essenciais.
+7. ✅ Auditar e reduzir worktrees (89 → 33).
 
 ### Próximo ciclo
 
@@ -444,4 +454,3 @@ A ordem correta é:
 3. adicionar QA de jornada e operação de produção;
 4. depois cobrir segurança, IA e analytics;
 5. só criar billing quando houver produto comercial definido.
-
