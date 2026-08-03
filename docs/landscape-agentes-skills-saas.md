@@ -234,12 +234,12 @@ uploads e jobs.
 
 ### P1 — criar depois
 
-#### `security-tenant-lens`
+#### `security-tenant-lens` ✅
 
 Usar em auth/JWT, cadastro, admin, tenant override, uploads, endpoints
 cross-project e promoção de regras globais.
 
-#### `ai-quality-engineer`
+#### `ai-quality-engineer` ✅
 
 Usar em Maria/voz, OCR, merchant classifier, plantas, Gemini e TTS.
 
@@ -253,28 +253,28 @@ Responsabilidades:
 - segurança de conteúdo;
 - comparação de versões.
 
-#### `plantas-lens`
+#### `plantas-lens` ✅
 
 É o único tipo de projeto sem lente própria. Deve cobrir diagnóstico por IA,
 toxicidade, espécie, imagens, manutenção, lembretes e privacidade.
 
-#### `new-user-lens`
+#### `new-user-lens` ✅
 
 Usar em signup, objetivos, primeiro projeto, jornada, permissões iniciais e
 empty states.
 
-#### `admin-owner-lens`
+#### `admin-owner-lens` ✅
 
 Usar em `/admin/users`, editor de jornadas, tenant, regras globais, analytics,
 override e ações destrutivas.
 
 ### P2 — evolução operacional
 
-#### `product-analytics-lens`
+#### `product-analytics-lens` ✅
 
 Define e verifica ativação, retenção, abandono e taxonomia de eventos.
 
-#### `support-triage`
+#### `support-triage` ✅
 
 Transforma feedback, Clarity e relato do usuário em reprodução determinística,
 impacto, frequência e issue estruturada.
@@ -301,6 +301,7 @@ Não criar agente de billing antes de existir decisão real sobre:
 | `release-verification` | Checks do HEAD, migrations, Fly, Vercel e smoke |
 | `agent-contract-audit` | Comparar agentes com fontes canônicas e detectar drift |
 | `repo-hygiene` | Inventário e limpeza conservadora de branches/worktrees |
+| `multi-agent-runtime` | Ativar `/agent fleet-po`, `/fleet`, `/subagents` e verificar descoberta |
 
 ### P1
 
