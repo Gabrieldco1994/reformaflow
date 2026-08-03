@@ -84,15 +84,16 @@ orchestrating and serializes work a thread could do in parallel; a subagent roun
 than the lost parallelism.
 
 For a (2) real fix, run a **liveness probe** first: if the original worker is recently active
-(roughly within a few minutes), continue it with a message; otherwise spawn a fresh fix-subagent
-*into the existing worktree* (not a fresh worktree). On any continuation error, fall through to
-spawn-fresh immediately — do not loop-retry.
+(roughly within a few minutes), continue it. Otherwise spawn a fresh fix-subagent in a **new
+isolated worktree/branch based on the current PR head**. The orchestrator cherry-picks the fix
+commit into the PR integration branch. On any continuation error, fall through to spawn-fresh
+immediately — do not loop-retry.
 
 **Fan out by concern to specialists.** When a PR carries multiple findings, route each to the
 agent whose layer it lives in — backend logic → `backend-expert`, view layer → `frontend-expert`,
 test coverage → `qa-engineer`, design/adversarial → `architect`. Do NOT brief one agent to "fix
-everything." When multiple fix-agents share one worktree, give each a NON-OVERLAPPING file set and
-have each commit ONLY its own files (`git add <explicit paths>`, never `git add -A`).
+everything." Each fix-agent gets an isolated branch/worktree and explicit file ownership; the
+orchestrator integrates their commits into the PR branch and verifies the assembled result.
 
 ## Failure recipes (worker return → orchestrator response)
 

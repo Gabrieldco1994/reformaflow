@@ -167,11 +167,15 @@ orchestrator reads lens.report --> distills --> writes into architect.brief
 ### Non-overlapping file ownership for concurrent agents
 
 ```
-// Concurrent agents in one worktree race the git index. Partition by EXPLICIT file list:
-backend-expert  owns app/** + its own RED test file   -> git add <those explicit paths>
-frontend-expert owns the view files                   -> git add <those explicit paths>
-qa-engineer     owns the OTHER test files              -> git add <those explicit paths>
-// NEVER `git add -A` — it sweeps a sibling agent's in-flight edits into the wrong commit.
+// RIGHT: isolated worktree/branch per concurrent agent, same base SHA
+integration base = <sha>
+backend-expert   -> worktree backend   -> commit B
+frontend-expert  -> worktree frontend  -> commit F
+qa-engineer      -> worktree qa        -> commit Q
+orchestrator     -> integration worktree -> cherry-pick B F Q -> assembled verification
+
+// WRONG: concurrent agents sharing a worktree, even with non-overlapping files.
+// They still race the index, generated files, formatters and cleanup commands.
 ```
 
 ### Root cause in a brief is a HYPOTHESIS
