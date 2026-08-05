@@ -328,6 +328,34 @@ const CD_ONLY = /^cd ([^\s]+)$/;
 const NPX_INVOCATION =
   /^(?:(?:TZ=UTC)\s+)?npx (playwright test|jest|vitest run)\s+(.+)$/;
 
+// Resolves the package.json in scope for `npm run` once a preceding `cd`
+// changed the effective directory. When `cwd` is `null` or already points at
+// `root`, the already-parsed root `package.json` is reused as-is (no re-read,
+// no re-parse). Otherwise the `cwd`'s own `package.json` is read; a missing or
+// unparsable file is reported as an explicit `E_PACKAGE_JSON_INVALID`
+// diagnostic instead of silently falling back to an empty (and therefore
+// always-failing-looking, but unexplained) `scripts` object.
+function scriptsInScope(root, cwd, rootPackageJson) {
+  if (!cwd || path.resolve(cwd) === path.resolve(root)) {
+    return { scripts: rootPackageJson.scripts ?? {}, error: null };
+  }
+  const packagePath = path.join(cwd, "package.json");
+  const relative = path.relative(root, packagePath).split(path.sep).join("/");
+  try {
+    const parsed = JSON.parse(fs.readFileSync(packagePath, "utf8"));
+    return { scripts: parsed.scripts ?? {}, error: null };
+  } catch {
+    return {
+      scripts: {},
+      error: issue(
+        "E_PACKAGE_JSON_INVALID",
+        relative,
+        "package.json is missing or invalid",
+      ),
+    };
+  }
+}
+
 function validateHarness(root, file, content, packageJson) {
   const errors = [];
   for (const match of content.matchAll(/`([^`\n]+)`/g)) {
@@ -372,7 +400,10 @@ function validateHarness(root, file, content, packageJson) {
 
       const npm = segment.match(/^npm run ([a-z0-9:_-]+)$/);
       if (npm) {
-        if (!Object.hasOwn(packageJson.scripts ?? {}, npm[1])) {
+        const { scripts, error } = scriptsInScope(root, cwd, packageJson);
+        if (error) {
+          errors.push(error);
+        } else if (!Object.hasOwn(scripts, npm[1])) {
           errors.push(commandError(file, command, npm[1]));
         }
         continue;
@@ -381,12 +412,13 @@ function validateHarness(root, file, content, packageJson) {
       const tokens = commandTokens(segment);
       const testOption = tokens.indexOf("--test");
       if (tokens[0] === "node" && testOption >= 0) {
+        const baseDir = cwd ?? root;
         const targets = concreteTargets(tokens.slice(testOption + 1));
         if (!targets.length) {
           errors.push(commandError(file, command, "<target>"));
         }
         for (const target of targets) {
-          if (!fs.existsSync(path.resolve(root, target))) {
+          if (!fs.existsSync(path.resolve(baseDir, target))) {
             errors.push(commandError(file, command, target));
           }
         }
