@@ -291,48 +291,95 @@ function concreteTargets(tokens) {
   return targets;
 }
 
+// Splits a harness command on top-level `&&` chains, i.e. `&&` that is not
+// nested inside a single- or double-quoted option value. Each returned
+// segment is independently re-validated against the same shapes supported
+// below (npm run / node --test / cd ... && npx ...); a quoted `&&` (e.g. a
+// `--test-skip-pattern` value) must never be treated as a chain boundary.
+function splitTopLevelSegments(command) {
+  const segments = [];
+  let current = "";
+  let quote = null;
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index];
+    if (quote) {
+      current += char;
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      current += char;
+      continue;
+    }
+    if (char === "&" && command[index + 1] === "&") {
+      segments.push(current.trim());
+      current = "";
+      index += 1;
+      continue;
+    }
+    current += char;
+  }
+  segments.push(current.trim());
+  return segments;
+}
+
+const CD_ONLY = /^cd ([^\s]+)$/;
+const NPX_INVOCATION =
+  /^(?:(?:TZ=UTC)\s+)?npx (playwright test|jest|vitest run)\s+(.+)$/;
+
 function validateHarness(root, file, content, packageJson) {
   const errors = [];
   for (const match of content.matchAll(/`([^`\n]+)`/g)) {
     const command = match[1].trim();
-    const npm = command.match(/^npm run ([a-z0-9:_-]+)$/);
-    if (npm) {
-      if (!Object.hasOwn(packageJson.scripts ?? {}, npm[1])) {
-        errors.push(commandError(file, command, npm[1]));
-      }
-      continue;
-    }
+    const segments = splitTopLevelSegments(command);
 
-    const tokens = commandTokens(command);
-    const testOption = tokens.indexOf("--test");
-    if (tokens[0] === "node" && testOption >= 0) {
-      const targets = concreteTargets(tokens.slice(testOption + 1));
-      if (!targets.length) {
-        errors.push(commandError(file, command, "<target>"));
-      }
-      for (const target of targets) {
-        if (!fs.existsSync(path.resolve(root, target))) {
-          errors.push(commandError(file, command, target));
+    for (let index = 0; index < segments.length; index += 1) {
+      const segment = segments[index];
+
+      const cd = segment.match(CD_ONLY);
+      const npx = cd ? segments[index + 1]?.match(NPX_INVOCATION) : null;
+      if (cd && npx) {
+        const cwd = path.resolve(root, cd[1]);
+        if (!fs.existsSync(cwd)) {
+          errors.push(commandError(file, command, cd[1]));
+        } else {
+          const targets = npx[2]
+            .split(/\s+/)
+            .filter(
+              (token) => !token.startsWith("-") && !/[*?{}<>$]/.test(token),
+            );
+          for (const target of targets) {
+            if (!fs.existsSync(path.resolve(cwd, target))) {
+              errors.push(commandError(file, command, target));
+            }
+          }
         }
+        index += 1;
+        continue;
       }
-      continue;
-    }
 
-    const npx = command.match(
-      /^cd ([^\s]+) && (?:(?:TZ=UTC)\s+)?npx (playwright test|jest|vitest run)\s+(.+)$/,
-    );
-    if (!npx) continue;
-    const cwd = path.resolve(root, npx[1]);
-    if (!fs.existsSync(cwd)) {
-      errors.push(commandError(file, command, npx[1]));
-      continue;
-    }
-    const targets = npx[3]
-      .split(/\s+/)
-      .filter((token) => !token.startsWith("-") && !/[*?{}<>$]/.test(token));
-    for (const target of targets) {
-      if (!fs.existsSync(path.resolve(cwd, target))) {
-        errors.push(commandError(file, command, target));
+      const npm = segment.match(/^npm run ([a-z0-9:_-]+)$/);
+      if (npm) {
+        if (!Object.hasOwn(packageJson.scripts ?? {}, npm[1])) {
+          errors.push(commandError(file, command, npm[1]));
+        }
+        continue;
+      }
+
+      const tokens = commandTokens(segment);
+      const testOption = tokens.indexOf("--test");
+      if (tokens[0] === "node" && testOption >= 0) {
+        const targets = concreteTargets(tokens.slice(testOption + 1));
+        if (!targets.length) {
+          errors.push(commandError(file, command, "<target>"));
+        }
+        for (const target of targets) {
+          if (!fs.existsSync(path.resolve(root, target))) {
+            errors.push(commandError(file, command, target));
+          }
+        }
+        continue;
       }
     }
   }
