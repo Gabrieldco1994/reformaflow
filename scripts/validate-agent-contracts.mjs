@@ -333,29 +333,40 @@ function validateHarness(root, file, content, packageJson) {
   for (const match of content.matchAll(/`([^`\n]+)`/g)) {
     const command = match[1].trim();
     const segments = splitTopLevelSegments(command);
+    // `cwd` carries forward across segments of the same chained command, so
+    // any number of `npx ...` segments after a `cd DIR` are validated against
+    // that directory, not just the one immediately following the `cd`. It is
+    // `null` until a `cd` segment resolves successfully (no bare `npx ...`
+    // without a preceding `cd` is a supported shape) and stays `null` after a
+    // `cd` to a missing directory, so we don't also flag downstream targets
+    // against a stale or wrong directory once the `cd` itself already failed.
+    let cwd = null;
 
-    for (let index = 0; index < segments.length; index += 1) {
-      const segment = segments[index];
-
+    for (const segment of segments) {
       const cd = segment.match(CD_ONLY);
-      const npx = cd ? segments[index + 1]?.match(NPX_INVOCATION) : null;
-      if (cd && npx) {
-        const cwd = path.resolve(root, cd[1]);
-        if (!fs.existsSync(cwd)) {
+      if (cd) {
+        const nextCwd = path.resolve(root, cd[1]);
+        if (!fs.existsSync(nextCwd)) {
           errors.push(commandError(file, command, cd[1]));
+          cwd = null;
         } else {
-          const targets = npx[2]
-            .split(/\s+/)
-            .filter(
-              (token) => !token.startsWith("-") && !/[*?{}<>$]/.test(token),
-            );
-          for (const target of targets) {
-            if (!fs.existsSync(path.resolve(cwd, target))) {
-              errors.push(commandError(file, command, target));
-            }
+          cwd = nextCwd;
+        }
+        continue;
+      }
+
+      const npx = cwd ? segment.match(NPX_INVOCATION) : null;
+      if (npx) {
+        const targets = npx[2]
+          .split(/\s+/)
+          .filter(
+            (token) => !token.startsWith("-") && !/[*?{}<>$]/.test(token),
+          );
+        for (const target of targets) {
+          if (!fs.existsSync(path.resolve(cwd, target))) {
+            errors.push(commandError(file, command, target));
           }
         }
-        index += 1;
         continue;
       }
 
