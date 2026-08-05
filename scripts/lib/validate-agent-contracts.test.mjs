@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   cpSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   renameSync,
@@ -477,6 +478,60 @@ describe("agent contract validation", () => {
       ["E_HARNESS_COMMAND_MISSING"],
     );
     assert.match(diagnostics(result), /missing-second-npx-target/);
+  });
+
+  test("accepts an npm run script that only exists in the package.json under the cd target", async () => {
+    const root = fixtureRepository();
+    mkdirSync(join(root, "packages/domain"), { recursive: true });
+    writeFileSync(
+      join(root, "packages/domain/package.json"),
+      `${JSON.stringify(
+        { name: "domain", scripts: { "only-in-domain": "echo domain-only" } },
+        null,
+        2,
+      )}\n`,
+    );
+    edit(agentPath(root, "maria-ai-owner"), (source) =>
+      source.replace(
+        "node --test scripts/lib/harness-smoke.test.mjs",
+        "cd packages/domain && npm run only-in-domain",
+      ),
+    );
+
+    const result = await auditRepository(root);
+    assert.equal(
+      result.ok,
+      true,
+      `"only-in-domain" is declared in packages/domain/package.json, which is the ` +
+        `package.json in scope after "cd packages/domain"; the root package.json ` +
+        `lacking the script must not fail this command, got: ${diagnostics(result)}`,
+    );
+    assert.deepEqual(result.errors, []);
+  });
+
+  test("accepts a node --test target that only exists under the cd target directory", async () => {
+    const root = fixtureRepository();
+    mkdirSync(join(root, "packages/domain/__tests__"), { recursive: true });
+    writeFileSync(
+      join(root, "packages/domain/__tests__/only-in-domain.test.mjs"),
+      'import { test } from "node:test";\ntest("noop", () => {});\n',
+    );
+    edit(agentPath(root, "maria-ai-owner"), (source) =>
+      source.replace(
+        "node --test scripts/lib/harness-smoke.test.mjs",
+        "cd packages/domain && node --test __tests__/only-in-domain.test.mjs",
+      ),
+    );
+
+    const result = await auditRepository(root);
+    assert.equal(
+      result.ok,
+      true,
+      `__tests__/only-in-domain.test.mjs only exists under packages/domain; a ` +
+        `preceding "cd packages/domain" must resolve this "node --test" target ` +
+        `against that directory instead of the repository root, got: ${diagnostics(result)}`,
+    );
+    assert.deepEqual(result.errors, []);
   });
 
   test("accepts a quoted node --test skip pattern containing && without treating it as a chain boundary", async () => {
