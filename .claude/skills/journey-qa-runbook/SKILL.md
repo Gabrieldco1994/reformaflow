@@ -42,7 +42,7 @@ Remova o arquivo antes de rodar Playwright/Vitest da suíte.
 
 ## 2. Executar a jornada
 
-Execute em 390×844 e 1280×800:
+Execute a mesma jornada em 375 px, 390 px e desktop (referência: 1280×800):
 
 1. cadastro/login real;
 2. criação/seleção do projeto;
@@ -51,6 +51,11 @@ Execute em 390×844 e 1280×800:
 5. confirmação;
 6. tela final;
 7. reload/resume se a jornada persistir estado.
+
+Quando aplicável, leia antes o contrato
+[`docs/experiencia-mobile-pwa.md`](../../../docs/experiencia-mobile-pwa.md) e/ou
+[`docs/maria-ia.md`](../../../docs/maria-ia.md). Este runbook produz evidência; ownership,
+prioridade e despacho continuam no Fleet PO e na matriz canônica.
 
 ## 3. Coletar evidência
 
@@ -109,4 +114,3 @@ PASS exige:
 - tenant/projeto corretos;
 - fluxo concluído;
 - screenshots citados.
-

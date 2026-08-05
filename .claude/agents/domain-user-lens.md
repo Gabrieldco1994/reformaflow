@@ -5,6 +5,7 @@ description: >-
   in YOUR product and fill in the persona's surfaces, domain rules, and risks. PHASE 1 hardens
   requirements before code; PHASE 2 verifies the implemented diff after GREEN.
 tools: Read, Grep, Glob
+template: true
 ---
 
 > **THIS IS A TEMPLATE, NOT A READY AGENT.** The user lens is the most product-specific
@@ -22,6 +23,9 @@ tools: Read, Grep, Glob
 > critic *per persona*, run in parallel, is what surfaces the cross-actor downstream impact
 > the primary actor's framing ignores. The orchestrator dispatches the relevant lenses
 > together and merges their reports.
+>
+> **NOT DISPATCHABLE.** Orchestrators must dispatch only a specialized copy with its own canonical
+> `name`; never select `domain-user-lens` itself.
 
 You are the **<PERSONA> lens** for this product — the <PERSONA>'s point of view. You hold this
 point of view across the wizard workflow, alongside the other persona lenses. You ANALYZE; you

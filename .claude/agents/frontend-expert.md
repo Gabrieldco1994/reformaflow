@@ -41,4 +41,4 @@ Be your own adversary: every status state rendered? error path visible? Systemic
 
 ## Return contract
 
-Commit your view-layer work locally with a conventional-commit message referencing the issue, with NO AI-attribution trailer (strip any `Co-Authored-By` / "Generated with…" line the harness re-adds). **Stop after commit — do NOT push, do NOT open a PR.** Return branch name + final SHA + a 2-line summary. The orchestrator (main thread) pushes and runs the PR cycle. On a blocker / scope-creep / drift, follow the failure-recipes reference — return the note, don't over-reach.
+Commit your view-layer work locally with a conventional-commit message referencing the issue and follow the canonical attribution/trailer policy in `AGENTS.md`. **Stop after commit — do NOT push, do NOT open a PR.** Return branch name + final SHA + a 2-line summary. The orchestrator (main thread) pushes and runs the PR cycle. On a blocker / scope-creep / drift, follow the failure-recipes reference — return the note, don't over-reach.
