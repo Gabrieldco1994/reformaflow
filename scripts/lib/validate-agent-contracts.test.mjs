@@ -457,6 +457,42 @@ describe("agent contract validation", () => {
     assert.deepEqual(result.errors, []);
   });
 
+  test("rejects a missing target on the second npx vitest run chained after a single cd", async () => {
+    const root = fixtureRepository();
+    edit(agentPath(root, "maria-ai-owner"), (source) =>
+      source.replace(
+        "Run `node --test scripts/lib/harness-smoke.test.mjs`.",
+        "Run `cd scripts/lib && npx vitest run harness-smoke.test.mjs && npx vitest run missing-second-npx-target.test.mjs`.",
+      ),
+    );
+
+    const result = await auditRepository(root);
+    assert.equal(
+      result.ok,
+      false,
+      `the second chained npx target does not exist and must fail the audit, got: ${diagnostics(result)}`,
+    );
+    assert.deepEqual(
+      result.errors.map(({ code }) => code),
+      ["E_HARNESS_COMMAND_MISSING"],
+    );
+    assert.match(diagnostics(result), /missing-second-npx-target/);
+  });
+
+  test("accepts a quoted node --test skip pattern containing && without treating it as a chain boundary", async () => {
+    const root = fixtureRepository();
+    edit(agentPath(root, "mobile-experience-owner"), (source) =>
+      source.replace(
+        "node --test scripts/lib/harness-smoke.test.mjs",
+        'node --test --test-skip-pattern "mobile && smoke" scripts/lib/harness-smoke.test.mjs',
+      ),
+    );
+
+    const result = await auditRepository(root);
+    assert.equal(result.ok, true, diagnostics(result));
+    assert.deepEqual(result.errors, []);
+  });
+
   test("rejects every required matrix axis when empty for every scenario", async () => {
     const scenarios = {
       "web-desktop": {
