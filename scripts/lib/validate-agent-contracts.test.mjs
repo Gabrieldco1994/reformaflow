@@ -429,6 +429,34 @@ describe("agent contract validation", () => {
     assert.match(diagnostics(result), /missing-after-global-flag/);
   });
 
+  test("accepts two node --test commands chained with && when both targets exist", async () => {
+    const root = fixtureRepository();
+    edit(agentPath(root, "mobile-experience-owner"), (source) =>
+      source.replace(
+        "Run `node --test scripts/lib/harness-smoke.test.mjs`.",
+        "Run `node --test scripts/lib/harness-smoke.test.mjs && node --test scripts/lib/harness-smoke.test.mjs`.",
+      ),
+    );
+
+    const result = await auditRepository(root);
+    assert.equal(result.ok, true, diagnostics(result));
+    assert.deepEqual(result.errors, []);
+  });
+
+  test("accepts two npx vitest run commands chained with && after changing directories", async () => {
+    const root = fixtureRepository();
+    edit(agentPath(root, "maria-ai-owner"), (source) =>
+      source.replace(
+        "Run `node --test scripts/lib/harness-smoke.test.mjs`.",
+        "Run `cd scripts/lib && npx vitest run harness-smoke.test.mjs && npx vitest run harness-smoke.test.mjs`.",
+      ),
+    );
+
+    const result = await auditRepository(root);
+    assert.equal(result.ok, true, diagnostics(result));
+    assert.deepEqual(result.errors, []);
+  });
+
   test("rejects every required matrix axis when empty for every scenario", async () => {
     const scenarios = {
       "web-desktop": {
