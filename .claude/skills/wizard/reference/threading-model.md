@@ -112,6 +112,6 @@ this file.
 **Subagents do NOT inherit SKILL-level conventions.** A worker sees only its dispatch brief +
 the auto-loaded `AGENTS.md` — never this SKILL or its references. So any behavior you need a
 worker to follow — the test-execution recipe, an anti-pattern warning, a tool choice, these
-failure-mode lines, the no-AI-attribution rule — MUST live in the BRIEF. And when you supersede a
+failure-mode lines, the commit-attribution rule from `AGENTS.md` — MUST live in the BRIEF. And when you supersede a
 script or convention, **remove the old artifact** so a worker's grep can't surface stale guidance
 and follow it.

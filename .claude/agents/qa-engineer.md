@@ -44,4 +44,4 @@ Canonical source: `AGENTS.md` (auto-loaded). Two distinct test stacks — run th
 
 ## Return contract
 
-If you edited tests, run the project's formatter/linter on the changed test files, confirm the full affected set is GREEN, and commit locally with a conventional-commit message referencing the issue, with NO AI-attribution trailer. **Stop after commit — do NOT push, do NOT open a PR.** Return branch + final SHA + a verdict: which ACs are covered, any production-code defect or simplification to route back to an implementer, and the simplification findings. The orchestrator (main thread) pushes and runs the PR cycle.
+If you edited tests, run the project's formatter/linter on the changed test files, confirm the full affected set is GREEN, and commit locally with a conventional-commit message referencing the issue; follow the canonical attribution/trailer policy in `AGENTS.md`. **Stop after commit — do NOT push, do NOT open a PR.** Return branch + final SHA + a verdict: which ACs are covered, any production-code defect or simplification to route back to an implementer, and the simplification findings. The orchestrator (main thread) pushes and runs the PR cycle.

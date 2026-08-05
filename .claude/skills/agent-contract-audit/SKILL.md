@@ -52,7 +52,18 @@ Aceitável: ponteiro para fonte. Suspeito: lista literal que pretende estar atua
 - todo caminho citado deve existir em `origin/main`;
 - skill essencial não pode morar apenas em `.agents/` ignorado.
 
-### 5. Relatório
+### 5. Gate determinístico
+
+Quando o script já estiver exposto no `package.json`, execute o gate determinístico sem reproduzir
+sua lógica nesta skill:
+
+```bash
+npm run test:agent-contracts
+```
+
+Até ele existir, reporte a ausência; não simule sucesso nem crie uma implementação paralela.
+
+### 6. Relatório
 
 ```text
 PASS | GAPS
@@ -66,4 +77,3 @@ PASS | GAPS
 
 Não corrija automaticamente fatos cujo comportamento de produto seja ambíguo; reporte ao
 orquestrador.
-

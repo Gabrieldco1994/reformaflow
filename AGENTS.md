@@ -58,6 +58,7 @@ Use Node 20+ and npm workspaces (`npm@11.6.2`); do not use pnpm.
 - Route, auth/onboarding, and access-gate changes require Playwright because jsdom does not exercise redirects or middleware; reproduce parallel-only failures with `--workers=1`.
 - Update `docs/manual-do-aplicativo.md` in the same change when visible behavior changes.
 - UI changes require runtime QA at 375/390px and desktop. Use `MovimentacaoRow` as the financial-list layout; keep touch targets at least 44px and monetary values `nowrap`.
+- Mobile means the responsive/PWA experience in `apps/web`, never a native iOS/Android app.
 - Maria tool money values stay strings until `parseSpokenMoney`; schedule ordering goes through `sortScheduleByDate`.
 
 ## Collaboration
@@ -65,5 +66,6 @@ Use Node 20+ and npm workspaces (`npm@11.6.2`); do not use pnpm.
 - Work in an isolated git worktree. Never edit/reset the shared checkout or use `git stash`, which is shared across worktrees.
 - Never remove `apps/web/src/app/prototype/agent-monitor/` or `tools/agent-monitor/`; both are production functionality.
 - For multi-agent coordination, use `.claude/agents/fleet-po.md`. One owner per branch; the PO owns merge order.
+- Experience owners decide Web, Mobile/PWA, or Maria contracts; the existing backend/frontend builders continue to implement them.
 - Open PRs against `main`, verify `baseRefName=main`, and require `gh pr checks <n>` to be green before merging.
 - AI commits must include the agent's own `Co-authored-by` trailer.

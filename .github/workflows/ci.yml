@@ -22,6 +22,8 @@ jobs:
         run: npm --workspace @reformaflow/domain run build
       - name: Generate Prisma Client
         run: npx prisma@5 generate --schema=prisma/schema.prisma
+      - name: Validate agent contracts
+        run: npm run test:agent-contracts
       - name: Type check - Domain
         run: cd packages/domain && npx tsc --noEmit
       - name: Type check - API

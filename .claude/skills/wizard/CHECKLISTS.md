@@ -44,7 +44,7 @@
 - [ ] Documentation updated
 - [ ] Issue acceptance-criteria checkboxes updated
 - [ ] PR title uses a conventional-commit prefix
-- [ ] No AI-attribution trailer on the commit or PR body
+- [ ] Commit/PR attribution and trailers follow the canonical policy in `AGENTS.md`
 
 ## Adversarial Questions
 

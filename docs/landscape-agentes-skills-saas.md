@@ -1,6 +1,6 @@
 # Landscape de agentes e skills — ReformaFlow
 
-Atualizado em: **2026-08-03**
+Atualizado em: **2026-08-05**
 
 ## 1. Objetivo deste documento
 
@@ -16,6 +16,17 @@ Este é o mapa canônico de:
 > Este documento é uma **fotografia orientativa**, não uma nova fonte de verdade
 > para listas mutáveis. Features, módulos, exceções Prisma e estado de deploy
 > devem sempre ser lidos das fontes vivas indicadas na seção 12.
+
+Na base desta revisão (`f1469959`), havia **22 agentes canônicos** em
+`.claude/agents/`, todos em kebab-case e com `name` igual ao nome do arquivo, e
+**7 skills versionadas** antes desta atualização. Agente é um papel despachável;
+skill é um procedimento reutilizável; lente é um agente que avalia a mudança do
+ponto de vista de um domínio/usuário; gate é uma dependência executável da CI.
+Essas categorias não são intercambiáveis.
+
+Esta revisão adiciona três experience owners read-only, totalizando **25 agentes**.
+Eles decidem contratos e devolvem handoff ao Fleet PO; builders e verificadores
+continuam sendo papéis separados.
 
 ## 2. Resumo executivo
 
@@ -46,9 +57,9 @@ lacunas para **operar um SaaS completo**:
 | Monetização/planos/assinaturas | Não implementado |
 | Governança dos próprios agentes | Fraca |
 
-**Direção recomendada:** antes de criar muitos agentes, tornar o E2E bloqueante,
-eliminar instruções duplicadas/obsoletas e adicionar dois papéis centrais:
-`journey-qa` e `platform-sre`.
+**Direção recomendada:** consolidar o uso dos papéis já criados, manter o E2E
+bloqueante, eliminar instruções duplicadas/obsoletas e fechar as lacunas
+operacionais e de observabilidade ainda verificadas.
 
 ## 3. Arquitetura operacional atual
 
@@ -66,7 +77,41 @@ Regra:
 - **Fleet PO** coordena várias entregas/Wizards em paralelo.
 - O PO humano decide produto e faz o merge final.
 
-### 3.2 Design, implementação e verificação
+### 3.2 Matriz canônica de ownership das experiências
+
+Esta é a única matriz para escolher o owner primário de uma mudança de
+experiência. Cada mudança tem **um** owner primário; os canais afetados entram
+como owners secundários consultados. Fleet PO garante um owner por branch e por
+arquivo.
+
+| ID | Owner primário | Canais afetados | Consulta/lens viva | Plataforma/guardiões | Implementadores | Avaliadores/gates | Critério de conclusão |
+|---|---|---|---|---|---|---|---|
+| `web-desktop` | `web-experience-owner` | Browser/desktop; canais tocados são secundários | Issue + lens aplicável no registry | Impacto no diff; guardião aplicável no registry | Builder do módulo afetado | Harness Web + gates vivos do módulo | Decisão/handoff e gates PASS |
+| `mobile-pwa` | `mobile-experience-owner` | `apps/web` em 375/390/PWA; Web é secundário quando compartilhado | Issue + lens aplicável no registry | Manifest/SW/permissões/release; guardião aplicável no registry | Builder de `apps/web` afetado | Harness Mobile + gates vivos do módulo | Decisão/handoff e gates PASS |
+| `maria-cross-channel` | `maria-ai-owner` | Chat/voz e canais tocados; seus owners são secundários | Issue + lens e owners de canal no registry | Provider/model/tool/privacidade/release; guardião aplicável no registry | Builder do módulo afetado | Harness Maria + gates vivos de AI/Security/Journey | Baseline × candidate quando exigido e gates PASS |
+| `multi-channel` | `maria-ai-owner` | Todos os canais declarados na issue; owners afetados são secundários | Issue + lens e owners de canal no registry | Impactos combinados; guardião aplicável no registry | Builders dos módulos afetados | Harnesses dos owners + gates vivos combinados | Um handoff, ownership de arquivo e gates PASS |
+| `platform-only` | `fleet-po` | Nenhum por padrão; canal impactado é consultado | Issue + lens aplicável no registry | Impacto central; guardião aplicável no registry | Builder da plataforma afetada | Gates vivos de plataforma/release | Evidência de plataforma e gates PASS |
+
+`Registry` significa o frontmatter vivo em [`.claude/agents/`](../.claude/agents/), não um roster
+copiado. `Gates vivos` são os testes, scripts e runbooks apontados pelo owner e pelo módulo afetado.
+
+Precedência obrigatória para casos sobrepostos:
+
+1. `platform-only`;
+2. Maria;
+3. Mobile/PWA;
+4. o restante é Web.
+
+Os owners decidem e devolvem decisão/handoff ao Fleet PO. Não implementam, não
+fazem auto-QA e não chamam subagentes.
+
+Autoridades: o PO decide produto/merge; Fleet PO decide prioridade, owner,
+branch, ordem e conflitos; lentes cobrem as regras de negócio; builders
+existentes implementam; QA, Journey QA, AI Quality e Security verificam; Platform
+SRE opera release. Finding blocking de Security continua blocking, e qualquer
+mudança de número financeiro escala ao PO.
+
+### 3.3 Design, implementação e verificação
 
 | Agente | Responsabilidade | Quando usar |
 |---|---|---|
@@ -81,17 +126,21 @@ Regra:
 `qa-engineer` valida código e testes. Ele **não substitui** QA da aplicação
 rodando no navegador.
 
-### 3.3 Lentes de domínio existentes
+### 3.4 Lentes de domínio existentes
 
 - `pessoal-lens`
 - `reforma-lens`
 - `compra-lens`
 - `casa-lens`
 - `carro-lens`
+- `plantas-lens`
 - `domain-user-lens` — template, não agente pronto
 
-Essas lentes endurecem requisitos antes do código e verificam o diff depois do
-GREEN. Elas não executam a aplicação.
+Todos os seis tipos de projeto têm lente própria. Essas lentes endurecem
+requisitos antes do código e verificam o diff depois do GREEN. Elas não executam
+a aplicação. As lentes transversais (`security-tenant-lens`, `new-user-lens`,
+`admin-owner-lens` e `product-analytics-lens`) cobrem riscos que atravessam tipos
+de projeto.
 
 ## 4. Skills atuais
 
@@ -103,19 +152,27 @@ GREEN. Elas não executam a aplicação.
 | `agent-landscape-audit` | Refazer este landscape a partir das fontes vivas |
 | `agent-contract-audit` | Detectar drift e duplicidade nos agentes/skills |
 | `journey-qa-runbook` | Executar QA real com banco isolado e evidência runtime |
+| `multi-agent-runtime` | Ativar e verificar descoberta do runtime multiagente |
 | `release-verification` | Provar SHA, checks, deploy, migration e smoke |
 | `repo-hygiene` | Auditar e reduzir branches/worktrees com segurança |
+| `browser-use` | Navegação, formulário, screenshots e inspeção de runtime |
+| `frontend-design` | Direção visual para UI nova/redesign |
 
-### 4.2 Disponíveis localmente, mas ignoradas pelo Git
+As duas últimas foram promovidas nesta atualização. `browser-use` inclui as duas
+referências relativas e não contém segredo; a integração cloud requer chave
+apenas quando usada. `frontend-design` inclui sua licença referenciada.
+
+### 4.2 Disponível localmente, mas bloqueada para versionamento
 
 | Skill | Uso |
 |---|---|
-| `browser-use` | Navegação, formulário, screenshots e inspeção de runtime |
-| `frontend-design` | Direção visual para UI nova/redesign |
-| `excalidraw-diagram` | Diagramas técnicos e de fluxo |
+| `excalidraw-diagram` | Diagramas técnicos e de fluxo; pacote local incompleto |
 
-Risco: por estarem em `.agents/` ignorado pelo Git, não são portáveis para outra
-máquina ou agente por clone limpo.
+`excalidraw-diagram` não foi copiada parcialmente: seu `SKILL.md` exige
+`README.md`, `references/color-palette.md`, `references/element-templates.md`,
+`references/render_excalidraw.py` e o ambiente `uv` da pasta `references/`, mas
+nenhum desses arquivos existe no diretório local inspecionado. Até recuperar o
+pacote completo, ela continua não portável por clone limpo.
 
 ## 5. Lacunas verificadas
 
@@ -151,11 +208,12 @@ Fontes:
 - soft-delete: `modelsWithoutSoftDelete`;
 - estado atual: Git + docs normativos.
 
-### P0 — Fleet PO duplicado
+### P0 — Fleet PO duplicado, resolvido
 
-Existe um `Fleet PO.agent.md` local não versionado, atrasado em relação ao
-`fleet-po.md` canônico. Deve existir apenas um arquivo canônico para evitar que
-o VS Code carregue instruções diferentes.
+Na auditoria de 2026-08-03 existia um `Fleet PO.agent.md` local não versionado e
+atrasado. Na fotografia atual ele não existe mais: há somente
+`.claude/agents/fleet-po.md`, com `name: fleet-po`. A duplicidade fica registrada
+apenas como histórico; não é lacuna ativa.
 
 ### P1 — operação de produção insuficiente
 
@@ -169,7 +227,7 @@ Existem Clarity, Speed Insights e error boundaries, mas não foram encontrados:
 
 ### P1 — pressão de branches/worktrees
 
-Antes da limpeza imediata de 2026-08-03:
+Histórico, não estado atual: antes da limpeza de 2026-08-03 havia:
 
 - 254 branches locais;
 - 89 worktrees;
@@ -179,6 +237,16 @@ A auditoria conservadora removeu worktrees limpos que eram ancestrais de `main`
 ou cujo tip era exatamente o head de um PR mergeado. O total caiu para **33**,
 sem `--force`; dirty, detached e não mergeados foram preservados. Branches de
 PR squash-mergeado também foram preservadas.
+
+Fotografia final de 2026-08-04, após `fetch` de `origin/main`:
+
+- 253 branches locais (252 antes de criar a branch desta auditoria);
+- 182 entradas em `git branch -r`: 181 branches remotas mais `origin/HEAD`;
+- 12 worktrees (11 antes de criar o worktree desta auditoria);
+- 0 worktrees prunable;
+- 40 branches locais mergeadas em `origin/main`.
+
+Os números históricos **89 → 33** descrevem aquela limpeza, não o estado atual.
 
 ### P1 — hotspots de manutenção
 
@@ -256,7 +324,7 @@ Responsabilidades:
 
 #### `plantas-lens` ✅
 
-É o único tipo de projeto sem lente própria. Deve cobrir diagnóstico por IA,
+Completa a cobertura de lentes por tipo de projeto. Cobre diagnóstico por IA,
 toxicidade, espécie, imagens, manutenção, lembretes e privacidade.
 
 #### `new-user-lens` ✅
@@ -309,7 +377,6 @@ Não criar agente de billing antes de existir decisão real sobre:
 | Skill | Função |
 |---|---|
 | `financial-invariant-matrix` | Paga/planejada × conta/cartão/carteira × mensal/anual |
-| `repo-hygiene` | Inventário seguro de branches/worktrees |
 | `incident-triage` | Reprodução, logs, blast radius e revert vs fix-forward |
 | `db-change-safety` | Backup, migration, generate, deploy e restore drill |
 
@@ -367,16 +434,16 @@ Produção
 Fleet PO / próximo ciclo
 ```
 
-## 9. Matriz rápida de despacho
+## 9. Guia rápido de despacho
 
 | Tipo de trabalho | Combinação recomendada |
 |---|---|
 | Copy simples | Frontend + teste direcionado |
-| UI visível | Frontend + frontend-design + journey-qa + accesslint |
+| UI visível | Experience owner primário + Frontend + frontend-design + journey-qa + accesslint |
 | Feature multi-arquivo | Wizard → Architect → builders → QA |
 | Dinheiro/KPI | Architect + PESSOAL lens + matriz financeira + QA + aval do PO |
 | Auth/tenant/admin | Architect + backend + security-tenant + 007 |
-| IA/voz/OCR | Backend/frontend + AI quality + eval |
+| IA/voz/OCR | Maria AI Owner + Backend/frontend + AI quality + eval |
 | Migration | Backend + db-change-safety + platform-sre |
 | Vários PRs | Fleet PO + QA do `main` combinado |
 | Incidente em produção | Platform SRE + troubleshoot + issue-maintainer |
@@ -392,7 +459,7 @@ Fleet PO / próximo ciclo
 4. ✅ Criar `journey-qa`.
 5. ✅ Criar `platform-sre`.
 6. ✅ Versionar skills essenciais.
-7. ✅ Auditar e reduzir worktrees (89 → 33).
+7. ✅ Auditar e reduzir worktrees (histórico: 89 → 33; fotografia atual: 12).
 
 ### Próximo ciclo concluído
 
@@ -451,10 +518,10 @@ Nunca conclua a partir do checkout compartilhado sem comparar com `origin/main`.
 O roster atual é bom para **construir software**, mas incompleto para **operar um
 SaaS**.
 
-A ordem correta é:
+A ordem correta agora é:
 
-1. tornar o deploy realmente bloqueado por QA;
+1. preservar o gate de E2E que bloqueia build e deploy;
 2. impedir que os próprios agentes apodreçam;
-3. adicionar QA de jornada e operação de produção;
-4. depois cobrir segurança, IA e analytics;
+3. despachar `journey-qa` e `platform-sre` nas mudanças aplicáveis;
+4. usar as coberturas já criadas de segurança, IA e analytics;
 5. só criar billing quando houver produto comercial definido.

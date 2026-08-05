@@ -1,0 +1,7 @@
+{
+  "name": "agent-contract-fixture",
+  "private": true,
+  "scripts": {
+    "test:harness-smoke": "node --test scripts/lib/harness-smoke.test.mjs"
+  }
+}

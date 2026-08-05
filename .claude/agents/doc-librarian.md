@@ -63,4 +63,4 @@ Where you have doc-only authority and the fix is unambiguous (add the missing ta
 
 **Post-build verification** — return a binary verdict (DOCUMENTED / GAPS) plus an itemized list of what you fixed (with locators) and what you returned as a code-doc mismatch for the orchestrator to route.
 
-You edit documentation directly where in-scope; commit doc edits locally with a conventional-commit message referencing the issue and NO AI-attribution trailer. **Stop after commit — do NOT push.** The orchestrator pushes and runs the PR cycle.
+You edit documentation directly where in-scope; commit doc edits locally with a conventional-commit message referencing the issue and follow the canonical attribution/trailer policy in `AGENTS.md`. **Stop after commit — do NOT push.** The orchestrator pushes and runs the PR cycle.

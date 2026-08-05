@@ -22,7 +22,9 @@ Regra: o CONTRATO é atemporal e não carrega narrativa de "antes/depois". Hist�
 | `manual-do-aplicativo.md` | Manual do usuário: comportamento observável por tela + conceitos-chave e glossário (não normativo para regras — estas vivem nos docs acima). |
 | `despesa-recorrente.md` | Despesa recorrente (mensal/quinzenal): gera N despesas planejadas reais; modo cross-project (obra+espelho); canais UI/Copilot/voz; API e validação. |
 | `politica-datas-timezone.md` | Política de datas e fronteira de timezone (BRT×UTC) nas telas financeiras. |
-| `landscape-agentes-skills-saas.md` | Mapa canônico de agentes, skills, lacunas e ciclo de vida do SaaS; inclui prioridades e procedimento de revisão. |
+| [`experiencia-mobile-pwa.md`](experiencia-mobile-pwa.md) | Contrato transversal da experiência responsiva/PWA em `apps/web`: 375/390, toque, instalação, offline/update, permissões e fallback. |
+| [`maria-ia.md`](maria-ia.md) | Promessa cross-channel da Maria, confirmação de escrita, tools, OCR/voz/TTS, privacidade e gates de eval. |
+| [`landscape-agentes-skills-saas.md`](landscape-agentes-skills-saas.md) | Mapa canônico de agentes, skills e ownership das experiências; inclui prioridades e procedimento de revisão. |
 | `archive/estado-atual-historico-2026.md` | Histórico detalhado movido do estado-atual do cockpit (incrementos/commits de 2026). |
 | `archive/` | Notas históricas de sessões anteriores (não normativas) — ver `archive/README.md`. |
 

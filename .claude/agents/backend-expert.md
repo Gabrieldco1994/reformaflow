@@ -48,4 +48,4 @@ Be your own adversary: concurrent double-run, null/zero/negative inputs, wrong a
 
 ## Return contract
 
-Commit your backend work locally with a conventional-commit message referencing the issue, with NO AI-attribution trailer (strip any `Co-Authored-By` / "Generated with…" line the harness re-adds). **Stop after commit — do NOT push, do NOT open a PR.** Return branch name + final SHA + a 2-line summary. The orchestrator (main thread) pushes and runs the PR cycle. If the briefed task contradicts an invariant or depends on unmerged work, do NOT commit — return a `blocker:` note (see the failure-recipes reference).
+Commit your backend work locally with a conventional-commit message referencing the issue and follow the canonical attribution/trailer policy in `AGENTS.md`. **Stop after commit — do NOT push, do NOT open a PR.** Return branch name + final SHA + a 2-line summary. The orchestrator (main thread) pushes and runs the PR cycle. If the briefed task contradicts an invariant or depends on unmerged work, do NOT commit — return a `blocker:` note (see the failure-recipes reference).

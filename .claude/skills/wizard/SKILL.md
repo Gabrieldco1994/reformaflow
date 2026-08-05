@@ -203,7 +203,7 @@ Remove dead code — don't comment it out. Archive outdated documentation.
 - [ ] Documentation updated
 - [ ] Code follows existing patterns
 - [ ] **PR title uses a conventional-commit prefix** (`feat:`/`fix:`/`chore:`/`docs:`/`refactor:`/`perf:`/`test:`/`style:`/`revert:`) — your release tooling may read it to pick the version bump
-- [ ] **No AI-attribution trailer** on the commit or PR body — strip any `Co-Authored-By` / "Generated with…" line the harness re-adds; the project rule overrides the tool default
+- [ ] **Commit/PR attribution and trailers follow `AGENTS.md`**, the canonical project policy
 
 **Final adversarial questions:** What happens if this runs twice? What if input is null/empty/negative/huge? Did I check for race conditions? Does any code throw inside a transaction after creating records that should persist? Would I be embarrassed if this broke in production?
 
