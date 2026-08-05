@@ -1299,7 +1299,8 @@ export class MonthlyOverviewService {
       saiuMes: recalculatedSaiuMes,
       faltaPagarMes: recalculatedFaltaPagarMes,
       recebimentosPrevistosMes,
-      sobraPrevista: caixa.hoje - recalculatedFaltaPagarMes + recebimentosPrevistosMes,
+      sobraPrevista:
+        caixa.hoje + carteiraHoje - recalculatedFaltaPagarMes + recebimentosPrevistosMes,
       devoCartaoTotal,
       cartoes,
       contas,
@@ -1412,7 +1413,7 @@ export class MonthlyOverviewService {
       faltaPagarMes, // = soma do ano
       recebimentosPrevistosMes, // = soma do ano
       // Projeção: saldo de hoje contra tudo que falta pagar/receber no ano inteiro.
-      sobraPrevista: caixaHoje - faltaPagarMes + recebimentosPrevistosMes,
+      sobraPrevista: caixaHoje + carteiraHoje - faltaPagarMes + recebimentosPrevistosMes,
       devoCartaoTotal, // saldo pontual de faturas em aberto — idem, não é fluxo mensal
       cartoes,
       contas,
