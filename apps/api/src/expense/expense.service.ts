@@ -5,12 +5,20 @@ import { ConciliacaoService, RateioItem, SettleParcelaInput } from '../conciliac
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
 import { CreateRecorrenteDto } from './dto/create-recorrente.dto';
-import { ExpenseTypeLabels, LaborCategoryLabels, buildInstallments, buildRecurrenceDates, isRecurrenceFrequency, isSinglePaymentForm, isNeutralExpenseType, hasFeature, normalizeInstallmentDateOverrides, parseInstallmentDateOnlyUtc, setInstallmentDateOverride, PaymentForm, ProjectType, type RecurrenceFrequency } from '@reformaflow/domain';
+import { ExpenseTypeLabels, LaborCategoryLabels, buildInstallments, buildRecurrenceDates, isRecurrenceFrequency, isSinglePaymentForm, isNeutralExpenseType, hasFeature, normalizeInstallmentDateOverrides, parseInstallmentDateOnlyUtc, parseInstallmentDateOverrides, setInstallmentDateOverride, PaymentForm, ProjectType, type RecurrenceFrequency } from '@reformaflow/domain';
 import { RatearMixedDto } from './dto/ratear-mixed.dto';
 import { Prisma } from '@prisma/client';
 import { fastClassify } from '../bank-account/bank-account.service';
 
 type ExpenseDb = PrismaService | Prisma.TransactionClient;
+
+export interface UpdateInstallmentDateResult {
+  id: string;
+  parcela: number;
+  data: string;
+  isOverride: boolean;
+  affectedProjectIds: string[];
+}
 
 @Injectable()
 export class ExpenseService {
@@ -878,7 +886,7 @@ export class ExpenseService {
     id: string,
     parcela: number,
     data: string,
-  ) {
+  ): Promise<UpdateInstallmentDateResult> {
     const parsedDate = parseInstallmentDateOnlyUtc(data);
     if (!parsedDate) throw new BadRequestException('Data de parcela inválida');
 
@@ -922,10 +930,21 @@ export class ExpenseService {
       );
 
       const nextOverrides = this.withInstallmentDate(expense, parcela, parsedDate);
-      const updated = await tx.expense.update({
+      await tx.expense.update({
         where: { id: expense.id },
         data: { installmentDateOverrides: nextOverrides },
         include: { room: true },
+      });
+      const affectedProjectIds = new Set<string>([expense.projectId]);
+      const result = (): UpdateInstallmentDateResult => ({
+        id: expense.id,
+        parcela,
+        data: parsedDate.toISOString().slice(0, 10),
+        isOverride: parseInstallmentDateOverrides(
+          nextOverrides,
+          installmentCount,
+        ).has(parcela),
+        affectedProjectIds: [...affectedProjectIds].sort(),
       });
 
       if (isSettlementTarget) {
@@ -936,19 +955,36 @@ export class ExpenseService {
 
       const sourceRateios = await tx.rateioAllocation.findMany({
         where: { tenantId, sourceExpenseId: expense.id },
+        include: {
+          target: {
+            select: {
+              id: true,
+              projectId: true,
+              tenantId: true,
+              deletedAt: true,
+            },
+          },
+        },
       });
       if (sourceRateios.length > 0) {
         for (const allocation of sourceRateios) {
+          if (
+            allocation.target.tenantId !== tenantId ||
+            allocation.target.deletedAt
+          ) {
+            continue;
+          }
           await tx.expense.update({
-            where: { id: allocation.targetExpenseId },
+            where: { id: allocation.target.id },
             data: { installmentDateOverrides: nextOverrides },
           });
+          affectedProjectIds.add(allocation.target.projectId);
           await this.conciliacao.regenerateRateioTargetCashflow(
             tx,
-            allocation.targetExpenseId,
+            allocation.target.id,
           );
         }
-        return updated;
+        return result();
       }
 
       if (!isSettlementTarget) {
@@ -991,11 +1027,12 @@ export class ExpenseService {
             where: { id: counterpart.id },
             data: { installmentDateOverrides: counterpartOverrides },
           });
+          affectedProjectIds.add(counterpart.projectId);
           await this.regenerateCashFlow(counterpart.id, tx);
         }
       }
 
-      return updated;
+      return result();
     });
   }
 

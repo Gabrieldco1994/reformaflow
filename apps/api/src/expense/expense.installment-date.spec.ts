@@ -107,14 +107,13 @@ describe("ExpenseService.updateInstallmentDate", () => {
         data: { installmentDateOverrides: '{"1":"2026-09-20"}' },
       }),
     );
-    expect(result).toEqual(
-      expect.objectContaining({
-        status: "PLANEJADO",
-        paidParcelas: "[1]",
-        valorTotal: 3000,
-        quantidadeParcela: 3,
-      }),
-    );
+    expect(result).toEqual({
+      id: "expense-1",
+      parcela: 1,
+      data: "2026-09-20",
+      isOverride: true,
+      affectedProjectIds: ["project-1"],
+    });
   });
 
   it("remove o override quando a data volta à data base e é idempotente", async () => {
@@ -137,7 +136,7 @@ describe("ExpenseService.updateInstallmentDate", () => {
     );
 
     const restored = makeHarness(expense);
-    await restored.service.updateInstallmentDate(
+    const result = await restored.service.updateInstallmentDate(
       "tenant-1",
       "project-1",
       "expense-1",
@@ -148,6 +147,13 @@ describe("ExpenseService.updateInstallmentDate", () => {
     expect(restored.tx.expense.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: { installmentDateOverrides: null } }),
     );
+    expect(result).toEqual({
+      id: "expense-1",
+      parcela: 1,
+      data: "2026-09-10",
+      isOverride: false,
+      affectedProjectIds: ["project-1"],
+    });
   });
 
   it("preserva uma despesa integralmente paga", async () => {
@@ -165,8 +171,13 @@ describe("ExpenseService.updateInstallmentDate", () => {
       "2026-09-20",
     );
 
-    expect(result.status).toBe("PAGO");
-    expect(result.paidParcelas).toBeNull();
+    expect(result).toEqual({
+      id: "expense-1",
+      parcela: 1,
+      data: "2026-09-20",
+      isOverride: true,
+      affectedProjectIds: ["project-1"],
+    });
   });
 
   it("respeita tenant/projeto, forma e range", async () => {
@@ -236,7 +247,7 @@ describe("ExpenseService.updateInstallmentDate", () => {
       .mockResolvedValueOnce(baseExpense);
     pair.tx.expense.findMany.mockResolvedValueOnce([{ id: "expense-1" }]);
 
-    await pair.service.updateInstallmentDate(
+    const pairResult = await pair.service.updateInstallmentDate(
       "tenant-1",
       "project-2",
       "mirror-1",
@@ -248,10 +259,22 @@ describe("ExpenseService.updateInstallmentDate", () => {
       where: { id: "expense-1" },
       data: { installmentDateOverrides: '{"1":"2026-09-20"}' },
     });
+    expect(pairResult).toEqual({
+      id: "mirror-1",
+      parcela: 1,
+      data: "2026-09-20",
+      isOverride: true,
+      affectedProjectIds: ["project-1", "project-2"],
+    });
 
     const settlement = makeHarness(baseExpense);
-    settlement.tx.crossProjectSettlement.count.mockResolvedValue(1);
-    await settlement.service.updateInstallmentDate(
+    settlement.tx.crossProjectSettlement.findMany.mockResolvedValueOnce([
+      {
+        sourceExpenseId: "real-source",
+        targetExpenseId: "expense-1",
+      },
+    ]);
+    const settlementResult = await settlement.service.updateInstallmentDate(
       "tenant-1",
       "project-1",
       "expense-1",
@@ -259,16 +282,45 @@ describe("ExpenseService.updateInstallmentDate", () => {
       "2026-09-20",
     );
     expect(settlement.tx.expense.update).toHaveBeenCalledTimes(1);
+    expect(settlement.conciliacao.regenerateTargetCashflow).toHaveBeenCalledWith(
+      settlement.tx,
+      "expense-1",
+    );
+    expect(settlementResult).toEqual({
+      id: "expense-1",
+      parcela: 1,
+      data: "2026-09-20",
+      isOverride: true,
+      affectedProjectIds: ["project-1"],
+    });
   });
 
   it("propaga cronograma da fonte de rateio para todos os alvos", async () => {
     const { service, tx, conciliacao } = makeHarness();
     tx.rateioAllocation.findMany.mockResolvedValueOnce([
-      { sourceExpenseId: "expense-1", targetExpenseId: "target-1" },
-      { sourceExpenseId: "expense-1", targetExpenseId: "target-2" },
+      {
+        sourceExpenseId: "expense-1",
+        targetExpenseId: "target-1",
+        target: {
+          id: "target-1",
+          projectId: "project-3",
+          tenantId: "tenant-1",
+          deletedAt: null,
+        },
+      },
+      {
+        sourceExpenseId: "expense-1",
+        targetExpenseId: "target-2",
+        target: {
+          id: "target-2",
+          projectId: "project-2",
+          tenantId: "tenant-1",
+          deletedAt: null,
+        },
+      },
     ]);
 
-    await service.updateInstallmentDate(
+    const result = await service.updateInstallmentDate(
       "tenant-1",
       "project-1",
       "expense-1",
@@ -280,6 +332,13 @@ describe("ExpenseService.updateInstallmentDate", () => {
     expect(tx.expense.update).toHaveBeenCalledWith({
       where: { id: "target-1" },
       data: { installmentDateOverrides: '{"1":"2026-09-20"}' },
+    });
+    expect(result).toEqual({
+      id: "expense-1",
+      parcela: 1,
+      data: "2026-09-20",
+      isOverride: true,
+      affectedProjectIds: ["project-1", "project-2", "project-3"],
     });
   });
 
