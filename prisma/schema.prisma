@@ -231,6 +231,7 @@ model Expense {
   recorrente         Boolean   @default(false) // despesa fixa mensal (ocorrência virtual, não gera linhas)
   recorrenciaFim     DateTime? @map("recorrencia_fim") // último mês da recorrência (null = sem fim)
   paidParcelas       String?   @map("paid_parcelas") // JSON array de índices 0-based de parcelas pagas (PARCELADO/QUINZENAL). null = nenhuma parcial
+  installmentDateOverrides String? @map("installment_date_overrides") // JSON objeto índice 0-based -> YYYY-MM-DD
   plannedExpenseId   String?   @unique @map("planned_expense_id") // ref à despesa planejada que originou esta paga
   settledByExpenseId String?   @unique @map("settled_by_expense_id") // quando esta planejada foi liquidada por uma paga
   importId           String?   @map("import_id") // id da importação de fatura (CreditCardStatementImport) — opcional
@@ -387,6 +388,7 @@ model RateioAllocation {
   plannedQtdParcela    Int?      @map("planned_qtd_parcela")
   plannedDataInicio    DateTime? @map("planned_data_inicio")
   plannedDataPagamento DateTime? @map("planned_data_pagamento")
+  plannedInstallmentDateOverrides String? @map("planned_installment_date_overrides")
   createdAt            DateTime  @default(now()) @map("created_at")
 
   source Expense @relation("RateioSource", fields: [sourceExpenseId], references: [id])

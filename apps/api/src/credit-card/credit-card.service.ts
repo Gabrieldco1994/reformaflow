@@ -274,6 +274,7 @@ export class CreditCardService {
             dataPagamento: p.dataPagamento,
             quantidadeParcela: p.quantidadeParcela,
             dataInicioParcela: p.dataInicioParcela,
+            installmentDateOverrides: p.installmentDateOverrides,
           });
           const fallbackDate = p.dataPagamento ?? p.dataInicioParcela ?? p.createdAt;
           const candidates = slices.length > 1
@@ -537,6 +538,7 @@ export class CreditCardService {
             dataPagamento: p.dataPagamento,
             quantidadeParcela: p.quantidadeParcela,
             dataInicioParcela: p.dataInicioParcela,
+            installmentDateOverrides: p.installmentDateOverrides,
           });
           const fallbackDate = p.dataPagamento ?? p.dataInicioParcela ?? p.createdAt;
           const candidates = slices.length > 1

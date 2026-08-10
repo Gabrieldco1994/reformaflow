@@ -299,6 +299,7 @@ export class MonthlyOverviewService {
           settledByExpenseId: true,
           settlesInvoiceKey: true,
           paidParcelas: true,
+          installmentDateOverrides: true,
           project: { select: { id: true, name: true, type: true } },
         },
       }),
@@ -808,6 +809,7 @@ export class MonthlyOverviewService {
             quantidadeParcela: expense.quantidadeParcela,
             dataInicioParcela: expense.dataInicioParcela,
             dataPagamento: expense.dataPagamento,
+            installmentDateOverrides: expense.installmentDateOverrides,
           });
           let paidByOther: Set<number>;
           try {
@@ -906,6 +908,7 @@ export class MonthlyOverviewService {
             quantidadeParcela: expense.quantidadeParcela,
             dataInicioParcela: expense.dataInicioParcela,
             dataPagamento: expense.dataPagamento,
+            installmentDateOverrides: expense.installmentDateOverrides,
           });
           let paidNone: Set<number>;
           try {
@@ -960,6 +963,7 @@ export class MonthlyOverviewService {
           quantidadeParcela: expense.quantidadeParcela,
           dataInicioParcela: expense.dataInicioParcela,
           dataPagamento: expense.dataPagamento,
+          installmentDateOverrides: expense.installmentDateOverrides,
         });
         let paidSet: Set<number>;
         try {

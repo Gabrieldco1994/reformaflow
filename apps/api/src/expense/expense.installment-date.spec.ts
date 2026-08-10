@@ -1,0 +1,364 @@
+import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { ExpenseService } from "./expense.service";
+
+const baseExpense = {
+  id: "expense-1",
+  tenantId: "tenant-1",
+  projectId: "project-1",
+  tipoDespesa: "MATERIAL_CONSTRUCAO",
+  categoriaMaoDeObra: null,
+  roomId: null,
+  valor: 1000,
+  quantidade: 1,
+  valorTotal: 3000,
+  formaPagamento: "PARCELADO",
+  quantidadeParcela: 3,
+  dataInicioParcela: new Date("2026-08-10T00:00:00.000Z"),
+  dataPagamento: null,
+  status: "PLANEJADO",
+  paidParcelas: "[1]",
+  installmentDateOverrides: null,
+  settledByExpenseId: null,
+  linkedExpenseId: null,
+  room: null,
+} as {
+  id: string;
+  tenantId: string;
+  projectId: string;
+  tipoDespesa: string;
+  categoriaMaoDeObra: null;
+  roomId: null;
+  valor: number;
+  quantidade: number;
+  valorTotal: number;
+  formaPagamento: string;
+  quantidadeParcela: number;
+  dataInicioParcela: Date;
+  dataPagamento: null;
+  status: string;
+  paidParcelas: string | null;
+  installmentDateOverrides: string | null;
+  settledByExpenseId: null;
+  linkedExpenseId: string | null;
+  room: null;
+};
+
+type ExpenseFixture = typeof baseExpense;
+
+function makeHarness(expense: ExpenseFixture = baseExpense) {
+  const tx = {
+    project: {
+      findFirst: jest.fn().mockResolvedValue({ id: expense.projectId }),
+    },
+    expense: {
+      findFirst: jest.fn().mockResolvedValue(expense),
+      findMany: jest.fn().mockResolvedValue([]),
+      findUnique: jest.fn().mockResolvedValue(expense),
+      update: jest
+        .fn()
+        .mockImplementation(({ data }) =>
+          Promise.resolve({ ...expense, ...data }),
+        ),
+    },
+    rateioAllocation: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    crossProjectSettlement: {
+      count: jest.fn().mockResolvedValue(0),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    cashFlowEntry: {
+      updateMany: jest.fn().mockResolvedValue({ count: 3 }),
+      createMany: jest.fn().mockResolvedValue({ count: 3 }),
+    },
+  };
+  const prisma = {
+    ...tx,
+    $transaction: jest.fn().mockImplementation(async (fn) => fn(tx)),
+  };
+  const conciliacao = {
+    regenerateTargetCashflow: jest.fn(),
+    regenerateRateioTargetCashflow: jest.fn(),
+  };
+  return {
+    service: new ExpenseService(prisma as never, conciliacao as never),
+    prisma,
+    tx,
+    conciliacao,
+  };
+}
+
+describe("ExpenseService.updateInstallmentDate", () => {
+  it("altera somente a data do índice e preserva pagamento, valores e identidade", async () => {
+    const { service, tx } = makeHarness();
+
+    const result = await service.updateInstallmentDate(
+      "tenant-1",
+      "project-1",
+      "expense-1",
+      1,
+      "2026-09-20",
+    );
+
+    expect(tx.expense.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "expense-1" },
+        data: { installmentDateOverrides: '{"1":"2026-09-20"}' },
+      }),
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        status: "PLANEJADO",
+        paidParcelas: "[1]",
+        valorTotal: 3000,
+        quantidadeParcela: 3,
+      }),
+    );
+  });
+
+  it("remove o override quando a data volta à data base e é idempotente", async () => {
+    const expense = {
+      ...baseExpense,
+      installmentDateOverrides: '{"1":"2026-09-20"}',
+    };
+    const unchanged = makeHarness(expense);
+    await unchanged.service.updateInstallmentDate(
+      "tenant-1",
+      "project-1",
+      "expense-1",
+      1,
+      "2026-09-20",
+    );
+    expect(unchanged.tx.expense.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { installmentDateOverrides: '{"1":"2026-09-20"}' },
+      }),
+    );
+
+    const restored = makeHarness(expense);
+    await restored.service.updateInstallmentDate(
+      "tenant-1",
+      "project-1",
+      "expense-1",
+      1,
+      "2026-09-10",
+    );
+
+    expect(restored.tx.expense.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { installmentDateOverrides: null } }),
+    );
+  });
+
+  it("preserva uma despesa integralmente paga", async () => {
+    const paid = makeHarness({
+      ...baseExpense,
+      status: "PAGO",
+      paidParcelas: null,
+    });
+
+    const result = await paid.service.updateInstallmentDate(
+      "tenant-1",
+      "project-1",
+      "expense-1",
+      1,
+      "2026-09-20",
+    );
+
+    expect(result.status).toBe("PAGO");
+    expect(result.paidParcelas).toBeNull();
+  });
+
+  it("respeita tenant/projeto, forma e range", async () => {
+    const missing = makeHarness();
+    missing.tx.expense.findFirst.mockResolvedValueOnce(null);
+    await expect(
+      missing.service.updateInstallmentDate(
+        "tenant-1",
+        "project-x",
+        "expense-1",
+        1,
+        "2026-09-20",
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    const single = makeHarness({ ...baseExpense, formaPagamento: "A_VISTA" });
+    await expect(
+      single.service.updateInstallmentDate(
+        "tenant-1",
+        "project-1",
+        "expense-1",
+        0,
+        "2026-09-20",
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    const ranged = makeHarness();
+    await expect(
+      ranged.service.updateInstallmentDate(
+        "tenant-1",
+        "project-1",
+        "expense-1",
+        3,
+        "2026-09-20",
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("bloqueia alvo de rateio com orientação acionável", async () => {
+    const { service, tx } = makeHarness();
+    tx.rateioAllocation.findUnique.mockResolvedValueOnce({
+      sourceExpenseId: "source-1",
+      targetExpenseId: "expense-1",
+    });
+
+    await expect(
+      service.updateInstallmentDate(
+        "tenant-1",
+        "project-1",
+        "expense-1",
+        1,
+        "2026-09-20",
+      ),
+    ).rejects.toThrow(/fonte.*rateio/i);
+  });
+
+  it("sincroniza par simples na mesma transação e não altera fonte de conciliação", async () => {
+    const mirror = {
+      ...baseExpense,
+      id: "mirror-1",
+      projectId: "project-2",
+      linkedExpenseId: "expense-1",
+    };
+    const pair = makeHarness(mirror);
+    pair.tx.expense.findFirst
+      .mockResolvedValueOnce(mirror)
+      .mockResolvedValueOnce(baseExpense);
+    pair.tx.expense.findMany.mockResolvedValueOnce([{ id: "expense-1" }]);
+
+    await pair.service.updateInstallmentDate(
+      "tenant-1",
+      "project-2",
+      "mirror-1",
+      1,
+      "2026-09-20",
+    );
+    expect(pair.tx.expense.update).toHaveBeenCalledTimes(2);
+    expect(pair.tx.expense.update).toHaveBeenLastCalledWith({
+      where: { id: "expense-1" },
+      data: { installmentDateOverrides: '{"1":"2026-09-20"}' },
+    });
+
+    const settlement = makeHarness(baseExpense);
+    settlement.tx.crossProjectSettlement.count.mockResolvedValue(1);
+    await settlement.service.updateInstallmentDate(
+      "tenant-1",
+      "project-1",
+      "expense-1",
+      1,
+      "2026-09-20",
+    );
+    expect(settlement.tx.expense.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("propaga cronograma da fonte de rateio para todos os alvos", async () => {
+    const { service, tx, conciliacao } = makeHarness();
+    tx.rateioAllocation.findMany.mockResolvedValueOnce([
+      { sourceExpenseId: "expense-1", targetExpenseId: "target-1" },
+      { sourceExpenseId: "expense-1", targetExpenseId: "target-2" },
+    ]);
+
+    await service.updateInstallmentDate(
+      "tenant-1",
+      "project-1",
+      "expense-1",
+      1,
+      "2026-09-20",
+    );
+
+    expect(conciliacao.regenerateRateioTargetCashflow).toHaveBeenCalledTimes(2);
+    expect(tx.expense.update).toHaveBeenCalledWith({
+      where: { id: "target-1" },
+      data: { installmentDateOverrides: '{"1":"2026-09-20"}' },
+    });
+  });
+
+  it("faz rollback do par simples quando a atualização do espelho falha", async () => {
+    const expense = { ...baseExpense, linkedExpenseId: "mirror-1" };
+    const { service, tx } = makeHarness(expense);
+    tx.expense.findFirst
+      .mockResolvedValueOnce(expense)
+      .mockResolvedValueOnce({
+        ...baseExpense,
+        id: "mirror-1",
+        projectId: "project-2",
+      });
+    tx.expense.update
+      .mockResolvedValueOnce({
+        ...expense,
+        installmentDateOverrides: '{"1":"2026-09-20"}',
+      })
+      .mockRejectedValueOnce(new Error("falha no espelho"));
+
+    await expect(
+      service.updateInstallmentDate(
+        "tenant-1",
+        "project-1",
+        "expense-1",
+        1,
+        "2026-09-20",
+      ),
+    ).rejects.toThrow("falha no espelho");
+    expect(tx.expense.update).toHaveBeenCalledTimes(2);
+  });
+
+  it("bloqueia alteração da fonte real de uma conciliação", async () => {
+    const { service, tx } = makeHarness();
+    tx.crossProjectSettlement.findMany.mockResolvedValueOnce([
+      {
+        sourceExpenseId: "expense-1",
+        targetExpenseId: "planned-1",
+      },
+    ]);
+
+    await expect(
+      service.updateInstallmentDate(
+        "tenant-1",
+        "project-1",
+        "expense-1",
+        1,
+        "2026-09-20",
+      ),
+    ).rejects.toThrow(/fonte real/i);
+    expect(tx.expense.update).not.toHaveBeenCalled();
+  });
+
+  it("PATCH comum normaliza overrides ao reduzir parcelas ou mudar para forma única", async () => {
+    const expense = {
+      ...baseExpense,
+      installmentDateOverrides:
+        '{"0":"2026-08-11","1":"2026-09-20","2":"2026-10-20"}',
+    };
+    const reduced = makeHarness(expense);
+    await reduced.service.update("tenant-1", "project-1", "expense-1", {
+      quantidadeParcela: 2,
+    } as never);
+    expect(reduced.tx.expense.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          installmentDateOverrides: '{"0":"2026-08-11","1":"2026-09-20"}',
+        }),
+      }),
+    );
+
+    const single = makeHarness(expense);
+    await single.service.update("tenant-1", "project-1", "expense-1", {
+      formaPagamento: "A_VISTA",
+    } as never);
+    expect(single.tx.expense.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ installmentDateOverrides: null }),
+      }),
+    );
+  });
+});

@@ -132,6 +132,7 @@ export class ConciliacaoService {
       dataPagamento: target.dataPagamento,
       quantidadeParcela: target.quantidadeParcela,
       dataInicioParcela: target.dataInicioParcela,
+      installmentDateOverrides: target.installmentDateOverrides,
     });
     const plannedValor = plannedSlices[parcelaIndex]?.valor ?? target.valorTotal;
 
@@ -225,6 +226,7 @@ export class ConciliacaoService {
       dataPagamento: target.dataPagamento,
       quantidadeParcela: target.quantidadeParcela,
       dataInicioParcela: target.dataInicioParcela,
+      installmentDateOverrides: target.installmentDateOverrides,
     });
     const n = plannedSlices.length;
 
@@ -374,6 +376,7 @@ export class ConciliacaoService {
       dataPagamento: source.dataPagamento,
       quantidadeParcela: source.quantidadeParcela,
       dataInicioParcela: source.dataInicioParcela,
+      installmentDateOverrides: source.installmentDateOverrides,
     });
     const n = slices.length;
     const singlePayment = isSinglePaymentForm(source.formaPagamento);
@@ -481,6 +484,7 @@ export class ConciliacaoService {
           plannedQtdParcela: target.quantidadeParcela,
           plannedDataInicio: target.dataInicioParcela,
           plannedDataPagamento: target.dataPagamento,
+          plannedInstallmentDateOverrides: target.installmentDateOverrides,
         },
         update: { allocation, sourceExpenseId },
       });
@@ -500,6 +504,7 @@ export class ConciliacaoService {
           quantidadeParcela: isSourceParcelado ? source.quantidadeParcela : null,
           dataInicioParcela: isSourceParcelado ? source.dataInicioParcela : null,
           dataPagamento: isSourceParcelado ? null : source.dataPagamento,
+          installmentDateOverrides: isSourceParcelado ? source.installmentDateOverrides : null,
         },
       });
 
@@ -551,6 +556,7 @@ export class ConciliacaoService {
                   quantidadeParcela: r.plannedQtdParcela,
                   dataInicioParcela: r.plannedDataInicio,
                   dataPagamento: r.plannedDataPagamento,
+                  installmentDateOverrides: r.plannedInstallmentDateOverrides,
                 }
               : {}),
           },

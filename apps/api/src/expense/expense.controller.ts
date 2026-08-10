@@ -17,6 +17,7 @@ import { CreateRecorrenteDto } from './dto/create-recorrente.dto';
 import { SetParcelaStatusDto } from './dto/set-parcela-status.dto';
 import { RatearDto } from './dto/ratear.dto';
 import { RatearMixedDto } from './dto/ratear-mixed.dto';
+import { UpdateInstallmentDateDto } from './dto/update-installment-date.dto';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
 import { CurrentTenant, CurrentUser } from '../common/decorators/tenant.decorator';
 import { RequireModule } from '../common/decorators/require-module.decorator';
@@ -122,6 +123,17 @@ export class ExpenseController {
     @Body() dto: SetParcelaStatusDto,
   ) {
     return this.service.setParcelaStatus(tenantId, projectId, id, dto.parcela, dto.paid);
+  }
+
+  @Patch(':id/parcela-data')
+  @ApiOperation({ summary: 'Alterar a data efetiva de uma parcela específica' })
+  updateInstallmentDate(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateInstallmentDateDto,
+  ) {
+    return this.service.updateInstallmentDate(tenantId, projectId, id, dto.parcela, dto.data);
   }
 
   @Post(':id/pay')

@@ -51,6 +51,7 @@ describe('MonthlyOverviewService.getAccountView — origem POR PARCELA (P3) + co
     dataInicioParcela: new Date('2026-06-04T00:00:00.000Z'), quantidadeParcela: 10, status: 'PLANEJADO',
     cardLast4: null, bankLast4: null, importId: null, createdAt: new Date('2026-06-01T00:00:00.000Z'),
     linkedExpenseId: null, settledByExpenseId: null, settlesInvoiceKey: null, paidParcelas: '[0]',
+    installmentDateOverrides: null,
     project: { id: 'reforma-1', name: 'Reforma', type: 'REFORMA' },
   });
   const mirrorCard = () => ({
@@ -59,6 +60,7 @@ describe('MonthlyOverviewService.getAccountView — origem POR PARCELA (P3) + co
     dataInicioParcela: null, quantidadeParcela: null, status: 'PAGO', cardLast4: '1111', bankLast4: null,
     importId: null, createdAt: new Date('2026-06-04T00:00:00.000Z'), linkedExpenseId: foreignId,
     settledByExpenseId: null, settlesInvoiceKey: null, paidParcelas: null,
+    installmentDateOverrides: null,
     project: { id: projectId, name: 'Pessoal', type: 'PESSOAL' },
   });
 
@@ -108,6 +110,21 @@ describe('MonthlyOverviewService.getAccountView — origem POR PARCELA (P3) + co
     expect(ids).toContain('mirror-bank');
     // idx1 permanece pendente.
     expect(ids).toContain(`${foreignId}#1`);
+  });
+
+  it('monthly overview usa a data efetiva da parcela', async () => {
+    prisma.expense.findMany.mockResolvedValue([{
+      ...foreignQuinzenal(),
+      paidParcelas: null,
+      installmentDateOverrides: '{"1":"2026-07-20"}',
+    }]);
+
+    const june: any = await service.getAccountView(tenantId, projectId, '2026-06');
+    expect(june.saidas.map((item: any) => item.id)).not.toContain(`${foreignId}#1`);
+
+    const july: any = await service.getAccountView(tenantId, projectId, '2026-07');
+    const overridden = july.saidas.find((item: any) => item.id === `${foreignId}#1`);
+    expect(overridden.data.slice(0, 10)).toBe('2026-07-20');
   });
 
   it('COMPAT: espelho linkado SEM crossProjectSettlement (link manual legado) usa caminho agregado sem quebrar', async () => {
