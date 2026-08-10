@@ -1,5 +1,6 @@
 import type { Expense } from '@/types';
-import { buildInstallments, buildRecurringOccurrences, isSinglePaymentForm } from '@reformaflow/domain';
+import { buildRecurringOccurrences, isSinglePaymentForm } from '@reformaflow/domain';
+import { buildExpenseInstallments } from './installments';
 
 /** Horizonte de projeção de despesas fixas (recorrentes) à frente do mês atual. */
 const RECURRING_HORIZON_MONTHS = 12;
@@ -51,6 +52,8 @@ export function effectiveDate(
   e: Expense,
   axis: ExpenseDateAxis = 'caixa',
 ): string | null {
+  const occurrenceDate = (e as Partial<Occurrence>).occDate;
+  if (occurrenceDate) return occurrenceDate;
   if (axis === 'competencia') {
     const dc = (e as { dataCompra?: string }).dataCompra;
     if (dc) return dc;
@@ -90,6 +93,17 @@ export function expandExpenseOccurrences(
   e: Expense,
   axis: ExpenseDateAxis = 'caixa',
 ): Occurrence[] {
+  const slicedOccurrence = e as Partial<Occurrence>;
+  if (
+    slicedOccurrence.occKey &&
+    slicedOccurrence.occDate &&
+    slicedOccurrence.occIndex != null &&
+    slicedOccurrence.occValue != null &&
+    slicedOccurrence.occTotalParcelas != null
+  ) {
+    return [e as Occurrence];
+  }
+
   // COMPETÊNCIA com data de compra conhecida: a compra inteira cai UMA vez
   // (valor cheio) no mês da compra — não espalha parcelas. Só vale para o eixo
   // competência; o eixo caixa (Conta Real) nunca entra aqui. Não afeta despesas
@@ -159,7 +173,7 @@ export function expandExpenseOccurrences(
 
   // Usa o MESMO cálculo de parcelas do backend (@reformaflow/domain) para
   // garantir que valores e datas das parcelas batam com o fluxo de caixa.
-  const installments = buildInstallments({
+  const installments = buildExpenseInstallments({
     valorTotal: e.valorTotal,
     formaPagamento: e.formaPagamento,
     dataPagamento: e.dataPagamento ? new Date(e.dataPagamento) : null,
@@ -169,6 +183,7 @@ export function expandExpenseOccurrences(
       : e.dataPagamento
         ? new Date(e.dataPagamento)
         : null,
+    installmentDateOverrides: e.installmentDateOverrides,
   });
 
   const paidSet = parsePaidSet(e.paidParcelas, installments.length);

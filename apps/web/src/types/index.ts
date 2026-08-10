@@ -109,6 +109,7 @@ export interface Expense {
   recorrente?: boolean; // despesa fixa mensal (ocorrência virtual)
   recorrenciaFim?: string | null; // último mês da recorrência (ISO) ou null
   paidParcelas?: string | null; // JSON array de índices 0-based de parcelas pagas
+  installmentDateOverrides?: string | null; // JSON de índice 0-based → data efetiva YYYY-MM-DD
   // Vínculos
   cardLast4?: string | null;
   bankLast4?: string | null;

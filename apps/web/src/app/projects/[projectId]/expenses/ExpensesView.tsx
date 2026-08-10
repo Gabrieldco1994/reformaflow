@@ -53,10 +53,10 @@ import { usePersonalCashViews } from './_hooks/usePersonalCashViews';
 import type { PersonalCardInfo } from './_components/PersonalExpenseCard';
 import { upcomingContaRealMonths, type ContaRealCard } from './_lib/conta-real';
 import { groupExpensesByMes, groupExpensesChrono, currentMonthKey, expandExpenseOccurrences } from './_lib/grouping-by-month';
+import { sliceExpensesByPeriod } from './_lib/slice-by-period';
 import {
   type RemoteProjectMap,
   type PeriodFilter,
-  inPeriod,
   listPeriods,
   currentPeriod,
   groupPersonalExpenses,
@@ -84,81 +84,6 @@ const todayBrtIsoDate = () =>
     month: '2-digit',
     day: '2-digit',
   }).format(new Date());
-
-// Fatia uma base de despesas pelo período selecionado (mês / ano todo / range),
-// expandindo parcelas por competência. Extraído de `periodFilteredPersonal` para
-// ser reutilizado nas DUAS bases (caixa × lista por projeto) sem divergir a lógica.
-function sliceByPeriod(
-  base: Expense[],
-  period: PeriodFilter,
-  periodYear: number,
-  rangeStart: string,
-  rangeEnd: string,
-): Expense[] {
-  // If a range is specified (both start and end), use it to filter occurrences
-  if (rangeStart && rangeEnd) {
-    const out: Expense[] = [];
-    const startDate = new Date(`${rangeStart}-01`);
-    const tmp = new Date(`${rangeEnd}-01`);
-    // move to last day of end month
-    const endDate = new Date(tmp.getFullYear(), tmp.getMonth() + 1, 0);
-    for (const e of base) {
-      const isInst =
-        (e.formaPagamento === 'PARCELADO' || e.formaPagamento === 'QUINZENAL') &&
-        (e.quantidadeParcela ?? 1) > 1;
-      for (const occ of expandExpenseOccurrences(e, 'competencia')) {
-        if (!occ.occDate) continue;
-        const occDateObj = new Date(occ.occDate);
-        if (occDateObj < startDate || occDateObj > endDate) continue;
-        if (!isInst) {
-          out.push(e);
-        } else {
-          out.push({
-            ...e,
-            valorTotal: occ.occValue,
-            quantidadeParcela: 1,
-            dataPagamento: occ.occDate,
-            dataInicioParcela: undefined,
-            status: occ.status,
-          });
-        }
-      }
-    }
-    return out;
-  }
-
-  if (period === 'ALL') {
-    return base.filter((e) => inPeriod(e, period, periodYear, 'competencia'));
-  }
-
-  // Mês específico: expande parcelas e mantém só a parcela do mês selecionado,
-  // com valor, data e status próprios da parcela. IMPORTANTE: a data do slice é
-  // ajustada para a data da ocorrência (dataPagamento) e o parcelamento é zerado,
-  // senão a UnifiedExpenseView reagrupa pela data ORIGINAL (mês de início) e a
-  // parcela "vaza" para o mês errado.
-  const out: Expense[] = [];
-  for (const e of base) {
-    const isInst =
-      (e.formaPagamento === 'PARCELADO' || e.formaPagamento === 'QUINZENAL') &&
-      (e.quantidadeParcela ?? 1) > 1;
-    for (const occ of expandExpenseOccurrences(e, 'competencia')) {
-      if (!occ.occDate || occ.occDate.slice(0, 7) !== period) continue;
-      if (!isInst) {
-        out.push(e);
-      } else {
-        out.push({
-          ...e,
-          valorTotal: occ.occValue,
-          quantidadeParcela: 1,
-          dataPagamento: occ.occDate,
-          dataInicioParcela: undefined,
-          status: occ.status,
-        });
-      }
-    }
-  }
-  return out;
-}
 
 export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) {
   const { projectId: PROJECT_ID, projectType } = useProject();
@@ -418,12 +343,12 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
 
   const periodFilteredPersonal = useMemo<Expense[]>(() => {
     if (projectType !== 'PESSOAL') return caixaFiltered;
-    return sliceByPeriod(caixaFiltered, period, periodYear, rangeStart, rangeEnd);
+    return sliceExpensesByPeriod(caixaFiltered, period, periodYear, rangeStart, rangeEnd);
   }, [projectType, caixaFiltered, period, periodYear, rangeStart, rangeEnd]);
 
   const periodFilteredDisplay = useMemo<Expense[]>(() => {
     if (projectType !== 'PESSOAL') return displayFiltered;
-    return sliceByPeriod(displayFiltered, period, periodYear, rangeStart, rangeEnd);
+    return sliceExpensesByPeriod(displayFiltered, period, periodYear, rangeStart, rangeEnd);
   }, [projectType, displayFiltered, period, periodYear, rangeStart, rangeEnd]);
 
   // KPIs (excluem tipos neutros — movimentação interna / pagto fatura).
@@ -553,6 +478,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
     payMutation,
     toggleStatusMutation,
     toggleParcelaMutation,
+    installmentDateMutation,
     quickUpdateMutation,
     changeTipoMutation,
     bulkDateMutation,
@@ -1267,8 +1193,13 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
               onToggleStatus={handleToggleStatus}
               onToggleParcela={handleToggleParcela}
               onChangeTipo={(id, tipoDespesa) => changeTipoMutation.mutate({ id, tipoDespesa })}
-              onQuickUpdate={(id, valor, data) => {
-                const exp = expenses.find((x) => x.id === id);
+              onQuickUpdate={({ id, valor, data, parcela }) => {
+                if (parcela != null) {
+                  installmentDateMutation.mutate({ id, parcela, data });
+                  return;
+                }
+                if (valor == null) return;
+                const exp = allExpensesPersonal.find((x) => x.id === id);
                 const qty = exp?.quantidade ?? 1;
                 quickUpdateMutation.mutate({ id, valorTotal: valor, dataPagamento: data, quantidade: qty });
               }}
@@ -1316,8 +1247,13 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
             onToggleStatus={handleToggleStatus}
             onToggleParcela={handleToggleParcela}
             onChangeTipo={(id, tipoDespesa) => changeTipoMutation.mutate({ id, tipoDespesa })}
-            onQuickUpdate={(id, valor, data) => {
-              const exp = expenses.find((x) => x.id === id);
+            onQuickUpdate={({ id, valor, data, parcela }) => {
+              if (parcela != null) {
+                installmentDateMutation.mutate({ id, parcela, data });
+                return;
+              }
+              if (valor == null) return;
+              const exp = allExpensesPersonal.find((x) => x.id === id);
               const qty = exp?.quantidade ?? 1;
               quickUpdateMutation.mutate({ id, valorTotal: valor, dataPagamento: data, quantidade: qty });
             }}

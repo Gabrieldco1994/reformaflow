@@ -1,12 +1,13 @@
 'use client';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { buildInstallments, isSinglePaymentForm, parsePaidParcelas } from '@reformaflow/domain';
+import { isSinglePaymentForm, parsePaidParcelas } from '@reformaflow/domain';
 import { api } from '@/lib/api';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { CreateLinkedExpenseModal, type LinkedExpenseDraft } from './CreateLinkedExpenseModal';
+import { buildExpenseInstallments } from '../_lib/installments';
 
 interface TenantCard {
   id: string;
@@ -37,6 +38,7 @@ interface CrossExpense {
   dataInicioParcela?: string | null;
   dataPagamento?: string | null;
   paidParcelas?: string | null;
+  installmentDateOverrides?: string | null;
   project?: { id: string; name: string; type: string } | null;
 }
 
@@ -66,12 +68,13 @@ function expandParcelaOptions(exp: CrossExpense): ParcelaOption[] {
       },
     ];
   }
-  const slices = buildInstallments({
+  const slices = buildExpenseInstallments({
     valorTotal: exp.valorTotal,
     formaPagamento: forma,
     dataPagamento: exp.dataPagamento ? new Date(exp.dataPagamento) : null,
     quantidadeParcela: n,
     dataInicioParcela: exp.dataInicioParcela ? new Date(exp.dataInicioParcela) : null,
+    installmentDateOverrides: exp.installmentDateOverrides,
   });
   const paid = new Set(
     exp.status === 'PAGO'

@@ -1,6 +1,7 @@
-import { buildInstallments, isSinglePaymentForm } from '@reformaflow/domain';
+import { isSinglePaymentForm } from '@reformaflow/domain';
 import type { ExpenseFormData } from '@/types';
 import type { AccountViewSaida } from '../../conta/_types';
+import { buildExpenseInstallments } from './installments';
 
 /**
  * Helpers puros da quitação de parcela cross-project no PESSOAL.
@@ -108,6 +109,7 @@ export interface QuitacaoTargetExpense {
   dataInicioParcela?: string | null;
   quantidadeParcela?: number | null;
   paidParcelas?: string | number[] | null;
+  installmentDateOverrides?: string | null;
 }
 
 export interface ParcelaQuitacaoSuggestion {
@@ -140,12 +142,13 @@ export function suggestParcelaQuitacao(
       dataSugerida: (exp.dataPagamento ?? exp.dataInicioParcela ?? isoToday).slice(0, 10),
     };
   }
-  const slices = buildInstallments({
+  const slices = buildExpenseInstallments({
     valorTotal: exp.valorTotal,
     formaPagamento: exp.formaPagamento as never,
     dataPagamento: exp.dataPagamento ? new Date(exp.dataPagamento) : null,
     quantidadeParcela: exp.quantidadeParcela ?? null,
     dataInicioParcela: exp.dataInicioParcela ? new Date(exp.dataInicioParcela) : null,
+    installmentDateOverrides: exp.installmentDateOverrides,
   });
   const n = Math.max(1, slices.length);
   const paid = parsePaidParcelaSet(exp.paidParcelas);
@@ -184,12 +187,13 @@ export function suggestParcelaQuitacaoAt(
       dataSugerida: (exp.dataPagamento ?? exp.dataInicioParcela ?? isoToday).slice(0, 10),
     };
   }
-  const slices = buildInstallments({
+  const slices = buildExpenseInstallments({
     valorTotal: exp.valorTotal,
     formaPagamento: exp.formaPagamento as never,
     dataPagamento: exp.dataPagamento ? new Date(exp.dataPagamento) : null,
     quantidadeParcela: exp.quantidadeParcela ?? null,
     dataInicioParcela: exp.dataInicioParcela ? new Date(exp.dataInicioParcela) : null,
+    installmentDateOverrides: exp.installmentDateOverrides,
   });
   const n = Math.max(1, slices.length);
   const idx = Math.min(Math.max(0, parcelaIndex), n - 1);
