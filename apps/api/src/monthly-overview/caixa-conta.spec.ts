@@ -52,6 +52,82 @@ describe('computeCaixaConta — reconciliação §10', () => {
     expect(r.hoje).toBe(120_000);
   });
 
+  it('deduz somente paidParcelas de um parcelado e usa a data efetiva no porMes', () => {
+    const r = computeCaixaConta(
+      [{ openingBalanceCents: 1_000_000, openingBalanceDate: d('2026-01-01') }],
+      [
+        {
+          valorTotal: 360_000,
+          status: 'PLANEJADO',
+          formaPagamento: 'PARCELADO',
+          quantidadeParcela: 6,
+          dataInicioParcela: d('2026-06-10'),
+          dataPagamento: null,
+          paidParcelas: '[0]',
+          installmentDateOverrides: '{"0":"2026-07-20"}',
+          createdAt: d('2026-05-01'),
+        },
+      ],
+      [],
+    );
+
+    expect(r.hoje).toBe(940_000);
+    expect(r.porMes).toEqual([{ mes: '2026-07', caixa: 940_000 }]);
+  });
+
+  it('distribui todas as parcelas no porMes quando o root está PAGO', () => {
+    const r = computeCaixaConta(
+      [{ openingBalanceCents: 0, openingBalanceDate: d('2026-01-01') }],
+      [
+        {
+          valorTotal: 360_000,
+          status: 'PAGO',
+          formaPagamento: 'PARCELADO',
+          quantidadeParcela: 6,
+          dataInicioParcela: d('2026-06-10'),
+          dataPagamento: null,
+          paidParcelas: null,
+          installmentDateOverrides: null,
+          createdAt: d('2026-05-01'),
+        },
+      ],
+      [],
+    );
+
+    expect(r.hoje).toBe(-360_000);
+    expect(r.porMes).toEqual([
+      { mes: '2026-06', caixa: -60_000 },
+      { mes: '2026-07', caixa: -120_000 },
+      { mes: '2026-08', caixa: -180_000 },
+      { mes: '2026-09', caixa: -240_000 },
+      { mes: '2026-10', caixa: -300_000 },
+      { mes: '2026-11', caixa: -360_000 },
+    ]);
+  });
+
+  it('mantém despesas de pagamento único como um movimento integral', () => {
+    const r = computeCaixaConta(
+      [{ openingBalanceCents: 500_000, openingBalanceDate: d('2026-01-01') }],
+      [
+        {
+          valorTotal: 360_000,
+          status: 'PAGO',
+          formaPagamento: 'A_VISTA',
+          quantidadeParcela: null,
+          dataInicioParcela: null,
+          dataPagamento: d('2026-06-10'),
+          paidParcelas: '[0]',
+          installmentDateOverrides: '{"0":"2026-07-20"}',
+          createdAt: d('2026-05-01'),
+        },
+      ],
+      [],
+    );
+
+    expect(r.hoje).toBe(140_000);
+    expect(r.porMes).toEqual([{ mes: '2026-06', caixa: 140_000 }]);
+  });
+
   it('INVARIANTE I1: aporte (INVESTIMENTOS) PAGO pela conta REDUZ o caixa hoje — neutro-de-consumo NÃO altera §10', () => {
     // computeCaixaConta é type-agnóstico: soma TODA despesa PAGO da conta como saída,
     // sem olhar tipoDespesa/neutralidade. Marcar INVESTIMENTOS neutro-de-consumo no

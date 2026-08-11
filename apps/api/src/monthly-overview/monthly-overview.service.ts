@@ -14,6 +14,7 @@ import {
   isNeutralReceiptType,
   isSinglePaymentForm,
   parsePaidParcelas,
+  PaymentForm,
   todayLocalDateUtc,
   type MonthlyOverviewEntry,
 } from '@reformaflow/domain';
@@ -589,7 +590,8 @@ export class MonthlyOverviewService {
         formaPagamento: expense.formaPagamento,
         quantidadeParcela: expense.quantidadeParcela,
         valorTotal: expense.valorTotal,
-        dataInicioParcela: expense.dataInicioParcela,
+        dataInicioParcela:
+          expense.dataInicioParcela ?? expense.dataPagamento ?? singlePaymentDate,
         dataPagamento: expense.dataPagamento,
         installmentDateOverrides: expense.installmentDateOverrides,
       });
@@ -615,21 +617,23 @@ export class MonthlyOverviewService {
     // direto do caixa como dinheiro; espelha o tratamento das foreign carteira,
     // mas para o projeto atual. Espelho em carteira fica como a representação de
     // caixa, mesmo se outras parcelas do alvo tiverem settlement.
-    const localCarteiraThisMonth = expenses
+    const localCarteiraOccurrences = expenses
       .filter(
         (expense) =>
           !expense.cardLast4 &&
           !expense.bankLast4 &&
-          (!expense.linkedExpenseId ||
-            manualWalletMirrorTargetsThisMonth.has(expense.linkedExpenseId)) &&
           !isNeutralExpenseType(expense.tipoDespesa),
       )
       .flatMap((expense) => localExpenseOccurrences(expense, purchaseDate(expense)))
       .filter(
-        ({ expense, data }) =>
-          (expense.status === 'PAGO' || !expense.settledByExpenseId) &&
-          isInRange(data, monthStart, monthEnd),
+        ({ expense }) => expense.status === 'PAGO' || !expense.settledByExpenseId,
       );
+    const localCarteiraThisMonth = localCarteiraOccurrences.filter(
+      ({ expense, data }) =>
+        (!expense.linkedExpenseId ||
+          manualWalletMirrorTargetsThisMonth.has(expense.linkedExpenseId)) &&
+        isInRange(data, monthStart, monthEnd),
+    );
 
     const saiuMes = sumBy(
       expenses.filter(
@@ -1291,11 +1295,8 @@ export class MonthlyOverviewService {
       }));
     const carteiraHoje =
       sumBy(
-        expenses.filter(
-          (expense) =>
-            !expense.cardLast4 && !expense.bankLast4 && expense.status === 'PAGO',
-        ),
-        (expense) => -expense.valorTotal,
+        localCarteiraOccurrences.filter(({ realizado }) => realizado),
+        ({ valor }) => -valor,
       ) +
       sumBy(
         receipts.filter((receipt) => !receipt.bankLast4 && receipt.status === 'EM_CAIXA'),
@@ -2612,8 +2613,8 @@ export class MonthlyOverviewService {
    * "Lançamento da conta" = qualquer Expense/Receipt com `bankLast4` preenchido
    * (extrato, aplicações/resgates e pagamentos de fatura debitados na conta).
    * Itens de cartão (cardLast4, sem bankLast4) NÃO entram — eles estão na fatura,
-   * não na conta. Lançamentos futuros (PLANEJADO, ex.: seguros agendados) ficam de
-   * fora porque ainda não foram debitados — exatamente o que a §10 manda descontar.
+   * não na conta. Em parcelados, entram apenas ocorrências realizadas; lançamentos
+   * futuros ficam de fora porque ainda não foram debitados.
    *
    * Diferente de "caixaAgora" do cockpit (fluxo realizado conta+cartão): este bate
    * com o saldo do app do banco quando o saldo inicial está cadastrado.
@@ -2637,6 +2638,11 @@ export class MonthlyOverviewService {
           valorTotal: true,
           status: true,
           dataPagamento: true,
+          dataInicioParcela: true,
+          formaPagamento: true,
+          quantidadeParcela: true,
+          paidParcelas: true,
+          installmentDateOverrides: true,
           createdAt: true,
           bankLast4: true,
           importId: true,
@@ -3353,6 +3359,11 @@ export interface CaixaContaExpense {
   valorTotal: number;
   status: string;
   dataPagamento: Date | null;
+  dataInicioParcela?: Date | null;
+  formaPagamento?: string | null;
+  quantidadeParcela?: number | null;
+  paidParcelas?: string | null;
+  installmentDateOverrides?: string | null;
   createdAt: Date;
 }
 export interface CaixaContaReceipt {
@@ -3364,8 +3375,8 @@ export interface CaixaContaReceipt {
 /**
  * Reconciliação §10 (função pura, testável): saldo da conta hoje =
  * saldo inicial + Σ lançamentos REALIZADOS da conta. Espera apenas lançamentos
- * com `bankLast4` (filtrados pelo chamador). Cartão (sem bankLast4) e futuros
- * (status ≠ PAGO/EM_CAIXA) ficam de fora.
+ * com `bankLast4` (filtrados pelo chamador). Parcelados usam o status do root ou
+ * `paidParcelas`; cartão (sem bankLast4) e ocorrências futuras ficam de fora.
  */
 export function computeCaixaConta(
   accounts: CaixaContaAccount[],
@@ -3380,6 +3391,27 @@ export function computeCaixaConta(
   // Lançamentos realizados com sinal (despesa −, recebimento +) e mês de referência.
   const movs: Array<{ mes: string; valor: number }> = [];
   for (const e of expenses) {
+    if (
+      e.formaPagamento === PaymentForm.PARCELADO ||
+      e.formaPagamento === PaymentForm.QUINZENAL
+    ) {
+      const installments = buildInstallments({
+        valorTotal: e.valorTotal,
+        formaPagamento: e.formaPagamento,
+        quantidadeParcela: e.quantidadeParcela,
+        dataInicioParcela: e.dataInicioParcela ?? e.dataPagamento ?? e.createdAt,
+        dataPagamento: e.dataPagamento,
+        installmentDateOverrides: e.installmentDateOverrides,
+      });
+      const paidParcelas = new Set(
+        parsePaidParcelas(e.paidParcelas, installments.length),
+      );
+      installments.forEach((installment, index) => {
+        if (e.status !== 'PAGO' && !paidParcelas.has(index)) return;
+        movs.push({ mes: monthKeyOf(installment.data), valor: -installment.valor });
+      });
+      continue;
+    }
     if (e.status !== 'PAGO') continue; // só realizados afetam o caixa
     const d = e.dataPagamento ?? e.createdAt;
     movs.push({ mes: monthKeyOf(d), valor: -e.valorTotal });

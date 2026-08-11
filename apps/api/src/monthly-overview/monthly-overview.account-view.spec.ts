@@ -3216,6 +3216,7 @@ describe("MonthlyOverviewService.getAccountView — Carteira (origem='none')", (
     ]);
     expect(res.saiuMes).toBe(1_000);
     expect(res.faltaPagarMes).toBe(1_000);
+    expect(res.caixaHoje).toBe(-1_000);
   });
 
   it("usa as ocorrências efetivas da Carteira local sem manter a linha agregada", async () => {
@@ -3262,6 +3263,44 @@ describe("MonthlyOverviewService.getAccountView — Carteira (origem='none')", (
     ]);
     expect(res.saiuMes).toBe(1_000);
     expect(res.faltaPagarMes).toBe(1_000);
+    expect(res.carteiraHoje).toBe(-1_000);
+    expect(res.carteiraHoje).toBe(-res.saiuMes);
+  });
+
+  it("mantém parcelado local sem dataInicioParcela no mês histórico de dataPagamento", async () => {
+    prisma.expense.findMany.mockResolvedValue([
+      base({
+        id: "local-wallet-historical-date",
+        projectId,
+        titulo: "Tratamento antigo",
+        valorTotal: 3_000,
+        valor: 3_000,
+        formaPagamento: "PARCELADO",
+        quantidadeParcela: 3,
+        dataInicioParcela: null,
+        dataPagamento: new Date("2026-05-10T00:00:00.000Z"),
+        paidParcelas: "[0]",
+        project: { id: projectId, name: "Pessoal", type: "PESSOAL" },
+      }),
+    ]);
+    prisma.receipt.findMany.mockResolvedValue([]);
+    prisma.cashFlowEntry.findMany.mockResolvedValue([]);
+    prisma.creditCard.findMany.mockResolvedValue([]);
+
+    const res = await service.getAccountView(tenantId, projectId, "2026-05");
+    const item = res.saidas.find(
+      (saida) => saida.id === "local-wallet-historical-date"
+    );
+
+    expect(item).toEqual(
+      expect.objectContaining({
+        data: "2026-05-10T00:00:00.000Z",
+        valor: 1_000,
+        realizado: true,
+        parcelaIndex: 0,
+      })
+    );
+    expect(res.saiuMes).toBe(1_000);
   });
 
   it("T8: carteira paga e planejada no mesmo mês caem em buckets distintos", async () => {
