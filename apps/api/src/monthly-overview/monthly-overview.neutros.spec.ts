@@ -90,4 +90,36 @@ describe('MonthlyOverviewService.getNeutros', () => {
     expect(byId['fat']).toBe(false); // settlement não gera cashflow
     expect(byId['mov']).toBe(false); // movimentação interna idem
   });
+
+  it('usa ocorrências efetivas e paidParcelas ao filtrar neutros parcelados por ano', async () => {
+    prisma.expense.findMany.mockResolvedValue([
+      exp({
+        id: 'e-parcelada',
+        tipoDespesa: 'INVESTIMENTOS',
+        valorTotal: 3000,
+        valor: 3000,
+        formaPagamento: 'PARCELADO',
+        quantidadeParcela: 3,
+        dataInicioParcela: new Date('2025-12-10T00:00:00.000Z'),
+        dataPagamento: null,
+        installmentDateOverrides: '{"1":"2025-12-20"}',
+        paidParcelas: '[2]',
+        status: 'PLANEJADO',
+      }),
+    ]);
+    prisma.receipt.findMany.mockResolvedValue([]);
+
+    const res = await service.getNeutros(tenantId, projectId, 2026);
+
+    expect(res.itens).toEqual([
+      expect.objectContaining({
+        id: 'e-parcelada',
+        valorTotal: 1000,
+        data: '2026-02-10T00:00:00.000Z',
+        status: 'PAGO',
+        parcelaIndex: 2,
+      }),
+    ]);
+    expect(res.totalSaidas).toBe(1000);
+  });
 });

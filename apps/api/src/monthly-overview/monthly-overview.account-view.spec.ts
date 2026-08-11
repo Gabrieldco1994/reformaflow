@@ -3163,6 +3163,107 @@ describe("MonthlyOverviewService.getAccountView — Carteira (origem='none')", (
     expect(res.saiuMes).toBe(0);
   });
 
+  it("usa as ocorrências efetivas da despesa local vinculada à conta, com status por parcela", async () => {
+    prisma.bankAccount.findMany.mockResolvedValue([
+      {
+        id: "bank-1",
+        last4: "4242",
+        isPrimary: true,
+        openingBalanceCents: 0,
+        openingBalanceDate: new Date("2025-12-31T00:00:00.000Z"),
+      },
+    ]);
+    prisma.expense.findMany.mockResolvedValue([
+      base({
+        id: "local-bank-installments",
+        projectId,
+        titulo: "Curso",
+        valorTotal: 3_000,
+        valor: 3_000,
+        formaPagamento: "PARCELADO",
+        quantidadeParcela: 3,
+        dataInicioParcela: new Date("2026-06-10T00:00:00.000Z"),
+        installmentDateOverrides: '{"0":"2026-07-20"}',
+        paidParcelas: "[0]",
+        bankLast4: "4242",
+        project: { id: projectId, name: "Pessoal", type: "PESSOAL" },
+      }),
+    ]);
+    prisma.receipt.findMany.mockResolvedValue([]);
+    prisma.cashFlowEntry.findMany.mockResolvedValue([]);
+    prisma.creditCard.findMany.mockResolvedValue([]);
+
+    const res: any = await service.getAccountView(tenantId, projectId, "2026-07");
+    const items = res.saidas
+      .filter((item: any) => item.id === "local-bank-installments")
+      .sort((a: any, b: any) => a.parcelaIndex - b.parcelaIndex);
+
+    expect(items).toEqual([
+      expect.objectContaining({
+        parcelaIndex: 0,
+        data: "2026-07-20T00:00:00.000Z",
+        valor: 1_000,
+        realizado: true,
+        status: "PAGO",
+      }),
+      expect.objectContaining({
+        parcelaIndex: 1,
+        data: "2026-07-10T00:00:00.000Z",
+        valor: 1_000,
+        realizado: false,
+        status: "PLANEJADO",
+      }),
+    ]);
+    expect(res.saiuMes).toBe(1_000);
+    expect(res.faltaPagarMes).toBe(1_000);
+  });
+
+  it("usa as ocorrências efetivas da Carteira local sem manter a linha agregada", async () => {
+    prisma.expense.findMany.mockResolvedValue([
+      base({
+        id: "local-wallet-installments",
+        projectId,
+        titulo: "Tratamento",
+        valorTotal: 3_000,
+        valor: 3_000,
+        formaPagamento: "PARCELADO",
+        quantidadeParcela: 3,
+        dataInicioParcela: new Date("2026-06-10T00:00:00.000Z"),
+        installmentDateOverrides: '{"0":"2026-07-20"}',
+        paidParcelas: "[0]",
+        project: { id: projectId, name: "Pessoal", type: "PESSOAL" },
+      }),
+    ]);
+    prisma.receipt.findMany.mockResolvedValue([]);
+    prisma.cashFlowEntry.findMany.mockResolvedValue([]);
+    prisma.creditCard.findMany.mockResolvedValue([]);
+
+    const res: any = await service.getAccountView(tenantId, projectId, "2026-07");
+    const items = res.saidas
+      .filter((item: any) => item.id === "local-wallet-installments")
+      .sort((a: any, b: any) => a.parcelaIndex - b.parcelaIndex);
+
+    expect(items).toHaveLength(2);
+    expect(items).toEqual([
+      expect.objectContaining({
+        parcelaIndex: 0,
+        data: "2026-07-20T00:00:00.000Z",
+        valor: 1_000,
+        realizado: true,
+        origem: { tipo: "carteira" },
+      }),
+      expect.objectContaining({
+        parcelaIndex: 1,
+        data: "2026-07-10T00:00:00.000Z",
+        valor: 1_000,
+        realizado: false,
+        origem: { tipo: "carteira" },
+      }),
+    ]);
+    expect(res.saiuMes).toBe(1_000);
+    expect(res.faltaPagarMes).toBe(1_000);
+  });
+
   it("T8: carteira paga e planejada no mesmo mês caem em buckets distintos", async () => {
     prisma.expense.findMany.mockResolvedValue([
       base({

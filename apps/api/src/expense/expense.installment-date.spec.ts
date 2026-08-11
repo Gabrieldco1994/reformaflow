@@ -18,6 +18,9 @@ const baseExpense = {
   status: "PLANEJADO",
   paidParcelas: "[1]",
   installmentDateOverrides: null,
+  cardLast4: null,
+  bankLast4: null,
+  settlesInvoiceKey: null,
   settledByExpenseId: null,
   linkedExpenseId: null,
   room: null,
@@ -38,6 +41,9 @@ const baseExpense = {
   status: string;
   paidParcelas: string | null;
   installmentDateOverrides: string | null;
+  cardLast4: string | null;
+  bankLast4: string | null;
+  settlesInvoiceKey: string | null;
   settledByExpenseId: null;
   linkedExpenseId: string | null;
   room: null;
@@ -46,6 +52,7 @@ const baseExpense = {
 type ExpenseFixture = typeof baseExpense;
 
 function makeHarness(expense: ExpenseFixture = baseExpense) {
+  let currentExpense = expense;
   const tx = {
     project: {
       findFirst: jest.fn().mockResolvedValue({ id: expense.projectId }),
@@ -53,12 +60,13 @@ function makeHarness(expense: ExpenseFixture = baseExpense) {
     expense: {
       findFirst: jest.fn().mockResolvedValue(expense),
       findMany: jest.fn().mockResolvedValue([]),
-      findUnique: jest.fn().mockResolvedValue(expense),
+      findUnique: jest.fn().mockImplementation(() => Promise.resolve(currentExpense)),
       update: jest
         .fn()
-        .mockImplementation(({ data }) =>
-          Promise.resolve({ ...expense, ...data }),
-        ),
+        .mockImplementation(({ data }) => {
+          currentExpense = { ...currentExpense, ...data };
+          return Promise.resolve(currentExpense);
+        }),
     },
     rateioAllocation: {
       findUnique: jest.fn().mockResolvedValue(null),
@@ -114,6 +122,61 @@ describe("ExpenseService.updateInstallmentDate", () => {
       isOverride: true,
       affectedProjectIds: ["project-1"],
     });
+  });
+
+  it("recria as parcelas de neutro no cartão na data efetiva e preserva o vínculo da fatura", async () => {
+    const expense = {
+      ...baseExpense,
+      tipoDespesa: "PAGAMENTO_FATURA_CARTAO",
+      valorTotal: 2000,
+      quantidadeParcela: 2,
+      cardLast4: "1111",
+      settlesInvoiceKey: "1111:2026-09",
+    };
+    const { service, tx } = makeHarness(expense);
+
+    await service.updateInstallmentDate(
+      "tenant-1",
+      "project-1",
+      "expense-1",
+      1,
+      "2026-10-05",
+    );
+
+    expect(tx.cashFlowEntry.createMany).toHaveBeenCalledWith({
+      data: expect.arrayContaining([
+        expect.objectContaining({
+          expenseId: "expense-1",
+          data: new Date("2026-10-05T00:00:00.000Z"),
+        }),
+      ]),
+    });
+    expect(tx.expense.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { installmentDateOverrides: '{"1":"2026-10-05"}' },
+      }),
+    );
+    expect(expense.settlesInvoiceKey).toBe("1111:2026-09");
+  });
+
+  it("não transforma neutro movimentado por conta em cobrança de cartão", async () => {
+    const expense = {
+      ...baseExpense,
+      tipoDespesa: "PAGAMENTO_FATURA_CARTAO",
+      cardLast4: "1111",
+      bankLast4: "4242",
+    };
+    const { service, tx } = makeHarness(expense);
+
+    await service.updateInstallmentDate(
+      "tenant-1",
+      "project-1",
+      "expense-1",
+      0,
+      "2026-08-15",
+    );
+
+    expect(tx.cashFlowEntry.createMany).not.toHaveBeenCalled();
   });
 
   it("remove o override quando a data volta à data base e é idempotente", async () => {

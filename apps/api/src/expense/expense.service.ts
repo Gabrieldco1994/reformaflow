@@ -1448,11 +1448,17 @@ export class ExpenseService {
     status: string;
     paidParcelas?: string | null;
     installmentDateOverrides?: string | null;
+    cardLast4: string | null;
+    bankLast4: string | null;
     room: { name: string } | null;
   }) {
     // Tipos "neutros" (transferência entre contas próprias, pagto de fatura)
     // não geram entradas de cashflow — não representam consumo/saldo real.
-    if (isNeutralExpenseType(expense.tipoDespesa)) return [];
+    const isCardOnlyNeutral =
+      isNeutralExpenseType(expense.tipoDespesa) &&
+      Boolean(expense.cardLast4) &&
+      !expense.bankLast4;
+    if (isNeutralExpenseType(expense.tipoDespesa) && !isCardOnlyNeutral) return [];
 
     const categoria = ExpenseTypeLabels[expense.tipoDespesa as keyof typeof ExpenseTypeLabels] ?? expense.tipoDespesa;
     const subcategoria = expense.categoriaMaoDeObra
