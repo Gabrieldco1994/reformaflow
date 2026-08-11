@@ -749,14 +749,24 @@ export class CreditCardService {
     // somar parcelas para as quais não se gera nenhum cashFlowEntry.
     const remainingCount = remainingAfterCurrent + 1;
 
-    // ÂNCORA DA PARCELA. `tx.date` significa coisas diferentes por emissor:
+    // ÂNCORA DA LINHA. `tx.date` significa coisas diferentes por emissor:
     //  - Nubank: a data DAQUELA parcela (muda a cada fatura) → já é a âncora;
     //  - Itaú: a data da COMPRA, repetida em toda parcela ("Parcela 2 de 10"
-    //    continua 22/06) → ancorar por ela joga a parcela meses para trás.
-    // Quando o arquivo diz o mês de vencimento, a parcela atual pertence a ESSA
-    // fatura; preserva-se o dia da compra.
+    //    continua 22/06) → ancorar por ela joga a linha meses para trás.
+    //
+    // Vale para TODA linha da fatura, não só para parcelas do meio da série: se
+    // a fatura vence em setembro, tudo que ela cobra sai do caixa em setembro —
+    // inclusive a compra à vista de 21/07 e a "Parcela 1 de 10" da mesma data.
+    // Restringir a `current > 1` deixava justamente as compras recentes (as que
+    // aparecem pela primeira vez) na fatura do mês errado.
+    //
+    // Só reancoramos para FRENTE: se a data da compra é posterior ao vencimento
+    // (fatura em aberto, compra já do próximo ciclo), a data original é a
+    // melhor informação disponível e é preservada.
     const anchorDate =
-      invoiceDueMonth && current > 1 ? anchorToMonth(tx.date, invoiceDueMonth) : tx.date;
+      invoiceDueMonth && monthKeyOfUtc(tx.date) < invoiceDueMonth
+        ? anchorToMonth(tx.date, invoiceDueMonth)
+        : tx.date;
 
     // SERIES KEY: identifica de forma estável uma compra parcelada
     // (cartão + merchant normalizado + valor da parcela + total). Permite casar
@@ -869,6 +879,13 @@ export class CreditCardService {
 
     return { inserted: true, settled: false, expenseId: expense.id };
   }
+}
+
+/**
+ * Ano-mês (YYYY-MM) de uma data, em UTC.
+ */
+function monthKeyOfUtc(d: Date): string {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
 /**
