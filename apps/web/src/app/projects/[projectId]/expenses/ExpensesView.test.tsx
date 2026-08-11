@@ -20,8 +20,23 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams("period=ALL"),
 }));
 vi.mock("./_components/ExpenseKpiCards", () => ({
-  ExpenseKpiCards: ({ totalPago }: { totalPago: number }) => (
-    <output data-testid="paid-kpi">{totalPago}</output>
+  ExpenseKpiCards: ({
+    totalPago,
+    filteredCount,
+    filteredPlanejadoCount,
+    filteredPagoCount,
+  }: {
+    totalPago: number;
+    filteredCount: number;
+    filteredPlanejadoCount: number;
+    filteredPagoCount: number;
+  }) => (
+    <>
+      <output data-testid="paid-kpi">{totalPago}</output>
+      <output data-testid="kpi-counts">
+        {filteredCount}/{filteredPlanejadoCount}/{filteredPagoCount}
+      </output>
+    </>
   ),
 }));
 vi.mock("./_components/PersonalExpenseKpis", () => ({
@@ -127,6 +142,7 @@ describe("ExpensesView — KPI Pago em projetos de reforma", () => {
     expect(screen.getByTestId("paid-kpi")).toHaveTextContent(
       String(monthlyPaid),
     );
+    expect(screen.getByTestId("kpi-counts")).toHaveTextContent("5/2/3");
   });
 
   it("preserva o eixo de competência no KPI Pago de PESSOAL", () => {

@@ -355,20 +355,41 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
   // Em PESSOAL respeitam o período selecionado (mês clicado / ano todo); nos demais
   // projetos periodFilteredPersonal === filteredExpenses. Calculado por ocorrência
   // para refletir pagamento parcial de parcelas/quinzenas.
-  const { totalGeral, totalPlanejado, totalPago } = useMemo(() => {
+  const {
+    totalGeral,
+    totalPlanejado,
+    totalPago,
+    filteredCount,
+    filteredPlanejadoCount,
+    filteredPagoCount,
+  } = useMemo(() => {
     let geral = 0, planejado = 0, pago = 0;
+    let count = 0, planejadoCount = 0, pagoCount = 0;
     for (const e of periodFilteredPersonal) {
       if (isNeutralExpenseType(e.tipoDespesa)) continue;
       for (const occ of expandExpenseOccurrences(
         e,
         projectType === 'PESSOAL' ? 'competencia' : 'caixa',
       )) {
+        count += 1;
         geral += occ.occValue;
-        if (occ.status === 'PAGO') pago += occ.occValue;
-        else planejado += occ.occValue;
+        if (occ.status === 'PAGO') {
+          pago += occ.occValue;
+          pagoCount += 1;
+        } else {
+          planejado += occ.occValue;
+          planejadoCount += 1;
+        }
       }
     }
-    return { totalGeral: geral, totalPlanejado: planejado, totalPago: pago };
+    return {
+      totalGeral: geral,
+      totalPlanejado: planejado,
+      totalPago: pago,
+      filteredCount: count,
+      filteredPlanejadoCount: planejadoCount,
+      filteredPagoCount: pagoCount,
+    };
   }, [periodFilteredPersonal, projectType]);
 
   // Quebra por projeto (cockpit) — só faz sentido no Pessoal, que consolida vários projetos.
@@ -1055,9 +1076,9 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
       ) : (
         <ExpenseKpiCards
           projectType={projectType}
-          filteredCount={periodFilteredPersonal.length}
-          filteredPlanejadoCount={periodFilteredPersonal.filter((e) => e.status === 'PLANEJADO').length}
-          filteredPagoCount={periodFilteredPersonal.filter((e) => e.status === 'PAGO').length}
+          filteredCount={filteredCount}
+          filteredPlanejadoCount={filteredPlanejadoCount}
+          filteredPagoCount={filteredPagoCount}
           totalGeral={totalGeral}
           totalPlanejado={totalPlanejado}
           totalPago={totalPago}
