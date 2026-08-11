@@ -1,5 +1,4 @@
 import type { Expense } from '@/types';
-import { isSinglePaymentForm } from '@reformaflow/domain';
 import {
   expandExpenseOccurrences,
   type Occurrence,
@@ -44,7 +43,7 @@ export function sliceExpensesByPeriod(
         const date = new Date(`${occurrence.occDate}T00:00:00.000Z`);
         if (date < startDate || date > endDate) continue;
         out.push(
-          isSinglePaymentForm(occurrence.formaPagamento)
+          occurrence.occKey === expense.id
             ? expense
             : occurrenceSlice(occurrence),
         );
@@ -72,7 +71,7 @@ export function sliceExpensesByPeriod(
         continue;
       }
       out.push(
-        isSinglePaymentForm(occurrence.formaPagamento)
+        occurrence.occKey === expense.id
           ? expense
           : occurrenceSlice(occurrence),
       );
