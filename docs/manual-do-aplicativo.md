@@ -615,6 +615,11 @@ Onde se registra e acompanha tudo que se gasta. É o módulo mais rico.
 **KPI hero "Gasto no mês":** total gasto no mês + **% pago** (barra), com
 "Pago R$ X" e "A vir R$ Y".
 
+- **Eixo do KPI Pago:** no **PESSOAL**, permanece por competência. Nos demais
+  tipos de projeto, como **REFORMA**, usa as ocorrências no eixo de caixa e
+  considera as parcelas registradas em `paidParcelas`; assim, o total do
+  período/ano reconcilia com a soma dos valores pagos nos cabeçalhos mensais.
+
 **Mini-KPIs (eixo Gastar/competência):**
 - **No cartão:** compras feitas no cartão neste mês (competência), independente de
   quando a fatura vence.
