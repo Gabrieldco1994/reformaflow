@@ -30,4 +30,60 @@ describe('groupExpensesByMes — override de parcela', () => {
       valorTotal: 90_001,
     });
   });
+
+  it.each(['PARCELADO', 'QUINZENAL'] as const)(
+    '%s 1x aparece somente na data efetiva como parcela 1/1',
+    (formaPagamento) => {
+      const expense = {
+        id: `expense-${formaPagamento}`,
+        tipoDespesa: 'MATERIAL_CONSTRUCAO',
+        valor: 30_001,
+        quantidade: 1,
+        valorTotal: 30_001,
+        formaPagamento,
+        quantidadeParcela: 1,
+        dataInicioParcela: '2026-08-10',
+        installmentDateOverrides: '{"0":"2026-10-20"}',
+        status: 'PLANEJADO',
+      } as Expense;
+
+      const groups = groupExpensesByMes([expense]);
+
+      expect(groups.map((group) => group.mesKey)).toEqual(['2026-10']);
+      expect(groups[0].items).toHaveLength(1);
+      expect(groups[0].items[0]).toMatchObject({
+        occKey: `expense-${formaPagamento}#0`,
+        occDate: '2026-10-20',
+        occIndex: 1,
+        occTotalParcelas: 1,
+        occValue: 30_001,
+        status: 'PLANEJADO',
+      });
+    },
+  );
+
+  it('mantém A_VISTA como pagamento único e ignora override de parcela', () => {
+    const expense = {
+      id: 'expense-avista',
+      tipoDespesa: 'MATERIAL_CONSTRUCAO',
+      valor: 30_001,
+      quantidade: 1,
+      valorTotal: 30_001,
+      formaPagamento: 'A_VISTA',
+      dataPagamento: '2026-08-10',
+      installmentDateOverrides: '{"0":"2026-10-20"}',
+      status: 'PAGO',
+    } as Expense;
+
+    const groups = groupExpensesByMes([expense]);
+
+    expect(groups.map((group) => group.mesKey)).toEqual(['2026-08']);
+    expect(groups[0].items[0]).toMatchObject({
+      occKey: 'expense-avista',
+      occDate: '2026-08-10',
+      occValue: 30_001,
+      status: 'PAGO',
+    });
+    expect(groups[0].items[0].occKey).not.toContain('#');
+  });
 });

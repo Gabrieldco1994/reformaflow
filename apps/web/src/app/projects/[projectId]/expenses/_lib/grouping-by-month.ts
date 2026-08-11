@@ -127,10 +127,7 @@ export function expandExpenseOccurrences(
     }
   }
 
-  const n = e.quantidadeParcela ?? 1;
-  const isInstallment =
-    (e.formaPagamento === 'PARCELADO' || e.formaPagamento === 'QUINZENAL') &&
-    n > 1;
+  const isInstallment = !isSinglePaymentForm(e.formaPagamento);
 
   // Despesa fixa (recorrente mensal): expande em ocorrências virtuais —
   // uma por mês, do início até `recorrenciaFim` ou o horizonte de projeção.
