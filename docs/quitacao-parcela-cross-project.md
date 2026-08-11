@@ -1,6 +1,6 @@
 # Quitação de parcela cross-project (PESSOAL)
 
-Atualizado em: **2026-07-03**
+Atualizado em: **2026-08-10**
 
 Documento canônico da feature que permite **pagar/quitar, pela conta do projeto
 PESSOAL, uma parcela de uma despesa que vive em OUTRO projeto** (REFORMA, CASA,
@@ -34,13 +34,24 @@ Commits principais:
 12. **E2:** `parcelaIndex` sempre normalizado (clamp no range válido).
 13. **E5:** mutex simétrico `rateio × settle` no mesmo `targetExpenseId`.
 14. **E8:** mutations invalidam `monthly-overview` e `account-view` no front.
+15. A data efetiva de uma ocorrência `PARCELADO` ou `QUINZENAL` pode ser alterada
+    individualmente, inclusive quando há uma única parcela e independentemente de
+    estar paga ou planejada; índice, valor, identidade e status não mudam.
+16. Em par vinculado REFORMA↔PESSOAL sem conciliação, a data é sincronizada nos
+    dois lados na mesma transação. Alvo de rateio não é editável: a compra-fonte é
+    editada e propaga seu cronograma a todos os alvos.
+17. Em conciliação por parcela, a planejada alvo pode mudar de data e regenera seu
+    fluxo; a fonte real conciliada é bloqueada para não reescrever o movimento real.
 
 ## Referência de implementação
 
 - Backend: `apps/api/src/conciliacao/conciliacao.service.ts`, `apps/api/src/expense/expense.service.ts`, `apps/api/src/monthly-overview/monthly-overview.service.ts`.
 - Frontend: `apps/web/src/app/projects/[projectId]/conta/_components/QuitarParcelaModal.tsx`, `.../conta/_components/MovimentacoesSection.tsx`, `.../expenses/ExpensesView.tsx`, `.../expenses/_hooks/useExpenseMutations.ts`, `.../expenses/_lib/quitarParcelaCross.ts`.
 - Modelo: `prisma/schema.prisma` (`CrossProjectSettlement`, `RateioAllocation`).
-- Testes que blindam contrato: `apps/api/src/conciliacao/conciliacao.hardening.spec.ts`, `apps/api/src/expense/expense.conciliar-parcela.spec.ts`, `apps/api/src/monthly-overview/monthly-overview.foreign-parcela.spec.ts`, `apps/web/src/app/projects/[projectId]/expenses/_lib/quitarParcelaCross.test.ts`.
+- Datas efetivas: `packages/domain/src/calculations/expense-installments.ts`,
+  `apps/api/src/expense/expense.service.ts` (`updateInstallmentDate`) e
+  `apps/web/src/app/projects/[projectId]/expenses/_components/MonthlyExpenseView.tsx`.
+- Testes que blindam contrato: `apps/api/src/conciliacao/conciliacao.hardening.spec.ts`, `apps/api/src/expense/expense.conciliar-parcela.spec.ts`, `apps/api/src/expense/expense.installment-date.spec.ts`, `apps/api/src/monthly-overview/monthly-overview.foreign-parcela.spec.ts`, `apps/web/src/app/projects/[projectId]/expenses/_lib/quitarParcelaCross.test.ts`.
 
 ## Apêndice histórico
 
@@ -149,6 +160,11 @@ status puro:
    - **marcar pago em massa** (`bulkPaidMutation`) → **pula** itens cross-project
      e avisa (a quitação exige meio de pagamento, é 1-a-1 no modal);
    - despesas **locais** do PESSOAL seguem o toggle normal.
+4. **Editar rápido na visão por mês** — em uma ocorrência `PARCELADO` ou
+   `QUINZENAL`, o lápis abre a edição da data daquela parcela. Funciona na
+   REFORMA e na visão consolidada do PESSOAL, para paga ou planejada e também
+   para parcelamento 1x. A mutação resolve o projeto dono sem trocar índice,
+   valor ou status.
 
 ### Helpers puros (`expenses/_lib/quitarParcelaCross.ts`, testados)
 - `parseForeignParcelaId("<id>#<idx>")` → `{ foreignExpenseId, parcelaIndex }`.
@@ -176,6 +192,14 @@ status puro:
 `RateioAllocation` tem `@@unique([targetExpenseId])` — daí o mutex E5: `settle` e
 `ratear` são mutuamente exclusivos sobre o mesmo alvo.
 
+Datas alteradas por ocorrência são persistidas em
+`Expense.installmentDateOverrides`, JSON por índice 0-based
+(`{"1":"2026-09-20"}`). O cronograma-base continua em
+`dataInicioParcela`; voltar à data-base remove o override. O snapshot
+`RateioAllocation.plannedInstallmentDateOverrides` restaura esse estado ao
+desfazer um rateio. Ambos os campos foram adicionados pela migration
+`20260810234344_add_installment_date_overrides`.
+
 **Soft-delete:** modelos sem `deletedAt` estão em `modelsWithoutSoftDelete`
 (`prisma.service.ts`). Dentro de `$transaction`, soft-delete manual + `findById`
 fora da tx (o `$use` não roda em tx).
@@ -187,6 +211,9 @@ fora da tx (o `$use` não roda em tx).
 - `POST /projects/:projectId/expenses` — cria o espelho (com `linkedExpenseId`).
 - `POST /projects/:projectId/expenses/:sourceId/conciliar-parcela`
   `{ targetExpenseId, parcelaIndex }` — grava o settlement + marca parcela paga.
+- `PATCH /projects/:projectId/expenses/:id/parcela-data`
+  `{ parcela, data }` — altera apenas a data efetiva do índice 0-based informado;
+  `data` usa `YYYY-MM-DD`.
 - `GET  /projects/:projectId/expenses/cross-project?status=PLANEJADO&limit=…` —
   planejadas de outros projetos (wizard).
 - `GET  /projects/:projectId/monthly-overview/account-view?month=YYYY-MM` —
