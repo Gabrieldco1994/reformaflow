@@ -3377,6 +3377,21 @@ export interface CaixaContaReceipt {
  * saldo inicial + Σ lançamentos REALIZADOS da conta. Espera apenas lançamentos
  * com `bankLast4` (filtrados pelo chamador). Parcelados usam o status do root ou
  * `paidParcelas`; cartão (sem bankLast4) e ocorrências futuras ficam de fora.
+ *
+ * CORTE PELO SALDO INICIAL: um saldo inicial datado JÁ EMBUTE tudo que aconteceu
+ * até ali — somar lançamentos anteriores a ele conta o mesmo dinheiro duas vezes.
+ * Antes deste corte, `openingBalanceDate` era lido do banco e usado apenas para o
+ * booleano `temSaldoInicial`, nunca para filtrar (dupla contagem de R$ 5.489,44
+ * medida em produção: 3 recebimentos de nov/dez-2025 somados sobre um saldo
+ * inicial de 31/12/2025).
+ *
+ * Semântica: "saldo inicial em D" = saldo na ABERTURA de D, então lançamentos
+ * do próprio dia D contam; só os ESTRITAMENTE anteriores são descartados.
+ *
+ * ponytail: usa a âncora mais antiga entre as contas — espelha a premissa de
+ * conta única já assumida por `pickPrimaryBankAccount`. Com duas contas ancoradas
+ * em datas diferentes, promover a corte por conta (exige atribuir cada lançamento
+ * à sua conta, hoje ambíguo quando dois BankAccount compartilham o mesmo last4).
  */
 export function computeCaixaConta(
   accounts: CaixaContaAccount[],
@@ -3387,6 +3402,14 @@ export function computeCaixaConta(
   const temSaldoInicial = accounts.some(
     (a) => a.openingBalanceCents !== 0 || a.openingBalanceDate != null,
   );
+
+  const cutoff = accounts.reduce<Date | null>((earliest, a) => {
+    if (!a.openingBalanceDate) return earliest;
+    if (!earliest) return a.openingBalanceDate;
+    return a.openingBalanceDate < earliest ? a.openingBalanceDate : earliest;
+  }, null);
+  const beforeOpening = (d: Date | null | undefined) =>
+    !!cutoff && !!d && d.getTime() < cutoff.getTime();
 
   // Lançamentos realizados com sinal (despesa −, recebimento +) e mês de referência.
   const movs: Array<{ mes: string; valor: number }> = [];
@@ -3408,16 +3431,19 @@ export function computeCaixaConta(
       );
       installments.forEach((installment, index) => {
         if (e.status !== 'PAGO' && !paidParcelas.has(index)) return;
+        if (beforeOpening(installment.data)) return;
         movs.push({ mes: monthKeyOf(installment.data), valor: -installment.valor });
       });
       continue;
     }
     if (e.status !== 'PAGO') continue; // só realizados afetam o caixa
     const d = e.dataPagamento ?? e.createdAt;
+    if (beforeOpening(d)) continue;
     movs.push({ mes: monthKeyOf(d), valor: -e.valorTotal });
   }
   for (const r of receipts) {
     if (r.status !== 'EM_CAIXA') continue;
+    if (beforeOpening(r.data)) continue;
     movs.push({ mes: monthKeyOf(r.data), valor: r.valor });
   }
 
