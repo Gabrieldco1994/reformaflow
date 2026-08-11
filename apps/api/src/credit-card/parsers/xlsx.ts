@@ -132,6 +132,7 @@ export function parseXlsx(buffer: Buffer, cardId: string): ParseResult {
       transactions,
       totalAmountCents,
       periodLabel: inferPeriodLabel(transactions),
+      invoiceDueMonth: findInvoiceDueMonth(data, headerIdx),
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -266,6 +267,49 @@ function mapColumns(headers: string[]): ColumnMap {
   }
 
   return result;
+}
+
+/**
+ * Lê o mês de VENCIMENTO da fatura no preâmbulo (antes da tabela de
+ * lançamentos). Faturas Itaú trazem uma célula "Vencimento" com a data logo
+ * abaixo/ao lado, na mesma coluna.
+ *
+ * Isso não é firula: a fatura Itaú repete a data da COMPRA em todas as
+ * parcelas, então sem o vencimento não há como saber em qual fatura a
+ * "Parcela 2 de 10" está sendo cobrada.
+ */
+function findInvoiceDueMonth(data: unknown[][], headerIdx: number): string | undefined {
+  const limit = Math.min(headerIdx, data.length);
+  for (let i = 0; i < limit; i++) {
+    const row = data[i];
+    if (!Array.isArray(row)) continue;
+    for (let c = 0; c < row.length; c++) {
+      if (removeAccents(String(row[c] ?? '')).trim() !== 'vencimento') continue;
+      // Data costuma vir na MESMA coluna, poucas linhas abaixo.
+      for (let r = i; r < Math.min(i + 4, limit); r++) {
+        const cell = data[r]?.[c];
+        const date = parseCellDate(cell);
+        if (date) {
+          return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
+/** Data de uma célula que pode vir como Date, serial Excel ou texto. */
+function parseCellDate(cell: unknown): Date | null {
+  if (cell instanceof Date) return cell;
+  if (typeof cell === 'number') {
+    // Serial Excel: dia 1 = 1900-01-01, com o bug do ano 1900 bissexto —
+    // a época efetiva é 1899-12-30.
+    if (cell <= 0 || cell > 100000) return null;
+    return new Date(Date.UTC(1899, 11, 30) + cell * 86400000);
+  }
+  const s = String(cell ?? '').trim();
+  if (!s) return null;
+  return parseFlexibleDate(s);
 }
 
 /**

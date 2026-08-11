@@ -1,7 +1,6 @@
 import * as XLSX from 'xlsx';
 import {
   assignOrdinals,
-  detectInstallment,
   inferPeriodLabel,
   makeExternalId,
   parseBrlMoney,
@@ -94,15 +93,20 @@ export function parseXlsx(buffer: Buffer, cardId: string): ParseResult {
       const amountCents = -parseBrlMoney(amountRaw);
       if (amountCents === 0) continue;
 
-      const { current, total, cleanMerchant } = detectInstallment(descRaw);
+      // NÃO aplica detectInstallment: extrato de conta corrente não tem
+      // parcelamento, e a descrição do Itaú termina com a data da compra
+      // ("PAY NA JA 01/07"), que era lida como "parcela 1 de 7". Além de
+      // inventar um parcelamento inexistente, isso reescrevia a descrição
+      // (virava "PAY NA JA") e mudava o externalId, quebrando a deduplicação
+      // entre exports do mesmo período — a origem de 30 lançamentos
+      // duplicados em produção. E era intermitente: só disparava quando o dia
+      // era <= o mês ("08/07" escapava, "01/07" não).
       transactions.push({
         externalId: '', // preenchido abaixo após assignOrdinals
         date,
-        merchant: cleanMerchant || 'Lançamento',
+        merchant: descRaw || 'Lançamento',
         amountCents,
         rawCategory: categoryRaw || undefined,
-        installmentCurrent: current,
-        installmentTotal: total,
       });
       if (amountCents > 0) totalAmountCents += amountCents;
     }

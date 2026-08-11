@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import * as XLSX from 'xlsx';
 import { CreditCardService } from './credit-card.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
@@ -463,8 +464,77 @@ describe('CreditCardService', () => {
       expect(somaParcelas).toBe(created.data.valorTotal);
     });
 
-  describe('commitImport — decisions', () => {
-    it('decision.skip ignora a transação (não cria expense)', async () => {
+    it('meio de série: só as parcelas RESTANTES entram (valorTotal = parcela × restantes)', async () => {
+      // Fatura Itaú lista "Parcela 2 de 10" — as parcelas 1..1 já foram cobradas
+      // em faturas anteriores e já estão no sistema. Importar a série INTEIRA
+      // (×10) inventa dinheiro: a despesa passa a valer mais do que os
+      // cashFlowEntries que ela realmente gera, e a fatura infla.
+      const ofx = buildOfx(ofxFor('20260622', 228.61, 'PG OBRAMAX 2/10', 'MID1'));
+      prisma.expense.findFirst.mockResolvedValue(null);
+      prisma.expense.create.mockClear();
+      prisma.cashFlowEntry.create.mockClear();
+
+      await service.commitImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX');
+
+      const created = prisma.expense.create.mock.calls[0][0];
+      const cfCalls = prisma.cashFlowEntry.create.mock.calls;
+
+      // 2/10 → restam 9 parcelas (2..10), não 10.
+      expect(cfCalls).toHaveLength(9);
+      expect(created.data.quantidadeParcela).toBe(9);
+      expect(created.data.valorTotal).toBe(22861 * 9);
+
+      // INVARIANTE: a soma dos lançamentos tem que fechar com o total da despesa.
+      const soma = cfCalls.reduce((s: number, [arg]: [any]) => s + arg.data.valor, 0);
+      expect(soma).toBe(created.data.valorTotal);
+
+      // Rótulos preservam a numeração REAL da fatura (2/10..10/10) — é o que o
+      // dedup entre faturas consecutivas casa.
+      expect(cfCalls.map(([a]: [any]) => a.data.parcela)).toEqual([
+        '2/10', '3/10', '4/10', '5/10', '6/10', '7/10', '8/10', '9/10', '10/10',
+      ]);
+    });
+
+    it('meio de série ancora a parcela no mês da FATURA, não na data da compra', async () => {
+      // Fatura Itaú de setembro trazendo "Parcela 2 de 10" datada de 22/06 (o
+      // Itaú repete a data da COMPRA em toda parcela). A parcela está sendo
+      // cobrada em SETEMBRO — ancorar em junho jogaria 9 parcelas 3 meses para
+      // trás, inflando faturas passadas e esvaziando as futuras.
+      const ws = XLSX.utils.aoa_to_sheet([
+        [undefined, 'Cartão', undefined, undefined, undefined, undefined, 'Valor', undefined, 'Vencimento'],
+        [undefined, 'Visa - final 5572', undefined, undefined, undefined, undefined, 100, undefined, '08/09/2026'],
+        [],
+        [undefined, 'Data', 'Lançamento', 'Parcelamento', 'Valor', undefined, 'Titularidade'],
+        [undefined, '22/06/2026', 'Pg *Obramax', 'Parcela 2 de 10', '228.61', undefined, 'Titular'],
+      ]);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Fatura');
+      const buf = Buffer.from(XLSX.write(wb, { bookType: 'xlsx', type: 'array' }));
+
+      prisma.expense.findFirst.mockResolvedValue(null);
+      prisma.expense.create.mockClear();
+      prisma.cashFlowEntry.create.mockClear();
+
+      await service.commitImport('t1', 'pessoal1', 'card1', buf, 'fatura.xlsx', 'AUTO');
+
+      const created = prisma.expense.create.mock.calls[0][0];
+      const iso = (d: Date) => d.toISOString().slice(0, 10);
+
+      // Parcela 2/10 ancorada em setembro (dia da compra preservado).
+      expect(iso(created.data.dataInicioParcela)).toBe('2026-09-22');
+      // Competência preserva a data real da compra.
+      expect(iso(created.data.dataCompra)).toBe('2026-06-22');
+
+      const cf = prisma.cashFlowEntry.create.mock.calls;
+      expect(cf).toHaveLength(9);
+      expect(iso(cf[0][0].data.data)).toBe('2026-09-22');
+      expect(cf[0][0].data.parcela).toBe('2/10');
+      // Última parcela (10/10) — oito meses após setembro → maio/2027.
+      expect(iso(cf[8][0].data.data)).toBe('2027-05-22');
+      expect(cf[8][0].data.parcela).toBe('10/10');
+    });
+
+  describe('commitImport — decisions', () => {    it('decision.skip ignora a transação (não cria expense)', async () => {
       const ofx = buildOfx(
         ofxFor('20260429', 100, 'LOJA SKIP', 'SK1'),
         ofxFor('20260430', 200, 'LOJA OK', 'OK1'),

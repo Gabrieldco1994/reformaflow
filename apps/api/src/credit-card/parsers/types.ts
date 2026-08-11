@@ -16,6 +16,13 @@ export interface ParseResult {
   transactions: NormalizedTx[];
   totalAmountCents: number;
   periodLabel?: string;       // YYYY-MM da maior densidade
+  /**
+   * Mês de vencimento da fatura (YYYY-MM) lido DIRETAMENTE do arquivo — não
+   * inferido das datas dos lançamentos. Faturas Itaú repetem a data da COMPRA
+   * em toda parcela ("Parcela 2 de 10" continua datada de 22/06), então só este
+   * campo diz em qual fatura a parcela está sendo cobrada de fato.
+   */
+  invoiceDueMonth?: string;
   futureInstallments?: NormalizedTx[]; // parcelas/lançamentos futuros (apenas informativo)
   error?: string;             // erro durante parsing (ex.: arquivo vazio, formato inválido)
 }
