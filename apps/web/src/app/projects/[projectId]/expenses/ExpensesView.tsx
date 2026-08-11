@@ -434,14 +434,17 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
     let geral = 0, planejado = 0, pago = 0;
     for (const e of periodFilteredPersonal) {
       if (isNeutralExpenseType(e.tipoDespesa)) continue;
-      for (const occ of expandExpenseOccurrences(e, 'competencia')) {
+      for (const occ of expandExpenseOccurrences(
+        e,
+        projectType === 'PESSOAL' ? 'competencia' : 'caixa',
+      )) {
         geral += occ.occValue;
         if (occ.status === 'PAGO') pago += occ.occValue;
         else planejado += occ.occValue;
       }
     }
     return { totalGeral: geral, totalPlanejado: planejado, totalPago: pago };
-  }, [periodFilteredPersonal]);
+  }, [periodFilteredPersonal, projectType]);
 
   // Quebra por projeto (cockpit) — só faz sentido no Pessoal, que consolida vários projetos.
   // Respeita o período selecionado (mês clicado / ano todo).
