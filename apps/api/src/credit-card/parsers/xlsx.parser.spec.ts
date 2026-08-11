@@ -208,4 +208,38 @@ describe('XlsxParser', () => {
 
     expect(result.periodLabel).toBe('2026-05');
   });
+
+  it('parseia fatura Itaú real: preâmbulo >10 linhas, coluna A vazia, parcelamento em coluna separada', () => {
+    // Réplica do layout real (fatura-*.xlsx): header só na linha 14, 1ª
+    // coluna sempre vazia (bug original: findHeaderRow só olhava 10
+    // primeiras linhas; mapColumns quebrava em header com célula vazia).
+    const buffer = createTestXlsxBuffer([
+      [undefined],
+      [undefined, 'Nome', 'Gabriel'],
+      [undefined, 'Agência', '7057'],
+      [undefined, 'Conta', '77424-7'],
+      [],
+      [],
+      [undefined, 'Fatura Fechada - Agosto/2026'],
+      [undefined, 'Cartão', undefined, undefined, undefined, undefined, 'Valor', undefined, 'Vencimento'],
+      [undefined, 'Cartão final 6933', undefined, undefined, undefined, undefined, 100],
+      [],
+      [],
+      [undefined, 'Lançamentos'],
+      [undefined, 'Data', 'Lançamento', 'Parcelamento', 'Valor', undefined, 'Titularidade'],
+      [undefined, '27/07/2026', 'Raia1613', 'Parcela 1 de 2', '232.57', undefined, 'Titular'],
+      [undefined, '08/07/2026', 'Loja Sem Parcela', '', '50.00', undefined, 'Titular'],
+    ]);
+
+    const result = parseXlsx(buffer, cardId);
+
+    expect(result.error).toBeUndefined();
+    expect(result.transactions).toHaveLength(2);
+    expect(result.transactions[0].merchant).toBe('Raia1613');
+    expect(result.transactions[0].amountCents).toBe(23257);
+    expect(result.transactions[0].installmentCurrent).toBe(1);
+    expect(result.transactions[0].installmentTotal).toBe(2);
+    expect(result.transactions[1].merchant).toBe('Loja Sem Parcela');
+    expect(result.transactions[1].installmentCurrent).toBeUndefined();
+  });
 });
