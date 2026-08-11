@@ -483,4 +483,27 @@ describe("ExpenseService.updateInstallmentDate", () => {
       }),
     );
   });
+
+  it("PATCH alheio ao cronograma não regrava o snapshot de overrides", async () => {
+    const expense = {
+      ...baseExpense,
+      installmentDateOverrides: '{"1":"2026-09-20"}',
+      linkedExpenseId: "mirror-1",
+    };
+    const { service, tx } = makeHarness(expense);
+    tx.expense.findFirst
+      .mockResolvedValueOnce(expense)
+      .mockResolvedValueOnce(expense)
+      .mockResolvedValueOnce({ id: "mirror-1" });
+
+    await service.update("tenant-1", "project-1", "expense-1", {
+      tipoDespesa: "MAO_DE_OBRA",
+      titulo: "Título atualizado",
+    } as never);
+
+    expect(tx.expense.update).toHaveBeenCalledTimes(2);
+    for (const [{ data }] of tx.expense.update.mock.calls) {
+      expect(data).not.toHaveProperty("installmentDateOverrides");
+    }
+  });
 });

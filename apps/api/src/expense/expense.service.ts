@@ -799,14 +799,21 @@ export class ExpenseService {
       dto.dataInicioParcela === undefined
         ? existing.dataInicioParcela
         : dto.dataInicioParcela === null ? null : new Date(dto.dataInicioParcela);
-    const installmentDateOverrides = normalizeInstallmentDateOverrides({
-      valorTotal,
-      formaPagamento: resultingFormaPagamento,
-      dataPagamento: resultingDataPagamento,
-      quantidadeParcela: resultingQuantidadeParcela,
-      dataInicioParcela: resultingDataInicioParcela,
-      installmentDateOverrides: existing.installmentDateOverrides,
-    });
+    const shouldNormalizeInstallmentDateOverrides =
+      dto.formaPagamento !== undefined ||
+      dto.dataPagamento !== undefined ||
+      dto.quantidadeParcela !== undefined ||
+      dto.dataInicioParcela !== undefined;
+    const installmentDateOverrides = shouldNormalizeInstallmentDateOverrides
+      ? normalizeInstallmentDateOverrides({
+          valorTotal,
+          formaPagamento: resultingFormaPagamento,
+          dataPagamento: resultingDataPagamento,
+          quantidadeParcela: resultingQuantidadeParcela,
+          dataInicioParcela: resultingDataInicioParcela,
+          installmentDateOverrides: existing.installmentDateOverrides,
+        })
+      : undefined;
 
     // Mudanças em status agregado, forma, valor ou config de parcelamento
     // invalidam os índices de parcelas pagas — limpa para evitar estado stale.
@@ -860,7 +867,7 @@ export class ExpenseService {
               ? null
               : new Date(dto.recorrenciaFim),
         ...(resetPaidParcelas ? { paidParcelas: null } : {}),
-        installmentDateOverrides,
+        ...(shouldNormalizeInstallmentDateOverrides ? { installmentDateOverrides } : {}),
         cardLast4: links.cardLast4,
         bankLast4: links.bankLast4,
         linkedExpenseId: links.linkedExpenseId,
@@ -875,7 +882,12 @@ export class ExpenseService {
     // pessoal), editar um lado deve refletir no outro. Propaga apenas campos da
     // COMPRA (data, valor, parcelas, status, tipo, título); campos por-lado (meio
     // de pagamento, sala, ponteiro de vínculo, anexos) NÃO são sincronizados.
-    await this.syncLinkedObraPair(tenantId, id, dto);
+    await this.syncLinkedObraPair(
+      tenantId,
+      id,
+      dto,
+      shouldNormalizeInstallmentDateOverrides,
+    );
 
     return expense;
   }
@@ -1062,7 +1074,12 @@ export class ExpenseService {
     );
   }
 
-  private async syncLinkedObraPair(tenantId: string, sourceId: string, dto: UpdateExpenseDto) {
+  private async syncLinkedObraPair(
+    tenantId: string,
+    sourceId: string,
+    dto: UpdateExpenseDto,
+    shouldSyncInstallmentDateOverrides: boolean,
+  ) {
     const involvedInSettlement = async (expenseId: string) =>
       (await this.prisma.crossProjectSettlement.count({
         where: { tenantId, OR: [{ sourceExpenseId: expenseId }, { targetExpenseId: expenseId }] },
@@ -1096,7 +1113,9 @@ export class ExpenseService {
     if (counterpartIds.size === 0) return;
 
     const shared: Record<string, unknown> = {};
-    shared.installmentDateOverrides = source.installmentDateOverrides;
+    if (shouldSyncInstallmentDateOverrides) {
+      shared.installmentDateOverrides = source.installmentDateOverrides;
+    }
     if (dto.tipoDespesa !== undefined) shared.tipoDespesa = dto.tipoDespesa;
     if (dto.categoriaMaoDeObra !== undefined) shared.categoriaMaoDeObra = dto.categoriaMaoDeObra;
     if (dto.titulo !== undefined) shared.titulo = dto.titulo;
