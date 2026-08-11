@@ -366,7 +366,12 @@ export class CreditCardService {
     const card = await this.findCard(tenantId, projectId, cardId);
     const buffers = toBuffers(fileContent);
     const parsed = await parseStatementBuffers(buffers, card.id, source, fileName, password);
-    const periodLabel = periodLabelOverride ?? parsed.periodLabel ?? new Date().toISOString().slice(0, 7);
+    // `invoiceDueMonth` vem lido do próprio arquivo (linha "Vencimento") e tem
+    // precedência sobre `periodLabel`, que é um palpite pela densidade das datas
+    // dos lançamentos — palpite que erra em toda fatura Itaú, porque ela lista a
+    // data da COMPRA (a de setembro do 5572 era inferida como julho).
+    const periodLabel =
+      periodLabelOverride ?? parsed.invoiceDueMonth ?? parsed.periodLabel ?? new Date().toISOString().slice(0, 7);
 
     // Index decisions por externalId
     const decisionByExt = new Map<string, ImportDecision>();
@@ -426,6 +431,7 @@ export class CreditCardService {
           importRecord.id,
           d?.overrides?.category,
           createdByUserId,
+          parsed.invoiceDueMonth,
         );
         if (result.settled) settled++;
         if (result.inserted) inserted++;
@@ -675,6 +681,7 @@ export class CreditCardService {
     importId: string,
     categoryOverride?: string,
     createdByUserId: string | null = null,
+    invoiceDueMonth?: string,
   ): Promise<{ inserted: boolean; settled: boolean; expenseId?: string }> {
     if (tx.amountCents < 0) {
       // Pagamento da fatura ANTERIOR aparece nas faturas Itaú como linha negativa
@@ -736,6 +743,20 @@ export class CreditCardService {
     const total = tx.installmentTotal && tx.installmentTotal > 1 ? tx.installmentTotal : 1;
     const current = tx.installmentCurrent && tx.installmentCurrent >= 1 ? tx.installmentCurrent : 1;
     const remainingAfterCurrent = Math.max(0, total - current);
+    // Parcelas que ESTA despesa representa: da atual até a última. As anteriores
+    // já foram cobradas em faturas passadas e (se importadas) já existem — contar
+    // a série inteira aqui inventaria dinheiro, porque o valorTotal passaria a
+    // somar parcelas para as quais não se gera nenhum cashFlowEntry.
+    const remainingCount = remainingAfterCurrent + 1;
+
+    // ÂNCORA DA PARCELA. `tx.date` significa coisas diferentes por emissor:
+    //  - Nubank: a data DAQUELA parcela (muda a cada fatura) → já é a âncora;
+    //  - Itaú: a data da COMPRA, repetida em toda parcela ("Parcela 2 de 10"
+    //    continua 22/06) → ancorar por ela joga a parcela meses para trás.
+    // Quando o arquivo diz o mês de vencimento, a parcela atual pertence a ESSA
+    // fatura; preserva-se o dia da compra.
+    const anchorDate =
+      invoiceDueMonth && current > 1 ? anchorToMonth(tx.date, invoiceDueMonth) : tx.date;
 
     // SERIES KEY: identifica de forma estável uma compra parcelada
     // (cartão + merchant normalizado + valor da parcela + total). Permite casar
@@ -785,12 +806,11 @@ export class CreditCardService {
     const installmentLabel = total > 1 ? `${current}/${total}` : null;
     const titulo = `${tx.merchant}${installmentLabel ? ` (${installmentLabel})` : ''}`.slice(0, 200);
 
-    // O valor da linha (tx.amountCents) é o valor de UMA parcela. O total da
-    // compra é parcela × nº de parcelas — gravamos esse total em valor/valorTotal
-    // para que a derivação de parcelas no front (buildInstallments divide
-    // valorTotal por quantidadeParcela) recomponha exatamente o valor da parcela.
-    // Os cashFlowEntries continuam por parcela (tx.amountCents), sem dupla contagem.
-    const valorCompra = total > 1 ? tx.amountCents * total : tx.amountCents;
+    // O valor da linha (tx.amountCents) é o valor de UMA parcela. O total desta
+    // despesa é parcela × parcelas RESTANTES (da atual à última) — não × total da
+    // compra: quando a fatura começa no meio da série ("2 de 10"), as parcelas
+    // 1..1 já foram cobradas antes e não pertencem a este registro.
+    const valorCompra = tx.amountCents * remainingCount;
 
     const expense = await this.prisma.expense.create({
       data: {
@@ -802,10 +822,13 @@ export class CreditCardService {
         valor: valorCompra,
         quantidade: 1,
         valorTotal: valorCompra,
-        formaPagamento: total > 1 ? 'PARCELADO' : 'A_VISTA',
-        dataPagamento: tx.date,
-        quantidadeParcela: total > 1 ? total : null,
-        dataInicioParcela: total > 1 ? tx.date : null,
+        formaPagamento: remainingCount > 1 ? 'PARCELADO' : 'A_VISTA',
+        dataPagamento: anchorDate,
+        quantidadeParcela: remainingCount > 1 ? remainingCount : null,
+        dataInicioParcela: remainingCount > 1 ? anchorDate : null,
+        // Competência: preserva a data REAL da compra mesmo quando o caixa da
+        // parcela foi ancorado no mês da fatura.
+        dataCompra: tx.date,
         status: 'PLANEJADO',
         importId,
         externalId: tx.externalId,
@@ -828,12 +851,12 @@ export class CreditCardService {
 
     // Parcela atual — PLANEJADO (liquida no pagamento da fatura)
     await this.prisma.cashFlowEntry.create({
-      data: { ...baseCashFlow, data: tx.date, status: 'PLANEJADO', parcela: installmentLabel },
+      data: { ...baseCashFlow, data: anchorDate, status: 'PLANEJADO', parcela: installmentLabel },
     });
 
     // Parcelas futuras — PLANEJADO, uma por mês subsequente
     for (let i = 1; i <= remainingAfterCurrent; i++) {
-      const futureDate = addMonths(tx.date, i);
+      const futureDate = addMonths(anchorDate, i);
       await this.prisma.cashFlowEntry.create({
         data: {
           ...baseCashFlow,
@@ -846,6 +869,20 @@ export class CreditCardService {
 
     return { inserted: true, settled: false, expenseId: expense.id };
   }
+}
+
+/**
+ * Reposiciona uma data no mês `YYYY-MM` informado, preservando o dia (com clamp
+ * para o último dia em meses curtos).
+ */
+function anchorToMonth(base: Date, yearMonth: string): Date {
+  const m = /^(\d{4})-(\d{2})$/.exec(yearMonth);
+  if (!m) return base;
+  const year = Number(m[1]);
+  const monthIdx = Number(m[2]) - 1;
+  const day = base.getUTCDate();
+  const lastDay = new Date(Date.UTC(year, monthIdx + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(year, monthIdx, Math.min(day, lastDay)));
 }
 
 /**
