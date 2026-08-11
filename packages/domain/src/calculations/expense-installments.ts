@@ -178,7 +178,8 @@ function buildBaseInstallments(input: InstallmentInput): InstallmentEntry[] {
   const n = Math.max(quantidadeParcela ?? 1, 1);
   const baseValue = Math.floor(valorTotal / n);
   const remainder = valorTotal - baseValue * n;
-  const startDate = dataInicioParcela ?? todayLocalDateUtc('America/Sao_Paulo');
+  const startDate =
+    dataInicioParcela ?? dataPagamento ?? todayLocalDateUtc('America/Sao_Paulo');
   const isQuinzenal = formaPagamento === PaymentForm.QUINZENAL;
 
   return Array.from({ length: n }, (_, i) => {

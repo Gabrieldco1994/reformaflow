@@ -51,6 +51,27 @@ describe('buildInstallments', () => {
     ]);
   });
 
+  it.each([
+    [PaymentForm.PARCELADO, ['2024-01-10', '2024-02-20', '2024-03-10']],
+    [PaymentForm.QUINZENAL, ['2024-01-10', '2024-02-20', '2024-02-09']],
+  ])(
+    '%s legado sem data de início usa dataPagamento e mantém o override isolado',
+    (formaPagamento, expectedDates) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-08-11T12:00:00.000Z'));
+      const out = buildInstallments({
+        valorTotal: 3000,
+        formaPagamento,
+        quantidadeParcela: 3,
+        dataInicioParcela: null,
+        dataPagamento: utc(2024, 1, 10),
+        installmentDateOverrides: '{"1":"2024-02-20"}',
+      });
+
+      expect(out.map((p) => p.data.toISOString().slice(0, 10))).toEqual(expectedDates);
+    },
+  );
+
   it('PARCELADO 3x distribui em centavos com remainder na última parcela', () => {
     const out = buildInstallments({
       valorTotal: 1000, // 1000 / 3 = 333.33 → 333, 333, 334
