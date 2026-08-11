@@ -1,4 +1,4 @@
-import { IsString, IsNumber, IsDateString, IsIn, IsOptional, IsBoolean, Min } from 'class-validator';
+import { IsString, IsNumber, IsDateString, IsIn, IsOptional, IsBoolean, Matches, Min } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ExpenseType, LaborCategory, ExpenseStatus } from '@reformaflow/domain';
 
@@ -114,4 +114,20 @@ export class CreateExpenseDto {
   @IsOptional()
   @IsString()
   linkedExpenseId?: string;
+
+  // ─── "Cartão paga cartão" (opcional) ────────────────────────
+  // Quando esta cobrança quita a fatura de OUTRO cartão (ex.: paguei o Nubank
+  // com o Itaú, com juros), os dois campos abaixo viram
+  // `Expense.settlesInvoiceKey = "{last4-do-cartão-quitado}:{dueMonth}"`.
+  // Ver docs/visao-conta-faturas.md §4.
+
+  @ApiPropertyOptional({ description: 'Cartão CUJA FATURA esta cobrança quita (não é o cartão onde ela apareceu)' })
+  @IsOptional()
+  @IsString()
+  settlesInvoiceCardId?: string;
+
+  @ApiPropertyOptional({ example: '2026-08', description: 'Mês de vencimento da fatura quitada (YYYY-MM)' })
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}$/, { message: 'settlesInvoiceDueMonth deve estar no formato YYYY-MM' })
+  settlesInvoiceDueMonth?: string;
 }

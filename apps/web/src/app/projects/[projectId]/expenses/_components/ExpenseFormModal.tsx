@@ -29,6 +29,8 @@ export interface ExpenseFormVinculos {
   linkedParcelaIndex?: number | null;
   creditCardTouched?: boolean;
   bankAccountTouched?: boolean;
+  settlesInvoiceCardId?: string;
+  settlesInvoiceDueMonth?: string;
 }
 
 interface ExpenseFormModalProps {
@@ -198,6 +200,7 @@ export function ExpenseFormModal({
               initialCardLast4={editing?.cardLast4 ?? null}
               initialBankLast4={editing?.bankLast4 ?? null}
               initialLinkedExpenseId={editing?.linkedExpenseId ?? null}
+              initialSettlesInvoiceKey={editing?.settlesInvoiceKey ?? null}
               baseDraft={linkedExpenseDraft}
             />
           </div>

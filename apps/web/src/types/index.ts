@@ -114,6 +114,8 @@ export interface Expense {
   cardLast4?: string | null;
   bankLast4?: string | null;
   linkedExpenseId?: string | null;
+  /** "Cartão paga cartão": "{last4-do-cartão-quitado}:{dueMonth}" (ver docs/visao-conta-faturas.md §4). */
+  settlesInvoiceKey?: string | null;
   importId?: string | null;
   // Project info (presente em listagens cross-project)
   project?: { id: string; name: string; type: string } | null;
@@ -151,6 +153,8 @@ export interface ExpenseFormData {
   creditCardId?: string | null;
   bankAccountId?: string | null;
   linkedExpenseId?: string | null;
+  settlesInvoiceCardId?: string | null;
+  settlesInvoiceDueMonth?: string | null;
 }
 
 // Cash Flow
