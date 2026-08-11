@@ -534,6 +534,62 @@ describe('CreditCardService', () => {
       expect(cf[8][0].data.parcela).toBe('10/10');
     });
 
+    it('ancora TODA linha da fatura no mês do vencimento, não só parcelas do meio', async () => {
+      // Fatura de setembro trazendo uma compra à vista e uma "Parcela 1 de 10",
+      // ambas datadas de julho (Itaú lista a data da COMPRA). As duas são
+      // cobradas em SETEMBRO — deixá-las em julho enche a fatura errada.
+      const ws = XLSX.utils.aoa_to_sheet([
+        [undefined, 'Cartão', undefined, undefined, undefined, undefined, 'Valor', undefined, 'Vencimento'],
+        [undefined, 'Visa - final 5572', undefined, undefined, undefined, undefined, 100, undefined, '08/09/2026'],
+        [],
+        [undefined, 'Data', 'Lançamento', 'Parcelamento', 'Valor', undefined, 'Titularidade'],
+        [undefined, '21/07/2026', 'Telhanorte 43', '', '202.87', undefined, 'Titular'],
+        [undefined, '21/07/2026', 'Telhanorte Parc', 'Parcela 1 de 10', '110.07', undefined, 'Titular'],
+      ]);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Fatura');
+      const buf = Buffer.from(XLSX.write(wb, { bookType: 'xlsx', type: 'array' }));
+
+      prisma.expense.findFirst.mockResolvedValue(null);
+      prisma.expense.create.mockClear();
+
+      await service.commitImport('t1', 'pessoal1', 'card1', buf, 'fatura.xlsx', 'AUTO');
+
+      const iso = (d: Date) => d.toISOString().slice(0, 10);
+      const calls = prisma.expense.create.mock.calls.map(([a]: [any]) => a.data);
+
+      const avista = calls.find((d: any) => d.titulo.startsWith('Telhanorte 43'));
+      expect(iso(avista.dataPagamento)).toBe('2026-09-21');
+      expect(iso(avista.dataCompra)).toBe('2026-07-21');
+
+      const parc1 = calls.find((d: any) => d.titulo.includes('(1/10)'));
+      expect(iso(parc1.dataInicioParcela)).toBe('2026-09-21');
+      expect(iso(parc1.dataCompra)).toBe('2026-07-21');
+    });
+
+    it('não reancora para trás quando a compra é posterior ao vencimento', async () => {
+      // Fatura em aberto (vence 08/09) com compra de 20/09, já do próximo
+      // ciclo: a data original é a melhor informação e deve ser preservada.
+      const ws = XLSX.utils.aoa_to_sheet([
+        [undefined, 'Cartão', undefined, undefined, undefined, undefined, 'Valor', undefined, 'Vencimento'],
+        [undefined, 'Visa - final 5572', undefined, undefined, undefined, undefined, 100, undefined, '08/09/2026'],
+        [],
+        [undefined, 'Data', 'Lançamento', 'Parcelamento', 'Valor', undefined, 'Titularidade'],
+        [undefined, '20/09/2026', 'Compra Recente', '', '50.00', undefined, 'Titular'],
+      ]);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Fatura');
+      const buf = Buffer.from(XLSX.write(wb, { bookType: 'xlsx', type: 'array' }));
+
+      prisma.expense.findFirst.mockResolvedValue(null);
+      prisma.expense.create.mockClear();
+
+      await service.commitImport('t1', 'pessoal1', 'card1', buf, 'fatura.xlsx', 'AUTO');
+
+      const created = prisma.expense.create.mock.calls[0][0];
+      expect(created.data.dataPagamento.toISOString().slice(0, 10)).toBe('2026-09-20');
+    });
+
   describe('commitImport — decisions', () => {    it('decision.skip ignora a transação (não cria expense)', async () => {
       const ofx = buildOfx(
         ofxFor('20260429', 100, 'LOJA SKIP', 'SK1'),
