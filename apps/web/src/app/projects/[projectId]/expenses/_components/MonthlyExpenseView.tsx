@@ -11,6 +11,7 @@ import {
   X,
   Copy,
 } from 'lucide-react';
+import { isSinglePaymentForm } from '@reformaflow/domain';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import type { Expense } from '@/types';
 import type { GrupoDespesaPorMes } from '../_lib/grouping-by-month';
@@ -196,7 +197,9 @@ function MonthlyExpenseViewImpl({
                   const isEditing = editingId === e.occKey;
                   const isCopying = copyingId === e.occKey;
                   const dateStr = e.occDate || effectiveDate(e) || '';
-                  const isInstallmentOccurrence = e.occTotalParcelas > 1;
+                  const isInstallmentOccurrence = !isSinglePaymentForm(
+                    e.formaPagamento,
+                  );
 
                   return (
                     <div
