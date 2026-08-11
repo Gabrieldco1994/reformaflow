@@ -1,6 +1,6 @@
 import React from 'react';
 import { Pencil, Trash2, ChevronDown, ChevronRight, ExternalLink, Check, X } from 'lucide-react';
-import { isSinglePaymentForm } from '@reformaflow/domain';
+import { buildInstallments, isSinglePaymentForm } from '@reformaflow/domain';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import {
   CATEGORIA_MAO_DE_OBRA_OPTIONS,
@@ -15,7 +15,6 @@ import { StatusBadge } from './StatusBadge';
 import type { ExpenseCategoryGroup } from '../_hooks/useExpenseFilters';
 import type { InlineNewRow } from '../_types';
 import { maskReaisInput, reaisToCents } from '../_lib/money';
-import { buildExpenseInstallments } from '../_lib/installments';
 
 interface ExpenseOption {
   value: string;
@@ -336,7 +335,7 @@ export function ExpenseDesktopTable({
                           </>
                         )}
 
-                        {isExpanded && hasDetail && buildExpenseInstallments({
+                        {isExpanded && hasDetail && buildInstallments({
                           valorTotal: exp.valorTotal,
                           formaPagamento: exp.formaPagamento,
                           dataPagamento: exp.dataPagamento ? new Date(exp.dataPagamento) : null,

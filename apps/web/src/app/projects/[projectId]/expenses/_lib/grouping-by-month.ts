@@ -1,6 +1,9 @@
 import type { Expense } from '@/types';
-import { buildRecurringOccurrences, isSinglePaymentForm } from '@reformaflow/domain';
-import { buildExpenseInstallments } from './installments';
+import {
+  buildInstallments,
+  buildRecurringOccurrences,
+  isSinglePaymentForm,
+} from '@reformaflow/domain';
 
 /** Horizonte de projeção de despesas fixas (recorrentes) à frente do mês atual. */
 const RECURRING_HORIZON_MONTHS = 12;
@@ -173,7 +176,7 @@ export function expandExpenseOccurrences(
 
   // Usa o MESMO cálculo de parcelas do backend (@reformaflow/domain) para
   // garantir que valores e datas das parcelas batam com o fluxo de caixa.
-  const installments = buildExpenseInstallments({
+  const installments = buildInstallments({
     valorTotal: e.valorTotal,
     formaPagamento: e.formaPagamento,
     dataPagamento: e.dataPagamento ? new Date(e.dataPagamento) : null,

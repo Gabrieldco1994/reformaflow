@@ -1,7 +1,6 @@
-import { isSinglePaymentForm } from '@reformaflow/domain';
+import { buildInstallments, isSinglePaymentForm } from '@reformaflow/domain';
 import type { ExpenseFormData } from '@/types';
 import type { AccountViewSaida } from '../../conta/_types';
-import { buildExpenseInstallments } from './installments';
 
 /**
  * Helpers puros da quitação de parcela cross-project no PESSOAL.
@@ -142,7 +141,7 @@ export function suggestParcelaQuitacao(
       dataSugerida: (exp.dataPagamento ?? exp.dataInicioParcela ?? isoToday).slice(0, 10),
     };
   }
-  const slices = buildExpenseInstallments({
+  const slices = buildInstallments({
     valorTotal: exp.valorTotal,
     formaPagamento: exp.formaPagamento as never,
     dataPagamento: exp.dataPagamento ? new Date(exp.dataPagamento) : null,
@@ -187,7 +186,7 @@ export function suggestParcelaQuitacaoAt(
       dataSugerida: (exp.dataPagamento ?? exp.dataInicioParcela ?? isoToday).slice(0, 10),
     };
   }
-  const slices = buildExpenseInstallments({
+  const slices = buildInstallments({
     valorTotal: exp.valorTotal,
     formaPagamento: exp.formaPagamento as never,
     dataPagamento: exp.dataPagamento ? new Date(exp.dataPagamento) : null,
