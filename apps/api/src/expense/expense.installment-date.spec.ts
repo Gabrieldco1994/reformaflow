@@ -60,13 +60,13 @@ function makeHarness(expense: ExpenseFixture = baseExpense) {
     expense: {
       findFirst: jest.fn().mockResolvedValue(expense),
       findMany: jest.fn().mockResolvedValue([]),
-      findUnique: jest.fn().mockImplementation(() => Promise.resolve(currentExpense)),
-      update: jest
+      findUnique: jest
         .fn()
-        .mockImplementation(({ data }) => {
-          currentExpense = { ...currentExpense, ...data };
-          return Promise.resolve(currentExpense);
-        }),
+        .mockImplementation(() => Promise.resolve(currentExpense)),
+      update: jest.fn().mockImplementation(({ data }) => {
+        currentExpense = { ...currentExpense, ...data };
+        return Promise.resolve(currentExpense);
+      }),
     },
     rateioAllocation: {
       findUnique: jest.fn().mockResolvedValue(null),
@@ -143,14 +143,38 @@ describe("ExpenseService.updateInstallmentDate", () => {
       "2026-10-05",
     );
 
-    expect(tx.cashFlowEntry.createMany).toHaveBeenCalledWith({
-      data: expect.arrayContaining([
-        expect.objectContaining({
-          expenseId: "expense-1",
-          data: new Date("2026-10-05T00:00:00.000Z"),
-        }),
-      ]),
-    });
+    expect(tx.cashFlowEntry.createMany).toHaveBeenCalledTimes(1);
+    const entries = tx.cashFlowEntry.createMany.mock.calls[0][0].data as Array<{
+      expenseId: string;
+      data: Date;
+      valor: number;
+      status: string;
+      parcela: string | null;
+    }>;
+    expect(
+      entries.map(({ expenseId, data, valor, status, parcela }) => ({
+        expenseId,
+        data,
+        valor,
+        status,
+        parcela,
+      })),
+    ).toEqual([
+      {
+        expenseId: "expense-1",
+        data: new Date("2026-08-10T00:00:00.000Z"),
+        valor: 1000,
+        status: "PLANEJADO",
+        parcela: "1/2",
+      },
+      {
+        expenseId: "expense-1",
+        data: new Date("2026-10-05T00:00:00.000Z"),
+        valor: 1000,
+        status: "PAGO",
+        parcela: "2/2",
+      },
+    ]);
     expect(tx.expense.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: { installmentDateOverrides: '{"1":"2026-10-05"}' },
@@ -345,10 +369,9 @@ describe("ExpenseService.updateInstallmentDate", () => {
       "2026-09-20",
     );
     expect(settlement.tx.expense.update).toHaveBeenCalledTimes(1);
-    expect(settlement.conciliacao.regenerateTargetCashflow).toHaveBeenCalledWith(
-      settlement.tx,
-      "expense-1",
-    );
+    expect(
+      settlement.conciliacao.regenerateTargetCashflow,
+    ).toHaveBeenCalledWith(settlement.tx, "expense-1");
     expect(settlementResult).toEqual({
       id: "expense-1",
       parcela: 1,
@@ -408,13 +431,11 @@ describe("ExpenseService.updateInstallmentDate", () => {
   it("faz rollback do par simples quando a atualização do espelho falha", async () => {
     const expense = { ...baseExpense, linkedExpenseId: "mirror-1" };
     const { service, tx } = makeHarness(expense);
-    tx.expense.findFirst
-      .mockResolvedValueOnce(expense)
-      .mockResolvedValueOnce({
-        ...baseExpense,
-        id: "mirror-1",
-        projectId: "project-2",
-      });
+    tx.expense.findFirst.mockResolvedValueOnce(expense).mockResolvedValueOnce({
+      ...baseExpense,
+      id: "mirror-1",
+      projectId: "project-2",
+    });
     tx.expense.update
       .mockResolvedValueOnce({
         ...expense,
