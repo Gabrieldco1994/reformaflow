@@ -11,6 +11,7 @@ import {
   X,
   Copy,
 } from 'lucide-react';
+import { isSinglePaymentForm } from '@reformaflow/domain';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import type { Expense } from '@/types';
 import type { GrupoDespesaPorMes } from '../_lib/grouping-by-month';
@@ -31,7 +32,7 @@ interface Props {
   onToggleParcela?: (id: string, parcela: number, paid: boolean) => void;
   /** Troca rápida da categoria (tipo de despesa) direto na lista. */
   onChangeTipo?: (id: string, tipoDespesa: string) => void;
-  onQuickUpdate: (id: string, valor: number, data: string) => void;
+  onQuickUpdate: (update: QuickExpenseUpdate) => void;
   onQuickCreate: (data: {
     tipoDespesa: string;
     valor: number;
@@ -39,6 +40,15 @@ interface Props {
     status: 'PAGO' | 'PLANEJADO';
   }) => void;
   emptyMsg: string;
+}
+
+export interface QuickExpenseUpdate {
+  id: string;
+  data: string;
+  /** Índice 0-based, presente apenas na edição de ocorrência parcelada. */
+  parcela?: number;
+  /** Valor em reais; ausente na edição de ocorrência parcelada. */
+  valor?: number;
 }
 
 function StatusInline({ status }: { status: string }) {
@@ -187,7 +197,9 @@ function MonthlyExpenseViewImpl({
                   const isEditing = editingId === e.occKey;
                   const isCopying = copyingId === e.occKey;
                   const dateStr = e.occDate || effectiveDate(e) || '';
-                  const origDate = effectiveDate(e) || '';
+                  const isInstallmentOccurrence = !isSinglePaymentForm(
+                    e.formaPagamento,
+                  );
 
                   return (
                     <div
@@ -241,42 +253,71 @@ function MonthlyExpenseViewImpl({
                           </button>
                         </div>
                       ) : isEditing ? (
-                        <div className="flex items-center gap-2">
-                          <div className="flex-shrink-0 w-9" />
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            value={editValor}
-                            onChange={(ev) => setEditValor(maskReaisInput(ev.target.value))}
-                            placeholder="Valor"
-                            className="w-24 border border-darc-mist rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-darc-mist"
-                            autoFocus
-                          />
+                        <div className="flex flex-wrap items-center gap-2">
+                          {isInstallmentOccurrence ? (
+                            <span
+                              className="w-20 text-sm font-semibold tabular-nums text-darc-velvet/70"
+                              aria-label="Valor da parcela, somente leitura"
+                            >
+                              {formatCurrency(e.occValue / 100)}
+                            </span>
+                          ) : (
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={editValor}
+                              onChange={(ev) => setEditValor(maskReaisInput(ev.target.value))}
+                              placeholder="Valor"
+                              aria-label="Novo valor"
+                              className="min-h-[44px] w-24 border border-darc-mist rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-darc-mist"
+                              autoFocus
+                            />
+                          )}
                           <input
                             type="date"
                             value={editData}
                             onChange={(ev) => setEditData(ev.target.value)}
-                            className="w-32 border border-darc-mist rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-darc-mist"
+                            aria-label={
+                              isInstallmentOccurrence
+                                ? `Nova data da parcela ${e.occIndex}`
+                                : 'Nova data de pagamento'
+                            }
+                            className="min-h-[44px] w-32 border border-darc-mist rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-darc-mist"
+                            autoFocus={isInstallmentOccurrence}
                           />
                           <button
                             type="button"
                             onClick={() => {
+                              if (!editData) return;
+                              if (isInstallmentOccurrence) {
+                                onQuickUpdate({
+                                  id: e.id,
+                                  data: editData,
+                                  parcela: e.occIndex - 1,
+                                });
+                                setEditingId(null);
+                                return;
+                              }
                               const valor = reaisToCents(editValor) / 100;
-                              if (valor && editData) {
-                                onQuickUpdate(e.id, valor, editData);
+                              if (valor) {
+                                onQuickUpdate({ id: e.id, valor, data: editData });
                                 setEditingId(null);
                               }
                             }}
-                            className="p-1.5 rounded-full hover:bg-emerald-100"
-                            title="Salvar"
+                            className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full hover:bg-emerald-100"
+                            aria-label={
+                              isInstallmentOccurrence
+                                ? 'Salvar data da parcela'
+                                : 'Salvar edição rápida'
+                            }
                           >
                             <Check className="w-4 h-4 text-emerald-700" />
                           </button>
                           <button
                             type="button"
                             onClick={() => setEditingId(null)}
-                            className="p-1.5 rounded-full hover:bg-darc-linen/60"
-                            title="Cancelar"
+                            className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full hover:bg-darc-linen/60"
+                            aria-label="Cancelar edição rápida"
                           >
                             <X className="w-4 h-4 text-darc-velvet/60" />
                           </button>
@@ -398,11 +439,11 @@ function MonthlyExpenseViewImpl({
                               type="button"
                               onClick={() => {
                                 setEditingId(e.occKey);
-                                setEditValor(centsToReais(e.valorTotal));
-                                setEditData((origDate || '').slice(0, 10));
+                                setEditValor(centsToReais(e.occValue));
+                                setEditData(dateStr.slice(0, 10));
                               }}
                               aria-label="Editar rápido"
-                              className="p-1.5 rounded-full hover:bg-darc-linen/60"
+                              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full hover:bg-darc-linen/60"
                               title="Edição rápida"
                             >
                               <Pencil className="w-3.5 h-3.5 text-darc-velvet/70" />

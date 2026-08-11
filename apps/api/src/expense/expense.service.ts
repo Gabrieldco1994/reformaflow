@@ -5,12 +5,20 @@ import { ConciliacaoService, RateioItem, SettleParcelaInput } from '../conciliac
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
 import { CreateRecorrenteDto } from './dto/create-recorrente.dto';
-import { ExpenseTypeLabels, LaborCategoryLabels, buildInstallments, buildRecurrenceDates, isRecurrenceFrequency, isSinglePaymentForm, isNeutralExpenseType, hasFeature, PaymentForm, ProjectType, type RecurrenceFrequency } from '@reformaflow/domain';
+import { ExpenseTypeLabels, LaborCategoryLabels, buildInstallments, buildRecurrenceDates, isRecurrenceFrequency, isSinglePaymentForm, isNeutralExpenseType, hasFeature, normalizeInstallmentDateOverrides, parseInstallmentDateOnlyUtc, parseInstallmentDateOverrides, setInstallmentDateOverride, PaymentForm, ProjectType, type RecurrenceFrequency } from '@reformaflow/domain';
 import { RatearMixedDto } from './dto/ratear-mixed.dto';
 import { Prisma } from '@prisma/client';
 import { fastClassify } from '../bank-account/bank-account.service';
 
 type ExpenseDb = PrismaService | Prisma.TransactionClient;
+
+export interface UpdateInstallmentDateResult {
+  id: string;
+  parcela: number;
+  data: string;
+  isOverride: boolean;
+  affectedProjectIds: string[];
+}
 
 @Injectable()
 export class ExpenseService {
@@ -780,6 +788,32 @@ export class ExpenseService {
     const valorTotal = valorCents * quantidade;
 
     const links = await this.resolveLinks(tenantId, projectId, dto);
+    const resultingFormaPagamento = dto.formaPagamento ?? existing.formaPagamento;
+    const resultingQuantidadeParcela =
+      dto.quantidadeParcela === undefined ? existing.quantidadeParcela : dto.quantidadeParcela;
+    const resultingDataPagamento =
+      dto.dataPagamento === undefined
+        ? existing.dataPagamento
+        : dto.dataPagamento === null ? null : new Date(dto.dataPagamento);
+    const resultingDataInicioParcela =
+      dto.dataInicioParcela === undefined
+        ? existing.dataInicioParcela
+        : dto.dataInicioParcela === null ? null : new Date(dto.dataInicioParcela);
+    const shouldNormalizeInstallmentDateOverrides =
+      dto.formaPagamento !== undefined ||
+      dto.dataPagamento !== undefined ||
+      dto.quantidadeParcela !== undefined ||
+      dto.dataInicioParcela !== undefined;
+    const installmentDateOverrides = shouldNormalizeInstallmentDateOverrides
+      ? normalizeInstallmentDateOverrides({
+          valorTotal,
+          formaPagamento: resultingFormaPagamento,
+          dataPagamento: resultingDataPagamento,
+          quantidadeParcela: resultingQuantidadeParcela,
+          dataInicioParcela: resultingDataInicioParcela,
+          installmentDateOverrides: existing.installmentDateOverrides,
+        })
+      : undefined;
 
     // Mudanças em status agregado, forma, valor ou config de parcelamento
     // invalidam os índices de parcelas pagas — limpa para evitar estado stale.
@@ -833,6 +867,7 @@ export class ExpenseService {
               ? null
               : new Date(dto.recorrenciaFim),
         ...(resetPaidParcelas ? { paidParcelas: null } : {}),
+        ...(shouldNormalizeInstallmentDateOverrides ? { installmentDateOverrides } : {}),
         cardLast4: links.cardLast4,
         bankLast4: links.bankLast4,
         linkedExpenseId: links.linkedExpenseId,
@@ -847,12 +882,204 @@ export class ExpenseService {
     // pessoal), editar um lado deve refletir no outro. Propaga apenas campos da
     // COMPRA (data, valor, parcelas, status, tipo, título); campos por-lado (meio
     // de pagamento, sala, ponteiro de vínculo, anexos) NÃO são sincronizados.
-    await this.syncLinkedObraPair(tenantId, id, dto);
+    await this.syncLinkedObraPair(
+      tenantId,
+      id,
+      dto,
+      shouldNormalizeInstallmentDateOverrides,
+    );
 
     return expense;
   }
 
-  private async syncLinkedObraPair(tenantId: string, sourceId: string, dto: UpdateExpenseDto) {
+  async updateInstallmentDate(
+    tenantId: string,
+    projectId: string,
+    id: string,
+    parcela: number,
+    data: string,
+  ): Promise<UpdateInstallmentDateResult> {
+    const parsedDate = parseInstallmentDateOnlyUtc(data);
+    if (!parsedDate) throw new BadRequestException('Data de parcela inválida');
+
+    return this.prisma.$transaction(async (tx) => {
+      await this.validateProject(tenantId, projectId, tx);
+      const expense = await tx.expense.findFirst({
+        where: { id, projectId, tenantId, deletedAt: null },
+        include: { room: true },
+      });
+      if (!expense) throw new NotFoundException('Despesa não encontrada');
+      if (isSinglePaymentForm(expense.formaPagamento)) {
+        throw new BadRequestException('Despesa não é parcelada/quinzenal');
+      }
+      const installmentCount = Math.max(expense.quantidadeParcela ?? 1, 1);
+      if (!Number.isInteger(parcela) || parcela < 0 || parcela >= installmentCount) {
+        throw new BadRequestException('Índice de parcela inválido');
+      }
+
+      const targetRateio = await tx.rateioAllocation.findUnique({
+        where: { targetExpenseId: expense.id },
+      });
+      if (targetRateio) {
+        throw new BadRequestException(
+          'Esta despesa é alvo de rateio. Edite a data na compra fonte do rateio.',
+        );
+      }
+
+      const settlements = await tx.crossProjectSettlement.findMany({
+        where: {
+          tenantId,
+          OR: [{ sourceExpenseId: expense.id }, { targetExpenseId: expense.id }],
+        },
+      });
+      if (settlements.some((row) => row.sourceExpenseId === expense.id)) {
+        throw new BadRequestException(
+          'A fonte real conciliada não pode ter a data alterada aqui. Edite a parcela planejada alvo.',
+        );
+      }
+      const isSettlementTarget = settlements.some(
+        (row) => row.targetExpenseId === expense.id,
+      );
+
+      const nextOverrides = this.withInstallmentDate(expense, parcela, parsedDate);
+      await tx.expense.update({
+        where: { id: expense.id },
+        data: { installmentDateOverrides: nextOverrides },
+        include: { room: true },
+      });
+      const affectedProjectIds = new Set<string>([expense.projectId]);
+      const result = (): UpdateInstallmentDateResult => ({
+        id: expense.id,
+        parcela,
+        data: parsedDate.toISOString().slice(0, 10),
+        isOverride: parseInstallmentDateOverrides(
+          nextOverrides,
+          installmentCount,
+        ).has(parcela),
+        affectedProjectIds: [...affectedProjectIds].sort(),
+      });
+
+      if (isSettlementTarget) {
+        await this.conciliacao.regenerateTargetCashflow(tx, expense.id);
+      } else {
+        await this.regenerateCashFlow(expense.id, tx);
+      }
+
+      const sourceRateios = await tx.rateioAllocation.findMany({
+        where: { tenantId, sourceExpenseId: expense.id },
+        include: {
+          target: {
+            select: {
+              id: true,
+              projectId: true,
+              tenantId: true,
+              deletedAt: true,
+            },
+          },
+        },
+      });
+      if (sourceRateios.length > 0) {
+        for (const allocation of sourceRateios) {
+          if (
+            allocation.target.tenantId !== tenantId ||
+            allocation.target.deletedAt
+          ) {
+            continue;
+          }
+          await tx.expense.update({
+            where: { id: allocation.target.id },
+            data: { installmentDateOverrides: nextOverrides },
+          });
+          affectedProjectIds.add(allocation.target.projectId);
+          await this.conciliacao.regenerateRateioTargetCashflow(
+            tx,
+            allocation.target.id,
+          );
+        }
+        return result();
+      }
+
+      if (!isSettlementTarget) {
+        const counterpartIds = new Set<string>();
+        if (expense.linkedExpenseId) counterpartIds.add(expense.linkedExpenseId);
+        const mirrors = await tx.expense.findMany({
+          where: { tenantId, linkedExpenseId: expense.id, deletedAt: null },
+          select: { id: true },
+        });
+        for (const mirror of mirrors) counterpartIds.add(mirror.id);
+
+        for (const counterpartId of counterpartIds) {
+          const counterpartSettlements = await tx.crossProjectSettlement.findMany({
+            where: {
+              tenantId,
+              OR: [
+                { sourceExpenseId: counterpartId },
+                { targetExpenseId: counterpartId },
+              ],
+            },
+          });
+          if (counterpartSettlements.length > 0) continue;
+          const counterpart = await tx.expense.findFirst({
+            where: { id: counterpartId, tenantId, deletedAt: null },
+            include: { room: true },
+          });
+          if (!counterpart) continue;
+          if (
+            isSinglePaymentForm(counterpart.formaPagamento) ||
+            parcela >= Math.max(counterpart.quantidadeParcela ?? 1, 1)
+          ) {
+            throw new BadRequestException('Par vinculado possui parcelamento incompatível');
+          }
+          const counterpartOverrides = this.withInstallmentDate(
+            counterpart,
+            parcela,
+            parsedDate,
+          );
+          await tx.expense.update({
+            where: { id: counterpart.id },
+            data: { installmentDateOverrides: counterpartOverrides },
+          });
+          affectedProjectIds.add(counterpart.projectId);
+          await this.regenerateCashFlow(counterpart.id, tx);
+        }
+      }
+
+      return result();
+    });
+  }
+
+  private withInstallmentDate(
+    expense: {
+      valorTotal: number;
+      formaPagamento: string;
+      dataPagamento: Date | null;
+      quantidadeParcela: number | null;
+      dataInicioParcela: Date | null;
+      installmentDateOverrides: string | null;
+    },
+    parcela: number,
+    data: Date,
+  ): string | null {
+    return setInstallmentDateOverride(
+      {
+        valorTotal: expense.valorTotal,
+        formaPagamento: expense.formaPagamento,
+        dataPagamento: expense.dataPagamento,
+        quantidadeParcela: expense.quantidadeParcela,
+        dataInicioParcela: expense.dataInicioParcela,
+        installmentDateOverrides: expense.installmentDateOverrides,
+      },
+      parcela,
+      data,
+    );
+  }
+
+  private async syncLinkedObraPair(
+    tenantId: string,
+    sourceId: string,
+    dto: UpdateExpenseDto,
+    shouldSyncInstallmentDateOverrides: boolean,
+  ) {
     const involvedInSettlement = async (expenseId: string) =>
       (await this.prisma.crossProjectSettlement.count({
         where: { tenantId, OR: [{ sourceExpenseId: expenseId }, { targetExpenseId: expenseId }] },
@@ -864,7 +1091,7 @@ export class ExpenseService {
 
     const source = await this.prisma.expense.findFirst({
       where: { id: sourceId, tenantId, deletedAt: null },
-      select: { id: true, linkedExpenseId: true },
+      select: { id: true, linkedExpenseId: true, installmentDateOverrides: true },
     });
     if (!source) return;
 
@@ -886,6 +1113,9 @@ export class ExpenseService {
     if (counterpartIds.size === 0) return;
 
     const shared: Record<string, unknown> = {};
+    if (shouldSyncInstallmentDateOverrides) {
+      shared.installmentDateOverrides = source.installmentDateOverrides;
+    }
     if (dto.tipoDespesa !== undefined) shared.tipoDespesa = dto.tipoDespesa;
     if (dto.categoriaMaoDeObra !== undefined) shared.categoriaMaoDeObra = dto.categoriaMaoDeObra;
     if (dto.titulo !== undefined) shared.titulo = dto.titulo;
@@ -976,6 +1206,14 @@ export class ExpenseService {
           dataPagamento: dto.dataPagamento ? new Date(dto.dataPagamento) : planned.dataPagamento,
           quantidadeParcela: dto.quantidadeParcela ?? planned.quantidadeParcela,
           dataInicioParcela: dto.dataInicioParcela ? new Date(dto.dataInicioParcela) : planned.dataInicioParcela,
+          installmentDateOverrides: normalizeInstallmentDateOverrides({
+            valorTotal,
+            formaPagamento: dto.formaPagamento ?? planned.formaPagamento,
+            dataPagamento: dto.dataPagamento ? new Date(dto.dataPagamento) : planned.dataPagamento,
+            quantidadeParcela: dto.quantidadeParcela ?? planned.quantidadeParcela,
+            dataInicioParcela: dto.dataInicioParcela ? new Date(dto.dataInicioParcela) : planned.dataInicioParcela,
+            installmentDateOverrides: planned.installmentDateOverrides,
+          }),
           status: 'PAGO',
           plannedExpenseId: planned.id,
         },
@@ -1228,11 +1466,18 @@ export class ExpenseService {
     dataInicioParcela: Date | null;
     status: string;
     paidParcelas?: string | null;
+    installmentDateOverrides?: string | null;
+    cardLast4: string | null;
+    bankLast4: string | null;
     room: { name: string } | null;
   }) {
     // Tipos "neutros" (transferência entre contas próprias, pagto de fatura)
     // não geram entradas de cashflow — não representam consumo/saldo real.
-    if (isNeutralExpenseType(expense.tipoDespesa)) return [];
+    const isCardOnlyNeutral =
+      isNeutralExpenseType(expense.tipoDespesa) &&
+      Boolean(expense.cardLast4) &&
+      !expense.bankLast4;
+    if (isNeutralExpenseType(expense.tipoDespesa) && !isCardOnlyNeutral) return [];
 
     const categoria = ExpenseTypeLabels[expense.tipoDespesa as keyof typeof ExpenseTypeLabels] ?? expense.tipoDespesa;
     const subcategoria = expense.categoriaMaoDeObra
@@ -1247,6 +1492,7 @@ export class ExpenseService {
       dataPagamento: expense.dataPagamento,
       quantidadeParcela: expense.quantidadeParcela,
       dataInicioParcela: expense.dataInicioParcela,
+      installmentDateOverrides: expense.installmentDateOverrides,
     });
 
     const singlePayment = isSinglePaymentForm(expense.formaPagamento);
@@ -1299,7 +1545,7 @@ export class ExpenseService {
     db: ExpenseDb = this.prisma,
   ) {
     const project = await db.project.findFirst({
-      where: { id: projectId, tenantId },
+      where: { id: projectId, tenantId, deletedAt: null },
     });
     if (!project) throw new NotFoundException('Projeto não encontrado');
   }

@@ -341,6 +341,7 @@ export function ExpenseDesktopTable({
                           dataPagamento: exp.dataPagamento ? new Date(exp.dataPagamento) : null,
                           quantidadeParcela: exp.quantidadeParcela,
                           dataInicioParcela: exp.dataInicioParcela ? new Date(exp.dataInicioParcela) : null,
+                          installmentDateOverrides: exp.installmentDateOverrides,
                         }).map((p) => (
                           <tr key={`${exp.id}-${p.parcela}`} className="bg-gray-50/50">
                             <td />

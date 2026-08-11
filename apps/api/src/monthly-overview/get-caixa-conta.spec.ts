@@ -26,6 +26,19 @@ describe('MonthlyOverviewService.getCaixaConta — delegador público do §10 (c
       bankLast4: '3636', importId: null }, // −R$2.500
     { valorTotal: 900_000, status: 'PLANEJADO', dataPagamento: D('2026-07-01'), createdAt: D('2026-06-01'),
       bankLast4: '3636', importId: null }, // futuro → §10 ignora
+    {
+      valorTotal: 30_000,
+      status: 'PLANEJADO',
+      formaPagamento: 'PARCELADO',
+      quantidadeParcela: 3,
+      dataInicioParcela: D('2026-04-10'),
+      dataPagamento: null,
+      paidParcelas: '[0]',
+      installmentDateOverrides: null,
+      createdAt: D('2026-04-01'),
+      bankLast4: '3636',
+      importId: null,
+    }, // somente a parcela realizada de R$ 100
   ];
   const receipts = [
     { valor: 300_000, status: 'EM_CAIXA', data: D('2026-03-01'), bankLast4: '3636', importId: null }, // +R$3.000
@@ -49,17 +62,17 @@ describe('MonthlyOverviewService.getCaixaConta — delegador público do §10 (c
     service = moduleRef.get(MonthlyOverviewService);
   });
 
-  it('hoje = saldoInicial + Σ realizados da conta (=1.050.000) — bate com o oracle puro', async () => {
+  it('hoje = saldoInicial + Σ realizados da conta (=1.040.000) — bate com o oracle puro', async () => {
     const oracle = computeCaixaConta(
       accounts as CaixaContaAccount[],
       expenses as unknown as CaixaContaExpense[],
       receipts as unknown as CaixaContaReceipt[],
     );
-    expect(oracle.hoje).toBe(1_050_000); // pin explícito
+    expect(oracle.hoje).toBe(1_040_000); // pin explícito
 
     const r = await service.getCaixaConta('t1', 'pessoal-1');
 
-    expect(r.hoje).toBe(1_050_000);   // §10, não 0 nem 900k nem 500k
+    expect(r.hoje).toBe(1_040_000);   // §10, não 0 nem 900k nem 500k
     expect(r.hoje).toBe(oracle.hoje); // paridade com a função pura congelada
     expect(r.saldoInicial).toBe(1_000_000);
     expect(r.temSaldoInicial).toBe(true);

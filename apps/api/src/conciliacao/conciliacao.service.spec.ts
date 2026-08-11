@@ -318,7 +318,7 @@ describe('ConciliacaoService', () => {
 
     it('overwrite→restore: alvo reflete o cronograma da fonte e volta ao original no desfazer', async () => {
       const prisma = buildRateioPrisma({
-        source: sourceParcelado({ linkedExpenseId: 'tgt', quantidadeParcela: 10, valorTotal: 100000 }),
+        source: sourceParcelado({ linkedExpenseId: 'tgt', quantidadeParcela: 10, valorTotal: 100000, installmentDateOverrides: '{"1":"2026-09-20"}' }),
         targets: {
           tgt: makeTarget({
             id: 'tgt',
@@ -329,6 +329,7 @@ describe('ConciliacaoService', () => {
             quantidadeParcela: null,
             dataInicioParcela: null,
             dataPagamento: new Date('2026-03-01'),
+            installmentDateOverrides: '{"0":"2026-03-02"}',
           }),
         },
       });
@@ -344,6 +345,7 @@ describe('ConciliacaoService', () => {
         plannedForma: 'A_VISTA',
         plannedValorTotal: 25000,
         plannedDataPagamento: new Date('2026-03-01'),
+        plannedInstallmentDateOverrides: '{"0":"2026-03-02"}',
       });
 
       // desfaz: restaura o original (A_VISTA, 25000, dataPagamento)
@@ -357,6 +359,7 @@ describe('ConciliacaoService', () => {
         valorTotal: 25000,
         valor: 25000,
         quantidadeParcela: null,
+        installmentDateOverrides: '{"0":"2026-03-02"}',
       });
     });
 

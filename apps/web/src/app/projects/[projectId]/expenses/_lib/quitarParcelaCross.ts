@@ -108,6 +108,7 @@ export interface QuitacaoTargetExpense {
   dataInicioParcela?: string | null;
   quantidadeParcela?: number | null;
   paidParcelas?: string | number[] | null;
+  installmentDateOverrides?: string | null;
 }
 
 export interface ParcelaQuitacaoSuggestion {
@@ -146,6 +147,7 @@ export function suggestParcelaQuitacao(
     dataPagamento: exp.dataPagamento ? new Date(exp.dataPagamento) : null,
     quantidadeParcela: exp.quantidadeParcela ?? null,
     dataInicioParcela: exp.dataInicioParcela ? new Date(exp.dataInicioParcela) : null,
+    installmentDateOverrides: exp.installmentDateOverrides,
   });
   const n = Math.max(1, slices.length);
   const paid = parsePaidParcelaSet(exp.paidParcelas);
@@ -190,6 +192,7 @@ export function suggestParcelaQuitacaoAt(
     dataPagamento: exp.dataPagamento ? new Date(exp.dataPagamento) : null,
     quantidadeParcela: exp.quantidadeParcela ?? null,
     dataInicioParcela: exp.dataInicioParcela ? new Date(exp.dataInicioParcela) : null,
+    installmentDateOverrides: exp.installmentDateOverrides,
   });
   const n = Math.max(1, slices.length);
   const idx = Math.min(Math.max(0, parcelaIndex), n - 1);

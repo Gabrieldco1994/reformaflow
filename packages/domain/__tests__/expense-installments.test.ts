@@ -1,5 +1,10 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
-import { buildInstallments, isSinglePaymentForm, PaymentForm } from '../src';
+import {
+  buildInstallments,
+  isSinglePaymentForm,
+  normalizeInstallmentDateOverrides,
+  PaymentForm,
+} from '../src';
 
 const utc = (y: number, m: number, d: number) => new Date(Date.UTC(y, m - 1, d));
 
@@ -46,6 +51,27 @@ describe('buildInstallments', () => {
     ]);
   });
 
+  it.each([
+    [PaymentForm.PARCELADO, ['2024-01-10', '2024-02-20', '2024-03-10']],
+    [PaymentForm.QUINZENAL, ['2024-01-10', '2024-02-20', '2024-02-09']],
+  ])(
+    '%s legado sem data de início usa dataPagamento e mantém o override isolado',
+    (formaPagamento, expectedDates) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-08-11T12:00:00.000Z'));
+      const out = buildInstallments({
+        valorTotal: 3000,
+        formaPagamento,
+        quantidadeParcela: 3,
+        dataInicioParcela: null,
+        dataPagamento: utc(2024, 1, 10),
+        installmentDateOverrides: '{"1":"2024-02-20"}',
+      });
+
+      expect(out.map((p) => p.data.toISOString().slice(0, 10))).toEqual(expectedDates);
+    },
+  );
+
   it('PARCELADO 3x distribui em centavos com remainder na última parcela', () => {
     const out = buildInstallments({
       valorTotal: 1000, // 1000 / 3 = 333.33 → 333, 333, 334
@@ -89,6 +115,61 @@ describe('buildInstallments', () => {
     ]);
     expect(out.map((p) => p.valor)).toEqual([1000, 1000, 1000, 1000]);
     expect(out.map((p) => p.parcela)).toEqual(['1/4', '2/4', '3/4', '4/4']);
+  });
+
+  it('aplica override somente ao índice informado sem deslocar as demais parcelas', () => {
+    const out = buildInstallments({
+      valorTotal: 3000,
+      formaPagamento: PaymentForm.QUINZENAL,
+      quantidadeParcela: 3,
+      dataInicioParcela: utc(2026, 8, 10),
+      installmentDateOverrides: '{"1":"2026-09-20"}',
+    });
+    expect(out.map((p) => p.data.toISOString().slice(0, 10))).toEqual([
+      '2026-08-10',
+      '2026-09-20',
+      '2026-09-09',
+    ]);
+    expect(out.map((p) => p.parcela)).toEqual(['1/3', '2/3', '3/3']);
+    expect(out.map((p) => p.valor)).toEqual([1000, 1000, 1000]);
+  });
+
+  it('ignora JSON inválido e overrides inválidos ou fora do range', () => {
+    const base = {
+      valorTotal: 2000,
+      formaPagamento: PaymentForm.PARCELADO,
+      quantidadeParcela: 2,
+      dataInicioParcela: utc(2026, 8, 10),
+    };
+    expect(buildInstallments({ ...base, installmentDateOverrides: '{invalido' }).map(
+      (p) => p.data.toISOString().slice(0, 10),
+    )).toEqual(['2026-08-10', '2026-09-10']);
+    expect(buildInstallments({
+      ...base,
+      installmentDateOverrides: '{"-1":"2026-01-01","2":"2026-02-01","1":"2026-02-30"}',
+    }).map((p) => p.data.toISOString().slice(0, 10))).toEqual(['2026-08-10', '2026-09-10']);
+  });
+
+  it('ignora e limpa overrides para forma de pagamento única', () => {
+    const data = utc(2026, 8, 10);
+    const input = {
+      valorTotal: 1000,
+      formaPagamento: PaymentForm.A_VISTA,
+      dataPagamento: data,
+      installmentDateOverrides: '{"0":"2026-09-20"}',
+    };
+    expect(buildInstallments(input)[0]?.data).toEqual(data);
+    expect(normalizeInstallmentDateOverrides(input)).toBeNull();
+  });
+
+  it('normaliza overrides ao reduzir a quantidade e preserva os que seguem no range', () => {
+    expect(normalizeInstallmentDateOverrides({
+      valorTotal: 2000,
+      formaPagamento: PaymentForm.PARCELADO,
+      quantidadeParcela: 2,
+      dataInicioParcela: utc(2026, 8, 10),
+      installmentDateOverrides: '{"0":"2026-08-11","1":"2026-09-20","2":"2026-10-20"}',
+    })).toBe('{"0":"2026-08-11","1":"2026-09-20"}');
   });
 
   it('PARCELADO em mês com 31 dias faz clamp para o último dia em fev', () => {

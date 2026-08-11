@@ -1,7 +1,11 @@
 'use client';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { buildInstallments, isSinglePaymentForm, parsePaidParcelas } from '@reformaflow/domain';
+import {
+  buildInstallments,
+  isSinglePaymentForm,
+  parsePaidParcelas,
+} from '@reformaflow/domain';
 import { api } from '@/lib/api';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -37,6 +41,7 @@ interface CrossExpense {
   dataInicioParcela?: string | null;
   dataPagamento?: string | null;
   paidParcelas?: string | null;
+  installmentDateOverrides?: string | null;
   project?: { id: string; name: string; type: string } | null;
 }
 
@@ -72,6 +77,7 @@ function expandParcelaOptions(exp: CrossExpense): ParcelaOption[] {
     dataPagamento: exp.dataPagamento ? new Date(exp.dataPagamento) : null,
     quantidadeParcela: n,
     dataInicioParcela: exp.dataInicioParcela ? new Date(exp.dataInicioParcela) : null,
+    installmentDateOverrides: exp.installmentDateOverrides,
   });
   const paid = new Set(
     exp.status === 'PAGO'

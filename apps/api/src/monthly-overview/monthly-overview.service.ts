@@ -13,6 +13,8 @@ import {
   isConsumptionNeutralExpenseType,
   isNeutralReceiptType,
   isSinglePaymentForm,
+  parsePaidParcelas,
+  PaymentForm,
   todayLocalDateUtc,
   type MonthlyOverviewEntry,
 } from '@reformaflow/domain';
@@ -299,6 +301,7 @@ export class MonthlyOverviewService {
           settledByExpenseId: true,
           settlesInvoiceKey: true,
           paidParcelas: true,
+          installmentDateOverrides: true,
           project: { select: { id: true, name: true, type: true } },
         },
       }),
@@ -565,42 +568,71 @@ export class MonthlyOverviewService {
         .map((expense) => expense.linkedExpenseId as string),
     );
 
+    const localExpenseOccurrences = (
+      expense: (typeof expenses)[number],
+      singlePaymentDate: Date,
+    ) => {
+      if (isSinglePaymentForm(expense.formaPagamento)) {
+        const realizado = expense.status === 'PAGO';
+        return [
+          {
+            expense,
+            data: singlePaymentDate,
+            valor: expense.valorTotal,
+            status: realizado ? 'PAGO' : expense.status,
+            realizado,
+            parcelaIndex: null as number | null,
+          },
+        ];
+      }
+
+      const installments = buildInstallments({
+        formaPagamento: expense.formaPagamento,
+        quantidadeParcela: expense.quantidadeParcela,
+        valorTotal: expense.valorTotal,
+        dataInicioParcela:
+          expense.dataInicioParcela ?? expense.dataPagamento ?? singlePaymentDate,
+        dataPagamento: expense.dataPagamento,
+        installmentDateOverrides: expense.installmentDateOverrides,
+      });
+      const paidParcelas = new Set(
+        parsePaidParcelas(expense.paidParcelas, installments.length),
+      );
+      return installments.map((installment, index) => {
+        const realizado = expense.status === 'PAGO' || paidParcelas.has(index);
+        return {
+          expense,
+          data: installment.data,
+          valor: installment.valor,
+          status: realizado ? 'PAGO' : 'PLANEJADO',
+          realizado,
+          parcelaIndex: index as number | null,
+        };
+      });
+    };
+
     // Despesas LOCAIS do próprio projeto sem cartão E sem conta (ex.: lançadas
     // por voz sem meio de pagamento informado) — a "Carteira". Regra de ouro 14:
     // nunca sumir com origin:'none' do consolidado. Sem cartão/conta elas saem
     // direto do caixa como dinheiro; espelha o tratamento das foreign carteira,
     // mas para o projeto atual. Espelho em carteira fica como a representação de
     // caixa, mesmo se outras parcelas do alvo tiverem settlement.
-    const localCarteiraPaidThisMonth = expenses.filter(
-      (expense) =>
-        !expense.cardLast4 &&
-        !expense.bankLast4 &&
-        (!expense.linkedExpenseId || manualWalletMirrorTargetsThisMonth.has(expense.linkedExpenseId)) &&
-        expense.status === 'PAGO' &&
-        !isNeutralExpenseType(expense.tipoDespesa) &&
-        isInRange(purchaseDate(expense), monthStart, monthEnd),
-    );
-
-    // Carteira LOCAL ainda NÃO paga (PLANEJADO). Espelha exatamente o filtro de
-    // cima trocando o status — a única diferença é `realizado: false` na hora de
-    // emitir, para cair em `faltaPagarMes` em vez de `saiuMes`.
-    //
-    // Sem isto, uma despesa planejada sem cartão nem conta some da Visão Conta:
-    // ela aparecia na lista de Despesas e no Cockpit, mas não aqui — dinheiro
-    // invisível no consolidado, exatamente o que a regra de ouro 14 proíbe. O
-    // caso PAGO acima já tinha sido corrigido; o pendente ficou de fora, e a
-    // combinação "planejado + sem origem" era a única das quatro que falhava
-    // (paga sem conta, planejada com conta e recebimento previsto sem conta
-    // sempre apareceram).
-    const localCarteiraPendingThisMonth = expenses.filter(
-      (expense) =>
-        !expense.cardLast4 &&
-        !expense.bankLast4 &&
-        (!expense.linkedExpenseId || manualWalletMirrorTargetsThisMonth.has(expense.linkedExpenseId)) &&
-        expense.status !== 'PAGO' &&
-        !expense.settledByExpenseId &&
-        !isNeutralExpenseType(expense.tipoDespesa) &&
-        isInRange(purchaseDate(expense), monthStart, monthEnd),
+    const localCarteiraOccurrences = expenses
+      .filter(
+        (expense) =>
+          !expense.cardLast4 &&
+          !expense.bankLast4 &&
+          !isNeutralExpenseType(expense.tipoDespesa),
+      )
+      .flatMap((expense) => localExpenseOccurrences(expense, purchaseDate(expense)))
+      .filter(
+        ({ expense }) => expense.status === 'PAGO' || !expense.settledByExpenseId,
+      );
+    const localCarteiraThisMonth = localCarteiraOccurrences.filter(
+      ({ expense, data }) =>
+        (!expense.linkedExpenseId ||
+          manualWalletMirrorTargetsThisMonth.has(expense.linkedExpenseId)) &&
+        isInRange(data, monthStart, monthEnd),
     );
 
     const saiuMes = sumBy(
@@ -707,9 +739,11 @@ export class MonthlyOverviewService {
           return false;
         }
         if (isNeutralExpenseType(expense.tipoDespesa)) return false;
-        return isInRange(accountExpenseDate(expense), monthStart, monthEnd);
+        return true;
       })
-      .sort((a, b) => accountExpenseDate(a).getTime() - accountExpenseDate(b).getTime());
+      .flatMap((expense) => localExpenseOccurrences(expense, accountExpenseDate(expense)))
+      .filter(({ data }) => isInRange(data, monthStart, monthEnd))
+      .sort((a, b) => a.data.getTime() - b.data.getTime());
 
     const comprasCartao = entries
       .filter(
@@ -808,6 +842,7 @@ export class MonthlyOverviewService {
             quantidadeParcela: expense.quantidadeParcela,
             dataInicioParcela: expense.dataInicioParcela,
             dataPagamento: expense.dataPagamento,
+            installmentDateOverrides: expense.installmentDateOverrides,
           });
           let paidByOther: Set<number>;
           try {
@@ -906,6 +941,7 @@ export class MonthlyOverviewService {
             quantidadeParcela: expense.quantidadeParcela,
             dataInicioParcela: expense.dataInicioParcela,
             dataPagamento: expense.dataPagamento,
+            installmentDateOverrides: expense.installmentDateOverrides,
           });
           let paidNone: Set<number>;
           try {
@@ -960,6 +996,7 @@ export class MonthlyOverviewService {
           quantidadeParcela: expense.quantidadeParcela,
           dataInicioParcela: expense.dataInicioParcela,
           dataPagamento: expense.dataPagamento,
+          installmentDateOverrides: expense.installmentDateOverrides,
         });
         let paidSet: Set<number>;
         try {
@@ -1003,8 +1040,8 @@ export class MonthlyOverviewService {
     const faltaPagarMes =
       sumBy(selectedInvoices, (invoice) => invoice.pending) +
       sumBy(
-        accountExpenseList.filter((expense) => expense.status !== 'PAGO'),
-        (expense) => expense.valorTotal,
+        accountExpenseList.filter((occurrence) => !occurrence.realizado),
+        (occurrence) => occurrence.valor,
       ) +
       sumBy(foreignPendingItems, (item) => item.valor);
 
@@ -1033,28 +1070,30 @@ export class MonthlyOverviewService {
         parcelaIndex: null as number | null,
         foreignExpenseId: null as string | null,
       })),
-      ...accountExpenseList.map((expense) => ({
-        id: expense.id as string | null,
-        kind: 'saida' as const,
-        descricao: expenseDisplayName(expense.tipoDespesa, expense.titulo, expense.fornecedor),
-        data: accountExpenseDate(expense).toISOString(),
-        forma: inferCashForm(
-          `${expense.titulo ?? ''} ${expense.fornecedor ?? ''}`,
-          expense.formaPagamento,
-        ),
-        valor: expense.valorTotal,
-        realizado: expense.status === 'PAGO',
-        status: expense.status,
-        cardLast4: null as string | null,
-        bankLast4: expense.bankLast4,
-        tipoDespesa: expense.tipoDespesa,
-        isInvoice: false,
-        editavel: true,
-        dueMonth: null as string | null,
-        projetoOrigem: projetoOrigemFor(expense.linkedExpenseId),
-        parcelaIndex: null as number | null,
-        foreignExpenseId: null as string | null,
-      })),
+      ...accountExpenseList.map(
+        ({ expense, data, valor, status, realizado, parcelaIndex }) => ({
+          id: expense.id as string | null,
+          kind: 'saida' as const,
+          descricao: expenseDisplayName(expense.tipoDespesa, expense.titulo, expense.fornecedor),
+          data: data.toISOString(),
+          forma: inferCashForm(
+            `${expense.titulo ?? ''} ${expense.fornecedor ?? ''}`,
+            expense.formaPagamento,
+          ),
+          valor,
+          realizado,
+          status,
+          cardLast4: null as string | null,
+          bankLast4: expense.bankLast4,
+          tipoDespesa: expense.tipoDespesa,
+          isInvoice: false,
+          editavel: true,
+          dueMonth: null as string | null,
+          projetoOrigem: projetoOrigemFor(expense.linkedExpenseId),
+          parcelaIndex,
+          foreignExpenseId: null as string | null,
+        }),
+      ),
       // PAGO carteira items (foreign expenses without espelhos, paid in the current month)
       ...carteiraPaidThisMonth.map((expense) => {
         const descricao = expenseDisplayName(
@@ -1092,57 +1131,33 @@ export class MonthlyOverviewService {
           origem: { tipo: 'carteira' as const },
         } as any;
       }),
-      // PAGO carteira LOCAL (despesa do próprio projeto sem cartão nem conta,
-      // ex.: lançada por voz). Sem isto, sumia da Visão Conta e do caixa (§14).
-      ...localCarteiraPaidThisMonth.map((expense) => ({
-        id: expense.id as string | null,
-        kind: 'saida' as const,
-        descricao: expenseDisplayName(expense.tipoDespesa, expense.titulo, expense.fornecedor),
-        data: purchaseDate(expense).toISOString(),
-        forma: inferCashForm(
-          `${expense.titulo ?? ''} ${expense.fornecedor ?? ''}`,
-          expense.formaPagamento,
-        ),
-        valor: expense.valorTotal,
-        realizado: true,
-        status: expense.status,
-        cardLast4: null as string | null,
-        bankLast4: null as string | null,
-        tipoDespesa: expense.tipoDespesa,
-        isInvoice: false,
-        editavel: true,
-        dueMonth: null as string | null,
-        projetoOrigem: null as { id: string; name: string; type: string } | null,
-        parcelaIndex: null as number | null,
-        foreignExpenseId: null as string | null,
-        origem: { tipo: 'carteira' as const },
-      })),
-      // PLANEJADO carteira LOCAL — mesma origem "carteira" do bloco acima, só que
-      // ainda não pago: entra com `realizado: false` para somar em `faltaPagarMes`
-      // e não em `saiuMes`. Ver `localCarteiraPendingThisMonth` para o porquê.
-      ...localCarteiraPendingThisMonth.map((expense) => ({
-        id: expense.id as string | null,
-        kind: 'saida' as const,
-        descricao: expenseDisplayName(expense.tipoDespesa, expense.titulo, expense.fornecedor),
-        data: purchaseDate(expense).toISOString(),
-        forma: inferCashForm(
-          `${expense.titulo ?? ''} ${expense.fornecedor ?? ''}`,
-          expense.formaPagamento,
-        ),
-        valor: expense.valorTotal,
-        realizado: false,
-        status: expense.status,
-        cardLast4: null as string | null,
-        bankLast4: null as string | null,
-        tipoDespesa: expense.tipoDespesa,
-        isInvoice: false,
-        editavel: true,
-        dueMonth: null as string | null,
-        projetoOrigem: null as { id: string; name: string; type: string } | null,
-        parcelaIndex: null as number | null,
-        foreignExpenseId: null as string | null,
-        origem: { tipo: 'carteira' as const },
-      })),
+      // Carteira LOCAL (despesa do próprio projeto sem cartão nem conta).
+      // Cada parcela é emitida no seu mês efetivo.
+      ...localCarteiraThisMonth.map(
+        ({ expense, data, valor, status, realizado, parcelaIndex }) => ({
+          id: expense.id as string | null,
+          kind: 'saida' as const,
+          descricao: expenseDisplayName(expense.tipoDespesa, expense.titulo, expense.fornecedor),
+          data: data.toISOString(),
+          forma: inferCashForm(
+            `${expense.titulo ?? ''} ${expense.fornecedor ?? ''}`,
+            expense.formaPagamento,
+          ),
+          valor,
+          realizado,
+          status,
+          cardLast4: null as string | null,
+          bankLast4: null as string | null,
+          tipoDespesa: expense.tipoDespesa,
+          isInvoice: false,
+          editavel: true,
+          dueMonth: null as string | null,
+          projetoOrigem: null as { id: string; name: string; type: string } | null,
+          parcelaIndex,
+          foreignExpenseId: null as string | null,
+          origem: { tipo: 'carteira' as const },
+        }),
+      ),
       ...foreignPendingItems,
     ].sort((a, b) => b.data.localeCompare(a.data));
 
@@ -1280,11 +1295,8 @@ export class MonthlyOverviewService {
       }));
     const carteiraHoje =
       sumBy(
-        expenses.filter(
-          (expense) =>
-            !expense.cardLast4 && !expense.bankLast4 && expense.status === 'PAGO',
-        ),
-        (expense) => -expense.valorTotal,
+        localCarteiraOccurrences.filter(({ realizado }) => realizado),
+        ({ valor }) => -valor,
       ) +
       sumBy(
         receipts.filter((receipt) => !receipt.bankLast4 && receipt.status === 'EM_CAIXA'),
@@ -2190,6 +2202,8 @@ export class MonthlyOverviewService {
           quantidade: true,
           formaPagamento: true,
           quantidadeParcela: true,
+          paidParcelas: true,
+          installmentDateOverrides: true,
           dataPagamento: true,
           dataInicioParcela: true,
           dataCompra: true,
@@ -2222,30 +2236,81 @@ export class MonthlyOverviewService {
     }) => e.dataPagamento ?? e.dataInicioParcela ?? e.dataCompra ?? e.createdAt;
 
     const saidas = expenses
-      .filter((e) => isConsumptionNeutralExpenseType(e.tipoDespesa))
-      .filter((e) => inYear(expenseDate(e)))
-      .map((e) => ({
-        id: e.id,
-        kind: 'saida' as const,
-        tipo: e.tipoDespesa,
-        tipoLabel:
-          ExpenseTypeLabels[e.tipoDespesa as keyof typeof ExpenseTypeLabels] ?? e.tipoDespesa,
-        descricao:
-          e.titulo?.trim() ||
-          e.fornecedor?.trim() ||
-          ExpenseTypeLabels[e.tipoDespesa as keyof typeof ExpenseTypeLabels] ||
-          e.tipoDespesa,
-        valorTotal: e.valorTotal,
-        valorUnitario: e.valor,
-        quantidade: e.quantidade,
-        data: expenseDate(e).toISOString(),
-        status: e.status,
-        cardLast4: e.cardLast4,
-        bankLast4: e.bankLast4,
-        // Settlement (fatura/movimentação) não gera cashflow; consumo-neutro (aporte)
-        // continua no caixa. Sinaliza para o front explicar o efeito no caixa.
-        afetaCaixa: !isNeutralExpenseType(e.tipoDespesa),
-      }));
+      .filter((expense) => isConsumptionNeutralExpenseType(expense.tipoDespesa))
+      .flatMap((expense) => {
+        if (isSinglePaymentForm(expense.formaPagamento)) {
+          return [
+            {
+              expense,
+              data: expenseDate(expense),
+              valorTotal: expense.valorTotal,
+              valorUnitario: expense.valor,
+              quantidade: expense.quantidade,
+              status: expense.status,
+              parcelaIndex: null as number | null,
+            },
+          ];
+        }
+
+        const installments = buildInstallments({
+          formaPagamento: expense.formaPagamento,
+          quantidadeParcela: expense.quantidadeParcela,
+          valorTotal: expense.valorTotal,
+          dataInicioParcela: expense.dataInicioParcela,
+          dataPagamento: expense.dataPagamento,
+          installmentDateOverrides: expense.installmentDateOverrides,
+        });
+        const paidParcelas = new Set(
+          parsePaidParcelas(expense.paidParcelas, installments.length),
+        );
+        return installments.map((installment, index) => ({
+          expense,
+          data: installment.data,
+          valorTotal: installment.valor,
+          valorUnitario: installment.valor,
+          quantidade: 1,
+          status:
+            expense.status === 'PAGO' || paidParcelas.has(index)
+              ? 'PAGO'
+              : 'PLANEJADO',
+          parcelaIndex: index as number | null,
+        }));
+      })
+      .filter(({ data }) => inYear(data))
+      .map(
+        ({
+          expense,
+          data,
+          valorTotal,
+          valorUnitario,
+          quantidade,
+          status,
+          parcelaIndex,
+        }) => ({
+          id: expense.id,
+          kind: 'saida' as const,
+          tipo: expense.tipoDespesa,
+          tipoLabel:
+            ExpenseTypeLabels[expense.tipoDespesa as keyof typeof ExpenseTypeLabels] ??
+            expense.tipoDespesa,
+          descricao:
+            expense.titulo?.trim() ||
+            expense.fornecedor?.trim() ||
+            ExpenseTypeLabels[expense.tipoDespesa as keyof typeof ExpenseTypeLabels] ||
+            expense.tipoDespesa,
+          valorTotal,
+          valorUnitario,
+          quantidade,
+          data: data.toISOString(),
+          status,
+          cardLast4: expense.cardLast4,
+          bankLast4: expense.bankLast4,
+          parcelaIndex,
+          // Settlement (fatura/movimentação) não gera cashflow; consumo-neutro (aporte)
+          // continua no caixa. Sinaliza para o front explicar o efeito no caixa.
+          afetaCaixa: !isNeutralExpenseType(expense.tipoDespesa),
+        }),
+      );
 
     const entradas = receipts
       .filter((r) => isNeutralReceiptType(r.tipo))
@@ -2548,8 +2613,8 @@ export class MonthlyOverviewService {
    * "Lançamento da conta" = qualquer Expense/Receipt com `bankLast4` preenchido
    * (extrato, aplicações/resgates e pagamentos de fatura debitados na conta).
    * Itens de cartão (cardLast4, sem bankLast4) NÃO entram — eles estão na fatura,
-   * não na conta. Lançamentos futuros (PLANEJADO, ex.: seguros agendados) ficam de
-   * fora porque ainda não foram debitados — exatamente o que a §10 manda descontar.
+   * não na conta. Em parcelados, entram apenas ocorrências realizadas; lançamentos
+   * futuros ficam de fora porque ainda não foram debitados.
    *
    * Diferente de "caixaAgora" do cockpit (fluxo realizado conta+cartão): este bate
    * com o saldo do app do banco quando o saldo inicial está cadastrado.
@@ -2573,6 +2638,11 @@ export class MonthlyOverviewService {
           valorTotal: true,
           status: true,
           dataPagamento: true,
+          dataInicioParcela: true,
+          formaPagamento: true,
+          quantidadeParcela: true,
+          paidParcelas: true,
+          installmentDateOverrides: true,
           createdAt: true,
           bankLast4: true,
           importId: true,
@@ -3289,6 +3359,11 @@ export interface CaixaContaExpense {
   valorTotal: number;
   status: string;
   dataPagamento: Date | null;
+  dataInicioParcela?: Date | null;
+  formaPagamento?: string | null;
+  quantidadeParcela?: number | null;
+  paidParcelas?: string | null;
+  installmentDateOverrides?: string | null;
   createdAt: Date;
 }
 export interface CaixaContaReceipt {
@@ -3300,8 +3375,8 @@ export interface CaixaContaReceipt {
 /**
  * Reconciliação §10 (função pura, testável): saldo da conta hoje =
  * saldo inicial + Σ lançamentos REALIZADOS da conta. Espera apenas lançamentos
- * com `bankLast4` (filtrados pelo chamador). Cartão (sem bankLast4) e futuros
- * (status ≠ PAGO/EM_CAIXA) ficam de fora.
+ * com `bankLast4` (filtrados pelo chamador). Parcelados usam o status do root ou
+ * `paidParcelas`; cartão (sem bankLast4) e ocorrências futuras ficam de fora.
  */
 export function computeCaixaConta(
   accounts: CaixaContaAccount[],
@@ -3316,6 +3391,27 @@ export function computeCaixaConta(
   // Lançamentos realizados com sinal (despesa −, recebimento +) e mês de referência.
   const movs: Array<{ mes: string; valor: number }> = [];
   for (const e of expenses) {
+    if (
+      e.formaPagamento === PaymentForm.PARCELADO ||
+      e.formaPagamento === PaymentForm.QUINZENAL
+    ) {
+      const installments = buildInstallments({
+        valorTotal: e.valorTotal,
+        formaPagamento: e.formaPagamento,
+        quantidadeParcela: e.quantidadeParcela,
+        dataInicioParcela: e.dataInicioParcela ?? e.dataPagamento ?? e.createdAt,
+        dataPagamento: e.dataPagamento,
+        installmentDateOverrides: e.installmentDateOverrides,
+      });
+      const paidParcelas = new Set(
+        parsePaidParcelas(e.paidParcelas, installments.length),
+      );
+      installments.forEach((installment, index) => {
+        if (e.status !== 'PAGO' && !paidParcelas.has(index)) return;
+        movs.push({ mes: monthKeyOf(installment.data), valor: -installment.valor });
+      });
+      continue;
+    }
     if (e.status !== 'PAGO') continue; // só realizados afetam o caixa
     const d = e.dataPagamento ?? e.createdAt;
     movs.push({ mes: monthKeyOf(d), valor: -e.valorTotal });

@@ -647,6 +647,12 @@ planejado.
 - Ações por linha: **Editar rápido**, **Editar completo**, **Copiar para outro
   mês/data**, **Alternar status**, **Excluir**, e (cross-project) **Criar despesa
   em outro projeto e vincular**.
+- Na visão por mês, **Editar rápido** permite trocar a data de uma única ocorrência
+  **PARCELADO** ou **QUINZENAL** (inclusive 1x), paga ou planejada, tanto pela
+  REFORMA quanto pelo PESSOAL. Só a data escolhida muda: número da parcela, valor
+  e status são preservados. Pares REFORMA↔PESSOAL permanecem sincronizados. Em
+  rateio, edite a compra-fonte; a fonte real de uma conciliação fica bloqueada e
+  a data deve ser alterada na parcela planejada alvo.
 - Seleção múltipla → **alterar data em lote** / marcar como pago em lote.
 
 **Estados:** carregando, vazio, erro.

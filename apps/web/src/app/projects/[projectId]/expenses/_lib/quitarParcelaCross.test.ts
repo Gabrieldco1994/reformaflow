@@ -268,13 +268,13 @@ describe('suggestParcelaQuitacaoAt', () => {
         quantidadeParcela: 10,
         dataInicioParcela: '2026-06-08',
         paidParcelas: '[0,1,2]',
+        installmentDateOverrides: '{"5":"2026-09-01"}',
       },
       5,
     );
     expect(s.parcelaIndex).toBe(5);
     expect(s.valorSugerido).toBe(800000); // 8.000, NÃO 80.000
-    // idx5 = 08/06 + 5*15 dias = 22/08.
-    expect(s.dataSugerida).toBe('2026-08-22');
+    expect(s.dataSugerida).toBe('2026-09-01');
   });
 
   it('índice acima do range → clamp na última parcela', () => {

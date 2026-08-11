@@ -31,6 +31,23 @@ export function invalidateExpenseQueries(queryClient: QueryClient, projectId: st
   queryClient.invalidateQueries({ queryKey: ['pendencias', projectId] });
 }
 
+export function invalidateExpenseProjects(
+  queryClient: QueryClient,
+  projectIds: Array<string | null | undefined>,
+) {
+  for (const projectId of new Set(projectIds.filter((id): id is string => !!id))) {
+    invalidateExpenseQueries(queryClient, projectId);
+  }
+}
+
+interface InstallmentDateResponse {
+  id: string;
+  parcela: number;
+  data: string;
+  isOverride: boolean;
+  affectedProjectIds: string[];
+}
+
 /** True se a despesa tem ao menos uma parcela marcada como paga (paidParcelas). */
 function hasAnyPaidParcela(raw: string | null | undefined, total: number): boolean {
   if (!raw) return false;
@@ -159,6 +176,34 @@ export function useExpenseMutations({
     onError: (e: Error) => {
       console.error('[expenses] toggle parcela failed', e);
       toast.error(`Erro ao alterar parcela: ${e.message}`);
+    },
+  });
+
+  const installmentDateMutation = useMutation({
+    mutationFn: ({
+      id,
+      parcela,
+      data,
+    }: {
+      id: string;
+      parcela: number;
+      data: string;
+    }) =>
+      api.patch<InstallmentDateResponse>(
+        `/projects/${resolveOwnerProjectId(id)}/expenses/${id}/parcela-data`,
+        { parcela, data },
+      ),
+    onSuccess: (response, variables) => {
+      invalidateExpenseProjects(queryClient, [
+        projectId,
+        resolveOwnerProjectId(variables.id),
+        ...response.affectedProjectIds,
+      ]);
+      toast.success('Data da parcela atualizada');
+    },
+    onError: (e: Error) => {
+      console.error('[expenses] installment date update failed', e);
+      toast.error(`Erro ao alterar data da parcela: ${e.message}`);
     },
   });
 
@@ -328,6 +373,7 @@ export function useExpenseMutations({
     payMutation,
     toggleStatusMutation,
     toggleParcelaMutation,
+    installmentDateMutation,
     quickUpdateMutation,
     changeTipoMutation,
     bulkDateMutation,

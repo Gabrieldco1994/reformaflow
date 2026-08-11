@@ -12,12 +12,14 @@
 | Arquivo:linha | Como a data nasce | Formato | TZ efetiva | Risco |
 |---|---|---|---|---|
 | `packages/domain/src/calculations/expense-installments.ts:76,84` | Fallback sem data explícita em parcelas | `Date` | **BRT→UTC midnight (corrigido)** | Antes podia cair no dia/mês/fatura seguinte |
+| `packages/domain/src/calculations/expense-installments.ts:51-127` | Override de data de uma ocorrência parcelada/quinzenal | JSON `índice → YYYY-MM-DD` | UTC midnight | Preserva o dia-calendário e substitui somente a data efetiva daquele índice |
 | `packages/domain/src/calculations/local-date-utc.ts:1-34` | Helper canônico (`localDateUtc`/`todayLocalDateUtc`) | `Date` | BRT normalizado para UTC | Base única |
 | `apps/api/src/monthly-overview/monthly-overview.service.ts:2910-2920` | `purchaseDate`/`accountExpenseDate` fallback de `createdAt` | `Date` | **BRT→UTC midnight (corrigido)** | Evita cruzar `closingDay` por horário |
 | `apps/api/src/monthly-overview/monthly-overview.service.ts:2862-2879` | `normalizeMonthKey`/`normalizeYear` sem parâmetro | `YYYY-MM`/`YYYY` | **BRT (corrigido)** | Evita mês corrente UTC divergir do mês financeiro |
 | `apps/web/src/app/projects/[projectId]/monthly/_cockpit/derive.ts:266-314,793-798` | `nowKey`/dia corrente para percentuais e mês atual | `YYYY-MM` + dia | **BRT (corrigido)** | Front e API passam a concordar na fronteira do mês |
-| `apps/web/src/app/projects/[projectId]/expenses/ExpensesView.tsx:725` | Fallback inline de data de pagamento | `YYYY-MM-DD` | **BRT (corrigido)** | Evita enviar dia UTC+1 no fim do dia local |
-| `apps/api/src/expense/expense.service.ts:113-116,739-752,901-903` | Create/update/payPlanned parseiam datas do DTO | `new Date('YYYY-MM-DD')` | UTC midnight (seguro) | Baixo |
+| `apps/web/src/app/projects/[projectId]/expenses/ExpensesView.tsx:79-86` | Fallback inline de data de pagamento | `YYYY-MM-DD` | **BRT (corrigido)** | Evita enviar dia UTC+1 no fim do dia local |
+| `apps/api/src/expense/expense.service.ts:149-152,797-860,1206-1214` | Create/update/payPlanned parseiam datas do DTO | `new Date('YYYY-MM-DD')` | UTC midnight (seguro) | Baixo |
+| `apps/api/src/expense/expense.service.ts:895-1048` | `PATCH …/parcela-data` valida e aplica a data efetiva | `YYYY-MM-DD` | UTC midnight | Baixo; regenera fluxos e sincroniza vínculos sem mudar valor/status |
 | `apps/api/src/receipt/receipt.service.ts:25,79` | Parse de data de recebimento | `new Date('YYYY-MM-DD')` | UTC midnight (seguro) | Baixo |
 | `apps/api/src/agent/tools/agent-tools.service.ts:394,796` | Default de data em tools da Maria | `YYYY-MM-DD` | UTC (`toISOString`) | **Médio** (ainda não corrigido nesta fase) |
 | `apps/api/src/agent/tools/agent-tools.service.ts:1111-1116` | `optDate` valida string | `YYYY-MM-DD` | parse UTC | Baixo |
