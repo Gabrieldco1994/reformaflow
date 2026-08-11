@@ -64,6 +64,7 @@ export function parseXlsx(buffer: Buffer, cardId: string): ParseResult {
 
     const headers = (data[headerIdx] ?? []) as string[];
     const colMap = mapColumns(headers);
+    const installmentColIdx = findInstallmentColumn(headers);
 
     if (colMap.date === -1 || colMap.merchant === -1 || colMap.amount === -1) {
       return {
@@ -94,7 +95,14 @@ export function parseXlsx(buffer: Buffer, cardId: string): ParseResult {
       const amountCents = parseFlexibleMoney(amountRaw);
       if (amountCents === 0) continue;
 
-      const { current, total, cleanMerchant } = detectInstallment(descRaw);
+      // Itaú manda o parcelamento numa coluna separada ("Parcela 1 de 2"), não
+      // embutido na descrição — detectInstallment() só olha a descrição.
+      const installmentColRaw =
+        installmentColIdx !== -1 ? String(row[installmentColIdx] ?? '').trim() : '';
+      const fromColumn = parseInstallmentColumn(installmentColRaw);
+      const { current, total, cleanMerchant } = fromColumn
+        ? { ...fromColumn, cleanMerchant: descRaw }
+        : detectInstallment(descRaw);
       transactions.push({
         externalId: '', // preenchido abaixo após assignOrdinals
         date,
@@ -141,7 +149,9 @@ export function parseXlsx(buffer: Buffer, cardId: string): ParseResult {
  * Retorna o índice da primeira linha com headers, ou -1 se não encontrar.
  */
 function findHeaderRow(data: unknown[][]): number {
-  for (let i = 0; i < Math.min(data.length, 10); i++) {
+  // ponytail: 30 cobre os preâmbulos observados (Itaú tem ~13 linhas de
+  // metadados antes do header); sobe se aparecer um export com mais linhas.
+  for (let i = 0; i < Math.min(data.length, 30); i++) {
     const row = data[i];
     if (!Array.isArray(row)) continue;
     const headers = row.map((cell) => String(cell ?? '').toLowerCase());
@@ -185,7 +195,10 @@ interface ColumnMap {
  * Evita falsos positivos: prefere keywords mais específicas.
  */
 function mapColumns(headers: string[]): ColumnMap {
-  const normalized = headers.map((h) => removeAccents(h));
+  // Array.from (não .map): células vazias viram buracos no array (sparse),
+  // e .map() pula buracos preservando-os — daí .includes() quebrando em
+  // undefined mais abaixo. Array.from percorre todo índice, buraco ou não.
+  const normalized = Array.from(headers, (h) => removeAccents(String(h ?? '')));
 
   // Procura mais específica: prioritiza keywords únicos por coluna
   const findBest = (dateKeywords: string[], descKeywords: string[], amountKeywords: string[]): ColumnMap => {
@@ -253,6 +266,30 @@ function mapColumns(headers: string[]): ColumnMap {
   }
 
   return result;
+}
+
+/**
+ * Encontra a coluna "Parcelamento" (Itaú manda o parcelamento separado da
+ * descrição, ex.: "Parcela 1 de 2", em vez de embutido no texto).
+ */
+function findInstallmentColumn(headers: string[]): number {
+  const normalized = Array.from(headers, (h) => removeAccents(String(h ?? '')));
+  return normalized.findIndex((h) => h.includes('parcela'));
+}
+
+/**
+ * Extrai current/total de uma coluna de parcelamento dedicada, ex.:
+ * "Parcela 1 de 2" -> { current: 1, total: 2 }.
+ */
+function parseInstallmentColumn(raw: string): { current: number; total: number } | null {
+  const m = raw.match(/(\d{1,2})\s*(?:de|\/)\s*(\d{1,2})/i);
+  if (!m) return null;
+  const current = parseInt(m[1], 10);
+  const total = parseInt(m[2], 10);
+  if (current >= 1 && total > 1 && current <= total && total <= 60) {
+    return { current, total };
+  }
+  return null;
 }
 
 /**
