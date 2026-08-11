@@ -1,13 +1,15 @@
 import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Expense, ExpensesPage, Project } from "@/types";
 import { ExpensesView } from "./ExpensesView";
 import { groupExpensesByMes } from "./_lib/grouping-by-month";
 
+let mockProjectType = "REFORMA";
+
 vi.mock("@/lib/api", () => ({ api: { get: vi.fn() } }));
 vi.mock("@/contexts/project-context", () => ({
-  useProject: () => ({ projectId: "reforma-1", projectType: "REFORMA" }),
+  useProject: () => ({ projectId: "reforma-1", projectType: mockProjectType }),
 }));
 vi.mock("@/contexts/auth-context", () => ({
   useAuth: () => ({ user: { name: "Teste" } }),
@@ -15,11 +17,26 @@ vi.mock("@/contexts/auth-context", () => ({
 vi.mock("next/navigation", () => ({
   usePathname: () => "/projects/reforma-1/expenses",
   useRouter: () => ({ replace: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams("period=ALL"),
 }));
 vi.mock("./_components/ExpenseKpiCards", () => ({
   ExpenseKpiCards: ({ totalPago }: { totalPago: number }) => (
     <output data-testid="paid-kpi">{totalPago}</output>
+  ),
+}));
+vi.mock("./_components/PersonalExpenseKpis", () => ({
+  PersonalExpenseKpis: ({
+    gastosControle,
+  }: {
+    gastosControle: {
+      noCartao: number;
+      naConta: number;
+      aConfirmar: number;
+    };
+  }) => (
+    <output data-testid="personal-kpis">
+      {JSON.stringify(gastosControle)}
+    </output>
   ),
 }));
 
@@ -81,6 +98,10 @@ function renderView() {
   client.setQueryData(["tenant", "credit-cards"], []);
   client.setQueryData(["tenant", "bank-accounts"], []);
   client.setQueryData(["tenant", "projects"], []);
+  client.setQueryData(
+    ["cross-project-expenses", "reforma-1", "unified-view"],
+    [],
+  );
 
   return render(
     <QueryClientProvider client={client}>
@@ -90,6 +111,10 @@ function renderView() {
 }
 
 describe("ExpensesView — KPI Pago em projetos de reforma", () => {
+  beforeEach(() => {
+    mockProjectType = "REFORMA";
+  });
+
   it("reconcilia A_VISTA e parcelas pagas com a soma dos cabeçalhos mensais", () => {
     const monthlyPaid = groupExpensesByMes(expenses).reduce(
       (sum, month) => sum + month.totalPago,
@@ -101,6 +126,16 @@ describe("ExpensesView — KPI Pago em projetos de reforma", () => {
     expect(monthlyPaid).toBe(13_000);
     expect(screen.getByTestId("paid-kpi")).toHaveTextContent(
       String(monthlyPaid),
+    );
+  });
+
+  it("preserva o eixo de competência no KPI Pago de PESSOAL", () => {
+    mockProjectType = "PESSOAL";
+
+    renderView();
+
+    expect(screen.getByTestId("personal-kpis")).toHaveTextContent(
+      JSON.stringify({ noCartao: 0, naConta: 3_000, aConfirmar: 20_000 }),
     );
   });
 });
