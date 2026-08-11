@@ -59,6 +59,37 @@ function buildOfx(...stmts: string[]) {
   ].join('\n');
 }
 
+function plannedMatcherExpenses(formaPagamento: 'PARCELADO' | 'QUINZENAL') {
+  return [
+    {
+      id: 'exp-override',
+      projectId: 'casa1',
+      titulo: 'Parcela reagendada',
+      fornecedor: null,
+      valorTotal: 50000,
+      formaPagamento,
+      quantidadeParcela: 1,
+      dataInicioParcela: new Date('2026-01-01'),
+      dataPagamento: null,
+      installmentDateOverrides: '{"0":"2026-04-29"}',
+      createdAt: new Date('2026-01-01'),
+    },
+    {
+      id: 'exp-avista',
+      projectId: 'casa1',
+      titulo: 'Pagamento único',
+      fornecedor: null,
+      valorTotal: 50000,
+      formaPagamento: 'A_VISTA',
+      quantidadeParcela: null,
+      dataInicioParcela: new Date('2026-04-28'),
+      dataPagamento: null,
+      installmentDateOverrides: null,
+      createdAt: new Date('2026-01-01'),
+    },
+  ];
+}
+
 describe('CreditCardService', () => {
   let service: CreditCardService;
   let prisma: ReturnType<typeof makePrismaMock>;
@@ -356,6 +387,27 @@ describe('CreditCardService', () => {
       expect(result.preview[0].crossProjectMatches?.[0]?.installmentTotal).toBe(3);
     });
 
+    it('usa override em QUINZENAL 1x e mantém fallback para A_VISTA', async () => {
+      prisma.project.findMany.mockResolvedValue([
+        { id: 'casa1', name: 'Casa', type: 'CASA' },
+      ]);
+      prisma.expense.findMany.mockResolvedValue(plannedMatcherExpenses('QUINZENAL'));
+
+      const ofx = buildOfx(ofxFor('20260429', 500, 'COMPRA CASA', 'OVERRIDE1'));
+      const result = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'fatura.ofx', 'OFX');
+
+      expect(result.preview[0].crossProjectMatches.find((match) => match.expenseId === 'exp-override')).toMatchObject({
+        data: '2026-04-29',
+        installmentCurrent: 1,
+        installmentTotal: 1,
+      });
+      expect(result.preview[0].crossProjectMatches.find((match) => match.expenseId === 'exp-avista')).toMatchObject({
+        data: '2026-04-28',
+        installmentCurrent: null,
+        installmentTotal: null,
+      });
+    });
+
     it('marca como duplicate quando externalId já existe no projeto', async () => {
       const ofx = buildOfx(ofxFor('20260429', 100, 'LOJA', 'X5'));
       // 1ª chamada: parsed.transactions[].externalId  (findExistingExternalIds)
@@ -587,6 +639,47 @@ describe('CreditCardService', () => {
 
       const createdCall = prisma.expense.create.mock.calls[0][0];
       expect(createdCall.data.createdByUserId).toBeNull();
+    });
+  });
+
+  describe('suggestLinks', () => {
+    it('usa override em PARCELADO 1x e mantém fallback para A_VISTA', async () => {
+      prisma.expense.findMany
+        .mockResolvedValueOnce([
+          {
+            id: 'card-expense',
+            titulo: 'Compra importada',
+            fornecedor: 'Loja',
+            valorTotal: 50000,
+            dataPagamento: new Date('2026-04-29'),
+            dataInicioParcela: null,
+            createdAt: new Date('2026-04-29'),
+            status: 'PAGO',
+            cardLast4: '1234',
+            formaPagamento: 'A_VISTA',
+            quantidadeParcela: null,
+            linkedExpenseId: null,
+            tipoDespesa: 'OUTROS',
+            seriesKey: null,
+          },
+        ])
+        .mockResolvedValueOnce(plannedMatcherExpenses('PARCELADO'));
+      prisma.project.findMany.mockResolvedValue([
+        { id: 'casa1', name: 'Casa', type: 'CASA' },
+      ]);
+
+      const [result] = await service.suggestLinks('t1', 'pessoal1', 'card1');
+
+      expect(result.suggestions.find((suggestion) => suggestion.expenseId === 'exp-override')).toMatchObject({
+        data: '2026-04-29T00:00:00.000Z',
+        installmentCurrent: 1,
+        installmentTotal: 1,
+      });
+      expect(result.suggestions.find((suggestion) => suggestion.expenseId === 'exp-avista')).toMatchObject({
+        data: '2026-04-28T00:00:00.000Z',
+        installmentCurrent: null,
+        installmentTotal: null,
+      });
     });
   });
 });

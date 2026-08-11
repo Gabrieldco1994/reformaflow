@@ -87,6 +87,37 @@ function buildBankOfx(...stmts: string[]) {
   ].join('\n');
 }
 
+function plannedMatcherExpenses(formaPagamento: 'PARCELADO' | 'QUINZENAL') {
+  return [
+    {
+      id: 'exp-override',
+      projectId: 'casa1',
+      titulo: 'Parcela reagendada',
+      fornecedor: null,
+      valorTotal: 50000,
+      formaPagamento,
+      quantidadeParcela: 1,
+      dataInicioParcela: new Date('2026-01-01'),
+      dataPagamento: null,
+      installmentDateOverrides: '{"0":"2026-04-29"}',
+      createdAt: new Date('2026-01-01'),
+    },
+    {
+      id: 'exp-avista',
+      projectId: 'casa1',
+      titulo: 'Pagamento único',
+      fornecedor: null,
+      valorTotal: 50000,
+      formaPagamento: 'A_VISTA',
+      quantidadeParcela: null,
+      dataInicioParcela: new Date('2026-04-28'),
+      dataPagamento: null,
+      installmentDateOverrides: null,
+      createdAt: new Date('2026-01-01'),
+    },
+  ];
+}
+
 describe('BankAccountService', () => {
   let service: BankAccountService;
   let prisma: ReturnType<typeof makePrismaMock>;
@@ -320,6 +351,28 @@ describe('BankAccountService', () => {
       expect((tx?.crossProjectMatches?.[0] as any)?.installmentCurrent).toBe(1);
       expect((tx?.crossProjectMatches?.[0] as any)?.installmentTotal).toBe(3);
     });
+
+    it('usa override em PARCELADO 1x e mantém fallback para A_VISTA', async () => {
+      prisma.project.findMany.mockResolvedValue([
+        { id: 'casa1', name: 'Casa', type: 'CASA' },
+      ]);
+      prisma.expense.findMany.mockResolvedValue(plannedMatcherExpenses('PARCELADO'));
+
+      const ofx = buildBankOfx(ofxBankFor('20260429', 50000, 'COMPRA CASA', 'OVERRIDE1'));
+      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX');
+      const matches = result.preview.find((tx: any) => tx.amountCents > 0)?.crossProjectMatches ?? [];
+
+      expect(matches.find((match: any) => match.expenseId === 'exp-override')).toMatchObject({
+        data: '2026-04-29',
+        installmentCurrent: 1,
+        installmentTotal: 1,
+      });
+      expect(matches.find((match: any) => match.expenseId === 'exp-avista')).toMatchObject({
+        data: '2026-04-28',
+        installmentCurrent: null,
+        installmentTotal: null,
+      });
+    });
   });
 
   describe('previewImport — warning: fatura de cartão importada como extrato (Bug A)', () => {
@@ -532,6 +585,45 @@ describe('BankAccountService', () => {
         expect.objectContaining({ ok: true, sourceId: 'src1', targetId: 'tgt1' }),
       );
       expect(prisma.crossProjectSettlement.upsert).toHaveBeenCalled();
+    });
+  });
+
+  describe('suggestLinks', () => {
+    it('usa override em QUINZENAL 1x e mantém fallback para A_VISTA', async () => {
+      prisma.expense.findMany
+        .mockResolvedValueOnce([
+          {
+            id: 'bank-expense',
+            titulo: 'Compra importada',
+            fornecedor: 'Loja',
+            valorTotal: 50000,
+            dataPagamento: new Date('2026-04-29'),
+            dataInicioParcela: null,
+            createdAt: new Date('2026-04-29'),
+            status: 'PAGO',
+            bankLast4: '5678',
+            formaPagamento: 'A_VISTA',
+            linkedExpenseId: null,
+            tipoDespesa: 'OUTROS',
+          },
+        ])
+        .mockResolvedValueOnce(plannedMatcherExpenses('QUINZENAL'));
+      prisma.project.findMany.mockResolvedValue([
+        { id: 'casa1', name: 'Casa', type: 'CASA' },
+      ]);
+
+      const [result] = await service.suggestLinks('t1', 'pessoal1', 'acc1');
+
+      expect(result.suggestions.find((suggestion: any) => suggestion.expenseId === 'exp-override')).toMatchObject({
+        data: '2026-04-29T00:00:00.000Z',
+        installmentCurrent: 1,
+        installmentTotal: 1,
+      });
+      expect(result.suggestions.find((suggestion: any) => suggestion.expenseId === 'exp-avista')).toMatchObject({
+        data: '2026-04-28T00:00:00.000Z',
+        installmentCurrent: null,
+        installmentTotal: null,
+      });
     });
   });
 });

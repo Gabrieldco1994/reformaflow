@@ -61,7 +61,7 @@ import {
   type CardInvoiceCandidate,
   type CardWithEntries,
 } from './card-invoice-match';
-import { buildInstallments, NEUTRAL_EXPENSE_TYPES } from '@reformaflow/domain';
+import { buildInstallments, isSinglePaymentForm, NEUTRAL_EXPENSE_TYPES } from '@reformaflow/domain';
 
 export interface BankImportDecision {
   externalId: string;
@@ -370,7 +370,8 @@ export class BankAccountService {
             installmentDateOverrides: p.installmentDateOverrides,
           });
           const fallbackDate = p.dataPagamento ?? p.dataInicioParcela ?? p.createdAt;
-          const candidates = slices.length > 1
+          const isInstallment = !isSinglePaymentForm(p.formaPagamento);
+          const candidates = isInstallment
             ? slices.map((s, idx) => ({ idx, value: s.valor, date: s.data }))
             : [{ idx: -1, value: p.valorTotal, date: fallbackDate }];
           const valid = candidates.filter((c) => {
@@ -395,8 +396,8 @@ export class BankAccountService {
             valorCents: best.value,
             data: best.date.toISOString().slice(0, 10),
             deltaCents: txCents - best.value,
-            installmentCurrent: slices.length > 1 && best.idx >= 0 ? best.idx + 1 : null,
-            installmentTotal: slices.length > 1 ? slices.length : null,
+            installmentCurrent: isInstallment && best.idx >= 0 ? best.idx + 1 : null,
+            installmentTotal: isInstallment ? slices.length : null,
           };
         })
         .filter((m): m is NonNullable<typeof m> => !!m)
@@ -851,7 +852,8 @@ export class BankAccountService {
             installmentDateOverrides: p.installmentDateOverrides,
           });
           const fallbackDate = p.dataPagamento ?? p.dataInicioParcela ?? p.createdAt;
-          const candidates = slices.length > 1
+          const isInstallment = !isSinglePaymentForm(p.formaPagamento);
+          const candidates = isInstallment
             ? slices.map((s, idx) => ({ idx, value: s.valor, date: s.data }))
             : [{ idx: -1, value: p.valorTotal, date: fallbackDate }];
           const valid = candidates.filter((c) => {
@@ -875,8 +877,8 @@ export class BankAccountService {
             valor: best.value,
             data: best.date.toISOString(),
             deltaCents: e.valorTotal - best.value,
-            installmentCurrent: slices.length > 1 && best.idx >= 0 ? best.idx + 1 : null,
-            installmentTotal: slices.length > 1 ? slices.length : null,
+            installmentCurrent: isInstallment && best.idx >= 0 ? best.idx + 1 : null,
+            installmentTotal: isInstallment ? slices.length : null,
           };
         })
         .filter((m): m is NonNullable<typeof m> => !!m)
