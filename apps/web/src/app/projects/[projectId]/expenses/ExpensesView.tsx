@@ -122,6 +122,8 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
     linkedParcelaIndex?: number | null;
     creditCardTouched?: boolean;
     bankAccountTouched?: boolean;
+    settlesInvoiceCardId?: string;
+    settlesInvoiceDueMonth?: string;
   }>({
     creditCardId: '',
     bankAccountId: '',
@@ -129,6 +131,8 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
     linkedParcelaIndex: null,
     creditCardTouched: false,
     bankAccountTouched: false,
+    settlesInvoiceCardId: '',
+    settlesInvoiceDueMonth: '',
   });
 
   const defaultExpenseType = (TIPO_DESPESA_OPTIONS[0]?.value ?? ExpenseType.MATERIAL_CONSTRUCAO) as ExpenseType;
@@ -621,6 +625,8 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
       linkedParcelaIndex: null,
       creditCardTouched: false,
       bankAccountTouched: false,
+      settlesInvoiceCardId: '',
+      settlesInvoiceDueMonth: '',
     });
     setFormModalOpen(true);
   }
@@ -753,6 +759,11 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
     data.bankAccountId = formVinculos.bankAccountTouched
       ? formVinculos.bankAccountId || null
       : undefined;
+    // "Cartão paga cartão": '' vira null pro backend (limpa o vínculo).
+    data.settlesInvoiceCardId = formVinculos.settlesInvoiceCardId || null;
+    data.settlesInvoiceDueMonth = formVinculos.settlesInvoiceCardId
+      ? formVinculos.settlesInvoiceDueMonth || null
+      : null;
     const linkedId = formVinculos.linkedExpenseId || null;
     const parcelaIdx = formVinculos.linkedParcelaIndex;
     // Quando o usuário escolheu uma PARCELA específica do alvo, a conciliação

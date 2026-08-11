@@ -37,16 +37,17 @@ export class ExpenseService {
   private async resolveLinks(
     tenantId: string,
     currentProjectId: string,
-    dto: Pick<CreateExpenseDto, 'creditCardId' | 'bankAccountId' | 'linkedExpenseId'>,
+    dto: Pick<CreateExpenseDto, 'creditCardId' | 'bankAccountId' | 'linkedExpenseId' | 'settlesInvoiceCardId' | 'settlesInvoiceDueMonth'>,
     db: ExpenseDb = this.prisma,
   ): Promise<{
     cardLast4?: string | null;
     bankLast4?: string | null;
     accountId?: string | null;
     linkedExpenseId?: string | null;
+    settlesInvoiceKey?: string | null;
   }> {
     // Parallel queries for better performance
-    const [cardRow, accRow, linkedRow] = await Promise.all([
+    const [cardRow, accRow, linkedRow, settlesCardRow] = await Promise.all([
       dto.creditCardId && dto.creditCardId !== null && dto.creditCardId !== ''
         ? db.creditCard.findFirst({
             where: { id: dto.creditCardId, tenantId, deletedAt: null },
@@ -65,6 +66,12 @@ export class ExpenseService {
             select: { projectId: true },
           })
         : null,
+      dto.settlesInvoiceCardId && dto.settlesInvoiceCardId !== null && dto.settlesInvoiceCardId !== ''
+        ? db.creditCard.findFirst({
+            where: { id: dto.settlesInvoiceCardId, tenantId, deletedAt: null },
+            select: { last4: true },
+          })
+        : null,
     ]);
 
     const out: {
@@ -72,6 +79,7 @@ export class ExpenseService {
       bankLast4?: string | null;
       accountId?: string | null;
       linkedExpenseId?: string | null;
+      settlesInvoiceKey?: string | null;
     } = {};
 
     if (dto.creditCardId !== undefined) {
@@ -105,6 +113,18 @@ export class ExpenseService {
         throw new BadRequestException('Vínculo cross-project requer despesa de outro projeto');
       } else {
         out.linkedExpenseId = dto.linkedExpenseId;
+      }
+    }
+
+    if (dto.settlesInvoiceCardId !== undefined) {
+      if (!dto.settlesInvoiceCardId) {
+        out.settlesInvoiceKey = null;
+      } else if (!settlesCardRow) {
+        throw new BadRequestException('Cartão da fatura quitada não encontrado neste tenant');
+      } else if (!dto.settlesInvoiceDueMonth) {
+        throw new BadRequestException('Informe o mês de vencimento (settlesInvoiceDueMonth) da fatura quitada');
+      } else {
+        out.settlesInvoiceKey = `${settlesCardRow.last4}:${dto.settlesInvoiceDueMonth}`;
       }
     }
 
@@ -159,6 +179,7 @@ export class ExpenseService {
         accountId: links.accountId ?? undefined,
         origin,
         linkedExpenseId: links.linkedExpenseId ?? undefined,
+        settlesInvoiceKey: links.settlesInvoiceKey ?? undefined,
       },
       include: { room: true },
     });
@@ -871,6 +892,7 @@ export class ExpenseService {
         cardLast4: links.cardLast4,
         bankLast4: links.bankLast4,
         linkedExpenseId: links.linkedExpenseId,
+        settlesInvoiceKey: links.settlesInvoiceKey,
       },
       include: { room: true },
     });

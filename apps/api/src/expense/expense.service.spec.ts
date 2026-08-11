@@ -1119,6 +1119,67 @@ describe('ExpenseService', () => {
     });
   });
 
+  describe('resolveLinks — "cartão paga cartão" (settlesInvoiceKey)', () => {
+    it('create com settlesInvoiceCardId + settlesInvoiceDueMonth monta settlesInvoiceKey', async () => {
+      prisma.creditCard.findFirst.mockResolvedValue({ last4: '3541' });
+      prisma.expense.create.mockResolvedValue({ id: 'e1' });
+      prisma.expense.findUnique.mockResolvedValue(null);
+
+      await service.create(tenantId, projectId, {
+        tipoDespesa: 'MATERIAL_CONSTRUCAO',
+        valor: 100,
+        quantidade: 1,
+        formaPagamento: 'A_VISTA',
+        status: 'PAGO',
+        settlesInvoiceCardId: 'card-nubank',
+        settlesInvoiceDueMonth: '2026-09',
+      } as any);
+
+      const arg = prisma.expense.create.mock.calls[0]![0];
+      expect(arg.data.settlesInvoiceKey).toBe('3541:2026-09');
+    });
+
+    it('create rejeita settlesInvoiceCardId sem settlesInvoiceDueMonth', async () => {
+      prisma.creditCard.findFirst.mockResolvedValue({ last4: '3541' });
+      await expect(
+        service.create(tenantId, projectId, {
+          tipoDespesa: 'MATERIAL_CONSTRUCAO',
+          valor: 100,
+          quantidade: 1,
+          formaPagamento: 'A_VISTA',
+          status: 'PAGO',
+          settlesInvoiceCardId: 'card-nubank',
+        } as any),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('create rejeita settlesInvoiceCardId inválido', async () => {
+      prisma.creditCard.findFirst.mockResolvedValue(null);
+      await expect(
+        service.create(tenantId, projectId, {
+          tipoDespesa: 'MATERIAL_CONSTRUCAO',
+          valor: 100,
+          quantidade: 1,
+          formaPagamento: 'A_VISTA',
+          status: 'PAGO',
+          settlesInvoiceCardId: 'card-fake',
+          settlesInvoiceDueMonth: '2026-09',
+        } as any),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('update com settlesInvoiceCardId="" limpa settlesInvoiceKey', async () => {
+      prisma.expense.findFirst.mockResolvedValue({
+        id: 'e1', projectId, tenantId, valor: 1000, quantidade: 1, deletedAt: null,
+      });
+      prisma.expense.update.mockImplementation(async ({ data }: any) => data);
+
+      await service.update(tenantId, projectId, 'e1', { settlesInvoiceCardId: '' } as any);
+      const arg = prisma.expense.update.mock.calls[0]![0];
+      expect(arg.data.settlesInvoiceKey).toBeNull();
+    });
+  });
+
   describe('findCrossProject', () => {
     it('retorna apenas despesas de OUTROS projetos do mesmo tenant', async () => {
       prisma.expense.findMany.mockResolvedValue([

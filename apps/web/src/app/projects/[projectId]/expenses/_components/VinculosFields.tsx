@@ -105,6 +105,9 @@ interface Props {
     linkedParcelaIndex?: number | null;
     creditCardTouched?: boolean;
     bankAccountTouched?: boolean;
+    /** "Cartão paga cartão": cartão CUJA FATURA esta despesa quita + mês de vencimento. */
+    settlesInvoiceCardId?: string;
+    settlesInvoiceDueMonth?: string;
   };
   /** Quando o usuário muda algum campo. */
   onChange: (next: Props['value']) => void;
@@ -116,6 +119,8 @@ interface Props {
   initialLinkedExpenseId?: string | null;
   /** Resumo da despesa já vinculada (vinda do servidor) — exibe nome do projeto. */
   initialLinkedExpenseLabel?: string | null;
+  /** `settlesInvoiceKey` persistido ("{last4}:{dueMonth}"), para pré-preencher o toggle. */
+  initialSettlesInvoiceKey?: string | null;
   /** Snapshot dos campos atuais do form pai — usado para pré-preencher o modal
    *  "Criar nova despesa em outro projeto e vincular". */
   baseDraft?: LinkedExpenseDraft;
@@ -135,12 +140,14 @@ export function VinculosFields({
   initialBankLast4,
   initialLinkedExpenseId,
   initialLinkedExpenseLabel,
+  initialSettlesInvoiceKey,
   baseDraft,
 }: Props) {
   const latestValueRef = useRef(value);
   const cardPrefillDoneRef = useRef(false);
   const bankPrefillDoneRef = useRef(false);
   const linkedPrefillDoneRef = useRef(false);
+  const settlesPrefillDoneRef = useRef(false);
 
   useEffect(() => {
     latestValueRef.current = value;
@@ -157,6 +164,12 @@ export function VinculosFields({
   useEffect(() => {
     linkedPrefillDoneRef.current = false;
   }, [initialLinkedExpenseId]);
+
+  useEffect(() => {
+    settlesPrefillDoneRef.current = false;
+  }, [initialSettlesInvoiceKey]);
+
+  const [showSettlesInvoice, setShowSettlesInvoice] = useState(false);
 
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [createdLabel, setCreatedLabel] = useState<string | null>(null);
@@ -214,6 +227,21 @@ export function VinculosFields({
     onChange({ ...current, linkedExpenseId: initialLinkedExpenseId });
     linkedPrefillDoneRef.current = true;
   }, [initialLinkedExpenseId, onChange]);
+
+  // Pré-seleção do "cartão paga cartão" a partir do settlesInvoiceKey persistido
+  // ("{last4}:{dueMonth}") — resolve o last4 pro id do cartão via a lista já
+  // carregada (mesmo padrão do initialCardLast4 acima).
+  useEffect(() => {
+    if (settlesPrefillDoneRef.current) return;
+    if (!initialSettlesInvoiceKey || cards.length === 0) return;
+    const [last4, dueMonth] = initialSettlesInvoiceKey.split(':');
+    const match = cards.find((c) => c.last4 === last4);
+    if (match && dueMonth) {
+      setShowSettlesInvoice(true);
+      onChange({ ...latestValueRef.current, settlesInvoiceCardId: match.id, settlesInvoiceDueMonth: dueMonth });
+    }
+    settlesPrefillDoneRef.current = true;
+  }, [cards, initialSettlesInvoiceKey, onChange]);
 
   const cardOptions = useMemo(() => {
     const opts: { value: string; label: string }[] = [{ value: '', label: 'Nenhum' }];
@@ -281,6 +309,54 @@ export function VinculosFields({
         value={value.creditCardId}
         onChange={(e) => onChange({ ...value, creditCardId: e.target.value, creditCardTouched: true })}
       />
+
+      <div>
+        {!showSettlesInvoice ? (
+          <button
+            type="button"
+            className="text-xs text-blue-700 hover:underline"
+            onClick={() => setShowSettlesInvoice(true)}
+          >
+            Essa cobrança quita a fatura de outro cartão?
+          </button>
+        ) : (
+          <div className="space-y-2 rounded border border-gray-200 bg-gray-50 p-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium text-gray-700">Quita a fatura de outro cartão</p>
+              <button
+                type="button"
+                className="text-xs text-gray-500 hover:underline"
+                onClick={() => {
+                  setShowSettlesInvoice(false);
+                  onChange({ ...value, settlesInvoiceCardId: '', settlesInvoiceDueMonth: '' });
+                }}
+              >
+                Remover
+              </button>
+            </div>
+            <Select
+              label="Cartão quitado (não é este)"
+              name="settlesInvoiceCardId"
+              options={cardOptions}
+              value={value.settlesInvoiceCardId ?? ''}
+              onChange={(e) => onChange({ ...value, settlesInvoiceCardId: e.target.value })}
+            />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Mês de vencimento da fatura quitada</label>
+              <input
+                type="month"
+                className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+                value={value.settlesInvoiceDueMonth ?? ''}
+                onChange={(e) => onChange({ ...value, settlesInvoiceDueMonth: e.target.value })}
+              />
+            </div>
+            <p className="text-xs text-gray-500">
+              Ex.: paguei a fatura do Nubank de setembro usando este cartão (com juros/tarifa). O valor desta
+              despesa some da conta do próprio cartão e quita a fatura escolhida, sem inflar o caixa duas vezes.
+            </p>
+          </div>
+        )}
+      </div>
 
       <Select
         label="Pago pela conta"
