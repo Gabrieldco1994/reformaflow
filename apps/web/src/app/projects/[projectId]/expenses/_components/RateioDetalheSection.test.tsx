@@ -10,6 +10,8 @@ const BASE_DETALHE: RateioDetalhe = {
   rateadoCents: 20000,
   sobraCents: 0,
   removedTargetsCount: 0,
+  hiddenTargetsCount: 0,
+  hiddenAllocationCents: 0,
   items: [
     {
       targetExpenseId: 'tgt-1',
@@ -129,5 +131,55 @@ describe('RateioDetalheSection', () => {
   it('não mostra warning quando removedTargetsCount=0 e sobra=0', () => {
     render(<RateioDetalheSection isLoading={false} isError={false} detalhe={BASE_DETALHE} onRetry={vi.fn()} />);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('expõe o contrato numérico em data-attributes (nunca depender do BRL renderizado)', () => {
+    render(
+      <RateioDetalheSection
+        isLoading={false}
+        isError={false}
+        detalhe={{ ...BASE_DETALHE, hiddenTargetsCount: 1, hiddenAllocationCents: 5000 }}
+        onRetry={vi.fn()}
+      />,
+    );
+    const box = screen.getByTestId('rateio-detalhe');
+    expect(box).toHaveAttribute('data-total-cents', '20000');
+    expect(box).toHaveAttribute('data-rateado-cents', '20000');
+    expect(box).toHaveAttribute('data-sobra-cents', '0');
+    expect(box).toHaveAttribute('data-hidden-targets-count', '1');
+    expect(box).toHaveAttribute('data-hidden-allocation-cents', '5000');
+  });
+
+  it('alocações ocultas aparecem como linha informativa — e não como alerta de divergência', () => {
+    render(
+      <RateioDetalheSection
+        isLoading={false}
+        isError={false}
+        detalhe={{ ...BASE_DETALHE, hiddenTargetsCount: 2, hiddenAllocationCents: 40000 }}
+        onRetry={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('rateio-hidden')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument(); // sobra = 0 ⇒ nada de âmbar
+  });
+
+  it('todos os alvos ocultos: NÃO fica em branco — mostra totais e a linha de ocultos', () => {
+    render(
+      <RateioDetalheSection
+        isLoading={false}
+        isError={false}
+        detalhe={{ ...BASE_DETALHE, items: [], hiddenTargetsCount: 9, hiddenAllocationCents: 20000 }}
+        onRetry={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('rateio-detalhe')).toBeInTheDocument();
+    expect(screen.queryAllByTestId('rateio-item')).toHaveLength(0);
+    expect(screen.getByTestId('rateio-hidden')).toHaveTextContent(/9/);
+  });
+
+  it('sem ocultos, nenhuma linha de ocultos é renderizada (fronteira 0)', () => {
+    render(<RateioDetalheSection isLoading={false} isError={false} detalhe={BASE_DETALHE} onRetry={vi.fn()} />);
+    expect(screen.queryByTestId('rateio-hidden')).not.toBeInTheDocument();
+    expect(screen.getAllByTestId('rateio-item')).toHaveLength(2);
   });
 });

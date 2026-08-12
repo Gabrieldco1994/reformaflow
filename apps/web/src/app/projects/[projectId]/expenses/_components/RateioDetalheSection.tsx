@@ -46,9 +46,18 @@ export function RateioDetalheSection({ isLoading, isError, detalhe, onRetry }: P
   if (!detalhe || !detalhe.rateado) return null;
 
   const hasWarning = detalhe.removedTargetsCount > 0 || detalhe.sobraCents !== 0;
+  const hasHidden = detalhe.hiddenTargetsCount > 0;
 
   return (
-    <div className="space-y-2 rounded-xl border border-darc-linen bg-darc-cream/40 px-3 py-2.5">
+    <div
+      data-testid="rateio-detalhe"
+      data-total-cents={detalhe.totalSourceCents}
+      data-rateado-cents={detalhe.rateadoCents}
+      data-sobra-cents={detalhe.sobraCents}
+      data-hidden-targets-count={detalhe.hiddenTargetsCount}
+      data-hidden-allocation-cents={detalhe.hiddenAllocationCents}
+      className="space-y-2 rounded-xl border border-darc-linen bg-darc-cream/40 px-3 py-2.5"
+    >
       <p className="text-xs font-semibold uppercase tracking-wide text-darc-velvet/50">Compra rateada</p>
 
       <div className="grid grid-cols-3 gap-2 text-center">
@@ -89,9 +98,23 @@ export function RateioDetalheSection({ isLoading, isError, detalhe, onRetry }: P
         </p>
       )}
 
+      {hasHidden && (
+        <p data-testid="rateio-hidden" className="text-xs text-darc-velvet/60">
+          {detalhe.hiddenTargetsCount === 1
+            ? `1 alocação em projeto sem acesso · ${formatCurrency(detalhe.hiddenAllocationCents / 100)}`
+            : `${detalhe.hiddenTargetsCount} alocações em projetos sem acesso · ${formatCurrency(
+                detalhe.hiddenAllocationCents / 100,
+              )}`}
+        </p>
+      )}
+
       <ul className="space-y-1.5">
         {detalhe.items.map((item) => (
-          <li key={item.targetExpenseId} className="rounded-lg border border-darc-linen bg-white px-2 py-2">
+          <li
+            key={item.targetExpenseId}
+            data-testid="rateio-item"
+            className="rounded-lg border border-darc-linen bg-white px-2 py-2"
+          >
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-darc-velvet">

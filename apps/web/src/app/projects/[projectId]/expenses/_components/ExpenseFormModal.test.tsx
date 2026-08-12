@@ -148,6 +148,8 @@ const RATEIO_DETALHE: RateioDetalhe = {
   rateadoCents: 10000,
   sobraCents: 0,
   removedTargetsCount: 0,
+  hiddenTargetsCount: 0,
+  hiddenAllocationCents: 0,
   items: [
     {
       targetExpenseId: 'tgt-1',

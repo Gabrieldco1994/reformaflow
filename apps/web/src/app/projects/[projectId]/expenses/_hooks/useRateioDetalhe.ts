@@ -23,9 +23,14 @@ export interface RateioDetalhe {
   sourceExpenseId: string;
   rateado: boolean;
   totalSourceCents: number;
+  /** Σ allocationCents dos alvos ATIVOS — visíveis + ocultos. NÃO depende de quem olha (I-D). */
   rateadoCents: number;
   sobraCents: number;
   removedTargetsCount: number;
+  /** Alocações de alvo ATIVO em projeto fora da lente do requisitante (ou fora do tenant). */
+  hiddenTargetsCount: number;
+  /** Σ centavos das ocultas. Explica Σ items < rateadoCents SEM virar `sobra` fantasma (I-A). */
+  hiddenAllocationCents: number;
   items: RateioDetalheItem[];
 }
 
