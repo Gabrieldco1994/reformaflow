@@ -22,7 +22,10 @@ interface Props {
 export function RateioDetalheSection({ isLoading, isError, detalhe, onRetry }: Props) {
   if (isLoading) {
     return (
-      <div className="rounded-xl border border-darc-linen bg-darc-cream/40 px-3 py-2.5 text-sm text-darc-velvet/60">
+      <div
+        data-testid="rateio-loading"
+        className="rounded-xl border border-darc-linen bg-darc-cream/40 px-3 py-2.5 text-sm text-darc-velvet/60"
+      >
         Carregando rateio da compra…
       </div>
     );
@@ -30,10 +33,11 @@ export function RateioDetalheSection({ isLoading, isError, detalhe, onRetry }: P
 
   if (isError) {
     return (
-      <div className="space-y-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5">
+      <div data-testid="rateio-error" className="space-y-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5">
         <p className="text-sm text-red-700">Erro ao carregar o rateio desta compra.</p>
         <button
           type="button"
+          data-testid="rateio-retry"
           onClick={onRetry}
           className="inline-flex min-h-[44px] items-center text-sm font-medium text-red-700 underline"
         >
@@ -113,6 +117,7 @@ export function RateioDetalheSection({ isLoading, isError, detalhe, onRetry }: P
           <li
             key={item.targetExpenseId}
             data-testid="rateio-item"
+            data-target-expense-id={item.targetExpenseId}
             className="rounded-lg border border-darc-linen bg-white px-2 py-2"
           >
             <div className="flex items-start justify-between gap-2">

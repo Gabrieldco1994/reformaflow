@@ -44,12 +44,29 @@ describe('RateioDetalheSection', () => {
     expect(screen.getByText(/carregando/i)).toBeInTheDocument();
   });
 
+  it('estado loading expõe hook data-testid=rateio-loading para e2e', () => {
+    render(<RateioDetalheSection isLoading isError={false} detalhe={undefined} onRetry={vi.fn()} />);
+    expect(screen.getByTestId('rateio-loading')).toBeInTheDocument();
+    expect(screen.queryByTestId('rateio-error')).not.toBeInTheDocument();
+  });
+
   it('estado de erro mostra retry acionável', () => {
     const onRetry = vi.fn();
     render(<RateioDetalheSection isLoading={false} isError detalhe={undefined} onRetry={onRetry} />);
     const retryBtn = screen.getByRole('button', { name: /tentar novamente/i });
     fireEvent.click(retryBtn);
     expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it('estado de erro expõe hooks data-testid=rateio-error e rateio-retry para e2e', () => {
+    const onRetry = vi.fn();
+    render(<RateioDetalheSection isLoading={false} isError detalhe={undefined} onRetry={onRetry} />);
+    expect(screen.getByTestId('rateio-error')).toBeInTheDocument();
+    const retryBtn = screen.getByTestId('rateio-retry');
+    expect(retryBtn).toBeInTheDocument();
+    fireEvent.click(retryBtn);
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('rateio-loading')).not.toBeInTheDocument();
   });
 
   it('não renderiza nada quando a despesa não é rateada', () => {
@@ -181,5 +198,13 @@ describe('RateioDetalheSection', () => {
     render(<RateioDetalheSection isLoading={false} isError={false} detalhe={BASE_DETALHE} onRetry={vi.fn()} />);
     expect(screen.queryByTestId('rateio-hidden')).not.toBeInTheDocument();
     expect(screen.getAllByTestId('rateio-item')).toHaveLength(2);
+  });
+
+  it('cada <li> de item expõe data-target-expense-id para navegação e2e', () => {
+    render(<RateioDetalheSection isLoading={false} isError={false} detalhe={BASE_DETALHE} onRetry={vi.fn()} />);
+    const items = screen.getAllByTestId('rateio-item');
+    expect(items).toHaveLength(2);
+    expect(items[0]).toHaveAttribute('data-target-expense-id', 'tgt-1');
+    expect(items[1]).toHaveAttribute('data-target-expense-id', 'tgt-2');
   });
 });

@@ -402,7 +402,7 @@ export function VinculosFields({
             Compra rateada entre planejadas de outro projeto — vínculo indisponível aqui.
           </p>
         ) : (
-          <div>
+          <div data-testid="vinculos-cross-project-editor">
             <Input
               placeholder="Buscar por título ou fornecedor (outros projetos)…"
               value={search}

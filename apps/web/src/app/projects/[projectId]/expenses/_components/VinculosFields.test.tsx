@@ -46,6 +46,18 @@ describe('VinculosFields — rateado trava o vínculo cross-project', () => {
     expect(screen.queryByRole('button', { name: /Criar despesa em outro projeto/i })).not.toBeInTheDocument();
   });
 
+  it('rateio travado (lockLinkedExpense=true) renderiza zero editores cross-project (vinculos-cross-project-editor)', () => {
+    renderFields({ value: { creditCardId: '', bankAccountId: '', linkedExpenseId: '' }, lockLinkedExpense: true });
+    expect(screen.queryAllByTestId('vinculos-cross-project-editor')).toHaveLength(0);
+  });
+
+  it('despesa não-rateada (lockLinkedExpense ausente) renderiza exatamente um editor cross-project visível', () => {
+    renderFields({ value: { creditCardId: '', bankAccountId: '', linkedExpenseId: '' } });
+    const editors = screen.getAllByTestId('vinculos-cross-project-editor');
+    expect(editors).toHaveLength(1);
+    expect(editors[0]).toBeVisible();
+  });
+
   it('sem lockLinkedExpense e sem linkedExpenseId, oferece buscar vínculo normalmente', () => {
     renderFields({ value: { creditCardId: '', bankAccountId: '', linkedExpenseId: '' } });
     expect(screen.getByPlaceholderText(/Buscar por título ou fornecedor/i)).toBeInTheDocument();
