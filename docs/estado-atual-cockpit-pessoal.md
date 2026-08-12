@@ -70,14 +70,20 @@ Histórico detalhado: `docs/archive/estado-atual-historico-2026.md`.
   (CTAs já existentes "Comprar agora"/"Criar financiamento") — o Planejador
   nunca lança nada sozinho. e2e cobre criação de cenário + item financiamento +
   troca de horizonte sem novo fetch, e a pré-carga via deep-link.
-- ✅ **Detalhe read-only do rateio na compra-fonte** (issue #423): `GET
-  :id/rateio` enumera TODAS as `RateioAllocation` da fonte (não só a primeira,
-  que é o que `linkedExpenseId` reflete) e o modal (Visão Conta + Despesas
-  Geral) lista todas as alocações somente-leitura, com total/rateado/sobra.
+- ✅ **Detalhe e manutenção segura do rateio** (issues #423 e #428): `GET
+  :id/rateio` aceita como âncora a fonte ou um alvo, resolve o
+  `sourceExpenseId` canônico e enumera o conjunto completo de
+  `RateioAllocation` autorizado (não só a primeira, que é o que
+  `linkedExpenseId` reflete). Na fonte PESSOAL, o `RatearCompraModal`
+  pré-carrega as alocações existentes visíveis para edição, em vez de aparentar
+  um rateio novo; alocações ocultas ou removidas impedem substituição silenciosa.
+  No alvo REFORMA, a visualização permanece somente-leitura: editar e desratear
+  continuam exclusivos da fonte PESSOAL.
   Alvos fora da lente de acesso do requisitante aparecem só como
   contagem/soma agregadas (nunca título/projeto); alvos removidos são
-  descontados e explicam a sobra. Sem editar/desfazer aqui e sem alterar o
-  vínculo (`linkedExpenseId`) da fonte enquanto ela estiver rateada.
+  descontados e explicam a sobra. A mudança não altera alocações nem a semântica
+  dos totais financeiros, e o vínculo (`linkedExpenseId`) da fonte continua
+  bloqueado enquanto ela estiver rateada.
 - ✅ **Origem do pagamento na REFORMA** (`feat/reforma-paid-origins`, #424):
   endpoint read-only `GET .../expenses/paid-origins` deriva, por
   parcela, qual cartão/conta **do PESSOAL** (via `CrossProjectSettlement`/
