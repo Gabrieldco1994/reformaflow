@@ -531,20 +531,18 @@ export class ExpenseService {
   }
 
   /**
-   * Leitura canônica do rateio de uma compra-fonte (issue #423): enumera TODAS
-   * as `RateioAllocation` (não apenas o alvo apontado por `linkedExpenseId`,
-   * que é só o primeiro), incluindo as de alvo soft-deletado — I4: o `$use`
-   * de soft-delete não filtra `RateioAllocation` nem seu `include.target`.
+   * Leitura canônica do rateio por uma âncora fonte ou alvo (issues #423/#428):
+   * resolve SOURCE > TARGET > NONE e enumera TODAS as `RateioAllocation` da
+   * fonte (não apenas o alvo apontado por `linkedExpenseId`, que é só o
+   * primeiro), incluindo as de alvo soft-deletado — I4: o `$use` de soft-delete
+   * não filtra `RateioAllocation` nem seu `include.target`.
    * Somente leitura (I7): nenhuma escrita, nenhuma transação.
    *
-   * Lente de acesso (issue #423, security amendment): o guard global só valida
-   * o projeto-FONTE — os projetos-alvo do rateio chegam por FK sem nunca
-   * passar por um guard. Um alvo ATIVO em projeto fora da lente do requester
-   * (ou de outro tenant) vira um contador oculto (`hiddenTargetsCount` /
-   * `hiddenAllocationCents`), NUNCA um item — mas seu valor continua somado em
-   * `rateadoCents` (I-A/I-D: o dinheiro não muda com quem olha). Alvo removido
-   * é avaliado ANTES da lente (I-F): removido é sempre `removed`, nunca `hidden`.
-   * `requester` é obrigatório no tipo — fail-closed: sem lente, 403.
+   * O guard global só valida o projeto da âncora. Ao abrir por um alvo, a fonte
+   * também precisa estar na lente; falhas nessa resolução viram 404 genérico.
+   * Demais alvos ATIVOS fora da lente (ou de outro tenant) viram contadores
+   * ocultos, mas seus valores continuam em `rateadoCents`. Alvo removido é
+   * avaliado ANTES da lente (I-F): removido é sempre `removed`, nunca `hidden`.
    */
   async getRateio(
     tenantId: string,
@@ -552,22 +550,31 @@ export class ExpenseService {
     id: string,
     requester: RateioRequester,
   ): Promise<RateioDetalhe> {
-    const source = await this.prisma.expense.findFirst({
+    const anchor = await this.prisma.expense.findFirst({
       where: { id, projectId, tenantId, deletedAt: null },
       include: { project: { select: { id: true, type: true, tenantId: true } } },
     });
-    if (!source) throw new NotFoundException('Despesa não encontrada');
-    if (!source.project || source.project.tenantId !== tenantId) {
+    if (
+      !anchor ||
+      anchor.projectId !== projectId ||
+      anchor.tenantId !== tenantId ||
+      anchor.deletedAt !== null
+    ) {
+      throw new NotFoundException('Despesa não encontrada');
+    }
+    if (!anchor.project || anchor.project.tenantId !== tenantId) {
       // I-G na fonte: não confirma existência a um requester de outro tenant.
       throw new NotFoundException('Despesa não encontrada');
     }
-    if (!this.canRequesterSeeProject(requester, source.project)) {
+    if (!this.canRequesterSeeProject(requester, anchor.project)) {
       // Defesa em profundidade: o guard global já deveria ter barrado isto,
       // mas o service não confia cegamente no caminho de entrada.
       throw new ForbiddenException('Sem permissao para acessar este projeto');
     }
 
-    const allocations = await this.prisma.rateioAllocation.findMany({
+    let source = anchor;
+    let sourceExpenseId = anchor.id;
+    let allocations = await this.prisma.rateioAllocation.findMany({
       where: { tenantId, sourceExpenseId: id },
       include: {
         target: {
@@ -578,6 +585,52 @@ export class ExpenseService {
       },
       orderBy: [{ createdAt: 'asc' }, { targetExpenseId: 'asc' }],
     });
+
+    // SOURCE > TARGET > NONE: uma despesa que já é fonte canônica nunca é
+    // reinterpretada como alvo, mesmo diante de dados legados incompatíveis.
+    if (allocations.length === 0) {
+      const targetMapping = await this.prisma.rateioAllocation.findFirst({
+        where: { tenantId, targetExpenseId: anchor.id },
+        select: { sourceExpenseId: true },
+      });
+      if (targetMapping) {
+        const mappedSource = await this.prisma.expense.findFirst({
+          where: {
+            id: targetMapping.sourceExpenseId,
+            tenantId,
+            deletedAt: null,
+            project: { tenantId, deletedAt: null },
+          },
+          include: { project: { select: { id: true, type: true, tenantId: true } } },
+        });
+        if (
+          !mappedSource ||
+          mappedSource.tenantId !== tenantId ||
+          mappedSource.deletedAt !== null ||
+          !mappedSource.project ||
+          mappedSource.project.tenantId !== tenantId ||
+          !this.canRequesterSeeProject(requester, mappedSource.project)
+        ) {
+          // Abrir por um alvo nunca confirma a existência nem a ACL da fonte.
+          throw new NotFoundException('Despesa não encontrada');
+        }
+
+        source = mappedSource;
+        sourceExpenseId = mappedSource.id;
+        allocations = await this.prisma.rateioAllocation.findMany({
+          where: { tenantId, sourceExpenseId },
+          include: {
+            target: {
+              include: {
+                project: { select: { id: true, name: true, type: true, tenantId: true } },
+              },
+            },
+          },
+          orderBy: [{ createdAt: 'asc' }, { targetExpenseId: 'asc' }],
+        });
+      }
+    }
+
     // Reforça a ordem determinística em memória (createdAt asc, targetExpenseId
     // asc como desempate total) — não depende só do driver honrar o orderBy.
     allocations.sort((a, b) => {
@@ -624,7 +677,7 @@ export class ExpenseService {
     const totalSourceCents = source.valorTotal;
 
     return {
-      sourceExpenseId: id,
+      sourceExpenseId,
       rateado: allocations.length > 0,
       totalSourceCents,
       rateadoCents,

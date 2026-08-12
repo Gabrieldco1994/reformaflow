@@ -13,6 +13,9 @@ import { PrismaService } from '../prisma/prisma.service';
 
 type Tx = Prisma.TransactionClient;
 
+const DUPLICATE_RATEIO_TARGET_MESSAGE = 'Despesa planejada duplicada no rateio.';
+const SOURCE_ALREADY_RATEIO_TARGET_MESSAGE = 'A compra fonte já é alvo de outro rateio.';
+
 export interface SettleParcelaInput {
   tenantId: string;
   sourceExpenseId: string;
@@ -426,6 +429,22 @@ export class ConciliacaoService {
     if (!source) throw new NotFoundException('Despesa fonte não encontrada');
     if (allocations.length === 0) {
       throw new BadRequestException('Informe ao menos uma planejada para ratear');
+    }
+
+    const uniqueTargetIds = new Set<string>();
+    for (const item of allocations) {
+      if (uniqueTargetIds.has(item.targetExpenseId)) {
+        throw new BadRequestException(DUPLICATE_RATEIO_TARGET_MESSAGE);
+      }
+      uniqueTargetIds.add(item.targetExpenseId);
+    }
+
+    const sourceAsTarget = await tx.rateioAllocation.findFirst({
+      where: { tenantId, targetExpenseId: sourceExpenseId },
+      select: { sourceExpenseId: true },
+    });
+    if (sourceAsTarget) {
+      throw new BadRequestException(SOURCE_ALREADY_RATEIO_TARGET_MESSAGE);
     }
 
     const conc = await tx.crossProjectSettlement.count({ where: { sourceExpenseId } });
