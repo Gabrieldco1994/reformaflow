@@ -21,6 +21,7 @@ import { UpdateInstallmentDateDto } from './dto/update-installment-date.dto';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
 import { CurrentTenant, CurrentUser } from '../common/decorators/tenant.decorator';
 import { RequireModule } from '../common/decorators/require-module.decorator';
+import { RateioRequester } from './rateio.types';
 
 @ApiTags('expenses')
 @ApiBearerAuth()
@@ -232,8 +233,9 @@ export class ExpenseController {
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('id') id: string,
+    @CurrentUser() requester: RateioRequester,
   ) {
-    return this.service.getRateio(tenantId, projectId, id);
+    return this.service.getRateio(tenantId, projectId, id, requester);
   }
 
   @Delete(':id')
