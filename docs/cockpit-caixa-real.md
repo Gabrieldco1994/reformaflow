@@ -67,6 +67,12 @@ saldo da conta hoje = saldo inicial (na data de referência)
 - **NÃO entram:** itens de cartão (`cardLast4`, sem `bankLast4`) — estão na fatura, não na conta.
 - **NÃO entram:** lançamentos futuros (status ≠ `PAGO`/`EM_CAIXA`, ex.: SEGURO CARTÃO agendado) —
   ainda não foram debitados (a §10 manda descontá-los).
+- **NÃO entram (corte por data):** ocorrências com **data > hoje** (fuso `America/Sao_Paulo`), mesmo
+  quando o status já é `PAGO`/`EM_CAIXA`. Um `PARCELADO`/`QUINZENAL` com o root `PAGO` distribui só as
+  parcelas cuja data já chegou — não as futuras, que ainda não têm movimento no extrato. Exceção:
+  parcela marcada individualmente em `paidParcelas` é evidência explícita (pré-pagamento) e conta mesmo
+  datada no futuro. O corte vale para `hoje` **e** para a série `porMes` (o histórico passado permanece
+  no sparkline; só o futuro some).
 
 **Validação numérica (dados de prod corrigidos):**
 `opening 14.285,97 + líquido realizado da conta 2.943,77 = 17.229,74` — bate com o banco
