@@ -78,6 +78,15 @@ Histórico detalhado: `docs/archive/estado-atual-historico-2026.md`.
   contagem/soma agregadas (nunca título/projeto); alvos removidos são
   descontados e explicam a sobra. Sem editar/desfazer aqui e sem alterar o
   vínculo (`linkedExpenseId`) da fonte enquanto ela estiver rateada.
+- ✅ **Origem do pagamento na REFORMA** (`feat/reforma-paid-origins`, #424):
+  endpoint read-only `GET .../expenses/paid-origins` deriva, por
+  parcela, qual cartão/conta **do PESSOAL** (via `CrossProjectSettlement`/
+  `RateioAllocation`/vínculo) pagou cada alvo cross-project; badge somente-
+  leitura na REFORMA (`MonthlyExpenseView`/`CategoryExpenseView`). Sem
+  mutação financeira, sem alteração de schema/quitação — não substitui o
+  fluxo de conciliação do §2 de `quitacao-parcela-cross-project.md` (que
+  segue como o único caminho que muda estado). Ver
+  `docs/quitacao-parcela-cross-project.md` §10 para o contrato.
 
 ## 2) Fontes de verdade
 
