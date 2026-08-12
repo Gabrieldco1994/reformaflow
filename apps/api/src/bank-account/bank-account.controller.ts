@@ -64,6 +64,26 @@ export class BankAccountController {
     return this.service.listImports(tenantId, projectId, accountId);
   }
 
+  @Get(':id/imports/:importId')
+  importDetail(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Param('id') accountId: string,
+    @Param('importId') importId: string,
+  ) {
+    return this.service.getImportDetail(tenantId, projectId, accountId, importId);
+  }
+
+  @Delete(':id/imports/:importId')
+  undoImport(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Param('id') accountId: string,
+    @Param('importId') importId: string,
+  ) {
+    return this.service.undoImport(tenantId, projectId, accountId, importId);
+  }
+
   @Get(':id/suggest-links')
   suggestLinks(
     @CurrentTenant() tenantId: string,

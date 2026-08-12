@@ -571,4 +571,36 @@ export class ConciliacaoService {
     await tx.expense.update({ where: { id: sourceExpenseId }, data: { linkedExpenseId: null } });
     return { targets };
   }
+
+  /**
+   * Reverte QUALQUER vínculo cross-project originado por uma despesa-fonte, seja
+   * conciliação por parcela (`CrossProjectSettlement`) ou rateio
+   * (`RateioAllocation`). Usado pelo "desfazer importação": uma despesa criada
+   * por um import pode ter sido, depois, vinculada/rateada manualmente — desfazer
+   * o import sem reverter isso deixaria o alvo (outro projeto) quitado/rateado
+   * apontando para uma fonte soft-deletada (órfão).
+   *
+   * Mutex garantido por `settleTargetParcela`/`ratearSource` (uma fonte nunca tem
+   * os dois ao mesmo tempo), mas checamos ambos por segurança.
+   */
+  async reverseSourceLinks(
+    tx: Tx,
+    params: { tenantId: string; sourceExpenseId: string },
+  ): Promise<{ mode: 'rateio' | 'settlement' | 'none'; targets: string[] }> {
+    const { tenantId, sourceExpenseId } = params;
+
+    const rateioCount = await tx.rateioAllocation.count({ where: { sourceExpenseId } });
+    if (rateioCount > 0) {
+      const { targets } = await this.unratearSource(tx, { tenantId, sourceExpenseId });
+      return { mode: 'rateio', targets };
+    }
+
+    const settlementCount = await tx.crossProjectSettlement.count({ where: { sourceExpenseId } });
+    if (settlementCount > 0) {
+      const { targets } = await this.unsettleBySource(tx, { tenantId, sourceExpenseId });
+      return { mode: 'settlement', targets };
+    }
+
+    return { mode: 'none', targets: [] };
+  }
 }
