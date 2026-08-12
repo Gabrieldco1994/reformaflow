@@ -247,6 +247,14 @@ async function mockApi(
     if (path === `/projects/${personalId}/monthly-overview/account-view`) {
       return route.fulfill(json(accountViewWith(opts.source ?? sourceExpense)));
     }
+    // A tela /conta também busca o dre-overview (sobra prevista acumulada) —
+    // sem este handler o fallback genérico `[]` faz `dreData?.anual` estourar
+    // ("Cannot read properties of undefined (reading 'saldoAcumuladoSerie')"),
+    // a página cai no ErrorBoundary e "Tenho na conta hoje" nunca renderiza
+    // (mesmo shape mínimo usado por phase-d-responsive.spec.ts).
+    if (path === `/projects/${personalId}/monthly-overview/dre-overview`) {
+      return route.fulfill(json({ anual: { saldoAcumuladoSerie: [] } }));
+    }
     const expenseMatch = path.match(
       new RegExp(`^/projects/${personalId}/expenses/([^/]+)$`),
     );
@@ -267,7 +275,14 @@ async function mockApi(
       if (opts.rateioPayload) return route.fulfill(json(opts.rateioPayload));
       if (opts.rateioStatus === "empty")
         return route.fulfill(json(rateioEmptyPayload()));
-      if (opts.rateioStatus === "error-then-ok" && rateioCallCount === 1) {
+      // `Providers` configura retry automático do React Query para 5xx
+      // (falha 500 não é 4xx, então `retry: failureCount < 2` dispara 2
+      // novas tentativas ANTES de `isError` virar true — call 1 = 1ª
+      // tentativa, calls 2/3 = retries automáticos). Só a partir da 4ª
+      // chamada (o clique manual em "Tentar novamente" → `refetch()`) é
+      // que devemos responder OK, senão o retry automático "engole" o
+      // erro silenciosamente e a UI de erro nunca aparece.
+      if (opts.rateioStatus === "error-then-ok" && rateioCallCount <= 3) {
         return route.fulfill(json({ message: "Erro interno" }, 500));
       }
       return route.fulfill(json(rateioDetailPayload()));
@@ -447,6 +462,16 @@ test.describe("Detalhe de rateio read-only (#423) — Visão Conta", () => {
     await page.getByRole("button", { name: "Mercado do mês" }).click();
 
     await expect(page.locator('[data-testid="rateio-detalhe"]')).toHaveCount(0);
+    // O editor de vínculo mutável vive dentro de "Mais opções" (campos
+    // avançados recolhidos por padrão em `ExpenseFormModal` — reduz
+    // fricção do formulário); é preciso abrir a seção antes de checar
+    // visibilidade, senão ela está no DOM porém oculta por `hidden`.
+    // Escopado ao `<form>`: em mobile o menu inferior TEM outro botão
+    // "Mais opções" (nav global) — sem escopo, o locator vira ambíguo.
+    await page
+      .locator("form")
+      .getByRole("button", { name: "Mais opções" })
+      .click();
     await expect(
       page.locator('[data-testid="vinculos-cross-project-editor"]'),
     ).toBeVisible();
@@ -501,9 +526,12 @@ test.describe("Detalhe de rateio read-only (#423) — Visão Conta", () => {
       expect(idsInDom).not.toContain(`tgt-${i}`);
     }
 
-    // Linha informativa de ocultos, sem virar alerta de divergência.
+    // Linha informativa de ocultos, sem virar alerta de divergência. Escopo
+    // no `detalhe` — `page.getByRole("alert")` sozinho também casaria com a
+    // região `aria-live` sempre presente do `<Toaster>` (sonner) no layout
+    // raiz, que nada tem a ver com a seção de rateio.
     await expect(page.locator('[data-testid="rateio-hidden"]')).toBeVisible();
-    await expect(page.getByRole("alert")).toHaveCount(0);
+    await expect(detalhe.getByRole("alert")).toHaveCount(0);
   });
 
   test("N=0 com alocações ocultas: hiddenTargetsCount > 0 mostra totais e a linha de ocultos, nunca em branco", async ({
