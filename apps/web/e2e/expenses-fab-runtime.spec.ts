@@ -74,6 +74,8 @@ async function openExpenses(page: Page, type: "PESSOAL" | "REFORMA") {
       return route.fulfill(
         json({ items: [], total: 0, page: 1, pageSize: 2000, totalPages: 1 }),
       );
+    if (path === `/projects/${projectId}/expenses/paid-origins`)
+      return route.fulfill(json({ items: [] }));
 
     // Lista vazia basta para o resto: o alvo aqui é a ÁRVORE, não o dado.
     return route.fulfill(json([]));
