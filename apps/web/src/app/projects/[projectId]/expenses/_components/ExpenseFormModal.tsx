@@ -235,7 +235,7 @@ export function ExpenseFormModal({
               Ratear compra
             </Button>
           )}
-          <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
+          <Button type="button" variant="secondary" className="min-h-[44px]" onClick={onClose}>Cancelar</Button>
           <Button type="submit" disabled={isPending}>
             {editing ? 'Salvar' : 'Criar'}
           </Button>
