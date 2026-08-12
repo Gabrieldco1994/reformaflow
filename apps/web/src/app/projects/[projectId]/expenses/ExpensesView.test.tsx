@@ -109,6 +109,7 @@ function renderView() {
   const project: Project = { id: "reforma-1", name: "Reforma", rooms: [] };
 
   client.setQueryData(["expenses", "reforma-1"], page);
+  client.setQueryData(["expenses", "reforma-1", "paid-origins"], { items: [] });
   client.setQueryData(["project", "reforma-1"], project);
   client.setQueryData(["tenant", "credit-cards"], []);
   client.setQueryData(["tenant", "bank-accounts"], []);

@@ -8,7 +8,7 @@ import { formatCurrency } from '@/lib/utils';
 import { Plus, ShoppingCart, ArrowDownWideNarrow, ArrowUpNarrowWide, SlidersHorizontal, CreditCard, Landmark, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Modal } from '@/components/ui/modal';
-import type { Expense, ExpenseFormData, ExpensesPage, Project } from '@/types';
+import type { Expense, ExpenseFormData, ExpensesPage, PaidOriginsResponse, Project } from '@/types';
 import { toast } from 'sonner';
 
 import { ExpenseType, hasFeature, isNeutralExpenseType, isSinglePaymentForm, type ProjectType } from '@reformaflow/domain';
@@ -75,6 +75,7 @@ import { MobileExpenseGlance } from './_components/MobileExpenseGlance';
 import { ExpenseMobileFab } from './_components/ExpenseMobileFab';
 import type { ExpenseQueryState } from './_lib/expense-query-state';
 import { centsToReais, reaisToCents } from './_lib/money';
+import { buildPaidOriginIndex } from './_lib/paid-origin-label';
 
 const toIsoDate = (date: Date) => date.toISOString().slice(0, 10);
 const todayBrtIsoDate = () =>
@@ -210,6 +211,20 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
     queryFn: () => api.get(`/projects/${PROJECT_ID}/expenses?pageSize=2000`),
   });
   const expenses = expensesPage?.items ?? [];
+
+  // Origem PESSOAL (cartão/conta) que efetivamente pagou cada despesa (#424).
+  // Só faz sentido fora de PESSOAL (que é a origem, não o alvo, do pagamento
+  // cross-project). Somente leitura — nunca aciona mutação nem re-renderiza
+  // fluxo de edição.
+  const { data: paidOriginsData } = useQuery<PaidOriginsResponse>({
+    queryKey: ['expenses', PROJECT_ID, 'paid-origins'],
+    queryFn: () => api.get(`/projects/${PROJECT_ID}/expenses/paid-origins`),
+    enabled: projectType !== 'PESSOAL',
+  });
+  const paidOrigins = useMemo(
+    () => buildPaidOriginIndex(paidOriginsData),
+    [paidOriginsData],
+  );
 
   const { data: project } = useQuery<Project>({
     queryKey: ['project', PROJECT_ID],
@@ -1040,7 +1055,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
         </div>
         {activeTab === 'despesas' && (
           <div className="hidden md:flex flex-wrap gap-2 items-center">
-            <Button onClick={openPayOptions} data-journey-action="expense.new">
+            <Button onClick={openPayOptions} data-journey-action="expense.new" className="min-h-[44px]">
               <Plus className="w-4 h-4" /> Nova despesa
             </Button>
           </div>
@@ -1246,6 +1261,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
                 } as ExpenseFormData);
               }}
               emptyMsg="Nenhuma despesa no período."
+              paidOrigins={paidOrigins}
             />
           </div>
         ) : projectType === 'PESSOAL' ? (
@@ -1300,6 +1316,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
               } as ExpenseFormData);
             }}
             emptyMsg="Nenhuma despesa cadastrada."
+            paidOrigins={paidOrigins}
           />
         ) : (
         <CategoryExpenseView
@@ -1326,6 +1343,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
             } as ExpenseFormData);
           }}
           emptyMsg="Nenhuma despesa cadastrada."
+          paidOrigins={paidOrigins}
         />
       )}
         </BulkDateProvider>

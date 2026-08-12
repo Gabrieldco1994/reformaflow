@@ -3,6 +3,7 @@ import { RequestMethod } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ExpenseController } from './expense.controller';
 import { ExpenseService } from './expense.service';
+import { PaidOriginsService } from './paid-origins.service';
 
 describe('ExpenseController — GET :id/rateio (contrato de rota + lente, #423)', () => {
   let controller: ExpenseController;
@@ -12,7 +13,10 @@ describe('ExpenseController — GET :id/rateio (contrato de rota + lente, #423)'
     service = { getRateio: jest.fn().mockResolvedValue({ sourceExpenseId: 'src1', items: [] }) };
     const mod: TestingModule = await Test.createTestingModule({
       controllers: [ExpenseController],
-      providers: [{ provide: ExpenseService, useValue: service }],
+      providers: [
+        { provide: ExpenseService, useValue: service },
+        { provide: PaidOriginsService, useValue: { findForProject: jest.fn() } },
+      ],
     }).compile();
     controller = mod.get(ExpenseController);
   });

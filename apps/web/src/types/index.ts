@@ -177,6 +177,36 @@ export interface CashFlowEntry {
   fornecedor?: string | null;
 }
 
+// Paid origins (#424) — origem PESSOAL (cartão/conta) que efetivamente pagou
+// uma despesa REFORMA/CASA/etc, via quitação cross-project, rateio ou vínculo
+// simples. Resposta somente-leitura de `GET .../expenses/paid-origins`.
+export type PaidOriginKind = 'card' | 'bank';
+
+export interface PaidOriginRef {
+  kind: PaidOriginKind;
+  /** Últimos 4 do cartão/conta. Nunca vazio quando o ref é emitido. */
+  last4: string;
+  /** Apelido do CreditCard/BankAccount; null quando não resolvido (UI cai no fallback ••last4). */
+  nickname: string | null;
+  /** brand (cartão) ou institution (conta). Para ícone/fallback. */
+  institution: string | null;
+  sourceProjectId: string;
+  sourceProjectName: string;
+}
+
+export interface ExpensePaidOrigin {
+  expenseId: string;
+  via: 'settlement' | 'rateio' | 'link';
+  /** Só para via='settlement'. parcelaIndex é 0-based. Ordenado asc. */
+  parcelas: Array<{ parcelaIndex: number; origin: PaidOriginRef }>;
+  /** Conjunto DISTINTO (kind:last4). Nunca vazio. */
+  origins: PaidOriginRef[];
+  /** origins.length > 1 — calculado APÓS a redação. */
+  multiple: boolean;
+}
+
+export interface PaidOriginsResponse { items: ExpensePaidOrigin[] }
+
 // Project
 export interface Project {
   id: string;

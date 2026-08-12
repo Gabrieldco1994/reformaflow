@@ -669,6 +669,23 @@ planejado.
   a data deve ser alterada na parcela planejada alvo.
 - Seleção múltipla → **alterar data em lote** / marcar como pago em lote.
 
+- **Origem do pagamento (cross-project, somente leitura):** fora do PESSOAL
+  (ex.: REFORMA), cada linha/ocorrência de uma despesa que foi paga através de
+  uma conciliação, rateio ou vínculo cross-project mostra um **badge
+  discreto** com o cartão/conta que efetivamente pagou (ex.: "Nubank ••3541"
+  ou, sem apelido, "Cartão ••3541"/"Conta ••5572"). Regras visíveis:
+  - Cada **parcela** pode mostrar uma origem diferente (ex.: parcelas pagas
+    por cartões distintos); na visão por categoria, quando a despesa tem mais
+    de uma origem entre suas parcelas, o agregado mostra **"Múltiplas
+    origens"**.
+  - Uma compra **rateada** para vários alvos mostra a **mesma** origem em
+    todos eles.
+  - O badge é **só leitura** (não abre modal, não é botão) e não aparece
+    quando a fonte é **Carteira** (sem cartão/conta), quando o usuário não tem
+    acesso ao módulo/projeto da fonte, ou enquanto a origem está carregando/
+    com erro — nesses casos a linha segue normal, sem quebra de layout.
+  - Nunca alarga o layout nem introduz overflow horizontal em 375/390px.
+
 **Estados:** carregando, vazio, erro.
 
 ### 4.5 Recebimentos (`/receipts`)

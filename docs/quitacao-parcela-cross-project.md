@@ -1,6 +1,6 @@
 # Quitação de parcela cross-project (PESSOAL)
 
-Atualizado em: **2026-08-10**
+Atualizado em: **2026-08-12**
 
 Documento canônico da feature que permite **pagar/quitar, pela conta do projeto
 PESSOAL, uma parcela de uma despesa que vive em OUTRO projeto** (REFORMA, CASA,
@@ -15,6 +15,8 @@ Commits principais:
 - `62c09e4d` — quitação de parcela cross-project robusta (P1–P7, modal, wizard, badge).
 - `2832a75b` — **status na lista da Visão Projeto PESSOAL roteia p/ quitação**
   (fecha o último caminho que reintroduzia o sumiço).
+- `ba5090bc`/`4e46a6f0`/`febd9151` (#424) — origem read-only do pagamento
+  cross-project por parcela na REFORMA (§10): `GET .../expenses/paid-origins`.
 
 ---
 
@@ -42,6 +44,31 @@ Commits principais:
     editada e propaga seu cronograma a todos os alvos.
 17. Em conciliação por parcela, a planejada alvo pode mudar de data e regenera seu
     fluxo; a fonte real conciliada é bloqueada para não reescrever o movimento real.
+18. **Origem exibida no alvo (read-only) — invariantes O1–O12** (ver §10):
+    - **O1:** `GET .../expenses/paid-origins` NUNCA escreve — nem no alvo, nem na
+      fonte; sem `$transaction`, sem mutação.
+    - **O2:** fonte re-lida ATIVA (`deletedAt: null`) no momento da leitura; fonte
+      soft-deletada é descartada silenciosamente (não derruba as demais parcelas
+      do mesmo alvo).
+    - **O3:** precedência **settlement > rateio > link** por alvo — mutuamente
+      exclusivas; um alvo nunca aparece por duas vias.
+    - **O4:** 1 fonte rateada em N alvos → N itens `via:'rateio'`, todos com a
+      **mesma** origem e `parcelas: []`.
+    - **O5:** origens deduplicadas por `kind:last4`; o mesmo cartão em 2 parcelas
+      gera 2 entradas em `parcelas` mas 1 única entrada em `origins`.
+    - **O6:** quando só 1 de 2 origens é visível ao viewer, a visível some junto
+      (não vaza um "resto" parcial) e `multiple` reflete a contagem PÓS-redação.
+    - **O7:** `origins` nunca é `[]` num item retornado; se todos os candidatos
+      morrerem (fonte inativa/carteira/redação), o item inteiro some da resposta.
+    - **O8:** fonte **Carteira** (sem cartão e sem conta) nunca emite origem.
+    - **O9:** `parcelaIndex` é 0-based e a parcela de índice 0 é tratada
+      normalmente (nunca cai no `falsy` trap).
+    - **O10:** redação por acesso (role/módulo/`projectScope`/tipo de projeto da
+      **fonte**) omite a entrada inteira — nunca um `last4`/apelido mascarado.
+    - **O11:** sem N+1 — bounded (≤7) batch queries mesmo com muitos alvos
+      compartilhando a mesma fonte.
+    - **O12:** ordenação determinística — itens por `expenseId` asc; `parcelas`
+      por `parcelaIndex` asc; `origins` na ordem de 1ª aparição.
 
 ## Referência de implementação
 
@@ -52,6 +79,23 @@ Commits principais:
   `apps/api/src/expense/expense.service.ts` (`updateInstallmentDate`) e
   `apps/web/src/app/projects/[projectId]/expenses/_components/MonthlyExpenseView.tsx`.
 - Testes que blindam contrato: `apps/api/src/conciliacao/conciliacao.hardening.spec.ts`, `apps/api/src/expense/expense.conciliar-parcela.spec.ts`, `apps/api/src/expense/expense.installment-date.spec.ts`, `apps/api/src/monthly-overview/monthly-overview.foreign-parcela.spec.ts`, `apps/web/src/app/projects/[projectId]/expenses/_lib/quitarParcelaCross.test.ts`.
+- **Origem exibida no alvo (§10, O1–O12):** backend
+  `apps/api/src/expense/paid-origins.types.ts` (contrato de resposta),
+  `paid-origins.builder.ts` (derivação pura settlement/rateio/link + redação),
+  `paid-origins.service.ts` (orquestração read-only, bounded ≤7 queries),
+  registrado em `ExpenseModule` e exposto por
+  `expense.controller.ts` (`@Get('paid-origins')`, declarado ANTES de
+  `@Get(':id')` — ver nota de roteamento no §10). Frontend:
+  `apps/web/src/app/projects/[projectId]/expenses/_lib/paid-origin-label.ts`
+  (`formatPaidOriginLabel`, `pickOriginForOccurrence`, `buildPaidOriginIndex`),
+  consumido por `MonthlyExpenseView.tsx` (badge por ocorrência) e
+  `CategoryExpenseView.tsx` (agregado, "Múltiplas origens" quando
+  `multiple=true`) via `ExpensesView.tsx`. Testes:
+  `apps/api/src/expense/paid-origins.builder.spec.ts`,
+  `paid-origins.service.spec.ts`, `paid-origins.route-order.contract.spec.ts`,
+  `apps/web/.../expenses/_lib/paid-origin-label.test.ts`,
+  `MonthlyExpenseView.paid-origins.test.tsx`,
+  `CategoryExpenseView.paid-origins.test.tsx`.
 
 ## Apêndice histórico
 
@@ -218,6 +262,10 @@ fora da tx (o `$use` não roda em tx).
   planejadas de outros projetos (wizard).
 - `GET  /projects/:projectId/monthly-overview/account-view?month=YYYY-MM` —
   emite as linhas com `parcelaIndex` / `foreignExpenseId` para a UI.
+- `GET  /projects/:projectId/expenses/paid-origins` — read-only, deriva a
+  origem (cartão/conta) que pagou cada parcela do alvo (§10, O1–O12); NUNCA
+  muta o alvo nem a fonte. Declarado ANTES de `@Get(':id')` no controller
+  (rota literal precede rota parametrizada — evitar o "id engole a rota").
 - Desconciliar/desfazer → `unsettleBySource` (P6).
 
 > Nota: o endpoint de expenses usa `page`/`pageSize` (cap 100 por padrão). Para
@@ -284,3 +332,71 @@ Frontend:
   pula cross-project; E8.
 - `apps/web/.../expenses/_components/NovaDespesaWizard.tsx` — wizard planejadas.
 - `apps/web/.../expenses/_lib/quitarParcelaCross.ts` — helpers puros.
+- `apps/web/.../expenses/_lib/paid-origin-label.ts` — helpers puros de origem
+  (rótulo, seleção por ocorrência, indexação da resposta) — ver §10.
+
+---
+
+## 10) Origem exibida no alvo (read-only) — `GET .../expenses/paid-origins` (#424)
+
+Endpoint read-only que resolve, **por parcela** de uma despesa-alvo, **quem
+pagou de fato** — a fonte cross-project (tipicamente PESSOAL, mas qualquer
+projeto) que a liquidou. É uma leitura auxiliar de exibição; **não substitui,
+não altera e não depende de** o alvo estar quitado pelo fluxo do §2. Aplica-se
+a QUALQUER projeto que liste despesas cross-project (hoje consumido pela
+REFORMA em `ExpensesView.tsx`; a query fica desabilitada dentro do PESSOAL,
+que já tem sua própria visão de conta).
+
+### Precedência das 3 vias (mutuamente exclusivas por alvo, O3)
+1. **`settlement`** — `CrossProjectSettlement(targetExpenseId, parcelaIndex)`;
+   emite uma origem **por parcela** (`parcelas: [{parcelaIndex, origin}]`),
+   permitindo que parcelas diferentes do mesmo alvo tenham origens diferentes.
+2. **`rateio`** — `RateioAllocation`; uma única origem agregada vale para
+   **todas** as ocorrências do alvo (`parcelas: []`); se o alvo já tem
+   settlement, o rateio é ignorado para ele.
+3. **`link`** — vínculo reverso simples (`Expense.linkedExpenseId` de uma
+   fonte apontando para o alvo), só quando há exatamente **1** fonte
+   candidata; múltiplas fontes reversas ambíguas fazem o alvo ser
+   **omitido por completo** (não escolhe "a primeira").
+
+### Contrato de resposta (`paid-origins.types.ts`)
+`PaidOriginsResponse.items: ExpensePaidOrigin[]`, cada item com `expenseId`,
+`via`, `parcelas` (só preenchido em `via='settlement'`), `origins` (conjunto
+distinto por `kind:last4`, nunca vazio) e `multiple` (`origins.length > 1`,
+calculado **após** a redação).
+
+### Invariantes O1–O12 (ver lista completa no item 18 do CONTRATO)
+Resumo operacional: read-only absoluto (O1); fonte sempre re-lida ativa (O2);
+precedência settlement>rateio>link (O3); rateio replica a mesma origem a N
+alvos (O4); dedup por `kind:last4` sem colapsar parcelas (O5); redação some
+com a entrada inteira, nunca um resto parcial (O6); alvo sem candidato
+sobrevivente some da resposta (O7); Carteira nunca emite origem (O8);
+`parcelaIndex` 0 tratado normalmente (O9); redação por role/módulo/escopo do
+projeto da FONTE (O10); bounded ≤7 queries, sem N+1 (O11); ordenação
+determinística (O12).
+
+### Gate de módulo por FONTE, não pelo alvo
+O controller aplica `@RequireModule('expenses')` na classe (gate da rota).
+O gate de `creditCards`/`bankAccounts` é per-origin, resolvido pelo builder
+contra o **tipo do projeto da fonte** (`projectTypeHasModule`) — a rota é
+chamada a partir de projetos (ex.: REFORMA) que nunca têm `bankAccounts` em
+`TYPE_MODULES`; usar o gate da rota para isso esconderia toda a feature.
+
+### UI (frontend, read-only, "fail-closed")
+- `paid-origin-label.ts`: `formatPaidOriginLabel` (apelido > fallback
+  "Cartão"/"Conta ••last4"), `pickOriginForOccurrence` (casa `parcelaIndex`
+  0-based com `occIndex` 1-based; rateio/link aplicam a mesma origem a
+  qualquer ocorrência), `buildPaidOriginIndex` (tolera resposta ausente).
+- Badge somente-leitura (`<span>`, sem `role="button"`, sem modal); ausência
+  de entrada, loading ou erro **não renderizam nada** — nunca quebram a lista
+  principal de despesas.
+- `MonthlyExpenseView` mostra a origem por ocorrência; `CategoryExpenseView`
+  agrega e mostra **"Múltiplas origens"** quando `multiple=true`.
+- Nunca lê `cardLast4`/`bankLast4` do próprio alvo para montar o rótulo — o
+  rótulo vem sempre da origem resolvida pelo backend (reforça O1).
+
+### Roteamento (hazard evitado)
+`@Get('paid-origins')` é declarado **antes** de `@Get(':id')` em
+`expense.controller.ts` — rota literal antes de rota parametrizada, senão
+`:id` capturaria `paid-origins` como um id de despesa.
+`paid-origins.route-order.contract.spec.ts` blinda essa ordem.

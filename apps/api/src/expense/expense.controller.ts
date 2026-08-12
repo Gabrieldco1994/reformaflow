@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { ExpenseService } from './expense.service';
+import { PaidOriginsService } from './paid-origins.service';
 import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
 import { CreateRecorrenteDto } from './dto/create-recorrente.dto';
@@ -29,7 +30,10 @@ import { RateioRequester } from './rateio.types';
 @RequireModule('expenses')
 @Controller('projects/:projectId/expenses')
 export class ExpenseController {
-  constructor(private readonly service: ExpenseService) {}
+  constructor(
+    private readonly service: ExpenseService,
+    private readonly paidOriginsService: PaidOriginsService,
+  ) {}
 
   @Post()
   @ApiOperation({ summary: 'Criar despesa' })
@@ -92,6 +96,26 @@ export class ExpenseController {
       status,
       limit: limit ? Number(limit) : undefined,
     });
+  }
+
+  @Get('paid-origins')
+  @ApiOperation({
+    summary:
+      'Deriva, por despesa, quem (cartão/conta cross-project) pagou cada parcela (#424, read-only)',
+  })
+  paidOrigins(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @CurrentUser()
+    requester: {
+      id: string;
+      role: string;
+      allowedProjects?: string[];
+      allowedProjectTypes?: string[];
+      allowedModules?: string[];
+    },
+  ) {
+    return this.paidOriginsService.findForProject(tenantId, projectId, requester);
   }
 
   @Get(':id')
