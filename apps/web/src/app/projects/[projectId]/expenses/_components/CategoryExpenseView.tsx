@@ -12,10 +12,11 @@ import {
   Copy,
 } from 'lucide-react';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
-import type { Expense } from '@/types';
+import type { Expense, ExpensePaidOrigin } from '@/types';
 import type { ExpenseCategoryGroup } from '../_hooks/useExpenseFilters';
 import { effectiveDate } from '../_lib/grouping-by-month';
 import { centsToReais, maskReaisInput, reaisToCents } from '../_lib/money';
+import { formatPaidOriginLabel } from '../_lib/paid-origin-label';
 import { BulkCheckbox } from './BulkDateSelection';
 
 interface Props {
@@ -34,6 +35,12 @@ interface Props {
     status: 'PAGO' | 'PLANEJADO';
   }) => void;
   emptyMsg: string;
+  /**
+   * Origem PESSOAL (cartão/conta) que efetivamente pagou cada despesa (#424).
+   * Aqui a exibição é agregada por despesa (não por ocorrência): `multiple`
+   * vira "Múltiplas origens"; ausência de entrada não renderiza badge.
+   */
+  paidOrigins?: Map<string, ExpensePaidOrigin>;
 }
 
 function CategoryExpenseViewImpl({
@@ -46,6 +53,7 @@ function CategoryExpenseViewImpl({
   onToggleStatus,
   onQuickUpdate,
   onQuickCreate,
+  paidOrigins,
   emptyMsg,
 }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -149,6 +157,12 @@ function CategoryExpenseViewImpl({
                     (e.formaPagamento === 'PARCELADO' ||
                       e.formaPagamento === 'QUINZENAL') &&
                     parcelas > 1;
+                  const paidOriginEntry = paidOrigins?.get(e.id);
+                  const paidOriginLabel = paidOriginEntry
+                    ? paidOriginEntry.multiple
+                      ? 'Múltiplas origens'
+                      : formatPaidOriginLabel(paidOriginEntry.origins[0])
+                    : null;
 
                   return (
                     <div
@@ -308,6 +322,11 @@ function CategoryExpenseViewImpl({
                                   {e.formaPagamento === 'QUINZENAL'
                                     ? `${parcelas}x quinzenal`
                                     : `${parcelas}x`}
+                                </span>
+                              )}
+                              {paidOriginLabel && (
+                                <span className="text-[10px] font-medium text-darc-velvet/60 bg-darc-mist/30 rounded-full px-1.5 py-0.5 flex-shrink-0 truncate">
+                                  {paidOriginLabel}
                                 </span>
                               )}
                             </div>

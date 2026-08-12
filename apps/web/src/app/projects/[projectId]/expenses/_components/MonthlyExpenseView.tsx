@@ -13,10 +13,11 @@ import {
 } from 'lucide-react';
 import { isSinglePaymentForm } from '@reformaflow/domain';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
-import type { Expense } from '@/types';
+import type { Expense, ExpensePaidOrigin } from '@/types';
 import type { GrupoDespesaPorMes } from '../_lib/grouping-by-month';
 import { effectiveDate } from '../_lib/grouping-by-month';
 import { centsToReais, maskReaisInput, reaisToCents } from '../_lib/money';
+import { formatPaidOriginLabel, pickOriginForOccurrence } from '../_lib/paid-origin-label';
 import { BulkCheckbox } from './BulkDateSelection';
 
 interface Props {
@@ -40,6 +41,12 @@ interface Props {
     status: 'PAGO' | 'PLANEJADO';
   }) => void;
   emptyMsg: string;
+  /**
+   * Origem PESSOAL (cartão/conta) que efetivamente pagou cada despesa (#424).
+   * Ausente durante loading/erro/sem dado — nesse caso nenhum rótulo é exibido
+   * (fail-closed; ver AGENTS.md sobre estados exaustivos e leitura somente).
+   */
+  paidOrigins?: Map<string, ExpensePaidOrigin>;
 }
 
 export interface QuickExpenseUpdate {
@@ -87,6 +94,7 @@ function MonthlyExpenseViewImpl({
   onChangeTipo,
   onQuickUpdate,
   onQuickCreate,
+  paidOrigins,
   emptyMsg,
 }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -199,6 +207,10 @@ function MonthlyExpenseViewImpl({
                   const dateStr = e.occDate || effectiveDate(e) || '';
                   const isInstallmentOccurrence = !isSinglePaymentForm(
                     e.formaPagamento,
+                  );
+                  const paidOrigin = pickOriginForOccurrence(
+                    paidOrigins?.get(e.id),
+                    e.occIndex,
                   );
 
                   return (
@@ -405,6 +417,11 @@ function MonthlyExpenseViewImpl({
                               {e.occTotalParcelas > 1 && (
                                 <span className="text-[10px] font-medium text-darc-raspberry/80 bg-darc-raspberry/10 rounded-full px-1.5 py-0.5 flex-shrink-0">
                                   {e.formaPagamento === 'QUINZENAL' ? 'quinzena' : 'parcela'} {e.occIndex}/{e.occTotalParcelas}
+                                </span>
+                              )}
+                              {paidOrigin && (
+                                <span className="text-[10px] font-medium text-darc-velvet/60 bg-darc-mist/30 rounded-full px-1.5 py-0.5 flex-shrink-0 truncate">
+                                  {formatPaidOriginLabel(paidOrigin)}
                                 </span>
                               )}
                             </div>
