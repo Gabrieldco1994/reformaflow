@@ -16,11 +16,15 @@ import { expect, test, type Page } from "@playwright/test";
  * `phase-d-responsive.spec.ts` e `expenses-fab-runtime.spec.ts`.
  *
  * Ganchos de teste (contrato §6.4, `RateioDetalheSection.tsx`):
- *   - `[data-testid="rateio-detalhe"]`  wrapper, com atributos NUMÉRICOS
- *     `data-total-cents` / `data-rateado-cents` / `data-sobra-cents` /
+ *   - `[data-testid="rateio-detalhe"]`  wrapper, com `data-source-expense-id`
+ *     canônico e atributos NUMÉRICOS `data-total-cents` /
+ *     `data-rateado-cents` / `data-sobra-cents` /
  *     `data-hidden-targets-count` / `data-hidden-allocation-cents`
  *     (contrato de dado, nunca depender de `R$ 12.771,00` renderizado)
- *   - `[data-testid="rateio-item"]`     uma linha por alocação VISÍVEL
+ *   - `[data-testid="rateio-item"]`     uma linha por alocação VISÍVEL, com
+ *     `data-target-expense-id` / `data-allocation-cents`
+ *   - `[data-testid="rateio-allocation-row"]` uma linha EDITÁVEL pré-preenchida,
+ *     com `data-target-expense-id` / `data-allocation-cents`
  *   - `[data-testid="rateio-hidden"]`   linha informativa quando
  *     `hiddenTargetsCount > 0` (sem `role="alert"`, sem âmbar — oculto não
  *     é divergência: já está dentro de `rateadoCents`)
@@ -36,7 +40,9 @@ import { expect, test, type Page } from "@playwright/test";
  */
 
 const personalId = "rateio-qa-personal";
+const reformaId = "rateio-qa-reforma";
 const sourceId = "cmr9mq9l50001cuy6mhhex5nu"; // id literal do exemplo da issue
+const reformaTargetId = "tgt-4";
 const TOTAL_CENTS = 1_277_100; // R$ 12.771,00
 
 function json(body: unknown, status = 200) {
@@ -60,7 +66,9 @@ function nineAllocationItems() {
     targetExpenseId: `tgt-${i}`,
     titulo: `Item ${i + 1} da reforma`,
     fornecedor: null,
+    projectId: reformaId,
     projectName: "Reforma Cozinha",
+    projectType: "REFORMA",
     status: "PLANEJADO",
     allocationCents,
     plannedValorTotalCents: allocationCents,
@@ -143,6 +151,34 @@ const plainExpense = {
   bankLast4: null,
 };
 
+const reformaTargetExpense = {
+  id: reformaTargetId,
+  projectId: reformaId,
+  tipoDespesa: "MATERIAL_CONSTRUCAO",
+  valor: 142_400,
+  quantidade: 1,
+  valorTotal: 142_400,
+  titulo: "Item 5 da reforma",
+  fornecedor: null,
+  formaPagamento: "A_VISTA",
+  dataPagamento: null,
+  status: "PLANEJADO",
+  // A resolução da fonte é canônica via RateioAllocation, não por este legado.
+  linkedExpenseId: null,
+  cardLast4: null,
+  bankLast4: null,
+};
+
+const reformaTargetAccountItem = {
+  ...reformaTargetExpense,
+  foreignExpenseId: reformaTargetId,
+  projetoOrigem: {
+    id: reformaId,
+    name: "Reforma Cozinha",
+    type: "REFORMA",
+  },
+};
+
 function accountViewWith(saida: Record<string, unknown>) {
   return {
     mesSelecionado: "2026-08",
@@ -171,7 +207,8 @@ function accountViewWith(saida: Record<string, unknown>) {
         isInvoice: false,
         editavel: true,
         dueMonth: null,
-        projetoOrigem: null,
+        projetoOrigem: saida.projetoOrigem ?? null,
+        foreignExpenseId: saida.foreignExpenseId ?? null,
       },
     ],
     comprasCartao: [],
@@ -192,10 +229,18 @@ async function mockApi(
   page: Page,
   opts: {
     source?: Record<string, unknown>;
+    accountExpense?: Record<string, unknown>;
+    targetExpense?: Record<string, unknown>;
+    targetRateioPayload?: unknown;
     rateioStatus?: "ok" | "empty" | "error-then-ok";
     rateioPayload?: unknown;
   },
 ) {
+  const apiRequests: Array<{
+    method: string;
+    path: string;
+    body: unknown;
+  }> = [];
   const mutations: string[] = [];
   let rateioCallCount = 0;
   await page.clock.setFixedTime(new Date("2026-08-12T12:00:00.000Z"));
@@ -207,9 +252,15 @@ async function mockApi(
 
   await page.route("http://localhost:3001/**", async (route) => {
     const request = route.request();
+    const path = new URL(request.url()).pathname;
+    const rawBody = request.postData();
+    apiRequests.push({
+      method: request.method(),
+      path,
+      body: rawBody ? JSON.parse(rawBody) : null,
+    });
     if (request.method() !== "GET")
       mutations.push(`${request.method()} ${request.url()}`);
-    const path = new URL(request.url()).pathname;
 
     if (path === "/auth/me") {
       return route.fulfill(
@@ -231,7 +282,10 @@ async function mockApi(
       );
     if (path === "/projects") {
       return route.fulfill(
-        json([{ id: personalId, name: "Pessoal QA", type: "PESSOAL" }]),
+        json([
+          { id: personalId, name: "Pessoal QA", type: "PESSOAL" },
+          { id: reformaId, name: "Reforma Cozinha", type: "REFORMA" },
+        ]),
       );
     }
     if (path === `/projects/${personalId}`) {
@@ -245,7 +299,11 @@ async function mockApi(
       );
     }
     if (path === `/projects/${personalId}/monthly-overview/account-view`) {
-      return route.fulfill(json(accountViewWith(opts.source ?? sourceExpense)));
+      return route.fulfill(
+        json(
+          accountViewWith(opts.accountExpense ?? opts.source ?? sourceExpense),
+        ),
+      );
     }
     // A tela /conta também busca o dre-overview (sobra prevista acumulada) —
     // sem este handler o fallback genérico `[]` faz `dreData?.anual` estourar
@@ -254,6 +312,14 @@ async function mockApi(
     // (mesmo shape mínimo usado por phase-d-responsive.spec.ts).
     if (path === `/projects/${personalId}/monthly-overview/dre-overview`) {
       return route.fulfill(json({ anual: { saldoAcumuladoSerie: [] } }));
+    }
+    if (path === `/projects/${reformaId}/expenses/${reformaTargetId}/rateio`) {
+      return route.fulfill(
+        json(opts.targetRateioPayload ?? rateioDetailPayload()),
+      );
+    }
+    if (path === `/projects/${reformaId}/expenses/${reformaTargetId}`) {
+      return route.fulfill(json(opts.targetExpense ?? reformaTargetExpense));
     }
     const expenseMatch = path.match(
       new RegExp(`^/projects/${personalId}/expenses/([^/]+)$`),
@@ -287,10 +353,16 @@ async function mockApi(
       }
       return route.fulfill(json(rateioDetailPayload()));
     }
+    if (
+      request.method() === "POST" &&
+      path === `/projects/${personalId}/expenses/${sourceId}/ratear`
+    ) {
+      return route.fulfill(json({ sourceExpenseId: sourceId }));
+    }
     return route.fulfill(json([]));
   });
 
-  return { mutations, rateioCallCount: () => rateioCallCount };
+  return { apiRequests, mutations, rateioCallCount: () => rateioCallCount };
 }
 
 async function openConta(page: Page) {
@@ -308,7 +380,241 @@ async function expectNoHorizontalOverflow(page: Page) {
   expect(sizes.document).toBeLessThanOrEqual(sizes.viewport + 1);
 }
 
+function formatPtBrCents(cents: number) {
+  const inteiro = Math.floor(cents / 100)
+    .toString()
+    .replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  return `${inteiro},${String(cents % 100).padStart(2, "0")}`;
+}
+
 test.describe("Detalhe de rateio read-only (#423) — Visão Conta", () => {
+  test("fonte PESSOAL já rateada reabre Ratear compra com o conjunto completo prefilled e POST conserva centavos", async ({
+    page,
+  }) => {
+    const expectedItems = nineAllocationItems();
+    const { apiRequests } = await mockApi(page, { rateioStatus: "ok" });
+    await openConta(page);
+
+    const sourceTrigger = page.getByRole("button", {
+      name: "Compras TelhaNorte",
+      exact: true,
+    });
+    await expect(sourceTrigger).toHaveCount(1);
+    await sourceTrigger.click();
+    await expect(page.locator('[data-testid="rateio-detalhe"]')).toBeVisible();
+
+    const openRateio = page.getByRole("button", {
+      name: "Ratear compra",
+      exact: true,
+    });
+    await expect(openRateio).toHaveCount(1);
+    await expect(openRateio).toBeVisible();
+    await openRateio.click();
+
+    const ratearModal = page.locator('[data-mobile-sheet="modal"]').filter({
+      has: page.getByRole("heading", {
+        name: "Ratear compra",
+        exact: true,
+      }),
+    });
+    await expect(ratearModal).toHaveCount(1);
+    await expect(ratearModal).toBeVisible();
+
+    const editableRows = ratearModal.locator(
+      '[data-testid="rateio-allocation-row"]',
+    );
+    await expect(editableRows).toHaveCount(expectedItems.length);
+    const prefilled = await editableRows.evaluateAll((rows) =>
+      rows.map((row) => {
+        const inputs = row.querySelectorAll<HTMLInputElement>(
+          'input[inputmode="decimal"]',
+        );
+        return {
+          targetExpenseId: row.getAttribute("data-target-expense-id"),
+          allocationCents: row.getAttribute("data-allocation-cents"),
+          inputCount: inputs.length,
+          inputValue: inputs[0]?.value ?? null,
+        };
+      }),
+    );
+    expect(prefilled).toEqual(
+      expectedItems.map((item) => ({
+        targetExpenseId: item.targetExpenseId,
+        allocationCents: String(item.allocationCents),
+        inputCount: 1,
+        inputValue: formatPtBrCents(item.allocationCents),
+      })),
+    );
+    expect(new Set(prefilled.map((row) => row.targetExpenseId)).size).toBe(
+      expectedItems.length,
+    );
+    expect(
+      prefilled.reduce((sum, row) => sum + Number(row.allocationCents), 0),
+    ).toBe(TOTAL_CENTS);
+    for (const row of await editableRows.all()) {
+      await expect(row).toBeVisible();
+      await expect(row.locator('input[inputmode="decimal"]')).toBeVisible();
+    }
+
+    const desfazer = ratearModal.getByRole("button", {
+      name: "Desfazer rateio",
+      exact: true,
+    });
+    const salvar = ratearModal.getByRole("button", {
+      name: "Salvar rateio",
+      exact: true,
+    });
+    await expect(desfazer).toHaveCount(1);
+    await expect(desfazer).toBeVisible();
+    await expect(salvar).toHaveCount(1);
+    await expect(salvar).toBeEnabled();
+    await salvar.click();
+
+    const ratearPath = `/projects/${personalId}/expenses/${sourceId}/ratear`;
+    await expect
+      .poll(
+        () =>
+          apiRequests.filter(
+            (request) =>
+              request.method === "POST" && request.path === ratearPath,
+          ).length,
+        { message: "POST de rateio deve ser enviado exatamente uma vez" },
+      )
+      .toBe(1);
+    const ratearPosts = apiRequests.filter(
+      (request) => request.method === "POST" && request.path === ratearPath,
+    );
+    expect(ratearPosts).toEqual([
+      {
+        method: "POST",
+        path: ratearPath,
+        body: {
+          allocations: expectedItems.map((item) => ({
+            targetExpenseId: item.targetExpenseId,
+            allocation: item.allocationCents,
+          })),
+        },
+      },
+    ]);
+    const submitted = (
+      ratearPosts[0].body as {
+        allocations: Array<{
+          targetExpenseId: string;
+          allocation: number;
+        }>;
+      }
+    ).allocations;
+    expect(new Set(submitted.map((item) => item.targetExpenseId)).size).toBe(
+      expectedItems.length,
+    );
+    expect(submitted.reduce((sum, item) => sum + item.allocation, 0)).toBe(
+      TOTAL_CENTS,
+    );
+  });
+
+  test("editar alvo REFORMA resolve a fonte canônica e mostra todas as alocações uma vez, somente leitura e sem mutação", async ({
+    page,
+  }) => {
+    const expectedItems = nineAllocationItems();
+    const { apiRequests } = await mockApi(page, {
+      accountExpense: reformaTargetAccountItem,
+      targetExpense: reformaTargetExpense,
+      targetRateioPayload: rateioDetailPayload(),
+    });
+    await openConta(page);
+
+    const targetTrigger = page.getByRole("button", {
+      name: "Item 5 da reforma",
+      exact: true,
+    });
+    await expect(targetTrigger).toHaveCount(1);
+    await targetTrigger.click();
+
+    const expenseModal = page.locator('[data-mobile-sheet="modal"]').filter({
+      has: page.getByRole("heading", {
+        name: "Editar Despesa",
+        exact: true,
+      }),
+    });
+    await expect(expenseModal).toHaveCount(1);
+    await expect(expenseModal).toBeVisible();
+
+    const detalhe = expenseModal.locator('[data-testid="rateio-detalhe"]');
+    await expect(detalhe).toBeVisible();
+    await expect(detalhe).toHaveAttribute("data-source-expense-id", sourceId);
+    await expect(detalhe).toHaveAttribute(
+      "data-rateado-cents",
+      String(TOTAL_CENTS),
+    );
+    await expect(detalhe).toHaveAttribute("data-sobra-cents", "0");
+
+    const readonlyRows = detalhe.locator('[data-testid="rateio-item"]');
+    await expect(readonlyRows).toHaveCount(expectedItems.length);
+    const displayed = await readonlyRows.evaluateAll((rows) =>
+      rows.map((row) => ({
+        targetExpenseId: row.getAttribute("data-target-expense-id"),
+        allocationCents: row.getAttribute("data-allocation-cents"),
+      })),
+    );
+    expect(displayed).toEqual(
+      expectedItems.map((item) => ({
+        targetExpenseId: item.targetExpenseId,
+        allocationCents: String(item.allocationCents),
+      })),
+    );
+    expect(new Set(displayed.map((row) => row.targetExpenseId)).size).toBe(
+      expectedItems.length,
+    );
+    for (const row of await readonlyRows.all()) {
+      await expect(row).toBeVisible();
+    }
+
+    await expect(
+      detalhe.locator('input, select, textarea, [contenteditable="true"]'),
+    ).toHaveCount(0);
+    await expect(
+      expenseModal.locator('[data-testid="rateio-allocation-row"]'),
+    ).toHaveCount(0);
+    await expect(
+      expenseModal.getByRole("button", {
+        name: "Ratear compra",
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    await expect(
+      expenseModal.getByRole("button", {
+        name: "Desfazer rateio",
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    await expect(
+      expenseModal.getByRole("button", { name: "Salvar", exact: true }),
+    ).toHaveCount(1);
+    await expect(
+      expenseModal.getByRole("button", {
+        name: "Cancelar",
+        exact: true,
+      }),
+    ).toHaveCount(1);
+
+    const targetRateioPath = `/projects/${reformaId}/expenses/${reformaTargetId}/rateio`;
+    expect(
+      apiRequests.filter(
+        (request) =>
+          request.method === "GET" && request.path === targetRateioPath,
+      ),
+    ).toEqual([
+      {
+        method: "GET",
+        path: targetRateioPath,
+        body: null,
+      },
+    ]);
+    expect(apiRequests.filter((request) => request.method !== "GET")).toEqual(
+      [],
+    );
+  });
+
   test("clique na fonte rateada abre o detalhe com as 9 alocações e soma exata", async ({
     page,
   }) => {
