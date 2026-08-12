@@ -5,13 +5,14 @@ import { useParams, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useProject } from '@/contexts/project-context';
 import { formatCurrency } from '@/lib/utils';
-import { CreditCard, Plus, Trash2, Link2 } from 'lucide-react';
+import { CreditCard, Plus, Trash2, Link2, History } from 'lucide-react';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { SkeletonList } from '@/components/ui/Skeleton';
 import { CreditCardVisual } from '@/components/CreditCardVisual';
 import CardFormModal from './_components/CardFormModal';
 import LinkSuggestionsPanel from './_components/LinkSuggestionsPanel';
 import AccountFormModal from '../_components/AccountFormModal';
+import ImportHistoryModal from '../_components/ImportHistoryModal';
 import type { CardRow } from './_types';
 
 function limitLabel(percent: number) {
@@ -32,6 +33,7 @@ export default function CreditCardsPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<CardRow | null>(null);
   const [linksFor, setLinksFor] = useState<CardRow | null>(null);
+  const [historyFor, setHistoryFor] = useState<CardRow | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -182,6 +184,14 @@ export default function CreditCardsPage() {
                     <Link2 className="h-4 w-4" /> Vincular
                   </button>
                   <button
+                    onClick={() => setHistoryFor(c)}
+                    aria-label="Histórico de importações"
+                    title="Histórico de importações"
+                    className="rounded-lg border px-3 py-2 text-sm hover:bg-gray-50"
+                  >
+                    <History className="h-4 w-4" />
+                  </button>
+                  <button
                     onClick={() => { setEditing(c); setFormOpen(true); }}
                     className="flex-1 rounded-lg border px-3 py-2 text-sm hover:bg-gray-50"
                   >
@@ -223,6 +233,14 @@ export default function CreditCardsPage() {
           projectId={linksFor.projectId ?? projectId}
           card={linksFor}
           onClose={() => setLinksFor(null)}
+        />
+      )}
+      {historyFor && (
+        <ImportHistoryModal
+          basePath={`/projects/${historyFor.projectId ?? projectId}/credit-cards/${historyFor.id}`}
+          title={`Importações · ${historyFor.nickname ?? `final ${historyFor.last4}`}`}
+          onClose={() => setHistoryFor(null)}
+          onUndone={() => void load()}
         />
       )}
     </div>

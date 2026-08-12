@@ -63,6 +63,26 @@ export class CreditCardController {
     return this.service.listImports(tenantId, projectId, cardId);
   }
 
+  @Get(':id/imports/:importId')
+  importDetail(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Param('id') cardId: string,
+    @Param('importId') importId: string,
+  ) {
+    return this.service.getImportDetail(tenantId, projectId, cardId, importId);
+  }
+
+  @Delete(':id/imports/:importId')
+  undoImport(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Param('id') cardId: string,
+    @Param('importId') importId: string,
+  ) {
+    return this.service.undoImport(tenantId, projectId, cardId, importId);
+  }
+
   @Get(':id/suggest-links')
   suggestLinks(
     @CurrentTenant() tenantId: string,

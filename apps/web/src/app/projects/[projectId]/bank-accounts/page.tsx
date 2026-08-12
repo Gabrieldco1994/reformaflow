@@ -4,13 +4,14 @@ import { useCallback, useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
-import { Landmark, Plus, Trash2, Link2, ArrowDownLeft } from 'lucide-react';
+import { Landmark, Plus, Trash2, Link2, ArrowDownLeft, History } from 'lucide-react';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { SkeletonList } from '@/components/ui/Skeleton';
 import BankAccountFormModal from './_components/BankAccountFormModal';
 import BankLinkSuggestionsPanel from './_components/BankLinkSuggestionsPanel';
 import BankReceiptLinkPanel from './_components/BankReceiptLinkPanel';
 import AccountFormModal from '../_components/AccountFormModal';
+import ImportHistoryModal from '../_components/ImportHistoryModal';
 import type { BankAccountRow } from './_types';
 
 export default function BankAccountsPage() {
@@ -23,6 +24,7 @@ export default function BankAccountsPage() {
   const [editing, setEditing] = useState<BankAccountRow | null>(null);
   const [linksFor, setLinksFor] = useState<BankAccountRow | null>(null);
   const [receiptLinksFor, setReceiptLinksFor] = useState<BankAccountRow | null>(null);
+  const [historyFor, setHistoryFor] = useState<BankAccountRow | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -125,6 +127,12 @@ export default function BankAccountsPage() {
                     <ArrowDownLeft className="w-4 h-4" /> Vincular recebimentos
                   </button>
                   <button
+                    onClick={() => setHistoryFor(a)}
+                    className="px-3 py-2 text-sm border rounded-lg flex items-center gap-1 hover:bg-gray-50"
+                  >
+                    <History className="w-4 h-4" /> Importações
+                  </button>
+                  <button
                     onClick={() => { setEditing(a); setFormOpen(true); }}
                     className="px-3 py-2 text-sm border rounded-lg hover:bg-gray-50"
                   >
@@ -172,6 +180,14 @@ export default function BankAccountsPage() {
           projectId={projectId}
           account={receiptLinksFor}
           onClose={() => setReceiptLinksFor(null)}
+        />
+      )}
+      {historyFor && (
+        <ImportHistoryModal
+          basePath={`/projects/${projectId}/bank-accounts/${historyFor.id}`}
+          title={`Importações · ${historyFor.nickname ?? `final ${historyFor.last4}`}`}
+          onClose={() => setHistoryFor(null)}
+          onUndone={() => void load()}
         />
       )}
     </div>

@@ -667,6 +667,230 @@ export class BankAccountService {
     };
   }
 
+  // ─── Desfazer importação ─────────────────────────────────
+
+  /** Ano-mês (YYYY-MM) em UTC — espelha `CardInvoiceSettlementService.yearMonth`. */
+  private yearMonthUtc(date: Date): string {
+    return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+  }
+
+  /**
+   * Detalhe de um lote de importação de extrato: o que ele criou e o que será
+   * revertido (ou não) se for desfeito. Alimenta o preview de impacto do
+   * "Desfazer importação".
+   */
+  async getImportDetail(tenantId: string, projectId: string, accountId: string, importId: string) {
+    await this.findAccount(tenantId, projectId, accountId);
+    const importRecord = await this.prisma.bankStatementImport.findFirst({
+      where: { id: importId, tenantId, accountId },
+    });
+    if (!importRecord) throw new NotFoundException('Importação não encontrada');
+
+    const createdExpenses = await this.prisma.expense.findMany({
+      where: { tenantId, importId, deletedAt: null, createdAt: { gte: importRecord.createdAt } },
+      select: { id: true, titulo: true, valorTotal: true, status: true, tipoDespesa: true, cardLast4: true, fornecedor: true, linkedExpenseId: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const createdReceipts = await this.prisma.receipt.findMany({
+      where: { tenantId, importId, deletedAt: null, createdAt: { gte: importRecord.createdAt } },
+      select: { id: true, descricao: true, valor: true, linkedReceiptId: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const expenseIds = createdExpenses.map((e) => e.id);
+    const receiptIds = createdReceipts.map((r) => r.id);
+
+    const cashFlowEntries = (expenseIds.length || receiptIds.length)
+      ? await this.prisma.cashFlowEntry.count({
+          where: {
+            deletedAt: null,
+            OR: [
+              ...(expenseIds.length ? [{ expenseId: { in: expenseIds } }] : []),
+              ...(receiptIds.length ? [{ receiptId: { in: receiptIds } }] : []),
+            ],
+          },
+        })
+      : 0;
+    const settlements = expenseIds.length
+      ? await this.prisma.crossProjectSettlement.count({ where: { sourceExpenseId: { in: expenseIds } } })
+      : 0;
+    const rateios = expenseIds.length
+      ? await this.prisma.rateioAllocation.count({ where: { sourceExpenseId: { in: expenseIds } } })
+      : 0;
+
+    // Pagamentos de fatura que dispararam liquidação automática (settleInvoice).
+    const cardPayments = createdExpenses.filter((e) => e.tipoDespesa === 'PAGAMENTO_FATURA_CARTAO' && e.cardLast4);
+    let invoiceLiquidations = 0;
+    let notRevertibleInvoiceLiquidations = 0;
+    for (const p of cardPayments) {
+      const c = await this.prisma.creditCard.findFirst({
+        where: { tenantId, last4: p.cardLast4 as string, deletedAt: null },
+        select: { closingDay: true, dueDay: true },
+      });
+      if (c && c.closingDay != null && c.dueDay != null) invoiceLiquidations++;
+      else notRevertibleInvoiceLiquidations++;
+    }
+
+    // Recorrências propagadas (RecurringBill) — efeito IRREVERSÍVEL (upsert sem
+    // snapshot). Contadas por best-effort re-rodando detectRecurrence.
+    const recurrencesPropagated = createdExpenses.filter((e) => detectRecurrence(e.fornecedor || '') != null).length;
+
+    return {
+      importId: importRecord.id,
+      periodLabel: importRecord.periodLabel,
+      fileName: importRecord.fileName,
+      createdAt: importRecord.createdAt,
+      alreadyUndone: importRecord.deletedAt != null,
+      totalAmountCents: createdExpenses.reduce((s, e) => s + e.valorTotal, 0),
+      impact: {
+        expenses: createdExpenses.length,
+        receipts: createdReceipts.length,
+        cashFlowEntries,
+        crossProjectSettlements: settlements,
+        rateioAllocations: rateios,
+        crossProjectLinks: settlements + rateios + createdReceipts.filter((r) => r.linkedReceiptId != null).length,
+        invoiceLiquidations,
+      },
+      irreversible: {
+        recurrencesPropagated,
+        notRevertibleInvoiceLiquidations,
+      },
+      expenses: createdExpenses.map((e) => ({
+        id: e.id, titulo: e.titulo, valorTotal: e.valorTotal, status: e.status,
+        cardPayment: e.tipoDespesa === 'PAGAMENTO_FATURA_CARTAO', linked: e.linkedExpenseId != null,
+      })),
+      receipts: createdReceipts.map((r) => ({
+        id: r.id, descricao: r.descricao, valor: r.valor, linked: r.linkedReceiptId != null,
+      })),
+    };
+  }
+
+  /**
+   * Desfaz um lote de importação de extrato bancário. Transacional e idempotente:
+   *  - reverte a LIQUIDAÇÃO automática de fatura de cartão (`unsettleInvoice`) das
+   *    faturas quitadas por pagamentos deste lote — as compras do cartão voltam a
+   *    PLANEJADO (só para cartões com fechamento/vencimento; sem eles a liquidação
+   *    usou fallback por "mais antiga em aberto", não revertível por vencimento e
+   *    apenas reportada);
+   *  - reverte vínculos cross-project (conciliação por parcela / rateio) das
+   *    despesas do lote e limpa `linkedReceiptId` dos recebimentos do lote;
+   *  - soft-delete das despesas, recebimentos e entradas de caixa criados;
+   *  - soft-delete do próprio registro de importação.
+   *
+   * NÃO reverte a propagação de recorrências (`RecurringBill`), que é um upsert
+   * sem snapshot — efeito irreversível reportado ao usuário no preview.
+   */
+  async undoImport(tenantId: string, projectId: string, accountId: string, importId: string) {
+    await this.findAccount(tenantId, projectId, accountId);
+    const importRecord = await this.prisma.bankStatementImport.findFirst({
+      where: { id: importId, tenantId, accountId },
+    });
+    if (!importRecord) throw new NotFoundException('Importação não encontrada');
+    if (importRecord.deletedAt) {
+      return {
+        ok: true, alreadyUndone: true, removedExpenses: 0, removedReceipts: 0,
+        revertedSettlements: 0, revertedInvoiceParcelas: 0, notRevertedInvoiceLiquidations: 0, unstamped: 0,
+      };
+    }
+
+    // Resolve os cartões dos pagamentos de fatura ANTES da tx (leitura pura), para
+    // saber quais liquidações são revertíveis por vencimento (estratégia 1).
+    const cardPayments = await this.prisma.expense.findMany({
+      where: {
+        tenantId, importId, deletedAt: null, createdAt: { gte: importRecord.createdAt },
+        tipoDespesa: 'PAGAMENTO_FATURA_CARTAO', cardLast4: { not: null },
+      },
+      select: { cardLast4: true, dataPagamento: true, createdAt: true },
+    });
+    const invoiceReversals: Array<{ card: { id: string; last4: string; closingDay: number | null; dueDay: number | null }; dueMonth: string }> = [];
+    let notRevertedInvoiceLiquidations = 0;
+    const seen = new Set<string>();
+    for (const p of cardPayments) {
+      const c = await this.prisma.creditCard.findFirst({
+        where: { tenantId, last4: p.cardLast4 as string, deletedAt: null },
+        select: { id: true, last4: true, closingDay: true, dueDay: true },
+      });
+      if (c && c.closingDay != null && c.dueDay != null) {
+        const dueMonth = this.yearMonthUtc(p.dataPagamento ?? p.createdAt);
+        const key = `${c.last4}__${dueMonth}`;
+        if (!seen.has(key)) { seen.add(key); invoiceReversals.push({ card: c, dueMonth }); }
+      } else {
+        notRevertedInvoiceLiquidations++;
+      }
+    }
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.expense.findMany({
+        where: { tenantId, importId, deletedAt: null, createdAt: { gte: importRecord.createdAt } },
+        select: { id: true },
+      });
+      const receipts = await tx.receipt.findMany({
+        where: { tenantId, importId, deletedAt: null, createdAt: { gte: importRecord.createdAt } },
+        select: { id: true },
+      });
+      const adopted = await tx.expense.findMany({
+        where: { tenantId, importId, deletedAt: null, createdAt: { lt: importRecord.createdAt } },
+        select: { id: true },
+      });
+      const createdIds = created.map((e) => e.id);
+      const receiptIds = receipts.map((r) => r.id);
+      const now = new Date();
+
+      // 1) Soft-delete das entradas de caixa e das despesas/recebimentos do lote.
+      //    (ANTES da reversão de vínculos/faturas: falha posterior faz rollback
+      //    destas deleções — garantia de atomicidade.)
+      const cfOr = [
+        ...(createdIds.length ? [{ expenseId: { in: createdIds } }] : []),
+        ...(receiptIds.length ? [{ receiptId: { in: receiptIds } }] : []),
+      ];
+      if (cfOr.length) {
+        await tx.cashFlowEntry.updateMany({ where: { deletedAt: null, OR: cfOr }, data: { deletedAt: now } });
+      }
+      if (createdIds.length) {
+        await tx.expense.updateMany({ where: { id: { in: createdIds }, deletedAt: null }, data: { deletedAt: now } });
+      }
+      if (receiptIds.length) {
+        await tx.receipt.updateMany({
+          where: { id: { in: receiptIds }, deletedAt: null },
+          data: { deletedAt: now, linkedReceiptId: null },
+        });
+      }
+
+      // 2) Reverte vínculos cross-project de cada despesa-fonte do lote.
+      let revertedSettlements = 0;
+      for (const id of createdIds) {
+        const res = await this.conciliacao.reverseSourceLinks(tx, { tenantId, sourceExpenseId: id });
+        if (res.mode !== 'none') revertedSettlements += res.targets.length;
+      }
+
+      // 3) Reverte a liquidação automática de faturas (compras do cartão de OUTRO
+      //    lote voltam a PLANEJADO). Cartões sem fechamento/vencimento ficam de
+      //    fora (fallback não revertível por vencimento) — já contados acima.
+      let revertedInvoiceParcelas = 0;
+      for (const rev of invoiceReversals) {
+        const r = await this.cardSettlement.unsettleInvoice({ tenantId, card: rev.card, dueMonth: rev.dueMonth, tx });
+        revertedInvoiceParcelas += r.revertedParcelas;
+      }
+
+      // 4) Despesas apenas ADOTADAS na dedup (se houver): remove o carimbo.
+      for (const a of adopted) {
+        await tx.expense.update({ where: { id: a.id }, data: { importId: null, externalId: null } });
+      }
+
+      // 5) Soft-delete do registro de importação.
+      await tx.bankStatementImport.update({ where: { id: importId }, data: { deletedAt: now } });
+
+      return {
+        removedExpenses: createdIds.length,
+        removedReceipts: receiptIds.length,
+        revertedSettlements,
+        revertedInvoiceParcelas,
+        unstamped: adopted.length,
+      };
+    });
+
+    return { ok: true, alreadyUndone: false, notRevertedInvoiceLiquidations, ...result };
+  }
+
   /**
    * Reaplica apenas regras MANUAL em despesas OUTROS deste import.
    * Não auto-aplica IA/heurística aqui para preservar previsibilidade.

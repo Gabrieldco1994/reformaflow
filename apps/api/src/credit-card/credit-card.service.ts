@@ -483,6 +483,134 @@ export class CreditCardService {
     };
   }
 
+  // ─── Desfazer importação ─────────────────────────────────
+
+  /**
+   * Detalhe de um lote de importação: o que ele criou e o que será revertido se
+   * for desfeito. Alimenta o preview de impacto do "Desfazer importação".
+   *
+   * Distingue linhas CRIADAS pelo lote (`createdAt >= importRecord.createdAt`) de
+   * linhas ADOTADAS — despesas de série pré-existentes que só tiveram
+   * `externalId/importId` carimbados na dedup (`createdAt < importRecord.createdAt`):
+   * as primeiras serão soft-deletadas; as segundas só terão o carimbo removido.
+   */
+  async getImportDetail(tenantId: string, projectId: string, cardId: string, importId: string) {
+    const card = await this.findCard(tenantId, projectId, cardId);
+    const importRecord = await this.prisma.creditCardStatementImport.findFirst({
+      where: { id: importId, tenantId, cardId: card.id },
+    });
+    if (!importRecord) throw new NotFoundException('Importação não encontrada');
+
+    const created = await this.prisma.expense.findMany({
+      where: { tenantId, importId, deletedAt: null, createdAt: { gte: importRecord.createdAt } },
+      select: { id: true, titulo: true, valorTotal: true, status: true, linkedExpenseId: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const adoptedCount = await this.prisma.expense.count({
+      where: { tenantId, importId, deletedAt: null, createdAt: { lt: importRecord.createdAt } },
+    });
+    const createdIds = created.map((e) => e.id);
+    const cashFlowEntries = createdIds.length
+      ? await this.prisma.cashFlowEntry.count({ where: { expenseId: { in: createdIds }, deletedAt: null } })
+      : 0;
+    const settlements = createdIds.length
+      ? await this.prisma.crossProjectSettlement.count({ where: { sourceExpenseId: { in: createdIds } } })
+      : 0;
+    const rateios = createdIds.length
+      ? await this.prisma.rateioAllocation.count({ where: { sourceExpenseId: { in: createdIds } } })
+      : 0;
+
+    return {
+      importId: importRecord.id,
+      periodLabel: importRecord.periodLabel,
+      fileName: importRecord.fileName,
+      createdAt: importRecord.createdAt,
+      alreadyUndone: importRecord.deletedAt != null,
+      totalAmountCents: created.reduce((s, e) => s + e.valorTotal, 0),
+      impact: {
+        expenses: created.length,
+        cashFlowEntries,
+        adoptedExpenses: adoptedCount,
+        crossProjectSettlements: settlements,
+        rateioAllocations: rateios,
+        crossProjectLinks: settlements + rateios,
+      },
+      expenses: created.map((e) => ({
+        id: e.id, titulo: e.titulo, valorTotal: e.valorTotal, status: e.status,
+        linked: e.linkedExpenseId != null,
+      })),
+    };
+  }
+
+  /**
+   * Desfaz um lote de importação de fatura de cartão. Transacional e idempotente:
+   *  - reverte vínculos cross-project (conciliação por parcela ou rateio) para não
+   *    deixar o alvo de outro projeto órfão apontando para uma fonte removida;
+   *  - soft-delete de todas as despesas criadas pelo lote + suas entradas de caixa;
+   *  - remove o carimbo (`externalId/importId`) das despesas de série apenas
+   *    ADOTADAS na dedup (não as apaga — não foram criadas por este lote);
+   *  - soft-delete do próprio registro de importação.
+   *
+   * Idempotente: desfazer um lote já desfeito retorna `alreadyUndone` sem efeito.
+   */
+  async undoImport(tenantId: string, projectId: string, cardId: string, importId: string) {
+    const card = await this.findCard(tenantId, projectId, cardId);
+    const importRecord = await this.prisma.creditCardStatementImport.findFirst({
+      where: { id: importId, tenantId, cardId: card.id },
+    });
+    if (!importRecord) throw new NotFoundException('Importação não encontrada');
+    if (importRecord.deletedAt) {
+      return { ok: true, alreadyUndone: true, removedExpenses: 0, revertedSettlements: 0, unstamped: 0 };
+    }
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.expense.findMany({
+        where: { tenantId, importId, deletedAt: null, createdAt: { gte: importRecord.createdAt } },
+        select: { id: true },
+      });
+      const adopted = await tx.expense.findMany({
+        where: { tenantId, importId, deletedAt: null, createdAt: { lt: importRecord.createdAt } },
+        select: { id: true },
+      });
+      const createdIds = created.map((e) => e.id);
+      const now = new Date();
+
+      // 1) Soft-delete das entradas de caixa e das despesas criadas pelo lote.
+      //    (Feito ANTES da reversão de vínculos para que uma falha na reversão
+      //    faça o rollback destas deleções — garantia de atomicidade.)
+      if (createdIds.length) {
+        await tx.cashFlowEntry.updateMany({
+          where: { expenseId: { in: createdIds }, deletedAt: null },
+          data: { deletedAt: now },
+        });
+        await tx.expense.updateMany({
+          where: { id: { in: createdIds }, deletedAt: null },
+          data: { deletedAt: now },
+        });
+      }
+
+      // 2) Reverte vínculos cross-project de cada fonte (restaura o alvo e apaga
+      //    CrossProjectSettlement/RateioAllocation — sem órfão).
+      let revertedSettlements = 0;
+      for (const id of createdIds) {
+        const res = await this.conciliacao.reverseSourceLinks(tx, { tenantId, sourceExpenseId: id });
+        if (res.mode !== 'none') revertedSettlements += res.targets.length;
+      }
+
+      // 3) Despesas apenas ADOTADAS na dedup: remove o carimbo, não apaga.
+      for (const a of adopted) {
+        await tx.expense.update({ where: { id: a.id }, data: { importId: null, externalId: null } });
+      }
+
+      // 4) Soft-delete do registro de importação.
+      await tx.creditCardStatementImport.update({ where: { id: importId }, data: { deletedAt: now } });
+
+      return { removedExpenses: createdIds.length, revertedSettlements, unstamped: adopted.length };
+    });
+
+    return { ok: true, alreadyUndone: false, ...result };
+  }
+
   // ─── Links cross-project ─────────────────────────────────
 
   /**
