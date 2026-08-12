@@ -3,23 +3,28 @@ import { expect, test, type Page } from "@playwright/test";
 /**
  * QA (issue #423) — E2E do detalhe de rateio read-only.
  *
- * Nesta branch (`test/rateio-details`) a produção ainda NÃO existe: nem o
- * endpoint `GET /projects/:projectId/expenses/:id/rateio` nem a seção/modal
- * "Despesas rateadas" no `ExpenseFormModal`. Este spec fixa RED
- * deliberadamente — é o CONTRATO (issue #423 + brief do orquestrador) que o
- * `frontend-expert`/`backend-expert` precisam satisfazer. Não execute contra
- * `dev.db`: toda chamada de rede é interceptada via `page.route` (nenhum
- * backend real é necessário) — mesmo padrão de `phase-d-responsive.spec.ts`
- * e `expenses-fab-runtime.spec.ts`.
+ * Contrato canônico (arquiteto, amendment de segurança
+ * `security-tenant-lens`): `ExpenseService.getRateio` / `GET :id/rateio`,
+ * payload `{ sourceExpenseId, rateado, totalSourceCents, rateadoCents,
+ * sobraCents, removedTargetsCount, hiddenTargetsCount, hiddenAllocationCents,
+ * items[] }`, cada item `{ targetExpenseId, titulo, fornecedor, projectName,
+ * status, allocationCents, plannedValorTotalCents }`. N=0 (fonte sem
+ * NENHUMA RateioAllocation) responde 200 `{ rateado: false, sobraCents:
+ * totalSourceCents, items: [] }` — NUNCA 404 (404 é reservado para "despesa
+ * não existe"). Toda chamada de rede é interceptada via `page.route`
+ * (nenhum backend real é necessário) — mesmo padrão de
+ * `phase-d-responsive.spec.ts` e `expenses-fab-runtime.spec.ts`.
  *
- * Ganchos de teste assumidos (documentar/pedir ao frontend-expert se
- * divergir — ver retorno do QA):
- *   - `[data-testid="rateio-detalhe"]`       wrapper da seção/modal read-only
- *   - `[data-testid="rateio-item"]`          uma linha por alocação
- *   - `[data-total-cents]` / `[data-allocated-cents]` / `[data-sobra-cents]`
- *     atributos NUMÉRICOS no wrapper (contrato de dado, não texto formatado
- *     em BRL — nunca depender de `R$ 12.771,00` renderizado)
- *   - `[data-testid="rateio-loading"]`        estado de carregamento
+ * Ganchos de teste (contrato §6.4, `RateioDetalheSection.tsx`):
+ *   - `[data-testid="rateio-detalhe"]`  wrapper, com atributos NUMÉRICOS
+ *     `data-total-cents` / `data-rateado-cents` / `data-sobra-cents` /
+ *     `data-hidden-targets-count` / `data-hidden-allocation-cents`
+ *     (contrato de dado, nunca depender de `R$ 12.771,00` renderizado)
+ *   - `[data-testid="rateio-item"]`     uma linha por alocação VISÍVEL
+ *   - `[data-testid="rateio-hidden"]`   linha informativa quando
+ *     `hiddenTargetsCount > 0` (sem `role="alert"`, sem âmbar — oculto não
+ *     é divergência: já está dentro de `rateadoCents`)
+ *   - `[data-testid="rateio-loading"]`  estado de carregamento
  *   - `[data-testid="rateio-error"]` + `[data-testid="rateio-retry"]`
  *   - `[data-testid="vinculos-cross-project-editor"]` widget MUTÁVEL de
  *     "Vincular a despesa de outro projeto" (`VinculosFields`) — deve
@@ -31,38 +36,75 @@ import { expect, test, type Page } from "@playwright/test";
  */
 
 const personalId = "rateio-qa-personal";
-const reformaId = "rateio-qa-reforma";
 const sourceId = "cmr9mq9l50001cuy6mhhex5nu"; // id literal do exemplo da issue
 const TOTAL_CENTS = 1_277_100; // R$ 12.771,00
 
 function json(body: unknown, status = 200) {
-  return { status, contentType: "application/json", body: JSON.stringify(body) };
+  return {
+    status,
+    contentType: "application/json",
+    body: JSON.stringify(body),
+  };
 }
 
 /** 9 alvos da REFORMA cuja soma FECHA exatamente o total da compra. */
 function nineAllocationItems() {
-  const cents = [142_400, 141_400, 142_400, 141_400, 142_400, 141_400, 141_900, 141_900, 141_900];
+  const cents = [
+    142_400, 141_400, 142_400, 141_400, 142_400, 141_400, 141_900, 141_900,
+    141_900,
+  ];
   const sum = cents.reduce((s, v) => s + v, 0);
-  if (sum !== TOTAL_CENTS) throw new Error(`fixture quebrada: ${sum} != ${TOTAL_CENTS}`);
-  return cents.map((allocation, i) => ({
+  if (sum !== TOTAL_CENTS)
+    throw new Error(`fixture quebrada: ${sum} != ${TOTAL_CENTS}`);
+  return cents.map((allocationCents, i) => ({
     targetExpenseId: `tgt-${i}`,
     titulo: `Item ${i + 1} da reforma`,
     fornecedor: null,
-    project: { id: reformaId, name: "Reforma Cozinha", type: "REFORMA" },
-    allocation,
-    plannedValorTotal: allocation,
-    targetRemoved: false,
+    projectName: "Reforma Cozinha",
+    status: "PLANEJADO",
+    allocationCents,
+    plannedValorTotalCents: allocationCents,
   }));
 }
 
-function rateioDetailPayload(items = nineAllocationItems()) {
-  const allocatedCents = items.reduce((s, it) => s + it.allocation, 0);
+/** Payload canônico do GET :id/rateio (contrato §6.1/§6.2 do arquiteto). */
+function rateioDetailPayload(opts?: {
+  items?: ReturnType<typeof nineAllocationItems>;
+  hiddenTargetsCount?: number;
+  hiddenAllocationCents?: number;
+  removedTargetsCount?: number;
+}) {
+  const items = opts?.items ?? nineAllocationItems();
+  const hiddenTargetsCount = opts?.hiddenTargetsCount ?? 0;
+  const hiddenAllocationCents = opts?.hiddenAllocationCents ?? 0;
+  const removedTargetsCount = opts?.removedTargetsCount ?? 0;
+  const visibleCents = items.reduce((s, it) => s + it.allocationCents, 0);
+  const rateadoCents = visibleCents + hiddenAllocationCents; // I-A/I-D
   return {
-    sourceId,
-    totalCents: TOTAL_CENTS,
-    allocatedCents,
-    sobraCents: TOTAL_CENTS - allocatedCents,
+    sourceExpenseId: sourceId,
+    rateado: true,
+    totalSourceCents: TOTAL_CENTS,
+    rateadoCents,
+    sobraCents: TOTAL_CENTS - rateadoCents,
+    removedTargetsCount,
+    hiddenTargetsCount,
+    hiddenAllocationCents,
     items,
+  };
+}
+
+/** N=0: fonte SEM nenhuma RateioAllocation — 200, nunca 404 (contrato §6.3). */
+function rateioEmptyPayload() {
+  return {
+    sourceExpenseId: sourceId,
+    rateado: false,
+    totalSourceCents: TOTAL_CENTS,
+    rateadoCents: 0,
+    sobraCents: TOTAL_CENTS,
+    removedTargetsCount: 0,
+    hiddenTargetsCount: 0,
+    hiddenAllocationCents: 0,
+    items: [],
   };
 }
 
@@ -134,22 +176,39 @@ function accountViewWith(saida: Record<string, unknown>) {
     ],
     comprasCartao: [],
     entradas: [],
-    ticketMedio: { valor: 0, nCompras: 0, totalCompras: 0, serie6m: [], media6m: 0, deltaVsMediaPct: null },
+    ticketMedio: {
+      valor: 0,
+      nCompras: 0,
+      totalCompras: 0,
+      serie6m: [],
+      media6m: 0,
+      deltaVsMediaPct: null,
+    },
   };
 }
 
 /** Registra todo request NÃO-GET — a leitura do detalhe nunca deve disparar mutação. */
-async function mockApi(page: Page, opts: { source?: Record<string, unknown>; rateioStatus?: "ok" | "empty404" | "error-then-ok" }) {
+async function mockApi(
+  page: Page,
+  opts: {
+    source?: Record<string, unknown>;
+    rateioStatus?: "ok" | "empty" | "error-then-ok";
+    rateioPayload?: unknown;
+  },
+) {
   const mutations: string[] = [];
   let rateioCallCount = 0;
   await page.clock.setFixedTime(new Date("2026-08-12T12:00:00.000Z"));
   await page
     .context()
-    .addCookies([{ name: "rf_token", value: "rateio-qa", url: "http://localhost:3013" }]);
+    .addCookies([
+      { name: "rf_token", value: "rateio-qa", url: "http://localhost:3013" },
+    ]);
 
   await page.route("http://localhost:3001/**", async (route) => {
     const request = route.request();
-    if (request.method() !== "GET") mutations.push(`${request.method()} ${request.url()}`);
+    if (request.method() !== "GET")
+      mutations.push(`${request.method()} ${request.url()}`);
     const path = new URL(request.url()).pathname;
 
     if (path === "/auth/me") {
@@ -166,30 +225,48 @@ async function mockApi(page: Page, opts: { source?: Record<string, unknown>; rat
         }),
       );
     }
-    if (path === "/auth/config") return route.fulfill(json({ registerEnabled: false, guestEnabled: false }));
+    if (path === "/auth/config")
+      return route.fulfill(
+        json({ registerEnabled: false, guestEnabled: false }),
+      );
     if (path === "/projects") {
-      return route.fulfill(json([{ id: personalId, name: "Pessoal QA", type: "PESSOAL" }]));
+      return route.fulfill(
+        json([{ id: personalId, name: "Pessoal QA", type: "PESSOAL" }]),
+      );
     }
     if (path === `/projects/${personalId}`) {
       return route.fulfill(
-        json({ id: personalId, name: "Pessoal QA", type: "PESSOAL", onboardedAt: "2026-01-01T00:00:00.000Z" }),
+        json({
+          id: personalId,
+          name: "Pessoal QA",
+          type: "PESSOAL",
+          onboardedAt: "2026-01-01T00:00:00.000Z",
+        }),
       );
     }
     if (path === `/projects/${personalId}/monthly-overview/account-view`) {
       return route.fulfill(json(accountViewWith(opts.source ?? sourceExpense)));
     }
-    const expenseMatch = path.match(new RegExp(`^/projects/${personalId}/expenses/([^/]+)$`));
+    const expenseMatch = path.match(
+      new RegExp(`^/projects/${personalId}/expenses/([^/]+)$`),
+    );
     if (expenseMatch) {
       const id = expenseMatch[1];
-      const exp = id === sourceExpense.id ? (opts.source ?? sourceExpense) : plainExpense;
+      const exp =
+        id === sourceExpense.id ? (opts.source ?? sourceExpense) : plainExpense;
       return route.fulfill(json(exp));
     }
-    const rateioMatch = path.match(new RegExp(`^/projects/${personalId}/expenses/([^/]+)/rateio$`));
+    const rateioMatch = path.match(
+      new RegExp(`^/projects/${personalId}/expenses/([^/]+)/rateio$`),
+    );
     if (rateioMatch) {
       const id = rateioMatch[1];
-      if (id !== sourceExpense.id) return route.fulfill(json({ statusCode: 404, message: "Rateio não encontrado" }, 404));
+      if (id !== sourceExpense.id)
+        return route.fulfill(json(rateioEmptyPayload()));
       rateioCallCount += 1;
-      if (opts.rateioStatus === "empty404") return route.fulfill(json({ statusCode: 404, message: "Rateio não encontrado" }, 404));
+      if (opts.rateioPayload) return route.fulfill(json(opts.rateioPayload));
+      if (opts.rateioStatus === "empty")
+        return route.fulfill(json(rateioEmptyPayload()));
       if (opts.rateioStatus === "error-then-ok" && rateioCallCount === 1) {
         return route.fulfill(json({ message: "Erro interno" }, 500));
       }
@@ -203,7 +280,9 @@ async function mockApi(page: Page, opts: { source?: Record<string, unknown>; rat
 
 async function openConta(page: Page) {
   await page.goto(`/projects/${personalId}/conta`);
-  await expect(page.getByText("Tenho na conta hoje", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Tenho na conta hoje", { exact: true }),
+  ).toBeVisible();
 }
 
 async function expectNoHorizontalOverflow(page: Page) {
@@ -215,7 +294,9 @@ async function expectNoHorizontalOverflow(page: Page) {
 }
 
 test.describe("Detalhe de rateio read-only (#423) — Visão Conta", () => {
-  test("clique na fonte rateada abre o detalhe com as 9 alocações e soma exata", async ({ page }) => {
+  test("clique na fonte rateada abre o detalhe com as 9 alocações e soma exata", async ({
+    page,
+  }) => {
     await mockApi(page, { rateioStatus: "ok" });
     await openConta(page);
 
@@ -227,42 +308,57 @@ test.describe("Detalhe de rateio read-only (#423) — Visão Conta", () => {
     const rows = page.locator('[data-testid="rateio-item"]');
     await expect(rows).toHaveCount(9);
 
-    const [totalCents, allocatedCents, sobraCents] = await Promise.all([
-      detalhe.getAttribute("data-total-cents"),
-      detalhe.getAttribute("data-allocated-cents"),
-      detalhe.getAttribute("data-sobra-cents"),
-    ]);
+    const [totalCents, rateadoCents, sobraCents, hiddenCount, hiddenCents] =
+      await Promise.all([
+        detalhe.getAttribute("data-total-cents"),
+        detalhe.getAttribute("data-rateado-cents"),
+        detalhe.getAttribute("data-sobra-cents"),
+        detalhe.getAttribute("data-hidden-targets-count"),
+        detalhe.getAttribute("data-hidden-allocation-cents"),
+      ]);
     expect(Number(totalCents)).toBe(TOTAL_CENTS);
-    expect(Number(allocatedCents)).toBe(TOTAL_CENTS);
+    expect(Number(rateadoCents)).toBe(TOTAL_CENTS);
     expect(Number(sobraCents)).toBe(0);
+    expect(Number(hiddenCount)).toBe(0);
+    expect(Number(hiddenCents)).toBe(0);
   });
 
-  test("bug do primeiro-alvo-só: as 9 linhas aparecem, não só a despesa de linkedExpenseId (tgt-0)", async ({ page }) => {
+  test("bug do primeiro-alvo-só: as 9 linhas aparecem, não só a despesa de linkedExpenseId (tgt-0)", async ({
+    page,
+  }) => {
     await mockApi(page, { rateioStatus: "ok" });
     await openConta(page);
     await page.getByRole("button", { name: "Compras TelhaNorte" }).click();
 
     const rows = page.locator('[data-testid="rateio-item"]');
     await expect(rows).toHaveCount(9);
-    const ids = await rows.evaluateAll((els) => els.map((el) => el.getAttribute("data-target-expense-id")));
+    const ids = await rows.evaluateAll((els) =>
+      els.map((el) => el.getAttribute("data-target-expense-id")),
+    );
     expect(new Set(ids).size).toBe(9); // nenhuma duplicata
     expect(ids).toContain("tgt-0");
     expect(ids).toContain("tgt-8"); // além do "canônico", os outros 8 também aparecem
   });
 
-  test("rótulos não duplicam: cada uma das 9 despesas aparece exatamente 1 vez na lista", async ({ page }) => {
+  test("rótulos não duplicam: cada uma das 9 despesas aparece exatamente 1 vez na lista", async ({
+    page,
+  }) => {
     await mockApi(page, { rateioStatus: "ok" });
     await openConta(page);
     await page.getByRole("button", { name: "Compras TelhaNorte" }).click();
 
     const rows = page.locator('[data-testid="rateio-item"]');
     await expect(rows).toHaveCount(9);
-    const titles = await rows.evaluateAll((els) => els.map((el) => el.textContent?.trim()));
+    const titles = await rows.evaluateAll((els) =>
+      els.map((el) => el.textContent?.trim()),
+    );
     const dupes = titles.filter((t, i) => titles.indexOf(t) !== i);
     expect(dupes).toEqual([]);
   });
 
-  test("read-only: esconde a affordance MUTÁVEL de vincular/remover despesa de outro projeto", async ({ page }) => {
+  test("read-only: esconde a affordance MUTÁVEL de vincular/remover despesa de outro projeto", async ({
+    page,
+  }) => {
     await mockApi(page, { rateioStatus: "ok" });
     await openConta(page);
     await page.getByRole("button", { name: "Compras TelhaNorte" }).click();
@@ -271,34 +367,49 @@ test.describe("Detalhe de rateio read-only (#423) — Visão Conta", () => {
     // O widget de vínculo MUTÁVEL (busca + "Remover") não pode aparecer para
     // uma fonte já rateada — a issue #423 é só leitura, edição continua pelo
     // "Ratear compra" já existente, não por aqui.
-    await expect(page.locator('[data-testid="vinculos-cross-project-editor"]')).toHaveCount(0);
+    await expect(
+      page.locator('[data-testid="vinculos-cross-project-editor"]'),
+    ).toHaveCount(0);
   });
 
-  test("nenhuma mutação disparada ao abrir o detalhe (GET puro)", async ({ page }) => {
+  test("nenhuma mutação disparada ao abrir o detalhe (GET puro)", async ({
+    page,
+  }) => {
     const { mutations } = await mockApi(page, { rateioStatus: "ok" });
     await openConta(page);
     await page.getByRole("button", { name: "Compras TelhaNorte" }).click();
     await expect(page.locator('[data-testid="rateio-detalhe"]')).toBeVisible();
 
-    const rateioMutations = mutations.filter((m) => m.includes("/rateio") || m.includes("/ratear"));
+    const rateioMutations = mutations.filter(
+      (m) => m.includes("/rateio") || m.includes("/ratear"),
+    );
     expect(rateioMutations).toEqual([]);
   });
 
-  test("loading: mostra indicador antes dos dados chegarem", async ({ page }) => {
+  test("loading: mostra indicador antes dos dados chegarem", async ({
+    page,
+  }) => {
     await mockApi(page, { rateioStatus: "ok" });
-    await page.route(`http://localhost:3001/projects/${personalId}/expenses/${sourceId}/rateio`, async (route) => {
-      await new Promise((r) => setTimeout(r, 600));
-      await route.fulfill(json(rateioDetailPayload()));
-    });
+    await page.route(
+      `http://localhost:3001/projects/${personalId}/expenses/${sourceId}/rateio`,
+      async (route) => {
+        await new Promise((r) => setTimeout(r, 600));
+        await route.fulfill(json(rateioDetailPayload()));
+      },
+    );
     await openConta(page);
     await page.getByRole("button", { name: "Compras TelhaNorte" }).click();
 
     await expect(page.locator('[data-testid="rateio-loading"]')).toBeVisible();
-    await expect(page.locator('[data-testid="rateio-item"]').first()).toBeVisible({ timeout: 5000 });
+    await expect(
+      page.locator('[data-testid="rateio-item"]').first(),
+    ).toBeVisible({ timeout: 5000 });
     await expect(page.locator('[data-testid="rateio-loading"]')).toBeHidden();
   });
 
-  test("error + retry: erro exibido, retry busca de novo e mostra os dados", async ({ page }) => {
+  test("error + retry: erro exibido, retry busca de novo e mostra os dados", async ({
+    page,
+  }) => {
     await mockApi(page, { rateioStatus: "error-then-ok" });
     await openConta(page);
     await page.getByRole("button", { name: "Compras TelhaNorte" }).click();
@@ -312,37 +423,148 @@ test.describe("Detalhe de rateio read-only (#423) — Visão Conta", () => {
     await expect(page.locator('[data-testid="rateio-error"]')).toBeHidden();
   });
 
-  test("fonte sem RateioAllocation: sem crash, sem seção read-only (empty/404)", async ({ page }) => {
-    await mockApi(page, { rateioStatus: "empty404" });
+  test("N=0 (fonte sem NENHUMA RateioAllocation): 200 rateado:false, sem seção read-only, sem crash", async ({
+    page,
+  }) => {
+    await mockApi(page, { rateioStatus: "empty" });
     await openConta(page);
     await page.getByRole("button", { name: "Compras TelhaNorte" }).click();
 
+    // Contrato §6.3: 200 { rateado: false, sobraCents: total, items: [] }
+    // — NUNCA 404 (404 = despesa não existe). A seção renderiza `null`
+    // porque `!rateado`; isso é comportamento de UI, não erro de rede.
     await expect(page.locator('[data-testid="rateio-detalhe"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="rateio-error"]')).toHaveCount(0);
     // e a tela não quebra: continua mostrando o formulário normal
     await expect(page.getByRole("button", { name: "Salvar" })).toBeVisible();
   });
 
-  test("despesa NÃO rateada: fluxo de vínculo mutável permanece inalterado", async ({ page }) => {
-    await mockApi(page, { source: plainExpense, rateioStatus: "empty404" });
+  test("despesa NÃO rateada: fluxo de vínculo mutável permanece inalterado", async ({
+    page,
+  }) => {
+    await mockApi(page, { source: plainExpense, rateioStatus: "empty" });
     await openConta(page);
     await page.getByRole("button", { name: "Mercado do mês" }).click();
 
     await expect(page.locator('[data-testid="rateio-detalhe"]')).toHaveCount(0);
-    await expect(page.locator('[data-testid="vinculos-cross-project-editor"]')).toBeVisible();
+    await expect(
+      page.locator('[data-testid="vinculos-cross-project-editor"]'),
+    ).toBeVisible();
+  });
+
+  test("viewer restrito: 8 de 9 alocações ocultas — nenhum título/projeto alheio no DOM", async ({
+    page,
+  }) => {
+    // Cenário do contrato (§7.7): usuário sem lente sobre a OBRA vê só o
+    // alvo que ele enxerga; os outros 8 viram contador agregado — nunca
+    // linhas redigidas (I-E: nenhum campo de alvo oculto vaza, nem sequer
+    // targetExpenseId).
+    const visibleItem = nineAllocationItems()[0];
+    const hiddenAllocationCents = TOTAL_CENTS - visibleItem.allocationCents; // 1_134_700
+    const payload = rateioDetailPayload({
+      items: [visibleItem],
+      hiddenTargetsCount: 8,
+      hiddenAllocationCents,
+    });
+    await mockApi(page, { rateioPayload: payload });
+    await openConta(page);
+    await page.getByRole("button", { name: "Compras TelhaNorte" }).click();
+
+    const detalhe = page.locator('[data-testid="rateio-detalhe"]');
+    await expect(detalhe).toBeVisible();
+    await expect(detalhe).toHaveAttribute("data-hidden-targets-count", "8");
+    await expect(detalhe).toHaveAttribute(
+      "data-hidden-allocation-cents",
+      String(hiddenAllocationCents),
+    );
+    await expect(page.locator('[data-testid="rateio-item"]')).toHaveCount(1);
+    // I-A: identidade do dinheiro se mantém mesmo com 8 ocultos — sobra continua 0.
+    await expect(detalhe).toHaveAttribute("data-sobra-cents", "0");
+    await expect(detalhe).toHaveAttribute(
+      "data-rateado-cents",
+      String(TOTAL_CENTS),
+    );
+
+    // I-E: nenhum nome/título/id de alvo oculto vaza para o DOM.
+    await expect(page.locator("body")).not.toContainText("Obra do Vizinho");
+    for (let i = 1; i < 9; i += 1) {
+      await expect(page.locator("body")).not.toContainText(
+        `Item ${i + 1} da reforma`,
+      );
+    }
+    const idsInDom = await page
+      .locator('[data-testid="rateio-item"]')
+      .evaluateAll((els) =>
+        els.map((el) => el.getAttribute("data-target-expense-id")),
+      );
+    for (let i = 1; i < 9; i += 1) {
+      expect(idsInDom).not.toContain(`tgt-${i}`);
+    }
+
+    // Linha informativa de ocultos, sem virar alerta de divergência.
+    await expect(page.locator('[data-testid="rateio-hidden"]')).toBeVisible();
+    await expect(page.getByRole("alert")).toHaveCount(0);
+  });
+
+  test("N=0 com alocações ocultas: hiddenTargetsCount > 0 mostra totais e a linha de ocultos, nunca em branco", async ({
+    page,
+  }) => {
+    // Fronteira: TODOS os alvos ativos estão fora da lente — `items: []`,
+    // mas `rateado: true` (ele sabe que a compra dele foi rateada). A
+    // seção NÃO pode cair no `return null` (que é só para `!rateado`).
+    const payload = rateioDetailPayload({
+      items: [],
+      hiddenTargetsCount: 9,
+      hiddenAllocationCents: TOTAL_CENTS,
+    });
+    await mockApi(page, { rateioPayload: payload });
+    await openConta(page);
+    await page.getByRole("button", { name: "Compras TelhaNorte" }).click();
+
+    const detalhe = page.locator('[data-testid="rateio-detalhe"]');
+    await expect(detalhe).toBeVisible();
+    await expect(page.locator('[data-testid="rateio-item"]')).toHaveCount(0);
+    await expect(detalhe).toHaveAttribute("data-hidden-targets-count", "9");
+    await expect(detalhe).toHaveAttribute("data-sobra-cents", "0");
+    await expect(page.locator('[data-testid="rateio-hidden"]')).toContainText(
+      "9",
+    );
   });
 
   for (const width of [375, 390]) {
-    test(`${width}px: modal do detalhe sem overflow horizontal`, async ({ page }) => {
+    test(`${width}px: modal do detalhe sem overflow horizontal`, async ({
+      page,
+    }) => {
       await mockApi(page, { rateioStatus: "ok" });
       await page.setViewportSize({ width, height: 812 });
       await openConta(page);
       await page.getByRole("button", { name: "Compras TelhaNorte" }).click();
-      await expect(page.locator('[data-testid="rateio-detalhe"]')).toBeVisible();
+      await expect(
+        page.locator('[data-testid="rateio-detalhe"]'),
+      ).toBeVisible();
       await expectNoHorizontalOverflow(page);
+    });
+
+    test(`${width}px: cada uma das 9 despesas continua aparecendo exatamente 1 vez (sem duplicar em layout mobile)`, async ({
+      page,
+    }) => {
+      await mockApi(page, { rateioStatus: "ok" });
+      await page.setViewportSize({ width, height: 812 });
+      await openConta(page);
+      await page.getByRole("button", { name: "Compras TelhaNorte" }).click();
+
+      const rows = page.locator('[data-testid="rateio-item"]');
+      await expect(rows).toHaveCount(9);
+      const ids = await rows.evaluateAll((els) =>
+        els.map((el) => el.getAttribute("data-target-expense-id")),
+      );
+      expect(new Set(ids).size).toBe(9);
     });
   }
 
-  test("teclado: Tab alcança a linha, Enter abre, Escape fecha", async ({ page }) => {
+  test("teclado: Tab alcança a linha, Enter abre, Escape fecha", async ({
+    page,
+  }) => {
     await mockApi(page, { rateioStatus: "ok" });
     await openConta(page);
 
@@ -358,7 +580,9 @@ test.describe("Detalhe de rateio read-only (#423) — Visão Conta", () => {
     await expect(detalhe).toBeHidden();
   });
 
-  test("alvo de toque: botão de fechar/cancelar o modal >=44px (piso tipográfico do repo)", async ({ page }) => {
+  test("alvo de toque: botão de fechar/cancelar o modal >=44px (piso tipográfico do repo)", async ({
+    page,
+  }) => {
     await mockApi(page, { rateioStatus: "ok" });
     await openConta(page);
     await page.getByRole("button", { name: "Compras TelhaNorte" }).click();
