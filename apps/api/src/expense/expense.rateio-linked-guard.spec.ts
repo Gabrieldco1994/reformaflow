@@ -8,14 +8,17 @@ const tenantId = 'tenant-1';
 const projectId = 'pessoal-1';
 const sourceId = 'cmr9mq9l50001cuy6mhhex5nu';
 
+const sourceRow = {
+  id: sourceId, projectId, tenantId, deletedAt: null,
+  valorTotal: 1_277_100, linkedExpenseId: 'tgt-b',
+  formaPagamento: 'PARCELADO', quantidadeParcela: 10, status: 'PAGO',
+};
 const makePrismaMock = (rateioCount: number) => ({
   project: { findFirst: jest.fn().mockResolvedValue({ id: projectId, tenantId, type: 'PESSOAL' }) },
   expense: {
-    findFirst: jest.fn().mockResolvedValue({
-      id: sourceId, projectId, tenantId, deletedAt: null,
-      valorTotal: 1_277_100, linkedExpenseId: 'tgt-b',
-      formaPagamento: 'PARCELADO', quantidadeParcela: 10, status: 'PAGO',
-    }),
+    findFirst: jest.fn().mockImplementation(async ({ where }: { where: { id: string } }) =>
+      where.id === sourceId ? sourceRow : { id: where.id, projectId: 'obra-1', tenantId, deletedAt: null },
+    ),
     findMany: jest.fn().mockResolvedValue([]),
     update: jest.fn().mockResolvedValue({ id: sourceId }),
     updateMany: jest.fn(),
@@ -83,5 +86,53 @@ describe('I1 — fonte rateada não pode perder o espelho (linkedExpenseId)', ()
       service.update(tenantId, projectId, sourceId, { linkedExpenseId: 'outro-alvo' } as any),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.expense.update).not.toHaveBeenCalled();
+  });
+
+  // Issue #423 (follow-up): as duas UIs reenviam o `linkedExpenseId` já
+  // existente ('tgt-b', ver fixture) em TODO PATCH — mesmo editando só o
+  // título. Comparar `dto.linkedExpenseId !== undefined` disparava a guarda
+  // nessas edições comuns e devolvia 400 num PATCH que não toca no vínculo.
+  it('PATCH real de UI (mesmo linkedExpenseId + título novo) numa fonte rateada é permitido', async () => {
+    const { service, prisma } = await build(9);
+    await service.update(tenantId, projectId, sourceId, {
+      linkedExpenseId: 'tgt-b',
+      titulo: 'Compras TelhaNorte — revisado',
+    } as any);
+    expect(prisma.expense.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('PATCH com linkedExpenseId="" (string vazia da UI) numa fonte rateada é rejeitado', async () => {
+    const { service, prisma } = await build(9);
+    await expect(
+      service.update(tenantId, projectId, sourceId, { linkedExpenseId: '' } as any),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.expense.update).not.toHaveBeenCalled();
+  });
+
+  it('fronteira sem rateio: PATCH com linkedExpenseId inalterado nem chama a guarda', async () => {
+    const { service, prisma } = await build(0);
+    await service.update(tenantId, projectId, sourceId, {
+      linkedExpenseId: 'tgt-b',
+      titulo: 'Compras TelhaNorte',
+    } as any);
+    expect(prisma.expense.update).toHaveBeenCalledTimes(1);
+    expect(prisma.rateioAllocation.count).not.toHaveBeenCalled();
+  });
+
+  it('linkCrossProject reapontando para outro alvo numa fonte rateada é bloqueado e não escreve nada', async () => {
+    const { service, prisma } = await build(9);
+    // fixture: source.linkedExpenseId = 'tgt-b' — 'outro-alvo' é uma mudança real
+    await expect(
+      service.linkCrossProject(tenantId, projectId, sourceId, 'outro-alvo'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.expense.update).not.toHaveBeenCalled();
+  });
+
+  it('linkCrossProject idempotente (mesmo alvo já vinculado) numa fonte rateada é permitido', async () => {
+    const { service, prisma } = await build(9);
+    await service.linkCrossProject(tenantId, projectId, sourceId, 'tgt-b');
+    expect(prisma.expense.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { linkedExpenseId: 'tgt-b' } }),
+    );
   });
 });

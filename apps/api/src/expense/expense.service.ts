@@ -455,6 +455,12 @@ export class ExpenseService {
       where: { id, projectId, tenantId, deletedAt: null },
     });
     if (!source) throw new NotFoundException('Despesa não encontrada');
+    // I1: esta rota dedicada reaponta `linkedExpenseId` do mesmo jeito que o
+    // PATCH genérico — precisa da mesma guarda. Só bloqueia quando o alvo
+    // EFETIVO mudaria (idempotência do mesmo alvo continua permitida).
+    if (source.linkedExpenseId !== targetExpenseId) {
+      await this.assertNotRateado(tenantId, id);
+    }
     const target = await this.prisma.expense.findFirst({
       where: { id: targetExpenseId, tenantId, deletedAt: null },
       select: { projectId: true },
@@ -955,8 +961,19 @@ export class ExpenseService {
     if (!existing) throw new NotFoundException('Despesa não encontrada');
 
     // I1: generic PATCH não é o dono do vínculo cross-project de uma fonte
-    // rateada — apenas (des)ratear é. Ver assertNotRateado.
-    if (dto.linkedExpenseId !== undefined) {
+    // rateada — apenas (des)ratear é. Ver assertNotRateado. Mas as duas UIs
+    // (obra + pessoal) reenviam o `linkedExpenseId` já existente em TODO PATCH
+    // (mesmo editando só título/valor) — comparar `!== undefined` disparava a
+    // guarda em edições comuns. Normaliza `''`/`null` para `null` dos dois
+    // lados e só invoca a guarda quando o alvo EFETIVO mudaria.
+    const effectiveLinkedExpenseId =
+      dto.linkedExpenseId === undefined
+        ? undefined
+        : dto.linkedExpenseId === null || dto.linkedExpenseId === ''
+          ? null
+          : dto.linkedExpenseId;
+    const existingLinkedExpenseId = existing.linkedExpenseId ?? null;
+    if (effectiveLinkedExpenseId !== undefined && effectiveLinkedExpenseId !== existingLinkedExpenseId) {
       await this.assertNotRateado(tenantId, id);
     }
 
