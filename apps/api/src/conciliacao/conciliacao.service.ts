@@ -15,6 +15,7 @@ type Tx = Prisma.TransactionClient;
 
 const DUPLICATE_RATEIO_TARGET_MESSAGE = 'Despesa planejada duplicada no rateio.';
 const SOURCE_ALREADY_RATEIO_TARGET_MESSAGE = 'A compra fonte já é alvo de outro rateio.';
+const TARGET_ALREADY_RATEIO_SOURCE_MESSAGE = 'A despesa alvo já é fonte de outro rateio.';
 
 export interface SettleParcelaInput {
   tenantId: string;
@@ -445,6 +446,18 @@ export class ConciliacaoService {
     });
     if (sourceAsTarget) {
       throw new BadRequestException(SOURCE_ALREADY_RATEIO_TARGET_MESSAGE);
+    }
+
+    // Mutex inverso: um alvo não pode ser fonte de outro rateio (A → B → C).
+    const targetAsSource = await tx.rateioAllocation.findFirst({
+      where: {
+        tenantId,
+        sourceExpenseId: { in: Array.from(uniqueTargetIds) },
+      },
+      select: { targetExpenseId: true },
+    });
+    if (targetAsSource) {
+      throw new BadRequestException(TARGET_ALREADY_RATEIO_SOURCE_MESSAGE);
     }
 
     const conc = await tx.crossProjectSettlement.count({ where: { sourceExpenseId } });

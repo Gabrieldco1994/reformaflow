@@ -222,9 +222,21 @@ describe('ConciliacaoService', () => {
           findMany: jest.fn().mockResolvedValue([]),
         },
         rateioAllocation: {
-          findFirst: jest.fn().mockImplementation(({ where }: any) =>
-            Promise.resolve(allocStore.get(where.targetExpenseId) ?? null),
-          ),
+          findFirst: jest.fn().mockImplementation(({ where }: any) => {
+            if (where.targetExpenseId) {
+              return Promise.resolve(allocStore.get(where.targetExpenseId) ?? null);
+            }
+            if (Array.isArray(where.sourceExpenseId?.in)) {
+              return Promise.resolve(
+                Array.from(allocStore.values()).find(
+                  (allocation) =>
+                    allocation.tenantId === where.tenantId &&
+                    where.sourceExpenseId.in.includes(allocation.sourceExpenseId),
+                ) ?? null,
+              );
+            }
+            return Promise.resolve(null);
+          }),
           findUnique: jest.fn().mockImplementation(({ where }: any) =>
             Promise.resolve(allocStore.get(where.targetExpenseId) ?? null),
           ),
@@ -463,6 +475,53 @@ describe('ConciliacaoService', () => {
         }),
       ).rejects.toThrow('alvo de outro rateio');
 
+      expect(prisma.rateioAllocation.findFirst).toHaveBeenCalledWith({
+        where: { tenantId: 't1', targetExpenseId: 'src' },
+        select: { sourceExpenseId: true },
+      });
+      expect(prisma.rateioAllocation.findMany).not.toHaveBeenCalled();
+      expect(prisma.rateioAllocation.delete).not.toHaveBeenCalled();
+      expect(prisma.rateioAllocation.upsert).not.toHaveBeenCalled();
+      expect(prisma.expense.update).not.toHaveBeenCalled();
+      expect(prisma.cashFlowEntry.updateMany).not.toHaveBeenCalled();
+      expect(prisma.cashFlowEntry.createMany).not.toHaveBeenCalled();
+    });
+
+    it('rejeita alvo que já é fonte de outro rateio antes de desfazer ou escrever', async () => {
+      const prisma = buildRateioPrisma({
+        source: sourceParcelado(),
+        targets: {
+          tgt: makeTarget({ id: 'tgt' }),
+          'other-target': makeTarget({ id: 'other-target' }),
+        },
+        allocations: [
+          {
+            targetExpenseId: 'downstream-target',
+            sourceExpenseId: 'tgt',
+            tenantId: 't1',
+            allocation: 30000,
+          },
+        ],
+      });
+
+      await expect(
+        service.ratearSource(prisma, {
+          tenantId: 't1',
+          sourceExpenseId: 'src',
+          allocations: [
+            { targetExpenseId: 'tgt', allocation: 15000 },
+            { targetExpenseId: 'other-target', allocation: 15000 },
+          ],
+        }),
+      ).rejects.toThrow('fonte de outro rateio');
+
+      expect(prisma.rateioAllocation.findFirst).toHaveBeenCalledWith({
+        where: {
+          tenantId: 't1',
+          sourceExpenseId: { in: ['tgt', 'other-target'] },
+        },
+        select: { targetExpenseId: true },
+      });
       expect(prisma.rateioAllocation.findMany).not.toHaveBeenCalled();
       expect(prisma.rateioAllocation.delete).not.toHaveBeenCalled();
       expect(prisma.rateioAllocation.upsert).not.toHaveBeenCalled();

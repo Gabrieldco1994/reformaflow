@@ -353,6 +353,9 @@ describe('ExpenseService.getRateio — leitura canônica do rateio (issue #423)'
       );
 
       expect(res.items.map((item) => item.targetExpenseId)).toEqual(['tgt-b']);
+      expect(res.sourceExpenseId).toBe(sourceId);
+      expect(res.rateadoCents).toBe(900_000);
+      expect(res.sobraCents).toBe(377_100);
       expect(res.hiddenTargetsCount).toBe(1);
       expect(res.hiddenAllocationCents).toBe(400_000);
       expect(res.removedTargetsCount).toBe(1);
