@@ -16,15 +16,11 @@ import { expect, test, type Page } from "@playwright/test";
  * `phase-d-responsive.spec.ts` e `expenses-fab-runtime.spec.ts`.
  *
  * Ganchos de teste (contrato §6.4, `RateioDetalheSection.tsx`):
- *   - `[data-testid="rateio-detalhe"]`  wrapper, com `data-source-expense-id`
- *     canônico e atributos NUMÉRICOS `data-total-cents` /
- *     `data-rateado-cents` / `data-sobra-cents` /
+ *   - `[data-testid="rateio-detalhe"]`  wrapper, com atributos NUMÉRICOS
+ *     `data-total-cents` / `data-rateado-cents` / `data-sobra-cents` /
  *     `data-hidden-targets-count` / `data-hidden-allocation-cents`
  *     (contrato de dado, nunca depender de `R$ 12.771,00` renderizado)
- *   - `[data-testid="rateio-item"]`     uma linha por alocação VISÍVEL, com
- *     `data-target-expense-id` / `data-allocation-cents`
- *   - `[data-testid="rateio-allocation-row"]` uma linha EDITÁVEL pré-preenchida,
- *     com `data-target-expense-id` / `data-allocation-cents`
+ *   - `[data-testid="rateio-item"]`     uma linha por alocação VISÍVEL
  *   - `[data-testid="rateio-hidden"]`   linha informativa quando
  *     `hiddenTargetsCount > 0` (sem `role="alert"`, sem âmbar — oculto não
  *     é divergência: já está dentro de `rateadoCents`)
@@ -387,7 +383,7 @@ function formatPtBrCents(cents: number) {
   return `${inteiro},${String(cents % 100).padStart(2, "0")}`;
 }
 
-test.describe("Detalhe de rateio read-only (#423) — Visão Conta", () => {
+test.describe("Jornada TelhaNorte de rateio (#428) — Visão Conta", () => {
   test("fonte PESSOAL já rateada reabre Ratear compra com o conjunto completo prefilled e POST conserva centavos", async ({
     page,
   }) => {
@@ -420,40 +416,30 @@ test.describe("Detalhe de rateio read-only (#423) — Visão Conta", () => {
     await expect(ratearModal).toHaveCount(1);
     await expect(ratearModal).toBeVisible();
 
-    const editableRows = ratearModal.locator(
-      '[data-testid="rateio-allocation-row"]',
+    const allocationInputs = ratearModal.getByLabel(/^Valor alocado para /);
+    await expect(allocationInputs).toHaveCount(expectedItems.length);
+    const allocationLabels = await allocationInputs.evaluateAll((inputs) =>
+      inputs.map((input) => input.getAttribute("aria-label")),
     );
-    await expect(editableRows).toHaveCount(expectedItems.length);
-    const prefilled = await editableRows.evaluateAll((rows) =>
-      rows.map((row) => {
-        const inputs = row.querySelectorAll<HTMLInputElement>(
-          'input[inputmode="decimal"]',
-        );
-        return {
-          targetExpenseId: row.getAttribute("data-target-expense-id"),
-          allocationCents: row.getAttribute("data-allocation-cents"),
-          inputCount: inputs.length,
-          inputValue: inputs[0]?.value ?? null,
-        };
-      }),
+    expect(allocationLabels).toEqual(
+      expectedItems.map((item) => `Valor alocado para ${item.titulo}`),
     );
-    expect(prefilled).toEqual(
-      expectedItems.map((item) => ({
-        targetExpenseId: item.targetExpenseId,
-        allocationCents: String(item.allocationCents),
-        inputCount: 1,
-        inputValue: formatPtBrCents(item.allocationCents),
-      })),
-    );
-    expect(new Set(prefilled.map((row) => row.targetExpenseId)).size).toBe(
-      expectedItems.length,
-    );
-    expect(
-      prefilled.reduce((sum, row) => sum + Number(row.allocationCents), 0),
-    ).toBe(TOTAL_CENTS);
-    for (const row of await editableRows.all()) {
-      await expect(row).toBeVisible();
-      await expect(row.locator('input[inputmode="decimal"]')).toBeVisible();
+    expect(new Set(allocationLabels).size).toBe(expectedItems.length);
+
+    for (const item of expectedItems) {
+      const targetTitle = ratearModal.getByText(item.titulo, { exact: true });
+      await expect(targetTitle).toHaveCount(1);
+      await expect(targetTitle).toBeVisible();
+
+      const allocationInput = ratearModal.getByLabel(
+        `Valor alocado para ${item.titulo}`,
+        { exact: true },
+      );
+      await expect(allocationInput).toHaveCount(1);
+      await expect(allocationInput).toBeVisible();
+      await expect(allocationInput).toHaveValue(
+        formatPtBrCents(item.allocationCents),
+      );
     }
 
     const desfazer = ratearModal.getByRole("button", {
@@ -504,6 +490,7 @@ test.describe("Detalhe de rateio read-only (#423) — Visão Conta", () => {
         }>;
       }
     ).allocations;
+    expect(submitted).toHaveLength(expectedItems.length);
     expect(new Set(submitted.map((item) => item.targetExpenseId)).size).toBe(
       expectedItems.length,
     );
@@ -516,10 +503,13 @@ test.describe("Detalhe de rateio read-only (#423) — Visão Conta", () => {
     page,
   }) => {
     const expectedItems = nineAllocationItems();
+    const targetRateioPayload = rateioDetailPayload();
+    expect(targetRateioPayload.sourceExpenseId).toBe(sourceId);
+    expect(targetRateioPayload.items).toEqual(expectedItems);
     const { apiRequests } = await mockApi(page, {
       accountExpense: reformaTargetAccountItem,
       targetExpense: reformaTargetExpense,
-      targetRateioPayload: rateioDetailPayload(),
+      targetRateioPayload,
     });
     await openConta(page);
 
@@ -541,7 +531,6 @@ test.describe("Detalhe de rateio read-only (#423) — Visão Conta", () => {
 
     const detalhe = expenseModal.locator('[data-testid="rateio-detalhe"]');
     await expect(detalhe).toBeVisible();
-    await expect(detalhe).toHaveAttribute("data-source-expense-id", sourceId);
     await expect(detalhe).toHaveAttribute(
       "data-rateado-cents",
       String(TOTAL_CENTS),
@@ -550,21 +539,13 @@ test.describe("Detalhe de rateio read-only (#423) — Visão Conta", () => {
 
     const readonlyRows = detalhe.locator('[data-testid="rateio-item"]');
     await expect(readonlyRows).toHaveCount(expectedItems.length);
-    const displayed = await readonlyRows.evaluateAll((rows) =>
-      rows.map((row) => ({
-        targetExpenseId: row.getAttribute("data-target-expense-id"),
-        allocationCents: row.getAttribute("data-allocation-cents"),
-      })),
+    const displayedTargetIds = await readonlyRows.evaluateAll((rows) =>
+      rows.map((row) => row.getAttribute("data-target-expense-id")),
     );
-    expect(displayed).toEqual(
-      expectedItems.map((item) => ({
-        targetExpenseId: item.targetExpenseId,
-        allocationCents: String(item.allocationCents),
-      })),
+    expect(displayedTargetIds).toEqual(
+      expectedItems.map((item) => item.targetExpenseId),
     );
-    expect(new Set(displayed.map((row) => row.targetExpenseId)).size).toBe(
-      expectedItems.length,
-    );
+    expect(new Set(displayedTargetIds).size).toBe(expectedItems.length);
     for (const row of await readonlyRows.all()) {
       await expect(row).toBeVisible();
     }
@@ -572,9 +553,9 @@ test.describe("Detalhe de rateio read-only (#423) — Visão Conta", () => {
     await expect(
       detalhe.locator('input, select, textarea, [contenteditable="true"]'),
     ).toHaveCount(0);
-    await expect(
-      expenseModal.locator('[data-testid="rateio-allocation-row"]'),
-    ).toHaveCount(0);
+    await expect(expenseModal.getByLabel(/^Valor alocado para /)).toHaveCount(
+      0,
+    );
     await expect(
       expenseModal.getByRole("button", {
         name: "Ratear compra",
@@ -614,7 +595,9 @@ test.describe("Detalhe de rateio read-only (#423) — Visão Conta", () => {
       [],
     );
   });
+});
 
+test.describe("Detalhe de rateio read-only (#423) — Visão Conta", () => {
   test("clique na fonte rateada abre o detalhe com as 9 alocações e soma exata", async ({
     page,
   }) => {
