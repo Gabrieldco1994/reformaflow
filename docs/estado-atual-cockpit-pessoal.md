@@ -1,6 +1,6 @@
 # Estado Atual — Cockpit/Visão Conta (PESSOAL)
 
-Atualizado em: **2026-07-23**
+Atualizado em: **2026-08-12**
 
 Histórico detalhado: `docs/archive/estado-atual-historico-2026.md`.
 
@@ -70,6 +70,14 @@ Histórico detalhado: `docs/archive/estado-atual-historico-2026.md`.
   (CTAs já existentes "Comprar agora"/"Criar financiamento") — o Planejador
   nunca lança nada sozinho. e2e cobre criação de cenário + item financiamento +
   troca de horizonte sem novo fetch, e a pré-carga via deep-link.
+- ✅ **Detalhe read-only do rateio na compra-fonte** (issue #423): `GET
+  :id/rateio` enumera TODAS as `RateioAllocation` da fonte (não só a primeira,
+  que é o que `linkedExpenseId` reflete) e o modal (Visão Conta + Despesas
+  Geral) lista todas as alocações somente-leitura, com total/rateado/sobra.
+  Alvos fora da lente de acesso do requisitante aparecem só como
+  contagem/soma agregadas (nunca título/projeto); alvos removidos são
+  descontados e explicam a sobra. Sem editar/desfazer aqui e sem alterar o
+  vínculo (`linkedExpenseId`) da fonte enquanto ela estiver rateada.
 
 ## 2) Fontes de verdade
 
