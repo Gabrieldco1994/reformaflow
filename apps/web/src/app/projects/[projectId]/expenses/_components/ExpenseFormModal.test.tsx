@@ -1,13 +1,40 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type React from 'react';
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { ExpenseFormModal } from './ExpenseFormModal';
+import type { RateioDetalhe } from '../_hooks/useRateioDetalhe';
 
 // VinculosFields usa react-query (useQuery) e é irrelevante para o contrato
-// de campos/nomes que este teste de regressão protege — mockamos com um stub.
+// de campos/nomes que este teste de regressão protege — mockamos com um stub
+// que registra as props recebidas (usado para o contrato de lock do rateio).
+const vinculosPropsSpy = vi.fn();
 vi.mock('./VinculosFields', () => ({
-  VinculosFields: () => null,
+  VinculosFields: (props: unknown) => {
+    vinculosPropsSpy(props);
+    return null;
+  },
 }));
+
+// useRateioDetalhe é testado isoladamente (useRateioDetalhe.test.tsx); aqui
+// controlamos o retorno para exercitar a integração da seção compartilhada.
+const useRateioDetalheMock = vi.fn();
+vi.mock('../_hooks/useRateioDetalhe', () => ({
+  useRateioDetalhe: (...args: unknown[]) => useRateioDetalheMock(...args),
+}));
+
+function mockRateio(overrides: Partial<{
+  data: RateioDetalhe | undefined;
+  isLoading: boolean;
+  isError: boolean;
+}> = {}) {
+  useRateioDetalheMock.mockReturnValue({
+    data: undefined,
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+    ...overrides,
+  });
+}
 
 const noop = () => {};
 
@@ -57,6 +84,12 @@ function names(container: HTMLElement, name: string) {
 }
 
 describe('ExpenseFormModal — contrato de campos (regressão)', () => {
+  beforeEach(() => {
+    vinculosPropsSpy.mockClear();
+    useRateioDetalheMock.mockReset();
+    mockRateio();
+  });
+
   it('renderiza os inputs base com os name= corretos', () => {
     const { container } = renderModal();
     for (const name of ['tipoDespesa', 'valor', 'quantidade', 'titulo', 'formaPagamento', 'dataCompra']) {
@@ -105,5 +138,71 @@ describe('ExpenseFormModal — contrato de campos (regressão)', () => {
 
     const { container: c2 } = renderModal({ tipoDespesa: 'MATERIAL' });
     expect(names(c2, 'categoriaMaoDeObra').length).toBe(0);
+  });
+});
+
+const RATEIO_DETALHE: RateioDetalhe = {
+  sourceExpenseId: 'exp-1',
+  rateado: true,
+  totalSourceCents: 10000,
+  rateadoCents: 10000,
+  sobraCents: 0,
+  removedTargetsCount: 0,
+  items: [
+    {
+      targetExpenseId: 'tgt-1',
+      titulo: 'Piso',
+      fornecedor: null,
+      projectId: 'p2',
+      projectName: 'Reforma A',
+      projectType: 'REFORMA',
+      allocationCents: 10000,
+      plannedValorTotalCents: 15000,
+      status: 'PLANEJADO',
+    },
+  ],
+};
+
+describe('ExpenseFormModal — seção de detalhe do rateio (compartilhada)', () => {
+  beforeEach(() => {
+    vinculosPropsSpy.mockClear();
+    useRateioDetalheMock.mockReset();
+  });
+
+  it('sem despesa em edição, não consulta o rateio e não mostra a seção', () => {
+    mockRateio();
+    renderModal({ editing: null });
+    expect(screen.queryByText('Compra rateada')).not.toBeInTheDocument();
+  });
+
+  it('editando despesa rateada (rateado=true), mostra a seção com os itens', () => {
+    mockRateio({ data: RATEIO_DETALHE });
+    renderModal({ editing: { id: 'exp-1' } as never });
+    expect(screen.getByText('Compra rateada')).toBeInTheDocument();
+    expect(screen.getByText('Piso')).toBeInTheDocument();
+    expect(vinculosPropsSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ lockLinkedExpense: true }),
+    );
+  });
+
+  it('editando despesa não rateada (rateado=false), não mostra a seção e não trava VinculosFields', () => {
+    mockRateio({ data: { ...RATEIO_DETALHE, rateado: false, items: [] } });
+    renderModal({ editing: { id: 'exp-2' } as never });
+    expect(screen.queryByText('Compra rateada')).not.toBeInTheDocument();
+    expect(vinculosPropsSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ lockLinkedExpense: false }),
+    );
+  });
+
+  it('enquanto carrega o rateio, mostra estado de loading explícito', () => {
+    mockRateio({ isLoading: true });
+    renderModal({ editing: { id: 'exp-3' } as never });
+    expect(screen.getByText(/carregando rateio/i)).toBeInTheDocument();
+  });
+
+  it('em erro, mostra retry acionável', () => {
+    mockRateio({ isError: true });
+    renderModal({ editing: { id: 'exp-4' } as never });
+    expect(screen.getByRole('button', { name: /tentar novamente/i })).toBeInTheDocument();
   });
 });
