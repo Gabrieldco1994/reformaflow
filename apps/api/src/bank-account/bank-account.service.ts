@@ -535,7 +535,34 @@ export class BankAccountService {
       return true;
     });
     const userSkipped = (decisions ?? []).filter((d) => d?.action === 'skip' && !existingIds.has(d.externalId)).length;
+    // Lista auditável do que foi ignorado como duplicata (mesma contagem de
+    // `duplicated`, mas com as linhas). Sem isso, uma linha descartada some sem
+    // rastro — foi assim que um salário de R$9.990,28 ficou invisível por semanas.
+    const duplicatedItems = parsed.transactions
+      .filter((t) => {
+        const d = decisionByExt.get(t.externalId);
+        if (d?.action === 'skip' && !existingIds.has(t.externalId)) return false; // skip do usuário, contado à parte
+        return existingIds.has(t.externalId);
+      })
+      .map((t) => ({
+        externalId: t.externalId,
+        date: t.date,
+        description: t.merchant,
+        amountCents: t.amountCents,
+        reason: 'duplicate' as const,
+      }));
     const duplicated = parsed.transactions.length - toInsert.length - userSkipped;
+
+    // Linhas que o PARSER recebeu mas não conseguiu virar lançamento (têm data
+    // + descrição, não são saldo, mas sem valor legível). Categoria de perda
+    // silenciosa distinta de duplicata — é a que escondeu um salário. Reportada
+    // para auditoria; nunca sumindo sem rastro.
+    const unparsedItems = (parsed.unparsedRows ?? []).map((r) => ({
+      rowIndex: r.rowIndex,
+      date: r.date,
+      description: r.description,
+      reason: r.reason,
+    }));
 
     const debitsTotal = parsed.transactions
       .filter((t) => t.amountCents > 0)
@@ -562,6 +589,10 @@ export class BankAccountService {
     let unlinkedCardPayments = 0;
     let skipped = 0;
     let linked = 0;
+    // Linhas que o COMMIT tentou inserir mas falharam (erro de dependência/DB no
+    // meio do loop). Antes viravam só um `skipped++` com console.warn — o
+    // segundo canal de perda silenciosa. Agora itemizadas para auditoria.
+    const failedItems: Array<{ date: string; description: string; amountCents: number; reason: 'error'; message: string }> = [];
     const cardWindow = this.cardEntryWindow(toInsert);
     const cardsWithEntries = await this.loadCardsWithEntries(
       tenantId,
@@ -618,6 +649,13 @@ export class BankAccountService {
         }
       } catch (err) {
         skipped++;
+        failedItems.push({
+          date: adjustedTx.date instanceof Date ? adjustedTx.date.toISOString().slice(0, 10) : String(adjustedTx.date),
+          description: adjustedTx.merchant,
+          amountCents: adjustedTx.amountCents,
+          reason: 'error',
+          message: (err as Error).message,
+        });
         console.warn(`[bank-import] tx skipped (${tx.externalId.slice(0, 8)}):`, (err as Error).message);
       }
     }
@@ -645,6 +683,8 @@ export class BankAccountService {
           linked > 0 ? `${linked} vinculada(s) a planejado` : null,
           aiReclassified > 0 ? `${aiReclassified} categoria(s) por regra` : null,
           recurrencesCreated > 0 ? `${recurrencesCreated} recorrência(s) propagada(s)` : null,
+          unparsedItems.length > 0 ? `${unparsedItems.length} linha(s) não reconhecida(s)` : null,
+          failedItems.length > 0 ? `${failedItems.length} falha(s) ao importar` : null,
         ].filter(Boolean).join(' • ') || null,
       },
     });
@@ -657,6 +697,9 @@ export class BankAccountService {
       total: parsed.transactions.length,
       inserted,
       duplicated,
+      duplicatedItems,
+      unparsedItems,
+      failedItems,
       receiptsInserted,
       cardPayments,
       unlinkedCardPayments,

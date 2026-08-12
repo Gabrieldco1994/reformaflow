@@ -6,7 +6,9 @@ import {
   parseBrlMoney,
   type NormalizedTx,
   type ParseResult,
+  type UnparsedRow,
 } from '../../credit-card/parsers/types';
+import { expandSheetRange } from '../../credit-card/parsers/xlsx-range';
 
 /**
  * Parser Excel (.xlsx/.xls) para faturas e extratos.
@@ -39,6 +41,10 @@ export function parseXlsx(buffer: Buffer, cardId: string): ParseResult {
 
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
+    // Corrige `<dimension>` defasada ANTES de ler as linhas — senão o
+    // sheet_to_json trunca contiguamente no range declarado (causa-raiz do
+    // corte que engoliu lançamentos a partir de 24/07). Ver xlsx-range.ts.
+    expandSheetRange(sheet);
     const data = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as unknown[][];
 
     if (!data.length) {
@@ -74,6 +80,7 @@ export function parseXlsx(buffer: Buffer, cardId: string): ParseResult {
     }
 
     const transactions: NormalizedTx[] = [];
+    const unparsedRows: UnparsedRow[] = [];
     let totalAmountCents = 0;
 
     for (let i = headerIdx + 1; i < data.length; i++) {
@@ -85,13 +92,31 @@ export function parseXlsx(buffer: Buffer, cardId: string): ParseResult {
       const amountRaw = String(row[colMap.amount] ?? '').trim();
       const categoryRaw = colMap.category !== -1 ? String(row[colMap.category] ?? '').trim() : undefined;
 
-      if (!dateRaw || !amountRaw) continue;
+      // Linha de SALDO (checkpoint do dia), não é movimento. O valor mora numa
+      // coluna "saldos" separada; se um saldo virasse lançamento o usuário
+      // ganharia dinheiro fantasma. Detecta pela descrição ("SALDO ANTERIOR",
+      // "SALDO TOTAL DISPONÍVEL DIA") e pula EXPLICITAMENTE — não confia só no
+      // fato de a coluna de valor estar vazia (que era um skip incidental).
+      if (isSaldoRow(descRaw)) continue;
 
-      const date = parseFlexibleDate(dateRaw);
+      // Sem data legível = linha de preâmbulo/cabeçalho de seção → ignora em
+      // silêncio (não é um movimento perdido).
+      const date = dateRaw ? parseFlexibleDate(dateRaw) : null;
       if (!date) continue;
 
+      // A partir daqui a linha TEM data válida. Se não produzir um valor, é um
+      // movimento potencialmente perdido — registra em unparsedRows em vez de
+      // sumir sem rastro (foi a categoria que escondeu o salário).
+      if (!amountRaw) {
+        if (descRaw) unparsedRows.push({ rowIndex: i + 1, date: dateRaw, description: descRaw, reason: 'no-amount' });
+        continue;
+      }
+
       const amountCents = -parseBrlMoney(amountRaw);
-      if (amountCents === 0) continue;
+      if (amountCents === 0) {
+        if (descRaw) unparsedRows.push({ rowIndex: i + 1, date: dateRaw, description: descRaw, reason: 'unreadable' });
+        continue;
+      }
 
       // NÃO aplica detectInstallment: extrato de conta corrente não tem
       // parcelamento, e a descrição do Itaú termina com a data da compra
@@ -128,6 +153,7 @@ export function parseXlsx(buffer: Buffer, cardId: string): ParseResult {
       transactions,
       totalAmountCents,
       periodLabel: inferPeriodLabel(transactions),
+      unparsedRows: unparsedRows.length ? unparsedRows : undefined,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -148,7 +174,11 @@ function findHeaderRow(data: unknown[][]): number {
   for (let i = 0; i < Math.min(data.length, 10); i++) {
     const row = data[i];
     if (!Array.isArray(row)) continue;
-    const headers = row.map((cell) => String(cell ?? '').toLowerCase());
+    // Array.from preenche buracos de array esparso (célula vazia antes de uma
+    // preenchida) com undefined em vez de deixar o índice "furado" — .map()
+    // preserva o furo e um acesso indexado posterior estoura (classe do bug do
+    // PR #414). Aqui normalizamos por índice.
+    const headers = Array.from(row, (cell) => String(cell ?? '').toLowerCase());
     if (hasHeaderKeywords(headers)) {
       return i;
     }
@@ -171,10 +201,22 @@ function hasHeaderKeywords(headers: string[]): boolean {
  * Remove acentos de uma string para matching case-insensitive.
  */
 function removeAccents(str: string): string {
-  return str
+  return String(str ?? '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
+}
+
+/**
+ * Uma linha de SALDO é um checkpoint do dia (saldo anterior, saldo total
+ * disponível), NÃO um movimento. Detecta pela descrição ANCORADA no início
+ * ("SALDO ANTERIOR", "SALDO TOTAL DISPONÍVEL DIA", "SALDO DO DIA") — resiliente
+ * a mojibake de encoding ("SALDO TOTAL DISPONÃVEL DIA") porque casa só a
+ * primeira palavra. Ancorar no início evita descartar um movimento real cuja
+ * descrição apenas MENCIONE "saldo" no meio do texto.
+ */
+function isSaldoRow(description: string): boolean {
+  return /^saldo\b/i.test(removeAccents(description).trim());
 }
 
 interface ColumnMap {
@@ -189,7 +231,7 @@ interface ColumnMap {
  * Evita falsos positivos: prefere keywords mais específicas.
  */
 function mapColumns(headers: string[]): ColumnMap {
-  const normalized = headers.map((h) => removeAccents(h));
+  const normalized = Array.from(headers, (h) => removeAccents(String(h ?? '')));
 
   // Procura mais específica: prioritiza keywords únicos por coluna
   const findBest = (dateKeywords: string[], descKeywords: string[], amountKeywords: string[]): ColumnMap => {
@@ -223,11 +265,16 @@ function mapColumns(headers: string[]): ColumnMap {
         }
       }
 
-      // Procura keywords de valor
-      for (const kw of amountKeywords) {
-        if (h.includes(kw)) {
-          if (scores.amount === -1) scores.amount = i;
-          break;
+      // Procura keywords de valor — NUNCA casa a coluna de "saldo(s)". O valor
+      // do movimento e o saldo do dia são colunas distintas; se a coluna de
+      // valor apontasse para o saldo, saldos virariam lançamentos (dinheiro
+      // fantasma) e os movimentos reais sumiriam. Exclusão explícita.
+      if (!h.includes('saldo')) {
+        for (const kw of amountKeywords) {
+          if (h.includes(kw)) {
+            if (scores.amount === -1) scores.amount = i;
+            break;
+          }
         }
       }
     }

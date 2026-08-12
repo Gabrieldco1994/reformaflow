@@ -309,6 +309,28 @@ function CommittedView({ result, onClose }: { result: BankCommitResult; onClose:
         <p><strong>{result.inserted}</strong> despesas criadas</p>
         <p><strong>{result.receiptsInserted}</strong> recebimentos criados</p>
         <p><strong>{result.duplicated}</strong> ignoradas (duplicadas)</p>
+        {!!result.duplicatedItems?.length && (
+          <details className="text-left mt-1 mx-auto max-w-md">
+            <summary className="text-sm text-gray-500 cursor-pointer select-none">
+              Ver linhas ignoradas como duplicadas
+            </summary>
+            <ul className="mt-2 divide-y divide-gray-100 border border-gray-100 rounded-lg overflow-hidden">
+              {result.duplicatedItems.map((it) => (
+                <li key={it.externalId} className="flex items-baseline justify-between gap-3 px-3 py-1.5">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm text-gray-700">{it.description}</span>
+                    <span className="block text-xs text-gray-400">
+                      {new Date(it.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}
+                    </span>
+                  </span>
+                  <span className="shrink-0 whitespace-nowrap text-sm tabular-nums text-gray-600">
+                    {formatCurrency(Math.abs(it.amountCents) / 100)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
         {!!result.cardPayments && <p><strong>{result.cardPayments}</strong> pagamentos de fatura detectados</p>}
         {!!result.unlinkedCardPayments && (
           <p className="text-amber-700">
@@ -317,6 +339,39 @@ function CommittedView({ result, onClose }: { result: BankCommitResult; onClose:
           </p>
         )}
         {!!result.aiReclassified && <p><strong>{result.aiReclassified}</strong> reclassificadas pela IA</p>}
+        {!!result.unparsedItems?.length && (
+          <div className="text-left mt-2 mx-auto max-w-md rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <p className="text-sm font-medium text-amber-800">
+              {result.unparsedItems.length} linha(s) não reconhecida(s) — não viraram lançamento.
+              Confira no extrato se falta algo.
+            </p>
+            <ul className="mt-2 divide-y divide-amber-100">
+              {result.unparsedItems.map((it) => (
+                <li key={`${it.rowIndex}-${it.description}`} className="flex items-baseline justify-between gap-3 py-1">
+                  <span className="min-w-0 flex-1 truncate text-sm text-amber-900">{it.description}</span>
+                  <span className="shrink-0 whitespace-nowrap text-xs text-amber-600">linha {it.rowIndex}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {!!result.failedItems?.length && (
+          <div className="text-left mt-2 mx-auto max-w-md rounded-lg border border-red-200 bg-red-50 p-3">
+            <p className="text-sm font-medium text-red-800">
+              {result.failedItems.length} linha(s) falharam ao importar — não entraram no caixa.
+            </p>
+            <ul className="mt-2 divide-y divide-red-100">
+              {result.failedItems.map((it, i) => (
+                <li key={`${it.date}-${i}`} className="flex items-baseline justify-between gap-3 py-1">
+                  <span className="min-w-0 flex-1 truncate text-sm text-red-900">{it.description}</span>
+                  <span className="shrink-0 whitespace-nowrap text-sm tabular-nums text-red-700">
+                    {formatCurrency(Math.abs(it.amountCents) / 100)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {!!result.skipped && <p><strong>{result.skipped}</strong> ignoradas pelo usuário</p>}
         <p className="text-sm text-gray-500 mt-2">Período: {result.periodLabel}</p>
       </div>

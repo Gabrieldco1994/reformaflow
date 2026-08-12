@@ -184,5 +184,15 @@ describe('commitImport — excluir (soft-delete) um lançamento importado e reim
     const res2 = await service.commitImport('t1', 'pessoal1', 'acc1', buf, 'extrato.xlsx', 'AUTO');
     expect(res2.inserted).toBe(0);
     expect(prisma.expense.create).not.toHaveBeenCalled();
+
+    // Auditabilidade (Fase 3): o que foi ignorado como duplicata precisa vir
+    // ITEMIZADO no resultado — não só a contagem. Sem isso a linha some sem rastro.
+    expect(res2.duplicated).toBe(1);
+    expect(res2.duplicatedItems).toHaveLength(1);
+    expect(res2.duplicatedItems[0]).toMatchObject({
+      description: 'MERCADO ABC',
+      amountCents: 10000,
+      reason: 'duplicate',
+    });
   });
 });

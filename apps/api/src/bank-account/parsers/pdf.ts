@@ -59,9 +59,19 @@ export function extractBankTransactionsFromText(
   const tx: NormalizedTx[] = [];
   const lines = text.split(/\r?\n/);
 
-  // data DD/MM ou DD/MM/AAAA, descrição, valor com sinal opcional
+  // Valor monetário BR. Duas formas, nesta ordem: com milhar agrupado
+  // (9.990,28 / 1 234,56) OU dígitos corridos (9990,28 / 1,52 / 0,01). A 2ª
+  // forma é o fix do salário: pdf-parse às vezes extrai o valor SEM o ponto de
+  // milhar e o regex antigo (só agrupado) descartava a linha inteira em silêncio.
+  const MONEY = String.raw`-?\d{1,3}(?:[.\s]\d{3})*[,.]\d{2}|-?\d+[,.]\d{2}`;
+  // data DD/MM ou DD/MM/AAAA, descrição, VALOR e — opcionalmente — o SALDO do
+  // dia (layout Itaú "DATA HISTORICO VALOR SALDO"). Captura o 1º número (o
+  // lançamento); o 2º (saldo corrente) é ignorado. Sem o saldo opcional, o
+  // regex antigo capturava o saldo como valor e engolia o valor na descrição.
   // Captura: 1=data, 2=descrição, 3=valor (com sinal)
-  const lineRe = /^\s*(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\s+(.+?)\s+(-?\d{1,3}(?:[.\s]\d{3})*[,.]\d{2})\s*$/;
+  const lineRe = new RegExp(
+    String.raw`^\s*(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\s+(.+?)\s+(${MONEY})(?:\s+(?:${MONEY}))?\s*$`,
+  );
 
   for (const raw of lines) {
     const line = raw.trim();
