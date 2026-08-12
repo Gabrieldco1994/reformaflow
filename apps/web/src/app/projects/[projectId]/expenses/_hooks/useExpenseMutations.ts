@@ -19,6 +19,7 @@ export function invalidateExpenseQueries(queryClient: QueryClient, projectId: st
   queryClient.invalidateQueries({ queryKey: ['dashboard', projectId] });
   queryClient.invalidateQueries({ queryKey: ['cash-flow', projectId] });
   queryClient.invalidateQueries({ queryKey: ['cross-project-expenses', projectId] });
+  queryClient.invalidateQueries({ queryKey: ['rateio-detalhe'] });
   // Visão Conta / Visão Mês são caixa: qualquer mutação de despesa pode movê-las.
   queryClient.invalidateQueries({ queryKey: ['account-view', projectId] });
   // A visão ANUAL da Conta é a mesma agregação consolidada nos 12 meses: sem
