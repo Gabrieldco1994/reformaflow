@@ -3388,6 +3388,18 @@ export interface CaixaContaReceipt {
  * Semântica: "saldo inicial em D" = saldo na ABERTURA de D, então lançamentos
  * do próprio dia D contam; só os ESTRITAMENTE anteriores são descartados.
  *
+ * CORTE POR "HOJE" (`today`, no fuso FINANCIAL_TIME_ZONE): "caixa hoje" é saldo
+ * REALIZADO, então uma ocorrência só entra se a data dela já chegou (data <= hoje).
+ * Antes deste corte, um PARCELADO/QUINZENAL com `status:'PAGO'` no root distribuía
+ * TODAS as parcelas — inclusive as futuras, sem movimento no extrato — drenando o
+ * caixa (repro do PO: R$3.600 em 6× com só a 1ª debitada caía R$3.600 em vez de
+ * R$600; série quinzenal de mão de obra da REFORMA drenava milhares). Idem para
+ * despesa simples PAGO e recebimento EM_CAIXA datados no futuro. `paidParcelas` é
+ * evidência explícita por-parcela (pré-pagamento manual) e NÃO é cortada por hoje —
+ * só a propagação fraca do `status` do root é. O corte se aplica a `movs`, então
+ * afeta `hoje` E `porMes` de forma consistente: o histórico passado permanece no
+ * sparkline e só as ocorrências futuras somem (nada é inventado no futuro).
+ *
  * ponytail: usa a âncora mais antiga entre as contas — espelha a premissa de
  * conta única já assumida por `pickPrimaryBankAccount`. Com duas contas ancoradas
  * em datas diferentes, promover a corte por conta (exige atribuir cada lançamento
@@ -3397,6 +3409,7 @@ export function computeCaixaConta(
   accounts: CaixaContaAccount[],
   expenses: CaixaContaExpense[],
   receipts: CaixaContaReceipt[],
+  today: Date = todayLocalDateUtc(FINANCIAL_TIME_ZONE),
 ) {
   const saldoInicial = accounts.reduce((s, a) => s + a.openingBalanceCents, 0);
   const temSaldoInicial = accounts.some(
@@ -3410,6 +3423,16 @@ export function computeCaixaConta(
   }, null);
   const beforeOpening = (d: Date | null | undefined) =>
     !!cutoff && !!d && d.getTime() < cutoff.getTime();
+
+  // CORTE POR "HOJE" (§10 = saldo REALIZADO): uma ocorrência só entra no caixa se a data
+  // dela já chegou. Antes deste corte, uma despesa PARCELADO/QUINZENAL com `status:'PAGO'`
+  // no root distribuía TODAS as parcelas — inclusive as futuras, sem movimento no extrato —
+  // drenando o caixa por dinheiro que ainda não saiu (medido em prod: série quinzenal de
+  // mão de obra da REFORMA). O mesmo valia para despesa simples PAGO e recebimento EM_CAIXA
+  // com data futura. `paidParcelas` é evidência explícita por-parcela (pré-pagamento manual)
+  // e continua contando mesmo datada no futuro; o corte atinge só a propagação fraca do root.
+  const afterToday = (d: Date | null | undefined) =>
+    !!d && d.getTime() > today.getTime();
 
   // Lançamentos realizados com sinal (despesa −, recebimento +) e mês de referência.
   const movs: Array<{ mes: string; valor: number }> = [];
@@ -3430,7 +3453,11 @@ export function computeCaixaConta(
         parsePaidParcelas(e.paidParcelas, installments.length),
       );
       installments.forEach((installment, index) => {
-        if (e.status !== 'PAGO' && !paidParcelas.has(index)) return;
+        const paid = paidParcelas.has(index);
+        if (!paid) {
+          if (e.status !== 'PAGO') return; // não realizado
+          if (afterToday(installment.data)) return; // root PAGO não realiza futuro sem evidência
+        }
         if (beforeOpening(installment.data)) return;
         movs.push({ mes: monthKeyOf(installment.data), valor: -installment.valor });
       });
@@ -3438,11 +3465,13 @@ export function computeCaixaConta(
     }
     if (e.status !== 'PAGO') continue; // só realizados afetam o caixa
     const d = e.dataPagamento ?? e.createdAt;
+    if (afterToday(d)) continue; // PAGO com data futura ainda não saiu do banco
     if (beforeOpening(d)) continue;
     movs.push({ mes: monthKeyOf(d), valor: -e.valorTotal });
   }
   for (const r of receipts) {
     if (r.status !== 'EM_CAIXA') continue;
+    if (afterToday(r.data)) continue; // EM_CAIXA com data futura ainda não creditou
     if (beforeOpening(r.data)) continue;
     movs.push({ mes: monthKeyOf(r.data), valor: r.valor });
   }
