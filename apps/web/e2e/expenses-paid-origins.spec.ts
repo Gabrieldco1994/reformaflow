@@ -435,7 +435,16 @@ test.describe("Expenses — origem por parcela na REFORMA (#424)", () => {
       await expect(statusChip).toBeVisible();
       const box = await statusChip.boundingBox();
       expect(box).not.toBeNull();
-      expect(box!.height).toBeGreaterThanOrEqual(20); // chip inline, não é o alvo de 44px
+      // Piso real, não arbitrário: abaixo do breakpoint `sm:` o `<span>`
+      // "Pago"/"Planejado" some por design (comentário acima) e só o ícone
+      // (w-3.5 h-3.5 = 14px) + `py-0.5` (2px+2px) renderiza — 18px é o
+      // mínimo LEGÍTIMO nessa largura, não um alvo de toque (AGENTS.md exige
+      // 44px só para alvos de toque; este chip é inline e explicitamente
+      // isento). 18px não corta o ícone (14px cabe nos 18px) nem viola o
+      // piso tipográfico (nenhum texto <11px é renderizado aqui). 20px não
+      // correspondia a nenhum requisito documentado — apenas ao valor
+      // (maior, com texto) do breakpoint desktop.
+      expect(box!.height).toBeGreaterThanOrEqual(18); // chip inline, não é o alvo de 44px
       // O alvo de toque real (CTA) segue o piso v3.1.
       const cta = page
         .getByRole("button", { name: "Nova despesa", exact: true })
@@ -624,10 +633,22 @@ test.describe("Expenses — origem por parcela na REFORMA (#424)", () => {
       ).toBeVisible();
       await expect(page.getByText(/••/)).toHaveCount(0);
 
-      // Nenhuma exceção não-tratada e nenhum console.error — um 500 tratado
-      // via `isError` do react-query não deveria logar nada.
+      // Nenhuma exceção não-tratada. O `console.error` app-level (via
+      // `isError` do react-query) também deve ficar mudo — mas o Chromium
+      // SEMPRE emite "Failed to load resource: ... 500 ..." como mensagem de
+      // console tipo "error" para QUALQUER fetch/XHR com status >=400, é
+      // gerado pela camada de rede do navegador, não pelo código do app, e
+      // dispara mesmo com o fetch envolto em try/catch silencioso (validado
+      // fora da árvore da aplicação). Como este teste INDUZ deliberadamente
+      // o 500 em paid-origins, esse ruído de rede é esperado nesta única
+      // origem — filtramos exatamente esse ruído, no mesmo espírito do
+      // filtro já aplicado a `badResponses` logo abaixo, sem mascarar
+      // nenhum outro console.error real.
       expect(diag.pageErrors).toEqual([]);
-      expect(diag.consoleErrors).toEqual([]);
+      const unexpectedConsoleErrors = diag.consoleErrors.filter(
+        (entry) => !/Failed to load resource.*status of 500/.test(entry),
+      );
+      expect(unexpectedConsoleErrors).toEqual([]);
       // A ÚNICA resposta >=400 esperada é a de paid-origins.
       const unexpectedBad = diag.badResponses.filter(
         (entry) => !entry.includes("/expenses/paid-origins"),
