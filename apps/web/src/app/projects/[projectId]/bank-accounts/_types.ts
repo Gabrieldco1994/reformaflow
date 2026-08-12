@@ -87,6 +87,10 @@ export interface BankCommitResult {
   duplicated: number;
   /** Linhas ignoradas como duplicata (auditável — para o usuário conferir o que não entrou). */
   duplicatedItems?: DuplicatedImportItem[];
+  /** Linhas com data+descrição que o parser não reconheceu como lançamento (nem saldo). */
+  unparsedItems?: UnparsedImportItem[];
+  /** Linhas que falharam ao inserir no meio do commit (erro de dependência/DB). */
+  failedItems?: FailedImportItem[];
   receiptsInserted: number;
   cardPayments: number;
   /** Pagamentos de fatura que entraram SEM cartão identificado (saem do caixa, não quitam fatura). */
@@ -103,6 +107,23 @@ export interface DuplicatedImportItem {
   description: string;
   amountCents: number;
   reason: 'duplicate';
+}
+
+/** Uma linha com data+descrição que o parser não conseguiu transformar em lançamento. */
+export interface UnparsedImportItem {
+  rowIndex: number;
+  date: string;
+  description: string;
+  reason: 'no-amount' | 'unreadable';
+}
+
+/** Uma linha que falhou ao ser inserida (erro no meio do commit). */
+export interface FailedImportItem {
+  date: string;
+  description: string;
+  amountCents: number;
+  reason: 'error';
+  message: string;
 }
 
 export interface BankSuggestionRow {

@@ -8,6 +8,7 @@ import {
   type NormalizedTx,
   type ParseResult,
 } from './types';
+import { expandSheetRange } from './xlsx-range';
 
 /**
  * Parser Excel (.xlsx/.xls) para faturas e extratos.
@@ -40,6 +41,10 @@ export function parseXlsx(buffer: Buffer, cardId: string): ParseResult {
 
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
+    // Corrige `<dimension>` defasada antes de ler — evita truncamento contíguo
+    // quando o arquivo foi filtrado/re-salvo com um range declarado menor que os
+    // dados reais. Ver xlsx-range.ts.
+    expandSheetRange(sheet);
     const data = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as unknown[][];
 
     if (!data.length) {

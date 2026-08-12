@@ -25,6 +25,21 @@ export interface ParseResult {
   invoiceDueMonth?: string;
   futureInstallments?: NormalizedTx[]; // parcelas/lançamentos futuros (apenas informativo)
   error?: string;             // erro durante parsing (ex.: arquivo vazio, formato inválido)
+  /**
+   * Linhas que TÊM data + descrição mas o parser NÃO conseguiu transformar em
+   * lançamento (sem valor legível, valor zero, etc.) e que NÃO são linhas de
+   * saldo. É a categoria de perda silenciosa que escondeu um salário: a linha
+   * existe no arquivo, chega ao parser, mas some sem virar transação nem
+   * duplicata. Reportada ao usuário para auditoria — nunca descartada em silêncio.
+   */
+  unparsedRows?: UnparsedRow[];
+}
+
+export interface UnparsedRow {
+  rowIndex: number;      // linha 1-based na planilha (para o usuário localizar)
+  date: string;          // data crua lida
+  description: string;   // descrição crua lida
+  reason: 'no-amount' | 'unreadable';
 }
 
 /**
