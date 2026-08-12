@@ -25,6 +25,14 @@ const sizeMap = {
   xl: 'max-w-4xl',
 };
 
+// Pilha compartilhada dos modais abertos (por identidade de instância, não por
+// posição no DOM): com modais aninhados (ex.: ExpenseFormModal > Criar despesa
+// em outro projeto via portal), Escape deve fechar só o topo da pilha — um
+// listener por modal na mesma `document` dispara em ordem de registro, então
+// sem essa checagem os dois fechariam juntos.
+let modalStack: number[] = [];
+let modalIdSeq = 0;
+
 export function Modal({
   open,
   onClose,
@@ -37,6 +45,8 @@ export function Modal({
 }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const [mounted, setMounted] = useState(false);
+  const idRef = useRef<number | null>(null);
+  if (idRef.current === null) idRef.current = ++modalIdSeq;
 
   useEffect(() => {
     if (open) {
@@ -47,6 +57,29 @@ export function Modal({
   }, [open]);
 
   useOverlayLock(open);
+
+  // Só o modal no topo da pilha fecha com Escape — evita fechar o modal pai
+  // "de baixo" quando um modal aninhado (ex.: portal=true) está por cima.
+  useEffect(() => {
+    if (!open) return;
+    const id = idRef.current!;
+    modalStack.push(id);
+    return () => {
+      modalStack = modalStack.filter((stacked) => stacked !== id);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key !== 'Escape') return;
+      const id = idRef.current!;
+      if (modalStack[modalStack.length - 1] !== id) return;
+      onClose();
+    }
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [open, onClose]);
 
   if (!open) return null;
 
@@ -63,7 +96,11 @@ export function Modal({
     ? `${sizeMap[size]} max-h-[90dvh] rounded-2xl mx-4 transition-all duration-200 ${mounted ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`
     : isSheetOnly
       ? `w-full ${sizeMap[size]} max-h-[92dvh] rounded-t-3xl transition-transform duration-300 ${mounted ? 'translate-y-0' : 'translate-y-full'}`
-      : `w-full ${sizeMap[size]} max-h-[92dvh] rounded-t-3xl md:rounded-2xl md:mx-4 transition-all duration-300 ${mounted ? 'translate-y-0 md:opacity-100 md:scale-100' : 'translate-y-full md:translate-y-0 md:opacity-0 md:scale-95'}`;
+      : // variante padrão ('auto'): SEM scale no desktop — scale encolhe geometricamente
+        // os elementos internos (ex.: alvo de toque de 44px) durante os ~300ms da
+        // transição, medível via getBoundingClientRect logo após abrir. Mantém
+        // fade + slide-up (translate-y), só troca o "zoom-in" por opacidade.
+        `w-full ${sizeMap[size]} max-h-[92dvh] rounded-t-3xl md:rounded-2xl md:mx-4 transition-all duration-300 ${mounted ? 'translate-y-0 md:opacity-100' : 'translate-y-full md:translate-y-0 md:opacity-0'}`;
 
   const content = (
     <div

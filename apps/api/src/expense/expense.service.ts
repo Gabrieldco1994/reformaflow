@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConciliacaoService, RateioItem, SettleParcelaInput } from '../conciliacao/conciliacao.service';
@@ -9,6 +9,8 @@ import { ExpenseTypeLabels, LaborCategoryLabels, buildInstallments, buildRecurre
 import { RatearMixedDto } from './dto/ratear-mixed.dto';
 import { Prisma } from '@prisma/client';
 import { fastClassify } from '../bank-account/bank-account.service';
+import { RateioDetalhe, RateioRequester } from './rateio.types';
+import { userCanAccessProject, userCanAccessProjectType } from '../common/access-rules';
 
 type ExpenseDb = PrismaService | Prisma.TransactionClient;
 
@@ -453,6 +455,12 @@ export class ExpenseService {
       where: { id, projectId, tenantId, deletedAt: null },
     });
     if (!source) throw new NotFoundException('Despesa não encontrada');
+    // I1: esta rota dedicada reaponta `linkedExpenseId` do mesmo jeito que o
+    // PATCH genérico — precisa da mesma guarda. Só bloqueia quando o alvo
+    // EFETIVO mudaria (idempotência do mesmo alvo continua permitida).
+    if (source.linkedExpenseId !== targetExpenseId) {
+      await this.assertNotRateado(tenantId, id);
+    }
     const target = await this.prisma.expense.findFirst({
       where: { id: targetExpenseId, tenantId, deletedAt: null },
       select: { projectId: true },
@@ -474,12 +482,160 @@ export class ExpenseService {
       where: { id, projectId, tenantId, deletedAt: null },
     });
     if (!source) throw new NotFoundException('Despesa não encontrada');
+    await this.assertNotRateado(tenantId, id);
     return this.prisma.expense.update({
       where: { id },
       data: { linkedExpenseId: null },
       include: { room: true },
     });
   }
+
+  /**
+   * I1: uma fonte com ≥1 RateioAllocation deve manter `linkedExpenseId` != null —
+   * é o único ponteiro que faz `monthly-overview.service.ts` deduplicá-la do
+   * consolidado. Limpar/reapontar o vínculo enquanto o rateio existe conta a
+   * compra em dobro (fonte + as N planejadas rateadas). Chamar ANTES de
+   * qualquer escrita nos pontos de mutação (`update`, `unlinkCrossProject`).
+   */
+  private async assertNotRateado(tenantId: string, sourceExpenseId: string) {
+    const count = await this.prisma.rateioAllocation.count({
+      where: { tenantId, sourceExpenseId },
+    });
+    if (count > 0) {
+      throw new BadRequestException(
+        'Esta despesa está rateada — o vínculo não pode ser removido ou alterado enquanto o rateio existir. Desfaça o rateio primeiro.',
+      );
+    }
+  }
+
+  /**
+   * Gêmeo em service do ProjectAccessGuard, aplicado por ALVO: o guard só
+   * enxerga `params.projectId` (a fonte) — os projetos-alvo do rateio entram
+   * por FK e nunca passaram por ele. Compõe EXATAMENTE as mesmas duas regras
+   * do guard para não divergir. Fail-closed: sem requester, nada é visível.
+   */
+  private canRequesterSeeProject(
+    requester: RateioRequester | undefined,
+    project: { id: string; type: string } | null | undefined,
+  ): boolean {
+    if (!requester || !project) return false;
+    return (
+      userCanAccessProject(requester.role, requester.allowedProjects, project.id) &&
+      userCanAccessProjectType(
+        requester.role,
+        requester.allowedProjectTypes,
+        requester.allowedModules ?? [],
+        project.type,
+      )
+    );
+  }
+
+  /**
+   * Leitura canônica do rateio de uma compra-fonte (issue #423): enumera TODAS
+   * as `RateioAllocation` (não apenas o alvo apontado por `linkedExpenseId`,
+   * que é só o primeiro), incluindo as de alvo soft-deletado — I4: o `$use`
+   * de soft-delete não filtra `RateioAllocation` nem seu `include.target`.
+   * Somente leitura (I7): nenhuma escrita, nenhuma transação.
+   *
+   * Lente de acesso (issue #423, security amendment): o guard global só valida
+   * o projeto-FONTE — os projetos-alvo do rateio chegam por FK sem nunca
+   * passar por um guard. Um alvo ATIVO em projeto fora da lente do requester
+   * (ou de outro tenant) vira um contador oculto (`hiddenTargetsCount` /
+   * `hiddenAllocationCents`), NUNCA um item — mas seu valor continua somado em
+   * `rateadoCents` (I-A/I-D: o dinheiro não muda com quem olha). Alvo removido
+   * é avaliado ANTES da lente (I-F): removido é sempre `removed`, nunca `hidden`.
+   * `requester` é obrigatório no tipo — fail-closed: sem lente, 403.
+   */
+  async getRateio(
+    tenantId: string,
+    projectId: string,
+    id: string,
+    requester: RateioRequester,
+  ): Promise<RateioDetalhe> {
+    const source = await this.prisma.expense.findFirst({
+      where: { id, projectId, tenantId, deletedAt: null },
+      include: { project: { select: { id: true, type: true, tenantId: true } } },
+    });
+    if (!source) throw new NotFoundException('Despesa não encontrada');
+    if (!source.project || source.project.tenantId !== tenantId) {
+      // I-G na fonte: não confirma existência a um requester de outro tenant.
+      throw new NotFoundException('Despesa não encontrada');
+    }
+    if (!this.canRequesterSeeProject(requester, source.project)) {
+      // Defesa em profundidade: o guard global já deveria ter barrado isto,
+      // mas o service não confia cegamente no caminho de entrada.
+      throw new ForbiddenException('Sem permissao para acessar este projeto');
+    }
+
+    const allocations = await this.prisma.rateioAllocation.findMany({
+      where: { tenantId, sourceExpenseId: id },
+      include: {
+        target: {
+          include: {
+            project: { select: { id: true, name: true, type: true, tenantId: true } },
+          },
+        },
+      },
+      orderBy: [{ createdAt: 'asc' }, { targetExpenseId: 'asc' }],
+    });
+    // Reforça a ordem determinística em memória (createdAt asc, targetExpenseId
+    // asc como desempate total) — não depende só do driver honrar o orderBy.
+    allocations.sort((a, b) => {
+      const byCreatedAt = a.createdAt.getTime() - b.createdAt.getTime();
+      return byCreatedAt !== 0 ? byCreatedAt : a.targetExpenseId.localeCompare(b.targetExpenseId);
+    });
+
+    let removedTargetsCount = 0;
+    let hiddenTargetsCount = 0;
+    let hiddenAllocationCents = 0;
+    const items: RateioDetalhe['items'] = [];
+    for (const a of allocations) {
+      if (a.target.deletedAt !== null) {
+        // I-F: removido vence — nunca reclassificado como oculto (senão seu
+        // valor entraria em rateadoCents e a sobra real desapareceria).
+        removedTargetsCount += 1;
+        continue;
+      }
+      const p = a.target.project;
+      const sameTenant =
+        a.tenantId === tenantId && a.target.tenantId === tenantId && p?.tenantId === tenantId;
+      if (!sameTenant || !this.canRequesterSeeProject(requester, p)) {
+        // I-G/I-E: corrupção cross-tenant ou alvo fora da lente — some do
+        // payload individualmente, mas conta e soma continuam expostas.
+        hiddenTargetsCount += 1;
+        hiddenAllocationCents += a.allocation;
+        continue;
+      }
+      items.push({
+        targetExpenseId: a.targetExpenseId,
+        titulo: a.target.titulo,
+        fornecedor: a.target.fornecedor,
+        projectId: a.target.project.id,
+        projectName: a.target.project.name,
+        projectType: a.target.project.type,
+        allocationCents: a.allocation,
+        plannedValorTotalCents: a.plannedValorTotal ?? null,
+        status: a.target.status,
+      });
+    }
+
+    const visibleCents = items.reduce((sum, i) => sum + i.allocationCents, 0);
+    const rateadoCents = visibleCents + hiddenAllocationCents; // I-A/I-D
+    const totalSourceCents = source.valorTotal;
+
+    return {
+      sourceExpenseId: id,
+      rateado: allocations.length > 0,
+      totalSourceCents,
+      rateadoCents,
+      sobraCents: totalSourceCents - rateadoCents,
+      removedTargetsCount,
+      hiddenTargetsCount,
+      hiddenAllocationCents,
+      items,
+    };
+  }
+
 
   /**
    * Concilia esta despesa (source, PESSOAL) com UMA parcela de uma despesa
@@ -803,6 +959,23 @@ export class ExpenseService {
       where: { id, projectId, tenantId, deletedAt: null },
     });
     if (!existing) throw new NotFoundException('Despesa não encontrada');
+
+    // I1: generic PATCH não é o dono do vínculo cross-project de uma fonte
+    // rateada — apenas (des)ratear é. Ver assertNotRateado. Mas as duas UIs
+    // (obra + pessoal) reenviam o `linkedExpenseId` já existente em TODO PATCH
+    // (mesmo editando só título/valor) — comparar `!== undefined` disparava a
+    // guarda em edições comuns. Normaliza `''`/`null` para `null` dos dois
+    // lados e só invoca a guarda quando o alvo EFETIVO mudaria.
+    const effectiveLinkedExpenseId =
+      dto.linkedExpenseId === undefined
+        ? undefined
+        : dto.linkedExpenseId === null || dto.linkedExpenseId === ''
+          ? null
+          : dto.linkedExpenseId;
+    const existingLinkedExpenseId = existing.linkedExpenseId ?? null;
+    if (effectiveLinkedExpenseId !== undefined && effectiveLinkedExpenseId !== existingLinkedExpenseId) {
+      await this.assertNotRateado(tenantId, id);
+    }
 
     const valorCents = dto.valor !== undefined ? Math.round(dto.valor * 100) : existing.valor;
     const quantidade = dto.quantidade !== undefined ? dto.quantidade : existing.quantidade;

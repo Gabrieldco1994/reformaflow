@@ -48,6 +48,7 @@ Use Node 20+ and npm workspaces (`npm@11.6.2`); do not use pnpm.
 - Every test runner or standalone Prisma test must load `scripts/test-db-env.cjs`; intentional dev scripts and Playwright against a running API are exceptions.
 - Prisma soft-delete behavior lives in `apps/api/src/prisma/prisma.service.ts`. Add models without `deletedAt` to `modelsWithoutSoftDelete` in the same change. Prisma transaction clients bypass `$use`.
 - Cross-project rateio allocations must sum to the source `valorTotal`. PESSOAL movements without card/account belong to Carteira and must remain visible in account views and totals.
+- `Expense.linkedExpenseId` reflects only the **first** target of a rateio (legacy 1:1 field); it is not the full allocation set. Any reader that needs every allocation of a rateio (all targets, hidden/removed counts, sums) must enumerate `RateioAllocation` — via `ExpenseService.getRateio`/`GET :id/rateio` — never assume `linkedExpenseId` is exhaustive.
 - Merchant-category rules are tenant-scoped and change category only, never value or cash; readers and writers must pass `tenantId`.
 
 ## Code and UI conventions

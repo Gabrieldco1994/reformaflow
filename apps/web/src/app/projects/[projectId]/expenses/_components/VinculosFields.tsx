@@ -124,6 +124,14 @@ interface Props {
   /** Snapshot dos campos atuais do form pai — usado para pré-preencher o modal
    *  "Criar nova despesa em outro projeto e vincular". */
   baseDraft?: LinkedExpenseDraft;
+  /**
+   * Quando true (compra-fonte já rateada — ver `RateioDetalheSection`), a
+   * seção "Vincular a despesa de outro projeto" não pode remover/alterar o
+   * `linkedExpenseId`: some com o "Remover" (se já houver vínculo) e some com
+   * a busca/criação de novo vínculo (se ainda não houver). Os demais campos
+   * (cartão/conta) continuam editáveis normalmente.
+   */
+  lockLinkedExpense?: boolean;
 }
 
 /**
@@ -142,6 +150,7 @@ export function VinculosFields({
   initialLinkedExpenseLabel,
   initialSettlesInvoiceKey,
   baseDraft,
+  lockLinkedExpense,
 }: Props) {
   const latestValueRef = useRef(value);
   const cardPrefillDoneRef = useRef(false);
@@ -375,19 +384,25 @@ export function VinculosFields({
             <span className="flex-1 truncate text-blue-900">
               🔗 {displayLabel ?? value.linkedExpenseId}
             </span>
-            <button
-              type="button"
-              className="text-xs text-blue-700 hover:underline"
-              onClick={() => {
-                onChange({ ...value, linkedExpenseId: '', linkedParcelaIndex: null });
-                setCreatedLabel(null);
-              }}
-            >
-              Remover
-            </button>
+            {!lockLinkedExpense && (
+              <button
+                type="button"
+                className="text-xs text-blue-700 hover:underline"
+                onClick={() => {
+                  onChange({ ...value, linkedExpenseId: '', linkedParcelaIndex: null });
+                  setCreatedLabel(null);
+                }}
+              >
+                Remover
+              </button>
+            )}
           </div>
+        ) : lockLinkedExpense ? (
+          <p className="rounded border border-gray-200 bg-gray-50 px-2 py-1.5 text-xs text-gray-500">
+            Compra rateada entre planejadas de outro projeto — vínculo indisponível aqui.
+          </p>
         ) : (
-          <div>
+          <div data-testid="vinculos-cross-project-editor">
             <Input
               placeholder="Buscar por título ou fornecedor (outros projetos)…"
               value={search}

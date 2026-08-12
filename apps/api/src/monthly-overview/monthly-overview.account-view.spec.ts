@@ -2482,6 +2482,76 @@ describe("MonthlyOverviewService.getAccountView", () => {
       expect(res.saidas.some((s: any) => s.valor === 3_000)).toBe(false);
     });
 
+    it("rateio de fonte SEM cartão/conta (Planejado/Parcelado): a fonte carteira continua visível (regra 14) mesmo recebendo linkedExpenseId do rateio", async () => {
+      // Bug real: uma fonte PESSOAL Planejado/Parcelado, lançada por voz sem
+      // cardLast4/bankLast4 (i.e. "Carteira"), ao ser rateada para 1 alvo recebe
+      // linkedExpenseId (mesmo mecanismo do vínculo simples). O filtro de
+      // localCarteiraThisMonth excluía TODO expense com linkedExpenseId, exceto
+      // espelhos manuais já PAGOS — então uma fonte PLANEJADA de rateio sumia da
+      // Visão Conta e dos totais, violando AGENTS.md #14 (sem conta = Carteira,
+      // nunca pode desaparecer). O alvo continua suprimido (a fonte já cobre).
+      prisma.rateioAllocation.findMany.mockResolvedValue([
+        { sourceExpenseId: "src-carteira", targetExpenseId: "tgt-carteira" },
+      ]);
+      prisma.expense.findMany.mockResolvedValue([
+        base({
+          id: "src-carteira",
+          projectId,
+          titulo: "Compra Materiais Via Carteira",
+          fornecedor: "Loja X",
+          valorTotal: 9_000,
+          valor: 3_000,
+          status: "PLANEJADO",
+          cardLast4: null,
+          bankLast4: null,
+          formaPagamento: "PARCELADO",
+          quantidadeParcela: 3,
+          dataInicioParcela: new Date("2026-06-10T00:00:00.000Z"),
+          linkedExpenseId: "tgt-carteira",
+        }),
+        base({
+          id: "tgt-carteira",
+          projectId: reforma.id,
+          titulo: "Piso Rateado",
+          fornecedor: "Loja X",
+          valorTotal: 9_000,
+          valor: 3_000,
+          formaPagamento: "PARCELADO",
+          quantidadeParcela: 3,
+          dataInicioParcela: new Date("2026-06-10T00:00:00.000Z"),
+          status: "PLANEJADO",
+          project: reforma,
+        }),
+      ]);
+
+      const res: any = await service.getAccountView(
+        tenantId,
+        projectId,
+        "2026-06",
+      );
+
+      // A fonte carteira aparece EXATAMENTE 1 vez (só a parcela de junho), como
+      // Planejado/Carteira, sem conta/cartão.
+      const linhas = res.saidas.filter(
+        (s: any) => s.descricao === "Compra Materiais Via Carteira",
+      );
+      expect(linhas).toHaveLength(1);
+      expect(linhas[0].valor).toBe(3_000);
+      expect(linhas[0].status).toBe("PLANEJADO");
+      expect(linhas[0].realizado).toBe(false);
+      expect(linhas[0].cardLast4).toBeNull();
+      expect(linhas[0].bankLast4).toBeNull();
+      expect(linhas[0].origem).toEqual({ tipo: "carteira" });
+
+      // Ela entra no total de falta pagar (sem conta = caixa real, §14).
+      expect(res.faltaPagarMes).toBeGreaterThanOrEqual(3_000);
+
+      // O alvo rateado continua suprimido — a fonte já cobre a saída, sem dobra.
+      expect(res.saidas.some((s: any) => s.descricao === "Piso Rateado")).toBe(
+        false,
+      );
+    });
+
     it("financiamento (CASA): parcela materializada aparece em falta pagar antes de ser paga", async () => {
       // Issue (e): FinancingInstallment materializa uma despesa PLANEJADA avulsa no
       // projeto dono (CASA) — antes desta materialização, a parcela real era invisível

@@ -33,6 +33,7 @@ interface PrismaMock {
     findMany: AnyFn;
     upsert: AnyFn;
     delete: AnyFn;
+    count: AnyFn;
   };
   $transaction: AnyFn;
 }
@@ -67,6 +68,7 @@ const makePrismaMock = (): PrismaMock => {
       findMany: jest.fn().mockResolvedValue([]),
       upsert: jest.fn().mockResolvedValue({}),
       delete: jest.fn().mockResolvedValue({}),
+      count: jest.fn().mockResolvedValue(0),
     },
     $transaction: jest.fn(),
   } as PrismaMock;

@@ -129,6 +129,19 @@ saiu do caixa pessoal, mas o gasto é atribuído ao projeto de destino. O app
 **deduplica** espelhos para não contar o mesmo valor duas vezes no consolidado.
 O **rateio** permite dividir uma despesa entre vários destinos.
 
+Abrindo a compra-fonte de um rateio (no modal, tanto pela Visão Conta quanto por
+Despesas Geral), uma seção **somente-leitura** lista **todas** as alocações do
+rateio — não apenas a primeira — com totais: valor total da compra, total já
+rateado e sobra. Alvos que o usuário não tem permissão de ver (fora da sua
+lente de projeto/tipo) não expõem título/fornecedor/projeto — aparecem só como
+uma contagem e uma soma agregadas ("N alocações ocultas, R$ X"), nunca como
+linha individual. Alvos removidos (despesa-alvo excluída) são descontados da
+lista e contam para a sobra explicada. Essa leitura é estritamente
+somente-leitura: não há **editar** nem **desfazer** aqui — para isso, use a
+tela da compra-fonte ou o fluxo de rateio dedicado. Enquanto a compra-fonte
+estiver rateada, a opção de alterar/remover seu vínculo (`linkedExpenseId`)
+fica bloqueada nesse modal.
+
 Se uma parcela de uma despesa de outro projeto (CASA/CARRO/REFORMA/COMPRA) for
 marcada como paga **direto no projeto de origem** (sem passar pelo vínculo do
 PESSOAL), ela continua aparecendo na Conta do PESSOAL — agora como **realizada**

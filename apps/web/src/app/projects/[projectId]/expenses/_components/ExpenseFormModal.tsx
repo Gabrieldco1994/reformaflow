@@ -8,6 +8,8 @@ import { tipoLabel } from '@/lib/expense-options';
 import { VinculosFields } from './VinculosFields';
 import { DadosDespesaFields } from './DadosDespesaFields';
 import { FormaPagamentoFields } from './FormaPagamentoFields';
+import { RateioDetalheSection } from './RateioDetalheSection';
+import { useRateioDetalhe } from '../_hooks/useRateioDetalhe';
 import type { LinkedExpenseDraft } from './CreateLinkedExpenseModal';
 import type { Expense } from '@/types';
 
@@ -132,6 +134,17 @@ export function ExpenseFormModal({
     tipoDespesa && !tipoDespesaOptions.some((o) => o.value === tipoDespesa)
       ? [...tipoDespesaOptions, { value: tipoDespesa, label: tipoLabel(tipoDespesa) }]
       : tipoDespesaOptions;
+
+  // Detalhe do rateio da despesa em edição (compra-fonte já rateada entre
+  // planejadas de outro projeto). Só consulta em modo edição — criar despesa
+  // nunca é fonte de um rateio existente. A seção é somente-leitura: desfazer
+  // e ajustar alocações continuam exclusivos de `RatearCompraModal`.
+  const sourceExpenseId = editing?.id;
+  const rateioQuery = useRateioDetalhe(projectId, sourceExpenseId, {
+    enabled: Boolean(sourceExpenseId),
+  });
+  const isRateioSource = Boolean(rateioQuery.data?.rateado);
+
   return (
     <Modal
       open={open}
@@ -139,6 +152,15 @@ export function ExpenseFormModal({
       title={editing ? 'Editar Despesa' : formStatus === 'PLANEJADO' ? 'Planejar Despesa' : 'Nova Despesa (Paga)'}
     >
       <form onSubmit={onSubmit} className="space-y-4">
+        {sourceExpenseId && (
+          <RateioDetalheSection
+            isLoading={rateioQuery.isLoading}
+            isError={rateioQuery.isError}
+            detalhe={rateioQuery.data}
+            onRetry={() => rateioQuery.refetch()}
+          />
+        )}
+
         <DadosDespesaFields
           tipoDespesa={tipoDespesa}
           setTipoDespesa={setTipoDespesa}
@@ -202,6 +224,7 @@ export function ExpenseFormModal({
               initialLinkedExpenseId={editing?.linkedExpenseId ?? null}
               initialSettlesInvoiceKey={editing?.settlesInvoiceKey ?? null}
               baseDraft={linkedExpenseDraft}
+              lockLinkedExpense={isRateioSource}
             />
           </div>
         </div>
@@ -212,7 +235,7 @@ export function ExpenseFormModal({
               Ratear compra
             </Button>
           )}
-          <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
+          <Button type="button" variant="secondary" className="min-h-[44px]" onClick={onClose}>Cancelar</Button>
           <Button type="submit" disabled={isPending}>
             {editing ? 'Salvar' : 'Criar'}
           </Button>

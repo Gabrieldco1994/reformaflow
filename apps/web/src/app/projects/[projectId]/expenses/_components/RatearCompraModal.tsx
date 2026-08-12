@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Modal } from '@/components/ui/modal';
 import { formatCurrency } from '@/lib/utils';
 import type { Expense } from '@/types';
+import { reaisToCents, centsToReais } from '../_lib/money';
 
 /** Planejada-alvo (cross-project) retornada pela busca. */
 interface CrossExpense {
@@ -36,15 +37,6 @@ interface Props {
   onSubmit: (allocations: { targetExpenseId: string; allocation: number }[]) => void;
   onDesratear: () => void;
   isPending?: boolean;
-}
-
-/** reais string ("3200" | "3.200,50" | "3200.50") → centavos inteiros. */
-function reaisToCents(raw: string): number {
-  if (!raw) return 0;
-  const normalized = raw.trim().replace(/\./g, '').replace(',', '.');
-  const n = Number(normalized);
-  if (!Number.isFinite(n)) return 0;
-  return Math.round(n * 100);
 }
 
 export function RatearCompraModal({
@@ -86,7 +78,7 @@ export function RatearCompraModal({
 
   function addTarget(exp: CrossExpense) {
     const suggested = Math.max(0, Math.min(sobraCents, exp.valorTotal));
-    setRows((prev) => [...prev, { exp, reais: (suggested / 100).toFixed(2) }]);
+    setRows((prev) => [...prev, { exp, reais: centsToReais(suggested) }]);
     setSearch('');
     setSearchOpen(false);
   }
@@ -101,7 +93,7 @@ export function RatearCompraModal({
         if (r.exp.id !== id) return r;
         const cur = reaisToCents(r.reais);
         const rest = totalCents - (allocatedCents - cur);
-        return { ...r, reais: (Math.max(0, rest) / 100).toFixed(2) };
+        return { ...r, reais: centsToReais(Math.max(0, rest)) };
       }),
     );
   }
