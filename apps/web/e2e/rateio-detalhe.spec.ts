@@ -499,6 +499,188 @@ test.describe("Jornada TelhaNorte de rateio (#428) — Visão Conta", () => {
     );
   });
 
+  test("após editar e reabrir, refaz GET e mostra o rateio atual sem oferecer alvo já preenchido", async ({
+    page,
+  }) => {
+    const initialItems = nineAllocationItems();
+    const updatedItems = initialItems.map((item) => {
+      if (item.targetExpenseId === "tgt-0")
+        return { ...item, allocationCents: 140_000 };
+      if (item.targetExpenseId === "tgt-1")
+        return { ...item, allocationCents: 143_800 };
+      return item;
+    });
+    expect(
+      updatedItems.reduce((sum, item) => sum + item.allocationCents, 0),
+    ).toBe(TOTAL_CENTS);
+
+    let currentItems = initialItems;
+    let rateioGetCount = 0;
+    let crossProjectGetCount = 0;
+    const ratearBodies: unknown[] = [];
+    await mockApi(page, { rateioStatus: "ok" });
+
+    const rateioUrl = `http://localhost:3001/projects/${personalId}/expenses/${sourceId}/rateio`;
+    const ratearUrl = `http://localhost:3001/projects/${personalId}/expenses/${sourceId}/ratear`;
+    await page.route(rateioUrl, async (route) => {
+      rateioGetCount += 1;
+      await route.fulfill(json(rateioDetailPayload({ items: currentItems })));
+    });
+    await page.route(ratearUrl, async (route) => {
+      const body = route.request().postDataJSON() as {
+        allocations: Array<{
+          targetExpenseId: string;
+          allocation: number;
+        }>;
+      };
+      ratearBodies.push(body);
+      const submittedByTarget = new Map(
+        body.allocations.map((item) => [item.targetExpenseId, item.allocation]),
+      );
+      currentItems = currentItems.map((item) => ({
+        ...item,
+        allocationCents:
+          submittedByTarget.get(item.targetExpenseId) ?? item.allocationCents,
+      }));
+      await route.fulfill(json({ sourceExpenseId: sourceId }));
+    });
+    await page.route(
+      new RegExp(
+        `^http://localhost:3001/projects/${personalId}/expenses/cross-project(?:\\?.*)?$`,
+      ),
+      async (route) => {
+        crossProjectGetCount += 1;
+        await route.fulfill(
+          json([
+            {
+              id: initialItems[0].targetExpenseId,
+              titulo: initialItems[0].titulo,
+              fornecedor: null,
+              valorTotal: initialItems[0].plannedValorTotalCents,
+              status: "PLANEJADO",
+              project: {
+                id: reformaId,
+                name: "Reforma Cozinha",
+                type: "REFORMA",
+              },
+            },
+            {
+              id: "tgt-disponivel",
+              titulo: "Item 1 reserva da reforma",
+              fornecedor: null,
+              valorTotal: 50_000,
+              status: "PLANEJADO",
+              project: {
+                id: reformaId,
+                name: "Reforma Cozinha",
+                type: "REFORMA",
+              },
+            },
+          ]),
+        );
+      },
+    );
+
+    await openConta(page);
+    const sourceTrigger = page.getByRole("button", {
+      name: "Compras TelhaNorte",
+      exact: true,
+    });
+    await sourceTrigger.click();
+    await page
+      .getByRole("button", { name: "Ratear compra", exact: true })
+      .click();
+
+    let ratearModal = page.locator('[data-mobile-sheet="modal"]').filter({
+      has: page.getByRole("heading", {
+        name: "Ratear compra",
+        exact: true,
+      }),
+    });
+    await expect(ratearModal).toBeVisible();
+    const allocationInputs = ratearModal.getByLabel(/^Valor alocado para /);
+    await expect(allocationInputs).toHaveCount(initialItems.length);
+
+    const search = ratearModal.getByRole("textbox", {
+      name: "Distribuir entre planejadas de outro projeto",
+      exact: true,
+    });
+    await search.fill("Item 1");
+    await expect
+      .poll(() => crossProjectGetCount, {
+        message: "a busca cross-project deve responder com os dois candidatos",
+      })
+      .toBeGreaterThan(0);
+    await expect(
+      ratearModal.getByRole("button", {
+        name: /^Item 1 reserva da reforma/,
+      }),
+    ).toBeVisible();
+    await expect(
+      ratearModal.getByRole("button", {
+        name: /^Item 1 da reforma/,
+      }),
+    ).toHaveCount(0);
+
+    await ratearModal
+      .getByLabel(`Valor alocado para ${initialItems[0].titulo}`, {
+        exact: true,
+      })
+      .fill(formatPtBrCents(updatedItems[0].allocationCents));
+    await ratearModal
+      .getByLabel(`Valor alocado para ${initialItems[1].titulo}`, {
+        exact: true,
+      })
+      .fill(formatPtBrCents(updatedItems[1].allocationCents));
+    const rateioGetsBeforeSave = rateioGetCount;
+    expect(rateioGetsBeforeSave).toBeGreaterThan(0);
+    const saveRateio = ratearModal.getByRole("button", {
+      name: "Salvar rateio",
+      exact: true,
+    });
+    await expect(saveRateio).toBeEnabled();
+    await saveRateio.click();
+
+    await expect.poll(() => ratearBodies.length).toBe(1);
+    expect(ratearBodies).toEqual([
+      {
+        allocations: updatedItems.map((item) => ({
+          targetExpenseId: item.targetExpenseId,
+          allocation: item.allocationCents,
+        })),
+      },
+    ]);
+    await expect(ratearModal).toBeHidden();
+
+    await sourceTrigger.click();
+    await expect
+      .poll(() => rateioGetCount, {
+        message: "o detalhe deve refazer o GET após salvar o rateio",
+      })
+      .toBeGreaterThan(rateioGetsBeforeSave);
+    await page
+      .getByRole("button", { name: "Ratear compra", exact: true })
+      .click();
+
+    ratearModal = page.locator('[data-mobile-sheet="modal"]').filter({
+      has: page.getByRole("heading", {
+        name: "Ratear compra",
+        exact: true,
+      }),
+    });
+    await expect(ratearModal).toBeVisible();
+    await expect(
+      ratearModal.getByLabel(`Valor alocado para ${updatedItems[0].titulo}`, {
+        exact: true,
+      }),
+    ).toHaveValue(formatPtBrCents(updatedItems[0].allocationCents));
+    await expect(
+      ratearModal.getByLabel(`Valor alocado para ${updatedItems[1].titulo}`, {
+        exact: true,
+      }),
+    ).toHaveValue(formatPtBrCents(updatedItems[1].allocationCents));
+  });
+
   test("editar alvo REFORMA resolve a fonte canônica e mostra todas as alocações uma vez, somente leitura e sem mutação", async ({
     page,
   }) => {
