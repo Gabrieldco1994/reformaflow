@@ -309,6 +309,28 @@ function CommittedView({ result, onClose }: { result: BankCommitResult; onClose:
         <p><strong>{result.inserted}</strong> despesas criadas</p>
         <p><strong>{result.receiptsInserted}</strong> recebimentos criados</p>
         <p><strong>{result.duplicated}</strong> ignoradas (duplicadas)</p>
+        {!!result.duplicatedItems?.length && (
+          <details className="text-left mt-1 mx-auto max-w-md">
+            <summary className="text-sm text-gray-500 cursor-pointer select-none">
+              Ver linhas ignoradas como duplicadas
+            </summary>
+            <ul className="mt-2 divide-y divide-gray-100 border border-gray-100 rounded-lg overflow-hidden">
+              {result.duplicatedItems.map((it) => (
+                <li key={it.externalId} className="flex items-baseline justify-between gap-3 px-3 py-1.5">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm text-gray-700">{it.description}</span>
+                    <span className="block text-xs text-gray-400">
+                      {new Date(it.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}
+                    </span>
+                  </span>
+                  <span className="shrink-0 whitespace-nowrap text-sm tabular-nums text-gray-600">
+                    {formatCurrency(Math.abs(it.amountCents) / 100)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
         {!!result.cardPayments && <p><strong>{result.cardPayments}</strong> pagamentos de fatura detectados</p>}
         {!!result.unlinkedCardPayments && (
           <p className="text-amber-700">

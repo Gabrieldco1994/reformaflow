@@ -394,6 +394,20 @@ export class CreditCardService {
     });
     const duplicated = parsed.transactions.length - toProcess.length - (decisions?.filter((d) => d?.action === 'skip').length ?? 0);
     const userSkipped = (decisions ?? []).filter((d) => d?.action === 'skip' && !existingIds.has(d.externalId)).length;
+    // Lista auditável do que foi ignorado como duplicata (linhas, não só a contagem).
+    const duplicatedItems = parsed.transactions
+      .filter((t) => {
+        const d = decisionByExt.get(t.externalId);
+        if (d?.action === 'skip') return false;
+        return existingIds.has(t.externalId);
+      })
+      .map((t) => ({
+        externalId: t.externalId,
+        date: t.date,
+        description: t.merchant,
+        amountCents: t.amountCents,
+        reason: 'duplicate' as const,
+      }));
 
     const importRecord = await this.prisma.creditCardStatementImport.create({
       data: {
@@ -477,6 +491,7 @@ export class CreditCardService {
       total: parsed.transactions.length,
       inserted,
       duplicated,
+      duplicatedItems,
       settled,
       skipped: skipped + userSkipped,
       linked,

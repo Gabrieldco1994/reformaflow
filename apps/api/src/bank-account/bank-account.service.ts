@@ -535,6 +535,22 @@ export class BankAccountService {
       return true;
     });
     const userSkipped = (decisions ?? []).filter((d) => d?.action === 'skip' && !existingIds.has(d.externalId)).length;
+    // Lista auditável do que foi ignorado como duplicata (mesma contagem de
+    // `duplicated`, mas com as linhas). Sem isso, uma linha descartada some sem
+    // rastro — foi assim que um salário de R$9.990,28 ficou invisível por semanas.
+    const duplicatedItems = parsed.transactions
+      .filter((t) => {
+        const d = decisionByExt.get(t.externalId);
+        if (d?.action === 'skip' && !existingIds.has(t.externalId)) return false; // skip do usuário, contado à parte
+        return existingIds.has(t.externalId);
+      })
+      .map((t) => ({
+        externalId: t.externalId,
+        date: t.date,
+        description: t.merchant,
+        amountCents: t.amountCents,
+        reason: 'duplicate' as const,
+      }));
     const duplicated = parsed.transactions.length - toInsert.length - userSkipped;
 
     const debitsTotal = parsed.transactions
@@ -657,6 +673,7 @@ export class BankAccountService {
       total: parsed.transactions.length,
       inserted,
       duplicated,
+      duplicatedItems,
       receiptsInserted,
       cardPayments,
       unlinkedCardPayments,

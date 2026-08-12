@@ -337,6 +337,28 @@ function CommittedView({ result, onClose }: { result: CommitResult; onClose: () 
       <div className="text-gray-700 space-y-1">
         <p><strong>{result.inserted}</strong> novas transações</p>
         <p><strong>{result.duplicated}</strong> ignoradas (duplicadas)</p>
+        {!!result.duplicatedItems?.length && (
+          <details className="text-left mt-1 mx-auto max-w-md">
+            <summary className="text-sm text-gray-500 cursor-pointer select-none">
+              Ver linhas ignoradas como duplicadas
+            </summary>
+            <ul className="mt-2 divide-y divide-gray-100 border border-gray-100 rounded-lg overflow-hidden">
+              {result.duplicatedItems.map((it) => (
+                <li key={it.externalId} className="flex items-baseline justify-between gap-3 px-3 py-1.5">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm text-gray-700">{it.description}</span>
+                    <span className="block text-xs text-gray-400">
+                      {new Date(it.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}
+                    </span>
+                  </span>
+                  <span className="shrink-0 whitespace-nowrap text-sm tabular-nums text-gray-600">
+                    {formatCurrency(Math.abs(it.amountCents) / 100)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
         <p><strong>{result.settled}</strong> parcelas planejadas marcadas como pagas</p>
         {!!result.linked && <p><strong>{result.linked}</strong> vinculadas a despesas planejadas em outros projetos</p>}
         <p className="text-sm text-gray-500 mt-2">Período: {result.periodLabel}</p>

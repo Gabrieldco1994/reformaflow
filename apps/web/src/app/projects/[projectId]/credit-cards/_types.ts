@@ -64,10 +64,21 @@ export interface CommitResult {
   periodLabel: string;
   inserted: number;
   duplicated: number;
+  /** Linhas ignoradas como duplicata (auditável — para o usuário conferir o que não entrou). */
+  duplicatedItems?: DuplicatedImportItem[];
   settled: number;
   importId: string;
   linked?: number;
   skipped?: number;
+}
+
+/** Uma linha do arquivo que a importação ignorou por já existir (dedup). */
+export interface DuplicatedImportItem {
+  externalId: string;
+  date: string;
+  description: string;
+  amountCents: number;
+  reason: 'duplicate';
 }
 
 export interface SuggestionRow {

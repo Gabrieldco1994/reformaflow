@@ -85,6 +85,8 @@ export interface BankCommitResult {
   periodLabel: string;
   inserted: number;
   duplicated: number;
+  /** Linhas ignoradas como duplicata (auditável — para o usuário conferir o que não entrou). */
+  duplicatedItems?: DuplicatedImportItem[];
   receiptsInserted: number;
   cardPayments: number;
   /** Pagamentos de fatura que entraram SEM cartão identificado (saem do caixa, não quitam fatura). */
@@ -92,6 +94,15 @@ export interface BankCommitResult {
   aiReclassified: number;
   recurrencesCreated: number;
   skipped: number;
+}
+
+/** Uma linha do arquivo que a importação ignorou por já existir (dedup). */
+export interface DuplicatedImportItem {
+  externalId: string;
+  date: string;
+  description: string;
+  amountCents: number;
+  reason: 'duplicate';
 }
 
 export interface BankSuggestionRow {
