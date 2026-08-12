@@ -88,3 +88,32 @@ export function caixaDateForCardPurchase(
   const clampedDue = Math.min(dueDay as number, lastDay);
   return new Date(Date.UTC(year, month + offset, clampedDue));
 }
+
+/**
+ * Soma `n` meses a uma chave `YYYY-MM` (normaliza ano/mês; `n` pode ser
+ * negativo). Espelha o `monthKeyPlus` do `monthly-overview.service.ts` — a
+ * mesma aritmética de janela usada no casamento pagamento↔fatura.
+ */
+export function addMonthsToMonthKey(monthKey: string, n: number): string {
+  const [yearStr, monthStr] = monthKey.split('-');
+  const year = parseInt(yearStr ?? '0', 10);
+  const month = parseInt(monthStr ?? '1', 10);
+  const d = new Date(Date.UTC(year, month - 1 + n, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+/**
+ * Tolerância de casamento entre o VALOR pago e o TOTAL de uma fatura de cartão:
+ * `max(R$ 2,00, 0,5% do total)`. Encargos, arredondamentos e IOF fazem o valor
+ * pago divergir alguns centavos do total exato — dentro desta faixa considera-se
+ * a fatura quitada.
+ *
+ * Fonte única (regra de ouro "reuse, não invente outra"): tanto o read-model
+ * (`assignImplicitPayments`/`computePaidInvoiceKeys` em `monthly-overview`) quanto
+ * a liquidação física (`CardInvoiceSettlementService.settleInvoice`) importam
+ * ESTA função — duas tolerâncias diferentes fariam a Visão Conta e a realização
+ * de caixa discordarem sobre "esta fatura está paga?".
+ */
+export function invoiceMatchTolerance(totalCents: number): number {
+  return Math.max(200, Math.round(totalCents * 0.005));
+}

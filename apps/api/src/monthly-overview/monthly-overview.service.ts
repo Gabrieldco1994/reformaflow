@@ -8,6 +8,7 @@ import {
   compareMonths,
   ExpenseTypeLabels,
   ExpenseType,
+  invoiceMatchTolerance,
   ReceiptTypeLabels,
   isNeutralExpenseType,
   isConsumptionNeutralExpenseType,
@@ -3345,10 +3346,6 @@ export function assignImplicitPayments<T extends PaymentForMatch>(
     paidByKey.set(invoiceKey, (paidByKey.get(invoiceKey) ?? 0) + payment.amount);
   }
   return assignments;
-}
-
-function invoiceMatchTolerance(total: number): number {
-  return Math.max(200, Math.round(total * 0.005));
 }
 
 export interface CaixaContaAccount {
