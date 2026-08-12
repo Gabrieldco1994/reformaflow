@@ -15,7 +15,7 @@ vi.mock('@/lib/api', () => ({
 const SOURCE: Expense = {
   id: 'source-1',
   tipoDespesa: 'MATERIAL_CONSTRUCAO',
-  valor: 12771,
+  valor: 1_277_100,
   quantidade: 1,
   valorTotal: 1_277_100,
   titulo: 'Compra a ratear',
@@ -176,6 +176,32 @@ describe('RatearCompraModal', () => {
     expect(screen.queryByRole('button', { name: /Salvar rateio/i })).not.toBeInTheDocument();
   });
 
+  it('aguarda o detalhe atual antes de hidratar o editor quando há cache antigo', async () => {
+    const cached = makeRateio([{ ...makeItem(1, SOURCE.valorTotal), titulo: 'Cache antigo' }]);
+    const fresh = makeRateio([makeItem(1, 500_000), makeItem(2, 777_100)]);
+    let resolveDetail!: (detail: RateioDetalhe) => void;
+    const currentDetail = new Promise<RateioDetalhe>((resolve) => {
+      resolveDetail = resolve;
+    });
+    apiGet.mockImplementation((path: string) =>
+      path.endsWith('/rateio') ? currentDetail : Promise.resolve(TARGETS),
+    );
+    const client = createClient();
+    client.setQueryData(['rateio-detalhe', 'p1', SOURCE.id], cached);
+
+    renderModal({ client });
+
+    expect(screen.getByText(/Carregando rateio da compra/i)).toBeInTheDocument();
+    expect(screen.queryByDisplayValue('12.771,00')).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/Buscar planejada/i)).not.toBeInTheDocument();
+
+    resolveDetail(fresh);
+
+    expect(await screen.findByDisplayValue('5.000,00')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('7.771,00')).toBeInTheDocument();
+    expect(screen.queryByText('Cache antigo')).not.toBeInTheDocument();
+  });
+
   it('mostra erro sem editor e permite tentar novamente', async () => {
     let attempts = 0;
     apiGet.mockImplementation((path: string) => {
@@ -183,15 +209,35 @@ describe('RatearCompraModal', () => {
       attempts += 1;
       return attempts === 1 ? Promise.reject(new Error('falhou')) : Promise.resolve(NO_RATEIO);
     });
+    const client = createClient();
+    client.setQueryData(
+      ['rateio-detalhe', 'p1', SOURCE.id],
+      makeRateio([makeItem(1, SOURCE.valorTotal)]),
+    );
 
-    renderModal();
+    renderModal({ client });
 
     const retry = await screen.findByRole('button', { name: /Tentar novamente/i });
+    expect(screen.queryByDisplayValue('12.771,00')).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText(/Buscar planejada/i)).not.toBeInTheDocument();
     fireEvent.click(retry);
 
     expect(await screen.findByPlaceholderText(/Buscar planejada/i)).toBeInTheDocument();
     expect(attempts).toBe(2);
+  });
+
+  it('não oferece na busca um alvo que já veio preenchido no rateio', async () => {
+    apiGet.mockImplementation((path: string) =>
+      path.endsWith('/rateio')
+        ? Promise.resolve(makeRateio([makeItem(1, SOURCE.valorTotal)]))
+        : Promise.resolve([TARGETS[0], TARGETS[1]]),
+    );
+    renderModal();
+
+    fireEvent.focus(await screen.findByPlaceholderText(/Buscar planejada/i));
+
+    expect(await screen.findByRole('button', { name: /^Planejada 2 /i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Planejada 1 /i })).not.toBeInTheDocument();
   });
 
   it.each([

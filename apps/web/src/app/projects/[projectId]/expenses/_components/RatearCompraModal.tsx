@@ -92,14 +92,28 @@ export function RatearCompraModal({
       return;
     }
 
-    if (!rateioQuery.data || editorSession === sessionKey) return;
+    if (
+      !rateioQuery.data ||
+      !rateioQuery.isSuccess ||
+      rateioQuery.isFetching ||
+      editorSession === sessionKey
+    ) {
+      return;
+    }
 
     setRows(rateioQuery.data.rateado ? rateioQuery.data.items.map(itemToAllocRow) : []);
     setSearch('');
     setSearchOpen(false);
     setEditorDetail(rateioQuery.data);
     setEditorSession(sessionKey);
-  }, [editorSession, open, rateioQuery.data, sessionKey]);
+  }, [
+    editorSession,
+    open,
+    rateioQuery.data,
+    rateioQuery.isFetching,
+    rateioQuery.isSuccess,
+    sessionKey,
+  ]);
 
   const editorReady = editorSession === sessionKey && editorDetail != null;
   const isLocked =
@@ -197,7 +211,7 @@ export function RatearCompraModal({
         </div>
 
         {!editorReady ? (
-          rateioQuery.isError && !rateioQuery.data ? (
+          rateioQuery.isError ? (
             <div className="space-y-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5">
               <p className="text-sm text-red-700">Erro ao carregar o rateio desta compra.</p>
               <button
