@@ -9,6 +9,7 @@ import { ExpenseTypeLabels, LaborCategoryLabels, buildInstallments, buildRecurre
 import { RatearMixedDto } from './dto/ratear-mixed.dto';
 import { Prisma } from '@prisma/client';
 import { fastClassify } from '../bank-account/bank-account.service';
+import { RateioDetalhe } from './rateio.types';
 
 type ExpenseDb = PrismaService | Prisma.TransactionClient;
 
@@ -474,11 +475,89 @@ export class ExpenseService {
       where: { id, projectId, tenantId, deletedAt: null },
     });
     if (!source) throw new NotFoundException('Despesa não encontrada');
+    await this.assertNotRateado(tenantId, id);
     return this.prisma.expense.update({
       where: { id },
       data: { linkedExpenseId: null },
       include: { room: true },
     });
+  }
+
+  /**
+   * I1: uma fonte com ≥1 RateioAllocation deve manter `linkedExpenseId` != null —
+   * é o único ponteiro que faz `monthly-overview.service.ts` deduplicá-la do
+   * consolidado. Limpar/reapontar o vínculo enquanto o rateio existe conta a
+   * compra em dobro (fonte + as N planejadas rateadas). Chamar ANTES de
+   * qualquer escrita nos pontos de mutação (`update`, `unlinkCrossProject`).
+   */
+  private async assertNotRateado(tenantId: string, sourceExpenseId: string) {
+    const count = await this.prisma.rateioAllocation.count({
+      where: { tenantId, sourceExpenseId },
+    });
+    if (count > 0) {
+      throw new BadRequestException(
+        'Esta despesa está rateada — o vínculo não pode ser removido ou alterado enquanto o rateio existir. Desfaça o rateio primeiro.',
+      );
+    }
+  }
+
+  /**
+   * Leitura canônica do rateio de uma compra-fonte (issue #423): enumera TODAS
+   * as `RateioAllocation` (não apenas o alvo apontado por `linkedExpenseId`,
+   * que é só o primeiro), incluindo as de alvo soft-deletado — I4: o `$use`
+   * de soft-delete não filtra `RateioAllocation` nem seu `include.target`.
+   * Somente leitura (I7): nenhuma escrita, nenhuma transação.
+   */
+  async getRateio(tenantId: string, projectId: string, id: string): Promise<RateioDetalhe> {
+    const source = await this.prisma.expense.findFirst({
+      where: { id, projectId, tenantId, deletedAt: null },
+    });
+    if (!source) throw new NotFoundException('Despesa não encontrada');
+
+    const allocations = await this.prisma.rateioAllocation.findMany({
+      where: { tenantId, sourceExpenseId: id },
+      include: { target: { include: { project: { select: { id: true, name: true, type: true } } } } },
+      orderBy: [{ createdAt: 'asc' }, { targetExpenseId: 'asc' }],
+    });
+    // Reforça a ordem determinística em memória (createdAt asc, targetExpenseId
+    // asc como desempate total) — não depende só do driver honrar o orderBy.
+    allocations.sort((a, b) => {
+      const byCreatedAt = a.createdAt.getTime() - b.createdAt.getTime();
+      return byCreatedAt !== 0 ? byCreatedAt : a.targetExpenseId.localeCompare(b.targetExpenseId);
+    });
+
+    let removedTargetsCount = 0;
+    const items: RateioDetalhe['items'] = [];
+    for (const a of allocations) {
+      if (a.target.deletedAt !== null) {
+        removedTargetsCount += 1;
+        continue;
+      }
+      items.push({
+        targetExpenseId: a.targetExpenseId,
+        titulo: a.target.titulo,
+        fornecedor: a.target.fornecedor,
+        projectId: a.target.project.id,
+        projectName: a.target.project.name,
+        projectType: a.target.project.type,
+        allocationCents: a.allocation,
+        plannedValorTotalCents: a.plannedValorTotal ?? null,
+        status: a.target.status,
+      });
+    }
+
+    const rateadoCents = items.reduce((sum, i) => sum + i.allocationCents, 0);
+    const totalSourceCents = source.valorTotal;
+
+    return {
+      sourceExpenseId: id,
+      rateado: allocations.length > 0,
+      totalSourceCents,
+      rateadoCents,
+      sobraCents: totalSourceCents - rateadoCents,
+      removedTargetsCount,
+      items,
+    };
   }
 
   /**
@@ -803,6 +882,12 @@ export class ExpenseService {
       where: { id, projectId, tenantId, deletedAt: null },
     });
     if (!existing) throw new NotFoundException('Despesa não encontrada');
+
+    // I1: generic PATCH não é o dono do vínculo cross-project de uma fonte
+    // rateada — apenas (des)ratear é. Ver assertNotRateado.
+    if (dto.linkedExpenseId !== undefined) {
+      await this.assertNotRateado(tenantId, id);
+    }
 
     const valorCents = dto.valor !== undefined ? Math.round(dto.valor * 100) : existing.valor;
     const quantidade = dto.quantidade !== undefined ? dto.quantidade : existing.quantidade;

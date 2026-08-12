@@ -226,6 +226,16 @@ export class ExpenseController {
     return this.service.desratear(tenantId, projectId, id);
   }
 
+  @Get(':id/rateio')
+  @ApiOperation({ summary: 'Leitura canônica do rateio desta compra (todas as alocações, somente-leitura)' })
+  getRateio(
+    @CurrentTenant() tenantId: string,
+    @Param('projectId') projectId: string,
+    @Param('id') id: string,
+  ) {
+    return this.service.getRateio(tenantId, projectId, id);
+  }
+
   @Delete(':id')
   @ApiOperation({ summary: 'Remover despesa (soft delete)' })
   remove(
