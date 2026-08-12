@@ -477,9 +477,19 @@ export class MonthlyOverviewService {
     // sem este conjunto, os demais alvos cairiam no ramo "sem espelho" (lump) e
     // inflariam a projeção. Suprimimos todos os alvos cuja fonte ainda existe.
     const rateioTargetIds = new Set<string>();
+    // Fontes de rateio (mesmas RateioAllocation acima, sem nova query): o rateio
+    // grava `linkedExpenseId` na fonte apontando pro 1º alvo (mesmo campo do
+    // vínculo simples de conciliação). Uma fonte PESSOAL "Carteira" (sem
+    // cardLast4/bankLast4) some da Visão Conta se esse linkedExpenseId cair no
+    // filtro genérico de espelho — viola AGENTS.md #14 (sem conta = Carteira,
+    // nunca pode sumir). `rateioSourceIds` marca essas fontes para o filtro de
+    // `localCarteiraThisMonth` NÃO as excluir, preservando a supressão do alvo
+    // (rateioTargetIds acima) e do vínculo simples PAGO (manualWalletMirror...).
+    const rateioSourceIds = new Set<string>();
     for (const a of rateioAllocations) {
       if (!allExpensesById.has(a.sourceExpenseId)) continue; // fonte sumiu → não suprime
       rateioTargetIds.add(a.targetExpenseId);
+      rateioSourceIds.add(a.sourceExpenseId);
     }
 
     type ParcelaOrigin =
@@ -632,6 +642,7 @@ export class MonthlyOverviewService {
     const localCarteiraThisMonth = localCarteiraOccurrences.filter(
       ({ expense, data }) =>
         (!expense.linkedExpenseId ||
+          rateioSourceIds.has(expense.id) ||
           manualWalletMirrorTargetsThisMonth.has(expense.linkedExpenseId)) &&
         isInRange(data, monthStart, monthEnd),
     );
