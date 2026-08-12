@@ -1,7 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { caixaMonthForCardPurchase, NEUTRAL_EXPENSE_TYPES, isSinglePaymentForm } from '@reformaflow/domain';
+import {
+  caixaMonthForCardPurchase,
+  addMonthsToMonthKey,
+  invoiceMatchTolerance,
+  NEUTRAL_EXPENSE_TYPES,
+  isSinglePaymentForm,
+} from '@reformaflow/domain';
 
 interface SettleCard {
   id: string;
@@ -27,6 +33,7 @@ interface EntryRow {
   status: string;
   parcela: string | null;
   data: Date;
+  valor: number;
 }
 
 /**
@@ -38,9 +45,18 @@ interface EntryRow {
  * grava tudo como PLANEJADO até o pagamento efetivo.
  *
  * Estratégia (combo, decisão do usuário):
- *   1. Por VENCIMENTO (preferida quando o cartão tem closingDay/dueDay): liquida
- *      cada parcela/compra cuja fatura VENCE no mês do pagamento — derivado por
- *      `caixaMonthForCardPurchase` sobre a data de cada lançamento de caixa.
+ *   1. Por VENCIMENTO (preferida quando o cartão tem closingDay/dueDay): decide
+ *      QUAL fatura o pagamento quita e SÓ realiza quando o valor fecha a fatura.
+ *      - O alvo é escolhido na MESMA janela `{payMonth, payMonth+1}` que o
+ *        read-model (`assignImplicitPayments`): entre as faturas do cartão cujo
+ *        vencimento (`caixaMonthForCardPurchase` sobre cada lançamento) cai nessa
+ *        janela, escolhe a de total mais próximo do valor pago; empate → mês de
+ *        vencimento mais antigo (idêntico ao `assignImplicitPayments`).
+ *      - Pagamento PARCIAL (valor não fecha o total da fatura, dentro de
+ *        `invoiceMatchTolerance` = `max(R$2,00; 0,5%)`) NÃO marca nenhuma compra
+ *        como paga — nada é realizado até fechar o total.
+ *      - Quando fecha, marca como PAGO apenas os lançamentos PLANEJADO daquele
+ *        `dueMonth` (não do mês do PAGAMENTO).
  *   2. Fallback por FATURA IMPORTADA: se o cartão não tem dias configurados (ou
  *      nada casou por vencimento), procura uma importação de fatura com total ≈
  *      valor do pagamento e liquida a parcela em aberto mais antiga de cada
@@ -70,9 +86,8 @@ export class CardInvoiceSettlementService {
     const neutral = Array.from(NEUTRAL_EXPENSE_TYPES);
     const hasDays = card.closingDay != null && card.dueDay != null;
 
-    // ── Estratégia 1: por vencimento ──────────────────────────────
+    // ── Estratégia 1: por vencimento, respeitando o VALOR pago ────
     if (hasDays) {
-      const target = this.yearMonth(paymentDate);
       const purchases = (await this.prisma.expense.findMany({
         where: {
           tenantId,
@@ -82,14 +97,17 @@ export class CardInvoiceSettlementService {
         },
       })) as ExpenseRow[];
 
-      for (const e of purchases) {
-        const n = await this.settleByDueMonth(e, card, target);
-        if (n > 0) {
-          settledExpenses++;
-          settledParcelas += n;
+      const target = await this.resolveTargetDueMonth(purchases, card, amountCents, paymentDate);
+      if (target) {
+        for (const e of purchases) {
+          const n = await this.settleByDueMonth(e, card, target);
+          if (n > 0) {
+            settledExpenses++;
+            settledParcelas += n;
+          }
         }
+        if (settledParcelas > 0) return { settledExpenses, settledParcelas };
       }
-      if (settledParcelas > 0) return { settledExpenses, settledParcelas };
     }
 
     // ── Estratégia 2 (fallback): por fatura importada ─────────────
@@ -115,6 +133,60 @@ export class CardInvoiceSettlementService {
     }
 
     return { settledExpenses, settledParcelas };
+  }
+
+  /**
+   * Decide QUAL fatura o pagamento quita e se o valor a fecha.
+   *
+   * Espelha `assignImplicitPayments` do read-model: a janela de casamento é
+   * `{payMonth, payMonth+1}` (uma fatura que vence dia 1 é paga no fim do mês
+   * anterior), e entre as faturas candidatas escolhe a de total mais próximo do
+   * valor pago (empate → vencimento mais antigo). Só devolve o `dueMonth` quando
+   * o valor pago fecha o total da fatura dentro de `invoiceMatchTolerance`
+   * (`max(R$2,00; 0,5%)`); pagamento parcial devolve `null` (nada é realizado).
+   *
+   * O total de cada fatura é a soma de TODOS os lançamentos daquele ciclo
+   * (qualquer status), como em `buildCardInvoiceAggregates` — é o valor cobrado
+   * pelo banco, contra o qual o pagamento é confrontado.
+   */
+  private async resolveTargetDueMonth(
+    purchases: ExpenseRow[],
+    card: SettleCard,
+    amountCents: number,
+    paymentDate: Date,
+  ): Promise<string | null> {
+    const payMonth = this.yearMonth(paymentDate);
+    const windowMonths = new Set([payMonth, addMonthsToMonthKey(payMonth, 1)]);
+
+    const totalByMonth = new Map<string, number>();
+    for (const e of purchases) {
+      const entries = (await this.prisma.cashFlowEntry.findMany({
+        where: { expenseId: e.id, deletedAt: null },
+      })) as EntryRow[];
+      for (const en of entries) {
+        const dueMonth = caixaMonthForCardPurchase(en.data, card.closingDay, card.dueDay);
+        if (!windowMonths.has(dueMonth)) continue;
+        totalByMonth.set(dueMonth, (totalByMonth.get(dueMonth) ?? 0) + (en.valor ?? 0));
+      }
+    }
+
+    let best: { dueMonth: string; total: number; diff: number } | null = null;
+    for (const [dueMonth, total] of totalByMonth) {
+      if (total <= 0) continue;
+      const diff = Math.abs(total - amountCents);
+      if (
+        best == null ||
+        diff < best.diff ||
+        (diff === best.diff && dueMonth.localeCompare(best.dueMonth) < 0)
+      ) {
+        best = { dueMonth, total, diff };
+      }
+    }
+
+    if (!best) return null;
+    // Só realiza quando o valor pago FECHA a fatura (dentro da tolerância).
+    if (best.diff > invoiceMatchTolerance(best.total)) return null;
+    return best.dueMonth;
   }
 
   /**
