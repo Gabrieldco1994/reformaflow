@@ -130,12 +130,14 @@ saiu do caixa pessoal, mas o gasto é atribuído ao projeto de destino. O app
 O **rateio** permite dividir uma despesa entre vários destinos.
 
 É possível abrir os detalhes de um rateio tanto pela **compra-fonte no PESSOAL**
-quanto por uma **despesa-alvo na REFORMA**. A seção lista todas as alocações que
-o usuário pode ver — não apenas a primeira — com valor total da compra, total já
-rateado e sobra. Alvos sem permissão de visualização não expõem título,
-fornecedor ou projeto: aparecem apenas como contagem e soma agregadas ("N
-alocações ocultas, R$ X"). Alvos removidos são descontados da lista e contam
-para a sobra explicada.
+quanto por uma **despesa-alvo na REFORMA**. Nas visões **Mês** e **Categoria**
+da REFORMA, **Edição completa** também fica alcançável em celulares
+de 375/390 px. Ao abrir um alvo rateado, a seção carrega o rateio existente
+canônico e lista, somente para leitura, todas as alocações que o usuário pode ver
+— não apenas a primeira — com valor total da compra, total já rateado e sobra.
+Alvos sem permissão de visualização não expõem título, fornecedor ou projeto:
+aparecem apenas como contagem e soma agregadas ("N alocações ocultas, R$ X").
+Alvos removidos são descontados da lista e contam para a sobra explicada.
 
 Na compra-fonte do PESSOAL, **Ratear** reabre o rateio com as alocações visíveis
 já preenchidas, em vez de mostrar um rateio novo. Se também houver alocações
@@ -144,6 +146,13 @@ Somente essa fonte permite **editar** ou **desratear**. Ao abrir pelo alvo na
 REFORMA, o rateio é estritamente somente-leitura e não pode ser alterado nem
 desfeito. Enquanto a compra-fonte estiver rateada, a opção de alterar/remover
 seu vínculo (`linkedExpenseId`) continua bloqueada.
+
+Na **Visão Conta** do PESSOAL, um rateio pago conta uma única vez: a
+compra-fonte permanece nas Movimentações e em **Saiu no mês**, com sua origem
+real (**Carteira**, conta ou cartão), e todos os alvos pagos do mesmo rateio
+ficam fora desses dois cálculos. Por exemplo, uma fonte de **R$ 1.000** dividida
+em **R$ 450 + R$ 300 + R$ 250** produz **Carteira: −R$ 1.000** e **Saiu no mês:
+R$ 1.000**, sem somar novamente os três alvos.
 
 Se uma parcela de uma despesa de outro projeto (CASA/CARRO/REFORMA/COMPRA) for
 marcada como paga **direto no projeto de origem** (sem passar pelo vínculo do
@@ -479,7 +488,7 @@ mês (‹ › + calendário).
 |---|---|
 | **Tenho na conta hoje** | O dinheiro disponível de verdade na conta agora, reconciliado com o banco (caixa real). Compras no cartão só entram quando a fatura é paga. |
 | **Entrou no mês** | Recebimentos que já caíram na conta neste mês. |
-| **Saiu no mês** | Tudo que já foi pago até hoje — **inclui lançamentos sem conta vinculada (Carteira)**. Quando há lançamentos Carteira, aparece a nota "inclui R$ X sem conta vinculada" abaixo do valor. |
+| **Saiu no mês** | Tudo que já foi pago até hoje — **inclui lançamentos sem conta vinculada (Carteira)**. Um rateio pago entra só pela compra-fonte, com sua origem preservada; os alvos pagos não são somados outra vez. Quando há lançamentos Carteira, aparece a nota "inclui R$ X sem conta vinculada" abaixo do valor. |
 | **Ainda falta pagar** | O que ainda vai sair até o fim do mês: faturas de cartão e contas em aberto. **Só saídas** — recebimentos previstos não entram aqui. Clicável → filtra o que falta pagar. |
 | **Sobra prevista** | Previsão do saldo no fim do mês: o que tem hoje + o que ainda entra − o que ainda falta pagar. Quando há recebimentos previstos, aparece a nota "inclui R$ X previsto ainda a entrar" abaixo do valor. Negativo = a conta deve fechar no vermelho. |
 

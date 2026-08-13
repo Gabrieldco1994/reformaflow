@@ -1,6 +1,6 @@
 # Estado Atual — Cockpit/Visão Conta (PESSOAL)
 
-Atualizado em: **2026-08-12**
+Atualizado em: **2026-08-13**
 
 Histórico detalhado: `docs/archive/estado-atual-historico-2026.md`.
 
@@ -77,12 +77,18 @@ Histórico detalhado: `docs/archive/estado-atual-historico-2026.md`.
   `linkedExpenseId` reflete). Na fonte PESSOAL, o `RatearCompraModal`
   pré-carrega as alocações existentes visíveis para edição, em vez de aparentar
   um rateio novo; alocações ocultas ou removidas impedem substituição silenciosa.
-  No alvo REFORMA, a visualização permanece somente-leitura: editar e desratear
-  continuam exclusivos da fonte PESSOAL.
+  No alvo REFORMA, **Edição completa** permanece alcançável nas visões Mês e
+  Categoria também em mobile 375/390 px, mas exibe o rateio canônico
+  estritamente somente-leitura: editar e desratear continuam exclusivos da
+  fonte PESSOAL.
   Alvos fora da lente de acesso do requisitante aparecem só como
   contagem/soma agregadas (nunca título/projeto); alvos removidos são
-  descontados e explicam a sobra. A mudança não altera alocações nem a semântica
-  dos totais financeiros, e o vínculo (`linkedExpenseId`) da fonte continua
+  descontados e explicam a sobra. Na Visão Conta do PESSOAL, a fonte conta uma
+  única vez e mantém sua origem Carteira/conta/cartão; todos os alvos pagos são
+  excluídos de `saidas`/`saiuMes` pelo conjunto canônico de `RateioAllocation`,
+  não apenas pelo primeiro `linkedExpenseId`. Exemplo verificado: fonte de R$
+  1.000 com alvos de R$ 450/R$ 300/R$ 250 resulta em Carteira: −R$ 1.000 e
+  `saiuMes`: R$ 1.000. O vínculo (`linkedExpenseId`) da fonte continua
   bloqueado enquanto ela estiver rateada.
 - ✅ **Origem do pagamento na REFORMA** (`feat/reforma-paid-origins`, #424):
   endpoint read-only `GET .../expenses/paid-origins` deriva, por
