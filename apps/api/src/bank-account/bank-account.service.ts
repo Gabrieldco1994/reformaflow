@@ -1191,9 +1191,8 @@ export class BankAccountService {
       where: { id: bankExpenseId, tenantId, projectId, deletedAt: null },
     });
     if (!source) throw new NotFoundException('Despesa não encontrada');
-    if (!source.linkedExpenseId) return { ok: true, alreadyUnlinked: true };
     await this.prisma.$transaction(async (tx) => {
-      await this.conciliacao.unsettleBySource(tx, { tenantId, sourceExpenseId: source.id });
+      await this.conciliacao.reverseSourceLinks(tx, { tenantId, sourceExpenseId: source.id });
     });
     return { ok: true };
   }

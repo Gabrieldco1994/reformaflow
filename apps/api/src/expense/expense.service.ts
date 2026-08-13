@@ -19,6 +19,10 @@ const RATEIO_PARTICIPANT_MUTATION_MESSAGE =
   'Esta despesa participa de um rateio. Altere valores, status, cronograma, recorrência ou vínculos pelo fluxo dedicado do rateio.';
 const RATEIO_TARGET_DELETE_MESSAGE =
   'Esta despesa é alvo de rateio. Desfaça o rateio na compra fonte antes de removê-la.';
+const SETTLEMENT_PARTICIPANT_MUTATION_MESSAGE =
+  'Esta despesa participa de uma conciliação cross-project por parcela. Altere valores, status, cronograma ou vínculos pelo fluxo dedicado (Desvincular na Visão Conta).';
+const SETTLEMENT_TARGET_DELETE_MESSAGE =
+  'Esta despesa é alvo de conciliação por parcela. Desvincule a fonte (Visão Conta) antes de removê-la.';
 
 export interface UpdateInstallmentDateResult {
   id: string;
@@ -466,6 +470,7 @@ export class ExpenseService {
     // EFETIVO mudaria (idempotência do mesmo alvo continua permitida).
     if (source.linkedExpenseId !== targetExpenseId) {
       await this.guardRateioParticipation(tenantId, id, false, false);
+      await this.guardSettlementParticipation(tenantId, id, false, true);
     }
     const target = await this.prisma.expense.findFirst({
       where: { id: targetExpenseId, tenantId, deletedAt: null },
@@ -489,6 +494,7 @@ export class ExpenseService {
     });
     if (!source) throw new NotFoundException('Despesa não encontrada');
     await this.guardRateioParticipation(tenantId, id, false, false);
+    await this.guardSettlementParticipation(tenantId, id, false, true);
     return this.prisma.expense.update({
       where: { id },
       data: { linkedExpenseId: null },
@@ -523,6 +529,38 @@ export class ExpenseService {
     if ((isSource && !allowSource) || (isTarget && !allowTarget)) {
       throw new BadRequestException(
         isTarget && allowSource ? RATEIO_TARGET_DELETE_MESSAGE : RATEIO_PARTICIPANT_MUTATION_MESSAGE,
+      );
+    }
+    return isSource ? 'source' : isTarget ? 'target' : null;
+  }
+
+  /**
+   * Espelho de `guardRateioParticipation`, mas para `CrossProjectSettlement`
+   * (conciliação por parcela via 'Vincular transações'). Tabela e mensagens de
+   * remediação são diferentes — mantido como função separada por design (não
+   * mesclar). Nunca lança quando ambos os flags allow são true.
+   */
+  private async guardSettlementParticipation(
+    tenantId: string,
+    expenseId: string,
+    allowSource: boolean,
+    allowTarget: boolean,
+    db: ExpenseDb = this.prisma,
+  ): Promise<RateioParticipation> {
+    const rows = await db.crossProjectSettlement.findMany({
+      where: {
+        tenantId,
+        OR: [{ sourceExpenseId: expenseId }, { targetExpenseId: expenseId }],
+      },
+      select: { sourceExpenseId: true, targetExpenseId: true },
+    });
+    const isSource = rows.some((row) => row.sourceExpenseId === expenseId);
+    const isTarget = rows.some((row) => row.targetExpenseId === expenseId);
+    if ((isSource && !allowSource) || (isTarget && !allowTarget)) {
+      throw new BadRequestException(
+        isTarget && allowSource
+          ? SETTLEMENT_TARGET_DELETE_MESSAGE
+          : SETTLEMENT_PARTICIPANT_MUTATION_MESSAGE,
       );
     }
     return isSource ? 'source' : isTarget ? 'target' : null;
@@ -767,10 +805,9 @@ export class ExpenseService {
       where: { id: sourceId, projectId, tenantId, deletedAt: null },
     });
     if (!source) throw new NotFoundException('Despesa não encontrada');
-    if (!source.linkedExpenseId) return { ok: true, alreadyUnlinked: true };
 
     await this.prisma.$transaction(async (tx) => {
-      await this.conciliacao.unsettleBySource(tx, { tenantId, sourceExpenseId: source.id });
+      await this.conciliacao.reverseSourceLinks(tx, { tenantId, sourceExpenseId: source.id });
     });
     return { ok: true };
   }
@@ -1092,6 +1129,7 @@ export class ExpenseService {
       !hasProtectedChange,
       !hasProtectedChange,
     );
+    await this.guardSettlementParticipation(tenantId, id, !hasProtectedChange, !hasProtectedChange);
 
     const resultingFormaPagamento = dto.formaPagamento ?? existing.formaPagamento;
     const resultingQuantidadeParcela =
@@ -1692,6 +1730,25 @@ export class ExpenseService {
           data: { deletedAt: now, linkedExpenseId: null },
         });
         if (deleted.count !== 1) throw new NotFoundException('Despesa não encontrada');
+        return { deleted: true, count: 1 };
+      }
+
+      const settlementParticipation = await this.guardSettlementParticipation(
+        tenantId,
+        id,
+        true,
+        false,
+        tx,
+      );
+      if (settlementParticipation === 'source') {
+        await this.conciliacao.unsettleBySource(tx, { tenantId, sourceExpenseId: id });
+        // `unsettleBySource` já soft-deleta a própria source (via `softDeleteMirror`
+        // interno) — não soft-deletar de novo aqui, só limpar vínculos órfãos de
+        // entrada, espelhando a limpeza do ramo de rateio acima.
+        await tx.expense.updateMany({
+          where: { tenantId, linkedExpenseId: id, deletedAt: null },
+          data: { linkedExpenseId: null },
+        });
         return { deleted: true, count: 1 };
       }
 

@@ -34,7 +34,7 @@ const makePrismaMock = (rateioCount: number) => ({
     ),
     findFirst: jest.fn().mockResolvedValue(null),
   },
-  crossProjectSettlement: { count: jest.fn().mockResolvedValue(0) },
+  crossProjectSettlement: { count: jest.fn().mockResolvedValue(0), findMany: jest.fn().mockResolvedValue([]) },
   creditCard: { findFirst: jest.fn().mockResolvedValue(null) },
   bankAccount: { findFirst: jest.fn().mockResolvedValue(null) },
   cashFlowEntry: { updateMany: jest.fn(), createMany: jest.fn() },
