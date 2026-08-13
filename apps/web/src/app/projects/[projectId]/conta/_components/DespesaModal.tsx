@@ -336,6 +336,8 @@ export function DespesaModal({
           quantidade,
           formaPagamento,
           status: formStatus,
+          quantidadeParcela: editing?.quantidadeParcela ? String(editing.quantidadeParcela) : undefined,
+          dataInicioParcela: dataInicioParcela || undefined,
         }}
       />
       {ratearSource && (
