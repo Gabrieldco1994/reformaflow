@@ -312,6 +312,7 @@ export function RatearCompraModal({
                     <button
                       type="button"
                       title="Preencher com a sobra"
+                      aria-label={`Preencher com a sobra para ${r.exp.titulo || r.exp.fornecedor || 'planejada'}`}
                       disabled={isLocked}
                       onClick={() => fillRemaining(r.exp.id)}
                       className="min-h-[44px] rounded px-1.5 py-1 text-[11px] font-medium text-orange-700 hover:bg-orange-50 disabled:text-gray-400"

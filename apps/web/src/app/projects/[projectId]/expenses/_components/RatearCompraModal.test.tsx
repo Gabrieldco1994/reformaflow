@@ -270,6 +270,26 @@ describe('RatearCompraModal', () => {
     expect(screen.queryByRole('button', { name: /^Planejada 1 /i })).not.toBeInTheDocument();
   });
 
+  it('distingue cada ação de preencher sobra pelo título do alvo', async () => {
+    apiGet.mockImplementation((path: string) =>
+      path.endsWith('/rateio')
+        ? Promise.resolve(makeRateio([makeItem(1), makeItem(2)]))
+        : Promise.resolve(TARGETS),
+    );
+    renderModal();
+
+    expect(
+      await screen.findByRole('button', {
+        name: 'Preencher com a sobra para Planejada 1',
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', {
+        name: 'Preencher com a sobra para Planejada 2',
+      }),
+    ).toBeInTheDocument();
+  });
+
   it.each([
     ['ocultas', { hiddenTargetsCount: 1, hiddenAllocationCents: 277_100 }],
     ['removidas', { removedTargetsCount: 1 }],

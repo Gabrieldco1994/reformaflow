@@ -258,7 +258,7 @@ function CategoryExpenseViewImpl({
                           </button>
                         </div>
                       ) : (
-                        <div className="flex items-center gap-3">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                           <BulkCheckbox id={e.id} />
                           <div className="flex-shrink-0 w-12 text-center">
                             {dateStr ? (
@@ -376,7 +376,7 @@ function CategoryExpenseViewImpl({
                               type="button"
                               onClick={() => openEdit(e)}
                               aria-label="Editar completo"
-                              className="p-1.5 rounded-full hover:bg-darc-linen/60 hidden md:inline-flex"
+                              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full hover:bg-darc-linen/60"
                               title="Edição completa"
                             >
                               <Pencil className="w-3.5 h-3.5 text-darc-velvet/40" />

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { GrupoDespesaPorMes } from '../_lib/grouping-by-month';
 import { MonthlyExpenseView } from './MonthlyExpenseView';
@@ -238,5 +238,21 @@ describe('MonthlyExpenseView — origem PESSOAL por parcela (#424)', () => {
     render(<MonthlyExpenseView {...baseProps()} paidOrigins={paidOrigins} />);
 
     expect(screen.queryByRole('button', { name: /Nubank/ })).toBeNull();
+  });
+
+  it('mantém a edição completa alcançável no mobile com alvo de toque de 44px', () => {
+    const props = baseProps();
+    render(<MonthlyExpenseView {...props} />);
+
+    const actions = screen.getAllByRole('button', { name: 'Editar completo' });
+    actions.forEach((action) => {
+      expect(action).not.toHaveClass('hidden');
+      expect(action).toHaveClass('min-h-[44px]', 'min-w-[44px]');
+    });
+
+    fireEvent.click(actions[0]!);
+    expect(props.openEdit).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'expense-infra' }),
+    );
   });
 });
