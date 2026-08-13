@@ -244,6 +244,7 @@ export function RatearCompraModal({
                 Distribuir entre planejadas de outro projeto
               </label>
               <Input
+                aria-label="Distribuir entre planejadas de outro projeto"
                 className="min-h-[44px]"
                 placeholder="Buscar planejada por título ou fornecedor…"
                 value={search}

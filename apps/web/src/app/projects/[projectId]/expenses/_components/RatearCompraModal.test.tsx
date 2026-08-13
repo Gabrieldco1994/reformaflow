@@ -156,7 +156,11 @@ describe('RatearCompraModal', () => {
   it('abre vazio para rateado=false e não oferece Desfazer', async () => {
     renderModal();
 
-    expect(await screen.findByPlaceholderText(/Buscar planejada/i)).toBeInTheDocument();
+    expect(
+      await screen.findByRole('textbox', {
+        name: 'Distribuir entre planejadas de outro projeto',
+      }),
+    ).toBeInTheDocument();
     expect(screen.queryByTitle('Remover')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Desfazer rateio/i })).not.toBeInTheDocument();
   });
