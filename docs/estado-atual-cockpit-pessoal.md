@@ -1,6 +1,6 @@
 # Estado Atual — Cockpit/Visão Conta (PESSOAL)
 
-Atualizado em: **2026-08-12**
+Atualizado em: **2026-08-13**
 
 Histórico detalhado: `docs/archive/estado-atual-historico-2026.md`.
 
@@ -70,14 +70,26 @@ Histórico detalhado: `docs/archive/estado-atual-historico-2026.md`.
   (CTAs já existentes "Comprar agora"/"Criar financiamento") — o Planejador
   nunca lança nada sozinho. e2e cobre criação de cenário + item financiamento +
   troca de horizonte sem novo fetch, e a pré-carga via deep-link.
-- ✅ **Detalhe read-only do rateio na compra-fonte** (issue #423): `GET
-  :id/rateio` enumera TODAS as `RateioAllocation` da fonte (não só a primeira,
-  que é o que `linkedExpenseId` reflete) e o modal (Visão Conta + Despesas
-  Geral) lista todas as alocações somente-leitura, com total/rateado/sobra.
+- ✅ **Detalhe e manutenção segura do rateio** (issues #423 e #428): `GET
+  :id/rateio` aceita como âncora a fonte ou um alvo, resolve o
+  `sourceExpenseId` canônico e enumera o conjunto completo de
+  `RateioAllocation` autorizado (não só a primeira, que é o que
+  `linkedExpenseId` reflete). Na fonte PESSOAL, o `RatearCompraModal`
+  pré-carrega as alocações existentes visíveis para edição, em vez de aparentar
+  um rateio novo; alocações ocultas ou removidas impedem substituição silenciosa.
+  No alvo REFORMA, **Edição completa** permanece alcançável nas visões Mês e
+  Categoria também em mobile 375/390 px, mas exibe o rateio canônico
+  estritamente somente-leitura: editar e desratear continuam exclusivos da
+  fonte PESSOAL.
   Alvos fora da lente de acesso do requisitante aparecem só como
   contagem/soma agregadas (nunca título/projeto); alvos removidos são
-  descontados e explicam a sobra. Sem editar/desfazer aqui e sem alterar o
-  vínculo (`linkedExpenseId`) da fonte enquanto ela estiver rateada.
+  descontados e explicam a sobra. Na Visão Conta do PESSOAL, a fonte conta uma
+  única vez e mantém sua origem Carteira/conta/cartão; todos os alvos pagos são
+  excluídos de `saidas`/`saiuMes` pelo conjunto canônico de `RateioAllocation`,
+  não apenas pelo primeiro `linkedExpenseId`. Exemplo verificado: fonte de R$
+  1.000 com alvos de R$ 450/R$ 300/R$ 250 resulta em Carteira: −R$ 1.000 e
+  `saiuMes`: R$ 1.000. O vínculo (`linkedExpenseId`) da fonte continua
+  bloqueado enquanto ela estiver rateada.
 - ✅ **Origem do pagamento na REFORMA** (`feat/reforma-paid-origins`, #424):
   endpoint read-only `GET .../expenses/paid-origins` deriva, por
   parcela, qual cartão/conta **do PESSOAL** (via `CrossProjectSettlement`/

@@ -2482,6 +2482,154 @@ describe("MonthlyOverviewService.getAccountView", () => {
       expect(res.saidas.some((s: any) => s.valor === 3_000)).toBe(false);
     });
 
+    it("rateio PAGO multi-alvo: mantém só a fonte Carteira e não soma os alvos REFORMA pagos", async () => {
+      prisma.rateioAllocation.findMany.mockResolvedValue([
+        {
+          sourceExpenseId: "src-telha-norte",
+          targetExpenseId: "tgt-telha",
+          allocation: 40_000,
+        },
+        {
+          sourceExpenseId: "src-telha-norte",
+          targetExpenseId: "tgt-piso",
+          allocation: 35_000,
+        },
+        {
+          sourceExpenseId: "src-telha-norte",
+          targetExpenseId: "tgt-argamassa",
+          allocation: 25_000,
+        },
+      ]);
+      prisma.expense.findMany.mockResolvedValue([
+        base({
+          id: "src-telha-norte",
+          projectId,
+          titulo: "Telha Norte",
+          fornecedor: "Telha Norte",
+          valorTotal: 100_000,
+          valor: 100_000,
+          status: "PAGO",
+          dataPagamento: new Date("2026-06-10T00:00:00.000Z"),
+          linkedExpenseId: "tgt-telha",
+        }),
+        base({
+          id: "tgt-telha",
+          projectId: reforma.id,
+          titulo: "Telhas da reforma",
+          fornecedor: "Telha Norte",
+          valorTotal: 40_000,
+          valor: 40_000,
+          status: "PAGO",
+          dataPagamento: new Date("2026-06-10T00:00:00.000Z"),
+          project: reforma,
+        }),
+        base({
+          id: "tgt-piso",
+          projectId: reforma.id,
+          titulo: "Piso da reforma",
+          fornecedor: "Telha Norte",
+          valorTotal: 35_000,
+          valor: 35_000,
+          status: "PAGO",
+          dataPagamento: new Date("2026-06-10T00:00:00.000Z"),
+          project: reforma,
+        }),
+        base({
+          id: "tgt-argamassa",
+          projectId: reforma.id,
+          titulo: "Argamassa da reforma",
+          fornecedor: "Telha Norte",
+          valorTotal: 25_000,
+          valor: 25_000,
+          status: "PAGO",
+          dataPagamento: new Date("2026-06-10T00:00:00.000Z"),
+          project: reforma,
+        }),
+      ]);
+
+      const res: any = await service.getAccountView(
+        tenantId,
+        projectId,
+        "2026-06",
+      );
+
+      expect(prisma.rateioAllocation.findMany).toHaveBeenCalledWith({
+        where: { tenantId },
+        select: { sourceExpenseId: true, targetExpenseId: true },
+      });
+      expect(res.saidas).toHaveLength(1);
+      expect(res.saidas[0]).toEqual(
+        expect.objectContaining({
+          id: "src-telha-norte",
+          descricao: "Telha Norte",
+          valor: 100_000,
+          realizado: true,
+          origem: { tipo: "carteira" },
+        }),
+      );
+      expect(res.saiuMes).toBe(100_000);
+      expect(res.carteiraHoje).toBe(-100_000);
+      expect(res.saidas.map((saida: any) => saida.id)).not.toEqual(
+        expect.arrayContaining(["tgt-telha", "tgt-piso", "tgt-argamassa"]),
+      );
+      expect(res.saidas.map((saida: any) => saida.descricao)).not.toEqual(
+        expect.arrayContaining([
+          "Telhas da reforma",
+          "Piso da reforma",
+          "Argamassa da reforma",
+        ]),
+      );
+    });
+
+    it("usa RateioAllocation para suprimir alvo PAGO mesmo sem linkedExpenseId na fonte", async () => {
+      prisma.rateioAllocation.findMany.mockResolvedValue([
+        {
+          sourceExpenseId: "src-rateio-canonico",
+          targetExpenseId: "tgt-rateio-canonico",
+          allocation: 100_000,
+        },
+      ]);
+      prisma.expense.findMany.mockResolvedValue([
+        base({
+          id: "src-rateio-canonico",
+          projectId,
+          titulo: "Compra rateada sem vínculo legado",
+          valorTotal: 100_000,
+          valor: 100_000,
+          status: "PAGO",
+          dataPagamento: new Date("2026-06-10T00:00:00.000Z"),
+          linkedExpenseId: null,
+        }),
+        base({
+          id: "tgt-rateio-canonico",
+          projectId: reforma.id,
+          titulo: "Alvo canônico do rateio",
+          valorTotal: 100_000,
+          valor: 100_000,
+          status: "PAGO",
+          dataPagamento: new Date("2026-06-10T00:00:00.000Z"),
+          project: reforma,
+        }),
+      ]);
+
+      const res: any = await service.getAccountView(
+        tenantId,
+        projectId,
+        "2026-06",
+      );
+
+      expect(res.saidas.map((saida: any) => saida.id)).toEqual([
+        "src-rateio-canonico",
+      ]);
+      expect(res.saiuMes).toBe(100_000);
+      expect(res.carteiraHoje).toBe(-100_000);
+      expect(
+        res.saidas.some(
+          (saida: any) => saida.descricao === "Alvo canônico do rateio",
+        ),
+      ).toBe(false);
+    });
+
     it("rateio de fonte SEM cartão/conta (Planejado/Parcelado): a fonte carteira continua visível (regra 14) mesmo recebendo linkedExpenseId do rateio", async () => {
       // Bug real: uma fonte PESSOAL Planejado/Parcelado, lançada por voz sem
       // cardLast4/bankLast4 (i.e. "Carteira"), ao ser rateada para 1 alvo recebe

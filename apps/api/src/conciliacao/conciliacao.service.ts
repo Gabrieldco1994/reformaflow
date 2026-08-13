@@ -13,6 +13,10 @@ import { PrismaService } from '../prisma/prisma.service';
 
 type Tx = Prisma.TransactionClient;
 
+const DUPLICATE_RATEIO_TARGET_MESSAGE = 'Despesa planejada duplicada no rateio.';
+const SOURCE_ALREADY_RATEIO_TARGET_MESSAGE = 'A compra fonte já é alvo de outro rateio.';
+const TARGET_ALREADY_RATEIO_SOURCE_MESSAGE = 'A despesa alvo já é fonte de outro rateio.';
+
 export interface SettleParcelaInput {
   tenantId: string;
   sourceExpenseId: string;
@@ -102,7 +106,9 @@ export class ConciliacaoService {
 
     // E5 — mutex rateio×settle: uma compra rateada não pode ser conciliada por
     // parcela (simétrico ao guard de ratearSource). Desfaça o rateio antes.
-    const rateioCount = await tx.rateioAllocation.count({ where: { sourceExpenseId } });
+    const rateioCount = await tx.rateioAllocation.count({
+      where: { tenantId, sourceExpenseId },
+    });
     if (rateioCount > 0) {
       throw new BadRequestException(
         'Esta compra já está rateada; desfaça o rateio antes de conciliar por parcela.',
@@ -113,7 +119,9 @@ export class ConciliacaoService {
     // `regenerateTargetCashflow` (que ignora RateioAllocation) sobrescreveria o
     // caixa rateado e criaria um 2º espelho ativo apontando ao mesmo alvo →
     // divergência/dupla contagem. Espelha o guard de ratearSource (:428-429).
-    const targetRateioCount = await tx.rateioAllocation.count({ where: { targetExpenseId } });
+    const targetRateioCount = await tx.rateioAllocation.count({
+      where: { tenantId, targetExpenseId },
+    });
     if (targetRateioCount > 0) {
       throw new BadRequestException(
         'Esta planejada já está rateada por uma compra; desfaça o rateio antes de conciliar por parcela.',
@@ -362,11 +370,13 @@ export class ConciliacaoService {
 
     if (isNeutralExpenseType(target.tipoDespesa)) return;
 
-    const alloc = await tx.rateioAllocation.findUnique({ where: { targetExpenseId } });
+    const alloc = await tx.rateioAllocation.findFirst({
+      where: { tenantId: target.tenantId, targetExpenseId },
+    });
     if (!alloc) return; // sem rateio: o caller deve usar a regeneração planejada
 
     const source = await tx.expense.findFirst({
-      where: { id: alloc.sourceExpenseId, deletedAt: null },
+      where: { id: alloc.sourceExpenseId, tenantId: target.tenantId, deletedAt: null },
     });
     if (!source) return;
 
@@ -428,6 +438,34 @@ export class ConciliacaoService {
       throw new BadRequestException('Informe ao menos uma planejada para ratear');
     }
 
+    const uniqueTargetIds = new Set<string>();
+    for (const item of allocations) {
+      if (uniqueTargetIds.has(item.targetExpenseId)) {
+        throw new BadRequestException(DUPLICATE_RATEIO_TARGET_MESSAGE);
+      }
+      uniqueTargetIds.add(item.targetExpenseId);
+    }
+
+    const sourceAsTarget = await tx.rateioAllocation.findFirst({
+      where: { tenantId, targetExpenseId: sourceExpenseId },
+      select: { sourceExpenseId: true },
+    });
+    if (sourceAsTarget) {
+      throw new BadRequestException(SOURCE_ALREADY_RATEIO_TARGET_MESSAGE);
+    }
+
+    // Mutex inverso: um alvo não pode ser fonte de outro rateio (A → B → C).
+    const targetAsSource = await tx.rateioAllocation.findFirst({
+      where: {
+        tenantId,
+        sourceExpenseId: { in: Array.from(uniqueTargetIds) },
+      },
+      select: { targetExpenseId: true },
+    });
+    if (targetAsSource) {
+      throw new BadRequestException(TARGET_ALREADY_RATEIO_SOURCE_MESSAGE);
+    }
+
     const conc = await tx.crossProjectSettlement.count({ where: { sourceExpenseId } });
     if (conc > 0) {
       throw new BadRequestException('Esta compra já está conciliada por parcela; desfaça antes de ratear.');
@@ -460,7 +498,9 @@ export class ConciliacaoService {
       }
       const tConc = await tx.crossProjectSettlement.count({ where: { targetExpenseId: target.id } });
       if (tConc > 0) throw new BadRequestException('A planejada já está conciliada por parcela.');
-      const existing = await tx.rateioAllocation.findUnique({ where: { targetExpenseId: target.id } });
+      const existing = await tx.rateioAllocation.findFirst({
+        where: { tenantId, targetExpenseId: target.id },
+      });
       if (existing && existing.sourceExpenseId !== sourceExpenseId) {
         throw new BadRequestException('A planejada já está rateada por outra compra.');
       }
@@ -589,7 +629,9 @@ export class ConciliacaoService {
   ): Promise<{ mode: 'rateio' | 'settlement' | 'none'; targets: string[] }> {
     const { tenantId, sourceExpenseId } = params;
 
-    const rateioCount = await tx.rateioAllocation.count({ where: { sourceExpenseId } });
+    const rateioCount = await tx.rateioAllocation.count({
+      where: { tenantId, sourceExpenseId },
+    });
     if (rateioCount > 0) {
       const { targets } = await this.unratearSource(tx, { tenantId, sourceExpenseId });
       return { mode: 'rateio', targets };

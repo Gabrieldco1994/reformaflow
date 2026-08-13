@@ -49,5 +49,6 @@ export function useRateioDetalhe(
     queryFn: () => api.get(`/projects/${projectId}/expenses/${expenseId}/rateio`),
     enabled: Boolean(projectId && expenseId) && (options?.enabled ?? true),
     staleTime: 20_000,
+    refetchOnMount: 'always',
   });
 }

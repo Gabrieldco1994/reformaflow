@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { ExpenseCategoryGroup } from '../_hooks/useExpenseFilters';
 import { CategoryExpenseView } from './CategoryExpenseView';
@@ -115,5 +115,21 @@ describe('CategoryExpenseView — origem agregada (#424)', () => {
 
     // expense-sem-origem não tem entrada no Map: nenhum badge "••" associado a ele.
     expect(screen.getAllByText(/••/)).toHaveLength(1);
+  });
+
+  it('mantém a edição completa alcançável no mobile com alvo de toque de 44px', () => {
+    const props = baseProps();
+    render(<CategoryExpenseView {...props} />);
+
+    const actions = screen.getAllByRole('button', { name: 'Editar completo' });
+    actions.forEach((action) => {
+      expect(action).not.toHaveClass('hidden');
+      expect(action).toHaveClass('min-h-[44px]', 'min-w-[44px]');
+    });
+
+    fireEvent.click(actions[0]!);
+    expect(props.openEdit).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'expense-unica' }),
+    );
   });
 });

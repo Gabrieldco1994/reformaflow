@@ -48,7 +48,7 @@ describe('useExpenseMutations — data de parcela', () => {
       projectId: 'owner-project',
       project: { id: 'owner-project', name: 'Obra', type: 'REFORMA' },
       tipoDespesa: 'MATERIAL_CONSTRUCAO',
-      valor: 30_000,
+      valor: 90_000,
       quantidade: 1,
       valorTotal: 90_000,
       formaPagamento: 'PARCELADO',

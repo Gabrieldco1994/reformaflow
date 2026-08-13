@@ -73,6 +73,7 @@ const makePrismaMock = () => ({
     update: jest.fn(), updateMany: jest.fn(), create: jest.fn(),
   },
   rateioAllocation: {
+    findFirst: jest.fn().mockResolvedValue(null),
     findMany: jest.fn().mockResolvedValue([]),
     upsert: jest.fn(), delete: jest.fn(), deleteMany: jest.fn(), update: jest.fn(),
   },
@@ -187,12 +188,178 @@ describe('ExpenseService.getRateio — leitura canônica do rateio (issue #423)'
     });
   });
 
+  it('NONE procura vínculo de alvo com tenantId e mantém o payload falso ancorado na despesa', async () => {
+    const res = await service.getRateio(tenantId, projectId, sourceId, ADMIN);
+
+    expect(prisma.rateioAllocation.findFirst).toHaveBeenCalledWith({
+      where: { tenantId, targetExpenseId: sourceId },
+      select: { sourceExpenseId: true },
+    });
+    expect(res.sourceExpenseId).toBe(sourceId);
+    expect(res.rateado).toBe(false);
+    expect(res.totalSourceCents).toBe(TOTAL);
+  });
+
   it('N=1 alocação já é rateio (fronteira 0→1)', async () => {
     prisma.rateioAllocation.findMany.mockResolvedValue([alloc({ allocation: TOTAL })]);
     const res = await service.getRateio(tenantId, projectId, sourceId, ADMIN);
     expect(res.rateado).toBe(true);
     expect(res.items).toHaveLength(1);
     expect(res.sobraCents).toBe(0);
+  });
+
+  it('SOURCE vence TARGET e não procura vínculo reverso quando a âncora já tem alocações', async () => {
+    prisma.rateioAllocation.findMany.mockResolvedValue([alloc({ allocation: TOTAL })]);
+
+    await service.getRateio(tenantId, projectId, sourceId, ADMIN);
+
+    expect(prisma.rateioAllocation.findFirst).not.toHaveBeenCalled();
+  });
+
+  describe('âncora TARGET (issue #428)', () => {
+    const targetAnchor = {
+      id: 'tgt-b',
+      projectId: REFORMA.id,
+      tenantId,
+      deletedAt: null,
+      valorTotal: 620_000,
+      project: REFORMA,
+    };
+    const sourceExpense = {
+      id: sourceId,
+      projectId,
+      tenantId,
+      deletedAt: null,
+      valorTotal: TOTAL,
+      project: { id: projectId, type: 'PESSOAL', tenantId },
+    };
+
+    function useTargetPath(
+      sourceResult: {
+        id: string;
+        projectId: string;
+        tenantId: string;
+        deletedAt: Date | null;
+        valorTotal: number;
+        project: { id: string; type: string; tenantId: string };
+      } | null = sourceExpense,
+      allocations = [alloc()],
+    ) {
+      prisma.expense.findFirst.mockImplementation(({ where }) =>
+        Promise.resolve(where.id === targetAnchor.id ? targetAnchor : sourceResult),
+      );
+      prisma.rateioAllocation.findFirst.mockResolvedValue({ sourceExpenseId: sourceId });
+      prisma.rateioAllocation.findMany.mockImplementation(({ where }) =>
+        Promise.resolve(where.sourceExpenseId === sourceId ? allocations : []),
+      );
+    }
+
+    it('retorna o mesmo detalhe canônico ao abrir por um alvo ou pela fonte', async () => {
+      useTargetPath();
+
+      const viaTarget = await service.getRateio(tenantId, REFORMA.id, targetAnchor.id, ADMIN);
+      const viaSource = await service.getRateio(tenantId, projectId, sourceId, ADMIN);
+
+      expect(viaTarget).toEqual(viaSource);
+      expect(viaTarget.sourceExpenseId).toBe(sourceId);
+      expect(prisma.expense.findFirst).toHaveBeenCalledWith({
+        where: {
+          id: sourceId,
+          tenantId,
+          deletedAt: null,
+          project: { tenantId, deletedAt: null },
+        },
+        include: { project: { select: { id: true, type: true, tenantId: true } } },
+      });
+    });
+
+    it('fonte fora da lente do requester devolve 404 genérico, nunca 403', async () => {
+      useTargetPath({
+        ...sourceExpense,
+        projectId: OBRA.id,
+        project: OBRA,
+      });
+
+      await expect(
+        service.getRateio(tenantId, REFORMA.id, targetAnchor.id, PESSOAL_E_REFORMA),
+      ).rejects.toMatchObject({
+        status: 404,
+        message: 'Despesa não encontrada',
+      });
+    });
+
+    it.each([
+      ['inexistente', null],
+      ['removida', { ...sourceExpense, deletedAt: new Date('2026-02-02T00:00:00.000Z') }],
+      [
+        'cross-tenant',
+        {
+          ...sourceExpense,
+          tenantId: 'tenant-2',
+          project: { ...sourceExpense.project, tenantId: 'tenant-2' },
+        },
+      ],
+    ])('fonte %s devolve 404 genérico', async (_case, invalidSource) => {
+      useTargetPath(invalidSource);
+
+      await expect(
+        service.getRateio(tenantId, REFORMA.id, targetAnchor.id, ADMIN),
+      ).rejects.toMatchObject({
+        status: 404,
+        message: 'Despesa não encontrada',
+      });
+    });
+
+    it('mantém ocultos e removidos ao enumerar o rateio completo pela rota do alvo', async () => {
+      useTargetPath(sourceExpense, [
+        alloc(),
+        alloc({
+          targetExpenseId: 'tgt-hidden',
+          allocation: 400_000,
+          createdAt: T1,
+          target: {
+            id: 'tgt-hidden',
+            titulo: 'Oculto',
+            fornecedor: null,
+            status: 'PAGO',
+            deletedAt: null,
+            tenantId,
+            projectId: OBRA.id,
+            project: OBRA,
+          },
+        }),
+        alloc({
+          targetExpenseId: 'tgt-removed',
+          allocation: 100_000,
+          createdAt: T1,
+          target: {
+            id: 'tgt-removed',
+            titulo: 'Removido',
+            fornecedor: null,
+            status: 'PAGO',
+            deletedAt: new Date('2026-02-01T00:00:00.000Z'),
+            tenantId,
+            projectId: REFORMA.id,
+            project: REFORMA,
+          },
+        }),
+      ]);
+
+      const res = await service.getRateio(
+        tenantId,
+        REFORMA.id,
+        targetAnchor.id,
+        PESSOAL_E_REFORMA,
+      );
+
+      expect(res.items.map((item) => item.targetExpenseId)).toEqual(['tgt-b']);
+      expect(res.sourceExpenseId).toBe(sourceId);
+      expect(res.rateadoCents).toBe(900_000);
+      expect(res.sobraCents).toBe(377_100);
+      expect(res.hiddenTargetsCount).toBe(1);
+      expect(res.hiddenAllocationCents).toBe(400_000);
+      expect(res.removedTargetsCount).toBe(1);
+    });
   });
 
   it('404 quando a fonte não pertence ao projeto/tenant, sem consultar alocações', async () => {

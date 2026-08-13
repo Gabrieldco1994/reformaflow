@@ -555,6 +555,7 @@ export class MonthlyOverviewService {
       const pass =
         e.status === 'PAGO' &&
         !isNeutralExpenseType(e.tipoDespesa) &&
+        !rateioTargetIds.has(e.id) &&
         (espelhosByForeignId.get(e.id) ?? []).length === 0;
       return pass;
     });
