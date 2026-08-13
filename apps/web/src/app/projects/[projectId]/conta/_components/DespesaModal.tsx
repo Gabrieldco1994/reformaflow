@@ -254,6 +254,10 @@ export function DespesaModal({
     data.bankAccountId = formVinculos.bankAccountTouched
       ? formVinculos.bankAccountId || null
       : undefined;
+    data.settlesInvoiceCardId = formVinculos.settlesInvoiceCardId || null;
+    data.settlesInvoiceDueMonth = formVinculos.settlesInvoiceCardId
+      ? formVinculos.settlesInvoiceDueMonth || null
+      : null;
     const linkedId = formVinculos.linkedExpenseId || null;
     const parcelaIdx = formVinculos.linkedParcelaIndex;
     // Quando o usuário escolheu uma PARCELA específica do alvo, a conciliação
