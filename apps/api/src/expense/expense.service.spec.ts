@@ -29,6 +29,7 @@ interface PrismaMock {
     count: AnyFn;
   };
   rateioAllocation: {
+    findFirst: AnyFn;
     findUnique: AnyFn;
     findMany: AnyFn;
     upsert: AnyFn;
@@ -64,6 +65,7 @@ const makePrismaMock = (): PrismaMock => {
       count: jest.fn().mockResolvedValue(0),
     },
     rateioAllocation: {
+      findFirst: jest.fn().mockResolvedValue(null),
       findUnique: jest.fn().mockResolvedValue(null),
       findMany: jest.fn().mockResolvedValue([]),
       upsert: jest.fn().mockResolvedValue({}),
@@ -968,13 +970,6 @@ describe('ExpenseService', () => {
       });
       prisma.expense.findMany.mockResolvedValue([]); // sem espelhos
       prisma.crossProjectSettlement.count.mockResolvedValue(0);
-      // $transaction com array de operações
-      prisma.$transaction.mockImplementationOnce(async (ops: any) => {
-        expect(Array.isArray(ops)).toBe(true);
-        expect(ops.length).toBeGreaterThanOrEqual(2);
-        return [];
-      });
-
       const result = await service.remove(tenantId, projectId, 'e1');
       expect(result).toEqual({ deleted: true, count: 1 });
     });
@@ -987,10 +982,6 @@ describe('ExpenseService', () => {
       prisma.expense.findMany.mockResolvedValue([]); // sem espelhos apontando para 'mir'
       prisma.crossProjectSettlement.count.mockResolvedValue(0);
       let deletedIds: string[] = [];
-      prisma.$transaction.mockImplementationOnce(async (ops: any) => {
-        // a última op é o updateMany de expense com id IN [...]
-        return [];
-      });
       prisma.expense.updateMany.mockImplementation((args: any) => {
         if (args?.data?.deletedAt && args?.where?.id?.in) deletedIds = args.where.id.in;
         return Promise.resolve({ count: 0 });
@@ -1007,8 +998,6 @@ describe('ExpenseService', () => {
       });
       prisma.expense.findMany.mockResolvedValue([]);
       prisma.crossProjectSettlement.count.mockResolvedValue(1); // tem settlement
-      prisma.$transaction.mockImplementationOnce(async () => []);
-
       const result = await service.remove(tenantId, projectId, 'src');
       expect(result.count).toBe(1); // só a própria, não cascateia o 'planned'
     });

@@ -24,7 +24,16 @@ const makePrismaMock = (rateioCount: number) => ({
     updateMany: jest.fn(),
     findUnique: jest.fn().mockResolvedValue(null),
   },
-  rateioAllocation: { count: jest.fn().mockResolvedValue(rateioCount), findUnique: jest.fn().mockResolvedValue(null) },
+  rateioAllocation: {
+    count: jest.fn().mockResolvedValue(rateioCount),
+    findUnique: jest.fn().mockResolvedValue(null),
+    findMany: jest.fn().mockResolvedValue(
+      rateioCount > 0
+        ? [{ tenantId, sourceExpenseId: sourceId, targetExpenseId: 'tgt-b' }]
+        : [],
+    ),
+    findFirst: jest.fn().mockResolvedValue(null),
+  },
   crossProjectSettlement: { count: jest.fn().mockResolvedValue(0) },
   creditCard: { findFirst: jest.fn().mockResolvedValue(null) },
   bankAccount: { findFirst: jest.fn().mockResolvedValue(null) },
@@ -109,14 +118,16 @@ describe('I1 — fonte rateada não pode perder o espelho (linkedExpenseId)', ()
     expect(prisma.expense.update).not.toHaveBeenCalled();
   });
 
-  it('fronteira sem rateio: PATCH com linkedExpenseId inalterado nem chama a guarda', async () => {
+  it('fronteira sem rateio: PATCH com linkedExpenseId inalterado passa pela guarda tenant-scoped', async () => {
     const { service, prisma } = await build(0);
     await service.update(tenantId, projectId, sourceId, {
       linkedExpenseId: 'tgt-b',
       titulo: 'Compras TelhaNorte',
     } as any);
     expect(prisma.expense.update).toHaveBeenCalledTimes(1);
-    expect(prisma.rateioAllocation.count).not.toHaveBeenCalled();
+    expect(prisma.rateioAllocation.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ tenantId }) }),
+    );
   });
 
   it('linkCrossProject reapontando para outro alvo numa fonte rateada é bloqueado e não escreve nada', async () => {

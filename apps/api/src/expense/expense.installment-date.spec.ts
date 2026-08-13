@@ -69,6 +69,7 @@ function makeHarness(expense: ExpenseFixture = baseExpense) {
       }),
     },
     rateioAllocation: {
+      findFirst: jest.fn().mockResolvedValue(null),
       findUnique: jest.fn().mockResolvedValue(null),
       findMany: jest.fn().mockResolvedValue([]),
     },
@@ -305,7 +306,7 @@ describe("ExpenseService.updateInstallmentDate", () => {
 
   it("bloqueia alvo de rateio com orientação acionável", async () => {
     const { service, tx } = makeHarness();
-    tx.rateioAllocation.findUnique.mockResolvedValueOnce({
+    tx.rateioAllocation.findFirst.mockResolvedValueOnce({
       sourceExpenseId: "source-1",
       targetExpenseId: "expense-1",
     });
