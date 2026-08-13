@@ -32,6 +32,8 @@ vi.mock("../../expenses/_components/ExpenseFormModal", () => ({
       linkedExpenseId: string;
       creditCardTouched?: boolean;
       bankAccountTouched?: boolean;
+      settlesInvoiceCardId?: string;
+      settlesInvoiceDueMonth?: string;
     };
     setFormVinculos: (value: typeof formVinculos) => void;
   }) => (
@@ -63,6 +65,18 @@ vi.mock("../../expenses/_components/ExpenseFormModal", () => ({
         }
       >
         Selecionar Nenhuma conta
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          setFormVinculos({
+            ...formVinculos,
+            settlesInvoiceCardId: "nubank-card",
+            settlesInvoiceDueMonth: "2026-09",
+          })
+        }
+      >
+        Selecionar fatura quitada
       </button>
       <button type="submit">Salvar</button>
     </form>
@@ -140,5 +154,20 @@ describe("DespesaModal — preserva a origem de pagamento ao editar", () => {
     expect(payload.creditCardId).toBeNull();
     expect(payload.bankAccountId).toBeNull();
     expect(payload.linkedExpenseId).toBe("first-rateio-target");
+  });
+
+  it("envia settlesInvoiceCardId/settlesInvoiceDueMonth (cartão paga cartão)", async () => {
+    const user = userEvent.setup();
+    renderModal();
+
+    await user.click(
+      await screen.findByRole("button", { name: "Selecionar fatura quitada" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() => expect(apiPatch).toHaveBeenCalledOnce());
+    const payload = apiPatch.mock.calls[0][1];
+    expect(payload.settlesInvoiceCardId).toBe("nubank-card");
+    expect(payload.settlesInvoiceDueMonth).toBe("2026-09");
   });
 });
