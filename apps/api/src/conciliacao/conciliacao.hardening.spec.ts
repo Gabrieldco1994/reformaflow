@@ -183,4 +183,19 @@ describe('ConciliacaoService — hardening cross-parcela', () => {
     expect(tgtUpd.data.status).toBe('PLANEJADO');
     expect(tgtUpd.data.paidParcelas).toBeNull();
   });
+
+  it('unsettleBySource(0 linhas) é um no-op seguro: nunca soft-deleta uma fonte standalone/não-relacionada e não toca no caixa', async () => {
+    const prisma = buildPrisma({ target: makeTarget(), mirrors: { standalone: makeMirror('standalone') } });
+    // Nenhuma linha em crossProjectSettlement para esta source (fonte nunca foi
+    // usada em 'Vincular transações', ou já foi limpa por outra chamada).
+    prisma.crossProjectSettlement.findMany = jest.fn().mockResolvedValue([]);
+
+    const result = await service.unsettleBySource(prisma, { tenantId: 't1', sourceExpenseId: 'standalone' });
+
+    expect(result).toEqual({ targets: [] });
+    // Nenhuma escrita: nem soft-delete da despesa, nem limpeza de vínculo.
+    expect(prisma.expense.update).not.toHaveBeenCalled();
+    expect(prisma.crossProjectSettlement.deleteMany).not.toHaveBeenCalled();
+    expect(prisma.cashFlowEntry.updateMany).not.toHaveBeenCalled();
+  });
 });

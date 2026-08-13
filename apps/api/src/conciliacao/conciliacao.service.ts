@@ -294,6 +294,7 @@ export class ConciliacaoService {
     const rows = await tx.crossProjectSettlement.findMany({
       where: { tenantId, sourceExpenseId },
     });
+    if (rows.length === 0) return { targets: [] };
 
     const byTarget = new Map<string, typeof rows>();
     for (const r of rows) {
