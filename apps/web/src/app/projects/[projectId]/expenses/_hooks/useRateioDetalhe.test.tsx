@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type React from 'react';
-import { useRateioDetalhe, type RateioDetalhe } from './useRateioDetalhe';
+import { useRateioDetalhe, useRateioTargetsBySource, type RateioDetalhe } from './useRateioDetalhe';
 
 const apiGet = vi.fn();
 vi.mock('@/lib/api', () => ({
@@ -72,5 +72,76 @@ describe('useRateioDetalhe', () => {
     const { result } = renderHook(() => useRateioDetalhe('p1', 'src-1'), { wrapper });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
+  });
+});
+
+// Issue #428 follow-up: a aba Despesas (PESSOAL) precisa de TODOS os alvos de
+// rateio de VÁRIAS fontes candidatas — não só a de `linkedExpenseId`.
+describe('useRateioTargetsBySource', () => {
+  beforeEach(() => {
+    apiGet.mockReset();
+  });
+
+  const DETALHE_3_ALVOS: RateioDetalhe = {
+    sourceExpenseId: 'src-telha-norte',
+    rateado: true,
+    totalSourceCents: 100_000,
+    rateadoCents: 100_000,
+    sobraCents: 0,
+    removedTargetsCount: 0,
+    hiddenTargetsCount: 0,
+    hiddenAllocationCents: 0,
+    items: [
+      { targetExpenseId: 'tgt-telha', titulo: 'Telhas', fornecedor: null, projectId: 'p2', projectName: 'Reforma', projectType: 'REFORMA', allocationCents: 40_000, plannedValorTotalCents: null, status: 'PAGO' },
+      { targetExpenseId: 'tgt-piso', titulo: 'Piso', fornecedor: null, projectId: 'p2', projectName: 'Reforma', projectType: 'REFORMA', allocationCents: 35_000, plannedValorTotalCents: null, status: 'PAGO' },
+      { targetExpenseId: 'tgt-argamassa', titulo: 'Argamassa', fornecedor: null, projectId: 'p2', projectName: 'Reforma', projectType: 'REFORMA', allocationCents: 25_000, plannedValorTotalCents: null, status: 'PAGO' },
+    ],
+  };
+
+  const DETALHE_NAO_RATEADO: RateioDetalhe = {
+    sourceExpenseId: 'src-quitacao-simples',
+    rateado: false,
+    totalSourceCents: 5_000,
+    rateadoCents: 0,
+    sobraCents: 0,
+    removedTargetsCount: 0,
+    hiddenTargetsCount: 0,
+    hiddenAllocationCents: 0,
+    items: [],
+  };
+
+  it('busca o rateio de CADA fonte candidata e retorna o mapa com TODOS os alvos (não só o 1º)', async () => {
+    apiGet.mockImplementation((path: string) => {
+      if (path.includes('src-telha-norte')) return Promise.resolve(DETALHE_3_ALVOS);
+      return Promise.resolve(DETALHE_NAO_RATEADO);
+    });
+
+    const { result } = renderHook(
+      () => useRateioTargetsBySource('p1', ['src-telha-norte', 'src-quitacao-simples']),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(apiGet).toHaveBeenCalledWith('/projects/p1/expenses/src-telha-norte/rateio');
+    expect(apiGet).toHaveBeenCalledWith('/projects/p1/expenses/src-quitacao-simples/rateio');
+    expect(Array.from(result.current.rateioTargetsBySource.get('src-telha-norte') ?? [])).toEqual([
+      'tgt-telha',
+      'tgt-piso',
+      'tgt-argamassa',
+    ]);
+    // Fonte sem rateio ativo NÃO entra no mapa (dedup legado cuida dela).
+    expect(result.current.rateioTargetsBySource.has('src-quitacao-simples')).toBe(false);
+  });
+
+  it('lista vazia de candidatas: não dispara nenhuma busca e retorna mapa vazio', () => {
+    const { result } = renderHook(() => useRateioTargetsBySource('p1', []), { wrapper });
+    expect(apiGet).not.toHaveBeenCalled();
+    expect(result.current.rateioTargetsBySource.size).toBe(0);
+  });
+
+  it('enabled=false: não dispara nenhuma busca', () => {
+    renderHook(() => useRateioTargetsBySource('p1', ['src-1'], { enabled: false }), { wrapper });
+    expect(apiGet).not.toHaveBeenCalled();
   });
 });

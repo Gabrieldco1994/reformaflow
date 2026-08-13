@@ -76,6 +76,7 @@ import { ExpenseMobileFab } from './_components/ExpenseMobileFab';
 import type { ExpenseQueryState } from './_lib/expense-query-state';
 import { centsToReais, reaisToCents } from './_lib/money';
 import { buildPaidOriginIndex } from './_lib/paid-origin-label';
+import { useRateioTargetsBySource } from './_hooks/useRateioDetalhe';
 
 const toIsoDate = (date: Date) => date.toISOString().slice(0, 10);
 const todayBrtIsoDate = () =>
@@ -253,11 +254,27 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
     return m;
   }, [crossProjectExpenses]);
 
+  // Candidatas a fonte de rateio: só despesas locais com `linkedExpenseId` —
+  // o back sempre seta esse vínculo no 1º alvo quando rateia (`ratearSource`),
+  // então este conjunto é o superset correto (issue #428 follow-up).
+  const rateioCandidateSourceIds = useMemo(
+    () => (projectType === 'PESSOAL' ? expenses.filter((e) => e.linkedExpenseId).map((e) => e.id) : []),
+    [projectType, expenses],
+  );
+  const { rateioTargetsBySource } = useRateioTargetsBySource(PROJECT_ID, rateioCandidateSourceIds, {
+    enabled: projectType === 'PESSOAL',
+  });
+
   // Lista consolidada para PESSOAL: despesas locais + despesas dos outros projetos.
-  // Dedup do vínculo cross-project CLASSIFICADO PELA FORMA DO ALVO:
-  // - alvo à-vista/ausente (single) → removido: o espelho é o registro canônico.
-  // - alvo parcelado/quinzenal → mantido: é o registro canônico da despesa
-  //   parcelada; os espelhos permanecem para alimentar a caixa.
+  // Dedup do vínculo cross-project — DUAS classificações (#428 follow-up):
+  // - RATEIO ativo (`rateioTargetsBySource`): TODOS os alvos do rateio (não só
+  //   o 1º, apontado por `linkedExpenseId`) são removidos — a fonte já
+  //   representa o total integral. Sem isso, os alvos "esquecidos" vazavam e
+  //   dobravam o total exibido (bug real: 1000 rateado em 3 alvos exibia 1600).
+  // - Quitação cross-project legada (sem rateio), CLASSIFICADA PELA FORMA DO ALVO:
+  //   - alvo à-vista/ausente (single) → removido: o espelho é o registro canônico.
+  //   - alvo parcelado/quinzenal → mantido: é o registro canônico da despesa
+  //     parcelada; os espelhos permanecem para alimentar a caixa.
   // `parceladoTargetIds` separa depois os dois mundos (caixa × lista por projeto).
   const { allExpensesPersonal, parceladoTargetIds } = useMemo<{
     allExpensesPersonal: Expense[];
@@ -266,12 +283,12 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
     if (projectType !== 'PESSOAL') {
       return { allExpensesPersonal: expenses, parceladoTargetIds: new Set<string>() };
     }
-    const split = splitPersonalExpenseBase(expenses, crossProjectExpenses);
+    const split = splitPersonalExpenseBase(expenses, crossProjectExpenses, rateioTargetsBySource);
     return {
       allExpensesPersonal: split.mutationsBase,
       parceladoTargetIds: split.parceladoTargetIds,
     };
-  }, [projectType, expenses, crossProjectExpenses]);
+  }, [projectType, expenses, crossProjectExpenses, rateioTargetsBySource]);
 
 
   const { data: plannedExpenses = [] } = useQuery<Expense[]>({
