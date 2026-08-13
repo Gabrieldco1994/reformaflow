@@ -20,9 +20,9 @@ const RATEIO_PARTICIPANT_MUTATION_MESSAGE =
 const RATEIO_TARGET_DELETE_MESSAGE =
   'Esta despesa é alvo de rateio. Desfaça o rateio na compra fonte antes de removê-la.';
 const SETTLEMENT_PARTICIPANT_MUTATION_MESSAGE =
-  'Esta despesa participa de uma conciliação cross-project por parcela. Altere valores, status, cronograma ou vínculos pelo fluxo dedicado (Desvincular na Visão Conta).';
+  'Esta despesa participa de uma conciliação cross-project por parcela. Altere valores, status, cronograma ou vínculos pelo fluxo dedicado: Cartões/Contas → cartão ou conta → Vincular → Desvincular.';
 const SETTLEMENT_TARGET_DELETE_MESSAGE =
-  'Esta despesa é alvo de conciliação por parcela. Desvincule a fonte (Visão Conta) antes de removê-la.';
+  'Esta despesa é alvo de conciliação por parcela. Desvincule a fonte antes de removê-la: Cartões/Contas → cartão ou conta → Vincular → Desvincular.';
 
 export interface UpdateInstallmentDateResult {
   id: string;
