@@ -1675,6 +1675,14 @@ export class ExpenseService {
       if (rateioParticipation === 'source') {
         await this.conciliacao.unratearSource(tx, { tenantId, sourceExpenseId: id });
         const now = new Date();
+        // Mesma limpeza do caminho legado (linha ~1727): qualquer despesa não
+        // relacionada ao rateio que aponte para esta fonte via `linkedExpenseId`
+        // (vínculo cross-project comum) não pode ficar órfã apontando para uma
+        // despesa soft-deletada.
+        await tx.expense.updateMany({
+          where: { tenantId, linkedExpenseId: id, deletedAt: null },
+          data: { linkedExpenseId: null },
+        });
         await tx.cashFlowEntry.updateMany({
           where: { expenseId: id, deletedAt: null },
           data: { deletedAt: now },
@@ -1697,20 +1705,39 @@ export class ExpenseService {
           },
         })) > 0;
 
+      // Cascade não pode arrastar um participante ativo de rateio (fonte ou
+      // alvo de outro rateio não relacionado): um vínculo comum apontando para
+      // dentro/fora de um rateio não pode apagar o rateio por tabela.
+      // `guardRateioParticipation` com os dois lados permitidos só consulta
+      // (nunca lança).
+      const isRateioParticipant = async (expenseId: string): Promise<boolean> =>
+        (await this.guardRateioParticipation(tenantId, expenseId, true, true, tx)) !== null;
+
       if (!(await involvedInSettlement(id))) {
         if (expense.linkedExpenseId) {
           const target = await tx.expense.findFirst({
             where: { id: expense.linkedExpenseId, tenantId, deletedAt: null },
             select: { id: true },
           });
-          if (target && !(await involvedInSettlement(target.id))) ids.add(target.id);
+          if (
+            target &&
+            !(await involvedInSettlement(target.id)) &&
+            !(await isRateioParticipant(target.id))
+          ) {
+            ids.add(target.id);
+          }
         }
         const mirrors = await tx.expense.findMany({
           where: { tenantId, linkedExpenseId: id, deletedAt: null },
           select: { id: true },
         });
         for (const mirror of mirrors) {
-          if (!(await involvedInSettlement(mirror.id))) ids.add(mirror.id);
+          if (
+            !(await involvedInSettlement(mirror.id)) &&
+            !(await isRateioParticipant(mirror.id))
+          ) {
+            ids.add(mirror.id);
+          }
         }
       }
 

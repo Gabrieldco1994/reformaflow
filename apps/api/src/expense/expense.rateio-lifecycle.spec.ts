@@ -208,6 +208,34 @@ describe('ExpenseService — ciclo de vida de participantes de rateio (#428)', (
     });
   });
 
+  it('remove a fonte limpa vínculo de entrada de despesa não relacionada ao rateio', async () => {
+    const { service, prisma, rows } = makeHarness();
+    rows.set('unrelated-1', expense('unrelated-1', 'other-1', SOURCE_ID));
+
+    await service.remove(TENANT_ID, 'pessoal-1', SOURCE_ID);
+
+    expect(prisma.expense.updateMany).toHaveBeenCalledWith({
+      where: { tenantId: TENANT_ID, linkedExpenseId: SOURCE_ID, deletedAt: null },
+      data: { linkedExpenseId: null },
+    });
+  });
+
+  it('remove despesa não relacionada não cascateia para um alvo de rateio protegido', async () => {
+    const { service, prisma, rows } = makeHarness();
+    rows.set('external-2', expense('external-2', 'other-1', TARGET_IDS[1]!));
+
+    await expect(service.remove(TENANT_ID, 'other-1', 'external-2')).resolves.toEqual({
+      deleted: true,
+      count: 1,
+    });
+
+    const softDeleteCall = prisma.expense.updateMany.mock.calls.find(([args]: any[]) =>
+      Array.isArray(args.where?.id?.in),
+    );
+    expect(softDeleteCall![0].where.id.in).toEqual(['external-2']);
+    expect(rows.get(TARGET_IDS[1]!)?.deletedAt).toBeNull();
+  });
+
   it.each([TARGET_IDS[0], TARGET_IDS[2]])(
     'rejeita remover o alvo %s sem qualquer escrita',
     async (targetId) => {
