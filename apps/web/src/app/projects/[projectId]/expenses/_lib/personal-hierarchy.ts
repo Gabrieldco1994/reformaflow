@@ -17,33 +17,66 @@ export type RemoteProjectMap = Map<string, CrossProjectMeta>;
 export type OriginKind = 'CARTAO' | 'EXTRATO' | 'MANUAL';
 
 /**
+ * Mapa fonte PESSOAL (id) → conjunto de TODOS os `targetExpenseId` de suas
+ * `RateioAllocation` ATIVAS (issue #423/#428 no back; vem de `useRateioDetalhe`
+ * / `GET .../expenses/:id/rateio`, que já enumera TODAS as alocações — não só
+ * a apontada por `linkedExpenseId`, que é sempre a do 1º alvo).
+ */
+export type RateioTargetsBySource = Map<string, ReadonlySet<string> | readonly string[]>;
+
+/**
  * Split da base de despesas do projeto PESSOAL (locais + cross-project) em três
  * saídas usadas para separar o mundo "caixa" (movimentos reais da conta) do
  * mundo "lista por projeto" (alvo canônico).
  *
- * Classificação por FORMA do alvo apontado por `linkedExpenseId`:
- * - alvo ausente (fora do limit) ou de pagamento único (`isSinglePaymentForm`)
- *   → `singleTargetIds`: dedup legado; o alvo é REMOVIDO de `mutationsBase`
- *   (o espelho é o registro canônico à-vista).
- * - alvo parcelado/quinzenal → `parceladoTargetIds`: o alvo é MANTIDO em
- *   `mutationsBase` (registro canônico da despesa parcelada); os espelhos também
- *   permanecem para poderem alimentar a caixa.
+ * Duas classificações distintas e NÃO intercambiáveis:
+ *
+ * 1. RATEIO (`rateioAllocations` presente em `rateioTargetsBySource`): a fonte
+ *    representa INTEGRALMENTE o total pago; TODOS os alvos do rateio (não só o
+ *    1º, apontado por `linkedExpenseId`) são contábeis-apenas no destino e
+ *    NUNCA viram saída separada no PESSOAL — senão dobra (bug real: fonte de
+ *    1000 rateada em 3 alvos aparecia como 1000 + 2 alvos "esquecidos" = 1600,
+ *    pois só o alvo apontado por linkedExpenseId era suprimido). Vão para
+ *    `rateioTargetIds` e são REMOVIDOS de `mutationsBase` incondicionalmente,
+ *    independente da forma de pagamento do alvo.
+ * 2. QUITAÇÃO cross-project legada (SEM rateio): classificação por FORMA do
+ *    alvo apontado por `linkedExpenseId`:
+ *    - alvo ausente (fora do limit) ou de pagamento único (`isSinglePaymentForm`)
+ *      → `singleTargetIds`: dedup legado; o alvo é REMOVIDO de `mutationsBase`
+ *      (o espelho é o registro canônico à-vista).
+ *    - alvo parcelado/quinzenal → `parceladoTargetIds`: o alvo é MANTIDO em
+ *      `mutationsBase` (registro canônico da despesa parcelada); os espelhos
+ *      também permanecem para poderem alimentar a caixa.
  */
 export interface PersonalExpenseSplit {
   mutationsBase: Expense[];
   parceladoTargetIds: Set<string>;
   singleTargetIds: Set<string>;
+  rateioTargetIds: Set<string>;
 }
 
-export function splitPersonalExpenseBase(local: Expense[], cross: Expense[]): PersonalExpenseSplit {
+export function splitPersonalExpenseBase(
+  local: Expense[],
+  cross: Expense[],
+  rateioTargetsBySource: RateioTargetsBySource = new Map(),
+): PersonalExpenseSplit {
   const crossById = new Map<string, Expense>();
   for (const t of cross) crossById.set(t.id, t);
 
   const parceladoTargetIds = new Set<string>();
   const singleTargetIds = new Set<string>();
+  const rateioTargetIds = new Set<string>();
 
   for (const e of local) {
     if (!e.linkedExpenseId) continue;
+    const rateioTargets = rateioTargetsBySource.get(e.id);
+    if (rateioTargets) {
+      // Fonte com rateio ATIVO: suprime TODOS os alvos (não só o 1º, apontado
+      // por `linkedExpenseId`) — a forma de pagamento do alvo é irrelevante
+      // aqui, pois o rateio é contábil, não caixa.
+      for (const targetId of rateioTargets) rateioTargetIds.add(targetId);
+      continue;
+    }
     const alvo = crossById.get(e.linkedExpenseId);
     if (!alvo || isSinglePaymentForm(alvo.formaPagamento)) {
       singleTargetIds.add(e.linkedExpenseId);
@@ -52,9 +85,13 @@ export function splitPersonalExpenseBase(local: Expense[], cross: Expense[]): Pe
     }
   }
 
-  // Mantém todos os locais + alvos cross que NÃO são dedup legado (single).
-  const mutationsBase = [...local, ...cross.filter((t) => !singleTargetIds.has(t.id))];
-  return { mutationsBase, parceladoTargetIds, singleTargetIds };
+  // Mantém todos os locais + alvos cross que NÃO são dedup legado (single) e
+  // NÃO são alvo de rateio ativo.
+  const mutationsBase = [
+    ...local,
+    ...cross.filter((t) => !singleTargetIds.has(t.id) && !rateioTargetIds.has(t.id)),
+  ];
+  return { mutationsBase, parceladoTargetIds, singleTargetIds, rateioTargetIds };
 }
 
 /**

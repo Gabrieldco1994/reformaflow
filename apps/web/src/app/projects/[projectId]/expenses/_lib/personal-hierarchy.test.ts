@@ -5,6 +5,7 @@ import {
   toCaixaBase,
   toDisplayBase,
   groupPersonalExpenses,
+  totalsOf,
 } from './personal-hierarchy';
 import { groupExpensesByMes } from './grouping-by-month';
 
@@ -82,6 +83,116 @@ describe('splitPersonalExpenseBase — classificação por forma do alvo', () =>
     const r = splitPersonalExpenseBase([espOrfao], []);
     expect(r.singleTargetIds.has('nao-existe')).toBe(true);
     expect(r.parceladoTargetIds.size).toBe(0);
+  });
+});
+
+// ─── Issue #428 follow-up: bug real "Telha Norte" — fonte PESSOAL rateada em
+// N alvos REFORMA aparecia com total dobrado, pois `splitPersonalExpenseBase`
+// reusava `linkedExpenseId` (dedup legado de UM alvo) para suprimir só o 1º
+// alvo do rateio; os demais alvos permaneciam visíveis e somavam junto da
+// fonte. Observado: fonte 1000 rateada em 3 alvos (400+350+250) exibia 1600
+// (1000 + 350 + 250) — só o alvo de 400 (apontado por linkedExpenseId) era
+// escondido. Correto: 1000 (só a fonte), TODOS os 3 alvos suprimidos.
+describe('splitPersonalExpenseBase — rateio (RateioAllocation) suprime TODOS os alvos, não só o de linkedExpenseId', () => {
+  const sourceTelhaNorte = makeExpense({
+    id: 'src-telha-norte',
+    titulo: 'Telha Norte',
+    valorTotal: 100_000, // R$ 1.000
+    formaPagamento: 'A_VISTA',
+    status: 'PAGO',
+    dataPagamento: '2026-06-10',
+    bankLast4: '3636',
+    linkedExpenseId: 'tgt-telha', // 1º alvo, setado pelo back (ratearSource)
+  });
+  const tgtTelha = makeExpense({
+    id: 'tgt-telha', titulo: 'Telhas da reforma', valorTotal: 40_000,
+    formaPagamento: 'A_VISTA', status: 'PAGO',
+    project: { id: 'reforma', name: 'Reforma', type: 'REFORMA' },
+  });
+  const tgtPiso = makeExpense({
+    id: 'tgt-piso', titulo: 'Piso da reforma', valorTotal: 35_000,
+    formaPagamento: 'A_VISTA', status: 'PAGO',
+    project: { id: 'reforma', name: 'Reforma', type: 'REFORMA' },
+  });
+  const tgtArgamassa = makeExpense({
+    id: 'tgt-argamassa', titulo: 'Argamassa da reforma', valorTotal: 25_000,
+    formaPagamento: 'A_VISTA', status: 'PAGO',
+    project: { id: 'reforma', name: 'Reforma', type: 'REFORMA' },
+  });
+
+  it('1 alvo rateado: já funcionava por coincidência (single legado cobre o único alvo)', () => {
+    const rateioTargetsBySource = new Map([['src-telha-norte', ['tgt-telha']]]);
+    const r = splitPersonalExpenseBase(
+      [sourceTelhaNorte],
+      [tgtTelha],
+      rateioTargetsBySource,
+    );
+    expect(r.rateioTargetIds.has('tgt-telha')).toBe(true);
+    expect(r.mutationsBase.some((e) => e.id === 'tgt-telha')).toBe(false);
+    const { pago } = totalsOf(r.mutationsBase);
+    expect(pago).toBe(100_000); // só a fonte — 1000
+  });
+
+  it('BUG REAL: 3 alvos rateados — SEM o fix, 2 dos 3 alvos vazam e dobram o total (1600 em vez de 1000)', () => {
+    // Reproduz o comportamento ANTIGO (pré-fix): chama sem `rateioTargetsBySource`,
+    // simulando que o código só enxergava o vínculo `linkedExpenseId` (dedup legado).
+    const rLegacyPath = splitPersonalExpenseBase(
+      [sourceTelhaNorte],
+      [tgtTelha, tgtPiso, tgtArgamassa],
+      // sem terceiro argumento: só o path legado (linkedExpenseId) atua
+    );
+    // Confirma o bug: só tgt-telha é suprimido; piso e argamassa vazam.
+    expect(rLegacyPath.mutationsBase.some((e) => e.id === 'tgt-telha')).toBe(false);
+    expect(rLegacyPath.mutationsBase.some((e) => e.id === 'tgt-piso')).toBe(true);
+    expect(rLegacyPath.mutationsBase.some((e) => e.id === 'tgt-argamassa')).toBe(true);
+    const { pago: pagoBug } = totalsOf(rLegacyPath.mutationsBase);
+    expect(pagoBug).toBe(160_000); // 1000 (fonte) + 350 (piso) + 250 (argamassa) = 1600 — O BUG
+
+    // Com o fix: passando `rateioTargetsBySource` com TODOS os 3 alvos, nenhum
+    // vaza e o total volta a ser só a fonte (1000).
+    const rateioTargetsBySource = new Map([
+      ['src-telha-norte', ['tgt-telha', 'tgt-piso', 'tgt-argamassa']],
+    ]);
+    const rFixed = splitPersonalExpenseBase(
+      [sourceTelhaNorte],
+      [tgtTelha, tgtPiso, tgtArgamassa],
+      rateioTargetsBySource,
+    );
+    expect(rFixed.rateioTargetIds).toEqual(
+      new Set(['tgt-telha', 'tgt-piso', 'tgt-argamassa']),
+    );
+    expect(rFixed.mutationsBase.some((e) => e.id === 'tgt-telha')).toBe(false);
+    expect(rFixed.mutationsBase.some((e) => e.id === 'tgt-piso')).toBe(false);
+    expect(rFixed.mutationsBase.some((e) => e.id === 'tgt-argamassa')).toBe(false);
+    expect(rFixed.mutationsBase).toHaveLength(1);
+    expect(rFixed.mutationsBase[0].id).toBe('src-telha-norte');
+    const { pago } = totalsOf(rFixed.mutationsBase);
+    expect(pago).toBe(100_000); // correto — 1000, a fonte conta uma única vez
+  });
+
+  it('não regride a quitação cross-project legítima (não-rateio): continua igual', () => {
+    // Mesmo cenário do teste (b) já existente: espelho + alvo à-vista, SEM
+    // rateio nenhum (rateioTargetsBySource vazio/ausente) — dedup legado intacto.
+    const alvoAvista = makeExpense({
+      id: 'foreign-avista', valorTotal: 500_000, formaPagamento: 'A_VISTA',
+      bankLast4: null, project: { id: 'reforma', name: 'REFORMA', type: 'REFORMA' },
+    });
+    const espAvista = makeExpense({
+      id: 'esp-avista', valorTotal: 500_000, formaPagamento: 'PIX', status: 'PAGO',
+      bankLast4: '3636', linkedExpenseId: 'foreign-avista',
+    });
+    const r = splitPersonalExpenseBase([espAvista], [alvoAvista], new Map());
+    expect(r.singleTargetIds.has('foreign-avista')).toBe(true);
+    expect(r.rateioTargetIds.size).toBe(0);
+    expect(r.mutationsBase.some((e) => e.id === 'foreign-avista')).toBe(false);
+    expect(r.mutationsBase.some((e) => e.id === 'esp-avista')).toBe(true);
+  });
+
+  it('quinzenal foreign SEM rateio continua preservado em mutationsBase (regressão da suíte (a))', () => {
+    const r = splitPersonalExpenseBase([espelho0, espelho1], [targetQuinzenal]);
+    expect(r.rateioTargetIds.size).toBe(0);
+    expect(r.parceladoTargetIds.has('reforma-infra')).toBe(true);
+    expect(r.mutationsBase.some((e) => e.id === 'reforma-infra')).toBe(true);
   });
 });
 
