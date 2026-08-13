@@ -153,6 +153,32 @@ describe('RatearCompraModal', () => {
     );
   });
 
+  it('usa o total atual do detalhe para calcular a sobra e liberar o salvamento', async () => {
+    const currentTotalCents = 1_000_000;
+    apiGet.mockImplementation((path: string) =>
+      path.endsWith('/rateio')
+        ? Promise.resolve(
+            makeRateio([makeItem(1, currentTotalCents)], {
+              totalSourceCents: currentTotalCents,
+              sobraCents: 0,
+            }),
+          )
+        : Promise.resolve(TARGETS),
+    );
+
+    const { onSubmit } = renderModal();
+
+    await screen.findByDisplayValue('10.000,00');
+    expect(screen.getByText('Sobra').parentElement).toHaveTextContent('R$ 0,00');
+    const saveButton = screen.getByRole('button', { name: /Salvar rateio/i });
+    expect(saveButton).toBeEnabled();
+    fireEvent.click(saveButton);
+
+    expect(onSubmit).toHaveBeenCalledWith([
+      { targetExpenseId: 'target-1', allocation: currentTotalCents },
+    ]);
+  });
+
   it('abre vazio para rateado=false e não oferece Desfazer', async () => {
     renderModal();
 

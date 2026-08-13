@@ -120,7 +120,7 @@ export function RatearCompraModal({
     editorDetail != null &&
     (editorDetail.hiddenTargetsCount > 0 || editorDetail.removedTargetsCount > 0);
 
-  const totalCents = source.valorTotal;
+  const totalCents = editorReady ? editorDetail.totalSourceCents : source.valorTotal;
   const allocatedCents = useMemo(
     () => rows.reduce((s, r) => s + reaisToCents(r.reais), 0),
     [rows],
