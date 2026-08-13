@@ -702,7 +702,11 @@ export class MonthlyOverviewService {
       cardLast4: payment.cardLast4,
       amount: payment.amount,
     }));
-    const explicitSettlements = invoicePayments
+    // Vínculo explícito (settlesInvoiceKey) não exige tipoDespesa === PAGAMENTO_FATURA_CARTAO:
+    // esse tipo só é atribuído automaticamente pelo import; uma despesa criada manualmente
+    // (ex.: MOVIMENTACAO_INTERNA + "Essa cobrança quita a fatura de outro cartão?") também
+    // precisa contar aqui, senão o vínculo nunca abate a fatura alvo.
+    const explicitSettlements = expenses
       .filter((expense) => !!expense.settlesInvoiceKey)
       .map((expense) => ({
         targetKey: settlesInvoiceKeyToInternal(expense.settlesInvoiceKey as string),

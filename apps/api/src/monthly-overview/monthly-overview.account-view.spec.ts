@@ -1386,6 +1386,106 @@ describe("MonthlyOverviewService.getAccountView", () => {
     );
   });
 
+  it("vínculo explícito quita a fatura mesmo com tipoDespesa não-PAGAMENTO_FATURA_CARTAO (criação manual via 'Essa cobrança quita a fatura de outro cartão?')", async () => {
+    prisma.bankAccount.findMany.mockResolvedValue([]);
+    prisma.expense.findMany.mockResolvedValue([
+      {
+        id: "future-card-expense",
+        tenantId,
+        projectId,
+        tipoDespesa: "OUTROS",
+        titulo: "Compra futura",
+        fornecedor: "Loja",
+        valorTotal: 2_000,
+        valor: 2_000,
+        formaPagamento: "A_VISTA",
+        dataPagamento: new Date("2026-06-21T00:00:00.000Z"),
+        dataInicioParcela: null,
+        createdAt: new Date("2026-06-21T00:00:00.000Z"),
+        quantidadeParcela: null,
+        status: "PAGO",
+        cardLast4: "1111",
+        bankLast4: null,
+      },
+      // Despesa criada manualmente (Nova Despesa → "Essa cobrança quita a fatura de
+      // outro cartão?"). tipoDespesa é MOVIMENTACAO_INTERNA — o único tipo neutro
+      // realmente selecionável no formulário — NÃO PAGAMENTO_FATURA_CARTAO (esse
+      // valor só é atribuído automaticamente pelo import). O vínculo explícito
+      // (settlesInvoiceKey) precisa quitar a fatura de qualquer forma.
+      {
+        id: "manual-settlement",
+        tenantId,
+        projectId,
+        tipoDespesa: "MOVIMENTACAO_INTERNA",
+        titulo: "Pagamento fatura Nubank (pago com outro cartão)",
+        fornecedor: "",
+        valorTotal: 2_000,
+        valor: 2_000,
+        formaPagamento: "A_VISTA",
+        dataPagamento: new Date("2026-07-10T00:00:00.000Z"),
+        dataInicioParcela: null,
+        createdAt: new Date("2026-07-10T00:00:00.000Z"),
+        quantidadeParcela: null,
+        status: "PAGO",
+        cardLast4: "3333",
+        bankLast4: null,
+        settlesInvoiceKey: "1111:2026-07",
+      },
+    ]);
+    prisma.receipt.findMany.mockResolvedValue([]);
+    prisma.cashFlowEntry.findMany.mockResolvedValue([
+      {
+        id: "future-entry",
+        tenantId,
+        projectId,
+        tipo: "DESPESA",
+        valor: 2_000,
+        data: new Date("2026-06-21T00:00:00.000Z"),
+        status: "PAGO",
+        categoria: "OUTROS",
+        subcategoria: "Nubank",
+        formaPagamento: "CARTAO_CREDITO",
+        parcela: null,
+        expense: {
+          id: "future-card-expense",
+          tipoDespesa: "OUTROS",
+          titulo: "Compra futura",
+          fornecedor: "Loja",
+          cardLast4: "1111",
+          bankLast4: null,
+        },
+        receipt: null,
+      },
+    ]);
+    prisma.creditCard.findMany.mockResolvedValue([
+      {
+        id: "card-1",
+        tenantId,
+        projectId,
+        nickname: "Nubank",
+        last4: "1111",
+        closingDay: 20,
+        dueDay: 28,
+        limitTotalCents: null,
+        limitAvailableCents: null,
+      },
+    ]);
+
+    const res: any = await service.getAccountView(
+      tenantId,
+      projectId,
+      "2026-07",
+    );
+
+    expect(res.cartoes[0]).toEqual(
+      expect.objectContaining({
+        faturaAtual: 2_000,
+        faturaPaga: 2_000,
+        status: "paga",
+      }),
+    );
+  });
+
   it("consolida projetos: rotula espelho, deduplica alvo e soma planejado de outro projeto em falta pagar", async () => {
     prisma.bankAccount.findMany.mockResolvedValue([
       {
