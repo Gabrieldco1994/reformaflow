@@ -1595,6 +1595,8 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
           quantidade,
           formaPagamento,
           status: formStatus,
+          quantidadeParcela: editing?.quantidadeParcela ? String(editing.quantidadeParcela) : undefined,
+          dataInicioParcela: formDataInicioParcela || undefined,
         }}
         onRatear={
           editingProjectType === 'PESSOAL' && editing
