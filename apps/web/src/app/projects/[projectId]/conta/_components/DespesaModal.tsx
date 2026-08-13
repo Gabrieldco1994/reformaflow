@@ -18,6 +18,8 @@ const EMPTY_VINCULOS: ExpenseFormVinculos = {
   bankAccountId: '',
   linkedExpenseId: '',
   linkedParcelaIndex: null,
+  creditCardTouched: false,
+  bankAccountTouched: false,
 };
 
 /**
@@ -120,6 +122,8 @@ export function DespesaModal({
         bankAccountId: '',
         linkedExpenseId: editing.linkedExpenseId ?? '',
         linkedParcelaIndex: null,
+        creditCardTouched: false,
+        bankAccountTouched: false,
       });
       setHydratedId(editing.id);
     } else {
@@ -244,8 +248,12 @@ export function DespesaModal({
       data.recorrente = false;
       data.recorrenciaFim = null;
     }
-    data.creditCardId = formVinculos.creditCardId || null;
-    data.bankAccountId = formVinculos.bankAccountId || null;
+    data.creditCardId = formVinculos.creditCardTouched
+      ? formVinculos.creditCardId || null
+      : undefined;
+    data.bankAccountId = formVinculos.bankAccountTouched
+      ? formVinculos.bankAccountId || null
+      : undefined;
     const linkedId = formVinculos.linkedExpenseId || null;
     const parcelaIdx = formVinculos.linkedParcelaIndex;
     // Quando o usuário escolheu uma PARCELA específica do alvo, a conciliação
