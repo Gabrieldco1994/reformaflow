@@ -34,3 +34,49 @@ describe('TenantService.remove', () => {
     expect(prisma.tenant.delete).toHaveBeenCalledWith({ where: { id: 't2' } });
   });
 });
+
+/**
+ * B0 (#447) — `TenantService.create` hoje grava `role: 'OWNER'` para o
+ * usuário-dono do tenant recém-criado. O programa #436 é explícito: "nenhum
+ * OWNER na matriz" / "Fora de escopo: OWNER/accessRole" (ver #446 GREEN e a
+ * invariante global do #436). Este writer é o único caminho de criação de
+ * tenant que ainda produz OWNER; ele precisa gravar ADMIN, igual a
+ * `registerGuest` (`AuthService`). O signup self-service (`registerOwner`)
+ * já grava `USER` (`SELF_SERVICE_ROLE`) e não muda neste programa.
+ */
+describe('TenantService.create — nunca grava OWNER (B0 #447)', () => {
+  function makeService() {
+    const prisma = {
+      tenant: {
+        create: jest.fn(({ data }: any) =>
+          Promise.resolve({
+            id: 't-new',
+            name: data.name,
+            users: [{ id: 'u-new', ...data.users.create }],
+          }),
+        ),
+      },
+    } as any;
+    return { service: new TenantService(prisma), prisma };
+  }
+
+  it('grava role=ADMIN para o dono do tenant, nunca OWNER', async () => {
+    const { service, prisma } = makeService();
+
+    await service.create({
+      name: 'Tenant novo',
+      ownerUsername: 'dono',
+      ownerName: 'Dono Novo',
+    } as any);
+
+    expect(prisma.tenant.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          users: expect.objectContaining({
+            create: expect.objectContaining({ role: 'ADMIN' }),
+          }),
+        }),
+      }),
+    );
+  });
+});

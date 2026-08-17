@@ -1,8 +1,14 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { deriveObjectiveAccess, ProjectType } from '@reformaflow/domain';
 import * as bcrypt from 'bcrypt';
 import { AuthService } from './auth.service';
+import { accessibleProjectScope } from '../common/access-rules';
 
 describe('AuthService signup/guest/claim', () => {
   const jwt = {} as JwtService;
@@ -502,6 +508,137 @@ describe('AuthService signup/guest/claim', () => {
 });
 
 /**
+ * B0 (#447) — hoje `updateSelfObjectives` só valida `projectTypes.length`; ela
+ * NÃO olha `createdByUserId` (gerenciado por um admin) nem `isGuest`, então uma
+ * conta GERENCIADA ou CONVIDADA pode reescrever seus próprios objetivos como se
+ * fosse self-service — e o `write` (prisma.user.update) acontece ANTES de
+ * qualquer checagem além do array vazio. Estes testes fixam o contrato: a
+ * checagem de autorização é ATÔMICA (roda e falha ANTES de qualquer escrita).
+ */
+describe('AuthService.updateSelfObjectives — managed/guest/invalid-grant fecham (B0 #447)', () => {
+  const jwt = {} as JwtService;
+  let prisma: any;
+  let service: AuthService;
+
+  beforeEach(() => {
+    prisma = {
+      user: { findUnique: jest.fn(), update: jest.fn() },
+    };
+    service = new AuthService(prisma, jwt);
+  });
+
+  it('managed USER (createdByUserId setado por um admin) recebe 403 e não grava nada', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'u1',
+      tenantId: 't1',
+      deletedAt: null,
+      isGuest: false,
+      createdByUserId: 'admin-1',
+      allowedProjects: '[]',
+      tenant: { deletedAt: null },
+    });
+
+    await expect(
+      service.updateSelfObjectives('u1', [ProjectType.PESSOAL]),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it('managed com grants mistos/corrompidos CONTINUA 403 — status gerenciado não vira 401 por causa do grant', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'u1',
+      tenantId: 't1',
+      deletedAt: null,
+      isGuest: false,
+      createdByUserId: 'admin-1',
+      allowedProjects: '["p1",7,null]',
+      tenant: { deletedAt: null },
+    });
+
+    await expect(
+      service.updateSelfObjectives('u1', [ProjectType.PESSOAL]),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it('guest recebe 403 mesmo com role ADMIN — só o fluxo explícito de claim converte o convidado', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'u1',
+      tenantId: 't1',
+      deletedAt: null,
+      isGuest: true,
+      role: 'ADMIN',
+      createdByUserId: null,
+      allowedProjects: '[]',
+      tenant: { deletedAt: null },
+    });
+
+    await expect(
+      service.updateSelfObjectives('u1', [ProjectType.PESSOAL]),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it('ADMIN não-convidado e não-gerenciado (createdByUserId null) continua podendo se auto-atualizar', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'u1',
+      tenantId: 't1',
+      deletedAt: null,
+      isGuest: false,
+      role: 'ADMIN',
+      createdByUserId: null,
+      tenant: { deletedAt: null },
+    });
+    prisma.user.update.mockImplementation(({ data }: any) =>
+      Promise.resolve({ id: 'u1', tenantId: 't1', ...data }),
+    );
+
+    await expect(
+      service.updateSelfObjectives('u1', [ProjectType.PESSOAL]),
+    ).resolves.toBeDefined();
+    expect(prisma.user.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('USER self-service/wildcard (createdByUserId null, não-convidado) continua liberado — regra vale só para GERENCIADOS', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'u1',
+      tenantId: 't1',
+      deletedAt: null,
+      isGuest: false,
+      role: 'USER',
+      createdByUserId: null,
+      allowedProjects: '[]',
+      tenant: { deletedAt: null },
+    });
+    prisma.user.update.mockImplementation(({ data }: any) =>
+      Promise.resolve({ id: 'u1', tenantId: 't1', ...data }),
+    );
+
+    await expect(
+      service.updateSelfObjectives('u1', [ProjectType.PESSOAL]),
+    ).resolves.toBeDefined();
+    expect(prisma.user.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('grant PRÓPRIO corrompido (allowedProjects malformado) falha fechado com 401, sem gravar', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'u1',
+      tenantId: 't1',
+      deletedAt: null,
+      isGuest: false,
+      createdByUserId: null,
+      allowedProjects: '{corrompido',
+      tenant: { deletedAt: null },
+    });
+
+    await expect(
+      service.updateSelfObjectives('u1', [ProjectType.PESSOAL]),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+});
+
+/**
  * O `allowedModules` gravado no signup é uma FOTO. Quando um módulo novo entra
  * em `TYPE_MODULES`, quem já tinha conta ficava para trás: menu sumia e a API
  * respondia 403 num módulo que o tipo dele concede. `buildPublicUser` passa a
@@ -584,5 +721,54 @@ describe('AuthService.buildPublicUser — reconciliação do snapshot de autoriz
       row({ allowedModules: '{corrompido', allowedProjectTypes: '[]' }),
     );
     expect(out.allowedModules).toEqual([]);
+  });
+});
+
+/**
+ * B0 (#447) — `allowedProjects` inválido (malformado/branco/nulo/não-array)
+ * hoje degrada para `[]` pelo MESMO caminho do `[]` legítimo. Rio abaixo,
+ * `accessibleProjectScope` trata QUALQUER `allowedProjects` vazio como "sem
+ * restrição" (o wildcard intencional para grant vazio de verdade) — então um
+ * grant corrompido HOJE compra acesso irrestrito, o oposto de fail-closed.
+ * `buildPublicUser` é UM dos dois leitores (o outro é `JwtStrategy.validate`,
+ * ver jwt.strategy.spec.ts); os dois têm que falhar fechado do MESMO jeito.
+ */
+describe('AuthService.buildPublicUser — allowedProjects corrompido falha fechado (B0 #447)', () => {
+  const service = new AuthService({} as any, {} as JwtService);
+
+  function row(allowedProjects: unknown) {
+    return {
+      id: 'u1',
+      username: 'x',
+      name: 'X',
+      role: 'USER',
+      tenantId: 't1',
+      allowedModules: '[]',
+      allowedProjects: allowedProjects as string,
+      allowedProjectTypes: '[]',
+    };
+  }
+
+  it.each([
+    ['JSON malformado', '{corrompido'],
+    ['string em branco', ''],
+    ['null', null],
+    ['objeto não-array', '{"p1":true}'],
+  ])(
+    'allowedProjects=%s NUNCA vira o wildcard: accessibleProjectScope tem que negar, não liberar tudo',
+    (_label, raw) => {
+      const out = service.buildPublicUser(row(raw));
+      expect(accessibleProjectScope('USER', out.allowedProjects)).not.toBeNull();
+    },
+  );
+
+  it('[null,7] misto não vaza valores não-string para o scope de projetos', () => {
+    const out = service.buildPublicUser(row('[null,7]'));
+    expect(out.allowedProjects.every((id) => typeof id === 'string')).toBe(true);
+  });
+
+  it('["p1",null] válido continua filtrando o null e preservando "p1"', () => {
+    const out = service.buildPublicUser(row('["p1",null]'));
+    expect(out.allowedProjects).toEqual(['p1']);
   });
 });

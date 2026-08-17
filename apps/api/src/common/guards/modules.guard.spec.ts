@@ -111,3 +111,66 @@ describe('ModulesGuard', () => {
     ).resolves.toBe(true);
   });
 });
+
+/**
+ * B0 (#447) — `ModulesGuard` só valida acesso por TIPO de projeto
+ * (`userCanAccessProjectType`); ela nunca consulta `user.allowedProjects` (a
+ * lista de IDs concretos, ver `userCanAccessProject` em `access-rules.ts`).
+ * Um usuário GERENCIADO com `allowedProjects` restrito a IDs específicos (ex.:
+ * fixture #446 `managed` -> só `fc-a-pessoal`/`fc-a-allowed-reforma`) hoje
+ * atravessa este guard para QUALQUER outro projeto do MESMO tipo no tenant —
+ * inclusive um SEGUNDO projeto PESSOAL que ele nunca recebeu (o "sentinela"
+ * `fc-a-pessoal-second` da fixture #446). Isso é exatamente o vazamento que o
+ * Hub #436/#447 promete fechar: "Hub inclui somente a âncora PESSOAL
+ * autorizada" / "parent same-tenant fora de scope: 403".
+ */
+describe('ModulesGuard — nega projeto fora de allowedProjects mesmo com tipo/módulo liberados (B0 #447)', () => {
+  const reflector = { getAllAndOverride: jest.fn() };
+  const prisma = { project: { findFirst: jest.fn() } };
+
+  const scopedContext = (allowedProjects: string[]) =>
+    ({
+      getHandler: jest.fn(),
+      getClass: jest.fn(),
+      switchToHttp: () => ({
+        getRequest: () => ({
+          params: { projectId: 'fc-a-pessoal-second' },
+          user: {
+            role: 'USER',
+            tenantId: 'fc-tenant-a',
+            allowedProjectTypes: ['PESSOAL'],
+            allowedModules: ['monthlyOverview'],
+            allowedProjects,
+          },
+        }),
+      }),
+    }) as any;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    reflector.getAllAndOverride.mockReturnValue(['monthlyOverview']);
+    prisma.project.findFirst.mockResolvedValue({ type: 'PESSOAL' });
+  });
+
+  it('managed com allowedProjects restrito a OUTRO PESSOAL não pode entrar no PESSOAL-sentinela fora da lista', async () => {
+    const guard = new ModulesGuard(reflector as any, prisma as any);
+
+    await expect(
+      guard.canActivate(scopedContext(['fc-a-pessoal', 'fc-a-allowed-reforma'])),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('mesmo requester ENTRA quando o projeto pedido está na lista (regression-lock positivo)', async () => {
+    const guard = new ModulesGuard(reflector as any, prisma as any);
+
+    await expect(
+      guard.canActivate(scopedContext(['fc-a-pessoal-second'])),
+    ).resolves.toBe(true);
+  });
+
+  it('allowedProjects=[] continua wildcard (sem restrição por ID) — não regressiona o legado', async () => {
+    const guard = new ModulesGuard(reflector as any, prisma as any);
+
+    await expect(guard.canActivate(scopedContext([]))).resolves.toBe(true);
+  });
+});
