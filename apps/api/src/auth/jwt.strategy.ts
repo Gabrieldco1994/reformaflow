@@ -4,6 +4,7 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { Request } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
 import { reconcileUserModules } from '@reformaflow/domain';
+import { parseGrantJson } from './grant-json';
 
 export interface JwtPayload {
   sub: string;
@@ -78,13 +79,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       allowedModules = [];
     }
 
-    let allowedProjects: string[] = [];
-    try {
-      const parsed = JSON.parse(user.allowedProjects || '[]');
-      if (Array.isArray(parsed)) allowedProjects = parsed;
-    } catch {
-      allowedProjects = [];
+    // `allowedProjects` is the security-sensitive grant: unlike
+    // `allowedModules`/`allowedProjectTypes` above, corruption here must NOT
+    // silently degrade to "[]" (which downstream reads as "no restriction" —
+    // i.e. accidental full access). Fail closed instead. See `grant-json.ts`.
+    const grant = parseGrantJson(user.allowedProjects);
+    if (!grant.valid) {
+      throw new UnauthorizedException('Sessão inválida');
     }
+    const allowedProjects = grant.values;
 
     let allowedProjectTypes: string[] = [];
     try {

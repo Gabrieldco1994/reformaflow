@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CardInvoiceSettlementService } from '../credit-card/card-invoice-settlement.service';
+import { resolveAccessibleProjectScope } from '../common/access-rules';
 import {
   buildInstallments,
   buildMonthlyOverview,
@@ -26,6 +27,27 @@ const PROJECTION_STATUS = {
 } as const;
 const FINANCIAL_TIME_ZONE = 'America/Sao_Paulo';
 
+/** Requester shape needed to resolve the PESSOAL Hub scope (mirrors `request.user`). */
+export interface MonthlyOverviewRequester {
+  role?: string;
+  allowedProjects?: string[];
+  allowedProjectTypes?: string[];
+  allowedModules?: string[];
+}
+
+interface HubProject {
+  id: string;
+  type: string;
+  name: string;
+}
+
+/** Anchor PESSOAL project + the concrete Hub scope resolved for it (see `resolveHub`). */
+interface PessoalHub {
+  pessoal: HubProject;
+  allProjects: HubProject[];
+  hubProjectIds: string[];
+}
+
 @Injectable()
 export class MonthlyOverviewService {
   constructor(
@@ -33,22 +55,99 @@ export class MonthlyOverviewService {
     private readonly cardSettlement: CardInvoiceSettlementService,
   ) {}
 
-  async getOverview(tenantId: string, pessoalProjectId: string, month?: string) {
+  /**
+   * Resolves the PESSOAL Hub scope ONCE per request/entry-point:
+   *  1. 404 — the anchor project doesn't exist in this tenant (absent/deleted/cross-tenant).
+   *  2. 403 — the anchor exists but sits outside the requester's authorized scope.
+   *  3. 400 — the requester IS authorized for the anchor, but it isn't PESSOAL.
+   *
+   * `requester` omitted ⇒ full-access/legacy behavior (existing callers — e.g.
+   * `tenant-financial`'s per-project delegation and any test that predates the
+   * requester plumbing — keep working unchanged; #447 fingerprints must hold).
+   *
+   * The returned `hubProjectIds` is the Hub's cross-project fan-out: the
+   * anchor PESSOAL plus every AUTHORIZED non-PESSOAL project — NEVER another
+   * PESSOAL project, even for a full-access/no-requester caller (each PESSOAL
+   * is its own independent wallet; merging two would double-count/leak).
+   */
+  private async resolveScope(
+    tenantId: string,
+    requester?: MonthlyOverviewRequester,
+  ): Promise<string[] | null> {
+    if (!requester) return null;
+    return resolveAccessibleProjectScope(
+      this.prisma,
+      tenantId,
+      requester.role,
+      requester.allowedProjects,
+      requester.allowedProjectTypes,
+      requester.allowedModules ?? [],
+    );
+  }
+
+  /**
+   * Anchor-only validation (404/403/400) for reads that never fan out
+   * cross-project (card-invoices-yearly, neutros, origin-items-yearly): a
+   * single `findFirst`, no tenant-wide project scan needed.
+   */
+  private async resolveAnchor(
+    tenantId: string,
+    pessoalProjectId: string,
+    requester?: MonthlyOverviewRequester,
+    precomputedScope?: string[] | null,
+  ): Promise<HubProject> {
     const pessoal = await this.prisma.project.findFirst({
       where: { id: pessoalProjectId, tenantId, deletedAt: null },
+      select: { id: true, type: true, name: true },
     });
     if (!pessoal) throw new NotFoundException('Projeto não encontrado');
+
+    const scope =
+      precomputedScope !== undefined ? precomputedScope : await this.resolveScope(tenantId, requester);
+    if (scope !== null && !scope.includes(pessoal.id)) {
+      throw new ForbiddenException('Sem permissão para acessar este projeto');
+    }
     if (pessoal.type !== 'PESSOAL') {
       throw new BadRequestException(
         'Visão consolidada disponível apenas para projetos do tipo PESSOAL',
       );
     }
+    return pessoal;
+  }
 
-    // Todos os projetos não-deletados do tenant (PESSOAL + REFORMA + CASA + CARRO + ...)
-    const projects = await this.prisma.project.findMany({
+  /** Full Hub resolution (anchor + cross-project fan-out) for reads that aggregate other projects. */
+  private async resolveHub(
+    tenantId: string,
+    pessoalProjectId: string,
+    requester?: MonthlyOverviewRequester,
+  ): Promise<PessoalHub> {
+    const scope = await this.resolveScope(tenantId, requester);
+    const pessoal = await this.resolveAnchor(tenantId, pessoalProjectId, requester, scope);
+
+    const allProjects = await this.prisma.project.findMany({
       where: { tenantId, deletedAt: null },
+      select: { id: true, type: true, name: true },
     });
-    const projectIds = projects.map((p) => p.id);
+    const hubProjectIds = allProjects
+      .filter((p) => p.id === pessoal.id || p.type !== 'PESSOAL')
+      .filter((p) => scope === null || scope.includes(p.id))
+      .map((p) => p.id);
+
+    return { pessoal, allProjects, hubProjectIds };
+  }
+
+  async getOverview(
+    tenantId: string,
+    pessoalProjectId: string,
+    month?: string,
+    requester?: MonthlyOverviewRequester,
+  ) {
+    const hub = await this.resolveHub(tenantId, pessoalProjectId, requester);
+
+    // Hub scope (anchor PESSOAL + authorized non-PESSOAL — never another
+    // PESSOAL, see `resolveHub`), NOT every project in the tenant.
+    const projects = hub.allProjects.filter((p) => hub.hubProjectIds.includes(p.id));
+    const projectIds = hub.hubProjectIds;
     const projectTypeById = new Map(projects.map((p) => [p.id, p.type] as const));
     const projectNameById = new Map(projects.map((p) => [p.id, p.name] as const));
 
@@ -216,7 +315,7 @@ export class MonthlyOverviewService {
         }
       | { mes: string; status: typeof PROJECTION_STATUS.DEGRADED };
     try {
-      const av = await this.getAccountView(tenantId, pessoalProjectId, projectionMonth);
+      const av = await this.computeAccountView(tenantId, hub, projectionMonth);
       projecao = {
         mes: projectionMonth,
         status: PROJECTION_STATUS.CANONICAL,
@@ -258,8 +357,23 @@ export class MonthlyOverviewService {
     };
   }
 
-  async getAccountView(tenantId: string, projectId: string, month?: string) {
-    await this.ensurePessoalProject(tenantId, projectId);
+  async getAccountView(
+    tenantId: string,
+    projectId: string,
+    month?: string,
+    requester?: MonthlyOverviewRequester,
+  ) {
+    const hub = await this.resolveHub(tenantId, projectId, requester);
+    return this.computeAccountView(tenantId, hub, month);
+  }
+
+  /**
+   * Scoped core for the Visão Conta — resolves the Hub ONCE at the caller
+   * (`getAccountView`/`getAccountViewYearly`/`getDreOverview`) instead of
+   * re-resolving membership on every one of the up to 12 monthly calls.
+   */
+  private async computeAccountView(tenantId: string, hub: PessoalHub, month?: string) {
+    const projectId = hub.pessoal.id;
 
     const mesSelecionado = normalizeMonthKey(month);
     const [monthStart, monthEnd] = monthRange(mesSelecionado);
@@ -280,7 +394,11 @@ export class MonthlyOverviewService {
         },
       }),
       this.prisma.expense.findMany({
-        where: { tenantId, deletedAt: null },
+        // Hub scope, NOT every tenant expense: cross-project ("foreign")
+        // participants must be limited to the anchor PESSOAL plus authorized
+        // non-PESSOAL projects — a second/hidden PESSOAL or an out-of-scope
+        // project can never feed this project's foreign/rateio computations.
+        where: { tenantId, projectId: { in: hub.hubProjectIds }, deletedAt: null },
         select: {
           id: true,
           projectId: true,
@@ -1346,8 +1464,13 @@ export class MonthlyOverviewService {
     };
   }
 
-  async getAccountViewYearly(tenantId: string, projectId: string, year?: string | number) {
-    await this.ensurePessoalProject(tenantId, projectId);
+  async getAccountViewYearly(
+    tenantId: string,
+    projectId: string,
+    year?: string | number,
+    requester?: MonthlyOverviewRequester,
+  ) {
+    const hub = await this.resolveHub(tenantId, projectId, requester);
 
     const targetYear = normalizeYear(year);
     const months = Array.from({ length: 12 }, (_, index) =>
@@ -1356,8 +1479,9 @@ export class MonthlyOverviewService {
 
     // ponytail: 12 chamadas pesadas em paralelo — só serializar/limitar concorrência
     // se medição mostrar esgotamento do pool do SQLite; não otimizar às cegas.
+    // Hub resolvido UMA vez acima (não 12x): reusa o mesmo escopo por mês.
     const accountViewsByMonth = await Promise.all(
-      months.map((month) => this.getAccountView(tenantId, projectId, month)),
+      months.map((month) => this.computeAccountView(tenantId, hub, month)),
     );
 
     // Consolidar resultados: concatenar todos os itens e somar agregados
@@ -1465,8 +1589,9 @@ export class MonthlyOverviewService {
     tenantId: string,
     projectId: string,
     params?: { month?: string; year?: string | number },
+    requester?: MonthlyOverviewRequester,
   ) {
-    await this.ensurePessoalProject(tenantId, projectId);
+    const hub = await this.resolveHub(tenantId, projectId, requester);
 
     const mesSelecionado = normalizeMonthKey(params?.month);
     const anoSelecionado = normalizeYear(
@@ -1517,7 +1642,7 @@ export class MonthlyOverviewService {
         select: { last4: true, nickname: true, closingDay: true, dueDay: true },
       }),
     ]);
-    const accountView = await this.getAccountView(tenantId, projectId, mesSelecionado);
+    const accountView = await this.computeAccountView(tenantId, hub, mesSelecionado);
 
     const cardByLast4 = new Map<string, { nickname: string; closingDay: number | null; dueDay: number | null }>();
     for (const card of cards) {
@@ -1802,7 +1927,7 @@ export class MonthlyOverviewService {
       months.map((mes) =>
         mes === mesSelecionado
           ? Promise.resolve(accountView)
-          : this.getAccountView(tenantId, projectId, mes),
+          : this.computeAccountView(tenantId, hub, mes),
       ),
     );
     const caixaHojeAtual = accountView.caixaHoje;
@@ -2003,8 +2128,13 @@ export class MonthlyOverviewService {
    *   TODOS os neutros (pagamento de fatura / movimentação interna são
    *   transferências, não gasto novo).
    */
-  async getCardInvoicesYearly(tenantId: string, projectId: string, year?: string | number) {
-    await this.ensurePessoalProject(tenantId, projectId);
+  async getCardInvoicesYearly(
+    tenantId: string,
+    projectId: string,
+    year?: string | number,
+    requester?: MonthlyOverviewRequester,
+  ) {
+    await this.ensurePessoalProject(tenantId, projectId, requester);
 
     const targetYear = normalizeYear(year);
 
@@ -2198,8 +2328,13 @@ export class MonthlyOverviewService {
    * Cada item carrega o id REAL da Expense/Receipt para editar valor/excluir
    * pelos endpoints existentes (que já regeneram o cashflow).
    */
-  async getNeutros(tenantId: string, projectId: string, yearParam?: string | number) {
-    await this.ensurePessoalProject(tenantId, projectId);
+  async getNeutros(
+    tenantId: string,
+    projectId: string,
+    yearParam?: string | number,
+    requester?: MonthlyOverviewRequester,
+  ) {
+    await this.ensurePessoalProject(tenantId, projectId, requester);
     const year = normalizeYear(yearParam);
     const [yStart, yEnd] = [
       new Date(Date.UTC(year, 0, 1)),
@@ -2382,8 +2517,9 @@ export class MonthlyOverviewService {
     tenantId: string,
     projectId: string,
     params: { year?: string | number; kind?: string; last4?: string },
+    requester?: MonthlyOverviewRequester,
   ) {
-    await this.ensurePessoalProject(tenantId, projectId);
+    await this.ensurePessoalProject(tenantId, projectId, requester);
 
     const targetYear = normalizeYear(params.year);
     if (params.kind === 'all') {
@@ -3083,17 +3219,12 @@ export class MonthlyOverviewService {
     return { ok: true };
   }
 
-  private async ensurePessoalProject(tenantId: string, projectId: string) {
-    const pessoal = await this.prisma.project.findFirst({
-      where: { id: projectId, tenantId, deletedAt: null },
-    });
-    if (!pessoal) throw new NotFoundException('Projeto não encontrado');
-    if (pessoal.type !== 'PESSOAL') {
-      throw new BadRequestException(
-        'Visão consolidada disponível apenas para projetos do tipo PESSOAL',
-      );
-    }
-    return pessoal;
+  private async ensurePessoalProject(
+    tenantId: string,
+    projectId: string,
+    requester?: MonthlyOverviewRequester,
+  ) {
+    return this.resolveAnchor(tenantId, projectId, requester);
   }
 }
 

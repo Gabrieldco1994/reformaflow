@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
@@ -10,6 +11,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { deriveObjectiveAccess, ProjectType, reconcileUserModules } from '@reformaflow/domain';
 import { Prisma } from '@prisma/client';
 import { JwtPayload } from './jwt.strategy';
+import { parseGrantJson } from './grant-json';
+import { isFullAccessRole } from '../common/access-rules';
 
 const BCRYPT_ROUNDS = 10;
 const SELF_SERVICE_ROLE = 'USER';
@@ -190,6 +193,35 @@ export class AuthService {
     }
     const access = deriveObjectiveAccess(projectTypes);
     const user = await this.findActiveUser(userId);
+
+    // Authorization read happens here, right before the write, on the SAME
+    // row `findActiveUser` already loaded — no re-check after the update
+    // (TOCTOU-safe: nothing observes/mutates the grant between read and write).
+    //
+    // Ordem importa: convidado é sempre 403 (mesmo com role ADMIN — ver
+    // `registerGuest`, que cria o convidado com role ADMIN). Só depois disso
+    // checamos full-access (ADMIN/OWNER de verdade), e só então o grant.
+    if (user.isGuest) {
+      throw new ForbiddenException(
+        'Conta convidada não gerencia objetivos próprios',
+      );
+    }
+    if (!isFullAccessRole(user.role)) {
+      // `allowedProjects` é o grant que decide "gerenciado" — usa o MESMO
+      // parser fail-closed que buildPublicUser/JwtStrategy (ver grant-json.ts).
+      // JSON corrompido não pode degradar para wildcard (isso liberaria a
+      // troca de objetivos pra quem na verdade está gerenciado por outra conta).
+      const grant = parseGrantJson(user.allowedProjects);
+      if (!grant.valid) {
+        throw new UnauthorizedException('Sessão inválida');
+      }
+      if (grant.values.length > 0) {
+        throw new ForbiddenException(
+          'Conta gerenciada não pode alterar os próprios objetivos',
+        );
+      }
+    }
+
     const updated = await this.prisma.user.update({
       where: { id: user.id },
       data: {
@@ -215,18 +247,46 @@ export class AuthService {
     allowedProjectTypes: string;
     allowedModules: string;
   }) {
-    const publicUser = this.buildPublicUser({
-      id: '',
-      username: '',
-      name: '',
-      role: SELF_SERVICE_ROLE,
-      tenantId: '',
-      ...user,
-    });
+    // Formatting-only: reuses the SAME module/type reconciliation as
+    // `buildPublicUser` (see `reconcileModulesAndTypes`) but never routes
+    // through `buildPublicUser` itself. `buildPublicUser` fails closed on a
+    // corrupted `allowedProjects` grant (see grant-json.ts) — a security check
+    // that has NOTHING to do with formatting an objectives response, and
+    // running it here would risk throwing 401 AFTER `updateSelfObjectives`
+    // already committed the write (no authorizing check after write).
+    const { allowedModules, allowedProjectTypes } = this.reconcileModulesAndTypes(
+      user.allowedModules,
+      user.allowedProjectTypes,
+    );
     return {
-      projectTypes: publicUser.allowedProjectTypes,
-      allowedProjectTypes: publicUser.allowedProjectTypes,
-      allowedModules: publicUser.allowedModules,
+      projectTypes: allowedProjectTypes,
+      allowedProjectTypes,
+      allowedModules,
+    };
+  }
+
+  /** Shared JSON→array reconciliation for `allowedModules`/`allowedProjectTypes` (lenient — see AGENTS.md). */
+  private reconcileModulesAndTypes(
+    allowedModulesJson: string,
+    allowedProjectTypesJson: string,
+  ): { allowedModules: string[]; allowedProjectTypes: string[] } {
+    let allowedModules: string[] = [];
+    try {
+      const parsed = JSON.parse(allowedModulesJson || '[]');
+      if (Array.isArray(parsed)) allowedModules = parsed;
+    } catch {
+      allowedModules = [];
+    }
+    let allowedProjectTypes: string[] = [];
+    try {
+      const parsed = JSON.parse(allowedProjectTypesJson || '[]');
+      if (Array.isArray(parsed)) allowedProjectTypes = parsed;
+    } catch {
+      allowedProjectTypes = [];
+    }
+    return {
+      allowedModules: reconcileUserModules(allowedModules, allowedProjectTypes),
+      allowedProjectTypes,
     };
   }
 
@@ -340,27 +400,15 @@ export class AuthService {
     email?: string | null;
     isGuest?: boolean;
   }) {
-    let allowedModules: string[] = [];
-    try {
-      const parsed = JSON.parse(user.allowedModules || '[]');
-      if (Array.isArray(parsed)) allowedModules = parsed;
-    } catch {
-      allowedModules = [];
+    // `allowedProjects` is the security-sensitive grant — same fail-closed
+    // parser as JwtStrategy.validate (see grant-json.ts). Corrupted JSON must
+    // NOT degrade to "[]" (read downstream as "no restriction"/full access);
+    // it fails the whole login/session build instead.
+    const projectsGrant = parseGrantJson(user.allowedProjects);
+    if (!projectsGrant.valid) {
+      throw new UnauthorizedException('Sessão inválida');
     }
-    let allowedProjects: string[] = [];
-    try {
-      const parsed = JSON.parse(user.allowedProjects || '[]');
-      if (Array.isArray(parsed)) allowedProjects = parsed;
-    } catch {
-      allowedProjects = [];
-    }
-    let allowedProjectTypes: string[] = [];
-    try {
-      const parsed = JSON.parse(user.allowedProjectTypes || '[]');
-      if (Array.isArray(parsed)) allowedProjectTypes = parsed;
-    } catch {
-      allowedProjectTypes = [];
-    }
+    const allowedProjects = projectsGrant.values;
 
     // Reconciliação em tempo de leitura — ver `reconcileUserModules` no domínio
     // para o porquê. Resumo: `allowedModules` é uma FOTO do signup, e módulo
@@ -370,7 +418,10 @@ export class AuthService {
     // `JwtStrategy.validate`, que monta o `request.user` do `ModulesGuard`.
     // Os dois precisam reconciliar: só aqui faria o menu aparecer no web e a
     // API responder 403 — pior que o bug original.
-    allowedModules = reconcileUserModules(allowedModules, allowedProjectTypes);
+    const { allowedModules, allowedProjectTypes } = this.reconcileModulesAndTypes(
+      user.allowedModules,
+      user.allowedProjectTypes ?? '[]',
+    );
 
     return {
       id: user.id,
