@@ -169,7 +169,7 @@ Toda UX do programa precisa passar em **375 px, 390 px e desktop**:
 
 ```text
 S0.1 (#444) → S0.2 (#445) → S0.3 (#446)
-              ↓
+                            ↓
        B0 (#447) → B1 (#448) → B2 (#449)
               ↓ STOP: B0/B1/B2 + deploy B0 + security verify precisam estar verdes
        U1 (#450) → U2 (#451)
