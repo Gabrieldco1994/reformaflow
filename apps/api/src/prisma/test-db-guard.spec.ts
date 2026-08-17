@@ -22,6 +22,29 @@ describe("trava de DATABASE_URL em testes", () => {
     ).toMatch(/dev\.db/);
     expect(guard.forbiddenReason("file:./dev.db")).toMatch(/dev\.db/);
     expect(guard.forbiddenReason("file:dev.db")).toMatch(/dev\.db/);
+    expect(guard.forbiddenReason("file:DEV.DB")).toMatch(/dev\.db/);
+    expect(guard.forbiddenReason("file:DeV.dB")).toMatch(/dev\.db/);
+  });
+
+  it("recusa alias cujo caminho real tem basename dev.db sem diferenciar maiúsculas", () => {
+    const directory = fs.mkdtempSync(
+      path.join(guard.REPO_ROOT, "prisma", "guard-canonical-devdb-"),
+    );
+    const target = path.join(directory, "dEv.Db");
+    const alias = path.join(directory, "alias.db");
+    fs.writeFileSync(target, "");
+    fs.symlinkSync(target, alias);
+    try {
+      expect(path.basename(guard.resolveSqlitePath(`file:${alias}`))).toBe(
+        "alias.db",
+      );
+      expect(path.basename(guard.resolveRealSqlitePath(`file:${alias}`))).toBe(
+        "dEv.Db",
+      );
+      expect(guard.forbiddenReason(`file:${alias}`)).toMatch(/dev\.db/);
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("recusa URL apontando para fora do worktree atual", () => {

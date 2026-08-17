@@ -84,7 +84,7 @@ function forbiddenReason(url) {
     return "TEST_DATABASE_URL deve apontar para um arquivo SQLite descartável";
   }
 
-  if (path.basename(resolved) === "dev.db") {
+  if (path.basename(resolved).toLowerCase() === "dev.db") {
     return "aponta para um dev.db (banco de desenvolvimento com dados reais)";
   }
 
@@ -95,6 +95,9 @@ function forbiddenReason(url) {
 
   const realResolved = resolveRealSqlitePath(url);
   if (realResolved) {
+    if (path.basename(realResolved).toLowerCase() === "dev.db") {
+      return "resolve para um dev.db (banco de desenvolvimento com dados reais)";
+    }
     const realRelative = path.relative(REAL_REPO_ROOT, realResolved);
     if (realRelative.startsWith("..") || path.isAbsolute(realRelative)) {
       return `escapa do worktree atual por symlink (${REPO_ROOT})`;
