@@ -60,6 +60,12 @@ jobs:
         run: npm --workspace @reformaflow/domain run build
       - name: Generate Prisma Client
         run: npx prisma@5 generate --schema=prisma/schema.prisma
+      - name: Prepare disposable test database (63 committed migrations)
+        run: npm run test:db:prepare
+      - name: Synthetic finance-center fixture contract (UTC)
+        run: cd apps/api && TZ=UTC npx jest src/monthly-overview/finance-center.fixture.integration.spec.ts --runInBand
+      - name: Synthetic finance-center fixture contract (America/Sao_Paulo)
+        run: cd apps/api && TZ=America/Sao_Paulo npx jest src/monthly-overview/finance-center.fixture.integration.spec.ts --runInBand
       - name: Run tests
         run: npm --workspace @reformaflow/api run test -- --no-coverage
 

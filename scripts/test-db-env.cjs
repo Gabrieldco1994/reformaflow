@@ -1,4 +1,4 @@
-'use strict';
+"use strict";
 
 /**
  * Trava de segurança do banco em testes.
@@ -16,13 +16,15 @@
  * Não afeta desenvolvimento: nada aqui é carregado por `npm run dev`.
  */
 
-const path = require('path');
+const path = require("path");
+const fs = require("fs");
 
 /** Raiz do worktree atual (este arquivo mora em <raiz>/scripts/). */
-const REPO_ROOT = path.resolve(__dirname, '..');
+const REPO_ROOT = path.resolve(__dirname, "..");
+const REAL_REPO_ROOT = fs.realpathSync.native(REPO_ROOT);
 
 /** Banco descartável, por worktree. Coberto pelo `*.db` do .gitignore. */
-const TEST_DB_PATH = path.join(REPO_ROOT, 'prisma', 'test.db');
+const TEST_DB_PATH = path.join(REPO_ROOT, "prisma", "test.db");
 const TEST_DB_URL = `file:${TEST_DB_PATH}`;
 
 /**
@@ -30,17 +32,41 @@ const TEST_DB_URL = `file:${TEST_DB_PATH}`;
  * Retorna null para URLs que não são SQLite em arquivo (ex.: `file::memory:`).
  */
 function resolveSqlitePath(url) {
-  if (typeof url !== 'string') return null;
+  if (typeof url !== "string") return null;
   const raw = url.trim();
-  if (!raw.toLowerCase().startsWith('file:')) return null;
+  if (!raw.toLowerCase().startsWith("file:")) return null;
 
-  let filePart = raw.slice('file:'.length);
-  if (filePart.startsWith('//')) filePart = filePart.slice(2);
-  filePart = filePart.split('?')[0];
-  if (!filePart || filePart.startsWith(':')) return null; // file::memory:
+  let filePart = raw.slice("file:".length);
+  filePart = filePart.split("?")[0];
+  if (!filePart || filePart.startsWith(":")) return null; // file::memory:
 
   // Prisma resolve caminhos relativos a partir do diretório do schema (prisma/).
-  return path.resolve(path.join(REPO_ROOT, 'prisma'), filePart);
+  return path.resolve(path.join(REPO_ROOT, "prisma"), filePart);
+}
+
+/**
+ * Resolve symlinks even when the final database file does not exist yet.
+ * Walks to the nearest existing ancestor, canonicalizes it, then restores the
+ * missing suffix. This catches an in-worktree path whose parent is a symlink.
+ */
+function resolveRealSqlitePath(url) {
+  const resolved = resolveSqlitePath(url);
+  if (!resolved) return null;
+
+  let existing = resolved;
+  const missingParts = [];
+  while (!fs.existsSync(existing)) {
+    // Unlike existsSync, lstat exposes a dangling link so the guard can fail closed.
+    const entry = fs.lstatSync(existing, { throwIfNoEntry: false });
+    if (entry?.isSymbolicLink()) return null;
+
+    const parent = path.dirname(existing);
+    if (parent === existing) return resolved;
+    missingParts.unshift(path.basename(existing));
+    existing = parent;
+  }
+
+  return path.join(fs.realpathSync.native(existing), ...missingParts);
 }
 
 /**
@@ -49,16 +75,37 @@ function resolveSqlitePath(url) {
  * Retorna a razão (string) ou null se a URL for segura.
  */
 function forbiddenReason(url) {
-  const resolved = resolveSqlitePath(url);
-  if (!resolved) return null; // memória / outro provider: sem risco de dev.db
+  if (
+    typeof url !== "string" ||
+    !url.trim().toLowerCase().startsWith("file:")
+  ) {
+    return "TEST_DATABASE_URL deve usar uma URL file: para SQLite descartável";
+  }
 
-  if (path.basename(resolved) === 'dev.db') {
-    return 'aponta para um dev.db (banco de desenvolvimento com dados reais)';
+  const resolved = resolveSqlitePath(url);
+  if (!resolved) {
+    return "TEST_DATABASE_URL deve apontar para um arquivo SQLite descartável";
+  }
+
+  if (path.basename(resolved).toLowerCase() === "dev.db") {
+    return "aponta para um dev.db (banco de desenvolvimento com dados reais)";
   }
 
   const relative = path.relative(REPO_ROOT, resolved);
-  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
     return `aponta para fora do worktree atual (${REPO_ROOT})`;
+  }
+
+  const realResolved = resolveRealSqlitePath(url);
+  if (!realResolved) {
+    return "contém componente de symlink pendente ou não resolvido";
+  }
+  if (path.basename(realResolved).toLowerCase() === "dev.db") {
+    return "resolve para um dev.db (banco de desenvolvimento com dados reais)";
+  }
+  const realRelative = path.relative(REAL_REPO_ROOT, realResolved);
+  if (realRelative.startsWith("..") || path.isAbsolute(realRelative)) {
+    return `escapa do worktree atual por symlink (${REPO_ROOT})`;
   }
 
   return null;
@@ -68,25 +115,25 @@ function explode(url, reason) {
   const resolved = resolveSqlitePath(url);
   throw new Error(
     [
-      '',
-      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-      ' TESTE ABORTADO: DATABASE_URL inseguro',
-      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      "",
+      "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+      " TESTE ABORTADO: DATABASE_URL inseguro",
+      "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
       ` URL......: ${url}`,
-      ` Arquivo..: ${resolved ?? '(não resolvido)'}`,
+      ` Arquivo..: ${resolved ?? "(não resolvido)"}`,
       ` Motivo...: ${reason}`,
-      '',
-      ' A suíte de testes não pode escrever no banco de desenvolvimento:',
-      ' ele tem dados reais e uma migration aplicada por engano gera drift',
-      ' (regra de ouro #1 do CLAUDE.md proíbe `prisma migrate reset`).',
-      '',
-      ' Correção: NÃO defina TEST_DATABASE_URL — a trava usa automaticamente',
+      "",
+      " A suíte de testes não pode escrever no banco de desenvolvimento:",
+      " ele tem dados reais e uma migration aplicada por engano gera drift",
+      " (regra de ouro #1 do CLAUDE.md proíbe `prisma migrate reset`).",
+      "",
+      " Correção: NÃO defina TEST_DATABASE_URL — a trava usa automaticamente",
       ` ${TEST_DB_URL}`,
-      ' Se precisar de outro banco de teste, aponte para um arquivo descartável',
-      ' dentro deste worktree (e nunca chamado dev.db).',
-      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-      '',
-    ].join('\n'),
+      " Se precisar de outro banco de teste, aponte para um arquivo descartável",
+      " dentro deste worktree (e nunca chamado dev.db).",
+      "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+      "",
+    ].join("\n"),
   );
 }
 
@@ -117,9 +164,11 @@ applyTestDatabaseUrl();
 
 module.exports = {
   REPO_ROOT,
+  REAL_REPO_ROOT,
   TEST_DB_PATH,
   TEST_DB_URL,
   resolveSqlitePath,
+  resolveRealSqlitePath,
   forbiddenReason,
   applyTestDatabaseUrl,
 };

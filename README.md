@@ -73,5 +73,12 @@ API no **Fly.io** (volume persistente + migrations no entrypoint) e web no **Ver
 
 - Guia para agentes/IA e convenções do projeto: [`AGENTS.md`](./AGENTS.md)
 - Regras de negócio e status: [`docs/`](./docs/README.md)
-- Planejamento aprovado do Centro Financeiro (**implementação não iniciada**):
+- Planejamento aprovado do Centro Financeiro (**produto/runtime não iniciado; baseline S0.3
+  test-only em andamento**):
   [`docs/plano-centro-financeiro-sdd.md`](./docs/plano-centro-financeiro-sdd.md)
+
+  Em 2026-08-17, #446 foi liberada sob exceção PO para build/test/merge test-only sem aguardar
+  #445. Isso não certifica B0, segurança ou produção: #445 concluída/revisada e #446 verde seguem
+  gates conjuntos de #447/B0. Produção permanece `NOT_COLLECTED`, nunca zero; código, histórico e
+  as 63 migrations commitadas até `20260810234344` descrevem estado esperado, não dados de runtime
+  nem migrations efetivamente aplicadas.

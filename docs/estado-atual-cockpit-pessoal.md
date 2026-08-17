@@ -9,9 +9,19 @@ Histórico detalhado: `docs/archive/estado-atual-historico-2026.md`.
 ## Programa Centro Financeiro #436 (planejamento, não estado entregue)
 
 O [SDD do Centro Financeiro](plano-centro-financeiro-sdd.md) está **aprovado como planejamento**,
-com implementação de produto não iniciada. A entrega documental S0.1 não altera esta tela nem os
-contratos abaixo.
+com implementação de produto/runtime não iniciada. Somente a baseline determinística test-only
+S0.3 [#446](https://github.com/Gabrieldco1994/reformaflow/issues/446) está autorizada e pode estar
+em andamento; ela não altera esta tela nem os contratos abaixo.
 
+- Decisão PO de 2026-08-17: #446 pode construir, testar e fazer merge test-only sem aguardar
+  [#445](https://github.com/Gabrieldco1994/reformaflow/issues/445).
+- #445 segue **BLOQUEADA/DEFERIDA**: a admissão da Fly Machine falhou antes do acesso ao banco;
+  agregados, cardinalidades e anomalias de produção estão `NOT_COLLECTED`, nunca zero.
+- Código, histórico do GitHub e as 63 migrations commitadas até `20260810234344` descrevem estado
+  esperado; não comprovam dados de runtime nem migrations aplicadas em produção.
+- E0 permanece incompleta. #445 concluída/revisada e #446 verde são gates conjuntos para
+  merge/deploy de B0 [#447](https://github.com/Gabrieldco1994/reformaflow/issues/447); #446 não
+  certifica B0, segurança ou produção.
 - B0/B1/B2 precisam ficar verdes antes de qualquer UX.
 - U6b continua bloqueada por U6a, lenses, architect e aprovação explícita do PO.
 - Maria agent-first (E5/M0–M3) é FUTURO e exige novo PO gate.

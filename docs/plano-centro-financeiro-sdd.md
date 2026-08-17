@@ -1,6 +1,7 @@
 # Centro Financeiro multi-tenant — SDD canônico
 
-> **PLANEJAMENTO APROVADO — IMPLEMENTAÇÃO DE PRODUTO NÃO INICIADA.**
+> **PLANEJAMENTO APROVADO — IMPLEMENTAÇÃO DE PRODUTO/RUNTIME NÃO INICIADA; BASELINE
+> TEST-ONLY S0.3 EM ANDAMENTO.**
 >
 > Este documento versiona o design do programa
 > [#436](https://github.com/Gabrieldco1994/reformaflow/issues/436). A publicação desta
@@ -39,6 +40,14 @@ Em caso de divergência:
 3. o issue da task e a `main` corrente precisam ser revalidados antes do build;
 4. nenhuma promessa deste documento pode ser copiada para o manual antes de chegar ao runtime.
 
+> **ATENÇÃO — PRODUÇÃO `NOT_COLLECTED` (decisão PO de 2026-08-17):** a admissão da Fly Machine
+> de S0.2 falhou antes de qualquer acesso ao banco. Agregados, cardinalidades e anomalias de
+> produção não foram coletados e nunca devem ser interpretados como zero. Código, histórico do
+> GitHub e as 63 migrations commitadas até `20260810234344` descrevem somente o estado esperado;
+> não são evidência de dados de runtime nem de migrations efetivamente aplicadas em produção.
+> Nova tentativa de S0.2 exige primeiro a telemetria do suporte Fly e depois nova autorização
+> explícita.
+
 ## 2. Vocabulário de status
 
 | Status | Significado neste documento |
@@ -67,12 +76,22 @@ Na base original, e **não como resultado deste programa**:
 - O modelo de produto e as ondas E0–E4 estão aprovados.
 - S0.1 ([#444](https://github.com/Gabrieldco1994/reformaflow/issues/444)) é somente a
   canonicalização documental.
-- S0.1 precede S0.2. S0.2 está bloqueada por autorização humana para inventário read-only de
-  produção; somente depois dela começa S0.3, que bloqueia toda a fundação/UX.
 - U6a é uma futura especificação por tipo. U6b permanece bloqueada até U6a, lenses, architect e
   aprovação explícita do PO.
 - E6/H1–H5 é um envelope aprovado de hardening, mas cada item continua bloqueado por nova revisão
   architect+security e pelos gates de dados/PO/SRE aplicáveis.
+
+**Matriz de decisão E0 — 2026-08-17**
+
+| Item | Estado sincronizado | Dependência e limite |
+|---|---|---|
+| S0.1 [#444](https://github.com/Gabrieldco1994/reformaflow/issues/444) | **CONCLUÍDA (documental)** | Libera S0.2 e S0.3. |
+| S0.2 [#445](https://github.com/Gabrieldco1994/reformaflow/issues/445) | **BLOQUEADA/DEFERIDA; produção `NOT_COLLECTED`** | Próxima tentativa somente após telemetria do suporte Fly e nova autorização explícita. |
+| S0.3 [#446](https://github.com/Gabrieldco1994/reformaflow/issues/446) | **READY sob exceção PO; test-only em andamento** | Pode construir, testar e fazer merge sem aguardar a conclusão de #445; não toca produto/runtime. |
+| B0 [#447](https://github.com/Gabrieldco1994/reformaflow/issues/447) | **BLOQUEADO** | Merge/deploy exige conjuntamente #445 concluída/revisada e #446 verde. |
+
+E0 [#437](https://github.com/Gabrieldco1994/reformaflow/issues/437) permanece incompleta enquanto
+#445 estiver aberta. A exceção de #446 não conclui E0 nem dispensa o gate de produção.
 
 ### 2.3 FUTURO — depende de novo PO gate
 
@@ -168,7 +187,9 @@ Toda UX do programa precisa passar em **375 px, 390 px e desktop**:
 ### 5.1 Caminho crítico
 
 ```text
-S0.1 (#444) → S0.2 (#445) → S0.3 (#446) → B0 (#447) → B1 (#448) → B2 (#449)
+S0.1 (#444) → S0.2 (#445 bloqueada/deferida)
+S0.1 (#444) → S0.3 (#446 test-only, exceção PO)
+S0.2 concluída/revisada + S0.3 verde → merge/deploy B0 (#447) → B1 (#448) → B2 (#449)
 B2 + deploy B0 + security verify → U1 (#450) → U2 (#451)
 U2 → U3 (#452) → U4 (#453)
 U2 → U5 (#454)
@@ -184,7 +205,7 @@ separada e só entra no critical path quando uma exposição consumidora for dem
 
 | Epic | Status do design | Conteúdo e dependência |
 |---|---|---|
-| [E0 #437](https://github.com/Gabrieldco1994/reformaflow/issues/437) | S0.1 READY; restante bloqueado | S0.1 → S0.2 → S0.3; S0.3 bloqueia B0. |
+| [E0 #437](https://github.com/Gabrieldco1994/reformaflow/issues/437) | **INCOMPLETA**; S0.1 concluída, S0.2 bloqueada/deferida e S0.3 READY test-only | #446 pode avançar sem #445; #445 concluída/revisada + #446 verde são gates conjuntos obrigatórios para merge/deploy de B0. |
 | [E1 #438](https://github.com/Gabrieldco1994/reformaflow/issues/438) | **BLOQUEADO** | B0 → B1 → B2. Os três e security verify ficam verdes antes de UX. |
 | [E2 #439](https://github.com/Gabrieldco1994/reformaflow/issues/439) | **BLOQUEADO** | B0+B1+B2 → U1 → U2; reorganização reversível de desktop/mobile. |
 | [E3 #440](https://github.com/Gabrieldco1994/reformaflow/issues/440) | **BLOQUEADO** | U3/U4/U5; U6a é spec e U6b tem gate humano adicional. |
@@ -196,16 +217,32 @@ separada e só entra no critical path quando uma exposição consumidora for dem
 
 #### E0 — baseline antes do código
 
-Ordem obrigatória: **S0.1 (#444) → S0.2 (#445) → S0.3 (#446)**.
+Decisão PO de **2026-08-17**: depois de S0.1, S0.2 e S0.3 podem avançar independentemente.
+A independência vale somente para construir, testar e fazer merge de #446 test-only; #445 e #446
+continuam gates conjuntos para o merge/deploy de B0.
 
 - [S0.1 #444](https://github.com/Gabrieldco1994/reformaflow/issues/444): este SDD, ToC e higiene
   dos planos; zero runtime.
 - [S0.2 #445](https://github.com/Gabrieldco1994/reformaflow/issues/445): inventário
-  privacy-safe, somente contagens agregadas por tenant e **zero writes**; produção exige
-  autorização humana explícita.
-- [S0.3 #446](https://github.com/Gabrieldco1994/reformaflow/issues/446): fixture test-only com
-  dois tenants, allow/hidden, múltiplos PESSOAL, Carteira, faturas, cartão-paga-cartão, rateio,
-  espelhos, neutros, Planning e Planejador; relógio congelado em America/Sao_Paulo e UTC.
+  privacy-safe, somente contagens agregadas por tenant e **zero writes**. Está
+  **BLOQUEADA/DEFERIDA**: a Fly Machine falhou antes do banco, portanto produção segue
+  `NOT_COLLECTED`, nunca zero; nova tentativa depende de telemetria do suporte Fly e nova
+  autorização explícita.
+- [S0.3 #446](https://github.com/Gabrieldco1994/reformaflow/issues/446): baseline sintética
+  determinística test-only, com estes sete temas de aceitação:
+  1. dois tenants, matriz de personas/grants sem `OWNER`, dois PESSOAL, ocultos e colisões;
+  2. relações exatas de rateio, espelho, neutro, cartão-paga-cartão, Planning e Planejador;
+  3. centavos literais canônicos de Caixa (`983928`), Carteira (`2994`) e rateio (`30029`), além
+     de totais/status de fatura fixados;
+  4. mutação autorizada altera o oracle, enquanto mutação cross-tenant não altera o observável;
+  5. payload local de Planning e Planejador server permanecem independentes;
+  6. execução pelas 63 migrations commitadas até `20260810234344`, em SQLite de teste guardado
+     dentro do worktree, abortando URL não-file ou escape por symlink;
+  7. resultados idênticos em UTC e America/Sao_Paulo, com evidência dos limites da fixture.
+
+#446 não certifica B0, segurança, dados de produção nem migration aplicada em produção, e não
+conclui #445. As migrations e o histórico versionado usados na fixture representam estado
+esperado, não evidência de runtime.
 
 #### E1 — B0/B1/B2 antes de qualquer UX
 
@@ -407,10 +444,12 @@ preservar links e contexto sem fingir que seus ledgers continuam vivos.
 | D-009 | U6b só existe depois de U6a+lenses+architect+PO. | **BLOQUEADO; NÃO ENTREGUE** |
 | D-010 | Maria agent-first reutiliza serviços/cards/actions/ACLs e requer novo PO gate. | **FUTURO; NÃO ENTREGUE** |
 | D-011 | H1–H5 ficam separados e gated; não entram automaticamente no critical path. | **BLOQUEADO; NÃO ENTREGUE** |
+| D-012 | Sob exceção PO de 2026-08-17, #446 pode avançar test-only sem #445; #445 concluída/revisada + #446 verde seguem obrigatórias para merge/deploy de B0. Produção permanece `NOT_COLLECTED`. | **S0.3 EM ANDAMENTO; E0 INCOMPLETA; B0 BLOQUEADO** |
 
 ## 12. Changelog
 
 | Data | Versão | Mudança |
 |---|---|---|
-| 2026-08-17 | Revisão S0.1 | Sequência E0 corrigida para S0.1→S0.2→S0.3; guardrails de papel, endpoint/evidência e auditoria estreitados; transição do rateio legado para source-only explicitada. |
+| 2026-08-17 | Exceção PO S0.3 | #446 liberada para build/test/merge test-only independente de #445; #445 registrada como bloqueada/deferida e produção `NOT_COLLECTED`; gates conjuntos de #447/B0, limites da baseline sintética e distinção entre estado esperado e evidência de runtime explicitados. |
+| 2026-08-17 | Revisão S0.1 | Guardrails de papel, endpoint/evidência e auditoria estreitados; transição do rateio legado para source-only explicitada. |
 | 2026-08-17 | S0.1 inicial | Design/security consolidado no repositório; status, contratos, E0–E6, dependências, analytics, riscos, rollback, decisões e histórico canonicalizados a partir da base `ece5032c398cc050fc037959a1f8fc0cc7f05bea`. Nenhuma implementação de produto iniciada. |
