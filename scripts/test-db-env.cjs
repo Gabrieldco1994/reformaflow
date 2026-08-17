@@ -56,6 +56,10 @@ function resolveRealSqlitePath(url) {
   let existing = resolved;
   const missingParts = [];
   while (!fs.existsSync(existing)) {
+    // Unlike existsSync, lstat exposes a dangling link so the guard can fail closed.
+    const entry = fs.lstatSync(existing, { throwIfNoEntry: false });
+    if (entry?.isSymbolicLink()) return null;
+
     const parent = path.dirname(existing);
     if (parent === existing) return resolved;
     missingParts.unshift(path.basename(existing));
@@ -93,14 +97,15 @@ function forbiddenReason(url) {
   }
 
   const realResolved = resolveRealSqlitePath(url);
-  if (realResolved) {
-    if (path.basename(realResolved).toLowerCase() === "dev.db") {
-      return "resolve para um dev.db (banco de desenvolvimento com dados reais)";
-    }
-    const realRelative = path.relative(REAL_REPO_ROOT, realResolved);
-    if (realRelative.startsWith("..") || path.isAbsolute(realRelative)) {
-      return `escapa do worktree atual por symlink (${REPO_ROOT})`;
-    }
+  if (!realResolved) {
+    return "contém componente de symlink pendente ou não resolvido";
+  }
+  if (path.basename(realResolved).toLowerCase() === "dev.db") {
+    return "resolve para um dev.db (banco de desenvolvimento com dados reais)";
+  }
+  const realRelative = path.relative(REAL_REPO_ROOT, realResolved);
+  if (realRelative.startsWith("..") || path.isAbsolute(realRelative)) {
+    return `escapa do worktree atual por symlink (${REPO_ROOT})`;
   }
 
   return null;

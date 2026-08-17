@@ -100,6 +100,26 @@ describe("trava de DATABASE_URL em testes", () => {
     }
   });
 
+  it("recusa symlink pendente que criaria o banco fora do worktree", () => {
+    const outside = fs.mkdtempSync(
+      path.join(os.tmpdir(), "rf-db-guard-dangling-"),
+    );
+    const target = path.join(outside, "test.db");
+    const link = path.join(
+      guard.REPO_ROOT,
+      "prisma",
+      `guard-dangling-${process.pid}-${Date.now()}.db`,
+    );
+    fs.symlinkSync(target, link, "file");
+    try {
+      expect(fs.existsSync(link)).toBe(false);
+      expect(guard.forbiddenReason(`file:${link}`)).toMatch(/symlink/);
+    } finally {
+      fs.unlinkSync(link);
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
   it("explode de forma legível se TEST_DATABASE_URL apontar para o dev.db", () => {
     const anterior = process.env.TEST_DATABASE_URL;
     process.env.TEST_DATABASE_URL =
