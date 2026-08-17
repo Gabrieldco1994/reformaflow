@@ -100,25 +100,34 @@ describe("trava de DATABASE_URL em testes", () => {
     }
   });
 
-  it("recusa symlink pendente que criaria o banco fora do worktree", () => {
-    const outside = fs.mkdtempSync(
-      path.join(os.tmpdir(), "rf-db-guard-dangling-"),
-    );
-    const target = path.join(outside, "test.db");
-    const link = path.join(
-      guard.REPO_ROOT,
-      "prisma",
-      `guard-dangling-${process.pid}-${Date.now()}.db`,
-    );
-    fs.symlinkSync(target, link, "file");
-    try {
-      expect(fs.existsSync(link)).toBe(false);
-      expect(guard.forbiddenReason(`file:${link}`)).toMatch(/symlink/);
-    } finally {
-      fs.unlinkSync(link);
-      fs.rmSync(outside, { recursive: true, force: true });
-    }
-  });
+  it.each(["dev.db", "test.db"])(
+    "recusa antes do Prisma symlink pendente para %s externo",
+    (databaseName: string) => {
+      const previous = process.env.TEST_DATABASE_URL;
+      const outside = fs.mkdtempSync(
+        path.join(os.tmpdir(), "rf-db-guard-dangling-"),
+      );
+      const target = path.join(outside, databaseName);
+      const link = path.join(
+        guard.REPO_ROOT,
+        "prisma",
+        `guard-dangling-${process.pid}-${Date.now()}.db`,
+      );
+      fs.symlinkSync(target, link, "file");
+      process.env.TEST_DATABASE_URL = `file:${link}`;
+      try {
+        expect(fs.existsSync(link)).toBe(false);
+        expect(() => guard.applyTestDatabaseUrl()).toThrow(/symlink/);
+        expect(fs.existsSync(target)).toBe(false);
+      } finally {
+        if (previous === undefined) delete process.env.TEST_DATABASE_URL;
+        else process.env.TEST_DATABASE_URL = previous;
+        guard.applyTestDatabaseUrl();
+        fs.unlinkSync(link);
+        fs.rmSync(outside, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("explode de forma legível se TEST_DATABASE_URL apontar para o dev.db", () => {
     const anterior = process.env.TEST_DATABASE_URL;
