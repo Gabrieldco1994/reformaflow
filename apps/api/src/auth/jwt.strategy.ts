@@ -71,31 +71,24 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         .update({ where: { id: user.id }, data: { lastActivityAt: new Date() } })
         .catch(() => {});
     }
-    let allowedModules: string[] = [];
-    try {
-      const parsed = JSON.parse(user.allowedModules || '[]');
-      if (Array.isArray(parsed)) allowedModules = parsed;
-    } catch {
-      allowedModules = [];
-    }
-
-    // `allowedProjects` is the security-sensitive grant: unlike
-    // `allowedModules`/`allowedProjectTypes` above, corruption here must NOT
-    // silently degrade to "[]" (which downstream reads as "no restriction" —
-    // i.e. accidental full access). Fail closed instead. See `grant-json.ts`.
-    const grant = parseGrantJson(user.allowedProjects);
-    if (!grant.valid) {
+    // All three grant JSON columns share the SAME fail-closed parser (see
+    // grant-json.ts) — a corrupted `allowedModules`/`allowedProjectTypes` is
+    // no less dangerous than a corrupted `allowedProjects`: reconciliation
+    // and scope resolution downstream both trust these to be real arrays.
+    const modulesGrant = parseGrantJson(user.allowedModules);
+    if (!modulesGrant.valid) {
       throw new UnauthorizedException('Sessão inválida');
     }
-    const allowedProjects = grant.values;
-
-    let allowedProjectTypes: string[] = [];
-    try {
-      const parsed = JSON.parse(user.allowedProjectTypes || '[]');
-      if (Array.isArray(parsed)) allowedProjectTypes = parsed;
-    } catch {
-      allowedProjectTypes = [];
+    const projectsGrant = parseGrantJson(user.allowedProjects);
+    if (!projectsGrant.valid) {
+      throw new UnauthorizedException('Sessão inválida');
     }
+    const typesGrant = parseGrantJson(user.allowedProjectTypes);
+    if (!typesGrant.valid) {
+      throw new UnauthorizedException('Sessão inválida');
+    }
+    const allowedProjects = projectsGrant.values;
+    const allowedProjectTypes = typesGrant.values;
 
     return {
       id: user.id,
@@ -107,7 +100,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       // `ModulesGuard` consulta. Sem isto, um usuário antigo recebe o módulo
       // na resposta de login (o web mostra o menu) mas leva 403 ao clicar.
       // Ver `reconcileUserModules` no domínio.
-      allowedModules: reconcileUserModules(allowedModules, allowedProjectTypes),
+      allowedModules: reconcileUserModules(modulesGrant.values, allowedProjectTypes),
       allowedProjects,
       allowedProjectTypes,
       isGuest: user.isGuest,

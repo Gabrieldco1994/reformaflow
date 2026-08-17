@@ -1,19 +1,18 @@
 /**
- * Single fail-closed parser for the "grant" JSON columns (`allowedProjects`)
- * read by `AuthService.buildPublicUser`, `JwtStrategy.validate`, and
+ * Single fail-closed parser for every "grant" JSON column read from the
+ * `User` row (`allowedModules`, `allowedProjects`, `allowedProjectTypes`),
+ * used by `AuthService.buildPublicUser`, `JwtStrategy.validate`, and
  * `AuthService.updateSelfObjectives`.
  *
- * `[]` is the valid wildcard (no project restriction — the caller derives
- * visibility from type/module elsewhere). Anything else that isn't a clean
- * JSON array of strings degrades the whole grant to INVALID so the caller can
- * fail closed (401) instead of silently treating corruption as "no
- * restriction", which would grant full access by accident.
- *
- * `raw === undefined` (property not supplied at all, as opposed to a stored
- * value) is treated as the wildcard too — this covers internal callers that
- * build a partial user object without ever touching `allowedProjects`
- * (e.g. `AuthService`'s objectives-response formatting), which never carried
- * this field and must not start failing closed just because it's absent.
+ * The DB column is the source of truth and is never optional at the schema
+ * level (`String @default("[]")`), so there is no legitimate "field not
+ * supplied" case — a caller without the real value simply hasn't loaded the
+ * row. Only the literal JSON array `[]` is the valid wildcard (no
+ * restriction — the caller derives visibility from type/module elsewhere).
+ * Missing/undefined, blank, `null`, invalid JSON, a non-array, or a
+ * non-empty array with no string values all degrade the whole grant to
+ * INVALID so the caller fails closed (401) instead of silently treating
+ * corruption as "no restriction", which would grant full access by accident.
  */
 export interface ParsedGrant {
   valid: boolean;
@@ -21,9 +20,6 @@ export interface ParsedGrant {
 }
 
 export function parseGrantJson(raw: unknown): ParsedGrant {
-  if (raw === undefined) {
-    return { valid: true, values: [] };
-  }
   if (typeof raw !== 'string' || raw.trim() === '') {
     return { valid: false, values: [] };
   }

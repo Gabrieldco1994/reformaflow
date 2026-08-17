@@ -3,7 +3,8 @@ import { PendenciaService } from './pendencia.service';
 import { CreatePendenciaDto, UpdatePendenciaDto, MovePendenciaDto } from './dto/pendencia.dto';
 import { RequireModule } from '../common/decorators/require-module.decorator';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
-import { CurrentTenant } from '../common/decorators/tenant.decorator';
+import { CurrentTenant, CurrentUser } from '../common/decorators/tenant.decorator';
+import type { MonthlyOverviewRequester } from '../monthly-overview/monthly-overview.service';
 
 @UseInterceptors(TenantInterceptor)
 @RequireModule('pendencias')
@@ -21,8 +22,9 @@ export class PendenciaController {
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Query('month') month?: string,
+    @CurrentUser() requester?: MonthlyOverviewRequester,
   ) {
-    return this.service.findFinancialQueue(tenantId, projectId, month);
+    return this.service.findFinancialQueue(tenantId, projectId, month, requester);
   }
 
   @Post()

@@ -192,43 +192,59 @@ export class AuthService {
       );
     }
     const access = deriveObjectiveAccess(projectTypes);
-    const user = await this.findActiveUser(userId);
 
-    // Authorization read happens here, right before the write, on the SAME
-    // row `findActiveUser` already loaded — no re-check after the update
-    // (TOCTOU-safe: nothing observes/mutates the grant between read and write).
+    // Single interactive transaction: read (locked against concurrent writes
+    // to the SAME row by SQLite's writer-transaction serialization), parse,
+    // authorize, and write all inside it — no gap where another request can
+    // change the grant between the check and the commit, and no authorizing
+    // check runs after the write (`buildObjectiveResponse` below is pure
+    // formatting of data this same transaction just wrote).
     //
-    // Ordem importa: convidado é sempre 403 (mesmo com role ADMIN — ver
-    // `registerGuest`, que cria o convidado com role ADMIN). Só depois disso
-    // checamos full-access (ADMIN/OWNER de verdade), e só então o grant.
-    if (user.isGuest) {
-      throw new ForbiddenException(
-        'Conta convidada não gerencia objetivos próprios',
-      );
-    }
-    if (!isFullAccessRole(user.role)) {
-      // `allowedProjects` é o grant que decide "gerenciado" — usa o MESMO
-      // parser fail-closed que buildPublicUser/JwtStrategy (ver grant-json.ts).
-      // JSON corrompido não pode degradar para wildcard (isso liberaria a
-      // troca de objetivos pra quem na verdade está gerenciado por outra conta).
+    // `$transaction` bypasses the soft-delete `$use` middleware (which only
+    // ever patched `findMany`/`findFirst` anyway — `findUnique` was never
+    // covered), so `deletedAt`/`tenant.deletedAt` are checked explicitly here,
+    // exactly like the non-transactional reads elsewhere in this service.
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.findUnique({
+        where: { id: userId },
+        include: { tenant: true },
+      });
+      if (!user || user.deletedAt || !user.tenant || user.tenant.deletedAt) {
+        throw new UnauthorizedException('Sessão inválida');
+      }
+
+      // Grant validity gates everything, BEFORE role/guest branching: an
+      // invalid `allowedProjects` fails closed (401) regardless of who's
+      // asking. Same fail-closed parser as buildPublicUser/JwtStrategy (see
+      // grant-json.ts) — corrupted JSON must never degrade to wildcard.
       const grant = parseGrantJson(user.allowedProjects);
       if (!grant.valid) {
         throw new UnauthorizedException('Sessão inválida');
       }
-      if (grant.values.length > 0) {
+
+      // Convidado é sempre 403, mesmo com role ADMIN (ver `registerGuest`,
+      // que cria o convidado com role ADMIN). Só depois checamos full-access
+      // (ADMIN/OWNER de verdade — sempre liberado), e só então "gerenciado".
+      if (user.isGuest) {
+        throw new ForbiddenException(
+          'Conta convidada não gerencia objetivos próprios',
+        );
+      }
+      if (!isFullAccessRole(user.role) && grant.values.length > 0) {
         throw new ForbiddenException(
           'Conta gerenciada não pode alterar os próprios objetivos',
         );
       }
-    }
 
-    const updated = await this.prisma.user.update({
-      where: { id: user.id },
-      data: {
-        allowedProjectTypes: JSON.stringify(access.allowedProjectTypes),
-        allowedModules: JSON.stringify(access.allowedModules),
-      },
+      return tx.user.update({
+        where: { id: user.id },
+        data: {
+          allowedProjectTypes: JSON.stringify(access.allowedProjectTypes),
+          allowedModules: JSON.stringify(access.allowedModules),
+        },
+      });
     });
+
     return this.buildObjectiveResponse(updated);
   }
 
@@ -247,13 +263,15 @@ export class AuthService {
     allowedProjectTypes: string;
     allowedModules: string;
   }) {
-    // Formatting-only: reuses the SAME module/type reconciliation as
-    // `buildPublicUser` (see `reconcileModulesAndTypes`) but never routes
-    // through `buildPublicUser` itself. `buildPublicUser` fails closed on a
-    // corrupted `allowedProjects` grant (see grant-json.ts) — a security check
-    // that has NOTHING to do with formatting an objectives response, and
-    // running it here would risk throwing 401 AFTER `updateSelfObjectives`
-    // already committed the write (no authorizing check after write).
+    // Reuses the SAME strict parser as `buildPublicUser`/`JwtStrategy`
+    // (`reconcileModulesAndTypes` → `parseGrantJson`), but never routes
+    // through `buildPublicUser` itself: that method also checks
+    // `allowedProjects`, which is irrelevant to formatting an objectives
+    // response. `getSelfObjectives` intentionally fails closed (401) here on
+    // a corrupted `allowedModules`/`allowedProjectTypes`; `updateSelfObjectives`
+    // only reaches this AFTER its own transaction committed a value it wrote
+    // itself moments ago (always valid JSON), so this can't retroactively
+    // undo that write — it's formatting, not a post-write authorization check.
     const { allowedModules, allowedProjectTypes } = this.reconcileModulesAndTypes(
       user.allowedModules,
       user.allowedProjectTypes,
@@ -265,28 +283,22 @@ export class AuthService {
     };
   }
 
-  /** Shared JSON→array reconciliation for `allowedModules`/`allowedProjectTypes` (lenient — see AGENTS.md). */
+  /** Shared JSON→array reconciliation for `allowedModules`/`allowedProjectTypes` — same fail-closed parser as `allowedProjects` (see grant-json.ts); any invalid field fails the whole read closed. */
   private reconcileModulesAndTypes(
-    allowedModulesJson: string,
-    allowedProjectTypesJson: string,
+    allowedModulesJson: unknown,
+    allowedProjectTypesJson: unknown,
   ): { allowedModules: string[]; allowedProjectTypes: string[] } {
-    let allowedModules: string[] = [];
-    try {
-      const parsed = JSON.parse(allowedModulesJson || '[]');
-      if (Array.isArray(parsed)) allowedModules = parsed;
-    } catch {
-      allowedModules = [];
+    const modulesGrant = parseGrantJson(allowedModulesJson);
+    if (!modulesGrant.valid) {
+      throw new UnauthorizedException('Sessão inválida');
     }
-    let allowedProjectTypes: string[] = [];
-    try {
-      const parsed = JSON.parse(allowedProjectTypesJson || '[]');
-      if (Array.isArray(parsed)) allowedProjectTypes = parsed;
-    } catch {
-      allowedProjectTypes = [];
+    const typesGrant = parseGrantJson(allowedProjectTypesJson);
+    if (!typesGrant.valid) {
+      throw new UnauthorizedException('Sessão inválida');
     }
     return {
-      allowedModules: reconcileUserModules(allowedModules, allowedProjectTypes),
-      allowedProjectTypes,
+      allowedModules: reconcileUserModules(modulesGrant.values, typesGrant.values),
+      allowedProjectTypes: typesGrant.values,
     };
   }
 
@@ -420,7 +432,7 @@ export class AuthService {
     // API responder 403 — pior que o bug original.
     const { allowedModules, allowedProjectTypes } = this.reconcileModulesAndTypes(
       user.allowedModules,
-      user.allowedProjectTypes ?? '[]',
+      user.allowedProjectTypes,
     );
 
     return {
