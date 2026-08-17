@@ -41,6 +41,7 @@ ENV NODE_ENV=production \
 
 RUN apt-get update -y \
   && apt-get install -y --no-install-recommends openssl ca-certificates curl sqlite3 \
+  && sqlite3 --version \
   && rm -rf /var/lib/apt/lists/*
 
 # Copy only what's needed for runtime
