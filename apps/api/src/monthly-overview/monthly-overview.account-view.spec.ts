@@ -2043,6 +2043,10 @@ describe("MonthlyOverviewService.getAccountView", () => {
   });
 
   describe("payInvoice", () => {
+    // #447: mutação de dinheiro exige requester identificado (argumento
+    // obrigatório). Acesso total é DECLARADO pelo papel, nunca por omissão.
+    const requester = { id: "user-abc", role: "ADMIN" };
+
     beforeEach(() => {
       prisma.creditCard.findFirst.mockResolvedValue({
         id: "card-1",
@@ -2057,13 +2061,18 @@ describe("MonthlyOverviewService.getAccountView", () => {
     });
 
     it("gera despesa neutra PAGAMENTO_FATURA_CARTAO e liquida o ciclo", async () => {
-      const res: any = await service.payInvoice(tenantId, projectId, {
-        cardLast4: "1111",
-        month: "2026-06",
-        amountCents: 7_000,
-        bankLast4: "4247",
-        paymentDate: "2026-05-31",
-      });
+      const res: any = await service.payInvoice(
+        tenantId,
+        projectId,
+        {
+          cardLast4: "1111",
+          month: "2026-06",
+          amountCents: 7_000,
+          bankLast4: "4247",
+          paymentDate: "2026-05-31",
+        },
+        requester,
+      );
 
       expect(prisma.expense.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -2084,7 +2093,7 @@ describe("MonthlyOverviewService.getAccountView", () => {
       expect(res.paymentExpenseId).toBe("pay-1");
     });
 
-    it("repassa createdByUserId para a Expense de pagamento (KPI \"despesas criadas\" depende disso)", async () => {
+    it("grava requester.id como createdByUserId da Expense de pagamento (KPI \"despesas criadas\" depende disso)", async () => {
       await service.payInvoice(
         tenantId,
         projectId,
@@ -2095,7 +2104,7 @@ describe("MonthlyOverviewService.getAccountView", () => {
           bankLast4: "4247",
           paymentDate: "2026-05-31",
         },
-        "user-abc",
+        requester,
       );
 
       expect(prisma.expense.create).toHaveBeenCalledWith(
@@ -2109,33 +2118,48 @@ describe("MonthlyOverviewService.getAccountView", () => {
       prisma.expense.findFirst.mockResolvedValue({ id: "pay-existing" });
 
       await expect(
-        service.payInvoice(tenantId, projectId, {
-          cardLast4: "1111",
-          month: "2026-06",
-          amountCents: 7_000,
-          bankLast4: "4247",
-          paymentDate: "2026-06-10",
-        }),
+        service.payInvoice(
+          tenantId,
+          projectId,
+          {
+            cardLast4: "1111",
+            month: "2026-06",
+            amountCents: 7_000,
+            bankLast4: "4247",
+            paymentDate: "2026-06-10",
+          },
+          requester,
+        ),
       ).rejects.toThrow(/já foi registrado/i);
       expect(prisma.expense.create).not.toHaveBeenCalled();
     });
 
     it("exige conta de débito e valor válido", async () => {
       await expect(
-        service.payInvoice(tenantId, projectId, {
-          cardLast4: "1111",
-          month: "2026-06",
-          amountCents: 7_000,
-        }),
+        service.payInvoice(
+          tenantId,
+          projectId,
+          {
+            cardLast4: "1111",
+            month: "2026-06",
+            amountCents: 7_000,
+          },
+          requester,
+        ),
       ).rejects.toThrow(/Conta de débito obrigatória/i);
 
       await expect(
-        service.payInvoice(tenantId, projectId, {
-          cardLast4: "1111",
-          month: "2026-06",
-          amountCents: 0,
-          bankLast4: "4247",
-        }),
+        service.payInvoice(
+          tenantId,
+          projectId,
+          {
+            cardLast4: "1111",
+            month: "2026-06",
+            amountCents: 0,
+            bankLast4: "4247",
+          },
+          requester,
+        ),
       ).rejects.toThrow(/Valor da fatura inválido/i);
     });
 
@@ -2143,13 +2167,18 @@ describe("MonthlyOverviewService.getAccountView", () => {
       prisma.expense.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.payInvoice(tenantId, projectId, {
-          cardLast4: "1111",
-          month: "2026-06",
-          amountCents: 500,
-          bankLast4: "4247",
-          paymentDate: "2026-06-10",
-        }),
+        service.payInvoice(
+          tenantId,
+          projectId,
+          {
+            cardLast4: "1111",
+            month: "2026-06",
+            amountCents: 500,
+            bankLast4: "4247",
+            paymentDate: "2026-06-10",
+          },
+          requester,
+        ),
       ).resolves.toEqual(expect.objectContaining({ ok: true }));
       expect(prisma.expense.create).toHaveBeenCalled();
     });

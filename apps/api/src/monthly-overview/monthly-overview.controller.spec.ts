@@ -108,8 +108,11 @@ describe("MonthlyOverviewController — repassa requester para os 7 GETs (B0 #44
  * que tira `ProjectAccessGuard` do caminho, mas NÃO herdaram o repasse do
  * requester. Sem o requester completo chegando ao service, `ensurePessoalProject`
  * resolve o anchor em modo full-access e um USER restrito muta qualquer PESSOAL
- * do mesmo tenant. `requester.id` continua indo separado: é o `createdByUserId`
- * da despesa de pagamento (KPI "despesas criadas" depende dele).
+ * do mesmo tenant.
+ *
+ * O requester vai INTEIRO e uma vez só: `requester.id` é o `createdByUserId` da
+ * despesa de pagamento (KPI "despesas criadas" depende dele) e o mesmo objeto
+ * carrega o scope — autoria e credencial não podem divergir.
  */
 describe("MonthlyOverviewController — repassa o requester COMPLETO nas 2 mutações (B0 #447)", () => {
   const requester = {
@@ -120,7 +123,7 @@ describe("MonthlyOverviewController — repassa o requester COMPLETO nas 2 muta�
     allowedModules: ["monthlyOverview"],
   };
 
-  it("payInvoice repassa o requester completo ao service E mantém requester.id como autor", async () => {
+  it("payInvoice repassa o requester completo (com o id auditável) ao service", async () => {
     const payInvoice = jest.fn().mockResolvedValue({});
     const controller = new MonthlyOverviewController({ payInvoice } as any);
     const body = {
@@ -133,7 +136,9 @@ describe("MonthlyOverviewController — repassa o requester COMPLETO nas 2 muta�
 
     await (controller as any).payInvoice("t1", requester, "p1", body);
 
-    expect(payInvoice).toHaveBeenCalledWith("t1", "p1", body, requester.id, requester);
+    expect(payInvoice).toHaveBeenCalledWith("t1", "p1", body, requester);
+    // O id auditado é o do MESMO objeto que autoriza (não um 4º argumento solto).
+    expect(payInvoice.mock.calls[0][3].id).toBe(requester.id);
   });
 
   it("undoInvoicePayment repassa o requester completo ao service", async () => {

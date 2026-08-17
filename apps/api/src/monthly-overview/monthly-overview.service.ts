@@ -35,6 +35,19 @@ export interface MonthlyOverviewRequester {
   allowedModules?: string[];
 }
 
+/**
+ * Requester das MUTAÇÕES de dinheiro (`payInvoice` / `undoInvoicePayment`).
+ *
+ * `id` é obrigatório porque ele é, ao mesmo tempo, a credencial (scope do anchor)
+ * e a autoria auditada da despesa gerada (`Expense.createdByUserId`) — separar os
+ * dois em argumentos distintos permitiria auditar um usuário e autorizar outro.
+ * O tipo é REQUERIDO nas assinaturas: requester opcional é fail-open por
+ * construção (quem esquece o argumento ganha acesso total silencioso).
+ */
+export interface MonthlyOverviewMutationRequester extends MonthlyOverviewRequester {
+  id: string;
+}
+
 interface HubProject {
   id: string;
   type: string;
@@ -2919,10 +2932,10 @@ export class MonthlyOverviewService {
    *    fatura projetada some de `faltaPagarMes` porque passa a constar como paga).
    *  - §0.7 fonte única: o saldo continua derivado de `computeCaixaConta`.
    *
-   * `requester` (B0 #447): a rota usa o param renomeado `:pessoalProjectId`, que
-   * `ProjectAccessGuard` NÃO reconhece — a autorização do anchor tem que ser
-   * feita aqui, ANTES de qualquer leitura/escrita. `createdByUserId` segue
-   * separado: é o autor auditado da despesa, não a credencial de acesso.
+   * `requester` (B0 #447) é OBRIGATÓRIO: a rota usa o param renomeado
+   * `:pessoalProjectId`, que `ProjectAccessGuard` NÃO reconhece — a autorização
+   * do anchor acontece aqui, ANTES de qualquer leitura/escrita, e `requester.id`
+   * é a autoria auditada da despesa de pagamento.
    */
   async payInvoice(
     tenantId: string,
@@ -2934,10 +2947,11 @@ export class MonthlyOverviewService {
       bankLast4?: string;
       paymentDate?: string;
     },
-    createdByUserId: string | null = null,
-    requester?: MonthlyOverviewRequester,
+    requester: MonthlyOverviewMutationRequester,
   ) {
+    this.assertIdentifiedRequester(requester);
     await this.ensurePessoalProject(tenantId, projectId, requester);
+    const createdByUserId = requester.id;
 
     const month = normalizeMonthKey(dto.month);
     if (!dto.cardLast4) throw new BadRequestException('Cartão obrigatório.');
@@ -3040,16 +3054,18 @@ export class MonthlyOverviewService {
    * pagamento — com uma fatura só, pagamentos de OUTROS meses "vazam" pra cá.
    * 0 casamentos → 404. 2+ (ambíguo) → 400 com a lista dos pagamentos casados.
    *
-   * `requester` (B0 #447): mesma razão de `payInvoice` — com o param de rota
-   * renomeado (`:pessoalProjectId`) o guard global não cobre esta mutação, então
-   * o scope do anchor é resolvido aqui antes de ler/reverter qualquer pagamento.
+   * `requester` (B0 #447) é OBRIGATÓRIO pela mesma razão de `payInvoice` — com o
+   * param de rota renomeado (`:pessoalProjectId`) o guard global não cobre esta
+   * mutação, então o scope do anchor é resolvido aqui antes de ler/reverter
+   * qualquer pagamento.
    */
   async undoInvoicePayment(
     tenantId: string,
     projectId: string,
     dto: { cardLast4?: string; dueMonth?: string },
-    requester?: MonthlyOverviewRequester,
+    requester: MonthlyOverviewMutationRequester,
   ) {
+    this.assertIdentifiedRequester(requester);
     await this.ensurePessoalProject(tenantId, projectId, requester);
 
     if (!dto.cardLast4) throw new BadRequestException('Cartão obrigatório.');
@@ -3233,6 +3249,21 @@ export class MonthlyOverviewService {
     if (!row) throw new NotFoundException('Ajuste de fatura não encontrado.');
     await this.prisma.invoiceAdjustment.delete({ where: { id } });
     return { ok: true };
+  }
+
+  /**
+   * Gate fail-CLOSED das mutações de dinheiro (#447 / SEC-2).
+   *
+   * O contrato primário é o compilador: `requester` é argumento OBRIGATÓRIO em
+   * `payInvoice`/`undoInvoicePayment`. Este check cobre o chamador não tipado
+   * (JS, `as any`, mock de teste) para que "esqueci o argumento" resulte em
+   * recusa — nunca em acesso total silencioso, como acontecia com o requester
+   * opcional (`undefined` ⇒ scope `null` ⇒ qualquer anchor PESSOAL do tenant).
+   */
+  private assertIdentifiedRequester(requester: MonthlyOverviewMutationRequester) {
+    if (!requester?.id) {
+      throw new ForbiddenException('Ação exige um usuário identificado');
+    }
   }
 
   private async ensurePessoalProject(

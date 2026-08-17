@@ -187,6 +187,9 @@ function d(iso: string) {
 }
 
 describe('MonthlyOverviewService.undoInvoicePayment', () => {
+  // #447: as mutações de fatura exigem requester identificado (argumento
+  // obrigatório); acesso total é DECLARADO pelo papel, nunca por omissão.
+  const requester = { id: 'user-1', role: 'ADMIN' };
   const tenantId = 'tenant-1';
   const projectId = 'pessoal-1';
   const card = {
@@ -379,7 +382,7 @@ describe('MonthlyOverviewService.undoInvoicePayment', () => {
         bankLast4: '9999',
         paymentDate: '2026-05-25T00:00:00.000Z',
       },
-      'user-1',
+      requester,
     );
     expect(pay.ok).toBe(true);
     expect(pay.settledExpenses).toBe(2);
@@ -395,10 +398,12 @@ describe('MonthlyOverviewService.undoInvoicePayment', () => {
 
     const paymentExpenseId = pay.paymentExpenseId;
 
-    const undo = await service.undoInvoicePayment(tenantId, projectId, {
-      cardLast4: '1234',
-      dueMonth: '2026-05',
-    });
+    const undo = await service.undoInvoicePayment(
+      tenantId,
+      projectId,
+      { cardLast4: '1234', dueMonth: '2026-05' },
+      requester,
+    );
 
     expect(undo).toMatchObject({
       ok: true,
@@ -444,7 +449,7 @@ describe('MonthlyOverviewService.undoInvoicePayment', () => {
         bankLast4: '9999',
         paymentDate: '2026-05-25T00:00:00.000Z',
       },
-      'user-1',
+      requester,
     );
     expect(payMay.ok).toBe(true);
 
@@ -458,15 +463,17 @@ describe('MonthlyOverviewService.undoInvoicePayment', () => {
         bankLast4: '9999',
         paymentDate: '2026-06-20T00:00:00.000Z',
       },
-      'user-1',
+      requester,
     );
     expect(payJune.ok).toBe(true);
     expect(entries.find((e) => e.id === 'a2')?.status).toBe('PAGO');
 
-    const undo = await service.undoInvoicePayment(tenantId, projectId, {
-      cardLast4: '1234',
-      dueMonth: '2026-06',
-    });
+    const undo = await service.undoInvoicePayment(
+      tenantId,
+      projectId,
+      { cardLast4: '1234', dueMonth: '2026-06' },
+      requester,
+    );
 
     expect(undo).toMatchObject({
       ok: true,
@@ -587,7 +594,7 @@ describe('MonthlyOverviewService.undoInvoicePayment', () => {
     const before = JSON.parse(JSON.stringify({ expenses, entries }));
 
     const rejection = await service
-      .undoInvoicePayment(tenantId, projectId, { cardLast4: '1234', dueMonth: '2026-05' })
+      .undoInvoicePayment(tenantId, projectId, { cardLast4: '1234', dueMonth: '2026-05' }, requester)
       .then(() => null, (err) => err);
     expect(rejection).not.toBeNull();
     expect(rejection.message).toContain('Há mais de um pagamento');
@@ -612,7 +619,7 @@ describe('MonthlyOverviewService.undoInvoicePayment', () => {
     const service = await buildService(prisma);
 
     await expect(
-      service.undoInvoicePayment(tenantId, projectId, { cardLast4: '1234', dueMonth: '2026-05' }),
+      service.undoInvoicePayment(tenantId, projectId, { cardLast4: '1234', dueMonth: '2026-05' }, requester),
     ).rejects.toThrow('Nenhum pagamento encontrado');
   });
 
@@ -663,7 +670,7 @@ describe('MonthlyOverviewService.undoInvoicePayment', () => {
         bankLast4: '9999',
         paymentDate: '2026-05-25T00:00:00.000Z',
       },
-      'user-1',
+      requester,
     );
     expect(pay.ok).toBe(true);
     expect(pay.settledParcelas).toBe(2);
@@ -681,10 +688,12 @@ describe('MonthlyOverviewService.undoInvoicePayment', () => {
     });
 
     // (3) undoInvoicePayment.
-    const undo = await service.undoInvoicePayment(tenantId, projectId, {
-      cardLast4: '1234',
-      dueMonth: '2026-05',
-    });
+    const undo = await service.undoInvoicePayment(
+      tenantId,
+      projectId,
+      { cardLast4: '1234', dueMonth: '2026-05' },
+      requester,
+    );
     expect(undo).toMatchObject({ ok: true, undonePaymentExpenseId: pay.paymentExpenseId });
 
     // (4) Snapshot B.

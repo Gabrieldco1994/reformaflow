@@ -2,7 +2,7 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { ForbiddenException, NotFoundException } from "@nestjs/common";
 import {
   MonthlyOverviewService,
-  MonthlyOverviewRequester,
+  MonthlyOverviewMutationRequester,
 } from "./monthly-overview.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { CardInvoiceSettlementService } from "../credit-card/card-invoice-settlement.service";
@@ -17,7 +17,11 @@ import { CardInvoiceSettlementService } from "../credit-card/card-invoice-settle
  * `monthlyOverview` mutava qualquer anchor PESSOAL do mesmo tenant.
  *
  * Contrato: `ensurePessoalProject(tenantId, projectId, requester)` roda ANTES de
- * qualquer leitura/escrita nas duas mutações (403 sem tocar no Prisma).
+ * qualquer leitura/escrita nas duas mutações (403 sem tocar no Prisma), e o
+ * `requester` é OBRIGATÓRIO nas duas — requester opcional é fail-open por
+ * construção (basta um chamador esquecer o argumento para o dinheiro se mover
+ * sem dono). Quem tem acesso total declara o papel (ADMIN/OWNER); ausência de
+ * requester não é mais sinônimo de acesso total.
  */
 describe("MonthlyOverviewService — mutações de fatura respeitam o scope do requester (B0 #447)", () => {
   let service: MonthlyOverviewService;
@@ -34,7 +38,8 @@ describe("MonthlyOverviewService — mutações de fatura respeitam o scope do r
   ];
 
   /** USER restrito cujo `allowedProjects` NÃO inclui o anchor alvo. */
-  const restrictedRequester: MonthlyOverviewRequester = {
+  const restrictedRequester: MonthlyOverviewMutationRequester = {
+    id: "user-abc",
     role: "USER",
     allowedProjects: [ALLOWED],
     allowedProjectTypes: ["PESSOAL"],
@@ -128,7 +133,7 @@ describe("MonthlyOverviewService — mutações de fatura respeitam o scope do r
 
   it("payInvoice recusa (403) requester restrito fora do anchor, sem escrever nada", async () => {
     await expect(
-      service.payInvoice(tenantId, ANCHOR, payDto, "user-abc", restrictedRequester),
+      service.payInvoice(tenantId, ANCHOR, payDto, restrictedRequester),
     ).rejects.toBeInstanceOf(ForbiddenException);
 
     expectNoWrite();
@@ -142,29 +147,31 @@ describe("MonthlyOverviewService — mutações de fatura respeitam o scope do r
     expectNoWrite();
   });
 
-  it("regression-lock: o MESMO requester passa quando o anchor está no allowedProjects (payInvoice grava com createdByUserId)", async () => {
-    const authorized: MonthlyOverviewRequester = {
+  it("regression-lock: o MESMO requester passa quando o anchor está no allowedProjects (payInvoice audita requester.id)", async () => {
+    const authorized: MonthlyOverviewMutationRequester = {
       ...restrictedRequester,
       allowedProjects: [ANCHOR],
     };
 
     await expect(
-      service.payInvoice(tenantId, ANCHOR, payDto, "user-abc", authorized),
+      service.payInvoice(tenantId, ANCHOR, payDto, authorized),
     ).resolves.toEqual(expect.objectContaining({ ok: true }));
 
+    // Autoria auditada VEM do requester autorizado — não de um id solto que o
+    // chamador poderia forjar independentemente da credencial.
     expect(prisma.expense.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           projectId: ANCHOR,
           tipoDespesa: "PAGAMENTO_FATURA_CARTAO",
-          createdByUserId: "user-abc",
+          createdByUserId: authorized.id,
         }),
       }),
     );
   });
 
   it("regression-lock: undoInvoicePayment autorizado passa da checagem de scope e segue o fluxo normal", async () => {
-    const authorized: MonthlyOverviewRequester = {
+    const authorized: MonthlyOverviewMutationRequester = {
       ...restrictedRequester,
       allowedProjects: [ANCHOR],
     };
@@ -177,9 +184,30 @@ describe("MonthlyOverviewService — mutações de fatura respeitam o scope do r
     expect(prisma.creditCard.findFirst).toHaveBeenCalled();
   });
 
-  it("chamadores diretos sem requester (legado/delegação interna) seguem com acesso total", async () => {
-    await expect(
-      service.payInvoice(tenantId, ANCHOR, payDto),
-    ).resolves.toEqual(expect.objectContaining({ ok: true }));
+  it("acesso total é DECLARADO pelo papel (ADMIN), não pela ausência de requester", async () => {
+    const admin: MonthlyOverviewMutationRequester = { id: "admin-1", role: "ADMIN" };
+
+    await expect(service.payInvoice(tenantId, ANCHOR, payDto, admin)).resolves.toEqual(
+      expect.objectContaining({ ok: true }),
+    );
+    expect(prisma.expense.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ createdByUserId: "admin-1" }),
+      }),
+    );
+  });
+
+  // O gate primário é o compilador (requester é argumento obrigatório nas duas
+  // mutações). Este caso pina o comportamento em runtime para chamador não
+  // tipado (JS/`any`): fail-CLOSED, nunca acesso total silencioso.
+  it.each([
+    ["payInvoice", (svc: any) => svc.payInvoice(tenantId, ANCHOR, payDto)],
+    ["undoInvoicePayment", (svc: any) => svc.undoInvoicePayment(tenantId, ANCHOR, undoDto)],
+  ])("%s sem requester falha fechado (403) em vez de assumir acesso total", async (_name, call) => {
+    await expect(call(service as any)).rejects.toBeInstanceOf(ForbiddenException);
+
+    expectNoWrite();
+    // Nem chega a resolver o anchor: recusa antes de qualquer I/O.
+    expect(prisma.project.findFirst).not.toHaveBeenCalled();
   });
 });

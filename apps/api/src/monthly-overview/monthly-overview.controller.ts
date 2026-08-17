@@ -1,6 +1,10 @@
 import { Body, Controller, Get, Param, Post, Query, UseInterceptors } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { MonthlyOverviewService, MonthlyOverviewRequester } from './monthly-overview.service';
+import {
+  MonthlyOverviewService,
+  MonthlyOverviewRequester,
+  MonthlyOverviewMutationRequester,
+} from './monthly-overview.service';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
 import { CurrentTenant, CurrentUser } from '../common/decorators/tenant.decorator';
 import { RequireModule } from '../common/decorators/require-module.decorator';
@@ -127,7 +131,7 @@ export class MonthlyOverviewController {
   })
   payInvoice(
     @CurrentTenant() tenantId: string,
-    @CurrentUser() requester: MonthlyOverviewRequester & { id: string },
+    @CurrentUser() requester: MonthlyOverviewMutationRequester,
     @Param('pessoalProjectId') pessoalProjectId: string,
     @Body()
     body: {
@@ -138,10 +142,11 @@ export class MonthlyOverviewController {
       paymentDate?: string;
     },
   ) {
-    // `requester.id` = autor auditado da despesa; `requester` completo = scope
-    // do anchor (o param renomeado tira `ProjectAccessGuard` do caminho, então
-    // só `resolveAnchor` no service consegue barrar um anchor fora do escopo).
-    return this.service.payInvoice(tenantId, pessoalProjectId, body, requester.id, requester);
+    // O requester vai INTEIRO: é a credencial de scope do anchor (o param
+    // renomeado tira `ProjectAccessGuard` do caminho, então só `resolveAnchor`
+    // no service consegue barrar um anchor fora do escopo) e, pelo `id`, a
+    // autoria auditada da despesa gerada.
+    return this.service.payInvoice(tenantId, pessoalProjectId, body, requester);
   }
 
   @Post('undo-invoice-payment')
@@ -150,7 +155,7 @@ export class MonthlyOverviewController {
   })
   undoInvoicePayment(
     @CurrentTenant() tenantId: string,
-    @CurrentUser() requester: MonthlyOverviewRequester,
+    @CurrentUser() requester: MonthlyOverviewMutationRequester,
     @Param('pessoalProjectId') pessoalProjectId: string,
     @Body()
     body: {
