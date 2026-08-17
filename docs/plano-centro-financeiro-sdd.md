@@ -168,18 +168,12 @@ Toda UX do programa precisa passar em **375 px, 390 px e desktop**:
 ### 5.1 Caminho crítico
 
 ```text
-S0.1 (#444) → S0.2 (#445) → S0.3 (#446)
-                            ↓
-       B0 (#447) → B1 (#448) → B2 (#449)
-              ↓ STOP: B0/B1/B2 + deploy B0 + security verify precisam estar verdes
-       U1 (#450) → U2 (#451)
-          ├──────────────┐
-          ↓              ↓
-       U3 (#452)       U5 (#454)
-          ↓
-       U4 (#453)
-          │
-          └─ U3 → U6a (#455); U4 + U6a + lenses/architect/PO → U6b (#456)
+S0.1 (#444) → S0.2 (#445) → S0.3 (#446) → B0 (#447) → B1 (#448) → B2 (#449)
+B2 + deploy B0 + security verify → U1 (#450) → U2 (#451)
+U2 → U3 (#452) → U4 (#453)
+U2 → U5 (#454)
+U3 → U6a (#455)
+U4 + U6a + lenses/architect/PO → U6b (#456)
 ```
 
 V0 acompanha desde S0.3; D0 acompanha toda mudança visível; A0 acompanha U1–U5; R0 aceita cada
