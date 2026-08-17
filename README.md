@@ -1,15 +1,20 @@
 # ReformaFlow
 
-Plataforma pessoal para **gerenciar projetos de reforma/obra e finanças**, organizada por tipo de projeto. Cada projeto habilita um conjunto de módulos diferente:
+Plataforma pessoal para **gerenciar projetos de reforma/obra e finanças**, organizada por tipo de
+projeto. A tabela abaixo resume o posicionamento dos tipos; ela **não é fonte de autorização nem
+inventário de módulos**. Os mapas vivos e autoritativos são
+[`project-features.ts`](./packages/domain/src/config/project-features.ts),
+[`type-modules.ts`](./packages/domain/src/config/type-modules.ts) e
+[`module-navigator.ts`](./packages/domain/src/config/module-navigator.ts).
 
-| Tipo | Foco | Módulos |
-|---|---|---|
-| **REFORMA** | Obra/renovação | dashboard, despesas, recebimentos, fluxo de caixa, cômodos, plantas, simulação, comparação de preços |
-| **COMPRA** | Aquisição de imóvel | dashboard, despesas, recebimentos, fluxo de caixa |
-| **CASA** | Casa em andamento | dashboard, contas recorrentes, manutenção, lembretes, despesas avulsas |
-| **CARRO** | Veículo | idem CASA + registro do carro (`carInfo`) |
-| **PESSOAL** | Controlador universal de caixa (o *Cockpit*) | visão mensal consolidada, cartões, contas bancárias, espelho cross-project, rateio |
-| **PLANTAS** | Cuidado de plantas | dashboard, manutenção, lembretes, diagnóstico por IA |
+| Tipo | Foco |
+|---|---|
+| **REFORMA** | Obra/renovação |
+| **COMPRA** | Aquisição de imóvel |
+| **CASA** | Casa em andamento |
+| **CARRO** | Veículo |
+| **PESSOAL** | Controlador universal de caixa (o *Cockpit*) |
+| **PLANTAS** | Cuidado de plantas |
 
 Inclui a assistente de voz **Maria** (lançamento de despesas por voz, TTS via VibeVoice) e um motor de cronograma com gráfico de Gantt.
 
@@ -68,3 +73,5 @@ API no **Fly.io** (volume persistente + migrations no entrypoint) e web no **Ver
 
 - Guia para agentes/IA e convenções do projeto: [`AGENTS.md`](./AGENTS.md)
 - Regras de negócio e status: [`docs/`](./docs/README.md)
+- Planejamento aprovado do Centro Financeiro (**implementação não iniciada**):
+  [`docs/plano-centro-financeiro-sdd.md`](./docs/plano-centro-financeiro-sdd.md)

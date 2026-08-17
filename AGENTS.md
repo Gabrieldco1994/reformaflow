@@ -4,6 +4,7 @@
 
 - Read `docs/README.md`; it indexes normative business contracts and the active UX plan.
 - For PESSOAL/financial work, read `docs/estado-atual-cockpit-pessoal.md`, `docs/cockpit-caixa-real.md`, `docs/visao-conta-faturas.md`, and `docs/politica-datas-timezone.md`.
+- For program #436 work, also read `docs/plano-centro-financeiro-sdd.md`; it is approved planning, not evidence that Centro Financeiro, U6b, Maria agent-first, or H1–H5 shipped.
 - Do not infer implementation status from old plans or a dirty shared checkout. Check the current branch, `origin/main`, and the actual code.
 
 ## Package manager and commands
@@ -50,6 +51,7 @@ Use Node 20+ and npm workspaces (`npm@11.6.2`); do not use pnpm.
 - Cross-project rateio allocations must sum to the source `valorTotal`. PESSOAL movements without card/account belong to Carteira and must remain visible in account views and totals.
 - In PESSOAL account views, count a rateio source exactly once, preserve its Carteira/account/card origin, and exclude every paid target from `saidas`/`saiuMes` by enumerating tenant-scoped `RateioAllocation`.
 - `Expense.linkedExpenseId` reflects only the **first** target of a rateio (legacy 1:1 field); it is not the full allocation set. `GET :id/rateio` may receive a source or target id: resolve the canonical `sourceExpenseId` through tenant-scoped `RateioAllocation` (never through `linkedExpenseId`), require ACL access to that source, then enumerate the full set under the existing authorization/redaction contract (visible items plus hidden/removed counts and sums).
+- Transition for program #436: those hidden/removed counts and sums are current-runtime legacy behavior, not the new Hub contract. Preserve current docs until B0/B1 ship; #436 must become source-only when any participant is unauthorized, with no hidden flag/count/sum/metadata. See `docs/plano-centro-financeiro-sdd.md`.
 - Merchant-category rules are tenant-scoped and change category only, never value or cash; readers and writers must pass `tenantId`.
 
 ## Code and UI conventions

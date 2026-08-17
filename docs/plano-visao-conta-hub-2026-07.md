@@ -1,5 +1,11 @@
 # Plano Mestre — Visão Conta como Hub Financeiro do PESSOAL
 
+> **HISTÓRICO desde 2026-08-17.** Registro preservado do ciclo v1; não é roadmap ativo nem fonte
+> do status atual. O ledger abaixo contém estados intermediários congelados. Para comportamento
+> entregue, consulte [`estado-atual-cockpit-pessoal.md`](estado-atual-cockpit-pessoal.md) e os
+> contratos normativos; para planejamento futuro, consulte o
+> [`plano-centro-financeiro-sdd.md`](plano-centro-financeiro-sdd.md).
+
 **Data:** 2026-07-19 · **Status:** aprovado pelo product owner (Gabriel) · **Origem:** análise de UX ao vivo em produção (desktop 1280px + mobile 375px, usuário real)
 **Documento-alvo para:** agentes de arquitetura, dev (backend/frontend), QA e documentação.
 
