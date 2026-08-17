@@ -255,7 +255,11 @@ describe('JwtStrategy.validate — allowedProjects corrompido falha fechado (B0 
     expect(result.allowedProjects).toEqual(['p1']);
   });
 
-  it('mantém a reconciliação de módulos por união mesmo quando allowedModules está corrompido', async () => {
+  it('B0 Phase-1 delta: allowedModules corrompido agora falha fechado com 401 — supersede a antiga reconciliação tolerante', async () => {
+    // Superseded (B0 Phase-1 verification delta): a versão antiga deste teste
+    // tolerava `allowedModules` corrompido e ainda reconciliava com sucesso.
+    // O parser compartilhado agora fecha (401) para QUALQUER um dos três
+    // campos de grant, não só `allowedProjects`.
     prisma.user.findUnique.mockResolvedValue({
       id: 'u1',
       tenantId: 't1',
@@ -271,6 +275,32 @@ describe('JwtStrategy.validate — allowedProjects corrompido falha fechado (B0 
       tenant: { id: 't1', deletedAt: null, expiresAt: null },
     });
 
+    await expect(
+      strategy.validate({
+        sub: 'u1',
+        tenantId: 't1',
+        username: 'x',
+        role: 'USER',
+      }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('reconcileUserModules union continua aplicando quando allowedModules/allowedProjectTypes são mistos porém VÁLIDOS (não corrompidos)', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'u1',
+      tenantId: 't1',
+      username: 'x',
+      name: 'X',
+      role: 'USER',
+      deletedAt: null,
+      isGuest: false,
+      sessionVersion: 0,
+      allowedModules: '["dashboard", null]',
+      allowedProjects: '[]',
+      allowedProjectTypes: '["PESSOAL", null]',
+      tenant: { id: 't1', deletedAt: null, expiresAt: null },
+    });
+
     const result = await strategy.validate({
       sub: 'u1',
       tenantId: 't1',
@@ -278,7 +308,84 @@ describe('JwtStrategy.validate — allowedProjects corrompido falha fechado (B0 
       role: 'USER',
     });
 
+    expect(result.allowedModules).toContain('dashboard');
+    expect(result.allowedModules).not.toContain(null);
+    expect(result.allowedProjectTypes).not.toContain(null);
     expect(result.allowedModules).toContain('recurrences');
     expect(result.allowedModules).toContain('pendencias');
   });
+});
+
+/**
+ * B0 Phase-1 verification delta — settled contract, binding for RED:
+ * `allowedModules` e `allowedProjectTypes` usam o MESMO parser compartilhado
+ * fail-closed que `allowedProjects` (ver describe acima). Corrupto/não-array/
+ * lixo total em QUALQUER um deles fecha com 401 também no `JwtStrategy`, o
+ * SEGUNDO dos dois leitores — paridade exata com `AuthService.buildPublicUser`
+ * (ver auth.service.spec.ts).
+ */
+describe('JwtStrategy.validate — allowedModules/allowedProjectTypes corrompidos falham fechado (B0 Phase-1 delta)', () => {
+  let prisma: any;
+  let strategy: JwtStrategy;
+
+  beforeEach(() => {
+    prisma = {
+      user: {
+        findUnique: jest.fn(),
+        update: jest.fn().mockResolvedValue({}),
+      },
+    };
+    strategy = new JwtStrategy(prisma);
+  });
+
+  function row(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'u1',
+      tenantId: 't1',
+      username: 'x',
+      name: 'X',
+      role: 'USER',
+      deletedAt: null,
+      isGuest: false,
+      sessionVersion: 0,
+      allowedModules: '[]',
+      allowedProjects: '[]',
+      allowedProjectTypes: '[]',
+      tenant: { id: 't1', deletedAt: null, expiresAt: null },
+      ...overrides,
+    };
+  }
+
+  const INVALID_CASES: Array<[string, unknown]> = [
+    ['JSON malformado', '{corrompido'],
+    ['string em branco', ''],
+    ['null', null],
+    ['objeto não-array', '{"p1":true}'],
+    ['lixo puro (não é JSON de forma alguma)', 'nao-e-json-de-jeito-nenhum'],
+    ['[null,7] inválido como um todo', '[null,7]'],
+  ];
+
+  it.each(INVALID_CASES)(
+    'allowedModules=%s falha fechado com 401 (allowedProjects/allowedProjectTypes válidos)',
+    async (_label, raw) => {
+      prisma.user.findUnique.mockResolvedValue(row({ allowedModules: raw }));
+
+      await expect(
+        strategy.validate({ sub: 'u1', tenantId: 't1', username: 'x', role: 'USER' }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+    },
+  );
+
+  it.each(INVALID_CASES)(
+    'allowedProjectTypes=%s falha fechado com 401 (allowedModules/allowedProjects válidos)',
+    async (_label, raw) => {
+      prisma.user.findUnique.mockResolvedValue(
+        row({ allowedProjectTypes: raw }),
+      );
+
+      await expect(
+        strategy.validate({ sub: 'u1', tenantId: 't1', username: 'x', role: 'USER' }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+    },
+  );
 });

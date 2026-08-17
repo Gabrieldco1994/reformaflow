@@ -311,5 +311,28 @@ describe('PendenciaService', () => {
         expect.objectContaining({ cardLast4: '5572', dueMonth: '2026-08', deltaCents: 77228 }),
       ]);
     });
+
+    /**
+     * B0 (#447) verification delta — `findFinancialQueue` chama
+     * `getAccountView(tenantId, projectId, month)` sem NENHUM requester. Sem
+     * ele, `getAccountView` não tem como materializar/validar o scope
+     * concreto do requisitante antes de a fila ser montada (ver
+     * `pendencia.financial-queue.fixture.integration.spec.ts` para a prova
+     * do vazamento real de um PESSOAL irmão através dessa mesma chamada).
+     */
+    it('repassa o requester para monthlyOverviewService.getAccountView (B0 #447)', async () => {
+      monthlyOverviewService.getAccountView.mockResolvedValue({
+        mesSelecionado: '2026-07',
+        cartoes: [],
+        saidas: [],
+        entradas: [],
+      });
+      const requester = { id: 'sentinel-requester-b0-447', role: 'USER' };
+
+      await (service as any).findFinancialQueue(TENANT, PROJECT, '2026-07', requester);
+
+      const callArgs = monthlyOverviewService.getAccountView.mock.calls[0];
+      expect(JSON.stringify(callArgs)).toContain(requester.id);
+    });
   });
 });

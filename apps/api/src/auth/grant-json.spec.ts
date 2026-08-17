@@ -45,6 +45,13 @@ describe('parseGrantJson — B0 fail-closed contract (#447)', () => {
     expect(parseGrantJson(undefined)).toEqual({ valid: false, values: [] });
   });
 
+  it('fails closed when the argument is entirely missing (no argument at all, not just undefined)', () => {
+    // Cast to `any` so this compiles regardless of whether the eventual
+    // parser signature makes the parameter optional — the contract is about
+    // the RUNTIME behavior of a zero-argument call, not the TS arity.
+    expect((parseGrantJson as any)()).toEqual({ valid: false, values: [] });
+  });
+
   it('fails closed on well-formed JSON that is not an array', () => {
     expect(parseGrantJson('{"p1":true}')).toEqual({ valid: false, values: [] });
     expect(parseGrantJson('42')).toEqual({ valid: false, values: [] });
