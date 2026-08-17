@@ -40,7 +40,7 @@ ENV NODE_ENV=production \
     UPLOADS_DIR=/data/uploads
 
 RUN apt-get update -y \
-  && apt-get install -y --no-install-recommends openssl ca-certificates curl \
+  && apt-get install -y --no-install-recommends openssl ca-certificates curl sqlite3 \
   && rm -rf /var/lib/apt/lists/*
 
 # Copy only what's needed for runtime
