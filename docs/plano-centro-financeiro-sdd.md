@@ -67,8 +67,8 @@ Na base original, e **não como resultado deste programa**:
 - O modelo de produto e as ondas E0–E4 estão aprovados.
 - S0.1 ([#444](https://github.com/Gabrieldco1994/reformaflow/issues/444)) é somente a
   canonicalização documental.
-- S0.2 está bloqueada por autorização humana para inventário read-only de produção; S0.3 e toda
-  a fundação/UX dependem dos gates anteriores.
+- S0.1 precede S0.2. S0.2 está bloqueada por autorização humana para inventário read-only de
+  produção; somente depois dela começa S0.3, que bloqueia toda a fundação/UX.
 - U6a é uma futura especificação por tipo. U6b permanece bloqueada até U6a, lenses, architect e
   aprovação explícita do PO.
 - E6/H1–H5 é um envelope aprovado de hardening, mas cada item continua bloqueado por nova revisão
@@ -118,7 +118,11 @@ Esta seção registra gates do programa, não uma nova versão das fórmulas can
   pela onda.
 - Rotas e stores antigos permanecem. API/web em versões mistas falham fechado quando não puderem
   executar com segurança.
-- Signup continua persistindo `USER`; o programa não cria nem persiste `OWNER`.
+- Signup continua persistindo `USER`; o programa não cria nem persiste `OWNER` e não introduz
+  `accessRole` como fonte autoritativa de autorização.
+- Não improvisar auditoria, repair ou pending state em string de `UserActivityLog`. Auditoria
+  financeira estruturada pertence exclusivamente ao H3, futuro, schema-backed e sujeito aos
+  gates próprios.
 
 ### 4.2 Tenant, scope e ACL
 
@@ -129,15 +133,24 @@ Esta seção registra gates do programa, não uma nova versão das fórmulas can
 - O Hub exige um PESSOAL explícito e autorizado; não escolhe nem agrega outro PESSOAL
   silenciosamente.
 - Scope é aplicado **antes** de buscar, agregar, deduplicar ou produzir metadados.
-- Projeto oculto ou cross-tenant não muda linha, total, contagem, série, tooltip, flag, metadata
-  nem telemetria.
+- **ESTADO ATUAL / GAP LEGADO:** `AGENTS.md`, [estado-atual-cockpit-pessoal.md](estado-atual-cockpit-pessoal.md)
+  e [manual-do-aplicativo.md](manual-do-aplicativo.md) documentam a contagem/soma agregada de
+  alvos de rateio ocultos ou removidos. Esse relato continua válido para o runtime atual e deve
+  ser preservado até B0/B1 serem realmente mergeados; ele não é o contrato do novo Hub.
+- No contrato futuro #436, projeto oculto ou cross-tenant não muda linha, total, contagem, série,
+  tooltip, flag, metadata nem telemetria.
 - Parent explícito same-tenant fora do scope responde `403`; child oculto, cross-tenant ou
   inexistente responde `404` indistinguível; identidade last4 ambígua responde `409`; ausência de
   sessão responde `401`.
 - Novas identidades de fatura/pagamento usam `projectId`, `cardId`, `accountId` e `dueMonth`;
   settlement nunca é resolvido apenas por `tenantId+last4`.
-- Rateio substitui a fonte somente quando todos os participantes estão autorizados e a soma fecha
-  exatamente. Caso contrário, a resposta é source-only, sem inferir participantes ocultos.
+- Não criar endpoint financeiro universal. URL ou evidência financeira só pode ser servida por
+  endpoint autenticado, parent-scoped e type-specific; nunca por URL estática ou sem autorização
+  do parent.
+- **CONTRATO FUTURO APROVADO PARA #436:** B0/B1 e o novo Hub só substituem a fonte quando todos os
+  participantes do rateio estão autorizados e a soma fecha exatamente. Caso contrário, retornam
+  source-only, sem flag, contagem, soma, metadata ou qualquer inferência sobre participantes
+  ocultos.
 
 ### 4.3 Mobile e acessibilidade
 
@@ -155,9 +168,7 @@ Toda UX do programa precisa passar em **375 px, 390 px e desktop**:
 ### 5.1 Caminho crítico
 
 ```text
-S0.1 (#444) + S0.2 (#445)
-              ↓
-          S0.3 (#446)
+S0.1 (#444) → S0.2 (#445) → S0.3 (#446)
               ↓
        B0 (#447) → B1 (#448) → B2 (#449)
               ↓ STOP: B0/B1/B2 + deploy B0 + security verify precisam estar verdes
@@ -179,7 +190,7 @@ separada e só entra no critical path quando uma exposição consumidora for dem
 
 | Epic | Status do design | Conteúdo e dependência |
 |---|---|---|
-| [E0 #437](https://github.com/Gabrieldco1994/reformaflow/issues/437) | S0.1 READY; restante bloqueado | Spec + inventário autorizado convergem na fixture/baseline. S0.3 bloqueia B0. |
+| [E0 #437](https://github.com/Gabrieldco1994/reformaflow/issues/437) | S0.1 READY; restante bloqueado | S0.1 → S0.2 → S0.3; S0.3 bloqueia B0. |
 | [E1 #438](https://github.com/Gabrieldco1994/reformaflow/issues/438) | **BLOQUEADO** | B0 → B1 → B2. Os três e security verify ficam verdes antes de UX. |
 | [E2 #439](https://github.com/Gabrieldco1994/reformaflow/issues/439) | **BLOQUEADO** | B0+B1+B2 → U1 → U2; reorganização reversível de desktop/mobile. |
 | [E3 #440](https://github.com/Gabrieldco1994/reformaflow/issues/440) | **BLOQUEADO** | U3/U4/U5; U6a é spec e U6b tem gate humano adicional. |
@@ -190,6 +201,8 @@ separada e só entra no critical path quando uma exposição consumidora for dem
 ### 5.3 Tasks e contratos de saída
 
 #### E0 — baseline antes do código
+
+Ordem obrigatória: **S0.1 (#444) → S0.2 (#445) → S0.3 (#446)**.
 
 - [S0.1 #444](https://github.com/Gabrieldco1994/reformaflow/issues/444): este SDD, ToC e higiene
   dos planos; zero runtime.
@@ -405,4 +418,5 @@ preservar links e contexto sem fingir que seus ledgers continuam vivos.
 
 | Data | Versão | Mudança |
 |---|---|---|
+| 2026-08-17 | Revisão S0.1 | Sequência E0 corrigida para S0.1→S0.2→S0.3; guardrails de papel, endpoint/evidência e auditoria estreitados; transição do rateio legado para source-only explicitada. |
 | 2026-08-17 | S0.1 inicial | Design/security consolidado no repositório; status, contratos, E0–E6, dependências, analytics, riscos, rollback, decisões e histórico canonicalizados a partir da base `ece5032c398cc050fc037959a1f8fc0cc7f05bea`. Nenhuma implementação de produto iniciada. |
