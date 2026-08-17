@@ -488,11 +488,31 @@ describe("synthetic deterministic finance-center persisted contract", () => {
           (entry) => entry.projectId === IDS.projects.secondPessoal,
         ),
       ).toBe(false);
+      // "contributingProjects" (response field `projetos`): the sibling
+      // PESSOAL must never appear in the legend of projects the Hub
+      // consolidates — even independent of the sentinel amount, being a
+      // SECOND PESSOAL (not a REFORMA/CASA/CARRO satellite) disqualifies it.
+      expect(
+        overview.projetos.some((p) => p.id === IDS.projects.secondPessoal),
+      ).toBe(false);
       expect(
         overview.meses.find((row) => row.mes === "2026-08")?.totalDespesas ?? 0,
       ).toBe(0);
       expect(
         accountView.saidas.some((item) => item.id === sentinelExpenseId),
+      ).toBe(false);
+      // No line item may carry the sibling PESSOAL as its foreign origin
+      // (`projetoOrigem`/`foreignExpenseId`), the observable surface of the
+      // internal `foreignExpenses`/`carteiraPotential` computation.
+      expect(
+        accountView.saidas.some(
+          (item) => item.projetoOrigem?.id === IDS.projects.secondPessoal,
+        ),
+      ).toBe(false);
+      expect(
+        accountView.saidas.some(
+          (item) => item.foreignExpenseId === sentinelExpenseId,
+        ),
       ).toBe(false);
       // The single-PESSOAL fingerprints must stay byte-identical: a second
       // PESSOAL's 101 sentinel must never enter caixa/Carteira/saiuMes.
@@ -531,6 +551,11 @@ describe("synthetic deterministic finance-center persisted contract", () => {
     const [rateioSource] = rateioSourceRows;
     expect(rateioSource?.valor).toBe(30_029);
     expect(rateioSource?.status).toBe("PAGO");
+    // `projetoOrigem`/rateio/settlement metadata absent: the source is the
+    // PESSOAL's own row, not a foreign item — it must never expose the
+    // hidden CASA target's (or any target's) project identity.
+    expect(rateioSource?.projetoOrigem).toBeNull();
+    expect(rateioSource?.foreignExpenseId).toBeNull();
 
     const forbiddenKeys = [
       "targetExpenseId",
@@ -542,13 +567,26 @@ describe("synthetic deterministic finance-center persisted contract", () => {
       "removedSum",
       "allocations",
       "rateio",
+      "sourceExpenseId",
+      "allocation",
+      "plannedStatus",
+      "plannedValor",
+      "realValor",
     ];
     for (const key of forbiddenKeys) {
       expect(Object.prototype.hasOwnProperty.call(rateioSource ?? {}, key)).toBe(
         false,
       );
     }
+
+    // Belt-and-suspenders: the hidden CASA target's identity (id/name) must
+    // never leak anywhere in the source row's serialized shape.
+    const serialized = JSON.stringify(rateioSource);
+    expect(serialized).not.toContain(IDS.projects.hidden);
+    expect(serialized).not.toContain("Projeto oculto sintético");
+    expect(serialized).not.toContain(IDS.expenses.rateioHiddenTarget);
   });
+
 
   it("keeps local Planning payload and persisted server Planejador scenario independent", async () => {
     const server = await prisma.purchaseScenario.findFirst({

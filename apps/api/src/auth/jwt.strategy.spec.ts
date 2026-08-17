@@ -1,7 +1,6 @@
 import { UnauthorizedException } from '@nestjs/common';
 import { ProjectType, TYPE_MODULES } from '@reformaflow/domain';
 import { JwtStrategy } from './jwt.strategy';
-import { accessibleProjectScope } from '../common/access-rules';
 
 describe('JwtStrategy', () => {
   let prisma: any;
@@ -171,6 +170,12 @@ describe('JwtStrategy', () => {
  * grant vazio de verdade). Isso é fail-OPEN: o `request.user` que o
  * `ModulesGuard`/`resolveAccessibleProjectScope` consultam sairia com acesso
  * IRRESTRITO justamente quando o dado está corrompido.
+ *
+ * Lens consolidation (B0 Phase-1): pin the harder contract directly —
+ * `validate()` REJECTS with `UnauthorizedException` (401) on invalid/corrupt
+ * `allowedProjects`, matching `AuthService.buildPublicUser` exactly (see
+ * auth.service.spec.ts). `[null,7]` is invalid as a whole; `["p1",null]`
+ * stays valid (filtered to `["p1"]`) and must NOT throw.
  */
 describe('JwtStrategy.validate — allowedProjects corrompido falha fechado (B0 #447)', () => {
   let prisma: any;
@@ -209,35 +214,35 @@ describe('JwtStrategy.validate — allowedProjects corrompido falha fechado (B0 
     ['null', null],
     ['objeto não-array', '{"p1":true}'],
   ])(
-    'allowedProjects=%s NUNCA vira o wildcard: accessibleProjectScope tem que negar, não liberar tudo',
+    'allowedProjects=%s falha fechado com 401 — nunca vira o wildcard silenciosamente',
     async (_label, raw) => {
       prisma.user.findUnique.mockResolvedValue(row(raw));
 
-      const result = await strategy.validate({
+      await expect(
+        strategy.validate({
+          sub: 'u1',
+          tenantId: 't1',
+          username: 'x',
+          role: 'USER',
+        }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+    },
+  );
+
+  it('[null,7] misto (inválido como um todo) também falha fechado com 401', async () => {
+    prisma.user.findUnique.mockResolvedValue(row('[null,7]'));
+
+    await expect(
+      strategy.validate({
         sub: 'u1',
         tenantId: 't1',
         username: 'x',
         role: 'USER',
-      });
-
-      expect(accessibleProjectScope('USER', result.allowedProjects)).not.toBeNull();
-    },
-  );
-
-  it('[null,7] misto não vaza valores não-string para o scope de projetos do request.user', async () => {
-    prisma.user.findUnique.mockResolvedValue(row('[null,7]'));
-
-    const result = await strategy.validate({
-      sub: 'u1',
-      tenantId: 't1',
-      username: 'x',
-      role: 'USER',
-    });
-
-    expect(result.allowedProjects.every((id) => typeof id === 'string')).toBe(true);
+      }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
-  it('["p1",null] válido continua filtrando o null e preservando "p1" — paridade com buildPublicUser', async () => {
+  it('["p1",null] válido continua filtrando o null e preservando "p1" — paridade com buildPublicUser, não lança', async () => {
     prisma.user.findUnique.mockResolvedValue(row('["p1",null]'));
 
     const result = await strategy.validate({

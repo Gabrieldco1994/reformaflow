@@ -8,7 +8,6 @@ import { JwtService } from '@nestjs/jwt';
 import { deriveObjectiveAccess, ProjectType } from '@reformaflow/domain';
 import * as bcrypt from 'bcrypt';
 import { AuthService } from './auth.service';
-import { accessibleProjectScope } from '../common/access-rules';
 
 describe('AuthService signup/guest/claim', () => {
   const jwt = {} as JwtService;
@@ -509,11 +508,22 @@ describe('AuthService signup/guest/claim', () => {
 
 /**
  * B0 (#447) — hoje `updateSelfObjectives` só valida `projectTypes.length`; ela
- * NÃO olha `createdByUserId` (gerenciado por um admin) nem `isGuest`, então uma
- * conta GERENCIADA ou CONVIDADA pode reescrever seus próprios objetivos como se
- * fosse self-service — e o `write` (prisma.user.update) acontece ANTES de
- * qualquer checagem além do array vazio. Estes testes fixam o contrato: a
- * checagem de autorização é ATÔMICA (roda e falha ANTES de qualquer escrita).
+ * NÃO olha `allowedProjects` nem `isGuest`, então uma conta GERENCIADA (grant
+ * `allowedProjects` válido e NÃO-vazio, restrita a IDs concretos) ou CONVIDADA
+ * pode reescrever seus próprios objetivos como se fosse self-service — e o
+ * `write` (prisma.user.update) acontece ANTES de qualquer checagem além do
+ * array vazio. Estes testes fixam o contrato: a checagem de autorização é
+ * ATÔMICA (roda e falha ANTES de qualquer escrita).
+ *
+ * Lens consolidation (B0 Phase-1) — settled contract, binding for RED:
+ *   - "managed" is NOT `createdByUserId`. It is a VALID, NON-EMPTY
+ *     `allowedProjects` (the user has been scoped to specific project IDs).
+ *     `createdByUserId` is irrelevant to this check — every test below sets
+ *     it inconsistently with the old (wrong) reading to prove that.
+ *   - valid `[]` (empty array, wildcard) => USER self-service, ALLOWED.
+ *   - guest => 403, EXPLICIT, independent of `allowedProjects` content.
+ *   - ADMIN => allowed, independent of `allowedProjects` content.
+ *   - malformed/corrupt `allowedProjects` (fails to parse) => 401, not 403.
  */
 describe('AuthService.updateSelfObjectives — managed/guest/invalid-grant fecham (B0 #447)', () => {
   const jwt = {} as JwtService;
@@ -527,14 +537,15 @@ describe('AuthService.updateSelfObjectives — managed/guest/invalid-grant fecha
     service = new AuthService(prisma, jwt);
   });
 
-  it('managed USER (createdByUserId setado por um admin) recebe 403 e não grava nada', async () => {
+  it('managed USER (allowedProjects válido e NÃO-vazio) recebe 403 e não grava nada — createdByUserId é irrelevante (null aqui)', async () => {
     prisma.user.findUnique.mockResolvedValue({
       id: 'u1',
       tenantId: 't1',
       deletedAt: null,
       isGuest: false,
-      createdByUserId: 'admin-1',
-      allowedProjects: '[]',
+      role: 'USER',
+      createdByUserId: null, // prova que o discriminador NÃO é este campo
+      allowedProjects: '["p1","p2"]',
       tenant: { deletedAt: null },
     });
 
@@ -544,62 +555,7 @@ describe('AuthService.updateSelfObjectives — managed/guest/invalid-grant fecha
     expect(prisma.user.update).not.toHaveBeenCalled();
   });
 
-  it('managed com grants mistos/corrompidos CONTINUA 403 — status gerenciado não vira 401 por causa do grant', async () => {
-    prisma.user.findUnique.mockResolvedValue({
-      id: 'u1',
-      tenantId: 't1',
-      deletedAt: null,
-      isGuest: false,
-      createdByUserId: 'admin-1',
-      allowedProjects: '["p1",7,null]',
-      tenant: { deletedAt: null },
-    });
-
-    await expect(
-      service.updateSelfObjectives('u1', [ProjectType.PESSOAL]),
-    ).rejects.toBeInstanceOf(ForbiddenException);
-    expect(prisma.user.update).not.toHaveBeenCalled();
-  });
-
-  it('guest recebe 403 mesmo com role ADMIN — só o fluxo explícito de claim converte o convidado', async () => {
-    prisma.user.findUnique.mockResolvedValue({
-      id: 'u1',
-      tenantId: 't1',
-      deletedAt: null,
-      isGuest: true,
-      role: 'ADMIN',
-      createdByUserId: null,
-      allowedProjects: '[]',
-      tenant: { deletedAt: null },
-    });
-
-    await expect(
-      service.updateSelfObjectives('u1', [ProjectType.PESSOAL]),
-    ).rejects.toBeInstanceOf(ForbiddenException);
-    expect(prisma.user.update).not.toHaveBeenCalled();
-  });
-
-  it('ADMIN não-convidado e não-gerenciado (createdByUserId null) continua podendo se auto-atualizar', async () => {
-    prisma.user.findUnique.mockResolvedValue({
-      id: 'u1',
-      tenantId: 't1',
-      deletedAt: null,
-      isGuest: false,
-      role: 'ADMIN',
-      createdByUserId: null,
-      tenant: { deletedAt: null },
-    });
-    prisma.user.update.mockImplementation(({ data }: any) =>
-      Promise.resolve({ id: 'u1', tenantId: 't1', ...data }),
-    );
-
-    await expect(
-      service.updateSelfObjectives('u1', [ProjectType.PESSOAL]),
-    ).resolves.toBeDefined();
-    expect(prisma.user.update).toHaveBeenCalledTimes(1);
-  });
-
-  it('USER self-service/wildcard (createdByUserId null, não-convidado) continua liberado — regra vale só para GERENCIADOS', async () => {
+  it('mixed managed CONTINUA 403 — allowedProjects filtra o null e permanece válido/não-vazio', async () => {
     prisma.user.findUnique.mockResolvedValue({
       id: 'u1',
       tenantId: 't1',
@@ -607,6 +563,63 @@ describe('AuthService.updateSelfObjectives — managed/guest/invalid-grant fecha
       isGuest: false,
       role: 'USER',
       createdByUserId: null,
+      allowedProjects: '["p1", null, "p2"]',
+      tenant: { deletedAt: null },
+    });
+
+    await expect(
+      service.updateSelfObjectives('u1', [ProjectType.PESSOAL]),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it('guest recebe 403 mesmo com role ADMIN e allowedProjects=[] — 403 é explícito do isGuest, não decorre de allowedProjects', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'u1',
+      tenantId: 't1',
+      deletedAt: null,
+      isGuest: true,
+      role: 'ADMIN',
+      createdByUserId: 'admin-1',
+      allowedProjects: '[]',
+      tenant: { deletedAt: null },
+    });
+
+    await expect(
+      service.updateSelfObjectives('u1', [ProjectType.PESSOAL]),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it('ADMIN não-convidado continua liberado mesmo com allowedProjects válido e não-vazio (o que faria um USER ser "managed")', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'u1',
+      tenantId: 't1',
+      deletedAt: null,
+      isGuest: false,
+      role: 'ADMIN',
+      createdByUserId: 'admin-0',
+      allowedProjects: '["p1","p2"]',
+      tenant: { deletedAt: null },
+    });
+    prisma.user.update.mockImplementation(({ data }: any) =>
+      Promise.resolve({ id: 'u1', tenantId: 't1', ...data }),
+    );
+
+    await expect(
+      service.updateSelfObjectives('u1', [ProjectType.PESSOAL]),
+    ).resolves.toBeDefined();
+    expect(prisma.user.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('USER self-service com allowedProjects=[] (válido, wildcard) continua liberado — createdByUserId setado não muda nada', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'u1',
+      tenantId: 't1',
+      deletedAt: null,
+      isGuest: false,
+      role: 'USER',
+      createdByUserId: 'admin-1', // prova (de novo) que este campo é irrelevante
       allowedProjects: '[]',
       tenant: { deletedAt: null },
     });
@@ -620,14 +633,33 @@ describe('AuthService.updateSelfObjectives — managed/guest/invalid-grant fecha
     expect(prisma.user.update).toHaveBeenCalledTimes(1);
   });
 
-  it('grant PRÓPRIO corrompido (allowedProjects malformado) falha fechado com 401, sem gravar', async () => {
+  it('grant PRÓPRIO corrompido (allowedProjects malformado) falha fechado com 401 — não 403, sem gravar', async () => {
     prisma.user.findUnique.mockResolvedValue({
       id: 'u1',
       tenantId: 't1',
       deletedAt: null,
       isGuest: false,
+      role: 'USER',
       createdByUserId: null,
       allowedProjects: '{corrompido',
+      tenant: { deletedAt: null },
+    });
+
+    await expect(
+      service.updateSelfObjectives('u1', [ProjectType.PESSOAL]),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it('grant PRÓPRIO com [null,7] (inválido como um todo) também falha fechado com 401, não 403', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'u1',
+      tenantId: 't1',
+      deletedAt: null,
+      isGuest: false,
+      role: 'USER',
+      createdByUserId: null,
+      allowedProjects: '[null,7]',
       tenant: { deletedAt: null },
     });
 
@@ -755,19 +787,21 @@ describe('AuthService.buildPublicUser — allowedProjects corrompido falha fecha
     ['null', null],
     ['objeto não-array', '{"p1":true}'],
   ])(
-    'allowedProjects=%s NUNCA vira o wildcard: accessibleProjectScope tem que negar, não liberar tudo',
+    'allowedProjects=%s falha fechado com 401 — nunca vira o wildcard silenciosamente',
     (_label, raw) => {
-      const out = service.buildPublicUser(row(raw));
-      expect(accessibleProjectScope('USER', out.allowedProjects)).not.toBeNull();
+      expect(() => service.buildPublicUser(row(raw))).toThrow(
+        UnauthorizedException,
+      );
     },
   );
 
-  it('[null,7] misto não vaza valores não-string para o scope de projetos', () => {
-    const out = service.buildPublicUser(row('[null,7]'));
-    expect(out.allowedProjects.every((id) => typeof id === 'string')).toBe(true);
+  it('[null,7] misto (inválido como um todo) também falha fechado com 401', () => {
+    expect(() => service.buildPublicUser(row('[null,7]'))).toThrow(
+      UnauthorizedException,
+    );
   });
 
-  it('["p1",null] válido continua filtrando o null e preservando "p1"', () => {
+  it('["p1",null] válido continua filtrando o null e preservando "p1" — não lança', () => {
     const out = service.buildPublicUser(row('["p1",null]'));
     expect(out.allowedProjects).toEqual(['p1']);
   });

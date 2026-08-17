@@ -29,14 +29,38 @@ describe("MonthlyOverviewController", () => {
  * mecanismo (`RequireModule`/`MODULE_KEY`) já usado por
  * `InvoiceAdjustmentController` (`creditCards`) e `PurchasePlannerController`
  * (`monthlyOverview`) — não inventa guarda nova.
+ *
+ * Lens consolidation (B0 Phase-1): pin the EXACT slug — `['monthlyOverview']`,
+ * não um superset — em CADA um dos 7 handlers (não só na classe), porque
+ * `Reflector.getAllAndOverride` deixa metadata de MÉTODO sobrescrever a da
+ * CLASSE; um handler individual poderia divergir silenciosamente.
  */
-describe("MonthlyOverviewController — exige o módulo monthlyOverview (B0 #447)", () => {
+describe("MonthlyOverviewController — exige exatamente o módulo monthlyOverview nos 7 GETs (B0 #447)", () => {
+  const SEVEN_GETS = [
+    "getOverview",
+    "getAccountView",
+    "getAccountViewYearly",
+    "getCardInvoicesYearly",
+    "getDreOverview",
+    "getOriginItemsYearly",
+    "getNeutros",
+  ] as const;
+
   it("declara @RequireModule('monthlyOverview') na classe do controller", () => {
     const required = Reflect.getMetadata(MODULE_KEY, MonthlyOverviewController);
-    expect(required).toEqual(
-      expect.arrayContaining(["monthlyOverview"]),
-    );
+    expect(required).toEqual(["monthlyOverview"]);
   });
+
+  it.each(SEVEN_GETS)(
+    "%s resolve para exatamente ['monthlyOverview'] (metadata de método OU de classe)",
+    (methodName) => {
+      const handler = (MonthlyOverviewController.prototype as any)[methodName];
+      const methodLevel = Reflect.getMetadata(MODULE_KEY, handler);
+      const classLevel = Reflect.getMetadata(MODULE_KEY, MonthlyOverviewController);
+      const required = methodLevel ?? classLevel;
+      expect(required).toEqual(["monthlyOverview"]);
+    },
+  );
 });
 
 /**
