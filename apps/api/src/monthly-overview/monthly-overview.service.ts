@@ -487,10 +487,15 @@ export class MonthlyOverviewService {
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       }),
       this.prisma.crossProjectSettlement.findMany({
-        where: { tenantId },
+        // Fonte do settlement é sempre o PESSOAL âncora (o espelho que liquida
+        // a fatura/movimentação) — nunca outro PESSOAL do mesmo tenant. Escopo
+        // explícito na query (não só no filtro em memória via allExpensesById)
+        // para que a leitura nunca carregue linhas de um PESSOAL irmão.
+        where: { tenantId, source: { projectId } },
       }),
       this.prisma.rateioAllocation.findMany({
-        where: { tenantId },
+        // Idem: rateio SEMPRE distribui de uma compra-fonte no PESSOAL âncora.
+        where: { tenantId, source: { projectId } },
         select: { sourceExpenseId: true, targetExpenseId: true },
       }),
       this.prisma.invoiceAdjustment.findMany({
