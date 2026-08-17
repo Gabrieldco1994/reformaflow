@@ -428,8 +428,9 @@ A aba **"Ano todo"** deixou de ser só um gráfico de faturas: passou a ser a me
 Visão Conta do mês, com o período esticado para 12 meses.
 
 **Backend:** `getAccountViewYearly(tenant, project, year)` (`monthly-overview.service.ts`),
-`GET .../monthly-overview/account-view-yearly?year=YYYY`. Ele chama
-`getAccountView(mes)` **12 vezes** e consolida. Não existe uma segunda agregação: se o
+`GET .../monthly-overview/account-view-yearly?year=YYYY`. Ele resolve o Hub (âncora PESSOAL +
+escopo autorizado) **uma vez** (B0 #447) e chama o núcleo privado que `getAccountView` também usa
+(`computeAccountView`) **12 vezes** e consolida. Não existe uma segunda agregação: se o
 número do ano divergir do mês, o bug está no mês.
 
 **Frontend:** `conta/_components/ContaAnoView.tsx` (orquestra as 2 queries) →

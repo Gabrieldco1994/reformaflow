@@ -40,7 +40,8 @@ Use Node 20+ and npm workspaces (`npm@11.6.2`); do not use pnpm.
 - `PROJECT_FEATURES` controls product capability, `TYPE_MODULES` controls authorization, and `PROJECT_NAV` controls rendered navigation. They are distinct sources in `packages/domain/src/config`; never replace them with hard-coded project-type checks.
 - `expenses` capability is intentionally retained for CASA/CARRO while their `/expenses` navigation redirects to the Avulsas tab in `/bills`.
 - `carInfo` is a CARRO-only 1:1 resource, not a feature flag; its API uses `PUT` with Prisma `upsert`.
-- Authorization reconciliation must remain in both `AuthService.buildPublicUser` and `JwtStrategy.validate`, using union semantics.
+- Authorization reconciliation must remain in both `AuthService.buildPublicUser` and `JwtStrategy.validate`, using union semantics. All three grant columns (`allowedProjects`, `allowedModules`, `allowedProjectTypes`) share one fail-closed parser, `parseGrantJson` in `apps/api/src/auth/grant-json.ts`: missing/blank/malformed JSON, a non-array, or an array with no string values all fail the whole read closed (401) instead of degrading to `[]` (read downstream as "no restriction"). `AuthService.updateSelfObjectives` reuses the same parser inside its own transaction — see the self-authorization rule in `docs/saas-onboarding.md`.
+- `MonthlyOverviewController` binds its project param as `:pessoalProjectId`, not `:projectId` — deliberately. `ProjectAccessGuard` only recognizes literal `projectId`/`sourceProjectId`/`targetProjectId` param/query/body keys; keeping `:projectId` would let that guard short-circuit with a blanket 403 (or silently allow) before `MonthlyOverviewService.resolveAnchor`/`resolveHub` ever runs, which is what has to own the 404 (missing/deleted/cross-tenant) vs 403 (out-of-scope) vs 400 (authorized but not PESSOAL) distinction. Do not rename it back to `projectId`.
 
 ## Data and test safety
 
