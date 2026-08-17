@@ -25,16 +25,20 @@ Regra: o CONTRATO é atemporal e não carrega narrativa de "antes/depois". Hist�
 | [`experiencia-mobile-pwa.md`](experiencia-mobile-pwa.md) | Contrato transversal da experiência responsiva/PWA em `apps/web`: 375/390, toque, instalação, offline/update, permissões e fallback. |
 | [`maria-ia.md`](maria-ia.md) | Promessa cross-channel da Maria, confirmação de escrita, tools, OCR/voz/TTS, privacidade e gates de eval. |
 | [`landscape-agentes-skills-saas.md`](landscape-agentes-skills-saas.md) | Mapa canônico de agentes, skills e ownership das experiências; inclui prioridades e procedimento de revisão. |
+| [`plano-centro-financeiro-sdd.md`](plano-centro-financeiro-sdd.md) | SDD canônico do programa #436: **planejamento aprovado, implementação de produto não iniciada**; decisões, contratos, ondas E0–E6, dependências, riscos e changelog. |
 | `archive/estado-atual-historico-2026.md` | Histórico detalhado movido do estado-atual do cockpit (incrementos/commits de 2026). |
 | `archive/` | Notas históricas de sessões anteriores (não normativas) — ver `archive/README.md`. |
 
-## Planos mestres de UX (roadmap executável)
+## Planejamento vigente e planos históricos
 
-Cada plano é a fonte única do seu ciclo: decisões de produto, fatiamento em PRs, agentes por etapa, critérios de aceite e registro de desvios. Ao concluir, o plano é marcado e permanece como histórico; o plano ativo entra na leitura obrigatória de início de sessão.
+O SDD do Centro Financeiro é a fonte do planejamento futuro aprovado. Planos anteriores permanecem
+versionados para contexto, mas seus ledgers congelados não representam o estado atual nem governam
+novas execuções.
 
 | Plano | Status | Assunto |
 |---|---|---|
-| `plano-visao-conta-hub-2026-07.md` | ✅ Concluído (PRs #204/#205/#207, 2026-07-20) | v1 — Visão Conta como hub: Carteira/"sem conta", projeção unificada no Cockpit, navegação (bottom nav + sidebar 5 grupos), Despesas/Recebimentos como drill-downs. |
-| `plano-ux-v2-2026-07.md` | 🚀 Ativo | v2 — Redução de trabalho: W1 fila de pendências, W2 auto-categorização com regras, W3 dieta da tela da Conta, W4 runway prescritivo, W5 onboarding/empty states. |
+| [`plano-centro-financeiro-sdd.md`](plano-centro-financeiro-sdd.md) | 📋 **Aprovado; implementação não iniciada** | Programa #436 — Centro Financeiro multi-tenant e base agent-first. |
+| [`plano-visao-conta-hub-2026-07.md`](plano-visao-conta-hub-2026-07.md) | 🗃️ **Histórico (v1)** | Registro do ciclo Visão Conta Hub; conferir comportamento entregue nos docs vivos. |
+| [`plano-ux-v2-2026-07.md`](plano-ux-v2-2026-07.md) | 🗃️ **Histórico (v2; ledger stale)** | Registro do ciclo de redução de trabalho; não é roadmap ativo. |
 
 Ferramentas de apoio (não-app): `tools/financial-analysis/` (reconciliação de caixa via `reconcile.py`).

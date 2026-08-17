@@ -98,3 +98,11 @@ blocking; builders implementam; Journey QA dirige chat/voz; o PO decide produto/
   [#405](https://github.com/Gabrieldco1994/reformaflow/issues/405) antes
   de declarar conformidade; este contrato normativo não é evidência de que o código atual já o
   satisfaz.
+
+### Planejamento agent-first futuro
+
+- 2026-08-17 — E5/M0–M3 permanece **FUTURO**, sem implementação aprovada. O roadmap canônico,
+  suas dependências e a preservação do planejamento histórico estão no
+  [SDD do Centro Financeiro](plano-centro-financeiro-sdd.md#9-maria-futura-preservação-do-planejamento-histórico)
+  e no [epic #442](https://github.com/Gabrieldco1994/reformaflow/issues/442). Nada nesse roadmap
+  amplia a capacidade entregue descrita neste documento.

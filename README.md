@@ -68,3 +68,5 @@ API no **Fly.io** (volume persistente + migrations no entrypoint) e web no **Ver
 
 - Guia para agentes/IA e convenções do projeto: [`AGENTS.md`](./AGENTS.md)
 - Regras de negócio e status: [`docs/`](./docs/README.md)
+- Planejamento aprovado do Centro Financeiro (**implementação não iniciada**):
+  [`docs/plano-centro-financeiro-sdd.md`](./docs/plano-centro-financeiro-sdd.md)

@@ -4,6 +4,7 @@
 
 - Read `docs/README.md`; it indexes normative business contracts and the active UX plan.
 - For PESSOAL/financial work, read `docs/estado-atual-cockpit-pessoal.md`, `docs/cockpit-caixa-real.md`, `docs/visao-conta-faturas.md`, and `docs/politica-datas-timezone.md`.
+- For program #436 work, also read `docs/plano-centro-financeiro-sdd.md`; it is approved planning, not evidence that Centro Financeiro, U6b, Maria agent-first, or H1–H5 shipped.
 - Do not infer implementation status from old plans or a dirty shared checkout. Check the current branch, `origin/main`, and the actual code.
 
 ## Package manager and commands

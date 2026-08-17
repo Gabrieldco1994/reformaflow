@@ -1,5 +1,11 @@
 # Plano Mestre v2 — UX de Redução de Trabalho (Cockpit PESSOAL)
 
+> **HISTÓRICO desde 2026-08-17; ledger stale.** Este arquivo preserva decisões e desvios do ciclo
+> v2, mas não é roadmap ativo. Referências de execução/PR abaixo precisam ser revalidadas e não
+> comprovam estado entregue. Consulte [`estado-atual-cockpit-pessoal.md`](estado-atual-cockpit-pessoal.md)
+> para estado vivo e [`plano-centro-financeiro-sdd.md`](plano-centro-financeiro-sdd.md) para o
+> planejamento futuro aprovado.
+
 **Data:** 2026-07-20 · **Status:** aprovado pelo PO (Gabriel) · **Antecessor:** `docs/plano-visao-conta-hub-2026-07.md` (v1 — Conta hub, concluído nos PRs #204/#205/#207)
 **Escopo aprovado:** itens 1, 2, 4, 5 e 6 da análise de UX pós-v1. **Fora de escopo:** canal WhatsApp (item 3 — plano próprio em `whatsapp-channel-plano`), gamificação, dark mode, push/PWA.
 

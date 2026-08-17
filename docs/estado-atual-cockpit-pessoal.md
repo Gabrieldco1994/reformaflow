@@ -1,10 +1,27 @@
 # Estado Atual — Cockpit/Visão Conta (PESSOAL)
 
-Atualizado em: **2026-08-13**
+Estado de runtime consolidado em: **2026-08-13**.
+
+Nota de planejamento #436 adicionada em: **2026-08-17**.
 
 Histórico detalhado: `docs/archive/estado-atual-historico-2026.md`.
 
-## 0) Placar das trilhas (estado vivo no main)
+## Programa Centro Financeiro #436 (planejamento, não estado entregue)
+
+O [SDD do Centro Financeiro](plano-centro-financeiro-sdd.md) está **aprovado como planejamento**,
+com implementação de produto não iniciada. A entrega documental S0.1 não altera esta tela nem os
+contratos abaixo.
+
+- B0/B1/B2 precisam ficar verdes antes de qualquer UX.
+- U6b continua bloqueada por U6a, lenses, architect e aprovação explícita do PO.
+- Maria agent-first (E5/M0–M3) é FUTURO e exige novo PO gate.
+- Hardening H1–H5 está bloqueado e separado; não foi entregue pelo programa.
+
+Os apontamentos de branch/“este PR” no placar abaixo são snapshots do ciclo anterior e não servem
+como ledger do programa #436. O estado de #436 vive nos issues #436–#468 e #405 e deve ser
+refletido aqui pelo D0 somente quando uma mudança de runtime for entregue.
+
+## 0) Placar das trilhas (snapshot anterior ao programa #436)
 
 - ✅ UX v2 W1 estabilizado (`feat/ux-v2-w1-pendencias` / PR #220): fila "Precisa de você" com roteamento correto (vincular/quitar/pagar/editar), sem 404.
 - ✅ UX v2 W2 estabilizado (`feat/ux-v2-w2-categorias` / PR #234): confirmar categoria com aprendizado de regra manual, proteção PIX PF, auto-aplicação no ingest para regra manual e gestão de regras atrás de engrenagem em Análises.
