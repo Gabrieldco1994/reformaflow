@@ -127,7 +127,7 @@ export class MonthlyOverviewController {
   })
   payInvoice(
     @CurrentTenant() tenantId: string,
-    @CurrentUser() requester: { id: string },
+    @CurrentUser() requester: MonthlyOverviewRequester & { id: string },
     @Param('pessoalProjectId') pessoalProjectId: string,
     @Body()
     body: {
@@ -138,7 +138,10 @@ export class MonthlyOverviewController {
       paymentDate?: string;
     },
   ) {
-    return this.service.payInvoice(tenantId, pessoalProjectId, body, requester.id);
+    // `requester.id` = autor auditado da despesa; `requester` completo = scope
+    // do anchor (o param renomeado tira `ProjectAccessGuard` do caminho, então
+    // só `resolveAnchor` no service consegue barrar um anchor fora do escopo).
+    return this.service.payInvoice(tenantId, pessoalProjectId, body, requester.id, requester);
   }
 
   @Post('undo-invoice-payment')
@@ -147,6 +150,7 @@ export class MonthlyOverviewController {
   })
   undoInvoicePayment(
     @CurrentTenant() tenantId: string,
+    @CurrentUser() requester: MonthlyOverviewRequester,
     @Param('pessoalProjectId') pessoalProjectId: string,
     @Body()
     body: {
@@ -154,6 +158,6 @@ export class MonthlyOverviewController {
       dueMonth?: string;
     },
   ) {
-    return this.service.undoInvoicePayment(tenantId, pessoalProjectId, body);
+    return this.service.undoInvoicePayment(tenantId, pessoalProjectId, body, requester);
   }
 }

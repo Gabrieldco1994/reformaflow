@@ -2918,6 +2918,11 @@ export class MonthlyOverviewService {
    *    (o tipo neutro é excluído do agregado da fatura e da lista de saídas; a
    *    fatura projetada some de `faltaPagarMes` porque passa a constar como paga).
    *  - §0.7 fonte única: o saldo continua derivado de `computeCaixaConta`.
+   *
+   * `requester` (B0 #447): a rota usa o param renomeado `:pessoalProjectId`, que
+   * `ProjectAccessGuard` NÃO reconhece — a autorização do anchor tem que ser
+   * feita aqui, ANTES de qualquer leitura/escrita. `createdByUserId` segue
+   * separado: é o autor auditado da despesa, não a credencial de acesso.
    */
   async payInvoice(
     tenantId: string,
@@ -2930,8 +2935,9 @@ export class MonthlyOverviewService {
       paymentDate?: string;
     },
     createdByUserId: string | null = null,
+    requester?: MonthlyOverviewRequester,
   ) {
-    await this.ensurePessoalProject(tenantId, projectId);
+    await this.ensurePessoalProject(tenantId, projectId, requester);
 
     const month = normalizeMonthKey(dto.month);
     if (!dto.cardLast4) throw new BadRequestException('Cartão obrigatório.');
@@ -3033,13 +3039,18 @@ export class MonthlyOverviewService {
    * DISPUTA entre faturas candidatas na janela `{payMonth, payMonth+1}` de cada
    * pagamento — com uma fatura só, pagamentos de OUTROS meses "vazam" pra cá.
    * 0 casamentos → 404. 2+ (ambíguo) → 400 com a lista dos pagamentos casados.
+   *
+   * `requester` (B0 #447): mesma razão de `payInvoice` — com o param de rota
+   * renomeado (`:pessoalProjectId`) o guard global não cobre esta mutação, então
+   * o scope do anchor é resolvido aqui antes de ler/reverter qualquer pagamento.
    */
   async undoInvoicePayment(
     tenantId: string,
     projectId: string,
     dto: { cardLast4?: string; dueMonth?: string },
+    requester?: MonthlyOverviewRequester,
   ) {
-    await this.ensurePessoalProject(tenantId, projectId);
+    await this.ensurePessoalProject(tenantId, projectId, requester);
 
     if (!dto.cardLast4) throw new BadRequestException('Cartão obrigatório.');
     if (!dto.dueMonth) throw new BadRequestException('Mês de vencimento obrigatório.');

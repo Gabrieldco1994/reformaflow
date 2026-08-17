@@ -102,3 +102,47 @@ describe("MonthlyOverviewController — repassa requester para os 7 GETs (B0 #44
     expect(forwardedRequester(getNeutros.mock.calls)).toBe(true);
   });
 });
+
+/**
+ * B0 (#447) — as 2 rotas POST herdaram o rename do param (`:pessoalProjectId`),
+ * que tira `ProjectAccessGuard` do caminho, mas NÃO herdaram o repasse do
+ * requester. Sem o requester completo chegando ao service, `ensurePessoalProject`
+ * resolve o anchor em modo full-access e um USER restrito muta qualquer PESSOAL
+ * do mesmo tenant. `requester.id` continua indo separado: é o `createdByUserId`
+ * da despesa de pagamento (KPI "despesas criadas" depende dele).
+ */
+describe("MonthlyOverviewController — repassa o requester COMPLETO nas 2 mutações (B0 #447)", () => {
+  const requester = {
+    id: "sentinel-requester-b0-447",
+    role: "USER",
+    allowedProjects: ["p1"],
+    allowedProjectTypes: ["PESSOAL"],
+    allowedModules: ["monthlyOverview"],
+  };
+
+  it("payInvoice repassa o requester completo ao service E mantém requester.id como autor", async () => {
+    const payInvoice = jest.fn().mockResolvedValue({});
+    const controller = new MonthlyOverviewController({ payInvoice } as any);
+    const body = {
+      cardLast4: "1111",
+      month: "2026-06",
+      amountCents: 7_000,
+      bankLast4: "4247",
+      paymentDate: "2026-05-31",
+    };
+
+    await (controller as any).payInvoice("t1", requester, "p1", body);
+
+    expect(payInvoice).toHaveBeenCalledWith("t1", "p1", body, requester.id, requester);
+  });
+
+  it("undoInvoicePayment repassa o requester completo ao service", async () => {
+    const undoInvoicePayment = jest.fn().mockResolvedValue({});
+    const controller = new MonthlyOverviewController({ undoInvoicePayment } as any);
+    const body = { cardLast4: "1111", dueMonth: "2026-06" };
+
+    await (controller as any).undoInvoicePayment("t1", requester, "p1", body);
+
+    expect(undoInvoicePayment).toHaveBeenCalledWith("t1", "p1", body, requester);
+  });
+});
