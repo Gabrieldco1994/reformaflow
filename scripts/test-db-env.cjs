@@ -37,7 +37,6 @@ function resolveSqlitePath(url) {
   if (!raw.toLowerCase().startsWith("file:")) return null;
 
   let filePart = raw.slice("file:".length);
-  if (filePart.startsWith("//")) filePart = filePart.slice(2);
   filePart = filePart.split("?")[0];
   if (!filePart || filePart.startsWith(":")) return null; // file::memory:
 

@@ -131,7 +131,10 @@ describe("synthetic deterministic finance-center persisted contract", () => {
       cardPaysCard,
       tenantAReceipt,
       tenantBReceipt,
-      tenantAExpense,
+      rateioSource,
+      mirrorSource,
+      mirrorTarget,
+      tenantScopedExpense,
       tenantBExpense,
     ] = await Promise.all([
       prisma.rateioAllocation.findMany({
@@ -176,7 +179,28 @@ describe("synthetic deterministic finance-center persisted contract", () => {
         select: { externalId: true, bankLast4: true, valor: true, data: true },
       }),
       prisma.expense.findFirst({
+        where: { id: IDS.expenses.rateioSource, tenantId: IDS.tenantA },
+        select: { linkedExpenseId: true },
+      }),
+      prisma.expense.findFirst({
         where: { id: IDS.expenses.mirrorSource, tenantId: IDS.tenantA },
+        select: {
+          externalId: true,
+          cardLast4: true,
+          valorTotal: true,
+          dataPagamento: true,
+          linkedExpenseId: true,
+        },
+      }),
+      prisma.expense.findFirst({
+        where: { id: IDS.expenses.mirrorTarget, tenantId: IDS.tenantA },
+        select: { linkedExpenseId: true },
+      }),
+      prisma.expense.findFirst({
+        where: {
+          id: IDS.expenses.tenantScopedForeign,
+          tenantId: IDS.tenantA,
+        },
         select: {
           externalId: true,
           cardLast4: true,
@@ -227,8 +251,62 @@ describe("synthetic deterministic finance-center persisted contract", () => {
       settlesInvoiceKey: "2222:2026-08",
       valorTotal: 10_010,
     });
+    expect(tenantAReceipt).toEqual({
+      externalId: "fc-collision-receipt",
+      bankLast4: "4242",
+      valor: 83_978,
+      data: new Date("2026-08-01T00:00:00.000Z"),
+    });
     expect(tenantBReceipt).toEqual(tenantAReceipt);
-    expect(tenantBExpense).toEqual(tenantAExpense);
+    expect(rateioSource).toEqual({
+      linkedExpenseId: IDS.expenses.rateioAllowedTarget,
+    });
+    expect(mirrorSource).toEqual({
+      externalId: "fc-collision-expense",
+      cardLast4: "1111",
+      valorTotal: 90_040,
+      dataPagamento: new Date("2026-07-05T12:00:00.000Z"),
+      linkedExpenseId: IDS.expenses.mirrorTarget,
+    });
+    expect(mirrorTarget).toEqual({ linkedExpenseId: null });
+    const collidingExpense = {
+      externalId: "fc-tenant-scope-collision",
+      cardLast4: "1111",
+      valorTotal: 4_006,
+      dataPagamento: new Date("2026-08-14T12:00:00.000Z"),
+    };
+    expect(tenantScopedExpense).toEqual(collidingExpense);
+    expect(tenantBExpense).toEqual(collidingExpense);
+  });
+
+  it("marks the persisted PESSOAL mirror and deduplicates it from canonical monthly totals", async () => {
+    const overview = await monthly.getOverview(
+      IDS.tenantA,
+      IDS.projects.pessoal,
+      FINANCE_CENTER_MONTH,
+    );
+    const mirrorSource = overview.entries.find(
+      (entry) => entry.expenseId === IDS.expenses.mirrorSource,
+    );
+    const mirrorTarget = overview.entries.find(
+      (entry) => entry.expenseId === IDS.expenses.mirrorTarget,
+    );
+
+    expect(mirrorSource).toMatchObject({
+      expenseId: IDS.expenses.mirrorSource,
+      projectId: IDS.projects.pessoal,
+      valor: 90_040,
+      isEspelho: true,
+    });
+    expect(mirrorTarget).toMatchObject({
+      expenseId: IDS.expenses.mirrorTarget,
+      projectId: IDS.projects.allowed,
+      valor: 90_040,
+      isEspelho: false,
+    });
+    expect(
+      overview.meses.find((row) => row.mes === "2026-07")?.totalDespesas,
+    ).toBe(117_063);
   });
 
   it("returns literal §10, Carteira, rateio and invoice oracles through the real monthly service", async () => {
@@ -346,34 +424,35 @@ describe("synthetic deterministic finance-center persisted contract", () => {
     ).toBe(false);
   });
 
-  it("changes the oracle for an authorized mutation but not for a colliding tenant-B mutation", async () => {
-    const baseline = await authorizedFingerprint();
+  it("changes the tenant-only foreign oracle for tenant A but ignores the colliding tenant-B mutation", async () => {
+    const baseline = await tenantScopeFingerprint();
+    expect(baseline).toEqual({ faltaPagarMes: 11_009 });
 
     try {
-      await prisma.receipt.update({
-        where: { id: IDS.receipts.bank },
-        data: { valor: 83_979 },
+      await prisma.expense.update({
+        where: { id: IDS.expenses.tenantScopedForeign },
+        data: { valor: 4_007, valorTotal: 4_007 },
       });
-      const authorizedMutation = await authorizedFingerprint();
+      const authorizedMutation = await tenantScopeFingerprint();
       expect(authorizedMutation).not.toEqual(baseline);
-      expect(authorizedMutation.caixaHoje).toBe(983_929);
+      expect(authorizedMutation).toEqual({ faltaPagarMes: 11_010 });
     } finally {
-      await prisma.receipt.update({
-        where: { id: IDS.receipts.bank },
-        data: { valor: 83_978 },
+      await prisma.expense.update({
+        where: { id: IDS.expenses.tenantScopedForeign },
+        data: { valor: 4_006, valorTotal: 4_006 },
       });
     }
 
     try {
-      await prisma.receipt.update({
-        where: { id: IDS.receipts.tenantBCollision },
-        data: { valor: 999_999 },
+      await prisma.expense.update({
+        where: { id: IDS.expenses.tenantBCollision },
+        data: { valor: 999_999, valorTotal: 999_999 },
       });
-      expect(await authorizedFingerprint()).toEqual(baseline);
+      expect(await tenantScopeFingerprint()).toEqual(baseline);
     } finally {
-      await prisma.receipt.update({
-        where: { id: IDS.receipts.tenantBCollision },
-        data: { valor: 83_978 },
+      await prisma.expense.update({
+        where: { id: IDS.expenses.tenantBCollision },
+        data: { valor: 4_006, valorTotal: 4_006 },
       });
     }
   });
@@ -433,5 +512,14 @@ describe("synthetic deterministic finance-center persisted contract", () => {
         }))
         .sort((a, b) => a.last4.localeCompare(b.last4)),
     };
+  }
+
+  async function tenantScopeFingerprint() {
+    const view = await monthly.getAccountView(
+      IDS.tenantA,
+      IDS.projects.pessoal,
+      FINANCE_CENTER_MONTH,
+    );
+    return { faltaPagarMes: view.faltaPagarMes };
   }
 });

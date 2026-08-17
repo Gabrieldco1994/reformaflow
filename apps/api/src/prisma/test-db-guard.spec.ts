@@ -51,6 +51,12 @@ describe("trava de DATABASE_URL em testes", () => {
     expect(
       guard.forbiddenReason("file:/tmp/outro-checkout/prisma/test.db"),
     ).toMatch(/fora do worktree/);
+    expect(guard.resolveSqlitePath("file://tmp/outside.db")).toBe(
+      "/tmp/outside.db",
+    );
+    expect(guard.forbiddenReason("file://tmp/outside.db")).toMatch(
+      /fora do worktree/,
+    );
   });
 
   it("aceita o banco de teste do worktree", () => {
