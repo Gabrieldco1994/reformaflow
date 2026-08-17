@@ -16,6 +16,7 @@ describe('MonthlyOverviewService timezone boundaries', () => {
         findFirst: jest
           .fn()
           .mockResolvedValue({ id: projectId, tenantId, type: 'PESSOAL', deletedAt: null }),
+        findMany: jest.fn().mockResolvedValue([{ id: projectId, type: 'PESSOAL', name: 'Pessoal' }]),
       },
       expense: { findMany: jest.fn() },
       receipt: { findMany: jest.fn().mockResolvedValue([]) },

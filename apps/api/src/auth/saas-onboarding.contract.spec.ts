@@ -26,7 +26,12 @@ const objectivesDto = (projectTypes: unknown) =>
 function harness() {
   const tx: any = {
     tenant: { create: jest.fn().mockResolvedValue({ id: "t1", name: "Acme" }) },
-    user: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
+    user: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      create: jest.fn(),
+      findUnique: jest.fn(),
+      update: jest.fn(),
+    },
   };
   tx.user.create.mockImplementation(({ data }: any) =>
     Promise.resolve({ id: "u1", allowedProjects: "[]", deletedAt: null, ...data }),
@@ -152,21 +157,22 @@ describe("self objective validation and persistence", () => {
   );
 
   it("updates only both derived permission fields for the authenticated identity", async () => {
-    const { service, prisma } = harness();
-    prisma.user.findUnique.mockResolvedValue({
-      id: "u1", deletedAt: null, tenant: { deletedAt: null },
+    const { service, tx } = harness();
+    tx.user.findUnique.mockResolvedValue({
+      id: "u1", deletedAt: null, isGuest: false, allowedProjects: "[]",
+      tenant: { deletedAt: null },
       allowedProjectTypes: '["CASA"]', allowedModules: '["dashboard","expenses"]',
     });
-    prisma.user.update.mockResolvedValue({
+    tx.user.update.mockResolvedValue({
       id: "u1", allowedProjectTypes: '["PLANTAS"]',
       allowedModules: '["dashboard","maintenance","reminders","plantsAi"]',
     });
 
     const result = await service.updateSelfObjectives("u1", ["PLANTAS"] as any);
-    expect(prisma.user.findUnique).toHaveBeenCalledWith({
+    expect(tx.user.findUnique).toHaveBeenCalledWith({
       where: { id: "u1" }, include: { tenant: true },
     });
-    expect(prisma.user.update).toHaveBeenCalledWith({
+    expect(tx.user.update).toHaveBeenCalledWith({
       where: { id: "u1" },
       data: {
         allowedProjectTypes: '["PLANTAS"]',

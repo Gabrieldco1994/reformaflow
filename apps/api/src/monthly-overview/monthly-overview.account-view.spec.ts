@@ -2654,7 +2654,7 @@ describe("MonthlyOverviewService.getAccountView", () => {
       );
 
       expect(prisma.rateioAllocation.findMany).toHaveBeenCalledWith({
-        where: { tenantId },
+        where: { tenantId, source: { projectId } },
         select: { sourceExpenseId: true, targetExpenseId: true },
       });
       expect(res.saidas).toHaveLength(1);

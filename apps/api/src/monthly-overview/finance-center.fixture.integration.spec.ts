@@ -9,7 +9,7 @@
 require("../../../../scripts/test-db-env.cjs");
 
 import { PrismaClient } from "@prisma/client";
-import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
 import { CardInvoiceSettlementService } from "../credit-card/card-invoice-settlement.service";
 import { PrismaService } from "../prisma/prisma.service";
 import {
@@ -365,15 +365,14 @@ describe("synthetic deterministic finance-center persisted contract", () => {
   });
 
   /**
-   * B0 (#447) anchor matrix. `ensurePessoalProject` (called by all 7 monthly
-   * GETs) already scopes `project.findFirst` by `{id, tenantId, deletedAt:
-   * null}` and already rejects a non-PESSOAL type with 400 — these asserts
-   * lock that behavior as a regression guard. What is NOT checked anywhere
-   * today is per-project AUTHORIZATION (same-tenant, correct type, but
-   * outside the requester's `allowedProjects`) — that gap is covered at the
-   * `ModulesGuard` layer, see `modules.guard.spec.ts`.
+   * B0 (#447) anchor matrix: `resolveAnchor`/`resolveHub` (called by all 7
+   * monthly GETs) scope `project.findFirst` by `{id, tenantId, deletedAt:
+   * null}` (404 missing/deleted/cross-tenant), reject a non-PESSOAL type with
+   * 400, and reject an out-of-scope anchor with 403 (see
+   * `MonthlyOverviewService.resolveAnchor`; `ProjectAccessGuard` enforces the
+   * same project-ID ACL globally as defense in depth).
    */
-  it("anchor matrix: missing/deleted/cross-tenant PESSOAL project is 404, authorized non-PESSOAL is 400", async () => {
+  it("anchor matrix: missing/deleted/cross-tenant PESSOAL project is 404, authorized non-PESSOAL is 400, out-of-scope same-tenant is 403", async () => {
     await expect(
       monthly.getAccountView(
         IDS.tenantA,
@@ -395,6 +394,32 @@ describe("synthetic deterministic finance-center persisted contract", () => {
     await expect(
       monthly.getAccountView(IDS.tenantA, IDS.projects.allowed, FINANCE_CENTER_MONTH),
     ).rejects.toBeInstanceOf(BadRequestException);
+
+    // Same-tenant, correct type, but the requester's own allowedProjects
+    // excludes this anchor -> 403 (never a silent full-access fallback).
+    const managedRequester = (allowed: string[]) => ({
+      role: "USER",
+      allowedProjects: allowed,
+      allowedProjectTypes: ["PESSOAL"],
+      allowedModules: ["monthlyOverview"],
+    });
+    await expect(
+      monthly.getAccountView(
+        IDS.tenantA,
+        IDS.projects.pessoal,
+        FINANCE_CENTER_MONTH,
+        managedRequester([IDS.projects.allowed]),
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    // Regression-lock: the SAME requester IS let in when the anchor is listed.
+    await expect(
+      monthly.getAccountView(
+        IDS.tenantA,
+        IDS.projects.pessoal,
+        FINANCE_CENTER_MONTH,
+        managedRequester([IDS.projects.pessoal]),
+      ),
+    ).resolves.toBeDefined();
 
     // Soft-deleted PESSOAL project in the SAME tenant -> 404, indistinguishable
     // from a project that never existed.

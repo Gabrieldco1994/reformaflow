@@ -1,14 +1,10 @@
 /**
  * B0 (#447) verification delta — `PendenciaController.findFinancialQueue`
- * ("pendencia financeiras", `GET :projectId/pendencias/financeiras`) does
- * NOT declare `@CurrentUser()` at all — the only other handler in this
- * controller family reading the requester lives elsewhere
- * (`MonthlyOverviewController.payInvoice`). Without the requester reaching
- * `PendenciaService.findFinancialQueue` (and from there into
- * `MonthlyOverviewService.getAccountView`), there is no way to
- * materialize/validate the requester's concrete scope before the queue is
- * built — see `pendencia.financial-queue.fixture.integration.spec.ts` for the
- * proven sibling-PESSOAL leak through this exact call chain.
+ * ("pendencia financeiras") did not declare `@CurrentUser()`, so the
+ * requester never reached `PendenciaService.findFinancialQueue` (and from
+ * there `MonthlyOverviewService.getAccountView`) — see
+ * `pendencia.financial-queue.fixture.integration.spec.ts` for the sibling-
+ * PESSOAL leak this exact gap caused.
  */
 import { PendenciaController } from "./pendencia.controller";
 import { PendenciaService } from "./pendencia.service";

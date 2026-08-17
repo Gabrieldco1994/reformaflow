@@ -458,10 +458,16 @@ describe('AuthService signup/guest/claim', () => {
       id: 'u1',
       tenantId: 't1',
       deletedAt: null,
+      isGuest: false,
+      role: 'USER',
+      allowedProjects: '[]',
       tenant: { deletedAt: null },
     });
     prisma.user.update.mockImplementation(({ data }: any) =>
       Promise.resolve({ id: 'u1', tenantId: 't1', ...data }),
+    );
+    prisma.$transaction.mockImplementation((cb: (tx: any) => unknown) =>
+      cb(prisma),
     );
 
     const out = await service.updateSelfObjectives('u1', [ProjectType.CARRO]);
@@ -476,10 +482,16 @@ describe('AuthService signup/guest/claim', () => {
       id: 'u1',
       tenantId: 't1',
       deletedAt: null,
+      isGuest: false,
+      role: 'USER',
+      allowedProjects: '[]',
       tenant: { deletedAt: null },
     });
     prisma.user.update.mockImplementation(({ data }: any) =>
       Promise.resolve({ id: 'u1', tenantId: 't1', ...data }),
+    );
+    prisma.$transaction.mockImplementation((cb: (tx: any) => unknown) =>
+      cb(prisma),
     );
 
     const tipos = [ProjectType.CASA, ProjectType.CARRO, ProjectType.REFORMA];
@@ -507,34 +519,13 @@ describe('AuthService signup/guest/claim', () => {
 });
 
 /**
- * B0 (#447) — hoje `updateSelfObjectives` só valida `projectTypes.length`; ela
- * NÃO olha `allowedProjects` nem `isGuest`, então uma conta GERENCIADA (grant
- * `allowedProjects` válido e NÃO-vazio, restrita a IDs concretos) ou CONVIDADA
- * pode reescrever seus próprios objetivos como se fosse self-service. Pior: o
- * `read` (`findUnique`) e o `write` (`update`) hoje rodam no client direto
- * (`this.prisma`), NUNCA dentro de uma transação — não há atomicidade real
- * entre ler o grant, decidir e gravar.
- *
- * Lens consolidation (B0 Phase-1) — settled contract, binding for RED:
- *   - "managed" is NOT `createdByUserId`. It is a VALID, NON-EMPTY
- *     `allowedProjects` (the user has been scoped to specific project IDs).
- *     `createdByUserId` is irrelevant to this check — every test below sets
- *     it inconsistently with the old (wrong) reading to prove that.
- *   - valid `[]` (empty array, wildcard) => USER self-service, ALLOWED.
- *   - guest => 403, EXPLICIT, independent of `allowedProjects` content.
- *   - ADMIN => allowed, independent of `allowedProjects` content.
- *   - malformed/corrupt `allowedProjects` (fails to parse) => 401, not 403,
- *     and is checked BEFORE the guest/admin branches (401 wins when both a
- *     corrupt grant AND a guest/admin condition are present at once).
- *
- * B0 Phase-1 verification delta — settled contract, binding for RED:
- *   - The whole read+authorize+write sequence runs inside ONE Prisma
- *     interactive transaction (`prisma.$transaction(async (tx) => ...)`),
- *     never on the plain `this.prisma` client directly.
- *   - Every denied path (managed/guest/invalid-grant) writes ZERO rows —
- *     `tx.user.update` is never called — and there is no authorization
- *     check AFTER the write (read -> authorize -> write, strictly once
- *     each, in that order).
+ * B0 (#447): `updateSelfObjectives` runs read+authorize+write inside ONE
+ * Prisma interactive transaction. "managed" is a VALID NON-EMPTY
+ * `allowedProjects` — NOT `createdByUserId` (every test below sets it
+ * inconsistently with that old, wrong reading to prove it's irrelevant).
+ * Guest is always 403 (independent of grant content); ADMIN is always
+ * allowed (independent of grant content); a corrupt own grant is 401 (not
+ * 403) and is checked BEFORE guest/admin. Every denied path writes zero rows.
  */
 describe('AuthService.updateSelfObjectives — managed/guest/invalid-grant fecham em transação interativa (B0 #447)', () => {
   const jwt = {} as JwtService;
@@ -545,12 +536,9 @@ describe('AuthService.updateSelfObjectives — managed/guest/invalid-grant fecha
   beforeEach(() => {
     callOrder = [];
     prisma = {
-      // O client DIRETO nunca deve ser tocado por updateSelfObjectives — cada
-      // método REJEITA com um erro reconhecível para que uma chamada direta
-      // acidental estoure como esse erro (não como a exceção esperada),
-      // provando de fato que a leitura/escrita real precisa acontecer no
-      // `tx` passado para o callback de `$transaction`, e não mascarando o
-      // teste com um "sucesso" coincidente de um mock não configurado.
+      // Direct client REJECTS: an accidental non-transactional call surfaces
+      // as this error (not the expected exception type), so the tx-based
+      // path can't be faked by an unconfigured mock.
       user: {
         findUnique: jest
           .fn()
@@ -572,8 +560,8 @@ describe('AuthService.updateSelfObjectives — managed/guest/invalid-grant fecha
     service = new AuthService(prisma, jwt);
   });
 
-  /** Programa `prisma.$transaction` para invocar o callback com um `tx` que
-   * resolve `userRow` na leitura e registra a ordem read/write. */
+  /** Programs `$transaction` to invoke its callback with a `tx` that resolves
+   * `userRow` on read and records read/write order. */
   function mockTransaction(userRow: Record<string, unknown>) {
     const tx = {
       user: {
@@ -798,6 +786,7 @@ describe('AuthService.buildPublicUser — reconciliação do snapshot de autoriz
       role: 'USER',
       tenantId: 't1',
       allowedModules: JSON.stringify(['dashboard', 'recurringBills']),
+      allowedProjects: '[]',
       allowedProjectTypes: JSON.stringify([ProjectType.CASA]),
       ...overrides,
     };
@@ -857,31 +846,13 @@ describe('AuthService.buildPublicUser — reconciliação do snapshot de autoriz
     const esperado = deriveObjectiveAccess(tipos).allowedModules;
     expect(out.allowedModules.sort()).toEqual([...esperado].sort());
   });
-
-  it('B0 Phase-1 delta: JSON corrompido em allowedModules agora falha fechado com 401 — supersede o antigo "degrada para lista vazia"', () => {
-    // Superseded (B0 Phase-1 verification delta): a leitura antiga tolerava
-    // `allowedModules` corrompido e degradava para `[]`, tratando esse campo
-    // como "menos crítico" que `allowedProjects`. O parser compartilhado
-    // agora fecha (401) para QUALQUER um dos três campos de grant — não só
-    // `allowedProjects` — para não deixar um novo campo escapar do mesmo
-    // contrato no futuro.
-    expect(() =>
-      service.buildPublicUser(
-        row({ allowedModules: '{corrompido', allowedProjectTypes: '[]' }),
-      ),
-    ).toThrow(UnauthorizedException);
-  });
 });
 
 /**
- * B0 Phase-1 verification delta — settled contract, binding for RED:
- * `allowedModules`, `allowedProjects` E `allowedProjectTypes` usam o MESMO
- * parser compartilhado fail-closed nos DOIS leitores (`buildPublicUser` aqui;
- * `JwtStrategy.validate` em jwt.strategy.spec.ts). `allowedProjects` já está
- * coberto em detalhe no describe abaixo; este cobre os outros dois campos —
- * corrupto/não-array/lixo total em QUALQUER um deles fecha com 401, valores
- * mistos filtram só as strings, e a união de `reconcileUserModules` continua
- * de pé por cima do resultado filtrado.
+ * B0 Phase-1 delta: `allowedModules`/`allowedProjectTypes` now share the SAME
+ * fail-closed parser as `allowedProjects` (below) in both readers
+ * (`buildPublicUser` here, `JwtStrategy.validate` in jwt.strategy.spec.ts) —
+ * superseding the old "corrupted allowedModules degrades to []" tolerance.
  */
 describe('AuthService.buildPublicUser — allowedModules/allowedProjectTypes corrompidos falham fechado (B0 Phase-1 delta)', () => {
   const service = new AuthService({} as any, {} as JwtService);
@@ -960,13 +931,10 @@ describe('AuthService.buildPublicUser — allowedModules/allowedProjectTypes cor
 });
 
 /**
- * B0 (#447) — `allowedProjects` inválido (malformado/branco/nulo/não-array)
- * hoje degrada para `[]` pelo MESMO caminho do `[]` legítimo. Rio abaixo,
- * `accessibleProjectScope` trata QUALQUER `allowedProjects` vazio como "sem
- * restrição" (o wildcard intencional para grant vazio de verdade) — então um
- * grant corrompido HOJE compra acesso irrestrito, o oposto de fail-closed.
- * `buildPublicUser` é UM dos dois leitores (o outro é `JwtStrategy.validate`,
- * ver jwt.strategy.spec.ts); os dois têm que falhar fechado do MESMO jeito.
+ * B0 (#447) — `allowedProjects` inválido degradava para `[]`, que
+ * `accessibleProjectScope` lê como wildcard (fail-OPEN). `buildPublicUser` é
+ * um dos dois leitores (o outro é `JwtStrategy.validate`, ver
+ * jwt.strategy.spec.ts); os dois falham fechado do mesmo jeito.
  */
 describe('AuthService.buildPublicUser — allowedProjects corrompido falha fechado (B0 #447)', () => {
   const service = new AuthService({} as any, {} as JwtService);

@@ -241,7 +241,7 @@ describe('PendenciaService', () => {
 
       const res = await service.findFinancialQueue(TENANT, PROJECT, '2026-07');
 
-      expect(monthlyOverviewService.getAccountView).toHaveBeenCalledWith(TENANT, PROJECT, '2026-07');
+      expect(monthlyOverviewService.getAccountView).toHaveBeenCalledWith(TENANT, PROJECT, '2026-07', undefined);
       expect(res.total).toBe(5);
       expect(res.grupos.map((g: any) => g.tipo)).toEqual([
         'SEM_CONTA',

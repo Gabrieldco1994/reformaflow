@@ -163,19 +163,10 @@ describe('JwtStrategy', () => {
 });
 
 /**
- * B0 (#447) — `JwtStrategy.validate` é o SEGUNDO leitor de grants (o primeiro é
- * `AuthService.buildPublicUser`, ver auth.service.spec.ts). Hoje os dois
- * degradam `allowedProjects` corrompido/branco/nulo/não-array para `[]` — que
- * `accessibleProjectScope` lê como "sem restrição" (o wildcard LEGÍTIMO de um
- * grant vazio de verdade). Isso é fail-OPEN: o `request.user` que o
- * `ModulesGuard`/`resolveAccessibleProjectScope` consultam sairia com acesso
- * IRRESTRITO justamente quando o dado está corrompido.
- *
- * Lens consolidation (B0 Phase-1): pin the harder contract directly —
- * `validate()` REJECTS with `UnauthorizedException` (401) on invalid/corrupt
- * `allowedProjects`, matching `AuthService.buildPublicUser` exactly (see
- * auth.service.spec.ts). `[null,7]` is invalid as a whole; `["p1",null]`
- * stays valid (filtered to `["p1"]`) and must NOT throw.
+ * B0 (#447) — `JwtStrategy.validate` é o SEGUNDO leitor de grants (o primeiro
+ * é `AuthService.buildPublicUser`, ver auth.service.spec.ts); os dois falham
+ * fechado (401) do mesmo jeito para `allowedProjects` inválido. `[null,7]` é
+ * inválido como um todo; `["p1",null]` continua válido (filtrado p/ `["p1"]`).
  */
 describe('JwtStrategy.validate — allowedProjects corrompido falha fechado (B0 #447)', () => {
   let prisma: any;
@@ -255,36 +246,6 @@ describe('JwtStrategy.validate — allowedProjects corrompido falha fechado (B0 
     expect(result.allowedProjects).toEqual(['p1']);
   });
 
-  it('B0 Phase-1 delta: allowedModules corrompido agora falha fechado com 401 — supersede a antiga reconciliação tolerante', async () => {
-    // Superseded (B0 Phase-1 verification delta): a versão antiga deste teste
-    // tolerava `allowedModules` corrompido e ainda reconciliava com sucesso.
-    // O parser compartilhado agora fecha (401) para QUALQUER um dos três
-    // campos de grant, não só `allowedProjects`.
-    prisma.user.findUnique.mockResolvedValue({
-      id: 'u1',
-      tenantId: 't1',
-      username: 'x',
-      name: 'X',
-      role: 'USER',
-      deletedAt: null,
-      isGuest: false,
-      sessionVersion: 0,
-      allowedModules: '{corrompido',
-      allowedProjects: '[]',
-      allowedProjectTypes: JSON.stringify([ProjectType.PESSOAL]),
-      tenant: { id: 't1', deletedAt: null, expiresAt: null },
-    });
-
-    await expect(
-      strategy.validate({
-        sub: 'u1',
-        tenantId: 't1',
-        username: 'x',
-        role: 'USER',
-      }),
-    ).rejects.toBeInstanceOf(UnauthorizedException);
-  });
-
   it('reconcileUserModules union continua aplicando quando allowedModules/allowedProjectTypes são mistos porém VÁLIDOS (não corrompidos)', async () => {
     prisma.user.findUnique.mockResolvedValue({
       id: 'u1',
@@ -317,12 +278,9 @@ describe('JwtStrategy.validate — allowedProjects corrompido falha fechado (B0 
 });
 
 /**
- * B0 Phase-1 verification delta — settled contract, binding for RED:
- * `allowedModules` e `allowedProjectTypes` usam o MESMO parser compartilhado
- * fail-closed que `allowedProjects` (ver describe acima). Corrupto/não-array/
- * lixo total em QUALQUER um deles fecha com 401 também no `JwtStrategy`, o
- * SEGUNDO dos dois leitores — paridade exata com `AuthService.buildPublicUser`
- * (ver auth.service.spec.ts).
+ * B0 Phase-1 delta: `allowedModules`/`allowedProjectTypes` share the same
+ * fail-closed parser as `allowedProjects` above — paridade exata com
+ * `AuthService.buildPublicUser` (ver auth.service.spec.ts), o outro leitor.
  */
 describe('JwtStrategy.validate — allowedModules/allowedProjectTypes corrompidos falham fechado (B0 Phase-1 delta)', () => {
   let prisma: any;

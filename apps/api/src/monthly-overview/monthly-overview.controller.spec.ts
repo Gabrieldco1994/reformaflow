@@ -1,39 +1,14 @@
 import { MonthlyOverviewController } from "./monthly-overview.controller";
-import { MonthlyOverviewService } from "./monthly-overview.service";
 import { MODULE_KEY } from "../common/decorators/require-module.decorator";
-
-describe("MonthlyOverviewController", () => {
-  it("encaminha o mês opcional para a visão mensal", async () => {
-    const getOverview = jest.fn().mockResolvedValue({});
-    const controller = new MonthlyOverviewController({
-      getOverview,
-    } as unknown as MonthlyOverviewService);
-
-    await controller.getOverview("tenant-1", "pessoal-1", "2026-03");
-
-    expect(getOverview).toHaveBeenCalledWith(
-      "tenant-1",
-      "pessoal-1",
-      "2026-03",
-    );
-  });
-});
 
 /**
  * B0 (#447) — nenhuma das 7 rotas GET deste controller declara
- * `@RequireModule('monthlyOverview')`. Como `ModulesGuard.canActivate` retorna
- * `true` sem checar NADA quando o Reflector não encontra metadata
- * (`if (!required) return true;`), hoje QUALQUER usuário autenticado — mesmo
- * sem o módulo `monthlyOverview` — atravessa este controller inteiro. Este
- * teste fixa o contrato "Controller mensal exige módulo" usando o MESMO
- * mecanismo (`RequireModule`/`MODULE_KEY`) já usado por
- * `InvoiceAdjustmentController` (`creditCards`) e `PurchasePlannerController`
- * (`monthlyOverview`) — não inventa guarda nova.
- *
- * Lens consolidation (B0 Phase-1): pin the EXACT slug — `['monthlyOverview']`,
- * não um superset — em CADA um dos 7 handlers (não só na classe), porque
- * `Reflector.getAllAndOverride` deixa metadata de MÉTODO sobrescrever a da
- * CLASSE; um handler individual poderia divergir silenciosamente.
+ * `@RequireModule('monthlyOverview')`, e nenhuma repassa `requester`
+ * (`@CurrentUser()`) ao service — sem o requester chegando lá, não há como
+ * materializar/validar o scope concreto (tenant+tipos+módulos+IDs) antes de
+ * ler caixa/conta/DRE/faturas/neutros. `Reflector.getAllAndOverride` deixa
+ * metadata de MÉTODO sobrescrever a de CLASSE, então o slug é checado nos 7
+ * handlers individualmente, não só na classe.
  */
 describe("MonthlyOverviewController — exige exatamente o módulo monthlyOverview nos 7 GETs (B0 #447)", () => {
   const SEVEN_GETS = [
@@ -63,16 +38,6 @@ describe("MonthlyOverviewController — exige exatamente o módulo monthlyOvervi
   );
 });
 
-/**
- * B0 (#447) — "Controller mensal exige módulo/requester": nenhum dos 7 GETs
- * hoje recebe o `requester` (`@CurrentUser()`) — só `payInvoice` (um POST)
- * usa esse decorator no controller inteiro. Sem o requester chegando ao
- * service, não há como materializar/validar o scope concreto (tenant+tipos+
- * módulos+IDs) por requisitante antes de ler caixa/conta/DRE/faturas/neutros.
- * Cada assert procura o `requesterId` sentinela em QUALQUER posição/formato
- * (arg posicional ou dentro de um objeto de opções) — não assume fiação
- * específica, só que o dado chega ao service de alguma forma.
- */
 describe("MonthlyOverviewController — repassa requester para os 7 GETs (B0 #447)", () => {
   const requester = { id: "sentinel-requester-b0-447", role: "USER" };
 
@@ -81,11 +46,11 @@ describe("MonthlyOverviewController — repassa requester para os 7 GETs (B0 #44
     return JSON.stringify(mockCalls[0]).includes(requester.id);
   }
 
-  it("getOverview repassa o requester ao service", async () => {
+  it("getOverview repassa o mês e o requester ao service, nessa ordem exata", async () => {
     const getOverview = jest.fn().mockResolvedValue({});
     const controller = new MonthlyOverviewController({ getOverview } as any);
     await (controller as any).getOverview("t1", "p1", "2026-08", requester);
-    expect(forwardedRequester(getOverview.mock.calls)).toBe(true);
+    expect(getOverview).toHaveBeenCalledWith("t1", "p1", "2026-08", requester);
   });
 
   it("getAccountView repassa o requester ao service", async () => {

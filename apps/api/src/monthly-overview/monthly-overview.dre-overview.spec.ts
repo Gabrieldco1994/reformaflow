@@ -45,7 +45,7 @@ describe('MonthlyOverviewService.getDreOverview', () => {
   });
 
   it('monta mensal/anual sem contar neutros e agrupa fatura em linha única na conta corrente', async () => {
-    jest.spyOn(service, 'getAccountView').mockResolvedValue({
+    jest.spyOn(service as any, 'computeAccountView').mockResolvedValue({
       mesSelecionado: '2026-06',
       caixaHoje: 757_629,
       entrouMes: 10_000,
@@ -307,7 +307,7 @@ describe('MonthlyOverviewService.getDreOverview', () => {
   });
 
   it('PAGAMENTO_CASA é guardado (fora de despesa/resultado/média/categorias, como INVESTIMENTOS)', async () => {
-    jest.spyOn(service, 'getAccountView').mockResolvedValue({
+    jest.spyOn(service as any, 'computeAccountView').mockResolvedValue({
       mesSelecionado: '2026-06',
       caixaHoje: 0,
       entrouMes: 0,
@@ -378,7 +378,7 @@ describe('MonthlyOverviewService.getDreOverview', () => {
   });
 
   it('RESGATE fora da receita (simetria com aporte); rendimento (JUROS_RENDA_FIXA) permanece', () => {
-    jest.spyOn(service, 'getAccountView').mockResolvedValue({
+    jest.spyOn(service as any, 'computeAccountView').mockResolvedValue({
       mesSelecionado: '2026-06',
       caixaHoje: 0,
       entrouMes: 0,
@@ -425,7 +425,7 @@ describe('MonthlyOverviewService.getDreOverview', () => {
   it('despesasPorOrigem: quebra por Conta/Cartão/Outros, ordenado, com isFuture', async () => {
     // Mesma view para todos os meses (mockResolvedValue): 1 fatura de cartão, 1
     // débito de conta, 1 saída sem origem (Outros).
-    jest.spyOn(service, 'getAccountView').mockResolvedValue({
+    jest.spyOn(service as any, 'computeAccountView').mockResolvedValue({
       mesSelecionado: '2026-06',
       caixaHoje: 0,
       entrouMes: 0,
@@ -516,8 +516,10 @@ describe('MonthlyOverviewService.getDreOverview', () => {
       params: { month: string; year: string } = { month: '2026-06', year: '2026' },
     ) => {
       const spy = jest
-        .spyOn(service, 'getAccountView')
-        .mockImplementation(async (_t: string, _p: string, month?: string) => viewFor(month as string, data));
+        .spyOn(service as any, 'computeAccountView')
+        .mockImplementation(async (_t: unknown, _hub: unknown, month?: unknown) =>
+          viewFor(month as string, data),
+        );
       prisma.creditCard.findMany.mockResolvedValue([]);
       prisma.cashFlowEntry.findMany.mockResolvedValue([]); // série NÃO folda mais `normalized`
       const res = await service.getDreOverview(tenantId, projectId, params);
@@ -525,12 +527,20 @@ describe('MonthlyOverviewService.getDreOverview', () => {
     };
     const byMes = (res: any, mes: string) =>
       res.anual.saldoAcumuladoSerie.find((r: any) => r.mes === mes);
+    // Hub resolvido a partir dos mocks de `project` no `beforeEach` do describe
+    // pai (sem requester ⇒ full-access; hubProjectIds inclui o próprio
+    // PESSOAL + reforma-1, nunca outro PESSOAL).
+    const expectedHub = {
+      pessoal: { id: projectId, tenantId, type: 'PESSOAL', deletedAt: null },
+      allProjects: [{ id: projectId }, { id: 'reforma-1' }],
+      hubProjectIds: [projectId, 'reforma-1'],
+    };
 
     it('(design) chama getAccountView 1x por mês do ano (12x)', async () => {
       const { spy } = await runAnnual();
       expect(spy).toHaveBeenCalledTimes(12);
       for (const m of Object.keys(baseMonthData)) {
-        expect(spy).toHaveBeenCalledWith(tenantId, projectId, m);
+        expect(spy).toHaveBeenCalledWith(tenantId, expectedHub, m);
       }
     });
 
