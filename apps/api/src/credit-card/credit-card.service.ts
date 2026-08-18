@@ -1,10 +1,12 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ExpenseTypeLabels, NEUTRAL_EXPENSE_TYPES, buildInstallments, caixaMonthForCardPurchase, isSinglePaymentForm } from '@reformaflow/domain';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import { CreateCreditCardDto, UpdateCreditCardDto } from './dto/credit-card.dto';
 import { parseStatementBuffers, type SourceHint, type NormalizedTx, type ParseResult } from './parsers';
 import { MerchantClassifierService } from '../merchant-classifier/merchant-classifier.service';
+import { RateioRequester } from '../expense/rateio.types';
 
 /** Normaliza a entrada (string legada, Buffer único ou array) para Buffer[]. */
 function toBuffers(content: string | Buffer | Buffer[]): Buffer[] {
@@ -182,11 +184,50 @@ export class CreditCardService {
     return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
   }
 
+  /**
+   * B1a (#448): impede um SEGUNDO cartão ATIVO com o mesmo `last4` no mesmo
+   * `{tenantId, projectId}` — cartões soft-deletados não contam (poderia ser um
+   * reimport legítimo do mesmo final após remoção). `excludeId` exclui o
+   * próprio registro num update (não é duplicata de si mesmo).
+   *
+   * ponytail: o check-then-create roda dentro de UMA `$transaction`
+   * interativa, mas isso só fecha a corrida ENTRE `await`s de um único
+   * processo Node — não há UNIQUE no schema, então duas instâncias da API (ou
+   * dois workers) ainda podem intercalar e ambas passarem o check antes de
+   * qualquer uma escrever. Teto honesto: 1 processo. Upgrade definitivo é um
+   * índice único parcial `(tenant_id, project_id, last4) WHERE deleted_at IS
+   * NULL` via migration (Postgres/SQLite ambos suportam índice parcial).
+   */
+  private async assertNoDuplicateCard(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    projectId: string,
+    last4: string,
+    excludeId?: string,
+  ): Promise<void> {
+    const duplicate = await tx.creditCard.findFirst({
+      where: {
+        tenantId,
+        projectId,
+        last4,
+        deletedAt: null,
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+      select: { id: true },
+    });
+    if (duplicate) {
+      throw new ConflictException('Já existe um cartão ativo com este final (últimos 4 dígitos) neste projeto.');
+    }
+  }
+
   async createCard(tenantId: string, projectId: string, dto: CreateCreditCardDto) {
     await this.ensureProject(tenantId, projectId);
     const nickname = dto.nickname?.trim() || `${dto.brand} ****${dto.last4}`;
-    return this.prisma.creditCard.create({
-      data: { ...dto, nickname, tenantId, projectId },
+    return this.prisma.$transaction(async (tx) => {
+      await this.assertNoDuplicateCard(tx, tenantId, projectId, dto.last4);
+      return tx.creditCard.create({
+        data: { ...dto, nickname, tenantId, projectId },
+      });
     });
   }
 
@@ -197,7 +238,12 @@ export class CreditCardService {
       data.nickname = dto.nickname.trim() || undefined;
       if (!data.nickname) delete data.nickname;
     }
-    await this.prisma.creditCard.update({ where: { id }, data });
+    await this.prisma.$transaction(async (tx) => {
+      if (dto.last4 !== undefined) {
+        await this.assertNoDuplicateCard(tx, tenantId, projectId, dto.last4, id);
+      }
+      await tx.creditCard.update({ where: { id }, data });
+    });
     return this.findCard(tenantId, projectId, id);
   }
 
@@ -737,6 +783,14 @@ export class CreditCardService {
    *  - guarda snapshot do planejado (em CrossProjectSettlement) p/ unlink;
    *  - a fonte recebe `linkedExpenseId` → alvo (dedupe no consolidado PESSOAL);
    *  - `Expense.valorTotal` do alvo permanece o planejado (valor efetivo é derivado).
+   *
+   * `requester` (B1a #448) OPCIONAL — encaminhado a `settleTargetParcela`, que
+   * releitura o alvo (child fora do `:projectId` de rota) DENTRO da mesma
+   * `$transaction`, sem gap de TOCTOU. Omitido no chamador interno de
+   * import-commit (`decisions[].action==='link'`): aquele fluxo já roda sob o
+   * mesmo `:projectId` autorizado da rota de import e threadar o requester
+   * completo por todo `commitImport`/`createExpenseFromTransaction` extrapola
+   * o escopo desta mudança — full-access legado ali, sem regressão.
    */
   async linkToExpense(
     tenantId: string,
@@ -744,6 +798,7 @@ export class CreditCardService {
     cardExpenseId: string,
     targetExpenseId: string,
     opts?: { parcelaIndex?: number; realValor?: number },
+    requester?: RateioRequester,
   ) {
     const source = await this.prisma.expense.findFirst({
       where: { id: cardExpenseId, tenantId, projectId, deletedAt: null },
@@ -756,13 +811,17 @@ export class CreditCardService {
     const realValor = opts?.realValor ?? source.valorTotal;
 
     await this.prisma.$transaction(async (tx) => {
-      await this.conciliacao.settleTargetParcela(tx, {
-        tenantId,
-        sourceExpenseId: source.id,
-        targetExpenseId,
-        parcelaIndex,
-        realValor,
-      });
+      await this.conciliacao.settleTargetParcela(
+        tx,
+        {
+          tenantId,
+          sourceExpenseId: source.id,
+          targetExpenseId,
+          parcelaIndex,
+          realValor,
+        },
+        requester,
+      );
     });
 
     return { ok: true, sourceId: source.id, targetId: targetExpenseId, parcelaIndex, paymentDate };

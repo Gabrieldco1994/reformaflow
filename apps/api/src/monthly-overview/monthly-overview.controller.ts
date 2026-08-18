@@ -135,9 +135,11 @@ export class MonthlyOverviewController {
     @Param('pessoalProjectId') pessoalProjectId: string,
     @Body()
     body: {
+      cardId?: string;
       cardLast4?: string;
       month?: string;
       amountCents?: number;
+      accountId?: string;
       bankLast4?: string;
       paymentDate?: string;
     },
@@ -159,6 +161,7 @@ export class MonthlyOverviewController {
     @Param('pessoalProjectId') pessoalProjectId: string,
     @Body()
     body: {
+      cardId?: string;
       cardLast4?: string;
       dueMonth?: string;
     },

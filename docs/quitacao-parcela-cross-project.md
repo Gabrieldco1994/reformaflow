@@ -17,6 +17,12 @@ Commits principais:
   (fecha o último caminho que reintroduzia o sumiço).
 - `ba5090bc`/`4e46a6f0`/`febd9151` (#424) — origem read-only do pagamento
   cross-project por parcela na REFORMA (§10): `GET .../expenses/paid-origins`.
+- Esta PR (#448 B1a) — child ACL encadeada em `settleTargetParcela`; `roomId` e
+  `sourcePriceItemId` validados por escopo; guard de duplicidade ativa em cartão/conta
+  (§15 de `visao-conta-faturas.md`).
+- Security Phase 2 (B1a) — `findCrossProject` leitura agora scoped por
+  `resolveAccessibleProjectScope`; `obraProjectId` de `createRecorrente` também
+  scoped (ver `despesa-recorrente.md` invariante 13).
 
 ---
 
@@ -69,6 +75,21 @@ Commits principais:
       compartilhando a mesma fonte.
     - **O12:** ordenação determinística — itens por `expenseId` asc; `parcelas`
       por `parcelaIndex` asc; `origins` na ordem de 1ª aparição.
+19. **B1a — Child ACL em `settleTargetParcela`:** quando o chamador fornece um
+    `RateioRequester`, o projeto-alvo (child) é relido DENTRO da `$transaction`
+    existente e validado contra o tenant e o escopo autorizado do requisitante
+    (TOCTOU-safe; sem redesign de transação). Projeto ausente, cross-tenant ou
+    fora do escopo → mesma exceção que o caminho já lançava para "not found" —
+    nenhuma mensagem nova vaza existência de recurso. Requester ausente (paths
+    legados) → full-access, comportamento idêntico ao de antes do B1a.
+20. **Security Phase 2 — Escopo de leitura em `findCrossProject`:** `GET
+    .../expenses/cross-project` resolve `resolveAccessibleProjectScope` UMA VEZ e
+    aplica `projectId: {in: scope}` diretamente no `where` do Prisma — nunca como
+    filtro pós-fetch que sub-preencheria uma página. `targetProjectId` fora do
+    escopo resolvido short-circuits para `[]` sem tocar o banco — byte-idêntico a
+    "query rodou, não encontrou nada", nunca um `403` que confirmaria existência do
+    projeto. `null` scope (role full-access ou grants irrestritivos) preserva o
+    comportamento irrestrito atual sem alteração.
 
 ## Referência de implementação
 
