@@ -92,6 +92,28 @@ function buildTx(
           return null;
         return include?.project ? row : { ...row, project: undefined };
       }),
+      findMany: jest.fn(async ({ where, include, select }: any) => {
+        const ids: string[] = where.id?.in ?? Object.keys(rows);
+        return ids
+          .map((id) => rows[id])
+          .filter(
+            (row) =>
+              row &&
+              (!where.tenantId || row.tenantId === where.tenantId) &&
+              (where.deletedAt === undefined ||
+                (row.deletedAt ?? null) === where.deletedAt),
+          )
+          .map((row) => {
+            if (select) {
+              return Object.fromEntries(
+                Object.keys(select)
+                  .filter((key) => select[key])
+                  .map((key) => [key, row[key]]),
+              );
+            }
+            return include?.project ? row : { ...row, project: undefined };
+          });
+      }),
       update: jest.fn(async ({ where, data }: any) => {
         writes.push(`expense.update:${where.id}`);
         Object.assign(rows[where.id], data);

@@ -143,12 +143,17 @@ describe("ConciliacaoService.reverseSourceLinks — corrida real SQLite", () => 
         ),
       ]);
 
-      expect(managedResult.status).toBe("rejected");
       if (managedResult.status === "rejected") {
         expect(
           isAclRejection(managedResult.reason) ||
             isSqliteBusy(managedResult.reason),
         ).toBe(true);
+      } else {
+        // Linearização válida: o ADMIN pode concluir primeiro. Nesse caso não
+        // resta participante oculto para o requester reverter, e a segunda
+        // chamada só pode cumprir um no-op explícito — nunca alegar que rateou.
+        expect(managedResult.value).toEqual({ mode: "none", targets: [] });
+        expect(adminResult.status).toBe("fulfilled");
       }
       if (adminResult.status === "rejected") {
         expect(isSqliteBusy(adminResult.reason)).toBe(true);
