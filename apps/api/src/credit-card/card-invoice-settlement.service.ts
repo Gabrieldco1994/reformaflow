@@ -55,7 +55,7 @@ interface SettlePurchase {
   entries: EntryRow[];
 }
 
-const INVOICE_NOT_FOUND_MESSAGE = 'Fatura não encontrada';
+export const INVOICE_NOT_FOUND_MESSAGE = 'Fatura não encontrada';
 
 export interface PreparedInvoiceUnsettlement {
   tenantId: string;

@@ -60,6 +60,7 @@ import {
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import {
   CardInvoiceSettlementService,
+  INVOICE_NOT_FOUND_MESSAGE,
   type PreparedInvoiceUnsettlement,
 } from '../credit-card/card-invoice-settlement.service';
 import {
@@ -981,7 +982,7 @@ export class BankAccountService {
           take: 2,
         });
         if (cards.length !== 1) {
-          throw new NotFoundException('Importação não encontrada');
+          throw new NotFoundException(INVOICE_NOT_FOUND_MESSAGE);
         }
         const card = cards[0];
         if (card.closingDay == null || card.dueDay == null) {

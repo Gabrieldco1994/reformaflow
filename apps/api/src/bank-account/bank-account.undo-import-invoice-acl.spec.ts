@@ -48,6 +48,7 @@ function expenseData(projectId: string, title: string, value: number) {
 describe('BankAccountService.undoImport — ACL das compras de fatura', () => {
   let service: BankAccountService;
   let accountId: string;
+  let cardId: string;
 
   async function cleanupTransient(): Promise<void> {
     await setupPrisma.cashFlowEntry.deleteMany({ where: { tenantId: TENANT } });
@@ -84,7 +85,7 @@ describe('BankAccountService.undoImport — ACL das compras de fatura', () => {
       },
     });
     accountId = account.id;
-    await setupPrisma.creditCard.create({
+    const card = await setupPrisma.creditCard.create({
       data: {
         tenantId: TENANT,
         projectId: PESSOAL,
@@ -96,6 +97,7 @@ describe('BankAccountService.undoImport — ACL das compras de fatura', () => {
         dueDay: 10,
       },
     });
+    cardId = card.id;
     service = new BankAccountService(
       prisma,
       new MerchantClassifierService(prisma),
@@ -192,6 +194,47 @@ describe('BankAccountService.undoImport — ACL das compras de fatura', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
 
     await expectEverythingPreserved(importId, paymentId, [hiddenPurchaseId]);
+  });
+
+  it('torna cartão ausente e oculto indistinguíveis, sem alterar os lotes', async () => {
+    const missing = await createImportWithPayment();
+    await setupPrisma.expense.update({
+      where: { id: missing.paymentId },
+      data: { cardLast4: '9999' },
+    });
+
+    const missingResult = service.undoImport(
+      TENANT,
+      PESSOAL,
+      accountId,
+      missing.importId,
+      MANAGED,
+    );
+    await expect(missingResult).rejects.toMatchObject({
+      status: 404,
+      response: expect.objectContaining({ message: 'Fatura não encontrada' }),
+    });
+    await expectEverythingPreserved(missing.importId, missing.paymentId, []);
+
+    const hidden = await createImportWithPayment();
+    await setupPrisma.creditCard.update({
+      where: { id: cardId },
+      data: { projectId: HIDDEN },
+    });
+    try {
+      await expect(
+        service.undoImport(TENANT, PESSOAL, accountId, hidden.importId, MANAGED),
+      ).rejects.toMatchObject({
+        status: 404,
+        response: expect.objectContaining({ message: 'Fatura não encontrada' }),
+      });
+    } finally {
+      await setupPrisma.creditCard.update({
+        where: { id: cardId },
+        data: { projectId: PESSOAL },
+      });
+    }
+    await expectEverythingPreserved(hidden.importId, hidden.paymentId, []);
   });
 
   it('bloqueia lote misto allowed+hidden antes de qualquer alteração', async () => {
