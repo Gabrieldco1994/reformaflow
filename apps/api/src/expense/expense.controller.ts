@@ -51,10 +51,10 @@ export class ExpenseController {
   createRecorrente(
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
-    @CurrentUser() requester: { id: string },
+    @CurrentUser() requester: RateioRequester & { id: string },
     @Body() dto: CreateRecorrenteDto,
   ) {
-    return this.service.createRecorrente(tenantId, projectId, dto, requester.id);
+    return this.service.createRecorrente(tenantId, projectId, dto, requester.id, requester);
   }
 
   @Get()
@@ -85,17 +85,23 @@ export class ExpenseController {
   findCrossProject(
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
+    @CurrentUser() requester: RateioRequester,
     @Query('search') search?: string,
     @Query('targetProjectId') targetProjectId?: string,
     @Query('status') status?: 'PLANEJADO' | 'PAGO',
     @Query('limit') limit?: string,
   ) {
-    return this.service.findCrossProject(tenantId, projectId, {
-      search,
-      projectId: targetProjectId,
-      status,
-      limit: limit ? Number(limit) : undefined,
-    });
+    return this.service.findCrossProject(
+      tenantId,
+      projectId,
+      {
+        search,
+        projectId: targetProjectId,
+        status,
+        limit: limit ? Number(limit) : undefined,
+      },
+      requester,
+    );
   }
 
   @Get('paid-origins')

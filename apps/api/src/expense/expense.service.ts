@@ -10,7 +10,7 @@ import { RatearMixedDto } from './dto/ratear-mixed.dto';
 import { Prisma } from '@prisma/client';
 import { fastClassify } from '../bank-account/bank-account.service';
 import { RateioDetalhe, RateioRequester } from './rateio.types';
-import { userCanAccessProject, userCanAccessProjectType } from '../common/access-rules';
+import { userCanAccessProject, userCanAccessProjectType, resolveAccessibleProjectScope } from '../common/access-rules';
 
 type ExpenseDb = PrismaService | Prisma.TransactionClient;
 type RateioParticipation = 'source' | 'target' | null;
@@ -288,12 +288,27 @@ export class ExpenseService {
    * cartão/conta), ligados por `linkedExpenseId`, sem dupla contagem. Espelha o
    * padrão de `create_obra_expense`, repetido por ocorrência. Se qualquer criação
    * falhar, TODAS as já criadas são desfeitas (transação lógica).
+   *
+   * `requester` (Security Phase 2 fix) OPCIONAL — omitido preserva full-access
+   * legado (o chamador do agente, `agent-tools.service.ts`, já resolve e
+   * autoriza `obraProjectId` via `resolveWritableProject` ANTES de chamar este
+   * método; threadar o requester aqui de novo checaria o mesmo projeto duas
+   * vezes sem ganho — o path do agente continua passando só `createdByUserId`
+   * e cai no full-access legado, sem regressão). Presente (rota HTTP direta,
+   * onde `obraProjectId` só chega por body — o `ProjectAccessGuard` global só
+   * olha `:projectId`), `obraProjectId` só era validado por tenant, nunca por
+   * escopo do requisitante: um usuário restrito podia criar despesas
+   * canônicas em QUALQUER projeto de obra do tenant. Missing/cross-tenant/
+   * fora-do-escopo colapsam no MESMO `BadRequestException` já usado para
+   * "não encontrado" — ANTES de qualquer escrita — nunca um 403 que
+   * confirmaria a existência/tipo do projeto a quem não pode vê-lo.
    */
   async createRecorrente(
     tenantId: string,
     projectId: string,
     dto: CreateRecorrenteDto,
     createdByUserId: string | null = null,
+    requester?: RateioRequester,
   ) {
     await this.validateProject(tenantId, projectId);
 
@@ -324,6 +339,11 @@ export class ExpenseService {
         select: { id: true, type: true },
       });
       if (!obra) throw new BadRequestException('Projeto de obra não encontrado neste tenant.');
+      // Só checa escopo quando `requester` está presente — omitido preserva o
+      // full-access legado E o path do agente (já autorizado a montante).
+      if (requester && !this.canRequesterSeeProject(requester, obra)) {
+        throw new BadRequestException('Projeto de obra não encontrado neste tenant.');
+      }
       if (obra.type === 'PESSOAL') {
         throw new BadRequestException('O projeto de obra não pode ser PESSOAL. Deixe em branco para recorrência pessoal.');
       }
@@ -481,19 +501,50 @@ export class ExpenseService {
    * Lista despesas de OUTROS projetos do mesmo tenant — base para o seletor
    * cross-project no formulário e para a aba "Outras despesas".
    * Suporta busca textual leve (titulo/fornecedor) e filtro por projectId.
+   *
+   * `requester` (Security Phase 2 fix) OPCIONAL — omitido preserva full-access
+   * legado. Presente, a enumeração era por TENANT INTEIRO (qualquer projeto,
+   * inclusive fora do escopo do requisitante) — vazava despesas de projetos
+   * que o requester não pode ver. Agora o escopo é resolvido UMA vez via
+   * `resolveAccessibleProjectScope` (mesmo helper de `monthly-overview` /
+   * `ProjectAccessGuard`) e entra no `where` do Prisma ANTES do `take`, nunca
+   * como filtro em memória pós-fetch (senão `take` cortaria resultados já
+   * dentro do escopo). Um `targetProjectId` explícito fora do escopo devolve
+   * lista VAZIA — nunca 403 — indistinguível de "esse projeto não tem
+   * despesas", sem confirmar a existência do projeto ao requisitante.
    */
   async findCrossProject(
     tenantId: string,
     currentProjectId: string,
     opts: { search?: string; projectId?: string; status?: 'PLANEJADO' | 'PAGO'; limit?: number } = {},
+    requester?: RateioRequester,
   ) {
     await this.validateProject(tenantId, currentProjectId);
     const limit = Math.min(Math.max(opts.limit ?? 100, 1), 2000);
+
+    const scope = requester
+      ? await resolveAccessibleProjectScope(
+          this.prisma,
+          tenantId,
+          requester.role,
+          requester.allowedProjects,
+          requester.allowedProjectTypes,
+          requester.allowedModules ?? [],
+        )
+      : null;
+
+    // `opts.projectId` explícito fora do escopo: vazio, sem tocar o banco —
+    // resultado idêntico (`[]`) ao de uma query que não achou nada.
+    if (opts.projectId && scope !== null && !scope.includes(opts.projectId)) {
+      return [];
+    }
+
     const where: Prisma.ExpenseWhereInput = {
       tenantId,
       deletedAt: null,
       settledByExpenseId: null,
       NOT: { projectId: currentProjectId },
+      ...(scope !== null ? { projectId: { in: scope } } : {}),
     };
     if (opts.projectId) where.projectId = opts.projectId;
     if (opts.status) where.status = opts.status;
