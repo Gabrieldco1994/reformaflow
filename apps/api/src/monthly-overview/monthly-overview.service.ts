@@ -1200,30 +1200,43 @@ export class MonthlyOverviewService {
       sumBy(foreignPendingItems, (item) => item.valor);
 
     const saidas: Array<any> = [
-      ...selectedInvoices.map((invoice) => ({
-        id: implicitPaymentByInvoice.get(`${invoice.dueMonth}__${invoice.cardLast4}`) ?? null,
-        kind: 'saida' as const,
-        descricao: `Fatura ${invoice.nickname}`,
-        data: dueDateIso(mesSelecionado, invoice.dueDay),
-        forma: 'cartao',
-        valor: invoice.total,
-        realizado: invoice.pending === 0,
-        status: invoice.pending === 0 ? 'PAGO' : invoice.paidAmount > 0 ? 'PARCIAL' : 'PLANEJADO',
-        cardLast4: invoice.cardLast4,
-        bankLast4: null as string | null,
-        tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
-        isInvoice: true,
-        editavel:
-          (implicitPaymentByInvoice.get(`${invoice.dueMonth}__${invoice.cardLast4}`) ?? null) != null,
-        dueMonth: invoice.dueMonth,
-        invoicePaidAmount: invoice.paidAmount,
-        invoiceResidualDeclared: invoice.residualDeclared,
-        invoiceHasManualIntervention: invoice.hasManualIntervention,
-        invoiceAdjustmentAmount: invoice.adjustmentAmount,
-        projetoOrigem: null as { id: string; name: string; type: string } | null,
-        parcelaIndex: null as number | null,
-        foreignExpenseId: null as string | null,
-      })),
+      ...selectedInvoices.map((invoice) => {
+        // B1a (#448): mesma fatura, mesmos campos aditivos do `cartoes[]`
+        // (cardId/fingerprint/actions) — aqui é a ENTRADA que a Visão Conta
+        // realmente usa como "linha de fatura" (`saidas[].isInvoice`).
+        const cardIdForInvoice = cardByLast4.get(invoice.cardLast4)?.id ?? null;
+        const hasUndoableImplicitPayment =
+          (implicitPaymentByInvoice.get(`${invoice.dueMonth}__${invoice.cardLast4}`) ?? null) != null;
+        const invoiceActions: Array<'pay' | 'undo'> = [];
+        if (invoice.pending > 0) invoiceActions.push('pay');
+        if (hasUndoableImplicitPayment) invoiceActions.push('undo');
+        return {
+          id: implicitPaymentByInvoice.get(`${invoice.dueMonth}__${invoice.cardLast4}`) ?? null,
+          kind: 'saida' as const,
+          descricao: `Fatura ${invoice.nickname}`,
+          data: dueDateIso(mesSelecionado, invoice.dueDay),
+          forma: 'cartao',
+          valor: invoice.total,
+          realizado: invoice.pending === 0,
+          status: invoice.pending === 0 ? 'PAGO' : invoice.paidAmount > 0 ? 'PARCIAL' : 'PLANEJADO',
+          cardId: cardIdForInvoice,
+          cardLast4: invoice.cardLast4,
+          bankLast4: null as string | null,
+          tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+          isInvoice: true,
+          editavel: hasUndoableImplicitPayment,
+          actions: invoiceActions,
+          fingerprint: cardIdForInvoice ? `${cardIdForInvoice}:${invoice.dueMonth}` : null,
+          dueMonth: invoice.dueMonth,
+          invoicePaidAmount: invoice.paidAmount,
+          invoiceResidualDeclared: invoice.residualDeclared,
+          invoiceHasManualIntervention: invoice.hasManualIntervention,
+          invoiceAdjustmentAmount: invoice.adjustmentAmount,
+          projetoOrigem: null as { id: string; name: string; type: string } | null,
+          parcelaIndex: null as number | null,
+          foreignExpenseId: null as string | null,
+        };
+      }),
       ...accountExpenseList.map(
         ({ expense, data, valor, status, realizado, parcelaIndex }) => ({
           id: expense.id as string | null,
