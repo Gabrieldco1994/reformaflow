@@ -36,7 +36,7 @@ Commits principais:
 
 - Domain: `packages/domain/src/calculations/expense-recurrence.ts`.
 - Backend: `apps/api/src/expense/dto/create-recorrente.dto.ts`, `apps/api/src/expense/expense.service.ts` (`createRecorrente`), `apps/api/src/agent/tools/agent-tools.service.ts`.
-- Escopo do `obraProjectId`: `apps/api/src/common/access-rules.ts` (`canRequesterSeeProject`), `apps/api/src/expense/rateio.types.ts` (`RateioRequester`). Commit: `46dc78a0` (Security Phase 2).
+- Escopo do `obraProjectId` (Security Phase 2): `apps/api/src/expense/expense.service.ts` (linhas `canRequesterSeeProject` no bloco `createRecorrente`), `apps/api/src/common/access-rules.ts` (helper), `apps/api/src/expense/rateio.types.ts` (`RateioRequester`).
 - Frontend: `apps/web/src/app/projects/[projectId]/expenses/_components/RecorrenteWizard.tsx`, `.../_components/PayOptionsModal.tsx`.
 - Testes que blindam contrato: `packages/domain/__tests__/expense-recurrence.test.ts`, `apps/api/src/expense/expense.service.spec.ts`.
 
@@ -107,8 +107,10 @@ Fluxo:
 3. Retorna `{ count, crossProject, frequencia, dataInicio, dataFim, ids }`.
 
 Validações que rejeitam (`BadRequestException`): frequência inválida, datas
-inválidas, período com fim antes do início. Projeto fora do tenant →
-`NotFoundException` (nada é criado).
+inválidas, período com fim antes do início. `obraProjectId` inexistente,
+cross-tenant ou fora do escopo do requisitante → `BadRequestException('Projeto
+de obra não encontrado neste tenant.')` — resposta indistinguível em todos os
+casos; nada é criado.
 
 Cobertura: `apps/api/src/expense/expense.service.spec.ts` (bloco `createRecorrente`).
 

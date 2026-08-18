@@ -20,7 +20,7 @@ Commits principais:
 - Esta PR (#448 B1a) — child ACL encadeada em `settleTargetParcela`; `roomId` e
   `sourcePriceItemId` validados por escopo; guard de duplicidade ativa em cartão/conta
   (§15 de `visao-conta-faturas.md`).
-- `46dc78a0` (Security Phase 2) — `findCrossProject` leitura agora scoped por
+- Security Phase 2 (B1a) — `findCrossProject` leitura agora scoped por
   `resolveAccessibleProjectScope`; `obraProjectId` de `createRecorrente` também
   scoped (ver `despesa-recorrente.md` invariante 13).
 
@@ -89,7 +89,7 @@ Commits principais:
     escopo resolvido short-circuits para `[]` sem tocar o banco — byte-idêntico a
     "query rodou, não encontrou nada", nunca um `403` que confirmaria existência do
     projeto. `null` scope (role full-access ou grants irrestritivos) preserva o
-    comportamento irrestrito atual sem alteração. Commit: `46dc78a0`.
+    comportamento irrestrito atual sem alteração.
 
 ## Referência de implementação
 
