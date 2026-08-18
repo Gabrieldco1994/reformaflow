@@ -12,11 +12,11 @@
  * o child ACL (issue #448) ler o scope de quem está chamando.
  *
  * `createRecorrente`/`findCrossProject` (security phase 2, achados
- * verificados 2026-08-18): mesma lacuna — `createRecorrente`'s
- * `dto.obraProjectId` e `findCrossProject`'s listagem cross-project chegam
- * SÓ por body/query, nunca pelo `:projectId` que o `ProjectAccessGuard`
- * global enxerga, e nenhum dos dois métodos do controller sequer declara
- * `@CurrentUser()` hoje.
+ * verificados 2026-08-18): mesma lacuna para o child `dto.obraProjectId`/a
+ * listagem cross-project, que chegam SÓ por body/query, nunca pelo
+ * `:projectId` que o `ProjectAccessGuard` global enxerga. `createRecorrente`
+ * já declarava `@CurrentUser()` no baseline (só repassava `requester.id`,
+ * como `ratearMixed`); `findCrossProject` é que nem declarava o parâmetro.
  *
  * Teste de CONTRATO (service mockado); a lógica de ACL em si é coberta com
  * Prisma real em `expense.child-acl.spec.ts`,
@@ -89,7 +89,12 @@ describe('ExpenseController — repassa requester ao service nas mutações chil
 
   it('findCrossProject: requester chega ao service (security phase 2)', async () => {
     const { controller, service } = buildController({});
-    await (controller as any).findCrossProject('t1', 'p1', undefined, undefined, undefined, undefined, REQUESTER);
+    // Assinatura real (fix 1651d0a3): findCrossProject(tenantId, projectId,
+    // requester, search?, targetProjectId?, status?, limit?) — requester é o
+    // 3º arg, ANTES dos query params opcionais, não o 7º. Cast só no
+    // requester (o controller ainda não declara esse parâmetro nesta
+    // branch, que é test-only; a ordem/contagem de argumentos já é a real).
+    await controller.findCrossProject('t1', 'p1', REQUESTER as any);
     // No baseline, o método do controller nem declarava `@CurrentUser()` —
     // a listagem cross-project não tinha NENHUM requester para filtrar por.
     expect(service.findCrossProject.mock.calls[0]).toContainEqual(REQUESTER);
