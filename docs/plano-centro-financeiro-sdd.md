@@ -88,7 +88,8 @@ Na base original, e **não como resultado deste programa**:
 | S0.1 [#444](https://github.com/Gabrieldco1994/reformaflow/issues/444) | **CONCLUÍDA (documental)** | Libera S0.2 e S0.3. |
 | S0.2 [#445](https://github.com/Gabrieldco1994/reformaflow/issues/445) | **BLOQUEADA/DEFERIDA; produção `NOT_COLLECTED`** | Próxima tentativa somente após telemetria do suporte Fly e nova autorização explícita. |
 | S0.3 [#446](https://github.com/Gabrieldco1994/reformaflow/issues/446) | **READY sob exceção PO; test-only em andamento** | Pode construir, testar e fazer merge sem aguardar a conclusão de #445; não toca produto/runtime. |
-| B0 [#447](https://github.com/Gabrieldco1994/reformaflow/issues/447) | **BLOQUEADO** | Merge/deploy exige conjuntamente #445 concluída/revisada e #446 verde. |
+| B0 [#447](https://github.com/Gabrieldco1994/reformaflow/issues/447) | **IMPLEMENTADO — pendente de merge** (`fix/b1a-child-acl`, SHA `a029a6cf`) | Merge/deploy ainda exige conjuntamente #445 concluída/revisada e #446 verde; security verify pendente. |
+| B1a [#448](https://github.com/Gabrieldco1994/reformaflow/issues/448) | **IMPLEMENTADO (fatia B1a) — pendente de merge** (`fix/b1a-child-acl`, SHA `a029a6cf`) | Child ACL, identidades de fatura, ações server-provided, guard de duplicidade; zero schema/UX. #448 permanece OPEN; B1b (ambiguous-last4) pendente. |
 
 E0 [#437](https://github.com/Gabrieldco1994/reformaflow/issues/437) permanece incompleta enquanto
 #445 estiver aberta. A exceção de #446 não conclui E0 nem dispensa o gate de produção.
@@ -206,7 +207,7 @@ separada e só entra no critical path quando uma exposição consumidora for dem
 | Epic | Status do design | Conteúdo e dependência |
 |---|---|---|
 | [E0 #437](https://github.com/Gabrieldco1994/reformaflow/issues/437) | **INCOMPLETA**; S0.1 concluída, S0.2 bloqueada/deferida e S0.3 READY test-only | #446 pode avançar sem #445; #445 concluída/revisada + #446 verde são gates conjuntos obrigatórios para merge/deploy de B0. |
-| [E1 #438](https://github.com/Gabrieldco1994/reformaflow/issues/438) | **BLOQUEADO** | B0 → B1 → B2. Os três e security verify ficam verdes antes de UX. |
+| [E1 #438](https://github.com/Gabrieldco1994/reformaflow/issues/438) | **B0+B1a IMPLEMENTADOS (pendente de merge); B1b+B2 BLOQUEADOS** | B0 e B1a implementados em `fix/b1a-child-acl`, pendentes do gate #445+#446 e security verify. B1b (ambiguous-last4 409, hidden-metadata removal) e B2 aguardam. Os três e security verify ficam verdes antes de UX. |
 | [E2 #439](https://github.com/Gabrieldco1994/reformaflow/issues/439) | **BLOQUEADO** | B0+B1+B2 → U1 → U2; reorganização reversível de desktop/mobile. |
 | [E3 #440](https://github.com/Gabrieldco1994/reformaflow/issues/440) | **BLOQUEADO** | U3/U4/U5; U6a é spec e U6b tem gate humano adicional. |
 | [E4 #441](https://github.com/Gabrieldco1994/reformaflow/issues/441) | **BLOQUEADO/cross-cutting** | V0, D0, R0 e A0 acompanham as ondas, não um mutirão tardio. |
@@ -434,7 +435,7 @@ preservar links e contexto sem fingir que seus ledgers continuam vivos.
 | ID | Decisão final aprovada | Estado de produto |
 |---|---|---|
 | D-001 | PESSOAL é o Centro Financeiro; Conta=origem, Projeto=finalidade, Cockpit conta uma vez, Auditoria explica. | **NÃO INICIADO por #436** |
-| D-002 | B0+B1+B2, deploy B0 e security verify precedem qualquer UX. | **BLOQUEADO** |
+| D-002 | B0+B1+B2, deploy B0 e security verify precedem qualquer UX. | **B0+B1a IMPLEMENTADOS, pendentes de merge; B1b+B2 BLOQUEADOS** |
 | D-003 | Fórmulas de Caixa §10, faturas/Conta, timezone e quitação cross-project não serão reescritas. | Contratos atuais **ENTREGUES**; mudança do programa **NENHUMA** |
 | D-004 | Navegação alvo: Hoje, Movimentações, Planejamento, Projetos; Resultado/Auditoria secundários. | **APROVADO — NÃO INICIADO** |
 | D-005 | Planning e Planejador só se agrupam visualmente; stores permanecem separados. | **APROVADO — BLOQUEADO** |
@@ -444,12 +445,13 @@ preservar links e contexto sem fingir que seus ledgers continuam vivos.
 | D-009 | U6b só existe depois de U6a+lenses+architect+PO. | **BLOQUEADO; NÃO ENTREGUE** |
 | D-010 | Maria agent-first reutiliza serviços/cards/actions/ACLs e requer novo PO gate. | **FUTURO; NÃO ENTREGUE** |
 | D-011 | H1–H5 ficam separados e gated; não entram automaticamente no critical path. | **BLOQUEADO; NÃO ENTREGUE** |
-| D-012 | Sob exceção PO de 2026-08-17, #446 pode avançar test-only sem #445; #445 concluída/revisada + #446 verde seguem obrigatórias para merge/deploy de B0. Produção permanece `NOT_COLLECTED`. | **S0.3 EM ANDAMENTO; E0 INCOMPLETA; B0 BLOQUEADO** |
+| D-012 | Sob exceção PO de 2026-08-17, #446 pode avançar test-only sem #445; #445 concluída/revisada + #446 verde seguem obrigatórias para merge/deploy de B0. Produção permanece `NOT_COLLECTED`. | **S0.3 EM ANDAMENTO; E0 INCOMPLETA; B0 IMPLEMENTADO pendente de merge; B1a IMPLEMENTADO pendente de merge** |
 
 ## 12. Changelog
 
 | Data | Versão | Mudança |
 |---|---|---|
+| 2026-08-18 | B1a implementado | B0 (#447) e B1a (#448) implementados em `fix/b1a-child-acl` (SHA `a029a6cf`), pendentes de merge. Child ACL em `settleTargetParcela`, identidades de fatura (`cardId`/`fingerprint`/`actions` em `cartoes[]`+`saidas[]`; `accountId` em `contas[]`), `cardId`/`accountId` opcionais em `payInvoice`/`undoInvoicePayment`, guard de duplicidade ativa 409, `roomId`/`sourcePriceItemId` scoped. Zero schema, zero UX, zero fórmula numérica alterada. #448 permanece OPEN; B1b pendente. |
 | 2026-08-17 | Exceção PO S0.3 | #446 liberada para build/test/merge test-only independente de #445; #445 registrada como bloqueada/deferida e produção `NOT_COLLECTED`; gates conjuntos de #447/B0, limites da baseline sintética e distinção entre estado esperado e evidência de runtime explicitados. |
 | 2026-08-17 | Revisão S0.1 | Guardrails de papel, endpoint/evidência e auditoria estreitados; transição do rateio legado para source-only explicitada. |
 | 2026-08-17 | S0.1 inicial | Design/security consolidado no repositório; status, contratos, E0–E6, dependências, analytics, riscos, rollback, decisões e histórico canonicalizados a partir da base `ece5032c398cc050fc037959a1f8fc0cc7f05bea`. Nenhuma implementação de produto iniciada. |

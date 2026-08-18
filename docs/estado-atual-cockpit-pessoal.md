@@ -4,14 +4,20 @@ Estado de runtime consolidado em: **2026-08-13**.
 
 Nota de planejamento #436 adicionada em: **2026-08-17**.
 
+**Atualizado em 2026-08-18:** B0 (#447) e B1a (#448) implementados em `fix/b1a-child-acl`, pendentes de merge.
+
 Histórico detalhado: `docs/archive/estado-atual-historico-2026.md`.
 
 ## Programa Centro Financeiro #436 (planejamento, não estado entregue)
 
 O [SDD do Centro Financeiro](plano-centro-financeiro-sdd.md) está **aprovado como planejamento**,
-com implementação de produto/runtime não iniciada. Somente a baseline determinística test-only
-S0.3 [#446](https://github.com/Gabrieldco1994/reformaflow/issues/446) está autorizada e pode estar
-em andamento; ela não altera esta tela nem os contratos abaixo.
+com implementação de produto/runtime não iniciada para a maioria das ondas. Exceção: **B0**
+([#447](https://github.com/Gabrieldco1994/reformaflow/issues/447)) e a primeira fatia de **B1**
+([#448](https://github.com/Gabrieldco1994/reformaflow/issues/448), B1a) foram implementados na
+branch `fix/b1a-child-acl` e estão **pendentes de merge** (branch `docs/b1a-child-acl` /
+SHA `a029a6cf`). Somente a baseline determinística test-only S0.3
+[#446](https://github.com/Gabrieldco1994/reformaflow/issues/446) está também autorizada e pode
+estar em andamento; ela não altera esta tela nem os contratos abaixo.
 
 - Decisão PO de 2026-08-17: #446 pode construir, testar e fazer merge test-only sem aguardar
   [#445](https://github.com/Gabrieldco1994/reformaflow/issues/445).
@@ -21,7 +27,8 @@ em andamento; ela não altera esta tela nem os contratos abaixo.
   esperado; não comprovam dados de runtime nem migrations aplicadas em produção.
 - E0 permanece incompleta. #445 concluída/revisada e #446 verde são gates conjuntos para
   merge/deploy de B0 [#447](https://github.com/Gabrieldco1994/reformaflow/issues/447); #446 não
-  certifica B0, segurança ou produção.
+  certifica B0, segurança ou produção. **B0 e B1a foram implementados na branch pendente de
+  merge — não estão no `main` nem em produção ainda.**
 - B0/B1/B2 precisam ficar verdes antes de qualquer UX.
 - U6b continua bloqueada por U6a, lenses, architect e aprovação explícita do PO.
 - Maria agent-first (E5/M0–M3) é FUTURO e exige novo PO gate.

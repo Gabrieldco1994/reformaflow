@@ -17,6 +17,9 @@ Commits principais:
   (fecha o último caminho que reintroduzia o sumiço).
 - `ba5090bc`/`4e46a6f0`/`febd9151` (#424) — origem read-only do pagamento
   cross-project por parcela na REFORMA (§10): `GET .../expenses/paid-origins`.
+- `ba867600`/`e8b7903a`/`a029a6cf` (#448 B1a) — child ACL encadeada em
+  `settleTargetParcela`; `roomId` e `sourcePriceItemId` validados por escopo;
+  guard de duplicidade ativa em cartão/conta (§10b de `visao-conta-faturas.md`).
 
 ---
 
@@ -69,6 +72,13 @@ Commits principais:
       compartilhando a mesma fonte.
     - **O12:** ordenação determinística — itens por `expenseId` asc; `parcelas`
       por `parcelaIndex` asc; `origins` na ordem de 1ª aparição.
+19. **B1a — Child ACL em `settleTargetParcela`:** quando o chamador fornece um
+    `RateioRequester`, o projeto-alvo (child) é relido DENTRO da `$transaction`
+    existente e validado contra o tenant e o escopo autorizado do requisitante
+    (TOCTOU-safe; sem redesign de transação). Projeto ausente, cross-tenant ou
+    fora do escopo → mesma exceção que o caminho já lançava para "not found" —
+    nenhuma mensagem nova vaza existência de recurso. Requester ausente (paths
+    legados) → full-access, comportamento idêntico ao de antes do B1a.
 
 ## Referência de implementação
 

@@ -8,8 +8,12 @@
 > **Testes:** `apps/api/src/monthly-overview/monthly-overview.account-view.spec.ts`.
 > Complementa `docs/cockpit-caixa-real.md` (caixa real §10).
 > Política de timezone/data: `docs/politica-datas-timezone.md`.
-> **Status (2026-06-25):** regras ativas em `main` (inclui commits `1cc93dc6`,
+> **Status (2026-08-18):** regras ativas em `main` (inclui commits `1cc93dc6`,
 > `7010b95d`, `01affbcb`, `7e901b15`, `f7be2bff`, `e41461c7`).
+> **B1a (#448, pendente de merge):** `payInvoice`/`undoInvoicePayment` aceitam
+> `cardId`/`accountId` opcionais; `getAccountView` emite `cardId`, `actions`,
+> `fingerprint` em `cartoes[]` e `saidas[]` (fatura), `accountId` em `contas[]`.
+> Commits: `ba867600`, `e8b7903a`, `a029a6cf`.
 
 ---
 
@@ -40,11 +44,14 @@
 23. **§13-2:** Saldos **pontuais** (`caixaHoje`, `carteiraHoje`, `devoCartaoTotal`) nunca são somados e, se exibidos no ano, são rotulados **"hoje"** — nunca "no ano".
 24. **§13-3:** `sobraPrevista` anual mistura `caixaHoje` (pontual) com fluxo do ano **de propósito** ("com o caixa de hoje, eu atravesso o ano?") — não é bug, e o rótulo do card precisa dizer isso.
 25. **§13-4:** A visão do **mês** é a tela em produção: `mode`/`period`/`monthFilter` são opcionais com default mensal e o comportamento mensal não pode mudar.
+26. **§15-1 (B1a):** `payInvoice` e `undoInvoicePayment` aceitam `cardId`/`accountId` opcionais. Quando presentes, resolvem estritamente `{id, tenantId, projectId, deletedAt:null}`; ID ausente ativa o fallback legacy por `last4`. ID+last4 em conflito → 400 sem nenhuma escrita (verificado antes de qualquer `create`/`update`).
+27. **§15-2 (B1a):** `getAccountView` emite `cardId`, `fingerprint` (`\`${cardId}:${dueMonth}\``) e `actions: ('pay'|'undo')[]` em `cartoes[]` e na linha `saidas[]` com `isInvoice:true`. `contas[]` emite `accountId`. `fingerprint` é nulo quando o cartão não pode ser resolvido. Só verbos atualmente executáveis aparecem em `actions`: `'pay'` quando `pending>0`, `'undo'` apenas quando exatamente um pagamento implícito está casado.
+28. **§15-3 (B1a):** `dueMonth`, `settlesInvoiceKey`, `invoiceKey` e todas as fórmulas numéricas de caixa/fatura/neutro **não foram alterados**; B1a é puramente aditivo.
 
 ## Referência de implementação
 
-- Serviço principal: `apps/api/src/monthly-overview/monthly-overview.service.ts` (`getAccountView`, `getCardInvoicesYearly`, `getOriginItemsYearly`, `matchPaidInvoices`, `computePaidInvoiceKeys`).
-- Fila financeira W1 (`GET /projects/:projectId/pendencias/financeiras`) deriva pendências **a partir do `getAccountView`** (mesma fonte e mesmos invariantes; sem motor paralelo de caixa/fatura).
+- Serviço principal: `apps/api/src/monthly-overview/monthly-overview.service.ts` (`getAccountView`, `getCardInvoicesYearly`, `getOriginItemsYearly`, `matchPaidInvoices`, `computePaidInvoiceKeys`, `payInvoice`, `undoInvoicePayment`).
+- Fila financeira W1 (`GET /projects/:projectId/pendencias/financeiras`) deriva pendências **a partir do `getAccountView`** (mesma fonte e mesmos invariantes; sem motor paralelo de caixa/fatura). W1 consome `cardId`/`actions`/`fingerprint` numa etapa futura (não neste PR).
 - Ajustes manuais: `apps/api/src/monthly-overview/invoice-adjustment.controller.ts`, `apps/api/src/monthly-overview/dto/invoice-adjustment.dto.ts`.
 - Dependências de regra: `packages/domain/src/calculations/card-cash-month.ts`, `packages/domain/src/enums/index.ts`.
 - Endpoint/controller: `apps/api/src/monthly-overview/monthly-overview.controller.ts`, `POST/DELETE /projects/:projectId/invoice-adjustments`.
@@ -589,3 +596,71 @@ antes — deep-equal, não "parecido". Ver
 - No 400 de ambiguidade, o diálogo troca a confirmação por uma lista dos
   pagamentos casados (data + valor) e fecha a ação automática — o usuário edita
   o lançamento duplicado/importado manualmente na Conta.
+
+---
+
+## §15 Identidades de fatura e ACL de child (B1a — ago/2026)
+
+**Contexto:** B1a é a primeira fatia implementável de #448. É puramente aditiva —
+zero schema, zero backfill, zero alteração de fórmula. A UX (W1) consome estes
+campos numa etapa futura separada; neste PR nenhum comportamento visível muda.
+
+### 15.1 `cardId`/`accountId` opcionais em `payInvoice` e `undoInvoicePayment`
+
+Antes, ambos os endpoints resolviam cartão/conta exclusivamente por `last4`. Agora:
+
+| Caso | Comportamento |
+|---|---|
+| `cardId`/`accountId` ausente | Fallback legado por `last4` — byte-compatível, sem regressão. |
+| ID presente | Resolve `{id, tenantId, projectId, deletedAt:null}`; ignora `last4` para o match. |
+| ID presente + `last4` em conflito | **400** — zero escritas (verificado antes de qualquer `create`/`update`). |
+
+A resposta dos dois endpoints retorna `cardId`/`accountId` quando resolvidos.
+
+`settlesInvoiceKey` e `invoiceKey` permanecem com o formato `"{cardLast4}:{dueMonth}"` inalterado — o campo de vínculo explícito não foi tocado.
+
+### 15.2 Campos novos em `getAccountView`
+
+**`cartoes[]` e linha `saidas[]` com `isInvoice:true`:**
+
+| Campo | Tipo | Semântica |
+|---|---|---|
+| `cardId` | `string \| null` | UUID do `CreditCard`; nulo se o cartão não pôde ser resolvido pelo `cardByLast4` do tenant. |
+| `fingerprint` | `` `${cardId}:${dueMonth}` \| null `` | Chave scoped por ID — nunca por `last4`. Nulo quando `cardId` é nulo. |
+| `actions` | `('pay' \| 'undo')[]` | Só verbos **atualmente executáveis**: `'pay'` quando `pending > 0`; `'undo'` apenas quando exatamente um pagamento implícito está casado (a mesma condição que `undoInvoicePayment` exige). |
+
+**`contas[]`:** acrescenta `accountId` (UUID do `BankAccount`; nulo se não resolvido).
+
+Nenhum campo preexistente (`editavel`, `status`, `realizado`, `pending`, `faturaAtual`) foi alterado.
+
+### 15.3 Child ACL em `settleTargetParcela`
+
+O projeto-alvo de uma conciliação cross-project é relido DENTRO da `$transaction`
+existente, via `RateioRequester` opcional encadeado desde o controller. Quando o
+requester está presente, o projeto-alvo (`child`) deve existir no mesmo tenant e
+estar no escopo autorizado do requisitante — caso contrário, a transação é abortada
+com a mesma exceção que o caminho já lançava para "not found" (nenhuma mensagem de
+erro nova vaza existência de recurso). Quando o requester está ausente (paths
+legados anteriores ao B1a), o comportamento é idêntico ao de antes: full-access.
+
+### 15.4 Guarda de duplicidade ativa (cartão/conta)
+
+`credit-card` e `bank-account` (create + update) rejeitam com **409** um segundo
+registro ATIVO com o mesmo `{tenantId, projectId, last4}` (excluindo o próprio ID e
+ignorando soft-deletados), dentro de um `$transaction` interativo.
+
+**Teto declarado:** o guard fecha a corrida dentro de **um único processo Node**.
+Múltiplos workers/processos de API podem passar a verificação simultaneamente. O
+caminho de upgrade é um índice UNIQUE parcial
+`(tenant_id, project_id, last4) WHERE deleted_at IS NULL` em H4 — **não está
+implementado agora**.
+
+### 15.5 Commits (B1a)
+
+| Commit | Mudança |
+|---|---|
+| `ba867600` | Child ACL, identidades de fatura/pagamento (`cartoes[]`), guard de duplicidade (cartão/conta) |
+| `e8b7903a` | `cardId`/`actions`/`fingerprint` na linha `saidas[]` (fatura) |
+| `a029a6cf` | Encadeia `requester` pelo `BankAccountController.linkToExpense` (fecha gap apontado no commit anterior) |
+
+**Compatibilidade retrospectiva:** todos os 1318 testes existentes passam sem edição.
