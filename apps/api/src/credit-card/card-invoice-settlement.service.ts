@@ -55,7 +55,7 @@ interface SettlePurchase {
   entries: EntryRow[];
 }
 
-export const INVOICE_NOT_FOUND_MESSAGE = 'Fatura não encontrada';
+const INVOICE_NOT_FOUND_MESSAGE = 'Fatura não encontrada';
 
 export interface PreparedInvoiceUnsettlement {
   tenantId: string;
@@ -252,6 +252,7 @@ export class CardInvoiceSettlementService {
     dueMonth: string;
     tx: Prisma.TransactionClient;
     requester: RateioRequester;
+    notFoundMessage?: string;
   }): Promise<PreparedInvoiceUnsettlement> {
     assertRateioRequester(params.requester);
     const { tenantId, card, dueMonth, tx, requester } = params;
@@ -260,6 +261,7 @@ export class CardInvoiceSettlementService {
       card,
       tx,
       requester,
+      notFoundMessage: params.notFoundMessage,
     });
 
     const neutral = Array.from(NEUTRAL_EXPENSE_TYPES);
@@ -291,7 +293,9 @@ export class CardInvoiceSettlementService {
         e.project.tenantId !== tenantId ||
         !this.canRequesterSeeProject(requester, e.project)
       ) {
-        throw new NotFoundException(INVOICE_NOT_FOUND_MESSAGE);
+        throw new NotFoundException(
+          params.notFoundMessage ?? INVOICE_NOT_FOUND_MESSAGE,
+        );
       }
       prepared.push({ expense: e as ExpenseRow, entries });
     }
@@ -304,6 +308,7 @@ export class CardInvoiceSettlementService {
     card: SettleCard;
     tx: Prisma.TransactionClient;
     requester: RateioRequester;
+    notFoundMessage?: string;
   }): Promise<void> {
     assertRateioRequester(params.requester);
     const { tenantId, card, tx, requester } = params;
@@ -324,7 +329,9 @@ export class CardInvoiceSettlementService {
       storedCard.project.tenantId !== tenantId ||
       !this.canRequesterSeeProject(requester, storedCard.project)
     ) {
-      throw new NotFoundException(INVOICE_NOT_FOUND_MESSAGE);
+      throw new NotFoundException(
+        params.notFoundMessage ?? INVOICE_NOT_FOUND_MESSAGE,
+      );
     }
   }
 

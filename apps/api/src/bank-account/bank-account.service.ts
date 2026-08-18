@@ -60,7 +60,6 @@ import {
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import {
   CardInvoiceSettlementService,
-  INVOICE_NOT_FOUND_MESSAGE,
   type PreparedInvoiceUnsettlement,
 } from '../credit-card/card-invoice-settlement.service';
 import {
@@ -91,6 +90,7 @@ export interface BankImportDecision {
 
 // Mapeamento categoria → ExpenseType pessoal — fonte única em merchant-classifier.service.ts.
 const PESSOAL_CATEGORY_MAP: Record<string, string> = MERCHANT_TO_EXPENSE_TYPE;
+const IMPORT_NOT_FOUND_MESSAGE = 'Importação não encontrada';
 
 /**
  * Heurísticas determinísticas para descrições de extrato que IA não distingue bem.
@@ -921,12 +921,15 @@ export class BankAccountService {
     importId: string,
     requester: RateioRequester,
   ) {
-    assertRateioRequester(requester, new NotFoundException('Importação não encontrada'));
+    assertRateioRequester(
+      requester,
+      new NotFoundException(IMPORT_NOT_FOUND_MESSAGE),
+    );
     await this.findAccount(tenantId, projectId, accountId);
     const importRecord = await this.prisma.bankStatementImport.findFirst({
       where: { id: importId, tenantId, accountId },
     });
-    if (!importRecord) throw new NotFoundException('Importação não encontrada');
+    if (!importRecord) throw new NotFoundException(IMPORT_NOT_FOUND_MESSAGE);
     if (importRecord.deletedAt) {
       return {
         ok: true, alreadyUndone: true, removedExpenses: 0, removedReceipts: 0,
@@ -982,7 +985,7 @@ export class BankAccountService {
           take: 2,
         });
         if (cards.length !== 1) {
-          throw new NotFoundException(INVOICE_NOT_FOUND_MESSAGE);
+          throw new NotFoundException(IMPORT_NOT_FOUND_MESSAGE);
         }
         const card = cards[0];
         if (card.closingDay == null || card.dueDay == null) {
@@ -991,6 +994,7 @@ export class BankAccountService {
             card,
             tx,
             requester,
+            notFoundMessage: IMPORT_NOT_FOUND_MESSAGE,
           });
           notRevertedInvoiceLiquidations++;
           continue;
@@ -1006,6 +1010,7 @@ export class BankAccountService {
             dueMonth,
             tx,
             requester,
+            notFoundMessage: IMPORT_NOT_FOUND_MESSAGE,
           }),
         );
       }

@@ -212,7 +212,7 @@ describe('BankAccountService.undoImport — ACL das compras de fatura', () => {
     );
     await expect(missingResult).rejects.toMatchObject({
       status: 404,
-      response: expect.objectContaining({ message: 'Fatura não encontrada' }),
+      response: expect.objectContaining({ message: 'Importação não encontrada' }),
     });
     await expectEverythingPreserved(missing.importId, missing.paymentId, []);
 
@@ -226,7 +226,7 @@ describe('BankAccountService.undoImport — ACL das compras de fatura', () => {
         service.undoImport(TENANT, PESSOAL, accountId, hidden.importId, MANAGED),
       ).rejects.toMatchObject({
         status: 404,
-        response: expect.objectContaining({ message: 'Fatura não encontrada' }),
+        response: expect.objectContaining({ message: 'Importação não encontrada' }),
       });
     } finally {
       await setupPrisma.creditCard.update({
