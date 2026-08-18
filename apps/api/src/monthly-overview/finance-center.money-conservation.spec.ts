@@ -1,19 +1,21 @@
 /**
- * B1a (#448) — money-conservation regression lock + RED de identidade aditiva,
+ * B1a (#448) — money-conservation regression lock + identidade aditiva,
  * usando a fixture COMPARTILHADA `finance-center.fixture` (#446), não uma nova
- * fixture gigante.
+ * fixture gigante. Autorado RED contra o baseline pré-#448; GREEN após a
+ * implementação (verificado em test/b1a-child-acl-postbuild, a029a6cf).
  *
- * Duas metades neste arquivo:
+ * Duas metades neste arquivo, ambas mantidas como regression lock:
  *
- *  1) REGRESSION LOCK (deve continuar PASSANDO depois do B1a — aditivo, não
- *     deve mudar um único centavo nem o formato das chaves internas já
- *     existentes): caixa §10, Carteira, DRE/rateio (Σ alocações == valorTotal
- *     da fonte), fatura por cartão e `settlesInvoiceKey`/chave interna de
- *     fatura. Espelha (não duplica) `finance-center.fixture.integration.spec.ts`
- *     — aqui a ênfase é centavo-a-centavo, não o contrato inteiro de ACL.
+ *  1) MONEY-CONSERVATION (nunca deve mudar um único centavo nem o formato das
+ *     chaves internas já existentes, mesmo depois do B1a — aditivo): caixa
+ *     §10, Carteira, DRE/rateio (Σ alocações == valorTotal da fonte), fatura
+ *     por cartão e `settlesInvoiceKey`/chave interna de fatura. Espelha (não
+ *     duplica) `finance-center.fixture.integration.spec.ts` — aqui a ênfase é
+ *     centavo-a-centavo, não o contrato inteiro de ACL.
  *
- *  2) RED (issue #448 B1a): a MESMA fatura, com o MESMO valor exato, também
- *     precisa emitir `cardId`/`fingerprint` aditivos — hoje ausentes.
+ *  2) IDENTIDADE ADITIVA (issue #448 B1a): a MESMA fatura, com o MESMO valor
+ *     exato, também emite `cardId`/`fingerprint` aditivos — ausentes no
+ *     baseline pré-#448, autorados como RED e agora GREEN.
  */
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 require('../../../../scripts/test-db-env.cjs');
@@ -112,16 +114,16 @@ describe('finance-center — money-conservation (centavo exato) + identidade adi
     expect(cardPaysCard.settlesInvoiceKey).toBe('2222:2026-08');
   });
 
-  // ── 2) RED (#448 B1a): a MESMA fatura também expõe cardId/fingerprint ──
+  // ── 2) Identidade aditiva (#448 B1a): a MESMA fatura também expõe cardId/fingerprint ──
 
-  it('[RED] a fatura de C1 (100_050, exata) TAMBÉM expõe cardId aditivo igual ao ID real do cartão', async () => {
+  it('[identidade aditiva] a fatura de C1 (100_050, exata) TAMBÉM expõe cardId aditivo igual ao ID real do cartão', async () => {
     const view: any = await monthly.getAccountView(IDS.tenantA, IDS.projects.pessoal, FINANCE_CENTER_MONTH, { role: 'ADMIN' });
     const c1Invoice = view.saidas.find((s: any) => s.isInvoice && s.cardLast4 === '1111');
     expect(c1Invoice.valor).toBe(100_050); // valor não muda (money-conservation)
-    expect(c1Invoice.cardId).toBe(IDS.cards.c1); // aditivo — ainda ausente hoje
+    expect(c1Invoice.cardId).toBe(IDS.cards.c1); // aditivo — ausente no baseline pré-#448
   });
 
-  it('[RED] fingerprint da fatura de C1 é exatamente `${cardId}:${dueMonth}`, nunca `${cardLast4}:${dueMonth}`', async () => {
+  it('[identidade aditiva] fingerprint da fatura de C1 é exatamente `${cardId}:${dueMonth}`, nunca `${cardLast4}:${dueMonth}`', async () => {
     const view: any = await monthly.getAccountView(IDS.tenantA, IDS.projects.pessoal, FINANCE_CENTER_MONTH, { role: 'ADMIN' });
     const c1Invoice = view.saidas.find((s: any) => s.isInvoice && s.cardLast4 === '1111');
     expect(c1Invoice.fingerprint).toBe(`${IDS.cards.c1}:${FINANCE_CENTER_MONTH}`);

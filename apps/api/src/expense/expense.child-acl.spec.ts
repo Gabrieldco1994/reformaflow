@@ -1,5 +1,12 @@
 /**
- * B1a (#448) — RED: child ACL nas ações expostas de rateio/vínculo/settlement.
+ * B1a (#448) — child ACL nas ações expostas de rateio/vínculo/settlement.
+ * Autorado RED contra o baseline pré-#448 (389d8e6e); GREEN após a
+ * implementação (verificado em test/b1a-child-acl-postbuild, a029a6cf) —
+ * mantido como regression lock, agora chamando os métodos REAIS (sem cast
+ * `as any`): a implementação passou a declarar `requester?: RateioRequester`
+ * como último parâmetro em `linkToExpense`/`linkCrossProject`/`create`/
+ * `conciliarParcela`/`ratear`/`ratearMixed`, então o compilador agora valida
+ * de verdade a forma do requester em cada chamada abaixo.
  *
  * Contrato (issue #448, B1a): "Child ACL aplicada a link, rateio, settlement,
  * pay/undo, roomId e sourcePriceItemId; reler no commit." + STATUS CONTRACT do
@@ -9,18 +16,11 @@
  * para linkCrossProject/resolveLinks/rateio (contrato PRÉ-EXISTENTE, preservado)
  * — e nunca revela a diferença entre hidden/cross-tenant/realmente-inexistente.
  *
- * Hoje NENHUMA das mutações abaixo recebe ou consulta um `requester`: elas só
- * filtram por `tenantId`, então um alvo em outro projeto do MESMO tenant (fora
- * do allowedProjects do requester) passa livremente. Este arquivo materializa
- * o contrato usando Prisma REAL (SQLite descartável) — sem mocks que espelhem
- * a lógica do service.
- *
- * Convenção de chamada: como os métodos ainda não declaram o parâmetro
- * `requester`, cada chamada abaixo o passa como argumento EXTRA via
- * `(service as any)` — isso documenta a assinatura-alvo (requester como novo
- * parâmetro, no mesmo espírito de `getRateio(...,requester)`, que já existe)
- * sem quebrar a compilação: hoje esse argumento extra é simplesmente
- * ignorado pelo runtime, e é exatamente ISSO que a asserção RED expõe.
+ * No baseline pré-#448, NENHUMA das mutações abaixo recebia ou consultava um
+ * `requester`: elas só filtravam por `tenantId`, então um alvo em outro
+ * projeto do MESMO tenant (fora do allowedProjects do requester) passava
+ * livremente. Este arquivo materializa o contrato usando Prisma REAL (SQLite
+ * descartável) — sem mocks que espelhem a lógica do service.
  */
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 require('../../../../scripts/test-db-env.cjs');
@@ -159,7 +159,7 @@ describe('ExpenseService/CreditCardService — child ACL real DB (#448 B1a)', ()
       const target = await makeTarget(HIDDEN, 'tgt-hidden');
 
       await expect(
-        (cardService as any).linkToExpense(TENANT, PESSOAL, source.id, target.id, {}, MANAGED),
+        cardService.linkToExpense(TENANT, PESSOAL, source.id, target.id, {}, MANAGED),
       ).rejects.toBeInstanceOf(NotFoundException);
 
       const settlement = await setupPrisma.crossProjectSettlement.findFirst({ where: { targetExpenseId: target.id } });
@@ -176,10 +176,10 @@ describe('ExpenseService/CreditCardService — child ACL real DB (#448 B1a)', ()
       let hiddenError: unknown;
       let crossTenantError: unknown;
       try {
-        await (cardService as any).linkToExpense(TENANT, PESSOAL, source.id, hiddenTarget.id, {}, MANAGED);
+        await cardService.linkToExpense(TENANT, PESSOAL, source.id, hiddenTarget.id, {}, MANAGED);
       } catch (e) { hiddenError = e; }
       try {
-        await (cardService as any).linkToExpense(TENANT, PESSOAL, source.id, target.id, {}, MANAGED);
+        await cardService.linkToExpense(TENANT, PESSOAL, source.id, target.id, {}, MANAGED);
       } catch (e) { crossTenantError = e; }
 
       expect(crossTenantError).toBeInstanceOf(NotFoundException);
@@ -194,7 +194,7 @@ describe('ExpenseService/CreditCardService — child ACL real DB (#448 B1a)', ()
       const source = await makeCardSource('src-allowed');
       const target = await makeTarget(ALLOWED, 'tgt-allowed');
 
-      const result = await (cardService as any).linkToExpense(TENANT, PESSOAL, source.id, target.id, {}, MANAGED);
+      const result = await cardService.linkToExpense(TENANT, PESSOAL, source.id, target.id, {}, MANAGED);
       expect(result.ok).toBe(true);
 
       const settlement = await setupPrisma.crossProjectSettlement.findFirst({ where: { targetExpenseId: target.id } });
@@ -211,7 +211,7 @@ describe('ExpenseService/CreditCardService — child ACL real DB (#448 B1a)', ()
       const target = await makeTarget(HIDDEN, 'lcp-tgt-hidden');
 
       await expect(
-        (expenseService as any).linkCrossProject(TENANT, PESSOAL, source.id, target.id, MANAGED),
+        expenseService.linkCrossProject(TENANT, PESSOAL, source.id, target.id, MANAGED),
       ).rejects.toBeInstanceOf(BadRequestException);
 
       const sourceRow = await setupPrisma.expense.findUnique({ where: { id: source.id } });
@@ -224,8 +224,8 @@ describe('ExpenseService/CreditCardService — child ACL real DB (#448 B1a)', ()
       const hiddenTarget = await makeTarget(HIDDEN, 'lcp-tgt-hidden-2');
 
       let hiddenErr: unknown; let crossErr: unknown;
-      try { await (expenseService as any).linkCrossProject(TENANT, PESSOAL, source.id, hiddenTarget.id, MANAGED); } catch (e) { hiddenErr = e; }
-      try { await (expenseService as any).linkCrossProject(TENANT, PESSOAL, source.id, target.id, MANAGED); } catch (e) { crossErr = e; }
+      try { await expenseService.linkCrossProject(TENANT, PESSOAL, source.id, hiddenTarget.id, MANAGED); } catch (e) { hiddenErr = e; }
+      try { await expenseService.linkCrossProject(TENANT, PESSOAL, source.id, target.id, MANAGED); } catch (e) { crossErr = e; }
 
       expect(hiddenErr).toBeInstanceOf(BadRequestException);
       expect(crossErr).toBeInstanceOf(BadRequestException);
@@ -236,7 +236,7 @@ describe('ExpenseService/CreditCardService — child ACL real DB (#448 B1a)', ()
       const source = await makeCardSource('lcp-src-allowed');
       const target = await makeTarget(ALLOWED, 'lcp-tgt-allowed');
 
-      const updated = await (expenseService as any).linkCrossProject(TENANT, PESSOAL, source.id, target.id, MANAGED);
+      const updated = await expenseService.linkCrossProject(TENANT, PESSOAL, source.id, target.id, MANAGED);
       expect(updated.linkedExpenseId).toBe(target.id);
     });
 
@@ -244,7 +244,7 @@ describe('ExpenseService/CreditCardService — child ACL real DB (#448 B1a)', ()
       const source = await makeCardSource('lcp-src-admin');
       const target = await makeTarget(HIDDEN, 'lcp-tgt-admin-hidden');
 
-      const updated = await (expenseService as any).linkCrossProject(TENANT, PESSOAL, source.id, target.id, ADMIN);
+      const updated = await expenseService.linkCrossProject(TENANT, PESSOAL, source.id, target.id, ADMIN);
       expect(updated.linkedExpenseId).toBe(target.id);
     });
   });
@@ -266,7 +266,7 @@ describe('ExpenseService/CreditCardService — child ACL real DB (#448 B1a)', ()
       const before = await setupPrisma.expense.count({ where: { tenantId: TENANT, projectId: PESSOAL } });
 
       await expect(
-        (expenseService as any).create(TENANT, PESSOAL, { ...baseDto(), linkedExpenseId: target.id }, null, undefined, MANAGED),
+        expenseService.create(TENANT, PESSOAL, { ...baseDto(), linkedExpenseId: target.id }, null, undefined, MANAGED),
       ).rejects.toBeInstanceOf(BadRequestException);
 
       const after = await setupPrisma.expense.count({ where: { tenantId: TENANT, projectId: PESSOAL } });
@@ -275,7 +275,7 @@ describe('ExpenseService/CreditCardService — child ACL real DB (#448 B1a)', ()
 
     it('create com linkedExpenseId allowed → sucesso (controle)', async () => {
       const target = await makeTarget(ALLOWED, 'rl-tgt-allowed');
-      const created = await (expenseService as any).create(
+      const created = await expenseService.create(
         TENANT, PESSOAL, { ...baseDto(), linkedExpenseId: target.id }, null, undefined, MANAGED,
       );
       expect(created.linkedExpenseId).toBe(target.id);
@@ -290,7 +290,7 @@ describe('ExpenseService/CreditCardService — child ACL real DB (#448 B1a)', ()
       const target = await makeTarget(HIDDEN, 'cp-tgt-hidden');
 
       await expect(
-        (expenseService as any).conciliarParcela(
+        expenseService.conciliarParcela(
           TENANT, PESSOAL, source.id, { targetExpenseId: target.id }, MANAGED,
         ),
       ).rejects.toBeInstanceOf(NotFoundException);
@@ -305,7 +305,7 @@ describe('ExpenseService/CreditCardService — child ACL real DB (#448 B1a)', ()
       const source = await makeCardSource('cp-src-allowed');
       const target = await makeTarget(ALLOWED, 'cp-tgt-allowed');
 
-      await (expenseService as any).conciliarParcela(
+      await expenseService.conciliarParcela(
         TENANT, PESSOAL, source.id, { targetExpenseId: target.id }, MANAGED,
       );
       const targetRow = await setupPrisma.expense.findUnique({ where: { id: target.id } });
@@ -321,7 +321,7 @@ describe('ExpenseService/CreditCardService — child ACL real DB (#448 B1a)', ()
       const target = await makeTarget(HIDDEN, 'rt-tgt-hidden');
 
       await expect(
-        (expenseService as any).ratear(
+        expenseService.ratear(
           TENANT, PESSOAL, source.id,
           [{ targetExpenseId: target.id, allocation: 20_000 }],
           MANAGED,
@@ -336,7 +336,7 @@ describe('ExpenseService/CreditCardService — child ACL real DB (#448 B1a)', ()
       const source = await makeCardSource('rt-src-allowed');
       const target = await makeTarget(ALLOWED, 'rt-tgt-allowed');
 
-      const result = await (expenseService as any).ratear(
+      const result = await expenseService.ratear(
         TENANT, PESSOAL, source.id,
         [{ targetExpenseId: target.id, allocation: 20_000 }],
         MANAGED,
@@ -352,7 +352,7 @@ describe('ExpenseService/CreditCardService — child ACL real DB (#448 B1a)', ()
       const marker = 'rtm-novo-orfao-marker';
 
       await expect(
-        (expenseService as any).ratearMixed(
+        expenseService.ratearMixed(
           TENANT, PESSOAL, source.id,
           {
             newTargets: [{
@@ -378,7 +378,7 @@ describe('ExpenseService/CreditCardService — child ACL real DB (#448 B1a)', ()
     it('2 alvos NOVOS válidos (allowed) → sucesso, ambos persistidos e rateados (controle)', async () => {
       const source = await makeCardSource('rtm-src-ok');
 
-      const result = await (expenseService as any).ratearMixed(
+      const result = await expenseService.ratearMixed(
         TENANT, PESSOAL, source.id,
         {
           newTargets: [

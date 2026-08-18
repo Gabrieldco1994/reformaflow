@@ -1,12 +1,15 @@
 /**
- * B1a (#448) — RED (contrato de controller): `CreditCardController.linkToExpense`
+ * B1a (#448) — contrato de controller: `CreditCardController.linkToExpense`
  * precisa repassar o `requester` (`@CurrentUser()`) ao service, para que o
  * child ACL (issue #448) tenha DE ONDE ler o scope de quem está chamando.
+ * Autorado RED contra o baseline pré-#448; GREEN após a implementação —
+ * mantido como regression lock do wiring controller→service.
  *
- * Hoje o controller só repassa `tenantId/projectId/expenseId/targetExpenseId/
- * opts` — nenhum requester chega ao service. Teste de CONTRATO (service
- * mockado; a lógica de ACL em si é coberta com Prisma real em
- * `credit-card.duplicate-guard.spec.ts` e `expense.child-acl.spec.ts`).
+ * No baseline pré-#448 o controller só repassava
+ * `tenantId/projectId/expenseId/targetExpenseId/opts` — nenhum requester
+ * chegava ao service. Teste de CONTRATO (service mockado; a lógica de ACL em
+ * si é coberta com Prisma real em `credit-card.duplicate-guard.spec.ts` e
+ * `expense.child-acl.spec.ts`).
  */
 import { CreditCardController } from './credit-card.controller';
 

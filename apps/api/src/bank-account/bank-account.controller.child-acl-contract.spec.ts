@@ -1,7 +1,10 @@
 /**
- * B1a (#448) — RED (contrato de controller): espelha
+ * B1a (#448) — contrato de controller: espelha
  * `credit-card.controller.child-acl-contract.spec.ts` para
- * `BankAccountController.linkToExpense`.
+ * `BankAccountController.linkToExpense`. Autorado RED contra o baseline
+ * pré-#448; GREEN após a implementação (que precisou de um fix de
+ * acompanhamento, a029a6cf, para threadar `requester` especificamente neste
+ * controller) — mantido como regression lock.
  */
 import { BankAccountController } from './bank-account.controller';
 

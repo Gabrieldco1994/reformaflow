@@ -1,15 +1,18 @@
 /**
- * B1a (#448) — RED: `sourcePriceItemId` (deep-link do item de PriceMonitor que
+ * B1a (#448) — `sourcePriceItemId` (deep-link do item de PriceMonitor que
  * originou um item do Planejador) deve ser project-scoped: só pode referenciar
  * um `PriceMonitorItem` do MESMO tenant E do MESMO projeto do cenário/item.
+ * Autorado RED contra o baseline pré-#448; GREEN após a implementação —
+ * mantido como regression lock.
  *
  * Contrato (issue #448, B1a): "Child ACL aplicada a ... sourcePriceItemId" +
  * STATUS CONTRACT: "room/source item 404".
  *
- * Hoje `createItem`/`updateItem` (purchase-planner.service.ts) gravam
- * `sourcePriceItemId` cru, sem NENHUMA validação — nem tenant, nem projeto.
- * Cobre tanto cross-tenant quanto same-tenant-outro-projeto (ambos devem
- * colapsar no mesmo 404, indistinguíveis), com Prisma REAL.
+ * No baseline pré-#448, `createItem`/`updateItem`
+ * (purchase-planner.service.ts) gravavam `sourcePriceItemId` cru, sem
+ * NENHUMA validação — nem tenant, nem projeto. Cobre tanto cross-tenant
+ * quanto same-tenant-outro-projeto (ambos devem colapsar no mesmo 404,
+ * indistinguíveis), com Prisma REAL.
  */
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 require('../../../../scripts/test-db-env.cjs');

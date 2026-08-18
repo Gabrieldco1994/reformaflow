@@ -1,13 +1,16 @@
 /**
- * B1a (#448) — RED: guard de duplicado de cartão ATIVO (mesmo tenant+projeto+last4).
+ * B1a (#448) — guard de duplicado de cartão ATIVO (mesmo tenant+projeto+last4).
+ * Autorado como RED contra o baseline pré-#448 (389d8e6e); GREEN após a
+ * implementação (verificado em test/b1a-child-acl-postbuild) — mantido como
+ * regression lock.
  *
  * Contrato (issue #448, B1a):
  *  "Guard de crescimento de duplicado ativo card/account bloqueia em aplicação."
  *
- * Hoje `createCard`/`updateCard` (credit-card.service.ts) NÃO checam last4
- * duplicado: o INSERT/UPDATE bruto sempre passa. Este arquivo materializa o
- * contrato esperado com Prisma REAL (SQLite descartável) — nada de mock que
- * espelhe a lógica do service (isso provaria a suposição, não o comportamento).
+ * No baseline pré-#448, `createCard`/`updateCard` (credit-card.service.ts) não
+ * checavam last4 duplicado: o INSERT/UPDATE bruto sempre passava. Este arquivo
+ * materializa o contrato com Prisma REAL (SQLite descartável) — nada de mock
+ * que espelhe a lógica do service (isso provaria a suposição, não o comportamento).
  *
  * Matriz coberta:
  *  - create: 409 quando já existe cartão ATIVO com o mesmo tenant+projeto+last4;

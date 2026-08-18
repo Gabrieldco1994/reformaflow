@@ -1,15 +1,16 @@
 /**
- * B1a (#448) — RED: guard de duplicado de CONTA BANCÁRIA ATIVA (mesmo
+ * B1a (#448) — guard de duplicado de CONTA BANCÁRIA ATIVA (mesmo
  * tenant+projeto+last4), espelhando `credit-card.duplicate-guard.spec.ts` +
- * `credit-card.duplicate-concurrency.spec.ts`.
+ * `credit-card.duplicate-concurrency.spec.ts`. Autorado RED contra o baseline
+ * pré-#448; GREEN após a implementação — mantido como regression lock.
  *
  * Contrato (issue #448, B1a): "Guard de crescimento de duplicado ativo
  * card/account bloqueia em aplicação" + "Testes reais de concorrência SQLite
  * (não mock) cobrem a matriz de duplicado/settlement."
  *
- * `createAccount`/`updateAccount` (bank-account.service.ts) hoje NÃO checam
- * last4 duplicado — mesma lacuna do cartão. Prisma REAL (SQLite descartável),
- * sem mock de banco.
+ * No baseline pré-#448, `createAccount`/`updateAccount`
+ * (bank-account.service.ts) não checavam last4 duplicado — mesma lacuna do
+ * cartão. Prisma REAL (SQLite descartável), sem mock de banco.
  */
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 require('../../../../scripts/test-db-env.cjs');

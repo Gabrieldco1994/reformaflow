@@ -1,16 +1,18 @@
 /**
- * B1a (#448) — RED: `roomId` deve ser project-scoped (não pode apontar para um
+ * B1a (#448) — `roomId` deve ser project-scoped (não pode apontar para um
  * Room de OUTRO projeto do tenant), nas 3 vias de escrita que aceitam roomId:
- * `create`, `update` e `ratearMixed` (novo alvo).
+ * `create`, `update` e `ratearMixed` (novo alvo). Autorado RED contra o
+ * baseline pré-#448; GREEN após a implementação — mantido como regression
+ * lock.
  *
  * Contrato (issue #448, B1a): "Child ACL aplicada a link, rateio, settlement,
  * pay/undo, roomId e sourcePriceItemId; reler no commit." + STATUS CONTRACT:
  * "room/source item 404".
  *
- * Hoje `roomId` é gravado cru, sem NENHUMA validação de que o Room pertence ao
- * MESMO projeto da despesa (`Room.projectId`) — só existe uma FK solta no
- * schema, sem checagem de aplicação. Um roomId de outro projeto do mesmo
- * tenant é aceito silenciosamente. Prisma REAL, sem mocks.
+ * No baseline pré-#448, `roomId` era gravado cru, sem NENHUMA validação de que
+ * o Room pertence ao MESMO projeto da despesa (`Room.projectId`) — só existia
+ * uma FK solta no schema, sem checagem de aplicação. Um roomId de outro
+ * projeto do mesmo tenant era aceito silenciosamente. Prisma REAL, sem mocks.
  */
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 require('../../../../scripts/test-db-env.cjs');

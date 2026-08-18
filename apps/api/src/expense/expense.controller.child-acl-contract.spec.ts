@@ -1,11 +1,14 @@
 /**
- * B1a (#448) — RED (contrato de controller): `ExpenseController` precisa
- * repassar o `requester` (`@CurrentUser()`) para `link` (linkCrossProject),
- * `conciliarParcela` e `ratear` — hoje NENHUM dos três sequer declara o
- * parâmetro `@CurrentUser()`, então não há de onde o child ACL (issue #448)
- * ler o scope de quem está chamando. `ratearMixed` já declara `@CurrentUser()`
- * mas hoje só repassa `requester.id` (autoria), não o requester inteiro (scope
- * de ACL) — também é RED.
+ * B1a (#448) — contrato de controller: `ExpenseController` precisa repassar
+ * o `requester` (`@CurrentUser()`) para `link` (linkCrossProject),
+ * `conciliarParcela` e `ratear`. Autorado RED contra o baseline pré-#448;
+ * GREEN após a implementação — mantido como regression lock.
+ *
+ * No baseline pré-#448, NENHUM dos três sequer declarava o parâmetro
+ * `@CurrentUser()`, então não havia de onde o child ACL (issue #448) ler o
+ * scope de quem está chamando. `ratearMixed` já declarava `@CurrentUser()`
+ * mas só repassava `requester.id` (autoria), não o requester inteiro (scope
+ * de ACL).
  *
  * Teste de CONTRATO (service mockado); a lógica de ACL em si é coberta com
  * Prisma real em `expense.child-acl.spec.ts`.
@@ -52,10 +55,10 @@ describe('ExpenseController — repassa requester ao service nas mutações chil
   it('ratearMixed: o REQUESTER INTEIRO (não só requester.id) chega ao service', async () => {
     const { controller, service } = buildController({});
     await controller.ratearMixed(
-      't1', 'p1', 'src-1', REQUESTER as any, { newTargets: [], existing: [] } as any,
+      't1', 'p1', 'src-1', REQUESTER, { newTargets: [], existing: [] },
     );
-    // Hoje `ratearMixed` só repassa `requester.id` — o objeto completo (scope
-    // de ACL) nunca chega ao service.
+    // No baseline pré-#448, `ratearMixed` só repassava `requester.id` — o
+    // objeto completo (scope de ACL) nunca chegava ao service.
     expect(service.ratearMixed.mock.calls[0]).toContainEqual(REQUESTER);
   });
 });
