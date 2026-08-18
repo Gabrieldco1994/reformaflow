@@ -408,6 +408,7 @@ export class CreditCardService {
     password?: string,
     decisions?: ImportDecision[],
     createdByUserId: string | null = null,
+    requester?: RateioRequester,
   ) {
     const card = await this.findCard(tenantId, projectId, cardId);
     const buffers = toBuffers(fileContent);
@@ -438,6 +439,23 @@ export class CreditCardService {
       if (existingIds.has(t.externalId)) return false;
       return true;
     });
+    const targetExpenseIds = [
+      ...new Set(
+        (decisions ?? [])
+          .filter((decision) => decision.action === 'link')
+          .map((decision) => decision.linkToExpenseId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    if (targetExpenseIds.length > 0) {
+      await this.prisma.$transaction((tx) =>
+        this.conciliacao.assertCanSettleTargets(
+          tx,
+          { tenantId, targetExpenseIds },
+          requester,
+        ),
+      );
+    }
     const duplicated = parsed.transactions.length - toProcess.length - (decisions?.filter((d) => d?.action === 'skip').length ?? 0);
     const userSkipped = (decisions ?? []).filter((d) => d?.action === 'skip' && !existingIds.has(d.externalId)).length;
     // Lista auditável do que foi ignorado como duplicata (linhas, não só a contagem).
@@ -504,7 +522,7 @@ export class CreditCardService {
             await this.linkToExpense(tenantId, projectId, result.expenseId, d.linkToExpenseId, {
               parcelaIndex,
               realValor: adjustedTx.amountCents,
-            });
+            }, requester);
             linked++;
           } catch (linkErr) {
             console.warn(`[credit-card-import] link failed for ${tx.externalId.slice(0, 8)}:`, (linkErr as Error).message);
@@ -614,7 +632,13 @@ export class CreditCardService {
    *
    * Idempotente: desfazer um lote já desfeito retorna `alreadyUndone` sem efeito.
    */
-  async undoImport(tenantId: string, projectId: string, cardId: string, importId: string) {
+  async undoImport(
+    tenantId: string,
+    projectId: string,
+    cardId: string,
+    importId: string,
+    requester?: RateioRequester,
+  ) {
     const card = await this.findCard(tenantId, projectId, cardId);
     const importRecord = await this.prisma.creditCardStatementImport.findFirst({
       where: { id: importId, tenantId, cardId: card.id },
@@ -636,6 +660,12 @@ export class CreditCardService {
       const createdIds = created.map((e) => e.id);
       const now = new Date();
 
+      await this.conciliacao.assertCanReverseSources(
+        tx,
+        { tenantId, sourceExpenseIds: createdIds },
+        requester,
+      );
+
       // 1) Soft-delete das entradas de caixa e das despesas criadas pelo lote.
       //    (Feito ANTES da reversão de vínculos para que uma falha na reversão
       //    faça o rollback destas deleções — garantia de atomicidade.)
@@ -654,7 +684,11 @@ export class CreditCardService {
       //    CrossProjectSettlement/RateioAllocation — sem órfão).
       let revertedSettlements = 0;
       for (const id of createdIds) {
-        const res = await this.conciliacao.reverseSourceLinks(tx, { tenantId, sourceExpenseId: id });
+        const res = await this.conciliacao.reverseSourceLinks(
+          tx,
+          { tenantId, sourceExpenseId: id },
+          requester,
+        );
         if (res.mode !== 'none') revertedSettlements += res.targets.length;
       }
 
@@ -784,13 +818,7 @@ export class CreditCardService {
    *  - a fonte recebe `linkedExpenseId` → alvo (dedupe no consolidado PESSOAL);
    *  - `Expense.valorTotal` do alvo permanece o planejado (valor efetivo é derivado).
    *
-   * `requester` (B1a #448) OPCIONAL — encaminhado a `settleTargetParcela`, que
-   * releitura o alvo (child fora do `:projectId` de rota) DENTRO da mesma
-   * `$transaction`, sem gap de TOCTOU. Omitido no chamador interno de
-   * import-commit (`decisions[].action==='link'`): aquele fluxo já roda sob o
-   * mesmo `:projectId` autorizado da rota de import e threadar o requester
-   * completo por todo `commitImport`/`createExpenseFromTransaction` extrapola
-   * o escopo desta mudança — full-access legado ali, sem regressão.
+   * O requester é encaminhado ao preflight transacional do alvo.
    */
   async linkToExpense(
     tenantId: string,
@@ -831,14 +859,23 @@ export class CreditCardService {
    * Desfaz o vínculo entre uma despesa importada e o alvo, restaurando o
    * planejado de TODAS as parcelas que esta fonte havia liquidado (reversível).
    */
-  async unlinkExpense(tenantId: string, projectId: string, cardExpenseId: string) {
+  async unlinkExpense(
+    tenantId: string,
+    projectId: string,
+    cardExpenseId: string,
+    requester?: RateioRequester,
+  ) {
     const source = await this.prisma.expense.findFirst({
       where: { id: cardExpenseId, tenantId, projectId, deletedAt: null },
     });
     if (!source) throw new NotFoundException('Despesa não encontrada');
 
     await this.prisma.$transaction(async (tx) => {
-      await this.conciliacao.reverseSourceLinks(tx, { tenantId, sourceExpenseId: source.id });
+      await this.conciliacao.reverseSourceLinks(
+        tx,
+        { tenantId, sourceExpenseId: source.id },
+        requester,
+      );
     });
     return { ok: true };
   }

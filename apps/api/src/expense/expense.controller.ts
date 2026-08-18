@@ -141,7 +141,7 @@ export class ExpenseController {
     @Param('projectId') projectId: string,
     @Param('id') id: string,
     @Body() dto: UpdateExpenseDto,
-    @CurrentUser() requester?: RateioRequester,
+    @CurrentUser() requester: RateioRequester,
   ) {
     return this.service.update(tenantId, projectId, id, dto, requester);
   }
@@ -186,7 +186,7 @@ export class ExpenseController {
     @Param('projectId') projectId: string,
     @Param('id') id: string,
     @Body() body: { targetExpenseId: string },
-    @CurrentUser() requester?: RateioRequester,
+    @CurrentUser() requester: RateioRequester,
   ) {
     return this.service.linkCrossProject(tenantId, projectId, id, body.targetExpenseId, requester);
   }
@@ -197,8 +197,9 @@ export class ExpenseController {
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('id') id: string,
+    @CurrentUser() requester: RateioRequester,
   ) {
-    return this.service.unlinkCrossProject(tenantId, projectId, id);
+    return this.service.unlinkCrossProject(tenantId, projectId, id, requester);
   }
 
   @Post(':id/conciliar-parcela')
@@ -208,7 +209,7 @@ export class ExpenseController {
     @Param('projectId') projectId: string,
     @Param('id') id: string,
     @Body() body: { targetExpenseId: string; parcelaIndex?: number; realValor?: number },
-    @CurrentUser() requester?: RateioRequester,
+    @CurrentUser() requester: RateioRequester,
   ) {
     return this.service.conciliarParcela(
       tenantId,
@@ -229,8 +230,9 @@ export class ExpenseController {
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('id') id: string,
+    @CurrentUser() requester: RateioRequester,
   ) {
-    return this.service.desconciliar(tenantId, projectId, id);
+    return this.service.desconciliar(tenantId, projectId, id, requester);
   }
 
   @Post(':id/ratear')
@@ -240,7 +242,7 @@ export class ExpenseController {
     @Param('projectId') projectId: string,
     @Param('id') id: string,
     @Body() dto: RatearDto,
-    @CurrentUser() requester?: RateioRequester,
+    @CurrentUser() requester: RateioRequester,
   ) {
     return this.service.ratear(tenantId, projectId, id, dto.allocations, requester);
   }
@@ -263,8 +265,9 @@ export class ExpenseController {
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('id') id: string,
+    @CurrentUser() requester: RateioRequester,
   ) {
-    return this.service.desratear(tenantId, projectId, id);
+    return this.service.desratear(tenantId, projectId, id, requester);
   }
 
   @Get(':id/rateio')
@@ -284,8 +287,9 @@ export class ExpenseController {
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('id') id: string,
+    @CurrentUser() requester: RateioRequester,
   ) {
-    return this.service.remove(tenantId, projectId, id);
+    return this.service.remove(tenantId, projectId, id, requester);
   }
 
   @Post('reclassify')

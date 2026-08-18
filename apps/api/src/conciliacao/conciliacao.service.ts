@@ -60,20 +60,12 @@ export interface RatearInput {
 export class ConciliacaoService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /**
-   * Gêmeo em service do `ProjectAccessGuard`, aplicado por ALVO cross-project:
-   * `targetExpenseId`/`allocations[].targetExpenseId` chegam por BODY, não pelo
-   * `:projectId` de rota — o guard global nunca enxerga o projeto-dono desses
-   * IDs (ver comentário do próprio guard). `requester` omitido ⇒ full-access/
-   * legado (chamadas internas e testes que antecedem a lente #448 continuam
-   * funcionando sem alteração de comportamento).
-   */
+  /** Autoriza o projeto real de um alvo recebido fora dos params da rota. */
   private canRequesterSeeProject(
     requester: RateioRequester | undefined,
     project: { id: string; type: string } | null | undefined,
   ): boolean {
-    if (!requester) return true;
-    if (!project) return false;
+    if (!requester || !project) return false;
     return (
       userCanAccessProject(requester.role, requester.allowedProjects, project.id) &&
       userCanAccessProjectType(
@@ -82,6 +74,130 @@ export class ConciliacaoService {
         requester.allowedModules ?? [],
         project.type,
       )
+    );
+  }
+
+  private async authorizedTargets(
+    tx: Tx,
+    tenantId: string,
+    targetExpenseIds: string[],
+    requester: RateioRequester | undefined,
+    error: (targetExpenseId: string) => Error,
+  ) {
+    const ids = [...new Set(targetExpenseIds)];
+    const targets =
+      ids.length === 0
+        ? []
+        : await tx.expense.findMany({
+            where: { id: { in: ids }, tenantId, deletedAt: null },
+            include: { project: { select: { id: true, type: true, tenantId: true } } },
+          });
+    const byId = new Map(targets.map((target) => [target.id, target]));
+    for (const id of ids) {
+      const target = byId.get(id);
+      if (
+        !target ||
+        !target.project ||
+        target.project.tenantId !== tenantId ||
+        !this.canRequesterSeeProject(requester, target.project)
+      ) {
+        throw error(id);
+      }
+    }
+    return byId;
+  }
+
+  async assertCanSettleTargets(
+    tx: Tx,
+    params: { tenantId: string; targetExpenseIds: string[] },
+    requester?: RateioRequester,
+  ) {
+    return this.authorizedTargets(
+      tx,
+      params.tenantId,
+      params.targetExpenseIds,
+      requester,
+      () => new NotFoundException('Despesa alvo não encontrada'),
+    );
+  }
+
+  async assertCanRatearTargets(
+    tx: Tx,
+    params: { tenantId: string; targetExpenseIds: string[] },
+    requester?: RateioRequester,
+  ): Promise<void> {
+    await this.authorizedTargets(
+      tx,
+      params.tenantId,
+      params.targetExpenseIds,
+      requester,
+      (id) => new BadRequestException(`Despesa alvo ${id} não encontrada`),
+    );
+  }
+
+  async assertCanMutateReceiptTargets(
+    tx: Tx,
+    params: { tenantId: string; targetReceiptIds: string[] },
+    requester?: RateioRequester,
+  ): Promise<void> {
+    const ids = [...new Set(params.targetReceiptIds)];
+    const targets =
+      ids.length === 0
+        ? []
+        : await tx.receipt.findMany({
+            where: { id: { in: ids }, tenantId: params.tenantId, deletedAt: null },
+            include: { project: { select: { id: true, type: true, tenantId: true } } },
+          });
+    const byId = new Map(targets.map((target) => [target.id, target]));
+    for (const id of ids) {
+      const target = byId.get(id);
+      if (
+        !target ||
+        !target.project ||
+        target.project.tenantId !== params.tenantId ||
+        !this.canRequesterSeeProject(requester, target.project)
+      ) {
+        throw new NotFoundException('Recebimento alvo não encontrado');
+      }
+    }
+  }
+
+  async assertCanReverseSources(
+    tx: Tx,
+    params: { tenantId: string; sourceExpenseIds: string[] },
+    requester?: RateioRequester,
+  ): Promise<void> {
+    const sourceExpenseIds = [...new Set(params.sourceExpenseIds)];
+    if (sourceExpenseIds.length === 0) return;
+    const [sources, rateios, settlements] = await Promise.all([
+      tx.expense.findMany({
+        where: {
+          id: { in: sourceExpenseIds },
+          tenantId: params.tenantId,
+          deletedAt: null,
+        },
+        select: { linkedExpenseId: true },
+      }),
+      tx.rateioAllocation.findMany({
+        where: { tenantId: params.tenantId, sourceExpenseId: { in: sourceExpenseIds } },
+        select: { targetExpenseId: true },
+      }),
+      tx.crossProjectSettlement.findMany({
+        where: { tenantId: params.tenantId, sourceExpenseId: { in: sourceExpenseIds } },
+        select: { targetExpenseId: true },
+      }),
+    ]);
+    await this.assertCanSettleTargets(
+      tx,
+      {
+        tenantId: params.tenantId,
+        targetExpenseIds: [
+          ...sources.flatMap((row) => row.linkedExpenseId ? [row.linkedExpenseId] : []),
+          ...rateios.map((row) => row.targetExpenseId),
+          ...settlements.map((row) => row.targetExpenseId),
+        ],
+      },
+      requester,
     );
   }
 
@@ -106,9 +222,8 @@ export class ConciliacaoService {
   }
 
   /**
-   * `requester` (B1a #448) é OPCIONAL — omitido preserva o comportamento
-   * legado (full-access). Presente, o ALVO (child fora do `:projectId` da
-   * rota) precisa estar na lente do requisitante; missing/cross-tenant/
+   * O ALVO (child fora do `:projectId` da rota) precisa estar na lente do
+   * requisitante; requester ausente falha fechado. Missing/cross-tenant/
    * same-tenant-fora-do-escopo colapsam TODOS no mesmo 404 já existente para
    * "alvo não encontrado" — nunca um 403 que confirmaria a existência do alvo
    * a quem não pode vê-lo. A releitura acontece DENTRO desta mesma `tx`
@@ -118,23 +233,12 @@ export class ConciliacaoService {
   async settleTargetParcela(tx: Tx, input: SettleParcelaInput, requester?: RateioRequester): Promise<void> {
     const { tenantId, sourceExpenseId, targetExpenseId, realValor } = input;
 
-    const target = await tx.expense.findFirst({
-      where: { id: targetExpenseId, tenantId, deletedAt: null },
-      include: { project: { select: { id: true, type: true, tenantId: true } } },
-    });
-    if (!target) throw new NotFoundException('Despesa alvo não encontrada');
-    // A checagem de escopo só corre quando `requester` está presente — omitido
-    // preserva o full-access legado E os testes/mocks anteriores a #448, cujo
-    // `expense.findFirst` não simula `include: { project }` (não têm por que:
-    // nunca chamam com requester). Nunca falha por incompletude do MOCK.
-    if (
-      requester &&
-      (!target.project ||
-        target.project.tenantId !== tenantId ||
-        !this.canRequesterSeeProject(requester, target.project))
-    ) {
-      throw new NotFoundException('Despesa alvo não encontrada');
-    }
+    const targets = await this.assertCanSettleTargets(
+      tx,
+      { tenantId, targetExpenseIds: [targetExpenseId] },
+      requester,
+    );
+    const target = targets.get(targetExpenseId)!;
 
     const source = await tx.expense.findFirst({
       where: { id: sourceExpenseId, tenantId, deletedAt: null },
@@ -339,8 +443,14 @@ export class ConciliacaoService {
   async unsettleBySource(
     tx: Tx,
     params: { tenantId: string; sourceExpenseId: string },
+    requester?: RateioRequester,
   ): Promise<{ targets: string[] }> {
     const { tenantId, sourceExpenseId } = params;
+    await this.assertCanReverseSources(
+      tx,
+      { tenantId, sourceExpenseIds: [sourceExpenseId] },
+      requester,
+    );
     const rows = await tx.crossProjectSettlement.findMany({
       where: { tenantId, sourceExpenseId },
     });
@@ -478,8 +588,8 @@ export class ConciliacaoService {
    * Exige que a soma das alocações feche EXATAMENTE o total da compra (o dedupe
    * por espelho é tudo-ou-nada; sobra perderia dinheiro no consolidado).
    *
-   * `requester` (B1a #448) OPCIONAL — omitido preserva full-access legado.
-   * Presente, CADA alvo precisa estar na lente do requisitante; missing/
+   * CADA alvo precisa estar na lente do requisitante; requester ausente falha
+   * fechado. Missing/
    * cross-tenant/fora-do-escopo colapsam no MESMO 400 já usado para "alvo não
    * encontrado" (nunca 403 — não confirma existência a quem não pode ver).
    * Lido DENTRO desta `tx` (chamada só dentro de `$transaction`), sem gap de
@@ -536,44 +646,64 @@ export class ConciliacaoService {
       );
     }
 
-    // limpa rateio anterior desta fonte (snapshots ficam consistentes)
-    await this.unratearSource(tx, { tenantId, sourceExpenseId });
-
-    const targets: string[] = [];
+    const currentRows = await tx.rateioAllocation.findMany({
+      where: { tenantId, sourceExpenseId },
+      select: { targetExpenseId: true },
+    });
+    const targetIds = [
+      ...(source.linkedExpenseId ? [source.linkedExpenseId] : []),
+      ...currentRows.map((row) => row.targetExpenseId),
+      ...allocations.map((item) => item.targetExpenseId),
+    ];
+    const targetById = await this.authorizedTargets(
+      tx,
+      tenantId,
+      targetIds,
+      requester,
+      (id) => new BadRequestException(`Despesa alvo ${id} não encontrada`),
+    );
+    const [targetSettlements, targetAllocations] = await Promise.all([
+      tx.crossProjectSettlement.findMany({
+        where: { tenantId, targetExpenseId: { in: [...uniqueTargetIds] } },
+        select: { targetExpenseId: true },
+      }),
+      tx.rateioAllocation.findMany({
+        where: { tenantId, targetExpenseId: { in: [...uniqueTargetIds] } },
+        select: { targetExpenseId: true, sourceExpenseId: true },
+      }),
+    ]);
+    const settledTargets = new Set(targetSettlements.map((row) => row.targetExpenseId));
+    const allocationByTarget = new Map(
+      targetAllocations.map((row) => [row.targetExpenseId, row]),
+    );
     for (const item of allocations) {
       const allocation = Math.round(item.allocation);
-      if (allocation <= 0) throw new BadRequestException('Cada alocação deve ser maior que zero.');
-
-      const target = await tx.expense.findFirst({
-        where: { id: item.targetExpenseId, tenantId, deletedAt: null },
-        include: { project: { select: { id: true, type: true, tenantId: true } } },
-      });
-      if (!target) throw new BadRequestException(`Despesa alvo ${item.targetExpenseId} não encontrada`);
-      // Mesmo racional de `settleTargetParcela`: só checa escopo quando
-      // `requester` é passado — omitido preserva full-access legado/mocks
-      // pré-#448 sem `include: { project }`.
-      if (
-        requester &&
-        (!target.project ||
-          target.project.tenantId !== tenantId ||
-          !this.canRequesterSeeProject(requester, target.project))
-      ) {
-        throw new BadRequestException(`Despesa alvo ${item.targetExpenseId} não encontrada`);
+      if (allocation <= 0) {
+        throw new BadRequestException('Cada alocação deve ser maior que zero.');
       }
+      const target = targetById.get(item.targetExpenseId)!;
       if (target.projectId === source.projectId) {
         throw new BadRequestException('O rateio liga a compra a planejadas de OUTRO projeto.');
       }
       if (isNeutralExpenseType(target.tipoDespesa)) {
         throw new BadRequestException('Não é possível ratear em uma despesa neutra.');
       }
-      const tConc = await tx.crossProjectSettlement.count({ where: { targetExpenseId: target.id } });
-      if (tConc > 0) throw new BadRequestException('A planejada já está conciliada por parcela.');
-      const existing = await tx.rateioAllocation.findFirst({
-        where: { tenantId, targetExpenseId: target.id },
-      });
+      if (settledTargets.has(target.id)) {
+        throw new BadRequestException('A planejada já está conciliada por parcela.');
+      }
+      const existing = allocationByTarget.get(target.id);
       if (existing && existing.sourceExpenseId !== sourceExpenseId) {
         throw new BadRequestException('A planejada já está rateada por outra compra.');
       }
+    }
+
+    // limpa rateio anterior somente depois de autorizar e validar o conjunto todo
+    await this.unratearSource(tx, { tenantId, sourceExpenseId }, requester);
+
+    const targets: string[] = [];
+    for (const item of allocations) {
+      const allocation = Math.round(item.allocation);
+      const target = targetById.get(item.targetExpenseId)!;
 
       const isSourceParcelado = !isSinglePaymentForm(source.formaPagamento);
       await tx.rateioAllocation.upsert({
@@ -639,8 +769,14 @@ export class ConciliacaoService {
   async unratearSource(
     tx: Tx,
     params: { tenantId: string; sourceExpenseId: string },
+    requester?: RateioRequester,
   ): Promise<{ targets: string[] }> {
     const { tenantId, sourceExpenseId } = params;
+    await this.assertCanReverseSources(
+      tx,
+      { tenantId, sourceExpenseIds: [sourceExpenseId] },
+      requester,
+    );
     const rows = await tx.rateioAllocation.findMany({ where: { tenantId, sourceExpenseId } });
     if (rows.length === 0) return { targets: [] };
 
@@ -696,20 +832,34 @@ export class ConciliacaoService {
   async reverseSourceLinks(
     tx: Tx,
     params: { tenantId: string; sourceExpenseId: string },
+    requester?: RateioRequester,
   ): Promise<{ mode: 'rateio' | 'settlement' | 'none'; targets: string[] }> {
     const { tenantId, sourceExpenseId } = params;
+    await this.assertCanReverseSources(
+      tx,
+      { tenantId, sourceExpenseIds: [sourceExpenseId] },
+      requester,
+    );
 
     const rateioCount = await tx.rateioAllocation.count({
       where: { tenantId, sourceExpenseId },
     });
     if (rateioCount > 0) {
-      const { targets } = await this.unratearSource(tx, { tenantId, sourceExpenseId });
+      const { targets } = await this.unratearSource(
+        tx,
+        { tenantId, sourceExpenseId },
+        requester,
+      );
       return { mode: 'rateio', targets };
     }
 
     const settlementCount = await tx.crossProjectSettlement.count({ where: { sourceExpenseId } });
     if (settlementCount > 0) {
-      const { targets } = await this.unsettleBySource(tx, { tenantId, sourceExpenseId });
+      const { targets } = await this.unsettleBySource(
+        tx,
+        { tenantId, sourceExpenseId },
+        requester,
+      );
       return { mode: 'settlement', targets };
     }
 

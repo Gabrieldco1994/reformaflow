@@ -46,8 +46,7 @@ export class ExpenseService {
    * - linkedExpenseId → valida que pertence ao mesmo tenant e que NÃO é do projeto atual
    * Retorna { cardLast4?, bankLast4?, accountId?, linkedExpenseId? } com null explícito para "limpar".
    *
-   * `requester` (B1a #448) OPCIONAL — omitido preserva full-access legado.
-   * Presente, o projeto-dono de `linkedExpenseId` (child fora do `:projectId`
+   * O projeto-dono de `linkedExpenseId` (child fora do `:projectId`
    * de rota, chega só por body) precisa estar na lente do requisitante;
    * missing/cross-tenant/fora-do-escopo colapsam no MESMO 400 já usado para
    * "despesa vinculada não encontrada" — nunca 403 (não confirma existência a
@@ -135,17 +134,12 @@ export class ExpenseService {
       } else if (linkedRow.projectId === currentProjectId) {
         throw new BadRequestException('Vínculo cross-project requer despesa de outro projeto');
       } else if (
-        requester &&
-        (!linkedRow.project ||
-          linkedRow.project.tenantId !== tenantId ||
-          !this.canRequesterSeeProject(requester, linkedRow.project))
+        !linkedRow.project ||
+        linkedRow.project.tenantId !== tenantId ||
+        !this.canRequesterSeeProject(requester, linkedRow.project)
       ) {
         // Colapsa no MESMO 400 de "não encontrada" — nunca confirma a
         // existência de uma despesa em projeto fora da lente do requisitante.
-        // Só corre quando `requester` está presente — omitido preserva o
-        // full-access legado E os testes/mocks anteriores a #448, cujo select
-        // de `linkedExpenseId` não simula `project` (mesmo padrão de
-        // `resolveScope`/`ensurePessoalProject` em monthly-overview.service).
         throw new BadRequestException('Despesa vinculada não encontrada neste tenant');
       } else {
         out.linkedExpenseId = dto.linkedExpenseId;
@@ -289,12 +283,7 @@ export class ExpenseService {
    * padrão de `create_obra_expense`, repetido por ocorrência. Se qualquer criação
    * falhar, TODAS as já criadas são desfeitas (transação lógica).
    *
-   * `requester` (Security Phase 2 fix) OPCIONAL — omitido preserva full-access
-   * legado (o chamador do agente, `agent-tools.service.ts`, já resolve e
-   * autoriza `obraProjectId` via `resolveWritableProject` ANTES de chamar este
-   * método; threadar o requester aqui de novo checaria o mesmo projeto duas
-   * vezes sem ganho — o path do agente continua passando só `createdByUserId`
-   * e cai no full-access legado, sem regressão). Presente (rota HTTP direta,
+   * O requester é propagado também pelo agente. Na rota HTTP direta,
    * onde `obraProjectId` só chega por body — o `ProjectAccessGuard` global só
    * olha `:projectId`), `obraProjectId` só era validado por tenant, nunca por
    * escopo do requisitante: um usuário restrito podia criar despesas
@@ -339,9 +328,8 @@ export class ExpenseService {
         select: { id: true, type: true },
       });
       if (!obra) throw new BadRequestException('Projeto de obra não encontrado neste tenant.');
-      // Só checa escopo quando `requester` está presente — omitido preserva o
-      // full-access legado E o path do agente (já autorizado a montante).
-      if (requester && !this.canRequesterSeeProject(requester, obra)) {
+      // O agente também propaga o requester completo; ausência falha fechado.
+      if (!this.canRequesterSeeProject(requester, obra)) {
         throw new BadRequestException('Projeto de obra não encontrado neste tenant.');
       }
       if (obra.type === 'PESSOAL') {
@@ -360,7 +348,7 @@ export class ExpenseService {
     const createdRefs: Array<{ projectId: string; id: string }> = [];
     const rollback = async () => {
       for (const ref of createdRefs.reverse()) {
-        await this.remove(tenantId, ref.projectId, ref.id).catch(() => undefined);
+        await this.remove(tenantId, ref.projectId, ref.id, requester).catch(() => undefined);
       }
     };
 
@@ -385,7 +373,7 @@ export class ExpenseService {
             dataPagamento: iso,
             dataCompra: iso,
             recurrenceKey,
-          } as CreateExpenseDto, createdByUserId);
+          } as CreateExpenseDto, createdByUserId, undefined, requester);
           createdRefs.push({ projectId: dto.obraProjectId!, id: canonico.id });
 
           // 2) Espelho no PESSOAL (saída do caixa) vinculado à canônica.
@@ -404,7 +392,7 @@ export class ExpenseService {
             bankAccountId: dto.bankAccountId,
             linkedExpenseId: canonico.id,
             recurrenceKey,
-          } as CreateExpenseDto, createdByUserId);
+          } as CreateExpenseDto, createdByUserId, undefined, requester);
           createdRefs.push({ projectId: projectId, id: espelho.id });
         } else {
           const expense = await this.create(tenantId, projectId, {
@@ -424,7 +412,7 @@ export class ExpenseService {
             creditCardId: dto.creditCardId,
             bankAccountId: dto.bankAccountId,
             recurrenceKey,
-          } as CreateExpenseDto, createdByUserId);
+          } as CreateExpenseDto, createdByUserId, undefined, requester);
           createdRefs.push({ projectId: projectId, id: expense.id });
         }
       }
@@ -502,8 +490,8 @@ export class ExpenseService {
    * cross-project no formulário e para a aba "Outras despesas".
    * Suporta busca textual leve (titulo/fornecedor) e filtro por projectId.
    *
-   * `requester` (Security Phase 2 fix) OPCIONAL — omitido preserva full-access
-   * legado. Presente, a enumeração era por TENANT INTEIRO (qualquer projeto,
+   * Sem requester a leitura falha fechado. Antes, a enumeração era por tenant
+   * inteiro (qualquer projeto,
    * inclusive fora do escopo do requisitante) — vazava despesas de projetos
    * que o requester não pode ver. Agora o escopo é resolvido UMA vez via
    * `resolveAccessibleProjectScope` (mesmo helper de `monthly-overview` /
@@ -522,16 +510,15 @@ export class ExpenseService {
     await this.validateProject(tenantId, currentProjectId);
     const limit = Math.min(Math.max(opts.limit ?? 100, 1), 2000);
 
-    const scope = requester
-      ? await resolveAccessibleProjectScope(
-          this.prisma,
-          tenantId,
-          requester.role,
-          requester.allowedProjects,
-          requester.allowedProjectTypes,
-          requester.allowedModules ?? [],
-        )
-      : null;
+    if (!requester) return [];
+    const scope = await resolveAccessibleProjectScope(
+      this.prisma,
+      tenantId,
+      requester.role,
+      requester.allowedProjects,
+      requester.allowedProjectTypes,
+      requester.allowedModules ?? [],
+    );
 
     // `opts.projectId` explícito fora do escopo: vazio, sem tocar o banco —
     // resultado idêntico (`[]`) ao de uma query que não achou nada.
@@ -569,8 +556,7 @@ export class ExpenseService {
   /**
    * Vincula esta despesa a uma despesa de outro projeto (cross-project).
    *
-   * `requester` (B1a #448) OPCIONAL — omitido preserva full-access legado. O
-   * projeto-dono do ALVO chega só por `body.targetExpenseId` (o
+   * O projeto-dono do ALVO chega só por `body.targetExpenseId` (o
    * `ProjectAccessGuard` global só olha `:projectId`/`sourceProjectId`/
    * `targetProjectId`, nunca IDs de despesa) — por isso o check mora aqui.
    * Missing/cross-tenant/fora-do-escopo colapsam no MESMO 400 já usado para
@@ -600,14 +586,10 @@ export class ExpenseService {
       select: { projectId: true, project: { select: { id: true, type: true, tenantId: true } } },
     });
     if (!target) throw new BadRequestException('Despesa alvo não encontrada');
-    // Só checa escopo quando `requester` está presente — omitido preserva o
-    // full-access legado E os testes/mocks anteriores a #448 (select sem
-    // `project`).
     if (
-      requester &&
-      (!target.project ||
-        target.project.tenantId !== tenantId ||
-        !this.canRequesterSeeProject(requester, target.project))
+      !target.project ||
+      target.project.tenantId !== tenantId ||
+      !this.canRequesterSeeProject(requester, target.project)
     ) {
       throw new BadRequestException('Despesa alvo não encontrada');
     }
@@ -621,12 +603,23 @@ export class ExpenseService {
     });
   }
 
-  async unlinkCrossProject(tenantId: string, projectId: string, id: string) {
+  async unlinkCrossProject(
+    tenantId: string,
+    projectId: string,
+    id: string,
+    requester?: RateioRequester,
+  ) {
     await this.validateProject(tenantId, projectId);
     const source = await this.prisma.expense.findFirst({
       where: { id, projectId, tenantId, deletedAt: null },
     });
     if (!source) throw new NotFoundException('Despesa não encontrada');
+    await this.assertCanMutateLinkedRows(
+      this.prisma,
+      tenantId,
+      source,
+      requester,
+    );
     await this.guardRateioParticipation(tenantId, id, false, false);
     await this.guardSettlementParticipation(tenantId, id, false, true);
     return this.prisma.expense.update({
@@ -722,6 +715,50 @@ export class ExpenseService {
     );
   }
 
+  private async assertCanMutateLinkedRows(
+    db: ExpenseDb,
+    tenantId: string,
+    expense: { id: string; linkedExpenseId: string | null },
+    requester?: RateioRequester,
+  ): Promise<void> {
+    const direct = await db.expense.findMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+        OR: [
+          { id: expense.id },
+          ...(expense.linkedExpenseId ? [{ id: expense.linkedExpenseId }] : []),
+          { linkedExpenseId: expense.id },
+        ],
+      },
+      include: { project: { select: { id: true, type: true, tenantId: true } } },
+    });
+    if (
+      expense.linkedExpenseId &&
+      !direct.some((row) => row.id === expense.linkedExpenseId)
+    ) {
+      throw new NotFoundException('Despesa relacionada não encontrada');
+    }
+    const directIds = direct.map((row) => row.id);
+    const related = await db.expense.findMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+        OR: [{ id: { in: directIds } }, { linkedExpenseId: { in: directIds } }],
+      },
+      include: { project: { select: { id: true, type: true, tenantId: true } } },
+    });
+    for (const row of related) {
+      if (
+        !row.project ||
+        row.project.tenantId !== tenantId ||
+        !this.canRequesterSeeProject(requester, row.project)
+      ) {
+        throw new NotFoundException('Despesa relacionada não encontrada');
+      }
+    }
+  }
+
   /**
    * Leitura canônica do rateio por uma âncora fonte ou alvo (issues #423/#428):
    * resolve SOURCE > TARGET > NONE e enumera TODAS as `RateioAllocation` da
@@ -740,7 +777,7 @@ export class ExpenseService {
     tenantId: string,
     projectId: string,
     id: string,
-    requester: RateioRequester,
+    requester?: RateioRequester,
   ): Promise<RateioDetalhe> {
     const anchor = await this.prisma.expense.findFirst({
       where: { id, projectId, tenantId, deletedAt: null },
@@ -888,7 +925,7 @@ export class ExpenseService {
    * parcela alvo com o valor REAL (default = valorTotal da source), de forma
    * não-destrutiva e reversível. Mantém o `linkedExpenseId` para dedupe.
    *
-   * `requester` (B1a #448) OPCIONAL — encaminhado a `settleTargetParcela`, que
+   * O requester é encaminhado a `settleTargetParcela`, que
    * releitura o alvo (child fora do `:projectId` de rota) DENTRO da mesma
    * `$transaction` — a checagem de escopo e a escrita não têm gap de TOCTOU.
    */
@@ -938,7 +975,12 @@ export class ExpenseService {
    * Desfaz a conciliação (todas as parcelas liquidadas por esta source),
    * restaurando o planejado do alvo e limpando o vínculo. Reversível.
    */
-  async desconciliar(tenantId: string, projectId: string, sourceId: string) {
+  async desconciliar(
+    tenantId: string,
+    projectId: string,
+    sourceId: string,
+    requester?: RateioRequester,
+  ) {
     await this.validateProject(tenantId, projectId);
     const source = await this.prisma.expense.findFirst({
       where: { id: sourceId, projectId, tenantId, deletedAt: null },
@@ -946,7 +988,11 @@ export class ExpenseService {
     if (!source) throw new NotFoundException('Despesa não encontrada');
 
     await this.prisma.$transaction(async (tx) => {
-      await this.conciliacao.reverseSourceLinks(tx, { tenantId, sourceExpenseId: source.id });
+      await this.conciliacao.reverseSourceLinks(
+        tx,
+        { tenantId, sourceExpenseId: source.id },
+        requester,
+      );
     });
     return { ok: true };
   }
@@ -957,7 +1003,7 @@ export class ExpenseService {
    * da reforma). Cada alvo recebe o cronograma da fonte escalado à sua alocação.
    * A soma das alocações deve fechar o total da compra (Sobra = 0).
    *
-   * `requester` (B1a #448) OPCIONAL — encaminhado a `ratearSource`, que
+   * O requester é encaminhado a `ratearSource`, que
    * releitura CADA alvo (child fora do `:projectId` de rota) DENTRO da mesma
    * `$transaction` — sem gap de TOCTOU entre o check de escopo e a escrita.
    */
@@ -998,7 +1044,7 @@ export class ExpenseService {
    * `ConciliacaoService.ratearSource`, que valida Sobra=0, regenera o cashflow
    * de cada alvo com o cronograma da fonte e seta o espelho (linkedExpenseId).
    *
-   * `requester` (B1a #448) OPCIONAL — `newTargets[].targetProjectId` e
+   * O requester é obrigatório no boundary. `newTargets[].targetProjectId` e
    * `newTargets[].roomId` são CHILDREN que só chegam por body (o
    * `ProjectAccessGuard` não enxerga IDs aninhados em array), então o scope é
    * checado aqui. Missing/cross-tenant/fora-do-escopo colapsam no MESMO 404 já
@@ -1040,8 +1086,8 @@ export class ExpenseService {
       const byId = new Map(projects.map((p) => [p.id, p]));
       for (const pid of targetProjectIds) {
         const p = byId.get(pid);
-        if (!p || (requester && !this.canRequesterSeeProject(requester, p))) {
-          throw new NotFoundException(`Projeto destino ${pid} não encontrado`);
+        if (!p || !this.canRequesterSeeProject(requester, p)) {
+          throw new BadRequestException(`Projeto destino ${pid} não encontrado`);
         }
         if (!hasFeature(p.type as ProjectType, 'expenses')) {
           throw new BadRequestException(
@@ -1063,6 +1109,40 @@ export class ExpenseService {
         throw new BadRequestException('Esta despesa já está vinculada a outro projeto.');
       }
 
+      await this.conciliacao.assertCanReverseSources(
+        tx,
+        { tenantId, sourceExpenseIds: [source.id] },
+        requester,
+      );
+      await this.conciliacao.assertCanRatearTargets(
+        tx,
+        {
+          tenantId,
+          targetExpenseIds: existing.map((item) => item.targetExpenseId),
+        },
+        requester,
+      );
+
+      const targetProjectIds = [...new Set(newTargets.map((item) => item.targetProjectId))];
+      const targetProjects = await tx.project.findMany({
+        where: { id: { in: targetProjectIds }, tenantId, deletedAt: null },
+      });
+      const targetProjectById = new Map(targetProjects.map((project) => [project.id, project]));
+      for (const targetProjectId of targetProjectIds) {
+        const targetProject = targetProjectById.get(targetProjectId);
+        if (
+          !targetProject ||
+          !this.canRequesterSeeProject(requester, targetProject)
+        ) {
+          throw new BadRequestException(`Projeto destino ${targetProjectId} não encontrado`);
+        }
+        if (!hasFeature(targetProject.type as ProjectType, 'expenses')) {
+          throw new BadRequestException(
+            `Projeto destino ${targetProjectId} não possui o módulo de despesas — não pode receber rateio.`,
+          );
+        }
+      }
+
       const createdTargetIds: string[] = [];
       const allocations: RateioItem[] = existing.map((e) => ({
         targetExpenseId: e.targetExpenseId,
@@ -1079,9 +1159,9 @@ export class ExpenseService {
         });
         if (
           !targetProjectInTx ||
-          (requester && !this.canRequesterSeeProject(requester, targetProjectInTx))
+          !this.canRequesterSeeProject(requester, targetProjectInTx)
         ) {
-          throw new NotFoundException(`Projeto destino ${nt.targetProjectId} não encontrado`);
+          throw new BadRequestException(`Projeto destino ${nt.targetProjectId} não encontrado`);
         }
         if (!hasFeature(targetProjectInTx.type as ProjectType, 'expenses')) {
           throw new BadRequestException(
@@ -1143,7 +1223,12 @@ export class ExpenseService {
    * Desfaz o rateio desta compra: restaura o planejado de cada alvo e limpa o
    * espelho da fonte. Reversível e idempotente.
    */
-  async desratear(tenantId: string, projectId: string, sourceId: string) {
+  async desratear(
+    tenantId: string,
+    projectId: string,
+    sourceId: string,
+    requester?: RateioRequester,
+  ) {
     await this.validateProject(tenantId, projectId);
     const source = await this.prisma.expense.findFirst({
       where: { id: sourceId, projectId, tenantId, deletedAt: null },
@@ -1151,7 +1236,11 @@ export class ExpenseService {
     if (!source) throw new NotFoundException('Despesa não encontrada');
 
     const result = await this.prisma.$transaction(async (tx) =>
-      this.conciliacao.unratearSource(tx, { tenantId, sourceExpenseId: source.id }),
+      this.conciliacao.unratearSource(
+        tx,
+        { tenantId, sourceExpenseId: source.id },
+        requester,
+      ),
     );
     return { ok: true, sourceId: source.id, ...result };
   }
@@ -1894,13 +1983,19 @@ export class ExpenseService {
     });
   }
 
-  async remove(tenantId: string, projectId: string, id: string) {
+  async remove(
+    tenantId: string,
+    projectId: string,
+    id: string,
+    requester?: RateioRequester,
+  ) {
     return this.prisma.$transaction(async (tx) => {
       await this.validateProject(tenantId, projectId, tx);
       const expense = await tx.expense.findFirst({
         where: { id, projectId, tenantId, deletedAt: null },
       });
       if (!expense) throw new NotFoundException('Despesa não encontrada');
+      await this.assertCanMutateLinkedRows(tx, tenantId, expense, requester);
 
       const rateioParticipation = await this.guardRateioParticipation(
         tenantId,
@@ -1910,7 +2005,11 @@ export class ExpenseService {
         tx,
       );
       if (rateioParticipation === 'source') {
-        await this.conciliacao.unratearSource(tx, { tenantId, sourceExpenseId: id });
+        await this.conciliacao.unratearSource(
+          tx,
+          { tenantId, sourceExpenseId: id },
+          requester,
+        );
         const now = new Date();
         // Mesma limpeza do caminho legado (linha ~1727): qualquer despesa não
         // relacionada ao rateio que aponte para esta fonte via `linkedExpenseId`
@@ -1940,7 +2039,11 @@ export class ExpenseService {
         tx,
       );
       if (settlementParticipation === 'source') {
-        await this.conciliacao.unsettleBySource(tx, { tenantId, sourceExpenseId: id });
+        await this.conciliacao.unsettleBySource(
+          tx,
+          { tenantId, sourceExpenseId: id },
+          requester,
+        );
         // `unsettleBySource` já soft-deleta a própria source (via `softDeleteMirror`
         // interno) — não soft-deletar de novo aqui, só limpar vínculos órfãos de
         // entrada, espelhando a limpeza do ramo de rateio acima.

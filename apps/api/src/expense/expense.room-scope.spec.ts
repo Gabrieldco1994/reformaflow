@@ -22,6 +22,7 @@ import { NotFoundException } from '@nestjs/common';
 import { ExpenseService } from './expense.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
+import { RateioRequester } from './rateio.types';
 
 const setupPrisma = new PrismaClient();
 const prisma = new PrismaService();
@@ -29,6 +30,12 @@ const prisma = new PrismaService();
 const TENANT = 'ersc-tenant';
 const PESSOAL = 'ersc-pessoal';
 const OTHER = 'ersc-other';
+const ADMIN: RateioRequester = {
+  role: 'ADMIN',
+  allowedProjects: [],
+  allowedProjectTypes: [],
+  allowedModules: [],
+};
 
 async function cleanupTransient() {
   await setupPrisma.rateioAllocation.deleteMany({ where: { tenantId: TENANT } });
@@ -152,7 +159,7 @@ describe('ExpenseService — roomId é project-scoped (#448 B1a)', () => {
             allocation: 20_000,
           }],
           existing: [],
-        } as any),
+        } as any, null, ADMIN),
       ).rejects.toBeInstanceOf(NotFoundException);
 
       const orphan = await setupPrisma.expense.findFirst({ where: { tenantId: TENANT, titulo: marker } });
@@ -180,7 +187,7 @@ describe('ExpenseService — roomId é project-scoped (#448 B1a)', () => {
           allocation: 20_000,
         }],
         existing: [],
-      } as any);
+      } as any, null, ADMIN);
 
       expect(result.createdTargetIds).toHaveLength(1);
       const createdRow = await setupPrisma.expense.findUnique({ where: { id: result.createdTargetIds[0] } });

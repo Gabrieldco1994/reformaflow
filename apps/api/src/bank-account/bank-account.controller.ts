@@ -81,8 +81,9 @@ export class BankAccountController {
     @Param('projectId') projectId: string,
     @Param('id') accountId: string,
     @Param('importId') importId: string,
+    @CurrentUser() requester: RateioRequester,
   ) {
-    return this.service.undoImport(tenantId, projectId, accountId, importId);
+    return this.service.undoImport(tenantId, projectId, accountId, importId, requester);
   }
 
   @Get(':id/suggest-links')
@@ -109,7 +110,7 @@ export class BankAccountController {
     @Param('projectId') projectId: string,
     @Param('expenseId') expenseId: string,
     @Body() body: LinkToExpenseDto,
-    @CurrentUser() requester?: RateioRequester,
+    @CurrentUser() requester: RateioRequester,
   ) {
     return this.service.linkToExpense(
       tenantId,
@@ -129,8 +130,9 @@ export class BankAccountController {
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('expenseId') expenseId: string,
+    @CurrentUser() requester: RateioRequester,
   ) {
-    return this.service.unlinkExpense(tenantId, projectId, expenseId);
+    return this.service.unlinkExpense(tenantId, projectId, expenseId, requester);
   }
 
   @Post('receipts/:receiptId/link')
@@ -139,8 +141,15 @@ export class BankAccountController {
     @Param('projectId') projectId: string,
     @Param('receiptId') receiptId: string,
     @Body() body: LinkToReceiptDto,
+    @CurrentUser() requester: RateioRequester,
   ) {
-    return this.service.linkToReceipt(tenantId, projectId, receiptId, body.targetReceiptId);
+    return this.service.linkToReceipt(
+      tenantId,
+      projectId,
+      receiptId,
+      body.targetReceiptId,
+      requester,
+    );
   }
 
   @Delete('receipts/:receiptId/link')
@@ -148,15 +157,16 @@ export class BankAccountController {
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('receiptId') receiptId: string,
+    @CurrentUser() requester: RateioRequester,
   ) {
-    return this.service.unlinkReceipt(tenantId, projectId, receiptId);
+    return this.service.unlinkReceipt(tenantId, projectId, receiptId, requester);
   }
 
   @Post(':id/import-statement')
   @UseInterceptors(AnyFilesInterceptor({ limits: { fileSize: 10 * 1024 * 1024, files: 5 } }))
   async importStatement(
     @CurrentTenant() tenantId: string,
-    @CurrentUser() requester: { id: string },
+    @CurrentUser() requester: RateioRequester & { id: string },
     @Param('projectId') projectId: string,
     @Param('id') accountId: string,
     @UploadedFiles() files: Express.Multer.File[] | undefined,
@@ -181,7 +191,7 @@ export class BankAccountController {
       if ((query.mode ?? 'preview') === 'commit') {
         return await this.service.commitImport(
           tenantId, projectId, accountId, buffers, fileName, source,
-          query.periodLabel, query.password, decisions, requester.id,
+          query.periodLabel, query.password, decisions, requester.id, requester,
         );
       }
       return await this.service.previewImport(

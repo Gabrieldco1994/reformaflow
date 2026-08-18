@@ -26,6 +26,7 @@ import {
 import type { ModuleSlug } from '../../common/decorators/require-module.decorator';
 import { ToolDef } from '../llm/llm.types';
 import { parseSpokenMoney } from './money-parse';
+import type { RateioRequester } from '../../expense/rateio.types';
 
 export interface ToolContext {
   tenantId: string;
@@ -566,7 +567,7 @@ export class AgentToolsService {
             creditCardId,
             bankAccountId,
             linkedExpenseId,
-          } as any, ctx.userId ?? null);
+          } as any, ctx.userId ?? null, undefined, this.rateioRequester(ctx));
 
           return {
             ok: true,
@@ -659,7 +660,7 @@ export class AgentToolsService {
             obraProjectId,
             creditCardId,
             bankAccountId,
-          } as any, ctx.userId ?? null);
+          } as any, ctx.userId ?? null, this.rateioRequester(ctx));
 
           return {
             ok: true,
@@ -826,7 +827,13 @@ export class AgentToolsService {
             return { error: 'Nada para atualizar: informe data, tipoDespesa, valor, título ou fornecedor.' };
           }
 
-          const updated = await this.expenses.update(ctx.tenantId, project.id, expenseId, dto as never);
+          const updated = await this.expenses.update(
+            ctx.tenantId,
+            project.id,
+            expenseId,
+            dto as never,
+            this.rateioRequester(ctx),
+          );
           return {
             ok: true,
             despesa: {
@@ -1071,7 +1078,7 @@ export class AgentToolsService {
             titulo,
             fornecedor,
             ...dateFields,
-          } as any, ctx.userId ?? null);
+          } as any, ctx.userId ?? null, undefined, this.rateioRequester(ctx));
 
           // 2) Espelho no PESSOAL (saída do caixa) vinculado ao canônico.
           //    Se falhar, desfaz o canônico para não deixar registro pela metade.
@@ -1089,9 +1096,11 @@ export class AgentToolsService {
               creditCardId,
               bankAccountId,
               linkedExpenseId: canonico.id,
-            } as any, ctx.userId ?? null);
+            } as any, ctx.userId ?? null, undefined, this.rateioRequester(ctx));
           } catch (e) {
-            await this.expenses.remove(ctx.tenantId, obra.id, canonico.id).catch(() => undefined);
+            await this.expenses
+              .remove(ctx.tenantId, obra.id, canonico.id, this.rateioRequester(ctx))
+              .catch(() => undefined);
             throw e;
           }
 
@@ -1426,6 +1435,14 @@ export class AgentToolsService {
    * - usuário tem o módulo liberado (salvo full-access).
    * Lança Error com mensagem amigável (capturada por execute()).
    */
+  private rateioRequester(ctx: ToolContext): RateioRequester {
+    return {
+      role: ctx.role,
+      allowedProjects: ctx.projectScope ?? undefined,
+      allowedModules: ctx.allowedModules,
+    };
+  }
+
   private async resolveWritableProject(
     ctx: ToolContext,
     rawProjectId: unknown,

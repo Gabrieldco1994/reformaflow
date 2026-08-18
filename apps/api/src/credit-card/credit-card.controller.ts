@@ -80,8 +80,9 @@ export class CreditCardController {
     @Param('projectId') projectId: string,
     @Param('id') cardId: string,
     @Param('importId') importId: string,
+    @CurrentUser() requester: RateioRequester,
   ) {
-    return this.service.undoImport(tenantId, projectId, cardId, importId);
+    return this.service.undoImport(tenantId, projectId, cardId, importId, requester);
   }
 
   @Get(':id/suggest-links')
@@ -99,7 +100,7 @@ export class CreditCardController {
     @Param('projectId') projectId: string,
     @Param('expenseId') expenseId: string,
     @Body() body: LinkToExpenseDto,
-    @CurrentUser() requester?: RateioRequester,
+    @CurrentUser() requester: RateioRequester,
   ) {
     return this.service.linkToExpense(
       tenantId,
@@ -119,15 +120,16 @@ export class CreditCardController {
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('expenseId') expenseId: string,
+    @CurrentUser() requester: RateioRequester,
   ) {
-    return this.service.unlinkExpense(tenantId, projectId, expenseId);
+    return this.service.unlinkExpense(tenantId, projectId, expenseId, requester);
   }
 
   @Post(':id/import-statement')
   @UseInterceptors(AnyFilesInterceptor({ limits: { fileSize: 10 * 1024 * 1024, files: 5 } }))
   async importStatement(
     @CurrentTenant() tenantId: string,
-    @CurrentUser() requester: { id: string },
+    @CurrentUser() requester: RateioRequester & { id: string },
     @Param('projectId') projectId: string,
     @Param('id') cardId: string,
     @UploadedFiles() files: Express.Multer.File[] | undefined,
@@ -165,6 +167,7 @@ export class CreditCardController {
           query.password,
           decisions,
           requester.id,
+          requester,
         );
       }
       return await this.service.previewImport(

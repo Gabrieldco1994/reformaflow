@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 import { CreditCardService } from './credit-card.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
+import { withAclRequester } from '../test-utils/acl-requester-test-helper';
 import { MerchantClassifierService } from '../merchant-classifier/merchant-classifier.service';
 
 function makePrismaMock() {
@@ -107,7 +108,7 @@ describe('CreditCardService', () => {
         { provide: MerchantClassifierService, useValue: merchantClassifier },
       ],
     }).compile();
-    service = module.get(CreditCardService);
+    service = withAclRequester(module.get(CreditCardService), prisma);
 
     prisma.creditCard.findFirst.mockResolvedValue({
       id: 'card1',

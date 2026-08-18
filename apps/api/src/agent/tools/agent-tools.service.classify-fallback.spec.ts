@@ -71,6 +71,8 @@ describe('create_expense — fallback do MerchantClassifier', () => {
       'proj-1',
       expect.objectContaining({ tipoDespesa: 'ALIMENTACAO' }),
       null,
+      undefined,
+      expect.objectContaining({ role: 'ADMIN' }),
     );
   });
 
@@ -123,6 +125,8 @@ describe('create_expense — fallback do MerchantClassifier', () => {
       'proj-1',
       expect.any(Object),
       'user-maria-1',
+      undefined,
+      expect.objectContaining({ role: 'ADMIN' }),
     );
   });
 });

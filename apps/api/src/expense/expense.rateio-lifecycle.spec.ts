@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import { ExpenseService } from './expense.service';
+import { withAclRequester } from '../test-utils/acl-requester-test-helper';
 
 const TENANT_ID = 'tenant-1';
 const SOURCE_ID = 'source-1';
@@ -168,7 +169,7 @@ function makeHarness() {
     ),
   };
   const conciliacao = new ConciliacaoService(prisma);
-  const service = new ExpenseService(prisma, conciliacao);
+  const service = withAclRequester(new ExpenseService(prisma, conciliacao), prisma);
   return { service, prisma, rows, allocations, conciliacao };
 }
 
@@ -190,7 +191,7 @@ describe('ExpenseService — ciclo de vida de participantes de rateio (#428)', (
     expect(unratear).toHaveBeenCalledWith(prisma, {
       tenantId: TENANT_ID,
       sourceExpenseId: SOURCE_ID,
-    });
+    }, expect.objectContaining({ role: 'ADMIN' }));
     expect(prisma.rateioAllocation.delete).toHaveBeenCalledTimes(3);
     TARGET_IDS.forEach((id, index) => {
       expect(rows.get(id)).toEqual(

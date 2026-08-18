@@ -7,6 +7,7 @@ import {
   type RecurrenceDetectorRow,
   ExpenseTypeLabels,
 } from '@reformaflow/domain';
+import { RateioRequester } from '../expense/rateio.types';
 
 /**
  * Séries de despesa recorrente do PESSOAL.
@@ -239,6 +240,7 @@ static seriesKey(titulo: string): string {
     projectId: string,
     encodedKey: string,
     dto: { valor?: number; tipoDespesa?: string },
+    requester: RateioRequester,
   ) {
     const key = RecurrenceService.decodeKey(encodedKey);
     const futuras = await this.futureOccurrences(tenantId, projectId, key);
@@ -247,19 +249,24 @@ static seriesKey(titulo: string): string {
       await this.expenses.update(tenantId, projectId, occ.id, {
         ...(dto.valor !== undefined ? { valor: dto.valor } : {}),
         ...(dto.tipoDespesa !== undefined ? { tipoDespesa: dto.tipoDespesa } : {}),
-      } as never);
+      } as never, requester);
     }
 
     return { atualizadas: futuras.length, preservadasPagas: true };
   }
 
   /** Exclui a série: apaga só as ocorrências futuras. As pagas permanecem. */
-  async remove(tenantId: string, projectId: string, encodedKey: string) {
+  async remove(
+    tenantId: string,
+    projectId: string,
+    encodedKey: string,
+    requester: RateioRequester,
+  ) {
     const key = RecurrenceService.decodeKey(encodedKey);
     const futuras = await this.futureOccurrences(tenantId, projectId, key);
 
     for (const occ of futuras) {
-      await this.expenses.remove(tenantId, projectId, occ.id);
+      await this.expenses.remove(tenantId, projectId, occ.id, requester);
     }
 
     return { excluidas: futuras.length, preservadasPagas: true };

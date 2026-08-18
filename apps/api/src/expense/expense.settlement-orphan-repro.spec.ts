@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import { ExpenseService } from './expense.service';
+import { withAclRequester } from '../test-utils/acl-requester-test-helper';
 
 /**
  * Reprodução do incidente de produção: uma despesa PESSOAL importada da fatura
@@ -202,7 +203,7 @@ function makeHarness() {
   };
 
   const conciliacao = new ConciliacaoService(prisma);
-  const service = new ExpenseService(prisma, conciliacao);
+  const service = withAclRequester(new ExpenseService(prisma, conciliacao), prisma);
   return { service, prisma, rows, settlements, conciliacao };
 }
 
@@ -274,6 +275,11 @@ describe('Reprodução: settlement órfão por bypass de unlinkExpense/desconcil
           tenantId: TENANT_ID,
           sourceExpenseId: freshSourceId,
           allocations: [{ targetExpenseId: TARGET_ID, allocation: 11_000 }],
+        }, {
+          role: 'ADMIN',
+          allowedProjects: [],
+          allowedProjectTypes: [],
+          allowedModules: [],
         }),
       ).resolves.toEqual({ targets: [TARGET_ID] });
     });

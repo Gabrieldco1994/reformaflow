@@ -1,6 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConciliacaoService } from './conciliacao.service';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  installAclProjectMocks,
+  withAclRequester,
+} from '../test-utils/acl-requester-test-helper';
 
 function makeTarget(over: Partial<any> = {}) {
   return {
@@ -73,14 +77,14 @@ describe('ConciliacaoService', () => {
         createMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
     };
-    return p;
+    return installAclProjectMocks(p);
   }
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [ConciliacaoService, { provide: PrismaService, useValue: {} }],
     }).compile();
-    service = module.get(ConciliacaoService);
+    service = withAclRequester(module.get(ConciliacaoService), {});
   });
 
   describe('settleTargetParcela', () => {
@@ -262,7 +266,7 @@ describe('ConciliacaoService', () => {
         },
         _allocStore: allocStore,
       };
-      return p;
+      return installAclProjectMocks(p);
     }
 
     const sourceParcelado = (over: any = {}) => ({

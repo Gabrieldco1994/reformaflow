@@ -3,6 +3,7 @@ import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { ExpenseService } from './expense.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
+import { withAclRequester } from '../test-utils/acl-requester-test-helper';
 
 type AnyFn = jest.Mock;
 
@@ -106,7 +107,7 @@ describe('ExpenseService', () => {
       ],
     }).compile();
 
-    service = module.get<ExpenseService>(ExpenseService);
+    service = withAclRequester(module.get<ExpenseService>(ExpenseService), {});
   });
 
   describe('validação de projeto', () => {
@@ -979,7 +980,28 @@ describe('ExpenseService', () => {
       prisma.expense.findFirst
         .mockResolvedValueOnce({ id: 'mir', projectId, tenantId, deletedAt: null, linkedExpenseId: 'canon' }) // a própria
         .mockResolvedValueOnce({ id: 'canon' }); // o alvo
-      prisma.expense.findMany.mockResolvedValue([]); // sem espelhos apontando para 'mir'
+      prisma.expense.findMany
+        .mockResolvedValueOnce([
+          {
+            id: 'mir', projectId, tenantId, linkedExpenseId: 'canon',
+            project: { id: projectId, tenantId, type: 'PESSOAL' },
+          },
+          {
+            id: 'canon', projectId: 'other-project', tenantId, linkedExpenseId: null,
+            project: { id: 'other-project', tenantId, type: 'REFORMA' },
+          },
+        ])
+        .mockResolvedValueOnce([
+          {
+            id: 'mir', projectId, tenantId, linkedExpenseId: 'canon',
+            project: { id: projectId, tenantId, type: 'PESSOAL' },
+          },
+          {
+            id: 'canon', projectId: 'other-project', tenantId, linkedExpenseId: null,
+            project: { id: 'other-project', tenantId, type: 'REFORMA' },
+          },
+        ])
+        .mockResolvedValue([]); // sem espelhos apontando para 'mir'
       prisma.crossProjectSettlement.count.mockResolvedValue(0);
       let deletedIds: string[] = [];
       prisma.expense.updateMany.mockImplementation((args: any) => {
@@ -996,7 +1018,28 @@ describe('ExpenseService', () => {
       prisma.expense.findFirst.mockResolvedValue({
         id: 'src', projectId, tenantId, deletedAt: null, linkedExpenseId: 'planned',
       });
-      prisma.expense.findMany.mockResolvedValue([]);
+      prisma.expense.findMany
+        .mockResolvedValueOnce([
+          {
+            id: 'src', projectId, tenantId, linkedExpenseId: 'planned',
+            project: { id: projectId, tenantId, type: 'PESSOAL' },
+          },
+          {
+            id: 'planned', projectId: 'other-project', tenantId, linkedExpenseId: null,
+            project: { id: 'other-project', tenantId, type: 'REFORMA' },
+          },
+        ])
+        .mockResolvedValueOnce([
+          {
+            id: 'src', projectId, tenantId, linkedExpenseId: 'planned',
+            project: { id: projectId, tenantId, type: 'PESSOAL' },
+          },
+          {
+            id: 'planned', projectId: 'other-project', tenantId, linkedExpenseId: null,
+            project: { id: 'other-project', tenantId, type: 'REFORMA' },
+          },
+        ])
+        .mockResolvedValue([]);
       prisma.crossProjectSettlement.count.mockResolvedValue(1); // tem settlement
       const result = await service.remove(tenantId, projectId, 'src');
       expect(result.count).toBe(1); // só a própria, não cascateia o 'planned'
@@ -1053,7 +1096,10 @@ describe('ExpenseService', () => {
     });
 
     it('create com linkedExpenseId de outro projeto é aceito', async () => {
-      prisma.expense.findFirst.mockResolvedValue({ projectId: 'other-project' });
+      prisma.expense.findFirst.mockResolvedValue({
+        projectId: 'other-project',
+        project: { id: 'other-project', tenantId, type: 'REFORMA' },
+      });
       prisma.expense.create.mockResolvedValue({ id: 'e1' });
       prisma.expense.findUnique.mockResolvedValue(null);
 
@@ -1215,7 +1261,10 @@ describe('ExpenseService', () => {
     it('link salva linkedExpenseId quando alvo é de outro projeto', async () => {
       prisma.expense.findFirst
         .mockResolvedValueOnce({ id: 'src', projectId, tenantId, deletedAt: null })
-        .mockResolvedValueOnce({ projectId: 'other-project' });
+        .mockResolvedValueOnce({
+          projectId: 'other-project',
+          project: { id: 'other-project', tenantId, type: 'REFORMA' },
+        });
       prisma.expense.update.mockResolvedValue({ id: 'src', linkedExpenseId: 'target' });
 
       await service.linkCrossProject(tenantId, projectId, 'src', 'target');
@@ -1225,6 +1274,12 @@ describe('ExpenseService', () => {
 
     it('unlink seta linkedExpenseId=null', async () => {
       prisma.expense.findFirst.mockResolvedValueOnce({ id: 'src', projectId, tenantId, deletedAt: null });
+      prisma.expense.findMany.mockResolvedValue([
+        {
+          id: 'src', projectId, tenantId, linkedExpenseId: null,
+          project: { id: projectId, tenantId, type: 'PESSOAL' },
+        },
+      ]);
       prisma.expense.update.mockResolvedValue({ id: 'src', linkedExpenseId: null });
 
       await service.unlinkCrossProject(tenantId, projectId, 'src');
@@ -1343,7 +1398,10 @@ describe('ExpenseService', () => {
         return { id: where.id, tenantId, type: 'PESSOAL', deletedAt: null };
       });
       // linkedExpenseId aponta para a canônica (outro projeto) — resolveLinks ok.
-      prisma.expense.findFirst.mockResolvedValue({ projectId: 'obra-1' });
+      prisma.expense.findFirst.mockResolvedValue({
+        projectId: 'obra-1',
+        project: { id: 'obra-1', tenantId, type: 'REFORMA' },
+      });
       prisma.bankAccount.findFirst.mockResolvedValue({ last4: '4321' });
 
       const res = await service.createRecorrente(tenantId, projectId, {

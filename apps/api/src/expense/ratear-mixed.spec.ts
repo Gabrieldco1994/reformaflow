@@ -3,6 +3,7 @@ import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { ExpenseService } from './expense.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
+import { withAclRequester } from '../test-utils/acl-requester-test-helper';
 
 type AnyFn = jest.Mock;
 
@@ -59,11 +60,23 @@ describe('ExpenseService.ratearMixed', () => {
       ],
     }).compile();
 
-    service = module.get<ExpenseService>(ExpenseService);
+    service = withAclRequester(module.get<ExpenseService>(ExpenseService), prisma);
   });
 
   it('cria newTargets nos projetos-destino e rateia numa única transação (allocations concatenadas)', async () => {
     prisma.project.findMany.mockResolvedValue([{ id: 'reforma-1', tenantId, type: 'REFORMA' }]);
+    prisma.expense.findFirst.mockImplementation(({ where }: any) =>
+      Promise.resolve(
+        where.id === 'exist-1'
+          ? {
+              ...source,
+              id: 'exist-1',
+              projectId: 'reforma-1',
+              project: { id: 'reforma-1', tenantId, type: 'REFORMA' },
+            }
+          : { ...source },
+      ),
+    );
     prisma.expense.create.mockResolvedValue({ id: 'novo-1' });
     const ratearSpy = jest
       .spyOn(service['conciliacao'], 'ratearSource')

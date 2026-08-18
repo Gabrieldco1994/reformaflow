@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MerchantClassifierService } from '../merchant-classifier/merchant-classifier.service';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import { CardInvoiceSettlementService } from '../credit-card/card-invoice-settlement.service';
+import { withAclRequester } from '../test-utils/acl-requester-test-helper';
 
 function makePrismaMock() {
   return {
@@ -136,7 +137,7 @@ describe('BankAccountService', () => {
         CardInvoiceSettlementService,
       ],
     }).compile();
-    service = module.get(BankAccountService);
+    service = withAclRequester(module.get(BankAccountService), prisma);
     settlement = module.get(CardInvoiceSettlementService);
 
     prisma.bankAccount.findFirst.mockResolvedValue({

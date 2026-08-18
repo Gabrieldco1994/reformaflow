@@ -1,6 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConciliacaoService } from './conciliacao.service';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  installAclProjectMocks,
+  withAclRequester,
+} from '../test-utils/acl-requester-test-helper';
 
 function makeTarget(over: Partial<any> = {}) {
   return {
@@ -67,14 +71,14 @@ describe('ConciliacaoService — hardening cross-parcela', () => {
       },
       _settlements: settlementStore,
     };
-    return p;
+    return installAclProjectMocks(p);
   }
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [ConciliacaoService, { provide: PrismaService, useValue: {} }],
     }).compile();
-    service = module.get(ConciliacaoService);
+    service = withAclRequester(module.get(ConciliacaoService), {});
   });
 
   it('P1/P2: 2ª quitação da MESMA parcela com outra source desativa o espelho antigo (1 ativo)', async () => {

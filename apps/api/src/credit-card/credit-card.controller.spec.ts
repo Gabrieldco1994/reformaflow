@@ -5,12 +5,19 @@ import { CreditCardService } from './credit-card.service';
 
 describe('CreditCardController.importStatement — decisions parsing', () => {
   let controller: CreditCardController;
-  let service: { previewImport: jest.Mock; commitImport: jest.Mock };
+  let service: {
+    previewImport: jest.Mock;
+    commitImport: jest.Mock;
+    undoImport: jest.Mock;
+    unlinkExpense: jest.Mock;
+  };
 
   beforeEach(async () => {
     service = {
       previewImport: jest.fn().mockResolvedValue({ ok: 'preview' }),
       commitImport: jest.fn().mockResolvedValue({ ok: 'commit' }),
+      undoImport: jest.fn().mockResolvedValue({ ok: true }),
+      unlinkExpense: jest.fn().mockResolvedValue({ ok: true }),
     };
     const module: TestingModule = await Test.createTestingModule({
       controllers: [CreditCardController],
@@ -47,8 +54,9 @@ describe('CreditCardController.importStatement — decisions parsing', () => {
     );
     expect(service.commitImport).toHaveBeenCalled();
     const args = service.commitImport.mock.calls[0];
-    expect(args[args.length - 2]).toEqual(decisions);
-    expect(args[args.length - 1]).toBe('u1');
+    expect(args[args.length - 3]).toEqual(decisions);
+    expect(args[args.length - 2]).toBe('u1');
+    expect(args[args.length - 1]).toEqual({ id: 'u1' });
   });
 
   it('decisões ausente → repassa undefined', async () => {
@@ -60,7 +68,7 @@ describe('CreditCardController.importStatement — decisions parsing', () => {
     );
     expect(service.commitImport).toHaveBeenCalled();
     const args = service.commitImport.mock.calls[0];
-    expect(args[args.length - 2]).toBeUndefined();
+    expect(args[args.length - 3]).toBeUndefined();
   });
 
   it('decisões JSON inválido → BadRequestException', async () => {
@@ -83,7 +91,7 @@ describe('CreditCardController.importStatement — decisions parsing', () => {
     );
     expect(service.commitImport).toHaveBeenCalled();
     const args = service.commitImport.mock.calls[0];
-    expect(args[args.length - 2]).toBeUndefined();
+    expect(args[args.length - 3]).toBeUndefined();
   });
 
   it('modo preview ignora decisions', async () => {
@@ -106,5 +114,13 @@ describe('CreditCardController.importStatement — decisions parsing', () => {
     );
     expect((res as any).error).toBeDefined();
     expect(service.commitImport).not.toHaveBeenCalled();
+  });
+
+  it('undo-import e unlink repassam o requester completo', async () => {
+    const requester = { id: 'u1', role: 'USER', allowedProjects: ['p1'] };
+    await controller.undoImport('t1', 'p1', 'card1', 'imp1', requester);
+    await controller.unlink('t1', 'p1', 'expense1', requester);
+    expect(service.undoImport).toHaveBeenCalledWith('t1', 'p1', 'card1', 'imp1', requester);
+    expect(service.unlinkExpense).toHaveBeenCalledWith('t1', 'p1', 'expense1', requester);
   });
 });

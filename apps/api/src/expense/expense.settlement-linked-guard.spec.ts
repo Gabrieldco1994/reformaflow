@@ -3,6 +3,7 @@ import { BadRequestException } from '@nestjs/common';
 import { ExpenseService } from './expense.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
+import { withAclRequester } from '../test-utils/acl-requester-test-helper';
 
 const tenantId = 'tenant-1';
 const projectId = 'pessoal-1';
@@ -49,7 +50,7 @@ async function build(settlementCount: number) {
   const module: TestingModule = await Test.createTestingModule({
     providers: [ExpenseService, ConciliacaoService, { provide: PrismaService, useValue: prisma }],
   }).compile();
-  return { service: module.get(ExpenseService), prisma };
+  return { service: withAclRequester(module.get(ExpenseService), prisma), prisma };
 }
 
 describe('Guarda de participação em CrossProjectSettlement (conciliação por parcela)', () => {
