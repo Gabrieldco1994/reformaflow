@@ -20,6 +20,9 @@ Commits principais:
 - Esta PR (#448 B1a) — child ACL encadeada em `settleTargetParcela`; `roomId` e
   `sourcePriceItemId` validados por escopo; guard de duplicidade ativa em cartão/conta
   (§15 de `visao-conta-faturas.md`).
+- `46dc78a0` (Security Phase 2) — `findCrossProject` leitura agora scoped por
+  `resolveAccessibleProjectScope`; `obraProjectId` de `createRecorrente` também
+  scoped (ver `despesa-recorrente.md` invariante 13).
 
 ---
 
@@ -79,6 +82,14 @@ Commits principais:
     fora do escopo → mesma exceção que o caminho já lançava para "not found" —
     nenhuma mensagem nova vaza existência de recurso. Requester ausente (paths
     legados) → full-access, comportamento idêntico ao de antes do B1a.
+20. **Security Phase 2 — Escopo de leitura em `findCrossProject`:** `GET
+    .../expenses/cross-project` resolve `resolveAccessibleProjectScope` UMA VEZ e
+    aplica `projectId: {in: scope}` diretamente no `where` do Prisma — nunca como
+    filtro pós-fetch que sub-preencheria uma página. `targetProjectId` fora do
+    escopo resolvido short-circuits para `[]` sem tocar o banco — byte-idêntico a
+    "query rodou, não encontrou nada", nunca um `403` que confirmaria existência do
+    projeto. `null` scope (role full-access ou grants irrestritivos) preserva o
+    comportamento irrestrito atual sem alteração. Commit: `46dc78a0`.
 
 ## Referência de implementação
 

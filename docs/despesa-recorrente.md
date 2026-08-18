@@ -30,11 +30,13 @@ Commits principais:
 10. UI, Copilot e voz devem convergir no mesmo contrato (`createRecorrente` / tool `create_recurring_expense`).
 11. `recurrenceGroupId` não existe no contrato atual; edição/exclusão em lote é evolução futura. ⚠️ não blindado por teste de ausência de agrupamento.
 12. **Regra de domicílio:** contas fixas que saem da conta bancária pessoal (luz, gás, internet, IPVA, seguro…) DEVEM ser lançadas como despesa recorrente no projeto **PESSOAL** — é assim que entram no caixa consolidado (§10). Projetos CASA/CARRO têm `recurringBills` para rastrear manutenção/lembretes do bem, mas essas NÃO alimentam o caixa. Espelho automático CASA/CARRO→PESSOAL é explicitamente **deferido** (decisão de produto 2026-07).
+13. **Escopo do `obraProjectId` (B1a — Security Phase 2):** quando o chamador fornece um `RateioRequester`, o `obraProjectId` é validado contra o tenant **e** o escopo autorizado do requisitante via `canRequesterSeeProject` — antes de qualquer verificação de tipo ou escrita. Requester presente + projeto fora do escopo → `BadRequestException('Projeto de obra não encontrado neste tenant.')`, a mesma exceção já lançada para projeto inexistente ou cross-tenant; nunca um `403` que confirmaria existência ou tipo do projeto ao requisitante. Requester ausente (path de agente via `agent-tools.service.ts` ou qualquer chamada legada sem o 5º argumento) → full-access, comportamento idêntico ao de antes do B1a.
 
 ## Referência de implementação
 
 - Domain: `packages/domain/src/calculations/expense-recurrence.ts`.
 - Backend: `apps/api/src/expense/dto/create-recorrente.dto.ts`, `apps/api/src/expense/expense.service.ts` (`createRecorrente`), `apps/api/src/agent/tools/agent-tools.service.ts`.
+- Escopo do `obraProjectId`: `apps/api/src/common/access-rules.ts` (`canRequesterSeeProject`), `apps/api/src/expense/rateio.types.ts` (`RateioRequester`). Commit: `46dc78a0` (Security Phase 2).
 - Frontend: `apps/web/src/app/projects/[projectId]/expenses/_components/RecorrenteWizard.tsx`, `.../_components/PayOptionsModal.tsx`.
 - Testes que blindam contrato: `packages/domain/__tests__/expense-recurrence.test.ts`, `apps/api/src/expense/expense.service.spec.ts`.
 
