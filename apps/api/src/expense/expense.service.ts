@@ -17,6 +17,7 @@ import {
 import { userCanAccessProject, userCanAccessProjectType, resolveAccessibleProjectScope } from '../common/access-rules';
 
 type ExpenseDb = PrismaService | Prisma.TransactionClient;
+type ExpenseWithRoom = Prisma.ExpenseGetPayload<{ include: { room: true } }>;
 type RateioParticipation = 'source' | 'target' | null;
 
 const RATEIO_PARTICIPANT_MUTATION_MESSAGE =
@@ -95,7 +96,10 @@ export class ExpenseService {
       dto.settlesInvoiceCardId && dto.settlesInvoiceCardId !== null && dto.settlesInvoiceCardId !== ''
         ? db.creditCard.findFirst({
             where: { id: dto.settlesInvoiceCardId, tenantId, deletedAt: null },
-            select: { last4: true },
+            select: {
+              last4: true,
+              project: { select: { id: true, type: true, tenantId: true } },
+            },
           })
         : null,
     ]);
@@ -155,6 +159,12 @@ export class ExpenseService {
         out.settlesInvoiceKey = null;
       } else if (!settlesCardRow) {
         throw new BadRequestException('Cartão da fatura quitada não encontrado neste tenant');
+      } else if (
+        !settlesCardRow.project ||
+        settlesCardRow.project.tenantId !== tenantId ||
+        !this.canRequesterSeeProject(requester, settlesCardRow.project)
+      ) {
+        throw new BadRequestException('Cartão da fatura quitada não encontrado neste tenant');
       } else if (!dto.settlesInvoiceDueMonth) {
         throw new BadRequestException('Informe o mês de vencimento (settlesInvoiceDueMonth) da fatura quitada');
       } else {
@@ -199,12 +209,17 @@ export class ExpenseService {
     createdByUserId: string | null = null,
     tx?: Prisma.TransactionClient,
     requester?: RateioRequester,
-  ) {
+  ): Promise<ExpenseWithRoom> {
     if (
       dto.linkedExpenseId !== undefined ||
       dto.settlesInvoiceCardId !== undefined
     ) {
       assertRateioRequester(requester);
+    }
+    if (dto.settlesInvoiceCardId !== undefined && !tx) {
+      return this.prisma.$transaction((transaction) =>
+        this.create(tenantId, projectId, dto, createdByUserId, transaction, requester),
+      );
     }
     const db = tx ?? this.prisma;
     await this.validateProject(tenantId, projectId, db);
@@ -1366,11 +1381,18 @@ export class ExpenseService {
     id: string,
     dto: UpdateExpenseDto,
     requester: RateioRequester,
-  ) {
+    tx?: Prisma.TransactionClient,
+  ): Promise<ExpenseWithRoom> {
     assertRateioRequester(requester);
-    await this.validateProject(tenantId, projectId);
+    if (dto.settlesInvoiceCardId !== undefined && !tx) {
+      return this.prisma.$transaction((transaction) =>
+        this.update(tenantId, projectId, id, dto, requester, transaction),
+      );
+    }
+    const db = tx ?? this.prisma;
+    await this.validateProject(tenantId, projectId, db);
 
-    const existing = await this.prisma.expense.findFirst({
+    const existing = await db.expense.findFirst({
       where: { id, projectId, tenantId, deletedAt: null },
     });
     if (!existing) throw new NotFoundException('Despesa não encontrada');
@@ -1379,11 +1401,11 @@ export class ExpenseService {
     const quantidade = dto.quantidade !== undefined ? dto.quantidade : existing.quantidade;
     const valorTotal = valorCents * quantidade;
 
-    const links = await this.resolveLinks(tenantId, projectId, dto, this.prisma, requester);
+    const links = await this.resolveLinks(tenantId, projectId, dto, db, requester);
 
     // B1a (#448): mesma regra do `create` — sala do próprio projeto, sem
     // `tenantId` no schema; valida só existência/posse.
-    await this.validateRoomOwnership(this.prisma, dto.roomId, projectId);
+    await this.validateRoomOwnership(db, dto.roomId, projectId);
     const sameDate = (current: Date | null, incoming: string | null | undefined): boolean =>
       incoming === undefined ||
       (incoming === null ? current === null : current?.getTime() === new Date(incoming).getTime());
@@ -1437,8 +1459,15 @@ export class ExpenseService {
       id,
       !hasProtectedChange,
       !hasProtectedChange,
+      db,
     );
-    await this.guardSettlementParticipation(tenantId, id, !hasProtectedChange, !hasProtectedChange);
+    await this.guardSettlementParticipation(
+      tenantId,
+      id,
+      !hasProtectedChange,
+      !hasProtectedChange,
+      db,
+    );
 
     const resultingFormaPagamento = dto.formaPagamento ?? existing.formaPagamento;
     const resultingQuantidadeParcela =
@@ -1477,7 +1506,7 @@ export class ExpenseService {
       changedQuantidade ||
       changedDataInicioParcela;
 
-    const expense = await this.prisma.expense.update({
+    const expense = await db.expense.update({
       where: { id },
       data: {
         tipoDespesa: dto.tipoDespesa,
@@ -1528,7 +1557,7 @@ export class ExpenseService {
       include: { room: true },
     });
 
-    await this.regenerateCashFlow(expense.id);
+    await this.regenerateCashFlow(expense.id, tx);
 
     // "Uma coisa só": se esta despesa faz parte de um par cross-project (canônico
     // na obra + espelho no PESSOAL, criado pelo fluxo de obra paga com caixa
@@ -1541,6 +1570,8 @@ export class ExpenseService {
         id,
         dto,
         shouldNormalizeInstallmentDateOverrides,
+        db,
+        tx,
       );
     }
 
@@ -1734,9 +1765,11 @@ export class ExpenseService {
     sourceId: string,
     dto: UpdateExpenseDto,
     shouldSyncInstallmentDateOverrides: boolean,
+    db: ExpenseDb = this.prisma,
+    tx?: Prisma.TransactionClient,
   ) {
     const involvedInSettlement = async (expenseId: string) =>
-      (await this.prisma.crossProjectSettlement.count({
+      (await db.crossProjectSettlement.count({
         where: { tenantId, OR: [{ sourceExpenseId: expenseId }, { targetExpenseId: expenseId }] },
       })) > 0;
 
@@ -1744,7 +1777,7 @@ export class ExpenseService {
     // não sincronizamos para não interferir no fluxo de conciliação.
     if (await involvedInSettlement(sourceId)) return;
 
-    const source = await this.prisma.expense.findFirst({
+    const source = await db.expense.findFirst({
       where: { id: sourceId, tenantId, deletedAt: null },
       select: { id: true, linkedExpenseId: true, installmentDateOverrides: true },
     });
@@ -1752,13 +1785,13 @@ export class ExpenseService {
 
     const counterpartIds = new Set<string>();
     if (source.linkedExpenseId) {
-      const target = await this.prisma.expense.findFirst({
+      const target = await db.expense.findFirst({
         where: { id: source.linkedExpenseId, tenantId, deletedAt: null },
         select: { id: true },
       });
       if (target && !(await involvedInSettlement(target.id))) counterpartIds.add(target.id);
     }
-    const mirrors = await this.prisma.expense.findMany({
+    const mirrors = await db.expense.findMany({
       where: { tenantId, linkedExpenseId: sourceId, deletedAt: null },
       select: { id: true },
     });
@@ -1798,7 +1831,7 @@ export class ExpenseService {
       dto.dataInicioParcela !== undefined;
 
     for (const cid of counterpartIds) {
-      const cp = await this.prisma.expense.findUnique({
+      const cp = await db.expense.findUnique({
         where: { id: cid },
         select: { valor: true, quantidade: true },
       });
@@ -1812,8 +1845,8 @@ export class ExpenseService {
       data.valorTotal = newValor * newQtd;
       if (resetPaidParcelas) data.paidParcelas = null;
 
-      await this.prisma.expense.update({ where: { id: cid }, data });
-      await this.regenerateCashFlow(cid);
+      await db.expense.update({ where: { id: cid }, data });
+      await this.regenerateCashFlow(cid, tx);
     }
   }
 

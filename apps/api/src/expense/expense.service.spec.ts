@@ -1159,7 +1159,10 @@ describe('ExpenseService', () => {
 
   describe('resolveLinks — "cartão paga cartão" (settlesInvoiceKey)', () => {
     it('create com settlesInvoiceCardId + settlesInvoiceDueMonth monta settlesInvoiceKey', async () => {
-      prisma.creditCard.findFirst.mockResolvedValue({ last4: '3541' });
+      prisma.creditCard.findFirst.mockResolvedValue({
+        last4: '3541',
+        project: { id: projectId, tenantId, type: 'REFORMA' },
+      });
       prisma.expense.create.mockResolvedValue({ id: 'e1' });
       prisma.expense.findUnique.mockResolvedValue(null);
 
@@ -1177,8 +1180,35 @@ describe('ExpenseService', () => {
       expect(arg.data.settlesInvoiceKey).toBe('3541:2026-09');
     });
 
+    it('rejeita cartão de projeto oculto antes de criar settlesInvoiceKey', async () => {
+      prisma.creditCard.findFirst.mockResolvedValue({
+        last4: '3541',
+        project: { id: 'hidden-project', tenantId, type: 'REFORMA' },
+      });
+
+      await expect(service.create(tenantId, projectId, {
+        tipoDespesa: 'MATERIAL_CONSTRUCAO',
+        valor: 100,
+        quantidade: 1,
+        formaPagamento: 'A_VISTA',
+        status: 'PAGO',
+        settlesInvoiceCardId: 'card-hidden',
+        settlesInvoiceDueMonth: '2026-09',
+      } as any, null, undefined, {
+        role: 'USER',
+        allowedProjects: [projectId],
+        allowedModules: ['expenses'],
+      })).rejects.toThrow('Cartão da fatura quitada não encontrado neste tenant');
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.expense.create).not.toHaveBeenCalled();
+    });
+
     it('create rejeita settlesInvoiceCardId sem settlesInvoiceDueMonth', async () => {
-      prisma.creditCard.findFirst.mockResolvedValue({ last4: '3541' });
+      prisma.creditCard.findFirst.mockResolvedValue({
+        last4: '3541',
+        project: { id: projectId, tenantId, type: 'REFORMA' },
+      });
       await expect(
         service.create(tenantId, projectId, {
           tipoDespesa: 'MATERIAL_CONSTRUCAO',

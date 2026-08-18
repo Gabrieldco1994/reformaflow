@@ -32,6 +32,10 @@ interface ExpenseRow {
   paidParcelas: string | null;
 }
 
+interface SettlementExpenseRow extends ExpenseRow {
+  project: { id: string; type: string; tenantId: string } | null;
+}
+
 interface EntryRow {
   id: string;
   expenseId: string;
@@ -43,6 +47,11 @@ interface EntryRow {
 
 interface UnsettlePurchase {
   expense: ExpenseRow;
+  entries: EntryRow[];
+}
+
+interface SettlePurchase {
+  expense: SettlementExpenseRow;
   entries: EntryRow[];
 }
 
@@ -101,40 +110,58 @@ export class CardInvoiceSettlementService {
   }): Promise<{ settledExpenses: number; settledParcelas: number }> {
     assertRateioRequester(params.requester);
     const { tenantId, card, amountCents, paymentDate } = params;
-    let settledExpenses = 0;
-    let settledParcelas = 0;
+    return this.prisma.$transaction(async (tx) => {
+      await this.assertCanAccessCard({ tenantId, card, tx, requester: params.requester });
+      const neutral = Array.from(NEUTRAL_EXPENSE_TYPES);
+      const hasDays = card.closingDay != null && card.dueDay != null;
 
-    const neutral = Array.from(NEUTRAL_EXPENSE_TYPES);
-    const hasDays = card.closingDay != null && card.dueDay != null;
+      // ── Estratégia 1: por vencimento, respeitando o VALOR pago ────
+      if (hasDays) {
+        const purchases = await tx.expense.findMany({
+          where: {
+            tenantId,
+            cardLast4: card.last4,
+            deletedAt: null,
+            tipoDespesa: { notIn: neutral },
+          },
+          include: {
+            project: { select: { id: true, type: true, tenantId: true } },
+          },
+        });
 
-    // ── Estratégia 1: por vencimento, respeitando o VALOR pago ────
-    if (hasDays) {
-      const purchases = (await this.prisma.expense.findMany({
-        where: {
-          tenantId,
-          cardLast4: card.last4,
-          deletedAt: null,
-          tipoDespesa: { notIn: neutral },
-        },
-      })) as ExpenseRow[];
-
-      const target = await this.resolveTargetDueMonth(purchases, card, amountCents, paymentDate);
-      if (target) {
-        for (const e of purchases) {
-          const n = await this.settleByDueMonth(e, card, target);
-          if (n > 0) {
-            settledExpenses++;
-            settledParcelas += n;
+        const target = await this.resolveTargetDueMonth(
+          tx,
+          purchases,
+          card,
+          amountCents,
+          paymentDate,
+        );
+        if (target) {
+          const prepared = await this.prepareDueMonthSettlement(
+            tx,
+            tenantId,
+            purchases,
+            card,
+            target,
+            params.requester,
+          );
+          if (prepared.length > 0) {
+            return this.applyPreparedSettlement(tx, prepared);
           }
         }
-        if (settledParcelas > 0) return { settledExpenses, settledParcelas };
       }
-    }
 
-    // ── Estratégia 2 (fallback): por fatura importada ─────────────
-    const matchedImport = await this.findImportByTotal(tenantId, card.id, amountCents, paymentDate);
-    if (matchedImport) {
-      const purchases = (await this.prisma.expense.findMany({
+      // ── Estratégia 2 (fallback): por fatura importada ───────────
+      const matchedImport = await this.findImportByTotal(
+        tx,
+        tenantId,
+        card.id,
+        amountCents,
+        paymentDate,
+      );
+      if (!matchedImport) return { settledExpenses: 0, settledParcelas: 0 };
+
+      const purchases = await tx.expense.findMany({
         where: {
           tenantId,
           importId: matchedImport.id,
@@ -142,18 +169,18 @@ export class CardInvoiceSettlementService {
           deletedAt: null,
           tipoDespesa: { notIn: neutral },
         },
-      })) as ExpenseRow[];
-
-      for (const e of purchases) {
-        const n = await this.settleEarliestUnpaid(e);
-        if (n > 0) {
-          settledExpenses++;
-          settledParcelas += n;
-        }
-      }
-    }
-
-    return { settledExpenses, settledParcelas };
+        include: {
+          project: { select: { id: true, type: true, tenantId: true } },
+        },
+      });
+      const prepared = await this.prepareEarliestSettlement(
+        tx,
+        tenantId,
+        purchases,
+        params.requester,
+      );
+      return this.applyPreparedSettlement(tx, prepared);
+    });
   }
 
   /**
@@ -171,7 +198,8 @@ export class CardInvoiceSettlementService {
    * pelo banco, contra o qual o pagamento é confrontado.
    */
   private async resolveTargetDueMonth(
-    purchases: ExpenseRow[],
+    tx: Prisma.TransactionClient,
+    purchases: SettlementExpenseRow[],
     card: SettleCard,
     amountCents: number,
     paymentDate: Date,
@@ -181,7 +209,7 @@ export class CardInvoiceSettlementService {
 
     const totalByMonth = new Map<string, number>();
     for (const e of purchases) {
-      const entries = (await this.prisma.cashFlowEntry.findMany({
+      const entries = (await tx.cashFlowEntry.findMany({
         where: { expenseId: e.id, deletedAt: null },
       })) as EntryRow[];
       for (const en of entries) {
@@ -403,46 +431,98 @@ export class CardInvoiceSettlementService {
     );
   }
 
-  private async settleByDueMonth(e: ExpenseRow, card: SettleCard, target: string): Promise<number> {
-    const planned = (await this.prisma.cashFlowEntry.findMany({
-      where: { expenseId: e.id, deletedAt: null, status: 'PLANEJADO' },
-    })) as EntryRow[];
-
-    const toPay = planned.filter(
-      (en) => caixaMonthForCardPurchase(en.data, card.closingDay, card.dueDay) === target,
-    );
-    if (toPay.length === 0) return 0;
-
-    for (const en of toPay) {
-      await this.prisma.cashFlowEntry.update({ where: { id: en.id }, data: { status: 'PAGO' } });
+  private assertCanSettlePurchase(
+    tenantId: string,
+    requester: RateioRequester,
+    expense: SettlementExpenseRow,
+  ): void {
+    if (
+      !expense.project ||
+      expense.project.tenantId !== tenantId ||
+      !this.canRequesterSeeProject(requester, expense.project)
+    ) {
+      throw new NotFoundException(INVOICE_NOT_FOUND_MESSAGE);
     }
-    await this.applyPaid(e, toPay);
-    return toPay.length;
   }
 
-  private async settleEarliestUnpaid(e: ExpenseRow): Promise<number> {
-    const planned = (await this.prisma.cashFlowEntry.findMany({
-      where: { expenseId: e.id, deletedAt: null, status: 'PLANEJADO' },
-      orderBy: { data: 'asc' },
-    })) as EntryRow[];
-    if (planned.length === 0) return 0;
+  private async prepareDueMonthSettlement(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    purchases: SettlementExpenseRow[],
+    card: SettleCard,
+    target: string,
+    requester: RateioRequester,
+  ): Promise<SettlePurchase[]> {
+    const prepared: SettlePurchase[] = [];
+    for (const expense of purchases) {
+      const planned = (await tx.cashFlowEntry.findMany({
+        where: { expenseId: expense.id, deletedAt: null, status: 'PLANEJADO' },
+      })) as EntryRow[];
+      const entries = planned.filter(
+        (entry) =>
+          caixaMonthForCardPurchase(entry.data, card.closingDay, card.dueDay) === target,
+      );
+      if (entries.length === 0) continue;
+      this.assertCanSettlePurchase(tenantId, requester, expense);
+      prepared.push({ expense, entries });
+    }
+    return prepared;
+  }
 
-    const en = planned[0];
-    await this.prisma.cashFlowEntry.update({ where: { id: en.id }, data: { status: 'PAGO' } });
-    await this.applyPaid(e, [en]);
-    return 1;
+  private async prepareEarliestSettlement(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    purchases: SettlementExpenseRow[],
+    requester: RateioRequester,
+  ): Promise<SettlePurchase[]> {
+    const prepared: SettlePurchase[] = [];
+    for (const expense of purchases) {
+      const planned = (await tx.cashFlowEntry.findMany({
+        where: { expenseId: expense.id, deletedAt: null, status: 'PLANEJADO' },
+        orderBy: { data: 'asc' },
+      })) as EntryRow[];
+      if (planned.length === 0) continue;
+      this.assertCanSettlePurchase(tenantId, requester, expense);
+      prepared.push({ expense, entries: [planned[0]] });
+    }
+    return prepared;
+  }
+
+  private async applyPreparedSettlement(
+    tx: Prisma.TransactionClient,
+    prepared: SettlePurchase[],
+  ): Promise<{ settledExpenses: number; settledParcelas: number }> {
+    let settledParcelas = 0;
+    for (const purchase of prepared) {
+      for (const entry of purchase.entries) {
+        await tx.cashFlowEntry.update({
+          where: { id: entry.id },
+          data: { status: 'PAGO' },
+        });
+      }
+      await this.applyPaid(tx, purchase.expense, purchase.entries);
+      settledParcelas += purchase.entries.length;
+    }
+    return {
+      settledExpenses: prepared.length,
+      settledParcelas,
+    };
   }
 
   /**
    * Atualiza `paidParcelas`/`status` da despesa de acordo com os lançamentos
    * recém-marcados como PAGO.
    */
-  private async applyPaid(e: ExpenseRow, paidEntries: EntryRow[]): Promise<void> {
+  private async applyPaid(
+    client: Prisma.TransactionClient,
+    e: ExpenseRow,
+    paidEntries: EntryRow[],
+  ): Promise<void> {
     const n = e.quantidadeParcela ?? 1;
 
     // À vista / pagamento único: a despesa inteira é quitada.
     if (isSinglePaymentForm(e.formaPagamento) || n <= 1) {
-      await this.prisma.expense.update({
+      await client.expense.update({
         where: { id: e.id },
         data: { status: 'PAGO', paidParcelas: null },
       });
@@ -463,13 +543,14 @@ export class CardInvoiceSettlementService {
     const paidParcelas =
       allPaid || set.size === 0 ? null : JSON.stringify(Array.from(set).sort((a, b) => a - b));
 
-    await this.prisma.expense.update({
+    await client.expense.update({
       where: { id: e.id },
       data: { status: allPaid ? 'PAGO' : 'PLANEJADO', paidParcelas },
     });
   }
 
   private async findImportByTotal(
+    tx: Prisma.TransactionClient,
     tenantId: string,
     cardId: string,
     amountCents: number,
@@ -478,7 +559,7 @@ export class CardInvoiceSettlementService {
     const since = new Date(paymentDate);
     since.setDate(since.getDate() - 75);
     const tolerance = 200; // ±R$ 2 (encargos podem variar)
-    const found = await this.prisma.creditCardStatementImport.findFirst({
+    const found = await tx.creditCardStatementImport.findFirst({
       where: {
         cardId,
         tenantId,

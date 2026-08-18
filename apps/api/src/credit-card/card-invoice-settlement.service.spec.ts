@@ -9,10 +9,19 @@ function makePrisma(seed: {
   expenses: any[];
   entries: any[];
   imports?: any[];
+  cards?: any[];
+  projects?: any[];
 }) {
   const expenses = seed.expenses;
   const entries = seed.entries;
   const imports = seed.imports ?? [];
+  const projects = seed.projects ?? [
+    { id: 'card-project', tenantId: 't1', type: 'REFORMA', deletedAt: null },
+    { id: 'purchase-project', tenantId: 't1', type: 'REFORMA', deletedAt: null },
+  ];
+  const cards = seed.cards ?? [
+    { ...CARD, tenantId: 't1', projectId: 'card-project', deletedAt: null },
+  ];
 
   const matchWhere = (row: any, where: any): boolean => {
     for (const [k, v] of Object.entries(where ?? {})) {
@@ -32,13 +41,19 @@ function makePrisma(seed: {
     return true;
   };
 
-  return {
+  const prisma = {
     _expenses: expenses,
     _entries: entries,
     expense: {
-      findMany: jest.fn(({ where }: any) =>
-        Promise.resolve(expenses.filter((e) => matchWhere(e, where))),
-      ),
+      findMany: jest.fn(({ where }: any) => Promise.resolve(
+        expenses
+          .filter((e) => matchWhere(e, where))
+          .map((e) => ({
+            ...e,
+            projectId: e.projectId ?? 'purchase-project',
+            project: projects.find((project) => project.id === (e.projectId ?? 'purchase-project')),
+          })),
+      )),
       update: jest.fn(({ where, data }: any) => {
         const e = expenses.find((x) => x.id === where.id);
         Object.assign(e, data);
@@ -63,7 +78,22 @@ function makePrisma(seed: {
         return Promise.resolve(rows[0] ?? null);
       }),
     },
-  } as any;
+    creditCard: {
+      findFirst: jest.fn(({ where }: any) => {
+        const card = cards.find((candidate) => matchWhere(candidate, where));
+        if (!card) return Promise.resolve(null);
+        return Promise.resolve({
+          ...card,
+          project: projects.find((project) => project.id === card.projectId),
+        });
+      }),
+    },
+    $transaction: jest.fn(),
+  };
+  prisma.$transaction.mockImplementation(async (callback: (tx: typeof prisma) => unknown) =>
+    callback(prisma),
+  );
+  return prisma as any;
 }
 
 const CARD = { id: 'card1', last4: '5868', closingDay: 3, dueDay: 10 };
@@ -71,6 +101,112 @@ const REQUESTER: RateioRequester = { role: 'OWNER' };
 const d = (iso: string) => new Date(iso + 'T00:00:00.000Z');
 
 describe('CardInvoiceSettlementService', () => {
+  it('rejeita cartão oculto antes de consultar ou liquidar compras', async () => {
+    const prisma = makePrisma({ expenses: [], entries: [] });
+    const svc = new CardInvoiceSettlementService(prisma);
+
+    await expect(svc.settleInvoice({
+      tenantId: 't1',
+      card: CARD,
+      amountCents: 10000,
+      paymentDate: d('2026-07-10'),
+      requester: {
+        role: 'USER',
+        allowedProjects: ['visible-project'],
+        allowedModules: ['expenses'],
+      },
+    })).rejects.toThrow('Fatura não encontrada');
+
+    expect(prisma.expense.findMany).not.toHaveBeenCalled();
+    expect(prisma.cashFlowEntry.update).not.toHaveBeenCalled();
+    expect(prisma.expense.update).not.toHaveBeenCalled();
+  });
+
+  it('rejeita compra de projeto oculto antes de liquidar qualquer participante', async () => {
+    const visibleExpense = {
+      id: 'visible', tenantId: 't1', projectId: 'visible-project',
+      cardLast4: '5868', tipoDespesa: 'OUTROS', formaPagamento: 'A_VISTA',
+      quantidadeParcela: null, status: 'PLANEJADO', paidParcelas: null,
+      deletedAt: null, importId: 'imp1',
+    };
+    const hiddenExpense = {
+      ...visibleExpense,
+      id: 'hidden',
+      projectId: 'hidden-project',
+    };
+    const entries = [
+      { id: 'visible-entry', expenseId: 'visible', status: 'PLANEJADO', parcela: null, data: d('2026-06-15'), valor: 5000, deletedAt: null },
+      { id: 'hidden-entry', expenseId: 'hidden', status: 'PLANEJADO', parcela: null, data: d('2026-06-15'), valor: 5000, deletedAt: null },
+    ];
+    const prisma = makePrisma({
+      expenses: [visibleExpense, hiddenExpense],
+      entries,
+      projects: [
+        { id: 'card-project', tenantId: 't1', type: 'REFORMA', deletedAt: null },
+        { id: 'visible-project', tenantId: 't1', type: 'REFORMA', deletedAt: null },
+        { id: 'hidden-project', tenantId: 't1', type: 'REFORMA', deletedAt: null },
+      ],
+    });
+    const svc = new CardInvoiceSettlementService(prisma);
+
+    await expect(svc.settleInvoice({
+      tenantId: 't1',
+      card: CARD,
+      amountCents: 10000,
+      paymentDate: d('2026-07-10'),
+      requester: {
+        role: 'USER',
+        allowedProjects: ['card-project', 'visible-project'],
+        allowedModules: ['expenses'],
+      },
+    })).rejects.toThrow('Fatura não encontrada');
+
+    expect(prisma.cashFlowEntry.update).not.toHaveBeenCalled();
+    expect(prisma.expense.update).not.toHaveBeenCalled();
+  });
+
+  it('fallback por import rejeita compra oculta antes de qualquer escrita', async () => {
+    const card = { id: 'card1', last4: '5868', closingDay: null, dueDay: null };
+    const hiddenExpense = {
+      id: 'fallback-hidden', tenantId: 't1', projectId: 'hidden-project',
+      cardLast4: '5868', tipoDespesa: 'OUTROS', formaPagamento: 'A_VISTA',
+      quantidadeParcela: null, status: 'PLANEJADO', paidParcelas: null,
+      deletedAt: null, importId: 'hidden-import',
+    };
+    const prisma = makePrisma({
+      expenses: [hiddenExpense],
+      entries: [
+        { id: 'fallback-entry', expenseId: hiddenExpense.id, status: 'PLANEJADO', parcela: null, data: d('2026-06-15'), valor: 5000, deletedAt: null },
+      ],
+      imports: [
+        { id: 'hidden-import', cardId: card.id, tenantId: 't1', totalAmountCents: 5000, deletedAt: null, createdAt: d('2026-06-12') },
+      ],
+      cards: [
+        { ...card, tenantId: 't1', projectId: 'card-project', deletedAt: null },
+      ],
+      projects: [
+        { id: 'card-project', tenantId: 't1', type: 'REFORMA', deletedAt: null },
+        { id: 'hidden-project', tenantId: 't1', type: 'REFORMA', deletedAt: null },
+      ],
+    });
+    const svc = new CardInvoiceSettlementService(prisma);
+
+    await expect(svc.settleInvoice({
+      tenantId: 't1',
+      card,
+      amountCents: 5000,
+      paymentDate: d('2026-07-10'),
+      requester: {
+        role: 'USER',
+        allowedProjects: ['card-project'],
+        allowedModules: ['expenses'],
+      },
+    })).rejects.toThrow('Fatura não encontrada');
+
+    expect(prisma.cashFlowEntry.update).not.toHaveBeenCalled();
+    expect(prisma.expense.update).not.toHaveBeenCalled();
+  });
+
   it('due-month: liquida a parcela cuja fatura vence no mês do pagamento', async () => {
     // Compra parcelada 3x em 10/jun (closing 3, due 10 → parcela 1 vence jul).
     const expense = {
