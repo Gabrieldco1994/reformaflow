@@ -25,7 +25,7 @@ Regra: o CONTRATO é atemporal e não carrega narrativa de "antes/depois". Hist�
 | [`experiencia-mobile-pwa.md`](experiencia-mobile-pwa.md) | Contrato transversal da experiência responsiva/PWA em `apps/web`: 375/390, toque, instalação, offline/update, permissões e fallback. |
 | [`maria-ia.md`](maria-ia.md) | Promessa cross-channel da Maria, confirmação de escrita, tools, OCR/voz/TTS, privacidade e gates de eval. |
 | [`landscape-agentes-skills-saas.md`](landscape-agentes-skills-saas.md) | Mapa canônico de agentes, skills e ownership das experiências; inclui prioridades e procedimento de revisão. |
-| [`plano-centro-financeiro-sdd.md`](plano-centro-financeiro-sdd.md) | SDD canônico do programa #436: **planejamento aprovado; B0+B1a implementados, pendentes de merge; S0.3 test-only em andamento**; decisões, contratos, ondas E0–E6, dependências, riscos e changelog. |
+| [`plano-centro-financeiro-sdd.md`](plano-centro-financeiro-sdd.md) | SDD canônico do programa #436: **planejamento aprovado; B0 entregue (PR #476); B1a desta PR pendente de merge; S0.3 test-only em andamento**; decisões, contratos, ondas E0–E6, dependências, riscos e changelog. |
 | `archive/estado-atual-historico-2026.md` | Histórico detalhado movido do estado-atual do cockpit (incrementos/commits de 2026). |
 | `archive/` | Notas históricas de sessões anteriores (não normativas) — ver `archive/README.md`. |
 
@@ -37,15 +37,15 @@ novas execuções.
 
 | Plano | Status | Assunto |
 |---|---|---|
-| [`plano-centro-financeiro-sdd.md`](plano-centro-financeiro-sdd.md) | 📋 **Aprovado; B0+B1a implementados pendente de merge; S0.3 test-only em andamento** | Programa #436 — Centro Financeiro multi-tenant e base agent-first. |
+| [`plano-centro-financeiro-sdd.md`](plano-centro-financeiro-sdd.md) | 📋 **Aprovado; B0 entregue (PR #476); B1a desta PR pendente de merge; S0.3 test-only em andamento** | Programa #436 — Centro Financeiro multi-tenant e base agent-first. |
 | [`plano-visao-conta-hub-2026-07.md`](plano-visao-conta-hub-2026-07.md) | 🗃️ **Histórico (v1)** | Registro do ciclo Visão Conta Hub; conferir comportamento entregue nos docs vivos. |
 | [`plano-ux-v2-2026-07.md`](plano-ux-v2-2026-07.md) | 🗃️ **Histórico (v2; ledger stale)** | Registro do ciclo de redução de trabalho; não é roadmap ativo. |
 
 Ferramentas de apoio (não-app): `tools/financial-analysis/` (reconciliação de caixa via `reconcile.py`).
 
-**Status E0 em 2026-08-18:** #446 pode avançar test-only sob exceção PO sem aguardar #445, mas
-#445 concluída/revisada e #446 verde continuam gates conjuntos para merge/deploy de #447/B0. A
-produção de #445 está `NOT_COLLECTED`, nunca zero: código, histórico e as 63 migrations commitadas
-até `20260810234344` indicam somente estado esperado, não dados de runtime ou migrations aplicadas.
-**B0 (#447) e B1a (#448) foram implementados em `fix/b1a-child-acl` (SHA `a029a6cf`) e estão
-pendentes de merge; #448 permanece OPEN; B1b e os gates de produção ainda são obrigatórios antes do deploy.**
+**Status E0/E1 em 2026-08-18:** **B0 (#447) foi entregue via PR #476 (produção).** E0/#437
+permanece incompleta pelo seu próprio gate de inventário de produção (#445, `NOT_COLLECTED`);
+isso não desfaz a entrega de B0. A produção de #445 nunca deve ser interpretada como zero:
+código, histórico e as 63 migrations commitadas até `20260810234344` indicam somente estado
+esperado, não dados de runtime ou migrations aplicadas. **B1a (#448) está implementado nesta PR,
+pendente de merge; #448 permanece OPEN; sequência obrigatória após merge de B1a: W1, B1b, B2.**

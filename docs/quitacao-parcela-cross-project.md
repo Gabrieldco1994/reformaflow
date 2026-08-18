@@ -17,9 +17,9 @@ Commits principais:
   (fecha o último caminho que reintroduzia o sumiço).
 - `ba5090bc`/`4e46a6f0`/`febd9151` (#424) — origem read-only do pagamento
   cross-project por parcela na REFORMA (§10): `GET .../expenses/paid-origins`.
-- `ba867600`/`e8b7903a`/`a029a6cf` (#448 B1a) — child ACL encadeada em
-  `settleTargetParcela`; `roomId` e `sourcePriceItemId` validados por escopo;
-  guard de duplicidade ativa em cartão/conta (§10b de `visao-conta-faturas.md`).
+- Esta PR (#448 B1a) — child ACL encadeada em `settleTargetParcela`; `roomId` e
+  `sourcePriceItemId` validados por escopo; guard de duplicidade ativa em cartão/conta
+  (§15 de `visao-conta-faturas.md`).
 
 ---
 

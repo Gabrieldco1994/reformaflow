@@ -4,18 +4,19 @@ Estado de runtime consolidado em: **2026-08-13**.
 
 Nota de planejamento #436 adicionada em: **2026-08-17**.
 
-**Atualizado em 2026-08-18:** B0 (#447) e B1a (#448) implementados em `fix/b1a-child-acl`, pendentes de merge.
+**Atualizado em 2026-08-18:** B0 (#447) entregue via PR #476 (produção). B1a (#448) implementado nesta PR, pendente de merge.
 
 Histórico detalhado: `docs/archive/estado-atual-historico-2026.md`.
 
 ## Programa Centro Financeiro #436 (planejamento, não estado entregue)
 
 O [SDD do Centro Financeiro](plano-centro-financeiro-sdd.md) está **aprovado como planejamento**,
-com implementação de produto/runtime não iniciada para a maioria das ondas. Exceção: **B0**
-([#447](https://github.com/Gabrieldco1994/reformaflow/issues/447)) e a primeira fatia de **B1**
-([#448](https://github.com/Gabrieldco1994/reformaflow/issues/448), B1a) foram implementados na
-branch `fix/b1a-child-acl` e estão **pendentes de merge** (branch `docs/b1a-child-acl` /
-SHA `a029a6cf`). Somente a baseline determinística test-only S0.3
+com implementação de produto/runtime não iniciada para a maioria das ondas. **B0**
+([#447](https://github.com/Gabrieldco1994/reformaflow/issues/447)) foi **entregue via PR #476**
+(produção). A primeira fatia de **B1**
+([#448](https://github.com/Gabrieldco1994/reformaflow/issues/448), B1a) está implementada nesta
+PR e **pendente de merge**; após o merge a sequência obrigatória é W1, B1b e depois B2. Somente
+a baseline determinística test-only S0.3
 [#446](https://github.com/Gabrieldco1994/reformaflow/issues/446) está também autorizada e pode
 estar em andamento; ela não altera esta tela nem os contratos abaixo.
 
@@ -25,10 +26,9 @@ estar em andamento; ela não altera esta tela nem os contratos abaixo.
   agregados, cardinalidades e anomalias de produção estão `NOT_COLLECTED`, nunca zero.
 - Código, histórico do GitHub e as 63 migrations commitadas até `20260810234344` descrevem estado
   esperado; não comprovam dados de runtime nem migrations aplicadas em produção.
-- E0 permanece incompleta. #445 concluída/revisada e #446 verde são gates conjuntos para
-  merge/deploy de B0 [#447](https://github.com/Gabrieldco1994/reformaflow/issues/447); #446 não
-  certifica B0, segurança ou produção. **B0 e B1a foram implementados na branch pendente de
-  merge — não estão no `main` nem em produção ainda.**
+- E0 permanece incompleta pelo seu próprio gate de inventário de produção (#445). Isso não
+  desfaz a entrega de B0: **B0 foi entregue via PR #476 (produção)**. #446 não certifica
+  segurança ou migração de produção. **B1a está implementado nesta PR, pendente de merge.**
 - B0/B1/B2 precisam ficar verdes antes de qualquer UX.
 - U6b continua bloqueada por U6a, lenses, architect e aprovação explícita do PO.
 - Maria agent-first (E5/M0–M3) é FUTURO e exige novo PO gate.

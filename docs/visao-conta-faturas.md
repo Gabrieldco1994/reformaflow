@@ -10,10 +10,9 @@
 > Política de timezone/data: `docs/politica-datas-timezone.md`.
 > **Status (2026-08-18):** regras ativas em `main` (inclui commits `1cc93dc6`,
 > `7010b95d`, `01affbcb`, `7e901b15`, `f7be2bff`, `e41461c7`).
-> **B1a (#448, pendente de merge):** `payInvoice`/`undoInvoicePayment` aceitam
+> **B1a (#448, esta PR, pendente de merge):** `payInvoice`/`undoInvoicePayment` aceitam
 > `cardId`/`accountId` opcionais; `getAccountView` emite `cardId`, `actions`,
 > `fingerprint` em `cartoes[]` e `saidas[]` (fatura), `accountId` em `contas[]`.
-> Commits: `ba867600`, `e8b7903a`, `a029a6cf`.
 
 ---
 
@@ -655,12 +654,14 @@ caminho de upgrade é um índice UNIQUE parcial
 `(tenant_id, project_id, last4) WHERE deleted_at IS NULL` em H4 — **não está
 implementado agora**.
 
-### 15.5 Commits (B1a)
+### 15.5 Escopo desta PR (#448 B1a)
 
-| Commit | Mudança |
+Esta PR (#448 B1a) cobre três unidades de mudança (SHAs de branch sujeitos a squash no merge):
+
+| Unidade | Mudança |
 |---|---|
-| `ba867600` | Child ACL, identidades de fatura/pagamento (`cartoes[]`), guard de duplicidade (cartão/conta) |
-| `e8b7903a` | `cardId`/`actions`/`fingerprint` na linha `saidas[]` (fatura) |
-| `a029a6cf` | Encadeia `requester` pelo `BankAccountController.linkToExpense` (fecha gap apontado no commit anterior) |
+| Child ACL + identidades de fatura (`cartoes[]`) + guard duplicidade | Child ACL em `settleTargetParcela`, `cardId`/`actions`/`fingerprint` em `cartoes[]`, guard 409 em cartão/conta |
+| Identidades na linha de fatura em `saidas[]` | `cardId`/`actions`/`fingerprint` na linha `saidas[]` com `isInvoice:true` |
+| Encadeamento de `requester` em `BankAccountController.linkToExpense` | Fecha o gap identificado na unidade anterior |
 
 **Compatibilidade retrospectiva:** todos os 1318 testes existentes passam sem edição.

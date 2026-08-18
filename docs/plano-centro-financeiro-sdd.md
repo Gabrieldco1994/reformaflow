@@ -68,8 +68,9 @@ Na base original, e **não como resultado deste programa**:
   Planejador, mas não os unificou com Planning;
 - a Maria já possui a superfície e as capacidades registradas em
   [maria-ia.md](maria-ia.md). Isso **não** significa que E5/M0–M3 estejam entregues;
-- nenhuma task S0/B0–B2/U1–U6/V0/D0/R0/A0/M0–M3/H1–H5 do programa #436 está entregue como
-  implementação de produto apenas porque este SDD foi versionado.
+- nenhuma task S0/B1–B2/U1–U6/V0/D0/R0/A0/M0–M3/H1–H5 do programa #436 está entregue como
+  implementação de produto apenas porque este SDD foi versionado. (**B0 #447 foi entregue via
+  PR #476, resultado de execução independente, não da publicação deste SDD.**)
 
 ### 2.2 APROVADO, mas não iniciado ou bloqueado
 
@@ -88,8 +89,8 @@ Na base original, e **não como resultado deste programa**:
 | S0.1 [#444](https://github.com/Gabrieldco1994/reformaflow/issues/444) | **CONCLUÍDA (documental)** | Libera S0.2 e S0.3. |
 | S0.2 [#445](https://github.com/Gabrieldco1994/reformaflow/issues/445) | **BLOQUEADA/DEFERIDA; produção `NOT_COLLECTED`** | Próxima tentativa somente após telemetria do suporte Fly e nova autorização explícita. |
 | S0.3 [#446](https://github.com/Gabrieldco1994/reformaflow/issues/446) | **READY sob exceção PO; test-only em andamento** | Pode construir, testar e fazer merge sem aguardar a conclusão de #445; não toca produto/runtime. |
-| B0 [#447](https://github.com/Gabrieldco1994/reformaflow/issues/447) | **IMPLEMENTADO — pendente de merge** (`fix/b1a-child-acl`, SHA `a029a6cf`) | Merge/deploy ainda exige conjuntamente #445 concluída/revisada e #446 verde; security verify pendente. |
-| B1a [#448](https://github.com/Gabrieldco1994/reformaflow/issues/448) | **IMPLEMENTADO (fatia B1a) — pendente de merge** (`fix/b1a-child-acl`, SHA `a029a6cf`) | Child ACL, identidades de fatura, ações server-provided, guard de duplicidade; zero schema/UX. #448 permanece OPEN; B1b (ambiguous-last4) pendente. |
+| B0 [#447](https://github.com/Gabrieldco1994/reformaflow/issues/447) | **ENTREGUE — PR #476, produção** | Auth, grants e scope financeiro em produção. E0/#437 permanece incompleta pelo seu próprio gate de inventário (#445); isso não desfaz a entrega de B0. |
+| B1a [#448](https://github.com/Gabrieldco1994/reformaflow/issues/448) | **IMPLEMENTADO (fatia B1a) — pendente de merge (esta PR)** | Child ACL, identidades de fatura, ações server-provided, guard de duplicidade; zero schema/UX. #448 permanece OPEN. Sequência após merge: W1, B1b, B2. |
 
 E0 [#437](https://github.com/Gabrieldco1994/reformaflow/issues/437) permanece incompleta enquanto
 #445 estiver aberta. A exceção de #446 não conclui E0 nem dispensa o gate de produção.
@@ -156,7 +157,7 @@ Esta seção registra gates do programa, não uma nova versão das fórmulas can
 - **ESTADO ATUAL / GAP LEGADO:** `AGENTS.md`, [estado-atual-cockpit-pessoal.md](estado-atual-cockpit-pessoal.md)
   e [manual-do-aplicativo.md](manual-do-aplicativo.md) documentam a contagem/soma agregada de
   alvos de rateio ocultos ou removidos. Esse relato continua válido para o runtime atual e deve
-  ser preservado até B0/B1 serem realmente mergeados; ele não é o contrato do novo Hub.
+  ser preservado até B1 (full) ser mergeado e deployado; ele não é o contrato do novo Hub.
 - No contrato futuro #436, projeto oculto ou cross-tenant não muda linha, total, contagem, série,
   tooltip, flag, metadata nem telemetria.
 - Parent explícito same-tenant fora do scope responde `403`; child oculto, cross-tenant ou
@@ -190,8 +191,9 @@ Toda UX do programa precisa passar em **375 px, 390 px e desktop**:
 ```text
 S0.1 (#444) → S0.2 (#445 bloqueada/deferida)
 S0.1 (#444) → S0.3 (#446 test-only, exceção PO)
-S0.2 concluída/revisada + S0.3 verde → merge/deploy B0 (#447) → B1 (#448) → B2 (#449)
-B2 + deploy B0 + security verify → U1 (#450) → U2 (#451)
+[B0 (#447) ENTREGUE via PR #476]
+B1a slice of #448 (esta PR, pendente de merge) → W1 → B1b slice of #448 → B2 (#449)
+B2 + security verify → U1 (#450) → U2 (#451)
 U2 → U3 (#452) → U4 (#453)
 U2 → U5 (#454)
 U3 → U6a (#455)
@@ -206,8 +208,8 @@ separada e só entra no critical path quando uma exposição consumidora for dem
 
 | Epic | Status do design | Conteúdo e dependência |
 |---|---|---|
-| [E0 #437](https://github.com/Gabrieldco1994/reformaflow/issues/437) | **INCOMPLETA**; S0.1 concluída, S0.2 bloqueada/deferida e S0.3 READY test-only | #446 pode avançar sem #445; #445 concluída/revisada + #446 verde são gates conjuntos obrigatórios para merge/deploy de B0. |
-| [E1 #438](https://github.com/Gabrieldco1994/reformaflow/issues/438) | **B0+B1a IMPLEMENTADOS (pendente de merge); B1b+B2 BLOQUEADOS** | B0 e B1a implementados em `fix/b1a-child-acl`, pendentes do gate #445+#446 e security verify. B1b (ambiguous-last4 409, hidden-metadata removal) e B2 aguardam. Os três e security verify ficam verdes antes de UX. |
+| [E0 #437](https://github.com/Gabrieldco1994/reformaflow/issues/437) | **INCOMPLETA**; S0.1 concluída, S0.2 bloqueada/deferida e S0.3 READY test-only | E0 permanece incompleta pelo seu próprio gate #445 de inventário de produção; B0 já foi entregue independentemente. |
+| [E1 #438](https://github.com/Gabrieldco1994/reformaflow/issues/438) | **B0 ENTREGUE; B1a implementado nesta PR, pendente de merge; B1b+B2 BLOQUEADOS** | B0 entregue via PR #476. B1a pendente de merge; sequência após merge: W1 → B1b → B2. B1b (ambiguous-last4 409, remoção de hidden-metadata) e B2 aguardam. Security verify e B2 ficam verdes antes de UX. |
 | [E2 #439](https://github.com/Gabrieldco1994/reformaflow/issues/439) | **BLOQUEADO** | B0+B1+B2 → U1 → U2; reorganização reversível de desktop/mobile. |
 | [E3 #440](https://github.com/Gabrieldco1994/reformaflow/issues/440) | **BLOQUEADO** | U3/U4/U5; U6a é spec e U6b tem gate humano adicional. |
 | [E4 #441](https://github.com/Gabrieldco1994/reformaflow/issues/441) | **BLOQUEADO/cross-cutting** | V0, D0, R0 e A0 acompanham as ondas, não um mutirão tardio. |
@@ -220,7 +222,7 @@ separada e só entra no critical path quando uma exposição consumidora for dem
 
 Decisão PO de **2026-08-17**: depois de S0.1, S0.2 e S0.3 podem avançar independentemente.
 A independência vale somente para construir, testar e fazer merge de #446 test-only; #445 e #446
-continuam gates conjuntos para o merge/deploy de B0.
+continuam gates conjuntos do inventário de produção de E0 (B0 já foi entregue via PR #476).
 
 - [S0.1 #444](https://github.com/Gabrieldco1994/reformaflow/issues/444): este SDD, ToC e higiene
   dos planos; zero runtime.
@@ -247,17 +249,17 @@ esperado, não evidência de runtime.
 
 #### E1 — B0/B1/B2 antes de qualquer UX
 
-- [B0 #447](https://github.com/Gabrieldco1994/reformaflow/issues/447): Auth, grants, scope e
-  todos os reads financeiros são uma unidade inseparável; materializar IDs concretos, ancorar o
-  PESSOAL autorizado e manter o caminho tenant-financial legado com semântica segura.
+- [B0 #447](https://github.com/Gabrieldco1994/reformaflow/issues/447): **ENTREGUE via PR #476.**
+  Auth, grants, scope e todos os reads financeiros em produção.
 - [B1 #448](https://github.com/Gabrieldco1994/reformaflow/issues/448): identidades completas,
   parent/child ACL, releitura no commit, actions fornecidas pelo servidor e deep-links
-  type-specific sem ampliar scope.
+  type-specific sem ampliar scope. **B1a implementado nesta PR, pendente de merge. Sequência
+  após merge: W1, depois B1b (remoção de ambiguous-last4 409 e hidden-metadata).** #448 permanece OPEN.
 - [B2 #449](https://github.com/Gabrieldco1994/reformaflow/issues/449): Budget Allocation
   administrativo/read-only, somente ADMIN autenticado do tenant; relações legadas cross-tenant
   redigidas e bytes históricos intocados.
 
-**STOP:** não iniciar U1–U6 até B0, B1 e B2 verdes, B0 deployado inteiro e security verify PASS.
+**STOP:** não iniciar U1–U6 até B1 (full) e B2 verdes e security verify PASS.
 
 #### E2 — arquitetura de informação e shell
 
@@ -435,7 +437,7 @@ preservar links e contexto sem fingir que seus ledgers continuam vivos.
 | ID | Decisão final aprovada | Estado de produto |
 |---|---|---|
 | D-001 | PESSOAL é o Centro Financeiro; Conta=origem, Projeto=finalidade, Cockpit conta uma vez, Auditoria explica. | **NÃO INICIADO por #436** |
-| D-002 | B0+B1+B2, deploy B0 e security verify precedem qualquer UX. | **B0+B1a IMPLEMENTADOS, pendentes de merge; B1b+B2 BLOQUEADOS** |
+| D-002 | B0+B1+B2, deploy B0 e security verify precedem qualquer UX. | **B0 ENTREGUE (PR #476); B1a implementado nesta PR, pendente de merge; B1b+B2 BLOQUEADOS** |
 | D-003 | Fórmulas de Caixa §10, faturas/Conta, timezone e quitação cross-project não serão reescritas. | Contratos atuais **ENTREGUES**; mudança do programa **NENHUMA** |
 | D-004 | Navegação alvo: Hoje, Movimentações, Planejamento, Projetos; Resultado/Auditoria secundários. | **APROVADO — NÃO INICIADO** |
 | D-005 | Planning e Planejador só se agrupam visualmente; stores permanecem separados. | **APROVADO — BLOQUEADO** |
@@ -445,13 +447,13 @@ preservar links e contexto sem fingir que seus ledgers continuam vivos.
 | D-009 | U6b só existe depois de U6a+lenses+architect+PO. | **BLOQUEADO; NÃO ENTREGUE** |
 | D-010 | Maria agent-first reutiliza serviços/cards/actions/ACLs e requer novo PO gate. | **FUTURO; NÃO ENTREGUE** |
 | D-011 | H1–H5 ficam separados e gated; não entram automaticamente no critical path. | **BLOQUEADO; NÃO ENTREGUE** |
-| D-012 | Sob exceção PO de 2026-08-17, #446 pode avançar test-only sem #445; #445 concluída/revisada + #446 verde seguem obrigatórias para merge/deploy de B0. Produção permanece `NOT_COLLECTED`. | **S0.3 EM ANDAMENTO; E0 INCOMPLETA; B0 IMPLEMENTADO pendente de merge; B1a IMPLEMENTADO pendente de merge** |
+| D-012 | Sob exceção PO de 2026-08-17, #446 pode avançar test-only sem #445; #445 concluída/revisada + #446 verde seguem obrigatórias para o gate de produção/inventário de E0. Produção permanece `NOT_COLLECTED`. | **S0.3 EM ANDAMENTO; E0 INCOMPLETA (gate #445); B0 ENTREGUE (PR #476); B1a IMPLEMENTADO nesta PR, pendente de merge** |
 
 ## 12. Changelog
 
 | Data | Versão | Mudança |
 |---|---|---|
-| 2026-08-18 | B1a implementado | B0 (#447) e B1a (#448) implementados em `fix/b1a-child-acl` (SHA `a029a6cf`), pendentes de merge. Child ACL em `settleTargetParcela`, identidades de fatura (`cardId`/`fingerprint`/`actions` em `cartoes[]`+`saidas[]`; `accountId` em `contas[]`), `cardId`/`accountId` opcionais em `payInvoice`/`undoInvoicePayment`, guard de duplicidade ativa 409, `roomId`/`sourcePriceItemId` scoped. Zero schema, zero UX, zero fórmula numérica alterada. #448 permanece OPEN; B1b pendente. |
+| 2026-08-18 | B0 entregue; B1a implementado | B0 (#447) entregue via PR #476 (produção, SHA `389d8e6e`). B1a (#448) implementado nesta PR e pendente de merge: child ACL em `settleTargetParcela`, identidades de fatura (`cardId`/`fingerprint`/`actions` em `cartoes[]`+`saidas[]`; `accountId` em `contas[]`), `cardId`/`accountId` opcionais em `payInvoice`/`undoInvoicePayment`, guard de duplicidade ativa 409, `roomId`/`sourcePriceItemId` scoped. Zero schema, zero UX, zero fórmula numérica alterada. #448 permanece OPEN. Sequência após merge de B1a: W1 → B1b → B2. |
 | 2026-08-17 | Exceção PO S0.3 | #446 liberada para build/test/merge test-only independente de #445; #445 registrada como bloqueada/deferida e produção `NOT_COLLECTED`; gates conjuntos de #447/B0, limites da baseline sintética e distinção entre estado esperado e evidência de runtime explicitados. |
 | 2026-08-17 | Revisão S0.1 | Guardrails de papel, endpoint/evidência e auditoria estreitados; transição do rateio legado para source-only explicitada. |
 | 2026-08-17 | S0.1 inicial | Design/security consolidado no repositório; status, contratos, E0–E6, dependências, analytics, riscos, rollback, decisões e histórico canonicalizados a partir da base `ece5032c398cc050fc037959a1f8fc0cc7f05bea`. Nenhuma implementação de produto iniciada. |
