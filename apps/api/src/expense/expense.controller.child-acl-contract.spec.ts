@@ -1,17 +1,27 @@
 /**
  * B1a (#448) — contrato de controller: `ExpenseController` precisa repassar
  * o `requester` (`@CurrentUser()`) para `link` (linkCrossProject),
- * `conciliarParcela` e `ratear`. Autorado RED contra o baseline pré-#448;
- * GREEN após a implementação — mantido como regression lock.
+ * `conciliarParcela`, `ratear`, `createRecorrente` (obraProjectId child) e
+ * `findCrossProject` (listagem cross-project). Autorado RED contra o
+ * baseline pré-#448/pré-security-phase-2; GREEN após a implementação —
+ * mantido como regression lock.
  *
- * No baseline pré-#448, NENHUM dos três sequer declarava o parâmetro
- * `@CurrentUser()`, então não havia de onde o child ACL (issue #448) ler o
- * scope de quem está chamando. `ratearMixed` já declarava `@CurrentUser()`
- * mas só repassava `requester.id` (autoria), não o requester inteiro (scope
- * de ACL).
+ * No baseline pré-#448, NENHUM dos cinco sequer declarava o parâmetro
+ * `@CurrentUser()` (ou, no caso de `ratearMixed`, só repassava `requester.id`
+ * — autoria, não o requester inteiro/scope de ACL), então não havia de onde
+ * o child ACL (issue #448) ler o scope de quem está chamando.
+ *
+ * `createRecorrente`/`findCrossProject` (security phase 2, achados
+ * verificados 2026-08-18): mesma lacuna — `createRecorrente`'s
+ * `dto.obraProjectId` e `findCrossProject`'s listagem cross-project chegam
+ * SÓ por body/query, nunca pelo `:projectId` que o `ProjectAccessGuard`
+ * global enxerga, e nenhum dos dois métodos do controller sequer declara
+ * `@CurrentUser()` hoje.
  *
  * Teste de CONTRATO (service mockado); a lógica de ACL em si é coberta com
- * Prisma real em `expense.child-acl.spec.ts`.
+ * Prisma real em `expense.child-acl.spec.ts`,
+ * `expense.recorrente-cross-project-acl.spec.ts` e
+ * `expense.find-cross-project-acl.spec.ts`.
  */
 import { ExpenseController } from './expense.controller';
 
@@ -23,6 +33,8 @@ function buildController(serviceOverrides: Record<string, jest.Mock>) {
     conciliarParcela: jest.fn().mockResolvedValue({ ok: true }),
     ratear: jest.fn().mockResolvedValue({ ok: true }),
     ratearMixed: jest.fn().mockResolvedValue({ ok: true }),
+    createRecorrente: jest.fn().mockResolvedValue({ ok: true }),
+    findCrossProject: jest.fn().mockResolvedValue([]),
     ...serviceOverrides,
   };
   const paidOriginsService = {};
@@ -60,5 +72,26 @@ describe('ExpenseController — repassa requester ao service nas mutações chil
     // No baseline pré-#448, `ratearMixed` só repassava `requester.id` — o
     // objeto completo (scope de ACL) nunca chegava ao service.
     expect(service.ratearMixed.mock.calls[0]).toContainEqual(REQUESTER);
+  });
+
+  it('createRecorrente: o REQUESTER INTEIRO (não só requester.id) chega ao service (security phase 2)', async () => {
+    const { controller, service } = buildController({});
+    const dto = {
+      frequencia: 'MENSAL', dataInicio: '2026-08-01', dataFim: '2026-08-01',
+      tipoDespesa: 'MATERIAL_CONSTRUCAO', valor: 100, titulo: 'Recorrência', obraProjectId: 'obra-1',
+    };
+    await controller.createRecorrente('t1', 'p1', REQUESTER, dto as any);
+    // No baseline, o controller só repassava `requester.id` (autoria) — o
+    // scope de ACL nunca chegava ao service, então `dto.obraProjectId`
+    // (child) nunca podia ser checado contra o requester.
+    expect(service.createRecorrente.mock.calls[0]).toContainEqual(REQUESTER);
+  });
+
+  it('findCrossProject: requester chega ao service (security phase 2)', async () => {
+    const { controller, service } = buildController({});
+    await (controller as any).findCrossProject('t1', 'p1', undefined, undefined, undefined, undefined, REQUESTER);
+    // No baseline, o método do controller nem declarava `@CurrentUser()` —
+    // a listagem cross-project não tinha NENHUM requester para filtrar por.
+    expect(service.findCrossProject.mock.calls[0]).toContainEqual(REQUESTER);
   });
 });
