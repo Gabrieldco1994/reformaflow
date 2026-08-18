@@ -15,7 +15,10 @@ import { RequireModule } from '../common/decorators/require-module.decorator';
 import { CurrentTenant, CurrentUser } from '../common/decorators/tenant.decorator';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
 import { PdfPasswordRequiredError, PdfWrongPasswordError, ImageOcrError } from './parsers';
-import { RateioRequester } from '../expense/rateio.types';
+import {
+  assertRateioRequester,
+  RateioRequester,
+} from '../expense/rateio.types';
 
 @RequireModule('bankAccounts')
 @UseInterceptors(TenantInterceptor)
@@ -83,6 +86,7 @@ export class BankAccountController {
     @Param('importId') importId: string,
     @CurrentUser() requester: RateioRequester,
   ) {
+    assertRateioRequester(requester);
     return this.service.undoImport(tenantId, projectId, accountId, importId, requester);
   }
 
@@ -112,6 +116,7 @@ export class BankAccountController {
     @Body() body: LinkToExpenseDto,
     @CurrentUser() requester: RateioRequester,
   ) {
+    assertRateioRequester(requester);
     return this.service.linkToExpense(
       tenantId,
       projectId,
@@ -132,6 +137,7 @@ export class BankAccountController {
     @Param('expenseId') expenseId: string,
     @CurrentUser() requester: RateioRequester,
   ) {
+    assertRateioRequester(requester);
     return this.service.unlinkExpense(tenantId, projectId, expenseId, requester);
   }
 
@@ -143,6 +149,7 @@ export class BankAccountController {
     @Body() body: LinkToReceiptDto,
     @CurrentUser() requester: RateioRequester,
   ) {
+    assertRateioRequester(requester);
     return this.service.linkToReceipt(
       tenantId,
       projectId,
@@ -159,6 +166,7 @@ export class BankAccountController {
     @Param('receiptId') receiptId: string,
     @CurrentUser() requester: RateioRequester,
   ) {
+    assertRateioRequester(requester);
     return this.service.unlinkReceipt(tenantId, projectId, receiptId, requester);
   }
 
@@ -173,6 +181,7 @@ export class BankAccountController {
     @Query() query: ImportBankStatementQueryDto,
     @Body() body: { decisions?: string } | undefined,
   ) {
+    assertRateioRequester(requester);
     const list = (files ?? []).slice(0, 5);
     if (list.length === 0) return { error: 'arquivo ausente' };
     const buffers = list.map((f) => f.buffer);

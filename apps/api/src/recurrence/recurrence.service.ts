@@ -7,7 +7,10 @@ import {
   type RecurrenceDetectorRow,
   ExpenseTypeLabels,
 } from '@reformaflow/domain';
-import { RateioRequester } from '../expense/rateio.types';
+import {
+  assertRateioRequester,
+  RateioRequester,
+} from '../expense/rateio.types';
 
 /**
  * Séries de despesa recorrente do PESSOAL.
@@ -242,6 +245,7 @@ static seriesKey(titulo: string): string {
     dto: { valor?: number; tipoDespesa?: string },
     requester: RateioRequester,
   ) {
+    assertRateioRequester(requester);
     const key = RecurrenceService.decodeKey(encodedKey);
     const futuras = await this.futureOccurrences(tenantId, projectId, key);
 
@@ -262,6 +266,7 @@ static seriesKey(titulo: string): string {
     encodedKey: string,
     requester: RateioRequester,
   ) {
+    assertRateioRequester(requester);
     const key = RecurrenceService.decodeKey(encodedKey);
     const futuras = await this.futureOccurrences(tenantId, projectId, key);
 

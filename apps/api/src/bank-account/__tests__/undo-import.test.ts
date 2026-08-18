@@ -22,6 +22,7 @@ import { BankAccountService } from '../bank-account.service';
 import { MerchantClassifierService } from '../../merchant-classifier/merchant-classifier.service';
 import { ConciliacaoService } from '../../conciliacao/conciliacao.service';
 import { CardInvoiceSettlementService } from '../../credit-card/card-invoice-settlement.service';
+import type { RateioRequester } from '../../expense/rateio.types';
 
 const prisma = new PrismaClient();
 let failures = 0;
@@ -69,6 +70,12 @@ async function main() {
   const tenant = await prisma.tenant.create({ data: { name: 'test-undo-bank-' + Date.now() } });
   const pessoal = await prisma.project.create({ data: { tenantId: tenant.id, type: 'PESSOAL', name: 'Pessoal' } });
   const casa = await prisma.project.create({ data: { tenantId: tenant.id, type: 'CASA', name: 'Casa' } });
+  const requester: RateioRequester = {
+    role: 'OWNER',
+    allowedProjects: [pessoal.id, casa.id],
+    allowedProjectTypes: ['PESSOAL', 'CASA'],
+    allowedModules: ['expenses'],
+  };
   console.log(`Tenant: ${tenant.id}  CASA: ${casa.id}`);
 
   const acc = (await svc.createAccount(tenant.id, pessoal.id, {
@@ -120,7 +127,7 @@ async function main() {
 
   const r1: any = await svc.commitImport(
     tenant.id, pessoal.id, acc.id, csv, 'extrato.csv', 'CSV_GENERIC' as any,
-    undefined, undefined, decisions as any,
+    undefined, undefined, decisions as any, null, requester
   );
   const importId = r1.importId;
   assert(!!importId, 'commit devolve importId');
@@ -142,7 +149,7 @@ async function main() {
   assert(detail.impact.invoiceLiquidations >= 1, `detail: >=1 liquidação de fatura (got ${detail.impact.invoiceLiquidations})`);
   assert(detail.irreversible.recurrencesPropagated >= 1, `detail: >=1 recorrência irreversível (got ${detail.irreversible.recurrencesPropagated})`);
 
-  const undo1: any = await svc.undoImport(tenant.id, pessoal.id, acc.id, importId);
+  const undo1: any = await svc.undoImport(tenant.id, pessoal.id, acc.id, importId, requester);
   assert(undo1.ok === true, 'undo ok');
   assert(undo1.revertedInvoiceParcelas >= 1, `undo reverteu >=1 parcela de fatura (got ${undo1.revertedInvoiceParcelas})`);
 
@@ -169,7 +176,7 @@ async function main() {
 
   // ───── 2) Idempotência ─────────────────────────────────────
   header('2) Idempotência');
-  const undo2: any = await svc.undoImport(tenant.id, pessoal.id, acc.id, importId);
+  const undo2: any = await svc.undoImport(tenant.id, pessoal.id, acc.id, importId, requester);
   assert(undo2.ok === true && undo2.alreadyUndone === true, 'segundo undo: alreadyUndone, sem throw');
   const purchaseStill = await prisma.expense.findUnique({ where: { id: purchase.id } });
   assert(purchaseStill?.status === 'PLANEJADO', 'compra segue PLANEJADO após 2º undo (não re-reverteu)');
@@ -179,7 +186,7 @@ async function main() {
   const csv3 = `date,title,amount
 2026-07-10,MERCADO A,-40.00
 2026-07-11,MERCADO B,-60.00`;
-  const r3: any = await svc.commitImport(tenant.id, pessoal.id, acc.id, csv3, 'extrato3.csv', 'CSV_GENERIC' as any);
+  const r3: any = await svc.commitImport(tenant.id, pessoal.id, acc.id, csv3, 'extrato3.csv', 'CSV_GENERIC' as any, undefined, undefined, undefined, null, requester);
   const importId3 = r3.importId;
   const beforeAtomic = await liveDespesaCents(tenant.id, '4247');
   assert(beforeAtomic > 0, `lote 3 criou débitos (got ${beforeAtomic})`);
@@ -188,7 +195,7 @@ async function main() {
   (conciliacao as any).reverseSourceLinks = () => { throw new Error('boom-atomicidade'); };
   let threw = false;
   try {
-    await svc.undoImport(tenant.id, pessoal.id, acc.id, importId3);
+    await svc.undoImport(tenant.id, pessoal.id, acc.id, importId3, requester);
   } catch {
     threw = true;
   } finally {
@@ -203,7 +210,7 @@ async function main() {
   assert(liveExp3 === 2, `2 despesas do lote 3 seguem vivas (got ${liveExp3})`);
 
   // undo real do lote 3
-  await svc.undoImport(tenant.id, pessoal.id, acc.id, importId3);
+  await svc.undoImport(tenant.id, pessoal.id, acc.id, importId3, requester);
 
   header('Cleanup');
   await cleanup(tenant.id);

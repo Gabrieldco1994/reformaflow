@@ -6,7 +6,10 @@ import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import { CreateCreditCardDto, UpdateCreditCardDto } from './dto/credit-card.dto';
 import { parseStatementBuffers, type SourceHint, type NormalizedTx, type ParseResult } from './parsers';
 import { MerchantClassifierService } from '../merchant-classifier/merchant-classifier.service';
-import { RateioRequester } from '../expense/rateio.types';
+import {
+  assertRateioRequester,
+  RateioRequester,
+} from '../expense/rateio.types';
 
 /** Normaliza a entrada (string legada, Buffer único ou array) para Buffer[]. */
 function toBuffers(content: string | Buffer | Buffer[]): Buffer[] {
@@ -404,12 +407,13 @@ export class CreditCardService {
     fileContent: string | Buffer | Buffer[],
     fileName: string | undefined,
     source: SourceHint,
-    periodLabelOverride?: string,
-    password?: string,
-    decisions?: ImportDecision[],
-    createdByUserId: string | null = null,
-    requester?: RateioRequester,
+    periodLabelOverride: string | undefined,
+    password: string | undefined,
+    decisions: ImportDecision[] | undefined,
+    createdByUserId: string | null,
+    requester: RateioRequester,
   ) {
+    assertRateioRequester(requester);
     const card = await this.findCard(tenantId, projectId, cardId);
     const buffers = toBuffers(fileContent);
     const parsed = await parseStatementBuffers(buffers, card.id, source, fileName, password);
@@ -439,9 +443,12 @@ export class CreditCardService {
       if (existingIds.has(t.externalId)) return false;
       return true;
     });
+    const processableDecisions = toProcess
+      .map((transaction) => decisionByExt.get(transaction.externalId))
+      .filter((decision): decision is ImportDecision => Boolean(decision));
     const targetExpenseIds = [
       ...new Set(
-        (decisions ?? [])
+        processableDecisions
           .filter((decision) => decision.action === 'link')
           .map((decision) => decision.linkToExpenseId)
           .filter((id): id is string => Boolean(id)),
@@ -637,8 +644,9 @@ export class CreditCardService {
     projectId: string,
     cardId: string,
     importId: string,
-    requester?: RateioRequester,
+    requester: RateioRequester,
   ) {
+    assertRateioRequester(requester, new NotFoundException('Importação não encontrada'));
     const card = await this.findCard(tenantId, projectId, cardId);
     const importRecord = await this.prisma.creditCardStatementImport.findFirst({
       where: { id: importId, tenantId, cardId: card.id },
@@ -825,9 +833,10 @@ export class CreditCardService {
     projectId: string,
     cardExpenseId: string,
     targetExpenseId: string,
-    opts?: { parcelaIndex?: number; realValor?: number },
-    requester?: RateioRequester,
+    opts: { parcelaIndex?: number; realValor?: number } | undefined,
+    requester: RateioRequester,
   ) {
+    assertRateioRequester(requester);
     const source = await this.prisma.expense.findFirst({
       where: { id: cardExpenseId, tenantId, projectId, deletedAt: null },
     });
@@ -863,8 +872,9 @@ export class CreditCardService {
     tenantId: string,
     projectId: string,
     cardExpenseId: string,
-    requester?: RateioRequester,
+    requester: RateioRequester,
   ) {
+    assertRateioRequester(requester, new NotFoundException('Despesa não encontrada'));
     const source = await this.prisma.expense.findFirst({
       where: { id: cardExpenseId, tenantId, projectId, deletedAt: null },
     });

@@ -1,3 +1,4 @@
+import { TEST_OWNER_REQUESTER } from '../test-utils/acl-requester-test-helper';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConciliacaoService } from './conciliacao.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -11,6 +12,7 @@ function makeTarget(over: Partial<any> = {}) {
     id: 'tgt',
     tenantId: 't1',
     projectId: 'reforma1',
+    project: { id: 'reforma1', tenantId: 't1', type: 'REFORMA' },
     tipoDespesa: 'METAL_CERAMICA',
     categoriaMaoDeObra: null,
     roomId: null,
@@ -32,6 +34,7 @@ function makeSource(over: Partial<any> = {}) {
     id: 'src',
     tenantId: 't1',
     projectId: 'pessoal1',
+    project: { id: 'pessoal1', tenantId: 't1', type: 'PESSOAL' },
     cardLast4: '1234',
     linkedExpenseId: null,
     ...over,
@@ -71,6 +74,7 @@ describe('ConciliacaoService', () => {
       },
       rateioAllocation: {
         count: jest.fn().mockResolvedValue(0),
+        findMany: jest.fn().mockResolvedValue([]),
       },
       cashFlowEntry: {
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
@@ -101,7 +105,7 @@ describe('ConciliacaoService', () => {
         targetExpenseId: 'tgt',
         parcelaIndex: 0,
         realValor: 11000,
-      });
+      }, TEST_OWNER_REQUESTER);
 
       // 1) snapshot do planejado guardado na criação
       const upsertArg = prisma.crossProjectSettlement.upsert.mock.calls[0][0];
@@ -144,7 +148,7 @@ describe('ConciliacaoService', () => {
         targetExpenseId: 'tgt',
         parcelaIndex: 2,
         realValor: 10000,
-      });
+      }, TEST_OWNER_REQUESTER);
 
       const targetUpdate = prisma.expense.update.mock.calls.find((c: any[]) => c[0].where.id === 'tgt');
       expect(targetUpdate[0].data.status).toBe('PAGO');
@@ -163,7 +167,7 @@ describe('ConciliacaoService', () => {
           targetExpenseId: 'tgt',
           parcelaIndex: 0,
           realValor: 11000,
-        }),
+        }, TEST_OWNER_REQUESTER),
       ).rejects.toThrow('outro projeto');
     });
   });
@@ -177,7 +181,7 @@ describe('ConciliacaoService', () => {
         settlementsByTarget: [], // após delete, regen não vê overrides → planejado restaurado
       });
 
-      const res = await service.unsettleBySource(prisma, { tenantId: 't1', sourceExpenseId: 'src' });
+      const res = await service.unsettleBySource(prisma, { tenantId: 't1', sourceExpenseId: 'src' }, TEST_OWNER_REQUESTER);
       expect(res.targets).toEqual(['tgt']);
 
       // alvo volta a totalmente planejado
@@ -296,7 +300,7 @@ describe('ConciliacaoService', () => {
         tenantId: 't1',
         sourceExpenseId: 'src',
         allocations: [{ targetExpenseId: 'tgt', allocation: 30000 }],
-      });
+      }, TEST_OWNER_REQUESTER);
       expect(res.targets).toEqual(['tgt']);
 
       // snapshot do planejado guardado
@@ -357,7 +361,7 @@ describe('ConciliacaoService', () => {
         tenantId: 't1',
         sourceExpenseId: 'src',
         allocations: [{ targetExpenseId: 'tgt', allocation: 100000 }],
-      });
+      }, TEST_OWNER_REQUESTER);
 
       // após ratear: alvo = Parcelado 10x, valorTotal = alocação
       expect(prisma._allocStore.get('tgt')).toMatchObject({
@@ -368,7 +372,7 @@ describe('ConciliacaoService', () => {
       });
 
       // desfaz: restaura o original (A_VISTA, 25000, dataPagamento)
-      await service.unratearSource(prisma, { tenantId: 't1', sourceExpenseId: 'src' });
+      await service.unratearSource(prisma, { tenantId: 't1', sourceExpenseId: 'src' }, TEST_OWNER_REQUESTER);
       const restore = prisma.expense.update.mock.calls
         .map((c: any[]) => c[0])
         .filter((c: any) => c.where.id === 'tgt')
@@ -406,7 +410,7 @@ describe('ConciliacaoService', () => {
           { targetExpenseId: 'pisos', allocation: 32000 },
           { targetExpenseId: 'louca', allocation: 68000 },
         ],
-      });
+      }, TEST_OWNER_REQUESTER);
 
       const calls = prisma.cashFlowEntry.createMany.mock.calls;
       const pisosEntries = calls.find((c: any[]) => c[0].data[0].expenseId === 'pisos')![0].data;
@@ -428,7 +432,7 @@ describe('ConciliacaoService', () => {
           tenantId: 't1',
           sourceExpenseId: 'src',
           allocations: [{ targetExpenseId: 'tgt', allocation: 20000 }],
-        }),
+        }, TEST_OWNER_REQUESTER),
       ).rejects.toThrow('fechar o total');
     });
 
@@ -446,7 +450,7 @@ describe('ConciliacaoService', () => {
             { targetExpenseId: 'tgt', allocation: 15000 },
             { targetExpenseId: 'tgt', allocation: 15000 },
           ],
-        }),
+        }, TEST_OWNER_REQUESTER),
       ).rejects.toThrow('duplicada');
 
       expect(prisma.rateioAllocation.findMany).not.toHaveBeenCalled();
@@ -476,7 +480,7 @@ describe('ConciliacaoService', () => {
           tenantId: 't1',
           sourceExpenseId: 'src',
           allocations: [{ targetExpenseId: 'tgt', allocation: 30000 }],
-        }),
+        }, TEST_OWNER_REQUESTER),
       ).rejects.toThrow('alvo de outro rateio');
 
       expect(prisma.rateioAllocation.findFirst).toHaveBeenCalledWith({
@@ -516,7 +520,7 @@ describe('ConciliacaoService', () => {
             { targetExpenseId: 'tgt', allocation: 15000 },
             { targetExpenseId: 'other-target', allocation: 15000 },
           ],
-        }),
+        }, TEST_OWNER_REQUESTER),
       ).rejects.toThrow('fonte de outro rateio');
 
       expect(prisma.rateioAllocation.findFirst).toHaveBeenCalledWith({
@@ -543,7 +547,7 @@ describe('ConciliacaoService', () => {
           tenantId: 't1',
           sourceExpenseId: 'src',
           allocations: [{ targetExpenseId: 'tgt', allocation: 30000 }],
-        }),
+        }, TEST_OWNER_REQUESTER),
       ).rejects.toThrow('OUTRO projeto');
     });
 
@@ -559,7 +563,7 @@ describe('ConciliacaoService', () => {
         tenantId: 't1',
         sourceExpenseId: 'src',
         allocations: [{ targetExpenseId: 'tgt', allocation: 30000 }],
-      });
+      }, TEST_OWNER_REQUESTER);
 
       // update do espelho deve ser emitido incondicionalmente
       const srcLink = prisma.expense.update.mock.calls
@@ -579,7 +583,7 @@ describe('ConciliacaoService', () => {
         ],
       });
 
-      const res = await service.unratearSource(prisma, { tenantId: 't1', sourceExpenseId: 'src' });
+      const res = await service.unratearSource(prisma, { tenantId: 't1', sourceExpenseId: 'src' }, TEST_OWNER_REQUESTER);
       expect(res.targets).toEqual(['tgt']);
 
       // alvo restaurado ao planejado

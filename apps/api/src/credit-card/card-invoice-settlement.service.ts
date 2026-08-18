@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -8,8 +8,13 @@ import {
   NEUTRAL_EXPENSE_TYPES,
   isSinglePaymentForm,
 } from '@reformaflow/domain';
+import { userCanAccessProject, userCanAccessProjectType } from '../common/access-rules';
+import {
+  assertRateioRequester,
+  type RateioRequester,
+} from '../expense/rateio.types';
 
-interface SettleCard {
+export interface SettleCard {
   id: string;
   last4: string;
   closingDay: number | null;
@@ -34,6 +39,20 @@ interface EntryRow {
   parcela: string | null;
   data: Date;
   valor: number;
+}
+
+interface UnsettlePurchase {
+  expense: ExpenseRow;
+  entries: EntryRow[];
+}
+
+const INVOICE_NOT_FOUND_MESSAGE = 'Fatura não encontrada';
+
+export interface PreparedInvoiceUnsettlement {
+  tenantId: string;
+  card: SettleCard;
+  dueMonth: string;
+  purchases: UnsettlePurchase[];
 }
 
 /**
@@ -78,7 +97,9 @@ export class CardInvoiceSettlementService {
     card: SettleCard;
     amountCents: number;
     paymentDate: Date;
+    requester: RateioRequester;
   }): Promise<{ settledExpenses: number; settledParcelas: number }> {
+    assertRateioRequester(params.requester);
     const { tenantId, card, amountCents, paymentDate } = params;
     let settledExpenses = 0;
     let settledParcelas = 0;
@@ -194,61 +215,124 @@ export class CardInvoiceSettlementService {
    * `CashFlowEntry.status` de PAGO para PLANEJADO e recomputa
    * `Expense.status`/`paidParcelas` das compras daquele ciclo.
    *
-   * Aceita um `tx` opcional (client de transação) para rodar dentro da
-   * `$transaction` do caller — todas as queries usam `params.tx ?? this.prisma`.
+   * O preflight materializa cartão, projetos, compras e parcelas dentro da
+   * transação do caller. A aplicação posterior usa somente esse snapshot.
    */
-  async unsettleInvoice(params: {
+  async prepareUnsettleInvoice(params: {
     tenantId: string;
     card: SettleCard;
     dueMonth: string;
-    tx?: Prisma.TransactionClient;
-  }): Promise<{ revertedExpenses: number; revertedParcelas: number }> {
-    const { tenantId, card, dueMonth } = params;
-    const client = params.tx ?? this.prisma;
-    let revertedExpenses = 0;
-    let revertedParcelas = 0;
+    tx: Prisma.TransactionClient;
+    requester: RateioRequester;
+  }): Promise<PreparedInvoiceUnsettlement> {
+    assertRateioRequester(params.requester);
+    const { tenantId, card, dueMonth, tx, requester } = params;
+    await this.assertCanAccessCard({
+      tenantId,
+      card,
+      tx,
+      requester,
+    });
 
     const neutral = Array.from(NEUTRAL_EXPENSE_TYPES);
-    const purchases = (await client.expense.findMany({
+    const purchases = await tx.expense.findMany({
       where: {
         tenantId,
         cardLast4: card.last4,
         deletedAt: null,
         tipoDespesa: { notIn: neutral },
       },
-    })) as ExpenseRow[];
+      include: {
+        project: { select: { id: true, type: true, tenantId: true } },
+      },
+    });
 
+    const prepared: UnsettlePurchase[] = [];
     for (const e of purchases) {
-      const n = await this.unsettleByDueMonth(client, e, card, dueMonth);
-      if (n > 0) {
-        revertedExpenses++;
-        revertedParcelas += n;
+      const all = (await tx.cashFlowEntry.findMany({
+        where: { expenseId: e.id, deletedAt: null },
+      })) as EntryRow[];
+      const entries = all.filter(
+        (entry) =>
+          entry.status === 'PAGO' &&
+          caixaMonthForCardPurchase(entry.data, card.closingDay, card.dueDay) === dueMonth,
+      );
+      if (entries.length === 0) continue;
+      if (
+        !e.project ||
+        e.project.tenantId !== tenantId ||
+        !this.canRequesterSeeProject(requester, e.project)
+      ) {
+        throw new NotFoundException(INVOICE_NOT_FOUND_MESSAGE);
       }
+      prepared.push({ expense: e as ExpenseRow, entries });
     }
 
-    return { revertedExpenses, revertedParcelas };
+    return { tenantId, card, dueMonth, purchases: prepared };
   }
 
-  private async unsettleByDueMonth(
-    client: PrismaService | Prisma.TransactionClient,
-    e: ExpenseRow,
-    card: SettleCard,
-    dueMonth: string,
-  ): Promise<number> {
-    const all = (await client.cashFlowEntry.findMany({
-      where: { expenseId: e.id, deletedAt: null },
-    })) as EntryRow[];
-
-    const toRevert = all.filter(
-      (en) => en.status === 'PAGO' && caixaMonthForCardPurchase(en.data, card.closingDay, card.dueDay) === dueMonth,
-    );
-    if (toRevert.length === 0) return 0;
-
-    for (const en of toRevert) {
-      await client.cashFlowEntry.update({ where: { id: en.id }, data: { status: 'PLANEJADO' } });
+  async assertCanAccessCard(params: {
+    tenantId: string;
+    card: SettleCard;
+    tx: Prisma.TransactionClient;
+    requester: RateioRequester;
+  }): Promise<void> {
+    assertRateioRequester(params.requester);
+    const { tenantId, card, tx, requester } = params;
+    const storedCard = await tx.creditCard.findFirst({
+      where: {
+        id: card.id,
+        tenantId,
+        last4: card.last4,
+        deletedAt: null,
+      },
+      include: {
+        project: { select: { id: true, type: true, tenantId: true } },
+      },
+    });
+    if (
+      !storedCard ||
+      !storedCard.project ||
+      storedCard.project.tenantId !== tenantId ||
+      !this.canRequesterSeeProject(requester, storedCard.project)
+    ) {
+      throw new NotFoundException(INVOICE_NOT_FOUND_MESSAGE);
     }
-    await this.applyUnpaid(client, e, toRevert);
-    return toRevert.length;
+  }
+
+  async applyPreparedUnsettlement(
+    tx: Prisma.TransactionClient,
+    prepared: PreparedInvoiceUnsettlement,
+    requester: RateioRequester,
+  ): Promise<{ revertedExpenses: number; revertedParcelas: number }> {
+    assertRateioRequester(requester);
+    let revertedParcelas = 0;
+    for (const purchase of prepared.purchases) {
+      for (const entry of purchase.entries) {
+        await tx.cashFlowEntry.update({
+          where: { id: entry.id },
+          data: { status: 'PLANEJADO' },
+        });
+      }
+      await this.applyUnpaid(tx, purchase.expense, purchase.entries);
+      revertedParcelas += purchase.entries.length;
+    }
+    return {
+      revertedExpenses: prepared.purchases.length,
+      revertedParcelas,
+    };
+  }
+
+  async unsettleInvoice(params: {
+    tenantId: string;
+    card: SettleCard;
+    dueMonth: string;
+    tx: Prisma.TransactionClient;
+    requester: RateioRequester;
+  }): Promise<{ revertedExpenses: number; revertedParcelas: number }> {
+    assertRateioRequester(params.requester);
+    const prepared = await this.prepareUnsettleInvoice(params);
+    return this.applyPreparedUnsettlement(params.tx, prepared, params.requester);
   }
 
   /**
@@ -302,6 +386,21 @@ export class CardInvoiceSettlementService {
       where: { id: e.id },
       data: { status: allPaid ? 'PAGO' : 'PLANEJADO', paidParcelas },
     });
+  }
+
+  private canRequesterSeeProject(
+    requester: RateioRequester,
+    project: { id: string; type: string },
+  ): boolean {
+    return (
+      userCanAccessProject(requester.role, requester.allowedProjects, project.id) &&
+      userCanAccessProjectType(
+        requester.role,
+        requester.allowedProjectTypes,
+        requester.allowedModules ?? [],
+        project.type,
+      )
+    );
   }
 
   private async settleByDueMonth(e: ExpenseRow, card: SettleCard, target: string): Promise<number> {

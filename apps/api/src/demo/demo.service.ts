@@ -7,6 +7,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ProjectService } from '../project/project.service';
 import { ReceiptService } from '../receipt/receipt.service';
 import { ExpenseService } from '../expense/expense.service';
+import type { RateioRequester } from '../expense/rateio.types';
 
 const DEMO_SEED_VERSION = 1;
 
@@ -70,6 +71,12 @@ export class DemoService {
         name: 'Reforma (Demo)',
         description: 'Projeto de reforma seedado para demonstração',
       });
+      const requester: RateioRequester = {
+        role: 'OWNER',
+        allowedProjects: [pessoal.id, reforma.id],
+        allowedProjectTypes: ['PESSOAL', 'REFORMA'],
+        allowedModules: ['expenses'],
+      };
 
       await this.receipts.create(tenantId, pessoal.id, {
         valor: 12000,
@@ -90,18 +97,25 @@ export class DemoService {
         status: 'PLANEJADO',
       });
 
-      await this.expenses.create(tenantId, pessoal.id, {
-        tipoDespesa: 'MATERIAL_CONSTRUCAO',
-        valor: 850,
-        quantidade: 1,
-        titulo: 'Espelho: piso reforma',
-        fornecedor: 'Loja Demo',
-        formaPagamento: 'A_VISTA',
-        dataPagamento: '2026-07-10',
-        dataCompra: '2026-07-10',
-        status: 'PAGO',
-        linkedExpenseId: alvoReforma.id,
-      });
+      await this.expenses.create(
+        tenantId,
+        pessoal.id,
+        {
+          tipoDespesa: 'MATERIAL_CONSTRUCAO',
+          valor: 850,
+          quantidade: 1,
+          titulo: 'Espelho: piso reforma',
+          fornecedor: 'Loja Demo',
+          formaPagamento: 'A_VISTA',
+          dataPagamento: '2026-07-10',
+          dataCompra: '2026-07-10',
+          status: 'PAGO',
+          linkedExpenseId: alvoReforma.id,
+        },
+        null,
+        undefined,
+        requester,
+      );
 
       await this.prisma.demoSeed.update({
         where: { id: seedRow.id },

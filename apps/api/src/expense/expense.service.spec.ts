@@ -1,3 +1,4 @@
+import { TEST_OWNER_REQUESTER } from '../test-utils/acl-requester-test-helper';
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { ExpenseService } from './expense.service';
@@ -145,7 +146,7 @@ describe('ExpenseService', () => {
         quantidade: 2,
         formaPagamento: 'A_VISTA',
         status: 'PLANEJADO',
-      } as any);
+      } as any, null, undefined, TEST_OWNER_REQUESTER);
 
       expect(prisma.expense.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -274,7 +275,7 @@ describe('ExpenseService', () => {
           quantidade: 1,
           formaPagamento: 'A_VISTA',
           status: 'PAGO',
-        } as any),
+        } as any, null, undefined, TEST_OWNER_REQUESTER),
       ).rejects.toThrow('cash flow failed');
 
       expect(prisma.expense.updateMany).toHaveBeenCalledWith(
@@ -318,7 +319,7 @@ describe('ExpenseService', () => {
         status: 'PLANEJADO',
         creditCardId: undefined,
         bankAccountId: undefined,
-      } as any);
+      } as any, null, undefined, TEST_OWNER_REQUESTER);
 
       expect(prisma.expense.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -368,13 +369,13 @@ describe('ExpenseService', () => {
     it('quando dataPagamento é null no DTO, salva null (limpa campo)', async () => {
       await service.update(tenantId, projectId, 'e1', {
         dataPagamento: null,
-      } as any);
+      } as any, TEST_OWNER_REQUESTER);
       const arg = prisma.expense.update.mock.calls[0]![0];
       expect(arg.data.dataPagamento).toBeNull();
     });
 
     it('quando dataPagamento é undefined no DTO, preserva (não atualiza)', async () => {
-      await service.update(tenantId, projectId, 'e1', {} as any);
+      await service.update(tenantId, projectId, 'e1', {} as any, TEST_OWNER_REQUESTER);
       const arg = prisma.expense.update.mock.calls[0]![0];
       // Em update, undefined = "não atualiza" — passamos undefined para o Prisma.
       expect(arg.data.dataPagamento).toBeUndefined();
@@ -383,7 +384,7 @@ describe('ExpenseService', () => {
     it('quando dataPagamento é string ISO, converte para Date', async () => {
       await service.update(tenantId, projectId, 'e1', {
         dataPagamento: '2025-06-30',
-      } as any);
+      } as any, TEST_OWNER_REQUESTER);
       const arg = prisma.expense.update.mock.calls[0]![0];
       expect(arg.data.dataPagamento).toBeInstanceOf(Date);
       expect((arg.data.dataPagamento as Date).toISOString().slice(0, 10)).toBe('2025-06-30');
@@ -392,13 +393,13 @@ describe('ExpenseService', () => {
     it('mesmo comportamento para dataInicioParcela: null limpa', async () => {
       await service.update(tenantId, projectId, 'e1', {
         dataInicioParcela: null,
-      } as any);
+      } as any, TEST_OWNER_REQUESTER);
       const arg = prisma.expense.update.mock.calls[0]![0];
       expect(arg.data.dataInicioParcela).toBeNull();
     });
 
     it('mesmo comportamento para dataInicioParcela: undefined preserva', async () => {
-      await service.update(tenantId, projectId, 'e1', {} as any);
+      await service.update(tenantId, projectId, 'e1', {} as any, TEST_OWNER_REQUESTER);
       const arg = prisma.expense.update.mock.calls[0]![0];
       expect(arg.data.dataInicioParcela).toBeUndefined();
     });
@@ -406,7 +407,7 @@ describe('ExpenseService', () => {
     it('lança NotFound quando despesa não existe', async () => {
       prisma.expense.findFirst.mockResolvedValueOnce(null);
       await expect(
-        service.update(tenantId, projectId, 'e404', {} as any),
+        service.update(tenantId, projectId, 'e404', {} as any, TEST_OWNER_REQUESTER),
       ).rejects.toBeInstanceOf(NotFoundException);
     });
 
@@ -414,7 +415,7 @@ describe('ExpenseService', () => {
       await service.update(tenantId, projectId, 'e1', {
         valor: 75.5,
         quantidade: 4,
-      } as any);
+      } as any, TEST_OWNER_REQUESTER);
       const arg = prisma.expense.update.mock.calls[0]![0];
       expect(arg.data.valor).toBe(7550);
       expect(arg.data.quantidade).toBe(4);
@@ -424,7 +425,7 @@ describe('ExpenseService', () => {
     it('preserva valor antigo quando dto.valor é undefined', async () => {
       await service.update(tenantId, projectId, 'e1', {
         quantidade: 5,
-      } as any);
+      } as any, TEST_OWNER_REQUESTER);
       const arg = prisma.expense.update.mock.calls[0]![0];
       expect(arg.data.valor).toBe(existing.valor); // mantém valor antigo
       expect(arg.data.quantidade).toBe(5);
@@ -452,7 +453,7 @@ describe('ExpenseService', () => {
       await service.update(tenantId, projectId, 'mir', {
         valor: 150,
         dataPagamento: '2026-06-17',
-      } as any);
+      } as any, TEST_OWNER_REQUESTER);
 
       const counterpart = prisma.expense.update.mock.calls.find((c: any) => c[0].where.id === 'canon');
       expect(counterpart).toBeDefined();
@@ -471,7 +472,7 @@ describe('ExpenseService', () => {
       prisma.expense.update.mockImplementation(async ({ data, where }: any) => ({ id: where.id, ...data }));
       prisma.expense.findUnique.mockResolvedValue(null);
 
-      await service.update(tenantId, projectId, 'mir', { valor: 150 } as any);
+      await service.update(tenantId, projectId, 'mir', { valor: 150 } as any, TEST_OWNER_REQUESTER);
 
       // Apenas a própria despesa é atualizada; o canônico NÃO é tocado.
       const counterpart = prisma.expense.update.mock.calls.find((c: any) => c[0].where.id === 'canon');
@@ -925,7 +926,7 @@ describe('ExpenseService', () => {
         targetExpenseId: 'tgt-1',
         parcelaIndex: 0,
         // realValor OMITIDO de propósito (web não envia)
-      });
+      }, TEST_OWNER_REQUESTER);
 
       expect(spy).toHaveBeenCalledTimes(1);
       const arg = spy.mock.calls[0][1];
@@ -953,7 +954,7 @@ describe('ExpenseService', () => {
         targetExpenseId: 'tgt-2',
         parcelaIndex: 1,
         realValor: 50000,
-      });
+      }, TEST_OWNER_REQUESTER);
 
       expect(spy.mock.calls[0][1].realValor).toBe(50000);
       spy.mockRestore();
@@ -971,7 +972,7 @@ describe('ExpenseService', () => {
       });
       prisma.expense.findMany.mockResolvedValue([]); // sem espelhos
       prisma.crossProjectSettlement.count.mockResolvedValue(0);
-      const result = await service.remove(tenantId, projectId, 'e1');
+      const result = await service.remove(tenantId, projectId, 'e1', TEST_OWNER_REQUESTER);
       expect(result).toEqual({ deleted: true, count: 1 });
     });
 
@@ -1009,7 +1010,7 @@ describe('ExpenseService', () => {
         return Promise.resolve({ count: 0 });
       });
 
-      const result = await service.remove(tenantId, projectId, 'mir');
+      const result = await service.remove(tenantId, projectId, 'mir', TEST_OWNER_REQUESTER);
       expect(result.count).toBe(2);
       expect(deletedIds.sort()).toEqual(['canon', 'mir']);
     });
@@ -1041,14 +1042,14 @@ describe('ExpenseService', () => {
         ])
         .mockResolvedValue([]);
       prisma.crossProjectSettlement.count.mockResolvedValue(1); // tem settlement
-      const result = await service.remove(tenantId, projectId, 'src');
+      const result = await service.remove(tenantId, projectId, 'src', TEST_OWNER_REQUESTER);
       expect(result.count).toBe(1); // só a própria, não cascateia o 'planned'
     });
 
     it('lança NotFound quando despesa não existe', async () => {
       prisma.expense.findFirst.mockResolvedValueOnce(null);
       await expect(
-        service.remove(tenantId, projectId, 'e404'),
+        service.remove(tenantId, projectId, 'e404', TEST_OWNER_REQUESTER),
       ).rejects.toBeInstanceOf(NotFoundException);
     });
   });
@@ -1110,7 +1111,7 @@ describe('ExpenseService', () => {
         formaPagamento: 'A_VISTA',
         status: 'PAGO',
         linkedExpenseId: 'target-1',
-      } as any);
+      } as any, null, undefined, TEST_OWNER_REQUESTER);
 
       const arg = prisma.expense.create.mock.calls[0]![0];
       expect(arg.data.linkedExpenseId).toBe('target-1');
@@ -1126,7 +1127,7 @@ describe('ExpenseService', () => {
           formaPagamento: 'A_VISTA',
           status: 'PAGO',
           linkedExpenseId: 'self',
-        } as any),
+        } as any, null, undefined, TEST_OWNER_REQUESTER),
       ).rejects.toBeInstanceOf(BadRequestException);
     });
 
@@ -1140,7 +1141,7 @@ describe('ExpenseService', () => {
           formaPagamento: 'A_VISTA',
           status: 'PAGO',
           creditCardId: 'card-fake',
-        } as any),
+        } as any, null, undefined, TEST_OWNER_REQUESTER),
       ).rejects.toBeInstanceOf(BadRequestException);
     });
 
@@ -1150,7 +1151,7 @@ describe('ExpenseService', () => {
       });
       prisma.expense.update.mockImplementation(async ({ data }: any) => data);
 
-      await service.update(tenantId, projectId, 'e1', { creditCardId: '' } as any);
+      await service.update(tenantId, projectId, 'e1', { creditCardId: '' } as any, TEST_OWNER_REQUESTER);
       const arg = prisma.expense.update.mock.calls[0]![0];
       expect(arg.data.cardLast4).toBeNull();
     });
@@ -1170,7 +1171,7 @@ describe('ExpenseService', () => {
         status: 'PAGO',
         settlesInvoiceCardId: 'card-nubank',
         settlesInvoiceDueMonth: '2026-09',
-      } as any);
+      } as any, null, undefined, TEST_OWNER_REQUESTER);
 
       const arg = prisma.expense.create.mock.calls[0]![0];
       expect(arg.data.settlesInvoiceKey).toBe('3541:2026-09');
@@ -1186,7 +1187,7 @@ describe('ExpenseService', () => {
           formaPagamento: 'A_VISTA',
           status: 'PAGO',
           settlesInvoiceCardId: 'card-nubank',
-        } as any),
+        } as any, null, undefined, TEST_OWNER_REQUESTER),
       ).rejects.toBeInstanceOf(BadRequestException);
     });
 
@@ -1201,7 +1202,7 @@ describe('ExpenseService', () => {
           status: 'PAGO',
           settlesInvoiceCardId: 'card-fake',
           settlesInvoiceDueMonth: '2026-09',
-        } as any),
+        } as any, null, undefined, TEST_OWNER_REQUESTER),
       ).rejects.toBeInstanceOf(BadRequestException);
     });
 
@@ -1211,7 +1212,7 @@ describe('ExpenseService', () => {
       });
       prisma.expense.update.mockImplementation(async ({ data }: any) => data);
 
-      await service.update(tenantId, projectId, 'e1', { settlesInvoiceCardId: '' } as any);
+      await service.update(tenantId, projectId, 'e1', { settlesInvoiceCardId: '' } as any, TEST_OWNER_REQUESTER);
       const arg = prisma.expense.update.mock.calls[0]![0];
       expect(arg.data.settlesInvoiceKey).toBeNull();
     });
@@ -1222,7 +1223,7 @@ describe('ExpenseService', () => {
       prisma.expense.findMany.mockResolvedValue([
         { id: 'x1', projectId: 'other-1', titulo: 'Mármore', valorTotal: 5000 },
       ]);
-      await service.findCrossProject(tenantId, projectId, {});
+      await service.findCrossProject(tenantId, projectId, {}, TEST_OWNER_REQUESTER);
       const arg = prisma.expense.findMany.mock.calls[0]![0];
       expect(arg.where.tenantId).toBe(tenantId);
       expect(arg.where.NOT).toEqual({ projectId });
@@ -1230,7 +1231,7 @@ describe('ExpenseService', () => {
 
     it('aplica busca textual (title / fornecedor) e limit', async () => {
       prisma.expense.findMany.mockResolvedValue([]);
-      await service.findCrossProject(tenantId, projectId, { search: 'polo', limit: 50 });
+      await service.findCrossProject(tenantId, projectId, { search: 'polo', limit: 50 }, TEST_OWNER_REQUESTER);
       const arg = prisma.expense.findMany.mock.calls[0]![0];
       expect(arg.where.OR).toEqual([
         { titulo: { contains: 'polo' } },
@@ -1241,7 +1242,7 @@ describe('ExpenseService', () => {
 
     it('limit é clampado entre 1 e 2000', async () => {
       prisma.expense.findMany.mockResolvedValue([]);
-      await service.findCrossProject(tenantId, projectId, { limit: 9999 });
+      await service.findCrossProject(tenantId, projectId, { limit: 9999 }, TEST_OWNER_REQUESTER);
       const arg = prisma.expense.findMany.mock.calls[0]![0];
       expect(arg.take).toBe(2000);
     });
@@ -1254,7 +1255,7 @@ describe('ExpenseService', () => {
         .mockResolvedValueOnce({ projectId }); // mesmo projeto
 
       await expect(
-        service.linkCrossProject(tenantId, projectId, 'src', 'target'),
+        service.linkCrossProject(tenantId, projectId, 'src', 'target', TEST_OWNER_REQUESTER),
       ).rejects.toBeInstanceOf(BadRequestException);
     });
 
@@ -1267,7 +1268,7 @@ describe('ExpenseService', () => {
         });
       prisma.expense.update.mockResolvedValue({ id: 'src', linkedExpenseId: 'target' });
 
-      await service.linkCrossProject(tenantId, projectId, 'src', 'target');
+      await service.linkCrossProject(tenantId, projectId, 'src', 'target', TEST_OWNER_REQUESTER);
       const arg = prisma.expense.update.mock.calls[0]![0];
       expect(arg.data.linkedExpenseId).toBe('target');
     });
@@ -1282,7 +1283,7 @@ describe('ExpenseService', () => {
       ]);
       prisma.expense.update.mockResolvedValue({ id: 'src', linkedExpenseId: null });
 
-      await service.unlinkCrossProject(tenantId, projectId, 'src');
+      await service.unlinkCrossProject(tenantId, projectId, 'src', TEST_OWNER_REQUESTER);
       const arg = prisma.expense.update.mock.calls[0]![0];
       expect(arg.data.linkedExpenseId).toBeNull();
     });
@@ -1290,7 +1291,7 @@ describe('ExpenseService', () => {
     it('link lança NotFound se a despesa de origem não existe', async () => {
       prisma.expense.findFirst.mockResolvedValueOnce(null);
       await expect(
-        service.linkCrossProject(tenantId, projectId, 'ghost', 'target'),
+        service.linkCrossProject(tenantId, projectId, 'ghost', 'target', TEST_OWNER_REQUESTER),
       ).rejects.toBeInstanceOf(NotFoundException);
     });
   });
@@ -1330,7 +1331,7 @@ describe('ExpenseService', () => {
         frequencia: 'MENSAL',
         dataInicio: '2026-01-10',
         dataFim: '2026-04-10',
-      } as any);
+      } as any, null, TEST_OWNER_REQUESTER);
 
       expect(res.count).toBe(4); // jan, fev, mar, abr
       expect(res.ids).toHaveLength(4);
@@ -1348,7 +1349,7 @@ describe('ExpenseService', () => {
         frequencia: 'QUINZENAL',
         dataInicio: '2026-01-01',
         dataFim: '2026-02-15',
-      } as any);
+      } as any, null, TEST_OWNER_REQUESTER);
       expect(res.count).toBe(4); // 01/01, 16/01, 31/01, 15/02
     });
 
@@ -1360,7 +1361,7 @@ describe('ExpenseService', () => {
           frequencia: 'SEMANAL',
           dataInicio: '2026-01-10',
           dataFim: '2026-04-10',
-        } as any),
+        } as any, null, TEST_OWNER_REQUESTER),
       ).rejects.toBeInstanceOf(BadRequestException);
     });
 
@@ -1372,7 +1373,7 @@ describe('ExpenseService', () => {
           frequencia: 'MENSAL',
           dataInicio: '2026-04-10',
           dataFim: '2026-01-10',
-        } as any),
+        } as any, null, TEST_OWNER_REQUESTER),
       ).rejects.toBeInstanceOf(BadRequestException);
     });
 
@@ -1385,7 +1386,7 @@ describe('ExpenseService', () => {
           frequencia: 'MENSAL',
           dataInicio: '2026-01-10',
           dataFim: '2026-04-10',
-        } as any),
+        } as any, null, TEST_OWNER_REQUESTER),
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(prisma.expense.create).not.toHaveBeenCalled();
     });
@@ -1412,7 +1413,7 @@ describe('ExpenseService', () => {
         dataFim: '2026-03-05',
         obraProjectId: 'obra-1',
         bankAccountId: 'acc-1',
-      } as any);
+      } as any, null, TEST_OWNER_REQUESTER);
 
       expect(res.count).toBe(3); // 3 ocorrências
       expect(res.crossProject).toBe(true);
@@ -1439,7 +1440,7 @@ describe('ExpenseService', () => {
           dataInicio: '2026-01-10',
           dataFim: '2026-02-10',
           obraProjectId: 'outro-pessoal',
-        } as any),
+        } as any, null, TEST_OWNER_REQUESTER),
       ).rejects.toBeInstanceOf(BadRequestException);
     });
   });

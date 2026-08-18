@@ -27,6 +27,7 @@ import { ConciliacaoService } from '../../conciliacao/conciliacao.service';
 import { MonthlyOverviewService } from '../../monthly-overview/monthly-overview.service';
 import { CardInvoiceSettlementService } from '../card-invoice-settlement.service';
 import { MerchantClassifierService } from '../../merchant-classifier/merchant-classifier.service';
+import type { RateioRequester } from '../../expense/rateio.types';
 
 const prisma = new PrismaClient();
 let failures = 0;
@@ -58,6 +59,12 @@ async function main() {
   const casa = await prisma.project.create({
     data: { tenantId: tenant.id, type: 'CASA', name: 'Casa' },
   });
+  const requester: RateioRequester = {
+    role: 'OWNER',
+    allowedProjects: [pessoal.id, reforma.id, casa.id],
+    allowedProjectTypes: ['PESSOAL', 'REFORMA', 'CASA'],
+    allowedModules: ['expenses'],
+  };
 
   console.log(`Tenant: ${tenant.id}`);
 
@@ -83,7 +90,7 @@ async function main() {
 14/05/2026;NETFLIX PARC 2/12;R$ 55,90
 `;
   const r1 = await cardSvc.commitImport(
-    tenant.id, pessoal.id, itau.id, itauMes1Csv, 'itau-fatura-05.csv', 'AUTO' as any,
+    tenant.id, pessoal.id, itau.id, itauMes1Csv, 'itau-fatura-05.csv', 'AUTO' as any, undefined, undefined, undefined, null, requester
   );
   assert(r1.inserted === 3, `Itaú mês 1: 3 inseridos (got ${r1.inserted})`);
   assert(r1.settled === 0, 'mês 1: nenhuma settled (não há série existente)');
@@ -118,7 +125,7 @@ async function main() {
 2026-05-16,SPOTIFY BRASIL,21.90
 `;
   const r2 = await cardSvc.commitImport(
-    tenant.id, pessoal.id, nubank.id, nubankMes1Csv, 'nubank.csv', 'AUTO' as any,
+    tenant.id, pessoal.id, nubank.id, nubankMes1Csv, 'nubank.csv', 'AUTO' as any, undefined, undefined, undefined, null, requester
   );
   assert(r2.inserted === 2, `Nubank mês 1: 2 inseridos (got ${r2.inserted})`);
   assert(r2.source === 'CSV_NUBANK', 'fonte Nubank detectada');
@@ -135,7 +142,7 @@ async function main() {
   // ───── 4) Idempotência: re-importar mesma fatura não duplica ─
   header('4) Idempotência');
   const r2dup = await cardSvc.commitImport(
-    tenant.id, pessoal.id, itau.id, itauMes1Csv, 'itau-fatura-05.csv', 'AUTO' as any,
+    tenant.id, pessoal.id, itau.id, itauMes1Csv, 'itau-fatura-05.csv', 'AUTO' as any, undefined, undefined, undefined, null, requester
   );
   assert(r2dup.inserted === 0, `re-import: 0 inseridos (got ${r2dup.inserted})`);
   assert(r2dup.duplicated === 3, `re-import: 3 duplicated (got ${r2dup.duplicated})`);
@@ -153,7 +160,7 @@ async function main() {
 15/06/2026;DROGARIA SAO PAULO;R$ 45,00
 `;
   const r3 = await cardSvc.commitImport(
-    tenant.id, pessoal.id, itau.id, itauMes2Csv, 'itau-fatura-06.csv', 'AUTO' as any,
+    tenant.id, pessoal.id, itau.id, itauMes2Csv, 'itau-fatura-06.csv', 'AUTO' as any, undefined, undefined, undefined, null, requester
   );
   assert(r3.settled === 2, `mês 2: 2 settled (Leroy 2/3 + Netflix 3/12) — got ${r3.settled}`);
   assert(r3.inserted === 1, `mês 2: 1 nova (Drogaria) — got ${r3.inserted}`);
@@ -196,7 +203,14 @@ async function main() {
     },
   });
 
-  const linkResult = await cardSvc.linkToExpense(tenant.id, pessoal.id, leroyExpense!.id, reformaPlanned.id);
+  const linkResult = await cardSvc.linkToExpense(
+    tenant.id,
+    pessoal.id,
+    leroyExpense!.id,
+    reformaPlanned.id,
+    {},
+    requester,
+  );
   assert(linkResult.ok === true, 'link executado');
 
   // Validações pós-link
@@ -249,7 +263,7 @@ async function main() {
 
   // ───── 9) Unlink: reverte o flag ───────────────────────────
   header('9) Unlink');
-  await cardSvc.unlinkExpense(tenant.id, pessoal.id, leroyExpense!.id);
+  await cardSvc.unlinkExpense(tenant.id, pessoal.id, leroyExpense!.id, requester);
   const leroyUnlinked = await prisma.expense.findUnique({ where: { id: leroyExpense!.id } });
   assert(leroyUnlinked?.linkedExpenseId === null, 'unlink: linkedExpenseId null');
 
@@ -283,12 +297,12 @@ async function main() {
   const itauAmazonCsv = `data;descricao;valor
 05/08/2026;AMAZON BR PARC 1/2;R$ 200,00
 `;
-  await cardSvc.commitImport(tenant.id, pessoal.id, itau.id, itauAmazonCsv, 'itau-08.csv', 'AUTO' as any);
+  await cardSvc.commitImport(tenant.id, pessoal.id, itau.id, itauAmazonCsv, 'itau-08.csv', 'AUTO' as any, undefined, undefined, undefined, null, requester);
   // Nubank importa "AMAZON PARC 1/2" R$ 200 em ago/26 — mesma descrição/valor mas cartão diferente
   const nubankAmazonCsv = `date,title,amount
 2026-08-06,AMAZON BR PARC 1/2,200.00
 `;
-  const rNuAmazon = await cardSvc.commitImport(tenant.id, pessoal.id, nubank.id, nubankAmazonCsv, 'nu-08.csv', 'AUTO' as any);
+  const rNuAmazon = await cardSvc.commitImport(tenant.id, pessoal.id, nubank.id, nubankAmazonCsv, 'nu-08.csv', 'AUTO' as any, undefined, undefined, undefined, null, requester);
   assert(rNuAmazon.inserted === 1, `Nubank insere AMAZON própria (got inserted=${rNuAmazon.inserted})`);
   assert(rNuAmazon.settled === 0, `Nubank NÃO settle o Itaú (got settled=${rNuAmazon.settled})`);
   const itauAmazon = await prisma.expense.findFirst({
@@ -304,7 +318,7 @@ async function main() {
   const itauAmazon2Csv = `data;descricao;valor
 05/09/2026;AMAZON BR PARC 2/2;R$ 200,00
 `;
-  const rItauAmazon2 = await cardSvc.commitImport(tenant.id, pessoal.id, itau.id, itauAmazon2Csv, 'itau-09.csv', 'AUTO' as any);
+  const rItauAmazon2 = await cardSvc.commitImport(tenant.id, pessoal.id, itau.id, itauAmazon2Csv, 'itau-09.csv', 'AUTO' as any, undefined, undefined, undefined, null, requester);
   assert(rItauAmazon2.settled === 1, `Itaú parcela 2/2 settle (got settled=${rItauAmazon2.settled})`);
   const nubankAmazonAfter = await prisma.cashFlowEntry.findMany({
     where: { expenseId: nubankAmazon!.id }, orderBy: { data: 'asc' },
@@ -320,7 +334,7 @@ async function main() {
   const nubankAmazonWrongCsv = `date,title,amount
 2026-09-06,AMAZON BR PARC 2/2,250.00
 `;
-  const rWrong = await cardSvc.commitImport(tenant.id, pessoal.id, nubank.id, nubankAmazonWrongCsv, 'nu-09.csv', 'AUTO' as any);
+  const rWrong = await cardSvc.commitImport(tenant.id, pessoal.id, nubank.id, nubankAmazonWrongCsv, 'nu-09.csv', 'AUTO' as any, undefined, undefined, undefined, null, requester);
   // Valor diverge → não settle, cria nova expense
   assert(rWrong.settled === 0, `valor divergente não settle (got settled=${rWrong.settled})`);
   assert(rWrong.inserted === 1, `valor divergente cria nova (got inserted=${rWrong.inserted})`);
@@ -343,7 +357,14 @@ async function main() {
   });
   let rejected = false;
   try {
-    await cardSvc.linkToExpense(tenant.id, pessoal.id, ifoodSource!.id, casaPaga.id);
+    await cardSvc.linkToExpense(
+      tenant.id,
+      pessoal.id,
+      ifoodSource!.id,
+      casaPaga.id,
+      {},
+      requester,
+    );
   } catch (e: any) {
     rejected = e?.message?.includes('já está paga');
   }
@@ -370,7 +391,14 @@ async function main() {
       categoria: 'MATERIAL_CONSTRUCAO', formaPagamento: 'A_VISTA', status: 'PLANEJADO',
     },
   });
-  await cardSvc.linkToExpense(tenant.id, pessoal.id, ifoodSource!.id, reformaPlanned2.id);
+  await cardSvc.linkToExpense(
+    tenant.id,
+    pessoal.id,
+    ifoodSource!.id,
+    reformaPlanned2.id,
+    {},
+    requester,
+  );
 
   // Cash-flow do PESSOAL não deve incluir o iFood do Itaú (linked)
   const pessoalEntries = await prisma.cashFlowEntry.findMany({

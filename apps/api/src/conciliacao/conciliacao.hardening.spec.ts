@@ -1,3 +1,4 @@
+import { TEST_OWNER_REQUESTER } from '../test-utils/acl-requester-test-helper';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConciliacaoService } from './conciliacao.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -8,7 +9,9 @@ import {
 
 function makeTarget(over: Partial<any> = {}) {
   return {
-    id: 'tgt', tenantId: 't1', projectId: 'reforma1', tipoDespesa: 'METAL_CERAMICA',
+    id: 'tgt', tenantId: 't1', projectId: 'reforma1',
+    project: { id: 'reforma1', tenantId: 't1', type: 'REFORMA' },
+    tipoDespesa: 'METAL_CERAMICA',
     categoriaMaoDeObra: null, roomId: null, valorTotal: 30000, formaPagamento: 'PARCELADO',
     dataPagamento: null, quantidadeParcela: 3, dataInicioParcela: new Date('2026-04-29'),
     status: 'PLANEJADO', paidParcelas: null, linkedExpenseId: null, deletedAt: null, room: null, ...over,
@@ -17,7 +20,9 @@ function makeTarget(over: Partial<any> = {}) {
 // Mirror = espelho (source). valorTotal é o valor REAL pago da parcela.
 function makeMirror(id: string, over: Partial<any> = {}) {
   return {
-    id, tenantId: 't1', projectId: 'pessoal1', valorTotal: 11000,
+    id, tenantId: 't1', projectId: 'pessoal1',
+    project: { id: 'pessoal1', tenantId: 't1', type: 'PESSOAL' },
+    valorTotal: 11000,
     cardLast4: '1234', bankLast4: null, linkedExpenseId: null, deletedAt: null,
     formaPagamento: 'A_VISTA', quantidadeParcela: null, dataInicioParcela: null,
     dataPagamento: new Date('2026-05-10'), status: 'PAGO', tipoDespesa: 'OUTROS', ...over,
@@ -64,6 +69,7 @@ describe('ConciliacaoService — hardening cross-parcela', () => {
           if (where?.targetExpenseId) return Promise.resolve(opts.rateioTargetCount ?? 0);
           return Promise.resolve(0);
         }),
+        findMany: jest.fn().mockResolvedValue([]),
       },
       cashFlowEntry: {
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
@@ -86,8 +92,8 @@ describe('ConciliacaoService — hardening cross-parcela', () => {
       target: makeTarget(),
       mirrors: { mA: makeMirror('mA'), mB: makeMirror('mB') },
     });
-    await service.settleTargetParcela(prisma, { tenantId: 't1', sourceExpenseId: 'mA', targetExpenseId: 'tgt', parcelaIndex: 0, realValor: 11000 });
-    await service.settleTargetParcela(prisma, { tenantId: 't1', sourceExpenseId: 'mB', targetExpenseId: 'tgt', parcelaIndex: 0, realValor: 11000 });
+    await service.settleTargetParcela(prisma, { tenantId: 't1', sourceExpenseId: 'mA', targetExpenseId: 'tgt', parcelaIndex: 0, realValor: 11000 }, TEST_OWNER_REQUESTER);
+    await service.settleTargetParcela(prisma, { tenantId: 't1', sourceExpenseId: 'mB', targetExpenseId: 'tgt', parcelaIndex: 0, realValor: 11000 }, TEST_OWNER_REQUESTER);
 
     // Espelho antigo (mA) foi desativado: soft-delete + link limpo → não conta mais no caixa.
     expect(opts_mA_deleted(prisma)).toBe(true);
@@ -111,8 +117,8 @@ describe('ConciliacaoService — hardening cross-parcela', () => {
 
   it('P1/P2: duplo clique com a MESMA source é idempotente (0 novos espelhos, só update realValor)', async () => {
     const prisma = buildPrisma({ target: makeTarget(), mirrors: { mA: makeMirror('mA') } });
-    await service.settleTargetParcela(prisma, { tenantId: 't1', sourceExpenseId: 'mA', targetExpenseId: 'tgt', parcelaIndex: 0, realValor: 11000 });
-    await service.settleTargetParcela(prisma, { tenantId: 't1', sourceExpenseId: 'mA', targetExpenseId: 'tgt', parcelaIndex: 0, realValor: 11000 });
+    await service.settleTargetParcela(prisma, { tenantId: 't1', sourceExpenseId: 'mA', targetExpenseId: 'tgt', parcelaIndex: 0, realValor: 11000 }, TEST_OWNER_REQUESTER);
+    await service.settleTargetParcela(prisma, { tenantId: 't1', sourceExpenseId: 'mA', targetExpenseId: 'tgt', parcelaIndex: 0, realValor: 11000 }, TEST_OWNER_REQUESTER);
 
     // Nenhum espelho soft-deletado; 1 settlement.
     const deletes = prisma.expense.update.mock.calls.map((c: any[]) => c[0]).filter((c: any) => c.data.deletedAt != null);
@@ -123,28 +129,28 @@ describe('ConciliacaoService — hardening cross-parcela', () => {
   it('P5: rejeita target NEUTRO', async () => {
     const prisma = buildPrisma({ target: makeTarget({ tipoDespesa: 'PAGAMENTO_FATURA_CARTAO' }), mirrors: { mA: makeMirror('mA') } });
     await expect(
-      service.settleTargetParcela(prisma, { tenantId: 't1', sourceExpenseId: 'mA', targetExpenseId: 'tgt', parcelaIndex: 0, realValor: 11000 }),
+      service.settleTargetParcela(prisma, { tenantId: 't1', sourceExpenseId: 'mA', targetExpenseId: 'tgt', parcelaIndex: 0, realValor: 11000 }, TEST_OWNER_REQUESTER),
     ).rejects.toThrow(/neutr/i);
   });
 
   it('E5: rejeita quando a source já está rateada (mutex rateio×settle)', async () => {
     const prisma = buildPrisma({ target: makeTarget(), mirrors: { mA: makeMirror('mA') }, rateioCount: 1 });
     await expect(
-      service.settleTargetParcela(prisma, { tenantId: 't1', sourceExpenseId: 'mA', targetExpenseId: 'tgt', parcelaIndex: 0, realValor: 11000 }),
+      service.settleTargetParcela(prisma, { tenantId: 't1', sourceExpenseId: 'mA', targetExpenseId: 'tgt', parcelaIndex: 0, realValor: 11000 }, TEST_OWNER_REQUESTER),
     ).rejects.toThrow(/rate/i);
   });
 
   it('E5 (simétrico): rejeita quando o ALVO já é destino de rateio', async () => {
     const prisma = buildPrisma({ target: makeTarget(), mirrors: { mA: makeMirror('mA') }, rateioTargetCount: 1 });
     await expect(
-      service.settleTargetParcela(prisma, { tenantId: 't1', sourceExpenseId: 'mA', targetExpenseId: 'tgt', parcelaIndex: 0, realValor: 11000 }),
+      service.settleTargetParcela(prisma, { tenantId: 't1', sourceExpenseId: 'mA', targetExpenseId: 'tgt', parcelaIndex: 0, realValor: 11000 }, TEST_OWNER_REQUESTER),
     ).rejects.toThrow(/rate/i);
   });
 
   it('P5 (fonte): rejeita espelho NEUTRO (não contaria no caixa → money-vanish)', async () => {
     const prisma = buildPrisma({ target: makeTarget(), mirrors: { mA: makeMirror('mA', { tipoDespesa: 'PAGAMENTO_FATURA_CARTAO' }) } });
     await expect(
-      service.settleTargetParcela(prisma, { tenantId: 't1', sourceExpenseId: 'mA', targetExpenseId: 'tgt', parcelaIndex: 0, realValor: 11000 }),
+      service.settleTargetParcela(prisma, { tenantId: 't1', sourceExpenseId: 'mA', targetExpenseId: 'tgt', parcelaIndex: 0, realValor: 11000 }, TEST_OWNER_REQUESTER),
     ).rejects.toThrow(/neutr/i);
   });
 
@@ -153,8 +159,8 @@ describe('ConciliacaoService — hardening cross-parcela', () => {
       target: makeTarget(),
       mirrors: { mA: makeMirror('mA'), mB: makeMirror('mB') },
     });
-    await service.settleTargetParcela(prisma, { tenantId: 't1', sourceExpenseId: 'mA', targetExpenseId: 'tgt', parcelaIndex: 0, realValor: 11000 });
-    await service.settleTargetParcela(prisma, { tenantId: 't1', sourceExpenseId: 'mB', targetExpenseId: 'tgt', parcelaIndex: 0, realValor: 11000 });
+    await service.settleTargetParcela(prisma, { tenantId: 't1', sourceExpenseId: 'mA', targetExpenseId: 'tgt', parcelaIndex: 0, realValor: 11000 }, TEST_OWNER_REQUESTER);
+    await service.settleTargetParcela(prisma, { tenantId: 't1', sourceExpenseId: 'mB', targetExpenseId: 'tgt', parcelaIndex: 0, realValor: 11000 }, TEST_OWNER_REQUESTER);
 
     // O cashFlowEntry do espelho antigo (mA) foi soft-deletado junto do expense.
     const entryCleanups = prisma.cashFlowEntry.updateMany.mock.calls
@@ -171,7 +177,7 @@ describe('ConciliacaoService — hardening cross-parcela', () => {
       { targetExpenseId: 'tgt', sourceExpenseId: 'mA', parcelaIndex: 0, plannedStatus: 'PLANEJADO', realValor: 11000 },
     ]);
 
-    await service.unsettleBySource(prisma, { tenantId: 't1', sourceExpenseId: 'mA' });
+    await service.unsettleBySource(prisma, { tenantId: 't1', sourceExpenseId: 'mA' }, TEST_OWNER_REQUESTER);
 
     const mAUpdates = prisma.expense.update.mock.calls.map((c: any[]) => c[0]).filter((c: any) => c.where.id === 'mA');
     expect(mAUpdates.some((c: any) => c.data.deletedAt != null)).toBe(true);   // espelho apagado
@@ -194,7 +200,7 @@ describe('ConciliacaoService — hardening cross-parcela', () => {
     // usada em 'Vincular transações', ou já foi limpa por outra chamada).
     prisma.crossProjectSettlement.findMany = jest.fn().mockResolvedValue([]);
 
-    const result = await service.unsettleBySource(prisma, { tenantId: 't1', sourceExpenseId: 'standalone' });
+    const result = await service.unsettleBySource(prisma, { tenantId: 't1', sourceExpenseId: 'standalone' }, TEST_OWNER_REQUESTER);
 
     expect(result).toEqual({ targets: [] });
     // Nenhuma escrita: nem soft-delete da despesa, nem limpeza de vínculo.

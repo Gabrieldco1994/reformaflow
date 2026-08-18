@@ -3,7 +3,10 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBankAccountDto, UpdateBankAccountDto } from './dto/bank-account.dto';
 import { parseBankStatementBuffers, type BankSourceHint } from './parsers';
-import { RateioRequester } from '../expense/rateio.types';
+import {
+  assertRateioRequester,
+  RateioRequester,
+} from '../expense/rateio.types';
 
 /** Normaliza a entrada (string legada, Buffer único ou array) para Buffer[]. */
 function toBuffers(content: string | Buffer | Buffer[]): Buffer[] {
@@ -55,7 +58,10 @@ import {
   MERCHANT_TO_EXPENSE_TYPE,
 } from '../merchant-classifier/merchant-classifier.service';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
-import { CardInvoiceSettlementService } from '../credit-card/card-invoice-settlement.service';
+import {
+  CardInvoiceSettlementService,
+  type PreparedInvoiceUnsettlement,
+} from '../credit-card/card-invoice-settlement.service';
 import {
   pickUniqueCardMatch,
   rankCardCandidates,
@@ -550,12 +556,13 @@ export class BankAccountService {
     fileContent: string | Buffer | Buffer[],
     fileName: string | undefined,
     source: BankSourceHint,
-    periodLabelOverride?: string,
-    password?: string,
-    decisions?: BankImportDecision[],
-    createdByUserId: string | null = null,
-    requester?: RateioRequester,
+    periodLabelOverride: string | undefined,
+    password: string | undefined,
+    decisions: BankImportDecision[] | undefined,
+    createdByUserId: string | null,
+    requester: RateioRequester,
   ) {
+    assertRateioRequester(requester);
     const account = await this.findAccount(tenantId, projectId, accountId);
     const buffers = toBuffers(fileContent);
     const parsed = await parseBankStatementBuffers(buffers, account.id, source, fileName, password);
@@ -578,9 +585,12 @@ export class BankAccountService {
       if (existingIds.has(t.externalId)) return false;
       return true;
     });
+    const insertableDecisions = toInsert
+      .map((transaction) => decisionByExt.get(transaction.externalId))
+      .filter((decision): decision is BankImportDecision => Boolean(decision));
     const targetExpenseIds = [
       ...new Set(
-        (decisions ?? [])
+        insertableDecisions
           .filter((decision) => decision.action === 'link')
           .map((decision) => decision.linkToExpenseId)
           .filter((id): id is string => Boolean(id)),
@@ -588,7 +598,7 @@ export class BankAccountService {
     ];
     const targetReceiptIds = [
       ...new Set(
-        (decisions ?? [])
+        insertableDecisions
           .filter((decision) => decision.action === 'link')
           .map((decision) => decision.linkToReceiptId)
           .filter((id): id is string => Boolean(id)),
@@ -697,6 +707,7 @@ export class BankAccountService {
               adjustedTx.date,
             ),
           },
+          requester,
         );
         if (result.inserted) inserted++;
         if (result.receiptInserted) receiptsInserted++;
@@ -907,8 +918,9 @@ export class BankAccountService {
     projectId: string,
     accountId: string,
     importId: string,
-    requester?: RateioRequester,
+    requester: RateioRequester,
   ) {
+    assertRateioRequester(requester, new NotFoundException('Importação não encontrada'));
     await this.findAccount(tenantId, projectId, accountId);
     const importRecord = await this.prisma.bankStatementImport.findFirst({
       where: { id: importId, tenantId, accountId },
@@ -921,36 +933,16 @@ export class BankAccountService {
       };
     }
 
-    // Resolve os cartões dos pagamentos de fatura ANTES da tx (leitura pura), para
-    // saber quais liquidações são revertíveis por vencimento (estratégia 1).
-    const cardPayments = await this.prisma.expense.findMany({
-      where: {
-        tenantId, importId, deletedAt: null, createdAt: { gte: importRecord.createdAt },
-        tipoDespesa: 'PAGAMENTO_FATURA_CARTAO', cardLast4: { not: null },
-      },
-      select: { cardLast4: true, dataPagamento: true, createdAt: true },
-    });
-    const invoiceReversals: Array<{ card: { id: string; last4: string; closingDay: number | null; dueDay: number | null }; dueMonth: string }> = [];
-    let notRevertedInvoiceLiquidations = 0;
-    const seen = new Set<string>();
-    for (const p of cardPayments) {
-      const c = await this.prisma.creditCard.findFirst({
-        where: { tenantId, last4: p.cardLast4 as string, deletedAt: null },
-        select: { id: true, last4: true, closingDay: true, dueDay: true },
-      });
-      if (c && c.closingDay != null && c.dueDay != null) {
-        const dueMonth = this.yearMonthUtc(p.dataPagamento ?? p.createdAt);
-        const key = `${c.last4}__${dueMonth}`;
-        if (!seen.has(key)) { seen.add(key); invoiceReversals.push({ card: c, dueMonth }); }
-      } else {
-        notRevertedInvoiceLiquidations++;
-      }
-    }
-
     const result = await this.prisma.$transaction(async (tx) => {
       const created = await tx.expense.findMany({
         where: { tenantId, importId, deletedAt: null, createdAt: { gte: importRecord.createdAt } },
-        select: { id: true },
+        select: {
+          id: true,
+          tipoDespesa: true,
+          cardLast4: true,
+          dataPagamento: true,
+          createdAt: true,
+        },
       });
       const receipts = await tx.receipt.findMany({
         where: { tenantId, importId, deletedAt: null, createdAt: { gte: importRecord.createdAt } },
@@ -963,6 +955,59 @@ export class BankAccountService {
       const createdIds = created.map((e) => e.id);
       const receiptIds = receipts.map((r) => r.id);
       const now = new Date();
+      const preparedInvoiceReversals: PreparedInvoiceUnsettlement[] = [];
+      let notRevertedInvoiceLiquidations = 0;
+      const seen = new Set<string>();
+
+      for (const payment of created) {
+        if (
+          payment.tipoDespesa !== 'PAGAMENTO_FATURA_CARTAO' ||
+          !payment.cardLast4
+        ) {
+          continue;
+        }
+        const cards = await tx.creditCard.findMany({
+          where: {
+            tenantId,
+            last4: payment.cardLast4,
+            deletedAt: null,
+          },
+          select: {
+            id: true,
+            last4: true,
+            closingDay: true,
+            dueDay: true,
+          },
+          take: 2,
+        });
+        if (cards.length !== 1) {
+          throw new NotFoundException('Importação não encontrada');
+        }
+        const card = cards[0];
+        if (card.closingDay == null || card.dueDay == null) {
+          await this.cardSettlement.assertCanAccessCard({
+            tenantId,
+            card,
+            tx,
+            requester,
+          });
+          notRevertedInvoiceLiquidations++;
+          continue;
+        }
+        const dueMonth = this.yearMonthUtc(payment.dataPagamento ?? payment.createdAt);
+        const key = `${card.id}__${dueMonth}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        preparedInvoiceReversals.push(
+          await this.cardSettlement.prepareUnsettleInvoice({
+            tenantId,
+            card,
+            dueMonth,
+            tx,
+            requester,
+          }),
+        );
+      }
 
       await this.conciliacao.assertCanReverseSources(
         tx,
@@ -1015,8 +1060,12 @@ export class BankAccountService {
       //    lote voltam a PLANEJADO). Cartões sem fechamento/vencimento ficam de
       //    fora (fallback não revertível por vencimento) — já contados acima.
       let revertedInvoiceParcelas = 0;
-      for (const rev of invoiceReversals) {
-        const r = await this.cardSettlement.unsettleInvoice({ tenantId, card: rev.card, dueMonth: rev.dueMonth, tx });
+      for (const prepared of preparedInvoiceReversals) {
+        const r = await this.cardSettlement.applyPreparedUnsettlement(
+          tx,
+          prepared,
+          requester,
+        );
         revertedInvoiceParcelas += r.revertedParcelas;
       }
 
@@ -1033,11 +1082,12 @@ export class BankAccountService {
         removedReceipts: receiptIds.length,
         revertedSettlements,
         revertedInvoiceParcelas,
+        notRevertedInvoiceLiquidations,
         unstamped: adopted.length,
       };
     });
 
-    return { ok: true, alreadyUndone: false, notRevertedInvoiceLiquidations, ...result };
+    return { ok: true, alreadyUndone: false, ...result };
   }
 
   /**
@@ -1270,9 +1320,10 @@ export class BankAccountService {
     projectId: string,
     bankExpenseId: string,
     targetExpenseId: string,
-    opts?: { parcelaIndex?: number; realValor?: number },
-    requester?: RateioRequester,
+    opts: { parcelaIndex?: number; realValor?: number } | undefined,
+    requester: RateioRequester,
   ) {
+    assertRateioRequester(requester);
     const source = await this.prisma.expense.findFirst({
       where: { id: bankExpenseId, tenantId, projectId, deletedAt: null },
     });
@@ -1304,8 +1355,9 @@ export class BankAccountService {
     tenantId: string,
     projectId: string,
     bankExpenseId: string,
-    requester?: RateioRequester,
+    requester: RateioRequester,
   ) {
+    assertRateioRequester(requester, new NotFoundException('Despesa não encontrada'));
     const source = await this.prisma.expense.findFirst({
       where: { id: bankExpenseId, tenantId, projectId, deletedAt: null },
     });
@@ -1406,8 +1458,9 @@ export class BankAccountService {
     projectId: string,
     bankReceiptId: string,
     targetReceiptId: string,
-    requester?: RateioRequester,
+    requester: RateioRequester,
   ) {
+    assertRateioRequester(requester);
     const result = await this.prisma.$transaction(async (tx) => {
       const source = await tx.receipt.findFirst({
         where: { id: bankReceiptId, tenantId, projectId, deletedAt: null },
@@ -1464,8 +1517,9 @@ export class BankAccountService {
     tenantId: string,
     projectId: string,
     bankReceiptId: string,
-    requester?: RateioRequester,
+    requester: RateioRequester,
   ) {
+    assertRateioRequester(requester, new NotFoundException('Recebimento não encontrado'));
     return this.prisma.$transaction(async (tx) => {
       const source = await tx.receipt.findFirst({
         where: { id: bankReceiptId, tenantId, projectId, deletedAt: null },
@@ -1543,9 +1597,10 @@ export class BankAccountService {
     account: { id: string; nickname: string; last4: string; institution: string },
     tx: NormalizedTx,
     importId: string,
-    categoryOverride?: string,
-    createdByUserId: string | null = null,
-    cardHint?: { override?: string | null; candidates?: CardInvoiceCandidate[] },
+    categoryOverride: string | undefined,
+    createdByUserId: string | null,
+    cardHint: { override?: string | null; candidates?: CardInvoiceCandidate[] } | undefined,
+    requester: RateioRequester,
   ): Promise<{ inserted: boolean; receiptInserted: boolean; cardPayment: boolean; unlinkedCardPayment: boolean; expenseId?: string; receiptId?: string }> {
     if (tx.amountCents < 0) {
       const receiptAmount = -tx.amountCents;
@@ -1685,6 +1740,7 @@ export class BankAccountService {
               card,
               amountCents: tx.amountCents,
               paymentDate: tx.date,
+              requester,
             });
           }
         } catch (settleErr) {

@@ -1,3 +1,4 @@
+import { TEST_OWNER_REQUESTER } from '../test-utils/acl-requester-test-helper';
 import { BadRequestException } from '@nestjs/common';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import { ExpenseService } from './expense.service';
@@ -182,7 +183,7 @@ describe('ExpenseService — ciclo de vida de participantes de rateio (#428)', (
     const { service, prisma, rows, conciliacao } = makeHarness();
     const unratear = jest.spyOn(conciliacao, 'unratearSource');
 
-    await expect(service.remove(TENANT_ID, 'pessoal-1', SOURCE_ID)).resolves.toEqual({
+    await expect(service.remove(TENANT_ID, 'pessoal-1', SOURCE_ID, TEST_OWNER_REQUESTER)).resolves.toEqual({
       deleted: true,
       count: 1,
     });
@@ -191,7 +192,7 @@ describe('ExpenseService — ciclo de vida de participantes de rateio (#428)', (
     expect(unratear).toHaveBeenCalledWith(prisma, {
       tenantId: TENANT_ID,
       sourceExpenseId: SOURCE_ID,
-    }, expect.objectContaining({ role: 'ADMIN' }));
+    }, TEST_OWNER_REQUESTER);
     expect(prisma.rateioAllocation.delete).toHaveBeenCalledTimes(3);
     TARGET_IDS.forEach((id, index) => {
       expect(rows.get(id)).toEqual(
@@ -213,7 +214,7 @@ describe('ExpenseService — ciclo de vida de participantes de rateio (#428)', (
     const { service, prisma, rows } = makeHarness();
     rows.set('unrelated-1', expense('unrelated-1', 'other-1', SOURCE_ID));
 
-    await service.remove(TENANT_ID, 'pessoal-1', SOURCE_ID);
+    await service.remove(TENANT_ID, 'pessoal-1', SOURCE_ID, TEST_OWNER_REQUESTER);
 
     expect(prisma.expense.updateMany).toHaveBeenCalledWith({
       where: { tenantId: TENANT_ID, linkedExpenseId: SOURCE_ID, deletedAt: null },
@@ -225,7 +226,7 @@ describe('ExpenseService — ciclo de vida de participantes de rateio (#428)', (
     const { service, prisma, rows } = makeHarness();
     rows.set('external-2', expense('external-2', 'other-1', TARGET_IDS[1]!));
 
-    await expect(service.remove(TENANT_ID, 'other-1', 'external-2')).resolves.toEqual({
+    await expect(service.remove(TENANT_ID, 'other-1', 'external-2', TEST_OWNER_REQUESTER)).resolves.toEqual({
       deleted: true,
       count: 1,
     });
@@ -242,7 +243,7 @@ describe('ExpenseService — ciclo de vida de participantes de rateio (#428)', (
     async (targetId) => {
       const { service, prisma } = makeHarness();
 
-      await expect(service.remove(TENANT_ID, 'obra-1', targetId!)).rejects.toBeInstanceOf(
+      await expect(service.remove(TENANT_ID, 'obra-1', targetId!, TEST_OWNER_REQUESTER)).rejects.toBeInstanceOf(
         BadRequestException,
       );
 
@@ -270,7 +271,7 @@ describe('ExpenseService — ciclo de vida de participantes de rateio (#428)', (
         categoriaMaoDeObra: 'EMPREITEIRO',
         tipoDespesa: 'OUTROS',
         dataCompra: '2026-08-12',
-      } as never);
+      } as never, TEST_OWNER_REQUESTER);
 
       const touchedExpenseIds = prisma.expense.update.mock.calls.map(
         ([args]: any[]) => args.where.id,
@@ -297,7 +298,7 @@ describe('ExpenseService — ciclo de vida de participantes de rateio (#428)', (
         recorrente: false,
         recorrenciaFim: null,
         linkedExpenseId,
-      } as never);
+      } as never, TEST_OWNER_REQUESTER);
 
       const ownWrite = prisma.expense.update.mock.calls.find(
         ([args]: any[]) => args.where.id === id,
@@ -321,7 +322,7 @@ describe('ExpenseService — ciclo de vida de participantes de rateio (#428)', (
           TENANT_ID,
           role === 'source' ? 'pessoal-1' : 'obra-1',
           participantId(role),
-          dto as never,
+          dto as never, TEST_OWNER_REQUESTER
         ),
       ).rejects.toBeInstanceOf(BadRequestException);
       expect(prisma.expense.update).not.toHaveBeenCalled();

@@ -14,7 +14,10 @@ import { RequireModule } from '../common/decorators/require-module.decorator';
 import { CurrentTenant, CurrentUser } from '../common/decorators/tenant.decorator';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
 import { PdfPasswordRequiredError, PdfWrongPasswordError, ImageOcrError } from './parsers';
-import { RateioRequester } from '../expense/rateio.types';
+import {
+  assertRateioRequester,
+  RateioRequester,
+} from '../expense/rateio.types';
 
 @RequireModule('creditCards')
 @UseInterceptors(TenantInterceptor)
@@ -82,6 +85,7 @@ export class CreditCardController {
     @Param('importId') importId: string,
     @CurrentUser() requester: RateioRequester,
   ) {
+    assertRateioRequester(requester);
     return this.service.undoImport(tenantId, projectId, cardId, importId, requester);
   }
 
@@ -102,6 +106,7 @@ export class CreditCardController {
     @Body() body: LinkToExpenseDto,
     @CurrentUser() requester: RateioRequester,
   ) {
+    assertRateioRequester(requester);
     return this.service.linkToExpense(
       tenantId,
       projectId,
@@ -122,6 +127,7 @@ export class CreditCardController {
     @Param('expenseId') expenseId: string,
     @CurrentUser() requester: RateioRequester,
   ) {
+    assertRateioRequester(requester);
     return this.service.unlinkExpense(tenantId, projectId, expenseId, requester);
   }
 
@@ -136,6 +142,7 @@ export class CreditCardController {
     @Query() query: ImportStatementQueryDto,
     @Body() body: { decisions?: string } | undefined,
   ) {
+    assertRateioRequester(requester);
     const list = (files ?? []).slice(0, 5);
     if (list.length === 0) {
       return { error: 'arquivo ausente' };

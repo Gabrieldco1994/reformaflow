@@ -1,3 +1,4 @@
+import { TEST_OWNER_REQUESTER } from '../test-utils/acl-requester-test-helper';
 /**
  * B1a (#448) — `roomId` deve ser project-scoped (não pode apontar para um
  * Room de OUTRO projeto do tenant), nas 3 vias de escrita que aceitam roomId:
@@ -123,7 +124,7 @@ describe('ExpenseService — roomId é project-scoped (#448 B1a)', () => {
       const existing = await service.create(TENANT, PESSOAL, dto({ roomId: roomInPessoal }) as any);
 
       await expect(
-        service.update(TENANT, PESSOAL, existing.id, { roomId: roomInOther } as any),
+        service.update(TENANT, PESSOAL, existing.id, { roomId: roomInOther } as any, TEST_OWNER_REQUESTER),
       ).rejects.toBeInstanceOf(NotFoundException);
 
       const row = await setupPrisma.expense.findUnique({ where: { id: existing.id } });
@@ -132,7 +133,7 @@ describe('ExpenseService — roomId é project-scoped (#448 B1a)', () => {
 
     it('roomId omitido no patch → mantém o room atual (controle)', async () => {
       const existing = await service.create(TENANT, PESSOAL, dto({ roomId: roomInPessoal }) as any);
-      const updated = await service.update(TENANT, PESSOAL, existing.id, { titulo: 'Piso porcelanato' } as any);
+      const updated = await service.update(TENANT, PESSOAL, existing.id, { titulo: 'Piso porcelanato' } as any, TEST_OWNER_REQUESTER);
       expect(updated.roomId).toBe(roomInPessoal);
     });
   });

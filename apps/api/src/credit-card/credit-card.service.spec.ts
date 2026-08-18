@@ -1,3 +1,4 @@
+import { TEST_OWNER_REQUESTER } from '../test-utils/acl-requester-test-helper';
 import { Test, TestingModule } from '@nestjs/testing';
 import * as XLSX from 'xlsx';
 import { CreditCardService } from './credit-card.service';
@@ -5,6 +6,15 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import { withAclRequester } from '../test-utils/acl-requester-test-helper';
 import { MerchantClassifierService } from '../merchant-classifier/merchant-classifier.service';
+import { NotFoundException } from '@nestjs/common';
+import type { RateioRequester } from '../expense/rateio.types';
+
+const RESTRICTED_IMPORT_REQUESTER: RateioRequester = {
+  role: 'USER',
+  allowedProjects: ['pessoal1'],
+  allowedProjectTypes: ['PESSOAL', 'REFORMA'],
+  allowedModules: ['expenses'],
+};
 
 function makePrismaMock() {
   return {
@@ -99,6 +109,18 @@ describe('CreditCardService', () => {
 
   beforeEach(async () => {
     prisma = makePrismaMock();
+    const projects = new Map([
+      ['pessoal1', { id: 'pessoal1', tenantId: 't1', type: 'PESSOAL' }],
+      ['reforma1', { id: 'reforma1', tenantId: 't1', type: 'REFORMA' }],
+      ['casa1', { id: 'casa1', tenantId: 't1', type: 'CASA' }],
+    ]);
+    prisma.project.findFirst.mockImplementation(({ where }: any) =>
+      Promise.resolve(
+        where.tenantId === 't1' && where.deletedAt === null
+          ? projects.get(where.id) ?? null
+          : null,
+      ),
+    );
     merchantClassifier = { manualExpenseType: jest.fn().mockResolvedValue(null) };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -445,7 +467,7 @@ describe('CreditCardService', () => {
 
       await service.commitImport(
         't1', 'pessoal1', 'card1',
-        Buffer.from(ofx), 'f.ofx', 'OFX',
+        Buffer.from(ofx), 'f.ofx', 'OFX', undefined, undefined, undefined, null, TEST_OWNER_REQUESTER
       );
 
       const created = prisma.expense.create.mock.calls[0][0];
@@ -475,7 +497,7 @@ describe('CreditCardService', () => {
       prisma.expense.create.mockClear();
       prisma.cashFlowEntry.create.mockClear();
 
-      await service.commitImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX');
+      await service.commitImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX', undefined, undefined, undefined, null, TEST_OWNER_REQUESTER);
 
       const created = prisma.expense.create.mock.calls[0][0];
       const cfCalls = prisma.cashFlowEntry.create.mock.calls;
@@ -516,7 +538,7 @@ describe('CreditCardService', () => {
       prisma.expense.create.mockClear();
       prisma.cashFlowEntry.create.mockClear();
 
-      await service.commitImport('t1', 'pessoal1', 'card1', buf, 'fatura.xlsx', 'AUTO');
+      await service.commitImport('t1', 'pessoal1', 'card1', buf, 'fatura.xlsx', 'AUTO', undefined, undefined, undefined, null, TEST_OWNER_REQUESTER);
 
       const created = prisma.expense.create.mock.calls[0][0];
       const iso = (d: Date) => d.toISOString().slice(0, 10);
@@ -554,7 +576,7 @@ describe('CreditCardService', () => {
       prisma.expense.findFirst.mockResolvedValue(null);
       prisma.expense.create.mockClear();
 
-      await service.commitImport('t1', 'pessoal1', 'card1', buf, 'fatura.xlsx', 'AUTO');
+      await service.commitImport('t1', 'pessoal1', 'card1', buf, 'fatura.xlsx', 'AUTO', undefined, undefined, undefined, null, TEST_OWNER_REQUESTER);
 
       const iso = (d: Date) => d.toISOString().slice(0, 10);
       const calls = prisma.expense.create.mock.calls.map(([a]: [any]) => a.data);
@@ -585,7 +607,7 @@ describe('CreditCardService', () => {
       prisma.expense.findFirst.mockResolvedValue(null);
       prisma.expense.create.mockClear();
 
-      await service.commitImport('t1', 'pessoal1', 'card1', buf, 'fatura.xlsx', 'AUTO');
+      await service.commitImport('t1', 'pessoal1', 'card1', buf, 'fatura.xlsx', 'AUTO', undefined, undefined, undefined, null, TEST_OWNER_REQUESTER);
 
       const created = prisma.expense.create.mock.calls[0][0];
       expect(created.data.dataPagamento.toISOString().slice(0, 10)).toBe('2026-09-20');
@@ -613,7 +635,7 @@ describe('CreditCardService', () => {
         't1', 'pessoal1', 'card1',
         Buffer.from(ofx), 'f.ofx', 'OFX',
         undefined, undefined,
-        [{ externalId: skipId, action: 'skip' }],
+        [{ externalId: skipId, action: 'skip' }], null, TEST_OWNER_REQUESTER
       );
 
       expect(res.inserted).toBe(1);
@@ -637,7 +659,7 @@ describe('CreditCardService', () => {
         [{
           externalId: ext,
           overrides: { titulo: 'Custom Title', valorCents: 12345, category: 'INVESTIMENTOS' },
-        }],
+        }], null, TEST_OWNER_REQUESTER
       );
 
       const call = prisma.expense.create.mock.calls[0][0];
@@ -682,7 +704,7 @@ describe('CreditCardService', () => {
         't1', 'pessoal1', 'card1',
         Buffer.from(ofx), 'f.ofx', 'OFX',
         undefined, undefined,
-        [{ externalId: ext, action: 'link', linkToExpenseId: 'tgt1' }],
+        [{ externalId: ext, action: 'link', linkToExpenseId: 'tgt1' }], null, TEST_OWNER_REQUESTER
       );
 
       expect(res.linked).toBe(1);
@@ -726,7 +748,7 @@ describe('CreditCardService', () => {
         't1', 'pessoal1', 'card1',
         Buffer.from(ofx), 'f.ofx', 'OFX',
         undefined, undefined,
-        [{ externalId: ext, action: 'link', linkToExpenseId: 'tgt2' }],
+        [{ externalId: ext, action: 'link', linkToExpenseId: 'tgt2' }], null, TEST_OWNER_REQUESTER
       );
 
       expect(res.linked).toBe(1);
@@ -747,7 +769,7 @@ describe('CreditCardService', () => {
         't1', 'pessoal1', 'card1',
         Buffer.from(ofx), 'f.ofx', 'OFX',
         undefined, undefined, undefined,
-        'user-abc',
+        'user-abc', TEST_OWNER_REQUESTER
       );
 
       expect(prisma.expense.create).toHaveBeenCalledTimes(1);
@@ -762,10 +784,139 @@ describe('CreditCardService', () => {
       expect(preview.preview.length).toBe(1);
 
       prisma.expense.create.mockClear();
-      await service.commitImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX');
+      await service.commitImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX', undefined, undefined, undefined, null, TEST_OWNER_REQUESTER);
 
       const createdCall = prisma.expense.create.mock.calls[0][0];
       expect(createdCall.data.createdByUserId).toBeNull();
+    });
+
+    it('ignora ACL de link hidden para externalId duplicado/skip sem criar despesa', async () => {
+      const ofx = buildOfx(
+        ofxFor('20260429', 100, 'DUPLICADA HIDDEN', 'DUP-HIDDEN'),
+        ofxFor('20260430', 200, 'SKIP HIDDEN', 'SKIP-HIDDEN'),
+      );
+      const preview = await service.previewImport(
+        't1',
+        'pessoal1',
+        'card1',
+        Buffer.from(ofx),
+        'f.ofx',
+        'OFX',
+      );
+      const duplicateId = preview.preview.find((item) =>
+        item.merchant.includes('DUPLICADA'),
+      )!.externalId;
+      const skippedId = preview.preview.find((item) =>
+        item.merchant.includes('SKIP'),
+      )!.externalId;
+      prisma.expense.findMany.mockImplementation(({ where }: any) => {
+        if (where.externalId) return Promise.resolve([{ externalId: duplicateId }]);
+        if (where.id) {
+          return Promise.resolve([
+            {
+              id: 'hidden-target',
+              tenantId: 't1',
+              projectId: 'hidden-project',
+              project: {
+                id: 'hidden-project',
+                tenantId: 't1',
+                type: 'REFORMA',
+              },
+            },
+          ]);
+        }
+        return Promise.resolve([]);
+      });
+      prisma.expense.create.mockClear();
+      prisma.crossProjectSettlement.upsert.mockClear();
+
+      await expect(
+        service.commitImport(
+          't1',
+          'pessoal1',
+          'card1',
+          Buffer.from(ofx),
+          'f.ofx',
+          'OFX',
+          undefined,
+          undefined,
+          [
+            {
+              externalId: duplicateId,
+              action: 'link',
+              linkToExpenseId: 'hidden-target',
+            },
+            {
+              externalId: skippedId,
+              action: 'skip',
+              linkToExpenseId: 'hidden-target',
+            },
+          ],
+          null,
+          RESTRICTED_IMPORT_REQUESTER,
+        ),
+      ).resolves.toEqual(expect.objectContaining({ inserted: 0 }));
+      expect(prisma.expense.create).not.toHaveBeenCalled();
+      expect(prisma.crossProjectSettlement.upsert).not.toHaveBeenCalled();
+    });
+
+    it('bloqueia link hidden processável antes da primeira escrita', async () => {
+      const ofx = buildOfx(
+        ofxFor('20260429', 100, 'PROCESSADA HIDDEN', 'PROC-HIDDEN'),
+      );
+      const preview = await service.previewImport(
+        't1',
+        'pessoal1',
+        'card1',
+        Buffer.from(ofx),
+        'f.ofx',
+        'OFX',
+      );
+      const externalId = preview.preview[0].externalId;
+      prisma.expense.findMany.mockImplementation(({ where }: any) => {
+        if (where.externalId) return Promise.resolve([]);
+        if (where.id) {
+          return Promise.resolve([
+            {
+              id: 'hidden-target',
+              tenantId: 't1',
+              projectId: 'hidden-project',
+              project: {
+                id: 'hidden-project',
+                tenantId: 't1',
+                type: 'REFORMA',
+              },
+            },
+          ]);
+        }
+        return Promise.resolve([]);
+      });
+      prisma.creditCardStatementImport.create.mockClear();
+      prisma.expense.create.mockClear();
+
+      await expect(
+        service.commitImport(
+          't1',
+          'pessoal1',
+          'card1',
+          Buffer.from(ofx),
+          'f.ofx',
+          'OFX',
+          undefined,
+          undefined,
+          [
+            {
+              externalId,
+              action: 'link',
+              linkToExpenseId: 'hidden-target',
+            },
+          ],
+          null,
+          RESTRICTED_IMPORT_REQUESTER,
+        ),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.creditCardStatementImport.create).not.toHaveBeenCalled();
+      expect(prisma.expense.create).not.toHaveBeenCalled();
     });
   });
 

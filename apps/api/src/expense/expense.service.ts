@@ -9,7 +9,11 @@ import { ExpenseTypeLabels, LaborCategoryLabels, buildInstallments, buildRecurre
 import { RatearMixedDto } from './dto/ratear-mixed.dto';
 import { Prisma } from '@prisma/client';
 import { fastClassify } from '../bank-account/bank-account.service';
-import { RateioDetalhe, RateioRequester } from './rateio.types';
+import {
+  assertRateioRequester,
+  RateioDetalhe,
+  RateioRequester,
+} from './rateio.types';
 import { userCanAccessProject, userCanAccessProjectType, resolveAccessibleProjectScope } from '../common/access-rules';
 
 type ExpenseDb = PrismaService | Prisma.TransactionClient;
@@ -196,6 +200,12 @@ export class ExpenseService {
     tx?: Prisma.TransactionClient,
     requester?: RateioRequester,
   ) {
+    if (
+      dto.linkedExpenseId !== undefined ||
+      dto.settlesInvoiceCardId !== undefined
+    ) {
+      assertRateioRequester(requester);
+    }
     const db = tx ?? this.prisma;
     await this.validateProject(tenantId, projectId, db);
 
@@ -296,9 +306,10 @@ export class ExpenseService {
     tenantId: string,
     projectId: string,
     dto: CreateRecorrenteDto,
-    createdByUserId: string | null = null,
-    requester?: RateioRequester,
+    createdByUserId: string | null,
+    requester: RateioRequester,
   ) {
+    assertRateioRequester(requester);
     await this.validateProject(tenantId, projectId);
 
     if (!isRecurrenceFrequency(dto.frequencia)) {
@@ -504,13 +515,13 @@ export class ExpenseService {
   async findCrossProject(
     tenantId: string,
     currentProjectId: string,
-    opts: { search?: string; projectId?: string; status?: 'PLANEJADO' | 'PAGO'; limit?: number } = {},
-    requester?: RateioRequester,
+    opts: { search?: string; projectId?: string; status?: 'PLANEJADO' | 'PAGO'; limit?: number },
+    requester: RateioRequester,
   ) {
+    assertRateioRequester(requester);
     await this.validateProject(tenantId, currentProjectId);
     const limit = Math.min(Math.max(opts.limit ?? 100, 1), 2000);
 
-    if (!requester) return [];
     const scope = await resolveAccessibleProjectScope(
       this.prisma,
       tenantId,
@@ -567,8 +578,9 @@ export class ExpenseService {
     projectId: string,
     id: string,
     targetExpenseId: string,
-    requester?: RateioRequester,
+    requester: RateioRequester,
   ) {
+    assertRateioRequester(requester);
     await this.validateProject(tenantId, projectId);
     const source = await this.prisma.expense.findFirst({
       where: { id, projectId, tenantId, deletedAt: null },
@@ -607,8 +619,9 @@ export class ExpenseService {
     tenantId: string,
     projectId: string,
     id: string,
-    requester?: RateioRequester,
+    requester: RateioRequester,
   ) {
+    assertRateioRequester(requester, new NotFoundException('Despesa não encontrada'));
     await this.validateProject(tenantId, projectId);
     const source = await this.prisma.expense.findFirst({
       where: { id, projectId, tenantId, deletedAt: null },
@@ -719,8 +732,9 @@ export class ExpenseService {
     db: ExpenseDb,
     tenantId: string,
     expense: { id: string; linkedExpenseId: string | null },
-    requester?: RateioRequester,
+    requester: RateioRequester,
   ): Promise<void> {
+    assertRateioRequester(requester);
     const direct = await db.expense.findMany({
       where: {
         tenantId,
@@ -777,8 +791,9 @@ export class ExpenseService {
     tenantId: string,
     projectId: string,
     id: string,
-    requester?: RateioRequester,
+    requester: RateioRequester,
   ): Promise<RateioDetalhe> {
+    assertRateioRequester(requester);
     const anchor = await this.prisma.expense.findFirst({
       where: { id, projectId, tenantId, deletedAt: null },
       include: { project: { select: { id: true, type: true, tenantId: true } } },
@@ -934,8 +949,9 @@ export class ExpenseService {
     projectId: string,
     sourceId: string,
     params: { targetExpenseId: string; parcelaIndex?: number; realValor?: number },
-    requester?: RateioRequester,
+    requester: RateioRequester,
   ) {
+    assertRateioRequester(requester);
     await this.validateProject(tenantId, projectId);
     const source = await this.prisma.expense.findFirst({
       where: { id: sourceId, projectId, tenantId, deletedAt: null },
@@ -979,8 +995,9 @@ export class ExpenseService {
     tenantId: string,
     projectId: string,
     sourceId: string,
-    requester?: RateioRequester,
+    requester: RateioRequester,
   ) {
+    assertRateioRequester(requester, new NotFoundException('Despesa não encontrada'));
     await this.validateProject(tenantId, projectId);
     const source = await this.prisma.expense.findFirst({
       where: { id: sourceId, projectId, tenantId, deletedAt: null },
@@ -1012,8 +1029,9 @@ export class ExpenseService {
     projectId: string,
     sourceId: string,
     allocations: RateioItem[],
-    requester?: RateioRequester,
+    requester: RateioRequester,
   ) {
+    assertRateioRequester(requester);
     await this.validateProject(tenantId, projectId);
     const source = await this.prisma.expense.findFirst({
       where: { id: sourceId, projectId, tenantId, deletedAt: null },
@@ -1057,9 +1075,10 @@ export class ExpenseService {
     projectId: string,
     sourceId: string,
     dto: RatearMixedDto,
-    createdByUserId: string | null = null,
-    requester?: RateioRequester,
+    createdByUserId: string | null,
+    requester: RateioRequester,
   ) {
+    assertRateioRequester(requester);
     await this.validateProject(tenantId, projectId);
     const source = await this.prisma.expense.findFirst({
       where: { id: sourceId, projectId, tenantId, deletedAt: null },
@@ -1227,8 +1246,9 @@ export class ExpenseService {
     tenantId: string,
     projectId: string,
     sourceId: string,
-    requester?: RateioRequester,
+    requester: RateioRequester,
   ) {
+    assertRateioRequester(requester, new NotFoundException('Despesa não encontrada'));
     await this.validateProject(tenantId, projectId);
     const source = await this.prisma.expense.findFirst({
       where: { id: sourceId, projectId, tenantId, deletedAt: null },
@@ -1345,8 +1365,9 @@ export class ExpenseService {
     projectId: string,
     id: string,
     dto: UpdateExpenseDto,
-    requester?: RateioRequester,
+    requester: RateioRequester,
   ) {
+    assertRateioRequester(requester);
     await this.validateProject(tenantId, projectId);
 
     const existing = await this.prisma.expense.findFirst({
@@ -1987,8 +2008,9 @@ export class ExpenseService {
     tenantId: string,
     projectId: string,
     id: string,
-    requester?: RateioRequester,
+    requester: RateioRequester,
   ) {
+    assertRateioRequester(requester, new NotFoundException('Despesa não encontrada'));
     return this.prisma.$transaction(async (tx) => {
       await this.validateProject(tenantId, projectId, tx);
       const expense = await tx.expense.findFirst({

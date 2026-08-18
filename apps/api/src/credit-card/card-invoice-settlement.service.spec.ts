@@ -1,4 +1,5 @@
 import { CardInvoiceSettlementService } from './card-invoice-settlement.service';
+import type { RateioRequester } from '../expense/rateio.types';
 
 /**
  * Mock mínimo de Prisma para o settlement. Guarda expenses e cashFlowEntries
@@ -66,6 +67,7 @@ function makePrisma(seed: {
 }
 
 const CARD = { id: 'card1', last4: '5868', closingDay: 3, dueDay: 10 };
+const REQUESTER: RateioRequester = { role: 'OWNER' };
 const d = (iso: string) => new Date(iso + 'T00:00:00.000Z');
 
 describe('CardInvoiceSettlementService', () => {
@@ -86,7 +88,7 @@ describe('CardInvoiceSettlementService', () => {
 
     // Pagamento da fatura que vence em julho/2026 (total da fatura = R$100 = 1 parcela).
     const res = await svc.settleInvoice({
-      tenantId: 't1', card: CARD, amountCents: 10000, paymentDate: d('2026-07-10'),
+      tenantId: 't1', card: CARD, amountCents: 10000, paymentDate: d('2026-07-10'), requester: REQUESTER,
     });
 
     expect(res.settledParcelas).toBe(1);
@@ -111,7 +113,7 @@ describe('CardInvoiceSettlementService', () => {
     const svc = new CardInvoiceSettlementService(prisma);
 
     const res = await svc.settleInvoice({
-      tenantId: 't1', card: CARD, amountCents: 5000, paymentDate: d('2026-07-10'),
+      tenantId: 't1', card: CARD, amountCents: 5000, paymentDate: d('2026-07-10'), requester: REQUESTER,
     });
 
     expect(res.settledParcelas).toBe(1);
@@ -133,7 +135,7 @@ describe('CardInvoiceSettlementService', () => {
     const svc = new CardInvoiceSettlementService(prisma);
 
     const res = await svc.settleInvoice({
-      tenantId: 't1', card: CARD, amountCents: 8000, paymentDate: d('2026-08-10'),
+      tenantId: 't1', card: CARD, amountCents: 8000, paymentDate: d('2026-08-10'), requester: REQUESTER,
     });
 
     expect(res.settledParcelas).toBe(1);
@@ -160,7 +162,7 @@ describe('CardInvoiceSettlementService', () => {
     const svc = new CardInvoiceSettlementService(prisma);
 
     const res = await svc.settleInvoice({
-      tenantId: 't1', card, amountCents: 48489, paymentDate: d('2026-07-10'),
+      tenantId: 't1', card, amountCents: 48489, paymentDate: d('2026-07-10'), requester: REQUESTER,
     });
 
     // Sem due-day: cai no import-total e liquida a parcela mais antiga em aberto.
@@ -182,7 +184,7 @@ describe('CardInvoiceSettlementService', () => {
     const svc = new CardInvoiceSettlementService(prisma);
 
     const res = await svc.settleInvoice({
-      tenantId: 't1', card: CARD, amountCents: 99999, paymentDate: d('2026-12-10'),
+      tenantId: 't1', card: CARD, amountCents: 99999, paymentDate: d('2026-12-10'), requester: REQUESTER,
     });
 
     expect(res.settledParcelas).toBe(0);
@@ -212,7 +214,7 @@ describe('CardInvoiceSettlementService', () => {
 
     // Pagamento PARCIAL de R$100 no mês do vencimento (fatura vale R$1.000).
     const res = await svc.settleInvoice({
-      tenantId: 't1', card: CARD, amountCents: 10000, paymentDate: d('2026-07-10'),
+      tenantId: 't1', card: CARD, amountCents: 10000, paymentDate: d('2026-07-10'), requester: REQUESTER,
     });
 
     // Nada é realizado: R$100 não fecha a fatura de R$1.000 (fora da tolerância).
@@ -246,7 +248,7 @@ describe('CardInvoiceSettlementService', () => {
 
     // Paga em 28/mai o valor exato da fatura de junho (R$800).
     const res = await svc.settleInvoice({
-      tenantId: 't1', card: CARD, amountCents: 80000, paymentDate: d('2026-05-28'),
+      tenantId: 't1', card: CARD, amountCents: 80000, paymentDate: d('2026-05-28'), requester: REQUESTER,
     });
 
     expect(res.settledParcelas).toBe(1);

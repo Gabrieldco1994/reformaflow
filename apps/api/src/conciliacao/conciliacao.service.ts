@@ -10,7 +10,10 @@ import {
   applyParcelaOverrides,
 } from '@reformaflow/domain';
 import { PrismaService } from '../prisma/prisma.service';
-import { RateioRequester } from '../expense/rateio.types';
+import {
+  assertRateioRequester,
+  RateioRequester,
+} from '../expense/rateio.types';
 import { userCanAccessProject, userCanAccessProjectType } from '../common/access-rules';
 
 type Tx = Prisma.TransactionClient;
@@ -81,9 +84,10 @@ export class ConciliacaoService {
     tx: Tx,
     tenantId: string,
     targetExpenseIds: string[],
-    requester: RateioRequester | undefined,
+    requester: RateioRequester,
     error: (targetExpenseId: string) => Error,
   ) {
+    assertRateioRequester(requester);
     const ids = [...new Set(targetExpenseIds)];
     const targets =
       ids.length === 0
@@ -110,8 +114,9 @@ export class ConciliacaoService {
   async assertCanSettleTargets(
     tx: Tx,
     params: { tenantId: string; targetExpenseIds: string[] },
-    requester?: RateioRequester,
+    requester: RateioRequester,
   ) {
+    assertRateioRequester(requester);
     return this.authorizedTargets(
       tx,
       params.tenantId,
@@ -124,8 +129,9 @@ export class ConciliacaoService {
   async assertCanRatearTargets(
     tx: Tx,
     params: { tenantId: string; targetExpenseIds: string[] },
-    requester?: RateioRequester,
+    requester: RateioRequester,
   ): Promise<void> {
+    assertRateioRequester(requester);
     await this.authorizedTargets(
       tx,
       params.tenantId,
@@ -138,8 +144,9 @@ export class ConciliacaoService {
   async assertCanMutateReceiptTargets(
     tx: Tx,
     params: { tenantId: string; targetReceiptIds: string[] },
-    requester?: RateioRequester,
+    requester: RateioRequester,
   ): Promise<void> {
+    assertRateioRequester(requester);
     const ids = [...new Set(params.targetReceiptIds)];
     const targets =
       ids.length === 0
@@ -165,8 +172,9 @@ export class ConciliacaoService {
   async assertCanReverseSources(
     tx: Tx,
     params: { tenantId: string; sourceExpenseIds: string[] },
-    requester?: RateioRequester,
+    requester: RateioRequester,
   ): Promise<void> {
+    assertRateioRequester(requester, new NotFoundException('Despesa fonte não encontrada'));
     const sourceExpenseIds = [...new Set(params.sourceExpenseIds)];
     if (sourceExpenseIds.length === 0) return;
     const [sources, rateios, settlements] = await Promise.all([
@@ -230,7 +238,12 @@ export class ConciliacaoService {
    * (chamada só dentro de `$transaction`) — sem gap de TOCTOU entre checar e
    * escrever.
    */
-  async settleTargetParcela(tx: Tx, input: SettleParcelaInput, requester?: RateioRequester): Promise<void> {
+  async settleTargetParcela(
+    tx: Tx,
+    input: SettleParcelaInput,
+    requester: RateioRequester,
+  ): Promise<void> {
+    assertRateioRequester(requester);
     const { tenantId, sourceExpenseId, targetExpenseId, realValor } = input;
 
     const targets = await this.assertCanSettleTargets(
@@ -443,8 +456,9 @@ export class ConciliacaoService {
   async unsettleBySource(
     tx: Tx,
     params: { tenantId: string; sourceExpenseId: string },
-    requester?: RateioRequester,
+    requester: RateioRequester,
   ): Promise<{ targets: string[] }> {
+    assertRateioRequester(requester, new NotFoundException('Despesa fonte não encontrada'));
     const { tenantId, sourceExpenseId } = params;
     await this.assertCanReverseSources(
       tx,
@@ -595,7 +609,12 @@ export class ConciliacaoService {
    * Lido DENTRO desta `tx` (chamada só dentro de `$transaction`), sem gap de
    * TOCTOU entre o check e a escrita da alocação/atualização do alvo.
    */
-  async ratearSource(tx: Tx, input: RatearInput, requester?: RateioRequester): Promise<{ targets: string[] }> {
+  async ratearSource(
+    tx: Tx,
+    input: RatearInput,
+    requester: RateioRequester,
+  ): Promise<{ targets: string[] }> {
+    assertRateioRequester(requester);
     const { tenantId, sourceExpenseId, allocations } = input;
 
     const source = await tx.expense.findFirst({
@@ -769,8 +788,9 @@ export class ConciliacaoService {
   async unratearSource(
     tx: Tx,
     params: { tenantId: string; sourceExpenseId: string },
-    requester?: RateioRequester,
+    requester: RateioRequester,
   ): Promise<{ targets: string[] }> {
+    assertRateioRequester(requester, new NotFoundException('Despesa fonte não encontrada'));
     const { tenantId, sourceExpenseId } = params;
     await this.assertCanReverseSources(
       tx,
@@ -832,8 +852,9 @@ export class ConciliacaoService {
   async reverseSourceLinks(
     tx: Tx,
     params: { tenantId: string; sourceExpenseId: string },
-    requester?: RateioRequester,
+    requester: RateioRequester,
   ): Promise<{ mode: 'rateio' | 'settlement' | 'none'; targets: string[] }> {
+    assertRateioRequester(requester, new NotFoundException('Despesa fonte não encontrada'));
     const { tenantId, sourceExpenseId } = params;
     await this.assertCanReverseSources(
       tx,

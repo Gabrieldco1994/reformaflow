@@ -151,8 +151,9 @@ describe('ExpenseService.findCrossProject — child ACL real DB (security phase 
 
   it('sem requester falha fechado em vez de assumir acesso total', async () => {
     await setupPrisma.expense.create({ data: expenseData({ projectId: HIDDEN, titulo: 'legacy-hidden' }) });
-    const results: any[] = await service.findCrossProject(TENANT, PESSOAL, {});
-    expect(results).toEqual([]);
+    await expect(
+      (service as any).findCrossProject(TENANT, PESSOAL, {}, undefined),
+    ).rejects.toBeDefined();
   });
 
   it('filtragem por scope acontece ANTES/JUNTO do limit — despesas hidden mais recentes não "roubam" vagas de despesas allowed', async () => {

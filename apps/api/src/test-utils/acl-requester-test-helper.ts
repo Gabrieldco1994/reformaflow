@@ -1,112 +1,99 @@
-import { RateioRequester } from '../expense/rateio.types';
+import type { RateioRequester } from '../expense/rateio.types';
 
-const ADMIN: RateioRequester = {
-  role: 'ADMIN',
+export const TEST_OWNER_REQUESTER: RateioRequester = {
+  role: 'OWNER',
   allowedProjects: [],
   allowedProjectTypes: [],
   allowedModules: [],
 };
 
-const REQUESTER_INDEX: Record<string, number> = {
-  settleTargetParcela: 2,
-  unsettleBySource: 2,
-  reverseSourceLinks: 2,
-  ratearSource: 2,
-  unratearSource: 2,
-  reverseAllForSource: 2,
-  create: 5,
-  createRecorrente: 4,
-  findCrossProject: 3,
-  linkCrossProject: 4,
-  unlinkCrossProject: 3,
-  conciliarParcela: 4,
-  desconciliar: 3,
-  ratear: 4,
-  ratearMixed: 5,
-  desratear: 3,
-  update: 4,
-  remove: 3,
-  commitImport: 10,
-  undoImport: 4,
-  linkToExpense: 5,
-  unlinkExpense: 3,
-  linkToReceipt: 4,
-  unlinkReceipt: 3,
-};
+function matchesScopedWhere(row: any, where: any): boolean {
+  if (!row) return false;
+  if (where?.tenantId !== undefined && row.tenantId !== where.tenantId) return false;
+  if (where?.deletedAt !== undefined && (row.deletedAt ?? null) !== where.deletedAt) {
+    return false;
+  }
+  if (typeof where?.id === 'string' && row.id !== where.id) return false;
+  if (Array.isArray(where?.id?.in) && !where.id.in.includes(row.id)) return false;
+  if (
+    Array.isArray(where?.OR) &&
+    !where.OR.some((clause: any) => {
+      if (typeof clause.id === 'string') return row.id === clause.id;
+      if (Array.isArray(clause.id?.in)) return clause.id.in.includes(row.id);
+      if (typeof clause.linkedExpenseId === 'string') {
+        return row.linkedExpenseId === clause.linkedExpenseId;
+      }
+      if (Array.isArray(clause.linkedExpenseId?.in)) {
+        return clause.linkedExpenseId.in.includes(row.linkedExpenseId);
+      }
+      return false;
+    })
+  ) {
+    return false;
+  }
+  return true;
+}
 
-function decorateProject(row: any): any {
-  if (!row || !row.projectId || row.project) return row;
-  return {
-    ...row,
-    project: {
+async function includeStoredProject(prisma: any, row: any, args: any): Promise<any> {
+  if (!row || (!args?.include?.project && !args?.select?.project) || row.project) {
+    return row;
+  }
+  if (typeof prisma?.project?.findFirst !== 'function') return { ...row, project: null };
+  const project = await prisma.project.findFirst({
+    where: {
       id: row.projectId,
       tenantId: row.tenantId,
-      type: row.projectId.toLowerCase().includes('pessoal') ? 'PESSOAL' : 'REFORMA',
+      deletedAt: null,
     },
+  });
+  return {
+    ...row,
+    project: project && project.tenantId === row.tenantId ? project : null,
   };
 }
 
-/** Adapta mocks legados ao include de projeto exigido pelo child ACL. */
+/** Adapta somente os includes/filtros que a fixture realmente materializa. */
 export function installAclProjectMocks(prisma: any): any {
   const expense = prisma?.expense;
-  if (expense?.findFirst) {
-    const originalFindFirst = expense.findFirst.bind(expense);
-    expense.findFirst = jest.fn(async (...args: any[]) =>
-      decorateProject(await originalFindFirst(...args)),
-    );
+  if (!expense?.findFirst || expense.__aclScopedMock) return prisma;
+  expense.__aclScopedMock = true;
+  const originalFindFirst = expense.findFirst.bind(expense);
+  const originalFindMany = expense.findMany?.bind(expense);
 
-    if (expense.findMany) {
-      const originalFindMany = expense.findMany.bind(expense);
-      expense.findMany = jest.fn(async (...args: any[]) => {
-        const found = (await originalFindMany(...args)) ?? [];
-        if (found.length > 0) return found.map(decorateProject);
-        const where = args[0]?.where;
-        const ids = [
-          ...(where?.id?.in ?? []),
-          ...(where?.OR ?? []).flatMap((clause: any) =>
-            clause.id?.in ?? (clause.id ? [clause.id] : []),
-          ),
-        ];
-        const rows = await Promise.all(
-          [...new Set(ids)].map((id) =>
-            expense.findFirst({ where: { id, tenantId: where?.tenantId } }),
-          ),
-        );
-        return rows.filter(Boolean).map(decorateProject);
+  expense.findFirst = jest.fn(async (args: any) => {
+    const row = await originalFindFirst(args);
+    if (!matchesScopedWhere(row, args?.where)) return null;
+    return includeStoredProject(prisma, row, args);
+  });
+
+  expense.findMany = jest.fn(async (args: any) => {
+    const fromDelegate = originalFindMany ? ((await originalFindMany(args)) ?? []) : [];
+    const rows = fromDelegate.filter((row: any) => matchesScopedWhere(row, args?.where));
+    const ids: string[] = [
+      ...(args?.where?.id?.in ?? []),
+      ...(args?.where?.OR ?? []).flatMap((clause: any) => {
+        if (typeof clause.id === 'string') return [clause.id];
+        return clause.id?.in ?? [];
+      }),
+    ];
+    const foundIds = new Set(rows.map((row: any) => row.id));
+    for (const id of ids) {
+      if (foundIds.has(id)) continue;
+      const row = await expense.findFirst({
+        where: {
+          id,
+          tenantId: args?.where?.tenantId,
+          deletedAt: args?.where?.deletedAt,
+        },
       });
-    } else {
-      expense.findMany = jest.fn(async ({ where }: any) => {
-        const ids: string[] = where?.id?.in ?? [];
-        const rows = await Promise.all(
-          ids.map((id) => expense.findFirst({ where: { id, tenantId: where.tenantId } })),
-        );
-        return rows.filter(Boolean).map(decorateProject);
-      });
+      if (matchesScopedWhere(row, { ...args?.where, id })) rows.push(row);
     }
-  }
-  if (prisma && !prisma.rateioAllocation) prisma.rateioAllocation = {};
-  if (prisma?.rateioAllocation && !prisma.rateioAllocation.findMany) {
-    prisma.rateioAllocation.findMany = jest.fn().mockResolvedValue([]);
-  }
-  if (prisma && !prisma.crossProjectSettlement) prisma.crossProjectSettlement = {};
-  if (prisma?.crossProjectSettlement && !prisma.crossProjectSettlement.findMany) {
-    prisma.crossProjectSettlement.findMany = jest.fn().mockResolvedValue([]);
-  }
+    return Promise.all(rows.map((row: any) => includeStoredProject(prisma, row, args)));
+  });
   return prisma;
 }
 
 export function withAclRequester<T extends object>(service: T, prisma: any): T {
   installAclProjectMocks(prisma);
-  return new Proxy(service, {
-    get(target, property, receiver) {
-      const value = Reflect.get(target, property, receiver);
-      const requesterIndex = REQUESTER_INDEX[String(property)];
-      if (typeof value !== 'function' || requesterIndex === undefined) return value;
-      return (...args: any[]) => {
-        while (args.length < requesterIndex) args.push(undefined);
-        if (args.length === requesterIndex) args.push(ADMIN);
-        return value.apply(target, args);
-      };
-    },
-  });
+  return service;
 }
