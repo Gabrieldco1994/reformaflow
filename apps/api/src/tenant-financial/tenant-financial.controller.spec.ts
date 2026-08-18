@@ -86,4 +86,23 @@ describe("TenantFinancialController", () => {
       "p-1",
     ]);
   });
+
+  /**
+   * B0 (#447) — "tenant-financial legado recebe IDs concretos sem anchor
+   * obrigatória". The NEW Hub (monthly-overview) requires an explicit PESSOAL
+   * project anchor (`ensurePessoalProject`/`:projectId`) before any read; this
+   * LEGACY cross-project route intentionally has no `:projectId` and no
+   * PESSOAL-type requirement at all — it aggregates every project type the
+   * requester can see. B0 must not retrofit an anchor requirement here.
+   */
+  it("B0: legacy tenant/financial routes stay anchorless — no :projectId, no PESSOAL-type gate", () => {
+    const user = { role: "MEMBER", allowedProjects: ["p-1"] };
+
+    expect(controller.getOverview.length).toBe(2);
+    expect(controller.getByProject.length).toBe(2);
+    expect(controller.getByCategory.length).toBe(2);
+
+    expect(() => controller.getOverview(tenantId, user)).not.toThrow();
+    expect(service.getOverview).toHaveBeenCalledWith(tenantId, ["p-1"]);
+  });
 });

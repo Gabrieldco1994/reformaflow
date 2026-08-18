@@ -50,6 +50,28 @@ enfileira as jornadas elegíveis.
 
 O PATCH exige ao menos um tipo válido e único. A ampliação libera os novos tipos imediatamente. A redução bloqueia projetos desses tipos sem apagar dados; reativar o tipo restaura o acesso.
 
+### Autorização do PATCH (B0 #447)
+
+`AuthService.updateSelfObjectives` roda inteiro dentro de UMA transação interativa do Prisma
+(`$transaction`): lê o usuário, autoriza e grava — sem hiato em que outra requisição altere o
+grant entre a checagem e o commit, e sem nenhuma checagem de autorização depois do write. Ordem
+das checagens, dentro da transação:
+
+1. Sessão inválida (usuário ausente, soft-deletado, ou tenant ausente/soft-deletado) → `401`.
+2. `allowedProjects` corrompido — JSON ausente/vazio/malformado, não-array, ou array sem nenhum
+   valor string → `401`. Mesmo parser fail-closed de `buildPublicUser`/`JwtStrategy.validate`
+   (`parseGrantJson` em `apps/api/src/auth/grant-json.ts`); nunca degrada para `[]` (que seria lido
+   como "sem restrição"). Esta checagem vence mesmo quando convidado/gerenciado também se
+   aplicariam.
+3. Conta convidada (`isGuest`) → `403`, mesmo com `role=ADMIN` — convidado nunca gerencia os
+   próprios objetivos.
+4. Conta gerenciada — `role` sem acesso pleno (isto é, diferente de `ADMIN`/legado `OWNER`) **e**
+   `allowedProjects` válido e não-vazio (de fato restrita a projetos específicos por um admin) →
+   `403`; só quem restringiu pode alterar.
+
+Contas self-service (`role` sem acesso pleno com `allowedProjects=[]`, o wildcard) e contas de
+acesso pleno (`ADMIN`/legado `OWNER`) continuam liberadas para o PATCH.
+
 ## Autorização
 
 `allowedProjectTypes` é a autoridade canônica armazenada no usuário. `allowedModules` é sempre derivado no servidor por `deriveObjectiveAccess`, usando `TYPE_MODULES` em `packages/domain/src/config/type-modules.ts`.
@@ -62,3 +84,10 @@ Os mapas têm funções distintas:
 O acesso exige o tipo explicitamente permitido e um módulo não universal compatível. O módulo `dashboard`, isoladamente, nunca concede acesso a um tipo. Módulos compartilhados por tipos diferentes também não mantêm ativo um tipo removido.
 
 O JWT identifica usuário e tenant, mas as permissões são recarregadas do banco em cada requisição. Assim, revogações têm efeito imediato. Administradores só listam e alteram usuários do tenant presente no JWT.
+
+`allowedProjects`, `allowedModules` e `allowedProjectTypes` são as três colunas JSON de grant do
+usuário. `AuthService.buildPublicUser` (login/sessão) e `JwtStrategy.validate` (cada requisição
+autenticada) leem as três pelo mesmo parser fail-closed, `parseGrantJson`
+(`apps/api/src/auth/grant-json.ts`): JSON ausente/vazio/malformado, não-array, ou array sem
+nenhum valor string derruba a sessão inteira com `401` — nunca degrada silenciosamente para `[]`
+(que os dois caminhos leem como "sem restrição"). Ver também a autorização do PATCH acima.

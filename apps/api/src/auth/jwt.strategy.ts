@@ -4,6 +4,7 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { Request } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
 import { reconcileUserModules } from '@reformaflow/domain';
+import { parseGrantJson } from './grant-json';
 
 export interface JwtPayload {
   sub: string;
@@ -70,29 +71,24 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         .update({ where: { id: user.id }, data: { lastActivityAt: new Date() } })
         .catch(() => {});
     }
-    let allowedModules: string[] = [];
-    try {
-      const parsed = JSON.parse(user.allowedModules || '[]');
-      if (Array.isArray(parsed)) allowedModules = parsed;
-    } catch {
-      allowedModules = [];
+    // All three grant JSON columns share the SAME fail-closed parser (see
+    // grant-json.ts) — a corrupted `allowedModules`/`allowedProjectTypes` is
+    // no less dangerous than a corrupted `allowedProjects`: reconciliation
+    // and scope resolution downstream both trust these to be real arrays.
+    const modulesGrant = parseGrantJson(user.allowedModules);
+    if (!modulesGrant.valid) {
+      throw new UnauthorizedException('Sessão inválida');
     }
-
-    let allowedProjects: string[] = [];
-    try {
-      const parsed = JSON.parse(user.allowedProjects || '[]');
-      if (Array.isArray(parsed)) allowedProjects = parsed;
-    } catch {
-      allowedProjects = [];
+    const projectsGrant = parseGrantJson(user.allowedProjects);
+    if (!projectsGrant.valid) {
+      throw new UnauthorizedException('Sessão inválida');
     }
-
-    let allowedProjectTypes: string[] = [];
-    try {
-      const parsed = JSON.parse(user.allowedProjectTypes || '[]');
-      if (Array.isArray(parsed)) allowedProjectTypes = parsed;
-    } catch {
-      allowedProjectTypes = [];
+    const typesGrant = parseGrantJson(user.allowedProjectTypes);
+    if (!typesGrant.valid) {
+      throw new UnauthorizedException('Sessão inválida');
     }
+    const allowedProjects = projectsGrant.values;
+    const allowedProjectTypes = typesGrant.values;
 
     return {
       id: user.id,
@@ -104,7 +100,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       // `ModulesGuard` consulta. Sem isto, um usuário antigo recebe o módulo
       // na resposta de login (o web mostra o menu) mas leva 403 ao clicar.
       // Ver `reconcileUserModules` no domínio.
-      allowedModules: reconcileUserModules(allowedModules, allowedProjectTypes),
+      allowedModules: reconcileUserModules(modulesGrant.values, allowedProjectTypes),
       allowedProjects,
       allowedProjectTypes,
       isGuest: user.isGuest,

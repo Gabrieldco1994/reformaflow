@@ -1,4 +1,9 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { deriveObjectiveAccess, ProjectType } from '@reformaflow/domain';
 import * as bcrypt from 'bcrypt';
@@ -453,10 +458,16 @@ describe('AuthService signup/guest/claim', () => {
       id: 'u1',
       tenantId: 't1',
       deletedAt: null,
+      isGuest: false,
+      role: 'USER',
+      allowedProjects: '[]',
       tenant: { deletedAt: null },
     });
     prisma.user.update.mockImplementation(({ data }: any) =>
       Promise.resolve({ id: 'u1', tenantId: 't1', ...data }),
+    );
+    prisma.$transaction.mockImplementation((cb: (tx: any) => unknown) =>
+      cb(prisma),
     );
 
     const out = await service.updateSelfObjectives('u1', [ProjectType.CARRO]);
@@ -471,10 +482,16 @@ describe('AuthService signup/guest/claim', () => {
       id: 'u1',
       tenantId: 't1',
       deletedAt: null,
+      isGuest: false,
+      role: 'USER',
+      allowedProjects: '[]',
       tenant: { deletedAt: null },
     });
     prisma.user.update.mockImplementation(({ data }: any) =>
       Promise.resolve({ id: 'u1', tenantId: 't1', ...data }),
+    );
+    prisma.$transaction.mockImplementation((cb: (tx: any) => unknown) =>
+      cb(prisma),
     );
 
     const tipos = [ProjectType.CASA, ProjectType.CARRO, ProjectType.REFORMA];
@@ -502,6 +519,256 @@ describe('AuthService signup/guest/claim', () => {
 });
 
 /**
+ * B0 (#447): `updateSelfObjectives` runs read+authorize+write inside ONE
+ * Prisma interactive transaction. "managed" is a VALID NON-EMPTY
+ * `allowedProjects` — NOT `createdByUserId` (every test below sets it
+ * inconsistently with that old, wrong reading to prove it's irrelevant).
+ * Guest is always 403 (independent of grant content); ADMIN is always
+ * allowed (independent of grant content); a corrupt own grant is 401 (not
+ * 403) and is checked BEFORE guest/admin. Every denied path writes zero rows.
+ */
+describe('AuthService.updateSelfObjectives — managed/guest/invalid-grant fecham em transação interativa (B0 #447)', () => {
+  const jwt = {} as JwtService;
+  let prisma: any;
+  let service: AuthService;
+  let callOrder: string[];
+
+  beforeEach(() => {
+    callOrder = [];
+    prisma = {
+      // Direct client REJECTS: an accidental non-transactional call surfaces
+      // as this error (not the expected exception type), so the tx-based
+      // path can't be faked by an unconfigured mock.
+      user: {
+        findUnique: jest
+          .fn()
+          .mockRejectedValue(
+            new Error(
+              'updateSelfObjectives não pode chamar prisma.user.findUnique direto — use a transação interativa',
+            ),
+          ),
+        update: jest
+          .fn()
+          .mockRejectedValue(
+            new Error(
+              'updateSelfObjectives não pode chamar prisma.user.update direto — use a transação interativa',
+            ),
+          ),
+      },
+      $transaction: jest.fn(),
+    };
+    service = new AuthService(prisma, jwt);
+  });
+
+  /** Programs `$transaction` to invoke its callback with a `tx` that resolves
+   * `userRow` on read and records read/write order. */
+  function mockTransaction(userRow: Record<string, unknown>) {
+    const tx = {
+      user: {
+        findUnique: jest.fn().mockImplementation(() => {
+          callOrder.push('read');
+          return Promise.resolve(userRow);
+        }),
+        update: jest.fn().mockImplementation(({ data }: any) => {
+          callOrder.push('write');
+          return Promise.resolve({ id: 'u1', tenantId: 't1', ...data });
+        }),
+      },
+    };
+    prisma.$transaction.mockImplementation((cb: (tx: unknown) => unknown) =>
+      cb(tx),
+    );
+    return tx;
+  }
+
+  it('roda em UMA transação interativa: $transaction recebe uma função, e o client direto nunca é chamado', async () => {
+    const tx = mockTransaction({
+      id: 'u1',
+      tenantId: 't1',
+      deletedAt: null,
+      isGuest: false,
+      role: 'USER',
+      createdByUserId: null,
+      allowedProjects: '[]',
+      tenant: { deletedAt: null },
+    });
+
+    await service.updateSelfObjectives('u1', [ProjectType.PESSOAL]);
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(typeof prisma.$transaction.mock.calls[0]?.[0]).toBe('function');
+    expect(prisma.user.findUnique).not.toHaveBeenCalled();
+    expect(prisma.user.update).not.toHaveBeenCalled();
+    expect(tx.user.findUnique).toHaveBeenCalledTimes(1);
+    expect(tx.user.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('lê então escreve — nunca reautoriza depois do write (uma leitura, uma escrita, nessa ordem)', async () => {
+    const tx = mockTransaction({
+      id: 'u1',
+      tenantId: 't1',
+      deletedAt: null,
+      isGuest: false,
+      role: 'USER',
+      createdByUserId: null,
+      allowedProjects: '[]',
+      tenant: { deletedAt: null },
+    });
+
+    await service.updateSelfObjectives('u1', [ProjectType.PESSOAL]);
+
+    expect(callOrder).toEqual(['read', 'write']);
+    expect(tx.user.findUnique).toHaveBeenCalledTimes(1);
+    expect(tx.user.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('managed USER (allowedProjects válido e NÃO-vazio) recebe 403 e não grava nada dentro da transação — createdByUserId é irrelevante (null aqui)', async () => {
+    const tx = mockTransaction({
+      id: 'u1',
+      tenantId: 't1',
+      deletedAt: null,
+      isGuest: false,
+      role: 'USER',
+      createdByUserId: null, // prova que o discriminador NÃO é este campo
+      allowedProjects: '["p1","p2"]',
+      tenant: { deletedAt: null },
+    });
+
+    await expect(
+      service.updateSelfObjectives('u1', [ProjectType.PESSOAL]),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(tx.user.update).not.toHaveBeenCalled();
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it('mixed managed CONTINUA 403 — allowedProjects filtra o null e permanece válido/não-vazio', async () => {
+    const tx = mockTransaction({
+      id: 'u1',
+      tenantId: 't1',
+      deletedAt: null,
+      isGuest: false,
+      role: 'USER',
+      createdByUserId: null,
+      allowedProjects: '["p1", null, "p2"]',
+      tenant: { deletedAt: null },
+    });
+
+    await expect(
+      service.updateSelfObjectives('u1', [ProjectType.PESSOAL]),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(tx.user.update).not.toHaveBeenCalled();
+  });
+
+  it('guest recebe 403 mesmo com role ADMIN e allowedProjects=[] — 403 é explícito do isGuest, não decorre de allowedProjects', async () => {
+    const tx = mockTransaction({
+      id: 'u1',
+      tenantId: 't1',
+      deletedAt: null,
+      isGuest: true,
+      role: 'ADMIN',
+      createdByUserId: 'admin-1',
+      allowedProjects: '[]',
+      tenant: { deletedAt: null },
+    });
+
+    await expect(
+      service.updateSelfObjectives('u1', [ProjectType.PESSOAL]),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(tx.user.update).not.toHaveBeenCalled();
+  });
+
+  it('ADMIN não-convidado continua liberado mesmo com allowedProjects válido e não-vazio (o que faria um USER ser "managed")', async () => {
+    const tx = mockTransaction({
+      id: 'u1',
+      tenantId: 't1',
+      deletedAt: null,
+      isGuest: false,
+      role: 'ADMIN',
+      createdByUserId: 'admin-0',
+      allowedProjects: '["p1","p2"]',
+      tenant: { deletedAt: null },
+    });
+
+    await expect(
+      service.updateSelfObjectives('u1', [ProjectType.PESSOAL]),
+    ).resolves.toBeDefined();
+    expect(tx.user.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('USER self-service com allowedProjects=[] (válido, wildcard) continua liberado — createdByUserId setado não muda nada', async () => {
+    const tx = mockTransaction({
+      id: 'u1',
+      tenantId: 't1',
+      deletedAt: null,
+      isGuest: false,
+      role: 'USER',
+      createdByUserId: 'admin-1', // prova (de novo) que este campo é irrelevante
+      allowedProjects: '[]',
+      tenant: { deletedAt: null },
+    });
+
+    await expect(
+      service.updateSelfObjectives('u1', [ProjectType.PESSOAL]),
+    ).resolves.toBeDefined();
+    expect(tx.user.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('grant PRÓPRIO corrompido (allowedProjects malformado) falha fechado com 401 — não 403, sem gravar', async () => {
+    const tx = mockTransaction({
+      id: 'u1',
+      tenantId: 't1',
+      deletedAt: null,
+      isGuest: false,
+      role: 'USER',
+      createdByUserId: null,
+      allowedProjects: '{corrompido',
+      tenant: { deletedAt: null },
+    });
+
+    await expect(
+      service.updateSelfObjectives('u1', [ProjectType.PESSOAL]),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(tx.user.update).not.toHaveBeenCalled();
+  });
+
+  it('grant PRÓPRIO com [null,7] (inválido como um todo) também falha fechado com 401, não 403', async () => {
+    const tx = mockTransaction({
+      id: 'u1',
+      tenantId: 't1',
+      deletedAt: null,
+      isGuest: false,
+      role: 'USER',
+      createdByUserId: null,
+      allowedProjects: '[null,7]',
+      tenant: { deletedAt: null },
+    });
+
+    await expect(
+      service.updateSelfObjectives('u1', [ProjectType.PESSOAL]),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(tx.user.update).not.toHaveBeenCalled();
+  });
+
+  it('grant inválido é checado ANTES do guest/admin — 401 vence quando ambos se aplicariam ao mesmo tempo', async () => {
+    const tx = mockTransaction({
+      id: 'u1',
+      tenantId: 't1',
+      deletedAt: null,
+      isGuest: true, // guest sozinho daria 403
+      role: 'ADMIN', // ADMIN sozinho seria permitido
+      createdByUserId: null,
+      allowedProjects: '{corrompido', // grant inválido: precisa vencer os dois acima
+      tenant: { deletedAt: null },
+    });
+
+    await expect(
+      service.updateSelfObjectives('u1', [ProjectType.PESSOAL]),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(tx.user.update).not.toHaveBeenCalled();
+  });
+});
+
+/**
  * O `allowedModules` gravado no signup é uma FOTO. Quando um módulo novo entra
  * em `TYPE_MODULES`, quem já tinha conta ficava para trás: menu sumia e a API
  * respondia 403 num módulo que o tipo dele concede. `buildPublicUser` passa a
@@ -519,6 +786,7 @@ describe('AuthService.buildPublicUser — reconciliação do snapshot de autoriz
       role: 'USER',
       tenantId: 't1',
       allowedModules: JSON.stringify(['dashboard', 'recurringBills']),
+      allowedProjects: '[]',
       allowedProjectTypes: JSON.stringify([ProjectType.CASA]),
       ...overrides,
     };
@@ -578,11 +846,134 @@ describe('AuthService.buildPublicUser — reconciliação do snapshot de autoriz
     const esperado = deriveObjectiveAccess(tipos).allowedModules;
     expect(out.allowedModules.sort()).toEqual([...esperado].sort());
   });
+});
 
-  it('JSON corrompido não derruba o login — degrada para lista vazia', () => {
+/**
+ * B0 Phase-1 delta: `allowedModules`/`allowedProjectTypes` now share the SAME
+ * fail-closed parser as `allowedProjects` (below) in both readers
+ * (`buildPublicUser` here, `JwtStrategy.validate` in jwt.strategy.spec.ts) —
+ * superseding the old "corrupted allowedModules degrades to []" tolerance.
+ */
+describe('AuthService.buildPublicUser — allowedModules/allowedProjectTypes corrompidos falham fechado (B0 Phase-1 delta)', () => {
+  const service = new AuthService({} as any, {} as JwtService);
+
+  function row(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'u1',
+      username: 'x',
+      name: 'X',
+      role: 'USER',
+      tenantId: 't1',
+      allowedModules: '[]',
+      allowedProjects: '[]',
+      allowedProjectTypes: '[]',
+      ...overrides,
+    };
+  }
+
+  const INVALID_CASES: Array<[string, unknown]> = [
+    ['JSON malformado', '{corrompido'],
+    ['string em branco', ''],
+    ['null', null],
+    ['objeto não-array', '{"p1":true}'],
+    ['lixo puro (não é JSON de forma alguma)', 'nao-e-json-de-jeito-nenhum'],
+    ['[null,7] inválido como um todo', '[null,7]'],
+  ];
+
+  it.each(INVALID_CASES)(
+    'allowedModules=%s falha fechado com 401 (allowedProjects/allowedProjectTypes válidos)',
+    (_label, raw) => {
+      expect(() => service.buildPublicUser(row({ allowedModules: raw }))).toThrow(
+        UnauthorizedException,
+      );
+    },
+  );
+
+  it.each(INVALID_CASES)(
+    'allowedProjectTypes=%s falha fechado com 401 (allowedModules/allowedProjects válidos)',
+    (_label, raw) => {
+      expect(() =>
+        service.buildPublicUser(row({ allowedProjectTypes: raw })),
+      ).toThrow(UnauthorizedException);
+    },
+  );
+
+  it('allowedModules misto filtra o null e preserva só os módulos explícitos (sem tipos, sem reconciliação extra)', () => {
     const out = service.buildPublicUser(
-      row({ allowedModules: '{corrompido', allowedProjectTypes: '[]' }),
+      row({ allowedModules: '["dashboard", null, "expenses"]' }),
     );
-    expect(out.allowedModules).toEqual([]);
+    expect(out.allowedModules).not.toContain(null);
+    expect([...out.allowedModules].sort()).toEqual(['dashboard', 'expenses']);
+  });
+
+  it('allowedProjectTypes misto filtra o null e preserva os tipos explícitos', () => {
+    const out = service.buildPublicUser(
+      row({ allowedProjectTypes: '["PESSOAL", null, "REFORMA"]' }),
+    );
+    expect(out.allowedProjectTypes).toEqual(['PESSOAL', 'REFORMA']);
+  });
+
+  it('reconcileUserModules union continua aplicando por cima de allowedModules/allowedProjectTypes mistos e válidos', () => {
+    const out = service.buildPublicUser(
+      row({
+        allowedModules: '["dashboard", null]',
+        allowedProjectTypes: '["PESSOAL", null]',
+      }),
+    );
+    // Explícito preservado, null filtrado — em nenhum dos dois campos...
+    expect(out.allowedModules).toContain('dashboard');
+    expect(out.allowedModules).not.toContain(null);
+    expect(out.allowedProjectTypes).not.toContain(null);
+    // ...E a união com o que PESSOAL concede continua sendo aplicada.
+    expect(out.allowedModules).toContain('recurrences');
+    expect(out.allowedModules).toContain('pendencias');
+  });
+});
+
+/**
+ * B0 (#447) — `allowedProjects` inválido degradava para `[]`, que
+ * `accessibleProjectScope` lê como wildcard (fail-OPEN). `buildPublicUser` é
+ * um dos dois leitores (o outro é `JwtStrategy.validate`, ver
+ * jwt.strategy.spec.ts); os dois falham fechado do mesmo jeito.
+ */
+describe('AuthService.buildPublicUser — allowedProjects corrompido falha fechado (B0 #447)', () => {
+  const service = new AuthService({} as any, {} as JwtService);
+
+  function row(allowedProjects: unknown) {
+    return {
+      id: 'u1',
+      username: 'x',
+      name: 'X',
+      role: 'USER',
+      tenantId: 't1',
+      allowedModules: '[]',
+      allowedProjects: allowedProjects as string,
+      allowedProjectTypes: '[]',
+    };
+  }
+
+  it.each([
+    ['JSON malformado', '{corrompido'],
+    ['string em branco', ''],
+    ['null', null],
+    ['objeto não-array', '{"p1":true}'],
+  ])(
+    'allowedProjects=%s falha fechado com 401 — nunca vira o wildcard silenciosamente',
+    (_label, raw) => {
+      expect(() => service.buildPublicUser(row(raw))).toThrow(
+        UnauthorizedException,
+      );
+    },
+  );
+
+  it('[null,7] misto (inválido como um todo) também falha fechado com 401', () => {
+    expect(() => service.buildPublicUser(row('[null,7]'))).toThrow(
+      UnauthorizedException,
+    );
+  });
+
+  it('["p1",null] válido continua filtrando o null e preservando "p1" — não lança', () => {
+    const out = service.buildPublicUser(row('["p1",null]'));
+    expect(out.allowedProjects).toEqual(['p1']);
   });
 });

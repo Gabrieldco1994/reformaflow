@@ -1,13 +1,28 @@
 import { Body, Controller, Get, Param, Post, Query, UseInterceptors } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { MonthlyOverviewService } from './monthly-overview.service';
+import {
+  MonthlyOverviewService,
+  MonthlyOverviewRequester,
+  MonthlyOverviewMutationRequester,
+} from './monthly-overview.service';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
 import { CurrentTenant, CurrentUser } from '../common/decorators/tenant.decorator';
+import { RequireModule } from '../common/decorators/require-module.decorator';
 
 @ApiTags('monthly-overview')
 @ApiBearerAuth()
+@RequireModule('monthlyOverview')
 @UseInterceptors(TenantInterceptor)
-@Controller('projects/:projectId/monthly-overview')
+// Route param renamed to `pessoalProjectId` (URL itself is UNCHANGED — Nest
+// binds by the token declared here, not by a string in the client's URL).
+// The rename is deliberate: `ModulesGuard`/`ProjectAccessGuard` key their
+// pre-resolution off `request.params.projectId` specifically. Keeping that
+// name would make them short-circuit with a blanket 403 (or silently allow
+// any project type) BEFORE the service's own anchor resolution ever runs —
+// which is what has to own the 404/403/400 distinction (#447 §6):
+// absent/deleted/cross-tenant ⇒ 404, same-tenant-but-out-of-scope ⇒ 403,
+// authorized-but-not-PESSOAL ⇒ 400. See `MonthlyOverviewService.resolveHub`.
+@Controller('projects/:pessoalProjectId/monthly-overview')
 export class MonthlyOverviewController {
   constructor(private readonly service: MonthlyOverviewService) {}
 
@@ -17,10 +32,11 @@ export class MonthlyOverviewController {
   })
   getOverview(
     @CurrentTenant() tenantId: string,
-    @Param('projectId') projectId: string,
+    @Param('pessoalProjectId') pessoalProjectId: string,
     @Query('month') month?: string,
+    @CurrentUser() requester?: MonthlyOverviewRequester,
   ) {
-    return this.service.getOverview(tenantId, projectId, month);
+    return this.service.getOverview(tenantId, pessoalProjectId, month, requester);
   }
 
   @Get('account-view')
@@ -29,10 +45,11 @@ export class MonthlyOverviewController {
   })
   getAccountView(
     @CurrentTenant() tenantId: string,
-    @Param('projectId') projectId: string,
+    @Param('pessoalProjectId') pessoalProjectId: string,
     @Query('month') month?: string,
+    @CurrentUser() requester?: MonthlyOverviewRequester,
   ) {
-    return this.service.getAccountView(tenantId, projectId, month);
+    return this.service.getAccountView(tenantId, pessoalProjectId, month, requester);
   }
 
   @Get('account-view-yearly')
@@ -41,10 +58,11 @@ export class MonthlyOverviewController {
   })
   getAccountViewYearly(
     @CurrentTenant() tenantId: string,
-    @Param('projectId') projectId: string,
+    @Param('pessoalProjectId') pessoalProjectId: string,
     @Query('year') year?: string,
+    @CurrentUser() requester?: MonthlyOverviewRequester,
   ) {
-    return this.service.getAccountViewYearly(tenantId, projectId, year);
+    return this.service.getAccountViewYearly(tenantId, pessoalProjectId, year, requester);
   }
 
   @Get('card-invoices-yearly')
@@ -53,10 +71,11 @@ export class MonthlyOverviewController {
   })
   getCardInvoicesYearly(
     @CurrentTenant() tenantId: string,
-    @Param('projectId') projectId: string,
+    @Param('pessoalProjectId') pessoalProjectId: string,
     @Query('year') year?: string,
+    @CurrentUser() requester?: MonthlyOverviewRequester,
   ) {
-    return this.service.getCardInvoicesYearly(tenantId, projectId, year);
+    return this.service.getCardInvoicesYearly(tenantId, pessoalProjectId, year, requester);
   }
 
   @Get('dre-overview')
@@ -65,11 +84,12 @@ export class MonthlyOverviewController {
   })
   getDreOverview(
     @CurrentTenant() tenantId: string,
-    @Param('projectId') projectId: string,
+    @Param('pessoalProjectId') pessoalProjectId: string,
     @Query('month') month?: string,
     @Query('year') year?: string,
+    @CurrentUser() requester?: MonthlyOverviewRequester,
   ): Promise<unknown> {
-    return this.service.getDreOverview(tenantId, projectId, { month, year });
+    return this.service.getDreOverview(tenantId, pessoalProjectId, { month, year }, requester);
   }
 
   @Get('origin-items-yearly')
@@ -78,12 +98,18 @@ export class MonthlyOverviewController {
   })
   getOriginItemsYearly(
     @CurrentTenant() tenantId: string,
-    @Param('projectId') projectId: string,
+    @Param('pessoalProjectId') pessoalProjectId: string,
     @Query('year') year?: string,
     @Query('kind') kind?: string,
     @Query('last4') last4?: string,
+    @CurrentUser() requester?: MonthlyOverviewRequester,
   ) {
-    return this.service.getOriginItemsYearly(tenantId, projectId, { year, kind, last4 });
+    return this.service.getOriginItemsYearly(
+      tenantId,
+      pessoalProjectId,
+      { year, kind, last4 },
+      requester,
+    );
   }
 
   @Get('neutros')
@@ -92,10 +118,11 @@ export class MonthlyOverviewController {
   })
   getNeutros(
     @CurrentTenant() tenantId: string,
-    @Param('projectId') projectId: string,
+    @Param('pessoalProjectId') pessoalProjectId: string,
     @Query('year') year?: string,
+    @CurrentUser() requester?: MonthlyOverviewRequester,
   ) {
-    return this.service.getNeutros(tenantId, projectId, year);
+    return this.service.getNeutros(tenantId, pessoalProjectId, year, requester);
   }
 
   @Post('pay-invoice')
@@ -104,8 +131,8 @@ export class MonthlyOverviewController {
   })
   payInvoice(
     @CurrentTenant() tenantId: string,
-    @CurrentUser() requester: { id: string },
-    @Param('projectId') projectId: string,
+    @CurrentUser() requester: MonthlyOverviewMutationRequester,
+    @Param('pessoalProjectId') pessoalProjectId: string,
     @Body()
     body: {
       cardLast4?: string;
@@ -115,7 +142,11 @@ export class MonthlyOverviewController {
       paymentDate?: string;
     },
   ) {
-    return this.service.payInvoice(tenantId, projectId, body, requester.id);
+    // O requester vai INTEIRO: é a credencial de scope do anchor (o param
+    // renomeado tira `ProjectAccessGuard` do caminho, então só `resolveAnchor`
+    // no service consegue barrar um anchor fora do escopo) e, pelo `id`, a
+    // autoria auditada da despesa gerada.
+    return this.service.payInvoice(tenantId, pessoalProjectId, body, requester);
   }
 
   @Post('undo-invoice-payment')
@@ -124,13 +155,14 @@ export class MonthlyOverviewController {
   })
   undoInvoicePayment(
     @CurrentTenant() tenantId: string,
-    @Param('projectId') projectId: string,
+    @CurrentUser() requester: MonthlyOverviewMutationRequester,
+    @Param('pessoalProjectId') pessoalProjectId: string,
     @Body()
     body: {
       cardLast4?: string;
       dueMonth?: string;
     },
   ) {
-    return this.service.undoInvoicePayment(tenantId, projectId, body);
+    return this.service.undoInvoicePayment(tenantId, pessoalProjectId, body, requester);
   }
 }

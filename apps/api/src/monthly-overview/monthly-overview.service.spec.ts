@@ -65,11 +65,25 @@ describe('MonthlyOverviewService.getOverview — espelhos cross-project', () => 
       caixaHoje: 100, entrouMes: 200, saiuMes: 50, faltaPagarMes: 25,
       recebimentosPrevistosMes: 75, sobraPrevista: 300,
     };
-    const getAccountView = jest.spyOn(service, 'getAccountView').mockResolvedValue(accountView as any);
+    // `getOverview`'s projection now calls the shared private
+    // `computeAccountView(tenantId, hub, month)` core directly (the public
+    // `getAccountView` is a thin wrapper around the same core) — see B0
+    // #447's Hub resolution (`resolveHub`/`resolveAnchor`).
+    const computeAccountView = jest
+      .spyOn(service as any, 'computeAccountView')
+      .mockResolvedValue(accountView);
+    const expectedHub = {
+      pessoal: { id: PESSOAL, tenantId, type: 'PESSOAL', deletedAt: null },
+      allProjects: [
+        { id: PESSOAL, type: 'PESSOAL', name: 'Pessoal' },
+        { id: REFORMA, type: 'REFORMA', name: 'Reforma' },
+      ],
+      hubProjectIds: [PESSOAL, REFORMA],
+    };
 
     const res = await service.getOverview(tenantId, PESSOAL, '2026-03');
 
-    expect(getAccountView).toHaveBeenCalledWith(tenantId, PESSOAL, '2026-03');
+    expect(computeAccountView).toHaveBeenCalledWith(tenantId, expectedHub, '2026-03');
     expect(res.projecao).toEqual({ mes: '2026-03', status: 'canonical', ...accountView });
     expect(res.mesAtual).toBe('2026-07');
     jest.useRealTimers();

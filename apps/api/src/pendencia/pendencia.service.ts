@@ -2,7 +2,7 @@ import { Injectable, BadRequestException, NotFoundException } from '@nestjs/comm
 import { ExpenseType } from '@reformaflow/domain';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePendenciaDto, UpdatePendenciaDto, MovePendenciaDto } from './dto/pendencia.dto';
-import { MonthlyOverviewService } from '../monthly-overview/monthly-overview.service';
+import { MonthlyOverviewService, type MonthlyOverviewRequester } from '../monthly-overview/monthly-overview.service';
 import { BankAccountService } from '../bank-account/bank-account.service';
 import {
   rankCardCandidates,
@@ -166,8 +166,14 @@ export class PendenciaService {
     tenantId: string,
     projectId: string,
     month?: string,
+    requester?: MonthlyOverviewRequester,
   ): Promise<FinancialQueueResponse> {
-    const accountView = await this.monthlyOverviewService.getAccountView(tenantId, projectId, month);
+    const accountView = await this.monthlyOverviewService.getAccountView(
+      tenantId,
+      projectId,
+      month,
+      requester,
+    );
 
     const now = new Date();
     const sevenDays = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7);

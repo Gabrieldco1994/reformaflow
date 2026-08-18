@@ -9,6 +9,7 @@
 require("../../../../scripts/test-db-env.cjs");
 
 import { PrismaClient } from "@prisma/client";
+import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
 import { CardInvoiceSettlementService } from "../credit-card/card-invoice-settlement.service";
 import { PrismaService } from "../prisma/prisma.service";
 import {
@@ -362,6 +363,255 @@ describe("synthetic deterministic finance-center persisted contract", () => {
       ],
     });
   });
+
+  /**
+   * B0 (#447) anchor matrix: `resolveAnchor`/`resolveHub` (called by all 7
+   * monthly GETs) scope `project.findFirst` by `{id, tenantId, deletedAt:
+   * null}` (404 missing/deleted/cross-tenant), reject a non-PESSOAL type with
+   * 400, and reject an out-of-scope anchor with 403 (see
+   * `MonthlyOverviewService.resolveAnchor`; `ProjectAccessGuard` enforces the
+   * same project-ID ACL globally as defense in depth).
+   */
+  it("anchor matrix: missing/deleted/cross-tenant PESSOAL project is 404, authorized non-PESSOAL is 400, out-of-scope same-tenant is 403", async () => {
+    await expect(
+      monthly.getAccountView(
+        IDS.tenantA,
+        "fc-a-project-does-not-exist",
+        FINANCE_CENTER_MONTH,
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    // Cross-tenant: tenant B's own PESSOAL project, requested under tenant A.
+    await expect(
+      monthly.getAccountView(
+        IDS.tenantA,
+        IDS.projects.tenantBPessoal,
+        FINANCE_CENTER_MONTH,
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    // Authorized (same tenant, exists) but wrong type (REFORMA) -> 400, not 404/403.
+    await expect(
+      monthly.getAccountView(IDS.tenantA, IDS.projects.allowed, FINANCE_CENTER_MONTH),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    // Same-tenant, correct type, but the requester's own allowedProjects
+    // excludes this anchor -> 403 (never a silent full-access fallback).
+    const managedRequester = (allowed: string[]) => ({
+      role: "USER",
+      allowedProjects: allowed,
+      allowedProjectTypes: ["PESSOAL"],
+      allowedModules: ["monthlyOverview"],
+    });
+    await expect(
+      monthly.getAccountView(
+        IDS.tenantA,
+        IDS.projects.pessoal,
+        FINANCE_CENTER_MONTH,
+        managedRequester([IDS.projects.allowed]),
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    // Regression-lock: the SAME requester IS let in when the anchor is listed.
+    await expect(
+      monthly.getAccountView(
+        IDS.tenantA,
+        IDS.projects.pessoal,
+        FINANCE_CENTER_MONTH,
+        managedRequester([IDS.projects.pessoal]),
+      ),
+    ).resolves.toBeDefined();
+
+    // Soft-deleted PESSOAL project in the SAME tenant -> 404, indistinguishable
+    // from a project that never existed.
+    await prisma.project.update({
+      where: { id: IDS.projects.secondPessoal },
+      data: { deletedAt: new Date("2026-08-01T12:00:00.000Z") },
+    });
+    try {
+      await expect(
+        monthly.getAccountView(
+          IDS.tenantA,
+          IDS.projects.secondPessoal,
+          FINANCE_CENTER_MONTH,
+        ),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    } finally {
+      await prisma.project.update({
+        where: { id: IDS.projects.secondPessoal },
+        data: { deletedAt: null },
+      });
+    }
+  });
+
+  /**
+   * B0 (#447) — "Hub nunca soma outro PESSOAL". `fc-a-pessoal-second` is the
+   * #446 fixture's deliberately-inert SECOND PESSOAL project in tenant A: it
+   * exists but carries no financial data, precisely so a sentinel amount can
+   * be attached here to prove isolation. `getOverview` pulls `cashFlowEntry`
+   * for EVERY project in the tenant (`projectId: { in: projectIds }`, no type
+   * filter) and `getAccountView` pulls `expense.findMany({ tenantId })` with
+   * no `projectId` filter at all — neither excludes a second PESSOAL project,
+   * so a real cash movement recorded there leaks into the anchored PESSOAL's
+   * consolidated totals AND its Visão Conta `saidas` line-item list today.
+   */
+  it("never sums the second PESSOAL project into the anchored overview/account view — sentinel 101 (B0 #447)", async () => {
+    const sentinelExpenseId = "fc-a-second-pessoal-sentinel-expense";
+    const sentinelEntryId = "fc-a-cfe-second-pessoal-sentinel";
+    const SENTINEL_CENTS = 101;
+
+    await prisma.expense.create({
+      data: {
+        id: sentinelExpenseId,
+        tenantId: IDS.tenantA,
+        projectId: IDS.projects.secondPessoal,
+        tipoDespesa: "OUTROS",
+        titulo: "Sentinela segundo PESSOAL",
+        fornecedor: "Fornecedor sintético",
+        valor: SENTINEL_CENTS,
+        quantidade: 1,
+        valorTotal: SENTINEL_CENTS,
+        formaPagamento: "A_VISTA",
+        dataPagamento: new Date("2026-08-15T12:00:00.000Z"),
+        dataCompra: new Date("2026-08-15T12:00:00.000Z"),
+        status: "PAGO",
+        externalId: "fc-second-pessoal-sentinel",
+        createdAt: new Date("2026-08-15T12:00:00.000Z"),
+        updatedAt: new Date("2026-08-15T12:00:00.000Z"),
+      },
+    });
+    await prisma.cashFlowEntry.create({
+      data: {
+        id: sentinelEntryId,
+        tenantId: IDS.tenantA,
+        projectId: IDS.projects.secondPessoal,
+        expenseId: sentinelExpenseId,
+        valor: SENTINEL_CENTS,
+        tipo: "DESPESA",
+        data: new Date("2026-08-15T12:00:00.000Z"),
+        categoria: "OUTROS",
+        formaPagamento: "A_VISTA",
+        status: "PAGO",
+        createdAt: new Date("2026-08-15T12:00:00.000Z"),
+        updatedAt: new Date("2026-08-15T12:00:00.000Z"),
+      },
+    });
+
+    try {
+      const overview = await monthly.getOverview(
+        IDS.tenantA,
+        IDS.projects.pessoal,
+        FINANCE_CENTER_MONTH,
+      );
+      const accountView = await monthly.getAccountView(
+        IDS.tenantA,
+        IDS.projects.pessoal,
+        FINANCE_CENTER_MONTH,
+      );
+
+      expect(
+        overview.entries.some(
+          (entry) => entry.projectId === IDS.projects.secondPessoal,
+        ),
+      ).toBe(false);
+      // "contributingProjects" (response field `projetos`): the sibling
+      // PESSOAL must never appear in the legend of projects the Hub
+      // consolidates — even independent of the sentinel amount, being a
+      // SECOND PESSOAL (not a REFORMA/CASA/CARRO satellite) disqualifies it.
+      expect(
+        overview.projetos.some((p) => p.id === IDS.projects.secondPessoal),
+      ).toBe(false);
+      expect(
+        overview.meses.find((row) => row.mes === "2026-08")?.totalDespesas ?? 0,
+      ).toBe(0);
+      expect(
+        accountView.saidas.some((item) => item.id === sentinelExpenseId),
+      ).toBe(false);
+      // No line item may carry the sibling PESSOAL as its foreign origin
+      // (`projetoOrigem`/`foreignExpenseId`), the observable surface of the
+      // internal `foreignExpenses`/`carteiraPotential` computation.
+      expect(
+        accountView.saidas.some(
+          (item) => item.projetoOrigem?.id === IDS.projects.secondPessoal,
+        ),
+      ).toBe(false);
+      expect(
+        accountView.saidas.some(
+          (item) => item.foreignExpenseId === sentinelExpenseId,
+        ),
+      ).toBe(false);
+      // The single-PESSOAL fingerprints must stay byte-identical: a second
+      // PESSOAL's 101 sentinel must never enter caixa/Carteira/saiuMes.
+      expect(accountView.caixaHoje).toBe(983_928);
+      expect(accountView.carteiraHoje).toBe(2_994);
+      expect(accountView.saiuMes).toBe(140_089);
+    } finally {
+      await prisma.cashFlowEntry.delete({ where: { id: sentinelEntryId } });
+      await prisma.expense.delete({ where: { id: sentinelExpenseId } });
+    }
+  });
+
+  /**
+   * B0 (#447) — hidden/incomplete/cross-tenant rateio source: the fixture's
+   * rateio SOURCE (`fc-a-exp-rateio-source`, 30029) has one ALLOWED target
+   * (REFORMA, visible) and one HIDDEN target (CASA, `fc-a-hidden-casa`, out
+   * of scope for a REFORMA/PESSOAL-only requester) plus an unrelated
+   * cross-tenant collision expense sharing the same 4006 externalId shape in
+   * tenant B. Program #436's transition rule (see `AGENTS.md`) is that the
+   * NEW Hub views become source-only with NO hidden flag/count/sum/metadata
+   * when any participant is unauthorized — never a 409 (last4 ambiguity is
+   * unrelated here; there is exactly one PESSOAL source, no last4 collision
+   * to resolve).
+   */
+  it("hidden/incomplete/cross-tenant rateio source appears exactly once at 30029 with no target/relationship metadata and never 409s", async () => {
+    const view = await monthly.getAccountView(
+      IDS.tenantA,
+      IDS.projects.pessoal,
+      FINANCE_CENTER_MONTH,
+    );
+    const rateioSourceRows = view.saidas.filter(
+      (item) => item.id === IDS.expenses.rateioSource,
+    );
+
+    expect(rateioSourceRows).toHaveLength(1);
+    const [rateioSource] = rateioSourceRows;
+    expect(rateioSource?.valor).toBe(30_029);
+    expect(rateioSource?.status).toBe("PAGO");
+    // `projetoOrigem`/rateio/settlement metadata absent: the source is the
+    // PESSOAL's own row, not a foreign item — it must never expose the
+    // hidden CASA target's (or any target's) project identity.
+    expect(rateioSource?.projetoOrigem).toBeNull();
+    expect(rateioSource?.foreignExpenseId).toBeNull();
+
+    const forbiddenKeys = [
+      "targetExpenseId",
+      "targetExpenseIds",
+      "hiddenCount",
+      "hiddenSum",
+      "hiddenTargets",
+      "removedCount",
+      "removedSum",
+      "allocations",
+      "rateio",
+      "sourceExpenseId",
+      "allocation",
+      "plannedStatus",
+      "plannedValor",
+      "realValor",
+    ];
+    for (const key of forbiddenKeys) {
+      expect(Object.prototype.hasOwnProperty.call(rateioSource ?? {}, key)).toBe(
+        false,
+      );
+    }
+
+    // Belt-and-suspenders: the hidden CASA target's identity (id/name) must
+    // never leak anywhere in the source row's serialized shape.
+    const serialized = JSON.stringify(rateioSource);
+    expect(serialized).not.toContain(IDS.projects.hidden);
+    expect(serialized).not.toContain("Projeto oculto sintético");
+    expect(serialized).not.toContain(IDS.expenses.rateioHiddenTarget);
+  });
+
 
   it("keeps local Planning payload and persisted server Planejador scenario independent", async () => {
     const server = await prisma.purchaseScenario.findFirst({

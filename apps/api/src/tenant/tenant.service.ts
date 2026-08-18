@@ -15,7 +15,10 @@ export class TenantService {
             email: null,
             username: dto.ownerUsername,
             name: dto.ownerName,
-            role: 'OWNER',
+            // Never persist 'OWNER' — legacy role kept in isFullAccessRole()
+            // for old rows only. Every writer (this one included) grants
+            // full-access tenant creation via 'ADMIN'. See #447.
+            role: 'ADMIN',
           },
         },
       },

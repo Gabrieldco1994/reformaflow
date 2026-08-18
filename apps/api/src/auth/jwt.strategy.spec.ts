@@ -161,3 +161,189 @@ describe('JwtStrategy', () => {
     expect(result.allowedModules).toContain('carInfo');
   });
 });
+
+/**
+ * B0 (#447) — `JwtStrategy.validate` é o SEGUNDO leitor de grants (o primeiro
+ * é `AuthService.buildPublicUser`, ver auth.service.spec.ts); os dois falham
+ * fechado (401) do mesmo jeito para `allowedProjects` inválido. `[null,7]` é
+ * inválido como um todo; `["p1",null]` continua válido (filtrado p/ `["p1"]`).
+ */
+describe('JwtStrategy.validate — allowedProjects corrompido falha fechado (B0 #447)', () => {
+  let prisma: any;
+  let strategy: JwtStrategy;
+
+  beforeEach(() => {
+    prisma = {
+      user: {
+        findUnique: jest.fn(),
+        update: jest.fn().mockResolvedValue({}),
+      },
+    };
+    strategy = new JwtStrategy(prisma);
+  });
+
+  function row(allowedProjects: unknown) {
+    return {
+      id: 'u1',
+      tenantId: 't1',
+      username: 'x',
+      name: 'X',
+      role: 'USER',
+      deletedAt: null,
+      isGuest: false,
+      sessionVersion: 0,
+      allowedModules: '[]',
+      allowedProjects: allowedProjects as string,
+      allowedProjectTypes: '[]',
+      tenant: { id: 't1', deletedAt: null, expiresAt: null },
+    };
+  }
+
+  it.each([
+    ['JSON malformado', '{corrompido'],
+    ['string em branco', ''],
+    ['null', null],
+    ['objeto não-array', '{"p1":true}'],
+  ])(
+    'allowedProjects=%s falha fechado com 401 — nunca vira o wildcard silenciosamente',
+    async (_label, raw) => {
+      prisma.user.findUnique.mockResolvedValue(row(raw));
+
+      await expect(
+        strategy.validate({
+          sub: 'u1',
+          tenantId: 't1',
+          username: 'x',
+          role: 'USER',
+        }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+    },
+  );
+
+  it('[null,7] misto (inválido como um todo) também falha fechado com 401', async () => {
+    prisma.user.findUnique.mockResolvedValue(row('[null,7]'));
+
+    await expect(
+      strategy.validate({
+        sub: 'u1',
+        tenantId: 't1',
+        username: 'x',
+        role: 'USER',
+      }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('["p1",null] válido continua filtrando o null e preservando "p1" — paridade com buildPublicUser, não lança', async () => {
+    prisma.user.findUnique.mockResolvedValue(row('["p1",null]'));
+
+    const result = await strategy.validate({
+      sub: 'u1',
+      tenantId: 't1',
+      username: 'x',
+      role: 'USER',
+    });
+
+    expect(result.allowedProjects).toEqual(['p1']);
+  });
+
+  it('reconcileUserModules union continua aplicando quando allowedModules/allowedProjectTypes são mistos porém VÁLIDOS (não corrompidos)', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'u1',
+      tenantId: 't1',
+      username: 'x',
+      name: 'X',
+      role: 'USER',
+      deletedAt: null,
+      isGuest: false,
+      sessionVersion: 0,
+      allowedModules: '["dashboard", null]',
+      allowedProjects: '[]',
+      allowedProjectTypes: '["PESSOAL", null]',
+      tenant: { id: 't1', deletedAt: null, expiresAt: null },
+    });
+
+    const result = await strategy.validate({
+      sub: 'u1',
+      tenantId: 't1',
+      username: 'x',
+      role: 'USER',
+    });
+
+    expect(result.allowedModules).toContain('dashboard');
+    expect(result.allowedModules).not.toContain(null);
+    expect(result.allowedProjectTypes).not.toContain(null);
+    expect(result.allowedModules).toContain('recurrences');
+    expect(result.allowedModules).toContain('pendencias');
+  });
+});
+
+/**
+ * B0 Phase-1 delta: `allowedModules`/`allowedProjectTypes` share the same
+ * fail-closed parser as `allowedProjects` above — paridade exata com
+ * `AuthService.buildPublicUser` (ver auth.service.spec.ts), o outro leitor.
+ */
+describe('JwtStrategy.validate — allowedModules/allowedProjectTypes corrompidos falham fechado (B0 Phase-1 delta)', () => {
+  let prisma: any;
+  let strategy: JwtStrategy;
+
+  beforeEach(() => {
+    prisma = {
+      user: {
+        findUnique: jest.fn(),
+        update: jest.fn().mockResolvedValue({}),
+      },
+    };
+    strategy = new JwtStrategy(prisma);
+  });
+
+  function row(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'u1',
+      tenantId: 't1',
+      username: 'x',
+      name: 'X',
+      role: 'USER',
+      deletedAt: null,
+      isGuest: false,
+      sessionVersion: 0,
+      allowedModules: '[]',
+      allowedProjects: '[]',
+      allowedProjectTypes: '[]',
+      tenant: { id: 't1', deletedAt: null, expiresAt: null },
+      ...overrides,
+    };
+  }
+
+  const INVALID_CASES: Array<[string, unknown]> = [
+    ['JSON malformado', '{corrompido'],
+    ['string em branco', ''],
+    ['null', null],
+    ['objeto não-array', '{"p1":true}'],
+    ['lixo puro (não é JSON de forma alguma)', 'nao-e-json-de-jeito-nenhum'],
+    ['[null,7] inválido como um todo', '[null,7]'],
+  ];
+
+  it.each(INVALID_CASES)(
+    'allowedModules=%s falha fechado com 401 (allowedProjects/allowedProjectTypes válidos)',
+    async (_label, raw) => {
+      prisma.user.findUnique.mockResolvedValue(row({ allowedModules: raw }));
+
+      await expect(
+        strategy.validate({ sub: 'u1', tenantId: 't1', username: 'x', role: 'USER' }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+    },
+  );
+
+  it.each(INVALID_CASES)(
+    'allowedProjectTypes=%s falha fechado com 401 (allowedModules/allowedProjects válidos)',
+    async (_label, raw) => {
+      prisma.user.findUnique.mockResolvedValue(
+        row({ allowedProjectTypes: raw }),
+      );
+
+      await expect(
+        strategy.validate({ sub: 'u1', tenantId: 't1', username: 'x', role: 'USER' }),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+    },
+  );
+});
