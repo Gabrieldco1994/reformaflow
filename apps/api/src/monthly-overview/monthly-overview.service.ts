@@ -490,6 +490,7 @@ export class MonthlyOverviewService {
       this.prisma.creditCard.findMany({
         where: { tenantId, projectId, deletedAt: null },
         select: {
+          id: true,
           nickname: true,
           last4: true,
           closingDay: true,
@@ -1419,7 +1420,20 @@ export class MonthlyOverviewService {
       const limiteUsado = canShowLimit
         ? Math.max(limitTotal! - limitAvailable!, 0)
         : null;
+      // B1a (#448): `actions` só lista verbos EXECUTÁVEIS agora — 'pay' quando
+      // sobra saldo a pagar, 'undo' apenas quando existe EXATAMENTE UM
+      // pagamento implícito casado com esta fatura (o mesmo casamento que
+      // `undoInvoicePayment` exige para não reverter o pagamento errado —
+      // ver `implicitPaymentByInvoice`/`assignImplicitPayments`). `fingerprint`
+      // identifica a fatura por ID (cardId), nunca por last4/PAN.
+      const invoiceKeyForCard = `${openInvoiceMonth}__${card.last4}`;
+      const hasUndoableImplicitPayment =
+        (implicitPaymentByInvoice.get(invoiceKeyForCard) ?? null) != null;
+      const actions: Array<'pay' | 'undo'> = [];
+      if (invoice.pending > 0) actions.push('pay');
+      if (hasUndoableImplicitPayment) actions.push('undo');
       return {
+        cardId: card.id,
         nickname: card.nickname?.trim() || 'Cartao',
         last4: card.last4,
         faturaAtual: invoice.total,
@@ -1437,12 +1451,15 @@ export class MonthlyOverviewService {
             : null,
         limiteUsado,
         limiteTotal: limitTotal,
+        actions,
+        fingerprint: `${card.id}:${openInvoiceMonth}`,
       };
     });
 
     const contas = accounts
       .filter((account) => !!account.last4)
       .map((account) => ({
+        accountId: account.id,
         last4: account.last4,
         nome: account.nickname?.trim() || account.institution || `Conta ${account.last4}`,
       }));
@@ -2936,14 +2953,23 @@ export class MonthlyOverviewService {
    * `:pessoalProjectId`, que `ProjectAccessGuard` NÃO reconhece — a autorização
    * do anchor acontece aqui, ANTES de qualquer leitura/escrita, e `requester.id`
    * é a autoria auditada da despesa de pagamento.
+   *
+   * B1a (#448): `cardId`/`accountId` são OPCIONAIS. Quando presentes, resolvem
+   * o cartão/conta ESTRITAMENTE por `{id, tenantId, projectId, deletedAt:null}`
+   * (identidade completa, não mais ambígua por last4 duplicado). Quando
+   * ausentes, preserva o fallback por last4 byte-a-byte (compat legado). Se
+   * AMBOS vierem e apontarem para registros diferentes, 400 sem escrita alguma
+   * — nunca silenciosamente prioriza um dos dois.
    */
   async payInvoice(
     tenantId: string,
     projectId: string,
     dto: {
+      cardId?: string;
       cardLast4?: string;
       month?: string;
       amountCents?: number;
+      accountId?: string;
       bankLast4?: string;
       paymentDate?: string;
     },
@@ -2954,24 +2980,42 @@ export class MonthlyOverviewService {
     const createdByUserId = requester.id;
 
     const month = normalizeMonthKey(dto.month);
-    if (!dto.cardLast4) throw new BadRequestException('Cartão obrigatório.');
-    if (!dto.bankLast4) throw new BadRequestException('Conta de débito obrigatória.');
+    if (!dto.cardId && !dto.cardLast4) throw new BadRequestException('Cartão obrigatório.');
+    if (!dto.accountId && !dto.bankLast4) throw new BadRequestException('Conta de débito obrigatória.');
     if (!Number.isInteger(dto.amountCents) || (dto.amountCents ?? 0) <= 0) {
       throw new BadRequestException('Valor da fatura inválido.');
     }
     const amountCents = dto.amountCents as number;
 
-    const card = await this.prisma.creditCard.findFirst({
-      where: { tenantId, projectId, last4: dto.cardLast4, deletedAt: null },
-      select: { id: true, last4: true, nickname: true, closingDay: true, dueDay: true },
-    });
+    const cardSelect = { id: true, last4: true, nickname: true, closingDay: true, dueDay: true } as const;
+    const card = dto.cardId
+      ? await this.prisma.creditCard.findFirst({
+          where: { id: dto.cardId, tenantId, projectId, deletedAt: null },
+          select: cardSelect,
+        })
+      : await this.prisma.creditCard.findFirst({
+          where: { tenantId, projectId, last4: dto.cardLast4, deletedAt: null },
+          select: cardSelect,
+        });
     if (!card) throw new NotFoundException('Cartão não encontrado.');
+    if (dto.cardId && dto.cardLast4 && card.last4 !== dto.cardLast4) {
+      throw new BadRequestException('cardId e cardLast4 não correspondem ao mesmo cartão.');
+    }
 
-    const account = await this.prisma.bankAccount.findFirst({
-      where: { tenantId, projectId, last4: dto.bankLast4, deletedAt: null },
-      select: { last4: true },
-    });
+    const accountSelect = { id: true, last4: true } as const;
+    const account = dto.accountId
+      ? await this.prisma.bankAccount.findFirst({
+          where: { id: dto.accountId, tenantId, projectId, deletedAt: null },
+          select: accountSelect,
+        })
+      : await this.prisma.bankAccount.findFirst({
+          where: { tenantId, projectId, last4: dto.bankLast4, deletedAt: null },
+          select: accountSelect,
+        });
     if (!account) throw new NotFoundException('Conta de débito não encontrada.');
+    if (dto.accountId && dto.bankLast4 && account.last4 !== dto.bankLast4) {
+      throw new BadRequestException('accountId e bankLast4 não correspondem à mesma conta.');
+    }
 
     const parsedPaymentDate = dto.paymentDate ? new Date(dto.paymentDate) : new Date();
     if (Number.isNaN(parsedPaymentDate.getTime())) {
@@ -3034,7 +3078,9 @@ export class MonthlyOverviewService {
     return {
       ok: true,
       paymentExpenseId: payment.id,
+      cardId: card.id,
       cardLast4: card.last4,
+      accountId: account.id,
       month,
       amountCents,
       ...settled,
@@ -3058,25 +3104,38 @@ export class MonthlyOverviewService {
    * param de rota renomeado (`:pessoalProjectId`) o guard global não cobre esta
    * mutação, então o scope do anchor é resolvido aqui antes de ler/reverter
    * qualquer pagamento.
+   *
+   * B1a (#448): `cardId` OPCIONAL — presente resolve estrito por
+   * `{id, tenantId, projectId, deletedAt:null}`; ausente preserva o fallback
+   * por last4. Mismatch cardId×cardLast4 é 400 sem escrita.
    */
   async undoInvoicePayment(
     tenantId: string,
     projectId: string,
-    dto: { cardLast4?: string; dueMonth?: string },
+    dto: { cardId?: string; cardLast4?: string; dueMonth?: string },
     requester: MonthlyOverviewMutationRequester,
   ) {
     this.assertIdentifiedRequester(requester);
     await this.ensurePessoalProject(tenantId, projectId, requester);
 
-    if (!dto.cardLast4) throw new BadRequestException('Cartão obrigatório.');
+    if (!dto.cardId && !dto.cardLast4) throw new BadRequestException('Cartão obrigatório.');
     if (!dto.dueMonth) throw new BadRequestException('Mês de vencimento obrigatório.');
     const dueMonth = normalizeMonthKey(dto.dueMonth);
 
-    const card = await this.prisma.creditCard.findFirst({
-      where: { tenantId, projectId, last4: dto.cardLast4, deletedAt: null },
-      select: { id: true, last4: true, nickname: true, closingDay: true, dueDay: true },
-    });
+    const undoCardSelect = { id: true, last4: true, nickname: true, closingDay: true, dueDay: true } as const;
+    const card = dto.cardId
+      ? await this.prisma.creditCard.findFirst({
+          where: { id: dto.cardId, tenantId, projectId, deletedAt: null },
+          select: undoCardSelect,
+        })
+      : await this.prisma.creditCard.findFirst({
+          where: { tenantId, projectId, last4: dto.cardLast4, deletedAt: null },
+          select: undoCardSelect,
+        });
     if (!card) throw new NotFoundException('Cartão não encontrado.');
+    if (dto.cardId && dto.cardLast4 && card.last4 !== dto.cardLast4) {
+      throw new BadRequestException('cardId e cardLast4 não correspondem ao mesmo cartão.');
+    }
 
     // Lista TODAS as faturas do cartão (todo mês com CashFlowEntry/ajuste), não só a
     // fatura-alvo — a MESMA lista que `getAccountView` monta via
@@ -3187,6 +3246,7 @@ export class MonthlyOverviewService {
     return {
       ok: true,
       undonePaymentExpenseId: paymentExpenseId,
+      cardId: card.id,
       cardLast4: card.last4,
       dueMonth,
       revertedExpenses: reverted.revertedExpenses,

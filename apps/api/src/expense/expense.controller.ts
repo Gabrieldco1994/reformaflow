@@ -40,10 +40,10 @@ export class ExpenseController {
   create(
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
-    @CurrentUser() requester: { id: string },
+    @CurrentUser() requester: RateioRequester & { id: string },
     @Body() dto: CreateExpenseDto,
   ) {
-    return this.service.create(tenantId, projectId, dto, requester.id);
+    return this.service.create(tenantId, projectId, dto, requester.id, undefined, requester);
   }
 
   @Post('recorrente')
@@ -135,8 +135,9 @@ export class ExpenseController {
     @Param('projectId') projectId: string,
     @Param('id') id: string,
     @Body() dto: UpdateExpenseDto,
+    @CurrentUser() requester?: RateioRequester,
   ) {
-    return this.service.update(tenantId, projectId, id, dto);
+    return this.service.update(tenantId, projectId, id, dto, requester);
   }
 
   @Patch(':id/parcela')
@@ -179,8 +180,9 @@ export class ExpenseController {
     @Param('projectId') projectId: string,
     @Param('id') id: string,
     @Body() body: { targetExpenseId: string },
+    @CurrentUser() requester?: RateioRequester,
   ) {
-    return this.service.linkCrossProject(tenantId, projectId, id, body.targetExpenseId);
+    return this.service.linkCrossProject(tenantId, projectId, id, body.targetExpenseId, requester);
   }
 
   @Delete(':id/link')
@@ -200,12 +202,19 @@ export class ExpenseController {
     @Param('projectId') projectId: string,
     @Param('id') id: string,
     @Body() body: { targetExpenseId: string; parcelaIndex?: number; realValor?: number },
+    @CurrentUser() requester?: RateioRequester,
   ) {
-    return this.service.conciliarParcela(tenantId, projectId, id, {
-      targetExpenseId: body.targetExpenseId,
-      parcelaIndex: body.parcelaIndex,
-      realValor: body.realValor,
-    });
+    return this.service.conciliarParcela(
+      tenantId,
+      projectId,
+      id,
+      {
+        targetExpenseId: body.targetExpenseId,
+        parcelaIndex: body.parcelaIndex,
+        realValor: body.realValor,
+      },
+      requester,
+    );
   }
 
   @Delete(':id/conciliar-parcela')
@@ -225,8 +234,9 @@ export class ExpenseController {
     @Param('projectId') projectId: string,
     @Param('id') id: string,
     @Body() dto: RatearDto,
+    @CurrentUser() requester?: RateioRequester,
   ) {
-    return this.service.ratear(tenantId, projectId, id, dto.allocations);
+    return this.service.ratear(tenantId, projectId, id, dto.allocations, requester);
   }
 
   @Post(':id/ratear-mixed')
@@ -235,10 +245,10 @@ export class ExpenseController {
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('id') id: string,
-    @CurrentUser() requester: { id: string },
+    @CurrentUser() requester: RateioRequester & { id: string },
     @Body() dto: RatearMixedDto,
   ) {
-    return this.service.ratearMixed(tenantId, projectId, id, dto, requester.id);
+    return this.service.ratearMixed(tenantId, projectId, id, dto, requester.id, requester);
   }
 
   @Delete(':id/ratear')

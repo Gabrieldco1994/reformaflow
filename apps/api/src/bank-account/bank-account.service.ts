@@ -1,8 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBankAccountDto, UpdateBankAccountDto } from './dto/bank-account.dto';
 import { parseBankStatementBuffers, type BankSourceHint } from './parsers';
+import { RateioRequester } from '../expense/rateio.types';
 
 /** Normaliza a entrada (string legada, Buffer único ou array) para Buffer[]. */
 function toBuffers(content: string | Buffer | Buffer[]): Buffer[] {
@@ -239,18 +240,55 @@ export class BankAccountService {
     });
   }
 
+  /**
+   * B1a (#448): impede uma SEGUNDA conta ATIVA com o mesmo `last4` no mesmo
+   * `{tenantId, projectId}` — contas soft-deletadas não contam. `excludeId`
+   * exclui o próprio registro num update.
+   *
+   * ponytail: check-then-create dentro de UMA `$transaction` interativa só
+   * fecha a corrida ENTRE `await`s de um único processo Node — sem UNIQUE no
+   * schema, duas instâncias/workers da API ainda podem intercalar e ambos
+   * passarem o check. Teto honesto: 1 processo. Upgrade definitivo é um
+   * índice único parcial `(tenant_id, project_id, last4) WHERE deleted_at IS
+   * NULL` via migration.
+   */
+  private async assertNoDuplicateAccount(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    projectId: string,
+    last4: string,
+    excludeId?: string,
+  ): Promise<void> {
+    const duplicate = await tx.bankAccount.findFirst({
+      where: {
+        tenantId,
+        projectId,
+        last4,
+        deletedAt: null,
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+      select: { id: true },
+    });
+    if (duplicate) {
+      throw new ConflictException('Já existe uma conta ativa com este final (últimos 4 dígitos) neste projeto.');
+    }
+  }
+
   async createAccount(tenantId: string, projectId: string, dto: CreateBankAccountDto) {
     await this.ensureProject(tenantId, projectId);
     const nickname = dto.nickname?.trim() || `${dto.institution} ****${dto.last4}`;
     const { openingBalanceDate, ...rest } = dto;
-    const bankAccount = await this.prisma.bankAccount.create({
-      data: {
-        ...rest,
-        nickname,
-        tenantId,
-        projectId,
-        ...(openingBalanceDate ? { openingBalanceDate: new Date(openingBalanceDate) } : {}),
-      },
+    const bankAccount = await this.prisma.$transaction(async (tx) => {
+      await this.assertNoDuplicateAccount(tx, tenantId, projectId, dto.last4);
+      return tx.bankAccount.create({
+        data: {
+          ...rest,
+          nickname,
+          tenantId,
+          projectId,
+          ...(openingBalanceDate ? { openingBalanceDate: new Date(openingBalanceDate) } : {}),
+        },
+      });
     });
 
     // Count receipts without account (origin='none') to offer linking
@@ -282,7 +320,12 @@ export class BankAccountService {
     if (openingBalanceDate !== undefined) {
       data.openingBalanceDate = openingBalanceDate ? new Date(openingBalanceDate) : null;
     }
-    await this.prisma.bankAccount.update({ where: { id }, data });
+    await this.prisma.$transaction(async (tx) => {
+      if (dto.last4 !== undefined) {
+        await this.assertNoDuplicateAccount(tx, tenantId, projectId, dto.last4, id);
+      }
+      await tx.bankAccount.update({ where: { id }, data });
+    });
     return this.findAccount(tenantId, projectId, id);
   }
 
@@ -1156,12 +1199,20 @@ export class BankAccountService {
     });
   }
 
+  /**
+   * `requester` (B1a #448) OPCIONAL — encaminhado a `settleTargetParcela`, que
+   * releitura o alvo (child fora do `:projectId` de rota) DENTRO da mesma
+   * `$transaction`, sem gap de TOCTOU. Omitido no chamador interno de
+   * import-commit (`decisions[].action==='link'`, ver `commitImport`
+   * abaixo) — mesmo racional do gêmeo em `credit-card.service.ts`.
+   */
   async linkToExpense(
     tenantId: string,
     projectId: string,
     bankExpenseId: string,
     targetExpenseId: string,
     opts?: { parcelaIndex?: number; realValor?: number },
+    requester?: RateioRequester,
   ) {
     const source = await this.prisma.expense.findFirst({
       where: { id: bankExpenseId, tenantId, projectId, deletedAt: null },
@@ -1174,13 +1225,17 @@ export class BankAccountService {
     const realValor = opts?.realValor ?? source.valorTotal;
 
     await this.prisma.$transaction(async (tx) => {
-      await this.conciliacao.settleTargetParcela(tx, {
-        tenantId,
-        sourceExpenseId: source.id,
-        targetExpenseId,
-        parcelaIndex,
-        realValor,
-      });
+      await this.conciliacao.settleTargetParcela(
+        tx,
+        {
+          tenantId,
+          sourceExpenseId: source.id,
+          targetExpenseId,
+          parcelaIndex,
+          realValor,
+        },
+        requester,
+      );
     });
 
     return { ok: true, sourceId: source.id, targetId: targetExpenseId, parcelaIndex, paymentDate };

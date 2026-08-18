@@ -10,6 +10,8 @@ import {
   applyParcelaOverrides,
 } from '@reformaflow/domain';
 import { PrismaService } from '../prisma/prisma.service';
+import { RateioRequester } from '../expense/rateio.types';
+import { userCanAccessProject, userCanAccessProjectType } from '../common/access-rules';
 
 type Tx = Prisma.TransactionClient;
 
@@ -59,6 +61,31 @@ export class ConciliacaoService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
+   * Gêmeo em service do `ProjectAccessGuard`, aplicado por ALVO cross-project:
+   * `targetExpenseId`/`allocations[].targetExpenseId` chegam por BODY, não pelo
+   * `:projectId` de rota — o guard global nunca enxerga o projeto-dono desses
+   * IDs (ver comentário do próprio guard). `requester` omitido ⇒ full-access/
+   * legado (chamadas internas e testes que antecedem a lente #448 continuam
+   * funcionando sem alteração de comportamento).
+   */
+  private canRequesterSeeProject(
+    requester: RateioRequester | undefined,
+    project: { id: string; type: string } | null | undefined,
+  ): boolean {
+    if (!requester) return true;
+    if (!project) return false;
+    return (
+      userCanAccessProject(requester.role, requester.allowedProjects, project.id) &&
+      userCanAccessProjectType(
+        requester.role,
+        requester.allowedProjectTypes,
+        requester.allowedModules ?? [],
+        project.type,
+      )
+    );
+  }
+
+  /**
    * Soft-delete de um espelho (source) DENTRO de uma transação. Como o
    * `$transaction` ignora o `$use` de soft-delete do Prisma, marcamos
    * `deletedAt` na mão — e, crucialmente, também soft-deletamos os
@@ -78,13 +105,36 @@ export class ConciliacaoService {
     });
   }
 
-  async settleTargetParcela(tx: Tx, input: SettleParcelaInput): Promise<void> {
+  /**
+   * `requester` (B1a #448) é OPCIONAL — omitido preserva o comportamento
+   * legado (full-access). Presente, o ALVO (child fora do `:projectId` da
+   * rota) precisa estar na lente do requisitante; missing/cross-tenant/
+   * same-tenant-fora-do-escopo colapsam TODOS no mesmo 404 já existente para
+   * "alvo não encontrado" — nunca um 403 que confirmaria a existência do alvo
+   * a quem não pode vê-lo. A releitura acontece DENTRO desta mesma `tx`
+   * (chamada só dentro de `$transaction`) — sem gap de TOCTOU entre checar e
+   * escrever.
+   */
+  async settleTargetParcela(tx: Tx, input: SettleParcelaInput, requester?: RateioRequester): Promise<void> {
     const { tenantId, sourceExpenseId, targetExpenseId, realValor } = input;
 
     const target = await tx.expense.findFirst({
       where: { id: targetExpenseId, tenantId, deletedAt: null },
+      include: { project: { select: { id: true, type: true, tenantId: true } } },
     });
     if (!target) throw new NotFoundException('Despesa alvo não encontrada');
+    // A checagem de escopo só corre quando `requester` está presente — omitido
+    // preserva o full-access legado E os testes/mocks anteriores a #448, cujo
+    // `expense.findFirst` não simula `include: { project }` (não têm por que:
+    // nunca chamam com requester). Nunca falha por incompletude do MOCK.
+    if (
+      requester &&
+      (!target.project ||
+        target.project.tenantId !== tenantId ||
+        !this.canRequesterSeeProject(requester, target.project))
+    ) {
+      throw new NotFoundException('Despesa alvo não encontrada');
+    }
 
     const source = await tx.expense.findFirst({
       where: { id: sourceExpenseId, tenantId, deletedAt: null },
@@ -427,8 +477,15 @@ export class ConciliacaoService {
    * Idempotente: limpa um rateio anterior da mesma fonte antes de aplicar.
    * Exige que a soma das alocações feche EXATAMENTE o total da compra (o dedupe
    * por espelho é tudo-ou-nada; sobra perderia dinheiro no consolidado).
+   *
+   * `requester` (B1a #448) OPCIONAL — omitido preserva full-access legado.
+   * Presente, CADA alvo precisa estar na lente do requisitante; missing/
+   * cross-tenant/fora-do-escopo colapsam no MESMO 400 já usado para "alvo não
+   * encontrado" (nunca 403 — não confirma existência a quem não pode ver).
+   * Lido DENTRO desta `tx` (chamada só dentro de `$transaction`), sem gap de
+   * TOCTOU entre o check e a escrita da alocação/atualização do alvo.
    */
-  async ratearSource(tx: Tx, input: RatearInput): Promise<{ targets: string[] }> {
+  async ratearSource(tx: Tx, input: RatearInput, requester?: RateioRequester): Promise<{ targets: string[] }> {
     const { tenantId, sourceExpenseId, allocations } = input;
 
     const source = await tx.expense.findFirst({
@@ -489,8 +546,20 @@ export class ConciliacaoService {
 
       const target = await tx.expense.findFirst({
         where: { id: item.targetExpenseId, tenantId, deletedAt: null },
+        include: { project: { select: { id: true, type: true, tenantId: true } } },
       });
       if (!target) throw new BadRequestException(`Despesa alvo ${item.targetExpenseId} não encontrada`);
+      // Mesmo racional de `settleTargetParcela`: só checa escopo quando
+      // `requester` é passado — omitido preserva full-access legado/mocks
+      // pré-#448 sem `include: { project }`.
+      if (
+        requester &&
+        (!target.project ||
+          target.project.tenantId !== tenantId ||
+          !this.canRequesterSeeProject(requester, target.project))
+      ) {
+        throw new BadRequestException(`Despesa alvo ${item.targetExpenseId} não encontrada`);
+      }
       if (target.projectId === source.projectId) {
         throw new BadRequestException('O rateio liga a compra a planejadas de OUTRO projeto.');
       }

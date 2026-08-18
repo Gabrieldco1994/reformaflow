@@ -14,6 +14,7 @@ import { RequireModule } from '../common/decorators/require-module.decorator';
 import { CurrentTenant, CurrentUser } from '../common/decorators/tenant.decorator';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
 import { PdfPasswordRequiredError, PdfWrongPasswordError, ImageOcrError } from './parsers';
+import { RateioRequester } from '../expense/rateio.types';
 
 @RequireModule('creditCards')
 @UseInterceptors(TenantInterceptor)
@@ -98,11 +99,19 @@ export class CreditCardController {
     @Param('projectId') projectId: string,
     @Param('expenseId') expenseId: string,
     @Body() body: LinkToExpenseDto,
+    @CurrentUser() requester?: RateioRequester,
   ) {
-    return this.service.linkToExpense(tenantId, projectId, expenseId, body.targetExpenseId, {
-      parcelaIndex: body.parcelaIndex,
-      realValor: body.realValor,
-    });
+    return this.service.linkToExpense(
+      tenantId,
+      projectId,
+      expenseId,
+      body.targetExpenseId,
+      {
+        parcelaIndex: body.parcelaIndex,
+        realValor: body.realValor,
+      },
+      requester,
+    );
   }
 
   @Delete('transactions/:expenseId/link')

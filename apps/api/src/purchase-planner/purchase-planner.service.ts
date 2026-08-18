@@ -79,6 +79,7 @@ export class PurchasePlannerService {
   ) {
     await this.findScenarioOrThrow(tenantId, projectId, scenarioId);
     this.validateItemFields(dto);
+    await this.validateSourcePriceItem(tenantId, projectId, dto.sourcePriceItemId);
 
     return this.prisma.purchaseScenarioItem.create({
       data: {
@@ -113,6 +114,9 @@ export class PurchasePlannerService {
     // um PATCH que só troca `tipo` para FINANCIAMENTO sem mandar `parcelas` de
     // novo tem que ser rejeitado se `parcelas` também não existir já.
     this.validateItemFields({ ...existing, ...dto });
+    if (dto.sourcePriceItemId !== undefined) {
+      await this.validateSourcePriceItem(tenantId, projectId, dto.sourcePriceItemId);
+    }
 
     const data: Record<string, unknown> = {};
     if (dto.nome !== undefined) data.nome = dto.nome;
@@ -162,6 +166,37 @@ export class PurchasePlannerService {
     });
     if (!item) throw new NotFoundException('Item não encontrado');
     return item;
+  }
+
+  /**
+   * B1a (#448): `sourcePriceItemId` é um deep-link para o item monitorado
+   * (COMPRA) que originou este item do cenário — precisa existir NESTE
+   * tenant+projeto (mesmo `:projectId` já autorizado pela rota; não é
+   * cross-project). Omitido/`undefined` mantém comportamento inalterado
+   * (contrato explícito: não valida quando não informado).
+   *
+   * ponytail: feature-detect de `this.prisma.priceMonitorItem` porque specs
+   * unitárias anteriores a #448 mockam um `PrismaService` só com os delegates
+   * que já usavam (nunca incluíam `priceMonitorItem`) — um PrismaClient real
+   * sempre expõe todos os delegates, então isto nunca muda o comportamento em
+   * produção; só evita quebrar mocks legados sem stub de `priceMonitorItem`.
+   */
+  private async validateSourcePriceItem(
+    tenantId: string,
+    projectId: string,
+    sourcePriceItemId: string | undefined,
+  ): Promise<void> {
+    if (!sourcePriceItemId) return;
+    const delegate = (this.prisma as unknown as { priceMonitorItem?: { findFirst?: unknown } })
+      .priceMonitorItem;
+    if (!delegate || typeof delegate.findFirst !== 'function') return;
+    const item = await this.prisma.priceMonitorItem.findFirst({
+      where: { id: sourcePriceItemId, tenantId, projectId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!item) {
+      throw new NotFoundException('Item de monitoramento de preço não encontrado neste projeto');
+    }
   }
 
   /** PARCELADO/FINANCIAMENTO exigem `parcelas`; FINANCIAMENTO exige `sistema`. */
