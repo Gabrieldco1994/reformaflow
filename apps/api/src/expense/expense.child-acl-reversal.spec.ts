@@ -111,6 +111,10 @@ async function snapshot(): Promise<unknown> {
     }),
     rateios: await setup.rateioAllocation.findMany({ where: { tenantId: TENANT } }),
     settlements: await setup.crossProjectSettlement.findMany({ where: { tenantId: TENANT } }),
+    cashFlows: await setup.cashFlowEntry.findMany({
+      where: { tenantId: TENANT },
+      orderBy: { id: 'asc' },
+    }),
   };
 }
 
@@ -166,6 +170,39 @@ describe('ExpenseService — child ACL nas reversões B1a', () => {
       service.desratear(TENANT, PESSOAL, SOURCE, undefined as never),
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(await snapshot()).toEqual(before);
+  });
+
+  it('update da fonte rejeita espelho oculto com 404 antes de qualquer write', async () => {
+    await seedExpenses();
+    const before = await snapshot();
+
+    await expect(
+      service.update(TENANT, PESSOAL, SOURCE, { titulo: 'Fonte revisada' }, MANAGED),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(await snapshot()).toEqual(before);
+  });
+
+  it('OWNER desrateia sem restaurar alvo soft-deletado após a alocação', async () => {
+    await seedRateio();
+    const deletedAt = new Date('2026-08-19T12:00:00.000Z');
+    await setup.expense.update({
+      where: { id: TARGET },
+      data: { deletedAt },
+    });
+    const deletedTarget = await setup.expense.findUniqueOrThrow({ where: { id: TARGET } });
+
+    await expect(
+      service.desratear(TENANT, PESSOAL, SOURCE, OWNER),
+    ).resolves.toMatchObject({ ok: true, targets: [TARGET] });
+    expect(
+      await setup.rateioAllocation.findUnique({ where: { targetExpenseId: TARGET } }),
+    ).toBeNull();
+    expect(
+      (await setup.expense.findUniqueOrThrow({ where: { id: SOURCE } })).linkedExpenseId,
+    ).toBeNull();
+    expect(await setup.expense.findUniqueOrThrow({ where: { id: TARGET } })).toEqual(
+      deletedTarget,
+    );
   });
 
   it('OWNER pode reverter e no-op sem relações continua idempotente', async () => {
