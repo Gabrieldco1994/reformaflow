@@ -58,4 +58,48 @@ describe('BankAccountController import candidate ACL (#480)', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(previewImport).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['suggestLinks', 'suggestLinks'],
+    ['suggestReceiptLinks', 'suggestReceiptLinks'],
+  ] as const)('forwards requester to %s', async (controllerMethod, serviceMethod) => {
+    const candidateMethod = jest.fn().mockResolvedValue([]);
+    const controller = new BankAccountController({
+      [serviceMethod]: candidateMethod,
+    } as any);
+
+    await (controller as any)[controllerMethod](
+      'tenant',
+      'pessoal',
+      'account',
+      REQUESTER,
+    );
+
+    expect(candidateMethod).toHaveBeenCalledWith(
+      'tenant',
+      'pessoal',
+      'account',
+      REQUESTER,
+    );
+  });
+
+  it.each([
+    ['suggestLinks', 'suggestLinks'],
+    ['suggestReceiptLinks', 'suggestReceiptLinks'],
+  ] as const)('fails closed when %s has no requester', (controllerMethod, serviceMethod) => {
+    const candidateMethod = jest.fn();
+    const controller = new BankAccountController({
+      [serviceMethod]: candidateMethod,
+    } as any);
+
+    expect(() =>
+      (controller as any)[controllerMethod](
+        'tenant',
+        'pessoal',
+        'account',
+        undefined,
+      ),
+    ).toThrow(ForbiddenException);
+    expect(candidateMethod).not.toHaveBeenCalled();
+  });
 });

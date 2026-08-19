@@ -139,7 +139,7 @@ async function main() {
 
   // ───── 5) Suggest-links ───────────────────────────────────
   header('5) Suggest-links');
-  const suggestions = await svc.suggestLinks(tenant.id, pessoal.id, itau.id);
+  const suggestions = await svc.suggestLinks(tenant.id, pessoal.id, itau.id, requester);
   assert(suggestions.length === 3, `3 transações com sugestões (got ${suggestions.length})`);
   const leroyImported = suggestions.find((s: any) => /LEROY/i.test(s.expense.titulo ?? ''));
   assert(!!leroyImported, 'transação LEROY do banco está em suggestions');
@@ -331,7 +331,12 @@ async function main() {
     },
   });
 
-  const receiptSugs = await svc.suggestReceiptLinks(tenant.id, pessoal.id, itau.id);
+  const receiptSugs = await svc.suggestReceiptLinks(
+    tenant.id,
+    pessoal.id,
+    itau.id,
+    requester,
+  );
   const salarioSug = receiptSugs.find((s: any) => s.receipt.id === salarioReceipt!.id);
   assert(!!salarioSug, 'SALARIO tem entrada em suggestReceiptLinks');
   assert(salarioSug!.suggestions.length >= 1, `SALARIO tem >=1 sugestão (got ${salarioSug!.suggestions.length})`);

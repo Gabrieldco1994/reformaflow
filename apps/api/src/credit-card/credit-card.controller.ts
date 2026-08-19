@@ -94,8 +94,10 @@ export class CreditCardController {
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('id') cardId: string,
+    @CurrentUser() requester: RateioRequester,
   ) {
-    return this.service.suggestLinks(tenantId, projectId, cardId);
+    assertRateioRequester(requester);
+    return this.service.suggestLinks(tenantId, projectId, cardId, requester);
   }
 
   @Post('transactions/:expenseId/link')

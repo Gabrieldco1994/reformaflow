@@ -58,4 +58,33 @@ describe('CreditCardController import candidate ACL (#480)', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(previewImport).not.toHaveBeenCalled();
   });
+
+  it('forwards requester to suggestLinks', async () => {
+    const suggestLinks = jest.fn().mockResolvedValue([]);
+    const controller = new CreditCardController({ suggestLinks } as any);
+
+    await controller.suggestLinks('tenant', 'pessoal', 'card', REQUESTER);
+
+    expect(suggestLinks).toHaveBeenCalledWith(
+      'tenant',
+      'pessoal',
+      'card',
+      REQUESTER,
+    );
+  });
+
+  it('fails closed when suggestLinks has no requester', () => {
+    const suggestLinks = jest.fn();
+    const controller = new CreditCardController({ suggestLinks } as any);
+
+    expect(() =>
+      controller.suggestLinks(
+        'tenant',
+        'pessoal',
+        'card',
+        undefined as any,
+      ),
+    ).toThrow(ForbiddenException);
+    expect(suggestLinks).not.toHaveBeenCalled();
+  });
 });

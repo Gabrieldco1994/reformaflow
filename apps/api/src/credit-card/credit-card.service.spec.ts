@@ -950,7 +950,12 @@ describe('CreditCardService', () => {
         { id: 'casa1', name: 'Casa', type: 'CASA' },
       ]);
 
-      const [result] = await service.suggestLinks('t1', 'pessoal1', 'card1');
+      const [result] = await service.suggestLinks(
+        't1',
+        'pessoal1',
+        'card1',
+        TEST_OWNER_REQUESTER,
+      );
 
       expect(result.suggestions.find((suggestion) => suggestion.expenseId === 'exp-override')).toMatchObject({
         data: '2026-04-29T00:00:00.000Z',

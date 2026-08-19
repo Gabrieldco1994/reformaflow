@@ -95,8 +95,10 @@ export class BankAccountController {
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('id') accountId: string,
+    @CurrentUser() requester: RateioRequester,
   ) {
-    return this.service.suggestLinks(tenantId, projectId, accountId);
+    assertRateioRequester(requester);
+    return this.service.suggestLinks(tenantId, projectId, accountId, requester);
   }
 
   @Get(':id/suggest-receipt-links')
@@ -104,8 +106,15 @@ export class BankAccountController {
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('id') accountId: string,
+    @CurrentUser() requester: RateioRequester,
   ) {
-    return this.service.suggestReceiptLinks(tenantId, projectId, accountId);
+    assertRateioRequester(requester);
+    return this.service.suggestReceiptLinks(
+      tenantId,
+      projectId,
+      accountId,
+      requester,
+    );
   }
 
   @Post('transactions/:expenseId/link')

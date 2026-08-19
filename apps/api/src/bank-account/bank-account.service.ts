@@ -1380,7 +1380,13 @@ export class BankAccountService {
 
   // ─── Links cross-project ─────────────────────────────────
 
-  async suggestLinks(tenantId: string, projectId: string, accountId: string) {
+  async suggestLinks(
+    tenantId: string,
+    projectId: string,
+    accountId: string,
+    requester: RateioRequester,
+  ) {
+    assertRateioRequester(requester);
     const account = await this.findAccount(tenantId, projectId, accountId);
 
     const bankExpenses = await this.prisma.expense.findMany({
@@ -1397,28 +1403,48 @@ export class BankAccountService {
 
     if (bankExpenses.length === 0) return [];
 
-    const otherProjects = await this.prisma.project.findMany({
-      where: { tenantId, id: { not: projectId }, deletedAt: null },
-      select: { id: true, name: true, type: true },
+    const { otherProjects, planned } = await this.prisma.$transaction(async (tx) => {
+      const scope = await resolveAccessibleProjectScope(
+        tx,
+        tenantId,
+        requester.role,
+        requester.allowedProjects,
+        requester.allowedProjectTypes,
+        requester.allowedModules ?? [],
+      );
+      const projects = await tx.project.findMany({
+        where: {
+          tenantId,
+          id: {
+            not: projectId,
+            ...(scope !== null ? { in: scope } : {}),
+          },
+          deletedAt: null,
+        },
+        select: { id: true, name: true, type: true },
+      });
+      const projectIds = projects.map((project) => project.id);
+      const expenses = projectIds.length > 0
+        ? await tx.expense.findMany({
+            where: {
+              tenantId,
+              projectId: { in: projectIds },
+              OR: [
+                { status: 'PLANEJADO' },
+                { status: 'PAGO', quantidadeParcela: { gt: 1 } },
+              ],
+              deletedAt: null,
+            },
+            take: 500,
+            orderBy: { dataInicioParcela: 'desc' },
+          })
+        : [];
+      return { otherProjects: projects, planned: expenses };
     });
     if (otherProjects.length === 0) {
       return bankExpenses.map((e) => ({ expense: serializeExpense(e), suggestions: [] }));
     }
 
-    const otherIds = otherProjects.map((p) => p.id);
-    const planned = await this.prisma.expense.findMany({
-      where: {
-        tenantId,
-        projectId: { in: otherIds },
-        OR: [
-          { status: 'PLANEJADO' },
-          { status: 'PAGO', quantidadeParcela: { gt: 1 } },
-        ],
-        deletedAt: null,
-      },
-      take: 500,
-      orderBy: { dataInicioParcela: 'desc' },
-    });
     const projectById = new Map(otherProjects.map((p) => [p.id, p]));
 
     return bankExpenses.map((e) => {
@@ -1540,7 +1566,13 @@ export class BankAccountService {
    * planejados em outros projetos (REFORMA/CASA/CARRO).
    * Critério: mesmo tenant, valor ≈ (±5%), data ±10 dias, status PREVISTO.
    */
-  async suggestReceiptLinks(tenantId: string, projectId: string, accountId: string) {
+  async suggestReceiptLinks(
+    tenantId: string,
+    projectId: string,
+    accountId: string,
+    requester: RateioRequester,
+  ) {
+    assertRateioRequester(requester);
     const account = await this.findAccount(tenantId, projectId, accountId);
 
     const bankReceipts = await this.prisma.receipt.findMany({
@@ -1557,25 +1589,45 @@ export class BankAccountService {
 
     if (bankReceipts.length === 0) return [];
 
-    const otherProjects = await this.prisma.project.findMany({
-      where: { tenantId, id: { not: projectId }, deletedAt: null },
-      select: { id: true, name: true, type: true },
+    const { otherProjects, planned } = await this.prisma.$transaction(async (tx) => {
+      const scope = await resolveAccessibleProjectScope(
+        tx,
+        tenantId,
+        requester.role,
+        requester.allowedProjects,
+        requester.allowedProjectTypes,
+        requester.allowedModules ?? [],
+      );
+      const projects = await tx.project.findMany({
+        where: {
+          tenantId,
+          id: {
+            not: projectId,
+            ...(scope !== null ? { in: scope } : {}),
+          },
+          deletedAt: null,
+        },
+        select: { id: true, name: true, type: true },
+      });
+      const projectIds = projects.map((project) => project.id);
+      const receipts = projectIds.length > 0
+        ? await tx.receipt.findMany({
+            where: {
+              tenantId,
+              projectId: { in: projectIds },
+              status: 'PREVISTO',
+              deletedAt: null,
+            },
+            take: 500,
+            orderBy: { data: 'desc' },
+          })
+        : [];
+      return { otherProjects: projects, planned: receipts };
     });
     if (otherProjects.length === 0) {
       return bankReceipts.map((r) => ({ receipt: serializeReceipt(r), suggestions: [] }));
     }
 
-    const otherIds = otherProjects.map((p) => p.id);
-    const planned = await this.prisma.receipt.findMany({
-      where: {
-        tenantId,
-        projectId: { in: otherIds },
-        status: 'PREVISTO',
-        deletedAt: null,
-      },
-      take: 500,
-      orderBy: { data: 'desc' },
-    });
     const projectById = new Map(otherProjects.map((p) => [p.id, p]));
 
     return bankReceipts.map((r) => {
@@ -2545,6 +2597,7 @@ function serializeExpense(e: {
     titulo: e.titulo,
     fornecedor: e.fornecedor,
     valor: e.valorTotal,
+    valorTotal: e.valorTotal,
     data: (e.dataPagamento ?? e.dataInicioParcela ?? e.createdAt).toISOString(),
     status: e.status,
     bankLast4: e.bankLast4,
