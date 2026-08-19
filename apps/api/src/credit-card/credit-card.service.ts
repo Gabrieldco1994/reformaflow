@@ -740,7 +740,8 @@ export class CreditCardService {
   /**
    * Lista transações importadas do cartão (no projeto PESSOAL) + sugestões
    * de match em despesas planejadas de outros projetos (REFORMA/CASA/CARRO).
-   * Critério: mesmo tenant, valor ≈ (±5%), data ±10 dias, status PLANEJADO.
+   * Critério: mesmo tenant e projeto candidato dentro do escopo autorizado do
+   * solicitante; valor ≈ (±5%), data ±10 dias, status PLANEJADO.
    */
   async suggestLinks(
     tenantId: string,

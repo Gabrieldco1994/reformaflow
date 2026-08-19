@@ -1564,7 +1564,8 @@ export class BankAccountService {
   /**
    * Sugere vínculos para recebimentos importados (no PESSOAL) a recebimentos
    * planejados em outros projetos (REFORMA/CASA/CARRO).
-   * Critério: mesmo tenant, valor ≈ (±5%), data ±10 dias, status PREVISTO.
+   * Critério: mesmo tenant e projeto candidato dentro do escopo autorizado do
+   * solicitante; valor ≈ (±5%), data ±10 dias, status PREVISTO.
    */
   async suggestReceiptLinks(
     tenantId: string,
