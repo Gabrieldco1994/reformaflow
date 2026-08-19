@@ -185,6 +185,7 @@ export class CreditCardController {
         fileName,
         source,
         query.password,
+        requester,
       );
     } catch (err) {
       if (err instanceof PdfPasswordRequiredError) {

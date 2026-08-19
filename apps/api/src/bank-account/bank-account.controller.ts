@@ -204,7 +204,7 @@ export class BankAccountController {
         );
       }
       return await this.service.previewImport(
-        tenantId, projectId, accountId, buffers, fileName, source, query.password,
+        tenantId, projectId, accountId, buffers, fileName, source, query.password, requester,
       );
     } catch (err) {
       if (err instanceof PdfPasswordRequiredError) {

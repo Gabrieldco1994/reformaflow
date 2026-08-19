@@ -2,7 +2,7 @@ import { Injectable, BadRequestException, NotFoundException } from '@nestjs/comm
 import { ExpenseType } from '@reformaflow/domain';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePendenciaDto, UpdatePendenciaDto, MovePendenciaDto } from './dto/pendencia.dto';
-import { MonthlyOverviewService, type MonthlyOverviewRequester } from '../monthly-overview/monthly-overview.service';
+import { MonthlyOverviewService } from '../monthly-overview/monthly-overview.service';
 import { BankAccountService } from '../bank-account/bank-account.service';
 import {
   rankCardCandidates,
@@ -13,6 +13,10 @@ import {
   MERCHANT_TO_EXPENSE_TYPE,
   type MerchantCategory,
 } from '../merchant-classifier/merchant-classifier.service';
+import {
+  assertRateioRequester,
+  type RateioRequester,
+} from '../expense/rateio.types';
 
 /** Denormalized chip-label shape returned to the client. */
 export interface PendenciaDto {
@@ -165,9 +169,10 @@ export class PendenciaService {
   async findFinancialQueue(
     tenantId: string,
     projectId: string,
-    month?: string,
-    requester?: MonthlyOverviewRequester,
+    month: string | undefined,
+    requester: RateioRequester,
   ): Promise<FinancialQueueResponse> {
+    assertRateioRequester(requester);
     const accountView = await this.monthlyOverviewService.getAccountView(
       tenantId,
       projectId,
@@ -253,6 +258,7 @@ export class PendenciaService {
         tenantId,
         new Date(Math.min(...dates) - CARD_WINDOW_MS),
         new Date(Math.max(...dates) + CARD_WINDOW_MS),
+        requester,
       );
       pagamentoSemCartao = pagamentosOrfaos.map((p) => ({
         id: `fatura-sem-cartao-${p.id}`,

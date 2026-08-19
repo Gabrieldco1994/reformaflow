@@ -80,7 +80,7 @@ describe('commitImport — decisão skip não contabiliza a linha', () => {
     ];
     const buf = xlsxBuf(rows);
 
-    const preview = await service.previewImport('t1', 'pessoal1', 'acc1', buf, 'extrato.xlsx', 'AUTO');
+    const preview = await service.previewImport('t1', 'pessoal1', 'acc1', buf, 'extrato.xlsx', 'AUTO', undefined, TEST_OWNER_REQUESTER);
     const mercadoTx = preview.preview.find((p: any) => /MERCADO/.test(p.merchant));
     expect(mercadoTx).toBeDefined();
 
@@ -108,7 +108,7 @@ describe('commitImport — decisão skip não contabiliza a linha', () => {
     ];
     const buf = xlsxBuf(rows);
 
-    const preview = await service.previewImport('t1', 'pessoal1', 'acc1', buf, 'extrato.xlsx', 'AUTO');
+    const preview = await service.previewImport('t1', 'pessoal1', 'acc1', buf, 'extrato.xlsx', 'AUTO', undefined, TEST_OWNER_REQUESTER);
     const tx = preview.preview[0];
 
     prisma.receipt.create.mockClear();
@@ -136,7 +136,7 @@ describe('commitImport — múltiplos arquivos no mesmo import não perdem trans
     const file1 = xlsxBuf(headerAndRow);
     const file2 = xlsxBuf(headerAndRow); // linha idêntica em outro arquivo (2 exports/contas)
 
-    const preview = await service.previewImport('t1', 'pessoal1', 'acc1', [file1, file2], 'ext.xlsx', 'AUTO');
+    const preview = await service.previewImport('t1', 'pessoal1', 'acc1', [file1, file2], 'ext.xlsx', 'AUTO', undefined, TEST_OWNER_REQUESTER);
     expect(preview.total).toBe(2);
 
     prisma.expense.create.mockClear();

@@ -296,7 +296,7 @@ describe('CreditCardService', () => {
     it('aplica regra manual no suggestedCategory e marca fonte regra', async () => {
       merchantClassifier.manualExpenseType.mockResolvedValue('ALIMENTACAO');
       const ofx = buildOfx(ofxFor('20260429', 100, 'PADARIA CENTRAL', 'RGX'));
-      const result = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX');
+      const result = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
       expect(result.preview[0].suggestedCategory).toBe('ALIMENTACAO');
       expect(result.preview[0].categoriaFonte).toBe('regra');
     });
@@ -321,7 +321,7 @@ describe('CreditCardService', () => {
       ]);
 
       const ofx = buildOfx(ofxFor('20260429', 2158.34, 'POLO MARMORESS', 'X1'));
-      const result = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'fatura.ofx', 'OFX');
+      const result = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'fatura.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
 
       expect(result.preview).toHaveLength(1);
       expect(result.preview[0].crossProjectMatches).toHaveLength(1);
@@ -351,7 +351,7 @@ describe('CreditCardService', () => {
         },
       ]);
       const ofx = buildOfx(ofxFor('20260429', 2000, 'POLO', 'X2'));
-      const result = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'fatura.ofx', 'OFX');
+      const result = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'fatura.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
       expect(result.preview[0].crossProjectMatches).toHaveLength(0);
     });
 
@@ -374,13 +374,13 @@ describe('CreditCardService', () => {
         },
       ]);
       const ofx = buildOfx(ofxFor('20260429', 2158.34, 'POLO', 'X3'));
-      const result = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'fatura.ofx', 'OFX');
+      const result = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'fatura.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
       expect(result.preview[0].crossProjectMatches).toHaveLength(0);
     });
 
     it('retorna futureInstallments como array (vazio para OFX)', async () => {
       const ofx = buildOfx(ofxFor('20260429', 100, 'LOJA', 'X4'));
-      const result = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX');
+      const result = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
       expect(Array.isArray(result.futureInstallments)).toBe(true);
     });
 
@@ -404,7 +404,7 @@ describe('CreditCardService', () => {
       ]);
 
       const ofx = buildOfx(ofxFor('20260429', 6666.66, 'INFRA', 'PX1'));
-      const result = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'fatura.ofx', 'OFX');
+      const result = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'fatura.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
       expect(result.preview[0].crossProjectMatches).toHaveLength(1);
       expect(result.preview[0].crossProjectMatches?.[0]?.valorCents).toBe(666666);
       expect(result.preview[0].crossProjectMatches?.[0]?.installmentCurrent).toBe(1);
@@ -418,7 +418,7 @@ describe('CreditCardService', () => {
       prisma.expense.findMany.mockResolvedValue(plannedMatcherExpenses('QUINZENAL'));
 
       const ofx = buildOfx(ofxFor('20260429', 500, 'COMPRA CASA', 'OVERRIDE1'));
-      const result = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'fatura.ofx', 'OFX');
+      const result = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'fatura.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
 
       expect(result.preview[0].crossProjectMatches.find((match) => match.expenseId === 'exp-override')).toMatchObject({
         data: '2026-04-29',
@@ -451,7 +451,7 @@ describe('CreditCardService', () => {
         }
         return [];
       });
-      const result = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX');
+      const result = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
       expect(result.duplicated).toBe(1);
       expect(result.preview[0].duplicate).toBe(true);
     });
@@ -624,7 +624,7 @@ describe('CreditCardService', () => {
       // Captura os externalIds gerados pelo parser
       let skipId = '';
       let okId = '';
-      const origPreview = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX');
+      const origPreview = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
       const lojaSkip = origPreview.preview.find((t) => t.merchant === 'LOJA SKIP');
       const lojaOk = origPreview.preview.find((t) => t.merchant === 'LOJA OK');
       skipId = lojaSkip!.externalId;
@@ -648,7 +648,7 @@ describe('CreditCardService', () => {
     it('decision.overrides aplica titulo, valor e categoria', async () => {
       const ofx = buildOfx(ofxFor('20260429', 100, 'LOJA X', 'OV1'));
       prisma.expense.findFirst.mockResolvedValue(null);
-      const preview = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX');
+      const preview = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
       const ext = preview.preview[0].externalId;
 
       prisma.expense.create.mockClear();
@@ -697,7 +697,7 @@ describe('CreditCardService', () => {
       prisma.crossProjectSettlement.findMany.mockResolvedValue([{ parcelaIndex: 0, realValor: 10000 }]);
 
       prisma.expense.create.mockResolvedValueOnce({ id: 'src1' });
-      const preview = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX');
+      const preview = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
       const ext = preview.preview[0].externalId;
 
       const res = await service.commitImport(
@@ -741,7 +741,7 @@ describe('CreditCardService', () => {
       prisma.crossProjectSettlement.findMany.mockResolvedValue([{ parcelaIndex: 0, realValor: 10000 }]);
 
       prisma.expense.create.mockResolvedValueOnce({ id: 'src2' });
-      const preview = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX');
+      const preview = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
       const ext = preview.preview[0].externalId;
 
       const res = await service.commitImport(
@@ -761,7 +761,7 @@ describe('CreditCardService', () => {
     it('repassa createdByUserId para a Expense criada (KPI "despesas criadas" depende disso)', async () => {
       const ofx = buildOfx(ofxFor('20260429', 100, 'LOJA CREATEDBY', 'CB1'));
       prisma.expense.findFirst.mockResolvedValue(null);
-      const preview = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX');
+      const preview = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
       expect(preview.preview.length).toBe(1);
 
       prisma.expense.create.mockClear();
@@ -780,7 +780,7 @@ describe('CreditCardService', () => {
     it('sem createdByUserId, grava null explicitamente (não deixa undefined)', async () => {
       const ofx = buildOfx(ofxFor('20260429', 100, 'LOJA SEM USER', 'CB2'));
       prisma.expense.findFirst.mockResolvedValue(null);
-      const preview = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX');
+      const preview = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
       expect(preview.preview.length).toBe(1);
 
       prisma.expense.create.mockClear();
@@ -802,6 +802,8 @@ describe('CreditCardService', () => {
         Buffer.from(ofx),
         'f.ofx',
         'OFX',
+        undefined,
+        TEST_OWNER_REQUESTER,
       );
       const duplicateId = preview.preview.find((item) =>
         item.merchant.includes('DUPLICADA'),
@@ -871,6 +873,8 @@ describe('CreditCardService', () => {
         Buffer.from(ofx),
         'f.ofx',
         'OFX',
+        undefined,
+        TEST_OWNER_REQUESTER,
       );
       const externalId = preview.preview[0].externalId;
       prisma.expense.findMany.mockImplementation(({ where }: any) => {

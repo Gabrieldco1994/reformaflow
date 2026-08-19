@@ -10,6 +10,7 @@ import {
   assertRateioRequester,
   RateioRequester,
 } from '../expense/rateio.types';
+import { resolveAccessibleProjectScope } from '../common/access-rules';
 
 /** Normaliza a entrada (string legada, Buffer único ou array) para Buffer[]. */
 function toBuffers(content: string | Buffer | Buffer[]): Buffer[] {
@@ -274,28 +275,40 @@ export class CreditCardService {
     fileContent: string | Buffer | Buffer[],
     fileName: string | undefined,
     source: SourceHint,
-    password?: string,
+    password: string | undefined,
+    requester: RateioRequester,
   ) {
+    assertRateioRequester(requester);
     const card = await this.findCard(tenantId, projectId, cardId);
     const buffers = toBuffers(fileContent);
     const parsed = await parseStatementBuffers(buffers, card.id, source, fileName, password);
-    const existing = await this.findExistingExternalIds(
-      tenantId,
-      projectId,
-      parsed.transactions.map((t) => t.externalId),
-    );
-
-    // Carrega despesas planejadas em outros projetos para cross-project match
-    const otherProjects = await this.prisma.project.findMany({
-      where: { tenantId, id: { not: projectId }, deletedAt: null },
-      select: { id: true, name: true, type: true },
-    });
-    const projectById = new Map(otherProjects.map((p) => [p.id, p]));
-    const planned = otherProjects.length > 0
-      ? await this.prisma.expense.findMany({
+    // Resolve a lente antes de qualquer leitura/ranking de candidatos. A
+    // transação mantém projetos e despesas no mesmo snapshot.
+    const { otherProjects, planned } = await this.prisma.$transaction(async (tx) => {
+      const scope = await resolveAccessibleProjectScope(
+        tx,
+        tenantId,
+        requester.role,
+        requester.allowedProjects,
+        requester.allowedProjectTypes,
+        requester.allowedModules ?? [],
+      );
+      const projects = await tx.project.findMany({
+        where: {
+          tenantId,
+          id: {
+            not: projectId,
+            ...(scope !== null ? { in: scope } : {}),
+          },
+          deletedAt: null,
+        },
+        select: { id: true, name: true, type: true },
+      });
+      const expenses = projects.length > 0
+        ? await tx.expense.findMany({
           where: {
             tenantId,
-            projectId: { in: otherProjects.map((p) => p.id) },
+            projectId: { in: projects.map((project) => project.id) },
             OR: [
               { status: 'PLANEJADO' },
               { status: 'PAGO', quantidadeParcela: { gt: 1 } },
@@ -306,7 +319,15 @@ export class CreditCardService {
           take: 1000,
           orderBy: { dataInicioParcela: 'desc' },
         })
-      : [];
+        : [];
+      return { otherProjects: projects, planned: expenses };
+    });
+    const projectById = new Map(otherProjects.map((p) => [p.id, p]));
+    const existing = await this.findExistingExternalIds(
+      tenantId,
+      projectId,
+      parsed.transactions.map((t) => t.externalId),
+    );
 
     function findMatches(tx: NormalizedTx) {
       if (planned.length === 0) return [];

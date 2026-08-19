@@ -26,6 +26,9 @@ export const CARD_MATCH_TOLERANCE_CENTS = 200; // R$ 2 (encargos variam)
 const DUE_MONTH_OFFSETS = [-1, 0, 1];
 
 export interface CardWithEntries {
+  /** Internal identity used to keep same-last4 cards and their entries apart. */
+  id?: string;
+  projectId?: string;
   last4: string;
   nickname: string;
   closingDay: number | null;

@@ -8,6 +8,12 @@ import { BankAccountService } from '../bank-account/bank-account.service';
 
 const TENANT = 't1';
 const PROJECT = 'reforma1';
+const REQUESTER = {
+  role: 'OWNER',
+  allowedProjects: [],
+  allowedProjectTypes: [],
+  allowedModules: [],
+};
 
 function makeRow(over: Partial<any> = {}) {
   return {
@@ -239,9 +245,9 @@ describe('PendenciaService', () => {
         category: 'alimentação',
       });
 
-      const res = await service.findFinancialQueue(TENANT, PROJECT, '2026-07');
+      const res = await service.findFinancialQueue(TENANT, PROJECT, '2026-07', REQUESTER);
 
-      expect(monthlyOverviewService.getAccountView).toHaveBeenCalledWith(TENANT, PROJECT, '2026-07', undefined);
+      expect(monthlyOverviewService.getAccountView).toHaveBeenCalledWith(TENANT, PROJECT, '2026-07', REQUESTER);
       expect(res.total).toBe(5);
       expect(res.grupos.map((g: any) => g.tipo)).toEqual([
         'SEM_CONTA',
@@ -292,7 +298,7 @@ describe('PendenciaService', () => {
         },
       ]);
 
-      const res = await service.findFinancialQueue(TENANT, PROJECT, '2026-07');
+      const res = await service.findFinancialQueue(TENANT, PROJECT, '2026-07', REQUESTER);
 
       expect(prisma.expense.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
