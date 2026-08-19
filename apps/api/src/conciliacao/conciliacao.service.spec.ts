@@ -53,6 +53,11 @@ describe('ConciliacaoService', () => {
           if (where.id === 'src') return Promise.resolve(opts.source);
           return Promise.resolve(null);
         }),
+        findUnique: jest.fn().mockImplementation(({ where }: any) => {
+          if (where.id === 'tgt') return Promise.resolve(opts.target);
+          if (where.id === 'src') return Promise.resolve(opts.source);
+          return Promise.resolve(null);
+        }),
         update: jest.fn().mockImplementation(({ where, data }: any) => {
           // Simula persistência: mutações ficam visíveis em findFirst seguintes (regen).
           if (where.id === 'tgt' && opts.target) Object.assign(opts.target, data);
@@ -218,6 +223,10 @@ describe('ConciliacaoService', () => {
             if (where.id === opts.source.id) return Promise.resolve(opts.source);
             if (opts.targets[where.id]) return Promise.resolve(opts.targets[where.id]);
             return Promise.resolve(null);
+          }),
+          findUnique: jest.fn().mockImplementation(({ where }: any) => {
+            if (where.id === opts.source.id) return Promise.resolve(opts.source);
+            return Promise.resolve(opts.targets[where.id] ?? null);
           }),
           update: jest.fn().mockImplementation(({ where, data }: any) => {
             if (where.id === opts.source.id) Object.assign(opts.source, data);

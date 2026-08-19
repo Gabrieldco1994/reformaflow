@@ -514,10 +514,26 @@ describe("ExpenseService.updateInstallmentDate", () => {
       linkedExpenseId: "mirror-1",
     };
     const { service, tx } = makeHarness(expense);
+    const linkedRows = [
+      {
+        ...expense,
+        project: { id: expense.projectId, tenantId: expense.tenantId, type: "REFORMA" },
+      },
+      {
+        ...expense,
+        id: "mirror-1",
+        linkedExpenseId: null,
+        project: { id: expense.projectId, tenantId: expense.tenantId, type: "REFORMA" },
+      },
+    ];
     tx.expense.findFirst
       .mockResolvedValueOnce(expense)
       .mockResolvedValueOnce(expense)
       .mockResolvedValueOnce({ id: "mirror-1" });
+    tx.expense.findMany
+      .mockResolvedValueOnce(linkedRows)
+      .mockResolvedValueOnce(linkedRows)
+      .mockResolvedValue([]);
 
     await service.update("tenant-1", "project-1", "expense-1", {
       tipoDespesa: "MAO_DE_OBRA",
