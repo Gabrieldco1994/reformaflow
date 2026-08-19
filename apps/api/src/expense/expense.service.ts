@@ -17,8 +17,9 @@ import {
 import {
   isFullAccessRole,
   userCanAccessProject,
-  userCanAccessProjectType,
+  userCanAccessProjectModule,
   resolveAccessibleProjectScope,
+  EXPENSE_MODULE,
 } from '../common/access-rules';
 
 type ExpenseDb = PrismaService | Prisma.TransactionClient;
@@ -150,7 +151,7 @@ export class ExpenseService {
       } else if (
         !linkedRow.project ||
         linkedRow.project.tenantId !== tenantId ||
-        !this.canRequesterSeeProject(requester, linkedRow.project)
+        !this.canRequesterSeeProject(requester, linkedRow.project, EXPENSE_MODULE)
       ) {
         // Colapsa no MESMO 400 de "não encontrada" — nunca confirma a
         // existência de uma despesa em projeto fora da lente do requisitante.
@@ -168,7 +169,13 @@ export class ExpenseService {
       } else if (
         !settlesCardRow.project ||
         settlesCardRow.project.tenantId !== tenantId ||
-        !this.canRequesterSeeProject(requester, settlesCardRow.project)
+        // O módulo exigido vem do CALLER, e o caller aqui é a rota de despesa
+        // (`@RequireModule('expenses')`) — a mesma regra do hotfix de #480 em
+        // `assertCanAccessCard`. Exigir `creditCards` neste ponto 404-aria o
+        // cockpit de fatura, cuja população legada tem `expenses` +
+        // `monthlyOverview` e nunca recebe back-fill de `creditCards`; se
+        // quitar fatura DEVE exigir `creditCards` isso é decisão de produto.
+        !this.canRequesterSeeProject(requester, settlesCardRow.project, EXPENSE_MODULE)
       ) {
         throw new BadRequestException('Cartão da fatura quitada não encontrado neste tenant');
       } else if (!dto.settlesInvoiceDueMonth) {
@@ -361,7 +368,7 @@ export class ExpenseService {
       });
       if (!obra) throw new BadRequestException('Projeto de obra não encontrado neste tenant.');
       // O agente também propaga o requester completo; ausência falha fechado.
-      if (!this.canRequesterSeeProject(requester, obra)) {
+      if (!this.canRequesterSeeProject(requester, obra, EXPENSE_MODULE)) {
         throw new BadRequestException('Projeto de obra não encontrado neste tenant.');
       }
       if (obra.type === 'PESSOAL') {
@@ -550,6 +557,10 @@ export class ExpenseService {
       requester.allowedProjects,
       requester.allowedProjectTypes,
       requester.allowedModules ?? [],
+      // Mesmo recurso do vínculo/quitação (`canRequesterSeeProject`): o
+      // seletor que ALIMENTA a ação não pode oferecer um alvo que a ação
+      // recusa — senão o gate vira CTA que erra depois de clicada (#484 D).
+      EXPENSE_MODULE,
     );
 
     // `opts.projectId` explícito fora do escopo: vazio, sem tocar o banco —
@@ -622,7 +633,7 @@ export class ExpenseService {
     if (
       !target.project ||
       target.project.tenantId !== tenantId ||
-      !this.canRequesterSeeProject(requester, target.project)
+      !this.canRequesterSeeProject(requester, target.project, EXPENSE_MODULE)
     ) {
       throw new BadRequestException('Despesa alvo não encontrada');
     }
@@ -730,21 +741,32 @@ export class ExpenseService {
   /**
    * Gêmeo em service do ProjectAccessGuard, aplicado por ALVO: o guard só
    * enxerga `params.projectId` (a fonte) — os projetos-alvo do rateio entram
-   * por FK e nunca passaram por ele. Compõe EXATAMENTE as mesmas duas regras
-   * do guard para não divergir. Fail-closed: sem requester, nada é visível.
+   * por FK e nunca passaram por ele.
+   *
+   * Predicado IDÊNTICO ao gêmeo de `ConciliacaoService` (#484 D): os dois
+   * autorizam o MESMO recurso (alvo Expense de vínculo/quitação) e não podem
+   * divergir. `userCanAccessProjectType` respondia "esse usuário enxerga esse
+   * TIPO?" — qualquer módulo não-universal do tipo servia, então quem chegava
+   * em PLANTAS (único tipo SEM `expenses`) por `plantsAi` passava aqui e era
+   * negado lá. `requiredModule` é o módulo DONO do recurso e vem do CALLER,
+   * como em `resolveAccessibleProjectScope`/`assertCanAccessCard`.
+   *
+   * Fail-closed: sem requester, nada é visível.
    */
   private canRequesterSeeProject(
     requester: RateioRequester | undefined,
     project: { id: string; type: string } | null | undefined,
+    requiredModule: string,
   ): boolean {
     if (!requester || !project) return false;
     return (
       userCanAccessProject(requester.role, requester.allowedProjects, project.id) &&
-      userCanAccessProjectType(
+      userCanAccessProjectModule(
         requester.role,
         requester.allowedProjectTypes,
         requester.allowedModules ?? [],
         project.type,
+        requiredModule,
       )
     );
   }
@@ -796,7 +818,7 @@ export class ExpenseService {
         !row.project ||
         row.project.tenantId !== tenantId ||
         row.project.deletedAt !== null ||
-        !this.canRequesterSeeProject(requester, row.project)
+        !this.canRequesterSeeProject(requester, row.project, EXPENSE_MODULE)
       ) {
         throw new NotFoundException(RELATED_EXPENSE_NOT_FOUND_MESSAGE);
       }
@@ -840,7 +862,7 @@ export class ExpenseService {
       // I-G na fonte: não confirma existência a um requester de outro tenant.
       throw new NotFoundException('Despesa não encontrada');
     }
-    if (!this.canRequesterSeeProject(requester, anchor.project)) {
+    if (!this.canRequesterSeeProject(requester, anchor.project, EXPENSE_MODULE)) {
       // Defesa em profundidade: o guard global já deveria ter barrado isto,
       // mas o service não confia cegamente no caminho de entrada.
       throw new ForbiddenException('Sem permissao para acessar este projeto');
@@ -883,7 +905,7 @@ export class ExpenseService {
           mappedSource.deletedAt !== null ||
           !mappedSource.project ||
           mappedSource.project.tenantId !== tenantId ||
-          !this.canRequesterSeeProject(requester, mappedSource.project)
+          !this.canRequesterSeeProject(requester, mappedSource.project, EXPENSE_MODULE)
         ) {
           // Abrir por um alvo nunca confirma a existência nem a ACL da fonte.
           throw new NotFoundException('Despesa não encontrada');
@@ -926,7 +948,7 @@ export class ExpenseService {
       const p = a.target.project;
       const sameTenant =
         a.tenantId === tenantId && a.target.tenantId === tenantId && p?.tenantId === tenantId;
-      if (!sameTenant || !this.canRequesterSeeProject(requester, p)) {
+      if (!sameTenant || !this.canRequesterSeeProject(requester, p, EXPENSE_MODULE)) {
         // I-G/I-E: corrupção cross-tenant ou alvo fora da lente — some do
         // payload individualmente, mas conta e soma continuam expostas.
         hiddenTargetsCount += 1;
@@ -1135,7 +1157,7 @@ export class ExpenseService {
       const byId = new Map(projects.map((p) => [p.id, p]));
       for (const pid of targetProjectIds) {
         const p = byId.get(pid);
-        if (!p || !this.canRequesterSeeProject(requester, p)) {
+        if (!p || !this.canRequesterSeeProject(requester, p, EXPENSE_MODULE)) {
           throw new BadRequestException(`Projeto destino ${pid} não encontrado`);
         }
         if (!hasFeature(p.type as ProjectType, 'expenses')) {
@@ -1181,7 +1203,7 @@ export class ExpenseService {
         const targetProject = targetProjectById.get(targetProjectId);
         if (
           !targetProject ||
-          !this.canRequesterSeeProject(requester, targetProject)
+          !this.canRequesterSeeProject(requester, targetProject, EXPENSE_MODULE)
         ) {
           throw new BadRequestException(`Projeto destino ${targetProjectId} não encontrado`);
         }
@@ -1208,7 +1230,7 @@ export class ExpenseService {
         });
         if (
           !targetProjectInTx ||
-          !this.canRequesterSeeProject(requester, targetProjectInTx)
+          !this.canRequesterSeeProject(requester, targetProjectInTx, EXPENSE_MODULE)
         ) {
           throw new BadRequestException(`Projeto destino ${nt.targetProjectId} não encontrado`);
         }
@@ -1745,7 +1767,7 @@ export class ExpenseService {
             (counterpart.project
               ? counterpart.project.tenantId !== tenantId ||
                 counterpart.project.deletedAt !== null ||
-                !this.canRequesterSeeProject(requester, counterpart.project)
+                !this.canRequesterSeeProject(requester, counterpart.project, EXPENSE_MODULE)
               : !hasFullAccess)
           ) {
             throw new NotFoundException(RELATED_EXPENSE_NOT_FOUND_MESSAGE);
