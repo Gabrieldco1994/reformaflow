@@ -21,10 +21,12 @@ const OTHER_TENANT = "iidacl-other-tenant";
 const PESSOAL = "iidacl-pessoal";
 const ALLOWED = "iidacl-allowed";
 const HIDDEN = "iidacl-hidden";
+const REMOVED_PROJECT = "iidacl-removed-project";
 const OTHER_PROJECT = "iidacl-other-project";
 const SOURCE = "iidacl-source";
 const ALLOWED_TARGET = "iidacl-allowed-target";
 const HIDDEN_TARGET = "iidacl-hidden-target";
+const REMOVED_TARGET = "iidacl-removed-target";
 const OTHER_TARGET = "iidacl-other-target";
 const MISSING_TARGET = "iidacl-missing-target";
 const UPDATE_GUARD_TRIGGER = "iidacl_reject_source_update";
@@ -34,7 +36,7 @@ const OVERRIDE_DATE = "2026-09-20";
 
 const MANAGED: RateioRequester = {
   role: "USER",
-  allowedProjects: [PESSOAL, ALLOWED],
+  allowedProjects: [PESSOAL, ALLOWED, REMOVED_PROJECT],
   allowedProjectTypes: ["PESSOAL", "REFORMA"],
   allowedModules: ["expenses"],
 };
@@ -218,6 +220,13 @@ describe("ExpenseService.updateInstallmentDate — child ACL real SQLite (SEC-3 
           name: "Reforma oculta",
         },
         {
+          id: REMOVED_PROJECT,
+          tenantId: TENANT,
+          type: "REFORMA",
+          name: "Reforma removida",
+          deletedAt: DELETED_AT,
+        },
+        {
           id: OTHER_PROJECT,
           tenantId: OTHER_TENANT,
           type: "REFORMA",
@@ -377,6 +386,77 @@ describe("ExpenseService.updateInstallmentDate — child ACL real SQLite (SEC-3 
       }),
     ).toBe(0);
   });
+
+  it.each([
+    ["USER autorizado", MANAGED],
+    ["OWNER", OWNER],
+  ])(
+    "alvo ativo de rateio sob projeto removido rejeita %s com 404 e snapshot intacto",
+    async (_label, requester) => {
+      await seedSource(REMOVED_TARGET);
+      await seedTarget(REMOVED_TARGET, REMOVED_PROJECT);
+      await seedAllocation(REMOVED_TARGET, 20_000);
+      const before = await snapshot();
+
+      const error = await captureError(
+        service.updateInstallmentDate(
+          TENANT,
+          PESSOAL,
+          SOURCE,
+          1,
+          OVERRIDE_DATE,
+          requester,
+        ),
+      );
+
+      expect({
+        state: await snapshot(),
+        name: (error as Error | undefined)?.constructor.name,
+        status: (error as NotFoundException | undefined)?.getStatus?.(),
+        message: (error as Error | undefined)?.message,
+      }).toEqual({
+        state: before,
+        name: "NotFoundException",
+        status: 404,
+        message: "Despesa relacionada não encontrada",
+      });
+    },
+  );
+
+  it.each([
+    ["USER autorizado", MANAGED],
+    ["OWNER", OWNER],
+  ])(
+    "contraparte linked ativa sob projeto removido rejeita %s com 404 e snapshot intacto",
+    async (_label, requester) => {
+      await seedSource(REMOVED_TARGET);
+      await seedTarget(REMOVED_TARGET, REMOVED_PROJECT);
+      const before = await snapshot();
+
+      const error = await captureError(
+        service.updateInstallmentDate(
+          TENANT,
+          PESSOAL,
+          SOURCE,
+          1,
+          OVERRIDE_DATE,
+          requester,
+        ),
+      );
+
+      expect({
+        state: await snapshot(),
+        name: (error as Error | undefined)?.constructor.name,
+        status: (error as NotFoundException | undefined)?.getStatus?.(),
+        message: (error as Error | undefined)?.message,
+      }).toEqual({
+        state: before,
+        name: "NotFoundException",
+        status: 404,
+        message: "Despesa relacionada não encontrada",
+      });
+    },
+  );
 
   it("OWNER controla rateio com alvo fora da lente sem falso bloqueio", async () => {
     await seedSource(HIDDEN_TARGET);

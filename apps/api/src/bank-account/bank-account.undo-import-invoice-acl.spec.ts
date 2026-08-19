@@ -17,13 +17,15 @@ const TENANT = 'bank-invoice-undo-acl-tenant';
 const PESSOAL = 'bank-invoice-undo-acl-pessoal';
 const ALLOWED = 'bank-invoice-undo-acl-allowed';
 const HIDDEN = 'bank-invoice-undo-acl-hidden';
+const REMOVED_PROJECT = 'bank-invoice-undo-acl-removed';
 const LAST4 = '4488';
 const PAYMENT_DATE = new Date('2026-08-10T12:00:00.000Z');
 const PURCHASE_DATE = new Date('2026-07-15T12:00:00.000Z');
+const DELETED_AT = new Date('2026-08-19T12:00:00.000Z');
 
 const MANAGED: RateioRequester = {
   role: 'USER',
-  allowedProjects: [PESSOAL, ALLOWED],
+  allowedProjects: [PESSOAL, ALLOWED, REMOVED_PROJECT],
   allowedProjectTypes: ['PESSOAL', 'REFORMA'],
   allowedModules: ['expenses'],
 };
@@ -73,6 +75,13 @@ describe('BankAccountService.undoImport — ACL das compras de fatura', () => {
         { id: PESSOAL, tenantId: TENANT, type: 'PESSOAL', name: 'Pessoal' },
         { id: ALLOWED, tenantId: TENANT, type: 'REFORMA', name: 'Permitido' },
         { id: HIDDEN, tenantId: TENANT, type: 'REFORMA', name: 'Oculto' },
+        {
+          id: REMOVED_PROJECT,
+          tenantId: TENANT,
+          type: 'REFORMA',
+          name: 'Removido',
+          deletedAt: DELETED_AT,
+        },
       ],
     });
     const account = await setupPrisma.bankAccount.create({
@@ -299,4 +308,54 @@ describe('BankAccountService.undoImport — ACL das compras de fatura', () => {
     expect(purchase?.status).toBe('PLANEJADO');
     expect(entry?.status).toBe('PLANEJADO');
   });
+
+  it.each([
+    ['USER autorizado', MANAGED],
+    ['OWNER', OWNER],
+  ])(
+    'rejeita compra ativa sob projeto removido para %s e preserva o lote inteiro',
+    async (_label, requester) => {
+      const { importId, paymentId } = await createImportWithPayment();
+      const purchaseId = await createPurchase(REMOVED_PROJECT, 'Compra em projeto removido');
+
+      await expect(
+        service.undoImport(TENANT, PESSOAL, accountId, importId, requester),
+      ).rejects.toMatchObject({
+        status: 404,
+        response: expect.objectContaining({ message: 'Importação não encontrada' }),
+      });
+
+      await expectEverythingPreserved(importId, paymentId, [purchaseId]);
+    },
+  );
+
+  it.each([
+    ['USER autorizado', MANAGED],
+    ['OWNER', OWNER],
+  ])(
+    'rejeita cartão ativo sob projeto removido para %s e preserva o lote inteiro',
+    async (_label, requester) => {
+      const { importId, paymentId } = await createImportWithPayment();
+      await setupPrisma.creditCard.update({
+        where: { id: cardId },
+        data: { projectId: REMOVED_PROJECT },
+      });
+
+      try {
+        await expect(
+          service.undoImport(TENANT, PESSOAL, accountId, importId, requester),
+        ).rejects.toMatchObject({
+          status: 404,
+          response: expect.objectContaining({ message: 'Importação não encontrada' }),
+        });
+      } finally {
+        await setupPrisma.creditCard.update({
+          where: { id: cardId },
+          data: { projectId: PESSOAL },
+        });
+      }
+
+      await expectEverythingPreserved(importId, paymentId, []);
+    },
+  );
 });

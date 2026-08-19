@@ -18,9 +18,11 @@ const OTHER_TENANT = "settle-invoice-child-acl-other-tenant";
 const PESSOAL = "settle-invoice-child-acl-pessoal";
 const ALLOWED = "settle-invoice-child-acl-allowed";
 const HIDDEN = "settle-invoice-child-acl-hidden";
+const REMOVED_PROJECT = "settle-invoice-child-acl-removed";
 const OTHER_PROJECT = "settle-invoice-child-acl-other-project";
 const PURCHASE_DATE = new Date("2026-06-15T12:00:00.000Z");
 const PAYMENT_DATE = new Date("2026-07-10T12:00:00.000Z");
+const DELETED_AT = new Date("2026-08-19T12:00:00.000Z");
 
 const VISIBLE_CARD: SettleCard = {
   id: "settle-invoice-visible-card",
@@ -46,10 +48,16 @@ const MISSING_CARD: SettleCard = {
   closingDay: 3,
   dueDay: 10,
 };
+const REMOVED_PROJECT_CARD: SettleCard = {
+  id: "settle-invoice-removed-project-card",
+  last4: "8899",
+  closingDay: 3,
+  dueDay: 10,
+};
 
 const MANAGED: RateioRequester = {
   role: "USER",
-  allowedProjects: [PESSOAL, ALLOWED],
+  allowedProjects: [PESSOAL, ALLOWED, REMOVED_PROJECT],
   allowedProjectTypes: ["PESSOAL", "REFORMA"],
   allowedModules: ["expenses"],
 };
@@ -192,6 +200,13 @@ describe("CardInvoiceSettlementService.settleInvoice — child ACL real SQLite",
         { id: ALLOWED, tenantId: TENANT, type: "REFORMA", name: "Permitido" },
         { id: HIDDEN, tenantId: TENANT, type: "REFORMA", name: "Oculto" },
         {
+          id: REMOVED_PROJECT,
+          tenantId: TENANT,
+          type: "REFORMA",
+          name: "Removido",
+          deletedAt: DELETED_AT,
+        },
+        {
           id: OTHER_PROJECT,
           tenantId: OTHER_TENANT,
           type: "REFORMA",
@@ -224,6 +239,14 @@ describe("CardInvoiceSettlementService.settleInvoice — child ACL real SQLite",
           institution: "ITAU",
           brand: "Visa",
           nickname: "Outro tenant",
+        },
+        {
+          ...REMOVED_PROJECT_CARD,
+          tenantId: TENANT,
+          projectId: REMOVED_PROJECT,
+          institution: "ITAU",
+          brand: "Visa",
+          nickname: "Projeto removido",
         },
       ],
     });
@@ -334,6 +357,57 @@ describe("CardInvoiceSettlementService.settleInvoice — child ACL real SQLite",
       state: before,
     });
   });
+
+  it.each([
+    ["USER autorizado", MANAGED],
+    ["OWNER", OWNER],
+  ])(
+    "cartão ativo sob projeto removido rejeita %s com 404 e zero writes",
+    async (_label, requester) => {
+      const before = await snapshot();
+
+      const error = await captureError(() =>
+        settle(service, REMOVED_PROJECT_CARD, requester),
+      );
+
+      expect({ error: errorShape(error), state: await snapshot() }).toEqual({
+        error: {
+          name: "NotFoundException",
+          status: 404,
+          message: "Fatura não encontrada",
+        },
+        state: before,
+      });
+    },
+  );
+
+  it.each([
+    ["USER autorizado", MANAGED],
+    ["OWNER", OWNER],
+  ])(
+    "compra ativa sob projeto removido rejeita %s com 404 e zero writes",
+    async (_label, requester) => {
+      await createPurchase({
+        id: `removed-project-purchase-${_label === "OWNER" ? "owner" : "user"}`,
+        projectId: REMOVED_PROJECT,
+        cardLast4: VISIBLE_CARD.last4,
+      });
+      const before = await snapshot();
+
+      const error = await captureError(() =>
+        settle(service, VISIBLE_CARD, requester),
+      );
+
+      expect({ error: errorShape(error), state: await snapshot() }).toEqual({
+        error: {
+          name: "NotFoundException",
+          status: 404,
+          message: "Fatura não encontrada",
+        },
+        state: before,
+      });
+    },
+  );
 
   it.each([
     [

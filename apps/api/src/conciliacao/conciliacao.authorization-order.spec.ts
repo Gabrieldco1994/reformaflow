@@ -45,10 +45,17 @@ function expense(id: string, projectId: string, valorTotal: number): any {
 }
 
 function buildTx(
-  options: { deniedKind?: DeniedKind; existingHidden?: boolean } = {},
+  options: {
+    deniedKind?: DeniedKind;
+    existingHidden?: boolean;
+    deletedTargetProject?: boolean;
+  } = {},
 ) {
   const source = expense("source", SOURCE_PROJECT, 20_000);
   const allowed = expense("allowed-target", ALLOWED_PROJECT, 10_000);
+  if (options.deletedTargetProject) {
+    allowed.project.deletedAt = new Date("2026-08-19T12:00:00.000Z");
+  }
   const denied = expense("denied-target", HIDDEN_PROJECT, 10_000);
   if (options.deniedKind === "cross-tenant") {
     denied.tenantId = "another-tenant";
@@ -297,6 +304,44 @@ describe("ConciliacaoService.ratearSource — preflight ACL antes da primeira wr
       );
 
       expect(result).toEqual({ targets: ["denied-target"] });
+    },
+  );
+
+  it.each([
+    ["USER autorizado", MANAGED],
+    [
+      "OWNER",
+      {
+        role: "OWNER",
+        allowedProjects: [],
+        allowedProjectTypes: [],
+        allowedModules: [],
+      } satisfies RateioRequester,
+    ],
+  ])(
+    "%s rejeita alvo ativo cujo projeto pai foi removido, sem writes",
+    async (_label, requester) => {
+      const { tx, writes } = buildTx({ deletedTargetProject: true });
+      const service = new ConciliacaoService({} as any);
+
+      const error = await captureError(() =>
+        service.assertCanSettleTargets(
+          tx,
+          { tenantId: TENANT, targetExpenseIds: ["allowed-target"] },
+          requester,
+        ),
+      );
+
+      expect({
+        name: error?.constructor.name,
+        status: (error as any)?.getStatus?.(),
+        message: error?.message,
+      }).toEqual({
+        name: "NotFoundException",
+        status: 404,
+        message: "Despesa alvo não encontrada",
+      });
+      expect(writes).toEqual([]);
     },
   );
 });
