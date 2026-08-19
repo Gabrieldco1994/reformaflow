@@ -14,7 +14,12 @@ import {
   RateioDetalhe,
   RateioRequester,
 } from './rateio.types';
-import { userCanAccessProject, userCanAccessProjectType, resolveAccessibleProjectScope } from '../common/access-rules';
+import {
+  isFullAccessRole,
+  userCanAccessProject,
+  userCanAccessProjectType,
+  resolveAccessibleProjectScope,
+} from '../common/access-rules';
 
 type ExpenseDb = PrismaService | Prisma.TransactionClient;
 type ExpenseWithRoom = Prisma.ExpenseGetPayload<{ include: { room: true } }>;
@@ -1384,7 +1389,7 @@ export class ExpenseService {
     tx?: Prisma.TransactionClient,
   ): Promise<ExpenseWithRoom> {
     assertRateioRequester(requester);
-    if (dto.settlesInvoiceCardId !== undefined && !tx) {
+    if (!tx) {
       return this.prisma.$transaction((transaction) =>
         this.update(tenantId, projectId, id, dto, requester, transaction),
       );
@@ -1396,6 +1401,9 @@ export class ExpenseService {
       where: { id, projectId, tenantId, deletedAt: null },
     });
     if (!existing) throw new NotFoundException('Despesa não encontrada');
+    if (!isFullAccessRole(requester.role)) {
+      await this.assertCanMutateLinkedRows(db, tenantId, existing, requester);
+    }
 
     const valorCents = dto.valor !== undefined ? Math.round(dto.valor * 100) : existing.valor;
     const quantidade = dto.quantidade !== undefined ? dto.quantidade : existing.quantidade;

@@ -86,6 +86,7 @@ export class ConciliacaoService {
     targetExpenseIds: string[],
     requester: RateioRequester,
     error: (targetExpenseId: string) => Error,
+    includeDeleted = false,
   ) {
     assertRateioRequester(requester);
     const ids = [...new Set(targetExpenseIds)];
@@ -93,8 +94,14 @@ export class ConciliacaoService {
       ids.length === 0
         ? []
         : await tx.expense.findMany({
-            where: { id: { in: ids }, tenantId, deletedAt: null },
-            include: { project: { select: { id: true, type: true, tenantId: true } } },
+            where: {
+              id: { in: ids },
+              tenantId,
+              deletedAt: includeDeleted ? undefined : null,
+            },
+            include: {
+              project: { select: { id: true, type: true, tenantId: true } },
+            },
           });
     const byId = new Map(targets.map((target) => [target.id, target]));
     for (const id of ids) {
@@ -195,17 +202,19 @@ export class ConciliacaoService {
         select: { targetExpenseId: true },
       }),
     ]);
-    await this.assertCanSettleTargets(
+    await this.authorizedTargets(
       tx,
-      {
-        tenantId: params.tenantId,
-        targetExpenseIds: [
-          ...sources.flatMap((row) => row.linkedExpenseId ? [row.linkedExpenseId] : []),
-          ...rateios.map((row) => row.targetExpenseId),
-          ...settlements.map((row) => row.targetExpenseId),
-        ],
-      },
+      params.tenantId,
+      [
+        ...sources.flatMap((row) =>
+          row.linkedExpenseId ? [row.linkedExpenseId] : [],
+        ),
+        ...rateios.map((row) => row.targetExpenseId),
+        ...settlements.map((row) => row.targetExpenseId),
+      ],
       requester,
+      () => new NotFoundException('Despesa alvo não encontrada'),
+      true,
     );
   }
 
