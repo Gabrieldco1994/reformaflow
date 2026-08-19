@@ -9,11 +9,17 @@ import * as os from "os";
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const guard = require("../../../../scripts/test-db-env.cjs");
 
+// A trava precisa aplicar ANTES de o PrismaClient ser importado.
+// eslint-disable-next-line import/first
+import { PrismaClient } from "@prisma/client";
+
 describe("trava de DATABASE_URL em testes", () => {
   it("a suíte roda contra o banco descartável do worktree, nunca o dev.db", () => {
-    expect(process.env.DATABASE_URL).toBe(guard.TEST_DB_URL);
+    expect(process.env.DATABASE_URL).toBe(guard.ACTIVE_DB_URL);
     expect(path.basename(guard.TEST_DB_PATH)).not.toBe("dev.db");
+    expect(path.basename(guard.ACTIVE_DB_PATH)).not.toBe("dev.db");
     expect(guard.TEST_DB_PATH.startsWith(guard.REPO_ROOT)).toBe(true);
+    expect(guard.ACTIVE_DB_PATH.startsWith(guard.REPO_ROOT)).toBe(true);
   });
 
   it("recusa qualquer URL que aponte para um dev.db", () => {
@@ -142,7 +148,7 @@ describe("trava de DATABASE_URL em testes", () => {
       else process.env.TEST_DATABASE_URL = anterior;
       guard.applyTestDatabaseUrl();
     }
-    expect(process.env.DATABASE_URL).toBe(guard.TEST_DB_URL);
+    expect(process.env.DATABASE_URL).toBe(guard.ACTIVE_DB_URL);
   });
 
   it("explode antes do cliente Prisma para TEST_DATABASE_URL não-file", () => {
@@ -155,6 +161,121 @@ describe("trava de DATABASE_URL em testes", () => {
       else process.env.TEST_DATABASE_URL = anterior;
       guard.applyTestDatabaseUrl();
     }
-    expect(process.env.DATABASE_URL).toBe(guard.TEST_DB_URL);
+    expect(process.env.DATABASE_URL).toBe(guard.ACTIVE_DB_URL);
+  });
+});
+
+/**
+ * Isolamento por worker (#486).
+ *
+ * A suíte era vermelha 1 em 4 em paralelo e verde em `--runInBand` porque todos
+ * os workers escreviam no MESMO `prisma/test.db`: o `beforeAll` de um spec
+ * apagava, via `deleteMany` por tenant, a fixture que outro worker ainda estava
+ * lendo. Estes testes fixam o contrato que impede a regressão — se alguém
+ * remover o sharding, eles ficam vermelhos ANTES de a suíte voltar a piscar.
+ */
+describe("isolamento de banco por worker do jest (#486)", () => {
+  const prisma = new PrismaClient();
+
+  beforeAll(async () => {
+    await prisma.$connect();
+  });
+
+  afterAll(async () => {
+    await prisma.$disconnect();
+  });
+
+  it("dá a cada worker um arquivo SQLite distinto, nunca o template compartilhado", () => {
+    // O contrato que realmente elimina a corrida: ids diferentes ⇒ arquivos diferentes.
+    const paths = [1, 2, 3, 14].map((id) => guard.workerDbPath(id));
+    expect(new Set(paths).size).toBe(4);
+    expect(paths.map((p) => path.basename(p))).toEqual([
+      "test-worker-1.db",
+      "test-worker-2.db",
+      "test-worker-3.db",
+      "test-worker-14.db",
+    ]);
+    for (const candidate of paths) {
+      expect(candidate).not.toBe(guard.TEST_DB_PATH);
+      expect(path.dirname(candidate)).toBe(
+        path.join(guard.REPO_ROOT, "prisma"),
+      );
+      expect(guard.forbiddenReason(`file:${candidate}`)).toBeNull();
+    }
+  });
+
+  it("este spec está lendo o banco do seu próprio worker, já materializado", () => {
+    // Dentro do jest JEST_WORKER_ID sempre existe (com --runInBand vale "1").
+    expect(guard.WORKER_ID).toBe(Number(process.env.JEST_WORKER_ID));
+    expect(guard.WORKER_ID).toBeGreaterThanOrEqual(1);
+    expect(guard.ACTIVE_DB_PATH).toBe(guard.workerDbPath(guard.WORKER_ID));
+    expect(guard.ACTIVE_DB_PATH).not.toBe(guard.TEST_DB_PATH);
+    expect(process.env.DATABASE_URL).toBe(`file:${guard.ACTIVE_DB_PATH}`);
+    // Materializado de verdade: sem o arquivo o Prisma criaria um SQLite vazio.
+    expect(fs.existsSync(guard.ACTIVE_DB_PATH)).toBe(true);
+    expect(fs.statSync(guard.ACTIVE_DB_PATH).size).toBeGreaterThan(0);
+  });
+
+  it("o banco do worker carrega as 63 migrations do template, não um SQLite vazio", async () => {
+    // Prova que a cópia é do template migrado — o modo de falha silencioso
+    // seria um arquivo novo e vazio, com "no such table" em todo query.
+    const rows = await prisma.$queryRaw<Array<{ total: bigint | number }>>`
+      SELECT COUNT(*) AS total FROM _prisma_migrations
+      WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`;
+    expect(Number(rows[0].total)).toBe(63);
+  });
+
+  it("resolveWorkerId aceita só inteiro positivo — o resto cai no template", () => {
+    // Fronteiras: um valor estranho jamais pode virar nome de arquivo.
+    expect(guard.resolveWorkerId("1")).toBe(1);
+    expect(guard.resolveWorkerId("14")).toBe(14);
+    expect(guard.resolveWorkerId(" 7 ")).toBe(7);
+    expect(guard.resolveWorkerId("0")).toBeNull();
+    expect(guard.resolveWorkerId("-1")).toBeNull();
+    expect(guard.resolveWorkerId("1.5")).toBeNull();
+    expect(guard.resolveWorkerId("01")).toBeNull();
+    expect(guard.resolveWorkerId("2x")).toBeNull();
+    expect(guard.resolveWorkerId("")).toBeNull();
+    expect(guard.resolveWorkerId(undefined)).toBeNull();
+    expect(guard.resolveWorkerId(3)).toBeNull();
+  });
+
+  it("ensureWorkerDatabase é idempotente e não sobrescreve dados do worker em curso", async () => {
+    // Arquivos de um mesmo worker rodam em série e reaproveitam o banco; uma
+    // segunda cópia no meio da suíte apagaria a fixture de quem está rodando.
+    const inodeBefore = fs.statSync(guard.ACTIVE_DB_PATH).ino;
+    const sentinelTenant = `guard-sentinel-${process.env.JEST_WORKER_ID}`;
+    await prisma.tenant.create({
+      data: { id: sentinelTenant, name: "sentinel" },
+    });
+
+    try {
+      expect(guard.ensureWorkerDatabase()).toBe(guard.ACTIVE_DB_PATH);
+      expect(guard.applyTestDatabaseUrl()).toBe(guard.ACTIVE_DB_URL);
+
+      const survived = await prisma.tenant.findUnique({
+        where: { id: sentinelTenant },
+        select: { id: true, name: true },
+      });
+      expect(survived).toEqual({ id: sentinelTenant, name: "sentinel" });
+      expect(fs.statSync(guard.ACTIVE_DB_PATH).ino).toBe(inodeBefore);
+    } finally {
+      // PrismaClient cru (sem o middleware de soft delete do PrismaService):
+      // isto é um DELETE de verdade, o sentinela não sobra para o próximo spec.
+      await prisma.tenant.delete({ where: { id: sentinelTenant } });
+    }
+  });
+
+  it("cleanWorkerDatabases varre só o prefixo — template e dev.db ficam de fora", () => {
+    const workerFiles = fs
+      .readdirSync(path.join(guard.REPO_ROOT, "prisma"))
+      .filter((entry) => entry.startsWith(guard.WORKER_DB_PREFIX));
+    expect(workerFiles).toContain(path.basename(guard.ACTIVE_DB_PATH));
+
+    expect(guard.WORKER_DB_PREFIX).toBe("test-worker-");
+    expect(
+      path.basename(guard.TEST_DB_PATH).startsWith(guard.WORKER_DB_PREFIX),
+    ).toBe(false);
+    expect("dev.db".startsWith(guard.WORKER_DB_PREFIX)).toBe(false);
   });
 });
