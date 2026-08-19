@@ -526,12 +526,13 @@ describe('BankAccountService', () => {
     it('decision.overrides.cardLast4 grava o cartão escolhido e liquida a fatura', async () => {
       prisma.creditCard.findFirst.mockResolvedValue({
         id: 'card5572', last4: '5572', nickname: 'Visa ****5572',
+        project: { id: 'pessoal1', type: 'PESSOAL', tenantId: 't1' },
       });
       prisma.creditCard.findUnique.mockResolvedValue({
         id: 'card5572', last4: '5572', closingDay: null, dueDay: 5,
       });
       const settleSpy = jest
-        .spyOn(settlement, 'settleInvoice')
+        .spyOn(settlement, 'applyPreparedSettlement')
         .mockResolvedValue({ settledExpenses: 3, settledParcelas: 3 });
 
       prisma.expense.create.mockClear();
