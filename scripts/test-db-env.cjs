@@ -13,6 +13,20 @@
  * para fora do worktree. Requerer o módulo já aplica a trava (efeito colateral
  * proposital, para poder ser usado direto como `setupFiles` do jest/vitest).
  *
+ * Isolamento por worker (incidente #486): o jest roda os specs em N processos
+ * paralelos. Enquanto todos apontavam para o MESMO `prisma/test.db`, dois specs
+ * que compartilham o mesmo módulo de fixture (ex.: os três specs de
+ * `finance-center.fixture`, todos com tenant `fc-tenant-a`) se destruíam
+ * mutuamente: o `beforeAll` de um roda `deleteMany` no tenant enquanto o outro
+ * ainda está lendo, e o segundo falha com `NotFoundException: Projeto não
+ * encontrado`. Verde em `--runInBand`, vermelho aleatório em paralelo.
+ *
+ * Correção: cada worker do jest recebe seu PRÓPRIO arquivo SQLite
+ * (`prisma/test-worker-<id>.db`), copiado do template já migrado
+ * (`prisma/test.db`). Specs que caem no mesmo worker rodam sequencialmente —
+ * exatamente o cenário que já era verde. Custo: uma cópia de arquivo (~1ms)
+ * por worker, contra ~0,5s de `migrate deploy` se cada worker migrasse do zero.
+ *
  * Não afeta desenvolvimento: nada aqui é carregado por `npm run dev`.
  */
 
@@ -23,9 +37,42 @@ const fs = require("fs");
 const REPO_ROOT = path.resolve(__dirname, "..");
 const REAL_REPO_ROOT = fs.realpathSync.native(REPO_ROOT);
 
-/** Banco descartável, por worktree. Coberto pelo `*.db` do .gitignore. */
+/**
+ * Template descartável, por worktree: é ele que `npm run test:db:prepare`
+ * migra, e dele que sai a cópia de cada worker. Coberto pelo `*.db` do
+ * .gitignore.
+ */
 const TEST_DB_PATH = path.join(REPO_ROOT, "prisma", "test.db");
 const TEST_DB_URL = `file:${TEST_DB_PATH}`;
+
+/** Prefixo dos bancos por worker; usado também para varrer os obsoletos. */
+const WORKER_DB_PREFIX = "test-worker-";
+
+/**
+ * `JEST_WORKER_ID` existe apenas DENTRO de um worker do jest (1..maxWorkers);
+ * com `--runInBand` vale sempre "1". No processo principal (globalSetup), em
+ * vitest e em scripts standalone ele não existe — e aí o alvo é o template.
+ * Só aceita inteiro positivo: qualquer outro valor cai no template, para nunca
+ * gerar um nome de arquivo imprevisível.
+ */
+function resolveWorkerId(raw) {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!/^[1-9][0-9]*$/.test(trimmed)) return null;
+  return Number(trimmed);
+}
+
+/** Caminho do banco isolado de um worker. */
+function workerDbPath(id) {
+  return path.join(REPO_ROOT, "prisma", `${WORKER_DB_PREFIX}${id}.db`);
+}
+
+const WORKER_ID = resolveWorkerId(process.env.JEST_WORKER_ID);
+
+/** Alvo efetivo desta execução: por worker no jest, template fora dele. */
+const ACTIVE_DB_PATH =
+  WORKER_ID === null ? TEST_DB_PATH : workerDbPath(WORKER_ID);
+const ACTIVE_DB_URL = `file:${ACTIVE_DB_PATH}`;
 
 /**
  * Resolve o caminho de arquivo de uma URL SQLite (`file:...`).
@@ -128,7 +175,7 @@ function explode(url, reason) {
       " (regra de ouro #1 do CLAUDE.md proíbe `prisma migrate reset`).",
       "",
       " Correção: NÃO defina TEST_DATABASE_URL — a trava usa automaticamente",
-      ` ${TEST_DB_URL}`,
+      ` ${ACTIVE_DB_URL}`,
       " Se precisar de outro banco de teste, aponte para um arquivo descartável",
       " dentro deste worktree (e nunca chamado dev.db).",
       "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
@@ -138,8 +185,69 @@ function explode(url, reason) {
 }
 
 /**
- * Força `process.env.DATABASE_URL` para o banco de teste do worktree.
- * `TEST_DATABASE_URL` permite escolher outro alvo — que também é validado.
+ * Materializa o banco deste worker copiando o template já migrado.
+ * Idempotente: se o arquivo já existe (2º..Nº spec do mesmo worker), não faz
+ * nada — os arquivos de um worker rodam em série, então reaproveitar o banco
+ * entre eles é exatamente o cenário `--runInBand`, que já era verde.
+ */
+function ensureWorkerDatabase() {
+  if (WORKER_ID === null) return null;
+
+  const target = workerDbPath(WORKER_ID);
+  if (fs.existsSync(target)) return target;
+
+  if (!fs.existsSync(TEST_DB_PATH)) {
+    throw new Error(
+      [
+        "",
+        `[db-guard] template de banco de teste ausente: ${TEST_DB_PATH}`,
+        "Cada worker do jest copia esse template; sem ele o Prisma criaria um",
+        'SQLite vazio e todo query falharia com "no such table".',
+        "Correção: rode `npm run test:db:prepare` na raiz do worktree.",
+        "",
+      ].join("\n"),
+    );
+  }
+
+  fs.copyFileSync(TEST_DB_PATH, target);
+  return target;
+}
+
+/** Remove os bancos por worker de execuções anteriores (chamado no globalSetup). */
+function cleanWorkerDatabases() {
+  const dir = path.join(REPO_ROOT, "prisma");
+  const removed = [];
+  for (const entry of fs.readdirSync(dir)) {
+    if (!entry.startsWith(WORKER_DB_PREFIX)) continue;
+    // Cobre o .db e os acessórios do SQLite (-journal, -wal, -shm).
+    fs.rmSync(path.join(dir, entry), { force: true });
+    removed.push(entry);
+  }
+  return removed.sort();
+}
+
+/**
+ * Pré-copia um banco para cada worker que o jest vai abrir. Roda no globalSetup,
+ * onde o template acabou de ser migrado — assim a cópia nunca concorre com uma
+ * escrita. `ensureWorkerDatabase` continua servindo de rede de segurança caso o
+ * jest abra mais workers do que `maxWorkers` anunciava.
+ */
+function provisionWorkerDatabases(workerCount) {
+  const total =
+    Number.isInteger(workerCount) && workerCount > 0 ? workerCount : 1;
+  const created = [];
+  for (let id = 1; id <= total; id += 1) {
+    const target = workerDbPath(id);
+    fs.copyFileSync(TEST_DB_PATH, target);
+    created.push(target);
+  }
+  return created;
+}
+
+/**
+ * Força `process.env.DATABASE_URL` para o banco de teste do worktree — o do
+ * worker atual, quando dentro do jest. `TEST_DATABASE_URL` permite escolher
+ * outro alvo (override explícito vence o sharding) — que também é validado.
  */
 function applyTestDatabaseUrl() {
   const requested = process.env.TEST_DATABASE_URL;
@@ -149,7 +257,8 @@ function applyTestDatabaseUrl() {
     if (reason) explode(requested, reason);
     process.env.DATABASE_URL = requested;
   } else {
-    process.env.DATABASE_URL = TEST_DB_URL;
+    ensureWorkerDatabase();
+    process.env.DATABASE_URL = ACTIVE_DB_URL;
   }
 
   // Cinto e suspensório: o alvo final nunca pode ser perigoso.
@@ -167,6 +276,15 @@ module.exports = {
   REAL_REPO_ROOT,
   TEST_DB_PATH,
   TEST_DB_URL,
+  WORKER_DB_PREFIX,
+  WORKER_ID,
+  ACTIVE_DB_PATH,
+  ACTIVE_DB_URL,
+  resolveWorkerId,
+  workerDbPath,
+  ensureWorkerDatabase,
+  cleanWorkerDatabases,
+  provisionWorkerDatabases,
   resolveSqlitePath,
   resolveRealSqlitePath,
   forbiddenReason,
