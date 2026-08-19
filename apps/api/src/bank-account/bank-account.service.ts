@@ -75,6 +75,7 @@ import {
   CREDIT_CARD_MODULE,
   EXPENSE_MODULE,
   RECEIPT_MODULE,
+  RECURRING_BILL_MODULE,
   resolveAccessibleProjectScope,
 } from '../common/access-rules';
 
@@ -951,7 +952,11 @@ export class BankAccountService {
     // ─── Propagação de recorrências p/ projetos CASA/CARRO ───
     // Utilities (Enel/Sabesp/Comgas/...) viram RecurringBill no projeto CASA do tenant.
     // IPVA vira RecurringBill no projeto CARRO.
-    const recurrencesCreated = await this.propagateRecurrences(tenantId, importRecord.id);
+    const recurrencesCreated = await this.propagateRecurrences(
+      tenantId,
+      importRecord.id,
+      requester,
+    );
 
     await this.prisma.bankStatementImport.update({
       where: { id: importRecord.id },
@@ -1333,22 +1338,51 @@ export class BankAccountService {
    * Para cada Expense criada neste import cujo fornecedor casa com detectRecurrence,
    * faz upsert de RecurringBill no projeto CASA ou CARRO do tenant.
    * - Match por (projectId+categoria+nome). Atualiza ultimoPagamento/proximoVencimento/valor.
-   * - Se não houver projeto CASA/CARRO, pula silenciosamente.
+   * - Se não houver projeto CASA/CARRO **autorizado**, pula silenciosamente.
+   *
+   * ACL (#481): isto é ESCRITA (create E update) num projeto que NÃO é o da
+   * importação. O destino sai do escopo do requisitante exigindo
+   * `recurringBills` — o mesmo módulo que `RecurringBillController` exige na API
+   * direta. Sem o módulo o escopo volta `[]` antes de qualquer leitura de
+   * projeto, e a seleção do destino já nasce filtrada pelo escopo (não é uma
+   * guarda aplicada depois de escolher "o primeiro CASA/CARRO do tenant", que
+   * deixaria passar o caso de dois projetos onde só o segundo é acessível).
+   * Um módulo NÃO relacionado suportado pelo mesmo tipo (CASA tem `maintenance`)
+   * não libera o recurso — classe SEC-1 do #480. OWNER/ADMIN seguem irrestritos
+   * no tenant. Sem destino autorizado o resultado é indistinguível de "o tenant
+   * não tem projeto CASA/CARRO": nada escrito, nada revelado.
    */
-  private async propagateRecurrences(tenantId: string, importId: string): Promise<number> {
+  private async propagateRecurrences(
+    tenantId: string,
+    importId: string,
+    requester: RateioRequester,
+  ): Promise<number> {
+    assertRateioRequester(requester);
     const expenses = await this.prisma.expense.findMany({
       where: { tenantId, importId, deletedAt: null },
       select: { id: true, fornecedor: true, valor: true, dataPagamento: true },
     });
     if (!expenses.length) return 0;
 
-    // Acha projetos CASA/CARRO do tenant (1x cada — primeiro encontrado)
+    const scope = await resolveAccessibleProjectScope(
+      this.prisma,
+      tenantId,
+      requester.role,
+      requester.allowedProjects,
+      requester.allowedProjectTypes,
+      requester.allowedModules ?? [],
+      RECURRING_BILL_MODULE,
+    );
+    if (scope !== null && scope.length === 0) return 0;
+    const inScope = scope !== null ? { id: { in: scope } } : {};
+
+    // Acha projetos CASA/CARRO AUTORIZADOS do tenant (1x cada — primeiro encontrado)
     const houseProj = await this.prisma.project.findFirst({
-      where: { tenantId, type: 'CASA', deletedAt: null },
+      where: { tenantId, type: 'CASA', deletedAt: null, ...inScope },
       select: { id: true },
     });
     const carProj = await this.prisma.project.findFirst({
-      where: { tenantId, type: 'CARRO', deletedAt: null },
+      where: { tenantId, type: 'CARRO', deletedAt: null, ...inScope },
       select: { id: true },
     });
 

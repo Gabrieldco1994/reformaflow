@@ -21,6 +21,13 @@ export { TYPE_MODULES, projectTypeHasModule, userHasAnyModuleForType };
 export const EXPENSE_MODULE: TypeModuleSlug = 'expenses';
 export const RECEIPT_MODULE: TypeModuleSlug = 'receipts';
 export const CREDIT_CARD_MODULE: TypeModuleSlug = 'creditCards';
+/**
+ * Dono do catálogo de contas recorrentes de CASA/CARRO — o mesmo slug exigido
+ * pelo `@RequireModule` de `RecurringBillController`. A propagação de
+ * recorrências da importação de extrato ESCREVE nesse recurso em outro projeto
+ * e por isso responde ao mesmo módulo (#481).
+ */
+export const RECURRING_BILL_MODULE: TypeModuleSlug = 'recurringBills';
 
 /** User authorization by project type with legacy fallback for empty grants. */
 export function userCanAccessProjectType(
