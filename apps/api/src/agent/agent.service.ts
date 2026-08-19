@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
-import { AgentToolsService } from './tools/agent-tools.service';
+import { AgentToolsService, normalizeToolContext } from './tools/agent-tools.service';
 import { ChatMessage, LLM_PROVIDER, LlmProvider } from './llm/llm.types';
 import { RateLimitError } from './llm/fallback-llm.provider';
 import { stripEmoji } from '../tts/speech-format';
@@ -7,7 +7,7 @@ import { stripEmoji } from '../tts/speech-format';
 export interface AgentChatInput {
   tenantId: string;
   projectId?: string | null;
-  /** Escopo de projetos acessíveis (null = sem restrição). */
+  /** Escopo exato: [] nega tudo; null só é irrestrito para ADMIN/OWNER. */
   projectScope?: string[] | null;
   /** Papel do usuário — habilita ferramentas de escrita com ACL correta. */
   role?: string;
@@ -44,13 +44,15 @@ export class AgentService {
     }
 
     const toolDefs = this.tools.getToolDefs();
-    const primer = await this.tools.buildPrimer({
+    const toolContext = normalizeToolContext({
       tenantId: input.tenantId,
       projectId: input.projectId ?? null,
-      projectScope: input.projectScope ?? null,
+      projectScope: input.projectScope,
       role: input.role,
       allowedModules: input.allowedModules,
+      userId: input.userId,
     });
+    const primer = await this.tools.buildPrimer(toolContext);
     const systemContent = primer
       ? `${this.systemPrompt(input.projectId)}\n\n${primer}`
       : this.systemPrompt(input.projectId);
@@ -71,14 +73,7 @@ export class AgentService {
             toolsUsed.push(tc.name);
             const result = await this.tools.execute(
               tc.name,
-              {
-                tenantId: input.tenantId,
-                projectId: input.projectId ?? null,
-                projectScope: input.projectScope ?? null,
-                role: input.role,
-                allowedModules: input.allowedModules,
-                userId: input.userId,
-              },
+              toolContext,
               tc.arguments,
             );
             messages.push({

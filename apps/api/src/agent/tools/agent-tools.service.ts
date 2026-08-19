@@ -18,21 +18,19 @@ import {
   MERCHANT_TO_EXPENSE_TYPE,
 } from '../../merchant-classifier/merchant-classifier.service';
 import { PriceMonitorService } from '../../price-compare/price-monitor.service';
-import {
-  isFullAccessRole,
-  projectTypeHasModule,
-  userCanAccessProject,
-} from '../../common/access-rules';
+import { isFullAccessRole, projectTypeHasModule } from '../../common/access-rules';
 import type { ModuleSlug } from '../../common/decorators/require-module.decorator';
 import { ToolDef } from '../llm/llm.types';
 import { parseSpokenMoney } from './money-parse';
 import type { RateioRequester } from '../../expense/rateio.types';
 
+const PROJECT_ACCESS_DENIED_MESSAGE = 'Sem permissão para acessar este projeto.';
+
 export interface ToolContext {
   tenantId: string;
   /** Projeto em foco quando o chat é aberto dentro de um projeto (opcional). */
   projectId?: string | null;
-  /** Escopo de projetos acessíveis (null = sem restrição). Aplica ACL por projeto. */
+  /** Escopo exato: [] nega tudo; null só é irrestrito para ADMIN/OWNER. */
   projectScope?: string[] | null;
   /** Papel do usuário (ADMIN/OWNER/USER) — usado nas ferramentas de escrita. */
   role?: string;
@@ -40,6 +38,18 @@ export interface ToolContext {
   allowedModules?: string[];
   /** Id do usuário autenticado — stampado como createdByUserId nas escritas. */
   userId?: string;
+}
+
+type NormalizedToolContext = ToolContext & { projectScope: string[] | null };
+
+/** Normaliza o escopo tri-state sem converter deny-all em acesso irrestrito. */
+export function normalizeToolContext(ctx: ToolContext): NormalizedToolContext {
+  const projectScope = Array.isArray(ctx.projectScope)
+    ? ctx.projectScope
+    : isFullAccessRole(ctx.role)
+      ? null
+      : [];
+  return { ...ctx, projectScope };
 }
 
 interface ToolHandler {
@@ -80,9 +90,10 @@ export class AgentToolsService {
    * economiza requisições (importante no free tier por-minuto do LLM).
    */
   async buildPrimer(ctx: ToolContext): Promise<string> {
-    const scope = ctx.projectScope ?? null;
-    const whereProj = { tenantId: ctx.tenantId, deletedAt: null, ...(scope ? { id: { in: scope } } : {}) };
-    const wherePay = { tenantId: ctx.tenantId, deletedAt: null, ...(scope ? { projectId: { in: scope } } : {}) };
+    const normalizedCtx = normalizeToolContext(ctx);
+    const scope = normalizedCtx.projectScope;
+    const whereProj = { tenantId: normalizedCtx.tenantId, deletedAt: null, ...(scope !== null ? { id: { in: scope } } : {}) };
+    const wherePay = { tenantId: normalizedCtx.tenantId, deletedAt: null, ...(scope !== null ? { projectId: { in: scope } } : {}) };
     const [projects, cards, accounts] = await Promise.all([
       this.prisma.project.findMany({ where: whereProj, select: { id: true, name: true, type: true }, orderBy: { createdAt: 'asc' } }),
       this.prisma.creditCard.findMany({ where: wherePay, select: { id: true, nickname: true, institution: true, last4: true }, orderBy: { createdAt: 'asc' } }),
@@ -115,7 +126,7 @@ export class AgentToolsService {
       return { error: `Ferramenta desconhecida: ${name}` };
     }
     try {
-      return await handler.run(ctx, args || {});
+      return await handler.run(normalizeToolContext(ctx), args || {});
     } catch (e) {
       const message = e instanceof Error ? e.message : 'erro desconhecido';
       return { error: `Falha ao executar ${name}: ${message}` };
@@ -136,7 +147,7 @@ export class AgentToolsService {
         run: async (ctx) => {
           const scope = ctx.projectScope ?? null;
           const projects = await this.prisma.project.findMany({
-            where: { tenantId: ctx.tenantId, deletedAt: null, ...(scope ? { id: { in: scope } } : {}) },
+            where: { tenantId: ctx.tenantId, deletedAt: null, ...(scope !== null ? { id: { in: scope } } : {}) },
             select: { id: true, name: true, type: true },
             orderBy: { createdAt: 'asc' },
           });
@@ -692,7 +703,7 @@ export class AgentToolsService {
         },
         run: async (ctx) => {
           const scope = ctx.projectScope ?? null;
-          const where = { tenantId: ctx.tenantId, deletedAt: null, ...(scope ? { projectId: { in: scope } } : {}) };
+          const where = { tenantId: ctx.tenantId, deletedAt: null, ...(scope !== null ? { projectId: { in: scope } } : {}) };
           const [cards, accounts] = await Promise.all([
             this.prisma.creditCard.findMany({
               where,
@@ -732,7 +743,7 @@ export class AgentToolsService {
           const scope = ctx.projectScope ?? null;
           const projectId = this.optStr(args['projectId']);
           if (projectId && scope && !scope.includes(projectId)) {
-            throw new Error('Sem permissão para acessar este projeto.');
+            throw new Error(PROJECT_ACCESS_DENIED_MESSAGE);
           }
           const q = this.optStr(args['query']);
           const limit = this.clampInt(args['limit'], 10, 1, 25);
@@ -794,7 +805,14 @@ export class AgentToolsService {
           if (!expenseId) return { error: 'Informe o expenseId da despesa a atualizar.' };
 
           const existing = await this.prisma.expense.findFirst({
-            where: { id: expenseId, tenantId: ctx.tenantId, deletedAt: null },
+            where: {
+              id: expenseId,
+              tenantId: ctx.tenantId,
+              deletedAt: null,
+              ...(ctx.projectScope !== null
+                ? { projectId: { in: ctx.projectScope ?? [] } }
+                : {}),
+            },
             select: { id: true, projectId: true, formaPagamento: true },
           });
           if (!existing) return { error: 'Despesa não encontrada.' };
@@ -893,7 +911,7 @@ export class AgentToolsService {
         run: async (ctx) => {
           const scope = ctx.projectScope ?? null;
           const bills = await this.prisma.recurringBill.findMany({
-            where: { tenantId: ctx.tenantId, deletedAt: null, status: 'ATIVO', ...(scope ? { projectId: { in: scope } } : {}) },
+            where: { tenantId: ctx.tenantId, deletedAt: null, status: 'ATIVO', ...(scope !== null ? { projectId: { in: scope } } : {}) },
             select: { nome: true, categoria: true, valor: true, frequencia: true, proximoVencimento: true, project: { select: { name: true } } },
             orderBy: { proximoVencimento: 'asc' },
           });
@@ -926,7 +944,7 @@ export class AgentToolsService {
         run: async (ctx) => {
           const scope = ctx.projectScope ?? null;
           const projects = await this.prisma.project.findMany({
-            where: { tenantId: ctx.tenantId, deletedAt: null, ...(scope ? { id: { in: scope } } : {}) },
+            where: { tenantId: ctx.tenantId, deletedAt: null, ...(scope !== null ? { id: { in: scope } } : {}) },
             select: { id: true, name: true },
           });
 
@@ -1338,16 +1356,19 @@ export class AgentToolsService {
 
     const explicitProjectId =
       typeof rawProjectId === 'string' && rawProjectId.trim() ? rawProjectId.trim() : '';
+    const scope = ctx.projectScope ?? null;
 
     if (explicitProjectId) {
       const project = await this.prisma.project.findFirst({
-        where: { id: explicitProjectId, tenantId: ctx.tenantId, deletedAt: null },
+        where: {
+          id: explicitProjectId,
+          tenantId: ctx.tenantId,
+          deletedAt: null,
+          ...(scope !== null ? { AND: { id: { in: scope } } } : {}),
+        },
         select: { id: true, type: true },
       });
       if (!project) throw new Error('Projeto não encontrado.');
-      if (!userCanAccessProject(ctx.role, ctx.projectScope ?? undefined, project.id)) {
-        throw new Error('Sem permissão para acessar este projeto.');
-      }
       if (!projectTypeHasModule(project.type, 'priceCompare')) {
         throw new Error(
           `Projetos do tipo "${project.type}" não suportam monitoramento de preços.`,
@@ -1356,12 +1377,11 @@ export class AgentToolsService {
       return [project.id];
     }
 
-    const scope = ctx.projectScope ?? null;
     const projects = await this.prisma.project.findMany({
       where: {
         tenantId: ctx.tenantId,
         deletedAt: null,
-        ...(scope ? { id: { in: scope } } : {}),
+        ...(scope !== null ? { id: { in: scope } } : {}),
       },
       select: { id: true, type: true },
       orderBy: { createdAt: 'asc' },
@@ -1393,13 +1413,15 @@ export class AgentToolsService {
 
     if (explicit) {
       const project = await this.prisma.project.findFirst({
-        where: { id: explicit, tenantId: ctx.tenantId, deletedAt: null },
+        where: {
+          id: explicit,
+          tenantId: ctx.tenantId,
+          deletedAt: null,
+          ...(scope !== null ? { AND: { id: { in: scope } } } : {}),
+        },
         select: { id: true, name: true, type: true },
       });
       if (!project) throw new Error('Projeto não encontrado.');
-      if (!userCanAccessProject(ctx.role, scope ?? undefined, project.id)) {
-        throw new Error('Sem permissão para acessar este projeto.');
-      }
       if (!projectTypeHasModule(project.type, 'maintenance')) {
         throw new Error(`Projetos do tipo "${project.type}" não têm registro de manutenção.`);
       }
@@ -1407,7 +1429,7 @@ export class AgentToolsService {
     }
 
     const projects = await this.prisma.project.findMany({
-      where: { tenantId: ctx.tenantId, deletedAt: null, ...(scope ? { id: { in: scope } } : {}) },
+      where: { tenantId: ctx.tenantId, deletedAt: null, ...(scope !== null ? { id: { in: scope } } : {}) },
       select: { id: true, name: true, type: true },
       orderBy: { createdAt: 'asc' },
     });
@@ -1436,9 +1458,13 @@ export class AgentToolsService {
    * Lança Error com mensagem amigável (capturada por execute()).
    */
   private rateioRequester(ctx: ToolContext): RateioRequester {
+    const scope = ctx.projectScope ?? (isFullAccessRole(ctx.role) ? null : []);
+    if (scope !== null && (scope.length === 0 || isFullAccessRole(ctx.role))) {
+      throw new Error(PROJECT_ACCESS_DENIED_MESSAGE);
+    }
     return {
       role: ctx.role,
-      allowedProjects: ctx.projectScope ?? undefined,
+      ...(scope !== null ? { allowedProjects: scope } : {}),
       allowedModules: ctx.allowedModules,
     };
   }
@@ -1459,14 +1485,18 @@ export class AgentToolsService {
     }
 
     const project = await this.prisma.project.findFirst({
-      where: { id: projectId, tenantId: ctx.tenantId, deletedAt: null },
+      where: {
+        id: projectId,
+        tenantId: ctx.tenantId,
+        deletedAt: null,
+        ...(ctx.projectScope !== null
+          ? { AND: { id: { in: ctx.projectScope ?? [] } } }
+          : {}),
+      },
       select: { id: true, name: true, type: true },
     });
     if (!project) throw new Error('Projeto não encontrado.');
 
-    if (!userCanAccessProject(ctx.role, ctx.projectScope ?? undefined, project.id)) {
-      throw new Error('Sem permissão para acessar este projeto.');
-    }
     if (!projectTypeHasModule(project.type, module)) {
       throw new Error(
         `Projetos do tipo "${project.type}" não suportam ${module === 'receipts' ? 'recebimentos' : 'despesas'}.`,
@@ -1497,19 +1527,21 @@ export class AgentToolsService {
     const explicit = typeof rawId === 'string' && rawId.trim() ? rawId.trim() : '';
     if (explicit) {
       const p = await this.prisma.project.findFirst({
-        where: { id: explicit, tenantId: ctx.tenantId, deletedAt: null },
+        where: {
+          id: explicit,
+          tenantId: ctx.tenantId,
+          deletedAt: null,
+          ...(scope !== null ? { AND: { id: { in: scope } } } : {}),
+        },
         select: { id: true, name: true, type: true },
       });
       if (!p) throw new Error('Projeto pessoal não encontrado.');
       if (p.type !== 'PESSOAL') throw new Error('O projeto de caixa informado não é do tipo PESSOAL.');
-      if (!userCanAccessProject(ctx.role, scope ?? undefined, p.id)) {
-        throw new Error('Sem permissão para acessar o projeto pessoal.');
-      }
       return p;
     }
 
     const pessoais = await this.prisma.project.findMany({
-      where: { tenantId: ctx.tenantId, deletedAt: null, type: 'PESSOAL', ...(scope ? { id: { in: scope } } : {}) },
+      where: { tenantId: ctx.tenantId, deletedAt: null, type: 'PESSOAL', ...(scope !== null ? { id: { in: scope } } : {}) },
       select: { id: true, name: true, type: true },
       orderBy: { createdAt: 'asc' },
     });
@@ -1560,18 +1592,29 @@ export class AgentToolsService {
     const row =
       kind === 'card'
         ? await this.prisma.creditCard.findFirst({
-            where: { id, tenantId: ctx.tenantId, deletedAt: null },
+            where: {
+              id,
+              tenantId: ctx.tenantId,
+              deletedAt: null,
+              ...(ctx.projectScope !== null
+                ? { projectId: { in: ctx.projectScope ?? [] } }
+                : {}),
+            },
             select: { projectId: true },
           })
         : await this.prisma.bankAccount.findFirst({
-            where: { id, tenantId: ctx.tenantId, deletedAt: null },
+            where: {
+              id,
+              tenantId: ctx.tenantId,
+              deletedAt: null,
+              ...(ctx.projectScope !== null
+                ? { projectId: { in: ctx.projectScope ?? [] } }
+                : {}),
+            },
             select: { projectId: true },
           });
     if (!row) {
       throw new Error(kind === 'card' ? 'Cartão não encontrado.' : 'Conta bancária não encontrada.');
-    }
-    if (!userCanAccessProject(ctx.role, ctx.projectScope ?? undefined, row.projectId)) {
-      throw new Error('Sem permissão para usar este meio de pagamento.');
     }
     return id;
   }
@@ -1589,15 +1632,19 @@ export class AgentToolsService {
     const id = typeof rawId === 'string' && rawId.trim() ? rawId.trim() : '';
     if (!id) return undefined;
     const row = await this.prisma.expense.findFirst({
-      where: { id, tenantId: ctx.tenantId, deletedAt: null },
+      where: {
+        id,
+        tenantId: ctx.tenantId,
+        deletedAt: null,
+        ...(ctx.projectScope !== null
+          ? { projectId: { in: ctx.projectScope ?? [] } }
+          : {}),
+      },
       select: { projectId: true },
     });
     if (!row) throw new Error('Despesa para vínculo não encontrada.');
     if (row.projectId === currentProjectId) {
       throw new Error('O vínculo cross-project exige uma despesa de OUTRO projeto.');
-    }
-    if (!userCanAccessProject(ctx.role, ctx.projectScope ?? undefined, row.projectId)) {
-      throw new Error('Sem permissão para vincular a essa despesa.');
     }
     return id;
   }
