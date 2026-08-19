@@ -307,6 +307,34 @@ describe("CardInvoiceSettlementService.settleInvoice — child ACL real SQLite",
     });
   });
 
+  it("pagamento igual ao subtotal visível não casa fatura com compra oculta", async () => {
+    await createPurchase({
+      id: "visible-100",
+      projectId: ALLOWED,
+      cardLast4: VISIBLE_CARD.last4,
+    });
+    await createPurchase({
+      id: "hidden-100",
+      projectId: HIDDEN,
+      cardLast4: VISIBLE_CARD.last4,
+    });
+    const before = await snapshot();
+
+    const error = await captureError(() =>
+      settle(service, VISIBLE_CARD, MANAGED, 10_000),
+    );
+    const after = await snapshot();
+
+    expect({ error: errorShape(error), state: after }).toEqual({
+      error: {
+        name: "NotFoundException",
+        status: 404,
+        message: "Fatura não encontrada",
+      },
+      state: before,
+    });
+  });
+
   it.each([
     [
       "USER com cartão e compra visíveis",
