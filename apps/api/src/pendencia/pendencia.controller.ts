@@ -4,7 +4,10 @@ import { CreatePendenciaDto, UpdatePendenciaDto, MovePendenciaDto } from './dto/
 import { RequireModule } from '../common/decorators/require-module.decorator';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
 import { CurrentTenant, CurrentUser } from '../common/decorators/tenant.decorator';
-import type { MonthlyOverviewRequester } from '../monthly-overview/monthly-overview.service';
+import {
+  assertRateioRequester,
+  type RateioRequester,
+} from '../expense/rateio.types';
 
 @UseInterceptors(TenantInterceptor)
 @RequireModule('pendencias')
@@ -21,9 +24,10 @@ export class PendenciaController {
   findFinancialQueue(
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
-    @Query('month') month?: string,
-    @CurrentUser() requester?: MonthlyOverviewRequester,
+    @Query('month') month: string | undefined,
+    @CurrentUser() requester: RateioRequester,
   ) {
+    assertRateioRequester(requester);
     return this.service.findFinancialQueue(tenantId, projectId, month, requester);
   }
 

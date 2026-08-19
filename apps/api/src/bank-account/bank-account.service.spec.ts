@@ -44,6 +44,7 @@ function makePrismaMock() {
     },
     cashFlowEntry: {
       findFirst: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
       create: jest.fn().mockResolvedValue({}),
       update: jest.fn().mockResolvedValue({}),
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
@@ -252,7 +253,7 @@ describe('BankAccountService', () => {
     it('PIX PF sem regra manual permanece OUTROS no preview', async () => {
       classifier.manualExpenseType.mockResolvedValue(null);
       const ofx = buildBankOfx(ofxBankFor('20260401', 10000, 'PIX TRANSF JOAO SILVA', 'PF1'));
-      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX');
+      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
       const tx = result.preview.find((t: any) => t.amountCents > 0);
       expect(tx?.suggestedCategory).toBe('OUTROS');
       expect(tx?.categoriaFonte).toBeNull();
@@ -261,7 +262,7 @@ describe('BankAccountService', () => {
     it('regra manual aparece como fonte regra no preview', async () => {
       classifier.manualExpenseType.mockResolvedValue('MORADIA');
       const ofx = buildBankOfx(ofxBankFor('20260401', 10000, 'ENEL DISTRIBUICAO', 'RG1'));
-      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX');
+      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
       const tx = result.preview.find((t: any) => t.amountCents > 0);
       expect(tx?.suggestedCategory).toBe('MORADIA');
       expect(tx?.categoriaFonte).toBe('regra');
@@ -291,7 +292,7 @@ describe('BankAccountService', () => {
       // 500 reais com amount POSITIVO na geração do OFX (TRNTYPE DEBIT, valor positivo
       // não tem sinal). Vou ajustar:
       const ofx = buildBankOfx(ofxBankFor('20260429', 50000, 'PIX PEDREIRO JOAO', 'D1'));
-      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX');
+      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
 
       // Verifica que pelo menos uma transação foi parseada e tem o match
       expect(result.preview.length).toBeGreaterThan(0);
@@ -323,7 +324,7 @@ describe('BankAccountService', () => {
       // Crédito (entrada): amount negativo no OFX bancário (TRNTYPE CREDIT, valor positivo)
       // Mas no nosso helper, amount NEGATIVO gera CREDIT. Vamos passar negativo:
       const ofx = buildBankOfx(ofxBankFor('20260429', -100000, 'TED CLIENTE X', 'C1'));
-      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX');
+      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
 
       const tx = result.preview.find((t: any) => t.amountCents < 0);
       if (tx) {
@@ -341,7 +342,7 @@ describe('BankAccountService', () => {
         ofxBankFor('20260401', 10000, 'DESPESA A', 'A1'),
         ofxBankFor('20260402', -50000, 'SALARIO', 'A2'),
       );
-      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX');
+      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
       expect(result.totalDebits).toBeGreaterThanOrEqual(0);
       expect(result.totalCredits).toBeGreaterThanOrEqual(0);
       expect(result.total).toBe(result.preview.length);
@@ -367,7 +368,7 @@ describe('BankAccountService', () => {
       ]);
 
       const ofx = buildBankOfx(ofxBankFor('20260429', 666666, 'INFRA', 'P1'));
-      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX');
+      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
       const tx = result.preview.find((t: any) => t.amountCents > 0);
       expect(tx?.crossProjectMatches?.[0]?.kind).toBe('expense');
       expect((tx?.crossProjectMatches?.[0] as any)?.valorCents).toBe(666666);
@@ -382,7 +383,7 @@ describe('BankAccountService', () => {
       prisma.expense.findMany.mockResolvedValue(plannedMatcherExpenses('PARCELADO'));
 
       const ofx = buildBankOfx(ofxBankFor('20260429', 50000, 'COMPRA CASA', 'OVERRIDE1'));
-      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX');
+      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
       const matches = result.preview.find((tx: any) => tx.amountCents > 0)?.crossProjectMatches ?? [];
 
       expect(matches.find((match: any) => match.expenseId === 'exp-override')).toMatchObject({
@@ -401,13 +402,13 @@ describe('BankAccountService', () => {
   describe('previewImport — warning: fatura de cartão importada como extrato (Bug A)', () => {
     it('cabeçalho Nubank "date,title,amount" dispara warning looks_like_card_invoice', async () => {
       const csv = ['date,title,amount', '2026-05-12,IFOOD RESTAURANTE,89.90', '2026-05-13,UBER,32.50'].join('\n');
-      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(csv), 'fatura.csv', 'CSV_GENERIC');
+      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(csv), 'fatura.csv', 'CSV_GENERIC', undefined, TEST_OWNER_REQUESTER);
       expect(result.warning?.code).toBe('looks_like_card_invoice');
     });
 
     it('"Parcela N/M" na descrição dispara warning mesmo sem o cabeçalho Nubank', async () => {
       const csv = ['data;descricao;valor', '12/05/2026;LOJA XYZ PARC 2/4;250,00'].join('\n');
-      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(csv), 'fatura.csv', 'CSV_GENERIC');
+      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(csv), 'fatura.csv', 'CSV_GENERIC', undefined, TEST_OWNER_REQUESTER);
       expect(result.warning?.code).toBe('looks_like_card_invoice');
     });
 
@@ -418,7 +419,7 @@ describe('BankAccountService', () => {
         'data;descricao;valor',
         ...Array.from({ length: 10 }, (_, i) => `${10 + i}/05/2026;COMPRA ${i};50,00`),
       ].join('\n');
-      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(csvItau), 'extrato.csv', 'CSV_GENERIC');
+      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(csvItau), 'extrato.csv', 'CSV_GENERIC', undefined, TEST_OWNER_REQUESTER);
       expect(result.totalCredits).toBe(10);
       expect(result.warning?.code).toBe('looks_like_card_invoice');
     });
@@ -429,7 +430,7 @@ describe('BankAccountService', () => {
         ofxBankFor('20260402', -50000, 'SALARIO', 'B2'),
         ofxBankFor('20260403', 5000, 'FARMACIA', 'B3'),
       );
-      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX');
+      const result = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
       expect(result.warning).toBeUndefined();
     });
   });
@@ -440,7 +441,7 @@ describe('BankAccountService', () => {
         ofxBankFor('20260401', 10000, 'LOJA SKIP', 'SK1'),
         ofxBankFor('20260402', 20000, 'LOJA OK', 'OK1'),
       );
-      const preview = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX');
+      const preview = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
       const skipTx = preview.preview.find((t: any) => /SKIP/.test(t.merchant));
       const okTx = preview.preview.find((t: any) => /OK/.test(t.merchant));
       expect(skipTx).toBeDefined();
@@ -463,7 +464,7 @@ describe('BankAccountService', () => {
 
     it('decision.overrides aplica titulo, valor e categoria', async () => {
       const ofx = buildBankOfx(ofxBankFor('20260401', 10000, 'LOJA X', 'OV1'));
-      const preview = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX');
+      const preview = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
       const ext = preview.preview[0].externalId;
 
       prisma.expense.create.mockClear();
@@ -485,7 +486,7 @@ describe('BankAccountService', () => {
 
     it('repassa createdByUserId para a Expense criada (KPI "despesas criadas" depende disso)', async () => {
       const ofx = buildBankOfx(ofxBankFor('20260401', 10000, 'LOJA CREATEDBY', 'CB1'));
-      await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX');
+      await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
 
       prisma.expense.create.mockClear();
       await service.commitImport(
@@ -528,6 +529,17 @@ describe('BankAccountService', () => {
         id: 'card5572', last4: '5572', nickname: 'Visa ****5572',
         project: { id: 'pessoal1', type: 'PESSOAL', tenantId: 't1', deletedAt: null },
       });
+      prisma.creditCard.findMany.mockResolvedValue([
+        {
+          id: 'card5572',
+          projectId: 'pessoal1',
+          last4: '5572',
+          nickname: 'Visa ****5572',
+          brand: 'Visa',
+          closingDay: null,
+          dueDay: 5,
+        },
+      ]);
       prisma.creditCard.findUnique.mockResolvedValue({
         id: 'card5572', last4: '5572', closingDay: null, dueDay: 5,
       });
@@ -538,6 +550,7 @@ describe('BankAccountService', () => {
       prisma.expense.create.mockClear();
       const preview = await service.previewImport(
         't1', 'pessoal1', 'acc1', Buffer.from(faturaOfx), 'ext.ofx', 'OFX',
+        undefined, TEST_OWNER_REQUESTER,
       );
       const ext = preview.preview[0].externalId;
 
@@ -628,6 +641,8 @@ describe('BankAccountService', () => {
         Buffer.from(ofx),
         'ext.ofx',
         'OFX',
+        undefined,
+        TEST_OWNER_REQUESTER,
       );
       const duplicateExpenseId = preview.preview.find((item: any) =>
         item.merchant.includes('DUP EXPENSE'),
@@ -718,6 +733,8 @@ describe('BankAccountService', () => {
         Buffer.from(ofx),
         'ext.ofx',
         'OFX',
+        undefined,
+        TEST_OWNER_REQUESTER,
       );
       prisma.$queryRaw.mockResolvedValue([]);
       prisma.expense.findMany.mockResolvedValue([
@@ -791,7 +808,12 @@ describe('BankAccountService', () => {
         { id: 'casa1', name: 'Casa', type: 'CASA' },
       ]);
 
-      const [result] = await service.suggestLinks('t1', 'pessoal1', 'acc1');
+      const [result] = await service.suggestLinks(
+        't1',
+        'pessoal1',
+        'acc1',
+        TEST_OWNER_REQUESTER,
+      );
 
       expect(result.suggestions.find((suggestion: any) => suggestion.expenseId === 'exp-override')).toMatchObject({
         data: '2026-04-29T00:00:00.000Z',

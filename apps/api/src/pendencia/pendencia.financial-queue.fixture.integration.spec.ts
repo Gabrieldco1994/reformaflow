@@ -28,6 +28,12 @@ import { MonthlyOverviewService } from "../monthly-overview/monthly-overview.ser
 import { PendenciaService } from "./pendencia.service";
 
 const IDS = FINANCE_CENTER_IDS;
+const REQUESTER = {
+  role: "USER",
+  allowedProjects: [IDS.projects.pessoal, IDS.projects.allowed],
+  allowedProjectTypes: ["PESSOAL", "REFORMA"],
+  allowedModules: ["expenses"],
+};
 
 describe("PendenciaService.findFinancialQueue — hidden/multi-PESSOAL scope delta (B0 #447)", () => {
   const setupPrisma = new PrismaClient();
@@ -123,6 +129,7 @@ describe("PendenciaService.findFinancialQueue — hidden/multi-PESSOAL scope del
         IDS.tenantA,
         IDS.projects.pessoal,
         FINANCE_CENTER_MONTH,
+        REQUESTER,
       );
       const allExpenseIds = queue.grupos.flatMap((group) =>
         group.itens.map((item) => item.expenseId),
@@ -142,6 +149,7 @@ describe("PendenciaService.findFinancialQueue — hidden/multi-PESSOAL scope del
       IDS.tenantA,
       IDS.projects.pessoal,
       FINANCE_CENTER_MONTH,
+      REQUESTER,
     );
 
     const allExpenseIds = queue.grupos.flatMap((group) =>

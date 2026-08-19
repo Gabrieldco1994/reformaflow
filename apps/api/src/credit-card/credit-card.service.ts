@@ -10,6 +10,7 @@ import {
   assertRateioRequester,
   RateioRequester,
 } from '../expense/rateio.types';
+import { EXPENSE_MODULE, resolveAccessibleProjectScope } from '../common/access-rules';
 
 /** Normaliza a entrada (string legada, Buffer único ou array) para Buffer[]. */
 function toBuffers(content: string | Buffer | Buffer[]): Buffer[] {
@@ -274,28 +275,43 @@ export class CreditCardService {
     fileContent: string | Buffer | Buffer[],
     fileName: string | undefined,
     source: SourceHint,
-    password?: string,
+    password: string | undefined,
+    requester: RateioRequester,
   ) {
+    assertRateioRequester(requester);
     const card = await this.findCard(tenantId, projectId, cardId);
     const buffers = toBuffers(fileContent);
     const parsed = await parseStatementBuffers(buffers, card.id, source, fileName, password);
-    const existing = await this.findExistingExternalIds(
-      tenantId,
-      projectId,
-      parsed.transactions.map((t) => t.externalId),
-    );
-
-    // Carrega despesas planejadas em outros projetos para cross-project match
-    const otherProjects = await this.prisma.project.findMany({
-      where: { tenantId, id: { not: projectId }, deletedAt: null },
-      select: { id: true, name: true, type: true },
-    });
-    const projectById = new Map(otherProjects.map((p) => [p.id, p]));
-    const planned = otherProjects.length > 0
-      ? await this.prisma.expense.findMany({
+    // Resolve a lente antes de qualquer leitura/ranking de candidatos. A
+    // transação mantém projetos e despesas no mesmo snapshot.
+    const { otherProjects, planned } = await this.prisma.$transaction(async (tx) => {
+      // Candidato é Expense: exige o módulo `expenses` no projeto candidato —
+      // `creditCards` do MESMO tipo não vale (#480 SEC-1).
+      const scope = await resolveAccessibleProjectScope(
+        tx,
+        tenantId,
+        requester.role,
+        requester.allowedProjects,
+        requester.allowedProjectTypes,
+        requester.allowedModules ?? [],
+        EXPENSE_MODULE,
+      );
+      const projects = await tx.project.findMany({
+        where: {
+          tenantId,
+          id: {
+            not: projectId,
+            ...(scope !== null ? { in: scope } : {}),
+          },
+          deletedAt: null,
+        },
+        select: { id: true, name: true, type: true },
+      });
+      const expenses = projects.length > 0
+        ? await tx.expense.findMany({
           where: {
             tenantId,
-            projectId: { in: otherProjects.map((p) => p.id) },
+            projectId: { in: projects.map((project) => project.id) },
             OR: [
               { status: 'PLANEJADO' },
               { status: 'PAGO', quantidadeParcela: { gt: 1 } },
@@ -306,7 +322,15 @@ export class CreditCardService {
           take: 1000,
           orderBy: { dataInicioParcela: 'desc' },
         })
-      : [];
+        : [];
+      return { otherProjects: projects, planned: expenses };
+    });
+    const projectById = new Map(otherProjects.map((p) => [p.id, p]));
+    const existing = await this.findExistingExternalIds(
+      tenantId,
+      projectId,
+      parsed.transactions.map((t) => t.externalId),
+    );
 
     function findMatches(tx: NormalizedTx) {
       if (planned.length === 0) return [];
@@ -719,9 +743,16 @@ export class CreditCardService {
   /**
    * Lista transações importadas do cartão (no projeto PESSOAL) + sugestões
    * de match em despesas planejadas de outros projetos (REFORMA/CASA/CARRO).
-   * Critério: mesmo tenant, valor ≈ (±5%), data ±10 dias, status PLANEJADO.
+   * Critério: mesmo tenant e projeto candidato dentro do escopo autorizado do
+   * solicitante; valor ≈ (±5%), data ±10 dias, status PLANEJADO.
    */
-  async suggestLinks(tenantId: string, projectId: string, cardId: string) {
+  async suggestLinks(
+    tenantId: string,
+    projectId: string,
+    cardId: string,
+    requester: RateioRequester,
+  ) {
+    assertRateioRequester(requester);
     const card = await this.findCard(tenantId, projectId, cardId);
 
     const cardExpenses = await this.prisma.expense.findMany({
@@ -738,28 +769,51 @@ export class CreditCardService {
 
     if (cardExpenses.length === 0) return [];
 
-    const otherProjects = await this.prisma.project.findMany({
-      where: { tenantId, id: { not: projectId }, deletedAt: null },
-      select: { id: true, name: true, type: true },
+    const { otherProjects, planned } = await this.prisma.$transaction(async (tx) => {
+      // Candidato é Expense: exige o módulo `expenses` no projeto candidato —
+      // `creditCards` do MESMO tipo não vale (#480 SEC-1).
+      const scope = await resolveAccessibleProjectScope(
+        tx,
+        tenantId,
+        requester.role,
+        requester.allowedProjects,
+        requester.allowedProjectTypes,
+        requester.allowedModules ?? [],
+        EXPENSE_MODULE,
+      );
+      const projects = await tx.project.findMany({
+        where: {
+          tenantId,
+          id: {
+            not: projectId,
+            ...(scope !== null ? { in: scope } : {}),
+          },
+          deletedAt: null,
+        },
+        select: { id: true, name: true, type: true },
+      });
+      const projectIds = projects.map((project) => project.id);
+      const expenses = projectIds.length > 0
+        ? await tx.expense.findMany({
+            where: {
+              tenantId,
+              projectId: { in: projectIds },
+              OR: [
+                { status: 'PLANEJADO' },
+                { status: 'PAGO', quantidadeParcela: { gt: 1 } },
+              ],
+              deletedAt: null,
+            },
+            take: 500,
+            orderBy: { dataInicioParcela: 'desc' },
+          })
+        : [];
+      return { otherProjects: projects, planned: expenses };
     });
     if (otherProjects.length === 0) {
       return cardExpenses.map((e) => ({ expense: serializeExpense(e), suggestions: [] }));
     }
 
-    const otherIds = otherProjects.map((p) => p.id);
-    const planned = await this.prisma.expense.findMany({
-      where: {
-        tenantId,
-        projectId: { in: otherIds },
-        OR: [
-          { status: 'PLANEJADO' },
-          { status: 'PAGO', quantidadeParcela: { gt: 1 } },
-        ],
-        deletedAt: null,
-      },
-      take: 500,
-      orderBy: { dataInicioParcela: 'desc' },
-    });
     const projectById = new Map(otherProjects.map((p) => [p.id, p]));
 
     return cardExpenses.map((e) => {
@@ -1191,6 +1245,7 @@ function serializeExpense(e: {
     titulo: e.titulo,
     fornecedor: e.fornecedor,
     valor: e.valorTotal,
+    valorTotal: e.valorTotal,
     data: (e.dataPagamento ?? e.dataInicioParcela ?? e.createdAt).toISOString(),
     status: e.status,
     cardLast4: e.cardLast4,

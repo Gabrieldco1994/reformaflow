@@ -71,6 +71,12 @@ import {
   type CardWithEntries,
 } from './card-invoice-match';
 import { buildInstallments, isSinglePaymentForm, NEUTRAL_EXPENSE_TYPES } from '@reformaflow/domain';
+import {
+  CREDIT_CARD_MODULE,
+  EXPENSE_MODULE,
+  RECEIPT_MODULE,
+  resolveAccessibleProjectScope,
+} from '../common/access-rules';
 
 export interface BankImportDecision {
   externalId: string;
@@ -130,6 +136,8 @@ const PESSOAL_CATEGORY_MAP: Record<string, string> = MERCHANT_TO_EXPENSE_TYPE;
 const IMPORT_NOT_FOUND_MESSAGE = 'Importação não encontrada';
 const CARD_PAYMENT_PREFLIGHT_MISSING_MESSAGE =
   'Pré-validação de pagamento de fatura ausente';
+const CARD_NOT_FOUND_MESSAGE = 'Cartão não encontrado';
+const AMBIGUOUS_CARD_MESSAGE = 'Cartão ambíguo';
 
 /**
  * Heurísticas determinísticas para descrições de extrato que IA não distingue bem.
@@ -399,48 +407,118 @@ export class BankAccountService {
     fileContent: string | Buffer | Buffer[],
     fileName: string | undefined,
     source: BankSourceHint,
-    password?: string,
+    password: string | undefined,
+    requester: RateioRequester,
   ) {
+    assertRateioRequester(requester);
     const account = await this.findAccount(tenantId, projectId, accountId);
     const buffers = toBuffers(fileContent);
     const parsed = await parseBankStatementBuffers(buffers, account.id, source, fileName, password);
 
+    // Resolve a lente antes de qualquer `take`, total ou ranking. O snapshot
+    // impede que um projeto seja revogado entre a resolução e a leitura.
+    // Cada TIPO de candidato tem a sua própria lente: Expense exige `expenses`,
+    // Receipt exige `receipts` e o cartão exige `creditCards` (#480 SEC-1) —
+    // uma lista ampla compartilhada vazaria recurso de módulo não concedido.
+    const cardWindow = this.cardEntryWindow(parsed.transactions);
+    const { otherProjects, plannedExpenses, plannedReceipts, cardsWithEntries } =
+      await this.prisma.$transaction(async (tx) => {
+        const [expenseScope, receiptScope] = await Promise.all([
+          resolveAccessibleProjectScope(
+            tx,
+            tenantId,
+            requester.role,
+            requester.allowedProjects,
+            requester.allowedProjectTypes,
+            requester.allowedModules ?? [],
+            EXPENSE_MODULE,
+          ),
+          resolveAccessibleProjectScope(
+            tx,
+            tenantId,
+            requester.role,
+            requester.allowedProjects,
+            requester.allowedProjectTypes,
+            requester.allowedModules ?? [],
+            RECEIPT_MODULE,
+          ),
+        ]);
+        // Metadados de projeto só para a UNIÃO dos ids autorizados por recurso —
+        // e cada um só é emitido junto de um candidato autorizado.
+        const metadataScope =
+          expenseScope === null || receiptScope === null
+            ? null
+            : [...new Set([...expenseScope, ...receiptScope])];
+        const projects = metadataScope !== null && metadataScope.length === 0
+          ? []
+          : await tx.project.findMany({
+              where: {
+                tenantId,
+                id: {
+                  not: projectId,
+                  ...(metadataScope !== null ? { in: metadataScope } : {}),
+                },
+                deletedAt: null,
+              },
+              select: { id: true, name: true, type: true },
+            });
+        const inScope = (scope: string[] | null) =>
+          projects
+            .map((project) => project.id)
+            .filter((id) => (scope === null ? true : scope.includes(id)));
+        const expenseProjectIds = inScope(expenseScope);
+        const receiptProjectIds = inScope(receiptScope);
+        const [expenses, receipts] = await Promise.all([
+          expenseProjectIds.length > 0
+            ? tx.expense.findMany({
+                where: {
+                  tenantId,
+                  projectId: { in: expenseProjectIds },
+                  OR: [
+                    { status: 'PLANEJADO' },
+                    { status: 'PAGO', quantidadeParcela: { gt: 1 } },
+                  ],
+                  linkedExpenseId: null,
+                  deletedAt: null,
+                },
+                take: 1000,
+                orderBy: { dataInicioParcela: 'desc' },
+              })
+            : [],
+          receiptProjectIds.length > 0
+            ? tx.receipt.findMany({
+                where: {
+                  tenantId,
+                  projectId: { in: receiptProjectIds },
+                  status: 'PREVISTO',
+                  linkedReceiptId: null,
+                  deletedAt: null,
+                },
+                take: 1000,
+                orderBy: { data: 'desc' },
+              })
+            : [],
+        ]);
+        const cards = await this.loadCardsWithEntries(
+          tenantId,
+          cardWindow.from,
+          cardWindow.to,
+          requester,
+          tx,
+        );
+        return {
+          otherProjects: projects,
+          plannedExpenses: expenses,
+          plannedReceipts: receipts,
+          cardsWithEntries: cards,
+        };
+      });
+    const projectById = new Map(otherProjects.map((p) => [p.id, p]));
     const existing = await this.findExistingExternalIds(
       tenantId,
       projectId,
       parsed.transactions.map((t) => t.externalId),
     );
-
-    // Carrega despesas E recebimentos planejados em outros projetos
-    const otherProjects = await this.prisma.project.findMany({
-      where: { tenantId, id: { not: projectId }, deletedAt: null },
-      select: { id: true, name: true, type: true },
-    });
-    const projectById = new Map(otherProjects.map((p) => [p.id, p]));
-    const otherIds = otherProjects.map((p) => p.id);
-    const [plannedExpenses, plannedReceipts] = otherIds.length > 0
-      ? await Promise.all([
-          this.prisma.expense.findMany({
-            where: {
-              tenantId,
-              projectId: { in: otherIds },
-              OR: [
-                { status: 'PLANEJADO' },
-                { status: 'PAGO', quantidadeParcela: { gt: 1 } },
-              ],
-              linkedExpenseId: null,
-              deletedAt: null,
-            },
-            take: 1000,
-            orderBy: { dataInicioParcela: 'desc' },
-          }),
-          this.prisma.receipt.findMany({
-            where: { tenantId, projectId: { in: otherIds }, status: 'PREVISTO', linkedReceiptId: null, deletedAt: null },
-            take: 1000,
-            orderBy: { data: 'desc' },
-          }),
-        ])
-      : [[], []];
 
     function findExpenseMatches(tx: { date: Date; amountCents: number }) {
       if (plannedExpenses.length === 0) return [];
@@ -523,18 +601,21 @@ export class BankAccountService {
         });
     }
 
-    const cardWindow = this.cardEntryWindow(parsed.transactions);
-    const cardsWithEntries = await this.loadCardsWithEntries(
-      tenantId,
-      cardWindow.from,
-      cardWindow.to,
-    );
+    const authorizedCardIds = cardsWithEntries
+      .map((card) => card.id)
+      .filter((id): id is string => Boolean(id));
 
     const preview = await Promise.all(parsed.transactions.map(async (tx) => {
       let isCardPay = tx.amountCents > 0 && detectCardPayment(tx.merchant).isCardPayment;
       // Match async por valor para "Pagamento PIX" / "PgConta" sem texto explícito
       if (!isCardPay && tx.amountCents > 0 && looksLikeOutboundTransfer(tx.merchant)) {
-        const matched = await this.findCardPaymentByAmount(tenantId, tx.amountCents, tx.date);
+        const matched = await this.findCardPaymentByAmount(
+          tenantId,
+          tx.amountCents,
+          tx.date,
+          this.prisma,
+          authorizedCardIds,
+        );
         if (matched) isCardPay = true;
       }
       // Candidatos de fatura só interessam para pagamento de fatura. O usuário
@@ -542,8 +623,16 @@ export class BankAccountService {
       const cardCandidates = isCardPay
         ? rankCardCandidates(cardsWithEntries, tx.amountCents, tx.date)
         : [];
+      const detectedLast4 = detectCardPayment(tx.merchant).last4;
       const autoCard = isCardPay
-        ? (detectCardPayment(tx.merchant).last4 ?? pickUniqueCardMatch(cardCandidates)?.cardLast4 ?? null)
+        ? (
+            (detectedLast4 &&
+            cardsWithEntries.some((card) => card.last4 === detectedLast4)
+              ? detectedLast4
+              : null) ??
+            pickUniqueCardMatch(cardCandidates)?.cardLast4 ??
+            null
+          )
         : null;
       const matches = tx.amountCents < 0
         ? findReceiptMatches(tx)         // crédito → match com Receipt PLANEJADO
@@ -1098,6 +1187,7 @@ export class BankAccountService {
             tx,
             requester,
             notFoundMessage: IMPORT_NOT_FOUND_MESSAGE,
+            requiredModule: CREDIT_CARD_MODULE,
           });
           notRevertedInvoiceLiquidations++;
           continue;
@@ -1114,6 +1204,7 @@ export class BankAccountService {
             tx,
             requester,
             notFoundMessage: IMPORT_NOT_FOUND_MESSAGE,
+            requiredModule: CREDIT_CARD_MODULE,
           }),
         );
       }
@@ -1326,7 +1417,13 @@ export class BankAccountService {
 
   // ─── Links cross-project ─────────────────────────────────
 
-  async suggestLinks(tenantId: string, projectId: string, accountId: string) {
+  async suggestLinks(
+    tenantId: string,
+    projectId: string,
+    accountId: string,
+    requester: RateioRequester,
+  ) {
+    assertRateioRequester(requester);
     const account = await this.findAccount(tenantId, projectId, accountId);
 
     const bankExpenses = await this.prisma.expense.findMany({
@@ -1343,28 +1440,50 @@ export class BankAccountService {
 
     if (bankExpenses.length === 0) return [];
 
-    const otherProjects = await this.prisma.project.findMany({
-      where: { tenantId, id: { not: projectId }, deletedAt: null },
-      select: { id: true, name: true, type: true },
+    const { otherProjects, planned } = await this.prisma.$transaction(async (tx) => {
+      // Candidato é Expense: exige `expenses` no projeto candidato (#480 SEC-1).
+      const scope = await resolveAccessibleProjectScope(
+        tx,
+        tenantId,
+        requester.role,
+        requester.allowedProjects,
+        requester.allowedProjectTypes,
+        requester.allowedModules ?? [],
+        EXPENSE_MODULE,
+      );
+      const projects = await tx.project.findMany({
+        where: {
+          tenantId,
+          id: {
+            not: projectId,
+            ...(scope !== null ? { in: scope } : {}),
+          },
+          deletedAt: null,
+        },
+        select: { id: true, name: true, type: true },
+      });
+      const projectIds = projects.map((project) => project.id);
+      const expenses = projectIds.length > 0
+        ? await tx.expense.findMany({
+            where: {
+              tenantId,
+              projectId: { in: projectIds },
+              OR: [
+                { status: 'PLANEJADO' },
+                { status: 'PAGO', quantidadeParcela: { gt: 1 } },
+              ],
+              deletedAt: null,
+            },
+            take: 500,
+            orderBy: { dataInicioParcela: 'desc' },
+          })
+        : [];
+      return { otherProjects: projects, planned: expenses };
     });
     if (otherProjects.length === 0) {
       return bankExpenses.map((e) => ({ expense: serializeExpense(e), suggestions: [] }));
     }
 
-    const otherIds = otherProjects.map((p) => p.id);
-    const planned = await this.prisma.expense.findMany({
-      where: {
-        tenantId,
-        projectId: { in: otherIds },
-        OR: [
-          { status: 'PLANEJADO' },
-          { status: 'PAGO', quantidadeParcela: { gt: 1 } },
-        ],
-        deletedAt: null,
-      },
-      take: 500,
-      orderBy: { dataInicioParcela: 'desc' },
-    });
     const projectById = new Map(otherProjects.map((p) => [p.id, p]));
 
     return bankExpenses.map((e) => {
@@ -1484,9 +1603,16 @@ export class BankAccountService {
   /**
    * Sugere vínculos para recebimentos importados (no PESSOAL) a recebimentos
    * planejados em outros projetos (REFORMA/CASA/CARRO).
-   * Critério: mesmo tenant, valor ≈ (±5%), data ±10 dias, status PREVISTO.
+   * Critério: mesmo tenant e projeto candidato dentro do escopo autorizado do
+   * solicitante; valor ≈ (±5%), data ±10 dias, status PREVISTO.
    */
-  async suggestReceiptLinks(tenantId: string, projectId: string, accountId: string) {
+  async suggestReceiptLinks(
+    tenantId: string,
+    projectId: string,
+    accountId: string,
+    requester: RateioRequester,
+  ) {
+    assertRateioRequester(requester);
     const account = await this.findAccount(tenantId, projectId, accountId);
 
     const bankReceipts = await this.prisma.receipt.findMany({
@@ -1503,25 +1629,47 @@ export class BankAccountService {
 
     if (bankReceipts.length === 0) return [];
 
-    const otherProjects = await this.prisma.project.findMany({
-      where: { tenantId, id: { not: projectId }, deletedAt: null },
-      select: { id: true, name: true, type: true },
+    const { otherProjects, planned } = await this.prisma.$transaction(async (tx) => {
+      // Candidato é Receipt: exige `receipts` no projeto candidato (#480 SEC-1).
+      const scope = await resolveAccessibleProjectScope(
+        tx,
+        tenantId,
+        requester.role,
+        requester.allowedProjects,
+        requester.allowedProjectTypes,
+        requester.allowedModules ?? [],
+        RECEIPT_MODULE,
+      );
+      const projects = await tx.project.findMany({
+        where: {
+          tenantId,
+          id: {
+            not: projectId,
+            ...(scope !== null ? { in: scope } : {}),
+          },
+          deletedAt: null,
+        },
+        select: { id: true, name: true, type: true },
+      });
+      const projectIds = projects.map((project) => project.id);
+      const receipts = projectIds.length > 0
+        ? await tx.receipt.findMany({
+            where: {
+              tenantId,
+              projectId: { in: projectIds },
+              status: 'PREVISTO',
+              deletedAt: null,
+            },
+            take: 500,
+            orderBy: { data: 'desc' },
+          })
+        : [];
+      return { otherProjects: projects, planned: receipts };
     });
     if (otherProjects.length === 0) {
       return bankReceipts.map((r) => ({ receipt: serializeReceipt(r), suggestions: [] }));
     }
 
-    const otherIds = otherProjects.map((p) => p.id);
-    const planned = await this.prisma.receipt.findMany({
-      where: {
-        tenantId,
-        projectId: { in: otherIds },
-        status: 'PREVISTO',
-        deletedAt: null,
-      },
-      take: 500,
-      orderBy: { data: 'desc' },
-    });
     const projectById = new Map(otherProjects.map((p) => [p.id, p]));
 
     return bankReceipts.map((r) => {
@@ -1712,6 +1860,40 @@ export class BankAccountService {
   ): Promise<Map<string, PreparedBankCardPayment>> {
     if (rows.length === 0) return new Map();
 
+    // Preflight de pagamento de fatura: o recurso é o CARTÃO (#480 SEC-1).
+    const scope = await resolveAccessibleProjectScope(
+      tx,
+      tenantId,
+      requester.role,
+      requester.allowedProjects,
+      requester.allowedProjectTypes,
+      requester.allowedModules ?? [],
+      CREDIT_CARD_MODULE,
+    );
+    const accessibleCards = await tx.creditCard.findMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+        project: { deletedAt: null },
+        ...(scope !== null ? { projectId: { in: scope } } : {}),
+      },
+      select: {
+        id: true,
+        projectId: true,
+        last4: true,
+        nickname: true,
+        brand: true,
+        closingDay: true,
+        dueDay: true,
+      },
+    });
+    const cardsByLast4 = new Map<string, typeof accessibleCards>();
+    for (const card of accessibleCards) {
+      const group = cardsByLast4.get(card.last4) ?? [];
+      group.push(card);
+      cardsByLast4.set(card.last4, group);
+    }
+
     const states: BankCardPaymentPreflightState[] = [];
     for (const row of rows) {
       const cardPaymentInfo = detectCardPayment(row.transaction.merchant);
@@ -1732,22 +1914,24 @@ export class BankAccountService {
         (!row.categoryOverride ||
           row.categoryOverride === 'PAGAMENTO_FATURA_CARTAO');
       if (hasCardOverride) {
-        state.matchedCard = await this.findCardByLast4(
-          tenantId,
-          row.cardOverride as string,
-          tx,
-        );
-        if (state.matchedCard) state.isCardPayment = true;
+        const matches = cardsByLast4.get(row.cardOverride as string) ?? [];
+        if (matches.length === 0) {
+          throw new NotFoundException(CARD_NOT_FOUND_MESSAGE);
+        }
+        if (matches.length > 1) {
+          throw new ConflictException(AMBIGUOUS_CARD_MESSAGE);
+        }
+        state.matchedCard = matches[0];
+        state.isCardPayment = true;
         continue;
       }
 
       if (state.isCardPayment) {
         if (cardPaymentInfo.last4) {
-          state.matchedCard = await this.findCardByLast4(
-            tenantId,
-            cardPaymentInfo.last4,
-            tx,
-          );
+          const matches = cardsByLast4.get(cardPaymentInfo.last4) ?? [];
+          if (matches.length === 1) state.matchedCard = matches[0];
+          // Duplicidade acessível é ambígua e jamais cai em outro auto-match.
+          if (matches.length > 1) continue;
         }
         state.needsValueMatch = !state.matchedCard;
         continue;
@@ -1764,23 +1948,15 @@ export class BankAccountService {
     const valueMatchStates = states.filter((state) => state.needsValueMatch);
     let cardsWithEntries: CardWithEntries[] = [];
     if (valueMatchStates.length > 0) {
-      const cards = await tx.creditCard.findMany({
-        where: { tenantId, deletedAt: null },
-        select: {
-          id: true,
-          last4: true,
-          nickname: true,
-          brand: true,
-          closingDay: true,
-          dueDay: true,
-        },
-      });
       const probe = valueMatchStates[0].row.transaction;
-      const authorizedCards: Array<MatchedSettlementCard & { brand: string }> = [];
+      const unambiguousCards = [...cardsByLast4.values()]
+        .filter((group) => group.length === 1)
+        .map(([card]) => card);
+      const authorizedCards: typeof unambiguousCards = [];
 
       // O ranking por valor pode considerar qualquer cartão ativo. Cada um
       // precisa passar pelo mesmo preflight de settlement antes dessa leitura.
-      for (const card of cards) {
+      for (const card of unambiguousCards) {
         try {
           await this.cardSettlement.prepareSettleInvoice({
             tenantId,
@@ -1789,6 +1965,7 @@ export class BankAccountService {
             paymentDate: probe.date,
             tx,
             requester,
+            requiredModule: CREDIT_CARD_MODULE,
           });
           authorizedCards.push(card);
         } catch (error) {
@@ -1803,8 +1980,11 @@ export class BankAccountService {
         tenantId,
         cardWindow.from,
         cardWindow.to,
+        requester,
         tx,
         authorizedCards.map((card) => ({
+          id: card.id,
+          projectId: card.projectId,
           last4: card.last4,
           nickname: card.nickname?.trim() || `${card.brand} ••${card.last4}`,
           closingDay: card.closingDay,
@@ -1853,6 +2033,7 @@ export class BankAccountService {
             paymentDate: transaction.date,
             tx,
             requester,
+            requiredModule: CREDIT_CARD_MODULE,
           })
         : null;
       prepared.set(transaction.externalId, {
@@ -1969,6 +2150,7 @@ export class BankAccountService {
           paymentDate: tx.date,
           tx: client,
           requester,
+          requiredModule: CREDIT_CARD_MODULE,
         });
         const e = await this.createCardPaymentExpense(
           client,
@@ -2118,20 +2300,66 @@ export class BankAccountService {
     tenantId: string,
     from: Date,
     to: Date,
+    requester: RateioRequester,
     client: SettlementClient = this.prisma,
     scopedCards?: Array<Omit<CardWithEntries, 'entries'>>,
   ): Promise<CardWithEntries[]> {
-    const cards = scopedCards ?? (await client.creditCard.findMany({
-      where: { tenantId, deletedAt: null },
-      select: { last4: true, nickname: true, brand: true, closingDay: true, dueDay: true },
+    assertRateioRequester(requester);
+    const scope = scopedCards
+      ? null
+      : // O recurso carregado é o CARTÃO: exige `creditCards` no projeto dono
+        // dele. Vale para todo consumidor do loader — inclusive o candidato
+        // aninhado da fila de pendências (#480 SEC-1).
+        await resolveAccessibleProjectScope(
+          client,
+          tenantId,
+          requester.role,
+          requester.allowedProjects,
+          requester.allowedProjectTypes,
+          requester.allowedModules ?? [],
+          CREDIT_CARD_MODULE,
+        );
+    const candidateCards = scopedCards ?? (await client.creditCard.findMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+        project: { deletedAt: null },
+        ...(scope !== null ? { projectId: { in: scope } } : {}),
+      },
+      select: {
+        id: true,
+        projectId: true,
+        last4: true,
+        nickname: true,
+        brand: true,
+        closingDay: true,
+        dueDay: true,
+      },
     })).map((card) => ({
+      id: card.id,
+      projectId: card.projectId,
       last4: card.last4,
       nickname: card.nickname?.trim() || `${card.brand} ••${card.last4}`,
       closingDay: card.closingDay,
       dueDay: card.dueDay,
     }));
+    const byLast4 = new Map<string, Array<Omit<CardWithEntries, 'entries'>>>();
+    for (const card of candidateCards) {
+      const group = byLast4.get(card.last4) ?? [];
+      group.push(card);
+      byLast4.set(card.last4, group);
+    }
+    // A API legada identifica cartão por last4. Enquanto não houver cardId no
+    // contrato público, um grupo duplicado é intrinsecamente ambíguo.
+    const cards = [...byLast4.values()]
+      .filter((group) => group.length === 1)
+      .map(([card]) => card);
     if (cards.length === 0) return [];
-    const cardLast4s = [...new Set(cards.map((card) => card.last4))];
+    const cardScopes = cards.filter(
+      (card): card is Omit<CardWithEntries, 'entries'> & { projectId: string } =>
+        Boolean(card.projectId),
+    );
+    if (cardScopes.length !== cards.length) return [];
 
     const entries = await client.cashFlowEntry.findMany({
       where: {
@@ -2139,30 +2367,42 @@ export class BankAccountService {
         tipo: 'DESPESA',
         deletedAt: null,
         data: { gte: from, lte: to },
-        expense: {
-          cardLast4: { in: cardLast4s },
-          deletedAt: null,
-          tipoDespesa: { notIn: Array.from(NEUTRAL_EXPENSE_TYPES) },
-        },
+        OR: cardScopes.map((card) => ({
+          projectId: card.projectId,
+          expense: {
+            projectId: card.projectId,
+            cardLast4: card.last4,
+            deletedAt: null,
+            tipoDespesa: { notIn: Array.from(NEUTRAL_EXPENSE_TYPES) },
+          },
+        })),
       },
-      select: { valor: true, data: true, expense: { select: { cardLast4: true } } },
+      select: {
+        projectId: true,
+        valor: true,
+        data: true,
+        expense: { select: { cardLast4: true } },
+      },
     });
 
-    const byLast4 = new Map<string, Array<{ data: Date; valor: number }>>();
+    const entriesByCard = new Map<string, Array<{ data: Date; valor: number }>>();
     for (const entry of entries) {
       const last4 = entry.expense?.cardLast4;
       if (!last4) continue;
-      const list = byLast4.get(last4) ?? [];
+      const key = `${entry.projectId}:${last4}`;
+      const list = entriesByCard.get(key) ?? [];
       list.push({ data: entry.data, valor: entry.valor });
-      byLast4.set(last4, list);
+      entriesByCard.set(key, list);
     }
 
     return cards.map((card) => ({
+      id: card.id,
+      projectId: card.projectId,
       last4: card.last4,
       nickname: card.nickname,
       closingDay: card.closingDay,
       dueDay: card.dueDay,
-      entries: byLast4.get(card.last4) ?? [],
+      entries: entriesByCard.get(`${card.projectId}:${card.last4}`) ?? [],
     }));
   }
 
@@ -2182,9 +2422,15 @@ export class BankAccountService {
     tenantId: string,
     last4: string,
     client: SettlementClient = this.prisma,
+    authorizedCardIds?: string[],
   ): Promise<MatchedSettlementCard | null> {
-    return client.creditCard.findFirst({
-      where: { tenantId, last4, deletedAt: null },
+    const cards = await client.creditCard.findMany({
+      where: {
+        tenantId,
+        last4,
+        deletedAt: null,
+        ...(authorizedCardIds ? { id: { in: authorizedCardIds } } : {}),
+      },
       select: {
         id: true,
         last4: true,
@@ -2192,7 +2438,9 @@ export class BankAccountService {
         closingDay: true,
         dueDay: true,
       },
+      take: 2,
     });
+    return cards.length === 1 ? cards[0] : null;
   }
 
   /**
@@ -2268,6 +2516,7 @@ export class BankAccountService {
         tenantId,
         byInvoiceTotal.cardLast4,
         client,
+        authorizedCardIds,
       );
       if (card && (!authorizedCardIds || authorizedCardIds.includes(card.id))) {
         return card;
@@ -2399,6 +2648,7 @@ function serializeExpense(e: {
     titulo: e.titulo,
     fornecedor: e.fornecedor,
     valor: e.valorTotal,
+    valorTotal: e.valorTotal,
     data: (e.dataPagamento ?? e.dataInicioParcela ?? e.createdAt).toISOString(),
     status: e.status,
     bankLast4: e.bankLast4,

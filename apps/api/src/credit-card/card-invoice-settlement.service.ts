@@ -8,7 +8,11 @@ import {
   NEUTRAL_EXPENSE_TYPES,
   isSinglePaymentForm,
 } from '@reformaflow/domain';
-import { userCanAccessProject, userCanAccessProjectType } from '../common/access-rules';
+import {
+  userCanAccessProject,
+  userCanAccessProjectModule,
+  userCanAccessProjectType,
+} from '../common/access-rules';
 import {
   assertRateioRequester,
   type RateioRequester,
@@ -117,6 +121,8 @@ export class CardInvoiceSettlementService {
     amountCents: number;
     paymentDate: Date;
     requester: RateioRequester;
+    /** Ver `assertCanAccessCard.requiredModule` (#480 SEC-1). */
+    requiredModule?: string;
   }): Promise<{ settledExpenses: number; settledParcelas: number }> {
     assertRateioRequester(params.requester);
     return this.prisma.$transaction(async (tx) => {
@@ -144,10 +150,18 @@ export class CardInvoiceSettlementService {
     paymentDate: Date;
     tx: Prisma.TransactionClient;
     requester: RateioRequester;
+    /** Ver `assertCanAccessCard.requiredModule` (#480 SEC-1). */
+    requiredModule?: string;
   }): Promise<PreparedInvoiceSettlement> {
     assertRateioRequester(params.requester);
     const { tenantId, card, amountCents, paymentDate, tx, requester } = params;
-    await this.assertCanAccessCard({ tenantId, card, tx, requester });
+    await this.assertCanAccessCard({
+      tenantId,
+      card,
+      tx,
+      requester,
+      requiredModule: params.requiredModule,
+    });
 
     const neutral = Array.from(NEUTRAL_EXPENSE_TYPES);
     const purchases = await tx.expense.findMany({
@@ -294,6 +308,8 @@ export class CardInvoiceSettlementService {
     tx: Prisma.TransactionClient;
     requester: RateioRequester;
     notFoundMessage?: string;
+    /** Ver `assertCanAccessCard.requiredModule` (#480 SEC-1). */
+    requiredModule?: string;
   }): Promise<PreparedInvoiceUnsettlement> {
     assertRateioRequester(params.requester);
     const { tenantId, card, dueMonth, tx, requester } = params;
@@ -303,6 +319,7 @@ export class CardInvoiceSettlementService {
       tx,
       requester,
       notFoundMessage: params.notFoundMessage,
+      requiredModule: params.requiredModule,
     });
 
     const neutral = Array.from(NEUTRAL_EXPENSE_TYPES);
@@ -353,6 +370,12 @@ export class CardInvoiceSettlementService {
     tx: Prisma.TransactionClient;
     requester: RateioRequester;
     notFoundMessage?: string;
+    /**
+     * Módulo dono do recurso SEGUNDO O CALLER. A superfície de importação
+     * passa `creditCards` (#480 SEC-1); callers cujo `@RequireModule` é outro
+     * (cockpit `monthlyOverview`) omitem e ficam no gate histórico por tipo.
+     */
+    requiredModule?: string;
   }): Promise<void> {
     assertRateioRequester(params.requester);
     const { tenantId, card, tx, requester } = params;
@@ -375,7 +398,11 @@ export class CardInvoiceSettlementService {
       !storedCard.project ||
       storedCard.project.tenantId !== tenantId ||
       storedCard.project.deletedAt !== null ||
-      !this.canRequesterSeeProject(requester, storedCard.project)
+      !this.canRequesterSeeCardProject(
+        requester,
+        storedCard.project,
+        params.requiredModule,
+      )
     ) {
       throw new NotFoundException(
         params.notFoundMessage ?? INVOICE_NOT_FOUND_MESSAGE,
@@ -412,6 +439,8 @@ export class CardInvoiceSettlementService {
     dueMonth: string;
     tx: Prisma.TransactionClient;
     requester: RateioRequester;
+    /** Ver `assertCanAccessCard.requiredModule` (#480 SEC-1). */
+    requiredModule?: string;
   }): Promise<{ revertedExpenses: number; revertedParcelas: number }> {
     assertRateioRequester(params.requester);
     const prepared = await this.prepareUnsettleInvoice(params);
@@ -471,6 +500,13 @@ export class CardInvoiceSettlementService {
     });
   }
 
+  /**
+   * Gate genérico por TIPO, usado nas COMPRAS filhas de uma fatura já
+   * autorizada por `canRequesterSeeCardProject`. Fica deliberadamente no gate
+   * de tipo: liquidar/estornar uma fatura marca as compras dela por definição,
+   * então exigir `expenses` aqui quebraria o fluxo legítimo de quem só tem
+   * `creditCards`. A porta de entrada continua sendo o cartão (#480 SEC-1).
+   */
   private canRequesterSeeProject(
     requester: RateioRequester,
     project: { id: string; type: string },
@@ -482,6 +518,42 @@ export class CardInvoiceSettlementService {
         requester.allowedProjectTypes,
         requester.allowedModules ?? [],
         project.type,
+      )
+    );
+  }
+
+  /**
+   * O CARTÃO em si é recurso do módulo `creditCards`: quando o CALLER declara
+   * esse módulo (`requiredModule`), alcançar o projeto dono por um módulo não
+   * relacionado do mesmo tipo (ex.: `expenses` numa REFORMA) não autoriza a
+   * fatura (#480 SEC-1).
+   *
+   * Sem `requiredModule` vale o gate HISTÓRICO por tipo. Isso é deliberado e
+   * não é frouxidão: `assertCanAccessCard` não é só da importação — o cockpit
+   * (`payInvoice`/`undoInvoicePayment`) entra por rotas
+   * `@RequireModule('monthlyOverview')`. Exigir `creditCards` aqui, no fixo,
+   * 404-aria uma feature já entregue para quem tem `allowedProjectTypes: []`
+   * (nesse caso `reconcileUserModules` nunca faz back-fill de `creditCards` e
+   * o tipo é derivado dos módulos) — menu aparece, API falha. Quem paga o
+   * módulo é o dono da rota; mudar a exigência do cockpit é decisão de produto,
+   * não de hotfix de disclosure.
+   */
+  private canRequesterSeeCardProject(
+    requester: RateioRequester,
+    project: { id: string; type: string },
+    requiredModule?: string,
+  ): boolean {
+    if (requiredModule === undefined) {
+      return this.canRequesterSeeProject(requester, project);
+    }
+    return (
+      userCanAccessProject(requester.role, requester.allowedProjects, project.id) &&
+      userCanAccessProjectModule(
+        requester.role,
+        requester.allowedProjectTypes,
+        requester.allowedModules ?? [],
+        project.type,
+        requiredModule,
       )
     );
   }

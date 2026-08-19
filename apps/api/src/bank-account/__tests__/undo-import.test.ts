@@ -120,7 +120,7 @@ async function main() {
 2026-06-15,PAGAMENTO FATURA CARTAO,-300.00`;
 
   // Descobre o externalId da linha de pagamento p/ forçar cardLast4 na decisão.
-  const preview: any = await svc.previewImport(tenant.id, pessoal.id, acc.id, csv, 'extrato.csv', 'CSV_GENERIC' as any);
+  const preview: any = await svc.previewImport(tenant.id, pessoal.id, acc.id, csv, 'extrato.csv', 'CSV_GENERIC' as any, undefined, requester);
   const payTx = preview.preview.find((p: any) => /PAGAMENTO FATURA/.test(p.merchant));
   assert(!!payTx, 'preview identifica a linha de pagamento de fatura');
   const decisions = [{ externalId: payTx.externalId, overrides: { cardLast4: '7777' } }];

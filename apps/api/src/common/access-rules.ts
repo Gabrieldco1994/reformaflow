@@ -2,6 +2,7 @@ import {
   TYPE_MODULES,
   projectTypeHasModule,
   userHasAnyModuleForType,
+  type TypeModuleSlug,
 } from '@reformaflow/domain';
 
 // The per-project-type module gate now lives in @reformaflow/domain
@@ -10,6 +11,16 @@ import {
 // projectTypeHasModule) shares ONE map with the web (auth-context →
 // userHasAnyModuleForType) — they can no longer drift apart (#98).
 export { TYPE_MODULES, projectTypeHasModule, userHasAnyModuleForType };
+
+/**
+ * Módulos que DONAM um recurso financeiro. Toda trava de disclosure (#480
+ * SEC-1) referencia estas constantes — nunca o literal solto — para que o slug
+ * exigido pelo `@RequireModule` do endpoint direto e o exigido pelo
+ * preview/sugestão que descobre o mesmo recurso não possam divergir.
+ */
+export const EXPENSE_MODULE: TypeModuleSlug = 'expenses';
+export const RECEIPT_MODULE: TypeModuleSlug = 'receipts';
+export const CREDIT_CARD_MODULE: TypeModuleSlug = 'creditCards';
 
 /** User authorization by project type with legacy fallback for empty grants. */
 export function userCanAccessProjectType(
@@ -46,6 +57,37 @@ export function accessibleProjectTypes(
 /** Papéis com acesso total (veem todos os projetos, ignoram restrição por projeto). */
 export function isFullAccessRole(role: string | undefined): boolean {
   return role === 'ADMIN' || role === 'OWNER';
+}
+
+/**
+ * O requisitante alcança `projectType` **para o recurso de `requiredModule`**?
+ *
+ * `userCanAccessProjectType` responde "esse usuário enxerga esse TIPO de
+ * projeto?" — qualquer módulo não-universal do tipo serve. Essa semântica é
+ * correta para listar projetos, e ERRADA para autorizar um recurso específico:
+ * quem tem só `creditCards` numa REFORMA passaria a ver candidatos Expense
+ * dela em previews/sugestões de importação, apesar das APIs diretas exigirem
+ * `@RequireModule('expenses')` (#480 SEC-1).
+ *
+ * Regra (fail-closed, três condições E):
+ *  1. o requisitante POSSUI `requiredModule` (`allowedModules`);
+ *  2. o TIPO do projeto tem esse módulo (`projectTypeHasModule`);
+ *  3. o tipo continua acessível pelo gate existente (`userCanAccessProjectType`).
+ *
+ * ADMIN/OWNER seguem irrestritos dentro do tenant.
+ */
+export function userCanAccessProjectModule(
+  role: string | undefined,
+  allowedProjectTypes: string[] | undefined,
+  allowedModules: string[],
+  projectType: string,
+  requiredModule: string,
+): boolean {
+  if (isFullAccessRole(role)) return true;
+  const modules = Array.isArray(allowedModules) ? allowedModules : [];
+  if (!modules.includes(requiredModule)) return false;
+  if (!projectTypeHasModule(projectType, requiredModule)) return false;
+  return userCanAccessProjectType(role, allowedProjectTypes, modules, projectType);
 }
 
 /**
@@ -89,7 +131,16 @@ interface ProjectScopeReader {
   };
 }
 
-/** Resolves aggregate visibility to concrete IDs, including type revocations. */
+/**
+ * Resolve aggregate visibility to concrete IDs, including type revocations.
+ *
+ * `requiredModule` (opcional) restringe o escopo ao RECURSO daquele módulo
+ * (#480 SEC-1): sem ele o comportamento é idêntico ao histórico — "todo projeto
+ * que o usuário enxerga". Com ele, um módulo que o requisitante não possui
+ * responde `[]` ANTES de qualquer leitura de projeto ou candidato, e os tipos
+ * ainda passam pelo suporte ao módulo (`projectTypeHasModule`), de modo que um
+ * módulo não relacionado do MESMO tipo nunca libera o recurso.
+ */
 export async function resolveAccessibleProjectScope(
   prisma: ProjectScopeReader,
   tenantId: string,
@@ -97,9 +148,17 @@ export async function resolveAccessibleProjectScope(
   allowedProjects: string[] | undefined,
   allowedProjectTypes: string[] | undefined,
   allowedModules: string[],
+  requiredModule?: string,
 ): Promise<string[] | null> {
   if (isFullAccessRole(role)) return null;
-  const types = accessibleProjectTypes(role, allowedProjectTypes, allowedModules);
+  const modules = Array.isArray(allowedModules) ? allowedModules : [];
+  // Fail-closed antes do banco: sem o módulo do recurso não há o que buscar.
+  if (requiredModule !== undefined && !modules.includes(requiredModule)) return [];
+  const accessibleTypes = accessibleProjectTypes(role, allowedProjectTypes, modules);
+  const types =
+    requiredModule === undefined || accessibleTypes === null
+      ? accessibleTypes
+      : accessibleTypes.filter((type) => projectTypeHasModule(type, requiredModule));
   if (types !== null && types.length === 0) return [];
   const projectIds = Array.isArray(allowedProjects) ? allowedProjects : [];
   const projects = await prisma.project.findMany({

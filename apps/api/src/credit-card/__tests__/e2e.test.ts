@@ -287,7 +287,12 @@ async function main() {
       status: 'PLANEJADO',
     },
   });
-  const suggestions = await cardSvc.suggestLinks(tenant.id, pessoal.id, itau.id);
+  const suggestions = await cardSvc.suggestLinks(
+    tenant.id,
+    pessoal.id,
+    itau.id,
+    requester,
+  );
   const ifoodSuggestion = suggestions.find((s: any) => s.expense.fornecedor?.includes('IFOOD'));
   assert(!!ifoodSuggestion && ifoodSuggestion.suggestions.length > 0, 'sugestão iFood → CASA encontrada');
 
