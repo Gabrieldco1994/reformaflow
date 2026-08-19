@@ -15,7 +15,6 @@ import {
   RateioRequester,
 } from './rateio.types';
 import {
-  isFullAccessRole,
   userCanAccessProject,
   userCanAccessProjectType,
   resolveAccessibleProjectScope,
@@ -1401,9 +1400,7 @@ export class ExpenseService {
       where: { id, projectId, tenantId, deletedAt: null },
     });
     if (!existing) throw new NotFoundException('Despesa não encontrada');
-    if (!isFullAccessRole(requester.role)) {
-      await this.assertCanMutateLinkedRows(db, tenantId, existing, requester);
-    }
+    await this.assertCanMutateLinkedRows(db, tenantId, existing, requester);
 
     const valorCents = dto.valor !== undefined ? Math.round(dto.valor * 100) : existing.valor;
     const quantidade = dto.quantidade !== undefined ? dto.quantidade : existing.quantidade;
