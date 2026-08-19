@@ -10,7 +10,9 @@ const USER: RateioRequester = {
   role: 'USER',
   allowedProjects: ['pessoal', 'visible'],
   allowedProjectTypes: ['PESSOAL', 'REFORMA'],
-  allowedModules: ['expenses'],
+  // Cada RECURSO exige o seu módulo (#480 SEC-1): Expense → `expenses`,
+  // Receipt → `receipts`, cartão/fatura → `creditCards`.
+  allowedModules: ['expenses', 'receipts', 'creditCards'],
 };
 
 function serviceWith(prisma: any): BankAccountService {

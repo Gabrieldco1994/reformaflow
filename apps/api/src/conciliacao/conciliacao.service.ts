@@ -14,7 +14,12 @@ import {
   assertRateioRequester,
   RateioRequester,
 } from '../expense/rateio.types';
-import { userCanAccessProject, userCanAccessProjectType } from '../common/access-rules';
+import {
+  EXPENSE_MODULE,
+  RECEIPT_MODULE,
+  userCanAccessProject,
+  userCanAccessProjectModule,
+} from '../common/access-rules';
 
 type Tx = Prisma.TransactionClient;
 
@@ -63,19 +68,26 @@ export interface RatearInput {
 export class ConciliacaoService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Autoriza o projeto real de um alvo recebido fora dos params da rota. */
+  /**
+   * Autoriza o projeto real de um alvo recebido fora dos params da rota.
+   * `requiredModule` é o módulo DONO do recurso alvo (Expense → `expenses`,
+   * Receipt → `receipts`): um módulo não relacionado do mesmo tipo de projeto
+   * nunca autoriza o alvo (#480 SEC-1).
+   */
   private canRequesterSeeProject(
     requester: RateioRequester | undefined,
     project: { id: string; type: string } | null | undefined,
+    requiredModule: string,
   ): boolean {
     if (!requester || !project) return false;
     return (
       userCanAccessProject(requester.role, requester.allowedProjects, project.id) &&
-      userCanAccessProjectType(
+      userCanAccessProjectModule(
         requester.role,
         requester.allowedProjectTypes,
         requester.allowedModules ?? [],
         project.type,
+        requiredModule,
       )
     );
   }
@@ -131,7 +143,7 @@ export class ConciliacaoService {
         !target.project ||
         target.project.tenantId !== tenantId ||
         target.project.deletedAt !== null ||
-        !this.canRequesterSeeProject(requester, target.project)
+        !this.canRequesterSeeProject(requester, target.project, EXPENSE_MODULE)
       ) {
         throw error(id);
       }
@@ -191,7 +203,7 @@ export class ConciliacaoService {
         !target.project ||
         target.project.tenantId !== params.tenantId ||
         target.project.deletedAt !== null ||
-        !this.canRequesterSeeProject(requester, target.project)
+        !this.canRequesterSeeProject(requester, target.project, RECEIPT_MODULE)
       ) {
         throw new NotFoundException('Recebimento alvo não encontrado');
       }

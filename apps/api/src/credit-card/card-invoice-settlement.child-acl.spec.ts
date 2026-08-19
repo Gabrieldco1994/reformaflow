@@ -59,6 +59,12 @@ const MANAGED: RateioRequester = {
   role: "USER",
   allowedProjects: [PESSOAL, ALLOWED, REMOVED_PROJECT],
   allowedProjectTypes: ["PESSOAL", "REFORMA"],
+  // Cartão exige o módulo do CARTÃO (#480 SEC-1); `expenses` sozinho não serve.
+  allowedModules: ["expenses", "creditCards"],
+};
+/** Mesmos projetos/tipos, alcançados só por um módulo não relacionado. */
+const EXPENSES_ONLY: RateioRequester = {
+  ...MANAGED,
   allowedModules: ["expenses"],
 };
 const OWNER: RateioRequester = { role: "OWNER" };
@@ -451,4 +457,46 @@ describe("CardInvoiceSettlementService.settleInvoice — child ACL real SQLite",
       ]);
     },
   );
+
+  it("does not authorize a card through an unrelated same-project-type module", async () => {
+    await createPurchase({
+      id: "expenses-only-purchase",
+      projectId: ALLOWED,
+      cardLast4: VISIBLE_CARD.last4,
+    });
+    const before = await snapshot();
+
+    const hiddenError = await captureError(() =>
+      settle(service, VISIBLE_CARD, EXPENSES_ONLY),
+    );
+    const afterHidden = await snapshot();
+    const missingError = await captureError(() =>
+      settle(service, MISSING_CARD, EXPENSES_ONLY),
+    );
+    const afterMissing = await snapshot();
+
+    expect(errorShape(hiddenError)).toEqual(errorShape(missingError));
+    expect(errorShape(hiddenError)).toEqual({
+      name: "NotFoundException",
+      status: 404,
+      message: "Fatura não encontrada",
+    });
+    expect(afterHidden).toEqual(before);
+    expect(afterMissing).toEqual(before);
+    expect(before.expenses).toEqual([
+      {
+        id: "expenses-only-purchase",
+        projectId: ALLOWED,
+        status: "PLANEJADO",
+        paidParcelas: null,
+      },
+    ]);
+    expect(before.entries).toEqual([
+      {
+        id: "expenses-only-purchase-entry",
+        expenseId: "expenses-only-purchase",
+        status: "PLANEJADO",
+      },
+    ]);
+  });
 });

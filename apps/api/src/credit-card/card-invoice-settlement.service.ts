@@ -8,7 +8,12 @@ import {
   NEUTRAL_EXPENSE_TYPES,
   isSinglePaymentForm,
 } from '@reformaflow/domain';
-import { userCanAccessProject, userCanAccessProjectType } from '../common/access-rules';
+import {
+  CREDIT_CARD_MODULE,
+  userCanAccessProject,
+  userCanAccessProjectModule,
+  userCanAccessProjectType,
+} from '../common/access-rules';
 import {
   assertRateioRequester,
   type RateioRequester,
@@ -375,7 +380,7 @@ export class CardInvoiceSettlementService {
       !storedCard.project ||
       storedCard.project.tenantId !== tenantId ||
       storedCard.project.deletedAt !== null ||
-      !this.canRequesterSeeProject(requester, storedCard.project)
+      !this.canRequesterSeeCardProject(requester, storedCard.project)
     ) {
       throw new NotFoundException(
         params.notFoundMessage ?? INVOICE_NOT_FOUND_MESSAGE,
@@ -471,6 +476,13 @@ export class CardInvoiceSettlementService {
     });
   }
 
+  /**
+   * Gate genérico por TIPO, usado nas COMPRAS filhas de uma fatura já
+   * autorizada por `canRequesterSeeCardProject`. Fica deliberadamente no gate
+   * de tipo: liquidar/estornar uma fatura marca as compras dela por definição,
+   * então exigir `expenses` aqui quebraria o fluxo legítimo de quem só tem
+   * `creditCards`. A porta de entrada continua sendo o cartão (#480 SEC-1).
+   */
   private canRequesterSeeProject(
     requester: RateioRequester,
     project: { id: string; type: string },
@@ -482,6 +494,27 @@ export class CardInvoiceSettlementService {
         requester.allowedProjectTypes,
         requester.allowedModules ?? [],
         project.type,
+      )
+    );
+  }
+
+  /**
+   * O CARTÃO em si é recurso do módulo `creditCards`: alcançar o projeto dono
+   * por um módulo não relacionado do mesmo tipo (ex.: `expenses` numa REFORMA)
+   * não autoriza a fatura (#480 SEC-1).
+   */
+  private canRequesterSeeCardProject(
+    requester: RateioRequester,
+    project: { id: string; type: string },
+  ): boolean {
+    return (
+      userCanAccessProject(requester.role, requester.allowedProjects, project.id) &&
+      userCanAccessProjectModule(
+        requester.role,
+        requester.allowedProjectTypes,
+        requester.allowedModules ?? [],
+        project.type,
+        CREDIT_CARD_MODULE,
       )
     );
   }

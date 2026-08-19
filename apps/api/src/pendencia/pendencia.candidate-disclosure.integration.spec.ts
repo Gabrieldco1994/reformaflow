@@ -41,6 +41,17 @@ const restrictedRequester: RateioRequester = {
   allowedModules: ["pendencias", "bankAccounts", "creditCards", "expenses"],
 };
 
+/**
+ * #480 SEC-1 — alcança REFORMA só por `pendencias`. O candidato de cartão é um
+ * recurso do módulo `creditCards`: sem ele, nada de cartão pode vazar.
+ */
+const pendenciasOnlyRequester: RateioRequester = {
+  role: "USER",
+  allowedProjects: [IDS.source, IDS.allowed],
+  allowedProjectTypes: ["PESSOAL", "REFORMA"],
+  allowedModules: ["pendencias"],
+};
+
 const ownerRequester: RateioRequester = {
   role: "OWNER",
   allowedProjects: [],
@@ -245,6 +256,14 @@ describe("Pendencia card candidate disclosure integration (#480)", () => {
     });
   }
 
+  /** Liga/desliga o cartão autorizado (candidato presente × ausente). */
+  async function setAllowedCardActive(active: boolean) {
+    await setup.creditCard.update({
+      where: { id: IDS.allowedCard },
+      data: { deletedAt: active ? null : CLOCK },
+    });
+  }
+
   async function queue(requester: RateioRequester) {
     return controller.findFinancialQueue(
       IDS.tenant,
@@ -398,6 +417,7 @@ describe("Pendencia card candidate disclosure integration (#480)", () => {
     monthlyOverview.getAccountView.mockClear();
     await cleanupTransient();
     await setHiddenActive(true);
+    await setAllowedCardActive(true);
     await seedQueue();
   });
 
@@ -491,5 +511,60 @@ describe("Pendencia card candidate disclosure integration (#480)", () => {
     expect(owner.total).toBe(restricted.total);
     expect(owner.grupos[0].count).toBe(restricted.grupos[0].count);
     expect(owner.grupos[0].valorTotal).toBe(restricted.grupos[0].valorTotal);
+  });
+
+  it("pendencias permission alone does not grant nested credit-card candidates", async () => {
+    const beforePresent = await financialState();
+    const cardPresent = await queue(pendenciasOnlyRequester);
+    const afterPresent = await financialState();
+
+    await setAllowedCardActive(false);
+    const beforeAbsent = await financialState();
+    const cardAbsent = await queue(pendenciasOnlyRequester);
+    const afterAbsent = await financialState();
+
+    expect(cardPresent).toEqual(cardAbsent);
+    expect(afterPresent).toEqual(beforePresent);
+    expect(afterAbsent).toEqual(beforeAbsent);
+    // O item pai (pagamento órfão) é do módulo `pendencias` e continua visível —
+    // o que some é o candidato de CARTÃO aninhado nele.
+    expect(cardPresent).toEqual({
+      total: 1,
+      grupos: [
+        {
+          tipo: "PAGAMENTO_FATURA_SEM_CARTAO",
+          label: "Pagamento de fatura sem cartão",
+          count: 1,
+          valorTotal: 30_000,
+          itens: [
+            {
+              id: `fatura-sem-cartao-${IDS.orphanPayment}`,
+              tipo: "PAGAMENTO_FATURA_SEM_CARTAO",
+              label: "Escolher cartão",
+              descricao: "Pagamento de fatura QA 480",
+              valor: 30_000,
+              data: PAYMENT_DATE.toISOString(),
+              expenseId: IDS.orphanPayment,
+              cardCandidates: [],
+            },
+          ],
+        },
+      ],
+    });
+    const serialized = JSON.stringify(cardPresent);
+    for (const sentinel of [
+      IDS.allowedCard,
+      IDS.allowedPurchase,
+      IDS.hiddenCard,
+      IDS.hiddenPurchase,
+      "9101",
+      "9102",
+      "30001",
+      "deltaCents",
+      "invoiceTotalCents",
+      "SENTINELA",
+    ]) {
+      expect(serialized).not.toContain(sentinel);
+    }
   });
 });

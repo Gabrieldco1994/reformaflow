@@ -10,7 +10,7 @@ import {
   assertRateioRequester,
   RateioRequester,
 } from '../expense/rateio.types';
-import { resolveAccessibleProjectScope } from '../common/access-rules';
+import { EXPENSE_MODULE, resolveAccessibleProjectScope } from '../common/access-rules';
 
 /** Normaliza a entrada (string legada, Buffer único ou array) para Buffer[]. */
 function toBuffers(content: string | Buffer | Buffer[]): Buffer[] {
@@ -285,6 +285,8 @@ export class CreditCardService {
     // Resolve a lente antes de qualquer leitura/ranking de candidatos. A
     // transação mantém projetos e despesas no mesmo snapshot.
     const { otherProjects, planned } = await this.prisma.$transaction(async (tx) => {
+      // Candidato é Expense: exige o módulo `expenses` no projeto candidato —
+      // `creditCards` do MESMO tipo não vale (#480 SEC-1).
       const scope = await resolveAccessibleProjectScope(
         tx,
         tenantId,
@@ -292,6 +294,7 @@ export class CreditCardService {
         requester.allowedProjects,
         requester.allowedProjectTypes,
         requester.allowedModules ?? [],
+        EXPENSE_MODULE,
       );
       const projects = await tx.project.findMany({
         where: {
@@ -767,6 +770,8 @@ export class CreditCardService {
     if (cardExpenses.length === 0) return [];
 
     const { otherProjects, planned } = await this.prisma.$transaction(async (tx) => {
+      // Candidato é Expense: exige o módulo `expenses` no projeto candidato —
+      // `creditCards` do MESMO tipo não vale (#480 SEC-1).
       const scope = await resolveAccessibleProjectScope(
         tx,
         tenantId,
@@ -774,6 +779,7 @@ export class CreditCardService {
         requester.allowedProjects,
         requester.allowedProjectTypes,
         requester.allowedModules ?? [],
+        EXPENSE_MODULE,
       );
       const projects = await tx.project.findMany({
         where: {

@@ -35,7 +35,9 @@ const REQUESTER: RateioRequester = {
   role: "USER",
   allowedProjects: [PESSOAL, ALLOWED],
   allowedProjectTypes: ["PESSOAL", "REFORMA"],
-  allowedModules: ["expenses"],
+  // Pagamento de fatura toca o recurso CARTÃO: exige `creditCards` além de
+  // `expenses` (#480 SEC-1).
+  allowedModules: ["expenses", "creditCards"],
 };
 
 function rejectionShape(error: unknown) {

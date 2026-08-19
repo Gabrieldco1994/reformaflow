@@ -34,6 +34,10 @@ const IDS = {
   deletedExpense: "qa480-card-expense-deleted-sentinel",
   crossExpense: "qa480-card-expense-cross-sentinel",
   importedExpense: "qa480-card-imported-expense",
+  // #480 SEC-1: PLANTAS não tem o módulo `expenses`; só é alcançável por um
+  // módulo não relacionado (`plantsAi`).
+  moduleHiddenProject: "qa480-card-module-hidden-project",
+  moduleHiddenExpense: "qa480-card-expense-module-sentinel",
 } as const;
 
 const HIDDEN_SENTINELS = [
@@ -74,6 +78,27 @@ const ownerRequester: RateioRequester & { id: string } = {
   allowedProjects: [],
   allowedProjectTypes: [],
   allowedModules: [],
+};
+
+/**
+ * #480 SEC-1 — alcança o projeto REFORMA pelo módulo do CARTÃO. Sem `expenses`
+ * não pode ver nenhum candidato Expense desse mesmo projeto.
+ */
+const cardOnlyRequester: RateioRequester & { id: string } = {
+  id: "qa480-card-user-card-only",
+  role: "USER",
+  allowedProjects: [IDS.source, IDS.allowed],
+  allowedProjectTypes: ["PESSOAL", "REFORMA"],
+  allowedModules: ["creditCards"],
+};
+
+/** Alcança PLANTAS por `plantsAi` — tipo que NÃO tem o módulo `expenses`. */
+const rankRequester: RateioRequester & { id: string } = {
+  id: "qa480-card-user-rank",
+  role: "USER",
+  allowedProjects: [IDS.source, IDS.allowed, IDS.moduleHiddenProject],
+  allowedProjectTypes: ["PESSOAL", "REFORMA", "PLANTAS"],
+  allowedModules: ["creditCards", "expenses", "plantsAi"],
 };
 
 const adminRequester: RateioRequester & { id: string } = {
@@ -264,6 +289,14 @@ describe("credit-card candidate disclosure integration (#480)", () => {
     });
   }
 
+  /** Liga/desliga um candidato individual (presente × ausente). */
+  async function setExpenseActive(id: string, active: boolean) {
+    await setup.expense.update({
+      where: { id },
+      data: { deletedAt: active ? null : CLOCK },
+    });
+  }
+
   async function preview(
     requester: RateioRequester & { id: string },
     content = csvStatement(),
@@ -423,6 +456,12 @@ describe("credit-card candidate disclosure integration (#480)", () => {
           tenantId: IDS.otherTenant,
           type: "REFORMA",
           name: "Projeto cartão cross-tenant SENTINELA",
+        },
+        {
+          id: IDS.moduleHiddenProject,
+          tenantId: IDS.tenant,
+          type: "PLANTAS",
+          name: "Projeto cartão módulo oculto SENTINELA",
         },
       ],
     });
@@ -677,5 +716,73 @@ describe("credit-card candidate disclosure integration (#480)", () => {
       },
     });
     expect((await financialState()).imports).toEqual([]);
+  });
+
+  it("does not treat creditCards permission as expenses permission in the same REFORMA project", async () => {
+    const beforePresent = await financialState();
+    const candidatePresent = await preview(cardOnlyRequester);
+    const afterPresent = await financialState();
+
+    await setExpenseActive(IDS.allowedExpense, false);
+    await setExpenseActive(IDS.allowedFutureExpense, false);
+    const beforeAbsent = await financialState();
+    const candidateAbsent = await preview(cardOnlyRequester);
+    const afterAbsent = await financialState();
+
+    expect(candidatePresent).toEqual(candidateAbsent);
+    expect(candidatePresent.preview[0].crossProjectMatches).toEqual([]);
+    expect(afterPresent).toEqual(beforePresent);
+    expect(afterAbsent).toEqual(beforeAbsent);
+    const serialized = JSON.stringify(candidatePresent);
+    for (const sentinel of [
+      ...HIDDEN_SENTINELS,
+      IDS.allowedExpense,
+      IDS.allowedFutureExpense,
+      "Despesa cartão permitida",
+    ]) {
+      expect(serialized).not.toContain(sentinel);
+    }
+  });
+
+  it("filters same-type unrelated-module Expense before suggestion ranking and take", async () => {
+    await createExpense({
+      id: IDS.importedExpense,
+      projectId: IDS.source,
+      title: "Compra importada para sugestão",
+      amount: 10_000,
+      status: "PAGO",
+      cardLast4: "4802",
+    });
+    for (let index = 2; index <= 5; index += 1) {
+      await createExpense({
+        id: `qa480-card-expense-allowed-${index}`,
+        projectId: IDS.allowed,
+        title: `Despesa cartão permitida ${index}`,
+        amount: 10_000 + index,
+      });
+    }
+    // Competidor MELHOR ranqueado (delta 0) oculto SÓ pelo módulo do recurso.
+    await createExpense({
+      id: IDS.moduleHiddenExpense,
+      projectId: IDS.moduleHiddenProject,
+      title: "Despesa cartão módulo oculta SENTINELA",
+      amount: 10_000,
+    });
+
+    const withHidden = await suggest(rankRequester);
+    await setExpenseActive(IDS.moduleHiddenExpense, false);
+    const withoutHidden = await suggest(rankRequester);
+
+    expect(withHidden).toEqual(withoutHidden);
+    expect(withHidden[0].suggestions.map((s: any) => s.expenseId)).toEqual([
+      IDS.allowedExpense,
+      "qa480-card-expense-allowed-2",
+      "qa480-card-expense-allowed-3",
+      "qa480-card-expense-allowed-4",
+      "qa480-card-expense-allowed-5",
+    ]);
+    for (const sentinel of [...HIDDEN_SENTINELS, IDS.moduleHiddenExpense]) {
+      expect(JSON.stringify(withHidden)).not.toContain(sentinel);
+    }
   });
 });

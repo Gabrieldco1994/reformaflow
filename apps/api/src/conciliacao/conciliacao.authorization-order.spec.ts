@@ -14,7 +14,20 @@ const MANAGED: RateioRequester = {
   role: "USER",
   allowedProjects: [SOURCE_PROJECT, ALLOWED_PROJECT],
   allowedProjectTypes: ["PESSOAL", "REFORMA"],
-  allowedModules: ["expenses"],
+  // Cada recurso exige o SEU módulo (#480 SEC-1): alvo Expense pede `expenses`,
+  // alvo Receipt pede `receipts`.
+  allowedModules: ["expenses", "receipts"],
+};
+
+/**
+ * Alcança os MESMOS projetos/tipos que MANAGED, porém só por um módulo não
+ * relacionado. Não pode ver alvo Expense nem Receipt (#480 SEC-1).
+ */
+const UNRELATED_MODULE: RateioRequester = {
+  role: "USER",
+  allowedProjects: [SOURCE_PROJECT, ALLOWED_PROJECT],
+  allowedProjectTypes: ["PESSOAL", "REFORMA"],
+  allowedModules: ["creditCards"],
 };
 
 type DeniedKind = "hidden" | "missing" | "cross-tenant";
@@ -223,6 +236,17 @@ function buildTx(
   };
 
   return { tx, writes };
+}
+
+function errorShape(error: unknown) {
+  const http = error as { getStatus?: () => number };
+  return error
+    ? {
+        name: (error as Error).constructor.name,
+        status: http.getStatus?.(),
+        message: (error as Error).message,
+      }
+    : null;
 }
 
 async function captureError(run: () => Promise<unknown>) {
@@ -458,5 +482,65 @@ describe("ConciliacaoService.ratearSource — preflight ACL antes da primeira wr
       },
     });
     expect(writes).toEqual([]);
+  });
+
+  it("treats an Expense target hidden only by missing expenses module exactly like absent", async () => {
+    const hidden = buildTx();
+    const absent = buildTx();
+    const service = new ConciliacaoService({} as any);
+
+    const hiddenError = await captureError(() =>
+      service.assertCanSettleTargets(
+        hidden.tx,
+        { tenantId: TENANT, targetExpenseIds: ["allowed-target"] },
+        UNRELATED_MODULE,
+      ),
+    );
+    const absentError = await captureError(() =>
+      service.assertCanSettleTargets(
+        absent.tx,
+        { tenantId: TENANT, targetExpenseIds: ["absent-target"] },
+        UNRELATED_MODULE,
+      ),
+    );
+
+    expect(errorShape(hiddenError)).toEqual(errorShape(absentError));
+    expect(errorShape(hiddenError)).toEqual({
+      name: "NotFoundException",
+      status: 404,
+      message: "Despesa alvo não encontrada",
+    });
+    expect(hidden.writes).toEqual([]);
+    expect(absent.writes).toEqual([]);
+  });
+
+  it("treats a Receipt target hidden only by missing receipts module exactly like absent", async () => {
+    const hidden = buildTx();
+    const absent = buildTx();
+    const service = new ConciliacaoService({} as any);
+
+    const hiddenError = await captureError(() =>
+      service.assertCanMutateReceiptTargets(
+        hidden.tx,
+        { tenantId: TENANT, targetReceiptIds: [RECEIPT_ID] },
+        UNRELATED_MODULE,
+      ),
+    );
+    const absentError = await captureError(() =>
+      service.assertCanMutateReceiptTargets(
+        absent.tx,
+        { tenantId: TENANT, targetReceiptIds: ["absent-receipt"] },
+        UNRELATED_MODULE,
+      ),
+    );
+
+    expect(errorShape(hiddenError)).toEqual(errorShape(absentError));
+    expect(errorShape(hiddenError)).toEqual({
+      name: "NotFoundException",
+      status: 404,
+      message: "Recebimento alvo não encontrado",
+    });
+    expect(hidden.writes).toEqual([]);
+    expect(absent.writes).toEqual([]);
   });
 });

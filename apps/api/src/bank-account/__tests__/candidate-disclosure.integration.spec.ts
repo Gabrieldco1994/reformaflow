@@ -42,6 +42,11 @@ const IDS = {
   crossReceipt: "qa480-bank-receipt-cross-sentinel",
   importedExpense: "qa480-bank-imported-expense",
   importedReceipt: "qa480-bank-imported-receipt",
+  // #480 SEC-1: projeto de tipo SEM o módulo do recurso (PLANTAS não tem
+  // `expenses`); alcançável só por um módulo não relacionado (`plantsAi`).
+  moduleHiddenProject: "qa480-bank-module-hidden-project",
+  moduleHiddenExpense: "qa480-bank-expense-module-sentinel",
+  moduleHiddenReceipt: "qa480-bank-receipt-module-sentinel",
 } as const;
 
 const HIDDEN_SENTINELS = [
@@ -88,6 +93,46 @@ const ownerRequester: RateioRequester & { id: string } = {
   allowedProjects: [],
   allowedProjectTypes: [],
   allowedModules: [],
+};
+
+/**
+ * #480 SEC-1 — alcança o projeto REFORMA por módulos NÃO relacionados ao
+ * recurso (`bankAccounts` para a própria conta, `creditCards` para o cartão).
+ * Sem `expenses`/`receipts` não pode ver candidato Expense nem Receipt.
+ */
+const unrelatedModuleRequester: RateioRequester & { id: string } = {
+  id: "qa480-bank-user-unrelated-module",
+  role: "USER",
+  allowedProjects: [IDS.source, IDS.allowed],
+  allowedProjectTypes: ["PESSOAL", "REFORMA"],
+  allowedModules: ["bankAccounts", "creditCards"],
+};
+
+/** Alcança REFORMA por `pendencias`; sem `creditCards` não vê cartão/fatura. */
+const noCardModuleRequester: RateioRequester & { id: string } = {
+  id: "qa480-bank-user-no-card-module",
+  role: "USER",
+  allowedProjects: [IDS.source, IDS.allowed],
+  allowedProjectTypes: ["PESSOAL", "REFORMA"],
+  allowedModules: ["bankAccounts", "pendencias"],
+};
+
+/** Alcança PLANTAS por `plantsAi` — tipo que NÃO tem o módulo `expenses`. */
+const expenseRankRequester: RateioRequester & { id: string } = {
+  id: "qa480-bank-user-expense-rank",
+  role: "USER",
+  allowedProjects: [IDS.source, IDS.allowed, IDS.moduleHiddenProject],
+  allowedProjectTypes: ["PESSOAL", "REFORMA", "PLANTAS"],
+  allowedModules: ["bankAccounts", "expenses", "plantsAi"],
+};
+
+/** Alcança CASA por `maintenance` — tipo que NÃO tem o módulo `receipts`. */
+const receiptRankRequester: RateioRequester & { id: string } = {
+  id: "qa480-bank-user-receipt-rank",
+  role: "USER",
+  allowedProjects: [IDS.source, IDS.allowed, IDS.typeHidden],
+  allowedProjectTypes: ["PESSOAL", "REFORMA", "CASA"],
+  allowedModules: ["bankAccounts", "receipts", "maintenance"],
 };
 
 const adminRequester: RateioRequester & { id: string } = {
@@ -424,6 +469,37 @@ describe("bank candidate disclosure integration (#480)", () => {
     });
   }
 
+  /** Liga/desliga um candidato individual (presente × ausente) sem tocar no resto. */
+  async function setExpenseActive(id: string, active: boolean) {
+    await setup.expense.update({
+      where: { id },
+      data: { deletedAt: active ? null : CLOCK },
+    });
+  }
+
+  async function setReceiptActive(id: string, active: boolean) {
+    await setup.receipt.update({
+      where: { id },
+      data: { deletedAt: active ? null : CLOCK },
+    });
+  }
+
+  async function setCardActive(id: string, active: boolean) {
+    await setup.creditCard.update({
+      where: { id },
+      data: { deletedAt: active ? null : CLOCK },
+    });
+  }
+
+  function candidateRefs(payload: { preview: any[] }) {
+    return payload.preview.flatMap((row: any) =>
+      row.crossProjectMatches.map((match: any) => ({
+        kind: match.kind,
+        id: match.kind === "expense" ? match.expenseId : match.receiptId,
+      })),
+    );
+  }
+
   async function preview(requester: RateioRequester & { id: string }) {
     return (await controller.importStatement(
       IDS.tenant,
@@ -589,6 +665,12 @@ describe("bank candidate disclosure integration (#480)", () => {
           tenantId: IDS.otherTenant,
           type: "REFORMA",
           name: "Projeto bancário cross-tenant SENTINELA",
+        },
+        {
+          id: IDS.moduleHiddenProject,
+          tenantId: IDS.tenant,
+          type: "PLANTAS",
+          name: "Projeto bancário módulo oculto SENTINELA",
         },
       ],
     });
@@ -961,5 +1043,248 @@ describe("bank candidate disclosure integration (#480)", () => {
       },
     });
     expect((await financialState()).imports).toEqual([]);
+  });
+
+  it("makes same-project-type Expense and Receipt candidates hidden when only an unrelated module is granted", async () => {
+    const beforePresent = await financialState();
+    const sentinelsPresent = await preview(unrelatedModuleRequester);
+    const afterPresent = await financialState();
+
+    await setExpenseActive(IDS.allowedExpense, false);
+    await setReceiptActive(IDS.allowedReceipt, false);
+    const beforeAbsent = await financialState();
+    const sentinelsAbsent = await preview(unrelatedModuleRequester);
+    const afterAbsent = await financialState();
+
+    expect(sentinelsPresent).toEqual(sentinelsAbsent);
+    // Preview é read-only nos dois estados (o único delta é o soft-delete que
+    // o próprio teste aplicou entre as duas leituras).
+    expect(afterPresent).toEqual(beforePresent);
+    expect(afterAbsent).toEqual(beforeAbsent);
+    expect(candidateRefs(sentinelsPresent)).toEqual([]);
+    expect(
+      sentinelsPresent.preview.map((row: any) => ({
+        merchant: row.merchant,
+        crossProjectMatches: row.crossProjectMatches,
+      })),
+    ).toEqual([
+      { merchant: "MATERIAL QA 480", crossProjectMatches: [] },
+      { merchant: "RECEITA QA 480", crossProjectMatches: [] },
+      { merchant: "PAGTO CART CRED", crossProjectMatches: [] },
+    ]);
+    // `creditCards` continua valendo — o corte é por recurso, não por projeto.
+    expect(
+      sentinelsPresent.preview.find(
+        (row: any) => row.merchant === "PAGTO CART CRED",
+      )?.cardCandidates,
+    ).toEqual([
+      {
+        cardLast4: "9001",
+        nickname: "Cartão bancário permitido",
+        dueMonth: "2026-08",
+        invoiceTotalCents: 30_000,
+        deltaCents: 0,
+      },
+    ]);
+    const serialized = JSON.stringify(sentinelsPresent);
+    for (const sentinel of [
+      ...HIDDEN_SENTINELS,
+      IDS.allowedExpense,
+      IDS.allowedReceipt,
+      "Despesa bancária permitida",
+      "Receita bancária permitida",
+    ]) {
+      expect(serialized).not.toContain(sentinel);
+    }
+  });
+
+  it("scopes Expense and Receipt candidates independently", async () => {
+    const cases: Array<{
+      label: string;
+      modules: string[];
+      expected: Array<{ kind: string; id: string }>;
+    }> = [
+      {
+        label: "expenses only",
+        modules: ["bankAccounts", "expenses"],
+        expected: [{ kind: "expense", id: IDS.allowedExpense }],
+      },
+      {
+        label: "receipts only",
+        modules: ["bankAccounts", "receipts"],
+        expected: [{ kind: "receipt", id: IDS.allowedReceipt }],
+      },
+      {
+        label: "expenses + receipts",
+        modules: ["bankAccounts", "expenses", "receipts"],
+        expected: [
+          { kind: "expense", id: IDS.allowedExpense },
+          { kind: "receipt", id: IDS.allowedReceipt },
+        ],
+      },
+      {
+        label: "neither",
+        modules: ["bankAccounts", "pendencias"],
+        expected: [],
+      },
+    ];
+
+    for (const scenario of cases) {
+      const payload = await preview({
+        id: `qa480-bank-user-${scenario.label.replace(/\W+/g, "-")}`,
+        role: "USER",
+        allowedProjects: [IDS.source, IDS.allowed],
+        allowedProjectTypes: ["PESSOAL", "REFORMA"],
+        allowedModules: scenario.modules,
+      });
+      expect({ label: scenario.label, refs: candidateRefs(payload) }).toEqual({
+        label: scenario.label,
+        refs: scenario.expected,
+      });
+    }
+  });
+
+  it("does not expose card or invoice candidates to a same-type requester without the creditCards module", async () => {
+    const before = await financialState();
+    const cardPresent = await preview(noCardModuleRequester);
+    const afterPresent = await financialState();
+
+    await setCardActive(IDS.allowedCard, false);
+    const beforeAbsent = await financialState();
+    const cardAbsent = await preview(noCardModuleRequester);
+    const afterAbsent = await financialState();
+
+    expect(cardPresent).toEqual(cardAbsent);
+    expect(afterPresent).toEqual(before);
+    expect(afterAbsent).toEqual(beforeAbsent);
+    expect(
+      cardPresent.preview.map((row: any) => ({
+        merchant: row.merchant,
+        cardCandidates: row.cardCandidates,
+        suggestedCardLast4: row.suggestedCardLast4,
+        crossProjectMatches: row.crossProjectMatches,
+      })),
+    ).toEqual([
+      {
+        merchant: "MATERIAL QA 480",
+        cardCandidates: [],
+        suggestedCardLast4: null,
+        crossProjectMatches: [],
+      },
+      {
+        merchant: "RECEITA QA 480",
+        cardCandidates: [],
+        suggestedCardLast4: null,
+        crossProjectMatches: [],
+      },
+      {
+        merchant: "PAGTO CART CRED",
+        cardCandidates: [],
+        suggestedCardLast4: null,
+        crossProjectMatches: [],
+      },
+    ]);
+    const serialized = JSON.stringify(cardPresent);
+    for (const sentinel of [
+      ...HIDDEN_SENTINELS,
+      IDS.allowedCard,
+      "9001",
+      "Cartão bancário permitido",
+    ]) {
+      expect(serialized).not.toContain(sentinel);
+    }
+  });
+
+  it("applies resource modules before the five-item take in both suggestion endpoints", async () => {
+    await createExpense({
+      id: IDS.importedExpense,
+      projectId: IDS.source,
+      title: "Despesa importada para sugestão",
+      amount: 10_000,
+      status: "PAGO",
+      bankLast4: "4801",
+    });
+    await createReceipt({
+      id: IDS.importedReceipt,
+      projectId: IDS.source,
+      description: "Receita importada para sugestão",
+      amount: 20_000,
+      status: "EM_CAIXA",
+      bankLast4: "4801",
+    });
+    for (let index = 2; index <= 5; index += 1) {
+      await createExpense({
+        id: `qa480-bank-expense-allowed-${index}`,
+        projectId: IDS.allowed,
+        title: `Despesa permitida ${index}`,
+        amount: 10_000 + index,
+      });
+      await createReceipt({
+        id: `qa480-bank-receipt-allowed-${index}`,
+        projectId: IDS.allowed,
+        description: `Receita permitida ${index}`,
+        amount: 20_000 + index,
+        date: new Date(
+          TRANSACTION_DATE.getTime() - index * 24 * 60 * 60 * 1000,
+        ),
+      });
+    }
+    // Competidores MELHOR ranqueados, ocultos SÓ pelo módulo do recurso:
+    // PLANTAS não tem `expenses`, CASA não tem `receipts`.
+    await createExpense({
+      id: IDS.moduleHiddenExpense,
+      projectId: IDS.moduleHiddenProject,
+      title: "Despesa bancária módulo oculto SENTINELA",
+      amount: 10_000,
+    });
+    await createReceipt({
+      id: IDS.moduleHiddenReceipt,
+      projectId: IDS.typeHidden,
+      description: "Receita bancária módulo oculto SENTINELA",
+      amount: 20_000,
+      date: new Date(TRANSACTION_DATE.getTime() + 24 * 60 * 60 * 1000),
+    });
+
+    const expensesWithHidden = await suggestExpenses(expenseRankRequester);
+    const receiptsWithHidden = await suggestReceipts(receiptRankRequester);
+    await setExpenseActive(IDS.moduleHiddenExpense, false);
+    await setReceiptActive(IDS.moduleHiddenReceipt, false);
+    await setReceiptActive(IDS.typeReceipt, false);
+    const expensesWithoutHidden = await suggestExpenses(expenseRankRequester);
+    const receiptsWithoutHidden = await suggestReceipts(receiptRankRequester);
+
+    expect(expensesWithHidden).toEqual(expensesWithoutHidden);
+    expect(receiptsWithHidden).toEqual(receiptsWithoutHidden);
+    expect(
+      expensesWithHidden[0].suggestions.map((s: any) => s.expenseId),
+    ).toEqual([
+      IDS.allowedExpense,
+      "qa480-bank-expense-allowed-2",
+      "qa480-bank-expense-allowed-3",
+      "qa480-bank-expense-allowed-4",
+      "qa480-bank-expense-allowed-5",
+    ]);
+    expect(
+      receiptsWithHidden[0].suggestions.map((s: any) => s.receiptId),
+    ).toEqual([
+      IDS.allowedReceipt,
+      "qa480-bank-receipt-allowed-2",
+      "qa480-bank-receipt-allowed-3",
+      "qa480-bank-receipt-allowed-4",
+      "qa480-bank-receipt-allowed-5",
+    ]);
+    const serialized = JSON.stringify({
+      expensesWithHidden,
+      receiptsWithHidden,
+    });
+    for (const sentinel of [
+      ...HIDDEN_SENTINELS,
+      IDS.moduleHiddenExpense,
+      IDS.moduleHiddenReceipt,
+      IDS.typeExpense,
+      IDS.typeReceipt,
+    ]) {
+      expect(serialized).not.toContain(sentinel);
+    }
   });
 });

@@ -71,7 +71,12 @@ import {
   type CardWithEntries,
 } from './card-invoice-match';
 import { buildInstallments, isSinglePaymentForm, NEUTRAL_EXPENSE_TYPES } from '@reformaflow/domain';
-import { resolveAccessibleProjectScope } from '../common/access-rules';
+import {
+  CREDIT_CARD_MODULE,
+  EXPENSE_MODULE,
+  RECEIPT_MODULE,
+  resolveAccessibleProjectScope,
+} from '../common/access-rules';
 
 export interface BankImportDecision {
   externalId: string;
@@ -412,35 +417,63 @@ export class BankAccountService {
 
     // Resolve a lente antes de qualquer `take`, total ou ranking. O snapshot
     // impede que um projeto seja revogado entre a resolução e a leitura.
+    // Cada TIPO de candidato tem a sua própria lente: Expense exige `expenses`,
+    // Receipt exige `receipts` e o cartão exige `creditCards` (#480 SEC-1) —
+    // uma lista ampla compartilhada vazaria recurso de módulo não concedido.
     const cardWindow = this.cardEntryWindow(parsed.transactions);
     const { otherProjects, plannedExpenses, plannedReceipts, cardsWithEntries } =
       await this.prisma.$transaction(async (tx) => {
-        const scope = await resolveAccessibleProjectScope(
-          tx,
-          tenantId,
-          requester.role,
-          requester.allowedProjects,
-          requester.allowedProjectTypes,
-          requester.allowedModules ?? [],
-        );
-        const projects = await tx.project.findMany({
-          where: {
+        const [expenseScope, receiptScope] = await Promise.all([
+          resolveAccessibleProjectScope(
+            tx,
             tenantId,
-            id: {
-              not: projectId,
-              ...(scope !== null ? { in: scope } : {}),
-            },
-            deletedAt: null,
-          },
-          select: { id: true, name: true, type: true },
-        });
-        const projectIds = projects.map((project) => project.id);
-        const [expenses, receipts] = projectIds.length > 0
-          ? await Promise.all([
-              tx.expense.findMany({
+            requester.role,
+            requester.allowedProjects,
+            requester.allowedProjectTypes,
+            requester.allowedModules ?? [],
+            EXPENSE_MODULE,
+          ),
+          resolveAccessibleProjectScope(
+            tx,
+            tenantId,
+            requester.role,
+            requester.allowedProjects,
+            requester.allowedProjectTypes,
+            requester.allowedModules ?? [],
+            RECEIPT_MODULE,
+          ),
+        ]);
+        // Metadados de projeto só para a UNIÃO dos ids autorizados por recurso —
+        // e cada um só é emitido junto de um candidato autorizado.
+        const metadataScope =
+          expenseScope === null || receiptScope === null
+            ? null
+            : [...new Set([...expenseScope, ...receiptScope])];
+        const projects = metadataScope !== null && metadataScope.length === 0
+          ? []
+          : await tx.project.findMany({
+              where: {
+                tenantId,
+                id: {
+                  not: projectId,
+                  ...(metadataScope !== null ? { in: metadataScope } : {}),
+                },
+                deletedAt: null,
+              },
+              select: { id: true, name: true, type: true },
+            });
+        const inScope = (scope: string[] | null) =>
+          projects
+            .map((project) => project.id)
+            .filter((id) => (scope === null ? true : scope.includes(id)));
+        const expenseProjectIds = inScope(expenseScope);
+        const receiptProjectIds = inScope(receiptScope);
+        const [expenses, receipts] = await Promise.all([
+          expenseProjectIds.length > 0
+            ? tx.expense.findMany({
                 where: {
                   tenantId,
-                  projectId: { in: projectIds },
+                  projectId: { in: expenseProjectIds },
                   OR: [
                     { status: 'PLANEJADO' },
                     { status: 'PAGO', quantidadeParcela: { gt: 1 } },
@@ -450,20 +483,22 @@ export class BankAccountService {
                 },
                 take: 1000,
                 orderBy: { dataInicioParcela: 'desc' },
-              }),
-              tx.receipt.findMany({
+              })
+            : [],
+          receiptProjectIds.length > 0
+            ? tx.receipt.findMany({
                 where: {
                   tenantId,
-                  projectId: { in: projectIds },
+                  projectId: { in: receiptProjectIds },
                   status: 'PREVISTO',
                   linkedReceiptId: null,
                   deletedAt: null,
                 },
                 take: 1000,
                 orderBy: { data: 'desc' },
-              }),
-            ])
-          : [[], []];
+              })
+            : [],
+        ]);
         const cards = await this.loadCardsWithEntries(
           tenantId,
           cardWindow.from,
@@ -1404,6 +1439,7 @@ export class BankAccountService {
     if (bankExpenses.length === 0) return [];
 
     const { otherProjects, planned } = await this.prisma.$transaction(async (tx) => {
+      // Candidato é Expense: exige `expenses` no projeto candidato (#480 SEC-1).
       const scope = await resolveAccessibleProjectScope(
         tx,
         tenantId,
@@ -1411,6 +1447,7 @@ export class BankAccountService {
         requester.allowedProjects,
         requester.allowedProjectTypes,
         requester.allowedModules ?? [],
+        EXPENSE_MODULE,
       );
       const projects = await tx.project.findMany({
         where: {
@@ -1591,6 +1628,7 @@ export class BankAccountService {
     if (bankReceipts.length === 0) return [];
 
     const { otherProjects, planned } = await this.prisma.$transaction(async (tx) => {
+      // Candidato é Receipt: exige `receipts` no projeto candidato (#480 SEC-1).
       const scope = await resolveAccessibleProjectScope(
         tx,
         tenantId,
@@ -1598,6 +1636,7 @@ export class BankAccountService {
         requester.allowedProjects,
         requester.allowedProjectTypes,
         requester.allowedModules ?? [],
+        RECEIPT_MODULE,
       );
       const projects = await tx.project.findMany({
         where: {
@@ -1819,6 +1858,7 @@ export class BankAccountService {
   ): Promise<Map<string, PreparedBankCardPayment>> {
     if (rows.length === 0) return new Map();
 
+    // Preflight de pagamento de fatura: o recurso é o CARTÃO (#480 SEC-1).
     const scope = await resolveAccessibleProjectScope(
       tx,
       tenantId,
@@ -1826,6 +1866,7 @@ export class BankAccountService {
       requester.allowedProjects,
       requester.allowedProjectTypes,
       requester.allowedModules ?? [],
+      CREDIT_CARD_MODULE,
     );
     const accessibleCards = await tx.creditCard.findMany({
       where: {
@@ -2261,13 +2302,17 @@ export class BankAccountService {
     assertRateioRequester(requester);
     const scope = scopedCards
       ? null
-      : await resolveAccessibleProjectScope(
+      : // O recurso carregado é o CARTÃO: exige `creditCards` no projeto dono
+        // dele. Vale para todo consumidor do loader — inclusive o candidato
+        // aninhado da fila de pendências (#480 SEC-1).
+        await resolveAccessibleProjectScope(
           client,
           tenantId,
           requester.role,
           requester.allowedProjects,
           requester.allowedProjectTypes,
           requester.allowedModules ?? [],
+          CREDIT_CARD_MODULE,
         );
     const candidateCards = scopedCards ?? (await client.creditCard.findMany({
       where: {
