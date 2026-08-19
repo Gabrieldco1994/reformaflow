@@ -40,7 +40,11 @@ describe('AgentService (loop de tool-calling)', () => {
     const tools = makeTools();
     const service = new AgentService(llm, tools);
 
-    const res = await service.chat(baseInput);
+    const res = await service.chat({
+      ...baseInput,
+      role: 'OWNER',
+      projectScope: null,
+    });
 
     expect(res.reply).toBe('Você tem R$ 1.500,00 em caixa.');
     expect(res.toolsUsed).toEqual(['get_financial_overview']);
@@ -48,7 +52,12 @@ describe('AgentService (loop de tool-calling)', () => {
     // a ferramenta foi executada com o tenant correto
     expect(tools.execute).toHaveBeenCalledWith(
       'get_financial_overview',
-      { tenantId: 'tenant-1', projectId: null, projectScope: null },
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        projectId: null,
+        projectScope: null,
+        role: 'OWNER',
+      }),
       {},
     );
     // o LLM foi chamado 2x (pedido de tool + resposta final)
