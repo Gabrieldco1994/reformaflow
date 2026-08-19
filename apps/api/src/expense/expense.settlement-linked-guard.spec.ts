@@ -16,7 +16,11 @@ const sourceRow = {
   formaPagamento: 'A_VISTA', quantidadeParcela: null, status: 'PAGO',
 };
 const makePrismaMock = (settlementCount: number) => ({
-  project: { findFirst: jest.fn().mockResolvedValue({ id: projectId, tenantId, type: 'PESSOAL' }) },
+  project: {
+    findFirst: jest
+      .fn()
+      .mockResolvedValue({ id: projectId, tenantId, type: 'PESSOAL', deletedAt: null }),
+  },
   expense: {
     findFirst: jest.fn().mockImplementation(async ({ where }: { where: { id: string } }) =>
       where.id === sourceId ? sourceRow : { id: where.id, projectId: 'obra-1', tenantId, deletedAt: null },

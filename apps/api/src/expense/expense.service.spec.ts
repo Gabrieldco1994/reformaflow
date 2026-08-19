@@ -98,6 +98,7 @@ describe('ExpenseService', () => {
       id: projectId,
       tenantId,
       type: 'REFORMA',
+      deletedAt: null,
     });
 
     const module: TestingModule = await Test.createTestingModule({
@@ -443,7 +444,7 @@ describe('ExpenseService', () => {
           tenantId,
           deletedAt: null,
           linkedExpenseId: 'canon',
-          project: { id: projectId, tenantId, type: 'REFORMA' },
+          project: { id: projectId, tenantId, type: 'REFORMA', deletedAt: null },
         },
         {
           id: 'canon',
@@ -451,7 +452,7 @@ describe('ExpenseService', () => {
           tenantId,
           deletedAt: null,
           linkedExpenseId: null,
-          project: { id: projectId, tenantId, type: 'REFORMA' },
+          project: { id: projectId, tenantId, type: 'REFORMA', deletedAt: null },
         },
       ];
       prisma.expense.findFirst
@@ -492,7 +493,7 @@ describe('ExpenseService', () => {
           tenantId,
           deletedAt: null,
           linkedExpenseId: 'canon',
-          project: { id: projectId, tenantId, type: 'REFORMA' },
+          project: { id: projectId, tenantId, type: 'REFORMA', deletedAt: null },
         },
         {
           id: 'canon',
@@ -500,7 +501,7 @@ describe('ExpenseService', () => {
           tenantId,
           deletedAt: null,
           linkedExpenseId: null,
-          project: { id: projectId, tenantId, type: 'REFORMA' },
+          project: { id: projectId, tenantId, type: 'REFORMA', deletedAt: null },
         },
       ];
       prisma.expense.findFirst.mockResolvedValue({
@@ -1027,21 +1028,21 @@ describe('ExpenseService', () => {
         .mockResolvedValueOnce([
           {
             id: 'mir', projectId, tenantId, linkedExpenseId: 'canon',
-            project: { id: projectId, tenantId, type: 'PESSOAL' },
+            project: { id: projectId, tenantId, type: 'PESSOAL', deletedAt: null },
           },
           {
             id: 'canon', projectId: 'other-project', tenantId, linkedExpenseId: null,
-            project: { id: 'other-project', tenantId, type: 'REFORMA' },
+            project: { id: 'other-project', tenantId, type: 'REFORMA', deletedAt: null },
           },
         ])
         .mockResolvedValueOnce([
           {
             id: 'mir', projectId, tenantId, linkedExpenseId: 'canon',
-            project: { id: projectId, tenantId, type: 'PESSOAL' },
+            project: { id: projectId, tenantId, type: 'PESSOAL', deletedAt: null },
           },
           {
             id: 'canon', projectId: 'other-project', tenantId, linkedExpenseId: null,
-            project: { id: 'other-project', tenantId, type: 'REFORMA' },
+            project: { id: 'other-project', tenantId, type: 'REFORMA', deletedAt: null },
           },
         ])
         .mockResolvedValue([]); // sem espelhos apontando para 'mir'
@@ -1065,21 +1066,21 @@ describe('ExpenseService', () => {
         .mockResolvedValueOnce([
           {
             id: 'src', projectId, tenantId, linkedExpenseId: 'planned',
-            project: { id: projectId, tenantId, type: 'PESSOAL' },
+            project: { id: projectId, tenantId, type: 'PESSOAL', deletedAt: null },
           },
           {
             id: 'planned', projectId: 'other-project', tenantId, linkedExpenseId: null,
-            project: { id: 'other-project', tenantId, type: 'REFORMA' },
+            project: { id: 'other-project', tenantId, type: 'REFORMA', deletedAt: null },
           },
         ])
         .mockResolvedValueOnce([
           {
             id: 'src', projectId, tenantId, linkedExpenseId: 'planned',
-            project: { id: projectId, tenantId, type: 'PESSOAL' },
+            project: { id: projectId, tenantId, type: 'PESSOAL', deletedAt: null },
           },
           {
             id: 'planned', projectId: 'other-project', tenantId, linkedExpenseId: null,
-            project: { id: 'other-project', tenantId, type: 'REFORMA' },
+            project: { id: 'other-project', tenantId, type: 'REFORMA', deletedAt: null },
           },
         ])
         .mockResolvedValue([]);
@@ -1350,7 +1351,7 @@ describe('ExpenseService', () => {
       prisma.expense.findMany.mockResolvedValue([
         {
           id: 'src', projectId, tenantId, linkedExpenseId: null,
-          project: { id: projectId, tenantId, type: 'PESSOAL' },
+          project: { id: projectId, tenantId, type: 'PESSOAL', deletedAt: null },
         },
       ]);
       prisma.expense.update.mockResolvedValue({ id: 'src', linkedExpenseId: null });

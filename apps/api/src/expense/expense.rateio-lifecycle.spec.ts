@@ -78,6 +78,7 @@ function makeHarness() {
         id: row.projectId,
         tenantId: row.tenantId,
         type: row.projectId === 'pessoal-1' ? 'PESSOAL' : 'REFORMA',
+        deletedAt: null,
       },
     };
   };
@@ -117,6 +118,7 @@ function makeHarness() {
         id: where.id,
         tenantId: TENANT_ID,
         type: where.id === 'pessoal-1' ? 'PESSOAL' : 'REFORMA',
+        deletedAt: null,
       })),
     },
     expense: {

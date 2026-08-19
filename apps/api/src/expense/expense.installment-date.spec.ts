@@ -71,7 +71,7 @@ function makeHarness(expense: ExpenseFixture = baseExpense) {
   let currentExpense = expense;
   const tx = {
     project: {
-      findFirst: jest.fn().mockResolvedValue({ id: expense.projectId }),
+      findFirst: jest.fn().mockResolvedValue({ id: expense.projectId, deletedAt: null }),
     },
     expense: {
       findFirst: jest.fn().mockResolvedValue(expense),
@@ -103,6 +103,7 @@ function makeHarness(expense: ExpenseFixture = baseExpense) {
     $transaction: jest.fn().mockImplementation(async (fn) => fn(tx)),
   };
   const conciliacao = {
+    assertCanSettleTargets: jest.fn(),
     regenerateTargetCashflow: jest.fn(),
     regenerateRateioTargetCashflow: jest.fn(),
   };
@@ -566,6 +567,7 @@ describe("ExpenseService.updateInstallmentDate", () => {
           id: expense.projectId,
           tenantId: expense.tenantId,
           type: "REFORMA",
+          deletedAt: null,
         },
       },
       {
@@ -576,6 +578,7 @@ describe("ExpenseService.updateInstallmentDate", () => {
           id: expense.projectId,
           tenantId: expense.tenantId,
           type: "REFORMA",
+          deletedAt: null,
         },
       },
     ];

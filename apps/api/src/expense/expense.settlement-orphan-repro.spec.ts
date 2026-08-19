@@ -99,6 +99,7 @@ function makeHarness() {
         id: where.id,
         tenantId: TENANT_ID,
         type: where.id === PESSOAL_PROJECT_ID ? 'PESSOAL' : 'REFORMA',
+        deletedAt: null,
       })),
     },
     expense: {
