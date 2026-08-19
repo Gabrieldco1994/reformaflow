@@ -27,7 +27,7 @@ function xlsxBuf(rows: string[][]) {
 }
 
 function makePrismaMock() {
-  return {
+  const prisma = {
     bankAccount: { findFirst: jest.fn() },
     bankStatementImport: { create: jest.fn().mockResolvedValue({ id: 'imp1' }), update: jest.fn().mockResolvedValue({}) },
     expense: {
@@ -49,6 +49,8 @@ function makePrismaMock() {
     crossProjectSettlement: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn() },
     $queryRaw: jest.fn().mockResolvedValue([]),
   } as any;
+  prisma.$transaction = jest.fn(async (callback: any) => callback(prisma));
+  return prisma;
 }
 
 async function buildService(prisma: any) {
