@@ -42,6 +42,10 @@ describe('ConciliacaoService — hardening cross-parcela', () => {
           const m = opts.mirrors[where.id];
           return Promise.resolve(m && !m.deletedAt ? m : m ?? null);
         }),
+        findUnique: jest.fn().mockImplementation(({ where }: any) => {
+          if (where.id === opts.target.id) return Promise.resolve(opts.target);
+          return Promise.resolve(opts.mirrors[where.id] ?? null);
+        }),
         update: jest.fn().mockImplementation(({ where, data }: any) => {
           if (where.id === opts.target.id) Object.assign(opts.target, data);
           else if (opts.mirrors[where.id]) Object.assign(opts.mirrors[where.id], data);

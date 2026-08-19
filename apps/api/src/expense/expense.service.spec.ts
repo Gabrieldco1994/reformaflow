@@ -48,7 +48,7 @@ const makePrismaMock = (): PrismaMock => {
   };
   const expenseMock = {
     findFirst: jest.fn(),
-    findMany: jest.fn(),
+    findMany: jest.fn().mockResolvedValue([]),
     findUnique: jest.fn(),
     create: jest.fn(),
     update: jest.fn(),
@@ -436,13 +436,34 @@ describe('ExpenseService', () => {
   describe('update — sincronização do par vinculado (canônico↔espelho)', () => {
     it('editar o espelho propaga data/valor para o canônico', async () => {
       // update() existing = espelho 'mir'; sync source = 'mir'; sync target = 'canon'
+      const linkedRows = [
+        {
+          id: 'mir',
+          projectId,
+          tenantId,
+          deletedAt: null,
+          linkedExpenseId: 'canon',
+          project: { id: projectId, tenantId, type: 'REFORMA' },
+        },
+        {
+          id: 'canon',
+          projectId,
+          tenantId,
+          deletedAt: null,
+          linkedExpenseId: null,
+          project: { id: projectId, tenantId, type: 'REFORMA' },
+        },
+      ];
       prisma.expense.findFirst
         .mockResolvedValueOnce({
           id: 'mir', projectId, tenantId, deletedAt: null, valor: 10000, quantidade: 1, linkedExpenseId: 'canon',
         })
         .mockResolvedValueOnce({ id: 'mir', linkedExpenseId: 'canon' })
         .mockResolvedValueOnce({ id: 'canon' });
-      prisma.expense.findMany.mockResolvedValue([]); // nenhum espelho aponta p/ 'mir'
+      prisma.expense.findMany
+        .mockResolvedValueOnce(linkedRows)
+        .mockResolvedValueOnce(linkedRows)
+        .mockResolvedValue([]); // nenhum espelho aponta p/ 'mir'
       prisma.crossProjectSettlement.count.mockResolvedValue(0);
       prisma.expense.update.mockImplementation(async ({ data, where }: any) => ({ id: where.id, ...data }));
       prisma.expense.findUnique
@@ -464,10 +485,31 @@ describe('ExpenseService', () => {
     });
 
     it('NÃO sincroniza quando o par é de conciliação (CrossProjectSettlement)', async () => {
+      const linkedRows = [
+        {
+          id: 'mir',
+          projectId,
+          tenantId,
+          deletedAt: null,
+          linkedExpenseId: 'canon',
+          project: { id: projectId, tenantId, type: 'REFORMA' },
+        },
+        {
+          id: 'canon',
+          projectId,
+          tenantId,
+          deletedAt: null,
+          linkedExpenseId: null,
+          project: { id: projectId, tenantId, type: 'REFORMA' },
+        },
+      ];
       prisma.expense.findFirst.mockResolvedValue({
         id: 'mir', projectId, tenantId, deletedAt: null, valor: 10000, quantidade: 1, linkedExpenseId: 'canon',
       });
-      prisma.expense.findMany.mockResolvedValue([]);
+      prisma.expense.findMany
+        .mockResolvedValueOnce(linkedRows)
+        .mockResolvedValueOnce(linkedRows)
+        .mockResolvedValue([]);
       prisma.crossProjectSettlement.count.mockResolvedValue(1); // tem settlement
       prisma.expense.update.mockImplementation(async ({ data, where }: any) => ({ id: where.id, ...data }));
       prisma.expense.findUnique.mockResolvedValue(null);
