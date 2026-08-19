@@ -97,22 +97,17 @@ export class ConciliacaoService {
           ? (
               await Promise.all(
                 ids.map((id) =>
-                  typeof tx.expense.findUnique === 'function'
-                    ? tx.expense.findUnique({
-                        where: { id },
-                        include: {
-                          project: { select: { id: true, type: true, tenantId: true } },
-                        },
-                      })
-                    : tx.expense.findFirst({
-                        where: { id },
-                        include: {
-                          project: { select: { id: true, type: true, tenantId: true } },
-                        },
-                      }),
+                  tx.expense.findUnique({
+                    where: { id },
+                    include: {
+                      project: { select: { id: true, type: true, tenantId: true } },
+                    },
+                  }),
                 ),
               )
-            ).filter((target) => target !== null)
+            ).filter(
+              (target): target is NonNullable<typeof target> => target !== null,
+            )
           : await tx.expense.findMany({
               where: {
                 id: { in: ids },
@@ -126,20 +121,12 @@ export class ConciliacaoService {
     const byId = new Map(targets.map((target) => [target.id, target]));
     for (const id of ids) {
       const target = byId.get(id);
-      const project =
-        target?.project ??
-        (target
-          ? await tx.project.findFirst({
-              where: { id: target.projectId, tenantId },
-              select: { id: true, type: true, tenantId: true },
-            })
-          : null);
       if (
         !target ||
         target.tenantId !== tenantId ||
-        !project ||
-        project.tenantId !== tenantId ||
-        !this.canRequesterSeeProject(requester, project)
+        !target.project ||
+        target.project.tenantId !== tenantId ||
+        !this.canRequesterSeeProject(requester, target.project)
       ) {
         throw error(id);
       }
