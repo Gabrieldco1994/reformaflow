@@ -1,3 +1,4 @@
+import { TEST_OWNER_REQUESTER } from '../test-utils/acl-requester-test-helper';
 /**
  * B1a (#448) — `roomId` deve ser project-scoped (não pode apontar para um
  * Room de OUTRO projeto do tenant), nas 3 vias de escrita que aceitam roomId:
@@ -22,6 +23,7 @@ import { NotFoundException } from '@nestjs/common';
 import { ExpenseService } from './expense.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
+import { RateioRequester } from './rateio.types';
 
 const setupPrisma = new PrismaClient();
 const prisma = new PrismaService();
@@ -29,6 +31,12 @@ const prisma = new PrismaService();
 const TENANT = 'ersc-tenant';
 const PESSOAL = 'ersc-pessoal';
 const OTHER = 'ersc-other';
+const ADMIN: RateioRequester = {
+  role: 'ADMIN',
+  allowedProjects: [],
+  allowedProjectTypes: [],
+  allowedModules: [],
+};
 
 async function cleanupTransient() {
   await setupPrisma.rateioAllocation.deleteMany({ where: { tenantId: TENANT } });
@@ -116,7 +124,7 @@ describe('ExpenseService — roomId é project-scoped (#448 B1a)', () => {
       const existing = await service.create(TENANT, PESSOAL, dto({ roomId: roomInPessoal }) as any);
 
       await expect(
-        service.update(TENANT, PESSOAL, existing.id, { roomId: roomInOther } as any),
+        service.update(TENANT, PESSOAL, existing.id, { roomId: roomInOther } as any, TEST_OWNER_REQUESTER),
       ).rejects.toBeInstanceOf(NotFoundException);
 
       const row = await setupPrisma.expense.findUnique({ where: { id: existing.id } });
@@ -125,7 +133,7 @@ describe('ExpenseService — roomId é project-scoped (#448 B1a)', () => {
 
     it('roomId omitido no patch → mantém o room atual (controle)', async () => {
       const existing = await service.create(TENANT, PESSOAL, dto({ roomId: roomInPessoal }) as any);
-      const updated = await service.update(TENANT, PESSOAL, existing.id, { titulo: 'Piso porcelanato' } as any);
+      const updated = await service.update(TENANT, PESSOAL, existing.id, { titulo: 'Piso porcelanato' } as any, TEST_OWNER_REQUESTER);
       expect(updated.roomId).toBe(roomInPessoal);
     });
   });
@@ -152,7 +160,7 @@ describe('ExpenseService — roomId é project-scoped (#448 B1a)', () => {
             allocation: 20_000,
           }],
           existing: [],
-        } as any),
+        } as any, null, ADMIN),
       ).rejects.toBeInstanceOf(NotFoundException);
 
       const orphan = await setupPrisma.expense.findFirst({ where: { tenantId: TENANT, titulo: marker } });
@@ -180,7 +188,7 @@ describe('ExpenseService — roomId é project-scoped (#448 B1a)', () => {
           allocation: 20_000,
         }],
         existing: [],
-      } as any);
+      } as any, null, ADMIN);
 
       expect(result.createdTargetIds).toHaveLength(1);
       const createdRow = await setupPrisma.expense.findUnique({ where: { id: result.createdTargetIds[0] } });

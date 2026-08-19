@@ -11,8 +11,9 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { RecurrenceService } from './recurrence.service';
 import { UpdateRecurrenceDto } from './dto/update-recurrence.dto';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
-import { CurrentTenant } from '../common/decorators/tenant.decorator';
+import { CurrentTenant, CurrentUser } from '../common/decorators/tenant.decorator';
 import { RequireModule } from '../common/decorators/require-module.decorator';
+import { RateioRequester } from '../expense/rateio.types';
 
 @ApiTags('recurrences')
 @ApiBearerAuth()
@@ -40,8 +41,9 @@ export class RecurrenceController {
     @Param('projectId') projectId: string,
     @Param('key') key: string,
     @Body() dto: UpdateRecurrenceDto,
+    @CurrentUser() requester: RateioRequester,
   ) {
-    return this.service.update(tenantId, projectId, key, dto);
+    return this.service.update(tenantId, projectId, key, dto, requester);
   }
 
   @Delete(':key')
@@ -50,7 +52,8 @@ export class RecurrenceController {
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('key') key: string,
+    @CurrentUser() requester: RateioRequester,
   ) {
-    return this.service.remove(tenantId, projectId, key);
+    return this.service.remove(tenantId, projectId, key, requester);
   }
 }

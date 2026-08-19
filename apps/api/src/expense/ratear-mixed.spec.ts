@@ -1,8 +1,10 @@
+import { TEST_OWNER_REQUESTER } from '../test-utils/acl-requester-test-helper';
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { ExpenseService } from './expense.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
+import { withAclRequester } from '../test-utils/acl-requester-test-helper';
 
 type AnyFn = jest.Mock;
 
@@ -19,6 +21,8 @@ const makePrismaMock = () => {
   const mock: any = {
     project: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
     expense: expenseMock,
+    rateioAllocation: { findMany: jest.fn().mockResolvedValue([]) },
+    crossProjectSettlement: { findMany: jest.fn().mockResolvedValue([]) },
     $transaction: jest.fn(),
   };
   // $transaction roda o callback com o próprio mock (representa `tx`).
@@ -59,11 +63,23 @@ describe('ExpenseService.ratearMixed', () => {
       ],
     }).compile();
 
-    service = module.get<ExpenseService>(ExpenseService);
+    service = withAclRequester(module.get<ExpenseService>(ExpenseService), prisma);
   });
 
   it('cria newTargets nos projetos-destino e rateia numa única transação (allocations concatenadas)', async () => {
     prisma.project.findMany.mockResolvedValue([{ id: 'reforma-1', tenantId, type: 'REFORMA' }]);
+    prisma.expense.findFirst.mockImplementation(({ where }: any) =>
+      Promise.resolve(
+        where.id === 'exist-1'
+          ? {
+              ...source,
+              id: 'exist-1',
+              projectId: 'reforma-1',
+              project: { id: 'reforma-1', tenantId, type: 'REFORMA' },
+            }
+          : { ...source },
+      ),
+    );
     prisma.expense.create.mockResolvedValue({ id: 'novo-1' });
     const ratearSpy = jest
       .spyOn(service['conciliacao'], 'ratearSource')
@@ -80,7 +96,7 @@ describe('ExpenseService.ratearMixed', () => {
         } as any,
       ],
       existing: [{ targetExpenseId: 'exist-1', allocation: 20000 }],
-    });
+    }, null, TEST_OWNER_REQUESTER);
 
     expect(prisma.expense.create).toHaveBeenCalledTimes(1);
     // alvo novo criado no projeto-destino, valorTotal próprio (imutável)
@@ -121,7 +137,7 @@ describe('ExpenseService.ratearMixed', () => {
           } as any,
         ],
         existing: [],
-      }),
+      }, null, TEST_OWNER_REQUESTER),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
@@ -150,7 +166,7 @@ describe('ExpenseService.ratearMixed', () => {
         } as any,
       ],
       existing: [],
-    });
+    }, null, TEST_OWNER_REQUESTER);
 
     // Exatamente 1 $transaction abraça tudo.
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
@@ -162,7 +178,7 @@ describe('ExpenseService.ratearMixed', () => {
 
   it('empty-set: newTargets=[] e existing=[] → BadRequest ("nada a ratear")', async () => {
     await expect(
-      service.ratearMixed(tenantId, projectId, sourceId, { newTargets: [], existing: [] }),
+      service.ratearMixed(tenantId, projectId, sourceId, { newTargets: [], existing: [] }, null, TEST_OWNER_REQUESTER),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
@@ -184,7 +200,7 @@ describe('ExpenseService.ratearMixed', () => {
         } as any,
       ],
       existing: [],
-    });
+    }, null, TEST_OWNER_REQUESTER);
 
     expect(prisma.expense.create.mock.calls[0][0].data.status).toBe('PAGO');
   });
@@ -207,7 +223,7 @@ describe('ExpenseService.ratearMixed', () => {
         } as any,
       ],
       existing: [],
-    });
+    }, null, TEST_OWNER_REQUESTER);
 
     expect(prisma.expense.create.mock.calls[0][0].data.status).toBe('PLANEJADO');
   });
@@ -231,7 +247,7 @@ describe('ExpenseService.ratearMixed', () => {
           } as any,
         ],
         existing: [],
-      }),
+      }, null, TEST_OWNER_REQUESTER),
     ).rejects.toBeInstanceOf(BadRequestException);
     // rejeita ANTES de abrir a transação/ratear.
     expect(ratearSpy).not.toHaveBeenCalled();
@@ -256,7 +272,7 @@ describe('ExpenseService.ratearMixed', () => {
         } as any,
       ],
       existing: [],
-    });
+    }, null, TEST_OWNER_REQUESTER);
 
     // O espelho é setado dentro do ratearSource (não reimplementado aqui).
     expect(ratearSpy).toHaveBeenCalledTimes(1);
@@ -268,7 +284,7 @@ describe('ExpenseService.ratearMixed', () => {
       service.ratearMixed(tenantId, projectId, sourceId, {
         newTargets: [],
         existing: [{ targetExpenseId: 'exist-1', allocation: 30000 }],
-      }),
+      }, null, TEST_OWNER_REQUESTER),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

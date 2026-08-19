@@ -22,6 +22,7 @@ import { BankAccountService } from '../bank-account.service';
 import { MerchantClassifierService } from '../../merchant-classifier/merchant-classifier.service';
 import { ConciliacaoService } from '../../conciliacao/conciliacao.service';
 import { CardInvoiceSettlementService } from '../../credit-card/card-invoice-settlement.service';
+import type { RateioRequester } from '../../expense/rateio.types';
 
 const prisma = new PrismaClient();
 let failures = 0;
@@ -46,6 +47,12 @@ async function main() {
   const casa = await prisma.project.create({
     data: { tenantId: tenant.id, type: 'CASA', name: 'Casa' },
   });
+  const requester: RateioRequester = {
+    role: 'OWNER',
+    allowedProjects: [pessoal.id, reforma.id, casa.id],
+    allowedProjectTypes: ['PESSOAL', 'REFORMA', 'CASA'],
+    allowedModules: ['expenses'],
+  };
   console.log(`Tenant: ${tenant.id}`);
 
   // ───── 1) Cria 2 contas ────────────────────────────────────
@@ -71,7 +78,7 @@ async function main() {
 2026-05-15,SALARIO EMPRESA X,8500.00`;
 
   const r1 = await svc.commitImport(
-    tenant.id, pessoal.id, itau.id, csv, 'itau-extrato.csv', 'CSV_GENERIC' as any,
+    tenant.id, pessoal.id, itau.id, csv, 'itau-extrato.csv', 'CSV_GENERIC' as any, undefined, undefined, undefined, null, requester
   );
   assert(r1.inserted === 3, `3 débitos inseridos (got ${r1.inserted})`);
   assert(r1.receiptsInserted === 1, `1 recebimento criado (got ${r1.receiptsInserted})`);
@@ -95,7 +102,7 @@ async function main() {
   // ───── 3) Idempotência ─────────────────────────────────────
   header('3) Idempotência');
   const r2 = await svc.commitImport(
-    tenant.id, pessoal.id, itau.id, csv, 'itau-extrato.csv', 'CSV_GENERIC' as any,
+    tenant.id, pessoal.id, itau.id, csv, 'itau-extrato.csv', 'CSV_GENERIC' as any, undefined, undefined, undefined, null, requester
   );
   assert(r2.inserted === 0, `re-import: 0 inseridos (got ${r2.inserted})`);
   assert(r2.duplicated === 4, `re-import: 4 duplicados (3 débitos + 1 crédito) (got ${r2.duplicated})`);
@@ -145,7 +152,14 @@ async function main() {
     where: { tenantId: tenant.id, projectId: pessoal.id, bankLast4: '4247', fornecedor: { contains: 'LEROY' } },
   });
   assert(!!sourceLeroy, 'expense LEROY do banco encontrada');
-  const link = await svc.linkToExpense(tenant.id, pessoal.id, sourceLeroy!.id, plannedReforma.id);
+  const link = await svc.linkToExpense(
+    tenant.id,
+    pessoal.id,
+    sourceLeroy!.id,
+    plannedReforma.id,
+    {},
+    requester,
+  );
   assert(link.ok === true, 'link.ok = true');
 
   // Despesa alvo (REFORMA) virou PAGO
@@ -164,7 +178,7 @@ async function main() {
 
   // ───── 7) Unlink ──────────────────────────────────────────
   header('7) Unlink');
-  await svc.unlinkExpense(tenant.id, pessoal.id, sourceLeroy!.id);
+  await svc.unlinkExpense(tenant.id, pessoal.id, sourceLeroy!.id, requester);
   const sourceUnlinked = await prisma.expense.findUnique({ where: { id: sourceLeroy!.id } });
   assert(sourceUnlinked?.linkedExpenseId === null, 'após unlink, linkedExpenseId = null');
   // Nota: status do REFORMA permanece PAGO (não revertemos automaticamente)
@@ -204,7 +218,7 @@ async function main() {
   const csv2 = `date,title,amount
 2026-05-20,UBER TRIP,-22.50`;
   const r3 = await svc.commitImport(
-    tenant.id, pessoal.id, nubank.id, csv2, 'nubank-extrato.csv', 'CSV_GENERIC' as any,
+    tenant.id, pessoal.id, nubank.id, csv2, 'nubank-extrato.csv', 'CSV_GENERIC' as any, undefined, undefined, undefined, null, requester
   );
   assert(r3.inserted === 1, '1 inserido na 2a conta');
   const nubankExpenses = await prisma.expense.findMany({
@@ -240,7 +254,7 @@ async function main() {
 2026-05-15,FATURA PAGA PERSON MULTI,-1234.56
 2026-05-16,SUPERMERCADO XPTO,-50.00`;
   const rCard = await svc.commitImport(
-    tenant.id, pessoal.id, itau.id, csvCard, 'extrato-pagto-cartao.csv', 'CSV_GENERIC' as any,
+    tenant.id, pessoal.id, itau.id, csvCard, 'extrato-pagto-cartao.csv', 'CSV_GENERIC' as any, undefined, undefined, undefined, null, requester
   );
   assert(rCard.cardPayments === 1, `1 pagto de fatura detectado (got ${rCard.cardPayments})`);
   assert(rCard.inserted === 1, `1 despesa normal (got ${rCard.inserted})`);
@@ -275,7 +289,7 @@ async function main() {
     where: { tenantId: tenant.id, totalAmountCents: 99900 },
   });
   const rOrfao = await svc.commitImport(
-    tenant.id, pessoal.id, itau.id, csvOrfao, 'orfao.csv', 'CSV_GENERIC' as any,
+    tenant.id, pessoal.id, itau.id, csvOrfao, 'orfao.csv', 'CSV_GENERIC' as any, undefined, undefined, undefined, null, requester
   );
   assert(rOrfao.cardPayments === 1, `1 pagto detectado mesmo sem match (got ${rOrfao.cardPayments})`);
   const orfao = await prisma.expense.findFirst({
@@ -327,7 +341,11 @@ async function main() {
   );
 
   const recLink = await svc.linkToReceipt(
-    tenant.id, pessoal.id, salarioReceipt!.id, plannedReformaReceipt.id,
+    tenant.id,
+    pessoal.id,
+    salarioReceipt!.id,
+    plannedReformaReceipt.id,
+    requester,
   );
   assert(recLink.ok === true, 'linkToReceipt.ok = true');
 
@@ -347,7 +365,7 @@ async function main() {
 
   // ───── 13) Unlink recebimento ───────────────────────────────
   header('13) Unlink recebimento');
-  await svc.unlinkReceipt(tenant.id, pessoal.id, salarioReceipt!.id);
+  await svc.unlinkReceipt(tenant.id, pessoal.id, salarioReceipt!.id, requester);
   const sourceRecUnlinked = await prisma.receipt.findUnique({ where: { id: salarioReceipt!.id } });
   assert(sourceRecUnlinked?.linkedReceiptId === null, 'após unlink, linkedReceiptId = null');
 
@@ -361,7 +379,13 @@ async function main() {
   });
   let threw = false;
   try {
-    await svc.linkToReceipt(tenant.id, pessoal.id, salarioReceipt!.id, samePrjReceipt.id);
+    await svc.linkToReceipt(
+      tenant.id,
+      pessoal.id,
+      salarioReceipt!.id,
+      samePrjReceipt.id,
+      requester,
+    );
   } catch { threw = true; }
   assert(threw, 'não permite linkar recebimento no mesmo projeto');
 

@@ -1,9 +1,20 @@
+import { TEST_OWNER_REQUESTER } from '../test-utils/acl-requester-test-helper';
 import { Test, TestingModule } from '@nestjs/testing';
 import { BankAccountService } from './bank-account.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { MerchantClassifierService } from '../merchant-classifier/merchant-classifier.service';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import { CardInvoiceSettlementService } from '../credit-card/card-invoice-settlement.service';
+import { withAclRequester } from '../test-utils/acl-requester-test-helper';
+import { NotFoundException } from '@nestjs/common';
+import type { RateioRequester } from '../expense/rateio.types';
+
+const RESTRICTED_IMPORT_REQUESTER: RateioRequester = {
+  role: 'USER',
+  allowedProjects: ['pessoal1'],
+  allowedProjectTypes: ['PESSOAL', 'REFORMA'],
+  allowedModules: ['expenses'],
+};
 
 function makePrismaMock() {
   return {
@@ -126,6 +137,18 @@ describe('BankAccountService', () => {
 
   beforeEach(async () => {
     prisma = makePrismaMock();
+    const projects = new Map([
+      ['pessoal1', { id: 'pessoal1', tenantId: 't1', type: 'PESSOAL' }],
+      ['reforma1', { id: 'reforma1', tenantId: 't1', type: 'REFORMA' }],
+      ['casa1', { id: 'casa1', tenantId: 't1', type: 'CASA' }],
+    ]);
+    prisma.project.findFirst.mockImplementation(({ where }: any) =>
+      Promise.resolve(
+        where.tenantId === 't1' && where.deletedAt === null
+          ? projects.get(where.id) ?? null
+          : null,
+      ),
+    );
     classifier = makeClassifierMock();
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -136,7 +159,7 @@ describe('BankAccountService', () => {
         CardInvoiceSettlementService,
       ],
     }).compile();
-    service = module.get(BankAccountService);
+    service = withAclRequester(module.get(BankAccountService), prisma);
     settlement = module.get(CardInvoiceSettlementService);
 
     prisma.bankAccount.findFirst.mockResolvedValue({
@@ -428,7 +451,7 @@ describe('BankAccountService', () => {
         't1', 'pessoal1', 'acc1',
         Buffer.from(ofx), 'ext.ofx', 'OFX',
         undefined, undefined,
-        [{ externalId: skipTx!.externalId, action: 'skip' }],
+        [{ externalId: skipTx!.externalId, action: 'skip' }], null, TEST_OWNER_REQUESTER
       );
 
       expect(res.skipped).toBe(1);
@@ -451,7 +474,7 @@ describe('BankAccountService', () => {
         [{
           externalId: ext,
           overrides: { titulo: 'Aluguel Maio', valorCents: 150000, category: 'MORADIA' },
-        }],
+        }], null, TEST_OWNER_REQUESTER
       );
 
       const call = prisma.expense.create.mock.calls[0][0];
@@ -469,7 +492,7 @@ describe('BankAccountService', () => {
         't1', 'pessoal1', 'acc1',
         Buffer.from(ofx), 'ext.ofx', 'OFX',
         undefined, undefined, undefined,
-        'user-abc',
+        'user-abc', TEST_OWNER_REQUESTER
       );
 
       expect(prisma.expense.create).toHaveBeenCalledTimes(1);
@@ -490,7 +513,7 @@ describe('BankAccountService', () => {
       prisma.expense.create.mockClear();
       const res = await service.commitImport(
         't1', 'pessoal1', 'acc1',
-        Buffer.from(faturaOfx), 'ext.ofx', 'OFX',
+        Buffer.from(faturaOfx), 'ext.ofx', 'OFX', undefined, undefined, undefined, null, TEST_OWNER_REQUESTER
       );
 
       const created = prisma.expense.create.mock.calls[0][0].data;
@@ -521,7 +544,7 @@ describe('BankAccountService', () => {
         't1', 'pessoal1', 'acc1',
         Buffer.from(faturaOfx), 'ext.ofx', 'OFX',
         undefined, undefined,
-        [{ externalId: ext, overrides: { cardLast4: '5572' } }],
+        [{ externalId: ext, overrides: { cardLast4: '5572' } }], null, TEST_OWNER_REQUESTER
       );
 
       const created = prisma.expense.create.mock.calls[0][0].data;
@@ -538,7 +561,7 @@ describe('BankAccountService', () => {
       const ofx = buildBankOfx(ofxBankFor('20260720', -350000, 'CREDITO LIBERAD PIX 6933', 'TRF1'));
 
       prisma.receipt.create.mockClear();
-      await service.commitImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX');
+      await service.commitImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, undefined, undefined, null, TEST_OWNER_REQUESTER);
 
       const created = prisma.receipt.create.mock.calls[0][0].data;
       expect(created.tipo).toBe('TRANSFERENCIA_PROPRIA');
@@ -548,7 +571,7 @@ describe('BankAccountService', () => {
       const ofx = buildBankOfx(ofxBankFor('20260720', 350000, 'PIX CARTAO ALESSAN18/07', 'TRF2'));
 
       prisma.expense.create.mockClear();
-      await service.commitImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX');
+      await service.commitImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, undefined, undefined, null, TEST_OWNER_REQUESTER);
 
       const created = prisma.expense.create.mock.calls[0][0].data;
       expect(created.tipoDespesa).toBe('TRANSFERENCIA_TED');
@@ -565,6 +588,7 @@ describe('BankAccountService', () => {
             dataPagamento: new Date('2026-04-29'), dataInicioParcela: null,
             createdAt: new Date('2026-04-29'), linkedExpenseId: null,
           });
+
         }
         if (where.id === 'tgt1') {
           return Promise.resolve({
@@ -574,17 +598,171 @@ describe('BankAccountService', () => {
             quantidadeParcela: null, dataInicioParcela: new Date('2026-04-28'),
             status: 'PLANEJADO', paidParcelas: null, linkedExpenseId: null, room: null,
           });
+
         }
         return Promise.resolve(null);
       });
       prisma.crossProjectSettlement.findMany.mockResolvedValue([{ parcelaIndex: 0, realValor: 50000 }]);
 
       await expect(
-        service.linkToExpense('t1', 'pessoal1', 'src1', 'tgt1'),
+        service.linkToExpense('t1', 'pessoal1', 'src1', 'tgt1', undefined, TEST_OWNER_REQUESTER),
       ).resolves.toEqual(
         expect.objectContaining({ ok: true, sourceId: 'src1', targetId: 'tgt1' }),
       );
       expect(prisma.crossProjectSettlement.upsert).toHaveBeenCalled();
+    });
+  });
+
+  describe('commitImport — ACL somente do lote processável', () => {
+    it('ignora links hidden duplicados/skip sem criar despesa ou recebimento', async () => {
+      const ofx = buildBankOfx(
+        ofxBankFor('20260429', 10000, 'DUP EXPENSE HIDDEN', 'DUP-EXP'),
+        ofxBankFor('20260430', -20000, 'DUP RECEIPT HIDDEN', 'DUP-REC'),
+        ofxBankFor('20260501', 30000, 'SKIP HIDDEN', 'SKIP-HIDDEN'),
+      );
+      const preview = await service.previewImport(
+        't1',
+        'pessoal1',
+        'acc1',
+        Buffer.from(ofx),
+        'ext.ofx',
+        'OFX',
+      );
+      const duplicateExpenseId = preview.preview.find((item: any) =>
+        item.merchant.includes('DUP EXPENSE'),
+      )!.externalId;
+      const duplicateReceiptId = preview.preview.find((item: any) =>
+        item.merchant.includes('DUP RECEIPT'),
+      )!.externalId;
+      const skippedId = preview.preview.find((item: any) =>
+        item.merchant.includes('SKIP'),
+      )!.externalId;
+      prisma.$queryRaw.mockResolvedValue([
+        { external_id: duplicateExpenseId },
+        { external_id: duplicateReceiptId },
+      ]);
+      prisma.expense.findMany.mockResolvedValue([
+        {
+          id: 'hidden-expense',
+          tenantId: 't1',
+          projectId: 'hidden-project',
+          project: { id: 'hidden-project', tenantId: 't1', type: 'REFORMA' },
+        },
+      ]);
+      prisma.receipt.findMany.mockResolvedValue([
+        {
+          id: 'hidden-receipt',
+          tenantId: 't1',
+          projectId: 'hidden-project',
+          project: { id: 'hidden-project', tenantId: 't1', type: 'REFORMA' },
+        },
+      ]);
+      prisma.expense.create.mockClear();
+      prisma.receipt.create.mockClear();
+
+      await expect(
+        service.commitImport(
+          't1',
+          'pessoal1',
+          'acc1',
+          Buffer.from(ofx),
+          'ext.ofx',
+          'OFX',
+          undefined,
+          undefined,
+          [
+            {
+              externalId: duplicateExpenseId,
+              action: 'link',
+              linkToExpenseId: 'hidden-expense',
+            },
+            {
+              externalId: duplicateReceiptId,
+              action: 'link',
+              linkToReceiptId: 'hidden-receipt',
+            },
+            {
+              externalId: skippedId,
+              action: 'skip',
+              linkToExpenseId: 'hidden-expense',
+            },
+          ],
+          null,
+          RESTRICTED_IMPORT_REQUESTER,
+        ),
+      ).resolves.toEqual(expect.objectContaining({ inserted: 0 }));
+      expect(prisma.expense.create).not.toHaveBeenCalled();
+      expect(prisma.receipt.create).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      {
+        label: 'despesa',
+        amount: 10000,
+        decision: { linkToExpenseId: 'hidden-expense' },
+      },
+      {
+        label: 'recebimento',
+        amount: -10000,
+        decision: { linkToReceiptId: 'hidden-receipt' },
+      },
+    ])('bloqueia link hidden processável de $label antes de writes', async ({ amount, decision }) => {
+      const ofx = buildBankOfx(
+        ofxBankFor('20260429', amount, 'PROCESSADA HIDDEN', 'PROC-HIDDEN'),
+      );
+      const preview = await service.previewImport(
+        't1',
+        'pessoal1',
+        'acc1',
+        Buffer.from(ofx),
+        'ext.ofx',
+        'OFX',
+      );
+      prisma.$queryRaw.mockResolvedValue([]);
+      prisma.expense.findMany.mockResolvedValue([
+        {
+          id: 'hidden-expense',
+          tenantId: 't1',
+          projectId: 'hidden-project',
+          project: { id: 'hidden-project', tenantId: 't1', type: 'REFORMA' },
+        },
+      ]);
+      prisma.receipt.findMany.mockResolvedValue([
+        {
+          id: 'hidden-receipt',
+          tenantId: 't1',
+          projectId: 'hidden-project',
+          project: { id: 'hidden-project', tenantId: 't1', type: 'REFORMA' },
+        },
+      ]);
+      prisma.bankStatementImport.create.mockClear();
+      prisma.expense.create.mockClear();
+      prisma.receipt.create.mockClear();
+
+      await expect(
+        service.commitImport(
+          't1',
+          'pessoal1',
+          'acc1',
+          Buffer.from(ofx),
+          'ext.ofx',
+          'OFX',
+          undefined,
+          undefined,
+          [
+            {
+              externalId: preview.preview[0].externalId,
+              action: 'link',
+              ...decision,
+            },
+          ],
+          null,
+          RESTRICTED_IMPORT_REQUESTER,
+        ),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.bankStatementImport.create).not.toHaveBeenCalled();
+      expect(prisma.expense.create).not.toHaveBeenCalled();
+      expect(prisma.receipt.create).not.toHaveBeenCalled();
     });
   });
 

@@ -1,6 +1,8 @@
+import { TEST_OWNER_REQUESTER } from '../test-utils/acl-requester-test-helper';
 import { BadRequestException } from '@nestjs/common';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import { ExpenseService } from './expense.service';
+import { withAclRequester } from '../test-utils/acl-requester-test-helper';
 
 /**
  * Reprodução do incidente de produção: uma despesa PESSOAL importada da fatura
@@ -202,7 +204,7 @@ function makeHarness() {
   };
 
   const conciliacao = new ConciliacaoService(prisma);
-  const service = new ExpenseService(prisma, conciliacao);
+  const service = withAclRequester(new ExpenseService(prisma, conciliacao), prisma);
   return { service, prisma, rows, settlements, conciliacao };
 }
 
@@ -215,7 +217,7 @@ describe('Reprodução: settlement órfão por bypass de unlinkExpense/desconcil
       targetExpenseId: TARGET_ID,
       parcelaIndex: 0,
       realValor: 11_000,
-    });
+    }, TEST_OWNER_REQUESTER);
 
     expect(settlements.size).toBe(1);
     expect(rows.get(SOURCE_ID)?.linkedExpenseId).toBe(TARGET_ID);
@@ -239,14 +241,14 @@ describe('Reprodução: settlement órfão por bypass de unlinkExpense/desconcil
         tenantId: TENANT_ID,
         sourceExpenseId: SOURCE_ID,
         allocations: [{ targetExpenseId: TARGET_ID, allocation: 11_000 }],
-      }),
+      }, TEST_OWNER_REQUESTER),
     ).rejects.toThrow(/conciliada por parcela/i);
 
     // 4) Chama o `desconciliar` CORRIGIDO na mesma fonte, já com o ponteiro nulo
     // (exatamente o estado do registro real em produção). O fix remove a guarda
     // `if (!source.linkedExpenseId) return alreadyUnlinked` e delega
     // incondicionalmente a `reverseSourceLinks`, que consulta a tabela real.
-    const result = await service.desconciliar(TENANT_ID, PESSOAL_PROJECT_ID, SOURCE_ID);
+    const result = await service.desconciliar(TENANT_ID, PESSOAL_PROJECT_ID, SOURCE_ID, TEST_OWNER_REQUESTER);
     expect(result).toEqual({ ok: true });
 
     // 5) Auto-cura completa:
@@ -274,6 +276,11 @@ describe('Reprodução: settlement órfão por bypass de unlinkExpense/desconcil
           tenantId: TENANT_ID,
           sourceExpenseId: freshSourceId,
           allocations: [{ targetExpenseId: TARGET_ID, allocation: 11_000 }],
+        }, {
+          role: 'ADMIN',
+          allowedProjects: [],
+          allowedProjectTypes: [],
+          allowedModules: [],
         }),
       ).resolves.toEqual({ targets: [TARGET_ID] });
     });
@@ -285,7 +292,7 @@ describe('Reprodução: settlement órfão por bypass de unlinkExpense/desconcil
   it('re-clicar em "desvincular" numa despesa standalone (nunca foi fonte de settlement) é no-op seguro', async () => {
     const { service, rows } = makeHarness();
 
-    const result = await service.desconciliar(TENANT_ID, PESSOAL_PROJECT_ID, 'standalone-1');
+    const result = await service.desconciliar(TENANT_ID, PESSOAL_PROJECT_ID, 'standalone-1', TEST_OWNER_REQUESTER);
 
     expect(result).toEqual({ ok: true });
     expect(rows.get('standalone-1')?.deletedAt).toBeNull(); // não soft-deletada

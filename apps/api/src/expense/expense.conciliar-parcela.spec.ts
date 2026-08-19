@@ -1,3 +1,4 @@
+import { TEST_OWNER_REQUESTER } from '../test-utils/acl-requester-test-helper';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ExpenseService } from './expense.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -40,7 +41,7 @@ describe('ExpenseService.conciliarParcela — hardening', () => {
   });
 
   it('P4: realValor default = valorTotal do ESPELHO (não o slice da source)', async () => {
-    await service.conciliarParcela(tenantId, projectId, 'src', { targetExpenseId: 'tgt', parcelaIndex: 0 });
+    await service.conciliarParcela(tenantId, projectId, 'src', { targetExpenseId: 'tgt', parcelaIndex: 0 }, TEST_OWNER_REQUESTER);
     const arg = conciliacao.settleTargetParcela.mock.calls[0][1];
     expect(arg.realValor).toBe(22000); // valorTotal do espelho, NÃO 11000 (slice)
   });
@@ -52,14 +53,14 @@ describe('ExpenseService.conciliarParcela — hardening', () => {
       // simula clamp interno para 2
       input._effective = Math.min(Math.max(0, input.parcelaIndex), 2);
     });
-    const res: any = await service.conciliarParcela(tenantId, projectId, 'src', { targetExpenseId: 'tgt', parcelaIndex: 99 });
+    const res: any = await service.conciliarParcela(tenantId, projectId, 'src', { targetExpenseId: 'tgt', parcelaIndex: 99 }, TEST_OWNER_REQUESTER);
     expect(res.parcelaIndex).toBe(2);
   });
 
   it('P5: bloqueia conciliar em despesa quando o alvo é neutro (propaga erro do settle)', async () => {
     conciliacao.settleTargetParcela.mockRejectedValue(new Error('Alvo neutro não pode ser conciliado'));
     await expect(
-      service.conciliarParcela(tenantId, projectId, 'src', { targetExpenseId: 'tgt', parcelaIndex: 0 }),
+      service.conciliarParcela(tenantId, projectId, 'src', { targetExpenseId: 'tgt', parcelaIndex: 0 }, TEST_OWNER_REQUESTER),
     ).rejects.toThrow(/neutr/i);
   });
 });

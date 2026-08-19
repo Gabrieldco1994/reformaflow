@@ -75,13 +75,13 @@ Commits principais:
       compartilhando a mesma fonte.
     - **O12:** ordenação determinística — itens por `expenseId` asc; `parcelas`
       por `parcelaIndex` asc; `origins` na ordem de 1ª aparição.
-19. **B1a — Child ACL em `settleTargetParcela`:** quando o chamador fornece um
-    `RateioRequester`, o projeto-alvo (child) é relido DENTRO da `$transaction`
+19. **B1a — Child ACL em `settleTargetParcela`:** o requester é obrigatório e o
+    projeto-alvo (child) é relido DENTRO da `$transaction`
     existente e validado contra o tenant e o escopo autorizado do requisitante
     (TOCTOU-safe; sem redesign de transação). Projeto ausente, cross-tenant ou
     fora do escopo → mesma exceção que o caminho já lançava para "not found" —
-    nenhuma mensagem nova vaza existência de recurso. Requester ausente (paths
-    legados) → full-access, comportamento idêntico ao de antes do B1a.
+    nenhuma mensagem nova vaza existência de recurso. Requester ausente falha
+    fechado.
 20. **Security Phase 2 — Escopo de leitura em `findCrossProject`:** `GET
     .../expenses/cross-project` resolve `resolveAccessibleProjectScope` UMA VEZ e
     aplica `projectId: {in: scope}` diretamente no `where` do Prisma — nunca como

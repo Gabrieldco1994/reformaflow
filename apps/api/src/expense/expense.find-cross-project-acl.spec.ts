@@ -11,8 +11,8 @@
  * ver despesas de projetos na sua lente (`allowedProjects`/
  * `allowedProjectTypes`); hidden/cross-tenant NUNCA aparecem, mesmo com
  * `targetProjectId` explícito apontando pra lá (retorna `[]`, não 403/404 —
- * não confirma nem nega a existência do projeto ao requester); full-access
- * (ADMIN) continua vendo tudo (controle, comportamento inalterado).
+ * não confirma nem nega a existência do projeto ao requester); ADMIN continua
+ * vendo tudo e requester ausente falha fechado.
  *
  * Mutation-mindset extra: a filtragem por scope tem que acontecer ANTES/
  * JUNTO do `take: limit` (no WHERE, não como um `.filter()` em JS depois de
@@ -149,10 +149,11 @@ describe('ExpenseService.findCrossProject — child ACL real DB (security phase 
     expect(results.some((r: any) => r.titulo === 'admin-hidden')).toBe(true);
   });
 
-  it('sem requester (chamador legado) mantém comportamento full-access — compat', async () => {
+  it('sem requester falha fechado em vez de assumir acesso total', async () => {
     await setupPrisma.expense.create({ data: expenseData({ projectId: HIDDEN, titulo: 'legacy-hidden' }) });
-    const results: any[] = await service.findCrossProject(TENANT, PESSOAL, {});
-    expect(results.some((r: any) => r.titulo === 'legacy-hidden')).toBe(true);
+    await expect(
+      (service as any).findCrossProject(TENANT, PESSOAL, {}, undefined),
+    ).rejects.toBeDefined();
   });
 
   it('filtragem por scope acontece ANTES/JUNTO do limit — despesas hidden mais recentes não "roubam" vagas de despesas allowed', async () => {

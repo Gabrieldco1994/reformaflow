@@ -10,6 +10,16 @@ export interface RateioRequester {
   allowedModules?: string[];
 }
 
+/** Fail-closed runtime guard for untyped/JavaScript callers. */
+export function assertRateioRequester(
+  requester: RateioRequester | null | undefined,
+  error: Error = new ForbiddenException(REQUESTER_REQUIRED_MESSAGE),
+): asserts requester is RateioRequester {
+  if (!requester) {
+    throw error;
+  }
+}
+
 /** Uma linha do rateio: uma alocação da compra-fonte para uma planejada de outro projeto. */
 export interface RateioDetalheItem {
   /** Expense alvo (PK da alocação — @@unique, serve de chave de lista e de ordenação). */
@@ -63,3 +73,6 @@ export interface RateioDetalhe {
    */
   hiddenAllocationCents: number;
 }
+import { ForbiddenException } from '@nestjs/common';
+
+const REQUESTER_REQUIRED_MESSAGE = 'Requisitante obrigatório';

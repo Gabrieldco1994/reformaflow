@@ -3083,6 +3083,7 @@ export class MonthlyOverviewService {
         card,
         amountCents,
         paymentDate: effectiveDate,
+        requester,
       });
     } catch {
       // mantém o pagamento; liquidação das parcelas pode ser refeita por import.
@@ -3248,6 +3249,7 @@ export class MonthlyOverviewService {
         card,
         dueMonth,
         tx,
+        requester,
       });
       await tx.expense.update({
         where: { id: paymentExpenseId },

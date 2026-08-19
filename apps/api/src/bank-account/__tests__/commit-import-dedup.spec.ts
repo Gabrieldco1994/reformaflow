@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { MerchantClassifierService } from '../../merchant-classifier/merchant-classifier.service';
 import { CardInvoiceSettlementService } from '../../credit-card/card-invoice-settlement.service';
 import { ConciliacaoService } from '../../conciliacao/conciliacao.service';
+import { TEST_OWNER_REQUESTER } from '../../test-utils/acl-requester-test-helper';
 
 /**
  * Cobre dois cenários de "excluir/retirar algo não deveria voltar a contar":
@@ -86,7 +87,7 @@ describe('commitImport — decisão skip não contabiliza a linha', () => {
     const res = await service.commitImport(
       't1', 'pessoal1', 'acc1', buf, 'extrato.xlsx', 'AUTO',
       undefined, undefined,
-      [{ externalId: mercadoTx!.externalId, action: 'skip' }],
+      [{ externalId: mercadoTx!.externalId, action: 'skip' }], null, TEST_OWNER_REQUESTER
     );
 
     const createdMercado = prisma.expense.create.mock.calls.find((c: any) => /MERCADO/.test(c[0].data.fornecedor ?? ''));
@@ -112,7 +113,7 @@ describe('commitImport — decisão skip não contabiliza a linha', () => {
     const res = await service.commitImport(
       't1', 'pessoal1', 'acc1', buf, 'extrato.xlsx', 'AUTO',
       undefined, undefined,
-      [{ externalId: tx.externalId, action: 'skip' }],
+      [{ externalId: tx.externalId, action: 'skip' }], null, TEST_OWNER_REQUESTER
     );
 
     expect(prisma.receipt.create).not.toHaveBeenCalled();
@@ -137,7 +138,7 @@ describe('commitImport — múltiplos arquivos no mesmo import não perdem trans
     expect(preview.total).toBe(2);
 
     prisma.expense.create.mockClear();
-    const res = await service.commitImport('t1', 'pessoal1', 'acc1', [file1, file2], 'ext.xlsx', 'AUTO');
+    const res = await service.commitImport('t1', 'pessoal1', 'acc1', [file1, file2], 'ext.xlsx', 'AUTO', undefined, undefined, undefined, null, TEST_OWNER_REQUESTER);
     expect(res.inserted).toBe(2);
     expect(prisma.expense.create).toHaveBeenCalledTimes(2);
   });
@@ -170,7 +171,7 @@ describe('commitImport — excluir (soft-delete) um lançamento importado e reim
     const buf = xlsxBuf(rows);
 
     // 1ª importação: cria a despesa.
-    const res1 = await service.commitImport('t1', 'pessoal1', 'acc1', buf, 'extrato.xlsx', 'AUTO');
+    const res1 = await service.commitImport('t1', 'pessoal1', 'acc1', buf, 'extrato.xlsx', 'AUTO', undefined, undefined, undefined, null, TEST_OWNER_REQUESTER);
     expect(res1.inserted).toBe(1);
     expect(expenseRows).toHaveLength(1);
 
@@ -181,7 +182,7 @@ describe('commitImport — excluir (soft-delete) um lançamento importado e reim
 
     // 2ª importação: MESMO arquivo — a despesa excluída NÃO deve voltar.
     prisma.expense.create.mockClear();
-    const res2 = await service.commitImport('t1', 'pessoal1', 'acc1', buf, 'extrato.xlsx', 'AUTO');
+    const res2 = await service.commitImport('t1', 'pessoal1', 'acc1', buf, 'extrato.xlsx', 'AUTO', undefined, undefined, undefined, null, TEST_OWNER_REQUESTER);
     expect(res2.inserted).toBe(0);
     expect(prisma.expense.create).not.toHaveBeenCalled();
 

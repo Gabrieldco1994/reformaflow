@@ -14,7 +14,10 @@ import { RequireModule } from '../common/decorators/require-module.decorator';
 import { CurrentTenant, CurrentUser } from '../common/decorators/tenant.decorator';
 import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
 import { PdfPasswordRequiredError, PdfWrongPasswordError, ImageOcrError } from './parsers';
-import { RateioRequester } from '../expense/rateio.types';
+import {
+  assertRateioRequester,
+  RateioRequester,
+} from '../expense/rateio.types';
 
 @RequireModule('creditCards')
 @UseInterceptors(TenantInterceptor)
@@ -80,8 +83,10 @@ export class CreditCardController {
     @Param('projectId') projectId: string,
     @Param('id') cardId: string,
     @Param('importId') importId: string,
+    @CurrentUser() requester: RateioRequester,
   ) {
-    return this.service.undoImport(tenantId, projectId, cardId, importId);
+    assertRateioRequester(requester);
+    return this.service.undoImport(tenantId, projectId, cardId, importId, requester);
   }
 
   @Get(':id/suggest-links')
@@ -99,8 +104,9 @@ export class CreditCardController {
     @Param('projectId') projectId: string,
     @Param('expenseId') expenseId: string,
     @Body() body: LinkToExpenseDto,
-    @CurrentUser() requester?: RateioRequester,
+    @CurrentUser() requester: RateioRequester,
   ) {
+    assertRateioRequester(requester);
     return this.service.linkToExpense(
       tenantId,
       projectId,
@@ -119,21 +125,24 @@ export class CreditCardController {
     @CurrentTenant() tenantId: string,
     @Param('projectId') projectId: string,
     @Param('expenseId') expenseId: string,
+    @CurrentUser() requester: RateioRequester,
   ) {
-    return this.service.unlinkExpense(tenantId, projectId, expenseId);
+    assertRateioRequester(requester);
+    return this.service.unlinkExpense(tenantId, projectId, expenseId, requester);
   }
 
   @Post(':id/import-statement')
   @UseInterceptors(AnyFilesInterceptor({ limits: { fileSize: 10 * 1024 * 1024, files: 5 } }))
   async importStatement(
     @CurrentTenant() tenantId: string,
-    @CurrentUser() requester: { id: string },
+    @CurrentUser() requester: RateioRequester & { id: string },
     @Param('projectId') projectId: string,
     @Param('id') cardId: string,
     @UploadedFiles() files: Express.Multer.File[] | undefined,
     @Query() query: ImportStatementQueryDto,
     @Body() body: { decisions?: string } | undefined,
   ) {
+    assertRateioRequester(requester);
     const list = (files ?? []).slice(0, 5);
     if (list.length === 0) {
       return { error: 'arquivo ausente' };
@@ -165,6 +174,7 @@ export class CreditCardController {
           query.password,
           decisions,
           requester.id,
+          requester,
         );
       }
       return await this.service.previewImport(

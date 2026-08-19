@@ -21,6 +21,7 @@ import { PrismaClient } from '@prisma/client';
 import { CreditCardService } from '../credit-card.service';
 import { ConciliacaoService } from '../../conciliacao/conciliacao.service';
 import { MerchantClassifierService } from '../../merchant-classifier/merchant-classifier.service';
+import type { RateioRequester } from '../../expense/rateio.types';
 
 const prisma = new PrismaClient();
 let failures = 0;
@@ -72,6 +73,12 @@ async function main() {
   const reforma = await prisma.project.create({
     data: { tenantId: tenant.id, type: 'REFORMA', name: 'Reforma' },
   });
+  const requester: RateioRequester = {
+    role: 'OWNER',
+    allowedProjects: [pessoal.id, reforma.id],
+    allowedProjectTypes: ['PESSOAL', 'REFORMA'],
+    allowedModules: ['expenses'],
+  };
   console.log(`Tenant: ${tenant.id}`);
 
   const card = await cardSvc.createCard(tenant.id, pessoal.id, {
@@ -87,7 +94,7 @@ async function main() {
 12/05/2026;LEROY MERLIN PARC 1/3;R$ 300,00
 13/05/2026;IFOOD ESTABELECIMENTO;R$ 89,90
 `;
-  const r1 = await cardSvc.commitImport(tenant.id, pessoal.id, card.id, csv, 'fatura.csv', 'AUTO' as any);
+  const r1 = await cardSvc.commitImport(tenant.id, pessoal.id, card.id, csv, 'fatura.csv', 'AUTO' as any, undefined, undefined, undefined, null, requester);
   const importId = r1.importId;
   assert(!!importId, 'commit devolve importId');
   const afterImport = await sumCardDespesaCents(tenant.id, '1234');
@@ -98,7 +105,7 @@ async function main() {
   assert(detail.impact.expenses === 2, `detail: 2 despesas criadas (got ${detail.impact.expenses})`);
   assert(detail.impact.cashFlowEntries >= 4, `detail: >=4 cashflow (Leroy 1/3 + iFood) (got ${detail.impact.cashFlowEntries})`);
 
-  const undo1 = await cardSvc.undoImport(tenant.id, pessoal.id, card.id, importId);
+  const undo1 = await cardSvc.undoImport(tenant.id, pessoal.id, card.id, importId, requester);
   assert(undo1.ok === true, 'undo ok');
   assert(undo1.removedExpenses === 2, `undo removeu 2 despesas (got ${undo1.removedExpenses})`);
 
@@ -118,7 +125,7 @@ async function main() {
 
   // ───── 2) Idempotência ──────────────────────────────────────
   header('2) Idempotência: desfazer duas vezes');
-  const undo2 = await cardSvc.undoImport(tenant.id, pessoal.id, card.id, importId);
+  const undo2 = await cardSvc.undoImport(tenant.id, pessoal.id, card.id, importId, requester);
   assert(undo2.ok === true && undo2.alreadyUndone === true, 'segundo undo: alreadyUndone, sem throw');
   const stillZero = await sumCardDespesaCents(tenant.id, '1234');
   assert(stillZero === before, `total permanece ${before} após 2º undo (got ${stillZero})`);
@@ -128,7 +135,7 @@ async function main() {
   const csv2 = `data;descricao;valor
 20/06/2026;LOJA MATERIAL;R$ 500,00
 `;
-  const r2 = await cardSvc.commitImport(tenant.id, pessoal.id, card.id, csv2, 'fatura2.csv', 'AUTO' as any);
+  const r2 = await cardSvc.commitImport(tenant.id, pessoal.id, card.id, csv2, 'fatura2.csv', 'AUTO' as any, undefined, undefined, undefined, null, requester);
   const importId2 = r2.importId;
   const src = await prisma.expense.findFirst({
     where: { tenantId: tenant.id, importId: importId2, cardLast4: '1234', deletedAt: null },
@@ -148,13 +155,13 @@ async function main() {
       data: new Date(Date.UTC(2026, 5, 20)), categoria: 'MATERIAL_CONSTRUCAO', formaPagamento: 'A_VISTA', status: 'PLANEJADO',
     },
   });
-  await cardSvc.linkToExpense(tenant.id, pessoal.id, src!.id, planned.id);
+  await cardSvc.linkToExpense(tenant.id, pessoal.id, src!.id, planned.id, undefined, requester);
   const plannedLinked = await prisma.expense.findUnique({ where: { id: planned.id } });
   assert(plannedLinked?.status === 'PAGO', 'planejada REFORMA virou PAGO pelo link');
   const settlementsBefore = await prisma.crossProjectSettlement.count({ where: { sourceExpenseId: src!.id } });
   assert(settlementsBefore === 1, `1 CrossProjectSettlement criado (got ${settlementsBefore})`);
 
-  const undo3 = await cardSvc.undoImport(tenant.id, pessoal.id, card.id, importId2);
+  const undo3 = await cardSvc.undoImport(tenant.id, pessoal.id, card.id, importId2, requester);
   assert(undo3.ok === true, 'undo do lote com link ok');
   assert(undo3.revertedSettlements === 1, `undo reverteu 1 settlement (got ${undo3.revertedSettlements})`);
   const plannedAfter = await prisma.expense.findUnique({ where: { id: planned.id } });
@@ -170,7 +177,7 @@ async function main() {
 01/07/2026;COMPRA A;R$ 100,00
 02/07/2026;COMPRA B;R$ 200,00
 `;
-  const r4 = await cardSvc.commitImport(tenant.id, pessoal.id, card.id, csv4, 'fatura4.csv', 'AUTO' as any);
+  const r4 = await cardSvc.commitImport(tenant.id, pessoal.id, card.id, csv4, 'fatura4.csv', 'AUTO' as any, undefined, undefined, undefined, null, requester);
   const importId4 = r4.importId;
   const beforeAtomic = await sumCardDespesaCents(tenant.id, '1234');
   assert(beforeAtomic > 0, `lote 4 criou despesas (total ${beforeAtomic})`);
@@ -182,7 +189,7 @@ async function main() {
   (conciliacao as any).reverseSourceLinks = () => { throw new Error('boom-atomicidade'); };
   let threw = false;
   try {
-    await cardSvc.undoImport(tenant.id, pessoal.id, card.id, importId4);
+    await cardSvc.undoImport(tenant.id, pessoal.id, card.id, importId4, requester);
   } catch {
     threw = true;
   } finally {
@@ -199,7 +206,7 @@ async function main() {
   assert(liveAfterAtomic === 2, `2 despesas do lote 4 seguem vivas (got ${liveAfterAtomic})`);
 
   // limpeza real do lote 4 (undo de verdade)
-  await cardSvc.undoImport(tenant.id, pessoal.id, card.id, importId4);
+  await cardSvc.undoImport(tenant.id, pessoal.id, card.id, importId4, requester);
 
   // ───── Cleanup ──────────────────────────────────────────────
   header('Cleanup');

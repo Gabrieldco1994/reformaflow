@@ -635,12 +635,10 @@ Nenhum campo preexistente (`editavel`, `status`, `realizado`, `pending`, `fatura
 ### 15.3 Child ACL em `settleTargetParcela`
 
 O projeto-alvo de uma conciliação cross-project é relido DENTRO da `$transaction`
-existente, via `RateioRequester` opcional encadeado desde o controller. Quando o
-requester está presente, o projeto-alvo (`child`) deve existir no mesmo tenant e
-estar no escopo autorizado do requisitante — caso contrário, a transação é abortada
-com a mesma exceção que o caminho já lançava para "not found" (nenhuma mensagem de
-erro nova vaza existência de recurso). Quando o requester está ausente (paths
-legados anteriores ao B1a), o comportamento é idêntico ao de antes: full-access.
+existente, via `RateioRequester` encadeado desde o controller. O child deve existir
+no mesmo tenant e estar no escopo autorizado do requisitante; requester ausente
+falha fechado. Falhas abortam a transação com a mesma exceção de "not found", sem
+vazar a existência do recurso.
 
 ### 15.4 Guarda de duplicidade ativa (cartão/conta)
 

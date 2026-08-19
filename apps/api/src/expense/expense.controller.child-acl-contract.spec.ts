@@ -33,6 +33,9 @@ function buildController(serviceOverrides: Record<string, jest.Mock>) {
     conciliarParcela: jest.fn().mockResolvedValue({ ok: true }),
     ratear: jest.fn().mockResolvedValue({ ok: true }),
     ratearMixed: jest.fn().mockResolvedValue({ ok: true }),
+    desratear: jest.fn().mockResolvedValue({ ok: true }),
+    desconciliar: jest.fn().mockResolvedValue({ ok: true }),
+    remove: jest.fn().mockResolvedValue({ ok: true }),
     createRecorrente: jest.fn().mockResolvedValue({ ok: true }),
     findCrossProject: jest.fn().mockResolvedValue([]),
     ...serviceOverrides,
@@ -72,6 +75,16 @@ describe('ExpenseController — repassa requester ao service nas mutações chil
     // No baseline pré-#448, `ratearMixed` só repassava `requester.id` — o
     // objeto completo (scope de ACL) nunca chegava ao service.
     expect(service.ratearMixed.mock.calls[0]).toContainEqual(REQUESTER);
+  });
+
+  it.each([
+    ['desratear', ['t1', 'p1', 'src-1', REQUESTER]],
+    ['desconciliar', ['t1', 'p1', 'src-1', REQUESTER]],
+    ['remove', ['t1', 'p1', 'src-1', REQUESTER]],
+  ] as const)('%s repassa o requester completo às reversões', async (method, args) => {
+    const { controller, service } = buildController({});
+    await (controller[method] as (...callArgs: unknown[]) => Promise<unknown>)(...args);
+    expect(service[method]).toHaveBeenCalledWith('t1', 'p1', 'src-1', REQUESTER);
   });
 
   it('createRecorrente: o REQUESTER INTEIRO (não só requester.id) chega ao service (security phase 2)', async () => {

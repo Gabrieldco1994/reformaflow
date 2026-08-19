@@ -3,7 +3,10 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBankAccountDto, UpdateBankAccountDto } from './dto/bank-account.dto';
 import { parseBankStatementBuffers, type BankSourceHint } from './parsers';
-import { RateioRequester } from '../expense/rateio.types';
+import {
+  assertRateioRequester,
+  RateioRequester,
+} from '../expense/rateio.types';
 
 /** Normaliza a entrada (string legada, Buffer único ou array) para Buffer[]. */
 function toBuffers(content: string | Buffer | Buffer[]): Buffer[] {
@@ -55,7 +58,10 @@ import {
   MERCHANT_TO_EXPENSE_TYPE,
 } from '../merchant-classifier/merchant-classifier.service';
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
-import { CardInvoiceSettlementService } from '../credit-card/card-invoice-settlement.service';
+import {
+  CardInvoiceSettlementService,
+  type PreparedInvoiceUnsettlement,
+} from '../credit-card/card-invoice-settlement.service';
 import {
   pickUniqueCardMatch,
   rankCardCandidates,
@@ -84,6 +90,7 @@ export interface BankImportDecision {
 
 // Mapeamento categoria → ExpenseType pessoal — fonte única em merchant-classifier.service.ts.
 const PESSOAL_CATEGORY_MAP: Record<string, string> = MERCHANT_TO_EXPENSE_TYPE;
+const IMPORT_NOT_FOUND_MESSAGE = 'Importação não encontrada';
 
 /**
  * Heurísticas determinísticas para descrições de extrato que IA não distingue bem.
@@ -550,11 +557,13 @@ export class BankAccountService {
     fileContent: string | Buffer | Buffer[],
     fileName: string | undefined,
     source: BankSourceHint,
-    periodLabelOverride?: string,
-    password?: string,
-    decisions?: BankImportDecision[],
-    createdByUserId: string | null = null,
+    periodLabelOverride: string | undefined,
+    password: string | undefined,
+    decisions: BankImportDecision[] | undefined,
+    createdByUserId: string | null,
+    requester: RateioRequester,
   ) {
+    assertRateioRequester(requester);
     const account = await this.findAccount(tenantId, projectId, accountId);
     const buffers = toBuffers(fileContent);
     const parsed = await parseBankStatementBuffers(buffers, account.id, source, fileName, password);
@@ -577,6 +586,39 @@ export class BankAccountService {
       if (existingIds.has(t.externalId)) return false;
       return true;
     });
+    const insertableDecisions = toInsert
+      .map((transaction) => decisionByExt.get(transaction.externalId))
+      .filter((decision): decision is BankImportDecision => Boolean(decision));
+    const targetExpenseIds = [
+      ...new Set(
+        insertableDecisions
+          .filter((decision) => decision.action === 'link')
+          .map((decision) => decision.linkToExpenseId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const targetReceiptIds = [
+      ...new Set(
+        insertableDecisions
+          .filter((decision) => decision.action === 'link')
+          .map((decision) => decision.linkToReceiptId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    if (targetExpenseIds.length > 0 || targetReceiptIds.length > 0) {
+      await this.prisma.$transaction(async (tx) => {
+        await this.conciliacao.assertCanSettleTargets(
+          tx,
+          { tenantId, targetExpenseIds },
+          requester,
+        );
+        await this.conciliacao.assertCanMutateReceiptTargets(
+          tx,
+          { tenantId, targetReceiptIds },
+          requester,
+        );
+      });
+    }
     const userSkipped = (decisions ?? []).filter((d) => d?.action === 'skip' && !existingIds.has(d.externalId)).length;
     // Lista auditável do que foi ignorado como duplicata (mesma contagem de
     // `duplicated`, mas com as linhas). Sem isso, uma linha descartada some sem
@@ -666,6 +708,7 @@ export class BankAccountService {
               adjustedTx.date,
             ),
           },
+          requester,
         );
         if (result.inserted) inserted++;
         if (result.receiptInserted) receiptsInserted++;
@@ -680,10 +723,16 @@ export class BankAccountService {
               await this.linkToExpense(tenantId, projectId, result.expenseId, d.linkToExpenseId, {
                 parcelaIndex,
                 realValor: Math.abs(adjustedTx.amountCents),
-              });
+              }, requester);
               linked++;
             } else if (d.linkToReceiptId && result.receiptId) {
-              await this.linkToReceipt(tenantId, projectId, result.receiptId, d.linkToReceiptId);
+              await this.linkToReceipt(
+                tenantId,
+                projectId,
+                result.receiptId,
+                d.linkToReceiptId,
+                requester,
+              );
               linked++;
             }
           } catch (linkErr) {
@@ -865,12 +914,22 @@ export class BankAccountService {
    * NÃO reverte a propagação de recorrências (`RecurringBill`), que é um upsert
    * sem snapshot — efeito irreversível reportado ao usuário no preview.
    */
-  async undoImport(tenantId: string, projectId: string, accountId: string, importId: string) {
+  async undoImport(
+    tenantId: string,
+    projectId: string,
+    accountId: string,
+    importId: string,
+    requester: RateioRequester,
+  ) {
+    assertRateioRequester(
+      requester,
+      new NotFoundException(IMPORT_NOT_FOUND_MESSAGE),
+    );
     await this.findAccount(tenantId, projectId, accountId);
     const importRecord = await this.prisma.bankStatementImport.findFirst({
       where: { id: importId, tenantId, accountId },
     });
-    if (!importRecord) throw new NotFoundException('Importação não encontrada');
+    if (!importRecord) throw new NotFoundException(IMPORT_NOT_FOUND_MESSAGE);
     if (importRecord.deletedAt) {
       return {
         ok: true, alreadyUndone: true, removedExpenses: 0, removedReceipts: 0,
@@ -878,40 +937,20 @@ export class BankAccountService {
       };
     }
 
-    // Resolve os cartões dos pagamentos de fatura ANTES da tx (leitura pura), para
-    // saber quais liquidações são revertíveis por vencimento (estratégia 1).
-    const cardPayments = await this.prisma.expense.findMany({
-      where: {
-        tenantId, importId, deletedAt: null, createdAt: { gte: importRecord.createdAt },
-        tipoDespesa: 'PAGAMENTO_FATURA_CARTAO', cardLast4: { not: null },
-      },
-      select: { cardLast4: true, dataPagamento: true, createdAt: true },
-    });
-    const invoiceReversals: Array<{ card: { id: string; last4: string; closingDay: number | null; dueDay: number | null }; dueMonth: string }> = [];
-    let notRevertedInvoiceLiquidations = 0;
-    const seen = new Set<string>();
-    for (const p of cardPayments) {
-      const c = await this.prisma.creditCard.findFirst({
-        where: { tenantId, last4: p.cardLast4 as string, deletedAt: null },
-        select: { id: true, last4: true, closingDay: true, dueDay: true },
-      });
-      if (c && c.closingDay != null && c.dueDay != null) {
-        const dueMonth = this.yearMonthUtc(p.dataPagamento ?? p.createdAt);
-        const key = `${c.last4}__${dueMonth}`;
-        if (!seen.has(key)) { seen.add(key); invoiceReversals.push({ card: c, dueMonth }); }
-      } else {
-        notRevertedInvoiceLiquidations++;
-      }
-    }
-
     const result = await this.prisma.$transaction(async (tx) => {
       const created = await tx.expense.findMany({
         where: { tenantId, importId, deletedAt: null, createdAt: { gte: importRecord.createdAt } },
-        select: { id: true },
+        select: {
+          id: true,
+          tipoDespesa: true,
+          cardLast4: true,
+          dataPagamento: true,
+          createdAt: true,
+        },
       });
       const receipts = await tx.receipt.findMany({
         where: { tenantId, importId, deletedAt: null, createdAt: { gte: importRecord.createdAt } },
-        select: { id: true },
+        select: { id: true, linkedReceiptId: true },
       });
       const adopted = await tx.expense.findMany({
         where: { tenantId, importId, deletedAt: null, createdAt: { lt: importRecord.createdAt } },
@@ -920,6 +959,77 @@ export class BankAccountService {
       const createdIds = created.map((e) => e.id);
       const receiptIds = receipts.map((r) => r.id);
       const now = new Date();
+      const preparedInvoiceReversals: PreparedInvoiceUnsettlement[] = [];
+      let notRevertedInvoiceLiquidations = 0;
+      const seen = new Set<string>();
+
+      for (const payment of created) {
+        if (
+          payment.tipoDespesa !== 'PAGAMENTO_FATURA_CARTAO' ||
+          !payment.cardLast4
+        ) {
+          continue;
+        }
+        const cards = await tx.creditCard.findMany({
+          where: {
+            tenantId,
+            last4: payment.cardLast4,
+            deletedAt: null,
+          },
+          select: {
+            id: true,
+            last4: true,
+            closingDay: true,
+            dueDay: true,
+          },
+          take: 2,
+        });
+        if (cards.length !== 1) {
+          throw new NotFoundException(IMPORT_NOT_FOUND_MESSAGE);
+        }
+        const card = cards[0];
+        if (card.closingDay == null || card.dueDay == null) {
+          await this.cardSettlement.assertCanAccessCard({
+            tenantId,
+            card,
+            tx,
+            requester,
+            notFoundMessage: IMPORT_NOT_FOUND_MESSAGE,
+          });
+          notRevertedInvoiceLiquidations++;
+          continue;
+        }
+        const dueMonth = this.yearMonthUtc(payment.dataPagamento ?? payment.createdAt);
+        const key = `${card.id}__${dueMonth}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        preparedInvoiceReversals.push(
+          await this.cardSettlement.prepareUnsettleInvoice({
+            tenantId,
+            card,
+            dueMonth,
+            tx,
+            requester,
+            notFoundMessage: IMPORT_NOT_FOUND_MESSAGE,
+          }),
+        );
+      }
+
+      await this.conciliacao.assertCanReverseSources(
+        tx,
+        { tenantId, sourceExpenseIds: createdIds },
+        requester,
+      );
+      await this.conciliacao.assertCanMutateReceiptTargets(
+        tx,
+        {
+          tenantId,
+          targetReceiptIds: receipts.flatMap((receipt) =>
+            receipt.linkedReceiptId ? [receipt.linkedReceiptId] : [],
+          ),
+        },
+        requester,
+      );
 
       // 1) Soft-delete das entradas de caixa e das despesas/recebimentos do lote.
       //    (ANTES da reversão de vínculos/faturas: falha posterior faz rollback
@@ -944,7 +1054,11 @@ export class BankAccountService {
       // 2) Reverte vínculos cross-project de cada despesa-fonte do lote.
       let revertedSettlements = 0;
       for (const id of createdIds) {
-        const res = await this.conciliacao.reverseSourceLinks(tx, { tenantId, sourceExpenseId: id });
+        const res = await this.conciliacao.reverseSourceLinks(
+          tx,
+          { tenantId, sourceExpenseId: id },
+          requester,
+        );
         if (res.mode !== 'none') revertedSettlements += res.targets.length;
       }
 
@@ -952,8 +1066,12 @@ export class BankAccountService {
       //    lote voltam a PLANEJADO). Cartões sem fechamento/vencimento ficam de
       //    fora (fallback não revertível por vencimento) — já contados acima.
       let revertedInvoiceParcelas = 0;
-      for (const rev of invoiceReversals) {
-        const r = await this.cardSettlement.unsettleInvoice({ tenantId, card: rev.card, dueMonth: rev.dueMonth, tx });
+      for (const prepared of preparedInvoiceReversals) {
+        const r = await this.cardSettlement.applyPreparedUnsettlement(
+          tx,
+          prepared,
+          requester,
+        );
         revertedInvoiceParcelas += r.revertedParcelas;
       }
 
@@ -970,11 +1088,12 @@ export class BankAccountService {
         removedReceipts: receiptIds.length,
         revertedSettlements,
         revertedInvoiceParcelas,
+        notRevertedInvoiceLiquidations,
         unstamped: adopted.length,
       };
     });
 
-    return { ok: true, alreadyUndone: false, notRevertedInvoiceLiquidations, ...result };
+    return { ok: true, alreadyUndone: false, ...result };
   }
 
   /**
@@ -1200,20 +1319,17 @@ export class BankAccountService {
   }
 
   /**
-   * `requester` (B1a #448) OPCIONAL — encaminhado a `settleTargetParcela`, que
-   * releitura o alvo (child fora do `:projectId` de rota) DENTRO da mesma
-   * `$transaction`, sem gap de TOCTOU. Omitido no chamador interno de
-   * import-commit (`decisions[].action==='link'`, ver `commitImport`
-   * abaixo) — mesmo racional do gêmeo em `credit-card.service.ts`.
+   * O requester é encaminhado ao preflight transacional do alvo.
    */
   async linkToExpense(
     tenantId: string,
     projectId: string,
     bankExpenseId: string,
     targetExpenseId: string,
-    opts?: { parcelaIndex?: number; realValor?: number },
-    requester?: RateioRequester,
+    opts: { parcelaIndex?: number; realValor?: number } | undefined,
+    requester: RateioRequester,
   ) {
+    assertRateioRequester(requester);
     const source = await this.prisma.expense.findFirst({
       where: { id: bankExpenseId, tenantId, projectId, deletedAt: null },
     });
@@ -1241,13 +1357,23 @@ export class BankAccountService {
     return { ok: true, sourceId: source.id, targetId: targetExpenseId, parcelaIndex, paymentDate };
   }
 
-  async unlinkExpense(tenantId: string, projectId: string, bankExpenseId: string) {
+  async unlinkExpense(
+    tenantId: string,
+    projectId: string,
+    bankExpenseId: string,
+    requester: RateioRequester,
+  ) {
+    assertRateioRequester(requester, new NotFoundException('Despesa não encontrada'));
     const source = await this.prisma.expense.findFirst({
       where: { id: bankExpenseId, tenantId, projectId, deletedAt: null },
     });
     if (!source) throw new NotFoundException('Despesa não encontrada');
     await this.prisma.$transaction(async (tx) => {
-      await this.conciliacao.reverseSourceLinks(tx, { tenantId, sourceExpenseId: source.id });
+      await this.conciliacao.reverseSourceLinks(
+        tx,
+        { tenantId, sourceExpenseId: source.id },
+        requester,
+      );
     });
     return { ok: true };
   }
@@ -1338,14 +1464,22 @@ export class BankAccountService {
     projectId: string,
     bankReceiptId: string,
     targetReceiptId: string,
+    requester: RateioRequester,
   ) {
-    const source = await this.prisma.receipt.findFirst({
-      where: { id: bankReceiptId, tenantId, projectId, deletedAt: null },
-    });
-    if (!source) throw new NotFoundException('Recebimento importado não encontrado');
-    if (!source.bankLast4) throw new BadRequestException('Recebimento não foi importado de conta bancária');
-
+    assertRateioRequester(requester);
     const result = await this.prisma.$transaction(async (tx) => {
+      const source = await tx.receipt.findFirst({
+        where: { id: bankReceiptId, tenantId, projectId, deletedAt: null },
+      });
+      if (!source) throw new NotFoundException('Recebimento importado não encontrado');
+      if (!source.bankLast4) {
+        throw new BadRequestException('Recebimento não foi importado de conta bancária');
+      }
+      await this.conciliacao.assertCanMutateReceiptTargets(
+        tx,
+        { tenantId, targetReceiptIds: [targetReceiptId] },
+        requester,
+      );
       const target = await tx.receipt.findFirst({
         where: { id: targetReceiptId, tenantId, deletedAt: null },
       });
@@ -1375,27 +1509,40 @@ export class BankAccountService {
         data: { linkedReceiptId: target.id },
       });
 
-      return { targetId: target.id };
+      return { sourceId: source.id, targetId: target.id };
     });
 
-    return { ok: true, sourceId: source.id, targetId: result.targetId };
+    return { ok: true, sourceId: result.sourceId, targetId: result.targetId };
   }
 
   /**
    * Desfaz o link entre um recebimento importado e o alvo.
    * NÃO reverte o status do alvo (pode ter sido marcado EM_CAIXA por outro motivo).
    */
-  async unlinkReceipt(tenantId: string, projectId: string, bankReceiptId: string) {
-    const source = await this.prisma.receipt.findFirst({
-      where: { id: bankReceiptId, tenantId, projectId, deletedAt: null },
+  async unlinkReceipt(
+    tenantId: string,
+    projectId: string,
+    bankReceiptId: string,
+    requester: RateioRequester,
+  ) {
+    assertRateioRequester(requester, new NotFoundException('Recebimento não encontrado'));
+    return this.prisma.$transaction(async (tx) => {
+      const source = await tx.receipt.findFirst({
+        where: { id: bankReceiptId, tenantId, projectId, deletedAt: null },
+      });
+      if (!source) throw new NotFoundException('Recebimento não encontrado');
+      if (!source.linkedReceiptId) return { ok: true, alreadyUnlinked: true };
+      await this.conciliacao.assertCanMutateReceiptTargets(
+        tx,
+        { tenantId, targetReceiptIds: [source.linkedReceiptId] },
+        requester,
+      );
+      await tx.receipt.update({
+        where: { id: source.id },
+        data: { linkedReceiptId: null },
+      });
+      return { ok: true };
     });
-    if (!source) throw new NotFoundException('Recebimento não encontrado');
-    if (!source.linkedReceiptId) return { ok: true, alreadyUnlinked: true };
-    await this.prisma.receipt.update({
-      where: { id: source.id },
-      data: { linkedReceiptId: null },
-    });
-    return { ok: true };
   }
 
   // ─── helpers ─────────────────────────────────────────────
@@ -1456,9 +1603,10 @@ export class BankAccountService {
     account: { id: string; nickname: string; last4: string; institution: string },
     tx: NormalizedTx,
     importId: string,
-    categoryOverride?: string,
-    createdByUserId: string | null = null,
-    cardHint?: { override?: string | null; candidates?: CardInvoiceCandidate[] },
+    categoryOverride: string | undefined,
+    createdByUserId: string | null,
+    cardHint: { override?: string | null; candidates?: CardInvoiceCandidate[] } | undefined,
+    requester: RateioRequester,
   ): Promise<{ inserted: boolean; receiptInserted: boolean; cardPayment: boolean; unlinkedCardPayment: boolean; expenseId?: string; receiptId?: string }> {
     if (tx.amountCents < 0) {
       const receiptAmount = -tx.amountCents;
@@ -1598,6 +1746,7 @@ export class BankAccountService {
               card,
               amountCents: tx.amountCents,
               paymentDate: tx.date,
+              requester,
             });
           }
         } catch (settleErr) {

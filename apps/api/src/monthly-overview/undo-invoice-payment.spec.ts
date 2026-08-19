@@ -149,14 +149,23 @@ function buildPrisma(seed: {
     };
   }
 
-  const expenseCollection = collection('expense', expenses);
+  const withProject = (row: any) => ({
+    ...row,
+    project: {
+      id: row.projectId,
+      tenantId,
+      type: 'PESSOAL',
+      deletedAt: null,
+    },
+  });
+  const expenseCollection = collection('expense', expenses, withProject);
 
   const prisma: any = {
     project: {
       findFirst: jest.fn().mockResolvedValue({ id: projectId, tenantId, type: 'PESSOAL', deletedAt: null }),
       findMany: jest.fn().mockResolvedValue([{ id: projectId, name: 'Pessoal', type: 'PESSOAL' }]),
     },
-    creditCard: collection('creditCard', cards),
+    creditCard: collection('creditCard', cards, withProject),
     bankAccount: collection('bankAccount', accounts),
     expense: {
       ...expenseCollection,

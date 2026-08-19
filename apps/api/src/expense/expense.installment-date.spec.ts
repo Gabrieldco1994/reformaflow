@@ -1,3 +1,4 @@
+import { TEST_OWNER_REQUESTER } from '../test-utils/acl-requester-test-helper';
 import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { ExpenseService } from "./expense.service";
 
@@ -486,7 +487,7 @@ describe("ExpenseService.updateInstallmentDate", () => {
     const reduced = makeHarness(expense);
     await reduced.service.update("tenant-1", "project-1", "expense-1", {
       quantidadeParcela: 2,
-    } as never);
+    } as never, TEST_OWNER_REQUESTER);
     expect(reduced.tx.expense.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -498,7 +499,7 @@ describe("ExpenseService.updateInstallmentDate", () => {
     const single = makeHarness(expense);
     await single.service.update("tenant-1", "project-1", "expense-1", {
       formaPagamento: "A_VISTA",
-    } as never);
+    } as never, TEST_OWNER_REQUESTER);
     expect(single.tx.expense.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ installmentDateOverrides: null }),
@@ -521,7 +522,7 @@ describe("ExpenseService.updateInstallmentDate", () => {
     await service.update("tenant-1", "project-1", "expense-1", {
       tipoDespesa: "MAO_DE_OBRA",
       titulo: "Título atualizado",
-    } as never);
+    } as never, TEST_OWNER_REQUESTER);
 
     expect(tx.expense.update).toHaveBeenCalledTimes(2);
     for (const [{ data }] of tx.expense.update.mock.calls) {
