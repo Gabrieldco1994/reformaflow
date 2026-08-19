@@ -40,6 +40,7 @@ function expense(id: string, projectId: string, valorTotal: number): any {
       id: projectId,
       type: projectId === SOURCE_PROJECT ? "PESSOAL" : "REFORMA",
       tenantId: TENANT,
+      deletedAt: null,
     },
   };
 }
