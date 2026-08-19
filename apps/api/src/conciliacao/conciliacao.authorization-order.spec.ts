@@ -8,6 +8,7 @@ const TENANT = "rateio-acl-tenant";
 const SOURCE_PROJECT = "rateio-acl-source-project";
 const ALLOWED_PROJECT = "rateio-acl-allowed-project";
 const HIDDEN_PROJECT = "rateio-acl-hidden-project";
+const RECEIPT_ID = "rateio-acl-receipt";
 
 const MANAGED: RateioRequester = {
   role: "USER",
@@ -45,11 +46,27 @@ function expense(id: string, projectId: string, valorTotal: number): any {
   };
 }
 
+function receipt(): any {
+  return {
+    id: RECEIPT_ID,
+    tenantId: TENANT,
+    projectId: ALLOWED_PROJECT,
+    deletedAt: null,
+    project: {
+      id: ALLOWED_PROJECT,
+      type: "REFORMA",
+      tenantId: TENANT,
+      deletedAt: null,
+    },
+  };
+}
+
 function buildTx(
   options: {
     deniedKind?: DeniedKind;
     existingHidden?: boolean;
     deletedTargetProject?: boolean;
+    deletedReceiptProject?: boolean;
   } = {},
 ) {
   const source = expense("source", SOURCE_PROJECT, 20_000);
@@ -63,6 +80,10 @@ function buildTx(
     denied.project.tenantId = "another-tenant";
   }
   const oldHidden = expense("old-hidden-target", HIDDEN_PROJECT, 20_000);
+  const activeReceipt = receipt();
+  if (options.deletedReceiptProject) {
+    activeReceipt.project.deletedAt = new Date("2026-08-19T12:00:00.000Z");
+  }
   const allocationStore = new Map<string, any>();
   if (options.existingHidden) {
     allocationStore.set(oldHidden.id, {
@@ -126,6 +147,20 @@ function buildTx(
         writes.push(`expense.update:${where.id}`);
         Object.assign(rows[where.id], data);
         return rows[where.id];
+      }),
+    },
+    receipt: {
+      findMany: jest.fn(async ({ where, include }: any) => {
+        if (
+          !where.id.in.includes(activeReceipt.id) ||
+          where.tenantId !== activeReceipt.tenantId ||
+          where.deletedAt !== activeReceipt.deletedAt
+        ) {
+          return [];
+        }
+        return include?.project
+          ? [activeReceipt]
+          : [{ ...activeReceipt, project: undefined }];
       }),
     },
     rateioAllocation: {
@@ -345,4 +380,83 @@ describe("ConciliacaoService.ratearSource — preflight ACL antes da primeira wr
       expect(writes).toEqual([]);
     },
   );
+
+  it.each<[string, RateioRequester]>([
+    ["USER autorizado", MANAGED],
+    [
+      "OWNER",
+      {
+        role: "OWNER",
+        allowedProjects: [],
+        allowedProjectTypes: [],
+        allowedModules: [],
+      },
+    ],
+    [
+      "ADMIN",
+      {
+        role: "ADMIN",
+        allowedProjects: [],
+        allowedProjectTypes: [],
+        allowedModules: [],
+      },
+    ],
+  ])(
+    "%s rejeita recebimento ativo cujo projeto pai foi removido, sem writes",
+    async (_label, requester) => {
+      const { tx, writes } = buildTx({ deletedReceiptProject: true });
+      const service = new ConciliacaoService({} as any);
+
+      const error = await captureError(() =>
+        service.assertCanMutateReceiptTargets(
+          tx,
+          { tenantId: TENANT, targetReceiptIds: [RECEIPT_ID] },
+          requester,
+        ),
+      );
+
+      expect({
+        name: error?.constructor.name,
+        status: (error as any)?.getStatus?.(),
+        message: error?.message,
+      }).toEqual({
+        name: "NotFoundException",
+        status: 404,
+        message: "Recebimento alvo não encontrado",
+      });
+      expect(writes).toEqual([]);
+    },
+  );
+
+  it("resolve recebimento ativo consultando o contrato completo do projeto pai", async () => {
+    const { tx, writes } = buildTx();
+    const service = new ConciliacaoService({} as any);
+
+    await expect(
+      service.assertCanMutateReceiptTargets(
+        tx,
+        { tenantId: TENANT, targetReceiptIds: [RECEIPT_ID] },
+        MANAGED,
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(tx.receipt.findMany).toHaveBeenCalledWith({
+      where: {
+        id: { in: [RECEIPT_ID] },
+        tenantId: TENANT,
+        deletedAt: null,
+      },
+      include: {
+        project: {
+          select: {
+            id: true,
+            type: true,
+            tenantId: true,
+            deletedAt: true,
+          },
+        },
+      },
+    });
+    expect(writes).toEqual([]);
+  });
 });
