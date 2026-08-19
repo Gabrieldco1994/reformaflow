@@ -27,6 +27,7 @@ const IDS = {
   account: "qa480-bank-account",
   allowedCard: "qa480-bank-card-allowed",
   hiddenCard: "qa480-bank-card-hidden",
+  hiddenDuplicateCard: "qa480-bank-card-hidden-duplicate-sentinel",
   deletedCard: "qa480-bank-card-deleted",
   crossCard: "qa480-bank-card-cross",
   allowedExpense: "qa480-bank-expense-allowed",
@@ -48,10 +49,12 @@ const HIDDEN_SENTINELS = [
   IDS.hiddenExpense,
   IDS.hiddenReceipt,
   IDS.hiddenCard,
+  IDS.hiddenDuplicateCard,
   "Projeto bancário oculto SENTINELA",
   "Despesa bancária oculta SENTINELA",
   "Receita bancária oculta SENTINELA",
   "Cartão bancário oculto SENTINELA",
+  "Cartão bancário duplicado oculto SENTINELA",
   "9002",
 ] as const;
 
@@ -624,6 +627,17 @@ describe("bank candidate disclosure integration (#480)", () => {
           dueDay: 10,
         },
         {
+          id: IDS.hiddenDuplicateCard,
+          tenantId: IDS.tenant,
+          projectId: IDS.hidden,
+          institution: "ITAU",
+          brand: "Visa",
+          nickname: "Cartão bancário duplicado oculto SENTINELA",
+          last4: "9001",
+          closingDay: null,
+          dueDay: 10,
+        },
+        {
           id: IDS.deletedCard,
           tenantId: IDS.tenant,
           projectId: IDS.deletedProject,
@@ -663,7 +677,7 @@ describe("bank candidate disclosure integration (#480)", () => {
     jest.useRealTimers();
   });
 
-  it("makes hidden, absent, cross-tenant and deleted candidates deep-equal before ranking, auto-selection and totals", async () => {
+  it("makes hidden (including duplicate last4), absent, cross-tenant and deleted candidates deep-equal before ranking, auto-selection and totals", async () => {
     const before = await financialState();
     const hiddenPresent = await preview(projectRestrictedRequester);
     const afterHiddenPreview = await financialState();
