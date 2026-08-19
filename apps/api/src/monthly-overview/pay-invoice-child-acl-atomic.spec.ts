@@ -33,8 +33,7 @@ const REQUESTER: MonthlyOverviewMutationRequester = {
   role: "USER",
   allowedProjects: [PESSOAL, ALLOWED],
   allowedProjectTypes: ["PESSOAL", "REFORMA"],
-  // Pagar fatura toca o recurso CARTÃO: exige `creditCards` (#480 SEC-1).
-  allowedModules: ["expenses", "creditCards"],
+  allowedModules: ["expenses"],
 };
 
 function rejectionShape(error: unknown) {

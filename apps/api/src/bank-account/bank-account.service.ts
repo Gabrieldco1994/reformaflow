@@ -1187,6 +1187,7 @@ export class BankAccountService {
             tx,
             requester,
             notFoundMessage: IMPORT_NOT_FOUND_MESSAGE,
+            requiredModule: CREDIT_CARD_MODULE,
           });
           notRevertedInvoiceLiquidations++;
           continue;
@@ -1203,6 +1204,7 @@ export class BankAccountService {
             tx,
             requester,
             notFoundMessage: IMPORT_NOT_FOUND_MESSAGE,
+            requiredModule: CREDIT_CARD_MODULE,
           }),
         );
       }
@@ -1963,6 +1965,7 @@ export class BankAccountService {
             paymentDate: probe.date,
             tx,
             requester,
+            requiredModule: CREDIT_CARD_MODULE,
           });
           authorizedCards.push(card);
         } catch (error) {
@@ -2030,6 +2033,7 @@ export class BankAccountService {
             paymentDate: transaction.date,
             tx,
             requester,
+            requiredModule: CREDIT_CARD_MODULE,
           })
         : null;
       prepared.set(transaction.externalId, {
@@ -2146,6 +2150,7 @@ export class BankAccountService {
           paymentDate: tx.date,
           tx: client,
           requester,
+          requiredModule: CREDIT_CARD_MODULE,
         });
         const e = await this.createCardPaymentExpense(
           client,

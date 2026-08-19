@@ -74,6 +74,13 @@ describe("Pendencia card candidate disclosure integration (#480)", () => {
     new ConciliacaoService(prisma),
     new CardInvoiceSettlementService(prisma),
   );
+  // ponytail: `getAccountView` é MOCK — este spec cobre APENAS o candidato de
+  // CARTÃO aninhado no item de pendência (`loadCardsWithEntries`). Com
+  // `saidas`/`cartoes` vazios, nada aqui exercita `saidas.foreignPendingItems`
+  // (montado em `MonthlyOverviewService`) nem `faturasNaoPagas` (derivado de
+  // `accountView.cartoes` em `PendenciaService`): esses dois continuam no
+  // escopo AMPLO do Hub (`resolveScope`, sem módulo) e o vazamento deles é
+  // pré-existente, rastreado em #485 — fora do escopo do #480.
   const monthlyOverview = {
     getAccountView: jest
       .fn()

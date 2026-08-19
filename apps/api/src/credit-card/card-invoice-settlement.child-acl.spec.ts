@@ -4,6 +4,7 @@ require("../../../../scripts/test-db-env.cjs");
 import { HttpException } from "@nestjs/common";
 import { PrismaClient } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { CREDIT_CARD_MODULE } from "../common/access-rules";
 import type { RateioRequester } from "../expense/rateio.types";
 import {
   CardInvoiceSettlementService,
@@ -177,6 +178,7 @@ function settle(
   card: SettleCard,
   requester: RateioRequester,
   amountCents = 10_000,
+  requiredModule?: string,
 ) {
   return service.settleInvoice({
     tenantId: TENANT,
@@ -184,6 +186,7 @@ function settle(
     amountCents,
     paymentDate: PAYMENT_DATE,
     requester,
+    requiredModule,
   });
 }
 
@@ -458,7 +461,7 @@ describe("CardInvoiceSettlementService.settleInvoice — child ACL real SQLite",
     },
   );
 
-  it("does not authorize a card through an unrelated same-project-type module", async () => {
+  it("does not authorize a card through an unrelated same-project-type module when the caller requires creditCards", async () => {
     await createPurchase({
       id: "expenses-only-purchase",
       projectId: ALLOWED,
@@ -467,11 +470,11 @@ describe("CardInvoiceSettlementService.settleInvoice — child ACL real SQLite",
     const before = await snapshot();
 
     const hiddenError = await captureError(() =>
-      settle(service, VISIBLE_CARD, EXPENSES_ONLY),
+      settle(service, VISIBLE_CARD, EXPENSES_ONLY, 10_000, CREDIT_CARD_MODULE),
     );
     const afterHidden = await snapshot();
     const missingError = await captureError(() =>
-      settle(service, MISSING_CARD, EXPENSES_ONLY),
+      settle(service, MISSING_CARD, EXPENSES_ONLY, 10_000, CREDIT_CARD_MODULE),
     );
     const afterMissing = await snapshot();
 
@@ -498,5 +501,32 @@ describe("CardInvoiceSettlementService.settleInvoice — child ACL real SQLite",
         status: "PLANEJADO",
       },
     ]);
+
+    // Contrapartida obrigatória: o MESMO cartão, o MESMO requester, por um
+    // caller que NÃO declara `creditCards` (o cockpit entra por
+    // `@RequireModule('monthlyOverview')`) continua liquidando. O gate por
+    // recurso é do dono da rota; travá-lo no serviço 404-aria uma feature já
+    // entregue.
+    await expect(settle(service, VISIBLE_CARD, EXPENSES_ONLY)).resolves.toEqual({
+      settledExpenses: 1,
+      settledParcelas: 1,
+    });
+    expect(await snapshot()).toEqual({
+      expenses: [
+        {
+          id: "expenses-only-purchase",
+          projectId: ALLOWED,
+          status: "PAGO",
+          paidParcelas: null,
+        },
+      ],
+      entries: [
+        {
+          id: "expenses-only-purchase-entry",
+          expenseId: "expenses-only-purchase",
+          status: "PAGO",
+        },
+      ],
+    });
   });
 });
