@@ -168,8 +168,17 @@ export class ExpenseController {
     @Param('projectId') projectId: string,
     @Param('id') id: string,
     @Body() dto: UpdateInstallmentDateDto,
+    @CurrentUser() requester: RateioRequester,
   ) {
-    return this.service.updateInstallmentDate(tenantId, projectId, id, dto.parcela, dto.data);
+    assertRateioRequester(requester);
+    return this.service.updateInstallmentDate(
+      tenantId,
+      projectId,
+      id,
+      dto.parcela,
+      dto.data,
+      requester,
+    );
   }
 
   @Post(':id/pay')

@@ -70,6 +70,47 @@ function makeHarness() {
     plannedDataPagamento: new Date('2026-10-01T00:00:00.000Z'),
     plannedInstallmentDateOverrides: null,
   }));
+  const withIncludedProject = (row: ExpenseRow | undefined, args: any) => {
+    if (!row || (!args.include?.project && !args.select?.project)) return row;
+    return {
+      ...row,
+      project: {
+        id: row.projectId,
+        tenantId: row.tenantId,
+        type: row.projectId === 'pessoal-1' ? 'PESSOAL' : 'REFORMA',
+        deletedAt: null,
+      },
+    };
+  };
+  const matchesExpenseWhere = (row: ExpenseRow, where: any) => {
+    if (where.tenantId !== undefined && row.tenantId !== where.tenantId) return false;
+    if (where.deletedAt !== undefined && row.deletedAt !== where.deletedAt) return false;
+    if (typeof where.id === 'string' && row.id !== where.id) return false;
+    if (Array.isArray(where.id?.in) && !where.id.in.includes(row.id)) return false;
+    if (
+      typeof where.linkedExpenseId === 'string' &&
+      row.linkedExpenseId !== where.linkedExpenseId
+    ) {
+      return false;
+    }
+    if (
+      Array.isArray(where.OR) &&
+      !where.OR.some((clause: any) => {
+        if (typeof clause.id === 'string') return row.id === clause.id;
+        if (Array.isArray(clause.id?.in)) return clause.id.in.includes(row.id);
+        if (typeof clause.linkedExpenseId === 'string') {
+          return row.linkedExpenseId === clause.linkedExpenseId;
+        }
+        if (Array.isArray(clause.linkedExpenseId?.in)) {
+          return clause.linkedExpenseId.in.includes(row.linkedExpenseId);
+        }
+        return false;
+      })
+    ) {
+      return false;
+    }
+    return true;
+  };
 
   const prisma: any = {
     project: {
@@ -77,19 +118,19 @@ function makeHarness() {
         id: where.id,
         tenantId: TENANT_ID,
         type: where.id === 'pessoal-1' ? 'PESSOAL' : 'REFORMA',
+        deletedAt: null,
       })),
     },
     expense: {
       findFirst: jest.fn(async ({ where }: any) => rows.get(where.id) ?? null),
-      findMany: jest.fn(async ({ where }: any) =>
-        [...rows.values()].filter(
-          (row) =>
-            row.tenantId === where.tenantId &&
-            row.linkedExpenseId === where.linkedExpenseId &&
-            row.deletedAt === null,
-        ),
+      findMany: jest.fn(async (args: any) =>
+        [...rows.values()]
+          .filter((row) => matchesExpenseWhere(row, args.where))
+          .map((row) => withIncludedProject(row, args)),
       ),
-      findUnique: jest.fn(async ({ where }: any) => rows.get(where.id) ?? null),
+      findUnique: jest.fn(async (args: any) =>
+        withIncludedProject(rows.get(args.where.id), args) ?? null,
+      ),
       create: jest.fn(async ({ data }: any) => ({ id: 'paid-clone', ...data })),
       update: jest.fn(async ({ where, data }: any) => {
         const current = rows.get(where.id);

@@ -60,7 +60,9 @@ import {
 import { ConciliacaoService } from '../conciliacao/conciliacao.service';
 import {
   CardInvoiceSettlementService,
+  type PreparedInvoiceSettlement,
   type PreparedInvoiceUnsettlement,
+  type SettleCard,
 } from '../credit-card/card-invoice-settlement.service';
 import {
   pickUniqueCardMatch,
@@ -88,9 +90,46 @@ export interface BankImportDecision {
   };
 }
 
+type SettlementClient = PrismaService | Prisma.TransactionClient;
+
+interface MatchedSettlementCard extends SettleCard {
+  nickname: string;
+}
+
+interface PreparedBankCardPayment {
+  isCardPayment: boolean;
+  matchedCard: MatchedSettlementCard | null;
+  settlement: PreparedInvoiceSettlement | null;
+}
+
+interface BankImportCreationResult {
+  inserted: boolean;
+  receiptInserted: boolean;
+  cardPayment: boolean;
+  unlinkedCardPayment: boolean;
+  expenseId?: string;
+  receiptId?: string;
+}
+
+interface BankImportPreparedRow {
+  transaction: NormalizedTx;
+  categoryOverride: string | undefined;
+  cardOverride: string | null;
+}
+
+interface BankCardPaymentPreflightState {
+  row: BankImportPreparedRow;
+  cardPaymentInfo: { isCardPayment: boolean; last4: string | null };
+  isCardPayment: boolean;
+  matchedCard: MatchedSettlementCard | null;
+  needsValueMatch: boolean;
+}
+
 // Mapeamento categoria → ExpenseType pessoal — fonte única em merchant-classifier.service.ts.
 const PESSOAL_CATEGORY_MAP: Record<string, string> = MERCHANT_TO_EXPENSE_TYPE;
 const IMPORT_NOT_FOUND_MESSAGE = 'Importação não encontrada';
+const CARD_PAYMENT_PREFLIGHT_MISSING_MESSAGE =
+  'Pré-validação de pagamento de fatura ausente';
 
 /**
  * Heurísticas determinísticas para descrições de extrato que IA não distingue bem.
@@ -605,20 +644,18 @@ export class BankAccountService {
           .filter((id): id is string => Boolean(id)),
       ),
     ];
-    if (targetExpenseIds.length > 0 || targetReceiptIds.length > 0) {
-      await this.prisma.$transaction(async (tx) => {
-        await this.conciliacao.assertCanSettleTargets(
-          tx,
-          { tenantId, targetExpenseIds },
-          requester,
-        );
-        await this.conciliacao.assertCanMutateReceiptTargets(
-          tx,
-          { tenantId, targetReceiptIds },
-          requester,
-        );
-      });
-    }
+    const preparedRows: BankImportPreparedRow[] = toInsert.map((transaction) => {
+      const decision = decisionByExt.get(transaction.externalId);
+      return {
+        transaction: {
+          ...transaction,
+          merchant: decision?.overrides?.titulo ?? transaction.merchant,
+          amountCents: decision?.overrides?.valorCents ?? transaction.amountCents,
+        },
+        categoryOverride: decision?.overrides?.category,
+        cardOverride: decision?.overrides?.cardLast4 ?? null,
+      };
+    });
     const userSkipped = (decisions ?? []).filter((d) => d?.action === 'skip' && !existingIds.has(d.externalId)).length;
     // Lista auditável do que foi ignorado como duplicata (mesma contagem de
     // `duplicated`, mas com as linhas). Sem isso, uma linha descartada some sem
@@ -653,102 +690,168 @@ export class BankAccountService {
       .filter((t) => t.amountCents > 0)
       .reduce((s, t) => s + t.amountCents, 0);
 
-    const importRecord = await this.prisma.bankStatementImport.create({
-      data: {
+    const createCore = async (client: Prisma.TransactionClient) => {
+      await this.conciliacao.assertCanSettleTargets(
+        client,
+        { tenantId, targetExpenseIds },
+        requester,
+      );
+      await this.conciliacao.assertCanMutateReceiptTargets(
+        client,
+        { tenantId, targetReceiptIds },
+        requester,
+      );
+      // Preflight do lote inteiro: nenhuma escrita acontece antes de todos os
+      // pagamentos de cartão e seus participantes passarem pela ACL.
+      const preparedCardPayments = await this.prepareBankCardPayments(
         tenantId,
-        accountId: account.id,
-        periodLabel,
-        source: parsed.source,
-        fileName: fileName?.slice(0, 200),
-        fileSize: buffers.reduce((s, b) => s + b.length, 0),
-        status: 'COMPLETED',
-        inserted: toInsert.length,
-        duplicated,
-        totalAmountCents: debitsTotal,
-      },
-    });
-
-    let inserted = 0;
-    let receiptsInserted = 0;
-    let cardPayments = 0;
-    let unlinkedCardPayments = 0;
-    let skipped = 0;
-    let linked = 0;
-    // Linhas que o COMMIT tentou inserir mas falharam (erro de dependência/DB no
-    // meio do loop). Antes viravam só um `skipped++` com console.warn — o
-    // segundo canal de perda silenciosa. Agora itemizadas para auditoria.
-    const failedItems: Array<{ date: string; description: string; amountCents: number; reason: 'error'; message: string }> = [];
-    const cardWindow = this.cardEntryWindow(toInsert);
-    const cardsWithEntries = await this.loadCardsWithEntries(
-      tenantId,
-      cardWindow.from,
-      cardWindow.to,
-    );
-    for (const tx of toInsert) {
-      const d = decisionByExt.get(tx.externalId);
-      const adjustedTx: NormalizedTx = {
-        ...tx,
-        merchant: d?.overrides?.titulo ?? tx.merchant,
-        amountCents: d?.overrides?.valorCents ?? tx.amountCents,
-      };
-      try {
-        const result = await this.createExpenseFromTransaction(
+        preparedRows,
+        requester,
+        client,
+      );
+      const importRecord = await client.bankStatementImport.create({
+        data: {
           tenantId,
-          projectId,
-          account,
-          adjustedTx,
-          importRecord.id,
-          d?.overrides?.category,
-          createdByUserId,
-          {
-            override: d?.overrides?.cardLast4 ?? null,
-            candidates: rankCardCandidates(
-              cardsWithEntries,
-              Math.abs(adjustedTx.amountCents),
-              adjustedTx.date,
-            ),
-          },
-          requester,
-        );
-        if (result.inserted) inserted++;
-        if (result.receiptInserted) receiptsInserted++;
-        if (result.cardPayment) cardPayments++;
-        if (result.unlinkedCardPayment) unlinkedCardPayments++;
+          accountId: account.id,
+          periodLabel,
+          source: parsed.source,
+          fileName: fileName?.slice(0, 200),
+          fileSize: buffers.reduce((s, b) => s + b.length, 0),
+          status: 'COMPLETED',
+          inserted: toInsert.length,
+          duplicated,
+          totalAmountCents: debitsTotal,
+        },
+      });
 
-        // Link cross-project
-        if (d?.action === 'link') {
-          try {
-            if (d.linkToExpenseId && result.expenseId) {
-              const parcelaIndex = Math.max(0, (adjustedTx.installmentCurrent ?? 1) - 1);
-              await this.linkToExpense(tenantId, projectId, result.expenseId, d.linkToExpenseId, {
-                parcelaIndex,
-                realValor: Math.abs(adjustedTx.amountCents),
-              }, requester);
-              linked++;
-            } else if (d.linkToReceiptId && result.receiptId) {
-              await this.linkToReceipt(
-                tenantId,
-                projectId,
-                result.receiptId,
-                d.linkToReceiptId,
-                requester,
-              );
-              linked++;
-            }
-          } catch (linkErr) {
-            console.warn(`[bank-import] link failed for ${tx.externalId.slice(0, 8)}:`, (linkErr as Error).message);
-          }
+      let inserted = 0;
+      let receiptsInserted = 0;
+      let cardPayments = 0;
+      let unlinkedCardPayments = 0;
+      let skipped = 0;
+      const failedItems: Array<{
+        date: string;
+        description: string;
+        amountCents: number;
+        reason: 'error';
+        message: string;
+      }> = [];
+      const createdRows: Array<{
+        row: BankImportPreparedRow;
+        decision: BankImportDecision | undefined;
+        result: BankImportCreationResult;
+      }> = [];
+
+      for (const row of preparedRows) {
+        const adjustedTx = row.transaction;
+        const decision = decisionByExt.get(adjustedTx.externalId);
+        const preparedCardPayment = preparedCardPayments.get(
+          adjustedTx.externalId,
+        );
+        if (!preparedCardPayment) {
+          throw new Error(CARD_PAYMENT_PREFLIGHT_MISSING_MESSAGE);
         }
-      } catch (err) {
-        skipped++;
-        failedItems.push({
-          date: adjustedTx.date instanceof Date ? adjustedTx.date.toISOString().slice(0, 10) : String(adjustedTx.date),
-          description: adjustedTx.merchant,
-          amountCents: adjustedTx.amountCents,
-          reason: 'error',
-          message: (err as Error).message,
-        });
-        console.warn(`[bank-import] tx skipped (${tx.externalId.slice(0, 8)}):`, (err as Error).message);
+        try {
+          const result = await this.createExpenseFromTransaction(
+            client,
+            tenantId,
+            projectId,
+            account,
+            adjustedTx,
+            importRecord.id,
+            row.categoryOverride,
+            createdByUserId,
+            preparedCardPayment,
+            requester,
+          );
+          if (result.inserted) inserted++;
+          if (result.receiptInserted) receiptsInserted++;
+          if (result.cardPayment) cardPayments++;
+          if (result.unlinkedCardPayment) unlinkedCardPayments++;
+          createdRows.push({ row, decision, result });
+        } catch (err) {
+          // Preparação/aplicação de cartão nunca é best-effort: propaga para o
+          // callback e desfaz o lote inteiro, inclusive pagamentos anteriores.
+          if (preparedCardPayment.matchedCard) throw err;
+
+          skipped++;
+          failedItems.push({
+            date:
+              adjustedTx.date instanceof Date
+                ? adjustedTx.date.toISOString().slice(0, 10)
+                : String(adjustedTx.date),
+            description: adjustedTx.merchant,
+            amountCents: adjustedTx.amountCents,
+            reason: 'error',
+            message: (err as Error).message,
+          });
+          console.warn(
+            `[bank-import] tx skipped (${adjustedTx.externalId.slice(0, 8)}):`,
+            (err as Error).message,
+          );
+        }
+      }
+
+      return {
+        importRecord,
+        inserted,
+        receiptsInserted,
+        cardPayments,
+        unlinkedCardPayments,
+        skipped,
+        failedItems,
+        createdRows,
+      };
+    };
+    const core = await this.prisma.$transaction(createCore);
+
+    const {
+      importRecord,
+      inserted,
+      receiptsInserted,
+      cardPayments,
+      unlinkedCardPayments,
+      skipped,
+      failedItems,
+      createdRows,
+    } = core;
+    let linked = 0;
+    for (const { row, decision, result } of createdRows) {
+      if (decision?.action !== 'link') continue;
+      const adjustedTx = row.transaction;
+      try {
+        if (decision.linkToExpenseId && result.expenseId) {
+          const parcelaIndex = Math.max(
+            0,
+            (adjustedTx.installmentCurrent ?? 1) - 1,
+          );
+          await this.linkToExpense(
+            tenantId,
+            projectId,
+            result.expenseId,
+            decision.linkToExpenseId,
+            {
+              parcelaIndex,
+              realValor: Math.abs(adjustedTx.amountCents),
+            },
+            requester,
+          );
+          linked++;
+        } else if (decision.linkToReceiptId && result.receiptId) {
+          await this.linkToReceipt(
+            tenantId,
+            projectId,
+            result.receiptId,
+            decision.linkToReceiptId,
+            requester,
+          );
+          linked++;
+        }
+      } catch (linkErr) {
+        console.warn(
+          `[bank-import] link failed for ${adjustedTx.externalId.slice(0, 8)}:`,
+          (linkErr as Error).message,
+        );
       }
     }
 
@@ -1593,11 +1696,182 @@ export class BankAccountService {
   }
 
   /**
+   * Resolve e prepara todos os pagamentos de cartão antes da criação do lote.
+   * A preparação é somente leitura; qualquer falha de ACL encerra o commit sem
+   * `BankStatementImport`, Expense, Receipt ou CashFlowEntry novos.
+   *
+   * Linhas que exigem casamento por valor autorizam primeiro todos os cartões e
+   * todas as compras que podem disputar o ranking. Só depois os totais são
+   * carregados por `loadCardsWithEntries`.
+   */
+  private async prepareBankCardPayments(
+    tenantId: string,
+    rows: BankImportPreparedRow[],
+    requester: RateioRequester,
+    tx: Prisma.TransactionClient,
+  ): Promise<Map<string, PreparedBankCardPayment>> {
+    if (rows.length === 0) return new Map();
+
+    const states: BankCardPaymentPreflightState[] = [];
+    for (const row of rows) {
+      const cardPaymentInfo = detectCardPayment(row.transaction.merchant);
+      const state: BankCardPaymentPreflightState = {
+        row,
+        cardPaymentInfo,
+        isCardPayment: cardPaymentInfo.isCardPayment,
+        matchedCard: null,
+        needsValueMatch: false,
+      };
+      states.push(state);
+
+      // Créditos viram Receipt antes de qualquer classificação de cartão.
+      if (row.transaction.amountCents < 0) continue;
+
+      const hasCardOverride =
+        row.cardOverride &&
+        (!row.categoryOverride ||
+          row.categoryOverride === 'PAGAMENTO_FATURA_CARTAO');
+      if (hasCardOverride) {
+        state.matchedCard = await this.findCardByLast4(
+          tenantId,
+          row.cardOverride as string,
+          tx,
+        );
+        if (state.matchedCard) state.isCardPayment = true;
+        continue;
+      }
+
+      if (state.isCardPayment) {
+        if (cardPaymentInfo.last4) {
+          state.matchedCard = await this.findCardByLast4(
+            tenantId,
+            cardPaymentInfo.last4,
+            tx,
+          );
+        }
+        state.needsValueMatch = !state.matchedCard;
+        continue;
+      }
+
+      if (
+        looksLikeOutboundTransfer(row.transaction.merchant) &&
+        !row.categoryOverride
+      ) {
+        state.needsValueMatch = true;
+      }
+    }
+
+    const valueMatchStates = states.filter((state) => state.needsValueMatch);
+    let cardsWithEntries: CardWithEntries[] = [];
+    if (valueMatchStates.length > 0) {
+      const cards = await tx.creditCard.findMany({
+        where: { tenantId, deletedAt: null },
+        select: {
+          id: true,
+          last4: true,
+          nickname: true,
+          brand: true,
+          closingDay: true,
+          dueDay: true,
+        },
+      });
+      const probe = valueMatchStates[0].row.transaction;
+      const authorizedCards: Array<MatchedSettlementCard & { brand: string }> = [];
+
+      // O ranking por valor pode considerar qualquer cartão ativo. Cada um
+      // precisa passar pelo mesmo preflight de settlement antes dessa leitura.
+      for (const card of cards) {
+        try {
+          await this.cardSettlement.prepareSettleInvoice({
+            tenantId,
+            card,
+            amountCents: probe.amountCents,
+            paymentDate: probe.date,
+            tx,
+            requester,
+          });
+          authorizedCards.push(card);
+        } catch (error) {
+          if (!(error instanceof NotFoundException)) throw error;
+        }
+      }
+
+      const cardWindow = this.cardEntryWindow(
+        valueMatchStates.map((state) => state.row.transaction),
+      );
+      cardsWithEntries = await this.loadCardsWithEntries(
+        tenantId,
+        cardWindow.from,
+        cardWindow.to,
+        tx,
+        authorizedCards.map((card) => ({
+          last4: card.last4,
+          nickname: card.nickname?.trim() || `${card.brand} ••${card.last4}`,
+          closingDay: card.closingDay,
+          dueDay: card.dueDay,
+        })),
+      );
+      const authorizedCardIds = authorizedCards.map((card) => card.id);
+
+      for (const state of valueMatchStates) {
+        const transaction = state.row.transaction;
+        if (state.cardPaymentInfo.isCardPayment) {
+          state.matchedCard = await this.findMatchingCreditCard(
+            tenantId,
+            transaction.amountCents,
+            transaction.date,
+            state.cardPaymentInfo.last4,
+            rankCardCandidates(
+              cardsWithEntries,
+              Math.abs(transaction.amountCents),
+              transaction.date,
+            ),
+            tx,
+            authorizedCardIds,
+          );
+        } else {
+          state.matchedCard = await this.findCardPaymentByAmount(
+            tenantId,
+            transaction.amountCents,
+            transaction.date,
+            tx,
+            authorizedCardIds,
+          );
+          if (state.matchedCard) state.isCardPayment = true;
+        }
+      }
+    }
+
+    const prepared = new Map<string, PreparedBankCardPayment>();
+    for (const state of states) {
+      const transaction = state.row.transaction;
+      const settlement = state.matchedCard
+        ? await this.cardSettlement.prepareSettleInvoice({
+            tenantId,
+            card: state.matchedCard,
+            amountCents: transaction.amountCents,
+            paymentDate: transaction.date,
+            tx,
+            requester,
+          })
+        : null;
+      prepared.set(transaction.externalId, {
+        isCardPayment: state.isCardPayment,
+        matchedCard: state.matchedCard,
+        settlement,
+      });
+    }
+
+    return prepared;
+  }
+
+  /**
    * Cria Expense (débito) ou Receipt (crédito) a partir de uma transação de extrato.
    * - amountCents > 0 = débito → Expense (PAGO) + CashFlowEntry DESPESA
    * - amountCents < 0 = crédito → Receipt (EM_CAIXA) + CashFlowEntry RECEBIMENTO
    */
   private async createExpenseFromTransaction(
+    client: Prisma.TransactionClient,
     tenantId: string,
     projectId: string,
     account: { id: string; nickname: string; last4: string; institution: string },
@@ -1605,9 +1879,9 @@ export class BankAccountService {
     importId: string,
     categoryOverride: string | undefined,
     createdByUserId: string | null,
-    cardHint: { override?: string | null; candidates?: CardInvoiceCandidate[] } | undefined,
+    preparedCardPayment: PreparedBankCardPayment,
     requester: RateioRequester,
-  ): Promise<{ inserted: boolean; receiptInserted: boolean; cardPayment: boolean; unlinkedCardPayment: boolean; expenseId?: string; receiptId?: string }> {
+  ): Promise<BankImportCreationResult> {
     if (tx.amountCents < 0) {
       const receiptAmount = -tx.amountCents;
       // Movimentação interna (resgate de aplicação/cofrinho etc.) entra como
@@ -1620,7 +1894,7 @@ export class BankAccountService {
         // voltando da aplicação). Vira Receipt RESGATE (preserva a direção, em
         // linha com o consolidado financeiro). Antes virava Expense, o que
         // invertia o sinal do resgate.
-        const receipt = await this.prisma.receipt.create({
+        const receipt = await client.receipt.create({
           data: {
             tenantId,
             projectId,
@@ -1634,7 +1908,7 @@ export class BankAccountService {
             bankLast4: account.last4,
           },
         });
-        await this.prisma.cashFlowEntry.create({
+        await client.cashFlowEntry.create({
           data: {
             tenantId,
             projectId,
@@ -1651,7 +1925,7 @@ export class BankAccountService {
         return { inserted: false, receiptInserted: true, cardPayment: false, unlinkedCardPayment: false, receiptId: receipt.id };
       }
       const tipoReceipt = classifyCreditType(tx.merchant);
-      const receipt = await this.prisma.receipt.create({
+      const receipt = await client.receipt.create({
         data: {
           tenantId,
           projectId,
@@ -1665,7 +1939,7 @@ export class BankAccountService {
           bankLast4: account.last4,
         },
       });
-      await this.prisma.cashFlowEntry.create({
+      await client.cashFlowEntry.create({
         data: {
           tenantId,
           projectId,
@@ -1682,88 +1956,59 @@ export class BankAccountService {
       return { inserted: false, receiptInserted: true, cardPayment: false, unlinkedCardPayment: false, receiptId: receipt.id };
     }
 
-    // ─── Detecção de pagamento de fatura de cartão ─────────────
-    // (a) escolha explícita do usuário na tela de importação — manda em tudo
-    // (b) por texto explícito ("FATURA PAGA", "PAGTO CART CRED" etc.)
-    // (c) por valor — transferência de saída sem texto explícito
+    // ─── Pagamento de fatura pré-validado antes da criação do lote ─────
     const cardPaymentInfo = detectCardPayment(tx.merchant);
-    let matchedCard: { id: string; last4: string; nickname: string } | null = null;
-    let isCardPayment = cardPaymentInfo.isCardPayment;
-    if (cardHint?.override && (!categoryOverride || categoryOverride === 'PAGAMENTO_FATURA_CARTAO')) {
-      matchedCard = await this.findCardByLast4(tenantId, cardHint.override);
-      if (matchedCard) isCardPayment = true;
-    } else if (isCardPayment) {
-      matchedCard = await this.findMatchingCreditCard(
-        tenantId,
-        tx.amountCents,
-        tx.date,
-        cardPaymentInfo.last4,
-        cardHint?.candidates ?? [],
-      );
-    } else if (looksLikeOutboundTransfer(tx.merchant) && !categoryOverride) {
-      // (c) match por valor — apenas transferências de saída sem texto explícito.
-      // Ex.: "Pagamento PIX" da fatura 7777, "PgConta NU PAGAMENTOS SA" etc.
-      // Critério estrito (±R$ 0,50, ±10 dias) para evitar falso positivo.
-      matchedCard = await this.findCardPaymentByAmount(tenantId, tx.amountCents, tx.date);
-      if (matchedCard) isCardPayment = true;
-    }
+    const { isCardPayment, matchedCard, settlement } = preparedCardPayment;
     if (isCardPayment) {
-      const e = await this.prisma.expense.create({
-        data: {
+      if (matchedCard) {
+        if (!settlement) throw new Error(CARD_PAYMENT_PREFLIGHT_MISSING_MESSAGE);
+        const currentSettlement = await this.cardSettlement.prepareSettleInvoice({
+          tenantId,
+          card: matchedCard,
+          amountCents: tx.amountCents,
+          paymentDate: tx.date,
+          tx: client,
+          requester,
+        });
+        const e = await this.createCardPaymentExpense(
+          client,
           tenantId,
           projectId,
-          tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
-          titulo: matchedCard
-            ? `Pagamento fatura ${matchedCard.nickname}`
-            : tx.merchant.slice(0, 200),
-          fornecedor: tx.merchant.slice(0, 200),
-          valor: tx.amountCents,
-          quantidade: 1,
-          valorTotal: tx.amountCents,
-          formaPagamento: 'A_VISTA',
-          dataPagamento: tx.date,
-          status: 'PAGO',
+          account,
+          tx,
           importId,
-          externalId: tx.externalId,
-          bankLast4: account.last4,
-          cardLast4: matchedCard?.last4 ?? cardPaymentInfo.last4 ?? null,
           createdByUserId,
-        },
-      });
-
-      // Liquidação automática: ao identificar o pagamento da fatura, marca as
-      // compras daquela fatura (importadas como PLANEJADO) como PAGAS. Best-effort:
-      // nunca quebra o import se a liquidação falhar.
-      if (matchedCard) {
-        try {
-          const card = await this.prisma.creditCard.findUnique({
-            where: { id: matchedCard.id },
-            select: { id: true, last4: true, closingDay: true, dueDay: true },
-          });
-          if (card) {
-            await this.cardSettlement.settleInvoice({
-              tenantId,
-              card,
-              amountCents: tx.amountCents,
-              paymentDate: tx.date,
-              requester,
-            });
-          }
-        } catch (settleErr) {
-          console.warn(
-            `[bank-import] settleInvoice falhou (${tx.externalId.slice(0, 8)}):`,
-            (settleErr as Error).message,
-          );
-        }
+          matchedCard,
+          cardPaymentInfo.last4,
+        );
+        await this.cardSettlement.applyPreparedSettlement(client, currentSettlement);
+        return {
+          inserted: false,
+          receiptInserted: false,
+          cardPayment: true,
+          unlinkedCardPayment: false,
+          expenseId: e.id,
+        };
       }
 
+      const e = await this.createCardPaymentExpense(
+        client,
+        tenantId,
+        projectId,
+        account,
+        tx,
+        importId,
+        createdByUserId,
+        null,
+        cardPaymentInfo.last4,
+      );
       return {
         inserted: false,
         receiptInserted: false,
         // Só é "vinculado" se de fato achamos o cartão. Sem cartão, o pagamento
         // sai do caixa (§10) mas NÃO quita fatura nenhuma — o commit avisa.
-        cardPayment: !!matchedCard,
-        unlinkedCardPayment: !matchedCard,
+        cardPayment: false,
+        unlinkedCardPayment: true,
         expenseId: e.id,
       };
     }
@@ -1781,7 +2026,7 @@ export class BankAccountService {
           (PESSOAL_CATEGORY_MAP[categorize(tx.merchant)] ?? 'OUTROS'));
     const titulo = tx.merchant.slice(0, 200);
 
-    const expense = await this.prisma.expense.create({
+    const expense = await client.expense.create({
       data: {
         tenantId,
         projectId,
@@ -1807,7 +2052,7 @@ export class BankAccountService {
       return { inserted: false, receiptInserted: false, cardPayment: false, unlinkedCardPayment: false, expenseId: expense.id };
     }
 
-    await this.prisma.cashFlowEntry.create({
+    await client.cashFlowEntry.create({
       data: {
         tenantId,
         projectId,
@@ -1825,6 +2070,42 @@ export class BankAccountService {
     return { inserted: true, receiptInserted: false, cardPayment: false, unlinkedCardPayment: false, expenseId: expense.id };
   }
 
+  private async createCardPaymentExpense(
+    client: SettlementClient,
+    tenantId: string,
+    projectId: string,
+    account: { last4: string },
+    transaction: NormalizedTx,
+    importId: string,
+    createdByUserId: string | null,
+    matchedCard: MatchedSettlementCard | null,
+    detectedLast4: string | null,
+  ): Promise<{ id: string }> {
+    return client.expense.create({
+      data: {
+        tenantId,
+        projectId,
+        tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+        titulo: matchedCard
+          ? `Pagamento fatura ${matchedCard.nickname}`
+          : transaction.merchant.slice(0, 200),
+        fornecedor: transaction.merchant.slice(0, 200),
+        valor: transaction.amountCents,
+        quantidade: 1,
+        valorTotal: transaction.amountCents,
+        formaPagamento: 'A_VISTA',
+        dataPagamento: transaction.date,
+        status: 'PAGO',
+        importId,
+        externalId: transaction.externalId,
+        bankLast4: account.last4,
+        cardLast4: matchedCard?.last4 ?? detectedLast4,
+        createdByUserId,
+      },
+      select: { id: true },
+    });
+  }
+
   /**
    * Carrega, para cada cartão do tenant, os lançamentos de caixa das COMPRAS
    * (não-neutras) numa janela de datas — insumo puro de `rankCardCandidates`.
@@ -1837,21 +2118,29 @@ export class BankAccountService {
     tenantId: string,
     from: Date,
     to: Date,
+    client: SettlementClient = this.prisma,
+    scopedCards?: Array<Omit<CardWithEntries, 'entries'>>,
   ): Promise<CardWithEntries[]> {
-    const cards = await this.prisma.creditCard.findMany({
+    const cards = scopedCards ?? (await client.creditCard.findMany({
       where: { tenantId, deletedAt: null },
       select: { last4: true, nickname: true, brand: true, closingDay: true, dueDay: true },
-    });
+    })).map((card) => ({
+      last4: card.last4,
+      nickname: card.nickname?.trim() || `${card.brand} ••${card.last4}`,
+      closingDay: card.closingDay,
+      dueDay: card.dueDay,
+    }));
     if (cards.length === 0) return [];
+    const cardLast4s = [...new Set(cards.map((card) => card.last4))];
 
-    const entries = await this.prisma.cashFlowEntry.findMany({
+    const entries = await client.cashFlowEntry.findMany({
       where: {
         tenantId,
         tipo: 'DESPESA',
         deletedAt: null,
         data: { gte: from, lte: to },
         expense: {
-          cardLast4: { not: null },
+          cardLast4: { in: cardLast4s },
           deletedAt: null,
           tipoDespesa: { notIn: Array.from(NEUTRAL_EXPENSE_TYPES) },
         },
@@ -1870,7 +2159,7 @@ export class BankAccountService {
 
     return cards.map((card) => ({
       last4: card.last4,
-      nickname: card.nickname?.trim() || `${card.brand} ••${card.last4}`,
+      nickname: card.nickname,
       closingDay: card.closingDay,
       dueDay: card.dueDay,
       entries: byLast4.get(card.last4) ?? [],
@@ -1889,10 +2178,20 @@ export class BankAccountService {
     return { from, to };
   }
 
-  private async findCardByLast4(tenantId: string, last4: string) {
-    return this.prisma.creditCard.findFirst({
+  private async findCardByLast4(
+    tenantId: string,
+    last4: string,
+    client: SettlementClient = this.prisma,
+  ): Promise<MatchedSettlementCard | null> {
+    return client.creditCard.findFirst({
       where: { tenantId, last4, deletedAt: null },
-      select: { id: true, last4: true, nickname: true },
+      select: {
+        id: true,
+        last4: true,
+        nickname: true,
+        closingDay: true,
+        dueDay: true,
+      },
     });
   }
 
@@ -1913,11 +2212,24 @@ export class BankAccountService {
     paymentDate: Date,
     hintLast4: string | null,
     cardCandidates: CardInvoiceCandidate[] = [],
-  ): Promise<{ id: string; last4: string; nickname: string } | null> {
+    client: SettlementClient = this.prisma,
+    authorizedCardIds?: string[],
+  ): Promise<MatchedSettlementCard | null> {
     if (hintLast4) {
-      const byHint = await this.prisma.creditCard.findFirst({
-        where: { tenantId, last4: hintLast4, deletedAt: null },
-        select: { id: true, last4: true, nickname: true },
+      const byHint = await client.creditCard.findFirst({
+        where: {
+          tenantId,
+          last4: hintLast4,
+          deletedAt: null,
+          ...(authorizedCardIds ? { id: { in: authorizedCardIds } } : {}),
+        },
+        select: {
+          id: true,
+          last4: true,
+          nickname: true,
+          closingDay: true,
+          dueDay: true,
+        },
       });
       if (byHint) return byHint;
     }
@@ -1925,14 +2237,26 @@ export class BankAccountService {
     const sixtyDaysBefore = new Date(paymentDate);
     sixtyDaysBefore.setDate(sixtyDaysBefore.getDate() - 60);
     const tolerance = 200; // R$ 2 de tolerância (encargos podem variar)
-    const matchedImport = await this.prisma.creditCardStatementImport.findFirst({
+    const matchedImport = await client.creditCardStatementImport.findFirst({
       where: {
         tenantId,
         deletedAt: null,
         createdAt: { gte: sixtyDaysBefore },
         totalAmountCents: { gte: amountCents - tolerance, lte: amountCents + tolerance },
+        ...(authorizedCardIds ? { cardId: { in: authorizedCardIds } } : {}),
+        card: { deletedAt: null },
       },
-      include: { card: { select: { id: true, last4: true, nickname: true } } },
+      include: {
+        card: {
+          select: {
+            id: true,
+            last4: true,
+            nickname: true,
+            closingDay: true,
+            dueDay: true,
+          },
+        },
+      },
       orderBy: { createdAt: 'desc' },
     });
     if (matchedImport?.card) return matchedImport.card;
@@ -1940,13 +2264,29 @@ export class BankAccountService {
     // Fatura em aberto com o mesmo total — funciona mesmo sem a fatura importada.
     const byInvoiceTotal = pickUniqueCardMatch(cardCandidates);
     if (byInvoiceTotal) {
-      const card = await this.findCardByLast4(tenantId, byInvoiceTotal.cardLast4);
-      if (card) return card;
+      const card = await this.findCardByLast4(
+        tenantId,
+        byInvoiceTotal.cardLast4,
+        client,
+      );
+      if (card && (!authorizedCardIds || authorizedCardIds.includes(card.id))) {
+        return card;
+      }
     }
 
-    const cards = await this.prisma.creditCard.findMany({
-      where: { tenantId, deletedAt: null },
-      select: { id: true, last4: true, nickname: true },
+    const cards = await client.creditCard.findMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+        ...(authorizedCardIds ? { id: { in: authorizedCardIds } } : {}),
+      },
+      select: {
+        id: true,
+        last4: true,
+        nickname: true,
+        closingDay: true,
+        dueDay: true,
+      },
       take: 2,
     });
     if (cards.length === 1) return cards[0];
@@ -1965,20 +2305,34 @@ export class BankAccountService {
     tenantId: string,
     amountCents: number,
     paymentDate: Date,
-  ): Promise<{ id: string; last4: string; nickname: string } | null> {
+    client: SettlementClient = this.prisma,
+    authorizedCardIds?: string[],
+  ): Promise<MatchedSettlementCard | null> {
     const tenDaysBefore = new Date(paymentDate);
     tenDaysBefore.setDate(tenDaysBefore.getDate() - 10);
     const tenDaysAfter = new Date(paymentDate);
     tenDaysAfter.setDate(tenDaysAfter.getDate() + 10);
     const tolerance = 50; // R$ 0,50
-    const matches = await this.prisma.creditCardStatementImport.findMany({
+    const matches = await client.creditCardStatementImport.findMany({
       where: {
         tenantId,
         deletedAt: null,
         createdAt: { gte: tenDaysBefore, lte: tenDaysAfter },
         totalAmountCents: { gte: amountCents - tolerance, lte: amountCents + tolerance },
+        ...(authorizedCardIds ? { cardId: { in: authorizedCardIds } } : {}),
+        card: { deletedAt: null },
       },
-      include: { card: { select: { id: true, last4: true, nickname: true } } },
+      include: {
+        card: {
+          select: {
+            id: true,
+            last4: true,
+            nickname: true,
+            closingDay: true,
+            dueDay: true,
+          },
+        },
+      },
       orderBy: { createdAt: 'desc' },
       take: 2,
     });

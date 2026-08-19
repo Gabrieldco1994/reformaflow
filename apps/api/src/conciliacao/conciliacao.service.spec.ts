@@ -12,7 +12,7 @@ function makeTarget(over: Partial<any> = {}) {
     id: 'tgt',
     tenantId: 't1',
     projectId: 'reforma1',
-    project: { id: 'reforma1', tenantId: 't1', type: 'REFORMA' },
+    project: { id: 'reforma1', tenantId: 't1', type: 'REFORMA', deletedAt: null },
     tipoDespesa: 'METAL_CERAMICA',
     categoriaMaoDeObra: null,
     roomId: null,
@@ -34,7 +34,7 @@ function makeSource(over: Partial<any> = {}) {
     id: 'src',
     tenantId: 't1',
     projectId: 'pessoal1',
-    project: { id: 'pessoal1', tenantId: 't1', type: 'PESSOAL' },
+    project: { id: 'pessoal1', tenantId: 't1', type: 'PESSOAL', deletedAt: null },
     cardLast4: '1234',
     linkedExpenseId: null,
     ...over,
@@ -49,6 +49,11 @@ describe('ConciliacaoService', () => {
     const p: any = {
       expense: {
         findFirst: jest.fn().mockImplementation(({ where }: any) => {
+          if (where.id === 'tgt') return Promise.resolve(opts.target);
+          if (where.id === 'src') return Promise.resolve(opts.source);
+          return Promise.resolve(null);
+        }),
+        findUnique: jest.fn().mockImplementation(({ where }: any) => {
           if (where.id === 'tgt') return Promise.resolve(opts.target);
           if (where.id === 'src') return Promise.resolve(opts.source);
           return Promise.resolve(null);
@@ -218,6 +223,10 @@ describe('ConciliacaoService', () => {
             if (where.id === opts.source.id) return Promise.resolve(opts.source);
             if (opts.targets[where.id]) return Promise.resolve(opts.targets[where.id]);
             return Promise.resolve(null);
+          }),
+          findUnique: jest.fn().mockImplementation(({ where }: any) => {
+            if (where.id === opts.source.id) return Promise.resolve(opts.source);
+            return Promise.resolve(opts.targets[where.id] ?? null);
           }),
           update: jest.fn().mockImplementation(({ where, data }: any) => {
             if (where.id === opts.source.id) Object.assign(opts.source, data);

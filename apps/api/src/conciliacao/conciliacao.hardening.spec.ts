@@ -10,7 +10,7 @@ import {
 function makeTarget(over: Partial<any> = {}) {
   return {
     id: 'tgt', tenantId: 't1', projectId: 'reforma1',
-    project: { id: 'reforma1', tenantId: 't1', type: 'REFORMA' },
+    project: { id: 'reforma1', tenantId: 't1', type: 'REFORMA', deletedAt: null },
     tipoDespesa: 'METAL_CERAMICA',
     categoriaMaoDeObra: null, roomId: null, valorTotal: 30000, formaPagamento: 'PARCELADO',
     dataPagamento: null, quantidadeParcela: 3, dataInicioParcela: new Date('2026-04-29'),
@@ -21,7 +21,7 @@ function makeTarget(over: Partial<any> = {}) {
 function makeMirror(id: string, over: Partial<any> = {}) {
   return {
     id, tenantId: 't1', projectId: 'pessoal1',
-    project: { id: 'pessoal1', tenantId: 't1', type: 'PESSOAL' },
+    project: { id: 'pessoal1', tenantId: 't1', type: 'PESSOAL', deletedAt: null },
     valorTotal: 11000,
     cardLast4: '1234', bankLast4: null, linkedExpenseId: null, deletedAt: null,
     formaPagamento: 'A_VISTA', quantidadeParcela: null, dataInicioParcela: null,
@@ -41,6 +41,10 @@ describe('ConciliacaoService — hardening cross-parcela', () => {
           if (where.id === opts.target.id) return Promise.resolve(opts.target.deletedAt ? null : opts.target);
           const m = opts.mirrors[where.id];
           return Promise.resolve(m && !m.deletedAt ? m : m ?? null);
+        }),
+        findUnique: jest.fn().mockImplementation(({ where }: any) => {
+          if (where.id === opts.target.id) return Promise.resolve(opts.target);
+          return Promise.resolve(opts.mirrors[where.id] ?? null);
         }),
         update: jest.fn().mockImplementation(({ where, data }: any) => {
           if (where.id === opts.target.id) Object.assign(opts.target, data);

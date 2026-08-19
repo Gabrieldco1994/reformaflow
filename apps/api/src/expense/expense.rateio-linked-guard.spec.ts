@@ -16,7 +16,11 @@ const sourceRow = {
   formaPagamento: 'PARCELADO', quantidadeParcela: 10, status: 'PAGO',
 };
 const makePrismaMock = (rateioCount: number) => ({
-  project: { findFirst: jest.fn().mockResolvedValue({ id: projectId, tenantId, type: 'PESSOAL' }) },
+  project: {
+    findFirst: jest
+      .fn()
+      .mockResolvedValue({ id: projectId, tenantId, type: 'PESSOAL', deletedAt: null }),
+  },
   expense: {
     findFirst: jest.fn().mockImplementation(async ({ where }: { where: { id: string } }) =>
       where.id === sourceId ? sourceRow : { id: where.id, projectId: 'obra-1', tenantId, deletedAt: null },
@@ -40,7 +44,9 @@ const makePrismaMock = (rateioCount: number) => ({
   creditCard: { findFirst: jest.fn().mockResolvedValue(null) },
   bankAccount: { findFirst: jest.fn().mockResolvedValue(null) },
   cashFlowEntry: { updateMany: jest.fn(), createMany: jest.fn() },
-  $transaction: jest.fn(async (cb: any) => (typeof cb === 'function' ? cb : Promise.all(cb))),
+  $transaction: jest.fn(async function (cb: any) {
+    return typeof cb === 'function' ? cb(this) : Promise.all(cb);
+  }),
 });
 
 async function build(rateioCount: number) {

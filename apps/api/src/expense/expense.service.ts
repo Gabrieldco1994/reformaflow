@@ -14,7 +14,12 @@ import {
   RateioDetalhe,
   RateioRequester,
 } from './rateio.types';
-import { userCanAccessProject, userCanAccessProjectType, resolveAccessibleProjectScope } from '../common/access-rules';
+import {
+  isFullAccessRole,
+  userCanAccessProject,
+  userCanAccessProjectType,
+  resolveAccessibleProjectScope,
+} from '../common/access-rules';
 
 type ExpenseDb = PrismaService | Prisma.TransactionClient;
 type ExpenseWithRoom = Prisma.ExpenseGetPayload<{ include: { room: true } }>;
@@ -28,6 +33,7 @@ const SETTLEMENT_PARTICIPANT_MUTATION_MESSAGE =
   'Esta despesa participa de uma conciliação cross-project por parcela. Altere valores, status, cronograma ou vínculos pelo fluxo dedicado: Cartões/Contas → cartão ou conta → Vincular → Desvincular.';
 const SETTLEMENT_TARGET_DELETE_MESSAGE =
   'Esta despesa é alvo de conciliação por parcela. Desvincule a fonte antes de removê-la: Cartões/Contas → cartão ou conta → Vincular → Desvincular.';
+const RELATED_EXPENSE_NOT_FOUND_MESSAGE = 'Despesa relacionada não encontrada';
 
 export interface UpdateInstallmentDateResult {
   id: string;
@@ -760,13 +766,17 @@ export class ExpenseService {
           { linkedExpenseId: expense.id },
         ],
       },
-      include: { project: { select: { id: true, type: true, tenantId: true } } },
+      include: {
+        project: {
+          select: { id: true, type: true, tenantId: true, deletedAt: true },
+        },
+      },
     });
     if (
       expense.linkedExpenseId &&
       !direct.some((row) => row.id === expense.linkedExpenseId)
     ) {
-      throw new NotFoundException('Despesa relacionada não encontrada');
+      throw new NotFoundException(RELATED_EXPENSE_NOT_FOUND_MESSAGE);
     }
     const directIds = direct.map((row) => row.id);
     const related = await db.expense.findMany({
@@ -775,15 +785,20 @@ export class ExpenseService {
         deletedAt: null,
         OR: [{ id: { in: directIds } }, { linkedExpenseId: { in: directIds } }],
       },
-      include: { project: { select: { id: true, type: true, tenantId: true } } },
+      include: {
+        project: {
+          select: { id: true, type: true, tenantId: true, deletedAt: true },
+        },
+      },
     });
     for (const row of related) {
       if (
         !row.project ||
         row.project.tenantId !== tenantId ||
+        row.project.deletedAt !== null ||
         !this.canRequesterSeeProject(requester, row.project)
       ) {
-        throw new NotFoundException('Despesa relacionada não encontrada');
+        throw new NotFoundException(RELATED_EXPENSE_NOT_FOUND_MESSAGE);
       }
     }
   }
@@ -1384,7 +1399,7 @@ export class ExpenseService {
     tx?: Prisma.TransactionClient,
   ): Promise<ExpenseWithRoom> {
     assertRateioRequester(requester);
-    if (dto.settlesInvoiceCardId !== undefined && !tx) {
+    if (!tx) {
       return this.prisma.$transaction((transaction) =>
         this.update(tenantId, projectId, id, dto, requester, transaction),
       );
@@ -1396,6 +1411,7 @@ export class ExpenseService {
       where: { id, projectId, tenantId, deletedAt: null },
     });
     if (!existing) throw new NotFoundException('Despesa não encontrada');
+    await this.assertCanMutateLinkedRows(db, tenantId, existing, requester);
 
     const valorCents = dto.valor !== undefined ? Math.round(dto.valor * 100) : existing.valor;
     const quantidade = dto.quantidade !== undefined ? dto.quantidade : existing.quantidade;
@@ -1584,7 +1600,9 @@ export class ExpenseService {
     id: string,
     parcela: number,
     data: string,
+    requester: RateioRequester,
   ): Promise<UpdateInstallmentDateResult> {
+    assertRateioRequester(requester);
     const parsedDate = parseInstallmentDateOnlyUtc(data);
     if (!parsedDate) throw new BadRequestException('Data de parcela inválida');
 
@@ -1627,6 +1645,136 @@ export class ExpenseService {
         (row) => row.targetExpenseId === expense.id,
       );
 
+      const sourceRateios = await tx.rateioAllocation.findMany({
+        where: { tenantId, sourceExpenseId: expense.id },
+        include: {
+          target: {
+            select: {
+              id: true,
+              projectId: true,
+              tenantId: true,
+              deletedAt: true,
+              project: {
+                select: { id: true, type: true, tenantId: true, deletedAt: true },
+              },
+            },
+          },
+        },
+      });
+      const activeRateioTargets = sourceRateios
+        .map((allocation) => allocation.target)
+        .filter((target) => target.deletedAt === null);
+      const hasFullAccess = isFullAccessRole(requester.role);
+      for (const target of activeRateioTargets) {
+        if (
+          target.tenantId !== tenantId ||
+          (target.project
+            ? target.project.tenantId !== tenantId ||
+              target.project.deletedAt !== null
+            : !hasFullAccess)
+        ) {
+          throw new NotFoundException(RELATED_EXPENSE_NOT_FOUND_MESSAGE);
+        }
+      }
+      if (activeRateioTargets.length > 0) {
+        try {
+          await this.conciliacao.assertCanSettleTargets(
+            tx,
+            {
+              tenantId,
+              targetExpenseIds: activeRateioTargets.map((target) => target.id),
+            },
+            requester,
+          );
+        } catch (error) {
+          if (error instanceof NotFoundException) {
+            throw new NotFoundException(RELATED_EXPENSE_NOT_FOUND_MESSAGE);
+          }
+          throw error;
+        }
+      }
+
+      const preparedCounterparts: Array<{
+        id: string;
+        projectId: string;
+        installmentDateOverrides: string | null;
+      }> = [];
+      if (sourceRateios.length === 0 && !isSettlementTarget) {
+        const counterpartIds = new Set<string>();
+        if (expense.linkedExpenseId) counterpartIds.add(expense.linkedExpenseId);
+        const mirrors = await tx.expense.findMany({
+          where: { tenantId, linkedExpenseId: expense.id, deletedAt: null },
+          select: { id: true },
+        });
+        for (const mirror of mirrors) counterpartIds.add(mirror.id);
+
+        for (const counterpartId of counterpartIds) {
+          const counterpartSettlements = await tx.crossProjectSettlement.findMany({
+            where: {
+              tenantId,
+              OR: [
+                { sourceExpenseId: counterpartId },
+                { targetExpenseId: counterpartId },
+              ],
+            },
+          });
+          if (counterpartSettlements.length > 0) continue;
+
+          const counterpart = await tx.expense.findFirst({
+            where: { id: counterpartId, tenantId, deletedAt: null },
+            include: {
+              project: {
+                select: { id: true, type: true, tenantId: true, deletedAt: true },
+              },
+            },
+          });
+          if (!counterpart) {
+            const removedCounterpart = await tx.expense.findUnique({
+              where: { id: counterpartId },
+              select: { tenantId: true, deletedAt: true },
+            });
+            if (
+              removedCounterpart?.tenantId === tenantId &&
+              removedCounterpart.deletedAt !== null
+            ) {
+              continue;
+            }
+          }
+          if (
+            !counterpart ||
+            (counterpart.project
+              ? counterpart.project.tenantId !== tenantId ||
+                counterpart.project.deletedAt !== null ||
+                !this.canRequesterSeeProject(requester, counterpart.project)
+              : !hasFullAccess)
+          ) {
+            throw new NotFoundException(RELATED_EXPENSE_NOT_FOUND_MESSAGE);
+          }
+          if (
+            isSinglePaymentForm(counterpart.formaPagamento) ||
+            parcela >= Math.max(counterpart.quantidadeParcela ?? 1, 1)
+          ) {
+            throw new BadRequestException('Par vinculado possui parcelamento incompatível');
+          }
+          preparedCounterparts.push({
+            id: counterpart.id,
+            projectId: counterpart.projectId,
+            installmentDateOverrides: this.withInstallmentDate(
+              counterpart,
+              parcela,
+              parsedDate,
+            ),
+          });
+        }
+      }
+
+      await this.assertCanMutateLinkedRows(
+        tx,
+        tenantId,
+        { id: expense.id, linkedExpenseId: null },
+        requester,
+      );
+
       const nextOverrides = this.withInstallmentDate(expense, parcela, parsedDate);
       await tx.expense.update({
         where: { id: expense.id },
@@ -1651,19 +1799,6 @@ export class ExpenseService {
         await this.regenerateCashFlow(expense.id, tx);
       }
 
-      const sourceRateios = await tx.rateioAllocation.findMany({
-        where: { tenantId, sourceExpenseId: expense.id },
-        include: {
-          target: {
-            select: {
-              id: true,
-              projectId: true,
-              tenantId: true,
-              deletedAt: true,
-            },
-          },
-        },
-      });
       if (sourceRateios.length > 0) {
         for (const allocation of sourceRateios) {
           if (
@@ -1685,49 +1820,13 @@ export class ExpenseService {
         return result();
       }
 
-      if (!isSettlementTarget) {
-        const counterpartIds = new Set<string>();
-        if (expense.linkedExpenseId) counterpartIds.add(expense.linkedExpenseId);
-        const mirrors = await tx.expense.findMany({
-          where: { tenantId, linkedExpenseId: expense.id, deletedAt: null },
-          select: { id: true },
+      for (const counterpart of preparedCounterparts) {
+        await tx.expense.update({
+          where: { id: counterpart.id },
+          data: { installmentDateOverrides: counterpart.installmentDateOverrides },
         });
-        for (const mirror of mirrors) counterpartIds.add(mirror.id);
-
-        for (const counterpartId of counterpartIds) {
-          const counterpartSettlements = await tx.crossProjectSettlement.findMany({
-            where: {
-              tenantId,
-              OR: [
-                { sourceExpenseId: counterpartId },
-                { targetExpenseId: counterpartId },
-              ],
-            },
-          });
-          if (counterpartSettlements.length > 0) continue;
-          const counterpart = await tx.expense.findFirst({
-            where: { id: counterpartId, tenantId, deletedAt: null },
-            include: { room: true },
-          });
-          if (!counterpart) continue;
-          if (
-            isSinglePaymentForm(counterpart.formaPagamento) ||
-            parcela >= Math.max(counterpart.quantidadeParcela ?? 1, 1)
-          ) {
-            throw new BadRequestException('Par vinculado possui parcelamento incompatível');
-          }
-          const counterpartOverrides = this.withInstallmentDate(
-            counterpart,
-            parcela,
-            parsedDate,
-          );
-          await tx.expense.update({
-            where: { id: counterpart.id },
-            data: { installmentDateOverrides: counterpartOverrides },
-          });
-          affectedProjectIds.add(counterpart.projectId);
-          await this.regenerateCashFlow(counterpart.id, tx);
-        }
+        affectedProjectIds.add(counterpart.projectId);
+        await this.regenerateCashFlow(counterpart.id, tx);
       }
 
       return result();

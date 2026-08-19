@@ -86,23 +86,51 @@ export class ConciliacaoService {
     targetExpenseIds: string[],
     requester: RateioRequester,
     error: (targetExpenseId: string) => Error,
+    includeDeleted = false,
   ) {
     assertRateioRequester(requester);
     const ids = [...new Set(targetExpenseIds)];
     const targets =
       ids.length === 0
         ? []
-        : await tx.expense.findMany({
-            where: { id: { in: ids }, tenantId, deletedAt: null },
-            include: { project: { select: { id: true, type: true, tenantId: true } } },
-          });
+        : includeDeleted
+          ? (
+              await Promise.all(
+                ids.map((id) =>
+                  tx.expense.findUnique({
+                    where: { id },
+                    include: {
+                      project: {
+                        select: { id: true, type: true, tenantId: true, deletedAt: true },
+                      },
+                    },
+                  }),
+                ),
+              )
+            ).filter(
+              (target): target is NonNullable<typeof target> => target !== null,
+            )
+          : await tx.expense.findMany({
+              where: {
+                id: { in: ids },
+                tenantId,
+                deletedAt: null,
+              },
+              include: {
+                project: {
+                  select: { id: true, type: true, tenantId: true, deletedAt: true },
+                },
+              },
+            });
     const byId = new Map(targets.map((target) => [target.id, target]));
     for (const id of ids) {
       const target = byId.get(id);
       if (
         !target ||
+        target.tenantId !== tenantId ||
         !target.project ||
         target.project.tenantId !== tenantId ||
+        target.project.deletedAt !== null ||
         !this.canRequesterSeeProject(requester, target.project)
       ) {
         throw error(id);
@@ -153,7 +181,7 @@ export class ConciliacaoService {
         ? []
         : await tx.receipt.findMany({
             where: { id: { in: ids }, tenantId: params.tenantId, deletedAt: null },
-            include: { project: { select: { id: true, type: true, tenantId: true } } },
+            include: { project: { select: { id: true, type: true, tenantId: true, deletedAt: true } } },
           });
     const byId = new Map(targets.map((target) => [target.id, target]));
     for (const id of ids) {
@@ -162,6 +190,7 @@ export class ConciliacaoService {
         !target ||
         !target.project ||
         target.project.tenantId !== params.tenantId ||
+        target.project.deletedAt !== null ||
         !this.canRequesterSeeProject(requester, target.project)
       ) {
         throw new NotFoundException('Recebimento alvo não encontrado');
@@ -195,17 +224,19 @@ export class ConciliacaoService {
         select: { targetExpenseId: true },
       }),
     ]);
-    await this.assertCanSettleTargets(
+    await this.authorizedTargets(
       tx,
-      {
-        tenantId: params.tenantId,
-        targetExpenseIds: [
-          ...sources.flatMap((row) => row.linkedExpenseId ? [row.linkedExpenseId] : []),
-          ...rateios.map((row) => row.targetExpenseId),
-          ...settlements.map((row) => row.targetExpenseId),
-        ],
-      },
+      params.tenantId,
+      [
+        ...sources.flatMap((row) =>
+          row.linkedExpenseId ? [row.linkedExpenseId] : [],
+        ),
+        ...rateios.map((row) => row.targetExpenseId),
+        ...settlements.map((row) => row.targetExpenseId),
+      ],
       requester,
+      () => new NotFoundException('Despesa alvo não encontrada'),
+      true,
     );
   }
 

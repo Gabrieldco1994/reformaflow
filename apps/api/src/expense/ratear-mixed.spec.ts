@@ -52,7 +52,12 @@ describe('ExpenseService.ratearMixed', () => {
 
   beforeEach(async () => {
     prisma = makePrismaMock();
-    prisma.project.findFirst.mockResolvedValue({ id: projectId, tenantId, type: 'PESSOAL' });
+    prisma.project.findFirst.mockResolvedValue({
+      id: projectId,
+      tenantId,
+      type: 'PESSOAL',
+      deletedAt: null,
+    });
     prisma.expense.findFirst.mockResolvedValue({ ...source });
 
     const module: TestingModule = await Test.createTestingModule({
@@ -67,7 +72,9 @@ describe('ExpenseService.ratearMixed', () => {
   });
 
   it('cria newTargets nos projetos-destino e rateia numa única transação (allocations concatenadas)', async () => {
-    prisma.project.findMany.mockResolvedValue([{ id: 'reforma-1', tenantId, type: 'REFORMA' }]);
+    prisma.project.findMany.mockResolvedValue([
+      { id: 'reforma-1', tenantId, type: 'REFORMA', deletedAt: null },
+    ]);
     prisma.expense.findFirst.mockImplementation(({ where }: any) =>
       Promise.resolve(
         where.id === 'exist-1'
@@ -75,7 +82,7 @@ describe('ExpenseService.ratearMixed', () => {
               ...source,
               id: 'exist-1',
               projectId: 'reforma-1',
-              project: { id: 'reforma-1', tenantId, type: 'REFORMA' },
+              project: { id: 'reforma-1', tenantId, type: 'REFORMA', deletedAt: null },
             }
           : { ...source },
       ),

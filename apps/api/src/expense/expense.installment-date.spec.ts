@@ -1,6 +1,21 @@
-import { TEST_OWNER_REQUESTER } from '../test-utils/acl-requester-test-helper';
+import { TEST_OWNER_REQUESTER } from "../test-utils/acl-requester-test-helper";
 import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { ExpenseService } from "./expense.service";
+import type { RateioRequester } from "./rateio.types";
+
+type ExpenseServiceWithMandatoryRequester = Omit<
+  ExpenseService,
+  "updateInstallmentDate"
+> & {
+  updateInstallmentDate(
+    tenantId: string,
+    projectId: string,
+    id: string,
+    parcela: number,
+    data: string,
+    requester: RateioRequester,
+  ): ReturnType<ExpenseService["updateInstallmentDate"]>;
+};
 
 const baseExpense = {
   id: "expense-1",
@@ -56,7 +71,7 @@ function makeHarness(expense: ExpenseFixture = baseExpense) {
   let currentExpense = expense;
   const tx = {
     project: {
-      findFirst: jest.fn().mockResolvedValue({ id: expense.projectId }),
+      findFirst: jest.fn().mockResolvedValue({ id: expense.projectId, deletedAt: null }),
     },
     expense: {
       findFirst: jest.fn().mockResolvedValue(expense),
@@ -88,11 +103,15 @@ function makeHarness(expense: ExpenseFixture = baseExpense) {
     $transaction: jest.fn().mockImplementation(async (fn) => fn(tx)),
   };
   const conciliacao = {
+    assertCanSettleTargets: jest.fn(),
     regenerateTargetCashflow: jest.fn(),
     regenerateRateioTargetCashflow: jest.fn(),
   };
   return {
-    service: new ExpenseService(prisma as never, conciliacao as never),
+    service: new ExpenseService(
+      prisma as never,
+      conciliacao as never,
+    ) as ExpenseServiceWithMandatoryRequester,
     prisma,
     tx,
     conciliacao,
@@ -109,6 +128,7 @@ describe("ExpenseService.updateInstallmentDate", () => {
       "expense-1",
       1,
       "2026-09-20",
+      TEST_OWNER_REQUESTER,
     );
 
     expect(tx.expense.update).toHaveBeenCalledWith(
@@ -143,6 +163,7 @@ describe("ExpenseService.updateInstallmentDate", () => {
       "expense-1",
       1,
       "2026-10-05",
+      TEST_OWNER_REQUESTER,
     );
 
     expect(tx.cashFlowEntry.createMany).toHaveBeenCalledTimes(1);
@@ -200,6 +221,7 @@ describe("ExpenseService.updateInstallmentDate", () => {
       "expense-1",
       0,
       "2026-08-15",
+      TEST_OWNER_REQUESTER,
     );
 
     expect(tx.cashFlowEntry.createMany).not.toHaveBeenCalled();
@@ -217,6 +239,7 @@ describe("ExpenseService.updateInstallmentDate", () => {
       "expense-1",
       1,
       "2026-09-20",
+      TEST_OWNER_REQUESTER,
     );
     expect(unchanged.tx.expense.update).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -231,6 +254,7 @@ describe("ExpenseService.updateInstallmentDate", () => {
       "expense-1",
       1,
       "2026-09-10",
+      TEST_OWNER_REQUESTER,
     );
 
     expect(restored.tx.expense.update).toHaveBeenCalledWith(
@@ -258,6 +282,7 @@ describe("ExpenseService.updateInstallmentDate", () => {
       "expense-1",
       1,
       "2026-09-20",
+      TEST_OWNER_REQUESTER,
     );
 
     expect(result).toEqual({
@@ -279,6 +304,7 @@ describe("ExpenseService.updateInstallmentDate", () => {
         "expense-1",
         1,
         "2026-09-20",
+        TEST_OWNER_REQUESTER,
       ),
     ).rejects.toBeInstanceOf(NotFoundException);
 
@@ -290,6 +316,7 @@ describe("ExpenseService.updateInstallmentDate", () => {
         "expense-1",
         0,
         "2026-09-20",
+        TEST_OWNER_REQUESTER,
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
 
@@ -301,6 +328,7 @@ describe("ExpenseService.updateInstallmentDate", () => {
         "expense-1",
         3,
         "2026-09-20",
+        TEST_OWNER_REQUESTER,
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
@@ -319,6 +347,7 @@ describe("ExpenseService.updateInstallmentDate", () => {
         "expense-1",
         1,
         "2026-09-20",
+        TEST_OWNER_REQUESTER,
       ),
     ).rejects.toThrow(/fonte.*rateio/i);
   });
@@ -342,6 +371,7 @@ describe("ExpenseService.updateInstallmentDate", () => {
       "mirror-1",
       1,
       "2026-09-20",
+      TEST_OWNER_REQUESTER,
     );
     expect(pair.tx.expense.update).toHaveBeenCalledTimes(2);
     expect(pair.tx.expense.update).toHaveBeenLastCalledWith({
@@ -369,6 +399,7 @@ describe("ExpenseService.updateInstallmentDate", () => {
       "expense-1",
       1,
       "2026-09-20",
+      TEST_OWNER_REQUESTER,
     );
     expect(settlement.tx.expense.update).toHaveBeenCalledTimes(1);
     expect(
@@ -414,6 +445,7 @@ describe("ExpenseService.updateInstallmentDate", () => {
       "expense-1",
       1,
       "2026-09-20",
+      TEST_OWNER_REQUESTER,
     );
 
     expect(conciliacao.regenerateRateioTargetCashflow).toHaveBeenCalledTimes(2);
@@ -452,6 +484,7 @@ describe("ExpenseService.updateInstallmentDate", () => {
         "expense-1",
         1,
         "2026-09-20",
+        TEST_OWNER_REQUESTER,
       ),
     ).rejects.toThrow("falha no espelho");
     expect(tx.expense.update).toHaveBeenCalledTimes(2);
@@ -473,6 +506,7 @@ describe("ExpenseService.updateInstallmentDate", () => {
         "expense-1",
         1,
         "2026-09-20",
+        TEST_OWNER_REQUESTER,
       ),
     ).rejects.toThrow(/fonte real/i);
     expect(tx.expense.update).not.toHaveBeenCalled();
@@ -485,9 +519,15 @@ describe("ExpenseService.updateInstallmentDate", () => {
         '{"0":"2026-08-11","1":"2026-09-20","2":"2026-10-20"}',
     };
     const reduced = makeHarness(expense);
-    await reduced.service.update("tenant-1", "project-1", "expense-1", {
-      quantidadeParcela: 2,
-    } as never, TEST_OWNER_REQUESTER);
+    await reduced.service.update(
+      "tenant-1",
+      "project-1",
+      "expense-1",
+      {
+        quantidadeParcela: 2,
+      } as never,
+      TEST_OWNER_REQUESTER,
+    );
     expect(reduced.tx.expense.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -497,9 +537,15 @@ describe("ExpenseService.updateInstallmentDate", () => {
     );
 
     const single = makeHarness(expense);
-    await single.service.update("tenant-1", "project-1", "expense-1", {
-      formaPagamento: "A_VISTA",
-    } as never, TEST_OWNER_REQUESTER);
+    await single.service.update(
+      "tenant-1",
+      "project-1",
+      "expense-1",
+      {
+        formaPagamento: "A_VISTA",
+      } as never,
+      TEST_OWNER_REQUESTER,
+    );
     expect(single.tx.expense.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ installmentDateOverrides: null }),
@@ -514,15 +560,47 @@ describe("ExpenseService.updateInstallmentDate", () => {
       linkedExpenseId: "mirror-1",
     };
     const { service, tx } = makeHarness(expense);
+    const linkedRows = [
+      {
+        ...expense,
+        project: {
+          id: expense.projectId,
+          tenantId: expense.tenantId,
+          type: "REFORMA",
+          deletedAt: null,
+        },
+      },
+      {
+        ...expense,
+        id: "mirror-1",
+        linkedExpenseId: null,
+        project: {
+          id: expense.projectId,
+          tenantId: expense.tenantId,
+          type: "REFORMA",
+          deletedAt: null,
+        },
+      },
+    ];
     tx.expense.findFirst
       .mockResolvedValueOnce(expense)
       .mockResolvedValueOnce(expense)
       .mockResolvedValueOnce({ id: "mirror-1" });
+    tx.expense.findMany
+      .mockResolvedValueOnce(linkedRows)
+      .mockResolvedValueOnce(linkedRows)
+      .mockResolvedValue([]);
 
-    await service.update("tenant-1", "project-1", "expense-1", {
-      tipoDespesa: "MAO_DE_OBRA",
-      titulo: "Título atualizado",
-    } as never, TEST_OWNER_REQUESTER);
+    await service.update(
+      "tenant-1",
+      "project-1",
+      "expense-1",
+      {
+        tipoDespesa: "MAO_DE_OBRA",
+        titulo: "Título atualizado",
+      } as never,
+      TEST_OWNER_REQUESTER,
+    );
 
     expect(tx.expense.update).toHaveBeenCalledTimes(2);
     for (const [{ data }] of tx.expense.update.mock.calls) {

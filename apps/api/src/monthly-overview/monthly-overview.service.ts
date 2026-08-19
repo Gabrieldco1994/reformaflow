@@ -3000,105 +3000,107 @@ export class MonthlyOverviewService {
     }
     const amountCents = dto.amountCents as number;
 
-    const cardSelect = { id: true, last4: true, nickname: true, closingDay: true, dueDay: true } as const;
-    const card = dto.cardId
-      ? await this.prisma.creditCard.findFirst({
-          where: { id: dto.cardId, tenantId, projectId, deletedAt: null },
-          select: cardSelect,
-        })
-      : await this.prisma.creditCard.findFirst({
-          where: { tenantId, projectId, last4: dto.cardLast4, deletedAt: null },
-          select: cardSelect,
-        });
-    if (!card) throw new NotFoundException('Cartão não encontrado.');
-    if (dto.cardId && dto.cardLast4 && card.last4 !== dto.cardLast4) {
-      throw new BadRequestException('cardId e cardLast4 não correspondem ao mesmo cartão.');
-    }
-
-    const accountSelect = { id: true, last4: true } as const;
-    const account = dto.accountId
-      ? await this.prisma.bankAccount.findFirst({
-          where: { id: dto.accountId, tenantId, projectId, deletedAt: null },
-          select: accountSelect,
-        })
-      : await this.prisma.bankAccount.findFirst({
-          where: { tenantId, projectId, last4: dto.bankLast4, deletedAt: null },
-          select: accountSelect,
-        });
-    if (!account) throw new NotFoundException('Conta de débito não encontrada.');
-    if (dto.accountId && dto.bankLast4 && account.last4 !== dto.bankLast4) {
-      throw new BadRequestException('accountId e bankLast4 não correspondem à mesma conta.');
-    }
-
     const parsedPaymentDate = dto.paymentDate ? new Date(dto.paymentDate) : new Date();
     if (Number.isNaN(parsedPaymentDate.getTime())) {
       throw new BadRequestException('Data de pagamento inválida.');
     }
-
-    // Idempotência por payload exato (cartão + conta + valor + data).
-    const existing = await this.prisma.expense.findFirst({
-      where: {
-        tenantId,
-        projectId,
-        tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
-        status: 'PAGO',
-        cardLast4: card.last4,
-        bankLast4: account.last4,
-        valorTotal: amountCents,
-        dataPagamento: parsedPaymentDate,
-        deletedAt: null,
-      },
-      select: { id: true },
-    });
-    if (existing) {
-      throw new BadRequestException('Este pagamento já foi registrado.');
-    }
     const effectiveDate = parsedPaymentDate;
 
-    const payment = await this.prisma.expense.create({
-      data: {
-        tenantId,
-        projectId,
-        tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
-        titulo: `Pagamento fatura ${card.nickname?.trim() || card.last4}`,
-        fornecedor: `Fatura ${card.last4}`,
-        valor: amountCents,
-        quantidade: 1,
-        valorTotal: amountCents,
-        formaPagamento: 'A_VISTA',
-        dataPagamento: effectiveDate,
-        status: 'PAGO',
-        bankLast4: account.last4,
-        cardLast4: card.last4,
-        createdByUserId,
-      },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      const cardSelect = {
+        id: true,
+        last4: true,
+        nickname: true,
+        closingDay: true,
+        dueDay: true,
+      } as const;
+      const card = dto.cardId
+        ? await tx.creditCard.findFirst({
+            where: { id: dto.cardId, tenantId, projectId, deletedAt: null },
+            select: cardSelect,
+          })
+        : await tx.creditCard.findFirst({
+            where: { tenantId, projectId, last4: dto.cardLast4, deletedAt: null },
+            select: cardSelect,
+          });
+      if (!card) throw new NotFoundException('Cartão não encontrado.');
+      if (dto.cardId && dto.cardLast4 && card.last4 !== dto.cardLast4) {
+        throw new BadRequestException('cardId e cardLast4 não correspondem ao mesmo cartão.');
+      }
 
-    // Liquida as compras do ciclo (best-effort: nunca desfaz o pagamento se a
-    // liquidação falhar — o pagamento neutro já reflete o caixa).
-    let settled = { settledExpenses: 0, settledParcelas: 0 };
-    try {
-      settled = await this.cardSettlement.settleInvoice({
+      const accountSelect = { id: true, last4: true } as const;
+      const account = dto.accountId
+        ? await tx.bankAccount.findFirst({
+            where: { id: dto.accountId, tenantId, projectId, deletedAt: null },
+            select: accountSelect,
+          })
+        : await tx.bankAccount.findFirst({
+            where: { tenantId, projectId, last4: dto.bankLast4, deletedAt: null },
+            select: accountSelect,
+          });
+      if (!account) throw new NotFoundException('Conta de débito não encontrada.');
+      if (dto.accountId && dto.bankLast4 && account.last4 !== dto.bankLast4) {
+        throw new BadRequestException('accountId e bankLast4 não correspondem à mesma conta.');
+      }
+
+      // Idempotência por payload exato, relida na mesma transação da escrita.
+      const existing = await tx.expense.findFirst({
+        where: {
+          tenantId,
+          projectId,
+          tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+          status: 'PAGO',
+          cardLast4: card.last4,
+          bankLast4: account.last4,
+          valorTotal: amountCents,
+          dataPagamento: effectiveDate,
+          deletedAt: null,
+        },
+        select: { id: true },
+      });
+      if (existing) {
+        throw new BadRequestException('Este pagamento já foi registrado.');
+      }
+
+      const prepared = await this.cardSettlement.prepareSettleInvoice({
         tenantId,
         card,
         amountCents,
         paymentDate: effectiveDate,
+        tx,
         requester,
       });
-    } catch {
-      // mantém o pagamento; liquidação das parcelas pode ser refeita por import.
-    }
+      const payment = await tx.expense.create({
+        data: {
+          tenantId,
+          projectId,
+          tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+          titulo: `Pagamento fatura ${card.nickname?.trim() || card.last4}`,
+          fornecedor: `Fatura ${card.last4}`,
+          valor: amountCents,
+          quantidade: 1,
+          valorTotal: amountCents,
+          formaPagamento: 'A_VISTA',
+          dataPagamento: effectiveDate,
+          status: 'PAGO',
+          bankLast4: account.last4,
+          cardLast4: card.last4,
+          createdByUserId,
+        },
+      });
+      const settled = await this.cardSettlement.applyPreparedSettlement(tx, prepared);
 
-    return {
-      ok: true,
-      paymentExpenseId: payment.id,
-      cardId: card.id,
-      cardLast4: card.last4,
-      accountId: account.id,
-      month,
-      amountCents,
-      ...settled,
-    };
+      return {
+        ok: true,
+        paymentExpenseId: payment.id,
+        cardId: card.id,
+        cardLast4: card.last4,
+        accountId: account.id,
+        month,
+        amountCents,
+        ...settled,
+      };
+    });
   }
 
   /**

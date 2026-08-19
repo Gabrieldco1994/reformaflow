@@ -58,10 +58,12 @@ describe("MonthlyOverviewService.getAccountView", () => {
         delete: jest.fn(),
       },
       bankStatementImport: { findMany: jest.fn().mockResolvedValue([]) },
+      $transaction: jest.fn(async (callback: any) => callback(prisma)),
     };
 
     settlement = {
-      settleInvoice: jest
+      prepareSettleInvoice: jest.fn().mockResolvedValue({ purchases: [] }),
+      applyPreparedSettlement: jest
         .fn()
         .mockResolvedValue({ settledExpenses: 0, settledParcelas: 0 }),
     };
@@ -2054,6 +2056,7 @@ describe("MonthlyOverviewService.getAccountView", () => {
         nickname: "Nubank",
         closingDay: 20,
         dueDay: 28,
+        project: { id: projectId, type: "PESSOAL", tenantId },
       });
       prisma.bankAccount.findFirst.mockResolvedValue({ last4: "4247" });
       prisma.expense.findFirst.mockResolvedValue(null);
@@ -2086,9 +2089,17 @@ describe("MonthlyOverviewService.getAccountView", () => {
           }),
         }),
       );
-      expect(settlement.settleInvoice).toHaveBeenCalledWith(
-        expect.objectContaining({ tenantId, amountCents: 7_000 }),
+      expect(settlement.prepareSettleInvoice).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tenantId,
+          amountCents: 7_000,
+          tx: prisma,
+          requester,
+        }),
       );
+      expect(settlement.applyPreparedSettlement).toHaveBeenCalledWith(prisma, {
+        purchases: [],
+      });
       expect(res.ok).toBe(true);
       expect(res.paymentExpenseId).toBe("pay-1");
     });

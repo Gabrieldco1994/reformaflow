@@ -110,9 +110,9 @@ describe('CreditCardService', () => {
   beforeEach(async () => {
     prisma = makePrismaMock();
     const projects = new Map([
-      ['pessoal1', { id: 'pessoal1', tenantId: 't1', type: 'PESSOAL' }],
-      ['reforma1', { id: 'reforma1', tenantId: 't1', type: 'REFORMA' }],
-      ['casa1', { id: 'casa1', tenantId: 't1', type: 'CASA' }],
+      ['pessoal1', { id: 'pessoal1', tenantId: 't1', type: 'PESSOAL', deletedAt: null }],
+      ['reforma1', { id: 'reforma1', tenantId: 't1', type: 'REFORMA', deletedAt: null }],
+      ['casa1', { id: 'casa1', tenantId: 't1', type: 'CASA', deletedAt: null }],
     ]);
     prisma.project.findFirst.mockImplementation(({ where }: any) =>
       Promise.resolve(

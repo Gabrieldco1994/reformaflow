@@ -87,6 +87,7 @@ describe("MonthlyOverviewService — mutações de fatura respeitam o scope do r
           nickname: "Nubank",
           closingDay: 20,
           dueDay: 28,
+          project: { id: ANCHOR, type: "PESSOAL", tenantId },
         }),
       },
       bankAccount: { findFirst: jest.fn().mockResolvedValue({ last4: "4247" }) },
@@ -98,11 +99,12 @@ describe("MonthlyOverviewService — mutações de fatura respeitam o scope do r
       },
       cashFlowEntry: { findMany: jest.fn().mockResolvedValue([]) },
       invoiceAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
-      $transaction: jest.fn(),
+      $transaction: jest.fn(async (callback: any) => callback(prisma)),
     };
 
     settlement = {
-      settleInvoice: jest
+      prepareSettleInvoice: jest.fn().mockResolvedValue({ purchases: [] }),
+      applyPreparedSettlement: jest
         .fn()
         .mockResolvedValue({ settledExpenses: 0, settledParcelas: 0 }),
       unsettleInvoice: jest
@@ -125,7 +127,8 @@ describe("MonthlyOverviewService — mutações de fatura respeitam o scope do r
     expect(prisma.expense.create).not.toHaveBeenCalled();
     expect(prisma.expense.update).not.toHaveBeenCalled();
     expect(prisma.$transaction).not.toHaveBeenCalled();
-    expect(settlement.settleInvoice).not.toHaveBeenCalled();
+    expect(settlement.prepareSettleInvoice).not.toHaveBeenCalled();
+    expect(settlement.applyPreparedSettlement).not.toHaveBeenCalled();
     expect(settlement.unsettleInvoice).not.toHaveBeenCalled();
     // Recusa ANTES de qualquer leitura do projeto alvo (nem enumera cartões).
     expect(prisma.creditCard.findFirst).not.toHaveBeenCalled();
