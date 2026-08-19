@@ -135,6 +135,8 @@ export class CardInvoiceSettlementService {
           card,
           amountCents,
           paymentDate,
+          tenantId,
+          params.requester,
         );
         if (target) {
           const prepared = await this.prepareDueMonthSettlement(
@@ -203,6 +205,8 @@ export class CardInvoiceSettlementService {
     card: SettleCard,
     amountCents: number,
     paymentDate: Date,
+    tenantId: string,
+    requester: RateioRequester,
   ): Promise<string | null> {
     const payMonth = this.yearMonth(paymentDate);
     const windowMonths = new Set([payMonth, addMonthsToMonthKey(payMonth, 1)]);
@@ -212,10 +216,17 @@ export class CardInvoiceSettlementService {
       const entries = (await tx.cashFlowEntry.findMany({
         where: { expenseId: e.id, deletedAt: null },
       })) as EntryRow[];
-      for (const en of entries) {
-        const dueMonth = caixaMonthForCardPurchase(en.data, card.closingDay, card.dueDay);
-        if (!windowMonths.has(dueMonth)) continue;
-        totalByMonth.set(dueMonth, (totalByMonth.get(dueMonth) ?? 0) + (en.valor ?? 0));
+      const candidates = entries
+        .map((entry) => ({
+          entry,
+          dueMonth: caixaMonthForCardPurchase(entry.data, card.closingDay, card.dueDay),
+        }))
+        .filter(({ dueMonth }) => windowMonths.has(dueMonth));
+      if (candidates.length === 0) continue;
+
+      this.assertCanSettlePurchase(tenantId, requester, e);
+      for (const { entry, dueMonth } of candidates) {
+        totalByMonth.set(dueMonth, (totalByMonth.get(dueMonth) ?? 0) + (entry.valor ?? 0));
       }
     }
 
