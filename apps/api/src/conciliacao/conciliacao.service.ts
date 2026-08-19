@@ -100,7 +100,9 @@ export class ConciliacaoService {
                   tx.expense.findUnique({
                     where: { id },
                     include: {
-                      project: { select: { id: true, type: true, tenantId: true } },
+                      project: {
+                        select: { id: true, type: true, tenantId: true, deletedAt: true },
+                      },
                     },
                   }),
                 ),
@@ -115,7 +117,9 @@ export class ConciliacaoService {
                 deletedAt: null,
               },
               include: {
-                project: { select: { id: true, type: true, tenantId: true } },
+                project: {
+                  select: { id: true, type: true, tenantId: true, deletedAt: true },
+                },
               },
             });
     const byId = new Map(targets.map((target) => [target.id, target]));
@@ -126,6 +130,7 @@ export class ConciliacaoService {
         target.tenantId !== tenantId ||
         !target.project ||
         target.project.tenantId !== tenantId ||
+        target.project.deletedAt !== null ||
         !this.canRequesterSeeProject(requester, target.project)
       ) {
         throw error(id);
