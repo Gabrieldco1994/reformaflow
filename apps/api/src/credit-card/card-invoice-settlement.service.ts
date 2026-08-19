@@ -33,6 +33,7 @@ interface ExpenseRow {
 }
 
 interface SettlementExpenseRow extends ExpenseRow {
+  importId: string | null;
   project: { id: string; type: string; tenantId: string } | null;
 }
 
@@ -62,6 +63,10 @@ export interface PreparedInvoiceUnsettlement {
   card: SettleCard;
   dueMonth: string;
   purchases: UnsettlePurchase[];
+}
+
+export interface PreparedInvoiceSettlement {
+  purchases: SettlePurchase[];
 }
 
 /**
@@ -109,80 +114,101 @@ export class CardInvoiceSettlementService {
     requester: RateioRequester;
   }): Promise<{ settledExpenses: number; settledParcelas: number }> {
     assertRateioRequester(params.requester);
-    const { tenantId, card, amountCents, paymentDate } = params;
     return this.prisma.$transaction(async (tx) => {
-      await this.assertCanAccessCard({ tenantId, card, tx, requester: params.requester });
-      const neutral = Array.from(NEUTRAL_EXPENSE_TYPES);
-      const hasDays = card.closingDay != null && card.dueDay != null;
-
-      // ── Estratégia 1: por vencimento, respeitando o VALOR pago ────
-      if (hasDays) {
-        const purchases = await tx.expense.findMany({
-          where: {
-            tenantId,
-            cardLast4: card.last4,
-            deletedAt: null,
-            tipoDespesa: { notIn: neutral },
-          },
-          include: {
-            project: { select: { id: true, type: true, tenantId: true } },
-          },
-        });
-
-        const target = await this.resolveTargetDueMonth(
-          tx,
-          purchases,
-          card,
-          amountCents,
-          paymentDate,
-          tenantId,
-          params.requester,
-        );
-        if (target) {
-          const prepared = await this.prepareDueMonthSettlement(
-            tx,
-            tenantId,
-            purchases,
-            card,
-            target,
-            params.requester,
-          );
-          if (prepared.length > 0) {
-            return this.applyPreparedSettlement(tx, prepared);
-          }
-        }
-      }
-
-      // ── Estratégia 2 (fallback): por fatura importada ───────────
-      const matchedImport = await this.findImportByTotal(
+      const prepared = await this.prepareSettleInvoice({
+        ...params,
         tx,
+      });
+      return this.applyPreparedSettlement(tx, prepared);
+    });
+  }
+
+  /**
+   * Materializa uma liquidação sem escrever. O caller deve preparar e aplicar no
+   * mesmo `Prisma.TransactionClient`, para que pagamento e parcelas sejam uma
+   * única transição atômica.
+   *
+   * Todos os projetos candidatos são autorizados antes da primeira leitura de
+   * valores de parcelas/importações. Assim, nem o ranking por total observa
+   * valores de compras que o requester não pode acessar.
+   */
+  async prepareSettleInvoice(params: {
+    tenantId: string;
+    card: SettleCard;
+    amountCents: number;
+    paymentDate: Date;
+    tx: Prisma.TransactionClient;
+    requester: RateioRequester;
+  }): Promise<PreparedInvoiceSettlement> {
+    assertRateioRequester(params.requester);
+    const { tenantId, card, amountCents, paymentDate, tx, requester } = params;
+    await this.assertCanAccessCard({ tenantId, card, tx, requester });
+
+    const neutral = Array.from(NEUTRAL_EXPENSE_TYPES);
+    const purchases = await tx.expense.findMany({
+      where: {
         tenantId,
-        card.id,
+        cardLast4: card.last4,
+        deletedAt: null,
+        tipoDespesa: { notIn: neutral },
+      },
+      select: {
+        id: true,
+        tenantId: true,
+        cardLast4: true,
+        tipoDespesa: true,
+        formaPagamento: true,
+        quantidadeParcela: true,
+        status: true,
+        paidParcelas: true,
+        importId: true,
+        project: { select: { id: true, type: true, tenantId: true } },
+      },
+    });
+
+    for (const purchase of purchases) {
+      this.assertCanSettlePurchase(tenantId, requester, purchase);
+    }
+
+    // ── Estratégia 1: por vencimento, respeitando o VALOR pago ────
+    const hasDays = card.closingDay != null && card.dueDay != null;
+    if (hasDays) {
+      const target = await this.resolveTargetDueMonth(
+        tx,
+        purchases,
+        card,
         amountCents,
         paymentDate,
       );
-      if (!matchedImport) return { settledExpenses: 0, settledParcelas: 0 };
+      if (target) {
+        const prepared = await this.prepareDueMonthSettlement(
+          tx,
+          purchases,
+          card,
+          target,
+        );
+        if (prepared.length > 0) return { purchases: prepared };
+      }
+    }
 
-      const purchases = await tx.expense.findMany({
-        where: {
-          tenantId,
-          importId: matchedImport.id,
-          cardLast4: card.last4,
-          deletedAt: null,
-          tipoDespesa: { notIn: neutral },
-        },
-        include: {
-          project: { select: { id: true, type: true, tenantId: true } },
-        },
-      });
-      const prepared = await this.prepareEarliestSettlement(
-        tx,
-        tenantId,
-        purchases,
-        params.requester,
-      );
-      return this.applyPreparedSettlement(tx, prepared);
-    });
+    // ── Estratégia 2 (fallback): por fatura importada ───────────
+    const matchedImport = await this.findImportByTotal(
+      tx,
+      tenantId,
+      card.id,
+      amountCents,
+      paymentDate,
+    );
+    if (!matchedImport) return { purchases: [] };
+
+    const importPurchases = purchases.filter(
+      (purchase) => purchase.importId === matchedImport.id,
+    );
+    const prepared = await this.prepareEarliestSettlement(
+      tx,
+      importPurchases,
+    );
+    return { purchases: prepared };
   }
 
   /**
@@ -205,8 +231,6 @@ export class CardInvoiceSettlementService {
     card: SettleCard,
     amountCents: number,
     paymentDate: Date,
-    tenantId: string,
-    requester: RateioRequester,
   ): Promise<string | null> {
     const payMonth = this.yearMonth(paymentDate);
     const windowMonths = new Set([payMonth, addMonthsToMonthKey(payMonth, 1)]);
@@ -224,7 +248,6 @@ export class CardInvoiceSettlementService {
         .filter(({ dueMonth }) => windowMonths.has(dueMonth));
       if (candidates.length === 0) continue;
 
-      this.assertCanSettlePurchase(tenantId, requester, e);
       for (const { entry, dueMonth } of candidates) {
         totalByMonth.set(dueMonth, (totalByMonth.get(dueMonth) ?? 0) + (entry.valor ?? 0));
       }
@@ -330,7 +353,8 @@ export class CardInvoiceSettlementService {
         last4: card.last4,
         deletedAt: null,
       },
-      include: {
+      select: {
+        id: true,
         project: { select: { id: true, type: true, tenantId: true } },
       },
     });
@@ -465,11 +489,9 @@ export class CardInvoiceSettlementService {
 
   private async prepareDueMonthSettlement(
     tx: Prisma.TransactionClient,
-    tenantId: string,
     purchases: SettlementExpenseRow[],
     card: SettleCard,
     target: string,
-    requester: RateioRequester,
   ): Promise<SettlePurchase[]> {
     const prepared: SettlePurchase[] = [];
     for (const expense of purchases) {
@@ -481,7 +503,6 @@ export class CardInvoiceSettlementService {
           caixaMonthForCardPurchase(entry.data, card.closingDay, card.dueDay) === target,
       );
       if (entries.length === 0) continue;
-      this.assertCanSettlePurchase(tenantId, requester, expense);
       prepared.push({ expense, entries });
     }
     return prepared;
@@ -489,9 +510,7 @@ export class CardInvoiceSettlementService {
 
   private async prepareEarliestSettlement(
     tx: Prisma.TransactionClient,
-    tenantId: string,
     purchases: SettlementExpenseRow[],
-    requester: RateioRequester,
   ): Promise<SettlePurchase[]> {
     const prepared: SettlePurchase[] = [];
     for (const expense of purchases) {
@@ -500,18 +519,17 @@ export class CardInvoiceSettlementService {
         orderBy: { data: 'asc' },
       })) as EntryRow[];
       if (planned.length === 0) continue;
-      this.assertCanSettlePurchase(tenantId, requester, expense);
       prepared.push({ expense, entries: [planned[0]] });
     }
     return prepared;
   }
 
-  private async applyPreparedSettlement(
+  async applyPreparedSettlement(
     tx: Prisma.TransactionClient,
-    prepared: SettlePurchase[],
+    prepared: PreparedInvoiceSettlement,
   ): Promise<{ settledExpenses: number; settledParcelas: number }> {
     let settledParcelas = 0;
-    for (const purchase of prepared) {
+    for (const purchase of prepared.purchases) {
       for (const entry of purchase.entries) {
         await tx.cashFlowEntry.update({
           where: { id: entry.id },
@@ -522,7 +540,7 @@ export class CardInvoiceSettlementService {
       settledParcelas += purchase.entries.length;
     }
     return {
-      settledExpenses: prepared.length,
+      settledExpenses: prepared.purchases.length,
       settledParcelas,
     };
   }
