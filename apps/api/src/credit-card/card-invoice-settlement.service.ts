@@ -34,7 +34,12 @@ interface ExpenseRow {
 
 interface SettlementExpenseRow extends ExpenseRow {
   importId: string | null;
-  project: { id: string; type: string; tenantId: string } | null;
+  project: {
+    id: string;
+    type: string;
+    tenantId: string;
+    deletedAt: Date | null;
+  } | null;
 }
 
 interface EntryRow {
@@ -162,7 +167,9 @@ export class CardInvoiceSettlementService {
         status: true,
         paidParcelas: true,
         importId: true,
-        project: { select: { id: true, type: true, tenantId: true } },
+        project: {
+          select: { id: true, type: true, tenantId: true, deletedAt: true },
+        },
       },
     });
 
@@ -307,7 +314,9 @@ export class CardInvoiceSettlementService {
         tipoDespesa: { notIn: neutral },
       },
       include: {
-        project: { select: { id: true, type: true, tenantId: true } },
+        project: {
+          select: { id: true, type: true, tenantId: true, deletedAt: true },
+        },
       },
     });
 
@@ -325,6 +334,7 @@ export class CardInvoiceSettlementService {
       if (
         !e.project ||
         e.project.tenantId !== tenantId ||
+        e.project.deletedAt !== null ||
         !this.canRequesterSeeProject(requester, e.project)
       ) {
         throw new NotFoundException(
@@ -355,13 +365,16 @@ export class CardInvoiceSettlementService {
       },
       select: {
         id: true,
-        project: { select: { id: true, type: true, tenantId: true } },
+        project: {
+          select: { id: true, type: true, tenantId: true, deletedAt: true },
+        },
       },
     });
     if (
       !storedCard ||
       !storedCard.project ||
       storedCard.project.tenantId !== tenantId ||
+      storedCard.project.deletedAt !== null ||
       !this.canRequesterSeeProject(requester, storedCard.project)
     ) {
       throw new NotFoundException(
@@ -481,6 +494,7 @@ export class CardInvoiceSettlementService {
     if (
       !expense.project ||
       expense.project.tenantId !== tenantId ||
+      expense.project.deletedAt !== null ||
       !this.canRequesterSeeProject(requester, expense.project)
     ) {
       throw new NotFoundException(INVOICE_NOT_FOUND_MESSAGE);

@@ -766,7 +766,11 @@ export class ExpenseService {
           { linkedExpenseId: expense.id },
         ],
       },
-      include: { project: { select: { id: true, type: true, tenantId: true } } },
+      include: {
+        project: {
+          select: { id: true, type: true, tenantId: true, deletedAt: true },
+        },
+      },
     });
     if (
       expense.linkedExpenseId &&
@@ -781,12 +785,17 @@ export class ExpenseService {
         deletedAt: null,
         OR: [{ id: { in: directIds } }, { linkedExpenseId: { in: directIds } }],
       },
-      include: { project: { select: { id: true, type: true, tenantId: true } } },
+      include: {
+        project: {
+          select: { id: true, type: true, tenantId: true, deletedAt: true },
+        },
+      },
     });
     for (const row of related) {
       if (
         !row.project ||
         row.project.tenantId !== tenantId ||
+        row.project.deletedAt !== null ||
         !this.canRequesterSeeProject(requester, row.project)
       ) {
         throw new NotFoundException(RELATED_EXPENSE_NOT_FOUND_MESSAGE);
@@ -1645,7 +1654,9 @@ export class ExpenseService {
               projectId: true,
               tenantId: true,
               deletedAt: true,
-              project: { select: { id: true, type: true, tenantId: true } },
+              project: {
+                select: { id: true, type: true, tenantId: true, deletedAt: true },
+              },
             },
           },
         },
@@ -1658,13 +1669,14 @@ export class ExpenseService {
         if (
           target.tenantId !== tenantId ||
           (target.project
-            ? target.project.tenantId !== tenantId
+            ? target.project.tenantId !== tenantId ||
+              target.project.deletedAt !== null
             : !hasFullAccess)
         ) {
           throw new NotFoundException(RELATED_EXPENSE_NOT_FOUND_MESSAGE);
         }
       }
-      if (!hasFullAccess && activeRateioTargets.length > 0) {
+      if (activeRateioTargets.length > 0) {
         try {
           await this.conciliacao.assertCanSettleTargets(
             tx,
@@ -1711,7 +1723,9 @@ export class ExpenseService {
           const counterpart = await tx.expense.findFirst({
             where: { id: counterpartId, tenantId, deletedAt: null },
             include: {
-              project: { select: { id: true, type: true, tenantId: true } },
+              project: {
+                select: { id: true, type: true, tenantId: true, deletedAt: true },
+              },
             },
           });
           if (!counterpart) {
@@ -1730,6 +1744,7 @@ export class ExpenseService {
             !counterpart ||
             (counterpart.project
               ? counterpart.project.tenantId !== tenantId ||
+                counterpart.project.deletedAt !== null ||
                 !this.canRequesterSeeProject(requester, counterpart.project)
               : !hasFullAccess)
           ) {
