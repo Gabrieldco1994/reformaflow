@@ -211,6 +211,21 @@
   .voice-orb--thinking,
   .voice-ring,
   .voice-thinking-ring { animation: none; }
+
+  /* D9 — o reset de motion cobria só o voice-orb; o shell (dock, sheets,
+     cabeçalho) usava `transition-all` + `active:scale-95` e ignorava a
+     preferência. Zera transição E animação em todo o subárvore das três
+     superfícies. `none` (não `0.01ms`) para que a duração computada seja
+     exatamente 0s — é o que a asserção de acessibilidade verifica. */
+  [data-dock],
+  [data-dock] *,
+  [data-overlay],
+  [data-overlay] *,
+  [data-mobile-header],
+  [data-mobile-header] * {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 
 
