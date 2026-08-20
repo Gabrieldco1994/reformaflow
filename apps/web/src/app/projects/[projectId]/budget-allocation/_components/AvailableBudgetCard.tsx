@@ -58,7 +58,7 @@ export default function AvailableBudgetCard({ available, totalAllocated, totalEx
         <div className="border-t border-darc-linen pt-3 mb-3">
           <div className="flex justify-between text-sm">
             <span className="text-darc-velvet/60">Recebimentos em caixa</span>
-            <span className="font-medium text-darc-velvet tabular-nums">+ {formatCurrency(totalReceipts / 100)}</span>
+            <span className="font-medium text-darc-velvet tabular-nums whitespace-nowrap">+ {formatCurrency(totalReceipts / 100)}</span>
           </div>
         </div>
       )}
@@ -67,7 +67,7 @@ export default function AvailableBudgetCard({ available, totalAllocated, totalEx
         <div className="border-t border-darc-linen pt-3 mb-3">
           <div className="flex justify-between text-sm">
             <span className="text-darc-velvet/60">Despesas do projeto (pagas + planejadas)</span>
-            <span className="font-medium text-darc-velvet tabular-nums">− {formatCurrency(totalExpenses / 100)}</span>
+            <span className="font-medium text-darc-velvet tabular-nums whitespace-nowrap">− {formatCurrency(totalExpenses / 100)}</span>
           </div>
         </div>
       )}

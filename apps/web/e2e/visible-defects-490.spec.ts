@@ -156,32 +156,55 @@ const dreOverview = {
   },
 };
 
+/**
+ * Dados REALISTAS de propósito (#490 / D-D).
+ *
+ * Com nomes curtos e valores de 4 dígitos a tabela cabe em 375px e o defeito
+ * some do teste sem sumir do produto. O corte real foi medido com valor de 6
+ * dígitos ("R$ 125.000,00") e nome longo ("Apartamento Higienópolis"); é esse
+ * o pior caso honesto, então é esse o que o teste carrega.
+ *
+ * A terceira linha vem REDIGIDA (`targetProject: null`) porque a redação
+ * cross-tenant é estado real desta tela (#449 B2) e o rótulo de fallback é
+ * mais largo que boa parte dos nomes.
+ */
 const budgetAllocations = [
   {
     id: "alloc-1",
     dataAlocacao: "2026-07-03T12:00:00.000Z",
     mes: "2026-07",
-    valor: 8_000_00,
-    targetProject: { id: reformaId, name: "Reforma Sentinela" },
+    valor: 125_000_00,
+    targetProject: { id: reformaId, name: "Apartamento Higienópolis" },
     descricao: null,
   },
   {
     id: "alloc-2",
     dataAlocacao: "2026-07-14T12:00:00.000Z",
     mes: "2026-07",
-    valor: 1_250_00,
-    targetProject: { id: reformaId, name: "Reforma Sentinela" },
-    descricao: null,
+    valor: 8_000_00,
+    targetProject: { id: reformaId, name: "Reforma Casa da Serra" },
+    descricao: "Entrada da marcenaria",
   },
   {
     id: "alloc-3",
-    dataAlocacao: "2026-07-22T12:00:00.000Z",
-    mes: "2026-07",
+    dataAlocacao: "2026-06-22T12:00:00.000Z",
+    mes: "2026-06",
     valor: 4_530_00,
-    targetProject: { id: reformaId, name: "Reforma Sentinela" },
+    targetProject: null,
     descricao: null,
   },
 ];
+
+/**
+ * O total do resumo SOMA O MESMO CONJUNTO da lista — como o servidor faz.
+ *
+ * `getSummary` e `findAll` consultam `budgetAllocation` com o mesmo `WHERE`
+ * para quem alcança esta tela (o filtro de escopo de `findAll` colapsa em
+ * `null` para ADMIN/OWNER, que é o único papel com acesso). Um mock que
+ * divergisse aqui inventaria um defeito de dinheiro que o produto não tem —
+ * já aconteceu neste issue e custou uma rodada de investigação.
+ */
+const totalAllocatedMock = budgetAllocations.reduce((sum, a) => sum + a.valor, 0);
 
 function json(body: unknown) {
   return {
@@ -261,10 +284,24 @@ async function mockApi(page: Page) {
     if (path.startsWith("/budget-allocations/summary/")) {
       return route.fulfill(
         json({
-          totalAllocated: 1_378_000,
-          totalExpenses: 0,
-          totalReceipts: 2_878_000,
-          allocations: [],
+          totalAllocated: totalAllocatedMock,
+          // Valores que reproduzem o defeito do SINAL solto reportado no #490:
+          // "+ R$ 206.030,00" e "− R$ 21.000,00" quebravam em duas linhas.
+          totalExpenses: 21_000_00,
+          totalReceipts: 206_030_00,
+          allocations: [
+            {
+              projectName: "Apartamento Higienópolis",
+              projectType: "REFORMA",
+              total: 125_000_00,
+            },
+            {
+              projectName: "Reforma Casa da Serra",
+              projectType: "REFORMA",
+              total: 8_000_00,
+            },
+            { projectName: null, projectType: null, total: 4_530_00 },
+          ],
         }),
       );
     }
@@ -364,6 +401,145 @@ async function expectUsableTarget(target: Locator, name: string) {
   });
   expect(measured.width, `${name}: largura ${measured.width}px`).toBeGreaterThanOrEqual(MIN_TOUCH);
   expect(measured.height, `${name}: altura ${measured.height}px`).toBeGreaterThanOrEqual(MIN_TOUCH);
+}
+
+/**
+ * Scrollers horizontais REAIS da página.
+ *
+ * ARMADILHA 1 — `document.documentElement.scrollWidth` mediu **375 nas três
+ * telas**, inclusive com a coluna "Valor" cortada. Checar só isso deixaria o
+ * defeito passar inteiro: o estouro do #490/D-D não vive no documento, vive
+ * DENTRO de um contêiner `overflow-x-auto`. Por isso a varredura desce em
+ * todos os descendentes.
+ *
+ * ARMADILHA 2 — `truncate` do Tailwind é `overflow: hidden` + reticências, e
+ * ali `scrollWidth > clientWidth` é a truncagem FUNCIONANDO, não rolagem. Sem
+ * o filtro de `overflowX ∈ {auto, scroll}` todo título truncado da tela vira
+ * falso positivo (aconteceu no protótipo).
+ */
+async function realHorizontalScrollers(page: Page) {
+  return page.evaluate(() => {
+    const root = document.querySelector("main") ?? document.body;
+    return Array.from(root.querySelectorAll<HTMLElement>("*"))
+      .concat(root as HTMLElement)
+      .filter((element) => {
+        const overflowX = getComputedStyle(element).overflowX;
+        if (!["auto", "scroll"].includes(overflowX)) return false;
+        if (element.getBoundingClientRect().width === 0) return false;
+        return element.scrollWidth > element.clientWidth + 1;
+      })
+      .map((element) => ({
+        tag: element.tagName.toLowerCase(),
+        classes:
+          typeof element.className === "string"
+            ? element.className.trim().split(/\s+/).slice(0, 3).join(".")
+            : "",
+        scrollWidth: element.scrollWidth,
+        clientWidth: element.clientWidth,
+        overflowPx: element.scrollWidth - element.clientWidth,
+      }));
+  });
+}
+
+interface MoneyToken {
+  text: string;
+  lines: number;
+  right: number;
+  left: number;
+  insideViewport: boolean;
+}
+
+/**
+ * Todo token monetário VISÍVEL da página, com quantas linhas ele ocupa.
+ *
+ * Mede `sinal + valor` juntos, não só o valor: o defeito bônus do #490 é
+ * exatamente o "+"/"−" sobrando sozinho numa linha enquanto "R$ 206.030,00"
+ * fica inteiro na seguinte. Uma asserção só sobre o número passaria.
+ *
+ * ARMADILHA 3 — `element.getClientRects().length` devolve 1 para elemento de
+ * bloco por mais que o texto quebre; só serve para inline. Um `Range` sobre o
+ * trecho monetário devolve uma caixa por line box em qualquer display, então é
+ * ele que conta.
+ *
+ * ARMADILHA 4 — as duas variantes do layout (`sm:hidden` / `hidden sm:block`)
+ * coexistem no DOM; a oculta tem caixa 0×0 e passaria em QUALQUER asserção de
+ * geometria por vacuidade. Daí o filtro de visibilidade.
+ */
+async function visibleMoneyTokens(page: Page): Promise<MoneyToken[]> {
+  return page.evaluate(() => {
+    const MONEY = /[+\-−–]?\s*R\$\s*[\d.,]+/;
+    const root = document.querySelector("main") ?? document.body;
+
+    const leaves = Array.from(root.querySelectorAll<HTMLElement>("*")).filter(
+      (element) => {
+        if (!MONEY.test(element.textContent ?? "")) return false;
+        // Só o elemento MAIS INTERNO que carrega o dinheiro.
+        if (
+          Array.from(element.children).some((child) =>
+            MONEY.test(child.textContent ?? ""),
+          )
+        ) {
+          return false;
+        }
+        const rect = element.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      },
+    );
+
+    return leaves.flatMap((element) => {
+      // `textContent` pode vir de vários text nodes ("+ " e "R$ 206.030,00"
+      // são nodes distintos no JSX). Mapeia offset global → (node, offset).
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      const nodes: Array<{ node: Text; start: number }> = [];
+      let text = "";
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        nodes.push({ node: n as Text, start: text.length });
+        text += n.nodeValue ?? "";
+      }
+      const match = MONEY.exec(text);
+      if (!match || nodes.length === 0) return [];
+
+      const locate = (offset: number) => {
+        for (let i = nodes.length - 1; i >= 0; i -= 1) {
+          if (offset >= nodes[i].start) {
+            return {
+              node: nodes[i].node,
+              offset: Math.min(
+                offset - nodes[i].start,
+                nodes[i].node.nodeValue?.length ?? 0,
+              ),
+            };
+          }
+        }
+        return { node: nodes[0].node, offset: 0 };
+      };
+
+      const start = locate(match.index);
+      const end = locate(match.index + match[0].length);
+      const range = document.createRange();
+      range.setStart(start.node, start.offset);
+      range.setEnd(end.node, end.offset);
+
+      const rects = Array.from(range.getClientRects()).filter(
+        (r) => r.width > 0,
+      );
+      if (rects.length === 0) return [];
+      const tops = new Set(rects.map((r) => Math.round(r.top)));
+      const viewport = document.documentElement.clientWidth;
+
+      return [
+        {
+          text: match[0].replace(/\s+/g, " ").trim(),
+          lines: tops.size,
+          left: Math.round(Math.min(...rects.map((r) => r.left))),
+          right: Math.round(Math.max(...rects.map((r) => r.right))),
+          insideViewport:
+            Math.min(...rects.map((r) => r.left)) >= 0 &&
+            Math.max(...rects.map((r) => r.right)) <= viewport + 1,
+        },
+      ];
+    });
+  });
 }
 
 test.describe("#490 — defeitos visíveis medidos em runtime", () => {
@@ -495,7 +671,63 @@ test.describe("#490 — defeitos visíveis medidos em runtime", () => {
     }
   });
 
-  test("375px — histórico de budget: valor monetário não quebra linha", async ({
+  /**
+   * A tabela do histórico continua sendo o layout de `sm` para cima, e ali a
+   * regra da casa também vale. Este teste roda a 1280px de propósito: abaixo
+   * de `sm` a tabela é `display:none` e as células mediriam 0×0 — asserção
+   * sobre caixa zerada passa por vacuidade, não por acerto.
+   */
+  test("1280px — a tabela do histórico mantém cada valor em uma linha", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await mockApi(page);
+
+    await page.goto(`/projects/${pessoalId}/budget-allocation`);
+    await expect(
+      page.getByRole("heading", { name: "Histórico de Alocações" }),
+    ).toBeVisible();
+
+    const values = await page.evaluate(() =>
+      Array.from(
+        document.querySelectorAll<HTMLElement>("[data-allocation-value]"),
+      ).map((cell) => {
+        // Conta linhas de TEXTO, não altura da célula: a altura da <td> é
+        // ditada pela coluna "Projeto" ao lado, então medir `height/lineHeight`
+        // mentiria. Um Range devolve uma caixa por line box.
+        const range = document.createRange();
+        range.selectNodeContents(cell);
+        const tops = new Set(
+          Array.from(range.getClientRects()).map((r) => Math.round(r.top)),
+        );
+        return {
+          text: (cell.textContent ?? "").trim(),
+          lines: tops.size,
+          whiteSpace: getComputedStyle(cell).whiteSpace,
+          width: Math.round(cell.getBoundingClientRect().width),
+        };
+      }),
+    );
+
+    expect(values.length).toBe(budgetAllocations.length);
+    for (const value of values) {
+      expect(value.width, `${value.text} precisa estar visível`).toBeGreaterThan(0);
+      expect(value.whiteSpace, `${value.text} não pode quebrar linha`).toBe("nowrap");
+      expect(value.lines, `${value.text} ocupa ${value.lines} linha(s)`).toBe(1);
+    }
+  });
+
+  /**
+   * D-D — o corte horizontal do histórico, agora FECHADO.
+   *
+   * Antes (375px): o scroller `overflow-x-auto` media clientWidth 269 vs
+   * scrollWidth 372 (+103px) e cada valor terminava em `right` 425 contra
+   * viewport 375 — 50px fora da tela. O `min-content` da tabela com dados
+   * reais é ~372px e o espaço útil, mesmo zerando TODO padding, chega a 341px:
+   * ajuste de largura não fechava a conta, por isso a tabela virou lista
+   * empilhada abaixo de `sm` (padrão `MovimentacaoRow`).
+   */
+  test("375px — histórico legível sem arrastar na horizontal", async ({
     page,
   }, testInfo) => {
     test.skip(
@@ -510,81 +742,102 @@ test.describe("#490 — defeitos visíveis medidos em runtime", () => {
       page.getByRole("heading", { name: "Histórico de Alocações" }),
     ).toBeVisible();
 
-    const measured = await page.evaluate(() => {
-      const scroller = document.querySelector<HTMLElement>(
-        "[data-allocation-history-scroller]",
-      );
-      const values = Array.from(
-        document.querySelectorAll<HTMLElement>("[data-allocation-value]"),
-      ).map((cell) => {
-        const rect = cell.getBoundingClientRect();
-        // Conta linhas de TEXTO, não altura da célula: a altura da <td> é
-        // ditada pela coluna "Projeto" ao lado, então medir `height/lineHeight`
-        // mentiria. Um Range devolve uma caixa por line box.
-        const range = document.createRange();
-        range.selectNodeContents(cell);
-        const tops = new Set(
-          Array.from(range.getClientRects()).map((r) => Math.round(r.top)),
-        );
-        return {
-          text: (cell.textContent ?? "").trim(),
-          right: Math.round(rect.right),
-          lines: tops.size,
-          whiteSpace: getComputedStyle(cell).whiteSpace,
-        };
-      });
-      return {
-        viewport: document.documentElement.clientWidth,
-        scrollWidth: scroller?.scrollWidth ?? -1,
-        clientWidth: scroller?.clientWidth ?? -1,
-        values,
-      };
-    });
+    // 1. Nenhum scroller horizontal REAL — a asserção que pega o defeito.
+    //    `documentElement.scrollWidth` era 375 mesmo com a coluna cortada.
+    const scrollers = await realHorizontalScrollers(page);
+    expect(
+      scrollers,
+      `rolagem horizontal viva: ${JSON.stringify(scrollers)}`,
+    ).toEqual([]);
 
-    expect(measured.values.length).toBe(3);
-    for (const value of measured.values) {
-      expect(value.whiteSpace, `${value.text} não pode quebrar linha`).toBe("nowrap");
-      expect(value.lines, `${value.text} ocupa ${value.lines} linha(s)`).toBe(1);
+    const documentOverflow = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      innerWidth: window.innerWidth,
+    }));
+    expect(documentOverflow.scrollWidth).toBeLessThanOrEqual(
+      documentOverflow.innerWidth,
+    );
+
+    // 2. Todo valor da lista dentro do viewport, em uma linha só.
+    const money = await visibleMoneyTokens(page);
+    expect(money.length).toBeGreaterThanOrEqual(budgetAllocations.length);
+    for (const token of money) {
+      expect(token.lines, `${token.text} ocupa ${token.lines} linha(s)`).toBe(1);
+      expect(
+        token.insideViewport,
+        `${token.text} termina em right ${token.right}px`,
+      ).toBe(true);
     }
 
-    // O corte horizontal segue ABERTO (ver `test.fixme` abaixo). Anexa-se a
-    // medição para que o número apareça no relatório em vez de virar adjetivo.
-    await testInfo.attach("d-d-overflow", {
-      body: JSON.stringify(
-        {
-          scrollWidth: measured.scrollWidth,
-          clientWidth: measured.clientWidth,
-          overflowPx: measured.scrollWidth - measured.clientWidth,
-          viewport: measured.viewport,
-          valores: measured.values.map((v) => `${v.text} → right ${v.right}px`),
-        },
-        null,
-        2,
-      ),
+    // 3. As linhas são alcançáveis de fato: rola o contêiner real, mede a
+    //    caixa e pergunta ao navegador quem está no centro dela.
+    const rows = page.locator("[data-allocation-row]");
+    await expect(rows).toHaveCount(budgetAllocations.length);
+    for (let i = 0; i < budgetAllocations.length; i += 1) {
+      const measured = await measureReachability(rows.nth(i));
+      expect(measured, `linha ${i + 1} do histórico`).toMatchObject({
+        hitsSelf: true,
+        insideScroller: true,
+      });
+      expect(measured.width).toBeGreaterThan(0);
+    }
+
+    await testInfo.attach("d-d-depois", {
+      body: JSON.stringify({ scrollers, documentOverflow, money }, null, 2),
       contentType: "application/json",
     });
   });
 
   /**
-   * D-D — CORTE HORIZONTAL: ABERTO DE PROPÓSITO.
+   * D-D — o conteúdo não some, só muda de peso.
    *
-   * Não é ajuste de largura. Medido a 375px: o scrollport tem 269px úteis e o
-   * `min-content` da tabela inteira com dados realistas ("R$ 125.000,00",
-   * "Apartamento Higienópolis") é ~349px — 80px, 23%, de déficit. Encolher
-   * padding para `px-1` e encurtar a data para `dd/mm/aa` chega a ~285px, e
-   * volta a estourar no primeiro valor de 6 dígitos ou nome de projeto longo.
-   * A saída honesta é a tabela virar lista empilhada (padrão `MovimentacaoRow`)
-   * abaixo de `sm`, e isso é decisão de produto — está proposta no PR, não
-   * decidida aqui. Este teste é a definição de pronto para quando ela vier.
+   * "Nada sai" foi decisão explícita: numa trilha de auditoria congelada,
+   * apagar campo é decisão de dado, não de layout. Data, projeto e mês de
+   * referência continuam legíveis na lista.
    */
-  test.fixme(
-    "375px — coluna Valor do histórico legível sem arrastar na horizontal",
-    async ({ page }, testInfo) => {
+  test("375px — a lista preserva data, projeto e mês de referência", async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== "desktop",
+      "esta spec controla as próprias larguras",
+    );
+    await page.setViewportSize({ width: 375, height: 844 });
+    await mockApi(page);
+
+    await page.goto(`/projects/${pessoalId}/budget-allocation`);
+    const rows = page.locator("[data-allocation-row]");
+    await expect(rows).toHaveCount(budgetAllocations.length);
+
+    await expect(rows.nth(0)).toContainText("Apartamento Higienópolis");
+    await expect(rows.nth(0)).toContainText("03 jul");
+    await expect(rows.nth(0)).toContainText("ref. jul/2026");
+    await expect(rows.nth(0)).toContainText("R$ 125.000,00");
+
+    await expect(rows.nth(1)).toContainText("Entrada da marcenaria");
+    // Linha redigida (#449 B2): o valor continua, a identidade do alvo não.
+    await expect(rows.nth(2)).toContainText("Projeto indisponível");
+    await expect(rows.nth(2)).toContainText("R$ 4.530,00");
+    await expect(rows.nth(2)).toContainText("ref. jun/2026");
+  });
+
+  /**
+   * D-D — o desktop não regride.
+   *
+   * A tabela continua sendo o layout de `sm` para cima e a lista não aparece.
+   * As duas variantes coexistem no DOM (o corte é por CSS, não por JS — media
+   * query em JS traria descasamento de hidratação), então o que se conta é
+   * dinheiro VISÍVEL: se a lista vazasse no desktop, apareceriam 6 valores.
+   */
+  for (const width of [640, 768, 1280]) {
+    test(`${width}px — histórico continua em tabela, sem duplicar valor`, async ({
+      page,
+    }, testInfo) => {
       test.skip(
         testInfo.project.name !== "desktop",
         "esta spec controla as próprias larguras",
       );
-      await page.setViewportSize({ width: 375, height: 844 });
+      await page.setViewportSize({ width, height: 900 });
       await mockApi(page);
 
       await page.goto(`/projects/${pessoalId}/budget-allocation`);
@@ -592,24 +845,115 @@ test.describe("#490 — defeitos visíveis medidos em runtime", () => {
         page.getByRole("heading", { name: "Histórico de Alocações" }),
       ).toBeVisible();
 
-      const measured = await page.evaluate(() => {
-        const scroller = document.querySelector<HTMLElement>(
-          "[data-allocation-history-scroller]",
-        );
-        return {
-          viewport: document.documentElement.clientWidth,
-          scrollWidth: scroller?.scrollWidth ?? -1,
-          clientWidth: scroller?.clientWidth ?? -1,
-          rights: Array.from(
-            document.querySelectorAll<HTMLElement>("[data-allocation-value]"),
-          ).map((cell) => Math.round(cell.getBoundingClientRect().right)),
-        };
-      });
+      await expect(page.locator("table")).toBeVisible();
+      // As duas variantes coexistem no DOM (corte por CSS): o que não pode
+      // existir é linha de lista VISÍVEL. `:visible` respeita `display:none`.
+      await expect(page.locator("[data-allocation-row]:visible")).toHaveCount(0);
+      await expect(page.locator("[data-allocation-row]")).toHaveCount(
+        budgetAllocations.length,
+      );
 
-      expect(measured.scrollWidth).toBeLessThanOrEqual(measured.clientWidth + 1);
-      for (const right of measured.rights) {
-        expect(right).toBeLessThanOrEqual(measured.viewport);
-      }
-    },
-  );
+      const historyMoney = await page.evaluate(
+        () =>
+          Array.from(
+            document.querySelectorAll<HTMLElement>("[data-allocation-value]"),
+          ).filter((cell) => cell.getBoundingClientRect().width > 0).length,
+      );
+      expect(historyMoney).toBe(budgetAllocations.length);
+
+      const scrollers = await realHorizontalScrollers(page);
+      expect(
+        scrollers,
+        `rolagem horizontal viva em ${width}px: ${JSON.stringify(scrollers)}`,
+      ).toEqual([]);
+    });
+  }
+
+  /**
+   * BÔNUS #490 — o sinal quebrando linha no card "Resumo do Budget".
+   *
+   * Antes: "+ R$ 206.030,00" e "− R$ 21.000,00" mediam
+   * `getClientRects().length === 2` — o "+"/"−" ficava sozinho numa linha e o
+   * valor inteiro na seguinte. A regra da casa é que valor monetário não
+   * quebra linha, e o `MovimentacaoRow` canônico já resolve isso mantendo
+   * sinal e número dentro do MESMO `whitespace-nowrap`.
+   *
+   * A varredura é da PÁGINA inteira, não só do histórico: foi assim que o
+   * defeito apareceu, num card que ninguém estava olhando.
+   */
+  for (const width of [375, 390, 1280]) {
+    test(`${width}px — nenhum valor monetário da página quebra linha`, async ({
+      page,
+    }, testInfo) => {
+      test.skip(
+        testInfo.project.name !== "desktop",
+        "esta spec controla as próprias larguras",
+      );
+      await page.setViewportSize({ width, height: 900 });
+      await mockApi(page);
+
+      await page.goto(`/projects/${pessoalId}/budget-allocation`);
+      await expect(
+        page.getByRole("heading", { name: "Resumo do Budget" }),
+      ).toBeVisible();
+
+      const money = await visibleMoneyTokens(page);
+      expect(money.length).toBeGreaterThan(0);
+      const broken = money.filter((token) => token.lines !== 1);
+      expect(
+        broken,
+        `valores quebrados em ${width}px: ${JSON.stringify(broken)}`,
+      ).toEqual([]);
+
+      const signed = money.filter((token) => /^[+\-−–]/.test(token.text));
+      expect(
+        signed.length,
+        "o card precisa mostrar recebimentos (+) e despesas (−)",
+      ).toBeGreaterThanOrEqual(2);
+    });
+  }
+
+  /**
+   * "Total Alocado" aparecia DUAS vezes na mesma tela: no card (vindo de
+   * `GET /budget-allocations/summary/:id`) e no rodapé do histórico, ali
+   * somado no template com `allocations.reduce(...)`.
+   *
+   * Os dois mediam a MESMA coisa — `getSummary` e `findAll` consultam o mesmo
+   * `WHERE` para quem alcança esta tela. Só que a igualdade era ACIDENTAL:
+   * `findAll` carrega um filtro de escopo do requisitante que `getSummary` não
+   * tem, e eles coincidem apenas porque o portão de leitura (ADMIN/OWNER
+   * não-convidado) faz esse escopo colapsar em `null`. Afrouxar a permissão
+   * faria os dois números divergirem em silêncio, sob rótulo idêntico.
+   *
+   * Dois rótulos iguais já são defeito quando os números batem: obrigam o
+   * usuário a conferir se batem. O rodapé saiu.
+   */
+  test("375px — 'Total Alocado' aparece uma vez só", async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== "desktop",
+      "esta spec controla as próprias larguras",
+    );
+    await page.setViewportSize({ width: 375, height: 844 });
+    await mockApi(page);
+
+    await page.goto(`/projects/${pessoalId}/budget-allocation`);
+    await expect(
+      page.getByRole("heading", { name: "Histórico de Alocações" }),
+    ).toBeVisible();
+
+    const occurrences = await page.evaluate(() =>
+      Array.from(
+        (document.querySelector("main") ?? document.body).querySelectorAll("*"),
+      ).filter(
+        (element) =>
+          element.children.length === 0 &&
+          /Total Alocado/i.test(element.textContent ?? "") &&
+          element.getBoundingClientRect().width > 0,
+      ).length,
+    );
+    expect(occurrences).toBe(1);
+  });
 });
+

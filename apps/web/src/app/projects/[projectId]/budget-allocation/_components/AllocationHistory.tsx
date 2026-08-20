@@ -2,9 +2,10 @@
 
 import { formatCurrency } from '@/lib/utils';
 import { REDACTED_PROJECT_LABEL } from './redacted-project';
+import { AllocationHistoryRow, type AllocationHistoryItem } from './AllocationHistoryRow';
 
 interface Props {
-  allocations: any[];
+  allocations: AllocationHistoryItem[];
 }
 
 /**
@@ -26,16 +27,23 @@ export default function AllocationHistory({ allocations }: Props) {
       <h2 className="font-editorial italic text-lg text-darc-velvet mb-4">Histórico de Alocações</h2>
       
       {/*
-        #490 / D-D — a 375px este scroller mede clientWidth 269 vs scrollWidth
-        ~371: a coluna "Valor" nasce cortada e só fica legível depois de
-        arrastar ~65px na horizontal. O `min-content` da tabela inteira com
-        dados reais é ~349px, então NENHUM ajuste de largura (padding menor,
-        fonte menor, data curta) fecha a conta — a saída é a tabela virar lista
-        empilhada no mobile, o que é decisão de produto e está reportada, não
-        resolvida aqui. O que entra agora é a regra da casa que estava sendo
-        violada: valor monetário não quebra linha.
+        #490 / D-D — dois layouts para o mesmo dado, cortados por CSS.
+
+        Abaixo de `sm` a tabela vira lista empilhada (`AllocationHistoryRow`):
+        a 375px o scroller media clientWidth 269 vs scrollWidth 372 e a coluna
+        "Valor" nascia 103px fora da tela. O corte é por media query do
+        Tailwind, e não por `matchMedia` em JS, de propósito — largura só
+        existe no cliente, então decidir layout em JS traria descasamento de
+        hidratação. O custo é as duas variantes coexistirem no DOM; a oculta
+        fica `display:none`, invisível também para leitor de tela.
       */}
-      <div className="overflow-x-auto" data-allocation-history-scroller>
+      <div className="space-y-2 sm:hidden">
+        {allocations.map((alloc) => (
+          <AllocationHistoryRow key={alloc.id} allocation={alloc} />
+        ))}
+      </div>
+
+      <div className="hidden overflow-x-auto sm:block" data-allocation-history-scroller>
         <table className="w-full">
           <thead>
             <tr className="border-b border-darc-linen">
@@ -70,12 +78,27 @@ export default function AllocationHistory({ allocations }: Props) {
         </table>
       </div>
 
-      <div className="mt-4 pt-4 border-t border-darc-linen flex justify-between items-center">
-        <span className="text-sm font-medium text-darc-velvet">Total Alocado:</span>
-        <span className="text-lg font-bold text-darc-velvet tabular-nums">
-          {formatCurrency(allocations.reduce((sum, a) => sum + a.valor, 0) / 100)}
-        </span>
-      </div>
+      {/*
+        AQUI NÃO VAI TOTAL. Havia um rodapé "Total Alocado" somando
+        `allocations.reduce(...)` no template — mesmo rótulo do card "Resumo do
+        Budget", logo acima nesta mesma tela.
+
+        Ele saiu por REDUNDÂNCIA COM RISCO LATENTE, não por divergência
+        observada: os dois números batem hoje. Só que batem por acidente.
+        O card lê `summary.totalAllocated` de `GET /budget-allocations/summary/:id`;
+        a lista soma o retorno de `GET /budget-allocations?sourceProjectId=`,
+        e `findAll` carrega um filtro de escopo do requisitante que
+        `getSummary` NÃO tem. Os dois só coincidem porque o portão de leitura
+        (ADMIN/OWNER não-convidado) faz esse escopo colapsar em `null`.
+        Afrouxar a permissão faria os dois divergirem em silêncio, sob rótulo
+        idêntico — e igualdade que depende de condição não declarada não é
+        igualdade, é coincidência com prazo.
+
+        Além disso: dois rótulos iguais já são defeito QUANDO OS NÚMEROS BATEM,
+        porque obrigam o usuário a conferir se batem. E somar dinheiro no
+        template é derivação financeira na camada de view — o total é do
+        servidor, e ele já está na tela, no card, sempre visível.
+      */}
     </div>
   );
 }
