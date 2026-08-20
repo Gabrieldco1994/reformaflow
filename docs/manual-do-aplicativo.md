@@ -311,6 +311,13 @@ não muda a ordem nem esconde nenhum módulo autorizado.
 - **"Apoio", "Configurações", "Usuários" (admin) e "Histórico de Budget"**
   continuam **ancorados no rodapé** da coluna, fora da área que rola.
 
+> **Grupo vazio não aparece.** Os grupos são montados a partir dos módulos que
+> **você** tem liberados: quem não tem acesso a "Visão mensal", por exemplo, não
+> vê os grupos **Hoje**, **Resultado** e **Auditoria** — eles não ficam vazios,
+> simplesmente não existem, e as linhas separadoras acompanham. Por isso a
+> quantidade de grupos varia de pessoa para pessoa. Administradores enxergam
+> todos os módulos, independentemente da lista de permissões.
+
 ### 3.4 Copiloto "Maria"
 No projeto **PESSOAL**, o atalho **"Maria"** da barra inferior abre o assistente
 financeiro em tela própria (chat em tela cheia no mobile).

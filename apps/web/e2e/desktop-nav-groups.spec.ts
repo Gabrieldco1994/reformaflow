@@ -43,7 +43,45 @@ const VIEWPORTS = [
   { width: 1366, height: 768 },
 ] as const;
 
-const ROLES = ['USER', 'ADMIN'] as const;
+/**
+ * CASOS DE MEDIÇÃO — papel × permissão.
+ *
+ * `buildNavGroups` NÃO emite grupo vazio, então o número de seções (e de réguas,
+ * e de altura consumida) VARIA com a permissão. Medir só com quem vê tudo dá o
+ * PIOR CASO e esconde o típico. Em PESSOAL, `monthlyOverview` sozinho alimenta 6
+ * itens espalhados por 4 grupos: sem ele caem "Hoje", "Resultado" e "Auditoria"
+ * inteiros.
+ *
+ * ATENÇÃO — não existe "ADMIN com permissão reduzida": o `auth-context` faz
+ * `hasModule: (slug) => isAdmin || allowed.has(slug)`, ou seja ADMIN/OWNER
+ * IGNORA `allowedModules`. Cruzar papel × perfil produziria uma linha ADMIN
+ * duplicada disfarçada de medição nova. Por isso os casos são explícitos, e o
+ * caso ADMIN recebe DE PROPÓSITO a lista reduzida: se ele renderizar como
+ * reduzido, o bypass quebrou.
+ */
+const FULL_MODULES = [
+  'monthlyOverview',
+  'expenses',
+  'receipts',
+  'cashFlow',
+  'creditCards',
+  'bankAccounts',
+  'dashboard',
+  'schedule',
+  'pendencias',
+  'floorPlans',
+  'simulation',
+  'priceCompare',
+] as const;
+
+/** Sem `monthlyOverview` e sem `cashFlow`: 6 itens / 2 grupos em PESSOAL. */
+const REDUCED_MODULES = ['expenses', 'receipts', 'creditCards', 'bankAccounts'] as const;
+
+const CASES = [
+  { id: 'USER permissao=completa', role: 'USER', modules: FULL_MODULES },
+  { id: 'USER permissao=reduzida', role: 'USER', modules: REDUCED_MODULES },
+  { id: 'ADMIN permissao=bypass', role: 'ADMIN', modules: REDUCED_MODULES },
+] as const;
 
 /**
  * Os quatro destinos primários do contrato, na ordem canônica
@@ -54,9 +92,13 @@ const ROLES = ['USER', 'ADMIN'] as const;
  * sai do projeto, os outros ficam dentro dele.
  */
 const PRIMARY_TARGETS = [
-  { group: 'hoje', selector: `[data-nav-group="hoje"] a[href$="/monthly"]` },
-  { group: 'movimentacoes', selector: `[data-nav-group="movimentacoes"] a[href$="/conta"]` },
-  { group: 'planejamento', selector: `[data-nav-group="planejamento"] a[href$="/recorrentes"]` },
+  // `a:first-of-type` e NÃO um slug fixo: com permissão reduzida o primeiro item
+  // do grupo muda (sem `monthlyOverview`, Movimentações começa em "Despesas", e
+  // não em "Conta"). Fixar o slug reporta o grupo como AUSENTE quando ele está
+  // lá — foi exatamente assim que a primeira rodada desta medição se enganou.
+  { group: 'hoje', selector: `[data-nav-group="hoje"] a:first-of-type` },
+  { group: 'movimentacoes', selector: `[data-nav-group="movimentacoes"] a:first-of-type` },
+  { group: 'planejamento', selector: `[data-nav-group="planejamento"] a:first-of-type` },
   { group: 'projetos', selector: `a[data-nav-group="projetos"]` },
 ] as const;
 
@@ -64,7 +106,12 @@ function json(body: unknown) {
   return { status: 200, contentType: 'application/json', body: JSON.stringify(body) };
 }
 
-async function mockApi(page: Page, role: string, baseURL: string) {
+async function mockApi(
+  page: Page,
+  role: string,
+  baseURL: string,
+  modules: readonly string[] = FULL_MODULES,
+) {
   // A URL do cookie vem do `baseURL` do runner, nunca de uma porta literal:
   // este monorepo roda várias worktrees em paralelo e a 3013 pode estar
   // ocupada pelo `next dev` de OUTRO agente (`reuseExistingServer` local),
@@ -81,22 +128,8 @@ async function mockApi(page: Page, role: string, baseURL: string) {
           role,
           isGuest: false,
           tenantId: 'u1-nav-tenant',
-          // Todos os módulos: é o PIOR CASO de altura (13 itens em PESSOAL).
-          // Medir com uma lista curta esconderia exatamente o defeito.
-          allowedModules: [
-            'monthlyOverview',
-            'expenses',
-            'receipts',
-            'cashFlow',
-            'creditCards',
-            'bankAccounts',
-            'dashboard',
-            'schedule',
-            'pendencias',
-            'floorPlans',
-            'simulation',
-            'priceCompare',
-          ],
+          // A permissão é PARÂMETRO: o número de grupos varia com ela.
+          allowedModules: [...modules],
           allowedProjects: [PERSONAL_ID, REFORMA_ID],
           allowedProjectTypes: ['PESSOAL', 'REFORMA'],
         }),
@@ -258,87 +291,126 @@ async function openExpandedSidebar(page: Page, url: string) {
 test.describe('U1 #450 — navegação desktop agrupada', () => {
   test.skip(({ viewport }) => (viewport?.width ?? 0) < 768, 'rail só existe em md+');
 
-  for (const viewport of VIEWPORTS) {
-    for (const role of ROLES) {
-      const label = `${viewport.width}x${viewport.height} ${role}`;
+  /**
+   * Percorre os primários, reporta o número DIAGNÓSTICO e bloqueia na
+   * alcançabilidade. Nada de contagem fixa: um primário cujo grupo não foi
+   * autorizado simplesmente NÃO EXISTE, e é reportado como tal — errar para
+   * baixo é seguro, errar para cima inventa destino que o usuário não tem.
+   */
+  async function measureAndAssertPrimaries(page: Page, label: string) {
+    const lines: string[] = [];
+    let fits = 0;
+    let present = 0;
+    const missing: string[] = [];
+    let overflow = '';
 
-      test(`${label}: os quatro destinos primários são alcançáveis (rail recolhido)`, async ({
-        page,
-        baseURL,
-      }) => {
+    for (const target of PRIMARY_TARGETS) {
+      const m = await measureUnscrolled(page, target.selector, SCROLLER);
+      if (!m.found) {
+        missing.push(target.group);
+        continue;
+      }
+      present += 1;
+      overflow = `scrollHeight=${m.scrollHeight} clientHeight=${m.clientHeight} (estouro ${
+        m.scrollHeight - m.clientHeight
+      }px)`;
+      const ok = m.fullyVisible && m.hitsItself;
+      if (ok) fits += 1;
+      lines.push(
+        `${target.group}: y=${m.top}..${m.bottom} recorte=${m.clipTop}..${m.clipBottom} ` +
+          `${m.inScroller ? 'rolável' : 'ancorado'} semRolar=${ok}`,
+      );
+    }
+
+    // Seções/itens REALMENTE renderizados: é o que varia com a permissão e o que
+    // explica a diferença de altura entre as linhas da tabela.
+    const groups = await page.locator('nav [data-nav-group]').count();
+    const items = await page.locator('nav [data-nav-group] a').count();
+    const rules = await page.locator('[data-nav-separator]').count();
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `[U1-MEDIDO] ${label} — ${fits}/${present} primários alcançáveis SEM ROLAR ` +
+        `| grupos=${groups} itens=${items} réguas=${rules} ` +
+        `(${PRIMARY_TARGETS.length} no contrato, ${missing.length} não autorizado(s)` +
+        `${missing.length ? ': ' + missing.join(', ') : ''}) | ${overflow}\n  ` +
+        lines.join('\n  '),
+    );
+
+    // Projetos é ANCORADO no cabeçalho e não vem do PROJECT_NAV: existe em
+    // qualquer permissão. Se sumir, a saída (i) foi desfeita.
+    expect(missing, 'Projetos ancorado sumiu').not.toContain('projetos');
+    // Guarda anti-verde-vazio: um perfil que não renderizasse NADA passaria o
+    // laço acima sem uma asserção sequer.
+    expect(present, 'nenhum primário renderizado').toBeGreaterThan(0);
+
+    // ── o que BLOQUEIA: alcançável DEPOIS de rolar o contêiner real ──
+    for (const target of PRIMARY_TARGETS) {
+      if (missing.includes(target.group)) continue;
+      await expectReachable(page, target.selector, SCROLLER);
+    }
+  }
+
+  for (const testCase of CASES) {
+    for (const viewport of VIEWPORTS) {
+      const label = `${viewport.width}x${viewport.height} ${testCase.id}`;
+
+      test(`${label}: primários alcançáveis (rail recolhido)`, async ({ page, baseURL }) => {
         await page.setViewportSize(viewport);
-        await mockApi(page, role, baseURL!);
-        await page.goto(`/projects/${PERSONAL_ID}/monthly`);
+        await mockApi(page, testCase.role, baseURL!, testCase.modules);
+        await page.goto(`/projects/${PERSONAL_ID}/expenses`);
         await expect(page.locator('[data-nav-group="movimentacoes"]')).toBeVisible();
         await waitForStableRect(page, SCROLLER);
 
-        // ── número DIAGNÓSTICO (nunca bloqueante): quantos cabem sem rolar ──
-        const unscrolled: string[] = [];
-        let fits = 0;
-        let overflow = '';
-        for (const target of PRIMARY_TARGETS) {
-          const m = await measureUnscrolled(page, target.selector, SCROLLER);
-          expect(m.found, `${target.group} sumiu do DOM`).toBe(true);
-          if (!m.found) continue;
-          overflow = `scrollHeight=${m.scrollHeight} clientHeight=${m.clientHeight} (estouro ${
-            m.scrollHeight - m.clientHeight
-          }px)`;
-          const ok = m.fullyVisible && m.hitsItself;
-          if (ok) fits += 1;
-          unscrolled.push(
-            `${target.group}: y=${m.top}..${m.bottom} recorte=${m.clipTop}..${m.clipBottom} ` +
-              `${m.inScroller ? 'rolável' : 'ancorado'} semRolar=${ok}`,
-          );
-        }
-        // eslint-disable-next-line no-console
-        console.log(
-          `[U1-MEDIDO] ${label} recolhido — ${fits}/4 primários alcançáveis SEM ROLAR | ${overflow}\n  ` +
-            unscrolled.join('\n  '),
-        );
-
-        // ── o que BLOQUEIA: alcançável DEPOIS de rolar o contêiner real ──
-        for (const target of PRIMARY_TARGETS) {
-          await expectReachable(page, target.selector, SCROLLER);
-        }
+        await measureAndAssertPrimaries(page, `${label} recolhido`);
       });
 
-      test(`${label}: os quatro destinos primários são alcançáveis (rail expandido)`, async ({
-        page,
-        baseURL,
-      }) => {
+      test(`${label}: primários alcançáveis (rail expandido)`, async ({ page, baseURL }) => {
         await page.setViewportSize(viewport);
-        await mockApi(page, role, baseURL!);
-        await openExpandedSidebar(page, `/projects/${PERSONAL_ID}/monthly`);
+        await mockApi(page, testCase.role, baseURL!, testCase.modules);
+        await openExpandedSidebar(page, `/projects/${PERSONAL_ID}/expenses`);
         await waitForStableRect(page, SCROLLER);
 
-        const unscrolled: string[] = [];
-        let fits = 0;
-        let overflow = '';
-        for (const target of PRIMARY_TARGETS) {
-          const m = await measureUnscrolled(page, target.selector, SCROLLER);
-          expect(m.found, `${target.group} sumiu do DOM`).toBe(true);
-          if (!m.found) continue;
-          overflow = `scrollHeight=${m.scrollHeight} clientHeight=${m.clientHeight} (estouro ${
-            m.scrollHeight - m.clientHeight
-          }px)`;
-          const ok = m.fullyVisible && m.hitsItself;
-          if (ok) fits += 1;
-          unscrolled.push(
-            `${target.group}: y=${m.top}..${m.bottom} recorte=${m.clipTop}..${m.clipBottom} semRolar=${ok}`,
-          );
-        }
-        // eslint-disable-next-line no-console
-        console.log(
-          `[U1-MEDIDO] ${label} expandido — ${fits}/4 primários alcançáveis SEM ROLAR | ${overflow}\n  ` +
-            unscrolled.join('\n  '),
-        );
-
-        for (const target of PRIMARY_TARGETS) {
-          await expectReachable(page, target.selector, SCROLLER);
-        }
+        await measureAndAssertPrimaries(page, `${label} expandido`);
       });
     }
   }
+
+  test('ADMIN IGNORA allowedModules — a linha ADMIN é sempre permissão cheia', async ({
+    page,
+    baseURL,
+  }) => {
+    // Mesma lista reduzida do caso USER; só muda o papel. Se um dia o bypass do
+    // `auth-context` cair, a linha "ADMIN" das medições deixa de ser o pior caso
+    // e a tabela entregue ao PO passa a mentir.
+    await page.setViewportSize(VIEWPORTS[1]);
+    await mockApi(page, 'ADMIN', baseURL!, REDUCED_MODULES);
+    await page.goto(`/projects/${PERSONAL_ID}/expenses`);
+    await expect(page.locator('[data-nav-group="movimentacoes"]')).toBeVisible();
+    // "Hoje" só existe com `monthlyOverview`, que NÃO está na lista reduzida.
+    await expect(page.locator('[data-nav-group="hoje"]')).toHaveCount(1);
+  });
+
+  test('permissão reduzida: nº de réguas acompanha o nº de grupos, sem seção fantasma', async ({
+    page,
+    baseURL,
+  }) => {
+    await page.setViewportSize(VIEWPORTS[1]);
+    await mockApi(page, 'USER', baseURL!, REDUCED_MODULES);
+    await page.goto(`/projects/${PERSONAL_ID}/expenses`);
+    await expect(page.locator('[data-nav-group="movimentacoes"]')).toBeVisible();
+
+    const groups = await page.locator('nav [data-nav-group]').count();
+    expect(groups, 'perfil reduzido deve render ao menos um grupo').toBeGreaterThan(0);
+    // n-1 DERIVADO do DOM — nunca literal: a contagem varia com a permissão.
+    await expect(page.locator('[data-nav-separator]')).toHaveCount(groups - 1);
+    // Grupo sem item autorizado não pode deixar cabeçalho nem `role=group` órfão.
+    for (const gone of ['hoje', 'resultado', 'auditoria']) {
+      await expect(page.locator(`[data-nav-group="${gone}"]`)).toHaveCount(0);
+    }
+    // ...e o ancorado sobrevive.
+    await expect(page.locator('a[data-nav-group="projetos"]:visible')).toHaveCount(1);
+  });
 
   test('a dica é PINTADA e diz o nome do grupo com o rail recolhido', async ({ page, baseURL }) => {
     await page.setViewportSize(VIEWPORTS[0]);

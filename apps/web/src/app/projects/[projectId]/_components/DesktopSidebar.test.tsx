@@ -400,6 +400,78 @@ describe("DesktopSidebar", () => {
     );
   });
 
+  /**
+   * `buildNavGroups` NÃO emite grupo vazio. Logo o número de seções — e de
+   * réguas — VARIA com a permissão do usuário: um PESSOAL sem `monthlyOverview`
+   * perde "Hoje", "Resultado" e "Auditoria" INTEIROS. Qualquer contagem fixa na
+   * view (ou num teste) erra. Estes dois casos existem para quebrar se alguém
+   * reintroduzir número mágico.
+   */
+  const allowOnly = (modules: string[]) =>
+    getProjectNavModules(ProjectType.PESSOAL).filter((m) =>
+      modules.includes(m.module),
+    );
+
+  it("U1-V09 [RED] permissão reduzida: grupos e réguas ACOMPANHAM a permissão (nada de contagem fixa)", () => {
+    // Sem `monthlyOverview`: caem Hoje, Resultado e Auditoria por inteiro.
+    const visibleNav = allowOnly([
+      "expenses",
+      "receipts",
+      "creditCards",
+      "bankAccounts",
+    ]);
+    const { container } = render(
+      <DesktopSidebar
+        {...props}
+        project={{ id: "p1", name: "Finanças", type: ProjectType.PESSOAL }}
+        visibleNav={visibleNav}
+      />,
+    );
+
+    const expected = buildNavGroups(ProjectType.PESSOAL, visibleNav);
+    // Contrato, não número: se o domínio mudar a partição, este teste segue.
+    expect(expected.map((g) => g.id)).toEqual(["movimentacoes", "planejamento"]);
+
+    const rendered = Array.from(
+      container.querySelectorAll<HTMLElement>("nav [data-nav-group]"),
+    );
+    expect(rendered.map((el) => el.dataset.navGroup)).toEqual(
+      expected.map((g) => g.id),
+    );
+    // n-1 DERIVADO, nunca literal.
+    expect(container.querySelectorAll("[data-nav-separator]")).toHaveLength(
+      expected.length - 1,
+    );
+    // Grupo vazio não deixa cabeçalho órfão nem `role=group` fantasma.
+    for (const gone of ["hoje", "resultado", "auditoria"]) {
+      expect(container.querySelector(`[data-nav-group="${gone}"]`)).toBeNull();
+    }
+    expect(screen.queryByRole("group", { name: "Hoje" })).toBeNull();
+    // ...e o destino ANCORADO Projetos sobrevive a qualquer permissão, porque
+    // não vem do PROJECT_NAV.
+    expect(container.querySelector('a[data-nav-group="projetos"]')).not.toBeNull();
+  });
+
+  it("U1-V10 [RED] um único grupo autorizado: zero régua, zero cabeçalho, grupo ainda nomeado", () => {
+    const visibleNav = allowOnly(["creditCards"]);
+    const { container } = render(
+      <DesktopSidebar
+        {...props}
+        project={{ id: "p1", name: "Finanças", type: ProjectType.PESSOAL }}
+        visibleNav={visibleNav}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /expandir menu lateral/i }));
+
+    expect(container.querySelectorAll("nav [data-nav-group]")).toHaveLength(1);
+    // n-1 = 0: régua solta seria um rodapé falso.
+    expect(container.querySelectorAll("[data-nav-separator]")).toHaveLength(0);
+    // Com uma seção só não há o que separar: o cabeçalho textual some...
+    expect(screen.queryByText("Movimentações", { selector: "p" })).toBeNull();
+    // ...mas o nome do grupo continua existindo para leitor de tela e para a dica.
+    expect(screen.getByRole("group", { name: "Movimentações" })).toBeInTheDocument();
+  });
+
   it("REG-02 [TRAVA — já passa] Budget fica FORA dos grupos e DENTRO do bloco administrativo", () => {
     render(
       <DesktopSidebar
