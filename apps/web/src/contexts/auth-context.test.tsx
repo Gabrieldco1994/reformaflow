@@ -1,12 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  ALL_MODULES,
-  AuthProvider,
-  type AuthUser,
-  useAuth,
-} from "./auth-context";
+import { AuthProvider, type AuthUser, useAuth } from "./auth-context";
 
 const apiMocks = vi.hoisted(() => ({
   get: vi.fn(),
@@ -85,14 +80,6 @@ function Probe() {
     </>
   );
 }
-
-describe("ALL_MODULES finance entry", () => {
-  it("labels the unchanged financialDashboard slug as Financeiro", () => {
-    expect(
-      ALL_MODULES.filter(({ slug }) => slug === "financialDashboard"),
-    ).toEqual([{ slug: "financialDashboard", label: "Financeiro" }]);
-  });
-});
 
 describe("AuthProvider SaaS session contract", () => {
   beforeEach(() => {

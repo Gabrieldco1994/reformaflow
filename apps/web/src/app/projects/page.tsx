@@ -6,7 +6,7 @@ import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/auth-context';
 import { useJourneyRuntime } from '@/contexts/journey-runtime-context';
 import type { ProjectType } from '@reformaflow/domain';
-import { Plus, ChevronRight, LineChart, Search, Settings } from 'lucide-react';
+import { Plus, ChevronRight, Search, Settings } from 'lucide-react';
 import Link from 'next/link';
 import { NotificationsBell } from '@/components/notifications/NotificationsBell';
 import { ProjectHubCard } from './_components/ProjectHubCard';
@@ -26,7 +26,7 @@ interface Project {
 
 export default function ProjectsPage() {
   const router = useRouter();
-  const { hasProjectType, hasProjectAccess, canCreateProjectType, hasModule, isAdmin, user, refresh } = useAuth();
+  const { hasProjectType, hasProjectAccess, canCreateProjectType, isAdmin, user, refresh } = useAuth();
   const { emitProjectsCreated } = useJourneyRuntime();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -203,28 +203,6 @@ export default function ProjectsPage() {
               className="flex-1 bg-transparent border-0 outline-none text-[15px] text-lifeone-ink placeholder:text-lifeone-ink-4"
             />
           </div>
-        )}
-
-        {/* Card destaque: Saúde financeira consolidada */}
-        {visibleProjects.length > 0 && hasModule('financialDashboard') && (
-          <Link
-            href="/financeiro"
-            className="block mb-5 md:mb-6 rounded-[18px] bg-lifeone-ink p-5 text-[#FFFFFF] shadow-lifeone-card hover:shadow-lifeone-hover active:scale-[0.99] transition-all"
-          >
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-[13px] bg-white/10 flex items-center justify-center flex-shrink-0">
-                <LineChart className="w-6 h-6" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[11px] tracking-[0.12em] uppercase text-white/60">Financeiro</p>
-                <p className="text-[18px] md:text-[20px] font-bold tracking-[-0.02em] leading-tight">
-                  Saúde financeira consolidada
-                </p>
-                <p className="text-[13px] text-white/70 mt-0.5">Todos os seus projetos juntos</p>
-              </div>
-              <ChevronRight className="w-5 h-5 text-white/50 flex-shrink-0" />
-            </div>
-          </Link>
         )}
 
         <CreateProjectModal

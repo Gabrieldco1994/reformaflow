@@ -20,7 +20,6 @@ export type ModuleSlug =
   | 'monthlyOverview'
   | 'creditCards'
   | 'bankAccounts'
-  | 'financialDashboard'
   | 'pendencias'
   | 'plantsAi'
   | 'financing'

@@ -31,7 +31,6 @@ export const MODULE_SLUGS = [
   'creditCards',
   'bankAccounts',
   'schedule',
-  'financialDashboard',
   PLANTS_AI_MODULE_SLUG,
 ] as const;
 
