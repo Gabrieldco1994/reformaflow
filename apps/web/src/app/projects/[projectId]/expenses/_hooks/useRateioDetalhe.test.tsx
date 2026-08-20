@@ -54,12 +54,14 @@ describe('useRateioDetalhe', () => {
     expect(result.current.data).toEqual(DETALHE);
   });
 
-  // #448 W1 — contrato mixed-version: B1b REMOVE `hiddenTargetsCount`,
-  // `hiddenAllocationCents` e `removedTargetsCount` do payload. O fixture
-  // canônico acima já é o payload novo (sem eles); este caso prova que o
-  // payload da API ANTIGA continua atravessando o hook sem perda, porque o
-  // bundle novo pode estar falando com um servidor velho.
-  it('payload da API pré-B1b (com metadata de ocultos) atravessa sem perda', async () => {
+  // #448 — contrato SOURCE-ONLY (B1b): `hiddenTargetsCount` e
+  // `hiddenAllocationCents` saíram do payload; `removedTargetsCount` fica,
+  // filtrado pela lente. O fixture canônico acima já é o payload atual. O hook
+  // é um passa-fio (`useQuery` + `api.get`), então ele NÃO filtra nem
+  // normaliza: quem decide o que renderizar é `_lib/rateio-partial`. Este caso
+  // fixa isso — um servidor velho continua atravessando sem perda, e a decisão
+  // de ignorar o campo morto tem UM dono só.
+  it('o hook não normaliza o payload — campos extras de um servidor velho atravessam intactos', async () => {
     const legado = {
       ...DETALHE,
       removedTargetsCount: 1,
@@ -71,6 +73,24 @@ describe('useRateioDetalhe', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data).toEqual(legado);
+  });
+
+  it('payload B1b com participante omitido: rateadoCents é Σ dos VISÍVEIS, sobra != 0', async () => {
+    // Fixture sob a semântica nova: 1 alvo visível de R$ 400,00 num total de
+    // R$ 1.000,00. O hook entrega exatamente isso — sem inventar a diferença.
+    const redigido: RateioDetalhe = {
+      ...DETALHE,
+      totalSourceCents: 100_000,
+      rateadoCents: 40_000,
+      sobraCents: 60_000,
+      removedTargetsCount: 0,
+    };
+    apiGet.mockResolvedValueOnce(redigido);
+    const { result } = renderHook(() => useRateioDetalhe('p1', 'src-1'), { wrapper });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.rateadoCents).toBe(40_000);
+    expect(result.current.data?.sobraCents).toBe(60_000);
   });
 
   it('não dispara a query quando expenseId é ausente', () => {

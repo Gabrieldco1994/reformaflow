@@ -5,6 +5,7 @@ import { Landmark } from 'lucide-react';
 import Link from 'next/link';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { pickCardGradient } from '@/components/CreditCardVisual';
+import { invoiceActionAllowed } from '../_lib';
 import type { AccountViewCardSummary, AccountViewConta } from '../_types';
 import { CreditCardTile } from './CreditCardTile';
 import { MobileCardActionsSheet } from './MobileCardActionsSheet';
@@ -46,6 +47,14 @@ export function CartoesSection({
       return;
     }
     if (card.faturaAtual > 0) {
+      // B1b (#448): este tap é a ÚNICA porta de pagamento no mobile — os botões
+      // do tile só existem no grid desktop. Sem o veto aqui, o mobile abriria o
+      // PagarFaturaDialog de um cartão cuja única resposta possível é 409.
+      // Cai no sheet, que explica e mantém "Ajustar fatura…" viva.
+      if (!invoiceActionAllowed(card, 'pay', true)) {
+        setActionsSheetCard(card);
+        return;
+      }
       onPayInvoice(card.last4);
     }
   }

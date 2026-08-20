@@ -45,9 +45,20 @@ function json(body: unknown, status = 200) {
 
 type Mode = "new-api" | "legacy-api";
 
-function cardFixture(mode: Mode, status: "a pagar" | "paga" | "parcial") {
+function cardFixture(
+  mode: Mode,
+  status: "a pagar" | "paga" | "parcial",
+  ambiguous = false,
+) {
   return {
-    ...(mode === "new-api"
+    // B1b (#448): último4 AMBÍGUO (>1 cartão ativo com aquele final no projeto)
+    // não publica id nem verbo — `payInvoice`/`undoInvoicePayment` respondem
+    // 409 nesse caso, e emitir o id adivinhado deixaria um web novo mandá-lo de
+    // volta e passar por cima do 409.
+    ...(mode === "new-api" && ambiguous
+      ? { cardId: null, actions: [], fingerprint: null }
+      : {}),
+    ...(mode === "new-api" && !ambiguous
       ? { cardId: CARD_ID, actions: status === "paga" ? ["undo"] : ["pay", "undo"], fingerprint: FINGERPRINT }
       : {}),
     nickname: "Nubank QA",
@@ -97,7 +108,39 @@ function sourceSaida() {
   };
 }
 
-function accountView(mode: Mode, cardStatus: "a pagar" | "paga" | "parcial") {
+/** Linha de FATURA na lista de movimentações (`saidas[].isInvoice`). */
+function invoiceSaida(mode: Mode, ambiguous: boolean) {
+  return {
+    id: null,
+    kind: "saida",
+    descricao: "Fatura Nubank QA",
+    data: "2026-08-20T12:00:00.000Z",
+    forma: "cartao",
+    valor: FATURA_CENTS,
+    realizado: false,
+    status: "PLANEJADO",
+    ...(mode === "new-api"
+      ? ambiguous
+        ? { cardId: null, actions: [], fingerprint: null }
+        : { cardId: CARD_ID, actions: ["pay"], fingerprint: FINGERPRINT }
+      : {}),
+    cardLast4: CARD_LAST4,
+    bankLast4: null,
+    tipoDespesa: "PAGAMENTO_FATURA_CARTAO",
+    isInvoice: true,
+    editavel: false,
+    dueMonth: DUE_MONTH,
+    projetoOrigem: null,
+    foreignExpenseId: null,
+  };
+}
+
+function accountView(
+  mode: Mode,
+  cardStatus: "a pagar" | "paga" | "parcial",
+  opts?: { ambiguous?: boolean; withInvoiceRow?: boolean },
+) {
+  const ambiguous = opts?.ambiguous ?? false;
   return {
     mesSelecionado: DUE_MONTH,
     caixaHoje: 5_000_00,
@@ -107,9 +150,11 @@ function accountView(mode: Mode, cardStatus: "a pagar" | "paga" | "parcial") {
     recebimentosPrevistosMes: 0,
     sobraPrevista: 0,
     devoCartaoTotal: FATURA_CENTS,
-    cartoes: [cardFixture(mode, cardStatus)],
+    cartoes: [cardFixture(mode, cardStatus, ambiguous)],
     contas: [contaFixture(mode)],
-    saidas: [sourceSaida()],
+    saidas: opts?.withInvoiceRow
+      ? [invoiceSaida(mode, ambiguous), sourceSaida()]
+      : [sourceSaida()],
     comprasCartao: [],
     entradas: [],
     ticketMedio: {
@@ -142,10 +187,12 @@ const sourceExpense = {
 
 /**
  * Rateio visível pela metade.
- *  - `legacy`: contrato pré-B1b, com a metadata de ocultos.
- *  - `redacted`: contrato B1b — a API NÃO emite mais `hiddenTargetsCount` nem
- *    `hiddenAllocationCents`, e o payload redigido é deep-equal a um
- *    totalmente visível por design (é isso que impede o web de inferir).
+ *  - `redacted`: contrato B1b (o atual). `rateadoCents` é Σ dos itens
+ *    VISÍVEIS, então o payload é deep-equal ao de uma compra sem nada oculto —
+ *    é isso que impede o web de inferir, e por isso a sobra aparece.
+ *  - `legacy`: servidor pré-B1b, que ainda emite `hiddenTargetsCount`/
+ *    `hiddenAllocationCents` e um `rateadoCents` total-aware. Mantido para
+ *    provar que o bundle novo IGNORA os campos mortos em vez de renderizá-los.
  */
 function rateioPayload(kind: "legacy" | "redacted") {
   const items = [
@@ -228,7 +275,8 @@ const monthlyOverview = {
 type PayResponse =
   | { kind: "ok" }
   | { kind: "reject-unknown-property" }
-  | { kind: "reject-mismatch" };
+  | { kind: "reject-mismatch" }
+  | { kind: "reject-ambiguous" };
 
 async function mockApi(
   page: Page,
@@ -239,6 +287,8 @@ async function mockApi(
     undoResponse?: PayResponse;
     rateio?: "legacy" | "redacted";
     withPendencia?: boolean;
+    ambiguousCard?: boolean;
+    withInvoiceRow?: boolean;
   },
 ) {
   const requests: Array<{ method: string; path: string; body: any }> = [];
@@ -292,7 +342,14 @@ async function mockApi(
     if (path === `/projects/${personalId}/monthly-overview`)
       return route.fulfill(json(monthlyOverview));
     if (path === `/projects/${personalId}/monthly-overview/account-view`)
-      return route.fulfill(json(accountView(opts.mode, cardStatus)));
+      return route.fulfill(
+        json(
+          accountView(opts.mode, cardStatus, {
+            ambiguous: opts.ambiguousCard,
+            withInvoiceRow: opts.withInvoiceRow,
+          }),
+        ),
+      );
     if (path === `/projects/${personalId}/monthly-overview/dre-overview`)
       return route.fulfill(json({ anual: { saldoAcumuladoSerie: [] } }));
     if (path === `/projects/${personalId}/pendencias/financeiras`) {
@@ -343,6 +400,10 @@ async function mockApi(
           json({ message: "cardId e cardLast4 não correspondem ao mesmo cartão." }, 400),
         );
       }
+      if (response.kind === "reject-ambiguous") {
+        // B1b: mensagem TERSE do servidor — não diz quantas duplicatas há.
+        return route.fulfill(json({ message: "Cartão ambíguo" }, 409));
+      }
       return route.fulfill(json({ ok: true, paidCents: FATURA_CENTS }));
     }
     if (
@@ -359,6 +420,9 @@ async function mockApi(
         return route.fulfill(
           json({ message: "cardId e cardLast4 não correspondem ao mesmo cartão." }, 400),
         );
+      }
+      if (response.kind === "reject-ambiguous") {
+        return route.fulfill(json({ message: "Cartão ambíguo" }, 409));
       }
       return route.fulfill(json({ removedCount: 1, removedCents: FATURA_CENTS }));
     }
@@ -584,6 +648,123 @@ test.describe("W1 #448 — identidade explícita nas ações de fatura", () => {
   });
 });
 
+test.describe("W1 #448 — último4 ambíguo (B1b): capability veta a CTA, 409 é erro honesto", () => {
+  test("F) cartão com `actions: []`: nenhuma CTA de pagar/desfazer é desenhada e nada é postado", async ({
+    page,
+  }) => {
+    // O servidor já decidiu que essa fatura não tem verbo executável. Desenhar
+    // "Pagar fatura" ali seria fabricar a CTA morta que este issue existe para
+    // não produzir: o único desfecho possível seria 409.
+    const { posts } = await mockApi(page, {
+      mode: "new-api",
+      ambiguousCard: true,
+      withInvoiceRow: true,
+      withPendencia: true,
+    });
+    await openConta(page);
+
+    const isDesktop = (page.viewportSize()?.width ?? 0) >= 768;
+
+    await expect(page.getByRole("button", { name: "Pagar fatura", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Desfazer pagamento" })).toHaveCount(0);
+
+    // A linha de fatura continua VISÍVEL (a informação não some) — só o chip
+    // deixa de prometer ação.
+    await expect(page.getByText("Fatura Nubank QA").first()).toBeVisible();
+
+    if (isDesktop) {
+      // "Ajustar…" continua vivo no tile: vai para /invoice-adjustments, que
+      // deliberadamente NÃO tem 409 de final ambíguo.
+      await expect(page.getByRole("button", { name: /Ajustar/ }).first()).toBeVisible();
+    } else {
+      // No mobile os botões do tile não existem (grid é md:+). O tap do
+      // carrossel é a única porta de pagamento — e ela NÃO pode abrir o
+      // diálogo: cai no sheet, que explica e mantém a alternativa viva.
+      await page.getByRole("button", { name: /Nubank QA · 4488/ }).first().click();
+      await expect(page.getByRole("heading", { name: "Pagar fatura" })).toHaveCount(0);
+      await expect(page.getByText(/Mais de um cartão com esse final/i)).toBeVisible();
+      await expect(page.getByRole("button", { name: /Ajustar fatura/ })).toBeVisible();
+    }
+
+    expect(posts("/pay-invoice")).toHaveLength(0);
+    expect(posts("/undo-invoice-payment")).toHaveLength(0);
+  });
+
+  test("F2) fila de pendências: item vira aviso acionável em vez de botão que 409", async ({
+    page,
+  }) => {
+    const { posts } = await mockApi(page, {
+      mode: "new-api",
+      ambiguousCard: true,
+      withPendencia: true,
+    });
+    await page.goto(`/projects/${personalId}/monthly`);
+    await page.getByRole("button", { name: "Resolver" }).first().click();
+
+    // A fila (`/pendencias`) não conhece capabilities; quem conhece é a Visão
+    // Conta. Com ela dizendo "sem 'pay'", o item não oferece mais o botão.
+    await expect(page.getByText(/Mais de um cartão com esse final/i)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Pagar fatura", exact: true })).toHaveCount(0);
+    expect(posts("/pay-invoice")).toHaveLength(0);
+  });
+
+  test("G) tela velha + duplicata criada depois: 409 vira erro honesto, sem downgrade e sem CTA morta", async ({
+    page,
+  }) => {
+    // Rede de segurança do veto: a tela carregou quando o final ainda era
+    // único, então a CTA existe. O servidor recusa com 409 — e o web NÃO pode
+    // reenviar sem os ids (downgrade de identidade) nem deixar o usuário no
+    // escuro.
+    const { posts } = await mockApi(page, {
+      mode: "new-api",
+      payResponse: { kind: "reject-ambiguous" },
+    });
+    await openConta(page);
+    await openPayDialog(page);
+    await page.getByRole("button", { name: "Confirmar pagamento" }).click();
+
+    await expect(
+      page.getByText(/mais de um cartão com esse final/i).first(),
+    ).toBeVisible();
+    // Nenhuma tentativa automática sem os ids: exatamente 1 POST, com a
+    // identidade completa.
+    expect(posts("/pay-invoice")).toHaveLength(1);
+    expect(posts("/pay-invoice")[0]?.body).toMatchObject({
+      cardId: CARD_ID,
+      cardLast4: CARD_LAST4,
+    });
+    // O diálogo continua aberto e a CTA continua clicável (nem 404 nem beco).
+    await expect(page.getByRole("heading", { name: "Pagar fatura" })).toBeVisible();
+    await assertHittableCta(page, "Confirmar pagamento");
+    // E a mensagem não publica contagem de duplicatas.
+    const alerta = (await page.getByText(/mais de um cartão com esse final/i).first().innerText());
+    expect(alerta).not.toMatch(/\b\d+\b/);
+  });
+
+  test("G2) desfazer com 409: mesma regra — erro honesto, um POST só", async ({ page }) => {
+    const { posts } = await mockApi(page, {
+      mode: "new-api",
+      cardStatus: "paga",
+      undoResponse: { kind: "reject-ambiguous" },
+    });
+    await openConta(page);
+    const isDesktop = (page.viewportSize()?.width ?? 0) >= 768;
+    if (!isDesktop) {
+      await page.getByRole("button", { name: /Nubank QA/ }).first().click();
+    }
+    await page.getByRole("button", { name: "Desfazer pagamento" }).first().click();
+    await expect(page.getByRole("heading", { name: /Desfazer pagamento/ })).toBeVisible();
+    await page.getByRole("button", { name: /^Desfazer/ }).last().click();
+
+    await expect(page.getByText(/mais de um cartão com esse final/i).first()).toBeVisible();
+    expect(posts("/undo-invoice-payment")).toHaveLength(1);
+    expect(posts("/undo-invoice-payment")[0]?.body).toMatchObject({
+      cardId: CARD_ID,
+      cardLast4: CARD_LAST4,
+    });
+  });
+});
+
 test.describe("W1 #448 — rateio parcial mixed-version", () => {
   test("web antigo + API nova: payload redigido não vira NaN, não inventa linha de ocultos e não vaza metadata", async ({
     page,
@@ -601,10 +782,11 @@ test.describe("W1 #448 — rateio parcial mixed-version", () => {
     // Viewer restrito vê sobra ≠ 0 LEGITIMAMENTE sob o contrato novo: a cópia
     // não pode acusar defeito de dado de quem não fez nada errado.
     await expect(detalhe).toHaveAttribute("data-sobra-cents", "20000");
-    await expect(
-      page.getByText("Parte desta compra não está alocada nas planejadas que você vê."),
-    ).toBeVisible();
+    const alerta = detalhe.getByRole("alert");
+    await expect(alerta).toContainText("Esta compra tem R$ 200,00 sem alocação em planejadas.");
     await expect(page.getByText(/não fecha o total desta compra/i)).toHaveCount(0);
+    // A copy também não pode denunciar a existência do participante omitido.
+    await expect(alerta).not.toContainText(/você vê|vis[íi]ve|oculta|sem acesso/i);
 
     const text = (await page.locator("body").innerText()).toLowerCase();
     expect(text).not.toContain("nan");
@@ -638,11 +820,40 @@ test.describe("W1 #448 — rateio parcial mixed-version", () => {
     // Editor abre e continua EDITÁVEL: sem payload de ocultos, travar seria
     // matar a ação pra todo mundo (a barreira de escrita é o servidor).
     await expect(page.getByRole("heading", { name: "Ratear compra" })).toBeVisible();
-    await expect(page.getByText(/alocações ocultas ou removidas/i)).toHaveCount(0);
+    await expect(page.getByText(/planejada removida/i)).toHaveCount(0);
+    await expect(page.getByText(/alocações ocultas/i)).toHaveCount(0);
     const busca = page.getByLabel("Distribuir entre planejadas de outro projeto");
     await expect(busca).toBeEnabled();
 
     // Ler/abrir nunca escreve.
     expect(posts("/ratear")).toHaveLength(0);
+  });
+
+  test("web novo + API pré-B1b: campos mortos são IGNORADOS, não renderizados", async ({
+    page,
+  }) => {
+    // A outra direção do mesmo contrato. Um servidor antigo ainda manda
+    // `hiddenTargetsCount`/`hiddenAllocationCents` (e um `rateadoCents`
+    // total-aware). O bundle novo não pode publicar essa metadata — nem como
+    // texto, nem como data-attribute — senão a decisão de parar de emiti-la
+    // vira letra morta durante toda a janela de deploy não-atômico.
+    await mockApi(page, { mode: "new-api", rateio: "legacy" });
+    await openConta(page);
+    await page.getByRole("button", { name: "Compras TelhaNorte", exact: true }).click();
+
+    const detalhe = page.locator('[data-testid="rateio-detalhe"]');
+    await expect(detalhe).toBeVisible();
+    await expect(page.locator('[data-testid="rateio-item"]')).toHaveCount(1);
+    await expect(page.locator('[data-testid="rateio-hidden"]')).toHaveCount(0);
+    await expect(detalhe).not.toHaveAttribute("data-hidden-targets-count", /.*/);
+    await expect(detalhe).not.toHaveAttribute("data-hidden-allocation-cents", /.*/);
+
+    // Com `rateadoCents` total-aware do servidor antigo a sobra dá 0 — então
+    // nem alarme aparece. O que importa: nada de "2 alocações em projetos sem
+    // acesso" e nada de R$ NaN.
+    const text = (await page.locator("body").innerText()).toLowerCase();
+    expect(text).not.toContain("nan");
+    expect(text).not.toContain("sem acesso");
+    expect(text).not.toContain("ocultas");
   });
 });

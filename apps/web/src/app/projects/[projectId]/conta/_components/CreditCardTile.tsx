@@ -2,6 +2,7 @@
 
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { CreditCardVisual } from '@/components/CreditCardVisual';
+import { invoiceActionAllowed } from '../_lib';
 import type { AccountViewCardSummary } from '../_types';
 
 /**
@@ -27,6 +28,12 @@ export function CreditCardTile({
 }) {
   const paga = card.status === 'paga';
   const parcial = card.status === 'parcial';
+  // Capabilities do servidor VETAM a CTA; sem `actions` (API antiga) a regra
+  // local decide sozinha, como sempre. Fatura de último4 ambíguo chega com
+  // `actions: []` e só saberia responder 409 — desenhar o botão ali seria
+  // fabricar CTA morta. Ver `invoiceActionAllowed`.
+  const canPay = invoiceActionAllowed(card, 'pay', !paga);
+  const canUndo = invoiceActionAllowed(card, 'undo', card.status !== 'a pagar');
   const badgeText = paga ? '\u2713 Paga' : parcial ? 'Parcial' : 'A pagar';
   const badgeClass = paga
     ? 'bg-white/90 text-[#1E924A]'
@@ -70,7 +77,7 @@ export function CreditCardTile({
       action={
         card.faturaAtual > 0 ? (
           <div className="mt-0.5 grid grid-cols-1 gap-0.5">
-            {!paga && (
+            {canPay && (
               <button
                 type="button"
                 onClick={(ev) => {
@@ -104,7 +111,7 @@ export function CreditCardTile({
                 Quitar c/ resíduo…
               </button>
             )}
-            {card.status !== 'a pagar' && (
+            {canUndo && (
               <button
                 type="button"
                 onClick={(ev) => {

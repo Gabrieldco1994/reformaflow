@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { X, Undo2, SlidersHorizontal, HandCoins } from 'lucide-react';
+import { invoiceActionAllowed, invoicePayBlockedReason } from '../_lib';
 import type { AccountViewCardSummary } from '../_types';
 
 /**
@@ -75,12 +76,19 @@ export function MobileCardActionsSheet({
           run: () => onSettleWithResidual(card.last4),
         }
       : null,
-    {
-      key: 'desfazer',
-      label: 'Desfazer pagamento',
-      icon: Undo2,
-      run: () => onUndoPayment(card.last4),
-    },
+    // "Desfazer" só aparece quando o SERVIDOR diz que há pagamento a desfazer.
+    // Sem `actions` (API antiga) o comportamento é o de sempre — a opção fica
+    // sempre visível. Com `actions`, um final ambíguo (409 garantido) ou uma
+    // fatura sem pagamento casado (404 garantido) deixam de oferecer o verbo:
+    // esta era a CTA que 404ava em runtime atrás de pipeline verde.
+    invoiceActionAllowed(card, 'undo', true)
+      ? {
+          key: 'desfazer',
+          label: 'Desfazer pagamento',
+          icon: Undo2,
+          run: () => onUndoPayment(card.last4),
+        }
+      : null,
     {
       key: 'ajustar',
       label: 'Ajustar fatura…',
@@ -88,6 +96,12 @@ export function MobileCardActionsSheet({
       run: () => onAdjustInvoice(card.last4),
     },
   ].filter((a): a is NonNullable<typeof a> => a !== null);
+
+  // Fatura em aberto que o servidor não deixa pagar (último4 ambíguo): o sheet
+  // é o destino do tap no mobile, então é AQUI que a ausência do verbo precisa
+  // ser explicada — senão o usuário só vê o botão sumir. "Ajustar fatura…"
+  // continua na lista: `/invoice-adjustments` não tem o 409.
+  const payBlockedReason = card.faturaPendente > 0 ? invoicePayBlockedReason(card) : null;
 
   return (
     <div
@@ -119,6 +133,11 @@ export function MobileCardActionsSheet({
         </div>
 
         <div className="space-y-2">
+          {payBlockedReason && (
+            <p className="rounded-xl border border-[#F3D9A6] bg-[#FDF6EC] px-3 py-2 text-[12px] font-medium text-[#B54708]">
+              {payBlockedReason}
+            </p>
+          )}
           {actions.map(({ key, label, icon: Icon, run }) => (
             <button
               key={key}

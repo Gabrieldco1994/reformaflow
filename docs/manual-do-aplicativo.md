@@ -536,6 +536,12 @@ movimentações abaixo.
   pagamento é **recusado com mensagem** ("os dados do cartão ou da conta
   mudaram… atualize e tente de novo") em vez de ser gravado no cartão errado — o
   diálogo continua aberto para você tentar de novo.
+  Se o projeto tiver **dois cartões ativos com o mesmo final** (dado antigo; hoje
+  o cadastro impede criar o segundo), não há como saber qual pagar: a fatura
+  aparece normalmente, mas **sem** os botões de pagar/desfazer, com o aviso "mais
+  de um cartão com esse final — ajuste o cadastro para pagar". **Ajustar fatura…**
+  continua disponível. Se a duplicidade for criada depois que a tela carregou, a
+  ação é recusada com essa mesma explicação e nada é gravado (#448 B1b).
 - **Ajustar fatura…** abre formulário com valor (+/−), motivo e nota. O ajuste muda
   o espelho da fatura (valor bancário) sem virar consumo/caixa.
 - **Marcar quitada com resíduo…** registra o resíduo declarado (com nota) e fecha a
@@ -545,9 +551,11 @@ movimentações abaixo.
   compras da fatura voltam a ficar pendentes e o lançamento de pagamento é
   removido. Só funciona quando há exatamente um pagamento casado com a fatura —
   se houver mais de um (pagamento parcial/duplicado), a ação é recusada com
-  mensagem explicando que o desfazer automático não é seguro nesse caso. Hoje
-  disponível só no grid de cartões do desktop; o carrossel compacto do mobile
-  ainda não expõe nenhuma ação de fatura (ver `docs/visao-conta-faturas.md §13`).
+  mensagem explicando que o desfazer automático não é seguro nesse caso. A opção
+  só é oferecida quando o servidor confirma que **existe** um pagamento a
+  desfazer para aquela fatura, e some no caso de final duplicado descrito acima
+  (#448 B1b). Também está no sheet de ações do carrossel mobile e no menu "⋯"
+  da linha de fatura em Movimentações.
 
 **Precisa de você (fila de pendências):**
 - Quando há pendências financeiras no mês, a Conta exibe o card **"Precisa de você"**

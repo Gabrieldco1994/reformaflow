@@ -29,19 +29,17 @@ export interface RateioDetalhe {
   rateadoCents: number;
   sobraCents: number;
   /**
-   * Metadata de participantes fora da lente — LEGADO (API pré-B1b).
+   * Alocações cujo alvo foi soft-deletado **dentro da lente** do requisitante.
    *
-   * B1b (#448) REMOVE estes três campos do contrato: o payload redigido passa a
-   * ser deep-equal a uma resposta sem nada oculto, para não revelar relação,
-   * contagem nem soma de participante não autorizado. Por isso são OPCIONAIS
-   * aqui — o bundle novo tem que renderizar as duas formas sem NaN, sem alarme
-   * fabricado e sem vazar metadata. Leia sempre via `../_lib/rateio-partial`.
+   * Contrato SOURCE-ONLY (B1b #448): `hiddenTargetsCount` e
+   * `hiddenAllocationCents` foram REMOVIDOS — participante fora da lente é
+   * omitido por inteiro, e `rateadoCents` passa a ser Σ dos itens visíveis para
+   * que `totalSourceCents − Σ items` não devolva a soma oculta por subtração.
+   * Segue opcional porque o bundle novo tem que renderizar sem NaN e sem alarme
+   * fabricado qualquer que seja a versão do servidor. Leia sempre via
+   * `../_lib/rateio-partial`.
    */
   removedTargetsCount?: number;
-  /** Alocações de alvo ATIVO fora da lente do requisitante (API pré-B1b). */
-  hiddenTargetsCount?: number;
-  /** Σ centavos das ocultas (API pré-B1b). */
-  hiddenAllocationCents?: number;
   items: RateioDetalheItem[];
 }
 

@@ -2,11 +2,7 @@
 
 import { AlertTriangle } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
-import {
-  hiddenAllocationsNotice,
-  knownCents,
-  rateioWarningMessage,
-} from '../_lib/rateio-partial';
+import { knownCents, rateioWarningMessage } from '../_lib/rateio-partial';
 import { StatusBadge } from './StatusBadge';
 import type { RateioDetalhe } from '../_hooks/useRateioDetalhe';
 
@@ -54,15 +50,15 @@ export function RateioDetalheSection({ isLoading, isError, detalhe, onRetry }: P
 
   if (!detalhe || !detalhe.rateado) return null;
 
-  // Contrato mixed-version (#448 W1): a API nova (B1b) para de mandar a
-  // metadata de ocultos. Todo número é lido de forma defensiva — campo ausente
-  // vira `null` e simplesmente não renderiza, em vez de virar `R$ NaN` ou um
-  // alarme "a conta não fecha" que o servidor nunca afirmou.
+  // Contrato SOURCE-ONLY (#448 B1b): o servidor não manda mais metadata de
+  // participante oculto — ele some do payload inteiro, e `rateadoCents` já vem
+  // como Σ do que ESTA pessoa enxerga. Todo número é lido de forma defensiva:
+  // campo ausente vira `null` e simplesmente não renderiza, em vez de virar
+  // `R$ NaN`. Nada aqui pode denunciar o que não veio.
   const totalCents = knownCents(detalhe.totalSourceCents);
   const rateadoCents = knownCents(detalhe.rateadoCents);
   const sobraCents = knownCents(detalhe.sobraCents);
   const warning = rateioWarningMessage(detalhe, sobraCents);
-  const hiddenNotice = hiddenAllocationsNotice(detalhe);
 
   return (
     <div
@@ -70,8 +66,6 @@ export function RateioDetalheSection({ isLoading, isError, detalhe, onRetry }: P
       data-total-cents={detalhe.totalSourceCents}
       data-rateado-cents={detalhe.rateadoCents}
       data-sobra-cents={detalhe.sobraCents}
-      data-hidden-targets-count={detalhe.hiddenTargetsCount}
-      data-hidden-allocation-cents={detalhe.hiddenAllocationCents}
       className="space-y-2 rounded-xl border border-darc-linen bg-darc-cream/40 px-3 py-2.5"
     >
       <p className="text-xs font-semibold uppercase tracking-wide text-darc-velvet/50">Compra rateada</p>
@@ -105,12 +99,6 @@ export function RateioDetalheSection({ isLoading, isError, detalhe, onRetry }: P
         <p role="alert" className="flex items-center gap-1.5 text-xs text-amber-700">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
           <span>{warning}</span>
-        </p>
-      )}
-
-      {hiddenNotice && (
-        <p data-testid="rateio-hidden" className="text-xs text-darc-velvet/60">
-          {hiddenNotice}
         </p>
       )}
 

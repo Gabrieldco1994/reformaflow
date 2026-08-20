@@ -5,7 +5,9 @@ import {
   computeMovementTotals,
   groupByMovementDay,
   groupByMovementMonth,
+  invoiceActionAllowed,
   invoiceIdentityErrorMessage,
+  invoicePayBlockedReason,
   originLast4FromKey,
 } from './_lib';
 import type { AccountViewMovimentacao } from './_types';
@@ -315,5 +317,84 @@ describe('invoiceIdentityErrorMessage — erro honesto, nunca downgrade silencio
     expect(invoiceIdentityErrorMessage({ status: 500, message: 'boom' })).toBeNull();
     expect(invoiceIdentityErrorMessage(new Error('offline'))).toBeNull();
     expect(invoiceIdentityErrorMessage(null)).toBeNull();
+  });
+});
+
+describe('invoiceIdentityErrorMessage — 409 de final ambíguo (B1b #448)', () => {
+  it('traduz "Cartão ambíguo" em erro acionável, sem inventar contagem de duplicatas', () => {
+    const message = invoiceIdentityErrorMessage({ status: 409, message: 'Cartão ambíguo' });
+    expect(message).toMatch(/cart[ãa]o/i);
+    expect(message).toMatch(/cadastro|duplicid/i);
+    // A mensagem do servidor é deliberadamente terse: não revela QUANTAS
+    // duplicatas existem nem quais. A do web não pode ser mais indiscreta.
+    expect(message).not.toMatch(/\b\d+\b/);
+  });
+
+  it('traduz "Conta ambígua" com o mesmo vocabulário', () => {
+    const message = invoiceIdentityErrorMessage({ status: 409, message: 'Conta ambígua' });
+    expect(message).toMatch(/conta/i);
+    expect(message).toMatch(/cadastro|duplicid/i);
+  });
+
+  it('devolve null para 409 que não é de ambiguidade — mensagem do servidor prevalece', () => {
+    expect(invoiceIdentityErrorMessage({ status: 409, message: 'Fatura já paga.' })).toBeNull();
+  });
+});
+
+describe('invoiceActionAllowed — capabilities do servidor VETAM, nunca concedem', () => {
+  it('API antiga (sem `actions`) preserva a derivação local, byte-a-byte', () => {
+    expect(invoiceActionAllowed({}, 'pay', true)).toBe(true);
+    expect(invoiceActionAllowed({}, 'pay', false)).toBe(false);
+    expect(invoiceActionAllowed({ actions: undefined }, 'undo', true)).toBe(true);
+    expect(invoiceActionAllowed({ actions: null }, 'undo', true)).toBe(true);
+    expect(invoiceActionAllowed(undefined, 'undo', true)).toBe(true);
+  });
+
+  it('veta a CTA quando o servidor manda `actions` sem o verbo', () => {
+    // Final ambíguo (B1b): a fatura não oferece verbo NENHUM porque
+    // `payInvoice`/`undoInvoicePayment` responderiam 409 por último4.
+    expect(invoiceActionAllowed({ actions: [] }, 'pay', true)).toBe(false);
+    expect(invoiceActionAllowed({ actions: [] }, 'undo', true)).toBe(false);
+    expect(invoiceActionAllowed({ actions: ['pay'] }, 'undo', true)).toBe(false);
+  });
+
+  it('mantém a CTA quando servidor e regra local concordam', () => {
+    expect(invoiceActionAllowed({ actions: ['pay'] }, 'pay', true)).toBe(true);
+    expect(invoiceActionAllowed({ actions: ['pay', 'undo'] }, 'undo', true)).toBe(true);
+  });
+
+  it('NUNCA concede: `actions` do servidor não ressuscita CTA que a regra local nega', () => {
+    expect(invoiceActionAllowed({ actions: ['pay', 'undo'] }, 'pay', false)).toBe(false);
+    expect(invoiceActionAllowed({ actions: ['undo'] }, 'undo', false)).toBe(false);
+  });
+
+  it('ignora verbo desconhecido de uma API mais nova sem quebrar', () => {
+    expect(invoiceActionAllowed({ actions: ['settle' as 'pay'] }, 'pay', true)).toBe(false);
+    expect(invoiceActionAllowed({ actions: ['settle' as 'pay', 'pay'] }, 'pay', true)).toBe(true);
+  });
+});
+
+describe('invoicePayBlockedReason — o veto precisa dizer a verdade sobre o motivo', () => {
+  it('não inventa motivo contra API antiga nem quando pagar está autorizado', () => {
+    expect(invoicePayBlockedReason({ faturaPendente: 100 })).toBeNull();
+    expect(invoicePayBlockedReason({ actions: null, faturaPendente: 100 })).toBeNull();
+    expect(invoicePayBlockedReason({ actions: ['pay'], faturaPendente: 100 })).toBeNull();
+    expect(invoicePayBlockedReason(null)).toBeNull();
+  });
+
+  it('com pendente > 0 e sem `pay`, o único motivo restante do servidor é o final ambíguo', () => {
+    expect(invoicePayBlockedReason({ actions: [], faturaPendente: 45_000 })).toMatch(
+      /mais de um cartão com esse final/i,
+    );
+  });
+
+  it('sem pendente NÃO acusa duplicidade — o servidor omite `pay` por não haver o que pagar', () => {
+    const semPendente = invoicePayBlockedReason({ actions: [], faturaPendente: 0 });
+    expect(semPendente).toMatch(/já consta paga/i);
+    expect(semPendente).not.toMatch(/mais de um/i);
+  });
+
+  it('não publica CONTAGEM de duplicatas (metadata que o servidor decidiu não expor)', () => {
+    expect(invoicePayBlockedReason({ actions: [], faturaPendente: 1 })).not.toMatch(/\d/);
   });
 });

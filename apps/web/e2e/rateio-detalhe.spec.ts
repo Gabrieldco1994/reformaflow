@@ -3,21 +3,19 @@ import { expect, test, type Page } from "@playwright/test";
 /**
  * QA (issue #423) — E2E do detalhe de rateio read-only.
  *
- * ATENÇÃO — CONTRATO DATADO (atualizado em #448 W1). Este arquivo cobre a
- * direção **API pré-B1b** do contrato mixed-version: um payload que AINDA
- * manda `removedTargetsCount` / `hiddenTargetsCount` / `hiddenAllocationCents`.
- * B1b (#448) REMOVEU esses três campos do contrato — o payload redigido passa
- * a ser deep-equal a um sem nada oculto, por design, para não revelar relação,
- * contagem nem soma de participante fora da lente. Os cenários de "alocações
- * ocultas" abaixo continuam válidos como prova de que o bundle novo NÃO quebra
- * contra um servidor antigo; a direção nova (payload redigido: sem linha de
- * ocultos, sem NaN, sem alarme fabricado, CTA de rateio viva) está em
- * `e2e/invoice-identity-mixed-version.spec.ts`.
+ * CONTRATO ATUAL — SOURCE-ONLY (#448 B1b, reescrito em W1). O payload NÃO
+ * carrega mais `hiddenTargetsCount`/`hiddenAllocationCents`: participante fora
+ * da lente é omitido por inteiro, `rateadoCents` é Σ dos itens VISÍVEIS e
+ * `rateado: false` quando nada é visível. `removedTargetsCount` continua,
+ * filtrado pela lente. A consequência visível — viewer restrito enxerga
+ * `sobraCents != 0` — está coberta aqui e no gêmeo
+ * `e2e/invoice-identity-mixed-version.spec.ts` (identidades de fatura + as
+ * duas direções mixed-version).
  *
  * Contrato de referência (arquiteto, amendment de segurança
  * `security-tenant-lens`): `ExpenseService.getRateio` / `GET :id/rateio`,
  * payload `{ sourceExpenseId, rateado, totalSourceCents, rateadoCents,
- * sobraCents, items[] }` (+ a metadata de ocultos SÓ na API pré-B1b), cada
+ * sobraCents, removedTargetsCount, items[] }`, cada
  * item `{ targetExpenseId, titulo, fornecedor, projectName, status,
  * allocationCents, plannedValorTotalCents }`. N=0 (fonte sem
  * NENHUMA RateioAllocation) responde 200 `{ rateado: false, sobraCents:
@@ -28,14 +26,11 @@ import { expect, test, type Page } from "@playwright/test";
  *
  * Ganchos de teste (contrato §6.4, `RateioDetalheSection.tsx`):
  *   - `[data-testid="rateio-detalhe"]`  wrapper, com atributos NUMÉRICOS
- *     `data-total-cents` / `data-rateado-cents` / `data-sobra-cents` /
- *     `data-hidden-targets-count` / `data-hidden-allocation-cents`
- *     (contrato de dado, nunca depender de `R$ 12.771,00` renderizado)
+ *     `data-total-cents` / `data-rateado-cents` / `data-sobra-cents`
+ *     (contrato de dado, nunca depender de `R$ 12.771,00` renderizado).
+ *     NÃO existe atributo de metadata oculta — emitir um seria publicar no DOM
+ *     exatamente o que o contrato parou de emitir no JSON.
  *   - `[data-testid="rateio-item"]`     uma linha por alocação VISÍVEL
- *   - `[data-testid="rateio-hidden"]`   linha informativa quando a API ANTIGA
- *     manda `hiddenTargetsCount > 0` (sem `role="alert"`, sem âmbar — oculto
- *     não é divergência: já está dentro de `rateadoCents`). Com a API B1b esta
- *     linha simplesmente não existe.
  *   - `[data-testid="rateio-loading"]`  estado de carregamento
  *   - `[data-testid="rateio-error"]` + `[data-testid="rateio-retry"]`
  *   - `[data-testid="vinculos-cross-project-editor"]` widget MUTÁVEL de
@@ -84,30 +79,26 @@ function nineAllocationItems() {
 }
 
 /**
- * Payload do GET :id/rateio na forma **pré-B1b** (com metadata de ocultos).
- * Mantido de propósito: é a fixture da API antiga no contrato mixed-version.
+ * Payload do GET :id/rateio na forma SOURCE-ONLY (B1b): `rateadoCents` é Σ dos
+ * itens que ESTE requisitante enxerga, e a sobra é o resto — sem contagem nem
+ * soma do que ficou de fora. Um viewer restrito e um viewer total recebem
+ * respostas indistinguíveis, então a fixture não tem "modo oculto": basta
+ * passar menos itens.
  */
 function rateioDetailPayload(opts?: {
   items?: ReturnType<typeof nineAllocationItems>;
-  hiddenTargetsCount?: number;
-  hiddenAllocationCents?: number;
   removedTargetsCount?: number;
 }) {
   const items = opts?.items ?? nineAllocationItems();
-  const hiddenTargetsCount = opts?.hiddenTargetsCount ?? 0;
-  const hiddenAllocationCents = opts?.hiddenAllocationCents ?? 0;
   const removedTargetsCount = opts?.removedTargetsCount ?? 0;
-  const visibleCents = items.reduce((s, it) => s + it.allocationCents, 0);
-  const rateadoCents = visibleCents + hiddenAllocationCents; // I-A/I-D
+  const rateadoCents = items.reduce((s, it) => s + it.allocationCents, 0);
   return {
     sourceExpenseId: sourceId,
-    rateado: true,
+    rateado: items.length > 0 || removedTargetsCount > 0,
     totalSourceCents: TOTAL_CENTS,
     rateadoCents,
     sobraCents: TOTAL_CENTS - rateadoCents,
     removedTargetsCount,
-    hiddenTargetsCount,
-    hiddenAllocationCents,
     items,
   };
 }
@@ -121,8 +112,6 @@ function rateioEmptyPayload() {
     rateadoCents: 0,
     sobraCents: TOTAL_CENTS,
     removedTargetsCount: 0,
-    hiddenTargetsCount: 0,
-    hiddenAllocationCents: 0,
     items: [],
   };
 }
@@ -820,8 +809,9 @@ test.describe("Detalhe de rateio read-only (#423) — Visão Conta", () => {
     expect(Number(totalCents)).toBe(TOTAL_CENTS);
     expect(Number(rateadoCents)).toBe(TOTAL_CENTS);
     expect(Number(sobraCents)).toBe(0);
-    expect(Number(hiddenCount)).toBe(0);
-    expect(Number(hiddenCents)).toBe(0);
+    // B1b: os atributos de metadata oculta NÃO existem mais — nem zerados.
+    expect(hiddenCount).toBeNull();
+    expect(hiddenCents).toBeNull();
   });
 
   test("bug do primeiro-alvo-só: as 9 linhas aparecem, não só a despesa de linkedExpenseId (tgt-0)", async ({
@@ -963,40 +953,40 @@ test.describe("Detalhe de rateio read-only (#423) — Visão Conta", () => {
     ).toBeVisible();
   });
 
-  test("API pré-B1b · viewer restrito: 8 de 9 alocações ocultas — nenhum título/projeto alheio no DOM", async ({
+  test("viewer restrito: 8 de 9 alocações OMITIDAS — nada do alvo alheio no DOM e sobra != 0", async ({
     page,
   }) => {
-    // Cenário do contrato (§7.7): usuário sem lente sobre a OBRA vê só o
-    // alvo que ele enxerga; os outros 8 viram contador agregado — nunca
-    // linhas redigidas (I-E: nenhum campo de alvo oculto vaza, nem sequer
-    // targetExpenseId).
+    // Contrato §7.7 sob a semântica B1b: quem não tem lente sobre a OBRA
+    // recebe SÓ o alvo que enxerga. Os outros 8 não viram contador agregado —
+    // somem por inteiro, e `rateadoCents` encolhe junto (I-E: nenhum campo do
+    // alvo oculto vaza, nem sequer `targetExpenseId`; e nenhum número permite
+    // deduzi-los por subtração, porque a sobra é indistinguível de dinheiro
+    // genuinamente não alocado).
     const visibleItem = nineAllocationItems()[0];
-    const hiddenAllocationCents = TOTAL_CENTS - visibleItem.allocationCents; // 1_134_700
-    const payload = rateioDetailPayload({
-      items: [visibleItem],
-      hiddenTargetsCount: 8,
-      hiddenAllocationCents,
-    });
+    const payload = rateioDetailPayload({ items: [visibleItem] });
     await mockApi(page, { rateioPayload: payload });
     await openConta(page);
     await page.getByRole("button", { name: "Compras TelhaNorte" }).click();
 
     const detalhe = page.locator('[data-testid="rateio-detalhe"]');
     await expect(detalhe).toBeVisible();
-    await expect(detalhe).toHaveAttribute("data-hidden-targets-count", "8");
-    await expect(detalhe).toHaveAttribute(
-      "data-hidden-allocation-cents",
-      String(hiddenAllocationCents),
-    );
     await expect(page.locator('[data-testid="rateio-item"]')).toHaveCount(1);
-    // I-A: identidade do dinheiro se mantém mesmo com 8 ocultos — sobra continua 0.
-    await expect(detalhe).toHaveAttribute("data-sobra-cents", "0");
+
+    // Σ dos VISÍVEIS, não o total: manter total-aware devolvia a soma oculta
+    // por subtração (`totalSourceCents - Σ items`).
     await expect(detalhe).toHaveAttribute(
       "data-rateado-cents",
-      String(TOTAL_CENTS),
+      String(visibleItem.allocationCents),
     );
+    await expect(detalhe).toHaveAttribute(
+      "data-sobra-cents",
+      String(TOTAL_CENTS - visibleItem.allocationCents),
+    );
+    // Nenhum atributo/linha de metadata oculta — nem zerado.
+    await expect(detalhe).not.toHaveAttribute("data-hidden-targets-count", /.*/);
+    await expect(page.locator('[data-testid="rateio-hidden"]')).toHaveCount(0);
 
-    // I-E: nenhum nome/título/id de alvo oculto vaza para o DOM.
+    // I-E: nenhum nome/título/id de alvo omitido vaza para o DOM.
     await expect(page.locator("body")).not.toContainText("Obra do Vizinho");
     for (let i = 1; i < 9; i += 1) {
       await expect(page.locator("body")).not.toContainText(
@@ -1012,37 +1002,34 @@ test.describe("Detalhe de rateio read-only (#423) — Visão Conta", () => {
       expect(idsInDom).not.toContain(`tgt-${i}`);
     }
 
-    // Linha informativa de ocultos, sem virar alerta de divergência. Escopo
-    // no `detalhe` — `page.getByRole("alert")` sozinho também casaria com a
-    // região `aria-live` sempre presente do `<Toaster>` (sonner) no layout
-    // raiz, que nada tem a ver com a seção de rateio.
-    await expect(page.locator('[data-testid="rateio-hidden"]')).toBeVisible();
-    await expect(detalhe.getByRole("alert")).toHaveCount(0);
+    // A sobra != 0 é a renderização CORRETA ("esse dinheiro não está alocado
+    // até onde a resposta vai"), mas a frase não pode denunciar que existe
+    // participante escondido — senão o vazamento reabre pela copy.
+    const alerta = detalhe.getByRole("alert");
+    await expect(alerta).toBeVisible();
+    await expect(alerta).toContainText("sem alocação em planejadas");
+    await expect(alerta).not.toContainText(/você vê|vis[íi]ve|oculta|sem acesso/i);
   });
 
-  test("API pré-B1b · N=0 com alocações ocultas: hiddenTargetsCount > 0 mostra totais e a linha de ocultos, nunca em branco", async ({
+  test("todos os alvos fora da lente: `rateado: false` — a resposta é a de uma compra NUNCA rateada", async ({
     page,
   }) => {
-    // Fronteira: TODOS os alvos ativos estão fora da lente — `items: []`,
-    // mas `rateado: true` (ele sabe que a compra dele foi rateada). A
-    // seção NÃO pode cair no `return null` (que é só para `!rateado`).
-    const payload = rateioDetailPayload({
-      items: [],
-      hiddenTargetsCount: 9,
-      hiddenAllocationCents: TOTAL_CENTS,
-    });
+    // Fronteira reescrita sob B1b. Antes, `items: []` + `rateado: true`
+    // anunciava "alguém dividiu isto com você" mesmo com 100% dos alvos
+    // ocultos — a própria flag denunciava a relação. Agora o servidor responde
+    // `rateado: false`, então a seção some: é o comportamento CORRETO, não uma
+    // tela em branco por bug. O que precisa continuar de pé é a tela.
+    const payload = rateioDetailPayload({ items: [] });
+    expect(payload.rateado).toBe(false);
     await mockApi(page, { rateioPayload: payload });
     await openConta(page);
     await page.getByRole("button", { name: "Compras TelhaNorte" }).click();
 
-    const detalhe = page.locator('[data-testid="rateio-detalhe"]');
-    await expect(detalhe).toBeVisible();
-    await expect(page.locator('[data-testid="rateio-item"]')).toHaveCount(0);
-    await expect(detalhe).toHaveAttribute("data-hidden-targets-count", "9");
-    await expect(detalhe).toHaveAttribute("data-sobra-cents", "0");
-    await expect(page.locator('[data-testid="rateio-hidden"]')).toContainText(
-      "9",
-    );
+    await expect(page.locator('[data-testid="rateio-detalhe"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="rateio-error"]')).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Salvar" })).toBeVisible();
+    await expect(page.locator("body")).not.toContainText("NaN");
+    await expect(page.locator("body")).not.toContainText("Obra do Vizinho");
   });
 
   for (const width of [375, 390]) {

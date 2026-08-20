@@ -262,6 +262,72 @@ function humanizeKey(value: string) {
 // propriedade.
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Verbos de fatura que o servidor autoriza por linha (`actions`, B1a/B1b). */
+export type InvoiceAction = 'pay' | 'undo';
+
+/** Qualquer linha de fatura (cartão da Visão Conta ou saída) com capabilities. */
+export interface InvoiceCapabilitySource {
+  actions?: InvoiceAction[] | null;
+}
+
+/**
+ * A CTA só existe se a regra local E o servidor concordarem.
+ *
+ * `actions` é VETO, nunca concessão:
+ *  - ausente/`null` (API antiga) → devolve `legacyAllowed` intacto, então o
+ *    comportamento fica byte-a-byte o de hoje contra servidor velho;
+ *  - presente → a CTA precisa estar na lista. Nada na lista RESSUSCITA uma CTA
+ *    que a regra local nega (a lista pode conter verbos que esta tela não
+ *    renderiza).
+ *
+ * Por que isto virou obrigatório no B1b (#448): uma fatura de último4 AMBÍGUO
+ * (>1 cartão ativo com aquele final no projeto) passa a vir com `actions: []` e
+ * `cardId: null`, porque `payInvoice`/`undoInvoicePayment` respondem 409 nesse
+ * caso em vez de pagar o cartão que o banco devolvesse primeiro. Sem o veto, o
+ * web continuaria desenhando "Pagar fatura" e "Desfazer pagamento" em cima de
+ * uma linha cuja única resposta possível é erro — exatamente o CTA morto que
+ * este issue existe para não produzir. O `onError` dos diálogos continua
+ * tratando o 409 porque a tela pode estar velha (duplicata criada depois do
+ * carregamento): veto na renderização, erro honesto na execução.
+ */
+export function invoiceActionAllowed(
+  source: InvoiceCapabilitySource | null | undefined,
+  action: InvoiceAction,
+  legacyAllowed: boolean,
+): boolean {
+  if (!legacyAllowed) return false;
+  const actions = source?.actions;
+  if (!Array.isArray(actions)) return true;
+  return actions.includes(action);
+}
+
+/**
+ * Por que "Pagar fatura" não está sendo oferecida — ou `null` quando não há
+ * nada de POSITIVO a dizer (API antiga, ou 'pay' autorizado).
+ *
+ * Vetar sem explicar é um beco sem saída: o usuário vê a fatura em aberto e o
+ * botão sumiu. Mas a explicação precisa ser VERDADEIRA, e o servidor omite
+ * 'pay' por dois motivos distintos (ver `computeAccountView` no B1b):
+ *   1. `pending <= 0` — não há o que pagar (fila/tela velha);
+ *   2. último4 ambíguo — >1 cartão ativo com aquele final no projeto.
+ * O web distingue os dois com `faturaPendente`, que É o `invoice.pending` que o
+ * servidor testa. Publicar "mais de um cartão com esse final" no caso 1 seria
+ * inventar um problema de cadastro que não existe.
+ *
+ * Isto NÃO é metadata protegida: a duplicidade é do cadastro do próprio
+ * usuário, na mesma lente que ele já enxerga, e sem contagem.
+ */
+export function invoicePayBlockedReason(
+  source: (InvoiceCapabilitySource & { faturaPendente?: number | null }) | null | undefined,
+): string | null {
+  if (!source) return null;
+  if (invoiceActionAllowed(source, 'pay', true)) return null;
+  if ((source.faturaPendente ?? 0) <= 0) {
+    return 'Esta fatura já consta paga nesta visão. Atualize a página.';
+  }
+  return 'Mais de um cartão com esse final — ajuste o cadastro para pagar.';
+}
+
 /** Cartão da fatura, como a Visão Conta o entrega (`cardId` só na API nova). */
 export interface InvoiceCardIdentity {
   cardId?: string | null;
@@ -345,8 +411,8 @@ function errorMessage(error: unknown): string {
 }
 
 /**
- * Traduz as DUAS recusas de identidade em mensagem que o usuário entende, ou
- * `null` quando o erro não é de identidade (aí a mensagem do servidor vale).
+ * Traduz as recusas de IDENTIDADE em mensagem que o usuário entende, ou `null`
+ * quando o erro não é de identidade (aí a mensagem do servidor vale).
  *
  * DELIBERADAMENTE não existe "tenta de novo sem os ids". Reenviar sozinho o
  * payload sem identidade é um caminho de DOWNGRADE DE IDENTIDADE que uma
@@ -356,8 +422,26 @@ function errorMessage(error: unknown): string {
  * recurso errado.
  */
 export function invoiceIdentityErrorMessage(error: unknown): string | null {
-  if (errorStatus(error) !== 400) return null;
+  const status = errorStatus(error);
   const message = errorMessage(error);
+
+  // 409 (B1b #448): o último4 legado casa com mais de um cartão/conta ativo do
+  // projeto e o servidor recusa em vez de adivinhar. A saída do usuário é
+  // desfazer a duplicidade no cadastro — ou usar uma tela já atualizada, que
+  // manda o id exato e nem passa por essa resolução. A mensagem repete o que o
+  // servidor já disse ("ambíguo") sem acrescentar QUANTAS duplicatas existem:
+  // contagem é metadata que o servidor decidiu não publicar.
+  if (status === 409) {
+    if (/cart[ãa]o amb/i.test(message)) {
+      return 'Este projeto tem mais de um cartão com esse final, então não dá para saber qual pagar. Ajuste a duplicidade no cadastro de cartões e tente de novo.';
+    }
+    if (/conta amb/i.test(message)) {
+      return 'Este projeto tem mais de uma conta com esse final, então não dá para saber de qual debitar. Ajuste a duplicidade no cadastro de contas e tente de novo.';
+    }
+    return null;
+  }
+
+  if (status !== 400) return null;
   if (/não correspondem/i.test(message)) {
     return 'Os dados do cartão ou da conta mudaram desde que esta tela carregou. Atualize e tente de novo.';
   }

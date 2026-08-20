@@ -1,58 +1,56 @@
 import { describe, expect, it } from 'vitest';
-import {
-  hiddenAllocationsNotice,
-  isRateioEditLocked,
-  knownCents,
-  rateioWarningMessage,
-} from './rateio-partial';
+import { isRateioEditLocked, knownCents, rateioWarningMessage } from './rateio-partial';
 
 /**
- * W1 (#448) — contrato mixed-version do rateio PARCIAL.
+ * W1 (#448) — contrato SOURCE-ONLY do rateio parcial, já sob o servidor B1b.
  *
- * Os dois deploys não são atômicos, então o web precisa ser seguro com as DUAS
- * formas do payload de `GET :id/rateio`:
+ * B1b entregou o contrato final de `GET :id/rateio`:
+ *  - `hiddenTargetsCount` / `hiddenAllocationCents` NÃO EXISTEM MAIS. Participante
+ *    fora da lente é omitido por inteiro — não vira contagem, não vira soma.
+ *  - `rateadoCents` é Σ dos itens VISÍVEIS (manter total-aware devolvia a soma
+ *    oculta por subtração: `totalSourceCents - Σ items`).
+ *  - `rateado: false` quando nenhum participante é visível.
+ *  - `removedTargetsCount` continua existindo, FILTRADO pela lente.
  *
- *  - **API antiga (pré-B1b):** ainda manda `hiddenTargetsCount` /
- *    `hiddenAllocationCents` / `removedTargetsCount`. Comportamento tem que
- *    ficar IDÊNTICO ao de hoje (nenhuma regressão no bundle novo).
- *  - **API nova (B1b):** esses campos são REMOVIDOS do contrato — o payload
- *    redigido é deep-equal a um payload sem nada oculto, POR DESIGN. O web
- *    então não consegue (e não deve tentar) inferir parcialidade.
+ * Consequência que este módulo existe para fixar: o web não consegue — e não
+ * deve tentar — inferir parcialidade. O payload redigido é deep-equal a um
+ * payload sem nada oculto POR DESIGN. Uma regra fail-closed ("na dúvida,
+ * trava") mataria "Ratear compra" permanentemente para todo mundo. Quem barra a
+ * escrita insegura é o servidor: `ratearMixed` → `assertCanReverseSources`
+ * enumera TODA `RateioAllocation` da fonte e responde 404 com ZERO writes.
  */
 
-const FULL = {
-  hiddenTargetsCount: 0,
-  hiddenAllocationCents: 0,
+/** Payload B1b de quem enxerga todos os participantes. */
+const VISIVEL = { removedTargetsCount: 0 };
+
+/** Payload B1b de quem NÃO enxerga parte deles: idêntico ao de cima. */
+const REDIGIDO = { removedTargetsCount: 0 };
+
+/** API pré-B1b: ainda manda a metadata que o contrato novo retirou. */
+const PRE_B1B = {
   removedTargetsCount: 0,
-};
+  hiddenTargetsCount: 2,
+  hiddenAllocationCents: 5_000,
+} as Record<string, number>;
 
-/** Exatamente o que a API nova manda: sem chave nenhuma de metadata oculta. */
-const REDACTED = {};
-
-describe('isRateioEditLocked', () => {
-  it('trava quando a API ANTIGA declara alocações ocultas', () => {
-    expect(isRateioEditLocked({ ...FULL, hiddenTargetsCount: 1, hiddenAllocationCents: 5000 })).toBe(
-      true,
-    );
+describe('isRateioEditLocked — trava só no que o contrato AINDA declara', () => {
+  it('trava quando o servidor declara alvos removidos DENTRO da lente', () => {
+    expect(isRateioEditLocked({ removedTargetsCount: 2 })).toBe(true);
   });
 
-  it('trava quando a API ANTIGA declara alvos removidos', () => {
-    expect(isRateioEditLocked({ ...FULL, removedTargetsCount: 2 })).toBe(true);
+  it('não trava quando nada foi removido', () => {
+    expect(isRateioEditLocked(VISIVEL)).toBe(false);
   });
 
-  it('não trava quando a API ANTIGA declara tudo visível', () => {
-    expect(isRateioEditLocked(FULL)).toBe(false);
+  it('NÃO trava no payload redigido — fail-closed aqui mataria a CTA para sempre', () => {
+    expect(isRateioEditLocked(REDIGIDO)).toBe(false);
   });
 
-  it('NÃO trava com o payload redigido da API nova — fail-closed aqui mataria a CTA', () => {
-    // O payload redigido é indistinguível de um rateio 100% visível por design
-    // (B1b: "comparação deep-equal do payload redigido é idêntica a uma
-    // resposta vazia/sem metadata"). Travar no ausente deixaria "Ratear compra"
-    // permanentemente morta para TODO mundo. Quem barra a escrita insegura é o
-    // servidor: `ratearMixed` → `assertCanReverseSources` enumera TODA
-    // `RateioAllocation` existente da fonte e responde 404 com ZERO writes
-    // quando algum alvo está fora da lente.
-    expect(isRateioEditLocked(REDACTED)).toBe(false);
+  it('IGNORA `hiddenTargetsCount` de uma API pré-B1b — campo morto não trava mais nada', () => {
+    // B1b deletou o campo do contrato. Continuar lendo-o deixaria o lock com
+    // duas fontes de verdade: uma viva (`removedTargetsCount`) e uma que só
+    // aparece contra servidor velho. O lock passa a ser explícito e único.
+    expect(isRateioEditLocked(PRE_B1B)).toBe(false);
   });
 
   it('não trava sem detalhe nenhum (ainda carregando)', () => {
@@ -73,54 +71,39 @@ describe('knownCents — nunca renderiza NaN', () => {
   });
 });
 
-describe('hiddenAllocationsNotice — nunca revela metadata que o servidor não mandou', () => {
-  it('descreve os ocultos quando a API ANTIGA os declara', () => {
-    expect(
-      hiddenAllocationsNotice({ ...FULL, hiddenTargetsCount: 1, hiddenAllocationCents: 5000 }),
-    ).toMatch(/1 aloca/i);
-    expect(
-      hiddenAllocationsNotice({ ...FULL, hiddenTargetsCount: 3, hiddenAllocationCents: 5000 }),
-    ).toMatch(/3 aloca/i);
+describe('rateioWarningMessage — informa a sobra sem insinuar o que está oculto', () => {
+  it('prioriza alvos removidos, com plural correto', () => {
+    expect(rateioWarningMessage({ removedTargetsCount: 1 }, 0)).toMatch(/1 planejada removida/);
+    expect(rateioWarningMessage({ removedTargetsCount: 2 }, 0)).toMatch(/2 planejadas removidas/);
   });
 
-  it('devolve null no payload redigido — nada de "0 alocações" nem R$ NaN', () => {
-    expect(hiddenAllocationsNotice(REDACTED)).toBeNull();
-    expect(hiddenAllocationsNotice(undefined)).toBeNull();
-  });
-
-  it('devolve null quando a contagem existe mas a soma não — nunca inventa valor', () => {
-    expect(hiddenAllocationsNotice({ hiddenTargetsCount: 2 })).toBeNull();
-  });
-
-  it('devolve null quando não há nada oculto', () => {
-    expect(hiddenAllocationsNotice(FULL)).toBeNull();
-  });
-});
-
-describe('rateioWarningMessage', () => {
-  it('prioriza alvos removidos (API antiga), com plural correto', () => {
-    expect(rateioWarningMessage({ ...FULL, removedTargetsCount: 1 }, 0)).toMatch(
-      /1 planejada removida/,
-    );
-    expect(rateioWarningMessage({ ...FULL, removedTargetsCount: 2 }, 0)).toMatch(
-      /2 planejadas removidas/,
-    );
-  });
-
-  it('avisa sobre a sobra sem acusar o usuário de erro', () => {
-    const message = rateioWarningMessage(FULL, 30_029);
-    // Um viewer restrito passa a ver sobra != 0 LEGITIMAMENTE quando parte das
-    // alocações está fora da lente dele — a cópia não pode soar como defeito.
-    expect(message).toMatch(/você vê/i);
+  it('descreve a sobra como fato, sem acusar erro do usuário', () => {
+    // Sob o contrato source-only, um viewer restrito vê sobra != 0
+    // LEGITIMAMENTE. "A soma não fecha" lê como defeito de dado para quem não
+    // fez nada errado.
+    const message = rateioWarningMessage(VISIVEL, 30_029);
     expect(message).not.toMatch(/não fecha/i);
+    expect(message).toMatch(/sem aloca/i);
+  });
+
+  it('NÃO insinua que existe participante oculto — isso reabriria o vazamento pela copy', () => {
+    // O texto não pode conter nenhuma pista de que há algo que o leitor não vê:
+    // sob o contrato source-only, sobra oculta TEM que ser indistinguível de
+    // dinheiro genuinamente não alocado, inclusive na frase.
+    const message = rateioWarningMessage(VISIVEL, 30_029) ?? '';
+    expect(message).not.toMatch(/você vê|voce ve|vis[íi]ve|oculta|escondid|sem acesso|permiss/i);
+  });
+
+  it('mostra o valor da sobra na frase', () => {
+    expect(rateioWarningMessage(VISIVEL, 30_029)).toContain('300,29');
   });
 
   it('silencia quando a sobra é zero e nada foi removido', () => {
-    expect(rateioWarningMessage(FULL, 0)).toBeNull();
+    expect(rateioWarningMessage(VISIVEL, 0)).toBeNull();
   });
 
   it('silencia quando a sobra é desconhecida — nunca alarme fabricado', () => {
-    expect(rateioWarningMessage(REDACTED, undefined)).toBeNull();
-    expect(rateioWarningMessage(REDACTED, null)).toBeNull();
+    expect(rateioWarningMessage(REDIGIDO, undefined)).toBeNull();
+    expect(rateioWarningMessage(REDIGIDO, null)).toBeNull();
   });
 });

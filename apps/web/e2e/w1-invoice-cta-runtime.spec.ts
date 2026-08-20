@@ -29,7 +29,7 @@ function json(body: unknown, status = 200) {
   return { status, contentType: "application/json", body: JSON.stringify(body) };
 }
 
-function saidaFatura(realizado: boolean) {
+function saidaFatura(realizado: boolean, ambiguous = false) {
   return {
     id: "saida-fatura-1",
     kind: "saida",
@@ -39,7 +39,8 @@ function saidaFatura(realizado: boolean) {
     valor: FATURA_CENTS,
     realizado,
     status: realizado ? "PAGO" : "PLANEJADO",
-    cardId: CARD_ID,
+    // B1b (#448): último4 ambíguo → nenhum verbo, id nulo, fingerprint nula.
+    cardId: ambiguous ? null : CARD_ID,
     cardLast4: CARD_LAST4,
     bankLast4: BANK_LAST4,
     tipoDespesa: "OUTROS",
@@ -48,10 +49,12 @@ function saidaFatura(realizado: boolean) {
     dueMonth: DUE_MONTH,
     projetoOrigem: null,
     foreignExpenseId: null,
+    actions: ambiguous ? [] : realizado ? ["undo"] : ["pay"],
+    fingerprint: ambiguous ? null : "fp-w1-qa",
   };
 }
 
-function accountView(status: "a pagar" | "paga") {
+function accountView(status: "a pagar" | "paga", ambiguous = false) {
   return {
     mesSelecionado: DUE_MONTH,
     caixaHoje: 5_000_00,
@@ -78,12 +81,12 @@ function accountView(status: "a pagar" | "paga") {
         limiteUsadoPct: 25,
         limiteUsado: FATURA_CENTS,
         limiteTotal: 1_000_00,
-        actions: status === "paga" ? ["undo"] : ["pay", "undo"],
-        fingerprint: "fp-w1-qa",
+        actions: ambiguous ? [] : status === "paga" ? ["undo"] : ["pay", "undo"],
+        fingerprint: ambiguous ? null : "fp-w1-qa",
       },
     ],
     contas: [{ accountId: ACCOUNT_ID, last4: BANK_LAST4, nome: "Itaú QA" }],
-    saidas: [saidaFatura(status === "paga")],
+    saidas: [saidaFatura(status === "paga", ambiguous)],
     comprasCartao: [],
     entradas: [],
     ticketMedio: {
@@ -169,6 +172,7 @@ async function mockApi(
   page: Page,
   status: "a pagar" | "paga",
   payRejects = false,
+  opts: { ambiguous?: boolean; conflict?: "pay" | "undo" } = {},
 ) {
   const posts: Array<{ path: string; body: any }> = [];
   await page.clock.setFixedTime(new Date("2026-08-12T12:00:00.000Z"));
@@ -212,20 +216,25 @@ async function mockApi(
     if (path === `/projects/${personalId}/monthly-overview`)
       return route.fulfill(json(monthlyOverview));
     if (path === `/projects/${personalId}/monthly-overview/account-view`)
-      return route.fulfill(json(accountView(status)));
+      return route.fulfill(json(accountView(status, opts.ambiguous === true)));
     if (path === `/projects/${personalId}/monthly-overview/dre-overview`)
       return route.fulfill(json({ anual: { saldoAcumuladoSerie: [] } }));
     if (path === `/projects/${personalId}/pendencias/financeiras`)
       return route.fulfill(json(pendencias));
     if (path.endsWith("/pay-invoice")) {
+      if (opts.conflict === "pay")
+        return route.fulfill(json({ message: "Cartão ambíguo", statusCode: 409 }, 409));
       return payRejects
         ? route.fulfill(
             json({ message: "cardId e cardLast4 não correspondem ao mesmo cartão." }, 400),
           )
         : route.fulfill(json({ ok: true }));
     }
-    if (path.endsWith("/undo-invoice-payment"))
+    if (path.endsWith("/undo-invoice-payment")) {
+      if (opts.conflict === "undo")
+        return route.fulfill(json({ message: "Cartão ambíguo", statusCode: 409 }, 409));
       return route.fulfill(json({ removedCount: 1, revertedParcelas: 1 }));
+    }
     return route.fulfill(json([]));
   });
   return posts;
@@ -462,6 +471,149 @@ for (const width of WIDTHS) {
         cardId: CARD_ID,
         accountId: ACCOUNT_ID,
       });
+    });
+
+    // ── B1b (#448): estados NOVOS na tela — o veto de capability e o 409 ──────
+    //
+    // Estes são os pixels que ninguém tinha visto ainda. O modo de falha aqui
+    // não é "botão feio": é sumir a ação e deixar o usuário sem saída, ou
+    // trocar o botão por um texto que ninguém consegue ler/alcançar.
+
+    test("/conta · fatura de último4 ambíguo: sem CTA morta, com saída medida", async ({
+      page,
+    }) => {
+      const posts = await mockApi(page, "a pagar", false, { ambiguous: true });
+      await page.goto(`/projects/${personalId}/conta`);
+      await expect(page.getByText("Tenho na conta hoje", { exact: true })).toBeVisible();
+
+      // Nenhum verbo de fatura desenhado, em nenhuma das larguras.
+      await expect(page.getByRole("button", { name: "Pagar fatura", exact: true })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Desfazer pagamento" })).toHaveCount(0);
+
+      // A informação NÃO some: a linha da fatura continua legível na lista
+      // (medida antes do tap, que passa a filtrar por compras do cartão).
+      await measure(
+        page,
+        `linha de fatura ambígua @${width}`,
+        page.getByText(/Fatura Nubank QA/).first(),
+      );
+      await page.screenshot({ path: `${SHOT_DIR}/${width}-conta-ambiguo.png`, fullPage: false });
+
+      if (width >= 768) {
+        // Desktop: "Ajustar…" segue no tile e é a saída viva
+        // (`/invoice-adjustments` não tem 409).
+        await measure(
+          page,
+          `tile ambíguo "Ajustar…" @${width}`,
+          page.getByRole("button", { name: /Ajustar/ }).first(),
+        );
+      } else {
+        // Mobile: o tap do carrossel é a ÚNICA porta de pagamento. Ela não
+        // pode abrir o diálogo — cai no sheet, que explica e mantém a saída.
+        await measure(
+          page,
+          `carrossel ambíguo @${width}`,
+          page.getByRole("button", { name: /Nubank QA · 4488/ }).first(),
+        );
+        await page.getByRole("button", { name: /Nubank QA · 4488/ }).first().click();
+        await expect(page.getByRole("heading", { name: "Pagar fatura" })).toHaveCount(0);
+        await expect(page.getByRole("dialog", { name: /Ações da fatura/ })).toBeVisible();
+        await measure(
+          page,
+          `sheet ambíguo aviso @${width}`,
+          page.getByText(/Mais de um cartão com esse final/i),
+        );
+        const ajustar = await measure(
+          page,
+          `sheet ambíguo "Ajustar fatura…" @${width}`,
+          page.getByRole("button", { name: /Ajustar fatura/ }),
+        );
+        expect(ajustar.height).toBeGreaterThanOrEqual(44);
+        await page.screenshot({
+          path: `${SHOT_DIR}/${width}-conta-ambiguo-sheet.png`,
+          fullPage: false,
+        });
+      }
+
+      expect(posts.filter((p) => p.path.endsWith("/pay-invoice"))).toHaveLength(0);
+    });
+
+    test("cockpit · fila com fatura ambígua: aviso legível no lugar do botão", async ({
+      page,
+    }) => {
+      const posts = await mockApi(page, "a pagar", false, { ambiguous: true });
+      await page.goto(`/projects/${personalId}/monthly`);
+      await page.getByRole("button", { name: "Resolver" }).first().click();
+
+      await expect(page.getByRole("button", { name: "Pagar fatura", exact: true })).toHaveCount(0);
+      const aviso = await measure(
+        page,
+        `fila aviso ambíguo @${width}`,
+        page.getByText(/Mais de um cartão com esse final/i),
+      );
+      // O aviso ocupa espaço real e não estoura a largura do item.
+      expect(aviso.width).toBeGreaterThan(60);
+      await page.screenshot({ path: `${SHOT_DIR}/${width}-cockpit-fila-ambigua.png` });
+      expect(posts.filter((p) => p.path.endsWith("/pay-invoice"))).toHaveLength(0);
+    });
+
+    test("/conta · 409 na execução: erro honesto e a CTA continua clicável", async ({ page }) => {
+      // Rede de segurança do veto: a tela carregou quando o final ainda era
+      // único (duplicata criada depois), então a CTA existe e o 409 chega na
+      // execução. Nada de reenvio automático sem os ids.
+      const posts = await mockApi(page, "a pagar", false, { conflict: "pay" });
+      await page.goto(`/projects/${personalId}/conta`);
+      await expect(page.getByText("Tenho na conta hoje", { exact: true })).toBeVisible();
+
+      if (width >= 768) {
+        await page.getByRole("button", { name: "Pagar fatura", exact: true }).first().click();
+      } else {
+        await page.getByRole("button", { name: /Nubank QA · 4488/ }).first().click();
+      }
+      await expect(page.getByRole("heading", { name: "Pagar fatura" })).toBeVisible();
+      await page.getByRole("button", { name: /Confirmar pagamento/ }).click();
+
+      await expect(page.getByText(/mais de um cartão com esse final/i).first()).toBeVisible();
+      await page.waitForTimeout(500);
+      await page.screenshot({ path: `${SHOT_DIR}/${width}-conta-409-pagar.png` });
+
+      const retry = await measure(
+        page,
+        `pós-409 "Confirmar pagamento" @${width}`,
+        page.getByRole("button", { name: /Confirmar pagamento/ }),
+      );
+      expect(retry.height).toBeGreaterThanOrEqual(44);
+      const invoicePosts = posts.filter((p) => p.path.endsWith("/pay-invoice"));
+      expect(invoicePosts).toHaveLength(1);
+      expect(invoicePosts[0].body.cardId).toBe(CARD_ID);
+    });
+
+    test("/conta · 409 ao desfazer: mesma regra, um POST só", async ({ page }) => {
+      const posts = await mockApi(page, "paga", false, { conflict: "undo" });
+      await page.goto(`/projects/${personalId}/conta`);
+      await expect(page.getByText("Tenho na conta hoje", { exact: true })).toBeVisible();
+
+      if (width >= 768) {
+        await page.getByRole("button", { name: "Desfazer pagamento", exact: true }).first().click();
+      } else {
+        await page.getByRole("button", { name: /Nubank QA · 4488/ }).first().click();
+        await page.getByRole("button", { name: "Desfazer pagamento", exact: true }).first().click();
+      }
+      const dialog = page.getByRole("dialog", { name: /Desfazer pagamento/ });
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole("button", { name: "Desfazer pagamento", exact: true }).click();
+
+      await expect(page.getByText(/mais de um cartão com esse final/i).first()).toBeVisible();
+      await page.waitForTimeout(500);
+      await page.screenshot({ path: `${SHOT_DIR}/${width}-conta-409-desfazer.png` });
+      const undoPosts = posts.filter((p) => p.path.endsWith("/undo-invoice-payment"));
+      expect(undoPosts).toHaveLength(1);
+      expect(undoPosts[0].body.cardId).toBe(CARD_ID);
+      await measure(
+        page,
+        `pós-409 undo "Cancelar" @${width}`,
+        dialog.getByRole("button", { name: "Cancelar" }),
+      );
     });
   });
 }

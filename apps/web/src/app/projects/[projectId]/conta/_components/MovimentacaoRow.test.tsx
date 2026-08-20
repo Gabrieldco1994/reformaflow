@@ -431,3 +431,61 @@ describe('MovimentacaoRow — saída', () => {
     });
   });
 });
+
+/**
+ * Linha de FATURA sob as capabilities do servidor (#448 B1a/B1b).
+ *
+ * O chip de status É a CTA "Pagar fatura" e o "Desfazer pagamento" mora nas
+ * ações da linha. Com `actions` presente e sem o verbo — caso do último4
+ * ambíguo, cuja única resposta possível é 409 — os dois somem/travam. Sem
+ * `actions` (API antiga) nada muda.
+ */
+describe('MovimentacaoRow — fatura e capabilities do servidor', () => {
+  const invoice = (overrides: Partial<AccountViewSaida> = {}) =>
+    makeSaida({
+      descricao: 'Fatura Nubank',
+      isInvoice: true,
+      cardLast4: '4488',
+      dueMonth: '2026-06',
+      editavel: false,
+      tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+      ...overrides,
+    });
+
+  it('API antiga (sem actions): o chip continua clicável e chama onPayInvoice', () => {
+    const props = renderRow({ item: invoice({ realizado: false }) });
+    const chip = screen.getByTitle('Pagar fatura');
+    expect(chip).toBeEnabled();
+    fireEvent.click(chip);
+    expect(props.onPayInvoice).toHaveBeenCalledWith('4488');
+  });
+
+  it('actions: [] (último4 ambíguo) degrada o chip para informativo — sem clique, sem title', () => {
+    const props = renderRow({ item: invoice({ realizado: false, actions: [], cardId: null }) });
+    expect(screen.queryByTitle('Pagar fatura')).not.toBeInTheDocument();
+    const chip = screen.getByRole('button', { name: 'A pagar' });
+    expect(chip).toBeDisabled();
+    fireEvent.click(chip);
+    expect(props.onPayInvoice).not.toHaveBeenCalled();
+  });
+
+  it('actions: [] também retira "Desfazer pagamento" das ações da linha', () => {
+    renderRow({
+      item: invoice({ realizado: true, status: 'PAGO', actions: [] }),
+      onUndoPayment: vi.fn(),
+    });
+    expect(screen.queryByRole('button', { name: 'Desfazer pagamento' })).not.toBeInTheDocument();
+    // "Ajustar fatura" segue disponível: /invoice-adjustments não tem 409.
+    expect(screen.getAllByRole('button', { name: 'Ajustar fatura' }).length).toBeGreaterThan(0);
+  });
+
+  it('actions: ["undo"] mantém o Desfazer da API nova', () => {
+    const onUndoPayment = vi.fn();
+    renderRow({
+      item: invoice({ realizado: true, status: 'PAGO', actions: ['undo'] }),
+      onUndoPayment,
+    });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Desfazer pagamento' })[0]);
+    expect(onUndoPayment).toHaveBeenCalledWith('4488');
+  });
+});

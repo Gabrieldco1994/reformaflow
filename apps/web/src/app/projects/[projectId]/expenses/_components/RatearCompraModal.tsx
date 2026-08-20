@@ -117,10 +117,13 @@ export function RatearCompraModal({
   ]);
 
   const editorReady = editorSession === sessionKey && editorDetail != null;
-  // Trava a edição destrutiva quando o SERVIDOR declara ocultos/removidos.
-  // Payload sem essa metadata (API nova, #448 B1b) NÃO trava — travar no
-  // ausente mataria a CTA para todo mundo, e quem barra a escrita insegura é o
-  // servidor (zero-write + erro). Ver `../_lib/rateio-partial`.
+  // Trava a edição destrutiva no ÚNICO gatilho que o contrato ainda declara:
+  // `removedTargetsCount > 0` (alvo soft-deletado dentro da lente). B1b (#448)
+  // apagou `hiddenTargetsCount` do payload, então ler aquele campo aqui seria
+  // uma referência morta que só disparava contra servidor velho. Payload sem
+  // metadata NÃO trava — travar no ausente mataria a CTA para todo mundo, já
+  // que o payload redigido é deep-equal ao completo por design, e quem barra a
+  // escrita insegura é o servidor (zero-write + erro). Ver `../_lib/rateio-partial`.
   const isLocked = isRateioEditLocked(editorDetail);
 
   const totalCents = editorReady ? editorDetail.totalSourceCents : source.valorTotal;
@@ -237,8 +240,8 @@ export function RatearCompraModal({
                 role="alert"
                 className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800"
               >
-                Este rateio possui alocações ocultas ou removidas. Para evitar perda de dados, ele
-                só pode ser desfeito por completo.
+                Este rateio tem planejada removida. Para evitar perda de dados, ele só pode ser
+                desfeito por completo.
               </p>
             )}
 

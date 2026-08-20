@@ -31,10 +31,10 @@ const TARGETS = Array.from({ length: 9 }, (_, i) => ({
   project: { id: 'p2', name: 'Reforma A', type: 'REFORMA' },
 }));
 
-// #448 W1 — contrato mixed-version: a API B1b NÃO manda mais
-// `removedTargetsCount`/`hiddenTargetsCount`/`hiddenAllocationCents`. O
-// fixture-base é o payload NOVO (sem eles); os casos de trava injetam a
-// metadata explicitamente para cobrir a API antiga.
+// #448 — contrato SOURCE-ONLY (B1b): `hiddenTargetsCount`/
+// `hiddenAllocationCents` não existem mais; `removedTargetsCount` continua,
+// filtrado pela lente, e é o ÚNICO gatilho de trava. O fixture-base é o payload
+// atual; os casos de trava injetam `removedTargetsCount` explicitamente.
 const NO_RATEIO: RateioDetalhe = {
   sourceExpenseId: SOURCE.id,
   rateado: false,
@@ -292,10 +292,10 @@ describe('RatearCompraModal', () => {
   });
 
   it.each([
-    ['ocultas', { hiddenTargetsCount: 1, hiddenAllocationCents: 277_100 }],
-    ['removidas', { removedTargetsCount: 1 }],
+    ['uma', { removedTargetsCount: 1 }],
+    ['duas', { removedTargetsCount: 2 }],
   ])(
-    'API pré-B1b: bloqueia edição destrutiva quando o SERVIDOR declara alocações %s e mantém Desfazer',
+    'bloqueia edição destrutiva quando o SERVIDOR declara %s planejada(s) removida(s) e mantém Desfazer',
     async (_, counts) => {
     apiGet.mockImplementation((path: string) =>
       path.endsWith('/rateio')
@@ -317,13 +317,13 @@ describe('RatearCompraModal', () => {
     },
   );
 
-  // #448 W1 — a outra ponta do mesmo contrato. Sob B1b o payload redigido é
-  // deep-equal a um sem nada oculto POR DESIGN: o web não tem como inferir
-  // parcialidade e não deve tentar. Uma regra fail-closed ("na dúvida, trava")
-  // mataria "Ratear compra" para todo mundo no dia do deploy. Quem barra a
-  // escrita insegura é o servidor (`assertCanReverseSources` → 404, zero
-  // writes), e o erro chega ao usuário pelo onError da mutation.
-  it('API B1b: payload SEM metadata de ocultos não trava o editor', async () => {
+  // #448 — a outra ponta do mesmo contrato. O payload redigido é deep-equal a
+  // um sem nada oculto POR DESIGN: o web não tem como inferir parcialidade e
+  // não deve tentar. Uma regra fail-closed ("na dúvida, trava") mataria
+  // "Ratear compra" para todo mundo no dia do deploy. Quem barra a escrita
+  // insegura é o servidor (`assertCanReverseSources` → 404, zero writes), e o
+  // erro chega ao usuário pelo onError da mutation.
+  it('payload redigido (sem metadata de ocultos) NÃO trava o editor', async () => {
     apiGet.mockImplementation((path: string) =>
       path.endsWith('/rateio')
         ? Promise.resolve(makeRateio([makeItem(1, 1_000_000)]))

@@ -20,10 +20,13 @@ export interface AccountViewCardSummary {
   limiteUsado: number | null;
   limiteTotal: number | null;
   /**
-   * Capabilities emitidas pelo servidor e fingerprint calculado da fatura
-   * (B1a #448), ambos ADITIVOS/OPCIONAIS. Tipados para o contrato ficar
-   * explícito; W1 não deriva CTA deles (isso é o critério "servidor emite
-   * capabilities" das ações reautorizadas, não o critério W1).
+   * Capabilities emitidas pelo servidor e fingerprint calculado da fatura.
+   *
+   * ADITIVOS/OPCIONAIS: a API antiga não manda `actions`, e nesse caso a
+   * derivação local de CTA vale sozinha. Quando VÊM, são VETO — B1b (#448)
+   * passou a mandar `actions: []` e `cardId: null` em fatura de último4
+   * ambíguo, cuja única resposta possível de `pay-invoice`/
+   * `undo-invoice-payment` é 409. Ler via `invoiceActionAllowed` em `../_lib`.
    */
   actions?: Array<'pay' | 'undo'>;
   fingerprint?: string | null;
@@ -47,6 +50,12 @@ export interface AccountViewSaida {
   status: string;
   /** Identidade da fatura na linha de saída (B1a #448) — aditivo/opcional. */
   cardId?: string | null;
+  /**
+   * Capabilities da MESMA fatura, na linha de movimentação (B1a/B1b #448).
+   * Aditivo/opcional, veto quando presente — ver `AccountViewCardSummary`.
+   */
+  actions?: Array<'pay' | 'undo'>;
+  fingerprint?: string | null;
   cardLast4: string | null;
   bankLast4: string | null;
   tipoDespesa: string;
