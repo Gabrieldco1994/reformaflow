@@ -269,14 +269,27 @@ esperado, não evidência de runtime.
   mesmo final.
 - [B2 #449](https://github.com/Gabrieldco1994/reformaflow/issues/449): Budget Allocation
   administrativo/read-only, somente requisitante **full-access e não-convidado** autenticado do
-  tenant (`isFullAccessRole(role) && !isGuest` — ADMIN ou OWNER, nunca `@Roles('ADMIN')` sozinho:
-  o convidado de demo nasce com `role: 'ADMIN', isGuest: true` e o `RolesGuard` não lê `isGuest`
-  — #497); relações legadas cross-tenant redigidas e bytes históricos intocados.
-  **Gate de extinção DISPENSADO pelo PO em 2026-08-19 — e NÃO por uso zero.** A medição que
-  sustentava "uso zero" lia `prisma/dev.db` (banco **local**), não produção. No volume Fly
-  (`/data/dev.db`) há **6 alocações, 4 vivas, R$ 235.000,00, concentradas em 1 tenant de 196**.
-  Existe dado real. Por isso o B2 é **congelamento com histórico preservado**, nunca extinção:
-  quem tem acesso total continua lendo o histórico, e ninguém cria alocação nova.
+  tenant (`isFullAccessRole(role) && !isGuest` — ADMIN ou OWNER); relações legadas cross-tenant
+  redigidas e bytes históricos intocados.
+  **Gate de extinção DISPENSADO pelo PO em 2026-08-19.** A razão **não é ausência de uso**: é que
+  **B2 é congelamento read-only com histórico preservado, não extinção** — nenhuma linha é
+  apagada. O gate protegia contra uma **extinção** apressada, e não há extinção. A dispensa é do
+  gate, não do cuidado; o B2 vai direto ao congelamento.
+  **Evidência real de produção**, medida em 2026-08-19 com
+  `fly ssh console -a reformaflow-api -C "sqlite3 -readonly /data/dev.db ..."`: **200 usuários**,
+  **196 tenants**, `budget_allocations` **6 no total / 4 vivas** somando **R$ 235.000,00**
+  (`23500000` centavos), `cash_flow_entries` `ALOCACAO_ORCAMENTO` vivas **4**, `category_budgets`
+  **0**, e **todas as alocações vivas concentradas em 1 único tenant — `dev-tenant-1`, o tenant de
+  desenvolvimento — de 196**. O efeito visível do congelamento é estreito e conhecido: as linhas
+  `ALOCACAO_ORCAMENTO` somem da tela de Recebimentos **desse tenant de dev**.
+  > **Budget Allocation FOI usado — não escrever o contrário.** Uma versão anterior deste plano
+  > afirmou "uso zero", número lido de **`prisma/dev.db`** (banco local do repositório), **não de
+  > produção** — que é o volume Fly em `/data/dev.db` (`apps/api/fly.toml:5,11`). Qualquer
+  > evidência de uso real mede-se no volume Fly.
+  **Atenção ao desenho do "somente ADMIN":** por
+  [#497](https://github.com/Gabrieldco1994/reformaflow/issues/497), `@Roles('ADMIN')` **não é um
+  gate administrativo** — o convidado de demo é criado com `role: 'ADMIN'` e o `RolesGuard` nunca
+  lê `isGuest`, de modo que esse gate entregaria o Budget a todo convidado.
 
 **STOP — SATISFEITO em 2026-08-20.** B1a (#477/#478/#479), B1b (#499) e B2 (#500) estão
 mergeados e em produção. O STOP era sobre a fundação backend; a fatia **web** restante de #448
@@ -465,7 +478,7 @@ preservar links e contexto sem fingir que seus ledgers continuam vivos.
 | D-003 | Fórmulas de Caixa §10, faturas/Conta, timezone e quitação cross-project não serão reescritas. | Contratos atuais **ENTREGUES**; mudança do programa **NENHUMA** |
 | D-004 | Navegação alvo: Hoje, Movimentações, Planejamento, Projetos; Resultado/Auditoria secundários. | **APROVADO — NÃO INICIADO** |
 | D-005 | Planning e Planejador só se agrupam visualmente; stores permanecem separados. | **APROVADO — BLOQUEADO** |
-| D-006 | Budget sai do discovery e fica ADMIN/read-only com histórico preservado. | **APROVADO — BLOQUEADO em B2. Gate de extinção DISPENSADO pelo PO em 2026-08-19 por uso zero** (`budget_allocations` 0, `ALOCACAO_ORCAMENTO` 0, `category_budgets` 0); B2 vai direto ao congelamento read-only. Desenho do gate precisa considerar #497 — `@Roles('ADMIN')` não barra convidado de demo. |
+| D-006 | Budget sai do discovery e fica ADMIN/read-only com histórico preservado. | **APROVADO — BLOQUEADO em B2. Gate de extinção DISPENSADO pelo PO em 2026-08-19 — não por uso zero, mas porque B2 é congelamento read-only com histórico preservado, não extinção** (nenhuma linha é apagada). Evidência real medida no volume Fly via `fly ssh console` em 2026-08-19: 200 usuários, 196 tenants, `budget_allocations` 6 total / **4 vivas somando R$ 235.000,00**, `ALOCACAO_ORCAMENTO` vivas 4, `category_budgets` 0, **todas as vivas concentradas em 1 tenant — `dev-tenant-1`, de desenvolvimento**. Efeito visível: as linhas `ALOCACAO_ORCAMENTO` somem da tela de Recebimentos desse tenant de dev. **Budget FOI usado; a leitura anterior de "uso zero" veio de `prisma/dev.db`, banco local, não de produção (`apps/api/fly.toml:5,11`).** Desenho do gate precisa considerar #497 — `@Roles('ADMIN')` não barra convidado de demo. |
 | D-007 | Mobile 375/390/desktop e acessibilidade são contrato de merge. | **APROVADO — BLOQUEADO** |
 | D-008 | Analytics usa Clarity existente e allowlist sem conteúdo financeiro. | **APROVADO — BLOQUEADO em A0** |
 | D-009 | U6b só existe depois de U6a+lenses+architect+PO. | **BLOQUEADO; NÃO ENTREGUE** |
@@ -477,7 +490,7 @@ preservar links e contexto sem fingir que seus ledgers continuam vivos.
 
 | Data | Versão | Mudança |
 |---|---|---|
-| 2026-08-19 | B1a mergeado; U6a especificada | **B1a mergeado em `main`** via #477 (`5bbe5d69`), #478 (`720ff1fc`) e #479 (`890b89b0`); **#448 permanece OPEN pela fatia B1b**, **W1 (#214) aberto** e **B2 (#449) não iniciado**. Também mergeados e fechados: #480, #481, #483, #484, #486 — `main` em `9da93391`. **U6a (#455)** publicada em [`financeiro-projetos-por-tipo.md`](financeiro-projetos-por-tipo.md): matriz por tipo (capacidade, origem/finalidade, identidade, ACL, deep-link/fallback) derivada do código vivo, divergências código×doc e três decisões escaladas ao PO. Somente spec: zero código, fórmula, store, migration ou backfill. Achados de autorização extraídos para #494 e #495 (D-9 já registrado em #498). **Decisões do PO na mesma data:** A-1 decidida (aproveitar o reaproveitável do `/financeiro` e aposentar o resto — lista absorver/aposentar na §7.1 da spec), A-2 decidida (CASA/CARRO seguem em Avulsas, escolha deliberada e revisitável) e **gate de extinção do B2 dispensado por uso zero**. **A-3 (invariante O8) permanece aberta.** Incorporado #497 (`@Roles('ADMIN')` não é gate administrativo). **U6b (#456) segue BLOQUEADA.** |
+| 2026-08-19 | B1a mergeado; U6a especificada | **B1a mergeado em `main`** via #477 (`5bbe5d69`), #478 (`720ff1fc`) e #479 (`890b89b0`); **#448 permanece OPEN pela fatia B1b**, **W1 (#214) aberto** e **B2 (#449) não iniciado**. Também mergeados e fechados: #480, #481, #483, #484, #486 — `main` em `9da93391`. **U6a (#455)** publicada em [`financeiro-projetos-por-tipo.md`](financeiro-projetos-por-tipo.md): matriz por tipo (capacidade, origem/finalidade, identidade, ACL, deep-link/fallback) derivada do código vivo, divergências código×doc e três decisões escaladas ao PO. Somente spec: zero código, fórmula, store, migration ou backfill. Achados de autorização extraídos para #494 e #495 (D-9 já registrado em #498). **Decisões do PO na mesma data:** A-1 decidida (aproveitar o reaproveitável do `/financeiro` e aposentar o resto — lista absorver/aposentar na §7.1 da spec), A-2 decidida (CASA/CARRO seguem em Avulsas, escolha deliberada e revisitável) e **gate de extinção do B2 dispensado** — por B2 ser congelamento read-only com histórico preservado, **não por uso zero**. **A-3 decidida: o invariante O8 vale e U6b não o renegocia.** Incorporado #497 (`@Roles('ADMIN')` não é gate administrativo). **Correção de evidência no mesmo dia:** os números que sustentavam "uso zero" vinham de `prisma/dev.db` (banco local), não de produção; medição correta no volume Fly (`fly ssh console`) dá 200 usuários, 196 tenants, **4 alocações vivas somando R$ 235.000,00 concentradas no tenant de desenvolvimento `dev-tenant-1`**, `category_budgets` 0 e **0 de 200** usuários com `financialDashboard`. **U6b (#456) segue BLOQUEADA.** |
 | 2026-08-18 | B0 entregue; B1a implementado | B0 (#447) entregue via PR #476 (produção, SHA `389d8e6e`). B1a (#448) implementado e, naquela data, pendente de merge: child ACL em `settleTargetParcela`, identidades de fatura (`cardId`/`fingerprint`/`actions` em `cartoes[]`+`saidas[]`; `accountId` em `contas[]`), `cardId`/`accountId` opcionais em `payInvoice`/`undoInvoicePayment`, guard de duplicidade ativa 409, `roomId`/`sourcePriceItemId` scoped. Zero schema, zero UX, zero fórmula numérica alterada. #448 permanece OPEN. Sequência após merge de B1a: W1 → B1b → B2. |
 | 2026-08-17 | Exceção PO S0.3 | #446 liberada para build/test/merge test-only independente de #445; #445 registrada como bloqueada/deferida e produção `NOT_COLLECTED`; gates conjuntos de #447/B0, limites da baseline sintética e distinção entre estado esperado e evidência de runtime explicitados. |
 | 2026-08-17 | Revisão S0.1 | Guardrails de papel, endpoint/evidência e auditoria estreitados; transição do rateio legado para source-only explicitada. |

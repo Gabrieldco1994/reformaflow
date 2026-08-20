@@ -19,7 +19,7 @@ Regra: o CONTRATO é atemporal e não carrega narrativa de "antes/depois". Hist�
 | `visao-conta-faturas.md` | Visão Conta, faturas de cartão, neutros, casamento pagamento→fatura, "cartão paga cartão". |
 | `saas-onboarding.md` | Autocadastro SaaS, objetivos, permissões, papéis e criação do primeiro projeto. |
 | `quitacao-parcela-cross-project.md` | Quitação de parcela cross-project (PESSOAL): bug-raiz do "sumiço", fluxo espelho+conciliar, invariantes P1–P7/E5/E8, UI e validação; §10 cobre o contrato read-only de origem exibida no alvo (`GET .../expenses/paid-origins`, O1–O12). |
-| [`financeiro-projetos-por-tipo.md`](financeiro-projetos-por-tipo.md) | Financeiro por tipo de projeto (spec U6a #455): matriz capacidade/origem-finalidade/identidade/ACL/deep-link, as tres fontes distintas (`PROJECT_FEATURES`, `TYPE_MODULES`, `PROJECT_NAV`), divergencias codigo x doc, decisoes do PO de 2026-08-19 (A-1 e A-2 decididas, gate do B2 dispensado) e a decisao A-3 ainda aberta. **Proposta; nao normativo ate aprovacao.** |
+| [`financeiro-projetos-por-tipo.md`](financeiro-projetos-por-tipo.md) | Financeiro por tipo de projeto (spec U6a #455): matriz capacidade/origem-finalidade/identidade/ACL/deep-link, as tres fontes distintas (`PROJECT_FEATURES`, `TYPE_MODULES`, `PROJECT_NAV`), divergencias codigo x doc, decisoes do PO de 2026-08-19 (A-1, A-2 e A-3 decididas; gate do B2 dispensado) e a nota de que `prisma/dev.db` nao e producao. **Proposta; nao normativo ate aprovacao.** |
 | `manual-do-aplicativo.md` | Manual do usuário: comportamento observável por tela + conceitos-chave e glossário (não normativo para regras — estas vivem nos docs acima). |
 | `despesa-recorrente.md` | Despesa recorrente (mensal/quinzenal): gera N despesas planejadas reais; modo cross-project (obra+espelho); canais UI/Copilot/voz; API e validação. |
 | `politica-datas-timezone.md` | Política de datas e fronteira de timezone (BRT×UTC) nas telas financeiras. |
@@ -51,4 +51,4 @@ como zero: código, histórico e as 63 migrations commitadas até `2026081023434
 estado esperado, não dados de runtime ou migrations aplicadas. **B1a foi mergeado em `main`
 (`5bbe5d69` #477, `720ff1fc` #478, `890b89b0` #479); #448 permanece OPEN pela fatia B1b, e W1 (#214)
 segue aberto. B2 (#449) não foi iniciado — seu gate de extinção foi dispensado pelo PO em
-2026-08-19 por evidência de uso zero do Budget Allocation.**
+2026-08-19, por o B2 ser congelamento read-only com histórico preservado, e não extinção.**

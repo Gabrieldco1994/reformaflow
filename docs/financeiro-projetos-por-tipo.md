@@ -24,9 +24,9 @@
 >
 > **Status (2026-08-19):** proposta submetida ao PO. **Não normativo enquanto não aprovado.**
 > Nenhuma promessa deste documento pode ser copiada para o manual antes de chegar ao runtime.
-> O PO decidiu **A-1** (destino do `/financeiro`), **A-2** (CASA/CARRO seguem em Avulsas) e a
-> **dispensa do gate de extinção do B2** — todas registradas na **§7**. **A-3 (invariante O8)
-> segue em aberto** na §8 e não pode ser presumida.
+> O PO decidiu **A-1** (destino do `/financeiro`), **A-2** (CASA/CARRO seguem em Avulsas),
+> **A-3** (o invariante O8 vale e U6b não o renegocia) e a **dispensa do gate do B2** — todas
+> registradas na **§7**. **Não há decisão pendente.**
 
 ---
 
@@ -129,7 +129,7 @@ de conta e nos totais.
 > PESSOAL, e **nunca é divulgada como origem cross-project**: `classifySource` devolve `null`
 > quando não há cartão nem conta (`apps/api/src/expense/paid-origins.builder.ts:145-151`), o que
 > corresponde ao invariante **O8** (`quitacao-parcela-cross-project.md:69`). Implementar uma e
-> esquecer a outra quebra um contrato entregue. Ver decisão **ainda aberta** **A-3** (§8).
+> esquecer a outra quebra um contrato entregue. Ver **A-3**, decidida (§7.4): **O8 vale**.
 
 #### 2.2 Origem PESSOAL é read-only no alvo
 
@@ -324,9 +324,10 @@ O **gate de extinção do B2 foi dispensado por evidência** pelo PO em 2026-08-
 
 **D-2 — A superfície `/financeiro` está morta para todo usuário comum.** → **[#494](https://github.com/Gabrieldco1994/reformaflow/issues/494)**
 `financialDashboard` **não é um slug de `TYPE_MODULES`** — tem **0 ocorrências** no mapa — e
-**0 dos 48 usuários do snapshot de produção o possuem**
-(`SELECT COUNT(*) FROM users WHERE allowed_modules LIKE '%financialDashboard%'` → **0**, verificado
-pelo PO em 2026-08-19). **Nenhum usuário de autocadastro pode recebê-lo**: `deriveObjectiveAccess` deriva `allowedModules`
+**0 dos 200 usuários de produção o possuem**
+(`SELECT COUNT(*) FROM users WHERE allowed_modules LIKE '%financialDashboard%'` → **0**, medido pelo
+PO no volume Fly de produção em 2026-08-19 — ver §7.3 sobre **por que a medição tem de ser feita
+lá, e não em `prisma/dev.db`**). **Nenhum usuário de autocadastro pode recebê-lo**: `deriveObjectiveAccess` deriva `allowedModules`
 **exclusivamente** de `TYPE_MODULES` (`onboarding-objectives.ts:19-30`) e `reconcileUserModules` só
 adiciona slugs desse mesmo mapa. A única via seria concessão manual de admin
 (`apps/api/src/users/dto/create-user.dto.ts:34`). Estão portanto inalcançáveis para usuário comum:
@@ -379,8 +380,9 @@ guards (`modules.guard.ts:52-56`, `project-access.guard.ts:64-70`). **Não explo
 hoje** — é dívida de defesa em profundidade, agravada por ser um `upsert` (escreve, não só lê).
 
 **D-10 — Carteira tem duas verdades em superfícies diferentes** (§2.1). Visível dentro do PESSOAL,
-nunca divulgada como origem cross-project (O8). Nenhum doc as coloca lado a lado — é o item com
-maior risco de U6b implementar uma e quebrar a outra.
+nunca divulgada como origem cross-project (O8). Nenhum doc as coloca lado a lado — era o item com
+maior risco de U6b implementar uma e quebrar a outra. **Resolvido em A-3 (§7.4): as duas metades
+valem juntas e U6b herda a restrição.**
 
 **D-11 — "Regras de merchant são tenant-scoped" é incompleto** (§3.2): `tenantId` nullable, `null` =
 regra global de ADMIN, lookup tenant-first com fallback global.
@@ -471,42 +473,73 @@ um recorte financeiro **específico do tipo** que Avulsas não expresse — p.ex
 frente a `carInfo`; ou (c) a U6b provar que a visão por tipo dos demais tipos é reaproveitável para
 estes sem reabrir `expenses` como rota. Enquanto nenhuma dessas for verdade, a decisão se mantém.
 
-### 7.3 B2 — o gate de extinção foi dispensado por evidência — **DECIDIDA**
+### 7.3 B2 — o gate de extinção foi dispensado, e **não por uso zero** — **DECIDIDA**
 
 **Decisão:** o gate de extinção do **B2 (#449)** está **dispensado**. O B2 vai **direto para o
 congelamento read-only** do Budget Allocation.
 
-**A evidência, registrada aqui porque em seis meses ninguém lembrará por que o gate foi pulado** —
-consulta ao snapshot de produção pelo PO em 2026-08-19:
+**A razão da dispensa não é ausência de uso.** É que **B2 é congelamento read-only com histórico
+preservado, não extinção**: nenhuma linha é apagada. O gate existia para proteger dados reais de uma
+**extinção** apressada, e não há extinção a proteger. A dispensa é sobre o **gate**, não sobre o
+cuidado — o congelamento continua sendo o caminho, e continua sendo trabalho do B2, não desta spec.
 
-| Tabela / recorte | Linhas |
+#### Evidência de produção — medida em 2026-08-19
+
+Medição pelo PO com `fly ssh console -a reformaflow-api -C "sqlite3 -readonly /data/dev.db ..."`:
+
+| Métrica | Valor |
 |---|---|
-| `budget_allocations` | **0** |
-| `cash_flow_entries` com `categoria = 'ALOCACAO_ORCAMENTO'` | **0** |
+| `users` | 200 |
+| `tenants` | 196 |
+| `budget_allocations` (total) | 6 |
+| `budget_allocations` vivas (`deleted_at is null`) | **4** |
+| soma das vivas | **R$ 235.000,00** (`23500000` centavos) |
+| `cash_flow_entries` `ALOCACAO_ORCAMENTO` vivas | 4 |
 | `category_budgets` | **0** |
+| tenants com alocação viva | **1 — `dev-tenant-1`** |
+| usuários com `financialDashboard` em `allowed_modules` | **0 de 200** |
 
-**Budget Allocation nunca foi usado.** O gate existia para proteger dados reais de uma extinção
-apressada; não há dado real a proteger. A dispensa é sobre o **gate**, não sobre o cuidado: o
-congelamento read-only continua sendo o caminho, e continua sendo trabalho do B2 — não desta spec.
+**Leitura correta destes números — e a leitura errada que eles convidam.** Budget Allocation **foi
+usado**: há **R$ 235.000,00 em 4 alocações vivas**. Mas elas estão **concentradas em um único
+tenant — `dev-tenant-1`, o tenant de desenvolvimento — de 196 tenants**. O efeito visível do
+congelamento é estreito e conhecido: as linhas `ALOCACAO_ORCAMENTO` deixam de aparecer na tela de
+Recebimentos **desse tenant de dev**. `category_budgets` é de fato **0**.
 
----
+> **Não escrever, em lugar nenhum, que "Budget Allocation nunca foi usado".** É falso, e uma versão
+> anterior deste documento chegou a afirmá-lo. O dado que sustenta a dispensa é a **concentração em
+> um tenant de desenvolvimento**, combinada com o fato de que o B2 **preserva o histórico** — não a
+> inexistência de uso.
 
-## 8. Decisão ainda aberta — exige o PO
+> #### `prisma/dev.db` não é produção
+>
+> A afirmação de uso zero veio de uma leitura de **`prisma/dev.db`**, o banco **local do repositório**.
+> Produção é um **volume Fly**: `DATABASE_URL = "file:/data/dev.db"` montado em
+> `apps/api/fly.toml:5,11` (app `reformaflow-api`). Os dois arquivos têm o mesmo nome e conteúdos
+> completamente diferentes.
+>
+> **Qualquer evidência de uso real mede-se no volume Fly**, via `fly ssh console`. Nenhuma decisão de
+> produto deve citar contagem vinda de `prisma/dev.db`. Esta é exatamente a classe de erro que este
+> documento existe para impedir: um número que parece medido, mas foi medido no lugar errado.
 
-> Esta seção não foi respondida na rodada de 2026-08-19. Ela **não pode ser presumida** por U6b.
-
-### A-3 — O invariante O8 (Carteira nunca é origem divulgada) vale dentro da nova superfície?
+### 7.4 A-3 — O invariante O8 **vale**, e U6b não pode presumir o contrário — **DECIDIDA**
 
 Contexto: §2.1, §6 D-10, `quitacao-parcela-cross-project.md:69`.
 
-| Opção | Consequência |
-|---|---|
-| **Manter O8** | mantém a intenção de privacidade do contrato entregue; a nova superfície exibirá alvos cujo pagador aparece como "não divulgado" |
-| **Relaxar dentro do tipo** | melhora a explicação de "para onde foi"; **muda um invariante de disclosure já entregue** e exige revisão security explícita, com o risco de expor movimento pessoal em projeto compartilhado |
+**Decisão:** **o invariante O8 vale.** A **Carteira** permanece **visível nas account views do
+PESSOAL** e **nunca** é divulgada como **origem cross-project**. É **contrato vigente** em
+`AGENTS.md:52-53`, não uma pergunta em aberto. **U6b herda a restrição — não a renegocia.**
 
-**Por que ainda importa:** O8 é hoje um `return null` explícito em `classifySource`
-(`paid-origins.builder.ts:145-151`). Qualquer superfície nova que mostre origem cross-project ou
-respeita esse `null` ou o contradiz — não há terceira via, e a escolha não é técnica.
+As duas metades continuam valendo juntas, e implementar uma esquecendo a outra quebra o contrato:
+
+1. **Visível dentro do PESSOAL** — movimentos sem cartão e sem conta pertencem à Carteira e
+   **devem permanecer visíveis** nas account views e nos totais (`AGENTS.md:52-53`).
+2. **Nunca divulgada para fora** — `classifySource` devolve `null` para fonte sem cartão e sem
+   conta (`paid-origins.builder.ts:145-151`), de modo que a Carteira **não emite origem**
+   cross-project (`quitacao-parcela-cross-project.md:69`).
+
+Consequência prática para U6b, já decidida: uma superfície nova que mostre origem cross-project
+**respeita o `null`** — alvos pagos pela Carteira aparecem com pagador **não divulgado**. Não há
+terceira via, e essa não é uma escolha que o architect de U6b possa reabrir.
 
 ---
 
@@ -521,8 +554,19 @@ respeita esse `null` ou o contradiz — não há terceira via, e a escolha não 
 - **2026-08-19 (mesma data, após a escalada) — decisões do PO.** **A-1** decidida (aproveitar o
   reaproveitável do `/financeiro` e aposentar o resto, com a lista absorver/aposentar da §7.1),
   **A-2** decidida (CASA/CARRO seguem em Avulsas, escolha deliberada e revisitável) e **gate de
-  extinção do B2 dispensado** por evidência de uso zero. **A-3 permanece aberta.** Incorporado
+  extinção do B2 dispensado**. **A-3 permanece aberta.** Incorporado
   #497: `@Roles('ADMIN')` não é gate administrativo, o que altera a leitura de ACL da §4.
+- **2026-08-19 (correção de evidência, mesmo dia) — os números de produção estavam errados.** A
+  contagem que sustentava o "uso zero" do Budget Allocation viera de **`prisma/dev.db`**, o banco
+  local do repositório, **não de produção** (volume Fly, `apps/api/fly.toml:5,11`). Medição correta
+  via `fly ssh console`: **200 usuários**, **196 tenants**, **4 alocações vivas somando
+  R$ 235.000,00**, todas concentradas em **um único tenant de desenvolvimento (`dev-tenant-1`)**;
+  `category_budgets` segue **0**. A frase "Budget Allocation nunca foi usado" foi **removida por
+  ser falsa**, e a dispensa do gate foi reancorada na razão correta: **B2 é congelamento read-only
+  com histórico preservado, não extinção**. A conclusão sobre `/financeiro` sobreviveu e ficou mais
+  forte: **0 de 200**. Registrada a nota permanente de que `prisma/dev.db` não é produção (§7.3).
+  **A-3 respondida e fechada** (§7.4): o invariante **O8 vale** e U6b não o renegocia; a §8 de
+  pergunta aberta deixou de existir.
 - **Precedentes citados:** #98 (mapa único de gate, cliente e servidor), #289 (combustível),
   #291 (dieta de COMPRA), #369 (superfície única de despesas em CASA/CARRO), #424 (origem do
   pagamento na REFORMA), #423/#428 (leitura canônica de rateio), #480/#484 (escopo prometido ×
