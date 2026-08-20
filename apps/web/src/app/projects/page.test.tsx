@@ -74,7 +74,7 @@ vi.mock('./_components/CreateProjectModal', () => ({
   },
 }));
 
-describe('projects hub finance destination', () => {
+describe('projects hub retired finance destination', () => {
   beforeEach(() => {
     hasModule.mockReset();
     pushMock.mockReset();
@@ -86,19 +86,19 @@ describe('projects hub finance destination', () => {
     ]);
   });
 
-  it('shows only the canonical Financeiro link when authorized', async () => {
+  it('does not expose the retired consolidated finance destination even if the module helper allows it', async () => {
     hasModule.mockReturnValue(true);
     render(<ProjectsPage />);
-    const link = await screen.findByRole('link', { name: /Financeiro/ });
-    expect(link).toHaveAttribute('href', '/financeiro');
+    await waitFor(() => expect(screen.getAllByText('Casa').length).toBeGreaterThan(0));
+    expect(screen.queryByText('Saúde financeira consolidada')).not.toBeInTheDocument();
     expect(document.querySelector('a[href="/dashboard"]')).not.toBeInTheDocument();
   });
 
-  it('does not expose the finance destination when unauthorized', async () => {
+  it('does not expose compatibility finance/dashboard destinations when unauthorized', async () => {
     hasModule.mockReturnValue(false);
     render(<ProjectsPage />);
     await waitFor(() => expect(screen.getAllByText('Casa').length).toBeGreaterThan(0));
-    expect(screen.queryByRole('link', { name: /Financeiro/ })).not.toBeInTheDocument();
+    expect(screen.queryByText('Saúde financeira consolidada')).not.toBeInTheDocument();
     expect(document.querySelector('a[href="/dashboard"]')).not.toBeInTheDocument();
   });
 

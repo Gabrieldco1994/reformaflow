@@ -1,7 +1,7 @@
-// Motor Único (Fase E): prova que o motor consolidado do /financeiro (tenant-financial)
+// Motor Único (Fase E): prova que o motor consolidado interno (tenant-financial)
 // converge para o MESMO número do §10 (computeCaixaConta), a partir de UM fixture, com
 // serviços REAIS. Cadeia canônica:
-//   - getCaixaConta            → §10 (delegador; fonte do tenant-financial / /financeiro)
+//   - getCaixaConta            → §10 (delegador; fonte do tenant-financial)
 //   - tenant-financial.caixaTotal → deve ser IDÊNTICO a getCaixaConta.hoje
 // Escopo: este spec pina o HEADLINE de caixa (getAccountView.caixaHoje e
 // getOverview.caixa.hoje) que /monthly, /conta e /cash-flow renderizam — já coberto por
@@ -105,7 +105,7 @@ describe('Motor Único — paridade §10 entre os consumidores (mesmo fixture, s
     expect(overview.caixa.hoje).toBe(ORACLE.hoje);
   });
 
-  it('tenant-financial.caixaTotal === §10 (motor consolidado do /financeiro)', async () => {
+  it('tenant-financial.caixaTotal === §10 (motor consolidado interno)', async () => {
     const overview = await tenantFinancial.getOverview(TENANT, null);
     expect(overview.caixaTotal).toBe(ORACLE.hoje);
   });
@@ -116,7 +116,7 @@ describe('Motor Único — paridade §10 entre os consumidores (mesmo fixture, s
       tenantFinancial.getOverview(TENANT, null),
       monthly.getOverview(TENANT, PESSOAL),
     ]);
-    // As três telas do §10 (delegador, /financeiro, /monthly) convergem no MESMO número.
+    // Os consumidores do §10 (delegador, tenant-financial interno, /monthly) convergem no MESMO número.
     expect(overview.caixaTotal).toBe(caixa.hoje);
     expect(monthlyOverview.caixa.hoje).toBe(caixa.hoje);
     expect(caixa.hoje).toBe(ORACLE.hoje);

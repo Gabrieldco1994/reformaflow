@@ -141,7 +141,7 @@ export class TenantFinancialService {
    * Devolve `where` (spread no topo) + `and` (empurrado para o `AND` existente,
    * nunca um segundo `OR` no topo — a query já usa `OR` para outra condição).
    * Com as duas lentes IGUAIS devolve a forma histórica (`projectId in`), o que
-   * mantém o caminho legado (`/tenant/financial`) byte-idêntico.
+   * mantém o agregado interno consumido pela Maria byte-idêntico.
    */
   private resourceScopeFilter(
     expenses: ProjectScope,
@@ -225,9 +225,9 @@ export class TenantFinancialService {
     ]);
 
     // Motor único (§10): o caixa/saldo em conta vem do(s) projeto(s) PESSOAL no
-    // escopo (delegador `getCaixaConta`), NÃO de Σ receipts EM_CAIXA. /financeiro
-    // é a visão CONSOLIDADA ("todos os projetos juntos"), então somamos o §10 de
-    // TODOS os PESSOAL do escopo — nunca omitir silenciosamente uma conta se o
+    // escopo (delegador `getCaixaConta`), NÃO de Σ receipts EM_CAIXA. O agregado
+    // interno da Maria consolida "todos os projetos juntos", então somamos o §10
+    // de TODOS os PESSOAL do escopo — nunca omitir silenciosamente uma conta se o
     // tenant tiver mais de um PESSOAL (ex.: por usuário no multiusuário). Com um
     // único PESSOAL (realidade atual) a soma-de-um é idêntica ao §10. Sem PESSOAL
     // no escopo ⇒ o KPI de caixa some (null): o tenant não tem conta consolidada.

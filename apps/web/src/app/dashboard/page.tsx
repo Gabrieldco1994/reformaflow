@@ -15,5 +15,5 @@ export default function Page({ searchParams }: { searchParams?: SearchParams }) 
   }
 
   const serialized = query.toString();
-  redirect(serialized ? `/financeiro?${serialized}` : '/financeiro');
+  redirect(serialized ? `/projects?${serialized}` : '/projects');
 }

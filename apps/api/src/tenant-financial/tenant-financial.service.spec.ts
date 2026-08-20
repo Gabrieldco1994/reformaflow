@@ -108,9 +108,9 @@ describe('TenantFinancialService', () => {
     });
 
     it('múltiplos PESSOAL no escopo → caixaTotal soma o §10 de TODOS (consolidado, sem omitir conta)', async () => {
-      // /financeiro é a visão CONSOLIDADA: com 2 projetos PESSOAL o caixa é a SOMA
-      // dos §10, nunca só o mais antigo (senão a 2ª conta some do total). Blinda a
-      // regressão de "find(primeiro PESSOAL)" que omitia silenciosamente contas.
+      // O agregado interno da Maria consolida: com 2 projetos PESSOAL o caixa é a
+      // SOMA dos §10, nunca só o mais antigo (senão a 2ª conta some do total).
+      // Blinda a regressão de "find(primeiro PESSOAL)" que omitia contas.
       monthly.getCaixaConta.mockImplementation((_t: string, projectId: string) =>
         Promise.resolve({
           hoje: projectId === 'pessoal-1' ? 6_342_735 : 1_000_000,
@@ -152,7 +152,7 @@ describe('TenantFinancialService', () => {
 
       expect(r.caixaTotal).toBe(6_342_735);
       expect(monthly.getCaixaConta).toHaveBeenCalledWith(TENANT, 'pessoal-1');
-      // Sem o escopo nas queries, o /financeiro filtrado vazaria outros projetos.
+      // Sem o escopo nas queries, o agregado filtrado vazaria outros projetos.
       expect(prisma.project.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ where: expect.objectContaining({ id: { in: scope } }) }),
       );

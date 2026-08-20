@@ -99,8 +99,19 @@ const ownerCtx = (): ToolContext => ({
   allowedModules: [],
 });
 
+const MARIA_AGGREGATE_TOOL_NAMES = [
+  "get_financial_overview",
+  "get_by_project",
+  "get_expenses_by_category",
+  "get_upcoming",
+  "get_top_suppliers",
+  "get_cashflow_history",
+] as const;
+
 /** [tool, método agregador, índice do argumento de escopo]. */
-const AGGREGATE_TOOLS: Array<[string, string, number]> = [
+const AGGREGATE_TOOLS: Array<
+  [(typeof MARIA_AGGREGATE_TOOL_NAMES)[number], string, number]
+> = [
   ["get_financial_overview", "getOverview", 1],
   ["get_by_project", "getByProject", 1],
   ["get_expenses_by_category", "getByCategory", 1],
@@ -111,6 +122,18 @@ const AGGREGATE_TOOLS: Array<[string, string, number]> = [
 
 describe("AgentToolsService — escopo por RECURSO nas tools financeiras (#483)", () => {
   afterEach(() => jest.restoreAllMocks());
+
+  it("mantém registradas as seis tools agregadas consumidas pela Maria", () => {
+    const { service } = buildHarness();
+    const aggregateToolNames = AGGREGATE_TOOLS.map(([tool]) => tool);
+
+    // Estas tools são a superfície financeira da Maria, não passam pela permissão da tela aposentada, e já foram apagadas por engano uma vez.
+    expect(service.getToolDefs().map((tool) => tool.name)).toEqual(
+      expect.arrayContaining([...MARIA_AGGREGATE_TOOL_NAMES]),
+    );
+    expect(AGGREGATE_TOOLS).toHaveLength(6);
+    expect(aggregateToolNames).toEqual([...MARIA_AGGREGATE_TOOL_NAMES]);
+  });
 
   it.each(AGGREGATE_TOOLS)(
     "%s: requisitante só com creditCards recebe lente vazia de despesa E de recebimento",

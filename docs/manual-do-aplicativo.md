@@ -243,9 +243,10 @@ Ponto de entrada depois do login. Lista todos os projetos que o usuário pode ve
 - **Campo de busca ("Buscar projeto…"):** filtra a lista em tempo real por
   **nome**, **descrição** ou **tipo** do projeto. Sem resultado → mensagem
   "Nenhum projeto encontrado para '…'".
-- **Card "Saúde financeira consolidada":** atalho para `/financeiro` (visão de
-  todos os projetos juntos). Só aparece se o usuário tem o módulo
-  `financialDashboard` liberado.
+- **Saúde financeira consolidada:** a antiga tela `/financeiro` foi retirada da
+  navegação. O cockpit PESSOAL e os dashboards por projeto permanecem como
+  superfícies financeiras visíveis; a Maria continua podendo consultar os
+  agregados financeiros autorizados pelo escopo de despesas/recebimentos.
 - **Lista/grade de projetos:** cada card mostra o **ícone e a cor** do tipo, o
   **nome**, e uma **pílula com o tipo** (Pessoal/Reforma/Casa/Carro/Compra).
   Clicar abre o projeto (vai para o Dashboard/Cockpit dele).
@@ -304,10 +305,11 @@ lidos existem.
 Quando aberto dentro de um projeto, o sino mostra apenas itens daquele projeto
 pela rota atual (`/projects/:projectId/...`).
 
-### 3.6 Saúde financeira consolidada (`/financeiro`)
-Dashboard que **junta todos os projetos** do usuário numa visão única (caixa,
-entradas, saídas, comprometimentos consolidados). Só disponível para quem tem o
-módulo `financialDashboard`.
+### 3.6 Saúde financeira consolidada (`/financeiro`) — retirada da UI
+A antiga tela consolidada e seus endpoints HTTP não fazem mais parte da
+navegação do app. Para números financeiros visíveis, use o cockpit PESSOAL, os
+dashboards por projeto e a Maria, que preserva consultas agregadas dentro do
+escopo autorizado de despesas/recebimentos.
 
 ### 3.7 Admin — Usuários (`/admin/users`)
 Área do administrador. Permite gerenciar usuários e o que cada um pode acessar:

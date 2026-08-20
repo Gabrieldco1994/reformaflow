@@ -31,7 +31,6 @@ export type ModuleSlug =
   | "bankAccounts"
   | "schedule"
   | "pendencias"
-  | "financialDashboard"
   | "plantsAi";
 
 export const ALL_MODULES: { slug: ModuleSlug; label: string }[] = [
@@ -54,7 +53,6 @@ export const ALL_MODULES: { slug: ModuleSlug; label: string }[] = [
   { slug: "bankAccounts", label: "Contas Bancárias" },
   { slug: "schedule", label: "Cronograma" },
   { slug: "pendencias", label: "Pendências" },
-  { slug: "financialDashboard", label: "Financeiro" },
   { slug: "plantsAi", label: "Diagnóstico IA (Plantas)" },
 ];
 

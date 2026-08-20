@@ -98,7 +98,7 @@ async function main() {
 
   if (!allNumbers) {
     ok = false;
-    console.log('✗ PARIDADE: algum motor não devolveu número (tenant sem PESSOAL? sem permissão financialDashboard?).');
+    console.log('✗ PARIDADE: algum motor não devolveu número (tenant sem PESSOAL? sem acesso ao painel consolidado?).');
   } else if (!allEqual) {
     ok = false;
     console.log('✗ PARIDADE FALHOU — os motores do §10 divergem entre si:');
