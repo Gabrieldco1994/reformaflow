@@ -6,6 +6,7 @@ import { api } from '@/lib/api';
 import { ProjectProvider } from '@/contexts/project-context';
 import { useAuth, type ModuleSlug } from '@/contexts/auth-context';
 import { getProjectNavModules, hasFeature, ProjectType } from '@reformaflow/domain';
+import { canSeeBudgetAllocationEntryPoint } from '@/lib/budget-allocation-access';
 import { FinancialAgentWidget } from '@/components/agent/FinancialAgentWidget';
 import { DesktopSidebar } from './DesktopSidebar';
 import { MobileHeader } from './MobileHeader';
@@ -153,6 +154,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const resolvedProjectType = project.type as ProjectType;
   const { primary, secondary } = getMobilePrimary(project.type, visibleNav);
   const hasMoreSheet = secondary.length > 0 || isAdmin || Boolean(user?.name);
+  /**
+   * #504 — descoberta do histórico congelado de Alocação de Budget.
+   *
+   * Derivado do papel + tipo de projeto, NUNCA de `isAdmin` (que não checa
+   * `isGuest`, então o convidado de demo do #497 passaria) e nunca de
+   * `PROJECT_NAV` (que filtra por módulo e reporia o item para todo mundo).
+   *
+   * É de propósito que isto NÃO dependa de "existem alocações?": condicionar a
+   * visibilidade do menu a uma resposta de rede recria exatamente esta classe
+   * de bug — requisição lenta ou falha faz o ponto de entrada desaparecer em
+   * silêncio. Determinístico a partir da sessão.
+   */
+  const canSeeBudgetHistory = canSeeBudgetAllocationEntryPoint(user, project.type);
 
   return (
     <ProjectProvider value={{ projectId: project.id, projectType: project.type, projectName: project.name }}>
@@ -175,6 +189,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           pathname={pathname}
           secondary={secondary}
           isAdmin={isAdmin}
+          canSeeBudgetHistory={canSeeBudgetHistory}
           userName={user?.name}
           onClose={() => setMobileOpen(false)}
           onLogout={handleLogout}
@@ -186,6 +201,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           pathname={pathname}
           visibleNav={visibleNav}
           isAdmin={isAdmin}
+          canSeeBudgetHistory={canSeeBudgetHistory}
           userName={user?.name}
           onLogout={handleLogout}
         />

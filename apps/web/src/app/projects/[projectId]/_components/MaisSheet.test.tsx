@@ -52,6 +52,7 @@ const baseProps: React.ComponentProps<typeof MaisSheet> = {
   pathname: basePath + "/plants-ai/diagnosis",
   secondary,
   isAdmin: false,
+  canSeeBudgetHistory: false,
   onClose: vi.fn(),
   onLogout: vi.fn(),
 };
@@ -135,4 +136,39 @@ describe("MaisSheet", () => {
     expect(trigger).toHaveFocus();
   });
 
+  /**
+   * #504 — mesmo ponto de entrada no mobile. A varredura de runtime mediu
+   * `navHasBudgetLink = false` a 375px também; corrigir só o desktop deixaria
+   * metade do defeito em produção.
+   */
+  it("#504 renders the frozen budget history tile when the gate allows it", () => {
+    render(
+      <MaisSheet
+        {...baseProps}
+        project={{ id: "project-1", name: "Finanças", type: ProjectType.PESSOAL }}
+        isAdmin
+        canSeeBudgetHistory
+      />,
+    );
+
+    expect(
+      screen.getByRole("link", { name: "Histórico de Budget" }),
+    ).toHaveAttribute("href", basePath + "/budget-allocation");
+  });
+
+  it("#504 hides the budget history tile whenever the gate denies it", () => {
+    render(
+      <MaisSheet
+        {...baseProps}
+        project={{ id: "project-1", name: "Finanças", type: ProjectType.PESSOAL }}
+        isAdmin
+        canSeeBudgetHistory={false}
+      />,
+    );
+
+    expect(
+      screen.queryByRole("link", { name: "Histórico de Budget" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Usuários" })).toBeInTheDocument();
+  });
 });

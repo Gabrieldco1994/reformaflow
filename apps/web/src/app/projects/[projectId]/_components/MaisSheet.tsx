@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import Link from "next/link";
-import { LogOut, Settings, Users, X } from "lucide-react";
+import { Archive, LogOut, Settings, Users, X } from "lucide-react";
 import { isPathActive } from "./mobile-nav";
 import { navIcon } from "./nav-icons";
 import type { NavModule, ProjectInfo } from "../_types";
@@ -14,6 +14,8 @@ interface MaisSheetProps {
   pathname: string;
   secondary: NavModule[];
   isAdmin: boolean;
+  /** #504 — ver `DesktopSidebar`: descoberta do histórico congelado de budget. */
+  canSeeBudgetHistory: boolean;
   userName?: string;
   onClose: () => void;
   onLogout: () => void;
@@ -24,16 +26,19 @@ function GridTile({
   label,
   Icon,
   isActive,
+  testId,
 }: {
   href: string;
   label: string;
   Icon: ReturnType<typeof navIcon>;
   isActive: boolean;
+  testId?: string;
 }) {
   return (
     <Link
       href={href}
       aria-current={isActive ? "page" : undefined}
+      data-testid={testId}
       className="minimal-more-tile flex min-h-[74px] flex-col items-center gap-2 rounded-2xl px-1.5 py-3.5 transition-transform active:scale-95"
     >
       <span className="minimal-more-icon flex h-10 w-10 items-center justify-center rounded-[13px]">
@@ -53,6 +58,7 @@ export function MaisSheet({
   pathname,
   secondary,
   isAdmin,
+  canSeeBudgetHistory,
   userName,
   onClose,
   onLogout,
@@ -155,6 +161,15 @@ export function MaisSheet({
                 />
               );
             })}
+            {canSeeBudgetHistory && (
+              <GridTile
+                href={`${basePath}/budget-allocation`}
+                label="Histórico de Budget"
+                Icon={Archive}
+                isActive={isPathActive(pathname, `${basePath}/budget-allocation`)}
+                testId="mais-budget-history"
+              />
+            )}
             {isAdmin && (
               <GridTile
                 href="/admin/users"

@@ -43,7 +43,7 @@ módulos (abas) ficam disponíveis:
 
 | Tipo | Para quê serve | Módulos disponíveis |
 |---|---|---|
-| **PESSOAL** | Controle do dinheiro pessoal (o "cockpit" da sua vida financeira) | Cockpit, Visão Conta, Cartões, Metas, Planning, Budget, DRE, Fluxo de Caixa (+ drill-downs: Despesas/Recebimentos) |
+| **PESSOAL** | Controle do dinheiro pessoal (o "cockpit" da sua vida financeira) | Cockpit, Visão Conta, Cartões, Metas, Planning, Planejador, DRE, Fluxo de Caixa, Neutros, Recorrentes (+ drill-downs: Despesas/Recebimentos). **Budget** não é mais um módulo: virou histórico congelado, só para administradores — ver 4.11 |
 | **REFORMA** | Controle financeiro e visual de uma obra/reforma | Dashboard, Despesas, Recebimentos, Fluxo de Caixa, Cômodos, Plantas, Simulação, Cronograma, Comparar Preço, Pendências |
 | **CASA** | Gestão da casa (financiamento, contas fixas, manutenções, lembretes) | Dashboard, Financiamento, Contas recorrentes + Avulsas, Manutenção, Lembretes |
 | **CARRO** | Gestão do carro | Dashboard, Carro (dados), Documentos, Financiamento, Contas recorrentes + Avulsas, Manutenção, Lembretes |
@@ -54,9 +54,10 @@ módulos (abas) ficam disponíveis:
 > No celular, os módulos autorizados que não ficam na barra inferior são abertos
 > pelo botão **"Mais"** do cabeçalho — nunca somem.
 
-Um projeto **PESSOAL** é o **controlador universal do caixa**: é dele que se pode
-alocar orçamento para os outros projetos (Budget) e vincular despesas de outros
-projetos (espelho/rateio).
+Um projeto **PESSOAL** é o **controlador universal do caixa**: é dele que se
+vinculam despesas de outros projetos (espelho/rateio). A alocação de orçamento
+para outros projetos (Budget) foi **encerrada** e hoje só existe como histórico
+somente leitura (ver 4.11).
 
 ---
 
@@ -843,14 +844,25 @@ Cenários de projeção de longo prazo.
 - **Matriz** de receitas e despesas por mês, **resumo + gráfico de projeção**,
   **compromissos + tabela de projeção**. Permite adicionar mês e tipo de despesa.
 
-### 4.11 Budget / Alocação de Budget (`/budget-allocation`)
-Distribui o orçamento do PESSOAL para os outros projetos de vida.
+### 4.11 Alocação de Budget (`/budget-allocation`) — histórico congelado
+O recurso foi **encerrado**: não se cria, edita nem exclui alocação (a API
+responde 404 para qualquer papel). O que já foi registrado **continua no banco e
+continua visível** — congelar preservando o histórico, não extinguir.
 
-- **Card "Budget Disponível":** **Disponível para Alocar** = recebimentos em caixa
-  − (despesas do projeto pagas + planejadas + alocações existentes). Mostra o
-  detalhamento (recebimentos em caixa, despesas do projeto).
-- **"Nova Alocação":** **Projeto destino**, **Valor (R$)**, **Mês de referência**.
-- **Histórico de alocações** e recálculo do saldo ao criar/excluir.
+- **Quem vê:** apenas papel administrativo (ADMIN/OWNER) **não-convidado**, e
+  apenas em projetos **PESSOAL**. O servidor é a autoridade; a tela apenas
+  espelha esse gate para não disparar consulta que já sabe que tomará 403.
+- **Como chegar:** item **"Histórico de Budget"** no bloco administrativo da
+  navegação do projeto — na barra lateral no desktop e no menu **"Mais"** no
+  celular, ao lado de "Usuários". Ele **não** faz parte da lista de módulos
+  (`PROJECT_NAV`), porque o acesso aqui é por papel, não por módulo: pô-lo lá o
+  exibiria para todo mundo, entregando 403.
+- **Card "Resumo do Budget":** **Saldo não alocado** = recebimentos em caixa
+  − (despesas do projeto pagas + planejadas + alocações existentes), com o
+  detalhamento. O texto não promete alocação: numa tela congelada, esse número é
+  resultado histórico, não verba disponível.
+- **Histórico de alocações:** somente leitura. Relações de outro tenant aparecem
+  como *Projeto indisponível* (redigidas pela API), com o valor preservado.
 
 ### 4.12 Planejador de Compras (`/planejador`) — apenas PESSOAL
 Responde "cabe no meu orçamento?" antes de uma compra grande ou financiamento,

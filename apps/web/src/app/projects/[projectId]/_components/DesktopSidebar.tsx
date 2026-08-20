@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
+  Archive,
   ArrowLeft,
   ChevronLeft,
   ChevronRight,
@@ -26,6 +27,16 @@ interface DesktopSidebarProps {
   pathname: string;
   visibleNav: NavModule[];
   isAdmin: boolean;
+  /**
+   * #504 — descoberta do histórico congelado de Alocação de Budget.
+   *
+   * Obrigatória (não opcional com default) de propósito: o defeito que esta
+   * issue conserta foi um ponto de entrada que sumiu em silêncio. Sendo
+   * obrigatória, esquecer de passá-la quebra o `tsc`, não a produção.
+   * Vem pronta de `canSeeBudgetAllocationEntryPoint`; NÃO derive de `isAdmin`,
+   * que não checa `isGuest`.
+   */
+  canSeeBudgetHistory: boolean;
   userName?: string;
   onLogout: () => void;
 }
@@ -64,6 +75,7 @@ export function DesktopSidebar({
   pathname,
   visibleNav,
   isAdmin,
+  canSeeBudgetHistory,
   userName,
   onLogout,
 }: DesktopSidebarProps) {
@@ -95,6 +107,8 @@ export function DesktopSidebar({
   const settingsHref = "/settings";
   const apoioHref = `${basePath}/apoio`;
   const isApoioActive = isPathActive(pathname, apoioHref);
+  const budgetHistoryHref = `${basePath}/budget-allocation`;
+  const isBudgetHistoryActive = isPathActive(pathname, budgetHistoryHref);
   const navGroups = buildDesktopNavGroups(project.type, visibleNav);
 
   return (
@@ -138,67 +152,97 @@ export function DesktopSidebar({
         </div>
       </div>
 
-      <nav className="flex-1 space-y-2 overflow-y-auto p-2">
-        {navGroups.map((group) => (
-          <div key={group.id} className="space-y-1">
-            {!collapsed && navGroups.length > 1 && (
-              <p className="px-3 pb-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-lifeone-ink-4">
-                {group.label}
-              </p>
-            )}
-            {group.items.map((item) => {
-              const fullHref = `${basePath}/${item.slug}`;
-              const isActive = isPathActive(pathname, fullHref);
-              const Icon = navIcon(item.iconName);
-              return (
-                <Link
-                  key={item.slug}
-                  href={fullHref}
-                  title={item.label}
-                  aria-label={item.label}
-                  aria-current={isActive ? "page" : undefined}
-                  className={itemClass}
-                >
-                  <Icon className="minimal-sidebar-icon h-5 w-5 shrink-0" />
-                  <span className={labelClass}>{item.label}</span>
-                </Link>
-              );
-            })}
-          </div>
-        ))}
-        <Link
-          href={apoioHref}
-          title="Apoio"
-          aria-label="Apoio"
-          aria-current={isApoioActive ? "page" : undefined}
-          className={itemClass}
-        >
-          <Compass className="minimal-sidebar-icon h-5 w-5 shrink-0" />
-          <span className={labelClass}>Apoio</span>
-        </Link>
-        {!isAdmin && (
+      {/*
+        #504 — a `<nav>` inteira era `flex-1 overflow-y-auto`, então os itens
+        utilitários/administrativos do fim (Apoio, Configurações, Usuários)
+        rolavam junto com os módulos. Medido em runtime a 1440x900 num PESSOAL
+        de ADMIN (nav scrollHeight 769 > clientHeight 659): "Usuários" caía em
+        y=826 com a nav terminando em 768 — `elementFromPoint` no centro dele
+        devolvia o rodapé, ou seja, o link JÁ existia sem ser clicável.
+
+        Agora a nav é uma coluna: só a lista de módulos rola; o cluster
+        utilitário fica ancorado e sempre alcançável. Sem isso, devolver o
+        ponto de entrada do histórico de budget seria devolvê-lo para debaixo
+        do tapete — e ainda empurraria "Usuários" para ainda mais longe.
+      */}
+      <nav className="flex min-h-0 flex-1 flex-col p-2">
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
+          {navGroups.map((group) => (
+            <div key={group.id} className="space-y-1">
+              {!collapsed && navGroups.length > 1 && (
+                <p className="px-3 pb-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-lifeone-ink-4">
+                  {group.label}
+                </p>
+              )}
+              {group.items.map((item) => {
+                const fullHref = `${basePath}/${item.slug}`;
+                const isActive = isPathActive(pathname, fullHref);
+                const Icon = navIcon(item.iconName);
+                return (
+                  <Link
+                    key={item.slug}
+                    href={fullHref}
+                    title={item.label}
+                    aria-label={item.label}
+                    aria-current={isActive ? "page" : undefined}
+                    className={itemClass}
+                  >
+                    <Icon className="minimal-sidebar-icon h-5 w-5 shrink-0" />
+                    <span className={labelClass}>{item.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+        <div className="minimal-sidebar-footer mt-1 shrink-0 space-y-1 border-t pt-1">
           <Link
-            href={settingsHref}
-            title="Configurações"
-            aria-label="Configurações"
-            className={`${itemClass} text-lifeone-ink-2 hover:bg-white/70`}
-          >
-            <Settings className="h-5 w-5 shrink-0 text-lifeone-ink-3" />
-            <span className={labelClass}>Configurações</span>
-          </Link>
-        )}
-        {isAdmin && (
-          <Link
-            href={adminHref}
-            title="Usuários"
-            aria-label="Usuários"
-            aria-current={isAdminActive ? "page" : undefined}
+            href={apoioHref}
+            title="Apoio"
+            aria-label="Apoio"
+            aria-current={isApoioActive ? "page" : undefined}
             className={itemClass}
           >
-            <Users className="minimal-sidebar-icon h-5 w-5 shrink-0" />
-            <span className={labelClass}>Usuários</span>
+            <Compass className="minimal-sidebar-icon h-5 w-5 shrink-0" />
+            <span className={labelClass}>Apoio</span>
           </Link>
-        )}
+          {!isAdmin && (
+            <Link
+              href={settingsHref}
+              title="Configurações"
+              aria-label="Configurações"
+              className={`${itemClass} text-lifeone-ink-2 hover:bg-white/70`}
+            >
+              <Settings className="h-5 w-5 shrink-0 text-lifeone-ink-3" />
+              <span className={labelClass}>Configurações</span>
+            </Link>
+          )}
+          {canSeeBudgetHistory && (
+            <Link
+              href={budgetHistoryHref}
+              title="Histórico de Budget"
+              aria-label="Histórico de Budget"
+              aria-current={isBudgetHistoryActive ? "page" : undefined}
+              data-testid="sidebar-budget-history"
+              className={itemClass}
+            >
+              <Archive className="minimal-sidebar-icon h-5 w-5 shrink-0" />
+              <span className={labelClass}>Histórico de Budget</span>
+            </Link>
+          )}
+          {isAdmin && (
+            <Link
+              href={adminHref}
+              title="Usuários"
+              aria-label="Usuários"
+              aria-current={isAdminActive ? "page" : undefined}
+              className={itemClass}
+            >
+              <Users className="minimal-sidebar-icon h-5 w-5 shrink-0" />
+              <span className={labelClass}>Usuários</span>
+            </Link>
+          )}
+        </div>
       </nav>
 
       <div className="minimal-sidebar-footer space-y-1 border-t p-2">

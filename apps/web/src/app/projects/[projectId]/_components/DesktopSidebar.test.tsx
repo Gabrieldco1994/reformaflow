@@ -25,6 +25,7 @@ const props = {
   pathname: `${basePath}/dashboard`,
   visibleNav: getProjectNavModules(ProjectType.REFORMA),
   isAdmin: false,
+  canSeeBudgetHistory: false,
   userName: "Ana",
   onLogout: vi.fn(),
 };
@@ -44,6 +45,7 @@ describe("DesktopSidebar", () => {
         pathname={`${basePath}/dashboard/detail`}
         visibleNav={visibleNav}
         isAdmin={false}
+        canSeeBudgetHistory={false}
         userName="Ana"
         onLogout={vi.fn()}
       />,
@@ -78,6 +80,7 @@ describe("DesktopSidebar", () => {
         pathname={`${basePath}/dashboard`}
         visibleNav={getProjectNavModules(ProjectType.REFORMA)}
         isAdmin
+        canSeeBudgetHistory={false}
         userName="Ana"
         onLogout={vi.fn()}
       />,
@@ -93,6 +96,7 @@ describe("DesktopSidebar", () => {
         pathname={`${basePath}/conta`}
         visibleNav={getProjectNavModules(ProjectType.PESSOAL)}
         isAdmin={false}
+        canSeeBudgetHistory={false}
         userName="Ana"
         onLogout={vi.fn()}
       />,
@@ -109,6 +113,77 @@ describe("DesktopSidebar", () => {
     expect(screen.getByText("Análises", { selector: "p" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Despesas" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Recebimentos" })).not.toBeInTheDocument();
+  });
+
+
+  /**
+   * #504 — o ponto de entrada do histórico congelado de Alocação de Budget.
+   *
+   * Fica FORA de `PROJECT_NAV` de propósito (aquela lista filtra por módulo; o
+   * gate desta tela é papel) e ao lado do item administrativo "Usuários", que
+   * já segue exatamente esse padrão. O #449 tirou o item do menu e, sem querer,
+   * tirou a tela do mundo: só sobrou a URL digitada à mão.
+   */
+  it("#504 renders the frozen budget history entry when the gate allows it", () => {
+    render(
+      <DesktopSidebar
+        {...props}
+        project={{ id: "p1", name: "Finanças", type: ProjectType.PESSOAL }}
+        visibleNav={getProjectNavModules(ProjectType.PESSOAL)}
+        isAdmin
+        canSeeBudgetHistory
+      />,
+    );
+
+    const link = screen.getByRole("link", { name: "Histórico de Budget" });
+    expect(link).toHaveAttribute("href", `${basePath}/budget-allocation`);
+  });
+
+  it("#504 marks the budget history entry current while on its own route", () => {
+    render(
+      <DesktopSidebar
+        {...props}
+        project={{ id: "p1", name: "Finanças", type: ProjectType.PESSOAL }}
+        visibleNav={getProjectNavModules(ProjectType.PESSOAL)}
+        pathname={`${basePath}/budget-allocation`}
+        isAdmin
+        canSeeBudgetHistory
+      />,
+    );
+
+    expect(
+      screen.getByRole("link", { name: "Histórico de Budget" }),
+    ).toHaveAttribute("aria-current", "page");
+  });
+
+  it("#504 hides the budget history entry whenever the gate denies it", () => {
+    const { rerender } = render(
+      <DesktopSidebar
+        {...props}
+        project={{ id: "p1", name: "Finanças", type: ProjectType.PESSOAL }}
+        visibleNav={getProjectNavModules(ProjectType.PESSOAL)}
+        isAdmin
+        canSeeBudgetHistory={false}
+      />,
+    );
+    expect(
+      screen.queryByRole("link", { name: "Histórico de Budget" }),
+    ).not.toBeInTheDocument();
+
+    // `isAdmin` sozinho NÃO pode revelar a tela: o convidado de demo nasce
+    // role ADMIN (#497) e `isAdmin` do auth-context não checa `isGuest`.
+    rerender(
+      <DesktopSidebar
+        {...props}
+        project={{ id: "p1", name: "Casa Nova", type: "REFORMA" }}
+        isAdmin
+        canSeeBudgetHistory={false}
+      />,
+    );
+    expect(
+      screen.queryByRole("link", { name: "Histórico de Budget" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("Usuários")).toBeInTheDocument();
   });
 
   it("uses exact route segments for PLANTAS active state", () => {
