@@ -1,13 +1,14 @@
 'use client';
 
-import { useParams } from 'next/navigation';
+import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Landmark } from 'lucide-react';
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, useCallback } from 'react';
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
 import { LoadingBlock } from '@/app/_components/LoadingBlock';
 import { currentMonthKey, monthLabelLong, sumSaidasSemConta } from './_lib';
+import { readMonthParam } from '../_lib/nav-href';
 import { ContaMonthPicker } from './_components/ContaMonthPicker';
 import { ResumoCards, type ResumoQuickFilterKey } from './_components/ResumoCards';
 import { CartoesSection } from './_components/CartoesSection';
@@ -25,8 +26,29 @@ import type { DreOverviewResponse } from '../dre/_types';
 export default function ContaPage() {
   const params = useParams<{ projectId: string }>();
   const projectId = params.projectId;
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { projectType } = useProject();
-  const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
+  // Metade B (E-8): a tela de chegada LÊ `?mes`. Sem query válida, cai no mês
+  // corrente — o comportamento de hoje. Deep-link `/conta?mes=2026-03` abre março.
+  const [selectedMonth, setSelectedMonth] = useState(
+    () => readMonthParam(searchParams) ?? currentMonthKey(),
+  );
+
+  // Troca de mês espelha o contexto na URL (preserva os params próprios da
+  // página — ex.: `quick` — e só atualiza `mes`), sem rolar a página. Mesmo
+  // pattern do monthly/page.tsx.
+  const selectMonth = useCallback(
+    (month: string) => {
+      setSelectedMonth(month);
+      const next = new URLSearchParams(searchParams.toString());
+      next.set('mes', month);
+      const query = next.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
   const [viewMode, setViewMode] = useState<'mes' | 'ano'>('mes');
   const [payCardLast4, setPayCardLast4] = useState<string | null>(null);
   const [adjustCardLast4, setAdjustCardLast4] = useState<string | null>(null);
@@ -147,7 +169,7 @@ export default function ContaPage() {
             </div>
             {viewMode === 'mes' && (
               <div className="shrink-0">
-                <ContaMonthPicker month={selectedMonth} onChange={setSelectedMonth} embedded />
+                <ContaMonthPicker month={selectedMonth} onChange={selectMonth} embedded />
               </div>
             )}
           </div>
@@ -179,7 +201,7 @@ export default function ContaPage() {
           onInvoiceAction={(action, cardLast4, dueMonth) => {
             // Fatura clicada no ano: vai para o MÊS dela e abre o diálogo lá — os
             // números do ano são a soma de 12 faturas, pagar por eles pagaria errado.
-            if (dueMonth) setSelectedMonth(dueMonth);
+            if (dueMonth) selectMonth(dueMonth);
             setViewMode('mes');
             if (action === 'pay') setPayCardLast4(cardLast4);
             else if (action === 'adjust') setAdjustCardLast4(cardLast4);
