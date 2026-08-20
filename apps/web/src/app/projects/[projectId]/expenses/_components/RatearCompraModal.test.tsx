@@ -192,6 +192,27 @@ describe('RatearCompraModal', () => {
     expect(screen.queryByRole('button', { name: /Desfazer rateio/i })).not.toBeInTheDocument();
   });
 
+  it('degrada sob SOURCE-ONLY: editor livre, sem trava e sem aviso fabricado', async () => {
+    // #448 (revisão do B1b em #499): para quem não enxerga todos os
+    // participantes a resposta é a de uma compra NUNCA rateada
+    // (`rateado:false, items:[], removedTargetsCount:0, sobra == total`).
+    // O leitor restrito NÃO pode cair num editor travado nem num Salvar
+    // eternamente desabilitado por uma lista parcial — não existe lista parcial.
+    apiGet.mockImplementation((path: string) =>
+      path.endsWith('/rateio')
+        ? Promise.resolve({ ...NO_RATEIO, removedTargetsCount: 0 })
+        : Promise.resolve(TARGETS),
+    );
+    renderModal();
+
+    const busca = await screen.findByRole('textbox', {
+      name: 'Distribuir entre planejadas de outro projeto',
+    });
+    expect(busca).toBeEnabled();
+    expect(screen.queryByText(/planejada removida/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/sem alocação em planejadas/i)).not.toBeInTheDocument();
+  });
+
   it('mostra carregamento explícito sem renderizar o editor vazio', () => {
     apiGet.mockImplementation(
       (path: string) =>

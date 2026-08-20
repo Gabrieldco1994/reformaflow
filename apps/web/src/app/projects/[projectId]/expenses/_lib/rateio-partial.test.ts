@@ -107,3 +107,42 @@ describe('rateioWarningMessage — informa a sobra sem insinuar o que está ocul
     expect(rateioWarningMessage(REDIGIDO, null)).toBeNull();
   });
 });
+
+/**
+ * Degradação sob SOURCE-ONLY estrito (#448, revisão do B1b em #499).
+ *
+ * Contrato corrigido: quando QUALQUER participante está fora da lente, a
+ * resposta é byte a byte a de uma compra NUNCA rateada — lista filtrada +
+ * número derivado do total vazava por subtração, porque o servidor só aceita a
+ * escrita com `Σ alocações === valorTotal` (`conciliacao.service.ts:478`), logo
+ * `total − Σ(visíveis)` É a soma dos ocultos, com igualdade exata.
+ *
+ * Para o web isso significa um payload como:
+ *   { rateado: false, items: [], removedTargetsCount: 0,
+ *     rateadoCents: 0, sobraCents: totalSourceCents }
+ * Nada aqui pode virar aviso, âmbar ou lock: `sobra = total` não é sobra, é uma
+ * compra que (para este leitor) simplesmente não foi rateada.
+ */
+const SOURCE_ONLY = { rateado: false, removedTargetsCount: 0 };
+
+describe('degradação sob SOURCE-ONLY — "não rateada" não vira alarme', () => {
+  it('não trava a edição: o leitor restrito abre um rateio novo, não um bloqueado', () => {
+    expect(isRateioEditLocked(SOURCE_ONLY)).toBe(false);
+  });
+
+  it('NÃO avisa, mesmo com sobra == total — é compra não rateada, não sobra', () => {
+    expect(rateioWarningMessage(SOURCE_ONLY, 20_000)).toBeNull();
+  });
+
+  it('`rateado` ausente (API antiga) preserva o comportamento anterior', () => {
+    // Só `rateado === false` silencia. Contrato sem o campo continua avisando a
+    // sobra como antes — degradar para "nunca avisa" esconderia sobra real.
+    expect(rateioWarningMessage({ removedTargetsCount: 0 }, 20_000)).not.toBeNull();
+  });
+
+  it('alvo removido dentro da lente ainda avisa — esse caso é legítimo e sobrevive', () => {
+    expect(rateioWarningMessage({ rateado: true, removedTargetsCount: 1 }, 20_000)).toContain(
+      'removida',
+    );
+  });
+});

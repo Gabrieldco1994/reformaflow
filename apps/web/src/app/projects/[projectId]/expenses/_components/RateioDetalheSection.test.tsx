@@ -191,17 +191,28 @@ describe('RateioDetalheSection', () => {
   });
 
   it('`rateado: false` (nenhum participante visível) não renderiza a seção', () => {
-    // B1b: com 100% dos alvos fora da lente a resposta é a de uma compra NUNCA
-    // rateada — a seção some, em vez de anunciar "alguém dividiu isto com você".
-    render(
+    // SOURCE-ONLY estrito (#448, revisão do B1b em #499): com qualquer alvo
+    // fora da lente a resposta é a de uma compra NUNCA rateada — a seção some,
+    // em vez de anunciar "alguém dividiu isto com você". `sobraCents` chega
+    // igual ao total; nada disso pode virar aviso, âmbar ou valor na tela.
+    const { container } = render(
       <RateioDetalheSection
         isLoading={false}
         isError={false}
-        detalhe={{ ...BASE_DETALHE, rateado: false, items: [], rateadoCents: 0, sobraCents: 20000 }}
+        detalhe={{
+          ...BASE_DETALHE,
+          rateado: false,
+          items: [],
+          removedTargetsCount: 0,
+          rateadoCents: 0,
+          sobraCents: BASE_DETALHE.totalSourceCents,
+        }}
         onRetry={vi.fn()}
       />,
     );
     expect(screen.queryByTestId('rateio-detalhe')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(container).toBeEmptyDOMElement();
   });
 
   it('cada <li> de item expõe data-target-expense-id para navegação e2e', () => {
