@@ -13,6 +13,10 @@ const mocks = vi.hoisted(() => ({
   hasProjectAccess: vi.fn(),
   logout: vi.fn(),
   mobileHeaderProps: vi.fn(),
+  sidebarProps: vi.fn(),
+  maisSheetProps: vi.fn(),
+  authUser: { name: "Ana" } as { name?: string; role?: string; isGuest?: boolean } | null,
+  isAdmin: false,
   router: { push: vi.fn(), replace: vi.fn() },
 }));
 
@@ -46,9 +50,9 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/contexts/auth-context", () => ({
   useAuth: () => ({
-    user: { name: "Ana" },
+    user: mocks.authUser,
     loading: false,
-    isAdmin: false,
+    isAdmin: mocks.isAdmin,
     hasModule: mocks.hasModule,
     hasProjectType: mocks.hasProjectType,
     hasProjectAccess: mocks.hasProjectAccess,
@@ -59,7 +63,12 @@ vi.mock("@/contexts/auth-context", () => ({
 vi.mock("@/components/agent/FinancialAgentWidget", () => ({
   FinancialAgentWidget: () => null,
 }));
-vi.mock("./DesktopSidebar", () => ({ DesktopSidebar: () => null }));
+vi.mock("./DesktopSidebar", () => ({
+  DesktopSidebar: (props: { canSeeBudgetHistory: boolean }) => {
+    mocks.sidebarProps(props);
+    return null;
+  },
+}));
 vi.mock("./MobileHeader", () => ({
   MobileHeader: (props: { hasMoreSheet: boolean }) => {
     mocks.mobileHeaderProps(props);
@@ -93,13 +102,16 @@ vi.mock("./MobileTabBar", () => ({
 }));
 
 vi.mock("./MaisSheet", () => ({
-  MaisSheet: ({ secondary }: { secondary: NavModule[] }) => (
-    <ol data-testid="secondary-nav">
-      {secondary.map((item) => (
-        <li key={item.slug}>{item.label}</li>
-      ))}
-    </ol>
-  ),
+  MaisSheet: (props: { secondary: NavModule[]; canSeeBudgetHistory: boolean }) => {
+    mocks.maisSheetProps(props);
+    return (
+      <ol data-testid="secondary-nav">
+        {props.secondary.map((item) => (
+          <li key={item.slug}>{item.label}</li>
+        ))}
+      </ol>
+    );
+  },
 }));
 
 vi.mock("./mobile-launch/MobileLaunchSheetContainer", () => ({
@@ -167,6 +179,8 @@ describe("AppShell mobile navigation orchestration", () => {
     mocks.hasProjectType.mockReturnValue(true);
     mocks.hasProjectAccess.mockReturnValue(true);
     mocks.logout.mockResolvedValue(undefined);
+    mocks.authUser = { name: "Ana" };
+    mocks.isAdmin = false;
   });
 
   it("blocks direct navigation when the project type objective was revoked", async () => {
@@ -421,5 +435,89 @@ describe("AppShell mobile navigation orchestration", () => {
     expect(mocks.mobileHeaderProps).toHaveBeenLastCalledWith(
       expect.objectContaining({ hasMoreSheet: true }),
     );
+  });
+});
+
+/**
+ * #504 — o shell é onde o gate de DESCOBERTA do histórico congelado de
+ * Alocação de Budget é decidido. Testar só os componentes de menu não pegaria
+ * o erro que importa: passar `isAdmin` no lugar do gate. `isAdmin` do
+ * auth-context é só papel (`ADMIN|OWNER`), sem `isGuest` — e o convidado de
+ * demo nasce `role: 'ADMIN', isGuest: true` (#497).
+ */
+describe("AppShell — descoberta do histórico congelado de budget (#504)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.projectId = "project-1";
+    mocks.pathname = "/projects/project-1/monthly";
+    mocks.hasModule.mockReturnValue(true);
+    mocks.hasProjectType.mockReturnValue(true);
+    mocks.hasProjectAccess.mockReturnValue(true);
+    mocks.authUser = { name: "Ana" };
+    mocks.isAdmin = false;
+  });
+
+  async function renderShell(type: ProjectType) {
+    mocks.apiGet.mockResolvedValue(project(type));
+    render(<AppShell>Conteúdo</AppShell>);
+    await screen.findByText("Conteúdo");
+  }
+
+  function gateFlags() {
+    return {
+      sidebar: mocks.sidebarProps.mock.calls.at(-1)?.[0]?.canSeeBudgetHistory,
+      mais: mocks.maisSheetProps.mock.calls.at(-1)?.[0]?.canSeeBudgetHistory,
+    };
+  }
+
+  it("entrega o ponto de entrada ao ADMIN não-convidado em PESSOAL, no desktop E no mobile", async () => {
+    mocks.authUser = { name: "Ana", role: "ADMIN", isGuest: false };
+    mocks.isAdmin = true;
+    await renderShell(ProjectType.PESSOAL);
+
+    expect(gateFlags()).toEqual({ sidebar: true, mais: true });
+  });
+
+  it("entrega o ponto de entrada ao OWNER: congelar não é sumir com o histórico do dono", async () => {
+    mocks.authUser = { name: "Dono", role: "OWNER", isGuest: false };
+    mocks.isAdmin = true;
+    await renderShell(ProjectType.PESSOAL);
+
+    expect(gateFlags()).toEqual({ sidebar: true, mais: true });
+  });
+
+  it("NÃO entrega ao convidado de demo, ainda que o auth-context o chame de admin (#497)", async () => {
+    mocks.authUser = { name: "Convidado", role: "ADMIN", isGuest: true };
+    mocks.isAdmin = true;
+    await renderShell(ProjectType.PESSOAL);
+
+    expect(gateFlags()).toEqual({ sidebar: false, mais: false });
+  });
+
+  it("NÃO entrega ao USER comum", async () => {
+    mocks.authUser = { name: "Ana", role: "USER", isGuest: false };
+    await renderShell(ProjectType.PESSOAL);
+
+    expect(gateFlags()).toEqual({ sidebar: false, mais: false });
+  });
+
+  it("NÃO entrega em projeto não-PESSOAL, onde a própria página responde bloqueio", async () => {
+    mocks.authUser = { name: "Ana", role: "ADMIN", isGuest: false };
+    mocks.isAdmin = true;
+    await renderShell(ProjectType.REFORMA);
+
+    expect(gateFlags()).toEqual({ sidebar: false, mais: false });
+  });
+
+  it("não devolveu 'budget-allocation' ao PROJECT_NAV (isso o reporia para todo mundo, levando a 403)", async () => {
+    mocks.authUser = { name: "Ana", role: "ADMIN", isGuest: false };
+    mocks.isAdmin = true;
+    await renderShell(ProjectType.PESSOAL);
+
+    const navSlugs = [
+      ...(mocks.sidebarProps.mock.calls.at(-1)?.[0] as unknown as { visibleNav: NavModule[] })
+        .visibleNav,
+    ].map((item) => item.slug);
+    expect(navSlugs).not.toContain("budget-allocation");
   });
 });

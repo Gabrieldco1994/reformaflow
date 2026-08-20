@@ -75,7 +75,7 @@ export default function BudgetAllocationPage() {
           </p>
           <button
             onClick={() => router.back()}
-            className="mt-4 px-4 py-2 bg-darc-red text-white rounded-lg hover:bg-darc-red/90"
+            className="mt-4 inline-flex min-h-11 items-center justify-center px-4 py-2 bg-darc-red text-white rounded-lg hover:bg-darc-red/90"
           >
             Voltar
           </button>
@@ -97,7 +97,7 @@ export default function BudgetAllocationPage() {
           </p>
           <button
             onClick={() => router.back()}
-            className="mt-4 px-4 py-2 bg-darc-red text-white rounded-lg hover:bg-darc-red/90"
+            className="mt-4 inline-flex min-h-11 items-center justify-center px-4 py-2 bg-darc-red text-white rounded-lg hover:bg-darc-red/90"
           >
             Voltar
           </button>
