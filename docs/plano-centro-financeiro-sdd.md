@@ -272,6 +272,11 @@ esperado, não evidência de runtime.
   tenant (`isFullAccessRole(role) && !isGuest` — ADMIN ou OWNER, nunca `@Roles('ADMIN')` sozinho:
   o convidado de demo nasce com `role: 'ADMIN', isGuest: true` e o `RolesGuard` não lê `isGuest`
   — #497); relações legadas cross-tenant redigidas e bytes históricos intocados.
+  **Gate de extinção DISPENSADO pelo PO em 2026-08-19 — e NÃO por uso zero.** A medição que
+  sustentava "uso zero" lia `prisma/dev.db` (banco **local**), não produção. No volume Fly
+  (`/data/dev.db`) há **6 alocações, 4 vivas, R$ 235.000,00, concentradas em 1 tenant de 196**.
+  Existe dado real. Por isso o B2 é **congelamento com histórico preservado**, nunca extinção:
+  quem tem acesso total continua lendo o histórico, e ninguém cria alocação nova.
 
 **STOP — SATISFEITO em 2026-08-20.** B1a (#477/#478/#479), B1b (#499) e B2 (#500) estão
 mergeados e em produção. O STOP era sobre a fundação backend; a fatia **web** restante de #448
@@ -460,7 +465,7 @@ preservar links e contexto sem fingir que seus ledgers continuam vivos.
 | D-003 | Fórmulas de Caixa §10, faturas/Conta, timezone e quitação cross-project não serão reescritas. | Contratos atuais **ENTREGUES**; mudança do programa **NENHUMA** |
 | D-004 | Navegação alvo: Hoje, Movimentações, Planejamento, Projetos; Resultado/Auditoria secundários. | **APROVADO — NÃO INICIADO** |
 | D-005 | Planning e Planejador só se agrupam visualmente; stores permanecem separados. | **APROVADO — BLOQUEADO** |
-| D-006 | Budget sai do discovery e fica ADMIN/read-only com histórico preservado. | **APROVADO — BLOQUEADO em B2** |
+| D-006 | Budget sai do discovery e fica ADMIN/read-only com histórico preservado. | **APROVADO — BLOQUEADO em B2. Gate de extinção DISPENSADO pelo PO em 2026-08-19 por uso zero** (`budget_allocations` 0, `ALOCACAO_ORCAMENTO` 0, `category_budgets` 0); B2 vai direto ao congelamento read-only. Desenho do gate precisa considerar #497 — `@Roles('ADMIN')` não barra convidado de demo. |
 | D-007 | Mobile 375/390/desktop e acessibilidade são contrato de merge. | **APROVADO — BLOQUEADO** |
 | D-008 | Analytics usa Clarity existente e allowlist sem conteúdo financeiro. | **APROVADO — BLOQUEADO em A0** |
 | D-009 | U6b só existe depois de U6a+lenses+architect+PO. | **BLOQUEADO; NÃO ENTREGUE** |
@@ -472,7 +477,7 @@ preservar links e contexto sem fingir que seus ledgers continuam vivos.
 
 | Data | Versão | Mudança |
 |---|---|---|
-| 2026-08-19 | B1a mergeado; U6a especificada | **B1a mergeado em `main`** via #477 (`5bbe5d69`), #478 (`720ff1fc`) e #479 (`890b89b0`); **#448 permanece OPEN pela fatia B1b**, **W1 (#214) aberto** e **B2 (#449) não iniciado**. Também mergeados e fechados: #480, #481, #483, #484, #486 — `main` em `9da93391`. **U6a (#455)** publicada em [`financeiro-projetos-por-tipo.md`](financeiro-projetos-por-tipo.md): matriz por tipo (capacidade, origem/finalidade, identidade, ACL, deep-link/fallback) derivada do código vivo, divergências código×doc e três decisões escaladas ao PO. Somente spec: zero código, fórmula, store, migration ou backfill. Achados de autorização extraídos para #494, #495 e #496. **U6b (#456) segue BLOQUEADA.** |
+| 2026-08-19 | B1a mergeado; U6a especificada | **B1a mergeado em `main`** via #477 (`5bbe5d69`), #478 (`720ff1fc`) e #479 (`890b89b0`); **#448 permanece OPEN pela fatia B1b**, **W1 (#214) aberto** e **B2 (#449) não iniciado**. Também mergeados e fechados: #480, #481, #483, #484, #486 — `main` em `9da93391`. **U6a (#455)** publicada em [`financeiro-projetos-por-tipo.md`](financeiro-projetos-por-tipo.md): matriz por tipo (capacidade, origem/finalidade, identidade, ACL, deep-link/fallback) derivada do código vivo, divergências código×doc e três decisões escaladas ao PO. Somente spec: zero código, fórmula, store, migration ou backfill. Achados de autorização extraídos para #494 e #495 (D-9 já registrado em #498). **Decisões do PO na mesma data:** A-1 decidida (aproveitar o reaproveitável do `/financeiro` e aposentar o resto — lista absorver/aposentar na §7.1 da spec), A-2 decidida (CASA/CARRO seguem em Avulsas, escolha deliberada e revisitável) e **gate de extinção do B2 dispensado por uso zero**. **A-3 (invariante O8) permanece aberta.** Incorporado #497 (`@Roles('ADMIN')` não é gate administrativo). **U6b (#456) segue BLOQUEADA.** |
 | 2026-08-18 | B0 entregue; B1a implementado | B0 (#447) entregue via PR #476 (produção, SHA `389d8e6e`). B1a (#448) implementado e, naquela data, pendente de merge: child ACL em `settleTargetParcela`, identidades de fatura (`cardId`/`fingerprint`/`actions` em `cartoes[]`+`saidas[]`; `accountId` em `contas[]`), `cardId`/`accountId` opcionais em `payInvoice`/`undoInvoicePayment`, guard de duplicidade ativa 409, `roomId`/`sourcePriceItemId` scoped. Zero schema, zero UX, zero fórmula numérica alterada. #448 permanece OPEN. Sequência após merge de B1a: W1 → B1b → B2. |
 | 2026-08-17 | Exceção PO S0.3 | #446 liberada para build/test/merge test-only independente de #445; #445 registrada como bloqueada/deferida e produção `NOT_COLLECTED`; gates conjuntos de #447/B0, limites da baseline sintética e distinção entre estado esperado e evidência de runtime explicitados. |
 | 2026-08-17 | Revisão S0.1 | Guardrails de papel, endpoint/evidência e auditoria estreitados; transição do rateio legado para source-only explicitada. |

@@ -24,6 +24,9 @@
 >
 > **Status (2026-08-19):** proposta submetida ao PO. **Não normativo enquanto não aprovado.**
 > Nenhuma promessa deste documento pode ser copiada para o manual antes de chegar ao runtime.
+> O PO decidiu **A-1** (destino do `/financeiro`), **A-2** (CASA/CARRO seguem em Avulsas) e a
+> **dispensa do gate de extinção do B2** — todas registradas na **§7**. **A-3 (invariante O8)
+> segue em aberto** na §8 e não pode ser presumida.
 
 ---
 
@@ -126,7 +129,7 @@ de conta e nos totais.
 > PESSOAL, e **nunca é divulgada como origem cross-project**: `classifySource` devolve `null`
 > quando não há cartão nem conta (`apps/api/src/expense/paid-origins.builder.ts:145-151`), o que
 > corresponde ao invariante **O8** (`quitacao-parcela-cross-project.md:69`). Implementar uma e
-> esquecer a outra quebra um contrato entregue. Ver decisão aberta **A-3** (§7).
+> esquecer a outra quebra um contrato entregue. Ver decisão **ainda aberta** **A-3** (§8).
 
 #### 2.2 Origem PESSOAL é read-only no alvo
 
@@ -196,8 +199,23 @@ A autorização é composta por camadas. Nenhuma delas sozinha é a resposta.
 | Escopo de agregação | `resolveAccessibleProjectScope` (`access-rules.ts:155-185`) | resolve IDs; com `requiredModule` devolve `[]` **antes** de qualquer leitura quando o módulo falta |
 
 **Bypass por papel:** ADMIN e OWNER atravessam os gates de módulo, tipo e projeto — na API
-(`isFullAccessRole`, `access-rules.ts:69-71`) e no web
+(`isFullAccessRole`, `access-rules.ts:69-71`; `ModulesGuard` pula a checagem de módulo em
+`modules.guard.ts:36-48`) e no web
 (`auth-context.tsx:152,164`: `hasModule: (slug) => isAdmin || allowed.has(slug)`).
+
+> **`@Roles('ADMIN')` não é um gate administrativo em lugar nenhum do app** —
+> [#497](https://github.com/Gabrieldco1994/reformaflow/issues/497).
+> O convidado de demonstração é criado com **`role: 'ADMIN'`**
+> (`apps/api/src/auth/auth.service.ts:324-327`) e o `RolesGuard` **nunca lê `isGuest`** —
+> devolve `true` já em `isFullAccessRole(user.role)` (`roles.guard.ts:25`). Logo o convidado
+> atravessa `@Roles('ADMIN')`, o `ModulesGuard` e o `hasModule` do web.
+> **Esta spec não pode usar "admin-only" como fronteira de segurança**, e U6b tampouco.
+> A fronteira que continua valendo é a de **tenant**, que independe de papel: o `ModulesGuard`
+> resolve o projeto por `findFirst({ id, tenantId })` (`:52-56`), de modo que o convidado alcança
+> superfícies administrativas **apenas sobre o próprio tenant efêmero** — é um problema de
+> alcance de superfície, não de vazamento entre tenants. O repositório já conhece a armadilha em
+> um ponto isolado, onde checa `isGuest` à mão antes do papel (`auth.service.ts:225-232`); é
+> defesa ad hoc por rota, não sistêmica.
 
 **Branch legado:** quando `allowedProjectTypes` está **vazio**, os tipos acessíveis são derivados dos
 módulos possuídos (`accessibleProjectTypes`, `access-rules.ts:57-64`). Contas antigas ainda caem
@@ -210,7 +228,7 @@ nesse caminho.
 | CASA / CARRO | idem | `expenses` alcança a API mesmo sem rota de nav (#369) |
 | PESSOAL | idem | `pendencias` concede alcance sem superfície |
 | PLANTAS | `plantsAi`, `maintenance` ou `reminders` | sem recurso financeiro a alcançar |
-| **cross-project `/tenant/financial/*`** | `financialDashboard` — **que ninguém possui** | ver §6 D-2 e decisão **A-1** |
+| **cross-project `/tenant/financial/*`** | `financialDashboard` — **que nenhum usuário possui** | alcançável só por ADMIN/OWNER reais e por **convidado de demo** (#497); ver §6 D-2 e §7.1 |
 
 ---
 
@@ -302,20 +320,26 @@ U6a**: sem ela, U6b implementaria a crença em vez da realidade.
 `plano-centro-financeiro-sdd.md` e `docs/README.md`: B0 (#447) **CLOSED**; **B1a mergeado** em `main`
 (`5bbe5d69` #477, `720ff1fc` #478, `890b89b0` #479); **#448 segue OPEN** (B1b); **W1 (#214) OPEN**;
 **B2 (#449) não iniciado**. Também mergeados e fechados em 2026-08-19: #480, #481, #483, #484, #486.
+O **gate de extinção do B2 foi dispensado por evidência** pelo PO em 2026-08-19 — ver §7.3.
 
 **D-2 — A superfície `/financeiro` está morta para todo usuário comum.** → **[#494](https://github.com/Gabrieldco1994/reformaflow/issues/494)**
-`financialDashboard` tem **0 ocorrências em `TYPE_MODULES`** e **0 usuários no banco o possuem**
+`financialDashboard` **não é um slug de `TYPE_MODULES`** — tem **0 ocorrências** no mapa — e
+**0 dos 48 usuários do snapshot de produção o possuem**
 (`SELECT COUNT(*) FROM users WHERE allowed_modules LIKE '%financialDashboard%'` → **0**, verificado
-pelo PO em 2026-08-19). Como `deriveObjectiveAccess` deriva `allowedModules` **exclusivamente** de
-`TYPE_MODULES` (`onboarding-objectives.ts:19-30`) e `reconcileUserModules` só adiciona slugs desse
-mesmo mapa, **nenhum autocadastro jamais o recebe**; a única via é concessão manual de admin
+pelo PO em 2026-08-19). **Nenhum usuário de autocadastro pode recebê-lo**: `deriveObjectiveAccess` deriva `allowedModules`
+**exclusivamente** de `TYPE_MODULES` (`onboarding-objectives.ts:19-30`) e `reconcileUserModules` só
+adiciona slugs desse mesmo mapa. A única via seria concessão manual de admin
 (`apps/api/src/users/dto/create-user.dto.ts:34`). Estão portanto inalcançáveis para usuário comum:
 a rota `apps/web/src/app/financeiro/` (gate em `layout.tsx:18,23`), o card "Saúde financeira
 consolidada" (`apps/web/src/app/projects/page.tsx:209`), os links "← Visão Geral" desktop e mobile
 (`apps/web/src/app/projects/[projectId]/dashboard/page.tsx:617,634`) e toda a API
 `GET /tenant/financial/*` (`tenant-financial.controller.ts:25`).
-**Precisão:** ADMIN/OWNER continuam alcançando tudo, por bypass de papel (§4). É uma superfície
-inteira já morta para a base de usuários — não uma lacuna desta spec.
+**Precisão — quem ainda alcança:** ADMIN/OWNER reais, por bypass de papel (§4); e, por força de
+[#497](https://github.com/Gabrieldco1994/reformaflow/issues/497), **todo convidado de
+demonstração**, que é criado com `role: 'ADMIN'` (`auth.service.ts:324-327`) e portanto satisfaz
+`hasModule('financialDashboard')` em `auth-context.tsx:164`. O resultado é o pior dos dois mundos:
+a superfície é invisível para **todo usuário pagante** e visível para a classe **menos confiável**
+do produto. É uma superfície inteira já morta para a base real — não uma lacuna desta spec.
 
 **D-3 — Slugs concedidos e não aplicados.** `recurrences` e `rooms` estão em `TYPE_MODULES` (logo são
 concedidos no signup e reconciliados para todos) mas **nenhum controller os exige**:
@@ -348,7 +372,7 @@ Registrada como aceita, com motivo, não como drift.
 **D-8 — Deep-link é guardado só para slugs conhecidos da nav** (§5.2). Rotas fora da nav do tipo caem
 na página sem redirect do shell.
 
-**D-9 — `CarInfoService` ignora o `tenantId` que recebe.** → **[#496](https://github.com/Gabrieldco1994/reformaflow/issues/496)**
+**D-9 — `CarInfoService` ignora o `tenantId` que recebe.** → **[#498](https://github.com/Gabrieldco1994/reformaflow/issues/498)**
 `findUnique({ where: { projectId } })` e `upsert({ where: { projectId } })`
 (`car-info.service.ts:10-12,16-24`) não filtram por tenant; a segurança depende inteiramente dos
 guards (`modules.guard.ts:52-56`, `project-access.guard.ts:64-70`). **Não explorável pela rota HTTP
@@ -374,48 +398,131 @@ deste PR; fica registrado para o D0 (#458) corrigir.
 
 ---
 
-## 7. Decisões abertas — exigem o PO
+## 7. Decisões do PO — registradas como decididas (2026-08-19)
 
-Escritas para serem decididas **por leitura**. Esta spec não escolhe lado em nenhuma.
+As decisões abaixo foram tomadas pelo PO em 2026-08-19 e **deixam de ser questões abertas**. Ficam
+registradas com a razão, porque em seis meses ninguém lembrará por que foram assim.
 
-### A-1 — O Financeiro por tipo absorve, substitui ou aposenta o `/financeiro` morto?
+### 7.1 A-1 — `/financeiro`: aproveitar o reaproveitável, aposentar o resto — **DECIDIDA**
 
-Contexto: D-2 / [#494](https://github.com/Gabrieldco1994/reformaflow/issues/494).
+Contexto: §6 D-2 / [#494](https://github.com/Gabrieldco1994/reformaflow/issues/494).
 
-| Opção | Consequência |
-|---|---|
-| **Absorver** — U6b entrega o financeiro por tipo e `/financeiro` é aposentado com o slug | remove código morto; perde-se o agregado cross-project (hoje inalcançável de qualquer forma para usuário comum) |
-| **Reviver** — `financialDashboard` entra em `TYPE_MODULES` | passa a alcançar autocadastro via `deriveObjectiveAccess` + reconciliação, **ampliando acesso para a base existente**; exige revisão security antes |
-| **Manter admin-only** — documentar como superfície administrativa | preserva o estado atual; mantém indefinidamente uma superfície que nenhum usuário comum vê, com custo de manutenção |
+**Decisão:** analisar o que da superfície `/financeiro` é reaproveitável, **aposentar o restante**, e
+executar a aposentadoria. A opção "reviver o slug" foi **descartada** — colocá-lo em `TYPE_MODULES`
+ampliaria acesso para a base existente via `deriveObjectiveAccess` + reconciliação, e a superfície
+não vale essa ampliação. A opção "manter admin-only" foi **descartada** porque, por
+[#497](https://github.com/Gabrieldco1994/reformaflow/issues/497), "admin-only" não é uma fronteira
+real: o convidado de demonstração também a alcança.
 
-### A-2 — CASA/CARRO mantêm o formato "redirect para Avulsas" ou ganham financeiro de primeira classe?
+> **A execução da aposentadoria não pertence a esta spec nem à U6b.** Está delegada a um agente
+> próprio. O que a U6a entrega é a lista abaixo, que é a **entrada** desse trabalho.
+
+#### Lista absorver / aposentar
+
+Seis capacidades, uma linha cada. O critério é único: **existe outra superfície que já é a fonte
+daquela verdade?** Se existe, é duplicação — e duplicar verdade financeira é pior que não tê-la,
+porque cria uma segunda fórmula que diverge em silêncio.
+
+| Capacidade (`/tenant/financial/*`) | Decisão | Razão |
+|---|---|---|
+| `overview` — KPIs consolidados | **APOSENTAR** | duplicada **duas vezes**: por projeto em `projects/:projectId/dashboard` e cross-project no cockpit PESSOAL (`monthly-overview`, cuja rota é literalmente "Visão consolidada **cross-project**"). Mantém uma **segunda fórmula de caixa** fora do motor canônico |
+| `cash-flow` — série mensal consolidada | **APOSENTAR** | mesma duplicação: `saldoAcumuladoMensal`/`despesasMensal` já existem por projeto (`dashboard.service.ts:147-166`) e o mês a mês consolidado é do PESSOAL (`account-view-yearly`, `dre-overview`) |
+| `by-category` — distribuição por tipo de despesa | **APOSENTAR** | o dashboard por projeto já devolve o corte por categoria; o corte consolidado é do DRE do PESSOAL |
+| `by-project` — breakdown por projeto | **ABSORVER (reformulada)** | como tabela cross-project duplica a lista de projetos. O que vale é o **agrupamento por tipo** — que é exatamente o assunto desta spec. Não copiar o contrato atual: seu union `ProjectType` (`_types.ts:1`) tem **5 tipos e omite PLANTAS**; U6b deve derivar de `PROJECT_FEATURES`/`TYPE_MODULES` |
+| `upcoming` — próximos vencimentos | **ABSORVER** | **não é duplicada.** `pendencias` é outro conceito (módulo por projeto, `projects/:projectId/pendencias`), não agregação de vencimentos |
+| `top-suppliers` — fornecedores agregados | **ABSORVER** | **sem equivalente em lugar nenhum** — é a única agregação por `fornecedor` do backend. Aposentar isto perderia capacidade de verdade |
+
+**Duas advertências para quem executar a aposentadoria:**
+
+1. **Não apagar `resolveAccessibleProjectScope`.** O controller o usa
+   (`tenant-financial.controller.ts:34-48`), mas ele é consumido por **outros 10 arquivos**
+   (expense, agent, credit-card, bank-account, monthly-overview, notifications…). É a máquina de
+   escopo do app, não da superfície.
+2. **Remover também os pontos de entrada**, ou sobram links mortos: `projects/page.tsx:209`,
+   `dashboard/page.tsx:617,634`, a entrada de nav e o slug em `auth-context.tsx:34,57`.
+
+### 7.2 A-2 — CASA/CARRO seguem em Avulsas, por ora — **DECIDIDA**
 
 Contexto: §1.1, #369.
 
-| Opção | Consequência |
+**Decisão:** CASA e CARRO **mantêm o formato atual** — `/expenses` redireciona para a aba Avulsas de
+`/bills`. **Não haverá visão financeira de primeira classe por tipo para eles na U6b.**
+
+Isto é uma **escolha deliberada e revisitável** — não uma limitação do produto e não uma lacuna
+desta spec. A superfície única de despesas entregue em #369 continua sendo a resposta certa
+enquanto CASA/CARRO não tiverem volume que justifique um corte próprio.
+
+**A mecânica precisa ser preservada exatamente como está** (é o ponto mais fácil de "simplificar"
+errado numa próxima leitura):
+
+- O redirect é guardado pela **condição dupla derivada**
+  `!hasNavRoute(type,'expenses') && hasNavRoute(type,'bills')` (`expenses/page.tsx:32`) —
+  **nunca** por `type === 'CASA'`. A segunda condição existe para que PLANTAS, que não expõe
+  `bills`, não seja redirecionada para uma rota que não tem.
+- A capacidade `expenses` **permanece intencionalmente concedida** a CASA e CARRO em
+  `TYPE_MODULES`. Ela é o que dá alcance à API; só a **rota de navegação** é que não existe.
+
+> **Não escrever, em doc ou código, que "CASA não tem expenses".** É falso: CASA tem a capacidade e
+> tem a API. O que CASA não tem é a **entrada de menu**. Confundir as duas coisas quebraria o gate.
+
+**O que precisaria ser verdade para revisitar:** (a) CASA/CARRO passarem a ter volume de lançamentos
+que torne a aba Avulsas insuficiente para separar o que é do imóvel/veículo; (b) surgir demanda por
+um recorte financeiro **específico do tipo** que Avulsas não expresse — p.ex. custo por veículo
+frente a `carInfo`; ou (c) a U6b provar que a visão por tipo dos demais tipos é reaproveitável para
+estes sem reabrir `expenses` como rota. Enquanto nenhuma dessas for verdade, a decisão se mantém.
+
+### 7.3 B2 — o gate de extinção foi dispensado por evidência — **DECIDIDA**
+
+**Decisão:** o gate de extinção do **B2 (#449)** está **dispensado**. O B2 vai **direto para o
+congelamento read-only** do Budget Allocation.
+
+**A evidência, registrada aqui porque em seis meses ninguém lembrará por que o gate foi pulado** —
+consulta ao snapshot de produção pelo PO em 2026-08-19:
+
+| Tabela / recorte | Linhas |
 |---|---|
-| **Manter o redirect** | preserva a superfície única de despesas entregue em #369 e o teste que a trava (`module-navigator.test.ts:105,115`); CASA/CARRO seguem sem visão financeira própria por tipo |
-| **Primeira classe** | reabre `expenses` como rota desses tipos, revertendo uma decisão já entregue; exige rever a condição derivada de `expenses/page.tsx:32` sem reintroduzir checagem por tipo, e o que acontece com a aba Avulsas de `/bills` |
+| `budget_allocations` | **0** |
+| `cash_flow_entries` com `categoria = 'ALOCACAO_ORCAMENTO'` | **0** |
+| `category_budgets` | **0** |
+
+**Budget Allocation nunca foi usado.** O gate existia para proteger dados reais de uma extinção
+apressada; não há dado real a proteger. A dispensa é sobre o **gate**, não sobre o cuidado: o
+congelamento read-only continua sendo o caminho, e continua sendo trabalho do B2 — não desta spec.
+
+---
+
+## 8. Decisão ainda aberta — exige o PO
+
+> Esta seção não foi respondida na rodada de 2026-08-19. Ela **não pode ser presumida** por U6b.
 
 ### A-3 — O invariante O8 (Carteira nunca é origem divulgada) vale dentro da nova superfície?
 
-Contexto: §2.1, D-10, `quitacao-parcela-cross-project.md:69`.
+Contexto: §2.1, §6 D-10, `quitacao-parcela-cross-project.md:69`.
 
 | Opção | Consequência |
 |---|---|
 | **Manter O8** | mantém a intenção de privacidade do contrato entregue; a nova superfície exibirá alvos cujo pagador aparece como "não divulgado" |
 | **Relaxar dentro do tipo** | melhora a explicação de "para onde foi"; **muda um invariante de disclosure já entregue** e exige revisão security explícita, com o risco de expor movimento pessoal em projeto compartilhado |
 
+**Por que ainda importa:** O8 é hoje um `return null` explícito em `classifySource`
+(`paid-origins.builder.ts:145-151`). Qualquer superfície nova que mostre origem cross-project ou
+respeita esse `null` ou o contradiz — não há terceira via, e a escolha não é técnica.
+
 ---
 
 ## Apêndice histórico
 
 - **2026-08-19 — U6a (#455).** Documento criado. Matriz derivada do código vivo em `main`
-  `9da93391`, não da descrição do plano. Achados D-2, D-4 e D-9 extraídos para os issues #494, #495
-  e #496 por serem achados de autorização, não de UX. D-3, D-7, D-11, D-12 e D-13 registrados
-  como leitura fiel de comportamento aceito; PLANTAS documentado como "sem financeiro por design";
-  fallback de deep-link deixado explicitamente ao architect de U6b. Três decisões (A-1, A-2, A-3)
-  escaladas ao PO com opções e consequências, sem escolha prévia.
+  `9da93391`, não da descrição do plano. Achados D-2 e D-4 extraídos para os issues #494 e #495 por
+  serem achados de autorização, não de UX; D-9 já estava registrado em #498. D-3, D-7, D-11, D-12
+  e D-13 registrados como leitura fiel de comportamento aceito; PLANTAS documentado como "sem
+  financeiro por design"; fallback de deep-link deixado explicitamente ao architect de U6b. Três
+  decisões (A-1, A-2, A-3) escaladas ao PO com opções e consequências, sem escolha prévia.
+- **2026-08-19 (mesma data, após a escalada) — decisões do PO.** **A-1** decidida (aproveitar o
+  reaproveitável do `/financeiro` e aposentar o resto, com a lista absorver/aposentar da §7.1),
+  **A-2** decidida (CASA/CARRO seguem em Avulsas, escolha deliberada e revisitável) e **gate de
+  extinção do B2 dispensado** por evidência de uso zero. **A-3 permanece aberta.** Incorporado
+  #497: `@Roles('ADMIN')` não é gate administrativo, o que altera a leitura de ACL da §4.
 - **Precedentes citados:** #98 (mapa único de gate, cliente e servidor), #289 (combustível),
   #291 (dieta de COMPRA), #369 (superfície única de despesas em CASA/CARRO), #424 (origem do
   pagamento na REFORMA), #423/#428 (leitura canônica de rateio), #480/#484 (escopo prometido ×
