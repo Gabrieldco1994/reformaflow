@@ -31,15 +31,16 @@ const TARGETS = Array.from({ length: 9 }, (_, i) => ({
   project: { id: 'p2', name: 'Reforma A', type: 'REFORMA' },
 }));
 
+// #448 — contrato SOURCE-ONLY: `hiddenTargetsCount`/`hiddenAllocationCents` não
+// existem no payload e `removedTargetsCount` é o ÚNICO gatilho de trava. O
+// fixture-base é o payload atual; os casos de trava injetam
+// `removedTargetsCount` explicitamente.
 const NO_RATEIO: RateioDetalhe = {
   sourceExpenseId: SOURCE.id,
   rateado: false,
   totalSourceCents: SOURCE.valorTotal,
   rateadoCents: 0,
   sobraCents: SOURCE.valorTotal,
-  removedTargetsCount: 0,
-  hiddenTargetsCount: 0,
-  hiddenAllocationCents: 0,
   items: [],
 };
 
@@ -191,6 +192,27 @@ describe('RatearCompraModal', () => {
     expect(screen.queryByRole('button', { name: /Desfazer rateio/i })).not.toBeInTheDocument();
   });
 
+  it('degrada sob SOURCE-ONLY: editor livre, sem trava e sem aviso fabricado', async () => {
+    // #448 (revisão do B1b em #499): para quem não enxerga todos os
+    // participantes a resposta é a de uma compra NUNCA rateada
+    // (`rateado:false, items:[], removedTargetsCount:0, sobra == total`).
+    // O leitor restrito NÃO pode cair num editor travado nem num Salvar
+    // eternamente desabilitado por uma lista parcial — não existe lista parcial.
+    apiGet.mockImplementation((path: string) =>
+      path.endsWith('/rateio')
+        ? Promise.resolve({ ...NO_RATEIO, removedTargetsCount: 0 })
+        : Promise.resolve(TARGETS),
+    );
+    renderModal();
+
+    const busca = await screen.findByRole('textbox', {
+      name: 'Distribuir entre planejadas de outro projeto',
+    });
+    expect(busca).toBeEnabled();
+    expect(screen.queryByText(/planejada removida/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/sem alocação em planejadas/i)).not.toBeInTheDocument();
+  });
+
   it('mostra carregamento explícito sem renderizar o editor vazio', () => {
     apiGet.mockImplementation(
       (path: string) =>
@@ -291,9 +313,11 @@ describe('RatearCompraModal', () => {
   });
 
   it.each([
-    ['ocultas', { hiddenTargetsCount: 1, hiddenAllocationCents: 277_100 }],
-    ['removidas', { removedTargetsCount: 1 }],
-  ])('bloqueia edição destrutiva quando há alocações %s e mantém Desfazer', async (_, counts) => {
+    ['uma', { removedTargetsCount: 1 }],
+    ['duas', { removedTargetsCount: 2 }],
+  ])(
+    'bloqueia edição destrutiva quando o SERVIDOR declara %s planejada(s) removida(s) e mantém Desfazer',
+    async (_, counts) => {
     apiGet.mockImplementation((path: string) =>
       path.endsWith('/rateio')
         ? Promise.resolve(makeRateio([makeItem(1, 1_000_000)], counts))
@@ -311,6 +335,29 @@ describe('RatearCompraModal', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Salvar rateio/i }));
     expect(onSubmit).not.toHaveBeenCalled();
+    },
+  );
+
+  // #448 — a outra ponta do mesmo contrato. Participante fora da lente ⇒ a
+  // resposta é a de uma compra nunca rateada, então o web não tem como inferir
+  // parcialidade e não deve tentar. Uma regra fail-closed ("na dúvida, trava")
+  // mataria "Ratear compra" para todo mundo, porque é exatamente assim que
+  // chega toda compra ainda não rateada. Quem barra a escrita insegura é o
+  // servidor (`assertCanReverseSources` → 404, zero writes), e o erro chega ao
+  // usuário pelo onError da mutation.
+  it('payload sem metadata de ocultos NÃO trava o editor', async () => {
+    apiGet.mockImplementation((path: string) =>
+      path.endsWith('/rateio')
+        ? Promise.resolve(makeRateio([makeItem(1, 1_000_000)]))
+        : Promise.resolve(TARGETS),
+    );
+    renderModal();
+
+    const allocationInput = await screen.findByDisplayValue('10.000,00');
+    expect(allocationInput).toBeEnabled();
+    expect(screen.getByPlaceholderText(/Buscar planejada/i)).toBeEnabled();
+    expect(screen.getByTitle('Remover')).toBeEnabled();
+    expect(screen.queryByText(/alocações ocultas ou removidas/i)).not.toBeInTheDocument();
   });
 
   it('não sobrescreve uma edição local quando o detalhe é reconsultado', async () => {

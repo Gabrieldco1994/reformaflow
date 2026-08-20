@@ -5,6 +5,7 @@ import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { RotateCcw, X } from 'lucide-react';
 import { api, ApiResponseError } from '@/lib/api';
+import { buildUndoInvoicePaymentPayload, invoiceIdentityErrorMessage } from '../_lib';
 import type { AccountViewCardSummary } from '../_types';
 
 interface UndoInvoicePaymentResponse {
@@ -44,10 +45,9 @@ export function UndoInvoicePaymentDialog({
     mutationFn: () =>
       api.post<UndoInvoicePaymentResponse>(
         `/projects/${projectId}/monthly-overview/undo-invoice-payment`,
-        {
-          cardLast4: card.last4,
-          dueMonth: card.dueMonth,
-        },
+        // Identidade explícita (quando a API a forneceu) + último4 legado
+        // sempre — reverter a fatura errada é irreversível na prática.
+        buildUndoInvoicePaymentPayload(card),
       ),
     onSuccess: (res) => {
       const n = res.revertedParcelas ?? 0;
@@ -69,6 +69,14 @@ export function UndoInvoicePaymentDialog({
           : null;
       if (payments && payments.length > 0) {
         setAmbiguousPayments(payments);
+        return;
+      }
+      // Recusa de identidade (mismatch id×último4, ou servidor que não conhece
+      // o campo): mensagem honesta, diálogo aberto, botão clicável de novo.
+      // Nunca reenviamos sem o id — ver `invoiceIdentityErrorMessage`.
+      const identityMessage = invoiceIdentityErrorMessage(e);
+      if (identityMessage) {
+        toast.error(identityMessage);
         return;
       }
       toast.error(`Erro ao desfazer pagamento: ${e.message}`);

@@ -221,4 +221,82 @@ describe('CartoesSection', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Quitar c/ resíduo…' }));
     expect(onSettleWithResidual).toHaveBeenCalledWith('2222');
   });
+
+  // --- B1b (#448): o tap direto do carrossel também precisa do veto ---
+  //
+  // No mobile, "a pagar" abre o PagarFaturaDialog SEM passar pelos botões do
+  // tile (que só existem no grid desktop). Sem gate aqui, o veto de
+  // capabilities protegeria só o desktop e o mobile continuaria com a CTA cuja
+  // única resposta possível é 409 — a CTA morta que este issue existe pra não
+  // produzir.
+  function cardAPagar(over: Record<string, unknown> = {}) {
+    return {
+      cardId: 'card-9',
+      nickname: 'Ambíguo',
+      last4: '4488',
+      faturaAtual: 150_00,
+      faturaPendente: 150_00,
+      faturaPaga: 0,
+      residualDeclarado: 0,
+      possuiIntervencaoManual: false,
+      ajusteManualTotal: 0,
+      dueMonth: '2026-07',
+      vencimento: '2026-07-20',
+      status: 'a pagar' as const,
+      limiteUsadoPct: null,
+      limiteUsado: null,
+      limiteTotal: null,
+      ...over,
+    };
+  }
+
+  it('tap mobile em "a pagar" com `actions: []` NÃO abre pagamento: abre o sheet com a alternativa viva', () => {
+    const onPayInvoice = vi.fn();
+    const onAdjustInvoice = vi.fn();
+
+    render(
+      <CartoesSection
+        projectId="pessoal-1"
+        cartoes={[cardAPagar({ actions: [], cardId: null })]}
+        contas={[]}
+        selected={null}
+        onSelect={vi.fn()}
+        onPayInvoice={onPayInvoice}
+        onAdjustInvoice={onAdjustInvoice}
+        onSettleWithResidual={vi.fn()}
+        onUndoPayment={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole('button', { name: /Ambíguo · 4488/ })[0]);
+
+    expect(onPayInvoice).not.toHaveBeenCalled();
+    // Sem beco sem saída: o sheet abre, explica e mantém "Ajustar fatura…",
+    // que vai para /invoice-adjustments (endpoint deliberadamente sem 409).
+    expect(screen.getByText(/Mais de um cartão com esse final/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Desfazer pagamento' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Ajustar fatura…' }));
+    expect(onAdjustInvoice).toHaveBeenCalledWith('4488');
+  });
+
+  it('tap mobile em "a pagar" com `actions: ["pay"]` continua pagando direto', () => {
+    const onPayInvoice = vi.fn();
+
+    render(
+      <CartoesSection
+        projectId="pessoal-1"
+        cartoes={[cardAPagar({ actions: ['pay'] })]}
+        contas={[]}
+        selected={null}
+        onSelect={vi.fn()}
+        onPayInvoice={onPayInvoice}
+        onAdjustInvoice={vi.fn()}
+        onSettleWithResidual={vi.fn()}
+        onUndoPayment={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole('button', { name: /Ambíguo · 4488/ })[0]);
+    expect(onPayInvoice).toHaveBeenCalledWith('4488');
+  });
 });

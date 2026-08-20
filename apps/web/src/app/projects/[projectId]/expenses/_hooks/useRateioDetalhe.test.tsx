@@ -24,9 +24,6 @@ const DETALHE: RateioDetalhe = {
   totalSourceCents: 10000,
   rateadoCents: 10000,
   sobraCents: 0,
-  removedTargetsCount: 0,
-  hiddenTargetsCount: 0,
-  hiddenAllocationCents: 0,
   items: [
     {
       targetExpenseId: 'tgt-1',
@@ -55,6 +52,45 @@ describe('useRateioDetalhe', () => {
 
     expect(apiGet).toHaveBeenCalledWith('/projects/p1/expenses/src-1/rateio');
     expect(result.current.data).toEqual(DETALHE);
+  });
+
+  // #448 — contrato SOURCE-ONLY: `hiddenTargetsCount`/`hiddenAllocationCents`
+  // não existem no payload; o fixture canônico acima já é a forma atual. O hook
+  // é um passa-fio (`useQuery` + `api.get`), então ele NÃO filtra nem
+  // normaliza: quem decide o que renderizar é `_lib/rateio-partial`. Este caso
+  // fixa isso — um servidor velho continua atravessando sem perda, e a decisão
+  // de ignorar campo fora do contrato tem UM dono só.
+  it('o hook não normaliza o payload — campos extras de um servidor velho atravessam intactos', async () => {
+    const legado = {
+      ...DETALHE,
+      removedTargetsCount: 1,
+      hiddenTargetsCount: 2,
+      hiddenAllocationCents: 4000,
+    };
+    apiGet.mockResolvedValueOnce(legado);
+    const { result } = renderHook(() => useRateioDetalhe('p1', 'src-1'), { wrapper });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual(legado);
+  });
+
+  it('o hook não recalcula números — entrega os que vieram, inclusive em forma que o contrato não emite', async () => {
+    // Forma inesperada (lista que não fecha o total): R$ 400,00 declarados num
+    // total de R$ 1.000,00. O hook entrega exatamente isso, sem inventar a
+    // diferença nem "corrigir" a sobra.
+    const formaInesperada: RateioDetalhe = {
+      ...DETALHE,
+      totalSourceCents: 100_000,
+      rateadoCents: 40_000,
+      sobraCents: 60_000,
+      removedTargetsCount: 0,
+    };
+    apiGet.mockResolvedValueOnce(formaInesperada);
+    const { result } = renderHook(() => useRateioDetalhe('p1', 'src-1'), { wrapper });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.rateadoCents).toBe(40_000);
+    expect(result.current.data?.sobraCents).toBe(60_000);
   });
 
   it('não dispara a query quando expenseId é ausente', () => {
@@ -88,9 +124,6 @@ describe('useRateioTargetsBySource', () => {
     totalSourceCents: 100_000,
     rateadoCents: 100_000,
     sobraCents: 0,
-    removedTargetsCount: 0,
-    hiddenTargetsCount: 0,
-    hiddenAllocationCents: 0,
     items: [
       { targetExpenseId: 'tgt-telha', titulo: 'Telhas', fornecedor: null, projectId: 'p2', projectName: 'Reforma', projectType: 'REFORMA', allocationCents: 40_000, plannedValorTotalCents: null, status: 'PAGO' },
       { targetExpenseId: 'tgt-piso', titulo: 'Piso', fornecedor: null, projectId: 'p2', projectName: 'Reforma', projectType: 'REFORMA', allocationCents: 35_000, plannedValorTotalCents: null, status: 'PAGO' },
@@ -104,9 +137,6 @@ describe('useRateioTargetsBySource', () => {
     totalSourceCents: 5_000,
     rateadoCents: 0,
     sobraCents: 0,
-    removedTargetsCount: 0,
-    hiddenTargetsCount: 0,
-    hiddenAllocationCents: 0,
     items: [],
   };
 

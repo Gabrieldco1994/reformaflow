@@ -7,6 +7,7 @@ import { CreditCard, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { centsToReaisInput, currencyInputToCents, maskCurrencyInput } from '@/lib/currency-input';
+import { buildPayInvoicePayload, invoiceIdentityErrorMessage } from '../_lib';
 import type { AccountViewCardSummary, AccountViewConta } from '../_types';
 
 function todayKey() {
@@ -14,6 +15,15 @@ function todayKey() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
     now.getDate(),
   ).padStart(2, '0')}`;
+}
+
+/**
+ * Chave de seleção da conta de débito. Usa `accountId` quando a API o fornece
+ * (identidade estável) e cai no último4 na API antiga — o mesmo comportamento
+ * de hoje. Nunca some do DOM: o `<option>` sempre tem valor.
+ */
+function contaKey(conta: AccountViewConta) {
+  return conta.accountId?.trim() || conta.last4;
 }
 
 export function PagarFaturaDialog({
@@ -31,21 +41,32 @@ export function PagarFaturaDialog({
   const defaultAmount = card.faturaPendente > 0 ? card.faturaPendente : card.faturaAtual;
   const [valor, setValor] = useState(centsToReaisInput(defaultAmount));
   const [data, setData] = useState(todayKey());
-  const [bankLast4, setBankLast4] = useState(contas[0]?.last4 ?? '');
+  const [contaSelecionada, setContaSelecionada] = useState(
+    contas[0] ? contaKey(contas[0]) : '',
+  );
 
   useEffect(() => {
-    if (!bankLast4 && contas[0]) setBankLast4(contas[0].last4);
-  }, [contas, bankLast4]);
+    if (!contaSelecionada && contas[0]) setContaSelecionada(contaKey(contas[0]));
+  }, [contas, contaSelecionada]);
+
+  const conta = contas.find((item) => contaKey(item) === contaSelecionada) ?? null;
 
   const pay = useMutation({
-    mutationFn: () =>
-      api.post(`/projects/${projectId}/monthly-overview/pay-invoice`, {
-        cardLast4: card.last4,
-        month: card.dueMonth,
-        amountCents: currencyInputToCents(valor || '0'),
-        bankLast4,
-        paymentDate: data,
-      }),
+    mutationFn: () => {
+      if (!conta) throw new Error('Selecione a conta de onde o pagamento sai.');
+      // Identidade explícita quando a API a forneceu + último4 legado SEMPRE:
+      // é o que faz a ação completar tanto na API nova (id tem precedência)
+      // quanto na antiga (ignora chave desconhecida e resolve por último4).
+      return api.post(
+        `/projects/${projectId}/monthly-overview/pay-invoice`,
+        buildPayInvoicePayload({
+          card,
+          account: conta,
+          amountCents: currencyInputToCents(valor || '0'),
+          paymentDate: data,
+        }),
+      );
+    },
     onSuccess: () => {
       toast.success(`Pagamento da fatura ${card.nickname} registrado`);
       queryClient.invalidateQueries({ queryKey: ['account-view', projectId] });
@@ -53,7 +74,20 @@ export function PagarFaturaDialog({
       queryClient.invalidateQueries({ queryKey: ['dashboard', projectId] });
       onClose();
     },
-    onError: (e: Error) => toast.error(`Erro ao pagar fatura: ${e.message}`),
+    onError: (e: Error) => {
+      // Recusa de identidade: mensagem honesta + recarrega a Visão Conta para
+      // a próxima tentativa sair com a identidade fresca. NUNCA reenviamos o
+      // payload sem os ids (downgrade de identidade) — ver
+      // `invoiceIdentityErrorMessage`. O diálogo fica aberto e o botão volta a
+      // ficar clicável: sem CTA morta, sem falso sucesso.
+      const identityMessage = invoiceIdentityErrorMessage(e);
+      if (identityMessage) {
+        queryClient.invalidateQueries({ queryKey: ['account-view', projectId] });
+        toast.error(identityMessage);
+        return;
+      }
+      toast.error(`Erro ao pagar fatura: ${e.message}`);
+    },
   });
 
   const noAccounts = contas.length === 0;
@@ -111,12 +145,12 @@ export function PagarFaturaDialog({
             <label className="block">
               <span className="text-[11px] font-semibold text-lifeone-ink-3">Sai da conta</span>
               <select
-                value={bankLast4}
-                onChange={(e) => setBankLast4(e.target.value)}
+                value={contaSelecionada}
+                onChange={(e) => setContaSelecionada(e.target.value)}
                 className="mt-1 h-11 w-full rounded-xl border border-lifeone-hairline bg-lifeone-card px-3 text-sm text-lifeone-ink outline-none focus:border-lifeone-blue"
               >
                 {contas.map((conta) => (
-                  <option key={conta.last4} value={conta.last4}>
+                  <option key={contaKey(conta)} value={contaKey(conta)}>
                     {conta.nome} · ••{conta.last4}
                   </option>
                 ))}
@@ -135,7 +169,7 @@ export function PagarFaturaDialog({
 
             <button
               type="button"
-              disabled={pay.isPending || !bankLast4}
+              disabled={pay.isPending || !conta}
               onClick={() => pay.mutate()}
               className="h-11 w-full rounded-xl bg-lifeone-blue text-sm font-semibold text-[#FFFFFF] transition hover:bg-[#0857C4] disabled:opacity-60"
             >

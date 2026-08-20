@@ -15,6 +15,7 @@ import { PagarFaturaDialog } from '../../conta/_components/PagarFaturaDialog';
 import { QuitarParcelaModal } from '../../conta/_components/QuitarParcelaModal';
 import { ReceitaModal, type ReceitaEditing } from '../../conta/_components/ReceitaModal';
 import { AssociarContaModal } from './AssociarContaModal';
+import { invoicePayBlockedReason } from '../../conta/_lib';
 import type { AccountViewResponse } from '../../conta/_types';
 
 type QueueType =
@@ -173,6 +174,24 @@ export function PendenciasQueueCard({
     const cartoes = accountView?.cartoes ?? [];
     return cartoes.find((card) => card.last4 === payCardLast4) ?? null;
   }, [accountView?.cartoes, payCardLast4]);
+
+  /**
+   * Motivo pelo qual a fila NÃO oferece a ação, ou `null` (oferece).
+   *
+   * A fila é montada por `/pendencias`, que não conhece as capabilities da
+   * fatura; quem conhece é a Visão Conta. Quando ela DIZ que aquele cartão não
+   * aceita 'pay' — B1b (#448) manda `actions: []` em último4 ambíguo, cuja
+   * única resposta de `pay-invoice` é 409 —, o item vira texto em vez de botão.
+   * Só vetamos com informação positiva: sem `accountView` carregado, ou com o
+   * cartão fora do mês em tela, o comportamento é o de sempre e o erro honesto
+   * do diálogo continua sendo a rede de segurança.
+   */
+  const queueItemBlockedReason = (item: QueueItem): string | null => {
+    if (item.tipo !== 'FATURA_NAO_PAGA' || !item.cardLast4) return null;
+    const card = (accountView?.cartoes ?? []).find((c) => c.last4 === item.cardLast4);
+    if (!card) return null;
+    return invoicePayBlockedReason(card);
+  };
   const categoriaOptions = useMemo(() => getExpenseOptions(projectType), [projectType]);
 
   const refreshQueue = () => {
@@ -394,13 +413,19 @@ export function PendenciasQueueCard({
                           {formatCurrency(item.valor / 100)} · {new Date(item.data).toLocaleDateString('pt-BR')}
                         </p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleItemAction(item)}
-                        className="shrink-0 rounded-lg border border-lifeone-hairline px-2 py-1 text-[11px] font-semibold text-lifeone-blue hover:border-lifeone-blue"
-                      >
-                        {item.label}
-                      </button>
+                      {queueItemBlockedReason(item) ? (
+                        <span className="shrink-0 max-w-[52%] text-right text-[11px] font-medium text-[#B54708]">
+                          {queueItemBlockedReason(item)}
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleItemAction(item)}
+                          className="inline-flex min-h-[44px] shrink-0 items-center rounded-lg border border-lifeone-hairline px-2 py-1 text-[11px] font-semibold text-lifeone-blue hover:border-lifeone-blue"
+                        >
+                          {item.label}
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}

@@ -3,12 +3,20 @@ import { expect, test, type Page } from "@playwright/test";
 /**
  * QA (issue #423) — E2E do detalhe de rateio read-only.
  *
- * Contrato canônico (arquiteto, amendment de segurança
+ * CONTRATO ATUAL — SOURCE-ONLY (#448). Participante fora da lente ⇒ a resposta
+ * é a de uma compra nunca rateada. Sem lista parcial não há campo que declare o
+ * oculto nem número do qual derivá-lo, e `hiddenTargetsCount`/
+ * `hiddenAllocationCents` não existem no contrato. Quando vem lista, ela é
+ * completa: `rateadoCents` e `removedTargetsCount` cobrem todos os alvos. O
+ * gêmeo `e2e/invoice-identity-mixed-version.spec.ts` cobre identidades de
+ * fatura e as duas direções mixed-version.
+ *
+ * Contrato de referência (arquiteto, amendment de segurança
  * `security-tenant-lens`): `ExpenseService.getRateio` / `GET :id/rateio`,
  * payload `{ sourceExpenseId, rateado, totalSourceCents, rateadoCents,
- * sobraCents, removedTargetsCount, hiddenTargetsCount, hiddenAllocationCents,
- * items[] }`, cada item `{ targetExpenseId, titulo, fornecedor, projectName,
- * status, allocationCents, plannedValorTotalCents }`. N=0 (fonte sem
+ * sobraCents, removedTargetsCount, items[] }`, cada
+ * item `{ targetExpenseId, titulo, fornecedor, projectName, status,
+ * allocationCents, plannedValorTotalCents }`. N=0 (fonte sem
  * NENHUMA RateioAllocation) responde 200 `{ rateado: false, sobraCents:
  * totalSourceCents, items: [] }` — NUNCA 404 (404 é reservado para "despesa
  * não existe"). Toda chamada de rede é interceptada via `page.route`
@@ -17,13 +25,11 @@ import { expect, test, type Page } from "@playwright/test";
  *
  * Ganchos de teste (contrato §6.4, `RateioDetalheSection.tsx`):
  *   - `[data-testid="rateio-detalhe"]`  wrapper, com atributos NUMÉRICOS
- *     `data-total-cents` / `data-rateado-cents` / `data-sobra-cents` /
- *     `data-hidden-targets-count` / `data-hidden-allocation-cents`
- *     (contrato de dado, nunca depender de `R$ 12.771,00` renderizado)
- *   - `[data-testid="rateio-item"]`     uma linha por alocação VISÍVEL
- *   - `[data-testid="rateio-hidden"]`   linha informativa quando
- *     `hiddenTargetsCount > 0` (sem `role="alert"`, sem âmbar — oculto não
- *     é divergência: já está dentro de `rateadoCents`)
+ *     `data-total-cents` / `data-rateado-cents` / `data-sobra-cents`
+ *     (contrato de dado, nunca depender de `R$ 12.771,00` renderizado).
+ *     NÃO existe atributo de metadata oculta — emitir um seria publicar no DOM
+ *     exatamente o que o contrato parou de emitir no JSON.
+ *   - `[data-testid="rateio-item"]`     uma linha por alocação listada
  *   - `[data-testid="rateio-loading"]`  estado de carregamento
  *   - `[data-testid="rateio-error"]` + `[data-testid="rateio-retry"]`
  *   - `[data-testid="vinculos-cross-project-editor"]` widget MUTÁVEL de
@@ -71,28 +77,27 @@ function nineAllocationItems() {
   }));
 }
 
-/** Payload canônico do GET :id/rateio (contrato §6.1/§6.2 do arquiteto). */
+/**
+ * Payload do GET :id/rateio. `rateadoCents` é Σ dos itens declarados e a sobra
+ * é o resto — não existe contagem nem soma de participante fora da lente, então
+ * a fixture não tem "modo oculto". Passar menos itens não simula um viewer
+ * restrito: simula uma FORMA que o contrato não emite, usada só para provar que
+ * a tela aguenta.
+ */
 function rateioDetailPayload(opts?: {
   items?: ReturnType<typeof nineAllocationItems>;
-  hiddenTargetsCount?: number;
-  hiddenAllocationCents?: number;
   removedTargetsCount?: number;
 }) {
   const items = opts?.items ?? nineAllocationItems();
-  const hiddenTargetsCount = opts?.hiddenTargetsCount ?? 0;
-  const hiddenAllocationCents = opts?.hiddenAllocationCents ?? 0;
   const removedTargetsCount = opts?.removedTargetsCount ?? 0;
-  const visibleCents = items.reduce((s, it) => s + it.allocationCents, 0);
-  const rateadoCents = visibleCents + hiddenAllocationCents; // I-A/I-D
+  const rateadoCents = items.reduce((s, it) => s + it.allocationCents, 0);
   return {
     sourceExpenseId: sourceId,
-    rateado: true,
+    rateado: items.length > 0 || removedTargetsCount > 0,
     totalSourceCents: TOTAL_CENTS,
     rateadoCents,
     sobraCents: TOTAL_CENTS - rateadoCents,
     removedTargetsCount,
-    hiddenTargetsCount,
-    hiddenAllocationCents,
     items,
   };
 }
@@ -106,8 +111,6 @@ function rateioEmptyPayload() {
     rateadoCents: 0,
     sobraCents: TOTAL_CENTS,
     removedTargetsCount: 0,
-    hiddenTargetsCount: 0,
-    hiddenAllocationCents: 0,
     items: [],
   };
 }
@@ -805,8 +808,9 @@ test.describe("Detalhe de rateio read-only (#423) — Visão Conta", () => {
     expect(Number(totalCents)).toBe(TOTAL_CENTS);
     expect(Number(rateadoCents)).toBe(TOTAL_CENTS);
     expect(Number(sobraCents)).toBe(0);
-    expect(Number(hiddenCount)).toBe(0);
-    expect(Number(hiddenCents)).toBe(0);
+    // Os atributos de metadata oculta não existem — nem zerados.
+    expect(hiddenCount).toBeNull();
+    expect(hiddenCents).toBeNull();
   });
 
   test("bug do primeiro-alvo-só: as 9 linhas aparecem, não só a despesa de linkedExpenseId (tgt-0)", async ({
@@ -948,40 +952,40 @@ test.describe("Detalhe de rateio read-only (#423) — Visão Conta", () => {
     ).toBeVisible();
   });
 
-  test("viewer restrito: 8 de 9 alocações ocultas — nenhum título/projeto alheio no DOM", async ({
+  test("lista incompleta: a tela renderiza o que veio e nada do alvo alheio vaza no DOM", async ({
     page,
   }) => {
-    // Cenário do contrato (§7.7): usuário sem lente sobre a OBRA vê só o
-    // alvo que ele enxerga; os outros 8 viram contador agregado — nunca
-    // linhas redigidas (I-E: nenhum campo de alvo oculto vaza, nem sequer
-    // targetExpenseId).
+    // ROBUSTEZ DE FORMA, não afirmação de contrato: 1 item declarado num total
+    // de 9 é uma resposta que o contrato não emite. O que se cobra aqui é que a
+    // tela aguente e não vaze — ela renderiza exatamente os números que
+    // chegaram, sem inventar contagem, linha ou atributo do que não veio, e
+    // nenhum campo de alvo ausente (nem sequer `targetExpenseId`) aparece no
+    // DOM vindo de outra fonte de dados da página.
     const visibleItem = nineAllocationItems()[0];
-    const hiddenAllocationCents = TOTAL_CENTS - visibleItem.allocationCents; // 1_134_700
-    const payload = rateioDetailPayload({
-      items: [visibleItem],
-      hiddenTargetsCount: 8,
-      hiddenAllocationCents,
-    });
+    const payload = rateioDetailPayload({ items: [visibleItem] });
     await mockApi(page, { rateioPayload: payload });
     await openConta(page);
     await page.getByRole("button", { name: "Compras TelhaNorte" }).click();
 
     const detalhe = page.locator('[data-testid="rateio-detalhe"]');
     await expect(detalhe).toBeVisible();
-    await expect(detalhe).toHaveAttribute("data-hidden-targets-count", "8");
-    await expect(detalhe).toHaveAttribute(
-      "data-hidden-allocation-cents",
-      String(hiddenAllocationCents),
-    );
     await expect(page.locator('[data-testid="rateio-item"]')).toHaveCount(1);
-    // I-A: identidade do dinheiro se mantém mesmo com 8 ocultos — sobra continua 0.
-    await expect(detalhe).toHaveAttribute("data-sobra-cents", "0");
+
+    // Σ do que foi declarado, lido direto do payload — a tela não recalcula
+    // nem completa o que falta.
     await expect(detalhe).toHaveAttribute(
       "data-rateado-cents",
-      String(TOTAL_CENTS),
+      String(visibleItem.allocationCents),
     );
+    await expect(detalhe).toHaveAttribute(
+      "data-sobra-cents",
+      String(TOTAL_CENTS - visibleItem.allocationCents),
+    );
+    // Nenhum atributo/linha de metadata oculta — nem zerado.
+    await expect(detalhe).not.toHaveAttribute("data-hidden-targets-count", /.*/);
+    await expect(page.locator('[data-testid="rateio-hidden"]')).toHaveCount(0);
 
-    // I-E: nenhum nome/título/id de alvo oculto vaza para o DOM.
+    // Nenhum nome/título/id de alvo ausente vaza para o DOM.
     await expect(page.locator("body")).not.toContainText("Obra do Vizinho");
     for (let i = 1; i < 9; i += 1) {
       await expect(page.locator("body")).not.toContainText(
@@ -997,37 +1001,32 @@ test.describe("Detalhe de rateio read-only (#423) — Visão Conta", () => {
       expect(idsInDom).not.toContain(`tgt-${i}`);
     }
 
-    // Linha informativa de ocultos, sem virar alerta de divergência. Escopo
-    // no `detalhe` — `page.getByRole("alert")` sozinho também casaria com a
-    // região `aria-live` sempre presente do `<Toaster>` (sonner) no layout
-    // raiz, que nada tem a ver com a seção de rateio.
-    await expect(page.locator('[data-testid="rateio-hidden"]')).toBeVisible();
-    await expect(detalhe.getByRole("alert")).toHaveCount(0);
+    // Sobra != 0 renderiza, mas a frase não pode denunciar que existe
+    // participante escondido — senão o vazamento reabre pela copy.
+    const alerta = detalhe.getByRole("alert");
+    await expect(alerta).toBeVisible();
+    await expect(alerta).toContainText("sem alocação em planejadas");
+    await expect(alerta).not.toContainText(/você vê|vis[íi]ve|oculta|sem acesso/i);
   });
 
-  test("N=0 com alocações ocultas: hiddenTargetsCount > 0 mostra totais e a linha de ocultos, nunca em branco", async ({
+  test("todos os alvos fora da lente: `rateado: false` — a resposta é a de uma compra NUNCA rateada", async ({
     page,
   }) => {
-    // Fronteira: TODOS os alvos ativos estão fora da lente — `items: []`,
-    // mas `rateado: true` (ele sabe que a compra dele foi rateada). A
-    // seção NÃO pode cair no `return null` (que é só para `!rateado`).
-    const payload = rateioDetailPayload({
-      items: [],
-      hiddenTargetsCount: 9,
-      hiddenAllocationCents: TOTAL_CENTS,
-    });
+    // Participante fora da lente ⇒ a resposta é a de uma compra nunca rateada,
+    // e a seção some. Isso é o comportamento CORRETO, não uma tela em branco
+    // por bug: anunciar "alguém dividiu isto com você" já seria a própria flag
+    // denunciando a relação. O que precisa continuar de pé é a tela.
+    const payload = rateioDetailPayload({ items: [] });
+    expect(payload.rateado).toBe(false);
     await mockApi(page, { rateioPayload: payload });
     await openConta(page);
     await page.getByRole("button", { name: "Compras TelhaNorte" }).click();
 
-    const detalhe = page.locator('[data-testid="rateio-detalhe"]');
-    await expect(detalhe).toBeVisible();
-    await expect(page.locator('[data-testid="rateio-item"]')).toHaveCount(0);
-    await expect(detalhe).toHaveAttribute("data-hidden-targets-count", "9");
-    await expect(detalhe).toHaveAttribute("data-sobra-cents", "0");
-    await expect(page.locator('[data-testid="rateio-hidden"]')).toContainText(
-      "9",
-    );
+    await expect(page.locator('[data-testid="rateio-detalhe"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="rateio-error"]')).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Salvar" })).toBeVisible();
+    await expect(page.locator("body")).not.toContainText("NaN");
+    await expect(page.locator("body")).not.toContainText("Obra do Vizinho");
   });
 
   for (const width of [375, 390]) {

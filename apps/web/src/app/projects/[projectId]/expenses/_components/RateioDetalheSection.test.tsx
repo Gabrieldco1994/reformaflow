@@ -3,15 +3,24 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { RateioDetalheSection } from './RateioDetalheSection';
 import type { RateioDetalhe } from '../_hooks/useRateioDetalhe';
 
+/**
+ * Contrato SOURCE-ONLY (#448) do detalhe de rateio.
+ *
+ * Participante fora da lente ⇒ a resposta é a de uma compra nunca rateada. Sem
+ * lista parcial não há campo que declare o oculto nem número do qual derivá-lo;
+ * `hiddenTargetsCount`/`hiddenAllocationCents` não existem no contrato. Este
+ * arquivo prova que a renderização não depende de campo que o servidor não
+ * manda, não vira `R$ NaN`, não fabrica alarme — e que a copy não insinua que
+ * existe algo oculto (isso reabriria pelo texto o vazamento que o payload
+ * fechou).
+ */
+
 const BASE_DETALHE: RateioDetalhe = {
   sourceExpenseId: 'src-1',
   rateado: true,
   totalSourceCents: 20000,
   rateadoCents: 20000,
   sobraCents: 0,
-  removedTargetsCount: 0,
-  hiddenTargetsCount: 0,
-  hiddenAllocationCents: 0,
   items: [
     {
       targetExpenseId: 'tgt-1',
@@ -130,10 +139,10 @@ describe('RateioDetalheSection', () => {
         onRetry={vi.fn()}
       />,
     );
-    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('1 planejada removida deste rateio.');
   });
 
-  it('mostra warning quando sobra != 0', () => {
+  it('sobra != 0 avisa SEM acusar defeito de dado (viewer restrito vê sobra legítima)', () => {
     render(
       <RateioDetalheSection
         isLoading={false}
@@ -142,7 +151,13 @@ describe('RateioDetalheSection', () => {
         onRetry={vi.fn()}
       />,
     );
-    expect(screen.getByRole('alert')).toBeInTheDocument();
+    // Sob o contrato source-only a sobra do viewer restrito é a leitura CORRETA
+    // de "esse dinheiro não está alocado" — não é erro dele, e a frase não pode
+    // soar como se fosse NEM sugerir que há participante escondido.
+    const alerta = screen.getByRole('alert');
+    expect(alerta).toHaveTextContent('Esta compra tem R$ 5,00 sem alocação em planejadas.');
+    expect(screen.queryByText(/não fecha o total/i)).not.toBeInTheDocument();
+    expect(alerta.textContent ?? '').not.toMatch(/você vê|vis[íi]ve|oculta|escondid|sem acesso/i);
   });
 
   it('não mostra warning quando removedTargetsCount=0 e sobra=0', () => {
@@ -151,53 +166,54 @@ describe('RateioDetalheSection', () => {
   });
 
   it('expõe o contrato numérico em data-attributes (nunca depender do BRL renderizado)', () => {
-    render(
-      <RateioDetalheSection
-        isLoading={false}
-        isError={false}
-        detalhe={{ ...BASE_DETALHE, hiddenTargetsCount: 1, hiddenAllocationCents: 5000 }}
-        onRetry={vi.fn()}
-      />,
-    );
+    render(<RateioDetalheSection isLoading={false} isError={false} detalhe={BASE_DETALHE} onRetry={vi.fn()} />);
     const box = screen.getByTestId('rateio-detalhe');
     expect(box).toHaveAttribute('data-total-cents', '20000');
     expect(box).toHaveAttribute('data-rateado-cents', '20000');
     expect(box).toHaveAttribute('data-sobra-cents', '0');
-    expect(box).toHaveAttribute('data-hidden-targets-count', '1');
-    expect(box).toHaveAttribute('data-hidden-allocation-cents', '5000');
   });
 
-  it('alocações ocultas aparecem como linha informativa — e não como alerta de divergência', () => {
-    render(
-      <RateioDetalheSection
-        isLoading={false}
-        isError={false}
-        detalhe={{ ...BASE_DETALHE, hiddenTargetsCount: 2, hiddenAllocationCents: 40000 }}
-        onRetry={vi.fn()}
-      />,
-    );
-    expect(screen.getByTestId('rateio-hidden')).toBeInTheDocument();
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument(); // sobra = 0 ⇒ nada de âmbar
-  });
-
-  it('todos os alvos ocultos: NÃO fica em branco — mostra totais e a linha de ocultos', () => {
-    render(
-      <RateioDetalheSection
-        isLoading={false}
-        isError={false}
-        detalhe={{ ...BASE_DETALHE, items: [], hiddenTargetsCount: 9, hiddenAllocationCents: 20000 }}
-        onRetry={vi.fn()}
-      />,
-    );
-    expect(screen.getByTestId('rateio-detalhe')).toBeInTheDocument();
-    expect(screen.queryAllByTestId('rateio-item')).toHaveLength(0);
-    expect(screen.getByTestId('rateio-hidden')).toHaveTextContent(/9/);
-  });
-
-  it('sem ocultos, nenhuma linha de ocultos é renderizada (fronteira 0)', () => {
-    render(<RateioDetalheSection isLoading={false} isError={false} detalhe={BASE_DETALHE} onRetry={vi.fn()} />);
+  it('nenhum data-attribute de metadata oculta é emitido — nem contra API pré-#448', () => {
+    // Intenção preservada do caso legado: o servidor VELHO ainda manda
+    // `hiddenTargetsCount`/`hiddenAllocationCents`. O bundle novo tem que
+    // ignorá-los por completo — renderizá-los seria publicar metadata que o
+    // contrato atual decidiu não emitir.
+    const legado = {
+      ...BASE_DETALHE,
+      hiddenTargetsCount: 2,
+      hiddenAllocationCents: 40000,
+    } as unknown as RateioDetalhe;
+    render(<RateioDetalheSection isLoading={false} isError={false} detalhe={legado} onRetry={vi.fn()} />);
+    const box = screen.getByTestId('rateio-detalhe');
+    expect(box).not.toHaveAttribute('data-hidden-targets-count');
+    expect(box).not.toHaveAttribute('data-hidden-allocation-cents');
     expect(screen.queryByTestId('rateio-hidden')).not.toBeInTheDocument();
-    expect(screen.getAllByTestId('rateio-item')).toHaveLength(2);
+    expect(box.textContent ?? '').not.toMatch(/oculta|sem acesso|R\$ 400,00/i);
+  });
+
+  it('`rateado: false` não renderiza a seção', () => {
+    // Participante fora da lente ⇒ a resposta é a de uma compra nunca rateada:
+    // a seção some, em vez de anunciar "alguém dividiu isto com você".
+    // `sobraCents` chega igual ao total; nada disso pode virar aviso, âmbar ou
+    // valor na tela.
+    const { container } = render(
+      <RateioDetalheSection
+        isLoading={false}
+        isError={false}
+        detalhe={{
+          ...BASE_DETALHE,
+          rateado: false,
+          items: [],
+          removedTargetsCount: 0,
+          rateadoCents: 0,
+          sobraCents: BASE_DETALHE.totalSourceCents,
+        }}
+        onRetry={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId('rateio-detalhe')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(container).toBeEmptyDOMElement();
   });
 
   it('cada <li> de item expõe data-target-expense-id para navegação e2e', () => {
@@ -206,5 +222,70 @@ describe('RateioDetalheSection', () => {
     expect(items).toHaveLength(2);
     expect(items[0]).toHaveAttribute('data-target-expense-id', 'tgt-1');
     expect(items[1]).toHaveAttribute('data-target-expense-id', 'tgt-2');
+  });
+});
+
+/**
+ * Robustez de FORMA — não é afirmação de contrato.
+ *
+ * O que o servidor manda está fixado acima. Este bloco faz o contrário: entrega
+ * ao componente formas que ele NÃO deveria receber — lista que não fecha o
+ * total, centavos ausentes, lista vazia — e cobra só que ele aguente. Nada de
+ * `R$ NaN`, nada de linha ou atributo de "ocultos" inventado a partir de campo
+ * que ninguém mandou, nada de quebrar.
+ *
+ * Nenhum caso aqui afirma o que o web deve FAZER com uma resposta dessas. Quem
+ * redige a resposta é o servidor; replicar essa regra no cliente é exatamente
+ * como as duas metades divergem depois.
+ */
+describe('RateioDetalheSection · robustez de forma', () => {
+  /** Forma inesperada: 1 alvo de R$ 120,00 declarado num total de R$ 200,00. */
+  const FORMA_INESPERADA: RateioDetalhe = {
+    sourceExpenseId: 'src-1',
+    rateado: true,
+    totalSourceCents: 20000,
+    rateadoCents: 12000,
+    sobraCents: 8000,
+    items: [BASE_DETALHE.items[0]],
+  };
+
+  it('renderiza os itens que vieram e nada de NaN', () => {
+    const { container } = render(
+      <RateioDetalheSection isLoading={false} isError={false} detalhe={FORMA_INESPERADA} onRetry={vi.fn()} />,
+    );
+    expect(screen.getAllByTestId('rateio-item')).toHaveLength(1);
+    expect(container.textContent).not.toMatch(/NaN/);
+  });
+
+  it('não inventa linha de ocultos nem data-attributes que o servidor não mandou', () => {
+    render(<RateioDetalheSection isLoading={false} isError={false} detalhe={FORMA_INESPERADA} onRetry={vi.fn()} />);
+    expect(screen.queryByTestId('rateio-hidden')).not.toBeInTheDocument();
+    const box = screen.getByTestId('rateio-detalhe');
+    expect(box).not.toHaveAttribute('data-hidden-targets-count');
+    expect(box).not.toHaveAttribute('data-hidden-allocation-cents');
+  });
+
+  it('lista vazia não quebra a renderização nem vira alarme', () => {
+    const semItens: RateioDetalhe = { ...FORMA_INESPERADA, items: [] };
+    const { container } = render(
+      <RateioDetalheSection isLoading={false} isError={false} detalhe={semItens} onRetry={vi.fn()} />,
+    );
+    expect(screen.getByTestId('rateio-detalhe')).toBeInTheDocument();
+    expect(screen.queryAllByTestId('rateio-item')).toHaveLength(0);
+    expect(container.textContent).not.toMatch(/NaN/);
+  });
+
+  it('centavos ausentes viram "—" em vez de R$ NaN', () => {
+    const semNumeros = {
+      ...FORMA_INESPERADA,
+      rateadoCents: undefined,
+      sobraCents: undefined,
+    } as unknown as RateioDetalhe;
+    const { container } = render(
+      <RateioDetalheSection isLoading={false} isError={false} detalhe={semNumeros} onRetry={vi.fn()} />,
+    );
+    expect(container.textContent).not.toMatch(/NaN/);
+    expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });

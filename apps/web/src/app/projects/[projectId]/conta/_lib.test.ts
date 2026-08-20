@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildPayInvoicePayload,
+  buildUndoInvoicePaymentPayload,
   computeMovementTotals,
   groupByMovementDay,
   groupByMovementMonth,
+  invoiceActionAllowed,
+  invoiceIdentityErrorMessage,
+  invoicePayBlockedReason,
   originLast4FromKey,
 } from './_lib';
 import type { AccountViewMovimentacao } from './_types';
@@ -156,5 +161,240 @@ describe('groupByMovementDay — o mês não regride', () => {
       { id: 'b', data: '2026-07-16T00:00:00.000Z' },
     ]);
     expect(groups.map((g) => g.day)).toEqual(['2026-07-17', '2026-07-16']);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// W1 (#448): identidades explícitas de fatura no payload das mutações de
+// dinheiro (`pay-invoice` / `undo-invoice-payment`).
+//
+// Contrato mixed-version (os dois deploys NÃO são atômicos):
+//  - API nova: `cardId`/`accountId` têm precedência sobre o último4; mismatch
+//    com o último4 (ou id cross-tenant) é 400 ANTES da ACL.
+//  - API antiga: o `@Body()` daquelas rotas é um objeto inline (metatype
+//    `Object`), então o `ValidationPipe` global NÃO valida e as chaves
+//    desconhecidas são ignoradas — o último4 legado ainda resolve.
+// Logo o payload manda SEMPRE o último4 legado E o id quando existir; nunca
+// só o id (a API antiga responderia "Cartão obrigatório") e nunca `null`/`''`
+// (a API nova trataria como chave de busca).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('buildPayInvoicePayload — identidade explícita quando disponível', () => {
+  const account = { accountId: 'acc-1', last4: '9876' };
+  const card = { cardId: 'card-1', last4: '1234', dueMonth: '2026-07' };
+
+  it('envia cardId e accountId JUNTO do último4 legado quando a API os forneceu', () => {
+    expect(
+      buildPayInvoicePayload({ card, account, amountCents: 12_345, paymentDate: '2026-07-10' }),
+    ).toEqual({
+      cardId: 'card-1',
+      cardLast4: '1234',
+      month: '2026-07',
+      amountCents: 12_345,
+      accountId: 'acc-1',
+      bankLast4: '9876',
+      paymentDate: '2026-07-10',
+    });
+  });
+
+  it('OMITE as chaves de id (não manda null/vazio) quando a API antiga não as forneceu', () => {
+    const payload = buildPayInvoicePayload({
+      card: { last4: '1234', dueMonth: '2026-07' },
+      account: { last4: '9876' },
+      amountCents: 12_345,
+      paymentDate: '2026-07-10',
+    });
+
+    expect(Object.keys(payload).sort()).toEqual(
+      ['amountCents', 'bankLast4', 'cardLast4', 'month', 'paymentDate'].sort(),
+    );
+    expect('cardId' in payload).toBe(false);
+    expect('accountId' in payload).toBe(false);
+  });
+
+  it('degrada byte-a-byte para o payload legado quando não há id nenhum', () => {
+    const payload = buildPayInvoicePayload({
+      card: { cardId: null, last4: '1234', dueMonth: '2026-07' },
+      account: { accountId: '   ', last4: '9876' },
+      amountCents: 12_345,
+      paymentDate: '2026-07-10',
+    });
+
+    // Exatamente o corpo que o bundle antigo mandava — nenhuma chave a mais.
+    expect(JSON.parse(JSON.stringify(payload))).toEqual({
+      cardLast4: '1234',
+      month: '2026-07',
+      amountCents: 12_345,
+      bankLast4: '9876',
+      paymentDate: '2026-07-10',
+    });
+  });
+
+  it('manda o id de UM lado só quando só um lado tem identidade', () => {
+    const payload = buildPayInvoicePayload({
+      card,
+      account: { last4: '9876' },
+      amountCents: 100,
+      paymentDate: '2026-07-10',
+    });
+    expect(payload.cardId).toBe('card-1');
+    expect('accountId' in payload).toBe(false);
+    expect(payload.bankLast4).toBe('9876');
+  });
+
+  it('nunca deixa o último4 legado de fora, mesmo com os dois ids presentes', () => {
+    const payload = buildPayInvoicePayload({
+      card,
+      account,
+      amountCents: 100,
+      paymentDate: '2026-07-10',
+    });
+    expect(payload.cardLast4).toBe('1234');
+    expect(payload.bankLast4).toBe('9876');
+  });
+
+  it('trima o id e usa o mês explícito quando informado', () => {
+    const payload = buildPayInvoicePayload({
+      card: { cardId: ' card-1 ', last4: '1234', dueMonth: '2026-07' },
+      account,
+      amountCents: 100,
+      paymentDate: '2026-07-10',
+      month: '2026-08',
+    });
+    expect(payload.cardId).toBe('card-1');
+    expect(payload.month).toBe('2026-08');
+  });
+});
+
+describe('buildUndoInvoicePaymentPayload — identidade explícita quando disponível', () => {
+  it('envia cardId junto do último4 legado', () => {
+    expect(
+      buildUndoInvoicePaymentPayload({ cardId: 'card-1', last4: '1234', dueMonth: '2026-07' }),
+    ).toEqual({ cardId: 'card-1', cardLast4: '1234', dueMonth: '2026-07' });
+  });
+
+  it('degrada para o payload legado quando a API antiga não mandou cardId', () => {
+    const payload = buildUndoInvoicePaymentPayload({ last4: '1234', dueMonth: '2026-07' });
+    expect(JSON.parse(JSON.stringify(payload))).toEqual({
+      cardLast4: '1234',
+      dueMonth: '2026-07',
+    });
+    expect('cardId' in payload).toBe(false);
+  });
+});
+
+describe('invoiceIdentityErrorMessage — erro honesto, nunca downgrade silencioso', () => {
+  it('traduz o 400 de mismatch id×último4 em "os dados mudaram, atualize"', () => {
+    const message = invoiceIdentityErrorMessage({
+      status: 400,
+      message: 'cardId e cardLast4 não correspondem ao mesmo cartão.',
+    });
+    expect(message).toMatch(/atualize/i);
+    expect(message).not.toMatch(/cardId/);
+  });
+
+  it('traduz o mismatch de conta também', () => {
+    expect(
+      invoiceIdentityErrorMessage({
+        status: 400,
+        message: 'accountId e bankLast4 não correspondem à mesma conta.',
+      }),
+    ).toMatch(/atualize/i);
+  });
+
+  it('traduz a recusa de propriedade desconhecida (API que não conhece os ids)', () => {
+    const message = invoiceIdentityErrorMessage({
+      status: 400,
+      message: 'property cardId should not exist',
+    });
+    expect(message).toMatch(/servidor/i);
+    expect(message).toMatch(/atualize/i);
+  });
+
+  it('devolve null para erro que não é de identidade — a mensagem do servidor prevalece', () => {
+    expect(invoiceIdentityErrorMessage({ status: 400, message: 'Valor da fatura inválido.' })).toBeNull();
+    expect(invoiceIdentityErrorMessage({ status: 404, message: 'Cartão não encontrado.' })).toBeNull();
+    expect(invoiceIdentityErrorMessage({ status: 500, message: 'boom' })).toBeNull();
+    expect(invoiceIdentityErrorMessage(new Error('offline'))).toBeNull();
+    expect(invoiceIdentityErrorMessage(null)).toBeNull();
+  });
+});
+
+describe('invoiceIdentityErrorMessage — 409 de final ambíguo (B1b #448)', () => {
+  it('traduz "Cartão ambíguo" em erro acionável, sem inventar contagem de duplicatas', () => {
+    const message = invoiceIdentityErrorMessage({ status: 409, message: 'Cartão ambíguo' });
+    expect(message).toMatch(/cart[ãa]o/i);
+    expect(message).toMatch(/cadastro|duplicid/i);
+    // A mensagem do servidor é deliberadamente terse: não revela QUANTAS
+    // duplicatas existem nem quais. A do web não pode ser mais indiscreta.
+    expect(message).not.toMatch(/\b\d+\b/);
+  });
+
+  it('traduz "Conta ambígua" com o mesmo vocabulário', () => {
+    const message = invoiceIdentityErrorMessage({ status: 409, message: 'Conta ambígua' });
+    expect(message).toMatch(/conta/i);
+    expect(message).toMatch(/cadastro|duplicid/i);
+  });
+
+  it('devolve null para 409 que não é de ambiguidade — mensagem do servidor prevalece', () => {
+    expect(invoiceIdentityErrorMessage({ status: 409, message: 'Fatura já paga.' })).toBeNull();
+  });
+});
+
+describe('invoiceActionAllowed — capabilities do servidor VETAM, nunca concedem', () => {
+  it('API antiga (sem `actions`) preserva a derivação local, byte-a-byte', () => {
+    expect(invoiceActionAllowed({}, 'pay', true)).toBe(true);
+    expect(invoiceActionAllowed({}, 'pay', false)).toBe(false);
+    expect(invoiceActionAllowed({ actions: undefined }, 'undo', true)).toBe(true);
+    expect(invoiceActionAllowed({ actions: null }, 'undo', true)).toBe(true);
+    expect(invoiceActionAllowed(undefined, 'undo', true)).toBe(true);
+  });
+
+  it('veta a CTA quando o servidor manda `actions` sem o verbo', () => {
+    // Final ambíguo (B1b): a fatura não oferece verbo NENHUM porque
+    // `payInvoice`/`undoInvoicePayment` responderiam 409 por último4.
+    expect(invoiceActionAllowed({ actions: [] }, 'pay', true)).toBe(false);
+    expect(invoiceActionAllowed({ actions: [] }, 'undo', true)).toBe(false);
+    expect(invoiceActionAllowed({ actions: ['pay'] }, 'undo', true)).toBe(false);
+  });
+
+  it('mantém a CTA quando servidor e regra local concordam', () => {
+    expect(invoiceActionAllowed({ actions: ['pay'] }, 'pay', true)).toBe(true);
+    expect(invoiceActionAllowed({ actions: ['pay', 'undo'] }, 'undo', true)).toBe(true);
+  });
+
+  it('NUNCA concede: `actions` do servidor não ressuscita CTA que a regra local nega', () => {
+    expect(invoiceActionAllowed({ actions: ['pay', 'undo'] }, 'pay', false)).toBe(false);
+    expect(invoiceActionAllowed({ actions: ['undo'] }, 'undo', false)).toBe(false);
+  });
+
+  it('ignora verbo desconhecido de uma API mais nova sem quebrar', () => {
+    expect(invoiceActionAllowed({ actions: ['settle' as 'pay'] }, 'pay', true)).toBe(false);
+    expect(invoiceActionAllowed({ actions: ['settle' as 'pay', 'pay'] }, 'pay', true)).toBe(true);
+  });
+});
+
+describe('invoicePayBlockedReason — o veto precisa dizer a verdade sobre o motivo', () => {
+  it('não inventa motivo contra API antiga nem quando pagar está autorizado', () => {
+    expect(invoicePayBlockedReason({ faturaPendente: 100 })).toBeNull();
+    expect(invoicePayBlockedReason({ actions: null, faturaPendente: 100 })).toBeNull();
+    expect(invoicePayBlockedReason({ actions: ['pay'], faturaPendente: 100 })).toBeNull();
+    expect(invoicePayBlockedReason(null)).toBeNull();
+  });
+
+  it('com pendente > 0 e sem `pay`, o único motivo restante do servidor é o final ambíguo', () => {
+    expect(invoicePayBlockedReason({ actions: [], faturaPendente: 45_000 })).toMatch(
+      /mais de um cartão com esse final/i,
+    );
+  });
+
+  it('sem pendente NÃO acusa duplicidade — o servidor omite `pay` por não haver o que pagar', () => {
+    const semPendente = invoicePayBlockedReason({ actions: [], faturaPendente: 0 });
+    expect(semPendente).toMatch(/já consta paga/i);
+    expect(semPendente).not.toMatch(/mais de um/i);
+  });
+
+  it('não publica CONTAGEM de duplicatas (metadata que o servidor decidiu não expor)', () => {
+    expect(invoicePayBlockedReason({ actions: [], faturaPendente: 1 })).not.toMatch(/\d/);
   });
 });

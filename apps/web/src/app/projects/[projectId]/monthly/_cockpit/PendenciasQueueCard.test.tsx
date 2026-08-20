@@ -336,4 +336,119 @@ describe('PendenciasQueueCard', () => {
       });
     });
   });
+
+  // --- B1b (#448): capabilities da Visão Conta vetando a CTA da fila ---
+  //
+  // A fila (`/pendencias/financeiras`) não conhece capabilities de fatura; quem
+  // conhece é `account-view`. Sem o veto, um cartão de último4 ambíguo mostraria
+  // "Pagar fatura" cuja única resposta possível é 409.
+  function faturaQueue() {
+    return {
+      total: 1,
+      grupos: [
+        {
+          tipo: 'FATURA_NAO_PAGA',
+          label: 'Fatura não paga',
+          count: 1,
+          valorTotal: 45000,
+          itens: [
+            {
+              id: 'i-fatura',
+              tipo: 'FATURA_NAO_PAGA',
+              label: 'Pagar fatura',
+              descricao: 'Fatura Nubank',
+              valor: 45000,
+              data: '2026-08-20T00:00:00.000Z',
+              cardLast4: '4488',
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  function cardSummary(over: Record<string, unknown> = {}) {
+    return {
+      cardId: 'card-1',
+      nickname: 'Nubank',
+      last4: '4488',
+      faturaAtual: 45000,
+      faturaPendente: 45000,
+      faturaPaga: 0,
+      residualDeclarado: 0,
+      possuiIntervencaoManual: false,
+      ajusteManualTotal: 0,
+      dueMonth: '2026-08',
+      vencimento: '2026-08-20',
+      status: 'a pagar',
+      limiteUsadoPct: null,
+      limiteUsado: null,
+      limiteTotal: null,
+      ...over,
+    };
+  }
+
+  it('final ambíguo (actions: []) troca o botão por aviso de duplicidade, sem POST', async () => {
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url.includes('/pendencias/financeiras')) return faturaQueue();
+      if (url.includes('/monthly-overview/account-view')) {
+        return { cartoes: [cardSummary({ actions: [], cardId: null })], contas: [] };
+      }
+      return null;
+    });
+
+    renderWithQuery(<PendenciasQueueCard projectId="p1" monthKey="2026-08" projectType="PESSOAL" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Resolver/i }));
+
+    expect(await screen.findByText(/Mais de um cartão com esse final/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Pagar fatura$/ })).not.toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('sem pendente (fila velha, fatura já paga) NÃO acusa duplicidade — diz que a fatura já consta paga', async () => {
+    // `actions` sem 'pay' tem DOIS motivos possíveis no servidor: final ambíguo
+    // OU fatura sem saldo pendente. Publicar "mais de um cartão com esse final"
+    // no segundo caso seria mentir para o usuário.
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url.includes('/pendencias/financeiras')) return faturaQueue();
+      if (url.includes('/monthly-overview/account-view')) {
+        return {
+          cartoes: [
+            cardSummary({
+              actions: [],
+              faturaPendente: 0,
+              faturaPaga: 45000,
+              status: 'paga',
+            }),
+          ],
+          contas: [],
+        };
+      }
+      return null;
+    });
+
+    renderWithQuery(<PendenciasQueueCard projectId="p1" monthKey="2026-08" projectType="PESSOAL" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Resolver/i }));
+
+    const aviso = await screen.findByText(/já consta paga/i);
+    expect(aviso).toBeInTheDocument();
+    expect(screen.queryByText(/Mais de um cartão/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Pagar fatura$/ })).not.toBeInTheDocument();
+  });
+
+  it('API antiga (sem `actions`) mantém o botão — veto só com informação positiva', async () => {
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url.includes('/pendencias/financeiras')) return faturaQueue();
+      if (url.includes('/monthly-overview/account-view')) {
+        return { cartoes: [cardSummary()], contas: [] };
+      }
+      return null;
+    });
+
+    renderWithQuery(<PendenciasQueueCard projectId="p1" monthKey="2026-08" projectType="PESSOAL" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Resolver/i }));
+
+    expect(await screen.findByRole('button', { name: /^Pagar fatura$/ })).toBeInTheDocument();
+    expect(screen.queryByText(/Mais de um cartão/i)).not.toBeInTheDocument();
+  });
 });

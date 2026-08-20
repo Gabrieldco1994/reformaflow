@@ -19,6 +19,7 @@ import { Modal } from '@/components/ui/modal';
 import { formatCurrency } from '@/lib/utils';
 import { tipoLabel } from '@/lib/expense-options';
 import { getExpenseIcon, getReceiptIcon } from '@/lib/expense-icons';
+import { invoiceActionAllowed } from '../_lib';
 import type {
   AccountViewEntrada,
   AccountViewMovimentacao,
@@ -227,11 +228,15 @@ export function MovimentacaoRow({
     actions.push({ key: 'vincular', label: 'Vincular a um projeto', Icon: Link2, onClick: () => onVincular(item) });
   if (item.kind === 'saida' && item.isInvoice && item.cardLast4) {
     const card = item.cardLast4;
+    // "Ajustar" e "Quitar com resíduo" caem em `/invoice-adjustments`, que
+    // deliberadamente NÃO tem 409 de final ambíguo (só lê o último4 e grava
+    // `cardLast4`), então continuam com a regra local pura. Só o "Desfazer",
+    // que vai para `undo-invoice-payment`, respeita o veto do servidor.
     actions.push({ key: 'ajustar', label: 'Ajustar fatura', Icon: SlidersHorizontal, onClick: () => onAdjustInvoice(card) });
     if (!item.realizado)
       actions.push({ key: 'residuo', label: 'Quitar com resíduo', Icon: CircleDollarSign, onClick: () => onSettleWithResidual(card) });
-    if (item.realizado && onUndoPayment)
-      actions.push({ key: 'desfazer', label: 'Desfazer pagamento', Icon: RotateCcw, onClick: () => onUndoPayment(card) });
+    if (invoiceActionAllowed(item, 'undo', Boolean(item.realizado && onUndoPayment)))
+      actions.push({ key: 'desfazer', label: 'Desfazer pagamento', Icon: RotateCcw, onClick: () => onUndoPayment!(card) });
   }
   if (canEdit)
     actions.push({
@@ -245,17 +250,26 @@ export function MovimentacaoRow({
   // Controle primário de status (visível em ambos): pagar fatura / quitar / alternar.
   const statusBaseClass =
     'inline-flex min-h-6 items-center justify-end text-[11px] font-semibold leading-none md:min-h-[30px]';
+  // O chip de status da fatura É a CTA "Pagar fatura". Com veto do servidor
+  // (`actions` sem 'pay' — final ambíguo, 409 garantido) ele degrada para chip
+  // informativo: continua mostrando o status, deixa de prometer uma ação que a
+  // API recusaria. Sem `actions`, comportamento idêntico ao de sempre.
+  const canPayInvoiceRow = invoiceActionAllowed(
+    item.kind === 'saida' ? item : null,
+    'pay',
+    !realizado && item.kind === 'saida' && Boolean(item.cardLast4),
+  );
   const statusControl = isInvoiceRow ? (
     <button
       type="button"
       onClick={() => {
-        if (item.kind === 'saida' && !item.realizado && item.cardLast4) onPayInvoice(item.cardLast4);
+        if (canPayInvoiceRow && item.kind === 'saida' && item.cardLast4) onPayInvoice(item.cardLast4);
       }}
-      disabled={realizado || !(item.kind === 'saida' && item.cardLast4)}
+      disabled={!canPayInvoiceRow}
       className={`${statusBaseClass} ${status.cls} ${
-        !realizado ? 'cursor-pointer hover:brightness-90' : 'cursor-default'
+        canPayInvoiceRow ? 'cursor-pointer hover:brightness-90' : 'cursor-default'
       }`}
-      title={!realizado ? 'Pagar fatura' : undefined}
+      title={canPayInvoiceRow ? 'Pagar fatura' : undefined}
     >
       {status.txt}
     </button>

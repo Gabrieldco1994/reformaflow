@@ -2,6 +2,7 @@
 
 import { AlertTriangle } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
+import { knownCents, rateioWarningMessage } from '../_lib/rateio-partial';
 import { StatusBadge } from './StatusBadge';
 import type { RateioDetalhe } from '../_hooks/useRateioDetalhe';
 
@@ -49,8 +50,15 @@ export function RateioDetalheSection({ isLoading, isError, detalhe, onRetry }: P
 
   if (!detalhe || !detalhe.rateado) return null;
 
-  const hasWarning = detalhe.removedTargetsCount > 0 || detalhe.sobraCents !== 0;
-  const hasHidden = detalhe.hiddenTargetsCount > 0;
+  // Contrato SOURCE-ONLY (#448): participante fora da lente ⇒ a resposta é a de
+  // uma compra nunca rateada, e este componente já retornou `null` acima. Logo,
+  // quando há o que renderizar, a lista é COMPLETA e `rateadoCents` cobre todos
+  // os alvos. Todo número é lido de forma defensiva: campo ausente vira `null`
+  // e simplesmente não renderiza, em vez de virar `R$ NaN`.
+  const totalCents = knownCents(detalhe.totalSourceCents);
+  const rateadoCents = knownCents(detalhe.rateadoCents);
+  const sobraCents = knownCents(detalhe.sobraCents);
+  const warning = rateioWarningMessage(detalhe, sobraCents);
 
   return (
     <div
@@ -58,8 +66,6 @@ export function RateioDetalheSection({ isLoading, isError, detalhe, onRetry }: P
       data-total-cents={detalhe.totalSourceCents}
       data-rateado-cents={detalhe.rateadoCents}
       data-sobra-cents={detalhe.sobraCents}
-      data-hidden-targets-count={detalhe.hiddenTargetsCount}
-      data-hidden-allocation-cents={detalhe.hiddenAllocationCents}
       className="space-y-2 rounded-xl border border-darc-linen bg-darc-cream/40 px-3 py-2.5"
     >
       <p className="text-xs font-semibold uppercase tracking-wide text-darc-velvet/50">Compra rateada</p>
@@ -68,47 +74,31 @@ export function RateioDetalheSection({ isLoading, isError, detalhe, onRetry }: P
         <div>
           <p className="text-[11px] uppercase tracking-wide text-darc-velvet/50">Total</p>
           <p className="whitespace-nowrap text-sm font-semibold tabular-nums text-darc-velvet">
-            {formatCurrency(detalhe.totalSourceCents / 100)}
+            {totalCents === null ? '—' : formatCurrency(totalCents / 100)}
           </p>
         </div>
         <div>
           <p className="text-[11px] uppercase tracking-wide text-darc-velvet/50">Rateado</p>
           <p className="whitespace-nowrap text-sm font-semibold tabular-nums text-darc-velvet">
-            {formatCurrency(detalhe.rateadoCents / 100)}
+            {rateadoCents === null ? '—' : formatCurrency(rateadoCents / 100)}
           </p>
         </div>
         <div>
           <p className="text-[11px] uppercase tracking-wide text-darc-velvet/50">Sobra</p>
           <p
             className={`whitespace-nowrap text-sm font-semibold tabular-nums ${
-              detalhe.sobraCents === 0 ? 'text-emerald-600' : 'text-amber-600'
+              sobraCents === 0 ? 'text-emerald-600' : 'text-amber-600'
             }`}
           >
-            {formatCurrency(detalhe.sobraCents / 100)}
+            {sobraCents === null ? '—' : formatCurrency(sobraCents / 100)}
           </p>
         </div>
       </div>
 
-      {hasWarning && (
+      {warning && (
         <p role="alert" className="flex items-center gap-1.5 text-xs text-amber-700">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-          <span>
-            {detalhe.removedTargetsCount > 0
-              ? `${detalhe.removedTargetsCount} ${
-                  detalhe.removedTargetsCount === 1 ? 'planejada removida' : 'planejadas removidas'
-                } deste rateio.`
-              : 'A soma das alocações não fecha o total desta compra.'}
-          </span>
-        </p>
-      )}
-
-      {hasHidden && (
-        <p data-testid="rateio-hidden" className="text-xs text-darc-velvet/60">
-          {detalhe.hiddenTargetsCount === 1
-            ? `1 alocação em projeto sem acesso · ${formatCurrency(detalhe.hiddenAllocationCents / 100)}`
-            : `${detalhe.hiddenTargetsCount} alocações em projetos sem acesso · ${formatCurrency(
-                detalhe.hiddenAllocationCents / 100,
-              )}`}
+          <span>{warning}</span>
         </p>
       )}
 

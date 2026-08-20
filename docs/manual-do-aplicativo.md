@@ -136,9 +136,10 @@ de 375/390 px. Ao abrir um alvo rateado, a seção carrega o rateio existente
 canônico e lista, somente para leitura, **todas** as alocações da compra — não
 apenas a primeira. Essa lista só aparece quando o usuário pode ver todos os
 participantes e os valores fecham o total da compra.
-Alvos sem permissão de visualização **não aparecem de forma alguma** — e, com
-eles, o rateio inteiro deixa de ser detalhado: se houver um único participante
-que o usuário não pode ver, ou um alvo removido, a compra é exibida como **não
+Alvos sem permissão de visualização **não aparecem de forma alguma** — nem
+título, nem fornecedor, nem projeto, nem contagem ou soma agregada — e, com
+eles, o rateio inteiro deixa de ser detalhado: basta **um** participante que o
+usuário não pode ver, ou um alvo removido, para a compra ser exibida como **não
 rateada**, sem lista, contagem ou soma (#448 B1b). A resposta é idêntica à de
 uma compra que nunca foi rateada, e o valor total aparece integralmente como
 sobra. Mostrar só a parte visível seria pior do que não mostrar nada: como a
@@ -531,6 +532,17 @@ movimentações abaixo.
   para filtrar.
 - **Pagar fatura** abre um diálogo (conta de débito + data) e registra um
   **lançamento neutro**: reduz o caixa, mas não é um novo gasto. Recalcula os KPIs.
+  O app identifica cartão e conta pelo **identificador do cadastro** (não só pelos
+  4 últimos dígitos). Se esses dados mudarem enquanto a tela está aberta, o
+  pagamento é **recusado com mensagem** ("os dados do cartão ou da conta
+  mudaram… atualize e tente de novo") em vez de ser gravado no cartão errado — o
+  diálogo continua aberto para você tentar de novo.
+  Se o projeto tiver **dois cartões ativos com o mesmo final** (dado antigo; hoje
+  o cadastro impede criar o segundo), não há como saber qual pagar: a fatura
+  aparece normalmente, mas **sem** os botões de pagar/desfazer, com o aviso "mais
+  de um cartão com esse final — ajuste o cadastro para pagar". **Ajustar fatura…**
+  continua disponível. Se a duplicidade for criada depois que a tela carregou, a
+  ação é recusada com essa mesma explicação e nada é gravado (#448 B1b).
 - **Ajustar fatura…** abre formulário com valor (+/−), motivo e nota. O ajuste muda
   o espelho da fatura (valor bancário) sem virar consumo/caixa.
 - **Marcar quitada com resíduo…** registra o resíduo declarado (com nota) e fecha a
@@ -540,9 +552,11 @@ movimentações abaixo.
   compras da fatura voltam a ficar pendentes e o lançamento de pagamento é
   removido. Só funciona quando há exatamente um pagamento casado com a fatura —
   se houver mais de um (pagamento parcial/duplicado), a ação é recusada com
-  mensagem explicando que o desfazer automático não é seguro nesse caso. Hoje
-  disponível só no grid de cartões do desktop; o carrossel compacto do mobile
-  ainda não expõe nenhuma ação de fatura (ver `docs/visao-conta-faturas.md §13`).
+  mensagem explicando que o desfazer automático não é seguro nesse caso. A opção
+  só é oferecida quando o servidor confirma que **existe** um pagamento a
+  desfazer para aquela fatura, e some no caso de final duplicado descrito acima
+  (#448 B1b). Também está no sheet de ações do carrossel mobile e no menu "⋯"
+  da linha de fatura em Movimentações.
 
 **Precisa de você (fila de pendências):**
 - Quando há pendências financeiras no mês, a Conta exibe o card **"Precisa de você"**

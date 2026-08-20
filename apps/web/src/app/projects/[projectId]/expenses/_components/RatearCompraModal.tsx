@@ -10,6 +10,7 @@ import { Modal } from '@/components/ui/modal';
 import { formatCurrency } from '@/lib/utils';
 import type { Expense } from '@/types';
 import { reaisToCents, centsToReais } from '../_lib/money';
+import { isRateioEditLocked } from '../_lib/rateio-partial';
 import {
   useRateioDetalhe,
   type RateioDetalhe,
@@ -116,9 +117,14 @@ export function RatearCompraModal({
   ]);
 
   const editorReady = editorSession === sessionKey && editorDetail != null;
-  const isLocked =
-    editorDetail != null &&
-    (editorDetail.hiddenTargetsCount > 0 || editorDetail.removedTargetsCount > 0);
+  // Trava a edição destrutiva no ÚNICO gatilho que o contrato declara:
+  // `removedTargetsCount > 0`. `hiddenTargetsCount` não existe no payload, então
+  // lê-lo aqui seria uma referência morta que só dispararia contra servidor
+  // velho. Payload sem metadata NÃO trava — travar no ausente mataria a CTA
+  // para todo mundo, já que toda compra ainda não rateada chega sem nada a
+  // declarar, e quem barra a escrita insegura é o servidor (zero-write + erro).
+  // Ver `../_lib/rateio-partial`.
+  const isLocked = isRateioEditLocked(editorDetail);
 
   const totalCents = editorReady ? editorDetail.totalSourceCents : source.valorTotal;
   const allocatedCents = useMemo(
@@ -234,8 +240,8 @@ export function RatearCompraModal({
                 role="alert"
                 className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800"
               >
-                Este rateio possui alocações ocultas ou removidas. Para evitar perda de dados, ele
-                só pode ser desfeito por completo.
+                Este rateio tem planejada removida. Para evitar perda de dados, ele só pode ser
+                desfeito por completo.
               </p>
             )}
 

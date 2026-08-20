@@ -233,9 +233,9 @@ describe("ExpensesView — PESSOAL com rateio (Telha Norte, issue #428 follow-up
     totalSourceCents: 100_000,
     rateadoCents: 100_000,
     sobraCents: 0,
-    removedTargetsCount: 0,
-    hiddenTargetsCount: 0,
-    hiddenAllocationCents: 0,
+    // #448: `hiddenTargetsCount`/`hiddenAllocationCents` saíram do contrato
+    // (B1b) e `removedTargetsCount` é opcional. Esta view nunca dependeu de
+    // nenhum deles — o fixture sem os campos é a prova.
     items: [
       { targetExpenseId: "tgt-telha", titulo: "Telhas da reforma", fornecedor: null, projectId: "reforma", projectName: "Reforma", projectType: "REFORMA", allocationCents: 40_000, plannedValorTotalCents: null, status: "PAGO" },
       { targetExpenseId: "tgt-piso", titulo: "Piso da reforma", fornecedor: null, projectId: "reforma", projectName: "Reforma", projectType: "REFORMA", allocationCents: 35_000, plannedValorTotalCents: null, status: "PAGO" },
