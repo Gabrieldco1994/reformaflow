@@ -31,10 +31,10 @@ const TARGETS = Array.from({ length: 9 }, (_, i) => ({
   project: { id: 'p2', name: 'Reforma A', type: 'REFORMA' },
 }));
 
-// #448 — contrato SOURCE-ONLY (B1b): `hiddenTargetsCount`/
-// `hiddenAllocationCents` não existem mais; `removedTargetsCount` continua,
-// filtrado pela lente, e é o ÚNICO gatilho de trava. O fixture-base é o payload
-// atual; os casos de trava injetam `removedTargetsCount` explicitamente.
+// #448 — contrato SOURCE-ONLY: `hiddenTargetsCount`/`hiddenAllocationCents` não
+// existem no payload e `removedTargetsCount` é o ÚNICO gatilho de trava. O
+// fixture-base é o payload atual; os casos de trava injetam
+// `removedTargetsCount` explicitamente.
 const NO_RATEIO: RateioDetalhe = {
   sourceExpenseId: SOURCE.id,
   rateado: false,
@@ -338,13 +338,14 @@ describe('RatearCompraModal', () => {
     },
   );
 
-  // #448 — a outra ponta do mesmo contrato. O payload redigido é deep-equal a
-  // um sem nada oculto POR DESIGN: o web não tem como inferir parcialidade e
-  // não deve tentar. Uma regra fail-closed ("na dúvida, trava") mataria
-  // "Ratear compra" para todo mundo no dia do deploy. Quem barra a escrita
-  // insegura é o servidor (`assertCanReverseSources` → 404, zero writes), e o
-  // erro chega ao usuário pelo onError da mutation.
-  it('payload redigido (sem metadata de ocultos) NÃO trava o editor', async () => {
+  // #448 — a outra ponta do mesmo contrato. Participante fora da lente ⇒ a
+  // resposta é a de uma compra nunca rateada, então o web não tem como inferir
+  // parcialidade e não deve tentar. Uma regra fail-closed ("na dúvida, trava")
+  // mataria "Ratear compra" para todo mundo, porque é exatamente assim que
+  // chega toda compra ainda não rateada. Quem barra a escrita insegura é o
+  // servidor (`assertCanReverseSources` → 404, zero writes), e o erro chega ao
+  // usuário pelo onError da mutation.
+  it('payload sem metadata de ocultos NÃO trava o editor', async () => {
     apiGet.mockImplementation((path: string) =>
       path.endsWith('/rateio')
         ? Promise.resolve(makeRateio([makeItem(1, 1_000_000)]))
