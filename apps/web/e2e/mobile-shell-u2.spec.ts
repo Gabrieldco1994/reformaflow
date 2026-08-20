@@ -895,18 +895,30 @@ test.describe('U2 shell mobile — travas e diagnóstico (2ª prioridade)', () =
     expect(leaked, `href(s) de módulo sem permissão vazando no SHELL: ${leaked.join(',')}`).toEqual([]);
   });
 
-  // U2-P18 — focus NÃO vaza de credit-cards para bank-accounts (colisão de nome).
-  // O shell só carrega o allowlist (mes…), nunca focus. RED até a Lane A ligar o
-  // tile do Mais; GREEN quando buildNavHref excluir focus (não está no allowlist).
-  test('375 — U2-P18 focus não vaza de credit-cards para bank-accounts', async ({ page, baseURL }) => {
+  // U2-P18 — focus NÃO vaza entre destinos (colisão de nome: credit-cards usa
+  // `focus=closingDay`, bank-accounts usa `focus` para outra coisa). O shell só
+  // carrega o allowlist (mes…) ao montar hrefs — buildNavHref DROPA focus.
+  //
+  // Mede o HREF DO TILE, sem navegar: origem `monthly?mes&focus` (modal-free —
+  // monthly ignora focus). NÃO usa credit-cards como origem porque
+  // `?focus=closingDay` lá abre um modal bg-black/40 z-50 (sem role/aria/Escape,
+  // #522) que oclui o cabeçalho e intercepta o Mais — o teste mediria ATRAVÉS do
+  // modal. buildNavHref é agnóstico de tela: o allowlist filtra igual em qualquer
+  // origem, então o contrato se prova aqui sem depender daquele modal.
+  test('375 — U2-P18 focus não vaza entre destinos (href do tile dropa focus)', async ({ page, baseURL }) => {
     await bootMobile(page, baseURL!, { modules: MODULES.full });
-    await page.goto(`/projects/${PESSOAL_ID}/credit-cards?focus=closingDay`);
+    await page.goto(`/projects/${PESSOAL_ID}/monthly?mes=${TEST_MONTH}&focus=closingDay`);
     const overlay = await openMais(page);
     const tile = overlay.locator('a[href*="/bank-accounts"]');
     await expect(tile, 'tile bank-accounts ausente no Mais — Lane A ainda não marcou').toBeVisible();
-    await tile.click();
-    await expect(page).toHaveURL(new RegExp(`${PESSOAL_ID}/bank-accounts`));
-    await expect(page, 'focus vazou entre destinos (não está no allowlist)').not.toHaveURL(/focus=/);
+    const href = (await tile.getAttribute('href')) ?? '';
+    // Positivo: o mês (allowlist) VIAJA — senão o negativo passaria por acidente
+    // num href que simplesmente descartou toda a query.
+    expect(href, `tile não carregou o mês do allowlist: ${href}`).toMatch(
+      new RegExp(`/bank-accounts\\?.*mes=${TEST_MONTH}`),
+    );
+    // Negativo (o contrato): focus NÃO está no allowlist ⇒ buildNavHref o dropa.
+    expect(href, `focus vazou para o tile (não está no allowlist): ${href}`).not.toMatch(/focus=/);
   });
 
   // U2-P21 [DIAG, não bloqueia] — destinos AINDA NÃO cobertos por mês são
