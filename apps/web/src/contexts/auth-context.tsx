@@ -68,8 +68,11 @@ export interface AuthUser {
   /**
    * `/auth/me` (`auth.service.buildPublicUser`) sempre devolve este campo. É
    * opcional aqui só por compatibilidade com sessão em cache de versão antiga.
-   * Convidado de demo nasce com `role: 'ADMIN'` (#497), então papel sozinho não
-   * distingue administrador de visitante.
+   * Desde #505 o convidado de demo é cunhado com papel SEM acesso total
+   * (`auth.service.registerGuest`), mas `isGuest` continua sendo a marca
+   * canônica do visitante: `isAdmin` o consulta para nunca abrir o aplicativo
+   * inteiro pelo papel — inclusive para qualquer sessão cunhada na janela
+   * entre agora e o deploy.
    */
   isGuest?: boolean;
 }
@@ -168,7 +171,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     //
     // `isGuest` ausente (sessão antiga) NÃO significa convidado — só `true`
     // significa. Derivado uma vez aqui, os QUATRO predicados abaixo herdam.
-    const isAdmin = user?.role === "ADMIN" || user?.role === "OWNER";
+    const isGuest = user?.isGuest === true;
+    const isAdmin =
+      !isGuest && (user?.role === "ADMIN" || user?.role === "OWNER");
     const allowed = new Set(user?.allowedModules ?? []);
     const allowedProjects = user?.allowedProjects ?? [];
     const allowedProjectTypes = user?.allowedProjectTypes ?? [];
