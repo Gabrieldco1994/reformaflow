@@ -138,6 +138,14 @@ function buildPrisma(seed: {
         if (found) Object.assign(found, data);
         return Promise.resolve(found ?? null);
       }),
+      // B1b (#448): o soft-delete do pagamento virou `updateMany` CONDICIONAL
+      // (id + tenant + projeto + tipo + `deletedAt: null`) para fechar o TOCTOU
+      // entre ler a despesa e apagá-la; `count` é o que o service checa.
+      updateMany: jest.fn().mockImplementation(({ where, data }: any) => {
+        const matched = rows.filter((row) => matchWhere(row, effectiveWhere(model, where)));
+        for (const row of matched) Object.assign(row, data);
+        return Promise.resolve({ count: matched.length });
+      }),
     };
   }
 

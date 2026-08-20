@@ -133,15 +133,24 @@ O **rateio** permite dividir uma despesa entre vários destinos.
 quanto por uma **despesa-alvo na REFORMA**. Nas visões **Mês** e **Categoria**
 da REFORMA, **Edição completa** também fica alcançável em celulares
 de 375/390 px. Ao abrir um alvo rateado, a seção carrega o rateio existente
-canônico e lista, somente para leitura, todas as alocações que o usuário pode ver
-— não apenas a primeira — com valor total da compra, total já rateado e sobra.
-Alvos sem permissão de visualização não expõem título, fornecedor ou projeto:
-aparecem apenas como contagem e soma agregadas ("N alocações ocultas, R$ X").
-Alvos removidos são descontados da lista e contam para a sobra explicada.
+canônico e lista, somente para leitura, **todas** as alocações da compra — não
+apenas a primeira. Essa lista só aparece quando o usuário pode ver todos os
+participantes e os valores fecham o total da compra.
+Alvos sem permissão de visualização **não aparecem de forma alguma** — e, com
+eles, o rateio inteiro deixa de ser detalhado: se houver um único participante
+que o usuário não pode ver, ou um alvo removido, a compra é exibida como **não
+rateada**, sem lista, contagem ou soma (#448 B1b). A resposta é idêntica à de
+uma compra que nunca foi rateada, e o valor total aparece integralmente como
+sobra. Mostrar só a parte visível seria pior do que não mostrar nada: como a
+soma das alocações sempre fecha o total, o que sobrasse na conta revelaria
+exatamente quanto foi para os alvos ocultos.
 
 Na compra-fonte do PESSOAL, **Ratear** reabre o rateio com as alocações visíveis
-já preenchidas, em vez de mostrar um rateio novo. Se também houver alocações
-ocultas ou removidas, o app impede que elas sejam substituídas silenciosamente.
+já preenchidas, em vez de mostrar um rateio novo. Se houver alocações removidas,
+o app impede a substituição silenciosa; se houver participantes que o usuário não
+pode ver, o app nem sabe disso (#448 B1b) — quem barra é o **servidor**, que
+reautoriza todos os participantes na hora de gravar e recusa a substituição sem
+escrever nada.
 Somente essa fonte permite **editar** ou **desratear**. Ao abrir pelo alvo na
 REFORMA, o rateio é estritamente somente-leitura e não pode ser alterado nem
 desfeito. Enquanto a compra-fonte estiver rateada, a opção de alterar/remover

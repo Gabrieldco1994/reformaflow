@@ -89,13 +89,29 @@ describe("MonthlyOverviewService — mutações de fatura respeitam o scope do r
           dueDay: 28,
           project: { id: ANCHOR, type: "PESSOAL", tenantId },
         }),
+        // B1b (#448): a resolução por `last4` legado enumera os candidatos
+        // (`findMany` + `take: 2`) para poder recusar o empate com 409.
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: "card-1",
+            last4: "1111",
+            nickname: "Nubank",
+            closingDay: 20,
+            dueDay: 28,
+            project: { id: ANCHOR, type: "PESSOAL", tenantId },
+          },
+        ]),
       },
-      bankAccount: { findFirst: jest.fn().mockResolvedValue({ last4: "4247" }) },
+      bankAccount: {
+        findFirst: jest.fn().mockResolvedValue({ last4: "4247" }),
+        findMany: jest.fn().mockResolvedValue([{ id: "acc-1", last4: "4247" }]),
+      },
       expense: {
         findFirst: jest.fn().mockResolvedValue(null),
         findMany: jest.fn().mockResolvedValue([]),
         create: jest.fn().mockResolvedValue({ id: "pay-1" }),
         update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       cashFlowEntry: { findMany: jest.fn().mockResolvedValue([]) },
       invoiceAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
@@ -126,12 +142,14 @@ describe("MonthlyOverviewService — mutações de fatura respeitam o scope do r
   function expectNoWrite() {
     expect(prisma.expense.create).not.toHaveBeenCalled();
     expect(prisma.expense.update).not.toHaveBeenCalled();
+    expect(prisma.expense.updateMany).not.toHaveBeenCalled();
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(settlement.prepareSettleInvoice).not.toHaveBeenCalled();
     expect(settlement.applyPreparedSettlement).not.toHaveBeenCalled();
     expect(settlement.unsettleInvoice).not.toHaveBeenCalled();
     // Recusa ANTES de qualquer leitura do projeto alvo (nem enumera cartões).
     expect(prisma.creditCard.findFirst).not.toHaveBeenCalled();
+    expect(prisma.creditCard.findMany).not.toHaveBeenCalled();
   }
 
   it("payInvoice recusa (403) requester restrito fora do anchor, sem escrever nada", async () => {
@@ -178,13 +196,13 @@ describe("MonthlyOverviewService — mutações de fatura respeitam o scope do r
       ...restrictedRequester,
       allowedProjects: [ANCHOR],
     };
-    prisma.creditCard.findFirst.mockResolvedValue(null);
+    prisma.creditCard.findMany.mockResolvedValue([]);
 
     await expect(
       service.undoInvoicePayment(tenantId, ANCHOR, undoDto, authorized),
     ).rejects.toBeInstanceOf(NotFoundException); // "Cartão não encontrado" — passou do 403.
 
-    expect(prisma.creditCard.findFirst).toHaveBeenCalled();
+    expect(prisma.creditCard.findMany).toHaveBeenCalled();
   });
 
   it("acesso total é DECLARADO pelo papel (ADMIN), não pela ausência de requester", async () => {

@@ -91,6 +91,7 @@ Na base original, e **não como resultado deste programa**:
 | S0.3 [#446](https://github.com/Gabrieldco1994/reformaflow/issues/446) | **READY sob exceção PO; test-only em andamento** | Pode construir, testar e fazer merge sem aguardar a conclusão de #445; não toca produto/runtime. |
 | B0 [#447](https://github.com/Gabrieldco1994/reformaflow/issues/447) | **ENTREGUE — PR #476, produção** | Auth, grants e scope financeiro em produção. E0/#437 permanece incompleta pelo seu próprio gate de inventário (#445); isso não desfaz a entrega de B0. |
 | B1a [#448](https://github.com/Gabrieldco1994/reformaflow/issues/448) | **IMPLEMENTADO (fatia B1a) — pendente de merge (esta PR)** | Child ACL, identidades de fatura, ações server-provided, guard de duplicidade; zero schema/UX. #448 permanece OPEN. Sequência após merge: W1, B1b, B2. |
+| B1b [#448](https://github.com/Gabrieldco1994/reformaflow/issues/448) | **IMPLEMENTADO (fatia B1b) — pendente de merge** | Endurecimento do legado: `last4` ambíguo responde 409 (nunca resolve em silêncio) e `GET :id/rateio` vira **tudo-ou-nada** (detalhe só com todos autorizados e soma exata; caso contrário source-only, deep-equal ao payload de uma compra nunca rateada — hidden count/sum REMOVIDOS). Ações reautorizadas no servidor e capabilities emitidas pelo servidor. Zero schema/UX. Fecha a fatia backend de #448. |
 
 E0 [#437](https://github.com/Gabrieldco1994/reformaflow/issues/437) permanece incompleta enquanto
 #445 estiver aberta. A exceção de #446 não conclui E0 nem dispensa o gate de produção.
@@ -154,10 +155,14 @@ Esta seção registra gates do programa, não uma nova versão das fórmulas can
 - O Hub exige um PESSOAL explícito e autorizado; não escolhe nem agrega outro PESSOAL
   silenciosamente.
 - Scope é aplicado **antes** de buscar, agregar, deduplicar ou produzir metadados.
-- **ESTADO ATUAL / GAP LEGADO:** `AGENTS.md`, [estado-atual-cockpit-pessoal.md](estado-atual-cockpit-pessoal.md)
-  e [manual-do-aplicativo.md](manual-do-aplicativo.md) documentam a contagem/soma agregada de
-  alvos de rateio ocultos ou removidos. Esse relato continua válido para o runtime atual e deve
-  ser preservado até B1 (full) ser mergeado e deployado; ele não é o contrato do novo Hub.
+- **GAP LEGADO — FECHADO EM B1b (#448):** a contagem/soma agregada de alvos de rateio ocultos era
+  o comportamento do runtime legado. `AGENTS.md`, [estado-atual-cockpit-pessoal.md](estado-atual-cockpit-pessoal.md)
+  e [manual-do-aplicativo.md](manual-do-aplicativo.md) já descrevem o contrato novo: `GET :id/rateio`
+  é **tudo-ou-nada**: a lista só existe quando TODOS os participantes estão autorizados E a soma
+  dos vivos fecha exatamente o total. Caso contrário devolve source-only — payload idêntico ao de
+  uma compra nunca rateada, com `rateadoCents: 0` e `removedTargetsCount: 0` (que passa a ser
+  estruturalmente sempre 0). Lista filtrada não fecharia o vazamento: com a soma imposta na escrita,
+  `total − Σ(itens visíveis)` É a soma oculta, em centavos exatos.
 - No contrato futuro #436, projeto oculto ou cross-tenant não muda linha, total, contagem, série,
   tooltip, flag, metadata nem telemetria.
 - Parent explícito same-tenant fora do scope responde `403`; child oculto, cross-tenant ou
@@ -209,7 +214,7 @@ separada e só entra no critical path quando uma exposição consumidora for dem
 | Epic | Status do design | Conteúdo e dependência |
 |---|---|---|
 | [E0 #437](https://github.com/Gabrieldco1994/reformaflow/issues/437) | **INCOMPLETA**; S0.1 concluída, S0.2 bloqueada/deferida e S0.3 READY test-only | E0 permanece incompleta pelo seu próprio gate #445 de inventário de produção; B0 já foi entregue independentemente. |
-| [E1 #438](https://github.com/Gabrieldco1994/reformaflow/issues/438) | **B0 ENTREGUE; B1a implementado nesta PR, pendente de merge; B1b+B2 BLOQUEADOS** | B0 entregue via PR #476. B1a pendente de merge; sequência após merge: W1 → B1b → B2. B1b (ambiguous-last4 409, remoção de hidden-metadata) e B2 aguardam. Security verify e B2 ficam verdes antes de UX. |
+| [E1 #438](https://github.com/Gabrieldco1994/reformaflow/issues/438) | **B0 ENTREGUE; B1a implementado nesta PR, pendente de merge; B1b+B2 BLOQUEADOS** | B0 entregue via PR #476. B1a pendente de merge; sequência após merge: W1 → B1b → B2. B1b (ambiguous-last4 409, remoção de hidden-metadata) **IMPLEMENTADO, pendente de merge**; B2 aguarda. Security verify e B2 ficam verdes antes de UX. |
 | [E2 #439](https://github.com/Gabrieldco1994/reformaflow/issues/439) | **BLOQUEADO** | B0+B1+B2 → U1 → U2; reorganização reversível de desktop/mobile. |
 | [E3 #440](https://github.com/Gabrieldco1994/reformaflow/issues/440) | **BLOQUEADO** | U3/U4/U5; U6a é spec e U6b tem gate humano adicional. |
 | [E4 #441](https://github.com/Gabrieldco1994/reformaflow/issues/441) | **BLOQUEADO/cross-cutting** | V0, D0, R0 e A0 acompanham as ondas, não um mutirão tardio. |
@@ -255,6 +260,8 @@ esperado, não evidência de runtime.
   parent/child ACL, releitura no commit, actions fornecidas pelo servidor e deep-links
   type-specific sem ampliar scope. **B1a implementado nesta PR, pendente de merge. Sequência
   após merge: W1, depois B1b (remoção de ambiguous-last4 409 e hidden-metadata).** #448 permanece OPEN.
+  **B1b implementado (409 de `last4` ambíguo + `GET :id/rateio` tudo-ou-nada: detalhe só
+  com todos autorizados e soma exata, senão source-only), pendente de merge.**
 - [B2 #449](https://github.com/Gabrieldco1994/reformaflow/issues/449): Budget Allocation
   administrativo/read-only, somente ADMIN autenticado do tenant; relações legadas cross-tenant
   redigidas e bytes históricos intocados.
@@ -437,7 +444,7 @@ preservar links e contexto sem fingir que seus ledgers continuam vivos.
 | ID | Decisão final aprovada | Estado de produto |
 |---|---|---|
 | D-001 | PESSOAL é o Centro Financeiro; Conta=origem, Projeto=finalidade, Cockpit conta uma vez, Auditoria explica. | **NÃO INICIADO por #436** |
-| D-002 | B0+B1+B2, deploy B0 e security verify precedem qualquer UX. | **B0 ENTREGUE (PR #476); B1a implementado nesta PR, pendente de merge; B1b+B2 BLOQUEADOS** |
+| D-002 | B0+B1+B2, deploy B0 e security verify precedem qualquer UX. | **B0 ENTREGUE (PR #476); B1a implementado nesta PR, pendente de merge; B1b implementado, pendente de merge; B2 BLOQUEADO** |
 | D-003 | Fórmulas de Caixa §10, faturas/Conta, timezone e quitação cross-project não serão reescritas. | Contratos atuais **ENTREGUES**; mudança do programa **NENHUMA** |
 | D-004 | Navegação alvo: Hoje, Movimentações, Planejamento, Projetos; Resultado/Auditoria secundários. | **APROVADO — NÃO INICIADO** |
 | D-005 | Planning e Planejador só se agrupam visualmente; stores permanecem separados. | **APROVADO — BLOQUEADO** |
@@ -453,6 +460,7 @@ preservar links e contexto sem fingir que seus ledgers continuam vivos.
 
 | Data | Versão | Mudança |
 |---|---|---|
+| 2026-08-19 | B1b implementado | B1b (#448, fatia 3/3) implementado e pendente de merge: `last4` legado ambíguo responde **409** em `payInvoice`/`undoInvoicePayment` (`resolveUniqueLegacyMatch`, `apps/api/src/common/invoice-identity.ts`) com zero writes, e linhas de fatura ambíguas deixam de oferecer ação (`actions: []`, `cardId`/`fingerprint` nulos); `GET :id/rateio` vira **tudo-ou-nada** — `hiddenTargetsCount`/`hiddenAllocationCents` REMOVIDOS e o detalhamento só é devolvido quando TODOS os participantes estão autorizados E a soma dos vivos fecha exatamente o total; em qualquer outro caso (fora da lente, cross-tenant, alvo removido, soma aberta) a resposta é source-only, deep-equal ao payload de uma compra NUNCA rateada, com `sourceExpenseId` colapsado na despesa pedida. Lista filtrada foi rejeitada por prova aritmética: a escrita exige `Σ alocações === valorTotal`, logo `total − Σ(itens visíveis)` seria a soma oculta em centavos exatos; `undoInvoicePayment` fecha o TOCTOU do soft-delete com `updateMany` condicional. Consequência: para requisitante restrito a compra aparece como NÃO rateada (some o aviso âmbar de soma aberta e a trava permanente do botão Salvar que a lista filtrada produzia); `removedTargetsCount` fica estruturalmente sempre 0, mantido só por estabilidade de forma do payload. Zero schema, zero migração. |
 | 2026-08-18 | B0 entregue; B1a implementado | B0 (#447) entregue via PR #476 (produção, SHA `389d8e6e`). B1a (#448) implementado nesta PR e pendente de merge: child ACL em `settleTargetParcela`, identidades de fatura (`cardId`/`fingerprint`/`actions` em `cartoes[]`+`saidas[]`; `accountId` em `contas[]`), `cardId`/`accountId` opcionais em `payInvoice`/`undoInvoicePayment`, guard de duplicidade ativa 409, `roomId`/`sourcePriceItemId` scoped. Zero schema, zero UX, zero fórmula numérica alterada. #448 permanece OPEN. Sequência após merge de B1a: W1 → B1b → B2. |
 | 2026-08-17 | Exceção PO S0.3 | #446 liberada para build/test/merge test-only independente de #445; #445 registrada como bloqueada/deferida e produção `NOT_COLLECTED`; gates conjuntos de #447/B0, limites da baseline sintética e distinção entre estado esperado e evidência de runtime explicitados. |
 | 2026-08-17 | Revisão S0.1 | Guardrails de papel, endpoint/evidência e auditoria estreitados; transição do rateio legado para source-only explicitada. |
