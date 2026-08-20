@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { ProjectProvider } from '@/contexts/project-context';
@@ -42,6 +42,39 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // Mais e Lançar coexistirem (o deep-link `?launch=1` podia abrir por cima do
   // Mais). O enum torna a exclusão mútua estrutural, não uma convenção frágil.
   const [overlay, setOverlay] = useState<"mais" | "launch" | null>(null);
+  /**
+   * U2-E09 — abrir um overlay empilha UMA entrada de histórico para que o gesto
+   * / botão "voltar" do navegador FECHE o overlay em vez de sair da rota (hoje
+   * `back` com o Mais aberto navega para fora e o overlay some junto — o teste
+   * mede `about:blank`). Fechar por QUALQUER via (backdrop, botão, toque no
+   * dock) consome a mesma entrada, então o overlay nunca fica com mais de um
+   * nível de histórico. Não é a a11y de diálogo do launch (Escape/focus-trap),
+   * que continua na #522 — isto é ciclo de vida do overlay no shell.
+   */
+  const overlayPushedRef = useRef(false);
+  const openOverlay = useCallback((kind: "mais" | "launch") => {
+    if (typeof window !== "undefined" && !overlayPushedRef.current) {
+      window.history.pushState({ rfOverlay: true }, "");
+      overlayPushedRef.current = true;
+    }
+    setOverlay(kind);
+  }, []);
+  const closeOverlay = useCallback(() => {
+    if (typeof window !== "undefined" && overlayPushedRef.current) {
+      overlayPushedRef.current = false;
+      window.history.back(); // dispara popstate -> setOverlay(null)
+    } else {
+      setOverlay(null);
+    }
+  }, []);
+  useEffect(() => {
+    function handlePopState() {
+      overlayPushedRef.current = false;
+      setOverlay(null);
+    }
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
   const { user, isAdmin, hasModule, hasProjectType, hasProjectAccess, logout, loading: authLoading } = useAuth();
 
   useEffect(() => {
@@ -72,6 +105,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [projectId, router]);
 
   useEffect(() => {
+    overlayPushedRef.current = false;
     setOverlay(null);
   }, [pathname, projectId]);
 
@@ -182,7 +216,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           project={project}
           hasMoreSheet={hasMoreSheet}
           maisCount={secondary.length}
-          onOpenMais={() => setOverlay('mais')}
+          onOpenMais={() => openOverlay('mais')}
         />
 
         <MaisSheet
@@ -195,7 +229,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           isAdmin={isAdmin}
           canSeeBudgetHistory={canSeeBudgetHistory}
           userName={user?.name}
-          onClose={() => setOverlay(null)}
+          onClose={closeOverlay}
           onLogout={handleLogout}
         />
 
@@ -222,7 +256,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           projectType={resolvedProjectType}
           primary={primary}
           canLaunch={canLaunch}
-          onOpenLaunch={() => setOverlay('launch')}
+          onOpenLaunch={() => openOverlay('launch')}
         />
 
         {supportsMobileCockpit && canLaunch && (
@@ -230,7 +264,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <MobileLaunchSheetContainer
               projectId={project.id}
               open={overlay === 'launch'}
-              onClose={() => setOverlay(null)}
+              onClose={closeOverlay}
             />
           </div>
         )}
