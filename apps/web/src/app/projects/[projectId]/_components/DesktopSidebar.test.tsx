@@ -693,3 +693,57 @@ describe("DesktopSidebar", () => {
     expect(toggle).toHaveAttribute("aria-expanded", "true");
   });
 });
+
+describe("DesktopSidebar — contexto compartilhado (?mes) [E-7 rail]", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.restoreAllMocks();
+  });
+
+  it("preserves ?mes on intra-project links AND keeps the active state lit", () => {
+    const visibleNav = getProjectNavModules(ProjectType.PESSOAL);
+    const { container } = render(
+      <DesktopSidebar
+        {...props}
+        project={{ id: "p1", name: "Pessoal", type: "PESSOAL" }}
+        visibleNav={visibleNav}
+        pathname={`${basePath}/conta`}
+        search="mes=2026-03"
+      />,
+    );
+
+    // linkHref carrega o contexto...
+    const conta = container.querySelector('a[href^="/projects/p1/conta"]')!;
+    expect(conta).toHaveAttribute("href", `${basePath}/conta?mes=2026-03`);
+    // ...e o estado ativo vem do pathHref (sem query): não morre com ?mes.
+    expect(conta).toHaveAttribute("aria-current", "page");
+
+    // Apoio (intra-projeto) também preserva.
+    expect(screen.getByRole("link", { name: "Apoio" })).toHaveAttribute(
+      "href",
+      `${basePath}/apoio?mes=2026-03`,
+    );
+  });
+
+  it("does NOT leak ?mes onto destinations that leave the project", () => {
+    const { container } = render(
+      <DesktopSidebar
+        {...props}
+        project={{ id: "p1", name: "Pessoal", type: "PESSOAL" }}
+        visibleNav={getProjectNavModules(ProjectType.PESSOAL)}
+        isAdmin
+        search="mes=2026-03"
+      />,
+    );
+
+    expect(screen.getByRole("link", { name: "Projetos" })).toHaveAttribute(
+      "href",
+      "/projects",
+    );
+    expect(screen.getByRole("link", { name: "Usuários" })).toHaveAttribute(
+      "href",
+      "/admin/users",
+    );
+    expect(container.querySelectorAll('a[href="/projects?mes=2026-03"]')).toHaveLength(0);
+  });
+});

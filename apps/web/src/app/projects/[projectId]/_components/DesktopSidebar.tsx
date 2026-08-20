@@ -17,6 +17,7 @@ import { NotificationsBell } from "@/components/notifications/NotificationsBell"
 import { FeedbackButton } from "@/components/feedback/FeedbackButton";
 import { TypeIcon } from "../../_components/type-accent";
 import { isPathActive } from "./mobile-nav";
+import { buildNavHref } from "../_lib/nav-href";
 import { navIcon } from "./nav-icons";
 import { navHintText, SidebarNavHint, useSidebarNavHint } from "./sidebar-nav-hint";
 import type { NavModule, ProjectInfo } from "../_types";
@@ -40,6 +41,8 @@ interface DesktopSidebarProps {
    */
   canSeeBudgetHistory: boolean;
   userName?: string;
+  /** Query atual (sem `?`) p/ preservar o contexto compartilhado (`?mes`). */
+  search?: string;
   onLogout: () => void;
 }
 
@@ -61,6 +64,7 @@ export function DesktopSidebar({
   isAdmin,
   canSeeBudgetHistory,
   userName,
+  search = "",
   onLogout,
 }: DesktopSidebarProps) {
   const [collapsed, setCollapsed] = useState(true);
@@ -224,13 +228,14 @@ export function DesktopSidebar({
                   </p>
                 )}
                 {group.items.map((item) => {
-                  const fullHref = `${basePath}/${item.slug}`;
-                  const isActive = isPathActive(pathname, fullHref);
+                  const pathHref = `${basePath}/${item.slug}`;
+                  const isActive = isPathActive(pathname, pathHref);
                   const Icon = navIcon(item.iconName);
                   return (
                     <Link
                       key={item.slug}
-                      href={fullHref}
+                      // pathHref (sem query) governa o ativo; linkHref carrega `?mes`.
+                      href={buildNavHref(pathHref, search)}
                       // Sem `title`: a dica própria (elemento no DOM, com o
                       // nome do grupo) substitui a nativa. Manter as duas faria
                       // o navegador pintar a nativa atrasada por cima.
@@ -250,7 +255,7 @@ export function DesktopSidebar({
         </div>
         <div className="minimal-sidebar-footer mt-1 shrink-0 space-y-1 border-t pt-1">
           <Link
-            href={apoioHref}
+            href={buildNavHref(apoioHref, search)}
             title="Apoio"
             aria-label="Apoio"
             aria-current={isApoioActive ? "page" : undefined}
@@ -272,7 +277,7 @@ export function DesktopSidebar({
           )}
           {canSeeBudgetHistory && (
             <Link
-              href={budgetHistoryHref}
+              href={buildNavHref(budgetHistoryHref, search)}
               title="Histórico de Budget"
               aria-label="Histórico de Budget"
               aria-current={isBudgetHistoryActive ? "page" : undefined}

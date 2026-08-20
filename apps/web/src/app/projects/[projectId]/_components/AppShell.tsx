@@ -38,8 +38,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     projectLoad.projectId === projectId ? projectLoad : null;
   const project = currentProjectLoad?.project ?? null;
   const loading = currentProjectLoad?.loading ?? true;
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [launchOpen, setLaunchOpen] = useState(false);
+  // D4 — um único overlay ativo por vez. Dois booleans independentes deixavam
+  // Mais e Lançar coexistirem (o deep-link `?launch=1` podia abrir por cima do
+  // Mais). O enum torna a exclusão mútua estrutural, não uma convenção frágil.
+  const [overlay, setOverlay] = useState<"mais" | "launch" | null>(null);
   const { user, isAdmin, hasModule, hasProjectType, hasProjectAccess, logout, loading: authLoading } = useAuth();
 
   useEffect(() => {
@@ -70,8 +72,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [projectId, router]);
 
   useEffect(() => {
-    setMobileOpen(false);
-    setLaunchOpen(false);
+    setOverlay(null);
   }, [pathname, projectId]);
 
   const canAccessProject = Boolean(
@@ -130,7 +131,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!canLaunch) return;
     if (searchParams.get('launch') !== '1') return;
-    setLaunchOpen(true);
+    setOverlay('launch');
   }, [canLaunch, searchParams]);
 
   if (authLoading || loading || !project || !canAccessProject) {
@@ -151,6 +152,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   const basePath = `/projects/${projectId}`;
+  const search = searchParams.toString();
   const resolvedProjectType = project.type as ProjectType;
   const { primary, secondary } = getMobilePrimary(project.type, visibleNav);
   const hasMoreSheet = secondary.length > 0 || isAdmin || Boolean(user?.name);
@@ -179,19 +181,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <MobileHeader
           project={project}
           hasMoreSheet={hasMoreSheet}
-          onOpenMais={() => setMobileOpen(true)}
+          maisCount={secondary.length}
+          onOpenMais={() => setOverlay('mais')}
         />
 
         <MaisSheet
-          open={mobileOpen}
+          open={overlay === 'mais'}
           project={project}
           basePath={basePath}
           pathname={pathname}
+          search={search}
           secondary={secondary}
           isAdmin={isAdmin}
           canSeeBudgetHistory={canSeeBudgetHistory}
           userName={user?.name}
-          onClose={() => setMobileOpen(false)}
+          onClose={() => setOverlay(null)}
           onLogout={handleLogout}
         />
 
@@ -199,6 +203,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           project={project}
           basePath={basePath}
           pathname={pathname}
+          search={search}
           visibleNav={visibleNav}
           isAdmin={isAdmin}
           canSeeBudgetHistory={canSeeBudgetHistory}
@@ -213,18 +218,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <MobileTabBar
           basePath={basePath}
           pathname={pathname}
+          search={search}
           projectType={resolvedProjectType}
           primary={primary}
           canLaunch={canLaunch}
-          onOpenLaunch={() => setLaunchOpen(true)}
+          onOpenLaunch={() => setOverlay('launch')}
         />
 
         {supportsMobileCockpit && canLaunch && (
           <div className="md:hidden">
             <MobileLaunchSheetContainer
               projectId={project.id}
-              open={launchOpen}
-              onClose={() => setLaunchOpen(false)}
+              open={overlay === 'launch'}
+              onClose={() => setOverlay(null)}
             />
           </div>
         )}
