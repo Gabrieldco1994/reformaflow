@@ -136,9 +136,10 @@ de 375/390 px. Ao abrir um alvo rateado, a seção carrega o rateio existente
 canônico e lista, somente para leitura, **todas** as alocações da compra — não
 apenas a primeira. Essa lista só aparece quando o usuário pode ver todos os
 participantes e os valores fecham o total da compra.
-Alvos sem permissão de visualização **não aparecem de forma alguma** — e, com
-eles, o rateio inteiro deixa de ser detalhado: se houver um único participante
-que o usuário não pode ver, ou um alvo removido, a compra é exibida como **não
+Alvos sem permissão de visualização **não aparecem de forma alguma** — nem
+título, nem fornecedor, nem projeto, nem contagem ou soma agregada — e, com
+eles, o rateio inteiro deixa de ser detalhado: basta **um** participante que o
+usuário não pode ver, ou um alvo removido, para a compra ser exibida como **não
 rateada**, sem lista, contagem ou soma (#448 B1b). A resposta é idêntica à de
 uma compra que nunca foi rateada, e o valor total aparece integralmente como
 sobra. Mostrar só a parte visível seria pior do que não mostrar nada: como a
