@@ -3,12 +3,23 @@ import { expect, test, type Page } from "@playwright/test";
 /**
  * QA (issue #423) — E2E do detalhe de rateio read-only.
  *
- * Contrato canônico (arquiteto, amendment de segurança
+ * ATENÇÃO — CONTRATO DATADO (atualizado em #448 W1). Este arquivo cobre a
+ * direção **API pré-B1b** do contrato mixed-version: um payload que AINDA
+ * manda `removedTargetsCount` / `hiddenTargetsCount` / `hiddenAllocationCents`.
+ * B1b (#448) REMOVEU esses três campos do contrato — o payload redigido passa
+ * a ser deep-equal a um sem nada oculto, por design, para não revelar relação,
+ * contagem nem soma de participante fora da lente. Os cenários de "alocações
+ * ocultas" abaixo continuam válidos como prova de que o bundle novo NÃO quebra
+ * contra um servidor antigo; a direção nova (payload redigido: sem linha de
+ * ocultos, sem NaN, sem alarme fabricado, CTA de rateio viva) está em
+ * `e2e/invoice-identity-mixed-version.spec.ts`.
+ *
+ * Contrato de referência (arquiteto, amendment de segurança
  * `security-tenant-lens`): `ExpenseService.getRateio` / `GET :id/rateio`,
  * payload `{ sourceExpenseId, rateado, totalSourceCents, rateadoCents,
- * sobraCents, removedTargetsCount, hiddenTargetsCount, hiddenAllocationCents,
- * items[] }`, cada item `{ targetExpenseId, titulo, fornecedor, projectName,
- * status, allocationCents, plannedValorTotalCents }`. N=0 (fonte sem
+ * sobraCents, items[] }` (+ a metadata de ocultos SÓ na API pré-B1b), cada
+ * item `{ targetExpenseId, titulo, fornecedor, projectName, status,
+ * allocationCents, plannedValorTotalCents }`. N=0 (fonte sem
  * NENHUMA RateioAllocation) responde 200 `{ rateado: false, sobraCents:
  * totalSourceCents, items: [] }` — NUNCA 404 (404 é reservado para "despesa
  * não existe"). Toda chamada de rede é interceptada via `page.route`
@@ -21,9 +32,10 @@ import { expect, test, type Page } from "@playwright/test";
  *     `data-hidden-targets-count` / `data-hidden-allocation-cents`
  *     (contrato de dado, nunca depender de `R$ 12.771,00` renderizado)
  *   - `[data-testid="rateio-item"]`     uma linha por alocação VISÍVEL
- *   - `[data-testid="rateio-hidden"]`   linha informativa quando
- *     `hiddenTargetsCount > 0` (sem `role="alert"`, sem âmbar — oculto não
- *     é divergência: já está dentro de `rateadoCents`)
+ *   - `[data-testid="rateio-hidden"]`   linha informativa quando a API ANTIGA
+ *     manda `hiddenTargetsCount > 0` (sem `role="alert"`, sem âmbar — oculto
+ *     não é divergência: já está dentro de `rateadoCents`). Com a API B1b esta
+ *     linha simplesmente não existe.
  *   - `[data-testid="rateio-loading"]`  estado de carregamento
  *   - `[data-testid="rateio-error"]` + `[data-testid="rateio-retry"]`
  *   - `[data-testid="vinculos-cross-project-editor"]` widget MUTÁVEL de
@@ -71,7 +83,10 @@ function nineAllocationItems() {
   }));
 }
 
-/** Payload canônico do GET :id/rateio (contrato §6.1/§6.2 do arquiteto). */
+/**
+ * Payload do GET :id/rateio na forma **pré-B1b** (com metadata de ocultos).
+ * Mantido de propósito: é a fixture da API antiga no contrato mixed-version.
+ */
 function rateioDetailPayload(opts?: {
   items?: ReturnType<typeof nineAllocationItems>;
   hiddenTargetsCount?: number;
@@ -948,7 +963,7 @@ test.describe("Detalhe de rateio read-only (#423) — Visão Conta", () => {
     ).toBeVisible();
   });
 
-  test("viewer restrito: 8 de 9 alocações ocultas — nenhum título/projeto alheio no DOM", async ({
+  test("API pré-B1b · viewer restrito: 8 de 9 alocações ocultas — nenhum título/projeto alheio no DOM", async ({
     page,
   }) => {
     // Cenário do contrato (§7.7): usuário sem lente sobre a OBRA vê só o
@@ -1005,7 +1020,7 @@ test.describe("Detalhe de rateio read-only (#423) — Visão Conta", () => {
     await expect(detalhe.getByRole("alert")).toHaveCount(0);
   });
 
-  test("N=0 com alocações ocultas: hiddenTargetsCount > 0 mostra totais e a linha de ocultos, nunca em branco", async ({
+  test("API pré-B1b · N=0 com alocações ocultas: hiddenTargetsCount > 0 mostra totais e a linha de ocultos, nunca em branco", async ({
     page,
   }) => {
     // Fronteira: TODOS os alvos ativos estão fora da lente — `items: []`,

@@ -24,9 +24,6 @@ const DETALHE: RateioDetalhe = {
   totalSourceCents: 10000,
   rateadoCents: 10000,
   sobraCents: 0,
-  removedTargetsCount: 0,
-  hiddenTargetsCount: 0,
-  hiddenAllocationCents: 0,
   items: [
     {
       targetExpenseId: 'tgt-1',
@@ -55,6 +52,25 @@ describe('useRateioDetalhe', () => {
 
     expect(apiGet).toHaveBeenCalledWith('/projects/p1/expenses/src-1/rateio');
     expect(result.current.data).toEqual(DETALHE);
+  });
+
+  // #448 W1 — contrato mixed-version: B1b REMOVE `hiddenTargetsCount`,
+  // `hiddenAllocationCents` e `removedTargetsCount` do payload. O fixture
+  // canônico acima já é o payload novo (sem eles); este caso prova que o
+  // payload da API ANTIGA continua atravessando o hook sem perda, porque o
+  // bundle novo pode estar falando com um servidor velho.
+  it('payload da API pré-B1b (com metadata de ocultos) atravessa sem perda', async () => {
+    const legado = {
+      ...DETALHE,
+      removedTargetsCount: 1,
+      hiddenTargetsCount: 2,
+      hiddenAllocationCents: 4000,
+    };
+    apiGet.mockResolvedValueOnce(legado);
+    const { result } = renderHook(() => useRateioDetalhe('p1', 'src-1'), { wrapper });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual(legado);
   });
 
   it('não dispara a query quando expenseId é ausente', () => {
@@ -88,9 +104,6 @@ describe('useRateioTargetsBySource', () => {
     totalSourceCents: 100_000,
     rateadoCents: 100_000,
     sobraCents: 0,
-    removedTargetsCount: 0,
-    hiddenTargetsCount: 0,
-    hiddenAllocationCents: 0,
     items: [
       { targetExpenseId: 'tgt-telha', titulo: 'Telhas', fornecedor: null, projectId: 'p2', projectName: 'Reforma', projectType: 'REFORMA', allocationCents: 40_000, plannedValorTotalCents: null, status: 'PAGO' },
       { targetExpenseId: 'tgt-piso', titulo: 'Piso', fornecedor: null, projectId: 'p2', projectName: 'Reforma', projectType: 'REFORMA', allocationCents: 35_000, plannedValorTotalCents: null, status: 'PAGO' },
@@ -104,9 +117,6 @@ describe('useRateioTargetsBySource', () => {
     totalSourceCents: 5_000,
     rateadoCents: 0,
     sobraCents: 0,
-    removedTargetsCount: 0,
-    hiddenTargetsCount: 0,
-    hiddenAllocationCents: 0,
     items: [],
   };
 

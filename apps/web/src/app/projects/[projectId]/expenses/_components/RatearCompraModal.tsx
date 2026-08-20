@@ -10,6 +10,7 @@ import { Modal } from '@/components/ui/modal';
 import { formatCurrency } from '@/lib/utils';
 import type { Expense } from '@/types';
 import { reaisToCents, centsToReais } from '../_lib/money';
+import { isRateioEditLocked } from '../_lib/rateio-partial';
 import {
   useRateioDetalhe,
   type RateioDetalhe,
@@ -116,9 +117,11 @@ export function RatearCompraModal({
   ]);
 
   const editorReady = editorSession === sessionKey && editorDetail != null;
-  const isLocked =
-    editorDetail != null &&
-    (editorDetail.hiddenTargetsCount > 0 || editorDetail.removedTargetsCount > 0);
+  // Trava a edição destrutiva quando o SERVIDOR declara ocultos/removidos.
+  // Payload sem essa metadata (API nova, #448 B1b) NÃO trava — travar no
+  // ausente mataria a CTA para todo mundo, e quem barra a escrita insegura é o
+  // servidor (zero-write + erro). Ver `../_lib/rateio-partial`.
+  const isLocked = isRateioEditLocked(editorDetail);
 
   const totalCents = editorReady ? editorDetail.totalSourceCents : source.valorTotal;
   const allocatedCents = useMemo(

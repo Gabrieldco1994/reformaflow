@@ -147,9 +147,8 @@ const RATEIO_DETALHE: RateioDetalhe = {
   totalSourceCents: 10000,
   rateadoCents: 10000,
   sobraCents: 0,
-  removedTargetsCount: 0,
-  hiddenTargetsCount: 0,
-  hiddenAllocationCents: 0,
+  // #448 W1: metadata de ocultos removida do contrato (B1b). Este modal nunca
+  // dependeu dela — o fixture sem os campos é a prova.
   items: [
     {
       targetExpenseId: 'tgt-1',

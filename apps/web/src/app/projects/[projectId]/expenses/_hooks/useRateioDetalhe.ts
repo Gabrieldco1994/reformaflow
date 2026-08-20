@@ -25,14 +25,23 @@ export interface RateioDetalhe {
   sourceExpenseId: string;
   rateado: boolean;
   totalSourceCents: number;
-  /** Σ allocationCents dos alvos ATIVOS — visíveis + ocultos. NÃO depende de quem olha (I-D). */
+  /** Σ allocationCents dos alvos ATIVOS visíveis ao requisitante. */
   rateadoCents: number;
   sobraCents: number;
-  removedTargetsCount: number;
-  /** Alocações de alvo ATIVO em projeto fora da lente do requisitante (ou fora do tenant). */
-  hiddenTargetsCount: number;
-  /** Σ centavos das ocultas. Explica Σ items < rateadoCents SEM virar `sobra` fantasma (I-A). */
-  hiddenAllocationCents: number;
+  /**
+   * Metadata de participantes fora da lente — LEGADO (API pré-B1b).
+   *
+   * B1b (#448) REMOVE estes três campos do contrato: o payload redigido passa a
+   * ser deep-equal a uma resposta sem nada oculto, para não revelar relação,
+   * contagem nem soma de participante não autorizado. Por isso são OPCIONAIS
+   * aqui — o bundle novo tem que renderizar as duas formas sem NaN, sem alarme
+   * fabricado e sem vazar metadata. Leia sempre via `../_lib/rateio-partial`.
+   */
+  removedTargetsCount?: number;
+  /** Alocações de alvo ATIVO fora da lente do requisitante (API pré-B1b). */
+  hiddenTargetsCount?: number;
+  /** Σ centavos das ocultas (API pré-B1b). */
+  hiddenAllocationCents?: number;
   items: RateioDetalheItem[];
 }
 

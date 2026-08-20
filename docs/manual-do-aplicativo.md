@@ -531,6 +531,11 @@ movimentações abaixo.
   para filtrar.
 - **Pagar fatura** abre um diálogo (conta de débito + data) e registra um
   **lançamento neutro**: reduz o caixa, mas não é um novo gasto. Recalcula os KPIs.
+  O app identifica cartão e conta pelo **identificador do cadastro** (não só pelos
+  4 últimos dígitos). Se esses dados mudarem enquanto a tela está aberta, o
+  pagamento é **recusado com mensagem** ("os dados do cartão ou da conta
+  mudaram… atualize e tente de novo") em vez de ser gravado no cartão errado — o
+  diálogo continua aberto para você tentar de novo.
 - **Ajustar fatura…** abre formulário com valor (+/−), motivo e nota. O ajuste muda
   o espelho da fatura (valor bancário) sem virar consumo/caixa.
 - **Marcar quitada com resíduo…** registra o resíduo declarado (com nota) e fecha a

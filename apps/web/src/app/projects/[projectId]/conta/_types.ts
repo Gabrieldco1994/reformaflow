@@ -1,4 +1,10 @@
 export interface AccountViewCardSummary {
+  /**
+   * Identidade estável do cartão (B1a #448). ADITIVO e OPCIONAL: a API antiga
+   * não manda esse campo, então todo consumidor tem que continuar funcionando
+   * sem ele. Ver `buildPayInvoicePayload` em `../_lib`.
+   */
+  cardId?: string | null;
   nickname: string;
   last4: string;
   faturaAtual: number;
@@ -13,9 +19,19 @@ export interface AccountViewCardSummary {
   limiteUsadoPct: number | null;
   limiteUsado: number | null;
   limiteTotal: number | null;
+  /**
+   * Capabilities emitidas pelo servidor e fingerprint calculado da fatura
+   * (B1a #448), ambos ADITIVOS/OPCIONAIS. Tipados para o contrato ficar
+   * explícito; W1 não deriva CTA deles (isso é o critério "servidor emite
+   * capabilities" das ações reautorizadas, não o critério W1).
+   */
+  actions?: Array<'pay' | 'undo'>;
+  fingerprint?: string | null;
 }
 
 export interface AccountViewConta {
+  /** Identidade estável da conta (B1a #448) — aditivo/opcional, ver cardId. */
+  accountId?: string | null;
   last4: string;
   nome: string;
 }
@@ -29,6 +45,8 @@ export interface AccountViewSaida {
   valor: number;
   realizado: boolean;
   status: string;
+  /** Identidade da fatura na linha de saída (B1a #448) — aditivo/opcional. */
+  cardId?: string | null;
   cardLast4: string | null;
   bankLast4: string | null;
   tipoDespesa: string;

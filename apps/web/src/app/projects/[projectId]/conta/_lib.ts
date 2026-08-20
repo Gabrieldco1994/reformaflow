@@ -235,3 +235,134 @@ function humanizeKey(value: string) {
     .trim()
     .toLowerCase();
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Identidades explícitas de fatura — W1 (#448)
+//
+// B1a tornou `cardId`/`accountId` ADITIVOS e OPCIONAIS nas mutações de dinheiro
+// `pay-invoice` / `undo-invoice-payment`: quando presentes, resolvem o
+// cartão/conta estritamente por `{id, tenantId, projectId}` e têm PRECEDÊNCIA
+// sobre o último4; mismatch contra o último4 (ou id cross-tenant) é 400 ANTES
+// da ACL. O último4 legado continua determinístico.
+//
+// Contrato mixed-version (os dois deploys NÃO são atômicos):
+//  - bundle novo + API antiga: o `@Body()` daquelas rotas é objeto inline
+//    (metatype `Object`), então o `ValidationPipe` global (`whitelist` +
+//    `forbidNonWhitelisted`) NÃO roda nelas e as chaves desconhecidas são
+//    ignoradas — a API antiga resolve pelo último4 e a ação COMPLETA.
+//  - por isso mandamos SEMPRE o último4 legado E o id quando existir. Nunca só
+//    o id (API antiga responderia "Cartão obrigatório") e nunca `null`/`''`
+//    (API nova trataria como chave de busca).
+//
+// INVARIANTE que torna isso seguro sem reescrever o estado das telas para ser
+// chaveado por id: o id vem SEMPRE do MESMO objeto de linha que o diálogo
+// recebeu (`AccountViewCardSummary` / `AccountViewConta`), então ele nunca
+// diverge do último4 que o usuário está vendo na tela. Quem for chavear
+// `payCardLast4`/`undoCardLast4` por id um dia precisa preservar essa
+// propriedade.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Cartão da fatura, como a Visão Conta o entrega (`cardId` só na API nova). */
+export interface InvoiceCardIdentity {
+  cardId?: string | null;
+  last4: string;
+  dueMonth: string;
+}
+
+/** Conta de débito do pagamento (`accountId` só na API nova). */
+export interface InvoiceAccountIdentity {
+  accountId?: string | null;
+  last4: string;
+}
+
+export interface PayInvoicePayload {
+  cardId?: string;
+  cardLast4: string;
+  month: string;
+  amountCents: number;
+  accountId?: string;
+  bankLast4: string;
+  paymentDate: string;
+}
+
+export interface UndoInvoicePaymentPayload {
+  cardId?: string;
+  cardLast4: string;
+  dueMonth: string;
+}
+
+/** Id utilizável, ou `undefined` — nunca `null`, nunca string vazia/branca. */
+function explicitId(value: string | null | undefined): string | undefined {
+  const trimmed = typeof value === 'string' ? value.trim() : '';
+  return trimmed === '' ? undefined : trimmed;
+}
+
+export function buildPayInvoicePayload(input: {
+  card: InvoiceCardIdentity;
+  account: InvoiceAccountIdentity;
+  amountCents: number;
+  paymentDate: string;
+  month?: string;
+}): PayInvoicePayload {
+  const cardId = explicitId(input.card.cardId);
+  const accountId = explicitId(input.account.accountId);
+  return {
+    // Espalhamento condicional: a chave não existe quando não há id, então o
+    // JSON enviado é byte-a-byte o payload legado.
+    ...(cardId ? { cardId } : {}),
+    cardLast4: input.card.last4,
+    month: input.month ?? input.card.dueMonth,
+    amountCents: input.amountCents,
+    ...(accountId ? { accountId } : {}),
+    bankLast4: input.account.last4,
+    paymentDate: input.paymentDate,
+  };
+}
+
+export function buildUndoInvoicePaymentPayload(
+  card: InvoiceCardIdentity,
+): UndoInvoicePaymentPayload {
+  const cardId = explicitId(card.cardId);
+  return {
+    ...(cardId ? { cardId } : {}),
+    cardLast4: card.last4,
+    dueMonth: card.dueMonth,
+  };
+}
+
+function errorStatus(error: unknown): number | null {
+  if (error && typeof error === 'object' && typeof (error as { status?: unknown }).status === 'number') {
+    return (error as { status: number }).status;
+  }
+  return null;
+}
+
+function errorMessage(error: unknown): string {
+  if (error && typeof error === 'object' && typeof (error as { message?: unknown }).message === 'string') {
+    return (error as { message: string }).message;
+  }
+  return '';
+}
+
+/**
+ * Traduz as DUAS recusas de identidade em mensagem que o usuário entende, ou
+ * `null` quando o erro não é de identidade (aí a mensagem do servidor vale).
+ *
+ * DELIBERADAMENTE não existe "tenta de novo sem os ids". Reenviar sozinho o
+ * payload sem identidade é um caminho de DOWNGRADE DE IDENTIDADE que uma
+ * resposta de erro consegue disparar — e, contra a API nova, escreveria no
+ * cartão resolvido por último4 logo depois de o cartão resolvido por id ter
+ * sido recusado. Erro visível é estritamente melhor que escrita silenciosa no
+ * recurso errado.
+ */
+export function invoiceIdentityErrorMessage(error: unknown): string | null {
+  if (errorStatus(error) !== 400) return null;
+  const message = errorMessage(error);
+  if (/não correspondem/i.test(message)) {
+    return 'Os dados do cartão ou da conta mudaram desde que esta tela carregou. Atualize e tente de novo.';
+  }
+  if (/should not exist/i.test(message)) {
+    return 'Este servidor não reconhece a identificação do cartão. Atualize a página e tente de novo.';
+  }
+  return null;
+}

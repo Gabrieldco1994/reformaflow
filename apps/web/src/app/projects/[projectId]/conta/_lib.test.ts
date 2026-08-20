@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildPayInvoicePayload,
+  buildUndoInvoicePaymentPayload,
   computeMovementTotals,
   groupByMovementDay,
   groupByMovementMonth,
+  invoiceIdentityErrorMessage,
   originLast4FromKey,
 } from './_lib';
 import type { AccountViewMovimentacao } from './_types';
@@ -156,5 +159,161 @@ describe('groupByMovementDay — o mês não regride', () => {
       { id: 'b', data: '2026-07-16T00:00:00.000Z' },
     ]);
     expect(groups.map((g) => g.day)).toEqual(['2026-07-17', '2026-07-16']);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// W1 (#448): identidades explícitas de fatura no payload das mutações de
+// dinheiro (`pay-invoice` / `undo-invoice-payment`).
+//
+// Contrato mixed-version (os dois deploys NÃO são atômicos):
+//  - API nova: `cardId`/`accountId` têm precedência sobre o último4; mismatch
+//    com o último4 (ou id cross-tenant) é 400 ANTES da ACL.
+//  - API antiga: o `@Body()` daquelas rotas é um objeto inline (metatype
+//    `Object`), então o `ValidationPipe` global NÃO valida e as chaves
+//    desconhecidas são ignoradas — o último4 legado ainda resolve.
+// Logo o payload manda SEMPRE o último4 legado E o id quando existir; nunca
+// só o id (a API antiga responderia "Cartão obrigatório") e nunca `null`/`''`
+// (a API nova trataria como chave de busca).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('buildPayInvoicePayload — identidade explícita quando disponível', () => {
+  const account = { accountId: 'acc-1', last4: '9876' };
+  const card = { cardId: 'card-1', last4: '1234', dueMonth: '2026-07' };
+
+  it('envia cardId e accountId JUNTO do último4 legado quando a API os forneceu', () => {
+    expect(
+      buildPayInvoicePayload({ card, account, amountCents: 12_345, paymentDate: '2026-07-10' }),
+    ).toEqual({
+      cardId: 'card-1',
+      cardLast4: '1234',
+      month: '2026-07',
+      amountCents: 12_345,
+      accountId: 'acc-1',
+      bankLast4: '9876',
+      paymentDate: '2026-07-10',
+    });
+  });
+
+  it('OMITE as chaves de id (não manda null/vazio) quando a API antiga não as forneceu', () => {
+    const payload = buildPayInvoicePayload({
+      card: { last4: '1234', dueMonth: '2026-07' },
+      account: { last4: '9876' },
+      amountCents: 12_345,
+      paymentDate: '2026-07-10',
+    });
+
+    expect(Object.keys(payload).sort()).toEqual(
+      ['amountCents', 'bankLast4', 'cardLast4', 'month', 'paymentDate'].sort(),
+    );
+    expect('cardId' in payload).toBe(false);
+    expect('accountId' in payload).toBe(false);
+  });
+
+  it('degrada byte-a-byte para o payload legado quando não há id nenhum', () => {
+    const payload = buildPayInvoicePayload({
+      card: { cardId: null, last4: '1234', dueMonth: '2026-07' },
+      account: { accountId: '   ', last4: '9876' },
+      amountCents: 12_345,
+      paymentDate: '2026-07-10',
+    });
+
+    // Exatamente o corpo que o bundle antigo mandava — nenhuma chave a mais.
+    expect(JSON.parse(JSON.stringify(payload))).toEqual({
+      cardLast4: '1234',
+      month: '2026-07',
+      amountCents: 12_345,
+      bankLast4: '9876',
+      paymentDate: '2026-07-10',
+    });
+  });
+
+  it('manda o id de UM lado só quando só um lado tem identidade', () => {
+    const payload = buildPayInvoicePayload({
+      card,
+      account: { last4: '9876' },
+      amountCents: 100,
+      paymentDate: '2026-07-10',
+    });
+    expect(payload.cardId).toBe('card-1');
+    expect('accountId' in payload).toBe(false);
+    expect(payload.bankLast4).toBe('9876');
+  });
+
+  it('nunca deixa o último4 legado de fora, mesmo com os dois ids presentes', () => {
+    const payload = buildPayInvoicePayload({
+      card,
+      account,
+      amountCents: 100,
+      paymentDate: '2026-07-10',
+    });
+    expect(payload.cardLast4).toBe('1234');
+    expect(payload.bankLast4).toBe('9876');
+  });
+
+  it('trima o id e usa o mês explícito quando informado', () => {
+    const payload = buildPayInvoicePayload({
+      card: { cardId: ' card-1 ', last4: '1234', dueMonth: '2026-07' },
+      account,
+      amountCents: 100,
+      paymentDate: '2026-07-10',
+      month: '2026-08',
+    });
+    expect(payload.cardId).toBe('card-1');
+    expect(payload.month).toBe('2026-08');
+  });
+});
+
+describe('buildUndoInvoicePaymentPayload — identidade explícita quando disponível', () => {
+  it('envia cardId junto do último4 legado', () => {
+    expect(
+      buildUndoInvoicePaymentPayload({ cardId: 'card-1', last4: '1234', dueMonth: '2026-07' }),
+    ).toEqual({ cardId: 'card-1', cardLast4: '1234', dueMonth: '2026-07' });
+  });
+
+  it('degrada para o payload legado quando a API antiga não mandou cardId', () => {
+    const payload = buildUndoInvoicePaymentPayload({ last4: '1234', dueMonth: '2026-07' });
+    expect(JSON.parse(JSON.stringify(payload))).toEqual({
+      cardLast4: '1234',
+      dueMonth: '2026-07',
+    });
+    expect('cardId' in payload).toBe(false);
+  });
+});
+
+describe('invoiceIdentityErrorMessage — erro honesto, nunca downgrade silencioso', () => {
+  it('traduz o 400 de mismatch id×último4 em "os dados mudaram, atualize"', () => {
+    const message = invoiceIdentityErrorMessage({
+      status: 400,
+      message: 'cardId e cardLast4 não correspondem ao mesmo cartão.',
+    });
+    expect(message).toMatch(/atualize/i);
+    expect(message).not.toMatch(/cardId/);
+  });
+
+  it('traduz o mismatch de conta também', () => {
+    expect(
+      invoiceIdentityErrorMessage({
+        status: 400,
+        message: 'accountId e bankLast4 não correspondem à mesma conta.',
+      }),
+    ).toMatch(/atualize/i);
+  });
+
+  it('traduz a recusa de propriedade desconhecida (API que não conhece os ids)', () => {
+    const message = invoiceIdentityErrorMessage({
+      status: 400,
+      message: 'property cardId should not exist',
+    });
+    expect(message).toMatch(/servidor/i);
+    expect(message).toMatch(/atualize/i);
+  });
+
+  it('devolve null para erro que não é de identidade — a mensagem do servidor prevalece', () => {
+    expect(invoiceIdentityErrorMessage({ status: 400, message: 'Valor da fatura inválido.' })).toBeNull();
+    expect(invoiceIdentityErrorMessage({ status: 404, message: 'Cartão não encontrado.' })).toBeNull();
+    expect(invoiceIdentityErrorMessage({ status: 500, message: 'boom' })).toBeNull();
+    expect(invoiceIdentityErrorMessage(new Error('offline'))).toBeNull();
+    expect(invoiceIdentityErrorMessage(null)).toBeNull();
   });
 });

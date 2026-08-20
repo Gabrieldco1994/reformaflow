@@ -31,15 +31,16 @@ const TARGETS = Array.from({ length: 9 }, (_, i) => ({
   project: { id: 'p2', name: 'Reforma A', type: 'REFORMA' },
 }));
 
+// #448 W1 — contrato mixed-version: a API B1b NÃO manda mais
+// `removedTargetsCount`/`hiddenTargetsCount`/`hiddenAllocationCents`. O
+// fixture-base é o payload NOVO (sem eles); os casos de trava injetam a
+// metadata explicitamente para cobrir a API antiga.
 const NO_RATEIO: RateioDetalhe = {
   sourceExpenseId: SOURCE.id,
   rateado: false,
   totalSourceCents: SOURCE.valorTotal,
   rateadoCents: 0,
   sobraCents: SOURCE.valorTotal,
-  removedTargetsCount: 0,
-  hiddenTargetsCount: 0,
-  hiddenAllocationCents: 0,
   items: [],
 };
 
@@ -293,7 +294,9 @@ describe('RatearCompraModal', () => {
   it.each([
     ['ocultas', { hiddenTargetsCount: 1, hiddenAllocationCents: 277_100 }],
     ['removidas', { removedTargetsCount: 1 }],
-  ])('bloqueia edição destrutiva quando há alocações %s e mantém Desfazer', async (_, counts) => {
+  ])(
+    'API pré-B1b: bloqueia edição destrutiva quando o SERVIDOR declara alocações %s e mantém Desfazer',
+    async (_, counts) => {
     apiGet.mockImplementation((path: string) =>
       path.endsWith('/rateio')
         ? Promise.resolve(makeRateio([makeItem(1, 1_000_000)], counts))
@@ -311,6 +314,28 @@ describe('RatearCompraModal', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Salvar rateio/i }));
     expect(onSubmit).not.toHaveBeenCalled();
+    },
+  );
+
+  // #448 W1 — a outra ponta do mesmo contrato. Sob B1b o payload redigido é
+  // deep-equal a um sem nada oculto POR DESIGN: o web não tem como inferir
+  // parcialidade e não deve tentar. Uma regra fail-closed ("na dúvida, trava")
+  // mataria "Ratear compra" para todo mundo no dia do deploy. Quem barra a
+  // escrita insegura é o servidor (`assertCanReverseSources` → 404, zero
+  // writes), e o erro chega ao usuário pelo onError da mutation.
+  it('API B1b: payload SEM metadata de ocultos não trava o editor', async () => {
+    apiGet.mockImplementation((path: string) =>
+      path.endsWith('/rateio')
+        ? Promise.resolve(makeRateio([makeItem(1, 1_000_000)]))
+        : Promise.resolve(TARGETS),
+    );
+    renderModal();
+
+    const allocationInput = await screen.findByDisplayValue('10.000,00');
+    expect(allocationInput).toBeEnabled();
+    expect(screen.getByPlaceholderText(/Buscar planejada/i)).toBeEnabled();
+    expect(screen.getByTitle('Remover')).toBeEnabled();
+    expect(screen.queryByText(/alocações ocultas ou removidas/i)).not.toBeInTheDocument();
   });
 
   it('não sobrescreve uma edição local quando o detalhe é reconsultado', async () => {
