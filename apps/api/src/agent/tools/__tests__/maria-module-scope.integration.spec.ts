@@ -107,17 +107,25 @@ const owner: Requester = {
 describe("Maria — escopo por recurso nas tools financeiras (#483, banco real)", () => {
   const setup = new PrismaClient();
   const prisma = new PrismaService();
-  const monthly = { getCaixaConta: jest.fn(async () => ({ hoje: 0 })) } as any;
+  const monthly = {
+    getCaixaConta: jest.fn(async () => ({
+      hoje: 0,
+      saldoInicial: 0,
+      temSaldoInicial: false,
+      porMes: [],
+      contaPrimaria: null,
+    })),
+  } as any;
   const financial = new TenantFinancialService(prisma, monthly);
   const service = new AgentToolsService(
     prisma,
     financial,
-    {} as any,
-    {} as any,
-    {} as any,
-    {} as any,
-    {} as any,
-    {} as any,
+    {} as any, // expenses
+    {} as any, // receipts
+    {} as any, // cards
+    {} as any, // merchantClassifier
+    {} as any, // priceMonitor
+    monthly,
   );
 
   /** Reproduz o agent.controller: escopo AMPLO de projeto + ACL bruta no contexto. */

@@ -293,6 +293,10 @@ financeiro em tela própria (chat em tela cheia no mobile).
 - Aceita texto e voz (STT). **Iniciar conversa por voz** abre o modo automático:
   depois de ouvir e responder, a Maria reproduz o áudio e reabre o microfone.
   Durante o aquecimento da voz, a resposta já fica disponível para leitura.
+- Ao responder **"quanto eu tenho na conta?"**, usa o mesmo motor de saldo da tela
+  **Conta** — o número que a Maria fala é o mesmo de **"Tenho na conta hoje"**,
+  já com o **saldo inicial** cadastrado da conta e a sua data de corte. Não há
+  duas contas diferentes do mesmo dinheiro.
 - A ação **Editar** em sugestões abre o mesmo sheet de lançamento usado no app.
 - Também pode consultar monitoramento de preços (watchlist) e busca avulsa de preços por produto via chat/voz.
 - Também responde sobre manutenção de **CASA/CARRO/PLANTAS** (ex.: "quando foi

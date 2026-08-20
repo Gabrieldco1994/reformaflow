@@ -4,7 +4,7 @@ import { TenantFinancialModule } from '../tenant-financial/tenant-financial.modu
 import { ExpenseModule } from '../expense/expense.module';
 import { ReceiptModule } from '../receipt/receipt.module';
 import { CreditCardModule } from '../credit-card/credit-card.module';
-import { BankAccountModule } from '../bank-account/bank-account.module';
+import { MonthlyOverviewModule } from '../monthly-overview/monthly-overview.module';
 import { MerchantClassifierModule } from '../merchant-classifier/merchant-classifier.module';
 import { PriceCompareModule } from '../price-compare/price-compare.module';
 import { AgentController } from './agent.controller';
@@ -43,7 +43,9 @@ export function buildLlmProvider(): LlmProvider {
     ExpenseModule,
     ReceiptModule,
     CreditCardModule,
-    BankAccountModule,
+    // #508: a tool de saldo consome o motor canônico §10 (`getCaixaConta`) em vez
+    // de `BankAccountService.listAccounts` (movimento puro, sem saldo inicial).
+    MonthlyOverviewModule,
     MerchantClassifierModule,
     PriceCompareModule,
   ],
