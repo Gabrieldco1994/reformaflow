@@ -766,3 +766,67 @@ test.describe('U2 shell mobile — preservação de mês', () => {
     await expect(slot, 'aria-current deve acender na página exata').toHaveAttribute('aria-current', 'page');
   });
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// 2ª PRIORIDADE — TRAVAs de regressão e DIAGNÓSTICO de cobertura parcial.
+// ───────────────────────────────────────────────────────────────────────────
+
+test.describe('U2 shell mobile — travas e diagnóstico (2ª prioridade)', () => {
+  // U2-E15 [TRAVA] — usuário reduzido (sem monthlyOverview): NENHUM href do
+  // SHELL (dock + cabeçalho + rail) aponta para módulo ausente. Escopo restrito
+  // às raízes do shell — o corpo da página pode ter CTAs próprios (ex.: /expenses
+  // linka /monthly no header editorial); isso é da PÁGINA, não do shell.
+  // Verde HOJE (dock atual gateia cockpit/conta) e protege contra o rework
+  // revelar monthly/conta/dre no shell por engano.
+  test('375 — [TRAVA] U2-E15 reduzido: nenhum href de módulo ausente no shell', async ({ page, baseURL }) => {
+    await bootMobile(page, baseURL!, { modules: MODULES.reduced });
+    await page.goto(`/projects/${PESSOAL_ID}/expenses`);
+    await expect(page.locator('[data-mobile-header]'), 'shell não renderizou — skip silencioso?').toBeVisible();
+    const forbidden = ['monthly', 'conta', 'dre', 'neutros', 'planning', 'planejador', 'cash-flow'];
+    const hrefs = await page.evaluate(() => {
+      const roots = document.querySelectorAll(
+        '[data-dock], .minimal-dock, [data-mobile-header], aside.minimal-sidebar, nav.minimal-sidebar',
+      );
+      const acc: string[] = [];
+      for (const root of roots) for (const a of root.querySelectorAll('a[href]')) acc.push(a.getAttribute('href') ?? '');
+      return acc;
+    });
+    const leaked = [...new Set(hrefs.map(slugOf).filter((s) => forbidden.includes(s)))];
+    expect(leaked, `href(s) de módulo sem permissão vazando no SHELL: ${leaked.join(',')}`).toEqual([]);
+  });
+
+  // U2-P18 — focus NÃO vaza de credit-cards para bank-accounts (colisão de nome).
+  // O shell só carrega o allowlist (mes…), nunca focus. RED até a Lane A ligar o
+  // tile do Mais; GREEN quando buildNavHref excluir focus (não está no allowlist).
+  test('375 — U2-P18 focus não vaza de credit-cards para bank-accounts', async ({ page, baseURL }) => {
+    await bootMobile(page, baseURL!, { modules: MODULES.full });
+    await page.goto(`/projects/${PESSOAL_ID}/credit-cards?focus=closingDay`);
+    const overlay = await openMais(page);
+    const tile = overlay.locator('a[href*="/bank-accounts"]');
+    await expect(tile, 'tile bank-accounts ausente no Mais — Lane A ainda não marcou').toBeVisible();
+    await tile.click();
+    await expect(page).toHaveURL(new RegExp(`${PESSOAL_ID}/bank-accounts`));
+    await expect(page, 'focus vazou entre destinos (não está no allowlist)').not.toHaveURL(/focus=/);
+  });
+
+  // U2-P21 [DIAG, não bloqueia] — destinos AINDA NÃO cobertos por mês são
+  // DECLARADOS. Lista LITERAL — quem cobrir um destino edita a lista de propósito
+  // (cicatriz: "barrier test não deriva da constante que protege"). HOJE
+  // dre/neutros/metas IGNORAM ?mes (caem no mês corrente); vira RED quando E-9
+  // entrar. Existe para que ninguém leia o verde do U2 como "mês preservado em
+  // toda parte" — a cobertura de mês é PARCIAL E ASSIMÉTRICA (só conta+expenses).
+  const NAO_COBERTOS_POR_MES = ['dre', 'neutros', 'metas'];
+  for (const slug of NAO_COBERTOS_POR_MES) {
+    test(`375 — [DIAG] U2-P21 ${slug} ignora ?mes (cobertura parcial declarada)`, async ({ page, baseURL }) => {
+      await bootMobile(page, baseURL!, { modules: MODULES.full });
+      await page.goto(`/projects/${PESSOAL_ID}/${slug}?mes=${TEST_MONTH}`);
+      await expect(page, `${slug} caiu em /no-permission`).not.toHaveURL(/no-permission/);
+      await expect(page.locator('main'), `${slug} sem main renderizado`).toBeVisible();
+      // HOJE não mostra março (lê o mês corrente, não a URL). Flip → RED com E-9.
+      await expect(
+        page.locator('main'),
+        `${slug} JÁ preservou o mês — E-9 entrou? edite NAO_COBERTOS_POR_MES de propósito`,
+      ).not.toContainText(TEST_MONTH_LABEL);
+    });
+  }
+});
