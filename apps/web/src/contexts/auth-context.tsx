@@ -68,8 +68,11 @@ export interface AuthUser {
   /**
    * `/auth/me` (`auth.service.buildPublicUser`) sempre devolve este campo. É
    * opcional aqui só por compatibilidade com sessão em cache de versão antiga.
-   * Convidado de demo nasce com `role: 'ADMIN'` (#497), então papel sozinho não
-   * distingue administrador de visitante.
+   * Desde #505 o convidado de demo é cunhado com papel SEM acesso total
+   * (`auth.service.registerGuest`), mas `isGuest` continua sendo a marca
+   * canônica do visitante: `isAdmin` o consulta para nunca abrir o aplicativo
+   * inteiro pelo papel — inclusive para qualquer sessão cunhada na janela
+   * entre agora e o deploy.
    */
   isGuest?: boolean;
 }
@@ -154,7 +157,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo<AuthContextValue>(() => {
-    const isAdmin = user?.role === "ADMIN" || user?.role === "OWNER";
+    // #505 — o papel sozinho NUNCA decide visibilidade.
+    //
+    // A cunhagem do convidado já foi corrigida no servidor
+    // (`auth.service.registerGuest` grava papel sem acesso total + grants
+    // reais), e essa é a defesa primária. Isto aqui é a segunda camada: uma
+    // sessão em cache de versão antiga — ou qualquer regressão futura na
+    // cunhagem — não pode voltar a abrir o aplicativo inteiro.
+    //
+    // A chave é `isGuest`, JAMAIS "grants vazios": há contas ADMIN/OWNER reais
+    // em produção com `allowedModules` vazio que enxergam tudo exatamente por
+    // este curto-circuito. Confundir as duas coisas apaga o menu delas.
+    //
+    // `isGuest` ausente (sessão antiga) NÃO significa convidado — só `true`
+    // significa. Derivado uma vez aqui, os QUATRO predicados abaixo herdam.
+    const isGuest = user?.isGuest === true;
+    const isAdmin =
+      !isGuest && (user?.role === "ADMIN" || user?.role === "OWNER");
     const allowed = new Set(user?.allowedModules ?? []);
     const allowedProjects = user?.allowedProjects ?? [];
     const allowedProjectTypes = user?.allowedProjectTypes ?? [];

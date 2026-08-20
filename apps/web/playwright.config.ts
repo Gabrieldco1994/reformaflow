@@ -1,6 +1,16 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const PORT = 3013;
+/**
+ * A porta é PARAMETRIZÁVEL (mesmo valor de sempre por omissão).
+ *
+ * `reuseExistingServer` é ligado fora de CI, e este monorepo roda várias
+ * worktrees em paralelo: se a 3013 já estiver ocupada pelo `next dev` de OUTRO
+ * agente, a suíte inteira mede o código dele e reporta verde sobre mudanças
+ * que não existem na sua árvore. Aconteceu nesta issue (#505): 7 testes
+ * "passaram" contra `/tmp/rf-490-dd`. Com `PLAYWRIGHT_PORT` cada worktree mede
+ * a si mesma.
+ */
+const PORT = Number(process.env.PLAYWRIGHT_PORT ?? 3013);
 const baseURL = `http://localhost:${PORT}`;
 
 /**
