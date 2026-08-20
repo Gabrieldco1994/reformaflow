@@ -20,24 +20,29 @@ vi.mock("next/link", () => ({
 }));
 
 const basePath = "/projects/project-1";
+// `group` é obrigatório em `NavModule` desde U1 (#450): PLANTAS é um tipo de
+// lista única, logo todas as entradas são "modulos" — igual ao PROJECT_NAV.
 const secondary: NavModule[] = [
   {
     slug: "plants",
     label: "Minhas Plantas",
     iconName: "Sprout",
     module: "plantsAi",
+    group: "modulos",
   },
   {
     slug: "reminders",
     label: "Lembretes",
     iconName: "Bell",
     module: "reminders",
+    group: "modulos",
   },
   {
     slug: "plants-ai",
     label: "Diagnóstico IA",
     iconName: "ScanSearch",
     module: "plantsAi",
+    group: "modulos",
   },
 ];
 
