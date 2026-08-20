@@ -91,3 +91,52 @@ describe('expense query state codec', () => {
     expect(changed.get('feature_flag')).toBe('mobile');
   });
 });
+
+/**
+ * U2 §4/§6 — `mes` (contexto compartilhado do shell) cai no `period` da tela
+ * de expenses quando `period` está ausente. O shell carrega `?mes=`; a tradução
+ * para o vocabulário privado de expenses (`period`) mora aqui, onde o
+ * conhecimento já vive — o shell permanece ignorante de `period`.
+ */
+describe('expense query state — fallback de mes para period (U2)', () => {
+  const personalOptions = {
+    projectType: 'PESSOAL',
+    hasRooms: false,
+    storedViewMode: 'month',
+    defaultViewMode: 'category',
+  } as const;
+
+  it('[RED] U2-P11: period ausente cai em mes', () => {
+    expect(
+      decodeExpenseQuery(new URLSearchParams('mes=2026-03'), personalOptions).period,
+    ).toBe('2026-03');
+  });
+
+  it('[TRAVA] U2-P12: period explícito vence mes', () => {
+    expect(
+      decodeExpenseQuery(new URLSearchParams('period=2026-05&mes=2026-03'), personalOptions)
+        .period,
+    ).toBe('2026-05');
+    // period=ALL também vence: o vocabulário da rota manda na própria tela.
+    expect(
+      decodeExpenseQuery(new URLSearchParams('period=ALL&mes=2026-03'), personalOptions).period,
+    ).toBe('ALL');
+  });
+
+  it('[TRAVA] U2-P13: mes não vaza para projeto não-PESSOAL', () => {
+    expect(
+      decodeExpenseQuery(new URLSearchParams('mes=2026-03'), {
+        ...personalOptions,
+        projectType: 'REFORMA',
+      }).period,
+    ).toBe('');
+  });
+
+  it('[RED] U2-P11: mes malformado não vira period', () => {
+    for (const bad of ['banana', '2026-13', 'ALL', '']) {
+      expect(
+        decodeExpenseQuery(new URLSearchParams(`mes=${bad}`), personalOptions).period,
+      ).toBe('');
+    }
+  });
+});
