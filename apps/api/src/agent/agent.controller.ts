@@ -56,8 +56,12 @@ export class AgentController {
     return this.agent.chat({
       tenantId,
       projectId: dto.projectId ?? null,
+      // Escopo AMPLO de projeto (visibilidade). NÃO autoriza recurso financeiro:
+      // as tools derivam a lente POR MÓDULO a partir da ACL bruta abaixo (#483).
       projectScope,
       role: user.role,
+      allowedProjects: user.allowedProjects,
+      allowedProjectTypes: user.allowedProjectTypes,
       allowedModules: user.allowedModules,
       userId: user.id,
       messages: dto.messages,

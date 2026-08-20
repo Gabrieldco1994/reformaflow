@@ -6,9 +6,13 @@ import {
   getTaxonomyTree,
   EssentialityLabels,
   isSinglePaymentForm,
+  type TypeModuleSlug,
 } from '@reformaflow/domain';
 import { PrismaService } from '../../prisma/prisma.service';
-import { TenantFinancialService } from '../../tenant-financial/tenant-financial.service';
+import {
+  TenantFinancialService,
+  type FinancialResourceScope,
+} from '../../tenant-financial/tenant-financial.service';
 import { ExpenseService } from '../../expense/expense.service';
 import { ReceiptService } from '../../receipt/receipt.service';
 import { CreditCardService } from '../../credit-card/credit-card.service';
@@ -18,7 +22,20 @@ import {
   MERCHANT_TO_EXPENSE_TYPE,
 } from '../../merchant-classifier/merchant-classifier.service';
 import { PriceMonitorService } from '../../price-compare/price-monitor.service';
-import { isFullAccessRole, projectTypeHasModule } from '../../common/access-rules';
+import {
+  CREDIT_CARD_MODULE,
+  EXPENSE_MODULE,
+  RECEIPT_MODULE,
+  isFullAccessRole,
+  projectTypeHasModule,
+  resolveAccessibleProjectScope,
+} from '../../common/access-rules';
+import {
+  intersectProjectScope,
+  projectScopeIncludes,
+  unionProjectScope,
+  type ProjectScope,
+} from '../../common/project-scope';
 import type { ModuleSlug } from '../../common/decorators/require-module.decorator';
 import { ToolDef } from '../llm/llm.types';
 import { parseSpokenMoney } from './money-parse';
@@ -26,21 +43,41 @@ import type { RateioRequester } from '../../expense/rateio.types';
 
 const PROJECT_ACCESS_DENIED_MESSAGE = 'Sem permissão para acessar este projeto.';
 
+/**
+ * Lente de escopo POR RECURSO (#483 SEC-5): devolve os projetos onde o
+ * requisitante pode LER o recurso do módulo pedido (`null` só para full-access).
+ * Memoizada por turno — várias tools no mesmo turno resolvem cada módulo uma vez.
+ */
+export type ModuleScopeReader = (module: TypeModuleSlug) => Promise<ProjectScope>;
+
 export interface ToolContext {
   tenantId: string;
   /** Projeto em foco quando o chat é aberto dentro de um projeto (opcional). */
   projectId?: string | null;
-  /** Escopo exato: [] nega tudo; null só é irrestrito para ADMIN/OWNER. */
+  /**
+   * Escopo de PROJETO do turno: [] nega tudo; null só é irrestrito para
+   * ADMIN/OWNER. Responde "esse usuário enxerga esse projeto?" — NÃO autoriza um
+   * recurso financeiro; para isso use `scopeFor(<módulo dono>)`.
+   */
   projectScope?: string[] | null;
   /** Papel do usuário (ADMIN/OWNER/USER) — usado nas ferramentas de escrita. */
   role?: string;
+  /** Projetos liberados ao usuário (ACL bruta) — deriva escopo POR RECURSO. */
+  allowedProjects?: string[];
+  /** Tipos de projeto liberados (ACL bruta) — deriva escopo POR RECURSO. */
+  allowedProjectTypes?: string[];
   /** Módulos liberados ao usuário — usado nas ferramentas de escrita. */
   allowedModules?: string[];
   /** Id do usuário autenticado — stampado como createdByUserId nas escritas. */
   userId?: string;
+  /** Acessor de escopo por recurso; injetado pelo serviço quando ausente. */
+  scopeFor?: ModuleScopeReader;
 }
 
 type NormalizedToolContext = ToolContext & { projectScope: string[] | null };
+
+/** Contexto entregue às tools: escopo normalizado + acessor por recurso. */
+type ScopedToolContext = NormalizedToolContext & { scopeFor: ModuleScopeReader };
 
 /** Normaliza o escopo tri-state sem converter deny-all em acesso irrestrito. */
 export function normalizeToolContext(ctx: ToolContext): NormalizedToolContext {
@@ -54,7 +91,7 @@ export function normalizeToolContext(ctx: ToolContext): NormalizedToolContext {
 
 interface ToolHandler {
   def: ToolDef;
-  run(ctx: ToolContext, args: Record<string, unknown>): Promise<unknown>;
+  run(ctx: ScopedToolContext, args: Record<string, unknown>): Promise<unknown>;
 }
 
 /**
@@ -65,6 +102,17 @@ interface ToolHandler {
 @Injectable()
 export class AgentToolsService {
   private readonly handlers: Record<string, ToolHandler>;
+
+  /**
+   * Memo do escopo por recurso, chaveado pelo OBJETO de contexto do turno (o
+   * agent.service cria um por conversa e o repassa ao primer e a cada tool):
+   * um turno com N tools resolve cada módulo UMA vez. WeakMap ⇒ o memo morre
+   * com o turno, sem cache global entre requisições/usuários.
+   */
+  private readonly moduleScopeByContext = new WeakMap<
+    object,
+    Map<string, Promise<ProjectScope>>
+  >();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -84,19 +132,87 @@ export class AgentToolsService {
   }
 
   /**
+   * ACESSOR ÚNICO de escopo por recurso (#483 SEC-5).
+   *
+   * O controller resolve UM escopo amplo de projeto ("que projetos esse usuário
+   * enxerga?") e ele NÃO autoriza um recurso específico: quem tem só
+   * `creditCards` numa REFORMA enxerga o projeto, mas não pode ler despesa nem
+   * recebimento dele (as APIs diretas exigem `@RequireModule`). Cada tool pede
+   * aqui a lente do recurso que está prestes a ler; a lente é
+   *  min(escopo do turno, escopo do módulo) — nunca mais ampla que qualquer uma
+   * das duas — e é resolvida ANTES de qualquer leitura do recurso.
+   */
+  private scopeReaderFor(ctx: ToolContext): ModuleScopeReader {
+    if (typeof ctx.scopeFor === 'function') return ctx.scopeFor;
+    let memo = this.moduleScopeByContext.get(ctx);
+    if (!memo) {
+      memo = new Map<string, Promise<ProjectScope>>();
+      this.moduleScopeByContext.set(ctx, memo);
+    }
+    const byModule = memo;
+    return (module: TypeModuleSlug) => {
+      const cached = byModule.get(module);
+      if (cached) return cached;
+      const pending = this.resolveModuleScope(ctx, module);
+      byModule.set(module, pending);
+      return pending;
+    };
+  }
+
+  private async resolveModuleScope(
+    ctx: ToolContext,
+    module: TypeModuleSlug,
+  ): Promise<ProjectScope> {
+    const turnScope = normalizeToolContext(ctx).projectScope;
+    const moduleScope = await resolveAccessibleProjectScope(
+      this.prisma,
+      ctx.tenantId,
+      ctx.role,
+      ctx.allowedProjects,
+      ctx.allowedProjectTypes,
+      ctx.allowedModules ?? [],
+      module,
+    );
+    // Interseção: o escopo do turno já pode ter sido estreitado pelo chamador e
+    // continua valendo; o módulo só pode ESTREITAR, nunca ampliar.
+    return intersectProjectScope(turnScope, moduleScope);
+  }
+
+  /** Contexto entregue às tools: escopo normalizado + acessor memoizado. */
+  private scoped(ctx: ToolContext): ScopedToolContext {
+    return { ...normalizeToolContext(ctx), scopeFor: this.scopeReaderFor(ctx) };
+  }
+
+  /**
+   * Lentes de um agregado MISTO: despesa e recebimento nunca compartilham gate,
+   * então cada consulta subjacente filtra pela lente do seu dono (antes da soma).
+   */
+  private async financialScope(ctx: ScopedToolContext): Promise<FinancialResourceScope> {
+    const [expenses, receipts] = await Promise.all([
+      ctx.scopeFor(EXPENSE_MODULE),
+      ctx.scopeFor(RECEIPT_MODULE),
+    ]);
+    return { expenses, receipts };
+  }
+
+  /**
    * Resumo de contexto injetado no início da conversa para REDUZIR chamadas ao
    * LLM: com projetos e meios de pagamento já listados, o agente não precisa
    * chamar list_projects / list_payment_methods antes de registrar algo —
    * economiza requisições (importante no free tier por-minuto do LLM).
    */
   async buildPrimer(ctx: ToolContext): Promise<string> {
-    const normalizedCtx = normalizeToolContext(ctx);
+    const normalizedCtx = this.scoped(ctx);
     const scope = normalizedCtx.projectScope;
+    const cardScope = await normalizedCtx.scopeFor(CREDIT_CARD_MODULE);
     const whereProj = { tenantId: normalizedCtx.tenantId, deletedAt: null, ...(scope !== null ? { id: { in: scope } } : {}) };
     const wherePay = { tenantId: normalizedCtx.tenantId, deletedAt: null, ...(scope !== null ? { projectId: { in: scope } } : {}) };
+    const whereCard = { tenantId: normalizedCtx.tenantId, deletedAt: null, ...(cardScope !== null ? { projectId: { in: cardScope } } : {}) };
     const [projects, cards, accounts] = await Promise.all([
       this.prisma.project.findMany({ where: whereProj, select: { id: true, name: true, type: true }, orderBy: { createdAt: 'asc' } }),
-      this.prisma.creditCard.findMany({ where: wherePay, select: { id: true, nickname: true, institution: true, last4: true }, orderBy: { createdAt: 'asc' } }),
+      this.prisma.creditCard.findMany({ where: whereCard, select: { id: true, nickname: true, institution: true, last4: true }, orderBy: { createdAt: 'asc' } }),
+      // NOTA: contas bancárias seguem no escopo amplo — o gate do módulo
+      // `bankAccounts` (e o /tenant/bank-accounts equivalente) é da #484.
       this.prisma.bankAccount.findMany({ where: wherePay, select: { id: true, nickname: true, institution: true, last4: true }, orderBy: { createdAt: 'asc' } }),
     ]);
     if (projects.length === 0) return '';
@@ -126,7 +242,7 @@ export class AgentToolsService {
       return { error: `Ferramenta desconhecida: ${name}` };
     }
     try {
-      return await handler.run(normalizeToolContext(ctx), args || {});
+      return await handler.run(this.scoped(ctx), args || {});
     } catch (e) {
       const message = e instanceof Error ? e.message : 'erro desconhecido';
       return { error: `Falha ao executar ${name}: ${message}` };
@@ -347,7 +463,7 @@ export class AgentToolsService {
             'KPIs financeiros consolidados de TODOS os projetos: caixa total, pago no mês/ano/total, previsões de gastos e recebimentos para 30/90 dias, saldo projetado. Valores em centavos.',
           parameters: noParams,
         },
-        run: async (ctx) => this.financial.getOverview(ctx.tenantId, ctx.projectScope ?? null),
+        run: async (ctx) => this.financial.getOverview(ctx.tenantId, await this.financialScope(ctx)),
       },
 
       get_by_project: {
@@ -357,7 +473,9 @@ export class AgentToolsService {
             'Breakdown financeiro por projeto: gasto total, planejado restante, recebimentos, saldo e progresso de cada projeto. Valores em centavos.',
           parameters: noParams,
         },
-        run: async (ctx) => ({ projects: await this.financial.getByProject(ctx.tenantId, ctx.projectScope ?? null) }),
+        run: async (ctx) => ({
+          projects: await this.financial.getByProject(ctx.tenantId, await this.financialScope(ctx)),
+        }),
       },
 
       get_expenses_by_category: {
@@ -369,7 +487,10 @@ export class AgentToolsService {
           parameters: noParams,
         },
         run: async (ctx) => {
-          const categorias = await this.financial.getByCategory(ctx.tenantId, ctx.projectScope ?? null);
+          const categorias = await this.financial.getByCategory(
+            ctx.tenantId,
+            await this.financialScope(ctx),
+          );
           const enriquecidas = categorias.map((c) => {
             const tax = getExpenseTaxonomy(c.key);
             return {
@@ -426,7 +547,10 @@ export class AgentToolsService {
         },
         run: async (ctx, args) => {
           const days = this.clampInt(args['days'], 30, 1, 365);
-          return { dias: days, itens: await this.financial.getUpcoming(ctx.tenantId, days, ctx.projectScope ?? null) };
+          return {
+            dias: days,
+            itens: await this.financial.getUpcoming(ctx.tenantId, days, await this.financialScope(ctx)),
+          };
         },
       },
 
@@ -445,7 +569,13 @@ export class AgentToolsService {
         },
         run: async (ctx, args) => {
           const limit = this.clampInt(args['limit'], 5, 1, 20);
-          return { fornecedores: await this.financial.getTopSuppliers(ctx.tenantId, limit, ctx.projectScope ?? null) };
+          return {
+            fornecedores: await this.financial.getTopSuppliers(
+              ctx.tenantId,
+              limit,
+              await this.financialScope(ctx),
+            ),
+          };
         },
       },
 
@@ -703,15 +833,18 @@ export class AgentToolsService {
         },
         run: async (ctx) => {
           const scope = ctx.projectScope ?? null;
-          const where = { tenantId: ctx.tenantId, deletedAt: null, ...(scope !== null ? { projectId: { in: scope } } : {}) };
+          const cardScope = await ctx.scopeFor(CREDIT_CARD_MODULE);
+          const whereCard = { tenantId: ctx.tenantId, deletedAt: null, ...(cardScope !== null ? { projectId: { in: cardScope } } : {}) };
+          // Contas bancárias: gate do módulo `bankAccounts` é da #484.
+          const whereAccount = { tenantId: ctx.tenantId, deletedAt: null, ...(scope !== null ? { projectId: { in: scope } } : {}) };
           const [cards, accounts] = await Promise.all([
             this.prisma.creditCard.findMany({
-              where,
+              where: whereCard,
               select: { id: true, last4: true, nickname: true, institution: true, project: { select: { name: true } } },
               orderBy: { createdAt: 'asc' },
             }),
             this.prisma.bankAccount.findMany({
-              where,
+              where: whereAccount,
               select: { id: true, last4: true, nickname: true, institution: true, project: { select: { name: true } } },
               orderBy: { createdAt: 'asc' },
             }),
@@ -740,9 +873,9 @@ export class AgentToolsService {
           },
         },
         run: async (ctx, args) => {
-          const scope = ctx.projectScope ?? null;
+          const scope = await ctx.scopeFor(EXPENSE_MODULE);
           const projectId = this.optStr(args['projectId']);
-          if (projectId && scope && !scope.includes(projectId)) {
+          if (projectId && !projectScopeIncludes(scope, projectId)) {
             throw new Error(PROJECT_ACCESS_DENIED_MESSAGE);
           }
           const q = this.optStr(args['query']);
@@ -804,13 +937,14 @@ export class AgentToolsService {
           const expenseId = this.optStr(args['expenseId']);
           if (!expenseId) return { error: 'Informe o expenseId da despesa a atualizar.' };
 
+          const expenseScope = await ctx.scopeFor(EXPENSE_MODULE);
           const existing = await this.prisma.expense.findFirst({
             where: {
               id: expenseId,
               tenantId: ctx.tenantId,
               deletedAt: null,
-              ...(ctx.projectScope !== null
-                ? { projectId: { in: ctx.projectScope ?? [] } }
+              ...(expenseScope !== null
+                ? { projectId: { in: expenseScope } }
                 : {}),
             },
             select: { id: true, projectId: true, formaPagamento: true },
@@ -884,7 +1018,11 @@ export class AgentToolsService {
         },
         run: async (ctx, args) => {
           const months = this.clampInt(args['months'], 6, 1, 36);
-          const serie = await this.financial.getCashFlow(ctx.tenantId, months, ctx.projectScope ?? null);
+          const serie = await this.financial.getCashFlow(
+            ctx.tenantId,
+            months,
+            await this.financialScope(ctx),
+          );
           const totalRecebido = serie.reduce((s, p) => s + p.recebido, 0);
           const totalPago = serie.reduce((s, p) => s + p.pago, 0);
           return {
@@ -942,9 +1080,16 @@ export class AgentToolsService {
           parameters: noParams,
         },
         run: async (ctx) => {
-          const scope = ctx.projectScope ?? null;
+          // O saldo da conta é DERIVADO de despesas pagas e recebimentos, e a
+          // fatura aberta é derivada de despesas no cartão: cada bloco usa a
+          // lente do recurso que o alimenta (o gate do módulo `bankAccounts` em
+          // si é da #484).
+          const { expenses, receipts } = await this.financialScope(ctx);
+          const balanceScope = intersectProjectScope(expenses, receipts);
+          const cardScope = await ctx.scopeFor(CREDIT_CARD_MODULE);
+          const projectScope = unionProjectScope(balanceScope, cardScope);
           const projects = await this.prisma.project.findMany({
-            where: { tenantId: ctx.tenantId, deletedAt: null, ...(scope !== null ? { id: { in: scope } } : {}) },
+            where: { tenantId: ctx.tenantId, deletedAt: null, ...(projectScope !== null ? { id: { in: projectScope } } : {}) },
             select: { id: true, name: true },
           });
 
@@ -953,8 +1098,12 @@ export class AgentToolsService {
 
           for (const p of projects) {
             const [accs, cards] = await Promise.all([
-              this.accounts.listAccounts(ctx.tenantId, p.id),
-              this.cards.listOpenInvoices(ctx.tenantId, p.id),
+              projectScopeIncludes(balanceScope, p.id)
+                ? this.accounts.listAccounts(ctx.tenantId, p.id)
+                : Promise.resolve([]),
+              projectScopeIncludes(cardScope, p.id)
+                ? this.cards.listOpenInvoices(ctx.tenantId, p.id)
+                : Promise.resolve([]),
             ]);
             for (const a of accs as Array<{ nickname: string; balanceCents?: number }>) {
               contas.push({ conta: a.nickname, projeto: p.name, saldoCentavos: a.balanceCents ?? 0 });
@@ -1583,12 +1732,15 @@ export class AgentToolsService {
    * pertencer a um projeto acessível pelo usuário. Retorna o id ou undefined.
    */
   private async resolvePaymentRef(
-    ctx: ToolContext,
+    ctx: ScopedToolContext,
     rawId: unknown,
     kind: 'card' | 'account',
   ): Promise<string | undefined> {
     const id = typeof rawId === 'string' && rawId.trim() ? rawId.trim() : '';
     if (!id) return undefined;
+    // Cartão é recurso do módulo `creditCards`; conta bancária segue no escopo
+    // amplo até a #484 introduzir o gate de `bankAccounts`.
+    const cardScope = kind === 'card' ? await ctx.scopeFor(CREDIT_CARD_MODULE) : null;
     const row =
       kind === 'card'
         ? await this.prisma.creditCard.findFirst({
@@ -1596,9 +1748,7 @@ export class AgentToolsService {
               id,
               tenantId: ctx.tenantId,
               deletedAt: null,
-              ...(ctx.projectScope !== null
-                ? { projectId: { in: ctx.projectScope ?? [] } }
-                : {}),
+              ...(cardScope !== null ? { projectId: { in: cardScope } } : {}),
             },
             select: { projectId: true },
           })
@@ -1625,20 +1775,19 @@ export class AgentToolsService {
    * Retorna o id ou undefined.
    */
   private async resolveLinkedExpense(
-    ctx: ToolContext,
+    ctx: ScopedToolContext,
     rawId: unknown,
     currentProjectId: string,
   ): Promise<string | undefined> {
     const id = typeof rawId === 'string' && rawId.trim() ? rawId.trim() : '';
     if (!id) return undefined;
+    const expenseScope = await ctx.scopeFor(EXPENSE_MODULE);
     const row = await this.prisma.expense.findFirst({
       where: {
         id,
         tenantId: ctx.tenantId,
         deletedAt: null,
-        ...(ctx.projectScope !== null
-          ? { projectId: { in: ctx.projectScope ?? [] } }
-          : {}),
+        ...(expenseScope !== null ? { projectId: { in: expenseScope } } : {}),
       },
       select: { projectId: true },
     });
