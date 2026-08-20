@@ -654,36 +654,66 @@ test.describe('U2 shell mobile — cabeçalho / escopo', () => {
 });
 
 // ───────────────────────────────────────────────────────────────────────────
-// OVERLAY ÚNICO E FOCO — RED até a Lane A ligar o overlay único do AppShell
-// (data-overlay, role=dialog, aria-modal) e o handshake ?launch=1.
+// OVERLAY ÚNICO E FOCO — mede por [data-overlay], NÃO por role=dialog.
+//
+// ARMADILHA (verificada em origin/main + tip da Lane A b255c0da): o Mais é
+// role="dialog"+aria-modal+data-overlay="mais"; os sheets de LANÇAMENTO
+// (mobile-launch/*) NÃO têm role=dialog, aria-modal nem Escape — o D5
+// (sheets→diálogos) virou FOLLOW-UP, fora deste PR. Logo contar
+// `[role=dialog][aria-modal]:visible` devolveria 1 com Mais E launch na tela (o
+// launch é invisível para esse seletor) — VERDE exibindo o defeito. O enum
+// overlay:'mais'|'launch'|null (D4) é a promessa real; [data-overlay] é o que a
+// torna verificável NOS DOIS.
+//
+// ⚠️ LACUNA REPORTADA AO PO: o launch NÃO emite data-overlay="launch" hoje.
+// Enquanto não emitir, E06/E07 nascem VERMELHOS nomeando a falta (nunca em
+// silêncio). É a 1 linha na Lane A que prova a exclusão mútua — sem ela o U2 não
+// consegue provar a própria promessa.
 // ───────────────────────────────────────────────────────────────────────────
 
-const DIALOG = '[role="dialog"][aria-modal="true"]';
-
 test.describe('U2 shell mobile — overlay único e foco', () => {
-  // U2-E06 — Mais aberto + ?launch=1 na mesma rota = exatamente UM overlay (D4).
-  test('375 — U2-E06 Mais aberto + ?launch=1 = um único overlay', async ({ page, baseURL }) => {
+  // U2-E06 [D4] — abrir o launch com o Mais ABERTO não empilha dois overlays. O
+  // enum torna a exclusão estrutural; dois booleans deixariam coexistir. Dispara
+  // o onClick do `+` direto (ele fica atrás do Mais z-50; um clique real acertaria
+  // o overlay/backdrop e fecharia o Mais) — teste de ESTADO do enum, não de
+  // alcançabilidade (essa é do E01/E02).
+  test('375 — U2-E06 abrir launch com o Mais aberto = um único overlay [data-overlay]', async ({ page, baseURL }) => {
     await bootMobile(page, baseURL!, { modules: MODULES.full });
     await page.goto(`/projects/${PESSOAL_ID}/monthly`);
     await openMais(page);
-    await page.goto(`/projects/${PESSOAL_ID}/monthly?launch=1`);
-    await expect(page.locator(`${DIALOG}:visible`), 'D4: esperado exatamente 1 overlay').toHaveCount(1);
+    await page.locator('button[aria-label="Lançar"]').dispatchEvent('click');
+    const launch = page.locator('[data-overlay="launch"]');
+    await expect(
+      launch,
+      'launch sem data-overlay="launch" — 1 linha na Lane A (segue o D5 follow-up); sem ela o "1 overlay" mente',
+    ).toBeVisible();
+    await expect(page.locator('[data-overlay="mais"]'), 'Mais não cedeu ao launch (enum D4 furou — dois overlays)').toBeHidden();
+    await expect(page.locator('[data-overlay]:visible'), 'D4: esperado exatamente 1 overlay').toHaveCount(1);
   });
 
-  // U2-E07 — launch aberto, Mais ativado por TECLADO não empilha dois (D4 + D5:
-  // sem trap o Tab escapa).
-  test('375 — U2-E07 launch aberto + Mais por teclado = um único overlay', async ({ page, baseURL }) => {
+  // U2-E07 [D4] — launch aberto (deep-link), abrir o Mais por TECLADO não empilha.
+  // Mesmo enum, gatilho a11y. Mede por [data-overlay].
+  test('375 — U2-E07 launch aberto + Mais por teclado = um único overlay [data-overlay]', async ({ page, baseURL }) => {
     await bootMobile(page, baseURL!, { modules: MODULES.full });
     await page.goto(`/projects/${PESSOAL_ID}/monthly?launch=1`);
+    const launch = page.locator('[data-overlay="launch"]');
+    await expect(
+      launch,
+      'launch sem data-overlay="launch" — 1 linha na Lane A (segue o D5 follow-up); sem ela o teste mente',
+    ).toBeVisible();
     const trigger = page.locator('[data-mais-count]');
     await expect(trigger, 'gatilho Mais [data-mais-count] ausente').toBeVisible();
     await trigger.focus();
     await page.keyboard.press('Enter');
-    await expect(page.locator(`${DIALOG}:visible`), 'D4: esperado exatamente 1 overlay').toHaveCount(1);
+    await expect(page.locator('[data-overlay="mais"]'), 'Mais não abriu por teclado').toBeVisible();
+    await expect(launch, 'launch não cedeu ao Mais (enum D4 furou — dois overlays)').toBeHidden();
+    await expect(page.locator('[data-overlay]:visible'), 'D4: esperado exatamente 1 overlay').toHaveCount(1);
   });
 
-  // U2-E08 — Escape fecha o Mais e devolve o foco ao gatilho (D5 — launch sem
-  // Escape hoje; o Mais é o overlay que já existe para medir o contrato).
+  // U2-E08 — Escape fecha o Mais e devolve o foco ao gatilho. Foco/Escape são
+  // asseridos SÓ no Mais (o único que os implementa). O launch NÃO tem Escape nem
+  // retorno de foco — lacuna a11y do D5 (FOLLOW-UP, fora deste PR): não asserimos
+  // o que sabemos não existir, e não o deixamos parecer coberto.
   test('375 — U2-E08 Escape fecha o Mais e devolve o foco ao gatilho', async ({ page, baseURL }) => {
     await bootMobile(page, baseURL!, { modules: MODULES.full });
     await page.goto(`/projects/${PESSOAL_ID}/monthly`);
@@ -697,14 +727,14 @@ test.describe('U2 shell mobile — overlay único e foco', () => {
     await expect(trigger, 'foco não voltou ao gatilho Mais').toBeFocused();
   });
 
-  // U2-E09 — back do navegador fecha o overlay em vez de sair da rota.
+  // U2-E09 — back do navegador fecha o overlay (Mais) em vez de sair da rota.
   test('375 — U2-E09 back fecha o overlay e mantém a rota', async ({ page, baseURL }) => {
     await bootMobile(page, baseURL!, { modules: MODULES.full });
     await page.goto(`/projects/${PESSOAL_ID}/monthly`);
     await openMais(page);
     await page.goBack();
     await expect(page, 'back saiu da rota em vez de fechar o overlay').toHaveURL(new RegExp(`${PESSOAL_ID}/monthly`));
-    await expect(page.locator(`${DIALOG}:visible`), 'overlay ainda aberto após back').toHaveCount(0);
+    await expect(page.locator('[data-overlay="mais"]'), 'overlay ainda aberto após back').toBeHidden();
   });
 });
 
