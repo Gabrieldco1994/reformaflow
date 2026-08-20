@@ -48,7 +48,7 @@ function GridTile({
       <span className="minimal-more-icon flex h-10 w-10 items-center justify-center rounded-[13px]">
         <Icon className="h-5 w-5" />
       </span>
-      <span className="minimal-more-label text-center text-[10.5px] font-semibold leading-tight">
+      <span className="minimal-more-label text-center text-[11px] font-semibold leading-tight">
         {label}
       </span>
     </Link>
