@@ -5,7 +5,7 @@ import { TenantFinancialService } from '../../tenant-financial/tenant-financial.
 import { ExpenseService } from '../../expense/expense.service';
 import { ReceiptService } from '../../receipt/receipt.service';
 import { CreditCardService } from '../../credit-card/credit-card.service';
-import { BankAccountService } from '../../bank-account/bank-account.service';
+import { MonthlyOverviewService } from '../../monthly-overview/monthly-overview.service';
 import { MerchantClassifierService } from '../../merchant-classifier/merchant-classifier.service';
 import { PriceMonitorService } from '../../price-compare/price-monitor.service';
 
@@ -40,7 +40,7 @@ describe('create_expense — fallback do MerchantClassifier', () => {
         { provide: ExpenseService, useValue: expenses },
         { provide: ReceiptService, useValue: {} },
         { provide: CreditCardService, useValue: {} },
-        { provide: BankAccountService, useValue: {} },
+        { provide: MonthlyOverviewService, useValue: {} },
         { provide: MerchantClassifierService, useValue: classifier },
         { provide: PriceMonitorService, useValue: {} },
       ],

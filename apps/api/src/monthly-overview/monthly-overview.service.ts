@@ -2900,7 +2900,7 @@ export class MonthlyOverviewService {
       importAccountById,
       primaryAccount?.id ?? null,
     );
-    return computeCaixaConta(
+    const caixa = computeCaixaConta(
       primaryAccount ? [primaryAccount] : accounts,
       expenses.filter(
         (expense) =>
@@ -2917,6 +2917,22 @@ export class MonthlyOverviewService {
           }) === (primaryAccount?.id ?? null),
       ),
     );
+
+    // Conta que ANCORA o §10 (`pickPrimaryBankAccount`). Quem exibe o número
+    // precisa saber a QUE conta ele se refere; sem isto cada consumidor
+    // redecidiria "qual é a primária" por conta própria — que é exatamente a
+    // classe de bug da #508 (segunda fórmula divergindo em silêncio). A decisão
+    // é do motor, então é o motor que a publica. `null` = projeto sem conta.
+    const contaPrimaria = primaryAccount
+      ? {
+          id: primaryAccount.id,
+          nickname: primaryAccount.nickname,
+          last4: primaryAccount.last4,
+          institution: primaryAccount.institution,
+        }
+      : null;
+
+    return { ...caixa, contaPrimaria };
   }
 
   /**
@@ -2924,6 +2940,9 @@ export class MonthlyOverviewService {
    * Fonte ÚNICA do "caixa/saldo em conta" consumida pelos demais motores (tenant-financial).
    * Não lança para não-PESSOAL (só consulta por projectId), então o chamador DEVE
    * filtrar por `project.type === 'PESSOAL'` antes de chamar.
+   *
+   * Devolve também `contaPrimaria` (a conta que ancora o §10) para que o
+   * consumidor rotule o número sem redecidir qual conta é a primária.
    */
   async getCaixaConta(tenantId: string, projectId: string) {
     return this.computeCaixaConta(tenantId, projectId);
@@ -2935,7 +2954,10 @@ export class MonthlyOverviewService {
       openingBalanceCents: number;
       openingBalanceDate: Date | null;
       last4: string;
-      nickname: string | null;
+      // `bank_accounts.nickname` é NOT NULL no schema e `createAccount` sempre
+      // preenche um default — declarar `string | null` aqui só empurrava um
+      // nulo impossível para quem ROTULA o saldo (#508).
+      nickname: string;
       institution: string;
     }>,
   ) {

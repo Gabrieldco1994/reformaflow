@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import {
   ExpenseType,
+  ProjectType,
   ReceiptType,
   getExpenseTaxonomy,
   getTaxonomyTree,
@@ -16,7 +17,7 @@ import {
 import { ExpenseService } from '../../expense/expense.service';
 import { ReceiptService } from '../../receipt/receipt.service';
 import { CreditCardService } from '../../credit-card/credit-card.service';
-import { BankAccountService } from '../../bank-account/bank-account.service';
+import { MonthlyOverviewService } from '../../monthly-overview/monthly-overview.service';
 import {
   MerchantClassifierService,
   MERCHANT_TO_EXPENSE_TYPE,
@@ -120,9 +121,13 @@ export class AgentToolsService {
     private readonly expenses: ExpenseService,
     private readonly receipts: ReceiptService,
     private readonly cards: CreditCardService,
-    private readonly accounts: BankAccountService,
     private readonly merchantClassifier: MerchantClassifierService,
     private readonly priceMonitor: PriceMonitorService,
+    /**
+     * Motor canônico do caixa §10 (#508): a Maria LÊ o saldo daqui em vez de
+     * derivar o seu próprio, para não haver uma segunda fórmula de saldo.
+     */
+    private readonly monthly: MonthlyOverviewService,
   ) {
     this.handlers = this.buildHandlers();
   }
@@ -1074,7 +1079,7 @@ export class AgentToolsService {
         def: {
           name: 'get_account_balances',
           description:
-            'Componentes de PATRIMÔNIO: saldo de cada conta bancária (movimento de entradas − despesas pagas) e a FATURA ABERTA de cada cartão (dívida atual). ' +
+            'Componentes de PATRIMÔNIO: o SALDO REAL da conta bancária de cada projeto pessoal — saldo inicial cadastrado + entradas − despesas pagas, já reconciliado com o extrato, o MESMO número que a tela "Conta" estampa em "Tenho na conta hoje" — e a FATURA ABERTA de cada cartão (dívida atual). ' +
             'Use para estimar patrimônio líquido (saldos − dívida de cartões) e RESERVA DE EMERGÊNCIA. ' +
             'IMPORTANTE: investimentos, financiamentos e outros ativos/dívidas NÃO são rastreados aqui — pergunte ao usuário e some manualmente. Valores em centavos.',
           parameters: noParams,
@@ -1090,23 +1095,38 @@ export class AgentToolsService {
           const projectScope = unionProjectScope(balanceScope, cardScope);
           const projects = await this.prisma.project.findMany({
             where: { tenantId: ctx.tenantId, deletedAt: null, ...(projectScope !== null ? { id: { in: projectScope } } : {}) },
-            select: { id: true, name: true },
+            select: { id: true, name: true, type: true },
           });
 
           const contas: { conta: string; projeto: string; saldoCentavos: number }[] = [];
           const cartoes: { cartao: string; projeto: string; faturaAbertaCentavos: number; limiteCentavos: number | null }[] = [];
 
           for (const p of projects) {
-            const [accs, cards] = await Promise.all([
-              projectScopeIncludes(balanceScope, p.id)
-                ? this.accounts.listAccounts(ctx.tenantId, p.id)
-                : Promise.resolve([]),
+            const [caixa, cards] = await Promise.all([
+              // #508: o saldo vem do MOTOR CANÔNICO §10 (`getCaixaConta`), a mesma
+              // fonte da manchete "Tenho na conta hoje" da tela /conta. Antes a tool
+              // lia `listAccounts().balanceCents`, que é movimento puro: ignorava
+              // `openingBalanceCents` e o corte por `openingBalanceDate`, então a
+              // Maria respondia um número plausível e MENOR que a tela pelo valor
+              // exato do saldo inicial. Reimplementar a fórmula aqui recriaria a
+              // divergência; a tool consome, não recalcula.
+              // §10 é o eixo de caixa do cockpit PESSOAL — é o próprio contrato do
+              // delegador que exige o filtro por tipo antes da chamada.
+              projectScopeIncludes(balanceScope, p.id) && p.type === ProjectType.PESSOAL
+                ? this.monthly.getCaixaConta(ctx.tenantId, p.id)
+                : Promise.resolve(null),
               projectScopeIncludes(cardScope, p.id)
                 ? this.cards.listOpenInvoices(ctx.tenantId, p.id)
                 : Promise.resolve([]),
             ]);
-            for (const a of accs as Array<{ nickname: string; balanceCents?: number }>) {
-              contas.push({ conta: a.nickname, projeto: p.name, saldoCentavos: a.balanceCents ?? 0 });
+            // `contaPrimaria` nula = projeto sem conta bancária: nada a reportar
+            // (mesmo comportamento de quando `listAccounts` devolvia lista vazia).
+            if (caixa?.contaPrimaria) {
+              contas.push({
+                conta: caixa.contaPrimaria.nickname,
+                projeto: p.name,
+                saldoCentavos: caixa.hoje,
+              });
             }
             for (const c of cards) {
               cartoes.push({ cartao: c.nickname, projeto: p.name, faturaAbertaCentavos: c.openInvoiceUsedCents, limiteCentavos: c.limitTotalCents });

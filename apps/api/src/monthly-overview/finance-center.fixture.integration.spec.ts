@@ -322,6 +322,14 @@ describe("synthetic deterministic finance-center persisted contract", () => {
       saldoInicial: 1_000_000,
       temSaldoInicial: true,
       porMes: [{ mes: "2026-08", caixa: 983_928 }],
+      // #508: the engine also names the account that ANCHORS §10, so every
+      // consumer labels the number without re-deciding which account is primary.
+      contaPrimaria: {
+        id: IDS.accounts.tenantA,
+        nickname: "Conta sintética A",
+        last4: "4242",
+        institution: "TEST_BANK",
+      },
     });
     // §10 is deliberately self-evident: opening + bank credit - C1 payment.
     expect(1_000_000 + 83_978 - 100_050).toBe(983_928);
