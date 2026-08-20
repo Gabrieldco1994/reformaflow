@@ -68,17 +68,21 @@ Na base original, e **não como resultado deste programa**:
   Planejador, mas não os unificou com Planning;
 - a Maria já possui a superfície e as capacidades registradas em
   [maria-ia.md](maria-ia.md). Isso **não** significa que E5/M0–M3 estejam entregues;
-- nenhuma task S0/B1–B2/U1–U6/V0/D0/R0/A0/M0–M3/H1–H5 do programa #436 está entregue como
-  implementação de produto apenas porque este SDD foi versionado. (**B0 #447 foi entregue via
-  PR #476, resultado de execução independente, não da publicação deste SDD.**)
+- versionar este SDD não entrega nenhuma task do programa #436. **O que já foi entregue, por
+  execução independente e não pela publicação deste documento:** B0 (#447), via PR #476, com o
+  issue **CLOSED**; e a fatia **B1a**, mergeada em `main` (`5bbe5d69` #477, `720ff1fc` #478,
+  `890b89b0` #479); a fatia **B1b**, mergeada via PR #499 (`67d80d06`); e **B2 (#449)**, mergeado
+  via PR #500 (`f6ab06d9`). **#448 permanece OPEN pela fatia web** (PR #503). As demais tasks
+  S0/U1–U6/V0/D0/R0/A0/M0–M3/H1–H5 continuam sem implementação de produto.
 
 ### 2.2 APROVADO, mas não iniciado ou bloqueado
 
 - O modelo de produto e as ondas E0–E4 estão aprovados.
 - S0.1 ([#444](https://github.com/Gabrieldco1994/reformaflow/issues/444)) é somente a
   canonicalização documental.
-- U6a é uma futura especificação por tipo. U6b permanece bloqueada até U6a, lenses, architect e
-  aprovação explícita do PO.
+- U6a está **escrita** em [`financeiro-projetos-por-tipo.md`](financeiro-projetos-por-tipo.md) e
+  aguarda aprovação; é somente spec e não é normativa enquanto o PO não aprovar. U6b permanece
+  bloqueada até U6a aprovada, lenses, architect e aprovação explícita do PO.
 - E6/H1–H5 é um envelope aprovado de hardening, mas cada item continua bloqueado por nova revisão
   architect+security e pelos gates de dados/PO/SRE aplicáveis.
 
@@ -90,8 +94,8 @@ Na base original, e **não como resultado deste programa**:
 | S0.2 [#445](https://github.com/Gabrieldco1994/reformaflow/issues/445) | **BLOQUEADA/DEFERIDA; produção `NOT_COLLECTED`** | Próxima tentativa somente após telemetria do suporte Fly e nova autorização explícita. |
 | S0.3 [#446](https://github.com/Gabrieldco1994/reformaflow/issues/446) | **READY sob exceção PO; test-only em andamento** | Pode construir, testar e fazer merge sem aguardar a conclusão de #445; não toca produto/runtime. |
 | B0 [#447](https://github.com/Gabrieldco1994/reformaflow/issues/447) | **ENTREGUE — PR #476, produção** | Auth, grants e scope financeiro em produção. E0/#437 permanece incompleta pelo seu próprio gate de inventário (#445); isso não desfaz a entrega de B0. |
-| B1a [#448](https://github.com/Gabrieldco1994/reformaflow/issues/448) | **IMPLEMENTADO (fatia B1a) — pendente de merge (esta PR)** | Child ACL, identidades de fatura, ações server-provided, guard de duplicidade; zero schema/UX. #448 permanece OPEN. Sequência após merge: W1, B1b, B2. |
-| B1b [#448](https://github.com/Gabrieldco1994/reformaflow/issues/448) | **IMPLEMENTADO (fatia B1b) — pendente de merge** | Endurecimento do legado: `last4` ambíguo responde 409 (nunca resolve em silêncio) e `GET :id/rateio` vira **tudo-ou-nada** (detalhe só com todos autorizados e soma exata; caso contrário source-only, deep-equal ao payload de uma compra nunca rateada — hidden count/sum REMOVIDOS). Ações reautorizadas no servidor e capabilities emitidas pelo servidor. Zero schema/UX. Fecha a fatia backend de #448. |
+| B1a [#448](https://github.com/Gabrieldco1994/reformaflow/issues/448) | **ENTREGUE — mergeado em `main`** (`5bbe5d69` #477, `720ff1fc` #478, `890b89b0` #479) | Child ACL, identidades de fatura, ações server-provided, guard de duplicidade; zero schema/UX. |
+| B1b [#448](https://github.com/Gabrieldco1994/reformaflow/issues/448) | **ENTREGUE — mergeado em `main`** (`67d80d06`, PR #499) | Endurecimento do legado: `last4` ambíguo responde **409** (`resolveUniqueLegacyMatch`) em vez de resolver em silêncio, e `GET :id/rateio` vira **source-only** — detalhe só com todos os participantes autorizados e soma exata; caso contrário devolve o payload de uma compra nunca rateada, ancorado no id pedido. `hidden*` count/sum REMOVIDOS. #448 permanece OPEN pela fatia web (W1). |
 
 E0 [#437](https://github.com/Gabrieldco1994/reformaflow/issues/437) permanece incompleta enquanto
 #445 estiver aberta. A exceção de #446 não conclui E0 nem dispensa o gate de produção.
@@ -197,7 +201,8 @@ Toda UX do programa precisa passar em **375 px, 390 px e desktop**:
 S0.1 (#444) → S0.2 (#445 bloqueada/deferida)
 S0.1 (#444) → S0.3 (#446 test-only, exceção PO)
 [B0 (#447) ENTREGUE via PR #476]
-B1a slice of #448 (esta PR, pendente de merge) → W1 → B1b slice of #448 → B2 (#449)
+[B1a #448 MERGEADO: #477, #478, #479] → [B1b #448 MERGEADO: #499] → [B2 #449 MERGEADO: #500]
+[fatia web de #448: PR #503, aberto — não bloqueia E2]
 B2 + security verify → U1 (#450) → U2 (#451)
 U2 → U3 (#452) → U4 (#453)
 U2 → U5 (#454)
@@ -214,7 +219,7 @@ separada e só entra no critical path quando uma exposição consumidora for dem
 | Epic | Status do design | Conteúdo e dependência |
 |---|---|---|
 | [E0 #437](https://github.com/Gabrieldco1994/reformaflow/issues/437) | **INCOMPLETA**; S0.1 concluída, S0.2 bloqueada/deferida e S0.3 READY test-only | E0 permanece incompleta pelo seu próprio gate #445 de inventário de produção; B0 já foi entregue independentemente. |
-| [E1 #438](https://github.com/Gabrieldco1994/reformaflow/issues/438) | **B0 ENTREGUE; B1a implementado nesta PR, pendente de merge; B1b+B2 BLOQUEADOS** | B0 entregue via PR #476. B1a pendente de merge; sequência após merge: W1 → B1b → B2. B1b (ambiguous-last4 409, remoção de hidden-metadata) **IMPLEMENTADO, pendente de merge**; B2 aguarda. Security verify e B2 ficam verdes antes de UX. |
+| [E1 #438](https://github.com/Gabrieldco1994/reformaflow/issues/438) | **CONCLUÍDA — B0, B1a, B1b e B2 mergeados** | B0 via PR #476; B1a via #477/#478/#479; B1b via #499 (`67d80d06`); B2 via #500 (`f6ab06d9`). Resta a fatia **web** de #448 (identidades explícitas na tela de pagar fatura, PR #503), que destrava caso legado de `last4` duplicado. **O STOP de E1 sobre E2 está satisfeito.** |
 | [E2 #439](https://github.com/Gabrieldco1994/reformaflow/issues/439) | **BLOQUEADO** | B0+B1+B2 → U1 → U2; reorganização reversível de desktop/mobile. |
 | [E3 #440](https://github.com/Gabrieldco1994/reformaflow/issues/440) | **BLOQUEADO** | U3/U4/U5; U6a é spec e U6b tem gate humano adicional. |
 | [E4 #441](https://github.com/Gabrieldco1994/reformaflow/issues/441) | **BLOQUEADO/cross-cutting** | V0, D0, R0 e A0 acompanham as ondas, não um mutirão tardio. |
@@ -258,17 +263,20 @@ esperado, não evidência de runtime.
   Auth, grants, scope e todos os reads financeiros em produção.
 - [B1 #448](https://github.com/Gabrieldco1994/reformaflow/issues/448): identidades completas,
   parent/child ACL, releitura no commit, actions fornecidas pelo servidor e deep-links
-  type-specific sem ampliar scope. **B1a implementado nesta PR, pendente de merge. Sequência
-  após merge: W1, depois B1b (remoção de ambiguous-last4 409 e hidden-metadata).** #448 permanece OPEN.
-  **B1b implementado (409 de `last4` ambíguo + `GET :id/rateio` tudo-ou-nada: detalhe só
-  com todos autorizados e soma exata, senão source-only), pendente de merge.**
+  type-specific sem ampliar scope. **B1a mergeado (#477, #478, #479) e B1b mergeado (#499).**
+  #448 permanece OPEN pela fatia **web** (PR #503): a tela ainda enviava só `last4`, então o 409
+  do B1b chegou a produção sem a contraparte cliente e deixou sem saída quem tem dois cartões de
+  mesmo final.
 - [B2 #449](https://github.com/Gabrieldco1994/reformaflow/issues/449): Budget Allocation
   administrativo/read-only, somente requisitante **full-access e não-convidado** autenticado do
   tenant (`isFullAccessRole(role) && !isGuest` — ADMIN ou OWNER, nunca `@Roles('ADMIN')` sozinho:
   o convidado de demo nasce com `role: 'ADMIN', isGuest: true` e o `RolesGuard` não lê `isGuest`
   — #497); relações legadas cross-tenant redigidas e bytes históricos intocados.
 
-**STOP:** não iniciar U1–U6 até B1 (full) e B2 verdes e security verify PASS.
+**STOP — SATISFEITO em 2026-08-20.** B1a (#477/#478/#479), B1b (#499) e B2 (#500) estão
+mergeados e em produção. O STOP era sobre a fundação backend; a fatia **web** restante de #448
+(PR #503) corrige um caso legado de `last4` duplicado e **não** reabre o gate. U1 (#450) está
+liberada para desenho e implementação.
 
 #### E2 — arquitetura de informação e shell
 
@@ -290,6 +298,8 @@ esperado, não evidência de runtime.
   produz mutation.
 - [U6a #455](https://github.com/Gabrieldco1994/reformaflow/issues/455): escrever matriz por tipo,
   capacidade, origem/finalidade, identidade, ACL e deep-link/fallback. É somente spec.
+  **Publicada em [`financeiro-projetos-por-tipo.md`](financeiro-projetos-por-tipo.md); aguarda
+  aprovação do PO em três decisões abertas (A-1, A-2, A-3) e não desbloqueia U6b por si.**
 - [U6b #456](https://github.com/Gabrieldco1994/reformaflow/issues/456): **não entregue e
   bloqueada**. Só materializa o contrato U6a aprovado por architect, lenses e PO; zero fórmula,
   store, migration ou backfill não aprovados.
@@ -446,7 +456,7 @@ preservar links e contexto sem fingir que seus ledgers continuam vivos.
 | ID | Decisão final aprovada | Estado de produto |
 |---|---|---|
 | D-001 | PESSOAL é o Centro Financeiro; Conta=origem, Projeto=finalidade, Cockpit conta uma vez, Auditoria explica. | **NÃO INICIADO por #436** |
-| D-002 | B0+B1+B2, deploy B0 e security verify precedem qualquer UX. | **B0 ENTREGUE (PR #476); B1a implementado nesta PR, pendente de merge; B1b implementado, pendente de merge; B2 BLOQUEADO** |
+| D-002 | B0+B1+B2, deploy B0 e security verify precedem qualquer UX. | **SATISFEITO — B0 (#476), B1a (#477/#478/#479), B1b (#499) e B2 (#500) mergeados e em produção.** Resta a fatia web de #448 (PR #503), que não bloqueia E2 |
 | D-003 | Fórmulas de Caixa §10, faturas/Conta, timezone e quitação cross-project não serão reescritas. | Contratos atuais **ENTREGUES**; mudança do programa **NENHUMA** |
 | D-004 | Navegação alvo: Hoje, Movimentações, Planejamento, Projetos; Resultado/Auditoria secundários. | **APROVADO — NÃO INICIADO** |
 | D-005 | Planning e Planejador só se agrupam visualmente; stores permanecem separados. | **APROVADO — BLOQUEADO** |
@@ -456,14 +466,14 @@ preservar links e contexto sem fingir que seus ledgers continuam vivos.
 | D-009 | U6b só existe depois de U6a+lenses+architect+PO. | **BLOQUEADO; NÃO ENTREGUE** |
 | D-010 | Maria agent-first reutiliza serviços/cards/actions/ACLs e requer novo PO gate. | **FUTURO; NÃO ENTREGUE** |
 | D-011 | H1–H5 ficam separados e gated; não entram automaticamente no critical path. | **BLOQUEADO; NÃO ENTREGUE** |
-| D-012 | Sob exceção PO de 2026-08-17, #446 pode avançar test-only sem #445; #445 concluída/revisada + #446 verde seguem obrigatórias para o gate de produção/inventário de E0. Produção permanece `NOT_COLLECTED`. | **S0.3 EM ANDAMENTO; E0 INCOMPLETA (gate #445); B0 ENTREGUE (PR #476); B1a IMPLEMENTADO nesta PR, pendente de merge** |
+| D-012 | Sob exceção PO de 2026-08-17, #446 pode avançar test-only sem #445; #445 concluída/revisada + #446 verde seguem obrigatórias para o gate de produção/inventário de E0. Produção permanece `NOT_COLLECTED`. | **S0.3 EM ANDAMENTO; E0 INCOMPLETA (gate #445); B0 ENTREGUE (PR #476, CLOSED); B1a MERGEADO (#477, #478, #479); B1b e W1 abertos; B2 não iniciado** |
 
 ## 12. Changelog
 
 | Data | Versão | Mudança |
 |---|---|---|
-| 2026-08-19 | B1b implementado | B1b (#448, fatia 3/3) implementado e pendente de merge: `last4` legado ambíguo responde **409** em `payInvoice`/`undoInvoicePayment` (`resolveUniqueLegacyMatch`, `apps/api/src/common/invoice-identity.ts`) com zero writes, e linhas de fatura ambíguas deixam de oferecer ação (`actions: []`, `cardId`/`fingerprint` nulos); `GET :id/rateio` vira **tudo-ou-nada** — `hiddenTargetsCount`/`hiddenAllocationCents` REMOVIDOS e o detalhamento só é devolvido quando TODOS os participantes estão autorizados E a soma dos vivos fecha exatamente o total; em qualquer outro caso (fora da lente, cross-tenant, alvo removido, soma aberta) a resposta é source-only, deep-equal ao payload de uma compra NUNCA rateada, com `sourceExpenseId` colapsado na despesa pedida. Lista filtrada foi rejeitada por prova aritmética: a escrita exige `Σ alocações === valorTotal`, logo `total − Σ(itens visíveis)` seria a soma oculta em centavos exatos; `undoInvoicePayment` fecha o TOCTOU do soft-delete com `updateMany` condicional. Consequência: para requisitante restrito a compra aparece como NÃO rateada (some o aviso âmbar de soma aberta e a trava permanente do botão Salvar que a lista filtrada produzia); `removedTargetsCount` fica estruturalmente sempre 0, mantido só por estabilidade de forma do payload. Zero schema, zero migração. |
-| 2026-08-18 | B0 entregue; B1a implementado | B0 (#447) entregue via PR #476 (produção, SHA `389d8e6e`). B1a (#448) implementado nesta PR e pendente de merge: child ACL em `settleTargetParcela`, identidades de fatura (`cardId`/`fingerprint`/`actions` em `cartoes[]`+`saidas[]`; `accountId` em `contas[]`), `cardId`/`accountId` opcionais em `payInvoice`/`undoInvoicePayment`, guard de duplicidade ativa 409, `roomId`/`sourcePriceItemId` scoped. Zero schema, zero UX, zero fórmula numérica alterada. #448 permanece OPEN. Sequência após merge de B1a: W1 → B1b → B2. |
+| 2026-08-19 | B1a mergeado; U6a especificada | **B1a mergeado em `main`** via #477 (`5bbe5d69`), #478 (`720ff1fc`) e #479 (`890b89b0`); **#448 permanece OPEN pela fatia B1b**, **W1 (#214) aberto** e **B2 (#449) não iniciado**. Também mergeados e fechados: #480, #481, #483, #484, #486 — `main` em `9da93391`. **U6a (#455)** publicada em [`financeiro-projetos-por-tipo.md`](financeiro-projetos-por-tipo.md): matriz por tipo (capacidade, origem/finalidade, identidade, ACL, deep-link/fallback) derivada do código vivo, divergências código×doc e três decisões escaladas ao PO. Somente spec: zero código, fórmula, store, migration ou backfill. Achados de autorização extraídos para #494, #495 e #496. **U6b (#456) segue BLOQUEADA.** |
+| 2026-08-18 | B0 entregue; B1a implementado | B0 (#447) entregue via PR #476 (produção, SHA `389d8e6e`). B1a (#448) implementado e, naquela data, pendente de merge: child ACL em `settleTargetParcela`, identidades de fatura (`cardId`/`fingerprint`/`actions` em `cartoes[]`+`saidas[]`; `accountId` em `contas[]`), `cardId`/`accountId` opcionais em `payInvoice`/`undoInvoicePayment`, guard de duplicidade ativa 409, `roomId`/`sourcePriceItemId` scoped. Zero schema, zero UX, zero fórmula numérica alterada. #448 permanece OPEN. Sequência após merge de B1a: W1 → B1b → B2. |
 | 2026-08-17 | Exceção PO S0.3 | #446 liberada para build/test/merge test-only independente de #445; #445 registrada como bloqueada/deferida e produção `NOT_COLLECTED`; gates conjuntos de #447/B0, limites da baseline sintética e distinção entre estado esperado e evidência de runtime explicitados. |
 | 2026-08-17 | Revisão S0.1 | Guardrails de papel, endpoint/evidência e auditoria estreitados; transição do rateio legado para source-only explicitada. |
 | 2026-08-17 | S0.1 inicial | Design/security consolidado no repositório; status, contratos, E0–E6, dependências, analytics, riscos, rollback, decisões e histórico canonicalizados a partir da base `ece5032c398cc050fc037959a1f8fc0cc7f05bea`. Nenhuma implementação de produto iniciada. |
