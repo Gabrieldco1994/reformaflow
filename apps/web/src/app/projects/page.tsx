@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
-import { useAuth } from '@/contexts/auth-context';
+import { useAuth, type ModuleSlug } from '@/contexts/auth-context';
 import { useJourneyRuntime } from '@/contexts/journey-runtime-context';
 import type { ProjectType } from '@reformaflow/domain';
 import { Plus, ChevronRight, Search, Settings } from 'lucide-react';
@@ -26,7 +26,11 @@ interface Project {
 
 export default function ProjectsPage() {
   const router = useRouter();
-  const { hasProjectType, hasProjectAccess, canCreateProjectType, isAdmin, user, refresh } = useAuth();
+  const { hasProjectType, hasProjectAccess, canCreateProjectType, isAdmin, user, hasModule, refresh } = useAuth();
+  // E-5: a home do projeto pula módulos sem permissão em vez de cair em [0]
+  // cego e levar o usuário reduzido a /no-permission. O predicado recebe
+  // `item.module` (não o slug); mesma leitura de permissão do AppShell.
+  const canSeeModule = (module: string) => hasModule(module as ModuleSlug);
   const { emitProjectsCreated } = useJourneyRuntime();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -126,7 +130,7 @@ export default function ProjectsPage() {
       // fica no "This page could not be found", com o painel da jornada boiando
       // sobre a página de erro. Os outros dois pontos de navegação desta tela já
       // usavam o helper.
-      router.push(getProjectHomePath(created.id, created.type));
+      router.push(getProjectHomePath(created.id, created.type, canSeeModule));
     } catch (err) {
       console.error('Erro ao criar projeto:', err);
       setCreateError(err instanceof Error ? err.message : 'Erro ao criar projeto');
@@ -257,7 +261,7 @@ export default function ProjectsPage() {
                   key={project.id}
                   project={project}
                   isAdmin={isAdmin}
-                  onOpen={() => router.push(getProjectHomePath(project.id, project.type))}
+                  onOpen={() => router.push(getProjectHomePath(project.id, project.type, canSeeModule))}
                   onDelete={(e) => { e.stopPropagation(); handleDelete(project.id); }}
                 />
               ))}
@@ -279,7 +283,7 @@ export default function ProjectsPage() {
                 return (
                   <div
                     key={project.id}
-                    onClick={() => router.push(getProjectHomePath(project.id, project.type))}
+                    onClick={() => router.push(getProjectHomePath(project.id, project.type, canSeeModule))}
                     className="flex items-center gap-3 px-3.5 py-3 rounded-[14px] bg-lifeone-card border border-lifeone-hairline shadow-lifeone-card active:scale-[0.99] transition-all"
                   >
                     <span
