@@ -28,7 +28,7 @@ const DUPLICATE_USERNAME_MESSAGE = 'Usuário já cadastrado';
  * de projeto reintroduz o acoplamento que `TYPE_MODULES`/`PROJECT_FEATURES`/
  * `PROJECT_NAV` existem para evitar.
  */
-const GUEST_PROJECT_TYPES: readonly ProjectType[] = [
+export const GUEST_PROJECT_TYPES: readonly ProjectType[] = [
   ProjectType.PESSOAL,
   ProjectType.REFORMA,
 ];
