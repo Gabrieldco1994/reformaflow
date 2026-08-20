@@ -1,30 +1,27 @@
 /**
  * Rateio parcial sob o contrato SOURCE-ONLY (#448) — W1.
  *
- * `GET :id/rateio` responde o payload redigido pela lente do requisitante:
+ * Participante fora da lente ⇒ a resposta é a de uma compra nunca rateada. Sem
+ * lista parcial não há campo que declare o oculto nem número do qual derivá-lo.
+ * Basta UM participante fora da lente para `GET :id/rateio` responder
+ * `{ rateado: false, items: [], removedTargetsCount: 0, rateadoCents: 0,
+ * sobraCents: totalSourceCents }`.
  *
- *  - participante fora da lente é **omitido por inteiro** — `hiddenTargetsCount`
- *    e `hiddenAllocationCents` foram REMOVIDOS do contrato, não zerados;
- *  - `rateadoCents` é Σ dos itens **visíveis**. Mantê-lo total-aware era o
- *    vazamento: `totalSourceCents − Σ items` devolvia a soma oculta por
- *    subtração, e `sobraCents === 0` denunciava o participante escondido;
- *  - `rateado: false` quando nenhum participante é visível;
- *  - `removedTargetsCount` sobrevive, **filtrado pela lente**.
+ * Logo, quando vem lista, ela é COMPLETA: `rateadoCents` (Σ dos itens) e
+ * `removedTargetsCount` cobrem todos os alvos, sem segunda leitura possível.
+ * `hiddenTargetsCount`/`hiddenAllocationCents` não existem no contrato.
  *
- * SOURCE-ONLY ESTRITO (revisão do B1b em #499): lista filtrada ainda vaza por
- * subtração, porque o servidor só aceita a escrita com `Σ alocações ===
- * valorTotal` — logo `total − Σ(visíveis)` É a soma dos ocultos, com igualdade
- * exata. Então, com QUALQUER participante fora da lente, a resposta passa a ser
- * a de uma compra **nunca rateada**: `{ rateado: false, items: [],
- * removedTargetsCount: 0, rateadoCents: 0, sobraCents: totalSourceCents }`.
- * Este módulo trata os dois casos: `rateado === false` silencia o aviso
- * (`sobra == total` não é sobra, é compra não rateada) e não trava nada.
+ * Este módulo trata `rateado === false` silenciando o aviso — `sobra == total`
+ * não é sobra, é uma compra que, para este leitor, não foi rateada — e sem
+ * travar nada.
  *
  * Consequência de projeto, explicitada aqui para não voltar como bug: o web
- * NÃO consegue inferir parcialidade, e não deve tentar. O payload redigido é
- * deep-equal ao de uma compra sem nada oculto — POR DESIGN. Uma regra
- * fail-closed ("na dúvida, trava") mataria a CTA "Ratear compra"
- * permanentemente para todo mundo. Quem impede a escrita insegura é o servidor:
+ * NÃO consegue inferir parcialidade, e não deve tentar. A resposta de um rateio
+ * parcialmente visível é indistinguível da de uma compra nunca rateada — POR
+ * DESIGN. Uma regra fail-closed ("na dúvida, trava") travaria justamente o caso
+ * normal, porque toda compra ainda não rateada chega como `rateado: false`: a
+ * CTA "Ratear compra" morreria para todo mundo. Quem impede a escrita insegura
+ * é o servidor:
  * `ratearMixed` chama `assertCanReverseSources`, que enumera TODA
  * `RateioAllocation` existente da fonte e responde 404 com ZERO writes se algum
  * alvo estiver fora da lente. O dever do web é mostrar esse erro honestamente
@@ -66,11 +63,10 @@ export function knownCents(value: number | null | undefined): number | null {
 /**
  * Trava a edição destrutiva quando o servidor declara alvos REMOVIDOS.
  *
- * Fonte de verdade única e explícita: `removedTargetsCount > 0`. A leitura de
- * `hiddenTargetsCount` saiu daqui no handoff do B1b — o campo não existe mais
- * no contrato, então mantê-lo seria um segundo gatilho invisível, que só
- * dispararia contra servidor velho e que ninguém conseguiria reproduzir.
- * Ausência de declaração NÃO trava (ver docstring do módulo).
+ * Fonte de verdade única e explícita: `removedTargetsCount > 0` — alvo removido
+ * DENTRO da lente, declarado pelo servidor. Não existe segundo gatilho: um
+ * critério que só disparasse contra servidor velho seria invisível em produção
+ * e irreproduzível. Ausência de declaração NÃO trava (ver docstring do módulo).
  */
 export function isRateioEditLocked(detalhe: RateioVisibilityFields | undefined): boolean {
   if (!detalhe) return false;

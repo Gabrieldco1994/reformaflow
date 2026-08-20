@@ -2,32 +2,27 @@ import { describe, expect, it } from 'vitest';
 import { isRateioEditLocked, knownCents, rateioWarningMessage } from './rateio-partial';
 
 /**
- * W1 (#448) — contrato SOURCE-ONLY do rateio parcial, já sob o servidor B1b.
+ * W1 (#448) — contrato SOURCE-ONLY do rateio parcial.
  *
- * B1b entregou o contrato final de `GET :id/rateio`:
- *  - `hiddenTargetsCount` / `hiddenAllocationCents` NÃO EXISTEM MAIS. Participante
- *    fora da lente é omitido por inteiro — não vira contagem, não vira soma.
- *  - `rateadoCents` é Σ dos itens VISÍVEIS (manter total-aware devolvia a soma
- *    oculta por subtração: `totalSourceCents - Σ items`).
- *  - `rateado: false` quando nenhum participante é visível.
- *  - `removedTargetsCount` continua existindo, FILTRADO pela lente.
+ * `GET :id/rateio` é source-only estrito: participante fora da lente ⇒ a
+ * resposta é a de uma compra nunca rateada (`rateado: false`, `items: []`,
+ * `removedTargetsCount: 0`, `rateadoCents: 0`, `sobraCents: totalSourceCents`).
+ * Quando vem lista, ela é completa. `hiddenTargetsCount`/`hiddenAllocationCents`
+ * não existem no contrato.
  *
  * Consequência que este módulo existe para fixar: o web não consegue — e não
- * deve tentar — inferir parcialidade. O payload redigido é deep-equal a um
- * payload sem nada oculto POR DESIGN. Uma regra fail-closed ("na dúvida,
- * trava") mataria "Ratear compra" permanentemente para todo mundo. Quem barra a
- * escrita insegura é o servidor: `ratearMixed` → `assertCanReverseSources`
- * enumera TODA `RateioAllocation` da fonte e responde 404 com ZERO writes.
+ * deve tentar — inferir parcialidade. Uma regra fail-closed ("na dúvida,
+ * trava") travaria o caso normal, porque toda compra ainda não rateada chega
+ * como `rateado: false`. Quem barra a escrita insegura é o servidor:
+ * `ratearMixed` → `assertCanReverseSources` enumera TODA `RateioAllocation` da
+ * fonte e responde 404 com ZERO writes.
  */
 
-/** Payload B1b de quem enxerga todos os participantes. */
+/** Rateio completamente visível. */
 const VISIVEL = { removedTargetsCount: 0 };
 
-/** Payload B1b de quem NÃO enxerga parte deles: idêntico ao de cima. */
-const REDIGIDO = { removedTargetsCount: 0 };
-
-/** API pré-B1b: ainda manda a metadata que o contrato novo retirou. */
-const PRE_B1B = {
+/** API pré-#448: ainda manda a metadata que o contrato atual não declara. */
+const PRE_448 = {
   removedTargetsCount: 0,
   hiddenTargetsCount: 2,
   hiddenAllocationCents: 5_000,
@@ -42,15 +37,15 @@ describe('isRateioEditLocked — trava só no que o contrato AINDA declara', () 
     expect(isRateioEditLocked(VISIVEL)).toBe(false);
   });
 
-  it('NÃO trava no payload redigido — fail-closed aqui mataria a CTA para sempre', () => {
-    expect(isRateioEditLocked(REDIGIDO)).toBe(false);
+  it('NÃO trava quando o servidor não declara nada — fail-closed aqui mataria a CTA para sempre', () => {
+    expect(isRateioEditLocked({})).toBe(false);
   });
 
-  it('IGNORA `hiddenTargetsCount` de uma API pré-B1b — campo morto não trava mais nada', () => {
-    // B1b deletou o campo do contrato. Continuar lendo-o deixaria o lock com
-    // duas fontes de verdade: uma viva (`removedTargetsCount`) e uma que só
-    // aparece contra servidor velho. O lock passa a ser explícito e único.
-    expect(isRateioEditLocked(PRE_B1B)).toBe(false);
+  it('IGNORA `hiddenTargetsCount` de uma API pré-#448 — campo fora do contrato não trava nada', () => {
+    // O lock tem uma fonte de verdade só. Ler um campo que o contrato não
+    // declara daria a ele um segundo gatilho, que nunca dispararia contra o
+    // servidor atual e que ninguém conseguiria reproduzir.
+    expect(isRateioEditLocked(PRE_448)).toBe(false);
   });
 
   it('não trava sem detalhe nenhum (ainda carregando)', () => {
@@ -103,8 +98,8 @@ describe('rateioWarningMessage — informa a sobra sem insinuar o que está ocul
   });
 
   it('silencia quando a sobra é desconhecida — nunca alarme fabricado', () => {
-    expect(rateioWarningMessage(REDIGIDO, undefined)).toBeNull();
-    expect(rateioWarningMessage(REDIGIDO, null)).toBeNull();
+    expect(rateioWarningMessage(VISIVEL, undefined)).toBeNull();
+    expect(rateioWarningMessage(VISIVEL, null)).toBeNull();
   });
 });
 
