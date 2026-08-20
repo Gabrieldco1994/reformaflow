@@ -14,9 +14,9 @@ export { TYPE_MODULES, projectTypeHasModule, userHasAnyModuleForType };
 
 /**
  * Módulos que DONAM um recurso financeiro. Toda trava de disclosure (#480
- * SEC-1) referencia estas constantes — nunca o literal solto — para que o slug
- * exigido pelo `@RequireModule` do endpoint direto e o exigido pelo
- * preview/sugestão que descobre o mesmo recurso não possam divergir.
+ * SEC-1, #484) referencia estas constantes — nunca o literal solto — para que o
+ * slug exigido pelo `@RequireModule` do endpoint direto e o exigido pelo
+ * escopo/preview/sugestão que descobre o mesmo recurso não possam divergir.
  */
 export const EXPENSE_MODULE: TypeModuleSlug = 'expenses';
 export const RECEIPT_MODULE: TypeModuleSlug = 'receipts';
@@ -28,6 +28,10 @@ export const CREDIT_CARD_MODULE: TypeModuleSlug = 'creditCards';
  * e por isso responde ao mesmo módulo (#481).
  */
 export const RECURRING_BILL_MODULE: TypeModuleSlug = 'recurringBills';
+export const BANK_ACCOUNT_MODULE: TypeModuleSlug = 'bankAccounts';
+export const SCHEDULE_MODULE: TypeModuleSlug = 'schedule';
+export const REMINDER_MODULE: TypeModuleSlug = 'reminders';
+export const MAINTENANCE_MODULE: TypeModuleSlug = 'maintenance';
 
 /** User authorization by project type with legacy fallback for empty grants. */
 export function userCanAccessProjectType(
