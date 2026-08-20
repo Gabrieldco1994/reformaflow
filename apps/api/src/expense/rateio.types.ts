@@ -44,34 +44,45 @@ export interface RateioDetalheItem {
 }
 
 export interface RateioDetalhe {
+  /**
+   * Fonte canônica do rateio — MAS, quando a resposta é redigida (source-only),
+   * é o id da própria despesa pedida. Devolver a fonte real junto de
+   * `rateado: false` provaria que existe aresta de rateio e, portanto, que há
+   * participante que o requisitante não pode ver.
+   */
   sourceExpenseId: string;
-  /** true ⟺ existe ≥1 alocação (incluindo as de alvo removido). */
+  /**
+   * B1b (#448) — TUDO-OU-NADA: `true` só quando TODOS os participantes estão
+   * autorizados para este requisitante E a soma dos vivos fecha exatamente o
+   * total da fonte. Em qualquer outro caso a resposta inteira é a de uma compra
+   * nunca rateada.
+   */
   rateado: boolean;
-  /** source.valorTotal em centavos. */
+  /** valorTotal em centavos da despesa que ancora a resposta. */
   totalSourceCents: number;
   /**
-   * Σ allocationCents dos alvos ATIVOS — visíveis + ocultos. NÃO depende de
-   * quem olha (I-D). ATENÇÃO: a semântica NÃO é "Σ dos itens exibidos" — é
-   * "Σ dos alvos ativos" (items + hidden). "Consertar" para Σ items reabre o
-   * falso-sobra quando há alocações ocultas por ACL (issue #423).
+   * Σ allocationCents dos itens devolvidos — logo, `totalSourceCents` quando há
+   * detalhamento e `0` quando a resposta é source-only.
+   *
+   * Por que não existe versão "parcial" deste número: `conciliacao.service.ts`
+   * recusa a escrita se `Σ alocações !== valorTotal`, então uma lista filtrada
+   * publicada ao lado do total entregaria a soma oculta por subtração
+   * (`totalSourceCents - Σ itens`), em centavos exatos. O vazamento apenas
+   * trocaria de nome — de campo nomeado para campo calculado.
    */
   rateadoCents: number;
-  /** totalSourceCents - rateadoCents. ≠ 0 sinaliza divergência — exibir, não esconder. */
+  /** totalSourceCents - rateadoCents. Vale o total inteiro na resposta redigida. */
   sobraCents: number;
-  /** Alocações cujo alvo foi soft-deletado. Explica um sobraCents ≠ 0. */
+  /**
+   * Alocações cujo alvo foi soft-deletado. Estruturalmente SEMPRE 0 sob o
+   * contrato B1b: um alvo removido faz a soma dos vivos não fechar, o que já
+   * colapsa a resposta para source-only. Mantido para estabilidade de forma do
+   * payload (o web lê o campo) e para que "removido" não seja um estado
+   * distinguível de "não rateado".
+   */
   removedTargetsCount: number;
   /** Ordem determinística: createdAt asc, targetExpenseId asc (desempate total). */
   items: RateioDetalheItem[];
-  /**
-   * Alocações de alvo ATIVO em projeto fora da lente do requisitante (ou fora
-   * do tenant). Conta oculta, nunca aparece como item.
-   */
-  hiddenTargetsCount: number;
-  /**
-   * Σ centavos das alocações ocultas. Explica Σ items < rateadoCents SEM virar
-   * `sobra` fantasma (I-A): rateadoCents = Σ items.allocationCents + hiddenAllocationCents.
-   */
-  hiddenAllocationCents: number;
 }
 import { ForbiddenException } from '@nestjs/common';
 

@@ -110,14 +110,20 @@ refletido aqui pelo D0 somente quando uma mudança de runtime for entregue.
   `RateioAllocation` autorizado (não só a primeira, que é o que
   `linkedExpenseId` reflete). Na fonte PESSOAL, o `RatearCompraModal`
   pré-carrega as alocações existentes visíveis para edição, em vez de aparentar
-  um rateio novo; alocações ocultas ou removidas impedem substituição silenciosa.
+  um rateio novo; alocações removidas impedem substituição silenciosa e o
+  servidor reautoriza todos os participantes na gravação (fail-closed).
   No alvo REFORMA, **Edição completa** permanece alcançável nas visões Mês e
   Categoria também em mobile 375/390 px, mas exibe o rateio canônico
   estritamente somente-leitura: editar e desratear continuam exclusivos da
   fonte PESSOAL.
-  Alvos fora da lente de acesso do requisitante aparecem só como
-  contagem/soma agregadas (nunca título/projeto); alvos removidos são
-  descontados e explicam a sobra. Na Visão Conta do PESSOAL, a fonte conta uma
+  Alvos fora da lente de acesso do requisitante **derrubam o detalhamento
+  inteiro** (#448 B1b): a lista só é devolvida quando TODOS os participantes
+  estão autorizados e a soma fecha exatamente. Caso contrário a resposta é a de
+  uma compra **nunca rateada** — sem flag, contagem, soma ou metadado, com
+  `rateadoCents: 0` e a sobra valendo o total. Lista filtrada não serviria: como
+  a escrita exige que as alocações fechem o total, publicar parte dela ao lado
+  do total entregaria a soma oculta por subtração. Alvo removido também colapsa
+  a resposta, inclusive para quem enxerga o projeto dele. Na Visão Conta do PESSOAL, a fonte conta uma
   única vez e mantém sua origem Carteira/conta/cartão; todos os alvos pagos são
   excluídos de `saidas`/`saiuMes` pelo conjunto canônico de `RateioAllocation`,
   não apenas pelo primeiro `linkedExpenseId`. Exemplo verificado: fonte de R$

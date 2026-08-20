@@ -835,9 +835,20 @@ export class ExpenseService {
    *
    * O guard global só valida o projeto da âncora. Ao abrir por um alvo, a fonte
    * também precisa estar na lente; falhas nessa resolução viram 404 genérico.
-   * Demais alvos ATIVOS fora da lente (ou de outro tenant) viram contadores
-   * ocultos, mas seus valores continuam em `rateadoCents`. Alvo removido é
-   * avaliado ANTES da lente (I-F): removido é sempre `removed`, nunca `hidden`.
+   *
+   * B1b (#448) — SOURCE-ONLY, TUDO-OU-NADA. O detalhamento só é devolvido
+   * quando TODOS os participantes estão autorizados E a soma dos vivos fecha
+   * exatamente o total da fonte. Em qualquer outro caso (participante fora da
+   * lente, cross-tenant, alvo removido ou soma que não fecha) a resposta é a de
+   * uma compra NUNCA RATEADA: sem flag, contagem, soma, metadata ou qualquer
+   * inferência sobre participantes ocultos.
+   *
+   * Por que lista filtrada NÃO resolve: `conciliacao.service.ts:705` recusa a
+   * escrita quando `Σ alocações !== valorTotal`, logo, num payload com lista
+   * parcial, `totalSourceCents - Σ(itens visíveis)` É a soma oculta — igualdade
+   * exata, não estimativa. Qualquer payload que traga ao mesmo tempo lista
+   * parcial e número derivado do total permite a subtração; o vazamento só
+   * muda de nome. Ver `expense.rateio-redaction.spec.ts`.
    */
   async getRateio(
     tenantId: string,
@@ -935,24 +946,25 @@ export class ExpenseService {
     });
 
     let removedTargetsCount = 0;
-    let hiddenTargetsCount = 0;
-    let hiddenAllocationCents = 0;
+    let fullyVisible = true;
     const items: RateioDetalhe['items'] = [];
     for (const a of allocations) {
-      if (a.target.deletedAt !== null) {
-        // I-F: removido vence — nunca reclassificado como oculto (senão seu
-        // valor entraria em rateadoCents e a sobra real desapareceria).
-        removedTargetsCount += 1;
-        continue;
-      }
       const p = a.target.project;
       const sameTenant =
         a.tenantId === tenantId && a.target.tenantId === tenantId && p?.tenantId === tenantId;
       if (!sameTenant || !this.canRequesterSeeProject(requester, p, EXPENSE_MODULE)) {
-        // I-G/I-E: corrupção cross-tenant ou alvo fora da lente — some do
-        // payload individualmente, mas conta e soma continuam expostas.
-        hiddenTargetsCount += 1;
-        hiddenAllocationCents += a.allocation;
+        // Participante fora da lente (ou corrupção cross-tenant): o rateio
+        // INTEIRO deixa de ser exibível. Filtrar e devolver o resto não resolve
+        // — ver o bloco SOURCE-ONLY no docstring.
+        fullyVisible = false;
+        continue;
+      }
+      if (a.target.deletedAt !== null) {
+        // Alvo removido: os vivos não somam mais o total, então a condição
+        // "soma fecha exatamente" cai e a resposta é source-only — inclusive
+        // para quem enxerga o projeto do alvo removido.
+        removedTargetsCount += 1;
+        fullyVisible = false;
         continue;
       }
       items.push({
@@ -968,19 +980,36 @@ export class ExpenseService {
       });
     }
 
-    const visibleCents = items.reduce((sum, i) => sum + i.allocationCents, 0);
-    const rateadoCents = visibleCents + hiddenAllocationCents; // I-A/I-D
+    const rateadoCents = items.reduce((sum, i) => sum + i.allocationCents, 0);
     const totalSourceCents = source.valorTotal;
+
+    // A condição do contrato, literal: TODOS autorizados E soma exata. A
+    // segunda metade não é redundante — rateios legados (anteriores ao guard de
+    // `conciliacao.service.ts:705`) podem não fechar, e nesse caso a resposta
+    // parcial voltaria a ser um canal de subtração.
+    if (!fullyVisible || rateadoCents !== totalSourceCents) {
+      // SOURCE-ONLY, ancorado na DESPESA PEDIDA e não na fonte resolvida:
+      // devolver o id de outra fonte já provaria que existe aresta de rateio
+      // (a resolução canônica só roda quando a âncora é alvo de alguém), o que
+      // é exatamente a "inferência sobre participantes ocultos" proibida.
+      return {
+        sourceExpenseId: anchor.id,
+        rateado: false,
+        totalSourceCents: anchor.valorTotal,
+        rateadoCents: 0,
+        sobraCents: anchor.valorTotal,
+        removedTargetsCount: 0,
+        items: [],
+      };
+    }
 
     return {
       sourceExpenseId,
-      rateado: allocations.length > 0,
+      rateado: items.length > 0,
       totalSourceCents,
       rateadoCents,
       sobraCents: totalSourceCents - rateadoCents,
       removedTargetsCount,
-      hiddenTargetsCount,
-      hiddenAllocationCents,
       items,
     };
   }

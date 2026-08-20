@@ -2050,15 +2050,23 @@ describe("MonthlyOverviewService.getAccountView", () => {
     const requester = { id: "user-abc", role: "ADMIN" };
 
     beforeEach(() => {
-      prisma.creditCard.findFirst.mockResolvedValue({
+      const card = {
         id: "card-1",
         last4: "1111",
         nickname: "Nubank",
         closingDay: 20,
         dueDay: 28,
         project: { id: projectId, type: "PESSOAL", tenantId },
-      });
+      };
+      prisma.creditCard.findFirst.mockResolvedValue(card);
+      // B1b (#448): sem `cardId`/`accountId` explícito o service ENUMERA os
+      // candidatos por `last4` (`findMany` + `take: 2`) para recusar empate
+      // com 409 em vez de escolher um registro em silêncio.
+      prisma.creditCard.findMany.mockResolvedValue([card]);
       prisma.bankAccount.findFirst.mockResolvedValue({ last4: "4247" });
+      prisma.bankAccount.findMany.mockResolvedValue([
+        { id: "acc-1", last4: "4247" },
+      ]);
       prisma.expense.findFirst.mockResolvedValue(null);
       prisma.expense.create.mockResolvedValue({ id: "pay-1" });
     });

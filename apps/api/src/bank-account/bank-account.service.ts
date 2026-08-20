@@ -78,6 +78,7 @@ import {
   RECURRING_BILL_MODULE,
   resolveAccessibleProjectScope,
 } from '../common/access-rules';
+import { AMBIGUOUS_CARD_MESSAGE } from '../common/invoice-identity';
 
 export interface BankImportDecision {
   externalId: string;
@@ -138,7 +139,6 @@ const IMPORT_NOT_FOUND_MESSAGE = 'Importação não encontrada';
 const CARD_PAYMENT_PREFLIGHT_MISSING_MESSAGE =
   'Pré-validação de pagamento de fatura ausente';
 const CARD_NOT_FOUND_MESSAGE = 'Cartão não encontrado';
-const AMBIGUOUS_CARD_MESSAGE = 'Cartão ambíguo';
 
 /**
  * Heurísticas determinísticas para descrições de extrato que IA não distingue bem.

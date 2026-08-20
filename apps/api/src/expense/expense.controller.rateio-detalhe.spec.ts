@@ -47,7 +47,7 @@ describe('ExpenseController — GET :id/rateio (contrato de rota + lente, #423)'
 
   it('não remapeia o payload do service (o filtro é responsabilidade do service, em um lugar só)', async () => {
     const payload = { sourceExpenseId: 's', rateado: true, totalSourceCents: 1, rateadoCents: 1,
-      sobraCents: 0, removedTargetsCount: 0, hiddenTargetsCount: 2, hiddenAllocationCents: 900, items: [] };
+      sobraCents: 0, removedTargetsCount: 0, items: [] };
     service.getRateio.mockResolvedValueOnce(payload);
     await expect(controller.getRateio('t', 'p', 'i', {} as never)).resolves.toEqual(payload);
   });

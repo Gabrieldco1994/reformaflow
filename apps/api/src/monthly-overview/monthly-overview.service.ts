@@ -3,6 +3,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CardInvoiceSettlementService } from '../credit-card/card-invoice-settlement.service';
 import { resolveAccessibleProjectScope } from '../common/access-rules';
 import {
+  ambiguousLast4Set,
+  resolveUniqueLegacyMatch,
+  AMBIGUOUS_ACCOUNT_MESSAGE,
+  AMBIGUOUS_CARD_MESSAGE,
+} from '../common/invoice-identity';
+import {
   buildInstallments,
   buildMonthlyOverview,
   caixaMonthForCardPurchase,
@@ -801,6 +807,15 @@ export class MonthlyOverviewService {
     sumBy(carteiraPaidThisMonth, (expense) => expense.valorTotal);
 
     const cardByLast4 = new Map(cards.map((card) => [card.last4, card] as const));
+    /**
+     * B1b (#448): finais com MAIS DE UM cartão ativo neste projeto. `cardByLast4`
+     * (e qualquer mapa por last4) colapsa duplicatas legadas num vencedor
+     * arbitrário — servir esse palpite como identidade é o mesmo erro que o 409
+     * de `payInvoice`/`undoInvoicePayment` recusa cometer. Aqui a consequência é
+     * de CAPABILITY: uma fatura de final ambíguo não oferece CTA nem emite
+     * `cardId`/`fingerprint`, porque nenhuma ação sobre ela é executável agora.
+     */
+    const ambiguousCardLast4 = ambiguousLast4Set(cards);
     const invoiceByMonthCard = buildCardInvoiceAggregates(entries, cards, invoiceAdjustments);
 
     const residualByInvoice = new Map<string, number>();
@@ -1204,12 +1219,21 @@ export class MonthlyOverviewService {
         // B1a (#448): mesma fatura, mesmos campos aditivos do `cartoes[]`
         // (cardId/fingerprint/actions) — aqui é a ENTRADA que a Visão Conta
         // realmente usa como "linha de fatura" (`saidas[].isInvoice`).
-        const cardIdForInvoice = cardByLast4.get(invoice.cardLast4)?.id ?? null;
+        // B1b (#448): com final ambíguo, `cardByLast4` devolveria um id
+        // ADIVINHADO entre as duplicatas. Emiti-lo seria pior que o silêncio
+        // antigo: um web novo mandaria esse id exato e passaria por cima do 409,
+        // agindo justamente sobre o cartão que o servidor chutou.
+        const ambiguousCard = ambiguousCardLast4.has(invoice.cardLast4);
+        const cardIdForInvoice = ambiguousCard
+          ? null
+          : cardByLast4.get(invoice.cardLast4)?.id ?? null;
         const hasUndoableImplicitPayment =
           (implicitPaymentByInvoice.get(`${invoice.dueMonth}__${invoice.cardLast4}`) ?? null) != null;
         const invoiceActions: Array<'pay' | 'undo'> = [];
-        if (invoice.pending > 0) invoiceActions.push('pay');
-        if (hasUndoableImplicitPayment) invoiceActions.push('undo');
+        if (!ambiguousCard) {
+          if (invoice.pending > 0) invoiceActions.push('pay');
+          if (hasUndoableImplicitPayment) invoiceActions.push('undo');
+        }
         return {
           id: implicitPaymentByInvoice.get(`${invoice.dueMonth}__${invoice.cardLast4}`) ?? null,
           kind: 'saida' as const,
@@ -1439,12 +1463,19 @@ export class MonthlyOverviewService {
       // `undoInvoicePayment` exige para não reverter o pagamento errado —
       // ver `implicitPaymentByInvoice`/`assignImplicitPayments`). `fingerprint`
       // identifica a fatura por ID (cardId), nunca por last4/PAN.
+      // B1b (#448): final ambíguo não expõe verbo NENHUM — a fatura é agregada
+      // por last4, então as duplicatas mostram a MESMA fatura duas vezes e o
+      // `payInvoice` legado responderia 409. `cardId` continua sendo o id REAL
+      // desta linha (identidade própria, não um palpite entre duplicatas).
+      const ambiguousCard = ambiguousCardLast4.has(card.last4);
       const invoiceKeyForCard = `${openInvoiceMonth}__${card.last4}`;
       const hasUndoableImplicitPayment =
         (implicitPaymentByInvoice.get(invoiceKeyForCard) ?? null) != null;
       const actions: Array<'pay' | 'undo'> = [];
-      if (invoice.pending > 0) actions.push('pay');
-      if (hasUndoableImplicitPayment) actions.push('undo');
+      if (!ambiguousCard) {
+        if (invoice.pending > 0) actions.push('pay');
+        if (hasUndoableImplicitPayment) actions.push('undo');
+      }
       return {
         cardId: card.id,
         nickname: card.nickname?.trim() || 'Cartao',
@@ -2585,7 +2616,12 @@ export class MonthlyOverviewService {
 
     const card =
       kind === 'card'
-        ? await this.prisma.creditCard.findFirst({
+        ? // B1b (#448): leitura pura de ciclo (`closingDay`/`dueDay`) para montar
+          // a lista anual — sem 409 de final ambíguo, de propósito. Nada é
+          // decidido nem escrito aqui, e a recusa só apagaria uma listagem
+          // legítima. Quem oferece VERBO sobre fatura (`computeAccountView`)
+          // é que suprime `actions`/`cardId` no final ambíguo.
+          await this.prisma.creditCard.findFirst({
             where: { tenantId, projectId, last4, deletedAt: null },
             select: { closingDay: true, dueDay: true },
           })
@@ -2970,9 +3006,16 @@ export class MonthlyOverviewService {
    * B1a (#448): `cardId`/`accountId` são OPCIONAIS. Quando presentes, resolvem
    * o cartão/conta ESTRITAMENTE por `{id, tenantId, projectId, deletedAt:null}`
    * (identidade completa, não mais ambígua por last4 duplicado). Quando
-   * ausentes, preserva o fallback por last4 byte-a-byte (compat legado). Se
-   * AMBOS vierem e apontarem para registros diferentes, 400 sem escrita alguma
-   * — nunca silenciosamente prioriza um dos dois.
+   * ausentes, preserva o fallback por last4 (compat legado). Se AMBOS vierem e
+   * apontarem para registros diferentes, 400 sem escrita alguma — nunca
+   * silenciosamente prioriza um dos dois.
+   *
+   * B1b (#448): o fallback legado deixou de ser `findFirst`. Com DOIS cartões
+   * (ou contas) ativos de mesmo final no projeto — colisão que só existe em
+   * dado legado, já que o guard do B1a impede criar outra — a resolução
+   * responde **409** (`resolveUniqueLegacyMatch`) em vez de pagar o registro
+   * que o banco devolvesse primeiro. A leitura combina: a Visão Conta não
+   * oferece `actions` nem emite `cardId` para um final ambíguo.
    */
   async payInvoice(
     tenantId: string,
@@ -3019,10 +3062,15 @@ export class MonthlyOverviewService {
             where: { id: dto.cardId, tenantId, projectId, deletedAt: null },
             select: cardSelect,
           })
-        : await tx.creditCard.findFirst({
-            where: { tenantId, projectId, last4: dto.cardLast4, deletedAt: null },
-            select: cardSelect,
-          });
+        : resolveUniqueLegacyMatch(
+            await tx.creditCard.findMany({
+              where: { tenantId, projectId, last4: dto.cardLast4, deletedAt: null },
+              select: cardSelect,
+              orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+              take: 2,
+            }),
+            AMBIGUOUS_CARD_MESSAGE,
+          );
       if (!card) throw new NotFoundException('Cartão não encontrado.');
       if (dto.cardId && dto.cardLast4 && card.last4 !== dto.cardLast4) {
         throw new BadRequestException('cardId e cardLast4 não correspondem ao mesmo cartão.');
@@ -3034,10 +3082,15 @@ export class MonthlyOverviewService {
             where: { id: dto.accountId, tenantId, projectId, deletedAt: null },
             select: accountSelect,
           })
-        : await tx.bankAccount.findFirst({
-            where: { tenantId, projectId, last4: dto.bankLast4, deletedAt: null },
-            select: accountSelect,
-          });
+        : resolveUniqueLegacyMatch(
+            await tx.bankAccount.findMany({
+              where: { tenantId, projectId, last4: dto.bankLast4, deletedAt: null },
+              select: accountSelect,
+              orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+              take: 2,
+            }),
+            AMBIGUOUS_ACCOUNT_MESSAGE,
+          );
       if (!account) throw new NotFoundException('Conta de débito não encontrada.');
       if (dto.accountId && dto.bankLast4 && account.last4 !== dto.bankLast4) {
         throw new BadRequestException('accountId e bankLast4 não correspondem à mesma conta.');
@@ -3124,6 +3177,10 @@ export class MonthlyOverviewService {
    * B1a (#448): `cardId` OPCIONAL — presente resolve estrito por
    * `{id, tenantId, projectId, deletedAt:null}`; ausente preserva o fallback
    * por last4. Mismatch cardId×cardLast4 é 400 sem escrita.
+   *
+   * B1b (#448): final legado ambíguo (>1 cartão ativo com aquele last4 no
+   * projeto) responde **409** antes de qualquer leitura de pagamento — desfazer
+   * a fatura do cartão errado é irreversível na prática.
    */
   async undoInvoicePayment(
     tenantId: string,
@@ -3144,10 +3201,15 @@ export class MonthlyOverviewService {
           where: { id: dto.cardId, tenantId, projectId, deletedAt: null },
           select: undoCardSelect,
         })
-      : await this.prisma.creditCard.findFirst({
-          where: { tenantId, projectId, last4: dto.cardLast4, deletedAt: null },
-          select: undoCardSelect,
-        });
+      : resolveUniqueLegacyMatch(
+          await this.prisma.creditCard.findMany({
+            where: { tenantId, projectId, last4: dto.cardLast4, deletedAt: null },
+            select: undoCardSelect,
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+            take: 2,
+          }),
+          AMBIGUOUS_CARD_MESSAGE,
+        );
     if (!card) throw new NotFoundException('Cartão não encontrado.');
     if (dto.cardId && dto.cardLast4 && card.last4 !== dto.cardLast4) {
       throw new BadRequestException('cardId e cardLast4 não correspondem ao mesmo cartão.');
@@ -3243,8 +3305,9 @@ export class MonthlyOverviewService {
 
     // ARMADILHA (regra de ouro #4): `$transaction` ignora o middleware `$use`
     // de soft-delete. `tx.expense.delete(...)` seria HARD DELETE de verdade —
-    // por isso o soft-delete abaixo é um `update({ data: { deletedAt } })`
-    // explícito, nunca `.delete()`.
+    // por isso o soft-delete abaixo é um `updateMany({ data: { deletedAt } })`
+    // explícito, nunca `.delete()`, e com `deletedAt: null` no `where` (dentro
+    // da tx o filtro do `$use` também não existe).
     const reverted = await this.prisma.$transaction(async (tx) => {
       const result = await this.cardSettlement.unsettleInvoice({
         tenantId,
@@ -3253,10 +3316,25 @@ export class MonthlyOverviewService {
         tx,
         requester,
       });
-      await tx.expense.update({
-        where: { id: paymentExpenseId },
+      // B1b (#448) — releitura no commit: o pagamento foi escolhido FORA da
+      // transação (`assignImplicitPayments` sobre candidatos lidos antes). Um
+      // `update({ where: { id } })` cru reverteria a fatura e "desfaria" um
+      // pagamento que outro request já desfez no intervalo, devolvendo dois
+      // sucessos para um único fato. A transição vira um UPDATE condicional
+      // atômico: quem não casar com a linha AINDA viva perde e recebe 404.
+      const undone = await tx.expense.updateMany({
+        where: {
+          id: paymentExpenseId,
+          tenantId,
+          projectId,
+          tipoDespesa: 'PAGAMENTO_FATURA_CARTAO',
+          deletedAt: null,
+        },
         data: { deletedAt: new Date() },
       });
+      if (undone.count === 0) {
+        throw new NotFoundException('Nenhum pagamento encontrado para essa fatura.');
+      }
       return result;
     });
 
@@ -3298,6 +3376,14 @@ export class MonthlyOverviewService {
       throw new BadRequestException('Resíduo declarado deve ser positivo.');
     }
 
+    // B1b (#448) — DELIBERADAMENTE sem o 409 de `last4` ambíguo que `payInvoice`
+    // e `undoInvoicePayment` ganharam. Ali a duplicidade escolhe QUAL cartão
+    // recebe o dinheiro; aqui a query só lê `last4` (o mesmo valor em todos os
+    // empatados) e o ajuste é gravado por `cardLast4`, não por `cardId` — dois
+    // cartões com o mesmo final produzem exatamente o mesmo registro. Recusar
+    // aqui bloquearia uma ação legítima sem fechar brecha nenhuma. Não
+    // "uniformize" isso sem antes trocar `InvoiceAdjustment.cardLast4` por uma
+    // FK de identidade (#467/H4).
     const card = await this.prisma.creditCard.findFirst({
       where: { tenantId, projectId, last4: dto.cardLast4, deletedAt: null },
       select: { last4: true },
