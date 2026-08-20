@@ -268,6 +268,40 @@ async function openMais(page: Page): Promise<Locator> {
   return overlay;
 }
 
+/**
+ * Texto VISÍVEL de um container (nós de texto cujos ancestrais não estão em
+ * display:none/visibility:hidden e cuja caixa tem área). Necessário no shell
+ * MÓVEL: as telas montam a variante mobile E a desktop (`hidden md:block`) no
+ * MESMO DOM, então `toContainText`/textContent enxerga o texto OCULTO do desktop
+ * e mente. Ex.: /expenses a 375 renderiza o picker mobile ("ago 26", visível) E
+ * o ExpensesView desktop ("Mar 26", display:none) — só a leitura por
+ * visibilidade prova o que o telefone MOSTRA. Junta com espaço para preservar
+ * tokens quebrados em nós irmãos (o picker faz `{short} {yy}` → "ago"+"26").
+ */
+async function visibleTextOf(page: Page, selector: string): Promise<string> {
+  return page.locator(selector).first().evaluate((root) => {
+    const isVisible = (el: Element | null): boolean => {
+      let cur: Element | null = el;
+      while (cur) {
+        const cs = getComputedStyle(cur);
+        if (cs.display === 'none' || cs.visibility === 'hidden') return false;
+        cur = cur.parentElement;
+      }
+      if (!el) return false;
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    };
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const parts: string[] = [];
+    let node: Node | null;
+    while ((node = walker.nextNode())) {
+      const value = (node.nodeValue ?? '').trim();
+      if (value && isVisible((node as Text).parentElement)) parts.push(value);
+    }
+    return parts.join(' ');
+  });
+}
+
 // ───────────────────────────────────────────────────────────────────────────
 // BEHAVIORAL REDs — provam defeito HOJE, sem depender de seletor da Lane A.
 // ───────────────────────────────────────────────────────────────────────────
@@ -342,8 +376,12 @@ test.describe('U2 shell mobile — travas de regressão (verdes hoje)', () => {
     await expect(page.locator('.minimal-sidebar')).toBeVisible();
     // Dock some por largura: nenhum dock (nome novo OU atual) visível.
     await expect(page.locator('[data-dock], .minimal-dock')).toBeHidden();
+    // Âncora "Projetos" existe no cabeçalho mobile E no rail; a 812 (>=md) o
+    // cabeçalho é md:hidden → SÓ o rail está visível (medido: header visible:false,
+    // rail visible:true; `.minimal-sidebar a[...]` resolve a EXATAMENTE 1). Escopo
+    // por CONTAINER, não `.first()` — este não esconderia uma duplicata real.
     await expectReachable(
-      page.locator('a[data-nav-group="projetos"]'),
+      page.locator('.minimal-sidebar a[data-nav-group="projetos"]'),
       'âncora Projetos (rail, paisagem)',
     );
   });
@@ -639,6 +677,10 @@ test.describe('U2 shell mobile — cabeçalho / escopo', () => {
   // U2-E18 — escopo no cabeçalho: tipo visível; âncora é "Projetos", não "Voltar".
   // aria-label="Projetos" prova o defeito HOJE (MobileHeader.tsx:28 é "Voltar
   // para projetos"); [data-scope-project-type] é o marcador da Lane A.
+  // A âncora "Projetos" é emitida no cabeçalho mobile E no rail desktop; a 375
+  // (<md) o rail é hidden → SÓ o cabeçalho está visível (medido: header
+  // visible:true, rail visible:false). Escopo por [data-mobile-header] resolve a
+  // EXATAMENTE 1 — por CONTAINER, não `.first()` (que mascararia uma duplicata).
   test('375 — U2-E18 cabeçalho: data-scope-project-type=PESSOAL e âncora "Projetos"', async ({ page, baseURL }) => {
     await bootMobile(page, baseURL!, { modules: MODULES.full });
     await page.goto(`/projects/${PESSOAL_ID}/monthly`);
@@ -647,7 +689,7 @@ test.describe('U2 shell mobile — cabeçalho / escopo', () => {
       'data-scope-project-type',
       'PESSOAL',
     );
-    const anchor = page.locator('a[data-nav-group="projetos"]');
+    const anchor = page.locator('[data-mobile-header] a[data-nav-group="projetos"]');
     await expect(anchor, 'âncora Projetos ausente no cabeçalho mobile').toBeVisible();
     await expect(anchor, 'âncora deve ser "Projetos", não "Voltar para projetos"').toHaveAttribute('aria-label', 'Projetos');
   });
@@ -882,6 +924,15 @@ test.describe('U2 shell mobile — travas e diagnóstico (2ª prioridade)', () =
   // picker ("mar 26", MobileExpensesScreen:160) — "março de 2026" JAMAIS apareceria
   // lá, então o probe longo seria falso-verde. O expenses ganha guarda POSITIVA
   // (mostra "ago 26" hoje) para provar que o picker renderizou.
+  //
+  // ⚠️ MEDE TEXTO VISÍVEL (visibleTextOf), NÃO textContent. No shell móvel a tela
+  // monta a variante mobile E a desktop (`hidden md:block`) no MESMO DOM. O
+  // expenses DESKTOP (ExpensesView) LÊ ?mes e renderiza "Mar 26" — mas OCULTO a
+  // 375px; o picker mobile VISÍVEL segue em "ago 26" (useState(currentMonthKey()),
+  // MobileExpensesScreen:68, ignora a URL). `toContainText` enxergaria o "Mar 26"
+  // OCULTO e falharia dizendo "expenses preservou o mês" — MENTIRA: o telefone
+  // mostra agosto. Só a leitura por visibilidade prova o que o usuário vê. (Medido
+  // na integração: visível = "…Despesas ago 26…", "Mar 26" tem visible:false.)
   const NAO_COBERTOS_POR_MES: Array<{ slug: string; mesTeste: RegExp; mesCorrente?: RegExp }> = [
     { slug: 'dre', mesTeste: /março de 2026/i },
     { slug: 'neutros', mesTeste: /março de 2026/i },
@@ -893,17 +944,23 @@ test.describe('U2 shell mobile — travas e diagnóstico (2ª prioridade)', () =
       await bootMobile(page, baseURL!, { modules: MODULES.full });
       await page.goto(`/projects/${PESSOAL_ID}/${slug}?mes=${TEST_MONTH}`);
       await expect(page, `${slug} caiu em /no-permission`).not.toHaveURL(/no-permission/);
-      await expect(page.locator('main'), `${slug} sem main renderizado`).toBeVisible();
+      // Timeout generoso: `next dev` compila a rota sob demanda na 1ª visita (/dre
+      // mediu ~6s a frio) — o default de 5s é FLAKY na borda do compile, não um
+      // defeito. Determinismo, não afrouxamento (a asserção de mês segue estrita).
+      await expect(page.locator('main'), `${slug} sem main renderizado`).toBeVisible({ timeout: 20_000 });
+      // Texto VISÍVEL apenas — o textContent inclui a variante desktop OCULTA que
+      // JÁ lê ?mes; medir por visibilidade é o que impede o falso "mês preservado".
+      const visivel = await visibleTextOf(page, 'main');
       if (mesCorrente) {
         // sem isto o negativo passaria por acidente (tela sem rótulo de mês).
-        await expect(page.locator('main'), `${slug} não mostrou o mês CORRENTE — probe errado?`).toContainText(mesCorrente);
+        expect(visivel, `${slug} não mostrou o mês CORRENTE (visível) — probe errado?`).toMatch(mesCorrente);
       }
-      // HOJE não mostra o mês de TESTE (lê o corrente, não a URL). Flip → RED
-      // quando a fatia entrar; então edite NAO_COBERTOS_POR_MES de propósito.
-      await expect(
-        page.locator('main'),
-        `${slug} JÁ preservou o mês — a fatia entrou? edite NAO_COBERTOS_POR_MES de propósito`,
-      ).not.toContainText(mesTeste);
+      // HOJE não mostra o mês de TESTE no que é VISÍVEL (lê o corrente, não a URL).
+      // Flip → RED quando a fatia MÓVEL entrar; então edite NAO_COBERTOS_POR_MES.
+      expect(
+        visivel,
+        `${slug} JÁ preservou o mês (VISÍVEL) — a fatia móvel entrou? edite NAO_COBERTOS_POR_MES de propósito`,
+      ).not.toMatch(mesTeste);
     });
   }
 });
