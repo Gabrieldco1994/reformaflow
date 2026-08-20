@@ -1,9 +1,49 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MonthlyOverviewService } from '../monthly-overview/monthly-overview.service';
-import { ExpenseTypeLabels } from '@reformaflow/domain';
+import { CashFlowType, ExpenseTypeLabels } from '@reformaflow/domain';
+import {
+  intersectProjectScope,
+  projectScopeIncludes,
+  sameProjectScope,
+  unionProjectScope,
+  type ProjectScope,
+} from '../common/project-scope';
 
 type ProjectType = 'REFORMA' | 'COMPRA' | 'CASA' | 'CARRO' | 'PESSOAL';
+
+/**
+ * Escopo POR RECURSO das agregações financeiras (#483 SEC-5).
+ *
+ * Um agregado consolidado mistura recursos de DONOS diferentes: despesa é do
+ * módulo `expenses`, recebimento é do módulo `receipts`. Autorizar o payload
+ * inteiro por um gate só devolve valor de recurso não autorizado (a mesma classe
+ * da #480 SEC-1). Com uma lente por recurso, cada consulta filtra pela sua —
+ * ANTES da soma —, então quem tem `receipts` e não tem `expenses` vê o
+ * recebimento exato e contribuição de despesa exatamente zero.
+ */
+export interface FinancialResourceScope {
+  /** Projetos cuja DESPESA o requisitante pode ler (`null` = irrestrito). */
+  expenses: ProjectScope;
+  /** Projetos cujo RECEBIMENTO o requisitante pode ler (`null` = irrestrito). */
+  receipts: ProjectScope;
+}
+
+/**
+ * Escopo aceito pelas agregações: uma lista/`null` (comportamento histórico —
+ * a MESMA lente para todo recurso) ou lentes separadas por recurso.
+ */
+export type FinancialScope = ProjectScope | FinancialResourceScope;
+
+/** Lentes derivadas usadas internamente por cada agregação. */
+interface ResolvedLenses {
+  expenses: ProjectScope;
+  receipts: ProjectScope;
+  /** Metadados de projeto (nome/tipo/contagem): união dos recursos autorizados. */
+  projects: ProjectScope;
+  /** Caixa §10: derivado de despesa E recebimento ⇒ exige as duas lentes. */
+  caixa: ProjectScope;
+}
 
 export interface TenantFinancialOverview {
   caixaTotal: number | null;
@@ -73,11 +113,64 @@ export class TenantFinancialService {
   ) {}
 
   /** where parcial para restringir por projeto em agregações (null = sem filtro). */
-  private scopeWhere(scope: string[] | null) {
+  private scopeWhere(scope: ProjectScope) {
     return scope ? { projectId: { in: scope } } : {};
   }
 
-  private async listProjects(tenantId: string, scope: string[] | null) {
+  /**
+   * Normaliza o escopo recebido nas lentes por recurso.
+   * Lista/`null` = comportamento histórico (uma lente para tudo).
+   */
+  private lenses(scope: FinancialScope): ResolvedLenses {
+    if (scope === null || Array.isArray(scope)) {
+      return { expenses: scope, receipts: scope, projects: scope, caixa: scope };
+    }
+    const { expenses, receipts } = scope;
+    return {
+      expenses,
+      receipts,
+      projects: unionProjectScope(expenses, receipts),
+      caixa: intersectProjectScope(expenses, receipts),
+    };
+  }
+
+  /**
+   * Filtro de escopo do CashFlowEntry por DONO do lançamento: a linha não
+   * autorizada é descartada pelo banco e nunca chega à soma.
+   *
+   * Devolve `where` (spread no topo) + `and` (empurrado para o `AND` existente,
+   * nunca um segundo `OR` no topo — a query já usa `OR` para outra condição).
+   * Com as duas lentes IGUAIS devolve a forma histórica (`projectId in`), o que
+   * mantém o caminho legado (`/tenant/financial`) byte-idêntico.
+   */
+  private resourceScopeFilter(
+    expenses: ProjectScope,
+    receipts: ProjectScope,
+  ): { where: Record<string, unknown>; and: Record<string, unknown>[] } {
+    if (sameProjectScope(expenses, receipts)) {
+      return { where: this.scopeWhere(expenses), and: [] };
+    }
+    return {
+      where: {},
+      and: [
+        {
+          OR: [
+            { tipo: CashFlowType.DESPESA, ...this.scopeWhere(expenses) },
+            { tipo: CashFlowType.RECEBIMENTO, ...this.scopeWhere(receipts) },
+          ],
+        },
+      ],
+    };
+  }
+
+  /** Restringe uma lista concreta de ids pela lente (null = sem restrição). */
+  private narrow(projectIds: string[], scope: ProjectScope): string[] {
+    if (scope === null) return projectIds;
+    const lens = new Set(scope);
+    return projectIds.filter((id) => lens.has(id));
+  }
+
+  private async listProjects(tenantId: string, scope: ProjectScope) {
     return this.prisma.project.findMany({
       where: { tenantId, deletedAt: null, ...(scope ? { id: { in: scope } } : {}) },
       select: { id: true, name: true, type: true },
@@ -97,7 +190,9 @@ export class TenantFinancialService {
     return new Date(d.getFullYear(), 0, 1);
   }
 
-  async getOverview(tenantId: string, scope: string[] | null): Promise<TenantFinancialOverview> {
+  async getOverview(tenantId: string, scope: FinancialScope): Promise<TenantFinancialOverview> {
+    const lenses = this.lenses(scope);
+    const resourceFilter = this.resourceScopeFilter(lenses.expenses, lenses.receipts);
     const now = new Date();
     const startMes = this.startOfMonth(now);
     const startAno = this.startOfYear(now);
@@ -105,12 +200,12 @@ export class TenantFinancialService {
     const in90 = new Date(now.getTime() + 90 * 24 * 3600 * 1000);
 
     const [projects, cashFlow] = await Promise.all([
-      this.listProjects(tenantId, scope),
+      this.listProjects(tenantId, lenses.projects),
       this.prisma.cashFlowEntry.findMany({
         where: {
           tenantId,
           deletedAt: null,
-          ...this.scopeWhere(scope),
+          ...resourceFilter.where,
           OR: [
             { expenseId: null },
             { expense: { deletedAt: null, linkedExpenseId: null } },
@@ -122,6 +217,7 @@ export class TenantFinancialService {
                 { receipt: { deletedAt: null, linkedReceiptId: null } },
               ],
             },
+            ...resourceFilter.and,
           ],
         },
         select: { valor: true, tipo: true, status: true, data: true },
@@ -135,7 +231,12 @@ export class TenantFinancialService {
     // tenant tiver mais de um PESSOAL (ex.: por usuário no multiusuário). Com um
     // único PESSOAL (realidade atual) a soma-de-um é idêntica ao §10. Sem PESSOAL
     // no escopo ⇒ o KPI de caixa some (null): o tenant não tem conta consolidada.
-    const pessoalProjects = projects.filter((p) => p.type === 'PESSOAL');
+    // #483: o §10 é Σ recebimentos − Σ despesas da conta; só é honesto para quem
+    // pode ler OS DOIS recursos (lente `caixa`), senão o KPI vazaria o recurso
+    // não autorizado dentro de um número agregado.
+    const pessoalProjects = projects.filter(
+      (p) => p.type === 'PESSOAL' && projectScopeIncludes(lenses.caixa, p.id),
+    );
     let caixaTotal: number | null = null;
     if (pessoalProjects.length > 0) {
       const caixas = await Promise.all(
@@ -185,17 +286,21 @@ export class TenantFinancialService {
     };
   }
 
-  async getByProject(tenantId: string, scope: string[] | null): Promise<ProjectBreakdownRow[]> {
-    const projects = await this.listProjects(tenantId, scope);
+  async getByProject(tenantId: string, scope: FinancialScope): Promise<ProjectBreakdownRow[]> {
+    const lenses = this.lenses(scope);
+    const projects = await this.listProjects(tenantId, lenses.projects);
     if (projects.length === 0) return [];
 
     const projectIds = projects.map((p) => p.id);
+    const expenseIds = this.narrow(projectIds, lenses.expenses);
+    const receiptIds = this.narrow(projectIds, lenses.receipts);
+    const resourceFilter = this.resourceScopeFilter(expenseIds, receiptIds);
     const [cashFlow, receipts] = await Promise.all([
       this.prisma.cashFlowEntry.findMany({
         where: {
           tenantId,
-          projectId: { in: projectIds },
           deletedAt: null,
+          ...resourceFilter.where,
           OR: [
             { expenseId: null },
             { expense: { deletedAt: null, linkedExpenseId: null } },
@@ -207,6 +312,7 @@ export class TenantFinancialService {
                 { receipt: { deletedAt: null, linkedReceiptId: null } },
               ],
             },
+            ...resourceFilter.and,
           ],
         },
         select: { projectId: true, tipo: true, status: true, valor: true },
@@ -214,7 +320,7 @@ export class TenantFinancialService {
       this.prisma.receipt.findMany({
         where: {
           tenantId,
-          projectId: { in: projectIds },
+          projectId: { in: receiptIds },
           deletedAt: null,
           linkedReceiptId: null,
         },
@@ -259,7 +365,9 @@ export class TenantFinancialService {
     return Array.from(byProject.values());
   }
 
-  async getCashFlow(tenantId: string, months: number, scope: string[] | null): Promise<ConsolidatedCashFlowPoint[]> {
+  async getCashFlow(tenantId: string, months: number, scope: FinancialScope): Promise<ConsolidatedCashFlowPoint[]> {
+    const lenses = this.lenses(scope);
+    const resourceFilter = this.resourceScopeFilter(lenses.expenses, lenses.receipts);
     const now = new Date();
     const from = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
 
@@ -269,7 +377,7 @@ export class TenantFinancialService {
           tenantId,
           deletedAt: null,
           data: { gte: from },
-          ...this.scopeWhere(scope),
+          ...resourceFilter.where,
           OR: [
             { expenseId: null },
             { expense: { deletedAt: null, linkedExpenseId: null } },
@@ -281,11 +389,12 @@ export class TenantFinancialService {
                 { receipt: { deletedAt: null, linkedReceiptId: null } },
               ],
             },
+            ...resourceFilter.and,
           ],
         },
         select: { projectId: true, tipo: true, status: true, valor: true, data: true },
       }),
-      this.listProjects(tenantId, scope),
+      this.listProjects(tenantId, lenses.projects),
     ]);
 
     const pointsMap = new Map<string, ConsolidatedCashFlowPoint>();
@@ -346,14 +455,15 @@ export class TenantFinancialService {
     return sorted;
   }
 
-  async getByCategory(tenantId: string, scope: string[] | null): Promise<CategoryRow[]> {
+  async getByCategory(tenantId: string, scope: FinancialScope): Promise<CategoryRow[]> {
+    const lenses = this.lenses(scope);
     const expenses = await this.prisma.expense.findMany({
       where: {
         tenantId,
         deletedAt: null,
         settledByExpenseId: null,
         linkedExpenseId: null,
-        ...this.scopeWhere(scope),
+        ...this.scopeWhere(lenses.expenses),
       },
       select: { tipoDespesa: true, valorTotal: true },
     });
@@ -370,10 +480,12 @@ export class TenantFinancialService {
       .sort((a, b) => b.total - a.total);
   }
 
-  async getUpcoming(tenantId: string, days: number, scope: string[] | null): Promise<UpcomingDueRow[]> {
+  async getUpcoming(tenantId: string, days: number, scope: FinancialScope): Promise<UpcomingDueRow[]> {
+    const lenses = this.lenses(scope);
+    const resourceFilter = this.resourceScopeFilter(lenses.expenses, lenses.receipts);
     const now = new Date();
     const until = new Date(now.getTime() + days * 24 * 3600 * 1000);
-    const projects = await this.listProjects(tenantId, scope);
+    const projects = await this.listProjects(tenantId, lenses.projects);
     const projMap = new Map(projects.map((p) => [p.id, p]));
 
     const entries = await this.prisma.cashFlowEntry.findMany({
@@ -382,7 +494,7 @@ export class TenantFinancialService {
         deletedAt: null,
         data: { gte: now, lte: until },
         status: { in: ['PLANEJADO', 'PREVISTO'] },
-        ...this.scopeWhere(scope),
+        ...resourceFilter.where,
         OR: [
           { expenseId: null },
           { expense: { deletedAt: null, linkedExpenseId: null } },
@@ -394,6 +506,7 @@ export class TenantFinancialService {
               { receipt: { deletedAt: null, linkedReceiptId: null } },
             ],
           },
+          ...resourceFilter.and,
         ],
       },
       orderBy: { data: 'asc' },
@@ -428,7 +541,8 @@ export class TenantFinancialService {
       .filter((x): x is UpcomingDueRow => x !== null);
   }
 
-  async getTopSuppliers(tenantId: string, limit: number, scope: string[] | null): Promise<SupplierRow[]> {
+  async getTopSuppliers(tenantId: string, limit: number, scope: FinancialScope): Promise<SupplierRow[]> {
+    const lenses = this.lenses(scope);
     const expenses = await this.prisma.expense.findMany({
       where: {
         tenantId,
@@ -436,7 +550,7 @@ export class TenantFinancialService {
         fornecedor: { not: null },
         settledByExpenseId: null,
         linkedExpenseId: null,
-        ...this.scopeWhere(scope),
+        ...this.scopeWhere(lenses.expenses),
       },
       select: {
         fornecedor: true,

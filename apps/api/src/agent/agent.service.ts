@@ -7,10 +7,17 @@ import { stripEmoji } from '../tts/speech-format';
 export interface AgentChatInput {
   tenantId: string;
   projectId?: string | null;
-  /** Escopo exato: [] nega tudo; null só é irrestrito para ADMIN/OWNER. */
+  /**
+   * Escopo AMPLO de projeto (visibilidade): [] nega tudo; null só é irrestrito
+   * para ADMIN/OWNER. Não autoriza recurso financeiro — ver #483.
+   */
   projectScope?: string[] | null;
   /** Papel do usuário — habilita ferramentas de escrita com ACL correta. */
   role?: string;
+  /** Projetos liberados (ACL bruta) — deriva o escopo POR RECURSO nas tools. */
+  allowedProjects?: string[];
+  /** Tipos de projeto liberados (ACL bruta) — idem. */
+  allowedProjectTypes?: string[];
   /** Módulos liberados ao usuário — usado nas ferramentas de escrita. */
   allowedModules?: string[];
   /** Id do usuário autenticado — stampado como createdByUserId nas escritas. */
@@ -49,6 +56,8 @@ export class AgentService {
       projectId: input.projectId ?? null,
       projectScope: input.projectScope,
       role: input.role,
+      allowedProjects: input.allowedProjects,
+      allowedProjectTypes: input.allowedProjectTypes,
       allowedModules: input.allowedModules,
       userId: input.userId,
     });
