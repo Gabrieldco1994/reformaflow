@@ -167,16 +167,44 @@ const KNOWN_NAV_GROUP_IDS = new Set<string>(NAV_GROUPS.map((g) => g.id));
 
 /**
  * Grupo de destino quando o `group` declarado é irreconhecível em runtime.
- * `modulos` é a lista única — degradar para "Módulos" é ruim; sumir é pior, e
- * sumir calado foi exatamente o defeito que U1 veio matar.
+ * `modulos` é a lista única — o rótulo genérico é o menos errado dos destinos.
  */
 const FALLBACK_NAV_GROUP: NavGroupId = 'modulos';
 
+/**
+ * ⚠️ LEIA ANTES DE APAGAR OU DE ESCREVER TESTE NOVO PARA ISTO.
+ *
+ * Este caminho de fallback é PROVAVELMENTE INALCANÇÁVEL com os dados de hoje,
+ * e isso é garantido por teste, não por otimismo: `nav-groups.test.ts` U1-04
+ * (totalidade) varre `Object.values(ProjectType)` e prova que TODA entrada de
+ * `PROJECT_NAV` declara um `group` que existe em `NAV_GROUPS`. Enquanto a
+ * navegação for constante TypeScript, o `if` abaixo nunca é falso em produção.
+ *
+ * As duas leituras erradas que este comentário existe para impedir:
+ *
+ * - "É código morto, apago." Não é morto: é REDE. Ele existe para o dia em que
+ *   esta lista deixar de ser constante TypeScript (nav vinda da API, de
+ *   feature flag, de config de tenant) — aí o `group` passa a ser string de
+ *   runtime e o compilador para de garantir qualquer coisa. Apagar agora é
+ *   barato; descobrir a falta depois custa um menu vazio em produção.
+ *
+ * - "É caminho vivo, vou cobrir os ramos." Não é vivo. O único teste que o
+ *   exercita (U1-11) monta um item inválido à mão com `as unknown as
+ *   NavModule` justamente porque o tipo torna o caso impossível de escrever
+ *   honestamente. Não derive dele que existe dado real assim.
+ *
+ * Por que DEGRADAR em vez de DESCARTAR: descartar em silêncio é literalmente o
+ * defeito que o U1 (#450) veio matar — a função hard-coded da sidebar montava
+ * os grupos a partir de listas fixas de slugs e sumia com o resto sem erro e
+ * sem aviso (`expenses`, `receipts` e `bank-accounts` de PESSOAL passaram meses
+ * fora do menu desktop assim). Um item no grupo errado é um bug que alguém vê
+ * e reporta; um item que evapora é um bug que ninguém vê. A ordem de tentativa
+ * reflete isso: grupo do próprio item → grupo que `PROJECT_NAV[type]` declara
+ * para aquele slug → `modulos`. Sair de mãos vazias não é opção em lugar
+ * nenhum desta função.
+ */
 function resolveNavGroup(item: NavModule, declaredByType: Map<string, NavGroupId>): NavGroupId {
   if (KNOWN_NAV_GROUP_IDS.has(item.group)) return item.group;
-  // O tipo torna este caminho inalcançável em TS, mas consumidores JS (ou uma
-  // lista montada à mão num teste) chegam aqui. Antes de desistir, tentamos o
-  // grupo que o próprio `PROJECT_NAV[type]` declara para o slug.
   const declared = declaredByType.get(item.slug);
   return declared && KNOWN_NAV_GROUP_IDS.has(declared) ? declared : FALLBACK_NAV_GROUP;
 }
@@ -198,11 +226,20 @@ function resolveNavGroup(item: NavModule, declaredByType: Map<string, NavGroupId
  * cabeçalho "Auditoria" sem nenhum link é pior que a ausência do cabeçalho.
  * Por isso `projetos` nunca aparece na saída — `/projects` é rota global de
  * sessão, sem módulo, então nenhuma entrada de `PROJECT_NAV` a declara; ela
- * vive em `NAV_GROUPS` só pelo contrato de ordem, e quem renderiza a insere.
+ * vive em `NAV_GROUPS` só pelo contrato de ordem, e quem renderiza a insere
+ * (a decisão de produto é Projetos ancorado no CABEÇALHO, não como item do
+ * rail — o grupo existir aqui e não sair daqui são a mesma coisa, não uma
+ * inconsistência).
  *
- * `type` resolve o grupo de itens que chegam sem um `group` reconhecível
- * (ver `resolveNavGroup`); tipos desconhecidos não lançam, mesmo contrato de
- * `getProjectNavModules`.
+ * Sobre `type`, sem enfeite: com os dados de hoje ele NÃO é necessário para
+ * particionar — cada item já carrega o próprio `group`. Ele serve de entrada
+ * para o fallback de `resolveNavGroup`, que por sua vez é inalcançável hoje
+ * (ver o aviso lá em cima); assumidamente circular. Fica pelos dois motivos
+ * concretos que sobrevivem à circularidade: a assinatura já é o contrato
+ * fechado com a camada de view, e quando esta lista deixar de ser constante
+ * TypeScript o `type` passa a ser a única forma de recuperar o grupo de um
+ * item cujo `group` veio errado da rede. Tipos desconhecidos não lançam —
+ * mesmo contrato de `getProjectNavModules`.
  */
 export function buildNavGroups(type: ProjectType, visibleNav: NavModule[]): NavGroup[] {
   const declaredByType = new Map<string, NavGroupId>(

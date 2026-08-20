@@ -232,9 +232,12 @@ describe('buildNavGroups', () => {
   });
 
   it('U1-11 [RED] grupo desconhecido em runtime cai em `modulos` — nunca some calado', () => {
-    // O tipo torna isto impossível em TS, mas o defeito que estamos matando é
-    // exatamente "sumiu e ninguém viu". Degradar para "Módulos" é ruim;
-    // desaparecer é pior.
+    // Este item é montado à mão com `as unknown as NavModule` porque o tipo
+    // torna o caso impossível de escrever honestamente. NÃO conclua daqui que
+    // existe dado real assim: U1-04 (totalidade) prova o contrário. O que este
+    // teste fixa é só o COMPORTAMENTO da rede — se um dia a nav vier da rede e
+    // o `group` chegar errado, o item degrada para "Módulos" em vez de sumir.
+    // Ver o aviso longo em `resolveNavGroup` antes de mexer aqui.
     const rogue = {
       slug: 'rogue',
       label: 'Rogue',
