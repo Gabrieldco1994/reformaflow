@@ -43,23 +43,38 @@ const NON_PERSONAL_MATRIX = [
 ] as const;
 
 describe('getMobilePrimary', () => {
-  it('keeps PESSOAL monthly/conta in primary and leaves expenses in Mais', () => {
+  it('docks PESSOAL monthly/conta/credit-cards and leaves the rest in Mais (D1: dre/neutros/planning/cash-flow voltam)', () => {
     const visible = getProjectNavModules(ProjectType.PESSOAL);
     const { primary, secondary } = getMobilePrimary(
       ProjectType.PESSOAL,
       visible,
     );
 
-    expect(primary.map((module) => module.slug)).toEqual(['monthly', 'conta']);
+    // Dock = destinos de HOJE (monthly, conta, credit-cards) + Maria inline no
+    // MobileTabBar (não é módulo de nav). Preservados, não derivados da ordem.
+    expect(primary.map((module) => module.slug)).toEqual([
+      'monthly',
+      'conta',
+      'credit-cards',
+    ]);
+    // Mais = complemento exato do dock. dre/neutros/planning/cash-flow NÃO são
+    // mais ocultados (D1): dock ∪ Mais === visibleNav.
     expect(secondary.map((module) => module.slug)).toEqual([
+      'dre',
+      'neutros',
       'expenses',
       'receipts',
       'recorrentes',
       'metas',
+      'planning',
       'planejador',
-      'credit-cards',
+      'cash-flow',
       'bank-accounts',
     ]);
+    // Invariante de alcançabilidade (U2-E05): nada autorizado fica órfão.
+    expect([...primary, ...secondary].map((m) => m.slug).sort()).toEqual(
+      visible.map((m) => m.slug).sort(),
+    );
   });
 
   it.each(NON_PERSONAL_MATRIX)(
@@ -108,14 +123,14 @@ describe('getMobilePrimary', () => {
     );
 
     expect(primary.map((module) => module.slug)).toEqual(['monthly', 'conta']);
-    expect(secondary.map((module) => module.slug)).toEqual(['expenses']);
+    expect(secondary.map((module) => module.slug)).toEqual(['dre', 'expenses']);
     expect(visible.map((module) => module.slug)).toContain('expenses');
     expect(secondary.map((module) => module.slug)).not.toContain(
       'conta',
     );
   });
 
-  it('does not synthesize a PESSOAL primary when monthly is not visible', () => {
+  it('guards each PESSOAL dock slot independently — conta survives without monthly', () => {
     const visible = getProjectNavModules(ProjectType.PESSOAL).filter((module) =>
       ['conta', 'expenses'].includes(module.slug),
     );
@@ -125,7 +140,10 @@ describe('getMobilePrimary', () => {
       visible,
     );
 
-    expect(primary).toEqual([]);
+    // conta é destino próprio do dock: não some só porque monthly foi filtrado
+    // por permissão (era o acoplamento antigo). Cada slot é guardado por si —
+    // mesma classe do defeito D11/E-5.
+    expect(primary.map((module) => module.slug)).toEqual(['conta']);
     expect(secondary.map((module) => module.slug)).toEqual(['expenses']);
     expect(secondary.map((module) => module.slug)).not.toContain('conta');
   });
