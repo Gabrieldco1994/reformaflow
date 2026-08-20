@@ -620,3 +620,149 @@ test.describe('U2 shell mobile — cabeçalho / escopo', () => {
     await expect(anchor, 'âncora deve ser "Projetos", não "Voltar para projetos"').toHaveAttribute('aria-label', 'Projetos');
   });
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// OVERLAY ÚNICO E FOCO — RED até a Lane A ligar o overlay único do AppShell
+// (data-overlay, role=dialog, aria-modal) e o handshake ?launch=1.
+// ───────────────────────────────────────────────────────────────────────────
+
+const DIALOG = '[role="dialog"][aria-modal="true"]';
+
+test.describe('U2 shell mobile — overlay único e foco', () => {
+  // U2-E06 — Mais aberto + ?launch=1 na mesma rota = exatamente UM overlay (D4).
+  test('375 — U2-E06 Mais aberto + ?launch=1 = um único overlay', async ({ page, baseURL }) => {
+    await bootMobile(page, baseURL!, { modules: MODULES.full });
+    await page.goto(`/projects/${PESSOAL_ID}/monthly`);
+    await openMais(page);
+    await page.goto(`/projects/${PESSOAL_ID}/monthly?launch=1`);
+    await expect(page.locator(`${DIALOG}:visible`), 'D4: esperado exatamente 1 overlay').toHaveCount(1);
+  });
+
+  // U2-E07 — launch aberto, Mais ativado por TECLADO não empilha dois (D4 + D5:
+  // sem trap o Tab escapa).
+  test('375 — U2-E07 launch aberto + Mais por teclado = um único overlay', async ({ page, baseURL }) => {
+    await bootMobile(page, baseURL!, { modules: MODULES.full });
+    await page.goto(`/projects/${PESSOAL_ID}/monthly?launch=1`);
+    const trigger = page.locator('[data-mais-count]');
+    await expect(trigger, 'gatilho Mais [data-mais-count] ausente').toBeVisible();
+    await trigger.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.locator(`${DIALOG}:visible`), 'D4: esperado exatamente 1 overlay').toHaveCount(1);
+  });
+
+  // U2-E08 — Escape fecha o Mais e devolve o foco ao gatilho (D5 — launch sem
+  // Escape hoje; o Mais é o overlay que já existe para medir o contrato).
+  test('375 — U2-E08 Escape fecha o Mais e devolve o foco ao gatilho', async ({ page, baseURL }) => {
+    await bootMobile(page, baseURL!, { modules: MODULES.full });
+    await page.goto(`/projects/${PESSOAL_ID}/monthly`);
+    const trigger = page.locator('[data-mais-count]');
+    await expect(trigger, 'gatilho Mais [data-mais-count] ausente').toBeVisible();
+    await trigger.click();
+    const overlay = page.locator('[data-overlay="mais"]');
+    await expect(overlay, 'overlay do Mais não abriu').toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(overlay, 'Escape não fechou o Mais').toBeHidden();
+    await expect(trigger, 'foco não voltou ao gatilho Mais').toBeFocused();
+  });
+
+  // U2-E09 — back do navegador fecha o overlay em vez de sair da rota.
+  test('375 — U2-E09 back fecha o overlay e mantém a rota', async ({ page, baseURL }) => {
+    await bootMobile(page, baseURL!, { modules: MODULES.full });
+    await page.goto(`/projects/${PESSOAL_ID}/monthly`);
+    await openMais(page);
+    await page.goBack();
+    await expect(page, 'back saiu da rota em vez de fechar o overlay').toHaveURL(new RegExp(`${PESSOAL_ID}/monthly`));
+    await expect(page.locator(`${DIALOG}:visible`), 'overlay ainda aberto após back').toHaveCount(0);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// PRESERVAÇÃO DE MÊS — relógio em agosto/2026, mês de teste março/2026.
+// Duas asserções por caso: a URL carrega o mês (contrato do shell — MINHA lane)
+// E o destino RENDERIZA março (o destino interpreta — sem isto o verde é vazio).
+// Deep-link fixa o mês na origem sem depender do mock completo do seletor de
+// meses; o defeito sob teste é o shell dropar o mês e o destino ignorá-lo.
+// ───────────────────────────────────────────────────────────────────────────
+
+test.describe('U2 shell mobile — preservação de mês', () => {
+  // U2-P14 — monthly → conta pelo DOCK: mês sobrevive. Falha em dois pontos hoje
+  // (MobileTabBar monta href sem query; conta/page.tsx:29 ignora ?mes). A 2ª
+  // asserção (conta mostra março) impede o verde vazio.
+  test('375 — U2-P14 mês sobrevive ao toque no dock (monthly → conta)', async ({ page, baseURL }) => {
+    await bootMobile(page, baseURL!, { modules: MODULES.full });
+    await page.goto(`/projects/${PESSOAL_ID}/monthly?mes=${TEST_MONTH}`);
+    const conta = page.locator('[data-dock-slot="conta"]');
+    await expect(conta, 'slot conta ausente no dock — Lane A ainda não marcou').toBeVisible();
+    await conta.click();
+    await expect(page, 'dock dropou o mês (href sem ?mes)').toHaveURL(new RegExp(`/conta\\?.*mes=${TEST_MONTH}`));
+    await expect(page.locator('main'), '/conta ignorou ?mes (mostra o mês corrente)').toContainText(TEST_MONTH_LABEL);
+    await expect(page.locator('main')).not.toContainText(CURRENT_MONTH_LABEL);
+  });
+
+  // U2-P15 — monthly → expenses pelo MAIS: mês sobrevive. O tile do Mais carrega
+  // o mês (contrato do shell) e /expenses filtra março.
+  // ⚠️ AMBIGUIDADE SINALIZADA AO PO: a leitura do mês pelo expenses MÓVEL é
+  //    incerta em escopo — `MobileExpensesScreen.tsx:68` faz useState(currentMonthKey())
+  //    e NÃO lê a URL; o fallback de 1 linha do spec (§ expense-query-state.ts:46)
+  //    é do decoder DESKTOP (`period`), não deste componente. Se a Lane A não
+  //    ligar o expenses móvel à URL, a 2ª asserção fica RED por escopo, não por
+  //    regressão — o PO decide (ampliar escopo OU reclassificar P15).
+  test('375 — U2-P15 mês sobrevive ao Mais (monthly → expenses)', async ({ page, baseURL }) => {
+    await bootMobile(page, baseURL!, { modules: MODULES.full });
+    await page.goto(`/projects/${PESSOAL_ID}/monthly?mes=${TEST_MONTH}`);
+    const overlay = await openMais(page);
+    const tile = overlay.locator('a[href*="/expenses"]');
+    await expect(tile, 'tile expenses ausente no Mais — Lane A ainda não marcou').toBeVisible();
+    await tile.click();
+    // contrato do shell (minha lane): o mês viaja na URL (mes OU period).
+    await expect(page, 'Mais dropou o mês (href sem mês)').toHaveURL(/\/expenses\?.*(mes|period)=2026-03/);
+    // destino interpreta: expenses mostra março (chip "Mar 26"/"março"), não agosto.
+    await expect(page.locator('main'), '/expenses ignorou o mês').toContainText(/mar[çc]o|Mar 26|mar\/2026/i);
+    await expect(page.locator('main')).not.toContainText(/Ago 26|agosto/i);
+  });
+
+  // U2-P16 — 1280: mesma jornada no RAIL desktop (monthly → conta). O rail passa
+  // o mesmo href ao link e ao isPathActive (DesktopSidebar.tsx:228) — o buraco
+  // que a auditoria recusou, no lugar exato.
+  test('1280 — U2-P16 mês sobrevive no rail desktop (monthly → conta)', async ({ page, baseURL }) => {
+    await bootMobile(page, baseURL!, { modules: MODULES.full }, { width: 1280, height: 900 });
+    await page.addInitScript(() => window.localStorage.setItem('lifeone:sidebar:collapsed', 'false'));
+    await page.goto(`/projects/${PESSOAL_ID}/monthly?mes=${TEST_MONTH}`);
+    const rail = page.locator('aside.minimal-sidebar');
+    await expect(rail, 'rail desktop ausente a 1280').toBeVisible();
+    const contaLink = rail.locator('a[href*="/conta"]').first();
+    await expect(contaLink, 'link conta ausente no rail').toBeVisible();
+    await contaLink.click();
+    await expect(page, 'rail dropou o mês (href sem ?mes)').toHaveURL(new RegExp(`/conta\\?.*mes=${TEST_MONTH}`));
+    await expect(page.locator('main'), '/conta ignorou ?mes').toContainText(TEST_MONTH_LABEL);
+  });
+
+  // U2-P17 — launch NÃO sobrevive (prova negativa): sair de ?launch=1 não reabre
+  // a sheet, mas o mês sobrevive. Se alguém "consertar" com passthrough de
+  // launch, ESTE teste reprova.
+  test('375 — U2-P17 launch não reabre ao tocar o dock, mas o mês sobrevive', async ({ page, baseURL }) => {
+    await bootMobile(page, baseURL!, { modules: MODULES.full });
+    await page.goto(`/projects/${PESSOAL_ID}/monthly?launch=1&mes=${TEST_MONTH}`);
+    const launch = page.locator('[data-overlay="launch"]');
+    await expect(launch, 'launch overlay ausente — Lane A ainda não marcou').toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(launch, 'Escape não fechou o launch').toBeHidden();
+    const conta = page.locator('[data-dock-slot="conta"]');
+    await expect(conta, 'slot conta ausente no dock').toBeVisible();
+    await conta.click();
+    await expect(page.locator('[data-overlay="launch"]'), 'launch reabriu (passthrough proibido)').toHaveCount(0);
+    await expect(page, 'mês não sobreviveu ao dock').toHaveURL(new RegExp(`/conta\\?.*mes=${TEST_MONTH}`));
+  });
+
+  // U2-P19 — estado ativo continua aceso com ?mes na URL: o slot corrente tem
+  // data-active="true" E aria-current="page" (o §3 — usePathname não traz query,
+  // então um href com ?mes mataria o estado ativo se não separassem pathHref).
+  test('375 — U2-P19 estado ativo aceso com ?mes na URL (dock)', async ({ page, baseURL }) => {
+    await bootMobile(page, baseURL!, { modules: MODULES.full });
+    await page.goto(`/projects/${PESSOAL_ID}/monthly?mes=${TEST_MONTH}`);
+    const slot = page.locator('[data-dock-slot="monthly"]');
+    await expect(slot, 'slot monthly ausente no dock').toBeVisible();
+    await expect(slot, 'estado ativo morreu com ?mes na URL (§3)').toHaveAttribute('data-active', 'true');
+    await expect(slot, 'aria-current deve acender na página exata').toHaveAttribute('aria-current', 'page');
+  });
+});
