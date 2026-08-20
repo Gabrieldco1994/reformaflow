@@ -38,11 +38,14 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
  * ─── COBERTURA PARCIAL E DECLARADA ─────────────────────────────────────────
  *
  * A preservação de mês é ASSIMÉTRICA de propósito: o shell CARREGA `?mes` em
- * toda superfície, mas só `conta` e `expenses` LÊEM a URL nesta issue. `dre`,
- * `neutros` e `metas` continuam nascendo no mês corrente — U2-P21 fixa isso
- * como lista literal para que ninguém leia o verde do U2 como "mês preservado
- * em toda parte". Fora de escopo (não asserido): safe-area (Chromium resolve
- * env(safe-area-inset-*) como 0) e o bug de fuso das três `currentMonthKey`.
+ * toda superfície, mas só `monthly` (já lê/escreve) e `conta` (alvo dos REDs
+ * P14/P20) INTERPRETAM a URL nesta issue. O `expenses` MÓVEL
+ * (MobileExpensesScreen usa currentMonthKey(), NÃO lê a URL — fatia própria por
+ * decisão do PO), `dre`, `neutros` e `metas` continuam nascendo no mês corrente
+ * — U2-P21 fixa isso como lista literal para que ninguém leia o verde do U2 como
+ * "mês preservado em toda parte". Fora de escopo (não asserido): safe-area
+ * (Chromium resolve env(safe-area-inset-*) como 0) e o bug de fuso das três
+ * `currentMonthKey`.
  */
 
 // ── Identidades (o cookie sai do baseURL do runner, nunca de porta literal) ──
@@ -377,8 +380,13 @@ test.describe('U2 shell mobile — geometria do dock e do Mais', () => {
     });
   }
 
-  // U2-E02 — nenhum destino do dock é COBERTO: elementFromPoint no centro devolve
-  // o próprio (falha nomeia o topmost). Roda em /receipts, superfície do D6.
+  // U2-E02 [TRAVA de não-oclusão] — nenhum destino do dock é COBERTO:
+  // elementFromPoint no centro devolve o próprio (falha nomeia o topmost). Roda
+  // em /receipts, onde o FAB "Novo recebimento" (z-40) convive com o dock.
+  // Correção do PO: FAB e dock `+` são ADJACENTES (sem oclusão), então esta TRAVA
+  // fica verde assim que a Lane A montar `[data-dock]`; se o rework empilhar algo
+  // sobre um slot, ela reprova nomeando o intruso. NÃO exige launcher único (isso
+  // é o DIAG U2-E10) — por isso não cai junto com ele.
   test('375 — U2-E02 nenhum destino do dock é coberto (elementFromPoint devolve o próprio)', async ({ page, baseURL }) => {
     await bootMobile(page, baseURL!, { modules: MODULES.full });
     await page.goto(`/projects/${PESSOAL_ID}/receipts`);
@@ -458,27 +466,51 @@ test.describe('U2 shell mobile — geometria do dock e do Mais', () => {
     expect(bad, `tile(s) ruins: ${JSON.stringify(bad)}`).toEqual([]);
   });
 
-  // U2-E10 — /receipts de PESSOAL tem EXATAMENTE UM launcher visível. Conta a
-  // UNIÃO de [data-launcher="true"] com os FABs de rota ATUAIS (por aria-label),
-  // deduplicada por identidade: HOJE = 2 (D6, RED) — dock `+` (Lançar) + FAB
-  // `Novo recebimento`, a ~2px, FAB z-40 sobre o dock; vira 1 (GREEN) quando o PO
-  // liberar `shellOwnsLauncher`. Evidência bruta medida e reportada ao PO
-  // (dock `+` @ y734 64×64 z-auto; FAB @ y676 56×56 z-40 → bordas a ~2px).
-  test('375 — U2-E10 exatamente um launcher visível em /receipts (PESSOAL)', async ({ page, baseURL }) => {
+  // U2-E10 [DIAG, não bloqueia] — VETO do PO em `shellOwnsLauncher`: a
+  // MobileLaunchSheet que o `+` do dock abre SÓ cria DESPESA (zero "recebimento"
+  // no arquivo). Suprimir o FAB "Novo recebimento" removeria o ÚNICO caminho de
+  // criar recebimento no celular — regressão FUNCIONAL, não conserto. Logo NÃO
+  // exigimos 1 launcher.
+  //
+  // Correção do PO à minha leitura: NÃO há oclusão. Os números que reportei são
+  // ADJACENTES, não empilhados — dock `+` (Lançar) x293 y734 64×64 z-auto; FAB
+  // (Novo recebimento) x303 y676 56×56 z-40 → fundo do FAB (732) ~2px ACIMA do
+  // topo do dock (734). O problema real é DOIS botões redondos de MESMO ícone
+  // `Plus`, colados, com funções distintas (despesa × recebimento). Resolução =
+  // DESIGN (diferenciar/afastar), fora do U2.
+  //
+  // Este DIAG DOCUMENTA esse estado e FALHA (editável de propósito, como o P21)
+  // se ele mudar: ícones divergirem, se afastarem ou um sumir. Só então o E10
+  // volta à mesa.
+  test('375 — [DIAG] U2-E10 dois launchers Plus adjacentes em /receipts (resolução de produto, fora do U2)', async ({ page, baseURL }) => {
     await bootMobile(page, baseURL!, { modules: MODULES.full });
     await page.goto(`/projects/${PESSOAL_ID}/receipts`);
     await page.locator('main').waitFor();
-    const launchers = await page.evaluate(() => {
-      const sel =
-        '[data-launcher="true"], button[aria-label="Lançar"], button[aria-label="Novo recebimento"], [data-journey-action="receipt.new"]';
-      const set = new Set<Element>();
-      for (const el of document.querySelectorAll(sel)) {
+    // aria-labels únicos e existentes hoje (o data-journey-action="receipt.new"
+    // NÃO serve: repete no botão de toolbar da página, receipts/page.tsx:395).
+    const dockPlus = page.locator('button[aria-label="Lançar"]');
+    const routeFab = page.locator('button[aria-label="Novo recebimento"]');
+    await expect(dockPlus, 'launcher do dock (+) sumiu — skip silencioso?').toBeVisible();
+    await expect(routeFab, 'FAB de rota (Novo recebimento) sumiu — skip silencioso?').toBeVisible();
+    const geo = await page.evaluate(() => {
+      const box = (el: Element | null) => {
+        if (!el) return null;
         const r = el.getBoundingClientRect();
-        if (r.width > 0 && r.height > 0 && getComputedStyle(el as HTMLElement).visibility !== 'hidden') set.add(el);
-      }
-      return set.size;
+        return { top: Math.round(r.top), bottom: Math.round(r.bottom), plus: Boolean(el.querySelector('svg[class*="plus" i]')) };
+      };
+      return {
+        dock: box(document.querySelector('button[aria-label="Lançar"]')),
+        fab: box(document.querySelector('button[aria-label="Novo recebimento"]')),
+      };
     });
-    expect(launchers, 'D6: /receipts deve ter exatamente 1 launcher visível').toBe(1);
+    // dois controles distintos de MESMO ícone Plus — a raiz da confusão.
+    expect(geo.dock?.plus && geo.fab?.plus, `esperado ambos com ícone Plus: ${JSON.stringify(geo)}`).toBe(true);
+    // ADJACENTES, não empilhados (correção do PO): FAB termina no/acima do topo
+    // do dock, sem oclusão. Flip se alguém empilhar (aí vira bug de z-index).
+    expect(
+      Boolean(geo.dock && geo.fab && geo.fab.bottom <= geo.dock.top + 4),
+      `esperado FAB adjacente/acima do dock, sem oclusão: ${JSON.stringify(geo)}`,
+    ).toBe(true);
   });
 
   // U2-E11 — nenhum estouro horizontal: scrollers internos (excl. hidden/clip) +
@@ -699,26 +731,22 @@ test.describe('U2 shell mobile — preservação de mês', () => {
     await expect(page.locator('main')).not.toContainText(CURRENT_MONTH_LABEL);
   });
 
-  // U2-P15 — monthly → expenses pelo MAIS: mês sobrevive. O tile do Mais carrega
-  // o mês (contrato do shell) e /expenses filtra março.
-  // ⚠️ AMBIGUIDADE SINALIZADA AO PO: a leitura do mês pelo expenses MÓVEL é
-  //    incerta em escopo — `MobileExpensesScreen.tsx:68` faz useState(currentMonthKey())
-  //    e NÃO lê a URL; o fallback de 1 linha do spec (§ expense-query-state.ts:46)
-  //    é do decoder DESKTOP (`period`), não deste componente. Se a Lane A não
-  //    ligar o expenses móvel à URL, a 2ª asserção fica RED por escopo, não por
-  //    regressão — o PO decide (ampliar escopo OU reclassificar P15).
-  test('375 — U2-P15 mês sobrevive ao Mais (monthly → expenses)', async ({ page, baseURL }) => {
+  // U2-P15 — monthly → expenses pelo MAIS: o SHELL carrega `?mes` na URL. É só o
+  // que MINHA lane pode provar aqui: o tile do Mais leva o mês adiante (mes OU
+  // period). URL-ONLY por decisão do PO — a INTERPRETAÇÃO do mês pelo expenses
+  // MÓVEL é fatia própria (MobileExpensesScreen.tsx:68 faz
+  // useState(currentMonthKey()) e NÃO lê a URL; o fallback de 1 linha do spec é
+  // do decoder DESKTOP `period`). Por isso o `expenses`-móvel entra no DIAG P21.
+  test('375 — U2-P15 shell carrega o mês ao Mais (monthly → expenses), URL-only', async ({ page, baseURL }) => {
     await bootMobile(page, baseURL!, { modules: MODULES.full });
     await page.goto(`/projects/${PESSOAL_ID}/monthly?mes=${TEST_MONTH}`);
     const overlay = await openMais(page);
     const tile = overlay.locator('a[href*="/expenses"]');
     await expect(tile, 'tile expenses ausente no Mais — Lane A ainda não marcou').toBeVisible();
     await tile.click();
-    // contrato do shell (minha lane): o mês viaja na URL (mes OU period).
+    // contrato do shell (minha lane): o mês viaja na URL (mes OU period). A
+    // LEITURA pelo destino é fatia própria — ver o DIAG P21 `expenses`.
     await expect(page, 'Mais dropou o mês (href sem mês)').toHaveURL(/\/expenses\?.*(mes|period)=2026-03/);
-    // destino interpreta: expenses mostra março (chip "Mar 26"/"março"), não agosto.
-    await expect(page.locator('main'), '/expenses ignorou o mês').toContainText(/mar[çc]o|Mar 26|mar\/2026/i);
-    await expect(page.locator('main')).not.toContainText(/Ago 26|agosto/i);
   });
 
   // U2-P16 — 1280: mesma jornada no RAIL desktop (monthly → conta). O rail passa
@@ -812,21 +840,40 @@ test.describe('U2 shell mobile — travas e diagnóstico (2ª prioridade)', () =
   // U2-P21 [DIAG, não bloqueia] — destinos AINDA NÃO cobertos por mês são
   // DECLARADOS. Lista LITERAL — quem cobrir um destino edita a lista de propósito
   // (cicatriz: "barrier test não deriva da constante que protege"). HOJE
-  // dre/neutros/metas IGNORAM ?mes (caem no mês corrente); vira RED quando E-9
-  // entrar. Existe para que ninguém leia o verde do U2 como "mês preservado em
-  // toda parte" — a cobertura de mês é PARCIAL E ASSIMÉTRICA (só conta+expenses).
-  const NAO_COBERTOS_POR_MES = ['dre', 'neutros', 'metas'];
-  for (const slug of NAO_COBERTOS_POR_MES) {
+  // dre/neutros/metas E o `expenses` MÓVEL IGNORAM ?mes (caem no mês corrente);
+  // vira RED quando cada fatia entrar (E-9 p/ dre/neutros/metas; a de ligar o
+  // expenses móvel à URL — fatia própria, decidida pelo PO). Existe para que
+  // ninguém leia o verde do U2 como "mês preservado em toda parte" — a cobertura
+  // de mês é PARCIAL E ASSIMÉTRICA (só `monthly` + `conta` interpretam a URL).
+  //
+  // Cada destino casa o TOKEN NO FORMATO QUE A TELA RENDERIZA, senão o negativo
+  // passaria por ACIDENTE e nunca viraria RED: DRE usa monthLabelLong
+  // ("março de 2026"); o expenses MÓVEL usa monthLabelShort + 2 dígitos de ano no
+  // picker ("mar 26", MobileExpensesScreen:160) — "março de 2026" JAMAIS apareceria
+  // lá, então o probe longo seria falso-verde. O expenses ganha guarda POSITIVA
+  // (mostra "ago 26" hoje) para provar que o picker renderizou.
+  const NAO_COBERTOS_POR_MES: Array<{ slug: string; mesTeste: RegExp; mesCorrente?: RegExp }> = [
+    { slug: 'dre', mesTeste: /março de 2026/i },
+    { slug: 'neutros', mesTeste: /março de 2026/i },
+    { slug: 'metas', mesTeste: /março de 2026/i },
+    { slug: 'expenses', mesTeste: /mar\s*26/i, mesCorrente: /ago\s*26/i },
+  ];
+  for (const { slug, mesTeste, mesCorrente } of NAO_COBERTOS_POR_MES) {
     test(`375 — [DIAG] U2-P21 ${slug} ignora ?mes (cobertura parcial declarada)`, async ({ page, baseURL }) => {
       await bootMobile(page, baseURL!, { modules: MODULES.full });
       await page.goto(`/projects/${PESSOAL_ID}/${slug}?mes=${TEST_MONTH}`);
       await expect(page, `${slug} caiu em /no-permission`).not.toHaveURL(/no-permission/);
       await expect(page.locator('main'), `${slug} sem main renderizado`).toBeVisible();
-      // HOJE não mostra março (lê o mês corrente, não a URL). Flip → RED com E-9.
+      if (mesCorrente) {
+        // sem isto o negativo passaria por acidente (tela sem rótulo de mês).
+        await expect(page.locator('main'), `${slug} não mostrou o mês CORRENTE — probe errado?`).toContainText(mesCorrente);
+      }
+      // HOJE não mostra o mês de TESTE (lê o corrente, não a URL). Flip → RED
+      // quando a fatia entrar; então edite NAO_COBERTOS_POR_MES de propósito.
       await expect(
         page.locator('main'),
-        `${slug} JÁ preservou o mês — E-9 entrou? edite NAO_COBERTOS_POR_MES de propósito`,
-      ).not.toContainText(TEST_MONTH_LABEL);
+        `${slug} JÁ preservou o mês — a fatia entrou? edite NAO_COBERTOS_POR_MES de propósito`,
+      ).not.toContainText(mesTeste);
     });
   }
 });
