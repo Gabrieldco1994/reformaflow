@@ -930,11 +930,23 @@ continua visível** — congelar preservando o histórico, não extinguir.
   resultado histórico, não verba disponível.
 - **Histórico de alocações:** somente leitura. Relações de outro tenant aparecem
   como *Projeto indisponível* (redigidas pela API), com o valor preservado. O
-  valor nunca quebra em duas linhas. **Limitação conhecida no celular estreito
-  (375px):** a tabela tem quatro colunas e não cabe na largura da tela — a
-  coluna **Valor** exige arrastar a tabela na horizontal para ser lida por
-  inteiro. Está mapeado em #490 e depende de uma decisão de layout (virar lista
-  empilhada no celular).
+  valor nunca quebra em duas linhas.
+  - **No computador e no tablet** (largura ≥ 640px) o histórico é uma **tabela**
+    com Data, Projeto, Mês Ref. e Valor.
+  - **No celular** (largura < 640px) a mesma informação vira **lista empilhada**,
+    no mesmo padrão das linhas de Visão Conta: o **valor** fica à direita, em
+    destaque e sempre inteiro; o **nome do projeto** é o título, em até duas
+    linhas; e **data · mês de referência · descrição** ficam abaixo, como apoio.
+    **Nada é omitido** — num histórico congelado, esconder campo seria decidir
+    sobre o dado, não sobre o layout. Se o nome do projeto for longo demais para
+    duas linhas, é ele que é cortado, nunca o valor: numa trilha de auditoria é
+    preferível trocar *"não sei quanto"* por *"não sei para quem"*. Antes desta
+    mudança (#490) a tabela não cabia em 375px e a coluna **Valor** só ficava
+    legível depois de arrastar a tela na horizontal.
+- **Onde está o total:** o **"Total Alocado"** aparece **uma única vez**, no card
+  "Resumo do Budget". O rodapé do histórico repetia o mesmo rótulo com um total
+  somado por conta própria; dois números com o mesmo nome na mesma tela obrigam
+  quem lê a conferir se batem, então ficou só o do card.
 
 ### 4.12 Planejador de Compras (`/planejador`) — apenas PESSOAL
 Responde "cabe no meu orçamento?" antes de uma compra grande ou financiamento,

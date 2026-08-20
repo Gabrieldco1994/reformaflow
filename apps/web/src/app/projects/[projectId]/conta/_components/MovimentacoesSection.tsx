@@ -899,13 +899,15 @@ export function MovimentacoesSection({
           </h2>
         </div>
         <div className="text-right text-[11px] leading-tight">
-          <p className="font-semibold text-[#1E924A]">+ {formatCurrency(totalEntradasRecebido / 100)}</p>
+          {/* Sinal e número no MESMO `nowrap` (#490): o "+"/"−" solto numa linha
+              e o valor na seguinte é a quebra que a regra da casa proíbe. */}
+          <p className="font-semibold text-[#1E924A] whitespace-nowrap">+ {formatCurrency(totalEntradasRecebido / 100)}</p>
           {totalEntradasPrevisto > 0 && (
             <p className="font-semibold text-[#B5803A]">
               ~ {formatCurrency(totalEntradasPrevisto / 100)} previsto
             </p>
           )}
-          <p className="font-semibold text-lifeone-ink-2">− {formatCurrency(totalSaidas / 100)}</p>
+          <p className="font-semibold text-lifeone-ink-2 whitespace-nowrap">− {formatCurrency(totalSaidas / 100)}</p>
         </div>
       </div>
 
