@@ -263,7 +263,7 @@ Ponto de entrada depois do login. Lista todos os projetos que o usuário pode ve
 ### 3.3 Casca do projeto (navegação dentro de um projeto)
 Ao entrar num projeto, aparece a **casca** comum a todos os módulos:
 
-- **Cabeçalho:** botão **"‹ Projetos"** (volta ao Hub), **chip do projeto** (ícone
+- **Cabeçalho:** botão **"Projetos"** (leva ao Hub), **chip do projeto** (ícone
   colorido + nome), **sino de notificações**, botão **Feedback** (balão) e, no
   celular, o botão **"Mais"**.
 - **Barra inferior (celular):**
@@ -277,9 +277,39 @@ Ao entrar num projeto, aparece a **casca** comum a todos os módulos:
 - **Painel "Mais" (celular):** abre pelo botão do cabeçalho e reúne os demais
   módulos autorizados + (se for admin) atalho **"Usuários"** + botão **"Sair"**.
 - **Sidebar (telas médias ou maiores):** apresenta a navegação autorizada em coluna
-  lateral.
+  lateral, **agrupada por finalidade** (ver §3.3a).
 - **Permissões:** só aparecem os módulos que o usuário tem liberados; um módulo
   bloqueado por permissão nunca aparece na barra nem no "Mais".
+
+### 3.3a Grupos da sidebar (desktop)
+A coluna lateral **nasce recolhida** (só ícones, 64px) e pode ser expandida pelo
+botão **"Expandir menu lateral"** no rodapé; a escolha fica guardada e volta na
+próxima visita.
+
+Os módulos aparecem agrupados por finalidade, sempre nesta ordem:
+
+| Grupo | O que reúne (no PESSOAL) |
+|---|---|
+| **Hoje** | Cockpit |
+| **Movimentações** | Visão Conta, Despesas, Recebimentos, Cartões, Contas |
+| **Planejamento** | Recorrentes, Metas, Planning, Planejador |
+| **Resultado** | DRE |
+| **Auditoria** | Neutros, Fluxo de Caixa |
+
+Nos demais tipos de projeto (Reforma, Compra, Casa, Carro, Plantas) a navegação é
+uma **lista única**, apresentada como um só grupo **"Módulos"** — o agrupamento
+não muda a ordem nem esconde nenhum módulo autorizado.
+
+- **Recolhida:** uma **linha fina separa um grupo do outro**; o rótulo do grupo
+  não cabe na largura, então **passar o mouse (ou dar Tab) num ícone mostra uma
+  dica no formato `Grupo · Item`** — por exemplo, `Movimentações · Cartões`.
+- **Expandida:** o nome do grupo aparece escrito acima dos seus itens e a linha
+  separadora sai (o rótulo já separa).
+- **"Projetos" fica ancorado no topo**, junto do chip do projeto, e não entra na
+  lista rolável: ele **sai** do projeto, enquanto os grupos são lugares **dentro**
+  dele. Por isso existe uma entrada só para o Hub, sempre visível sem rolar.
+- **"Apoio", "Configurações", "Usuários" (admin) e "Histórico de Budget"**
+  continuam **ancorados no rodapé** da coluna, fora da área que rola.
 
 ### 3.4 Copiloto "Maria"
 No projeto **PESSOAL**, o atalho **"Maria"** da barra inferior abre o assistente

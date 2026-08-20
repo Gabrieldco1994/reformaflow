@@ -319,6 +319,25 @@
     .minimal-sidebar-icon {
     color: var(--project-accent);
   }
+
+  /*
+    U1 (#450) — régua fina ENTRE grupos do rail recolhido. Mesmo fio do resto
+    da casca (`--minimal-hair`); classe semântica em vez de string de estilo
+    repetida no template.
+  */
+  [data-ui-skin="minimal"] .minimal-sidebar-group-rule {
+    background: var(--minimal-hair);
+  }
+
+  /*
+    U1 (#450) — dica do rail. Elemento próprio (não o `title` nativo), porque
+    com o rail recolhido é a única coisa que ainda diz o nome do grupo — e a
+    dica nativa não vive no DOM, logo não é mensurável nem testável.
+  */
+  [data-ui-skin="minimal"] .minimal-sidebar-hint {
+    background: var(--minimal-ink);
+    color: var(--minimal-card);
+  }
 }
 
 @media (max-width: 767px) {
