@@ -37,6 +37,11 @@ function getValueColorClass(tone: KpiTone): string {
   return `text-[${palette.text}]`;
 }
 
+/** Texto de um `ReactNode` quando ele é literalmente texto — senão, vazio. */
+function plainText(node: ReactNode): string {
+  return typeof node === 'string' || typeof node === 'number' ? String(node) : '';
+}
+
 export interface KpiTileProps {
   label: ReactNode;
   value: ReactNode;
@@ -117,12 +122,32 @@ export function KpiTile({
   const labelColor = isState ? '' : 'text-lifeone-ink-3';
   const valueColor = isState ? '' : getValueColorClass(tone);
 
+  /**
+   * #490 — o KPI clicável não pode EMBRULHAR o gatilho de ajuda num `<button>`:
+   * `InfoHint` também é `<button>`, e `<button>` dentro de `<button>` é HTML
+   * inválido (o React acusa hydration error em toda carga de `/conta` e `/dre`,
+   * e o parser pode fechar o botão externo antes do interno).
+   *
+   * Em vez de rebaixar a ajuda a um `<span role="button">` (dois controles
+   * focáveis aninhados continuam sendo lixo para leitor de tela), o card vira
+   * `<article>` com um botão em sobreposição (`absolute inset-0`): a área
+   * clicável do quick-filter continua sendo o card inteiro, mas os dois
+   * controles ficam IRMÃOS. A ajuda sobe uma camada (`z-20`) para continuar
+   * clicável por cima da sobreposição.
+   */
+  const infoClassName = [
+    isState ? '' : 'text-lifeone-ink-3',
+    onClick ? 'z-20' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   const inner = (
     <>
       <p className={`flex items-center gap-1 font-semibold leading-4 ${labelSize} ${labelColor}`}>
         {icon && <span className="shrink-0">{icon}</span>}
         <span className="min-w-0 truncate">{label}</span>
-        {info && <InfoHint text={info} className={isState ? undefined : 'text-lifeone-ink-3'} />}
+        {info && <InfoHint text={info} className={infoClassName || undefined} />}
       </p>
       <p className={`${mobileCompact ? 'mt-1 md:mt-2' : 'mt-2'} font-geist tabular-nums font-bold tracking-tight leading-tight ${valueSize} ${valueColor}`}>
         {value}
@@ -144,10 +169,20 @@ export function KpiTile({
   );
 
   if (onClick) {
+    // O nome acessível do quick-filter vem do rótulo + valor porque o botão em
+    // sobreposição não tem texto próprio (o conteúdo do card é irmão dele).
+    const overlayLabel = [plainText(label), plainText(value)].filter(Boolean).join(', ');
     return (
-      <button type="button" onClick={onClick} aria-pressed={active} className={`${base} ${interactive} ${className}`}>
+      <article className={`relative ${base} ${interactive} ${className}`}>
         {inner}
-      </button>
+        <button
+          type="button"
+          onClick={onClick}
+          aria-pressed={active}
+          aria-label={overlayLabel || undefined}
+          className="absolute inset-0 z-10 rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-lifeone-blue"
+        />
+      </article>
     );
   }
   return <article className={`${base} ${interactive} ${className}`}>{inner}</article>;

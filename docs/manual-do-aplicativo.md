@@ -745,6 +745,13 @@ Entradas de dinheiro (salário, dividendos, etc.).
 - **Lista por mês:** cada mês mostra total, nº de itens e uma barra de progresso;
   expandível para ver os itens. Edição rápida inline; status alterna **Previsto ⇄
   Recebido** ao clicar; copiar para outro mês; excluir.
+- **Ações da linha por tamanho de tela:** no **desktop** as três ações
+  (**Copiar para outro mês**, **Editar rápido**, **Excluir**) aparecem como
+  ícones na própria linha, ao passar o mouse. No **celular** elas ficam num
+  menu **"⋯"** no fim da linha — o mesmo menu já usado em Recorrentes,
+  Manutenção e Lembretes. A troca é só de apresentação: as ações são as
+  mesmas, e linhas somente-leitura (alocações de orçamento) continuam sem
+  nenhuma delas.
 - **"Configuração rápida de recebimentos" (planejamento):** gera um plano
   automático a partir de **Salário mensal**, **Dividendos mensais**, **Juros de
   renda fixa**, com **mês inicial** e **quantidade de meses** (ex.: salário no dia
@@ -794,7 +801,10 @@ Gestão dos cartões de crédito.
   **Editar**, **Excluir** (com confirmação).
 - **Importação de fatura:** ao importar, é possível **marcar a despesa planejada
   como paga** (vinculando a importação a ela) ou **excluir itens** da importação.
-- **Estado vazio:** "Nenhum cartão cadastrado".
+- **Estado vazio:** "Nenhum cartão cadastrado" — com o botão **"Novo cartão"**
+  dentro do próprio aviso. Enquanto a lista está vazia esse é o **único**
+  "Novo cartão" da tela: o botão do cabeçalho só reaparece quando existe pelo
+  menos um cartão. Assim não há duas CTAs idênticas competindo na mesma tela.
 
 ### 4.8 Contas Bancárias (`/bank-accounts`)
 Gestão das contas.
@@ -816,7 +826,9 @@ Gestão das contas.
   despesas**, **Vincular recebimentos**, **Editar**, **Excluir** (confirmação).
 - **Deep-link do cockpit:** quando o cockpit exibe o banner de estado degradado
   (sem saldo inicial), leva para esta tela com o formulário de edição aberto.
-- **Estado vazio:** "Nenhuma conta cadastrada".
+- **Estado vazio:** "Nenhuma conta cadastrada" — com o botão **"Nova conta"**
+  dentro do próprio aviso. Enquanto não há contas, esse é o **único** "Nova
+  conta" da tela; o botão do cabeçalho volta assim que existe uma conta.
 
 #### 4.8.1 Importar para Carteira (sem conta vinculada)
 
@@ -880,7 +892,12 @@ continua visível** — congelar preservando o histórico, não extinguir.
   detalhamento. O texto não promete alocação: numa tela congelada, esse número é
   resultado histórico, não verba disponível.
 - **Histórico de alocações:** somente leitura. Relações de outro tenant aparecem
-  como *Projeto indisponível* (redigidas pela API), com o valor preservado.
+  como *Projeto indisponível* (redigidas pela API), com o valor preservado. O
+  valor nunca quebra em duas linhas. **Limitação conhecida no celular estreito
+  (375px):** a tabela tem quatro colunas e não cabe na largura da tela — a
+  coluna **Valor** exige arrastar a tabela na horizontal para ser lida por
+  inteiro. Está mapeado em #490 e depende de uma decisão de layout (virar lista
+  empilhada no celular).
 
 ### 4.12 Planejador de Compras (`/planejador`) — apenas PESSOAL
 Responde "cabe no meu orçamento?" antes de uma compra grande ou financiamento,

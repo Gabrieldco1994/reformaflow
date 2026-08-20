@@ -87,19 +87,32 @@ export default function CreditCardsPage() {
     void load();
   }
 
+  const isEmpty = !loading && !loadError && cards.length === 0;
+
   return (
     <div className="p-6 max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <CreditCard className="w-6 h-6" /> Cartões de Crédito
         </h1>
-        <button
-          onClick={() => { setEditing(null); setFormOpen(true); }}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2"
-          data-journey-action="credit-card.new"
-        >
-          <Plus className="w-4 h-4" /> Novo cartão
-        </button>
+        {/*
+          #490 — CTA única. No estado vazio a CTA primária é a do `EmptyState`:
+          é ela que vem com o título e a explicação do porquê clicar, e é para
+          ela que o olho vai. O botão do cabeçalho seria a MESMA ação com o
+          MESMO rótulo ("Novo cartão" repetido, medido em 1440, 390 e 375), e
+          duplicata de rótulo é ruído invisível para quem rola e óbvio para
+          `labels.filter((v, i, a) => a.indexOf(v) !== i)`. Com cartões na tela
+          o cabeçalho volta, porque aí ele é o acesso permanente à ação.
+        */}
+        {!isEmpty && (
+          <button
+            onClick={() => { setEditing(null); setFormOpen(true); }}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 min-h-11"
+            data-journey-action="credit-card.new"
+          >
+            <Plus className="w-4 h-4" /> Novo cartão
+          </button>
+        )}
       </div>
 
       <p className="text-sm text-gray-600 mb-6">
@@ -127,6 +140,7 @@ export default function CreditCardsPage() {
           action={{
             label: 'Novo cartão',
             onClick: () => { setEditing(null); setFormOpen(true); },
+            journeyAction: 'credit-card.new',
           }}
         />
       ) : (

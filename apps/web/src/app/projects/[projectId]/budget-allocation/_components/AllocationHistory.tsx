@@ -25,7 +25,17 @@ export default function AllocationHistory({ allocations }: Props) {
     <div className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen p-4 lg:p-6">
       <h2 className="font-editorial italic text-lg text-darc-velvet mb-4">Histórico de Alocações</h2>
       
-      <div className="overflow-x-auto">
+      {/*
+        #490 / D-D — a 375px este scroller mede clientWidth 269 vs scrollWidth
+        ~371: a coluna "Valor" nasce cortada e só fica legível depois de
+        arrastar ~65px na horizontal. O `min-content` da tabela inteira com
+        dados reais é ~349px, então NENHUM ajuste de largura (padding menor,
+        fonte menor, data curta) fecha a conta — a saída é a tabela virar lista
+        empilhada no mobile, o que é decisão de produto e está reportada, não
+        resolvida aqui. O que entra agora é a regra da casa que estava sendo
+        violada: valor monetário não quebra linha.
+      */}
+      <div className="overflow-x-auto" data-allocation-history-scroller>
         <table className="w-full">
           <thead>
             <tr className="border-b border-darc-linen">
@@ -48,7 +58,10 @@ export default function AllocationHistory({ allocations }: Props) {
                   )}
                 </td>
                 <td className="py-3 px-2 text-sm text-darc-velvet">{alloc.mes}</td>
-                <td className="py-3 px-2 text-sm text-darc-velvet text-right tabular-nums font-medium">
+                <td
+                  data-allocation-value
+                  className="py-3 px-2 text-sm text-darc-velvet text-right tabular-nums font-medium whitespace-nowrap"
+                >
                   {formatCurrency(alloc.valor / 100)}
                 </td>
               </tr>

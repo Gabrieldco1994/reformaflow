@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, fireEvent } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { MobileReceiptList } from './MobileReceiptList';
 
@@ -23,6 +23,8 @@ describe('MobileReceiptList — alloc-* read-only gate', () => {
     );
     expect(screen.queryByRole('button', { name: 'Editar' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Excluir' })).not.toBeInTheDocument();
+    // #490 — as ações passaram a morar num menu "⋯"; o portão é o menu não existir.
+    expect(screen.queryByRole('button', { name: /^Ações / })).not.toBeInTheDocument();
   });
 
   it('still renders Editar/Excluir for real receipt rows (non-alloc)', () => {
@@ -30,6 +32,10 @@ describe('MobileReceiptList — alloc-* read-only gate', () => {
     render(
       <MobileReceiptList grouped={realGrouped as any} collapsedTipos={new Set()} toggleTipo={vi.fn()} openEdit={vi.fn()} onDelete={vi.fn()} emptyMsg="" />,
     );
-    expect(screen.getByRole('button', { name: 'Editar' })).toBeInTheDocument();
+    const trigger = screen.getByRole('button', { name: /^Ações / });
+    fireEvent.click(trigger);
+    const menu = screen.getByRole('menu');
+    expect(within(menu).getByRole('menuitem', { name: 'Editar' })).toBeInTheDocument();
+    expect(within(menu).getByRole('menuitem', { name: 'Excluir' })).toBeInTheDocument();
   });
 });

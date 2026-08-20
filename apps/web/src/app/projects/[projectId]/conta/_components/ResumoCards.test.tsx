@@ -35,9 +35,12 @@ describe("ResumoCards", () => {
     expect(projection).toHaveTextContent("R$ 404,04");
     expect(projection).toHaveTextContent("já conta R$ 505,05 a entrar");
     // A nota de entrada prevista pertence à Sobra (onde ela entra na conta),
-    // nunca ao card de saídas "Ainda falta pagar".
+    // nunca ao card de saídas "Ainda falta pagar". Olha o CARD inteiro: desde
+    // o #490 o botão do quick-filter é uma sobreposição sem texto próprio
+    // (`<button>` dentro de `<button>` era HTML inválido), então assertar no
+    // botão passaria a ser vácuo.
     expect(
-      screen.getByRole("button", { name: /Ainda falta pagar/ }),
+      screen.getByRole("button", { name: /Ainda falta pagar/ }).closest("article"),
     ).not.toHaveTextContent("R$ 505,05");
     expect(projection).toHaveTextContent("Sobra prevista");
     expect(projection).toHaveTextContent("R$ 606,06");
