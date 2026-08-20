@@ -263,8 +263,10 @@ esperado, não evidência de runtime.
   **B1b implementado (409 de `last4` ambíguo + `GET :id/rateio` tudo-ou-nada: detalhe só
   com todos autorizados e soma exata, senão source-only), pendente de merge.**
 - [B2 #449](https://github.com/Gabrieldco1994/reformaflow/issues/449): Budget Allocation
-  administrativo/read-only, somente ADMIN autenticado do tenant; relações legadas cross-tenant
-  redigidas e bytes históricos intocados.
+  administrativo/read-only, somente requisitante **full-access e não-convidado** autenticado do
+  tenant (`isFullAccessRole(role) && !isGuest` — ADMIN ou OWNER, nunca `@Roles('ADMIN')` sozinho:
+  o convidado de demo nasce com `role: 'ADMIN', isGuest: true` e o `RolesGuard` não lê `isGuest`
+  — #497); relações legadas cross-tenant redigidas e bytes históricos intocados.
 
 **STOP:** não iniciar U1–U6 até B1 (full) e B2 verdes e security verify PASS.
 

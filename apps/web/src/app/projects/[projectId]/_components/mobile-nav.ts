@@ -21,7 +21,6 @@ const PESSOAL_MOBILE_HIDDEN_SLUGS = new Set([
   'dre',
   'neutros',
   'planning',
-  'budget-allocation',
   'cash-flow',
 ]);
 

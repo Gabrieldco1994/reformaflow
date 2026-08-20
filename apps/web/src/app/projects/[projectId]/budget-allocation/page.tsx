@@ -1,20 +1,30 @@
 'use client';
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
-import { useState } from 'react';
-import { formatCurrency } from '@/lib/utils';
-import { ProjectTypeLabels } from '@reformaflow/domain';
-import AllocationForm from './_components/AllocationForm';
+import { useAuth } from '@/contexts/auth-context';
+import { canReadBudgetAllocations } from '@/lib/budget-allocation-access';
 import AllocationHistory from './_components/AllocationHistory';
 import AvailableBudgetCard from './_components/AvailableBudgetCard';
 
+/**
+ * #449 B2 — histórico administrativo somente leitura.
+ *
+ * Não há mais formulário de alocação nem exclusão: as rotas mutáveis deixaram
+ * de existir na API, para qualquer papel. A página saiu da descoberta (menu) e
+ * a leitura exige papel full-access não-convidado (mesmo gate da API).
+ *
+ * Quem chegar por deep-link sem o papel vê um aviso — e não a tela normal com
+ * as consultas em 403: os fallbacks (`?? 0`) renderizariam "disponível
+ * R$ 0,00", que é dado ERRADO, não dado ausente.
+ */
 export default function BudgetAllocationPage() {
   const params = useParams();
   const router = useRouter();
   const projectId = params.projectId as string;
-  const queryClient = useQueryClient();
+  const { user: authUser } = useAuth();
+  const canRead = canReadBudgetAllocations(authUser);
 
   // Get project to check if PESSOAL
   const { data: project } = useQuery<any>({
@@ -32,7 +42,7 @@ export default function BudgetAllocationPage() {
       const data = await api.get(`/budget-allocations/available/${projectId}`);
       return data as number;
     },
-    enabled: !!project,
+    enabled: !!project && canRead,
   });
 
   // Get summary
@@ -42,18 +52,37 @@ export default function BudgetAllocationPage() {
       const data = await api.get(`/budget-allocations/summary/${projectId}`);
       return data;
     },
-    enabled: !!project,
+    enabled: !!project && canRead,
   });
 
   // Get allocations list
-  const { data: allocations = [], refetch } = useQuery<any[]>({
+  const { data: allocations = [] } = useQuery<any[]>({
     queryKey: ['budget-allocations', projectId],
     queryFn: async () => {
       const data = await api.get(`/budget-allocations?sourceProjectId=${projectId}`);
       return (data as any[]) || [];
     },
-    enabled: !!project,
+    enabled: !!project && canRead,
   });
+
+  if (!canRead) {
+    return (
+      <div className="p-4 lg:p-6">
+        <div className="rounded-2xl bg-darc-linen/30 border border-darc-linen p-6 text-center">
+          <p className="text-darc-velvet">
+            Alocação de Budget é um <strong>histórico administrativo somente leitura</strong> e
+            está disponível apenas para administradores do workspace.
+          </p>
+          <button
+            onClick={() => router.back()}
+            className="mt-4 px-4 py-2 bg-darc-red text-white rounded-lg hover:bg-darc-red/90"
+          >
+            Voltar
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (!project) {
     return <div className="p-4">Carregando...</div>;
@@ -85,7 +114,7 @@ export default function BudgetAllocationPage() {
           Alocação de Budget
         </h1>
         <p className="text-sm text-darc-velvet/60">
-          Distribua seu budget do projeto <strong>{project.name}</strong> para seus outros projetos de vida.
+          Histórico de alocações do projeto <strong>{project.name}</strong>. Somente leitura.
         </p>
       </div>
 
@@ -98,25 +127,8 @@ export default function BudgetAllocationPage() {
         allocations={summary?.allocations ?? []}
       />
 
-      {/* Allocation Form */}
-      <AllocationForm
-        sourceProjectId={projectId}
-        onSuccess={() => {
-          queryClient.invalidateQueries({ queryKey: ['budget-available', projectId] });
-          queryClient.invalidateQueries({ queryKey: ['budget-summary', projectId] });
-          refetch();
-        }}
-      />
-
       {/* Allocation History */}
-      <AllocationHistory
-        allocations={allocations}
-        onDelete={() => {
-          queryClient.invalidateQueries({ queryKey: ['budget-available', projectId] });
-          queryClient.invalidateQueries({ queryKey: ['budget-summary', projectId] });
-          refetch();
-        }}
-      />
+      <AllocationHistory allocations={allocations} />
     </div>
   );
 }

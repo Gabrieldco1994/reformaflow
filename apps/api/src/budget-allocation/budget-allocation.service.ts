@@ -1,117 +1,134 @@
-import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { isNeutralExpenseType } from '@reformaflow/domain';
-import { userCanAccessProject } from '../common/access-rules';
+import {
+  BUDGET_ALLOCATION_MODULE,
+  resolveAccessibleProjectScope,
+  userCanAccessProject,
+} from '../common/access-rules';
+import {
+  redactCrossTenantRelation,
+  redactCrossTenantRelations,
+} from './budget-allocation-redaction';
 
-interface RequestUser {
+export interface RequestUser {
   role: string;
+  isGuest?: boolean;
   allowedProjects?: string[];
+  allowedProjectTypes?: string[];
+  allowedModules?: string[];
 }
-import { CreateBudgetAllocationDto } from './dto/create-budget-allocation.dto';
-import { UpdateBudgetAllocationDto } from './dto/update-budget-allocation.dto';
 
+/**
+ * `tenantId` entra no select só para a comparação de redação e sai antes da
+ * resposta (`redactCrossTenantRelation`), então o payload de uma relação do
+ * próprio tenant continua com exatamente as mesmas chaves de sempre.
+ */
+const PROJECT_RELATION_SELECT = {
+  id: true,
+  name: true,
+  type: true,
+  tenantId: true,
+} as const;
+
+const RECEIPT_RELATION_SELECT = {
+  id: true,
+  valor: true,
+  tipo: true,
+  data: true,
+  tenantId: true,
+} as const;
+
+/** Balde único onde caem os alvos legados de outro tenant no resumo. */
+const REDACTED_TARGET_KEY = '__redacted__';
+
+export interface AllocationSummaryRow {
+  projectId: string | null;
+  projectName: string | null;
+  projectType: string | null;
+  total: number;
+}
+
+/**
+ * #449 B2 — histórico administrativo somente leitura.
+ *
+ * Este service NÃO tem `create`, `update` nem `remove`: o congelamento é por
+ * construção, não por guard. Em particular, o antigo `update` gravava
+ * `dto.targetProjectId` sem validar o tenant do alvo (ao contrário do `create`)
+ * — era a via viva de fabricação das relações cross-tenant que hoje só existem
+ * como legado e são redigidas na leitura.
+ */
 @Injectable()
 export class BudgetAllocationService {
   constructor(private prisma: PrismaService) {}
 
-  async create(sourceProjectId: string, tenantId: string, dto: CreateBudgetAllocationDto) {
-    // 1. Validate source project is PESSOAL
-    const sourceProject = await this.prisma.project.findFirst({
-      where: { id: sourceProjectId, tenantId, deletedAt: null },
-    });
-    
-    if (!sourceProject) {
-      throw new NotFoundException('Source project not found');
-    }
-    
-    if (sourceProject.type !== 'PESSOAL') {
-      throw new BadRequestException('Budget allocation can only be created from PESSOAL projects');
-    }
-
-    // 2. Validate target project exists and is not PESSOAL
-    const targetProject = await this.prisma.project.findFirst({
-      where: { id: dto.targetProjectId, tenantId, deletedAt: null },
-    });
-    
-    if (!targetProject) {
-      throw new NotFoundException('Target project not found');
-    }
-    
-    if (targetProject.type === 'PESSOAL') {
-      throw new BadRequestException('Cannot allocate budget to another PESSOAL project');
-    }
-
-    // 3. Check available budget (prevent over-allocation)
-    const available = await this.calculateAvailableBudget(sourceProjectId, tenantId);
-    
-    if (dto.valor > available) {
-      throw new BadRequestException(
-        `Insufficient budget. Available: ${available / 100}, Requested: ${dto.valor / 100}`
-      );
-    }
-
-    // 4. Create budget allocation
-    const allocation = await this.prisma.budgetAllocation.create({
-      data: {
-        tenantId,
-        sourceProjectId,
-        targetProjectId: dto.targetProjectId,
-        sourceReceiptId: dto.sourceReceiptId,
-        valor: dto.valor,
-        descricao: dto.descricao,
-        mes: dto.mes,
-      },
-      include: {
-        sourceProject: { select: { id: true, name: true, type: true } },
-        targetProject: { select: { id: true, name: true, type: true } },
-        sourceReceipt: { select: { id: true, valor: true, tipo: true, data: true } },
-      },
-    });
-
-    // 5. Auto-create CashFlowEntry in target project
-    const mesDate = new Date(`${dto.mes}-01`);
-    
-    await this.prisma.cashFlowEntry.create({
-      data: {
-        projectId: dto.targetProjectId,
-        tenantId,
-        budgetAllocationId: allocation.id,
-        valor: dto.valor,
-        tipo: 'RECEBIMENTO',
-        categoria: 'ALOCACAO_ORCAMENTO',
-        status: 'EM_CAIXA',
-        data: mesDate,
-      },
-    });
-
-    return allocation;
+  /**
+   * Escopo de projetos que o requisitante alcança.
+   * - `null` → sem restrição (ADMIN/OWNER ou grant vazio);
+   * - `[]`   → nada visível (inclusive quando não há requisitante: fail-closed,
+   *   porque `findAll` aceita chamada sem projeto e o `ProjectAccessGuard` só
+   *   morde quando há projeto em params/query/body).
+   */
+  private async resolveRequesterScope(
+    tenantId: string,
+    user?: RequestUser,
+  ): Promise<string[] | null> {
+    if (!user) return [];
+    return resolveAccessibleProjectScope(
+      this.prisma,
+      tenantId,
+      user.role,
+      user.allowedProjects,
+      user.allowedProjectTypes,
+      user.allowedModules ?? [],
+      BUDGET_ALLOCATION_MODULE,
+    );
   }
 
-  async findAll(tenantId: string, filters?: { sourceProjectId?: string; targetProjectId?: string; mes?: string }) {
-    return this.prisma.budgetAllocation.findMany({
+  async findAll(
+    tenantId: string,
+    filters?: { sourceProjectId?: string; targetProjectId?: string; mes?: string },
+    user?: RequestUser,
+  ) {
+    const scope = await this.resolveRequesterScope(tenantId, user);
+    if (scope !== null && scope.length === 0) return [];
+
+    const allocations = await this.prisma.budgetAllocation.findMany({
       where: {
         tenantId,
         deletedAt: null,
         ...(filters?.sourceProjectId && { sourceProjectId: filters.sourceProjectId }),
         ...(filters?.targetProjectId && { targetProjectId: filters.targetProjectId }),
         ...(filters?.mes && { mes: filters.mes }),
+        // `AND` (e não spread) porque os filtros acima usam as MESMAS chaves:
+        // o escopo precisa somar à consulta, nunca substituí-la.
+        ...(scope !== null && {
+          AND: [{ sourceProjectId: { in: scope } }, { targetProjectId: { in: scope } }],
+        }),
       },
       include: {
-        sourceProject: { select: { id: true, name: true, type: true } },
-        targetProject: { select: { id: true, name: true, type: true } },
-        sourceReceipt: { select: { id: true, valor: true, tipo: true, data: true } },
+        sourceProject: { select: PROJECT_RELATION_SELECT },
+        targetProject: { select: PROJECT_RELATION_SELECT },
+        sourceReceipt: { select: RECEIPT_RELATION_SELECT },
       },
       orderBy: { dataAlocacao: 'desc' },
     });
+
+    return allocations.map((allocation) => ({
+      ...allocation,
+      sourceProject: redactCrossTenantRelation(allocation.sourceProject, tenantId),
+      targetProject: redactCrossTenantRelation(allocation.targetProject, tenantId),
+      sourceReceipt: redactCrossTenantRelation(allocation.sourceReceipt, tenantId),
+    }));
   }
 
   async findOne(id: string, tenantId: string, user?: RequestUser) {
     const allocation = await this.prisma.budgetAllocation.findFirst({
       where: { id, tenantId, deletedAt: null },
       include: {
-        sourceProject: { select: { id: true, name: true, type: true } },
-        targetProject: { select: { id: true, name: true, type: true } },
-        sourceReceipt: { select: { id: true, valor: true, tipo: true, data: true } },
+        sourceProject: { select: PROJECT_RELATION_SELECT },
+        targetProject: { select: PROJECT_RELATION_SELECT },
+        sourceReceipt: { select: RECEIPT_RELATION_SELECT },
         cashFlowEntries: true,
       },
     });
@@ -122,76 +139,24 @@ export class BudgetAllocationService {
 
     // ACL por projeto: a rota usa o id do recurso, então o ProjectAccessGuard
     // (que só checa projectId/source/target em params/query/body) não cobre.
-    if (user) {
-      const canSource = userCanAccessProject(user.role, user.allowedProjects, allocation.sourceProjectId);
-      const canTarget = userCanAccessProject(user.role, user.allowedProjects, allocation.targetProjectId);
-      if (!canSource || !canTarget) {
-        throw new ForbiddenException('Sem permissão para acessar esta alocação');
-      }
+    // Sem requisitante, fail-closed — pelo mesmo motivo de `findAll`: uma
+    // leitura que ninguém provou alcançar não pode passar por falta de dado.
+    if (!user) {
+      throw new ForbiddenException('Sem permissão para acessar esta alocação');
+    }
+    const canSource = userCanAccessProject(user.role, user.allowedProjects, allocation.sourceProjectId);
+    const canTarget = userCanAccessProject(user.role, user.allowedProjects, allocation.targetProjectId);
+    if (!canSource || !canTarget) {
+      throw new ForbiddenException('Sem permissão para acessar esta alocação');
     }
 
-    return allocation;
-  }
-
-  async update(id: string, tenantId: string, dto: UpdateBudgetAllocationDto, user?: RequestUser) {
-    const existing = await this.findOne(id, tenantId, user);
-
-    // If changing valor, check available budget
-    if (dto.valor && dto.valor !== existing.valor) {
-      const currentAvailable = await this.calculateAvailableBudget(existing.sourceProjectId, tenantId);
-      const budgetDiff = dto.valor - existing.valor;
-      
-      if (budgetDiff > currentAvailable) {
-        throw new BadRequestException('Insufficient budget for this update');
-      }
-    }
-
-    const updated = await this.prisma.budgetAllocation.update({
-      where: { id },
-      data: {
-        ...(dto.targetProjectId && { targetProjectId: dto.targetProjectId }),
-        ...(dto.sourceReceiptId !== undefined && { sourceReceiptId: dto.sourceReceiptId }),
-        ...(dto.valor && { valor: dto.valor }),
-        ...(dto.descricao !== undefined && { descricao: dto.descricao }),
-        ...(dto.mes && { mes: dto.mes }),
-      },
-      include: {
-        sourceProject: { select: { id: true, name: true, type: true } },
-        targetProject: { select: { id: true, name: true, type: true } },
-        sourceReceipt: { select: { id: true, valor: true, tipo: true, data: true } },
-      },
-    });
-
-    // Update linked CashFlowEntry if valor or mes changed
-    if (dto.valor || dto.mes) {
-      await this.prisma.cashFlowEntry.updateMany({
-        where: { budgetAllocationId: id, deletedAt: null },
-        data: {
-          ...(dto.valor && { valor: dto.valor }),
-          ...(dto.mes && { data: new Date(`${dto.mes}-01`) }),
-        },
-      });
-    }
-
-    return updated;
-  }
-
-  async remove(id: string, tenantId: string, user?: RequestUser) {
-    const allocation = await this.findOne(id, tenantId, user);
-
-    // Soft delete allocation
-    await this.prisma.budgetAllocation.update({
-      where: { id },
-      data: { deletedAt: new Date() },
-    });
-
-    // Soft delete linked CashFlowEntries
-    await this.prisma.cashFlowEntry.updateMany({
-      where: { budgetAllocationId: id, deletedAt: null },
-      data: { deletedAt: new Date() },
-    });
-
-    return { message: 'Budget allocation deleted successfully' };
+    return {
+      ...allocation,
+      sourceProject: redactCrossTenantRelation(allocation.sourceProject, tenantId),
+      targetProject: redactCrossTenantRelation(allocation.targetProject, tenantId),
+      sourceReceipt: redactCrossTenantRelation(allocation.sourceReceipt, tenantId),
+      cashFlowEntries: redactCrossTenantRelations(allocation.cashFlowEntries, tenantId),
+    };
   }
 
   async getSummary(projectId: string, tenantId: string) {
@@ -209,24 +174,29 @@ export class BudgetAllocationService {
       const allocations = await this.prisma.budgetAllocation.findMany({
         where: { sourceProjectId: projectId, tenantId, deletedAt: null },
         include: {
-          targetProject: { select: { id: true, name: true, type: true } },
+          targetProject: { select: PROJECT_RELATION_SELECT },
         },
       });
 
       const totalAllocated = allocations.reduce((sum, a) => sum + a.valor, 0);
+      // Redigir NÃO move dinheiro: o valor alocado é do tenant dono e continua
+      // no total. O que some é a IDENTIDADE do alvo legado de outro tenant —
+      // todos eles caem num único balde anônimo, de modo que a soma das linhas
+      // continua batendo com `totalAllocated`.
       const byTargetProject = allocations.reduce((acc, a) => {
-        const key = a.targetProject.id;
+        const target = redactCrossTenantRelation(a.targetProject, tenantId);
+        const key = target ? target.id : REDACTED_TARGET_KEY;
         if (!acc[key]) {
           acc[key] = {
-            projectId: a.targetProject.id,
-            projectName: a.targetProject.name,
-            projectType: a.targetProject.type,
+            projectId: target?.id ?? null,
+            projectName: target?.name ?? null,
+            projectType: target?.type ?? null,
             total: 0,
           };
         }
         acc[key].total += a.valor;
         return acc;
-      }, {} as Record<string, any>);
+      }, {} as Record<string, AllocationSummaryRow>);
 
       const available = await this.calculateAvailableBudget(projectId, tenantId);
       const totalExpenses = await this.sumOwnCommittedExpenses(projectId, tenantId);
@@ -257,7 +227,7 @@ export class BudgetAllocationService {
       const allocations = await this.prisma.budgetAllocation.findMany({
         where: { targetProjectId: projectId, tenantId, deletedAt: null },
         include: {
-          sourceProject: { select: { id: true, name: true, type: true } },
+          sourceProject: { select: PROJECT_RELATION_SELECT },
         },
       });
 
@@ -285,7 +255,7 @@ export class BudgetAllocationService {
           valor: a.valor,
           mes: a.mes,
           descricao: a.descricao,
-          sourceProject: a.sourceProject,
+          sourceProject: redactCrossTenantRelation(a.sourceProject, tenantId),
         })),
       };
     }

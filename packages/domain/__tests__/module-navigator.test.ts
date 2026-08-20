@@ -71,7 +71,6 @@ describe('getProjectNavModules', () => {
       'metas',
       'planning',
       'planejador',
-      'budget-allocation',
       'cash-flow',
       'credit-cards',
       'bank-accounts',
@@ -142,8 +141,18 @@ describe('getProjectNavModules', () => {
     ]);
   });
 
-  it('PESSOAL exposes 14 modules', () => {
-    expect(getProjectNavModules(ProjectType.PESSOAL)).toHaveLength(14);
+  it('PESSOAL exposes 13 modules', () => {
+    expect(getProjectNavModules(ProjectType.PESSOAL)).toHaveLength(13);
+  });
+
+  it('não descobre budget-allocation: virou histórico administrativo (#449 B2)', () => {
+    // A rota continua existindo para deep-link de ADMIN; o que sai é a
+    // DESCOBERTA. Enquanto a leitura exigir ADMIN não-convidado, um item de
+    // menu visível a todo mundo seria uma CTA que só entrega 403.
+    expect(
+      getProjectNavModules(ProjectType.PESSOAL).some((m) => m.slug === 'budget-allocation'),
+    ).toBe(false);
+    expect(hasNavRoute(ProjectType.PESSOAL, 'budget-allocation')).toBe(false);
   });
 
   it('preserves the permission-gate slug used by the web auth-context (metas gates on expenses)', () => {
@@ -151,10 +160,6 @@ describe('getProjectNavModules', () => {
     expect(metas?.module).toBe('expenses');
     const dre = getProjectNavModules(ProjectType.PESSOAL).find((m) => m.slug === 'dre');
     expect(dre?.module).toBe('monthlyOverview');
-    const budget = getProjectNavModules(ProjectType.PESSOAL).find(
-      (m) => m.slug === 'budget-allocation',
-    );
-    expect(budget?.module).toBe('dashboard');
   });
 
   it('returns an empty list for an unknown type without throwing', () => {
@@ -170,22 +175,22 @@ describe('getProjectNavModules', () => {
 });
 
 describe('splitMobileNav', () => {
-  it('primary = first 4, secondary = rest (PESSOAL: 4 + 10)', () => {
+  it('primary = first 4, secondary = rest (PESSOAL: 4 + 9)', () => {
     const { primary, secondary } = splitMobileNav(
       getProjectNavModules(ProjectType.PESSOAL),
       4,
     );
     expect(primary).toHaveLength(4);
-    expect(secondary).toHaveLength(10);
+    expect(secondary).toHaveLength(9);
   });
 
-  it('supports a custom primary count of 3 (PESSOAL tab bar leaves a center slot: 3 + 11)', () => {
+  it('supports a custom primary count of 3 (PESSOAL tab bar leaves a center slot: 3 + 10)', () => {
     const { primary, secondary } = splitMobileNav(
       getProjectNavModules(ProjectType.PESSOAL),
       3,
     );
     expect(primary.map((m) => m.slug)).toEqual(['monthly', 'conta', 'dre']);
-    expect(secondary).toHaveLength(11);
+    expect(secondary).toHaveLength(10);
   });
 
   it('list with exactly 4 modules yields empty secondary (no "Mais" needed)', () => {

@@ -1,23 +1,28 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Query, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards, Req } from '@nestjs/common';
 import { BudgetAllocationService } from './budget-allocation.service';
-import { CreateBudgetAllocationDto } from './dto/create-budget-allocation.dto';
-import { UpdateBudgetAllocationDto } from './dto/update-budget-allocation.dto';
+import { BudgetAllocationAdminGuard } from './budget-allocation-admin.guard';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { RequireModule } from '../common/decorators/require-module.decorator';
 
+/**
+ * #449 B2 — Budget Allocation congelado: histórico administrativo, só GET.
+ *
+ * Não existe rota mutável aqui, para papel nenhum. Não é "escondido": o handler
+ * não existe, então POST/PATCH/DELETE não têm rota. Fechar a escrita por
+ * construção também elimina a única via viva de fabricação de relação
+ * cross-tenant (o antigo `PATCH` gravava `targetProjectId` sem validar tenant).
+ *
+ * `@RequireModule` fecha #487 — o controller não tinha decorator nenhum, e
+ * `ModulesGuard` devolve `true` quando não há metadado (ausência de decorator =
+ * ausência de gate). O gate administrativo de verdade é o
+ * `BudgetAllocationAdminGuard`; `@RequireModule` é a camada declarativa que
+ * valida projeto/tipo nas rotas com `:projectId`.
+ */
 @Controller('budget-allocations')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, BudgetAllocationAdminGuard)
+@RequireModule('dashboard')
 export class BudgetAllocationController {
   constructor(private readonly budgetAllocationService: BudgetAllocationService) {}
-
-  @Post()
-  create(
-    @Body() createDto: CreateBudgetAllocationDto,
-    @Query('sourceProjectId') sourceProjectId: string,
-    @Req() req: any,
-  ) {
-    const tenantId = req.user.tenantId;
-    return this.budgetAllocationService.create(sourceProjectId, tenantId, createDto);
-  }
 
   @Get()
   findAll(
@@ -27,11 +32,11 @@ export class BudgetAllocationController {
     @Req() req: any,
   ) {
     const tenantId = req.user.tenantId;
-    return this.budgetAllocationService.findAll(tenantId, {
-      sourceProjectId,
-      targetProjectId,
-      mes,
-    });
+    return this.budgetAllocationService.findAll(
+      tenantId,
+      { sourceProjectId, targetProjectId, mes },
+      req.user,
+    );
   }
 
   @Get('summary/:projectId')
@@ -50,17 +55,5 @@ export class BudgetAllocationController {
   findOne(@Param('id') id: string, @Req() req: any) {
     const tenantId = req.user.tenantId;
     return this.budgetAllocationService.findOne(id, tenantId, req.user);
-  }
-
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() updateDto: UpdateBudgetAllocationDto, @Req() req: any) {
-    const tenantId = req.user.tenantId;
-    return this.budgetAllocationService.update(id, tenantId, updateDto, req.user);
-  }
-
-  @Delete(':id')
-  remove(@Param('id') id: string, @Req() req: any) {
-    const tenantId = req.user.tenantId;
-    return this.budgetAllocationService.remove(id, tenantId, req.user);
   }
 }

@@ -32,6 +32,16 @@ export const BANK_ACCOUNT_MODULE: TypeModuleSlug = 'bankAccounts';
 export const SCHEDULE_MODULE: TypeModuleSlug = 'schedule';
 export const REMINDER_MODULE: TypeModuleSlug = 'reminders';
 export const MAINTENANCE_MODULE: TypeModuleSlug = 'maintenance';
+/**
+ * Módulo em que o Budget Allocation sempre viveu na descoberta (entrada
+ * `budget-allocation` do navegador PESSOAL). Depois de #449 o recurso é
+ * administrativo, mas continua respondendo ao mesmo dono de módulo para que
+ * escopo e `@RequireModule` não divirjam.
+ */
+export const BUDGET_ALLOCATION_MODULE: TypeModuleSlug = 'dashboard';
+
+/** Papel administrativo do tenant, sem literal solto espalhado pelo código. */
+export const ADMIN_ROLE = 'ADMIN';
 
 /** User authorization by project type with legacy fallback for empty grants. */
 export function userCanAccessProjectType(
@@ -67,7 +77,28 @@ export function accessibleProjectTypes(
 
 /** Papéis com acesso total (veem todos os projetos, ignoram restrição por projeto). */
 export function isFullAccessRole(role: string | undefined): boolean {
-  return role === 'ADMIN' || role === 'OWNER';
+  return role === ADMIN_ROLE || role === 'OWNER';
+}
+
+/**
+ * Requisitante administrativo de verdade: papel full-access (ADMIN|OWNER) **e**
+ * não-convidado.
+ *
+ * O papel segue a convenção da casa (`isFullAccessRole`) — o dono do tenant
+ * alcança o próprio histórico; um recurso congelado que o OWNER não lê não teve
+ * histórico preservado, teve histórico sumido (#449).
+ *
+ * O que este helper acrescenta, e o motivo de NÃO poder ser trocado por
+ * `@Roles('ADMIN')`: o convidado de demo é criado com
+ * `role: 'ADMIN', isGuest: true` (`auth.service.registerGuest`) e o `RolesGuard`
+ * aprova por `isFullAccessRole` sem nunca ler `isGuest` (#497). Sem o
+ * `!isGuest`, o histórico administrativo ficaria aberto a todo convidado.
+ */
+export function isNonGuestFullAccess(
+  user: { role?: string; isGuest?: boolean } | null | undefined,
+): boolean {
+  if (!user) return false;
+  return isFullAccessRole(user.role) && !user.isGuest;
 }
 
 /**

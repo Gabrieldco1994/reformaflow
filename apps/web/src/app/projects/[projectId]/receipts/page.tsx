@@ -1,10 +1,12 @@
 'use client';
 import Link from 'next/link';
 import { useProject } from '@/contexts/project-context';
+import { useAuth } from '@/contexts/auth-context';
 
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { canReadBudgetAllocations } from '@/lib/budget-allocation-access';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { Plus, Pencil, Trash2, Check, X, ChevronDown, ChevronRight, ChevronUp, Loader2, Wallet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -39,6 +41,7 @@ function StatusBadge({ status }: { status: string }) {
 
 export default function ReceiptsPage() {
   const { projectId: PROJECT_ID, projectType } = useProject();
+  const { user: authUser } = useAuth();
   const isPessoal = projectType === 'PESSOAL';
   const TIPO_OPTIONS = getReceiptTipoOptions(projectType);
   const defaultTipo = TIPO_OPTIONS[0]?.value ?? 'PAGAMENTO';
@@ -116,10 +119,19 @@ export default function ReceiptsPage() {
     queryFn: () => api.get(`/projects/${PROJECT_ID}/receipts`),
   });
 
-  // Fetch budget allocations TO this project
+  // Fetch budget allocations TO this project.
+  //
+  // #449 B2: o Budget virou histórico administrativo e a leitura exige
+  // full-access não-convidado. Sem o `enabled`, quem não tem o papel dispara uma
+  // requisição que já se sabe que vai tomar 403 — e a falha é INVISÍVEL
+  // (providers.tsx não repete 4xx e não há toast global), então a tela só
+  // mostraria linhas a menos. O servidor continua sendo o controle de acesso;
+  // isto é higiene de chamada.
+  const canSeeBudgetAllocations = canReadBudgetAllocations(authUser);
   const { data: budgetAllocations = [] } = useQuery<any[]>({
     queryKey: ['budget-allocations-target', PROJECT_ID],
     queryFn: () => api.get(`/budget-allocations?targetProjectId=${PROJECT_ID}`),
+    enabled: canSeeBudgetAllocations,
   });
 
   const invalidate = () => {

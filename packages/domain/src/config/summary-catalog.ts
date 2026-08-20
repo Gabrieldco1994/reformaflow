@@ -209,13 +209,8 @@ export const SUMMARY_CATALOG: Record<ProjectType, SummaryPageDef[]> = {
         { label: 'Voltar', iconName: 'ChevronLeft', href: 'cash-flow', variant: 'ghost' },
       ],
     },
-    {
-      slug: 'budget-allocation',
-      title: 'Alocação de Budget',
-      description: 'Distribua seu orçamento entre categorias',
-      iconName: 'Wallet',
-      ctas: [],
-    },
+    // 'budget-allocation' saiu do catálogo em #449 (B2): histórico
+    // administrativo somente leitura não tem CTA nem card de descoberta.
   ],
   [ProjectType.CASA]: [
     {
