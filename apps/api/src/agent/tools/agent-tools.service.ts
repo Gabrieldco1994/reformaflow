@@ -626,8 +626,8 @@ export class AgentToolsService {
           const data = this.optDate(args['data']);
 
           // Valida vínculos (projeto-alvo do cartão/conta/despesa deve estar no escopo do usuário).
-          const creditCardId = await this.resolvePaymentRef(ctx, args['creditCardId'], 'card');
-          const bankAccountId = await this.resolvePaymentRef(ctx, args['bankAccountId'], 'account');
+          const creditCardId = await this.resolvePaymentRef(ctx, args['creditCardId'], 'card', EXPENSE_MODULE);
+          const bankAccountId = await this.resolvePaymentRef(ctx, args['bankAccountId'], 'account', EXPENSE_MODULE);
           const linkedExpenseId = await this.resolveLinkedExpense(ctx, args['linkedExpenseId'], project.id);
 
           const parcelado = formaPagamento === 'PARCELADO' || formaPagamento === 'QUINZENAL';
@@ -776,8 +776,8 @@ export class AgentToolsService {
 
           const tipoDespesa = this.normalizeEnum(args['tipoDespesa'], ExpenseType, 'OUTROS');
           const quantidade = this.clampInt(args['quantidade'], 1, 1, 100000);
-          const creditCardId = await this.resolvePaymentRef(ctx, args['creditCardId'], 'card');
-          const bankAccountId = await this.resolvePaymentRef(ctx, args['bankAccountId'], 'account');
+          const creditCardId = await this.resolvePaymentRef(ctx, args['creditCardId'], 'card', EXPENSE_MODULE);
+          const bankAccountId = await this.resolvePaymentRef(ctx, args['bankAccountId'], 'account', EXPENSE_MODULE);
 
           // Cross-project: resolve o projeto de obra (deve ser acessível e não-PESSOAL).
           let obraProjectId: string | undefined;
@@ -1222,8 +1222,8 @@ export class AgentToolsService {
           const data = this.optDate(args['data']);
           const titulo = this.optStr(args['titulo']);
           const fornecedor = this.optStr(args['fornecedor']);
-          const creditCardId = await this.resolvePaymentRef(ctx, args['creditCardId'], 'card');
-          const bankAccountId = await this.resolvePaymentRef(ctx, args['bankAccountId'], 'account');
+          const creditCardId = await this.resolvePaymentRef(ctx, args['creditCardId'], 'card', EXPENSE_MODULE);
+          const bankAccountId = await this.resolvePaymentRef(ctx, args['bankAccountId'], 'account', EXPENSE_MODULE);
 
           // Parcelamento (propriedade da compra): aplicado igual nos dois lados,
           // mantendo canônico e espelho consistentes. A data informada é a DATA
@@ -1728,19 +1728,29 @@ export class AgentToolsService {
   }
 
   /**
-   * Valida um id de cartão/conta para vínculo: precisa existir no tenant e
-   * pertencer a um projeto acessível pelo usuário. Retorna o id ou undefined.
+   * Valida um id de cartão/conta CITADO pelo usuário numa escrita: precisa
+   * existir no tenant e pertencer a um projeto que o requisitante alcança.
+   *
+   * O módulo que autoriza é o do CHAMADOR (`callerModule`) — o recurso sendo
+   * escrito —, não o do campo: `creditCardId` é um CAMPO da despesa, e o
+   * `ExpenseController` libera o vínculo com `@RequireModule('expenses')`
+   * (o `ExpenseService` resolve o cartão só por tenant). Exigir `creditCards`
+   * aqui deixaria a Maria MAIS restrita que a tela — regressão funcional, não
+   * ganho de segurança: quem nomeia um cartão numa despesa que pode escrever
+   * não descobre nada novo. ENUMERAR cartões é outra coisa e continua no
+   * `creditCards` (primer, list_payment_methods, faturas do
+   * get_account_balances), porque aí a resposta revelaria cartões cuja
+   * existência o requisitante não deveria conhecer.
    */
   private async resolvePaymentRef(
     ctx: ScopedToolContext,
     rawId: unknown,
     kind: 'card' | 'account',
+    callerModule: TypeModuleSlug,
   ): Promise<string | undefined> {
     const id = typeof rawId === 'string' && rawId.trim() ? rawId.trim() : '';
     if (!id) return undefined;
-    // Cartão é recurso do módulo `creditCards`; conta bancária segue no escopo
-    // amplo até a #484 introduzir o gate de `bankAccounts`.
-    const cardScope = kind === 'card' ? await ctx.scopeFor(CREDIT_CARD_MODULE) : null;
+    const cardScope = kind === 'card' ? await ctx.scopeFor(callerModule) : null;
     const row =
       kind === 'card'
         ? await this.prisma.creditCard.findFirst({
@@ -1752,7 +1762,9 @@ export class AgentToolsService {
             },
             select: { projectId: true },
           })
-        : await this.prisma.bankAccount.findFirst({
+        : // Conta bancária segue no escopo amplo do turno até a #484 introduzir
+          // o gate de `bankAccounts`.
+          await this.prisma.bankAccount.findFirst({
             where: {
               id,
               tenantId: ctx.tenantId,

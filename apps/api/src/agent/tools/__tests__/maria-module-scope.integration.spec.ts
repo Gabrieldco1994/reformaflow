@@ -50,6 +50,9 @@ const RECEIPT_SENTINELS = [
   String(CENTS.expectedReceipt),
 ] as const;
 
+/** Identificadores do cartão semeado — nenhum pode vazar numa ENUMERAÇÃO. */
+const CARD_SENTINELS = ["Cartão QA 483", "4830", IDS.card] as const;
+
 /** Tools de leitura financeira citadas na #483. */
 const READ_TOOLS: Array<[string, Record<string, unknown>]> = [
   ["get_financial_overview", {}],
@@ -173,6 +176,22 @@ describe("Maria — escopo por recurso nas tools financeiras (#483, banco real)"
     } finally {
       if (resources.includes("expenses")) await setExpensesActive(true);
       if (resources.includes("receipts")) await setReceiptsActive(true);
+    }
+  }
+
+  /** Mundo de controle: o CARTÃO genuinamente não existe. */
+  async function withoutCard<T>(run: () => Promise<T>): Promise<T> {
+    await setup.creditCard.updateMany({
+      where: { tenantId: IDS.tenant },
+      data: { deletedAt: CLOCK },
+    });
+    try {
+      return await run();
+    } finally {
+      await setup.creditCard.updateMany({
+        where: { tenantId: IDS.tenant },
+        data: { deletedAt: null },
+      });
     }
   }
 
@@ -501,6 +520,77 @@ describe("Maria — escopo por recurso nas tools financeiras (#483, banco real)"
         total: CENTS.paidExpense + CENTS.plannedExpense,
       }),
     ]);
+  });
+
+  // As duas metades ficam TRAVADAS uma na outra de propósito: quem "endurecer"
+  // a escrita quebra a metade (a); quem "afrouxar" a enumeração quebra a (b).
+  it("com expenses e sem creditCards: anexa o cartão NOMEADO numa despesa (a), mas nunca ENUMERA cartões (b)", async () => {
+    const cardWriterOnly: Requester = {
+      role: "USER",
+      allowedProjects: [IDS.reforma],
+      allowedProjectTypes: ["REFORMA"],
+      allowedModules: ["expenses"],
+    };
+
+    // (a) ESCRITA — o módulo é o do CHAMADOR (`expenses`), igual ao
+    // ExpenseController: `creditCardId` é campo da despesa, não recurso lido.
+    // Maria mais restrita que a tela seria regressão funcional, não segurança.
+    const writes: any = { create: jest.fn() };
+    writes.create.mockResolvedValue({
+      id: "qa483-expense-com-cartao",
+      titulo: "Compra no cartão QA 483",
+      fornecedor: null,
+      valorTotal: 1_000,
+      cardLast4: "4830",
+    });
+    const writer = new AgentToolsService(
+      prisma,
+      financial,
+      writes,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+
+    const criada: any = await writer.execute(
+      "create_expense",
+      await contextFor(cardWriterOnly),
+      {
+        projectId: IDS.reforma,
+        valor: "10,00",
+        tipoDespesa: "MATERIAL_CONSTRUCAO",
+        titulo: "Compra no cartão QA 483",
+        data: "2026-08-19",
+        creditCardId: IDS.card,
+      },
+    );
+
+    expect(criada.error).toBeUndefined();
+    expect(criada.ok).toBe(true);
+    expect(writes.create).toHaveBeenCalledTimes(1);
+    expect(writes.create.mock.calls[0][2]).toEqual(
+      expect.objectContaining({ creditCardId: IDS.card }),
+    );
+    expect(criada.despesa.cardLast4).toBe("4830");
+
+    // (b) LEITURA/ENUMERAÇÃO — segue no módulo `creditCards`: listar cartões
+    // revelaria a existência de cartões que o requisitante não pode conhecer.
+    const meios: any = await runTool(cardWriterOnly, "list_payment_methods");
+    const primer = await service.buildPrimer(await contextFor(cardWriterOnly));
+    const [meiosSemCartao, primerSemCartao] = await withoutCard(async () => [
+      await runTool(cardWriterOnly, "list_payment_methods"),
+      await service.buildPrimer(await contextFor(cardWriterOnly)),
+    ]);
+
+    expect(meios.cartoes).toEqual([]);
+    expect(JSON.stringify(meios)).toEqual(JSON.stringify(meiosSemCartao));
+    expect(primer).toEqual(primerSemCartao);
+    for (const sentinel of CARD_SENTINELS) {
+      expect(JSON.stringify(meios)).not.toContain(sentinel);
+      expect(primer).not.toContain(sentinel);
+    }
   });
 
   it("um turno com várias tools resolve o escopo de cada módulo uma única vez", async () => {
