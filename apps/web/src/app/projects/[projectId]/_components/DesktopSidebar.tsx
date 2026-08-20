@@ -1,22 +1,24 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Archive,
-  ArrowLeft,
   ChevronLeft,
   ChevronRight,
   Compass,
+  FolderKanban,
   Settings,
   LogOut,
   Users,
 } from "lucide-react";
+import { buildNavGroups, type ProjectType } from "@reformaflow/domain";
 import { NotificationsBell } from "@/components/notifications/NotificationsBell";
 import { FeedbackButton } from "@/components/feedback/FeedbackButton";
 import { TypeIcon } from "../../_components/type-accent";
 import { isPathActive } from "./mobile-nav";
 import { navIcon } from "./nav-icons";
+import { navHintText, SidebarNavHint, useSidebarNavHint } from "./sidebar-nav-hint";
 import type { NavModule, ProjectInfo } from "../_types";
 
 const SIDEBAR_STORAGE_KEY = "lifeone:sidebar:collapsed";
@@ -41,34 +43,16 @@ interface DesktopSidebarProps {
   onLogout: () => void;
 }
 
-interface NavGroup {
-  id: string;
-  label: string;
-  items: NavModule[];
-}
-
-function buildDesktopNavGroups(projectType: string, visibleNav: NavModule[]): NavGroup[] {
-  if (projectType !== "PESSOAL") {
-    return [{ id: "default", label: "Módulos", items: visibleNav }];
-  }
-
-  const bySlug = new Map(visibleNav.map((item) => [item.slug, item] as const));
-  const groups: Array<{ id: string; label: string; slugs: string[] }> = [
-    { id: "cockpit", label: "Cockpit", slugs: ["monthly"] },
-    { id: "conta", label: "Conta", slugs: ["conta"] },
-    { id: "cartoes", label: "Cartões", slugs: ["credit-cards"] },
-    { id: "planejamento", label: "Planejamento", slugs: ["recorrentes", "metas", "planning", "planejador"] },
-    { id: "analises", label: "Análises", slugs: ["dre", "cash-flow", "neutros"] },
-  ];
-  return groups
-    .map((group) => ({
-      id: group.id,
-      label: group.label,
-      items: group.slugs.map((slug) => bySlug.get(slug)).filter((item): item is NavModule => item != null),
-    }))
-    .filter((group) => group.items.length > 0);
-}
-
+/**
+ * O agrupamento vive em `@reformaflow/domain` (`buildNavGroups`), não aqui.
+ *
+ * Antes existia neste arquivo uma `buildDesktopNavGroups` com um literal
+ * `projectType !== "PESSOAL"` e listas fixas de slug. Ela DESCARTAVA EM
+ * SILÊNCIO todo slug fora das listas: `expenses` e `receipts` estavam em
+ * `PROJECT_NAV[PESSOAL]` e sumiram do menu desktop sem ninguém notar. A versão
+ * do domínio faz partição TOTAL — um slug novo aparece em "Módulos" em vez de
+ * evaporar — e é testável sem montar React.
+ */
 export function DesktopSidebar({
   project,
   basePath,
@@ -80,6 +64,7 @@ export function DesktopSidebar({
   onLogout,
 }: DesktopSidebarProps) {
   const [collapsed, setCollapsed] = useState(true);
+  const { hint, hintProps } = useSidebarNavHint();
 
   useEffect(() => {
     try {
@@ -109,7 +94,10 @@ export function DesktopSidebar({
   const isApoioActive = isPathActive(pathname, apoioHref);
   const budgetHistoryHref = `${basePath}/budget-allocation`;
   const isBudgetHistoryActive = isPathActive(pathname, budgetHistoryHref);
-  const navGroups = buildDesktopNavGroups(project.type, visibleNav);
+  const navGroups = useMemo(
+    () => buildNavGroups(project.type as ProjectType, visibleNav),
+    [project.type, visibleNav],
+  );
 
   return (
     <aside
@@ -119,13 +107,36 @@ export function DesktopSidebar({
         <div
           className={`flex items-center ${collapsed ? "flex-col" : "justify-between"}`}
         >
+          {/*
+            U1 (#450) — "Projetos" é DESTINO ANCORADO, não o quarto item da
+            lista de módulos (saída (i) do PO).
+
+            Hoje/Movimentações/Planejamento são lugares DENTRO do projeto;
+            Projetos SAI dele — níveis diferentes de navegação. O próprio
+            código já reconhecia isso ao chamar este link de "Voltar para
+            projetos". Criar o item na lista produziria DUAS entradas para o
+            mesmo destino, e o medido é que ele cairia ~279px abaixo da dobra
+            num rail de 64px, sem rótulo. A ordem do contrato continua
+            Hoje → Movimentações → Planejamento → Projetos; o que muda é a
+            leitura espacial.
+
+            Ícone: `FolderKanban` é o glifo que o próprio app já usa para a
+            noção genérica de "Projeto" (`_components/type-accent.tsx`,
+            FALLBACK com label 'Projeto') — reuso de vocabulário, não invenção.
+            Ele não é direcional (o ponto todo é parar de ler como "voltar") e
+            não colide com `LayoutDashboard`, o glifo do módulo Dashboard que
+            aparece poucas linhas abaixo no mesmo rail em REFORMA/COMPRA/
+            CASA/CARRO — `LayoutGrid` colidiria.
+          */}
           <Link
             href="/projects"
-            title="Projetos"
-            aria-label="Voltar para projetos"
+            aria-label="Projetos"
+            data-nav-group="projetos"
+            data-nav-tier="primary"
             className="minimal-sidebar-control flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-[14px] transition-colors"
+            {...hintProps("projetos", navHintText("Projetos", "Projetos"))}
           >
-            <ArrowLeft className="h-5 w-5 shrink-0" />
+            <FolderKanban className="h-5 w-5 shrink-0" />
             <span className={labelClass}>Projetos</span>
           </Link>
           <NotificationsBell
@@ -166,33 +177,75 @@ export function DesktopSidebar({
         do tapete — e ainda empurraria "Usuários" para ainda mais longe.
       */}
       <nav className="flex min-h-0 flex-1 flex-col p-2">
-        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
-          {navGroups.map((group) => (
-            <div key={group.id} className="space-y-1">
-              {!collapsed && navGroups.length > 1 && (
-                <p className="px-3 pb-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-lifeone-ink-4">
-                  {group.label}
-                </p>
+        {/*
+          U1 (#450) — recolhido, a régua de 1px SUBSTITUI o respiro entre
+          grupos em vez de somar a ele: `space-y-1` (4+1+4 = 9px por fronteira)
+          contra os 8px de hoje sem régua nenhuma. Assim o agrupamento não
+          custa altura — e altura é exatamente o recurso que falta aqui
+          (medido: 672px de conteúdo contra 297–377px de recorte). Manter
+          `space-y-2` daria 17px por fronteira, +36px no total, e empurraria
+          "Planejamento" para baixo da dobra em mais um caso medido.
+          Expandido, o rótulo do grupo já separa e o respiro maior volta.
+        */}
+        <div
+          className={`min-h-0 flex-1 overflow-y-auto ${collapsed ? "space-y-1" : "space-y-2"}`}
+        >
+          {navGroups.map((group, index) => (
+            <Fragment key={group.id}>
+              {/*
+                U1 (#450), opção (B) do PO — o rail continua NASCENDO
+                RECOLHIDO, então os grupos precisam ser distinguíveis sem
+                expandir. `h-px`: uma linha grossa comeria orçamento vertical
+                que este rail não tem (medido: cada régua custa ~9px com o gap,
+                ~36px no total em PESSOAL). Fica ENTRE grupos (n-1): antes do
+                primeiro seria linha órfã colada no cabeçalho e depois do
+                último desenharia um segundo rodapé falso. Expandido, o rótulo
+                do grupo já faz a separação e a régua vira ruído.
+                `aria-hidden` porque o nome do grupo já é exposto pelo
+                `role="group"` abaixo — a régua é decoração para quem enxerga.
+              */}
+              {collapsed && index > 0 && (
+                <hr
+                  data-nav-separator="true"
+                  aria-hidden="true"
+                  className="minimal-sidebar-group-rule mx-auto h-px w-6 border-0"
+                />
               )}
-              {group.items.map((item) => {
-                const fullHref = `${basePath}/${item.slug}`;
-                const isActive = isPathActive(pathname, fullHref);
-                const Icon = navIcon(item.iconName);
-                return (
-                  <Link
-                    key={item.slug}
-                    href={fullHref}
-                    title={item.label}
-                    aria-label={item.label}
-                    aria-current={isActive ? "page" : undefined}
-                    className={itemClass}
-                  >
-                    <Icon className="minimal-sidebar-icon h-5 w-5 shrink-0" />
-                    <span className={labelClass}>{item.label}</span>
-                  </Link>
-                );
-              })}
-            </div>
+              <div
+                role="group"
+                aria-label={group.label}
+                data-nav-group={group.id}
+                data-nav-tier={group.tier}
+                className="space-y-1"
+              >
+                {!collapsed && navGroups.length > 1 && (
+                  <p className="px-3 pb-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-lifeone-ink-4">
+                    {group.label}
+                  </p>
+                )}
+                {group.items.map((item) => {
+                  const fullHref = `${basePath}/${item.slug}`;
+                  const isActive = isPathActive(pathname, fullHref);
+                  const Icon = navIcon(item.iconName);
+                  return (
+                    <Link
+                      key={item.slug}
+                      href={fullHref}
+                      // Sem `title`: a dica própria (elemento no DOM, com o
+                      // nome do grupo) substitui a nativa. Manter as duas faria
+                      // o navegador pintar a nativa atrasada por cima.
+                      aria-label={item.label}
+                      aria-current={isActive ? "page" : undefined}
+                      className={itemClass}
+                      {...hintProps(item.slug, navHintText(group.label, item.label))}
+                    >
+                      <Icon className="minimal-sidebar-icon h-5 w-5 shrink-0" />
+                      <span className={labelClass}>{item.label}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            </Fragment>
           ))}
         </div>
         <div className="minimal-sidebar-footer mt-1 shrink-0 space-y-1 border-t pt-1">
@@ -283,6 +336,8 @@ export function DesktopSidebar({
           </span>
         </button>
       </div>
+
+      <SidebarNavHint hint={hint} />
     </aside>
   );
 }
