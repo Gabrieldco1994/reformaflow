@@ -26,11 +26,11 @@ interface MobileTabBarProps {
 const DOCK_CLASS = "minimal-dock fixed inset-x-0 bottom-0 z-30 px-3 md:hidden";
 
 function tabClass(active: boolean) {
-  return `minimal-tab-link ${active ? "minimal-tab-link--active" : ""} flex h-12 min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-full px-1 text-[10px] font-semibold leading-tight transition-all active:scale-95`;
+  return `minimal-tab-link ${active ? "minimal-tab-link--active" : ""} flex h-12 min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-full px-1 text-[11px] font-semibold leading-tight transition-all active:scale-95`;
 }
 
 function pessoalTabClass(active: boolean) {
-  return `flex h-12 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-full px-1 text-[10px] font-semibold leading-tight transition-all active:scale-95 ${
+  return `flex h-12 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-full px-1 text-[11px] font-semibold leading-tight transition-all active:scale-95 ${
     active ? "bg-[#111214] text-white" : "text-[#5B6068]"
   }`;
 }
