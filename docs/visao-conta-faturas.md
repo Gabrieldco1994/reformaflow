@@ -8,11 +8,12 @@
 > **Testes:** `apps/api/src/monthly-overview/monthly-overview.account-view.spec.ts`.
 > Complementa `docs/cockpit-caixa-real.md` (caixa real §10).
 > Política de timezone/data: `docs/politica-datas-timezone.md`.
-> **Status (2026-08-18):** regras ativas em `main` (inclui commits `1cc93dc6`,
+> **Status (2026-08-19):** regras ativas em `main` (inclui commits `1cc93dc6`,
 > `7010b95d`, `01affbcb`, `7e901b15`, `f7be2bff`, `e41461c7`).
-> **B1a (#448, esta PR, pendente de merge):** `payInvoice`/`undoInvoicePayment` aceitam
-> `cardId`/`accountId` opcionais; `getAccountView` emite `cardId`, `actions`,
-> `fingerprint` em `cartoes[]` e `saidas[]` (fatura), `accountId` em `contas[]`.
+> **B1a (#448) — MERGEADO em `main`** em 2026-08-19 (`5bbe5d69` #477, `720ff1fc` #478,
+> `890b89b0` #479): `payInvoice`/`undoInvoicePayment` aceitam `cardId`/`accountId` opcionais;
+> `getAccountView` emite `cardId`, `actions`, `fingerprint` em `cartoes[]` e `saidas[]` (fatura),
+> `accountId` em `contas[]`. **#448 permanece OPEN pela fatia B1b.**
 
 ---
 
@@ -50,7 +51,7 @@
 ## Referência de implementação
 
 - Serviço principal: `apps/api/src/monthly-overview/monthly-overview.service.ts` (`getAccountView`, `getCardInvoicesYearly`, `getOriginItemsYearly`, `matchPaidInvoices`, `computePaidInvoiceKeys`, `payInvoice`, `undoInvoicePayment`).
-- Fila financeira W1 (`GET /projects/:projectId/pendencias/financeiras`) deriva pendências **a partir do `getAccountView`** (mesma fonte e mesmos invariantes; sem motor paralelo de caixa/fatura). W1 consome `cardId`/`actions`/`fingerprint` numa etapa futura (não neste PR).
+- Fila financeira W1 (`GET /projects/:projectId/pendencias/financeiras`) deriva pendências **a partir do `getAccountView`** (mesma fonte e mesmos invariantes; sem motor paralelo de caixa/fatura). W1 consome `cardId`/`actions`/`fingerprint` numa etapa futura — **W1 (#214) segue aberto**.
 - Ajustes manuais: `apps/api/src/monthly-overview/invoice-adjustment.controller.ts`, `apps/api/src/monthly-overview/dto/invoice-adjustment.dto.ts`.
 - Dependências de regra: `packages/domain/src/calculations/card-cash-month.ts`, `packages/domain/src/enums/index.ts`.
 - Endpoint/controller: `apps/api/src/monthly-overview/monthly-overview.controller.ts`, `POST/DELETE /projects/:projectId/invoice-adjustments`.
@@ -602,7 +603,9 @@ antes — deep-equal, não "parecido". Ver
 
 **Contexto:** B1a é a primeira fatia implementável de #448. É puramente aditiva —
 zero schema, zero backfill, zero alteração de fórmula. A UX (W1) consome estes
-campos numa etapa futura separada; neste PR nenhum comportamento visível muda.
+campos numa etapa futura separada; **na entrega de B1a nenhum comportamento visível
+mudou**. **Mergeado em `main` em 2026-08-19** (`5bbe5d69` #477, `720ff1fc` #478,
+`890b89b0` #479); #448 permanece OPEN pela fatia B1b.
 
 ### 15.1 `cardId`/`accountId` opcionais em `payInvoice` e `undoInvoicePayment`
 
@@ -652,9 +655,9 @@ caminho de upgrade é um índice UNIQUE parcial
 `(tenant_id, project_id, last4) WHERE deleted_at IS NULL` em H4 — **não está
 implementado agora**.
 
-### 15.5 Escopo desta PR (#448 B1a)
+### 15.5 Escopo de B1a (#448)
 
-Esta PR (#448 B1a) cobre três unidades de mudança (SHAs de branch sujeitos a squash no merge):
+B1a cobriu três unidades de mudança, mergeadas em `main` em 2026-08-19:
 
 | Unidade | Mudança |
 |---|---|
