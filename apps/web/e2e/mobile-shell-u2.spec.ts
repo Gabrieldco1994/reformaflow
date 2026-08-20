@@ -255,6 +255,16 @@ async function expectReachable(target: Locator, name: string, scrollerSel: strin
   expect(m.insideClip, `${name} centro em y=${m.cy} fora do recorte ${m.clip} (#507)`).toBe(true);
 }
 
+// Abre o Mais pelo gatilho congelado e devolve a raiz do overlay.
+async function openMais(page: Page): Promise<Locator> {
+  const trigger = page.locator('[data-mais-count]');
+  await expect(trigger, 'gatilho Mais [data-mais-count] ausente — Lane A ainda não marcou').toBeVisible();
+  await trigger.click();
+  const overlay = page.locator('[data-overlay="mais"]');
+  await expect(overlay, 'overlay [data-overlay="mais"] não abriu').toBeVisible();
+  return overlay;
+}
+
 // ───────────────────────────────────────────────────────────────────────────
 // BEHAVIORAL REDs — provam defeito HOJE, sem depender de seletor da Lane A.
 // ───────────────────────────────────────────────────────────────────────────
@@ -337,38 +347,276 @@ test.describe('U2 shell mobile — travas de regressão (verdes hoje)', () => {
 });
 
 // ───────────────────────────────────────────────────────────────────────────
-// EVIDÊNCIA temporária p/ o PO — mede os launchers REAIS de /receipts HOJE
-// (antes do data-launcher da Lane A) para decidir a supressão condicional.
-// NÃO É CONTRATO — será removida; o guarda permanente é U2-E10 (data-launcher).
+// GEOMETRIA / ALCANÇABILIDADE / OVERLAY — RED até a Lane A marcar o DOM
+// (data-dock, data-dock-slot, data-launcher, data-overlay, data-mais-count).
+// Cada caso FALHA ALTO no guarda de presença — nunca passa por seletor ausente.
 // ───────────────────────────────────────────────────────────────────────────
 
-test('375 — EVIDÊNCIA D6: quantos launchers visíveis coexistem em /receipts (PESSOAL)', async ({
-  page,
-  baseURL,
-}) => {
-  await bootMobile(page, baseURL!, { modules: MODULES.full });
-  await page.goto(`/projects/${PESSOAL_ID}/receipts`);
-  const dockPlus = page.locator('button[aria-label="Lançar"]');
-  const routeFab = page.locator('button[aria-label="Novo recebimento"]');
-  await page.waitForTimeout(500);
-  const measured = await page.evaluate(() => {
-    const pick = (sel: string) =>
-      [...document.querySelectorAll<HTMLElement>(sel)]
-        .filter((el) => {
-          const r = el.getBoundingClientRect();
-          return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden';
-        })
+test.describe('U2 shell mobile — geometria do dock e do Mais', () => {
+  for (const vp of VIEWPORTS) {
+    // U2-E01 — só os TRÊS invariantes (monthly·conta·maria) + âncora + launcher.
+    // NÃO menciona credit-cards: o 4º slot é empírico (se truncar a 375 desce pro
+    // Mais). A partição U2-E05 é quem cobre o 4º, sem opinar sobre qual.
+    test(`${vp.width} — U2-E01 dock: invariantes monthly·conta·maria + âncora + launcher alcançáveis`, async ({ page, baseURL }) => {
+      await bootMobile(page, baseURL!, { modules: MODULES.full }, vp);
+      await page.goto(`/projects/${PESSOAL_ID}/monthly`);
+      const dock = page.locator('[data-dock]');
+      await expect(dock, 'dock [data-dock] ausente — Lane A ainda não marcou o DOM').toBeVisible();
+      for (const slug of ['monthly', 'conta', 'maria']) {
+        await expectReachable(dock.locator(`[data-dock-slot="${slug}"]`), `slot invariante ${slug}`);
+      }
+      await expectReachable(page.locator('a[data-nav-group="projetos"]'), 'âncora Projetos (cabeçalho)');
+      await expectReachable(page.locator('[data-launcher="true"]').first(), 'launcher do dock');
+      // o que ESTÁ no dock tem de ser alcançável, sem opinar sobre a contagem.
+      const slots = dock.locator('[data-dock-slot]');
+      const n = await slots.count();
+      expect(n, 'dock sem slots suficientes').toBeGreaterThanOrEqual(3);
+      for (let i = 0; i < n; i++) {
+        await expectReachable(slots.nth(i), `dock slot #${i}`);
+      }
+    });
+  }
+
+  // U2-E02 — nenhum destino do dock é COBERTO: elementFromPoint no centro devolve
+  // o próprio (falha nomeia o topmost). Roda em /receipts, superfície do D6.
+  test('375 — U2-E02 nenhum destino do dock é coberto (elementFromPoint devolve o próprio)', async ({ page, baseURL }) => {
+    await bootMobile(page, baseURL!, { modules: MODULES.full });
+    await page.goto(`/projects/${PESSOAL_ID}/receipts`);
+    const dock = page.locator('[data-dock]');
+    await expect(dock, 'dock [data-dock] ausente').toBeVisible();
+    const covered = await dock.locator('[data-dock-slot], [data-launcher="true"]').evaluateAll((els) =>
+      els
         .map((el) => {
           const r = el.getBoundingClientRect();
-          return { label: el.getAttribute('aria-label'), x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height), z: getComputedStyle(el).zIndex };
-        });
-    return {
-      dockPlus: pick('button[aria-label="Lançar"]'),
-      routeFab: pick('button[aria-label="Novo recebimento"], [data-journey-action="receipt.new"]'),
-    };
+          const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          const self = Boolean(top && (top === el || el.contains(top) || top.contains(el)));
+          return self
+            ? null
+            : {
+                slug: el.getAttribute('data-dock-slot') ?? el.getAttribute('aria-label') ?? '?',
+                top: top ? `${top.tagName.toLowerCase()}.${String(top.className).slice(0, 40)}` : 'none',
+              };
+        })
+        .filter(Boolean),
+    );
+    expect(covered, `destino(s) coberto(s): ${JSON.stringify(covered)}`).toEqual([]);
   });
-  const total = measured.dockPlus.length + measured.routeFab.length;
-  console.log('EVIDÊNCIA D6 /receipts →', JSON.stringify(measured), 'total launchers visíveis =', total);
-  expect(await dockPlus.count(), 'dock + / route FAB precisam existir p/ a evidência').toBeGreaterThanOrEqual(0);
-  expect(await routeFab.count()).toBeGreaterThanOrEqual(0);
+
+  // U2-E03 — rótulos do dock ≥11px, uma linha, não elipsados (D7 — text-[10px]).
+  for (const vp of VIEWPORTS) {
+    test(`${vp.width} — U2-E03 rótulos do dock ≥11px, 1 linha, sem elipse`, async ({ page, baseURL }) => {
+      await bootMobile(page, baseURL!, { modules: MODULES.full }, vp);
+      await page.goto(`/projects/${PESSOAL_ID}/monthly`);
+      const dock = page.locator('[data-dock]');
+      await expect(dock, 'dock [data-dock] ausente').toBeVisible();
+      const bad = await dock.locator('[data-dock-slot]').evaluateAll((slots) => {
+        const out: unknown[] = [];
+        for (const slot of slots) {
+          // rótulo = folha com texto próprio (evita medir wrapper/ícone).
+          const leaves = [...slot.querySelectorAll<HTMLElement>('*')].filter(
+            (el) => el.children.length === 0 && (el.textContent ?? '').trim().length > 0,
+          );
+          for (const el of leaves) {
+            const fs = parseFloat(getComputedStyle(el).fontSize);
+            const lines = el.getClientRects().length;
+            const ellipsized = el.scrollWidth > el.clientWidth + 1;
+            if (fs < 11 || lines !== 1 || ellipsized) {
+              out.push({ text: (el.textContent ?? '').trim(), fs, lines, ellipsized });
+            }
+          }
+        }
+        return out;
+      });
+      expect(bad, `rótulo(s) ruins: ${JSON.stringify(bad)}`).toEqual([]);
+    });
+  }
+
+  // U2-E04 — tiles do Mais ≥44×44, rótulo ≥11px, e o ÚLTIMO tile alcançável após
+  // rolar (D7 — text-[10.5px]; e o último tile nunca foi medido).
+  test('375 — U2-E04 Mais: tiles ≥44×44, rótulo ≥11px, último alcançável após rolar', async ({ page, baseURL }) => {
+    await bootMobile(page, baseURL!, { modules: MODULES.full });
+    await page.goto(`/projects/${PESSOAL_ID}/monthly`);
+    const overlay = await openMais(page);
+    const tiles = overlay.locator('a[href]');
+    const n = await tiles.count();
+    expect(n, 'Mais sem tiles').toBeGreaterThan(0);
+    await expectReachable(tiles.nth(n - 1), 'último tile do Mais', '[data-overlay="mais"]');
+    const bad = await tiles.evaluateAll((els) => {
+      const out: unknown[] = [];
+      for (const el of els) {
+        const r = el.getBoundingClientRect();
+        if (r.width < 44 || r.height < 44) out.push({ href: el.getAttribute('href'), w: Math.round(r.width), h: Math.round(r.height) });
+        const leaf = [...el.querySelectorAll<HTMLElement>('*')].find(
+          (c) => c.children.length === 0 && (c.textContent ?? '').trim().length > 0,
+        );
+        if (leaf && parseFloat(getComputedStyle(leaf).fontSize) < 11) {
+          out.push({ href: el.getAttribute('href'), fs: getComputedStyle(leaf).fontSize });
+        }
+      }
+      return out;
+    });
+    expect(bad, `tile(s) ruins: ${JSON.stringify(bad)}`).toEqual([]);
+  });
+
+  // U2-E10 — /receipts de PESSOAL tem EXATAMENTE UM launcher visível. Conta a
+  // UNIÃO de [data-launcher="true"] com os FABs de rota ATUAIS (por aria-label),
+  // deduplicada por identidade: HOJE = 2 (D6, RED) — dock `+` (Lançar) + FAB
+  // `Novo recebimento`, a ~2px, FAB z-40 sobre o dock; vira 1 (GREEN) quando o PO
+  // liberar `shellOwnsLauncher`. Evidência bruta medida e reportada ao PO
+  // (dock `+` @ y734 64×64 z-auto; FAB @ y676 56×56 z-40 → bordas a ~2px).
+  test('375 — U2-E10 exatamente um launcher visível em /receipts (PESSOAL)', async ({ page, baseURL }) => {
+    await bootMobile(page, baseURL!, { modules: MODULES.full });
+    await page.goto(`/projects/${PESSOAL_ID}/receipts`);
+    await page.locator('main').waitFor();
+    const launchers = await page.evaluate(() => {
+      const sel =
+        '[data-launcher="true"], button[aria-label="Lançar"], button[aria-label="Novo recebimento"], [data-journey-action="receipt.new"]';
+      const set = new Set<Element>();
+      for (const el of document.querySelectorAll(sel)) {
+        const r = el.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0 && getComputedStyle(el as HTMLElement).visibility !== 'hidden') set.add(el);
+      }
+      return set.size;
+    });
+    expect(launchers, 'D6: /receipts deve ter exatamente 1 launcher visível').toBe(1);
+  });
+
+  // U2-E11 — nenhum estouro horizontal: scrollers internos (excl. hidden/clip) +
+  // fuga de caixa, no cabeçalho, dock e Mais (D10 — documentElement.scrollWidth
+  // devolve 375 numa tela com corte, por isso varremos os scrollers internos).
+  for (const vp of VIEWPORTS) {
+    test(`${vp.width} — U2-E11 sem estouro horizontal no cabeçalho, dock e Mais`, async ({ page, baseURL }) => {
+      await bootMobile(page, baseURL!, { modules: MODULES.full }, vp);
+      await page.goto(`/projects/${PESSOAL_ID}/monthly`);
+      await openMais(page);
+      const findings = await page.evaluate((width) => {
+        const out: unknown[] = [];
+        for (const region of document.querySelectorAll('[data-mobile-header], [data-dock], [data-overlay]')) {
+          for (const el of [region, ...region.querySelectorAll('*')]) {
+            const cs = getComputedStyle(el as HTMLElement);
+            if (cs.overflowX !== 'hidden' && cs.overflowX !== 'clip' && el.scrollWidth > el.clientWidth + 1) {
+              out.push({ scan: 'scroller', tag: el.tagName.toLowerCase(), sw: el.scrollWidth, cw: el.clientWidth });
+            }
+            const r = el.getBoundingClientRect();
+            if (r.right > width + 1 || r.left < -1) {
+              out.push({ scan: 'escape', tag: el.tagName.toLowerCase(), left: Math.round(r.left), right: Math.round(r.right) });
+            }
+          }
+        }
+        return out;
+      }, vp.width);
+      expect(findings, `estouro(s): ${JSON.stringify(findings)}`).toEqual([]);
+    });
+  }
+
+  // U2-E12 — alturas 500 e 400 (teclado): o dock inteiro cabe na viewport.
+  for (const height of [500, 400]) {
+    test(`375×${height} — U2-E12 dock inteiro dentro da viewport`, async ({ page, baseURL }) => {
+      await bootMobile(page, baseURL!, { modules: MODULES.full }, { width: 375, height });
+      await page.goto(`/projects/${PESSOAL_ID}/monthly`);
+      const dock = page.locator('[data-dock]');
+      await expect(dock, 'dock [data-dock] ausente').toBeVisible();
+      const box = await dock.boundingBox();
+      expect(box, 'dock sem caixa').not.toBeNull();
+      expect(
+        box!.y + box!.height,
+        `dock ultrapassa a viewport (bottom=${Math.round(box!.y + box!.height)} > ${height})`,
+      ).toBeLessThanOrEqual(height + 1);
+    });
+  }
+
+  // U2-E13 — reduced motion zera transição/animação no shell (D9 — só o voice-orb
+  // era coberto).
+  test('375 — U2-E13 reduced motion: sem transição/animação no dock, overlay e cabeçalho', async ({ page, baseURL }) => {
+    await bootMobile(page, baseURL!, { modules: MODULES.full });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto(`/projects/${PESSOAL_ID}/monthly`);
+    await openMais(page);
+    const moving = await page.evaluate(() => {
+      const out: unknown[] = [];
+      const has = (v: string) => v.split(',').some((s) => parseFloat(s) > 0);
+      for (const region of document.querySelectorAll('[data-dock], [data-overlay], [data-mobile-header]')) {
+        for (const el of [region, ...region.querySelectorAll('*')]) {
+          const cs = getComputedStyle(el as HTMLElement);
+          if (has(cs.transitionDuration) || has(cs.animationDuration)) {
+            out.push({ tag: el.tagName.toLowerCase(), t: cs.transitionDuration, a: cs.animationDuration });
+          }
+        }
+      }
+      return out;
+    });
+    expect(moving, `elemento(s) ainda animando: ${JSON.stringify(moving)}`).toEqual([]);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// PARTIÇÃO E PERMISSÃO — cobertura completa e sem duplicata, guardas de módulo.
+// ───────────────────────────────────────────────────────────────────────────
+
+test.describe('U2 shell mobile — partição e permissão', () => {
+  // U2-E05 — partição: (dock ∪ Mais) de módulos === visibleNav, + maria; sem
+  // duplicata. credit-cards em EXATAMENTE um dos dois (dock OU Mais), nunca nos
+  // dois (D3) e nunca faltando (D1). Sobrevive aos dois desfechos do 4º slot.
+  test('375 — U2-E05 dock ∪ Mais === visibleNav ∪ {maria}, sem duplicata', async ({ page, baseURL }) => {
+    await bootMobile(page, baseURL!, { modules: MODULES.full });
+    await page.goto(`/projects/${PESSOAL_ID}/monthly`);
+    const dock = page.locator('[data-dock]');
+    await expect(dock, 'dock [data-dock] ausente').toBeVisible();
+    const dockSlugs = await dock.locator('[data-dock-slot]').evaluateAll((els) => els.map((e) => e.getAttribute('data-dock-slot') ?? ''));
+    const overlay = await openMais(page);
+    const maisRaw = await overlay.locator('a[href]').evaluateAll((els) => els.map((e) => e.getAttribute('href') ?? ''));
+    const maisSlugs = maisRaw.map(slugOf).filter((s) => !SHELL_DEST_SLUGS.includes(s));
+    const union = [...dockSlugs, ...maisSlugs];
+    const dupes = union.filter((t, i) => union.indexOf(t) !== i);
+    expect(dupes, `slug(s) em dois lugares (D3): ${dupes.join(',')}`).toEqual([]);
+    expect(new Set(union), 'partição ≠ visibleNav ∪ {maria}').toEqual(new Set([...EXPECTED_V.full, 'maria']));
+  });
+
+  // U2-E16 — V vazio: a Maria FICA (decisão de produto; correção do PO ao spec).
+  // Esperado ≠ spec §6.4 ("[data-dock] ausente"): dock PRESENTE contendo só o
+  // slot da Maria, nenhum slot de módulo. O usuário não fica encalhado.
+  test('375 — U2-E16 visibleNav vazio: dock presente com só a Maria (correção PO)', async ({ page, baseURL }) => {
+    await bootMobile(page, baseURL!, { modules: MODULES.semNav });
+    await page.goto(`/projects/${PESSOAL_ID}/maria`);
+    const dock = page.locator('[data-dock]');
+    await expect(dock, 'dock deve PERMANECER — Maria fica mesmo com V vazio').toBeVisible();
+    const slugs = await dock.locator('[data-dock-slot]').evaluateAll((els) => els.map((e) => e.getAttribute('data-dock-slot') ?? ''));
+    expect(slugs, 'dock com V vazio deve conter só maria').toEqual(['maria']);
+    await expectReachable(page.locator('a[data-nav-group="projetos"]'), 'âncora Projetos (não encalha)');
+  });
+
+  // U2-E21 — usuário com monthlyOverview mas SEM creditCards NÃO vê o slot de
+  // Cartões no dock. Prova o guarda de permissão do D2 (hoje MobileTabBar
+  // renderiza Cartões incondicionalmente, :89). monthly/conta permanecem.
+  test('375 — U2-E21 sem creditCards: dock sem slot de Cartões, com monthly/conta', async ({ page, baseURL }) => {
+    await bootMobile(page, baseURL!, { modules: MODULES.soMonthly });
+    await page.goto(`/projects/${PESSOAL_ID}/monthly`);
+    const dock = page.locator('[data-dock]');
+    await expect(dock, 'dock [data-dock] ausente').toBeVisible();
+    await expect(dock.locator('[data-dock-slot="credit-cards"]'), 'Cartões não deve estar no dock sem o módulo (D2)').toHaveCount(0);
+    await expect(dock.locator('[data-dock-slot="monthly"]')).toBeVisible();
+    await expect(dock.locator('[data-dock-slot="conta"]')).toBeVisible();
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// CABEÇALHO / ESCOPO — âncora Projetos é "Projetos", não "Voltar" (defeito hoje).
+// ───────────────────────────────────────────────────────────────────────────
+
+test.describe('U2 shell mobile — cabeçalho / escopo', () => {
+  // U2-E18 — escopo no cabeçalho: tipo visível; âncora é "Projetos", não "Voltar".
+  // aria-label="Projetos" prova o defeito HOJE (MobileHeader.tsx:28 é "Voltar
+  // para projetos"); [data-scope-project-type] é o marcador da Lane A.
+  test('375 — U2-E18 cabeçalho: data-scope-project-type=PESSOAL e âncora "Projetos"', async ({ page, baseURL }) => {
+    await bootMobile(page, baseURL!, { modules: MODULES.full });
+    await page.goto(`/projects/${PESSOAL_ID}/monthly`);
+    const scope = page.locator('[data-scope-project-type]');
+    await expect(scope, '[data-scope-project-type] ausente — Lane A ainda não marcou').toHaveAttribute(
+      'data-scope-project-type',
+      'PESSOAL',
+    );
+    const anchor = page.locator('a[data-nav-group="projetos"]');
+    await expect(anchor, 'âncora Projetos ausente no cabeçalho mobile').toBeVisible();
+    await expect(anchor, 'âncora deve ser "Projetos", não "Voltar para projetos"').toHaveAttribute('aria-label', 'Projetos');
+  });
 });
