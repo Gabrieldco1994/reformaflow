@@ -54,13 +54,12 @@ describe('useRateioDetalhe', () => {
     expect(result.current.data).toEqual(DETALHE);
   });
 
-  // #448 — contrato SOURCE-ONLY (B1b): `hiddenTargetsCount` e
-  // `hiddenAllocationCents` saíram do payload; `removedTargetsCount` fica,
-  // filtrado pela lente. O fixture canônico acima já é o payload atual. O hook
+  // #448 — contrato SOURCE-ONLY: `hiddenTargetsCount`/`hiddenAllocationCents`
+  // não existem no payload; o fixture canônico acima já é a forma atual. O hook
   // é um passa-fio (`useQuery` + `api.get`), então ele NÃO filtra nem
   // normaliza: quem decide o que renderizar é `_lib/rateio-partial`. Este caso
   // fixa isso — um servidor velho continua atravessando sem perda, e a decisão
-  // de ignorar o campo morto tem UM dono só.
+  // de ignorar campo fora do contrato tem UM dono só.
   it('o hook não normaliza o payload — campos extras de um servidor velho atravessam intactos', async () => {
     const legado = {
       ...DETALHE,
@@ -75,17 +74,18 @@ describe('useRateioDetalhe', () => {
     expect(result.current.data).toEqual(legado);
   });
 
-  it('payload B1b com participante omitido: rateadoCents é Σ dos VISÍVEIS, sobra != 0', async () => {
-    // Fixture sob a semântica nova: 1 alvo visível de R$ 400,00 num total de
-    // R$ 1.000,00. O hook entrega exatamente isso — sem inventar a diferença.
-    const redigido: RateioDetalhe = {
+  it('o hook não recalcula números — entrega os que vieram, inclusive em forma que o contrato não emite', async () => {
+    // Forma inesperada (lista que não fecha o total): R$ 400,00 declarados num
+    // total de R$ 1.000,00. O hook entrega exatamente isso, sem inventar a
+    // diferença nem "corrigir" a sobra.
+    const formaInesperada: RateioDetalhe = {
       ...DETALHE,
       totalSourceCents: 100_000,
       rateadoCents: 40_000,
       sobraCents: 60_000,
       removedTargetsCount: 0,
     };
-    apiGet.mockResolvedValueOnce(redigido);
+    apiGet.mockResolvedValueOnce(formaInesperada);
     const { result } = renderHook(() => useRateioDetalhe('p1', 'src-1'), { wrapper });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));

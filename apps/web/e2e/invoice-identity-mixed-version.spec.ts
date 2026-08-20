@@ -186,13 +186,15 @@ const sourceExpense = {
 };
 
 /**
- * Rateio visível pela metade.
- *  - `redacted`: contrato B1b (o atual). `rateadoCents` é Σ dos itens
- *    VISÍVEIS, então o payload é deep-equal ao de uma compra sem nada oculto —
- *    é isso que impede o web de inferir, e por isso a sobra aparece.
- *  - `legacy`: servidor pré-B1b, que ainda emite `hiddenTargetsCount`/
+ * Rateio visível pela metade, nas duas formas em que um servidor pré-#448 pode
+ * mandá-lo. O contrato atual não emite lista parcial — estas fixtures existem
+ * só para provar que o bundle aguenta a versão mista sem vazar.
+ *  - `redacted`: servidor pré-#448 que já parou de emitir a metadata de
+ *    ocultos, mas ainda manda a lista filtrada com a sobra correspondente.
+ *  - `legacy`: servidor pré-#448 que ainda emite `hiddenTargetsCount`/
  *    `hiddenAllocationCents` e um `rateadoCents` total-aware. Mantido para
- *    provar que o bundle novo IGNORA os campos mortos em vez de renderizá-los.
+ *    provar que o bundle novo IGNORA os campos fora do contrato em vez de
+ *    renderizá-los.
  */
 function rateioPayload(kind: "legacy" | "redacted") {
   const items = [

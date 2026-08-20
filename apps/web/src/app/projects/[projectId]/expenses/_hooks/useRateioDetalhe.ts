@@ -20,23 +20,37 @@ export interface RateioDetalheItem {
   status: string;
 }
 
-/** Detalhe do rateio de uma compra-fonte — GET /projects/:projectId/expenses/:id/rateio. */
+/**
+ * Detalhe do rateio de uma compra-fonte — GET /projects/:projectId/expenses/:id/rateio.
+ *
+ * Contrato SOURCE-ONLY (#448): participante fora da lente ⇒ a resposta é a de
+ * uma compra nunca rateada. Sem lista parcial não há campo que declare o oculto
+ * nem número do qual derivá-lo. `hiddenTargetsCount`/`hiddenAllocationCents`
+ * não existem no contrato.
+ */
 export interface RateioDetalhe {
   sourceExpenseId: string;
+  /**
+   * `false` = para ESTE leitor a compra não está rateada — o mesmo payload
+   * responde a compra sem nenhuma alocação e a compra com participante fora da
+   * lente, e nada na tela pode separar os dois casos.
+   */
   rateado: boolean;
   totalSourceCents: number;
-  /** Σ allocationCents dos alvos ATIVOS visíveis ao requisitante. */
+  /**
+   * Σ `allocationCents` dos itens. Quando vem lista, ela é COMPLETA, então este
+   * número cobre todos os alvos; com `rateado: false` ele é `0` e `sobraCents`
+   * é o total.
+   */
   rateadoCents: number;
   sobraCents: number;
   /**
-   * Alocações cujo alvo foi soft-deletado **dentro da lente** do requisitante.
+   * Alocações cujo alvo foi soft-deletado. Não é um estado distinguível de "não
+   * rateada": o payload preserva o campo por estabilidade de forma, e o web não
+   * pode construir uma leitura própria em cima dele.
    *
-   * Contrato SOURCE-ONLY (B1b #448): `hiddenTargetsCount` e
-   * `hiddenAllocationCents` foram REMOVIDOS — participante fora da lente é
-   * omitido por inteiro, e `rateadoCents` passa a ser Σ dos itens visíveis para
-   * que `totalSourceCents − Σ items` não devolva a soma oculta por subtração.
-   * Segue opcional porque o bundle novo tem que renderizar sem NaN e sem alarme
-   * fabricado qualquer que seja a versão do servidor. Leia sempre via
+   * Opcional porque o bundle tem que renderizar sem NaN e sem alarme fabricado
+   * qualquer que seja a versão do servidor. Leia sempre via
    * `../_lib/rateio-partial`.
    */
   removedTargetsCount?: number;

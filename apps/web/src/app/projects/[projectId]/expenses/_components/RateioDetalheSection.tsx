@@ -50,11 +50,11 @@ export function RateioDetalheSection({ isLoading, isError, detalhe, onRetry }: P
 
   if (!detalhe || !detalhe.rateado) return null;
 
-  // Contrato SOURCE-ONLY (#448 B1b): o servidor não manda mais metadata de
-  // participante oculto — ele some do payload inteiro, e `rateadoCents` já vem
-  // como Σ do que ESTA pessoa enxerga. Todo número é lido de forma defensiva:
-  // campo ausente vira `null` e simplesmente não renderiza, em vez de virar
-  // `R$ NaN`. Nada aqui pode denunciar o que não veio.
+  // Contrato SOURCE-ONLY (#448): participante fora da lente ⇒ a resposta é a de
+  // uma compra nunca rateada, e este componente já retornou `null` acima. Logo,
+  // quando há o que renderizar, a lista é COMPLETA e `rateadoCents` cobre todos
+  // os alvos. Todo número é lido de forma defensiva: campo ausente vira `null`
+  // e simplesmente não renderiza, em vez de virar `R$ NaN`.
   const totalCents = knownCents(detalhe.totalSourceCents);
   const rateadoCents = knownCents(detalhe.rateadoCents);
   const sobraCents = knownCents(detalhe.sobraCents);
