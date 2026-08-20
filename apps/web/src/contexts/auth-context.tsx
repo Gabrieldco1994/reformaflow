@@ -67,6 +67,13 @@ export interface AuthUser {
   allowedModules: string[];
   allowedProjects: string[];
   allowedProjectTypes: string[];
+  /**
+   * `/auth/me` (`auth.service.buildPublicUser`) sempre devolve este campo. É
+   * opcional aqui só por compatibilidade com sessão em cache de versão antiga.
+   * Convidado de demo nasce com `role: 'ADMIN'` (#497), então papel sozinho não
+   * distingue administrador de visitante.
+   */
+  isGuest?: boolean;
 }
 
 export interface RegistrationInput {

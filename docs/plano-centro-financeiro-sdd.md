@@ -256,8 +256,10 @@ esperado, não evidência de runtime.
   type-specific sem ampliar scope. **B1a implementado nesta PR, pendente de merge. Sequência
   após merge: W1, depois B1b (remoção de ambiguous-last4 409 e hidden-metadata).** #448 permanece OPEN.
 - [B2 #449](https://github.com/Gabrieldco1994/reformaflow/issues/449): Budget Allocation
-  administrativo/read-only, somente ADMIN autenticado do tenant; relações legadas cross-tenant
-  redigidas e bytes históricos intocados.
+  administrativo/read-only, somente requisitante **full-access e não-convidado** autenticado do
+  tenant (`isFullAccessRole(role) && !isGuest` — ADMIN ou OWNER, nunca `@Roles('ADMIN')` sozinho:
+  o convidado de demo nasce com `role: 'ADMIN', isGuest: true` e o `RolesGuard` não lê `isGuest`
+  — #497); relações legadas cross-tenant redigidas e bytes históricos intocados.
 
 **STOP:** não iniciar U1–U6 até B1 (full) e B2 verdes e security verify PASS.
 

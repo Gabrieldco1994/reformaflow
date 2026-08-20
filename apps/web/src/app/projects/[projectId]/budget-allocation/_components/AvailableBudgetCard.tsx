@@ -1,13 +1,16 @@
 'use client';
 
 import { formatCurrency } from '@/lib/utils';
+import { REDACTED_PROJECT_LABEL } from './redacted-project';
 
 interface Props {
   available: number;
   totalAllocated: number;
   totalExpenses?: number;
   totalReceipts?: number;
-  allocations: Array<{ projectName: string; projectType: string; total: number }>;
+  // `projectName`/`projectType` chegam `null` quando a API redige uma relação
+  // legada de outro tenant (#449 B2). O valor (`total`) nunca é redigido.
+  allocations: Array<{ projectName: string | null; projectType: string | null; total: number }>;
 }
 
 export default function AvailableBudgetCard({ available, totalAllocated, totalExpenses = 0, totalReceipts = 0, allocations }: Props) {
@@ -66,7 +69,7 @@ export default function AvailableBudgetCard({ available, totalAllocated, totalEx
           <div className="space-y-2">
             {allocations.map((a, i) => (
               <div key={i} className="flex justify-between text-sm">
-                <span className="text-darc-velvet">{a.projectName}</span>
+                <span className="text-darc-velvet">{a.projectName ?? REDACTED_PROJECT_LABEL}</span>
                 <span className="font-medium text-darc-velvet tabular-nums">
                   {formatCurrency(a.total / 100)}
                 </span>
