@@ -2,6 +2,7 @@
 import React from 'react';
 import { ChevronDown, ChevronRight, Pencil, Trash2 } from 'lucide-react';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
+import { CardActionsMenu } from '@/components/CardActionsMenu';
 import type { Receipt } from '@/types';
 
 interface Grupo {
@@ -105,23 +106,26 @@ function MobileReceiptListImpl({
                       </div>
 
                       {canEdit && (
-                        <div className="mt-2 flex items-center gap-1 justify-end">
-                          <button
-                            type="button"
-                            onClick={() => openEdit(r)}
-                            aria-label="Editar"
-                            className="p-1.5 rounded-full hover:bg-darc-linen/60 active:bg-darc-linen"
-                          >
-                            <Pencil className="w-4 h-4 text-darc-velvet/70" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => onDelete(r.id)}
-                            aria-label="Excluir"
-                            className="p-1.5 rounded-full hover:bg-darc-red-bright/10 active:bg-darc-red-bright/20"
-                          >
-                            <Trash2 className="w-4 h-4 text-darc-red" />
-                          </button>
+                        // #490 — 28×28px de alvo numa lista que só existe no
+                        // mobile. Mesmo `CardActionsMenu` da Fase G usado no
+                        // resto da casa: 44px no gatilho e em cada item.
+                        <div className="mt-2 flex items-center justify-end">
+                          <CardActionsMenu
+                            ariaLabel={`Ações ${formatCurrency(r.valor / 100)}`}
+                            actions={[
+                              {
+                                label: 'Editar',
+                                onClick: () => openEdit(r),
+                                icon: <Pencil className="w-4 h-4 text-darc-velvet/70" />,
+                              },
+                              {
+                                label: 'Excluir',
+                                onClick: () => onDelete(r.id),
+                                icon: <Trash2 className="w-4 h-4" />,
+                                tone: 'danger',
+                              },
+                            ]}
+                          />
                         </div>
                       )}
                     </div>

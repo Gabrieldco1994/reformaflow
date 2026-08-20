@@ -5,6 +5,14 @@ import type { LucideIcon } from 'lucide-react';
 interface EmptyStateAction {
   label: string;
   onClick: () => void;
+  /**
+   * Token `data-journey-action` do catálogo de jornadas. Quando o estado vazio
+   * assume a CTA primária da tela (#490), o token vem junto com ela: o motor de
+   * jornadas escuta o token via `closest('[data-journey-action]')`, então ele
+   * precisa existir na CTA VIVA — senão a jornada de primeiro cadastro morre em
+   * silêncio exatamente na tela em que ela deveria disparar.
+   */
+  journeyAction?: string;
 }
 
 interface EmptyStateProps {
@@ -28,7 +36,8 @@ export function EmptyState({ icon: Icon, title, description, action }: EmptyStat
         <button
           type="button"
           onClick={action.onClick}
-          className="mt-5 inline-flex items-center justify-center rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white shadow-darc-soft transition-colors hover:bg-orange-600"
+          data-journey-action={action.journeyAction}
+          className="mt-5 inline-flex min-h-11 items-center justify-center rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white shadow-darc-soft transition-colors hover:bg-orange-600"
         >
           {action.label}
         </button>

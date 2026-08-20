@@ -919,7 +919,9 @@ export function MovimentacoesSection({
               if (summaryQuickFilter) onClearSummaryQuickFilter();
               setTab(t.key);
             }}
-            className={`h-9 flex-1 rounded-xl px-4 text-sm font-semibold transition sm:flex-none ${
+            // #490 — h-9 dava 36px de alvo de toque (medido a 375 e 390); a casa
+            // exige 44px, o mesmo h-11 já usado pelas abas do /dre.
+            className={`h-11 flex-1 rounded-xl px-4 text-sm font-semibold transition sm:flex-none ${
               tab === t.key
                 ? 'bg-lifeone-card text-lifeone-ink shadow-sm'
                 : 'text-lifeone-ink-3 hover:text-lifeone-ink-2'
@@ -1275,7 +1277,8 @@ function FilterPill({
     <button
       type="button"
       onClick={onClick}
-      className={`h-9 rounded-full px-3 text-[12px] font-semibold transition ${
+      // #490 — 36px de altura reprovavam no mínimo de 44px da casa.
+      className={`h-11 rounded-full px-3 text-[12px] font-semibold transition ${
         active ? 'bg-lifeone-ink text-[#FFFFFF]' : 'bg-lifeone-sidebar text-lifeone-ink-3 hover:bg-lifeone-hairline'
       }`}
     >

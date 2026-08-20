@@ -58,19 +58,26 @@ export default function BankAccountsPage() {
     void load();
   }
 
+  const isEmpty = !loading && accounts.length === 0;
+
   return (
     <div className="p-6 max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <Landmark className="w-6 h-6" /> Contas Bancárias
         </h1>
-        <button
-          onClick={() => { setEditing(null); setFormOpen(true); }}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2"
-          data-journey-action="bank-account.new"
-        >
-          <Plus className="w-4 h-4" /> Nova conta
-        </button>
+        {/* #490 — mesma decisão do `/credit-cards`: no vazio a CTA primária é a
+            do `EmptyState` (com título e explicação), e o token de jornada vai
+            com ela. Com contas na tela o cabeçalho volta. */}
+        {!isEmpty && (
+          <button
+            onClick={() => { setEditing(null); setFormOpen(true); }}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 min-h-11"
+            data-journey-action="bank-account.new"
+          >
+            <Plus className="w-4 h-4" /> Nova conta
+          </button>
+        )}
       </div>
 
       <p className="text-sm text-gray-600 mb-6">
@@ -89,6 +96,7 @@ export default function BankAccountsPage() {
           action={{
             label: 'Nova conta',
             onClick: () => { setEditing(null); setFormOpen(true); },
+            journeyAction: 'bank-account.new',
           }}
         />
       ) : (

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { centsToReaisInput, currencyInputToNumber, maskCurrencyInput } from '@/lib/currency-input';
+import { CardActionsMenu, type CardAction } from '@/components/CardActionsMenu';
 import type { Receipt } from '@/types';
 import type { GrupoPorMes } from '../_types';
 
@@ -76,6 +77,43 @@ function MonthlyViewImpl({
   const [newStatus, setNewStatus] = useState('PREVISTO');
   const [copyingId, setCopyingId] = useState<string | null>(null);
   const [copyData, setCopyData] = useState('');
+
+  function startCopy(r: Receipt) {
+    setCopyingId(r.id);
+    // Sugere próximo mês
+    const currentDate = new Date(r.data);
+    currentDate.setMonth(currentDate.getMonth() + 1);
+    setCopyData(currentDate.toISOString().slice(0, 10));
+  }
+
+  function startEdit(r: Receipt) {
+    setEditingId(r.id);
+    setEditValor(centsToReaisInput(r.valor));
+    setEditData(r.data.slice(0, 10));
+  }
+
+  /** Mesmas três ações da linha, servidas ao menu "⋯" do mobile. */
+  function rowActions(r: Receipt): CardAction[] {
+    return [
+      {
+        label: 'Copiar para outro mês',
+        onClick: () => startCopy(r),
+        icon: <Copy className="w-4 h-4 text-blue-600" />,
+      },
+      {
+        label: 'Editar rápido',
+        onClick: () => startEdit(r),
+        icon: <Pencil className="w-4 h-4 text-darc-velvet/70" />,
+      },
+      {
+        label: 'Excluir',
+        onClick: () => onDelete(r.id),
+        icon: <Trash2 className="w-4 h-4" />,
+        tone: 'danger',
+      },
+    ];
+  }
+
   if (grouped.length === 0) {
     return (
       <div className="rounded-2xl bg-white shadow-darc-soft border border-darc-linen px-4 py-8 text-center text-darc-velvet/50 text-sm italic">
@@ -180,6 +218,7 @@ function MonthlyViewImpl({
                   return (
                     <div
                       key={r.id}
+                      data-testid="receipt-row"
                       className="px-4 py-2.5 hover:bg-darc-cream/30 transition-colors group"
                     >
                       {isCopying ? (
@@ -329,19 +368,28 @@ function MonthlyViewImpl({
                             {formatCurrency(r.valor / 100)}
                           </p>
 
-                          {/* Ações (escondem em hover) */}
-                          <div className="flex items-center gap-0.5 flex-shrink-0 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-                            {canEdit && (
-                              <>
+                          {/* Ações */}
+                          {canEdit && (
+                            <>
+                              {/*
+                                #490 — no mobile os três ícones inline mediam
+                                26×26px (medido a 375 e 390) e caíam na faixa do
+                                dock/FAB. O padrão da casa para card mobile com
+                                2–4 ações é o `CardActionsMenu` da Fase G (44px
+                                no gatilho e em cada item), já usado por bills,
+                                maintenance e reminders. No desktop os ícones
+                                continuam, com o hover-reveal de sempre.
+                              */}
+                              <div className="flex-shrink-0 md:hidden">
+                                <CardActionsMenu
+                                  ariaLabel={`Ações ${tipoLabel(r.tipo)} ${formatCurrency(r.valor / 100)}`}
+                                  actions={rowActions(r)}
+                                />
+                              </div>
+                              <div className="hidden md:flex items-center gap-0.5 flex-shrink-0 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    setCopyingId(r.id);
-                                    // Sugere próximo mês
-                                    const currentDate = new Date(r.data);
-                                    currentDate.setMonth(currentDate.getMonth() + 1);
-                                    setCopyData(currentDate.toISOString().slice(0, 10));
-                                  }}
+                                  onClick={() => startCopy(r)}
                                   aria-label="Copiar para outro mês"
                                   className="p-1.5 rounded-full hover:bg-blue-100"
                                   title="Copiar para outro mês"
@@ -350,11 +398,7 @@ function MonthlyViewImpl({
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    setEditingId(r.id);
-                                    setEditValor(centsToReaisInput(r.valor));
-                                    setEditData(r.data.slice(0, 10));
-                                  }}
+                                  onClick={() => startEdit(r)}
                                   aria-label="Editar rápido"
                                   className="p-1.5 rounded-full hover:bg-darc-linen/60"
                                   title="Edição rápida"
@@ -369,9 +413,9 @@ function MonthlyViewImpl({
                                 >
                                   <Trash2 className="w-3.5 h-3.5 text-darc-red" />
                                 </button>
-                              </>
-                            )}
-                          </div>
+                              </div>
+                            </>
+                          )}
                         </div>
                       )}
                     </div>

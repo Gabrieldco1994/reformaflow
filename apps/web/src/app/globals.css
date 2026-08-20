@@ -344,7 +344,24 @@
   }
 
   [data-ui-skin="minimal"] .minimal-main {
-    padding: 8px 20px calc(124px + env(safe-area-inset-bottom));
+    /*
+     * #490 — folga inferior do conteúdo rolável no mobile.
+     *
+     * Duas coisas flutuam por cima desta área: o dock (`.minimal-dock`, 96px de
+     * altura medidos a 375 e 390) e os FABs de rota (`bottom-20` + 56px de
+     * altura = 136px de alcance a partir da base). Com 124px de padding o
+     * conteúdo do FIM da lista ainda parava DEBAIXO do FAB — 144px cobre os
+     * dois com folga.
+     *
+     * `scroll-padding-bottom` é o par obrigatório do padding: sem ele, todo
+     * scroll programático (foco por teclado, `scrollIntoView`, âncora,
+     * `scrollIntoViewIfNeeded`) encosta o alvo na borda de baixo do contêiner,
+     * que é justamente onde o dock está — `elementFromPoint` no centro do
+     * elemento devolvia `NAV.minimal-dock`. Com o scrollport encolhido, o alvo
+     * para ACIMA do dock.
+     */
+    padding: 8px 20px calc(144px + env(safe-area-inset-bottom));
+    scroll-padding-bottom: calc(144px + env(safe-area-inset-bottom));
   }
 
   [data-ui-skin="minimal"] .minimal-header {
