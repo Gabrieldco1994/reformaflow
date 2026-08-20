@@ -18,14 +18,15 @@
    - 3.1 Login
    - 3.2 Registro
    - 3.3 Onboarding
-   - 3.4 Hub — Meus Projetos
-   - 3.5 Casca do projeto
-   - 3.6 Maria
-   - 3.7 Notificações
-   - 3.8 Saúde financeira consolidada
-   - 3.9 Admin — Usuários
-   - 3.10 Admin — Jornadas
-   - 3.11 Tratamento de Erros e Estados de Carregamento
+   - 3.4 Convidado de demonstração
+   - 3.5 Hub — Meus Projetos
+   - 3.6 Casca do projeto
+   - 3.7 Maria
+   - 3.8 Notificações
+   - 3.9 Saúde financeira consolidada
+   - 3.10 Admin — Usuários
+   - 3.11 Admin — Jornadas
+   - 3.12 Tratamento de Erros e Estados de Carregamento
 4. [Projeto PESSOAL](#4-projeto-pessoal)
 5. [Projeto REFORMA](#5-projeto-reforma)
 6. [Projeto CASA](#6-projeto-casa)
@@ -237,6 +238,28 @@ O critério central permanece o mesmo do fluxo original do PESSOAL: quem segue o
 caminho feliz sai do assistente com pelo menos um lançamento/dado real
 cadastrado, e sempre passa pelo guia de apoio antes do cockpit.
 
+
+### 3.1d Convidado de demonstração
+Conta temporária criada pelo modo demonstração (`AUTH_ENABLE_GUEST=1`), sem
+senha e com o tenant expirando em 14 dias.
+
+- **O que o convidado enxerga:** exatamente os módulos dos tipos **PESSOAL** e
+  **REFORMA** — os dois projetos que a semeadura de demonstração cria. A lista
+  é **derivada** desses objetivos (mesma regra do registro por objetivos), não
+  uma lista à parte: módulos exclusivos de COMPRA, CASA, CARRO e PLANTAS
+  (financiamento, manutenção, lembretes, contas recorrentes, dados e documentos
+  do veículo, diagnóstico de plantas) **não** aparecem na navegação.
+- **O que o convidado não faz:** nada que seja administrativo — **Usuários**,
+  **Jornadas**, **Histórico de Budget**, editar ou excluir projeto. Esses itens
+  não aparecem na navegação e o servidor os recusa.
+- **Ao converter a conta** ("reivindicar"), o convidado vira um usuário comum
+  do próprio espaço, com os mesmos objetivos e permissões que já tinha — o
+  mesmo formato de quem se cadastra por conta própria em `/register`.
+
+> O papel sozinho **nunca** decide o que aparece: o convidado é identificado
+> por marca própria, não por papel. Contas administrativas reais seguem vendo o
+> aplicativo inteiro, inclusive quando não têm nenhum módulo concedido
+> explicitamente.
 
 ### 3.2 Hub — Meus Projetos (`/projects`)
 Ponto de entrada depois do login. Lista todos os projetos que o usuário pode ver.

@@ -18,6 +18,21 @@ const BCRYPT_ROUNDS = 10;
 const SELF_SERVICE_ROLE = 'USER';
 const DUPLICATE_USERNAME_MESSAGE = 'Usuário já cadastrado';
 
+/**
+ * #505 — o que a demonstração realmente entrega ao convidado.
+ *
+ * Não é uma lista de produto inventada aqui: `demo.service.seedTenant` semeia
+ * exatamente um projeto PESSOAL e um REFORMA. Os MÓDULOS saem daqui por
+ * `deriveObjectiveAccess` (ou seja, de `TYPE_MODULES`, a fonte de
+ * autorização), nunca de literais — trocar isto por checagem literal de tipo
+ * de projeto reintroduz o acoplamento que `TYPE_MODULES`/`PROJECT_FEATURES`/
+ * `PROJECT_NAV` existem para evitar.
+ */
+const GUEST_PROJECT_TYPES: readonly ProjectType[] = [
+  ProjectType.PESSOAL,
+  ProjectType.REFORMA,
+];
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -307,6 +322,20 @@ export class AuthService {
       throw new NotFoundException();
     }
 
+    // #505 — CUNHAGEM HONESTA.
+    //
+    // O convidado nascia `role: 'ADMIN'` sem grant nenhum. Como
+    // `isFullAccessRole(role)` recebe só uma string, ele estruturalmente não
+    // consegue ler `isGuest`: RolesGuard, ModulesGuard, ProjectAccessGuard,
+    // project.service, agent-tools e o `isAdmin` do web liberavam o
+    // aplicativo inteiro para um visitante — cada um deles "certo" sobre o que
+    // recebeu e errado sobre a realidade.
+    //
+    // Corrigir aqui, no único ponto que emite a identidade, acerta todos eles
+    // de uma vez sem editar nenhum. Espelha `registerSelfService`: papel sem
+    // acesso total + snapshot de autorização explícito. Endurecer sem os
+    // grants deixaria o convidado com menu vazio e 403 em tudo.
+    const access = deriveObjectiveAccess(GUEST_PROJECT_TYPES);
     const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
     return this.prisma.$transaction(async (tx) => {
       const tenant = await tx.tenant.create({
@@ -322,9 +351,11 @@ export class AuthService {
           email: null,
           username: `guest_${tenant.id.slice(0, 8)}`,
           name: 'Convidado',
-          role: 'ADMIN',
+          role: SELF_SERVICE_ROLE,
           passwordHash: null,
           isGuest: true,
+          allowedProjectTypes: JSON.stringify(access.allowedProjectTypes),
+          allowedModules: JSON.stringify(access.allowedModules),
           lastLoginAt: new Date(),
         },
       });

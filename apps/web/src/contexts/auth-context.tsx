@@ -154,6 +154,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo<AuthContextValue>(() => {
+    // #505 — o papel sozinho NUNCA decide visibilidade.
+    //
+    // A cunhagem do convidado já foi corrigida no servidor
+    // (`auth.service.registerGuest` grava papel sem acesso total + grants
+    // reais), e essa é a defesa primária. Isto aqui é a segunda camada: uma
+    // sessão em cache de versão antiga — ou qualquer regressão futura na
+    // cunhagem — não pode voltar a abrir o aplicativo inteiro.
+    //
+    // A chave é `isGuest`, JAMAIS "grants vazios": há contas ADMIN/OWNER reais
+    // em produção com `allowedModules` vazio que enxergam tudo exatamente por
+    // este curto-circuito. Confundir as duas coisas apaga o menu delas.
+    //
+    // `isGuest` ausente (sessão antiga) NÃO significa convidado — só `true`
+    // significa. Derivado uma vez aqui, os QUATRO predicados abaixo herdam.
     const isAdmin = user?.role === "ADMIN" || user?.role === "OWNER";
     const allowed = new Set(user?.allowedModules ?? []);
     const allowedProjects = user?.allowedProjects ?? [];
