@@ -23,6 +23,8 @@ import { RatearCompraModal } from '../../expenses/_components/RatearCompraModal'
 import { BulkLinkModal } from '../../expenses/_components/BulkLinkModal';
 import { invalidateExpenseQueries } from '../../expenses/_hooks/useExpenseMutations';
 import type { ResumoQuickFilterKey } from './ResumoCards';
+import { FinancialItemDetail } from '../../monthly/_components/FinancialItemDetail';
+import type { FinancialItemCardV1 } from '@reformaflow/domain';
 import type {
   AccountViewEntrada,
   AccountViewMovimentacao,
@@ -131,6 +133,7 @@ export function MovimentacoesSection({
   const [actionKind, setActionKind] = useState<'ratear' | 'vincular' | null>(null);
   const [rulesOpen, setRulesOpen] = useState(false);
   const [ruleSearch, setRuleSearch] = useState('');
+  const [detailItem, setDetailItem] = useState<AccountViewMovimentacao | null>(null);
 
   useEffect(() => {
     if (!summaryQuickFilter) return;
@@ -612,6 +615,58 @@ export function MovimentacoesSection({
   const rowKey = (m: AccountViewMovimentacao) =>
     `${m.kind}-${m.id ?? `${m.descricao}-${m.data}-${m.valor}`}`;
 
+  /** Map AccountViewMovimentacao → FinancialItemCardV1 for the detail overlay. */
+  const toDetailItem = useCallback(
+    (m: AccountViewMovimentacao): FinancialItemCardV1 => {
+      const isSaida = m.kind === 'saida';
+      return {
+        id: m.id ?? '',
+        kind: isSaida
+          ? (m as AccountViewSaida).isInvoice
+            ? 'invoice'
+            : 'expense'
+          : 'receipt',
+        origin: isSaida
+          ? originLabel((m as AccountViewSaida).cardLast4, (m as AccountViewSaida).bankLast4) ?? 'Carteira'
+          : originLabel(null, m.bankLast4) ?? 'Carteira',
+        originProjectId: isSaida
+          ? (m as AccountViewSaida).projetoOrigem?.id ?? projectId
+          : projectId,
+        originProjectName: isSaida
+          ? (m as AccountViewSaida).projetoOrigem?.name ?? ''
+          : '',
+        purpose: isSaida ? (m as AccountViewSaida).tipoDespesa : (m as AccountViewEntrada).tipo,
+        purposeLabel: isSaida
+          ? (m as AccountViewSaida).purposeLabel ?? tipoLabel((m as AccountViewSaida).tipoDespesa)
+          : (m as AccountViewEntrada).purposeLabel ?? (m as AccountViewEntrada).tipo,
+        amountCents: m.valor,
+        date: m.data,
+        status: isSaida ? m.status : (m as AccountViewEntrada).status,
+        title: isSaida
+          ? (m as AccountViewSaida).title ?? null
+          : (m as AccountViewEntrada).title ?? null,
+        supplier: isSaida ? (m as AccountViewSaida).supplier ?? null : null,
+        installment: isSaida ? (m as AccountViewSaida).installment ?? null : null,
+        paymentForm: isSaida ? (m as AccountViewSaida).paymentForm ?? null : null,
+        relationship: isSaida
+          ? {
+              cardLast4: (m as AccountViewSaida).cardLast4,
+              bankLast4: (m as AccountViewSaida).bankLast4,
+            }
+          : { cardLast4: null, bankLast4: m.bankLast4 },
+        hasEvidence: isSaida
+          ? (m as AccountViewSaida).hasEvidence ?? false
+          : (m as AccountViewEntrada).hasEvidence ?? false,
+        actions: [],
+        isEspelho: isSaida ? (m as AccountViewSaida).isEspelho ?? false : false,
+        isNeutral: isSaida
+          ? (m as AccountViewSaida).isNeutral ?? false
+          : (m as AccountViewEntrada).isNeutral ?? false,
+      };
+    },
+    [originLabel, projectId],
+  );
+
   const renderRow = (
     item: AccountViewMovimentacao,
     expand?: { expandable: boolean; expanded: boolean; onToggleExpand: () => void },
@@ -655,6 +710,7 @@ export function MovimentacoesSection({
       expandable={expand?.expandable}
       expanded={expand?.expanded}
       onToggleExpand={expand?.onToggleExpand}
+      onShowDetail={setDetailItem}
     />
     );
   };
@@ -1259,6 +1315,12 @@ export function MovimentacoesSection({
           onClose={closeAction}
           currentProjectId={projectId}
           preselectedSources={[actionExpense]}
+        />
+      )}
+      {detailItem && (
+        <FinancialItemDetail
+          item={toDetailItem(detailItem)}
+          onClose={() => setDetailItem(null)}
         />
       )}
     </section>

@@ -75,6 +75,7 @@ export function MovimentacaoRow({
   expandable = false,
   expanded = false,
   onToggleExpand,
+  onShowDetail,
 }: {
   item: AccountViewMovimentacao;
   originLabel: (cardLast4: string | null, bankLast4: string | null) => string | null;
@@ -100,6 +101,8 @@ export function MovimentacaoRow({
   expandable?: boolean;
   expanded?: boolean;
   onToggleExpand?: () => void;
+  /** Abre o detalhe do item (sheet mobile / drawer desktop). */
+  onShowDetail?: (item: AccountViewMovimentacao) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const isEntrada = item.kind === 'entrada';
@@ -339,10 +342,11 @@ export function MovimentacaoRow({
             type="button"
             onClick={() => {
               if (canExpand) onToggleExpand!();
+              else if (onShowDetail) onShowDetail(item);
               else if (canEdit) doEdit();
             }}
             className="w-full text-left"
-            title={canExpand ? (expanded ? 'Recolher compras' : 'Ver compras da fatura') : canEdit ? 'Editar' : undefined}
+            title={canExpand ? (expanded ? 'Recolher compras' : 'Ver compras da fatura') : onShowDetail ? 'Ver detalhe' : canEdit ? 'Editar' : undefined}
           >
             <div className="flex items-center gap-1">
               {canExpand &&
