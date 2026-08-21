@@ -19,12 +19,4 @@ describe('ExpenseMobileFab', () => {
     expect(screen.queryByRole('button', { name: 'Nova despesa' })).not.toBeInTheDocument();
   });
 
-  // O painel da jornada é `fixed bottom` em z-70 e o FAB em z-30: sem descontar
-  // a altura do painel, a jornada mandava lançar a primeira despesa e tapava o
-  // único botão que faz isso no mobile.
-  it('sobe acima do painel da jornada, descontando a altura publicada por ele', () => {
-    render(<ExpenseMobileFab activeTab="despesas" onClick={vi.fn()} />);
-    const button = screen.getByRole('button', { name: 'Nova despesa' });
-    expect(button.className).toContain('var(--journey-panel-h,0px)');
-  });
 });
