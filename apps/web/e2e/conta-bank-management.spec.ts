@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const PROJECT_ID = "conta-bank-pessoal";
 const FROZEN_NOW = new Date("2026-08-21T12:00:00.000Z");
@@ -10,7 +10,7 @@ const ACCOUNTS = [
     nickname: "Conta A",
     last4: "1111",
     agency: "0001",
-    accountNumber: "1-0",
+    accountNumber: "123456789-0",
     openingBalanceCents: 100,
     openingBalanceDate: "2026-01-01T00:00:00.000Z",
   },
@@ -119,6 +119,24 @@ async function mockApi(page: Page, baseURL: string) {
   return { patchedPaths };
 }
 
+async function expectCenterHitsControl(control: Locator) {
+  const hit = await control.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    const target = document.elementFromPoint(
+      bounds.left + bounds.width / 2,
+      bounds.top + bounds.height / 2,
+    );
+    return {
+      hitsControl:
+        target === element || (target ? element.contains(target) : false),
+      tagName: target?.tagName ?? null,
+    };
+  });
+
+  expect(hit.tagName).not.toBe("NAV");
+  expect(hit.hitsControl).toBe(true);
+}
+
 test("375/390/desktop: conta exata, modal no viewport, sem overflow e alvos de 44px", async ({
   page,
   baseURL,
@@ -189,6 +207,69 @@ test("375/390/desktop: conta exata, modal no viewport, sem overflow e alvos de 4
     for (const size of actionSizes) {
       expect(size.width).toBeGreaterThanOrEqual(44);
       expect(size.height).toBeGreaterThanOrEqual(44);
+    }
+  }
+});
+
+test("375/390: seletor e dock mantêm os alvos clicáveis acima da faixa decorativa", async ({
+  page,
+  baseURL,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "desktop",
+    "a spec controla as próprias larguras",
+  );
+  await mockApi(page, baseURL!);
+
+  for (const viewport of [
+    { width: 375, height: 812 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto(
+      `/projects/${PROJECT_ID}/conta?mes=2026-08&focus=openingBalance`,
+    );
+    await expect(
+      page.getByText("Escolha a conta que deseja editar"),
+    ).toBeVisible();
+
+    const lowerEditButton = page.getByRole("button", {
+      name: "Editar Conta B, final 2222",
+    });
+    const lowerEditBox = await lowerEditButton.boundingBox();
+    expect(lowerEditBox).not.toBeNull();
+    expect(lowerEditBox!.width).toBeGreaterThanOrEqual(44);
+    expect(lowerEditBox!.height).toBeGreaterThanOrEqual(44);
+    await expectCenterHitsControl(lowerEditButton);
+
+    for (const control of [
+      page.getByRole("link", { name: "Cockpit", exact: true }),
+      page.getByRole("link", { name: "Conta", exact: true }),
+      page.getByRole("link", { name: "Maria", exact: true }),
+      page.getByRole("button", { name: "Lançar", exact: true }),
+    ]) {
+      await expectCenterHitsControl(control);
+    }
+
+    for (const account of [
+      { name: "Conta A", last4: "1111" },
+      { name: "Conta B", last4: "2222" },
+    ]) {
+      await page.goto(
+        `/projects/${PROJECT_ID}/conta?mes=2026-08&focus=openingBalance`,
+      );
+      await page
+        .getByRole("button", {
+          name: `Selecionar ${account.name}, final ${account.last4}`,
+        })
+        .click();
+      await expect(
+        page.getByRole("heading", { name: "Editar conta" }),
+      ).toBeVisible();
+      await expect(page.getByPlaceholder("1234").first()).toHaveValue(
+        account.last4,
+      );
+      await page.getByRole("button", { name: "Cancelar" }).click();
     }
   }
 });
