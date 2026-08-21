@@ -302,6 +302,14 @@ export class MonthlyOverviewService {
           }
         : null,
       hasEvidence: false,
+      // Vazio deliberadamente no V1: nenhum action ID server-provided foi definido
+      // ainda. Invariante da #452: "sem action ID seguro não há CTA; servidor
+      // reautoriza mutação". Quem liga actions ao contrato é o U4 (#453), cujo
+      // AC diz "launcher duplicado sai e actions vêm do V1" — e ali o servidor
+      // precisa REAUTORIZAR a mutação, não só emitir o id. Quando actions reais
+      // existirem (e.g. 'pay', 'undo', 'adjust'), derive-os aqui a partir do
+      // estado da entry e do contexto de permissão, e atualize o canário U3-19
+      // no spec de integração — o vermelho é o sinal desejado.
       actions: [] as Array<{ actionId: string }>,
     });
 
