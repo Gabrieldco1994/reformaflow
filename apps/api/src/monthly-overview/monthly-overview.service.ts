@@ -1525,7 +1525,13 @@ export class MonthlyOverviewService {
       saiuMes: recalculatedSaiuMes,
       faltaPagarMes: recalculatedFaltaPagarMes,
       recebimentosPrevistosMes,
-      sobraPrevista: caixa.hoje - recalculatedFaltaPagarMes + recebimentosPrevistosMes,
+      // #519: a sobra prevista é dinheiro DISPONÍVEL de verdade — banco + carteira.
+      // `carteiraHoje` (saldo pontual da carteira, já sinalizado: despesa −, dinheiro
+      // em caixa +) e `caixa.hoje` (§10, bank-only) são partições disjuntas por
+      // presença de `bankLast4`, então somam sem dupla contagem. Sem esta parcela,
+      // uma despesa paga em carteira sumia da sobra e a tela mostrava mais dinheiro
+      // do que existe (R$ 1.000 onde só havia R$ 945).
+      sobraPrevista: caixa.hoje + carteiraHoje - recalculatedFaltaPagarMes + recebimentosPrevistosMes,
       devoCartaoTotal,
       cartoes,
       contas,
@@ -1644,7 +1650,11 @@ export class MonthlyOverviewService {
       faltaPagarMes, // = soma do ano
       recebimentosPrevistosMes, // = soma do ano
       // Projeção: saldo de hoje contra tudo que falta pagar/receber no ano inteiro.
-      sobraPrevista: caixaHoje - faltaPagarMes + recebimentosPrevistosMes,
+      // #519: `caixaHoje` e `carteiraHoje` são AMBOS saldos pontuais de hoje (pegos
+      // uma vez de `firstAccountView`, idênticos nos 12 meses — somar não infla 12×,
+      // é a MESMA operação do mensal). Sem a carteira, uma saída paga em carteira
+      // sumia da sobra anual exatamente como sumia da mensal.
+      sobraPrevista: caixaHoje + carteiraHoje - faltaPagarMes + recebimentosPrevistosMes,
       devoCartaoTotal, // saldo pontual de faturas em aberto — idem, não é fluxo mensal
       cartoes,
       contas,
