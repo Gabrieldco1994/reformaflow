@@ -75,6 +75,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
+  // U2-P17 — Escape fecha o overlay de lançamento. É o MESMO ciclo de vida de
+  // shell do "voltar" do E09 (reusa closeOverlay), não a a11y de diálogo do
+  // launch (role/aria-modal/focus-trap), que segue na #522. Escopo em 'launch':
+  // o Mais já trata o próprio Escape internamente (MaisSheet), então cobrir os
+  // dois aqui duplicaria o fechamento.
+  useEffect(() => {
+    if (overlay !== "launch") return;
+    function handleKey(event: KeyboardEvent) {
+      if (event.key === "Escape") closeOverlay();
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [overlay, closeOverlay]);
   const { user, isAdmin, hasModule, hasProjectType, hasProjectAccess, logout, loading: authLoading } = useAuth();
 
   useEffect(() => {
