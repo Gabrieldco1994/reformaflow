@@ -53,12 +53,17 @@ export default function BankAccountsPage() {
   }, [projectId]);
 
   useEffect(() => {
-    if (projectId) void load();
-  }, [projectId, load]);
+    if (projectId && !noPermission && !shouldRedirectToHub) void load();
+  }, [projectId, load, noPermission, shouldRedirectToHub]);
 
   // Deep-link: ?focus=openingBalance opens the first account for editing (or new form)
   useEffect(() => {
-    if (loading || searchParams.get('focus') !== 'openingBalance') return;
+    if (
+      noPermission ||
+      shouldRedirectToHub ||
+      loading ||
+      searchParams.get('focus') !== 'openingBalance'
+    ) return;
     if (accounts.length > 0) {
       setEditing(accounts[0]!);
       setFormOpen(true);
@@ -66,7 +71,7 @@ export default function BankAccountsPage() {
       setEditing(null);
       setFormOpen(true);
     }
-  }, [loading, accounts, searchParams]);
+  }, [noPermission, shouldRedirectToHub, loading, accounts, searchParams]);
 
   useEffect(() => {
     if (noPermission) {

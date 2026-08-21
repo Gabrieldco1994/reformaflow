@@ -66,13 +66,20 @@ const ACCOUNTS = [
 
 let queryClient: QueryClient;
 
-function renderSection(projectType: ProjectType = "PESSOAL" as ProjectType) {
+function renderSection(
+  projectType: ProjectType = "PESSOAL" as ProjectType,
+  onChanged = vi.fn(),
+) {
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <BankAccountsSection projectId="p1" projectType={projectType} />
+      <BankAccountsSection
+        projectId="p1"
+        projectType={projectType}
+        onChanged={onChanged}
+      />
     </QueryClientProvider>,
   );
 }
@@ -108,6 +115,7 @@ describe("BankAccountsSection", () => {
         <BankAccountsSection
           projectId="p1"
           projectType={"REFORMA" as ProjectType}
+          onChanged={vi.fn()}
         />
       </QueryClientProvider>,
     );
@@ -115,6 +123,14 @@ describe("BankAccountsSection", () => {
       screen.queryByRole("heading", { name: "Contas bancárias" }),
     ).not.toBeInTheDocument();
     expect(apiGetMock).not.toHaveBeenCalled();
+  });
+
+  it("mantém exatamente uma CTA canônica de nova conta", () => {
+    const { container } = renderSection();
+
+    expect(
+      container.querySelectorAll('[data-journey-action="bank-account.new"]'),
+    ).toHaveLength(1);
   });
 
   it("com zero contas abre criação e, ao fechar, preserva as demais queries", async () => {
@@ -145,8 +161,9 @@ describe("BankAccountsSection", () => {
   });
 
   it("com múltiplas contas exige seleção e salva acc-b, nunca acc-a", async () => {
-    searchQuery = "focus=openingBalance";
-    renderSection();
+    searchQuery = "mes=2026-08&focus=openingBalance&quick=saiuMes&tag=a&tag=b";
+    const onChanged = vi.fn();
+    renderSection("PESSOAL" as ProjectType, onChanged);
 
     expect(
       await screen.findByText("Escolha a conta que deseja editar"),
@@ -157,6 +174,10 @@ describe("BankAccountsSection", () => {
 
     fireEvent.click(
       screen.getByRole("button", { name: "Selecionar Conta B, final 2222" }),
+    );
+    expect(routerReplaceMock).toHaveBeenCalledWith(
+      "/projects/p1/conta?mes=2026-08&focus=openingBalance&quick=saiuMes&tag=a&tag=b&accountId=acc-b",
+      { scroll: false },
     );
     expect(await screen.findByDisplayValue("2222")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
@@ -171,6 +192,7 @@ describe("BankAccountsSection", () => {
       "/projects/p1/bank-accounts/acc-a",
       expect.any(Object),
     );
+    expect(onChanged).toHaveBeenCalledTimes(1);
   });
 
   it("accountId válido abre a conta exata e a limpeza remove apenas focus/accountId", async () => {

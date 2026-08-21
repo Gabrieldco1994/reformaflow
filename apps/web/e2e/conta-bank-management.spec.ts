@@ -60,6 +60,7 @@ function json(body: unknown) {
 }
 
 async function mockApi(page: Page, baseURL: string) {
+  const patchedPaths: string[] = [];
   await page.clock.setFixedTime(FROZEN_NOW);
   await page
     .context()
@@ -67,6 +68,13 @@ async function mockApi(page: Page, baseURL: string) {
   await page.route("http://localhost:3001/**", async (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
+    if (
+      route.request().method() === "PATCH" &&
+      path.startsWith(`/projects/${PROJECT_ID}/bank-accounts/`)
+    ) {
+      patchedPaths.push(path);
+      return route.fulfill(json({}));
+    }
     if (path === "/auth/me") {
       return route.fulfill(
         json({
@@ -108,6 +116,7 @@ async function mockApi(page: Page, baseURL: string) {
     }
     return route.fulfill(json([]));
   });
+  return { patchedPaths };
 }
 
 test("375/390/desktop: conta exata, modal no viewport, sem overflow e alvos de 44px", async ({
@@ -118,7 +127,7 @@ test("375/390/desktop: conta exata, modal no viewport, sem overflow e alvos de 4
     testInfo.project.name !== "desktop",
     "a spec controla as próprias larguras",
   );
-  await mockApi(page, baseURL!);
+  const { patchedPaths } = await mockApi(page, baseURL!);
 
   for (const viewport of [
     { width: 375, height: 844 },
@@ -156,7 +165,14 @@ test("375/390/desktop: conta exata, modal no viewport, sem overflow e alvos de 4
     }));
     expect(widths.scroll).toBeLessThanOrEqual(widths.client + 1);
 
-    await page.getByRole("button", { name: "Cancelar" }).click();
+    if (viewport.width === 375) {
+      await page.getByRole("button", { name: "Salvar" }).click();
+      await expect
+        .poll(() => patchedPaths)
+        .toEqual([`/projects/${PROJECT_ID}/bank-accounts/acc-b`]);
+    } else {
+      await page.getByRole("button", { name: "Cancelar" }).click();
+    }
     await expect(page).toHaveURL(
       `/projects/${PROJECT_ID}/conta?mes=2026-08&tag=a&tag=b`,
     );

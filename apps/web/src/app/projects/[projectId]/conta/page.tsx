@@ -188,7 +188,11 @@ export default function ContaPage() {
         </div>
       </header>
 
-      <BankAccountsSection projectId={projectId} projectType={projectType} />
+      <BankAccountsSection
+        projectId={projectId}
+        projectType={projectType}
+        onChanged={invalidateConta}
+      />
 
       {/* Ações rápidas: novos lançamentos manuais + plano de recebimentos */}
       <NovaDespesaLauncher

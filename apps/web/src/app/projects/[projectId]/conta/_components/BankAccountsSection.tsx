@@ -27,9 +27,11 @@ function accountIdentity(account: BankAccountRow) {
 export default function BankAccountsSection({
   projectId,
   projectType,
+  onChanged,
 }: {
   projectId: string;
   projectType: string;
+  onChanged: () => void;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -70,7 +72,12 @@ export default function BankAccountsSection({
     clearFocusQuery();
   }, [clearFocusQuery]);
 
-  const openEdit = (account: BankAccountRow) => {
+  const openEdit = (account: BankAccountRow, syncDeepLink = false) => {
+    if (syncDeepLink && searchParams.get("focus") === "openingBalance") {
+      const next = new URLSearchParams(searchParams.toString());
+      next.set("accountId", account.id);
+      router.replace(`${pathname}?${next.toString()}`, { scroll: false });
+    }
     setEditing(account);
     setSelectorOpen(false);
     setDeepLinkError(null);
@@ -152,6 +159,7 @@ export default function BankAccountsSection({
           onClick={openCreate}
           className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-lifeone-hairline px-3 text-sm font-semibold text-lifeone-ink-2 transition-colors hover:bg-lifeone-surface"
           data-bank-account-action
+          data-journey-action="bank-account.new"
         >
           <Plus className="h-4 w-4" />
           Nova conta
@@ -202,7 +210,7 @@ export default function BankAccountsSection({
                   <button
                     key={account.id}
                     type="button"
-                    onClick={() => openEdit(account)}
+                    onClick={() => openEdit(account, true)}
                     aria-label={`Selecionar ${accountName(account)}, final ${account.last4}`}
                     className="min-h-11 rounded-xl border border-lifeone-hairline bg-lifeone-card px-3 py-2 text-left text-sm transition-colors hover:bg-white"
                     data-bank-account-action
@@ -265,6 +273,7 @@ export default function BankAccountsSection({
             void queryClient.invalidateQueries({
               queryKey: ["bank-accounts", projectId],
             });
+            onChanged();
           }}
         />
       )}
