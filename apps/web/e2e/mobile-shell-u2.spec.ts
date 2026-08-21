@@ -81,6 +81,12 @@ const MODULES = {
   full: ['monthlyOverview', 'expenses', 'receipts', 'cashFlow', 'creditCards', 'bankAccounts'],
   // tem monthlyOverview (⇒ monthly/conta visíveis) mas NÃO tem creditCards ⇒ U2-E21
   soMonthly: ['monthlyOverview'],
+  // soBank / reduced: personas HISTÓRICAS. Ambas descrevem usuário de PESSOAL
+  // sem `monthlyOverview` — estado que o #529 tornou impossível por definição
+  // (`TYPE_MODULES[PESSOAL]` concede o módulo, e PESSOAL é o único tipo que
+  // concede). Preservadas só como tabela de derivação do nav (função pura de
+  // filtro por permissão); NÃO usar para dirigir navegação, ou o teste passa a
+  // exercitar um perfil que a base não produz. Ver U2-E20.
   soBank: ['bankAccounts'],
   reduced: ['expenses', 'receipts', 'creditCards', 'bankAccounts'],
   semNav: ['dashboard'], // 'dashboard' não existe em PROJECT_NAV[PESSOAL] ⇒ V=[]
@@ -317,21 +323,36 @@ async function visibleTextOf(page: Page, selector: string): Promise<string> {
 // ───────────────────────────────────────────────────────────────────────────
 
 test.describe('U2 shell mobile — provas comportamentais', () => {
-  // U2-E20 — RED→GREEN obrigatório (D11 / E-5). Usuário reduzido (só
-  // bankAccounts) toca o card do PESSOAL ⇒ tem de aterrissar no slug ESPECÍFICO
-  // /bank-accounts, nunca em /no-permission. Asserção NEGATIVA passa por
-  // acidente, então aqui é o slug positivo. Falha hoje: getProjectHomePath usa
-  // nav[0].slug (=monthly) sem filtrar permissão ⇒ AppShell → /no-permission.
-  test('375 — U2-E20 usuário só bankAccounts abre o próprio PESSOAL pelo card em /bank-accounts', async ({
+  // U2-E20 — REESCRITO pelo #529. O teste original levava um usuário "só
+  // bankAccounts" ao card do PESSOAL e exigia aterrissagem em /bank-accounts.
+  // Essa rota deixou de ser destino: colapsou no hub e agora redireciona
+  // SEMPRE. E a persona em si ficou impossível por definição —
+  // `TYPE_MODULES[PESSOAL]` concede `monthlyOverview`, e PESSOAL é o único tipo
+  // que concede, então quem tem um projeto PESSOAL recebe o módulo na leitura
+  // (`reconcileUserModules`). Não existe usuário de PESSOAL sem o hub.
+  //
+  // O que sobrevive é a propriedade que o E20 sempre defendeu, e ela continua
+  // valendo: abrir o próprio projeto pelo card NÃO pode terminar em
+  // /no-permission. Mantida a doutrina do arquivo (asserção NEGATIVA passa por
+  // acidente), o alvo é o slug POSITIVO — o cockpit, primeiro item do nav que
+  // esta persona enxerga.
+  test('375 — U2-E20 usuário de PESSOAL com bankAccounts abre o próprio card sem cair em /no-permission', async ({
     page,
     baseURL,
   }) => {
-    await bootMobile(page, baseURL!, { modules: MODULES.soBank });
+    // Persona REALIZÁVEL: o módulo da página + o `monthlyOverview` que o TIPO
+    // concede. É o que a base produz de fato; `MODULES.soBank` modela um estado
+    // que o #529 tornou inalcançável.
+    await bootMobile(page, baseURL!, { modules: ['bankAccounts', 'monthlyOverview'] });
     await page.goto('/projects');
     const card = page.locator('.md\\:hidden').getByText('Pessoal U2', { exact: false }).first();
     await expect(card).toBeVisible();
     await card.click();
-    await expect(page).toHaveURL(new RegExp(`/projects/${PESSOAL_ID}/bank-accounts$`));
+    await expect(
+      page,
+      'abrir o próprio projeto pelo card terminou em /no-permission',
+    ).not.toHaveURL(/no-permission/);
+    await expect(page).toHaveURL(new RegExp(`/projects/${PESSOAL_ID}/monthly$`));
   });
 
   // U2-P20 — deep-link direto /conta?mes=2026-03 tem de abrir MARÇO. Prova que
@@ -517,52 +538,27 @@ test.describe('U2 shell mobile — geometria do dock e do Mais', () => {
     expect(bad, `tile(s) ruins: ${JSON.stringify(bad)}`).toEqual([]);
   });
 
-  // U2-E10 [DIAG, não bloqueia] — VETO do PO em `shellOwnsLauncher`: a
-  // MobileLaunchSheet que o `+` do dock abre SÓ cria DESPESA (zero "recebimento"
-  // no arquivo). Suprimir o FAB "Novo recebimento" removeria o ÚNICO caminho de
-  // criar recebimento no celular — regressão FUNCIONAL, não conserto. Logo NÃO
-  // exigimos 1 launcher.
+  // U2-E10 [DIAG] — REMOVIDO pelo #529, e removido porque o DEFEITO morreu,
+  // não porque o teste incomodava.
   //
-  // Correção do PO à minha leitura: NÃO há oclusão. Os números que reportei são
-  // ADJACENTES, não empilhados — dock `+` (Lançar) x293 y734 64×64 z-auto; FAB
-  // (Novo recebimento) x303 y676 56×56 z-40 → fundo do FAB (732) ~2px ACIMA do
-  // topo do dock (734). O problema real é DOIS botões redondos de MESMO ícone
-  // `Plus`, colados, com funções distintas (despesa × recebimento). Resolução =
-  // DESIGN (diferenciar/afastar), fora do U2.
+  // O E10 documentava dois botões redondos de mesmo ícone `Plus` colados em
+  // /receipts: o launcher "Lançar" do dock e o FAB "Novo recebimento" da rota.
+  // A colisão exigia as DUAS coisas na mesma tela. Hoje nenhum tipo reúne isso:
+  //   - PESSOAL: /receipts colapsou e redireciona sempre (#529) — a página
+  //     legada não monta, some o FAB;
+  //   - REFORMA/COMPRA: /receipts existe, mas o launcher `+` vive só no ramo
+  //     `hasFeature(type,'monthlyOverview')` do MobileTabBar, falso fora do
+  //     PESSOAL — some o launcher.
+  // Ou seja, o par ficou inalcançável em toda a matriz de tipos. Um DIAG que
+  // não pode mais reproduzir seu estado não é diagnóstico: é ruído que fica
+  // verde (ou vermelho) por motivo errado.
   //
-  // Este DIAG DOCUMENTA esse estado e FALHA (editável de propósito, como o P21)
-  // se ele mudar: ícones divergirem, se afastarem ou um sumir. Só então o E10
-  // volta à mesa.
-  test('375 — [DIAG] U2-E10 dois launchers Plus adjacentes em /receipts (resolução de produto, fora do U2)', async ({ page, baseURL }) => {
-    await bootMobile(page, baseURL!, { modules: MODULES.full });
-    await page.goto(`/projects/${PESSOAL_ID}/receipts`);
-    await page.locator('main').waitFor();
-    // aria-labels únicos e existentes hoje (o data-journey-action="receipt.new"
-    // NÃO serve: repete no botão de toolbar da página, receipts/page.tsx:395).
-    const dockPlus = page.locator('button[aria-label="Lançar"]');
-    const routeFab = page.locator('button[aria-label="Novo recebimento"]');
-    await expect(dockPlus, 'launcher do dock (+) sumiu — skip silencioso?').toBeVisible();
-    await expect(routeFab, 'FAB de rota (Novo recebimento) sumiu — skip silencioso?').toBeVisible();
-    const geo = await page.evaluate(() => {
-      const box = (el: Element | null) => {
-        if (!el) return null;
-        const r = el.getBoundingClientRect();
-        return { top: Math.round(r.top), bottom: Math.round(r.bottom), plus: Boolean(el.querySelector('svg[class*="plus" i]')) };
-      };
-      return {
-        dock: box(document.querySelector('button[aria-label="Lançar"]')),
-        fab: box(document.querySelector('button[aria-label="Novo recebimento"]')),
-      };
-    });
-    // dois controles distintos de MESMO ícone Plus — a raiz da confusão.
-    expect(geo.dock?.plus && geo.fab?.plus, `esperado ambos com ícone Plus: ${JSON.stringify(geo)}`).toBe(true);
-    // ADJACENTES, não empilhados (correção do PO): FAB termina no/acima do topo
-    // do dock, sem oclusão. Flip se alguém empilhar (aí vira bug de z-index).
-    expect(
-      Boolean(geo.dock && geo.fab && geo.fab.bottom <= geo.dock.top + 4),
-      `esperado FAB adjacente/acima do dock, sem oclusão: ${JSON.stringify(geo)}`,
-    ).toBe(true);
-  });
+  // Medição honesta: enquanto o caso 3 existiu, eu reproduzi o E10 nele — os
+  // dois Plus continuavam adjacentes. Foi o #529, ao matar o caso 3, que
+  // fechou a última porta. Se algum dia o launcher voltar a aparecer sobre uma
+  // rota com FAB próprio, o E10 precisa ser reescrito a partir dessa tela, não
+  // ressuscitado daqui.
+
 
   // U2-E11 — nenhum estouro horizontal: scrollers internos (excl. hidden/clip) +
   // fuga de caixa, no cabeçalho, dock e Mais (D10 — documentElement.scrollWidth
@@ -972,7 +968,13 @@ test.describe('U2 shell mobile — travas e diagnóstico (2ª prioridade)', () =
     { slug: 'dre', mesTeste: /março de 2026/i },
     { slug: 'neutros', mesTeste: /março de 2026/i },
     { slug: 'metas', mesTeste: /março de 2026/i },
-    { slug: 'expenses', mesTeste: /mar\s*26/i, mesCorrente: /ago\s*26/i },
+    // #529 removeu a entrada `expenses`. Ela media o picker do
+    // `MobileExpensesScreen`, que só monta em PESSOAL e cuja rota agora sempre
+    // redireciona — a lacuna declarada existia numa tela que ninguém alcança.
+    // Mantê-la faria o DIAG medir o texto de `/conta`, que LÊ ?mes: passaria a
+    // reprovar por "não mostrou o mês corrente", nomeando a tela errada.
+    // A cobertura de mês segue PARCIAL (só `monthly` e `conta` interpretam a
+    // URL); o que mudou é que `expenses` saiu da matriz de destinos do PESSOAL.
   ];
   for (const { slug, mesTeste, mesCorrente } of NAO_COBERTOS_POR_MES) {
     test(`375 — [DIAG] U2-P21 ${slug} ignora ?mes (cobertura parcial declarada)`, async ({ page, baseURL }) => {
@@ -986,6 +988,32 @@ test.describe('U2 shell mobile — travas e diagnóstico (2ª prioridade)', () =
       // Texto VISÍVEL apenas — o textContent inclui a variante desktop OCULTA que
       // JÁ lê ?mes; medir por visibilidade é o que impede o falso "mês preservado".
       const visivel = await visibleTextOf(page, 'main');
+      // TRAVA DE VACUIDADE + ÂNCORA DE DESTINO. O DIAG mede o texto visível de
+      // `main`; ele só significa algo se `main` for a tela que o teste nomeia.
+      // Há DOIS jeitos de isso deixar de valer, e cada asserção pega um:
+      //
+      // 1) `main` VAZIO. Quando uma rota colapsa, a guarda devolve `null`
+      //    enquanto o router.replace não assenta — `main` existe, está visível,
+      //    e não tem texto. Sem esta trava o DIAG mede a string vazia e reprova
+      //    lá embaixo em "não mostrou o mês", culpando o probe. Foi exatamente
+      //    o que eu medi ao reinserir um slug colapsado aqui: url ainda
+      //    `/expenses`, texto `''`. É o análogo do `not.toHaveBeenCalled()` que
+      //    os testes unitários usam para não medir tela `null` em silêncio.
+      //
+      // 2) OUTRA tela. Se o redirect assentar antes da leitura, o texto é de
+      //    outra rota e a URL denuncia.
+      //
+      // Ancorar a URL cedo não cobre nem um nem outro: logo após o `goto`, e
+      // mesmo depois do `main` visível, a URL ainda é a de origem porque o
+      // efeito de redirect não disparou. Medido nas duas posições antes desta.
+      expect(
+        visivel.trim(),
+        `${slug} rendeu main VAZIO — provável rota colapsada; o DIAG não mediu tela nenhuma`,
+      ).not.toBe('');
+      await expect(
+        page,
+        `${slug} redirecionou — o texto medido acima é de OUTRA tela`,
+      ).toHaveURL(new RegExp(`/projects/${PESSOAL_ID}/${slug}`));
       if (mesCorrente) {
         // sem isto o negativo passaria por acidente (tela sem rótulo de mês).
         expect(visivel, `${slug} não mostrou o mês CORRENTE (visível) — probe errado?`).toMatch(mesCorrente);
