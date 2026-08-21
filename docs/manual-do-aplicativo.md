@@ -866,29 +866,20 @@ Gestão dos cartões de crédito.
   "Novo cartão" da tela: o botão do cabeçalho só reaparece quando existe pelo
   menos um cartão. Assim não há duas CTAs idênticas competindo na mesma tela.
 
-### 4.8 Contas Bancárias (`/bank-accounts`)
-Gestão das contas.
+### 4.8 Contas Bancárias (na Visão Conta, `/conta`)
+A gestão essencial das contas correntes fica na própria Visão Conta, acima das
+visões de Mês/Ano.
 
-- **Botão "Nova conta"** + explicação da importação de extrato (OFX/CSV/PDF):
-  débitos viram despesas, créditos viram recebimentos, pagamentos de fatura são
-  detectados automaticamente (evita dupla contagem); contas de utilidades e IPVA
-  viram recorrências nos projetos de Casa/Carro automaticamente.
-- **Pré-visualização — pagamento de fatura:** toda linha detectada como pagamento de
-  fatura mostra o bloco **"💳 Pagamento de fatura — qual cartão isso quita?"** com um
-  seletor de cartão. O app sugere o cartão cuja fatura em aberto mais se aproxima do
-  valor (mostrando mês de vencimento, total da fatura e a diferença) e pré-seleciona
-  quando o valor bate exatamente. Se a linha ficar sem cartão, um aviso âmbar explica
-  que o valor vai sair do caixa sem abater a fatura — e o resultado do import informa
-  quantos pagamentos ficaram sem cartão. Os que escaparem viram pendência no card
-  **"Precisa de você"** do cockpit.
-- **Card por conta:** instituição, **final**, **agência**, **conta**, **saldo**;
-  configuração de **saldo inicial** (base do caixa real §10). Ações: **Vincular
-  despesas**, **Vincular recebimentos**, **Editar**, **Excluir** (confirmação).
-- **Deep-link do cockpit:** quando o cockpit exibe o banner de estado degradado
-  (sem saldo inicial), leva para esta tela com o formulário de edição aberto.
-- **Estado vazio:** "Nenhuma conta cadastrada" — com o botão **"Nova conta"**
-  dentro do próprio aviso. Enquanto não há contas, esse é o **único** "Nova
-  conta" da tela; o botão do cabeçalho volta assim que existe uma conta.
+- A seção compacta lista a identidade de cada conta (apelido, instituição, final,
+  agência e número), sem criar um segundo saldo calculado.
+- **Editar conta e saldo inicial** abre o formulário existente de identidade e
+  reconciliação; **Nova conta** usa o mesmo formulário.
+- Quando há mais de uma conta, o deep-link sem uma conta específica pede uma
+  escolha explícita. Um `accountId` inválido mostra erro em vez de editar outra.
+- **Deep-link do cockpit:** o banner de estado degradado leva a
+  `/conta?focus=openingBalance`, abrindo a criação, a conta única ou o seletor.
+- Links antigos para `/bank-accounts` continuam compatíveis: redirecionam para
+  `/conta` preservando todos os parâmetros da URL.
 
 #### 4.8.1 Importar para Carteira (sem conta vinculada)
 

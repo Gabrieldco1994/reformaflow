@@ -78,11 +78,12 @@ export default function BankAccountFormModal({ projectId, account, onClose, onSa
         onSaved(account.id);
       } else {
         const created = await api.post<{
-          id: string;
+          bankAccount: BankAccountRow;
           receiptsWithoutAccount?: ReceiptWithoutAccount[];
         }>(`/projects/${projectId}/bank-accounts`, body);
+        const createdAccountId = created.bankAccount.id;
 
-        setCreatedAccountId(created.id);
+        setCreatedAccountId(createdAccountId);
 
         // Se há recebimentos sem conta, mostrar modal de vinculação
         if (created.receiptsWithoutAccount && created.receiptsWithoutAccount.length > 0) {
@@ -92,7 +93,7 @@ export default function BankAccountFormModal({ projectId, account, onClose, onSa
         } else {
           // Se não há recebimentos, fechar direto
           toast.success('Conta criada com sucesso');
-          onSaved(created.id);
+          onSaved(createdAccountId);
         }
       }
     } catch (e) {
@@ -115,10 +116,22 @@ export default function BankAccountFormModal({ projectId, account, onClose, onSa
   }
 
   const content = (
-      <div className="bg-white rounded-lg w-full max-w-md p-6">
+      <div
+        className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-lg bg-white p-6"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="bank-account-form-title"
+      >
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-bold">{account ? 'Editar conta' : 'Nova conta bancária'}</h2>
-          <button onClick={onClose}><X className="w-5 h-5" /></button>
+          <h2 id="bank-account-form-title" className="text-lg font-bold">{account ? 'Editar conta' : 'Nova conta bancária'}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Fechar"
+            className="flex min-h-11 min-w-11 items-center justify-center"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
         <div className="space-y-3">
@@ -178,8 +191,8 @@ export default function BankAccountFormModal({ projectId, account, onClose, onSa
           {error && <div className="text-sm text-red-600">{error}</div>}
 
           <div className="flex justify-end gap-2 pt-2">
-            {!hideCancel && <button onClick={onClose} className="px-4 py-2 border rounded-lg">Cancelar</button>}
-            <button onClick={handleSave} disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg disabled:opacity-50">
+            {!hideCancel && <button onClick={onClose} className="min-h-11 px-4 py-2 border rounded-lg">Cancelar</button>}
+            <button onClick={handleSave} disabled={saving} className="min-h-11 px-4 py-2 bg-blue-600 text-white rounded-lg disabled:opacity-50">
               {saving ? 'Salvando…' : 'Salvar'}
             </button>
           </div>

@@ -72,9 +72,10 @@ export default function BankAccountsPage() {
     if (noPermission) {
       router.replace('/no-permission');
     } else if (shouldRedirectToHub) {
-      router.replace(`/projects/${projectId}/conta`);
+      const query = searchParams.toString();
+      router.replace(`/projects/${projectId}/conta${query ? `?${query}` : ''}`);
     }
-  }, [noPermission, shouldRedirectToHub, projectId, router]);
+  }, [noPermission, shouldRedirectToHub, projectId, router, searchParams]);
 
   if (noPermission || shouldRedirectToHub) {
     return null;

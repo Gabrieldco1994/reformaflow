@@ -18,6 +18,7 @@ import { UndoInvoicePaymentDialog } from './_components/UndoInvoicePaymentDialog
 import { InvoiceInterventionDialog } from './_components/InvoiceInterventionDialog';
 import { ContaAnoView } from './_components/ContaAnoView';
 import { ContaQuickActions } from './_components/ContaQuickActions';
+import BankAccountsSection from './_components/BankAccountsSection';
 import { NovaDespesaLauncher } from '../expenses/_components/NovaDespesaLauncher';
 import { PendenciasQueueCard } from '../monthly/_cockpit/PendenciasQueueCard';
 import type { AccountViewResponse } from './_types';
@@ -186,6 +187,8 @@ export default function ContaPage() {
           </div>
         </div>
       </header>
+
+      <BankAccountsSection projectId={projectId} projectType={projectType} />
 
       {/* Ações rápidas: novos lançamentos manuais + plano de recebimentos */}
       <NovaDespesaLauncher

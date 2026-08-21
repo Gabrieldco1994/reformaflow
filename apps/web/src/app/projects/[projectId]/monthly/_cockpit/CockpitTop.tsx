@@ -187,10 +187,10 @@ export default function CockpitTop({
           {caixaBig}
         </button>
 
-        {/* Degraded-state banner: no saldo inicial → deep-link to bank-account edit */}
+        {/* Degraded-state banner: no saldo inicial → deep-link to unified account management */}
         {!t.caixaReal && (
           <Link
-            href={`/projects/${params.projectId}/bank-accounts?focus=openingBalance`}
+            href={`/projects/${params.projectId}/conta?focus=openingBalance`}
             className="mt-3 flex items-start gap-2 rounded-[10px] border border-[#FECDCA] bg-[#FEF3F2] px-3 py-2.5 text-left transition-colors hover:bg-[#FEE4E2]"
           >
             <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-[#B42318]" />
