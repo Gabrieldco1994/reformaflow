@@ -232,7 +232,17 @@ async function expectReachable(target: Locator, name: string, scrollerSel: strin
     const rect = element.getBoundingClientRect();
     const cx = rect.left + rect.width / 2;
     const cy = rect.top + rect.height / 2;
-    const topmost = document.elementFromPoint(cx, cy);
+    // Oclusão por elementsFromPoint (pilha z, topo→base) ignorando SÓ o
+    // <nextjs-portal>: é o host da toolbar/overlay do next dev, artefato que
+    // NÃO existe em produção e cujo filho `fixed` no rodapé cobre o dock a
+    // 375/390. Seu `:host{...!important}` de shadow vence qualquer CSS externo
+    // (cascata shadow-inclusiva), então filtra-se aqui, não por estilo. Não
+    // afrouxa a medição: um overlay REAL do app (div c/ z-index) permanece na
+    // pilha e continua reprovando — provado por teste de injeção. (achado u2-qa)
+    const stack = (document.elementsFromPoint(cx, cy) as Element[]).filter(
+      (el) => el.tagName.toLowerCase() !== 'nextjs-portal',
+    );
+    const topmost = stack[0] ?? null;
     const box = sel ? document.querySelector(sel) : null;
     const clip = box
       ? (() => {
@@ -406,7 +416,10 @@ test.describe('U2 shell mobile — geometria do dock e do Mais', () => {
       for (const slug of ['monthly', 'conta', 'maria']) {
         await expectReachable(dock.locator(`[data-dock-slot="${slug}"]`), `slot invariante ${slug}`);
       }
-      await expectReachable(page.locator('a[data-nav-group="projetos"]'), 'âncora Projetos (cabeçalho)');
+      // Âncora emitida no cabeçalho mobile E no rail (as duas variantes coexistem
+      // por media query — tradeoff #490/D-D, a oculta fica display:none). A 375/390
+      // (<md) só o cabeçalho é visível → escopo por CONTAINER, como E14/E18.
+      await expectReachable(page.locator('[data-mobile-header] a[data-nav-group="projetos"]'), 'âncora Projetos (cabeçalho)');
       await expectReachable(page.locator('[data-launcher="true"]').first(), 'launcher do dock');
       // o que ESTÁ no dock tem de ser alcançável, sem opinar sobre a contagem.
       const slots = dock.locator('[data-dock-slot]');
@@ -652,7 +665,9 @@ test.describe('U2 shell mobile — partição e permissão', () => {
     await expect(dock, 'dock deve PERMANECER — Maria fica mesmo com V vazio').toBeVisible();
     const slugs = await dock.locator('[data-dock-slot]').evaluateAll((els) => els.map((e) => e.getAttribute('data-dock-slot') ?? ''));
     expect(slugs, 'dock com V vazio deve conter só maria').toEqual(['maria']);
-    await expectReachable(page.locator('a[data-nav-group="projetos"]'), 'âncora Projetos (não encalha)');
+    // Âncora no cabeçalho mobile E no rail (variantes por media query, #490/D-D);
+    // a 375 só o cabeçalho é visível → escopo por CONTAINER, como E14/E18.
+    await expectReachable(page.locator('[data-mobile-header] a[data-nav-group="projetos"]'), 'âncora Projetos (não encalha)');
   });
 
   // U2-E21 — usuário com monthlyOverview mas SEM creditCards NÃO vê o slot de
