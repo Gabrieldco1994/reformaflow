@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
-import { Archive, LogOut, Settings, Users, X } from "lucide-react";
+import { Archive, Compass, LogOut, Settings, Users, X } from "lucide-react";
+import { buildNavGroups, type ProjectType } from "@reformaflow/domain";
 import { isPathActive } from "./mobile-nav";
+import { buildNavHref } from "../_lib/nav-href";
 import { navIcon } from "./nav-icons";
 import type { NavModule, ProjectInfo } from "../_types";
 
@@ -12,6 +14,8 @@ interface MaisSheetProps {
   project: ProjectInfo;
   basePath: string;
   pathname: string;
+  /** Query atual (sem `?`) para preservar o contexto compartilhado (`?mes`). */
+  search?: string;
   secondary: NavModule[];
   isAdmin: boolean;
   /** #504 — ver `DesktopSidebar`: descoberta do histórico congelado de budget. */
@@ -39,12 +43,22 @@ function GridTile({
       href={href}
       aria-current={isActive ? "page" : undefined}
       data-testid={testId}
-      className="minimal-more-tile flex min-h-[74px] flex-col items-center gap-2 rounded-2xl px-1.5 py-3.5 transition-transform active:scale-95"
+      className="minimal-more-tile flex min-h-[74px] min-w-0 flex-col items-center gap-2 rounded-2xl px-1.5 py-3.5 transition-transform active:scale-95"
     >
       <span className="minimal-more-icon flex h-10 w-10 items-center justify-center rounded-[13px]">
         <Icon className="h-5 w-5" />
       </span>
-      <span className="minimal-more-label text-center text-[10.5px] font-semibold leading-tight">
+      {/*
+        U2-E11 — o rótulo NÃO pode depender de quanto uma fonte específica mede.
+        A célula do grid-cols-4 é ~78px; sem largura própria o span cresce até o
+        max-content da palavra e uma palavra longa (Recebimentos/Recorrentes/
+        Planejador) transborda por poucos px — invisível no macOS, +2px no Linux
+        do CI (`sw:80 cw:78`). `w-full` prende o span à célula e `break-words`
+        quebra a palavra dentro dela: a MESMA folga existe com uma fonte 3% mais
+        larga, porque a palavra passa a quebrar em vez de vazar. E-03 (1 linha) é
+        do DOCK; o Mais não exige linha única (E-04 só mede 44px e ≥11px).
+      */}
+      <span className="minimal-more-label w-full break-words text-center text-[11px] font-semibold leading-tight">
         {label}
       </span>
     </Link>
@@ -56,6 +70,7 @@ export function MaisSheet({
   project,
   basePath,
   pathname,
+  search = "",
   secondary,
   isAdmin,
   canSeeBudgetHistory,
@@ -64,6 +79,15 @@ export function MaisSheet({
   onLogout,
 }: MaisSheetProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
+
+  // Mesma taxonomia do dock e do rail (§4.d): o Mais lista o COMPLEMENTO do
+  // dock agrupado por NAV_GROUPS. Grupos vazios não são emitidos (buildNavGroups
+  // já garante). Vocabulário único, três superfícies.
+  const navGroups = useMemo(
+    () => buildNavGroups(project.type as ProjectType, secondary),
+    [project.type, secondary],
+  );
+  const showGroupLabels = navGroups.length > 1;
 
   useEffect(() => {
     if (!open) return;
@@ -106,6 +130,29 @@ export function MaisSheet({
 
   if (!open) return null;
 
+  /**
+   * `pathHref` (sem query) governa o estado ativo; `linkHref` (com `?mes`) é o
+   * destino. `leavesProject` corta o contexto para destinos fora do projeto
+   * (`/admin/users`, `/settings`) — levar `?mes` para lá é lixo.
+   */
+  function tile(
+    pathHref: string,
+    label: string,
+    Icon: ReturnType<typeof navIcon>,
+    options?: { leavesProject?: boolean; testId?: string },
+  ) {
+    return (
+      <GridTile
+        key={pathHref}
+        href={buildNavHref(pathHref, search, options)}
+        label={label}
+        Icon={Icon}
+        isActive={isPathActive(pathname, pathHref)}
+        testId={options?.testId}
+      />
+    );
+  }
+
   return (
     <>
       <div
@@ -118,6 +165,7 @@ export function MaisSheet({
         role="dialog"
         aria-modal="true"
         aria-labelledby="minimal-more-title"
+        data-overlay="mais"
         className="minimal-more-sheet fixed inset-x-0 bottom-0 z-50 rounded-t-[26px] md:hidden"
       >
         <div className="flex justify-center pt-2.5">
@@ -147,37 +195,45 @@ export function MaisSheet({
             <X className="h-5 w-5" />
           </button>
         </div>
-        <div className="max-h-[52dvh] overflow-y-auto px-4 pb-3 pt-1">
+        <div className="max-h-[52dvh] space-y-4 overflow-y-auto px-4 pb-3 pt-1">
+          {navGroups.map((group) => (
+            <section
+              key={group.id}
+              role="group"
+              aria-label={group.label}
+              data-nav-group={group.id}
+              data-nav-tier={group.tier}
+            >
+              {showGroupLabels && (
+                <p className="px-1.5 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-darc-velvet/50">
+                  {group.label}
+                </p>
+              )}
+              <div className="grid grid-cols-4 gap-2.5">
+                {group.items.map((item) =>
+                  tile(
+                    `${basePath}/${item.slug}`,
+                    item.label,
+                    navIcon(item.iconName),
+                  ),
+                )}
+              </div>
+            </section>
+          ))}
+
+          {/*
+            Cluster utilitário — paridade com o rodapé do rail (D8): Apoio é um
+            destino de apoio do projeto (não um módulo de nav), presente em toda
+            superfície. Histórico de Budget e Usuários seguem seus gates.
+          */}
           <div className="grid grid-cols-4 gap-2.5">
-            {secondary.map((item) => {
-              const fullHref = `${basePath}/${item.slug}`;
-              return (
-                <GridTile
-                  key={item.slug}
-                  href={fullHref}
-                  label={item.label}
-                  Icon={navIcon(item.iconName)}
-                  isActive={isPathActive(pathname, fullHref)}
-                />
-              );
-            })}
-            {canSeeBudgetHistory && (
-              <GridTile
-                href={`${basePath}/budget-allocation`}
-                label="Histórico de Budget"
-                Icon={Archive}
-                isActive={isPathActive(pathname, `${basePath}/budget-allocation`)}
-                testId="mais-budget-history"
-              />
-            )}
-            {isAdmin && (
-              <GridTile
-                href="/admin/users"
-                label="Usuários"
-                Icon={Users}
-                isActive={isPathActive(pathname, "/admin/users")}
-              />
-            )}
+            {tile(`${basePath}/apoio`, "Apoio", Compass)}
+            {canSeeBudgetHistory &&
+              tile(`${basePath}/budget-allocation`, "Histórico de Budget", Archive, {
+                testId: "mais-budget-history",
+              })}
+            {isAdmin &&
+              tile("/admin/users", "Usuários", Users, { leavesProject: true })}
           </div>
         </div>
         <div className="minimal-more-footer space-y-2 border-t border-darc-linen px-4 pb-5 pt-2 safe-pb">

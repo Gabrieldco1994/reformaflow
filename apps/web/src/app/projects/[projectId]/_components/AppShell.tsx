@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { ProjectProvider } from '@/contexts/project-context';
@@ -38,8 +38,56 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     projectLoad.projectId === projectId ? projectLoad : null;
   const project = currentProjectLoad?.project ?? null;
   const loading = currentProjectLoad?.loading ?? true;
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [launchOpen, setLaunchOpen] = useState(false);
+  // D4 — um único overlay ativo por vez. Dois booleans independentes deixavam
+  // Mais e Lançar coexistirem (o deep-link `?launch=1` podia abrir por cima do
+  // Mais). O enum torna a exclusão mútua estrutural, não uma convenção frágil.
+  const [overlay, setOverlay] = useState<"mais" | "launch" | null>(null);
+  /**
+   * U2-E09 — abrir um overlay empilha UMA entrada de histórico para que o gesto
+   * / botão "voltar" do navegador FECHE o overlay em vez de sair da rota (hoje
+   * `back` com o Mais aberto navega para fora e o overlay some junto — o teste
+   * mede `about:blank`). Fechar por QUALQUER via (backdrop, botão, toque no
+   * dock) consome a mesma entrada, então o overlay nunca fica com mais de um
+   * nível de histórico. Não é a a11y de diálogo do launch (Escape/focus-trap),
+   * que continua na #522 — isto é ciclo de vida do overlay no shell.
+   */
+  const overlayPushedRef = useRef(false);
+  const openOverlay = useCallback((kind: "mais" | "launch") => {
+    if (typeof window !== "undefined" && !overlayPushedRef.current) {
+      window.history.pushState({ rfOverlay: true }, "");
+      overlayPushedRef.current = true;
+    }
+    setOverlay(kind);
+  }, []);
+  const closeOverlay = useCallback(() => {
+    if (typeof window !== "undefined" && overlayPushedRef.current) {
+      overlayPushedRef.current = false;
+      window.history.back(); // dispara popstate -> setOverlay(null)
+    } else {
+      setOverlay(null);
+    }
+  }, []);
+  useEffect(() => {
+    function handlePopState() {
+      overlayPushedRef.current = false;
+      setOverlay(null);
+    }
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+  // U2-P17 — Escape fecha o overlay de lançamento. É o MESMO ciclo de vida de
+  // shell do "voltar" do E09 (reusa closeOverlay), não a a11y de diálogo do
+  // launch (role/aria-modal/focus-trap), que segue na #522. Escopo em 'launch':
+  // o Mais já trata o próprio Escape internamente (MaisSheet), então cobrir os
+  // dois aqui duplicaria o fechamento.
+  useEffect(() => {
+    if (overlay !== "launch") return;
+    function handleKey(event: KeyboardEvent) {
+      if (event.key === "Escape") closeOverlay();
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [overlay, closeOverlay]);
   const { user, isAdmin, hasModule, hasProjectType, hasProjectAccess, logout, loading: authLoading } = useAuth();
 
   useEffect(() => {
@@ -70,8 +118,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [projectId, router]);
 
   useEffect(() => {
-    setMobileOpen(false);
-    setLaunchOpen(false);
+    overlayPushedRef.current = false;
+    setOverlay(null);
   }, [pathname, projectId]);
 
   const canAccessProject = Boolean(
@@ -130,7 +178,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!canLaunch) return;
     if (searchParams.get('launch') !== '1') return;
-    setLaunchOpen(true);
+    setOverlay('launch');
   }, [canLaunch, searchParams]);
 
   if (authLoading || loading || !project || !canAccessProject) {
@@ -151,6 +199,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   const basePath = `/projects/${projectId}`;
+  /**
+   * U2-P14/P15/P16 — o href do shell (dock, Mais, rail) preserva `?mes`. A fonte
+   * do contexto NÃO pode ser só `useSearchParams()`: esse espelho popula um tick
+   * DEPOIS da hidratação, e como o dock só renderiza após o fetch de projeto
+   * (mockado, quase síncrono nos e2e) ele pode nascer com o espelho ainda vazio.
+   * O clique então pega `?mes` vazio → href sem mês. Local ganha a corrida e o
+   * CI (thread mais lenta) perde: determinístico por ambiente — por isso passou
+   * 36/36 aqui e caiu no runner. Não é `waitFor` empurrando o sintoma: a causa é
+   * o href derivar de um espelho que atrasa. `window.location.search` é a URL
+   * VIVA do browser, e este ponto já é 100% cliente (passou o portão de loading;
+   * o dock nunca existe no HTML de SSR), então não há descasamento de hidratação.
+   * `useSearchParams()` segue como gatilho de reatividade nas navegações de shell.
+   */
+  const search =
+    searchParams.toString() ||
+    (typeof window !== "undefined" ? window.location.search : "");
   const resolvedProjectType = project.type as ProjectType;
   const { primary, secondary } = getMobilePrimary(project.type, visibleNav);
   const hasMoreSheet = secondary.length > 0 || isAdmin || Boolean(user?.name);
@@ -179,19 +243,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <MobileHeader
           project={project}
           hasMoreSheet={hasMoreSheet}
-          onOpenMais={() => setMobileOpen(true)}
+          maisCount={secondary.length}
+          onOpenMais={() => openOverlay('mais')}
         />
 
         <MaisSheet
-          open={mobileOpen}
+          open={overlay === 'mais'}
           project={project}
           basePath={basePath}
           pathname={pathname}
+          search={search}
           secondary={secondary}
           isAdmin={isAdmin}
           canSeeBudgetHistory={canSeeBudgetHistory}
           userName={user?.name}
-          onClose={() => setMobileOpen(false)}
+          onClose={closeOverlay}
           onLogout={handleLogout}
         />
 
@@ -199,6 +265,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           project={project}
           basePath={basePath}
           pathname={pathname}
+          search={search}
           visibleNav={visibleNav}
           isAdmin={isAdmin}
           canSeeBudgetHistory={canSeeBudgetHistory}
@@ -213,18 +280,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <MobileTabBar
           basePath={basePath}
           pathname={pathname}
+          search={search}
           projectType={resolvedProjectType}
           primary={primary}
           canLaunch={canLaunch}
-          onOpenLaunch={() => setLaunchOpen(true)}
+          onOpenLaunch={() => openOverlay('launch')}
         />
 
         {supportsMobileCockpit && canLaunch && (
           <div className="md:hidden">
             <MobileLaunchSheetContainer
               projectId={project.id}
-              open={launchOpen}
-              onClose={() => setLaunchOpen(false)}
+              open={overlay === 'launch'}
+              onClose={closeOverlay}
             />
           </div>
         )}

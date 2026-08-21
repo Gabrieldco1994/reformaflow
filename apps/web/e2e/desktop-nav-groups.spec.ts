@@ -99,7 +99,18 @@ const PRIMARY_TARGETS = [
   { group: 'hoje', selector: `[data-nav-group="hoje"] a:first-of-type` },
   { group: 'movimentacoes', selector: `[data-nav-group="movimentacoes"] a:first-of-type` },
   { group: 'planejamento', selector: `[data-nav-group="planejamento"] a:first-of-type` },
-  { group: 'projetos', selector: `a[data-nav-group="projetos"]` },
+  // Escopado ao rail (`.minimal-sidebar`) DE PROPÓSITO. O U2 passou a emitir
+  // `data-nav-group="projetos"` também no `MobileHeader` (âncora `/projects`
+  // legítima na sua superfície, `md:hidden` mas presente no DOM em desktop).
+  // O contrato do U1 nunca foi "único na página" — era "Projetos é âncora, não
+  // vira quarto item da lista rolável". Isso continua valendo. O seletor cru
+  // `a[data-nav-group="projetos"]` casava 1 só porque o header ainda não tinha
+  // o marcador; a unicidade global era efeito colateral, não promessa. `:visible`
+  // não serve aqui — `measureUnscrolled`/`expectReachable` usam `querySelector`
+  // nativo. `.minimal-sidebar` funciona em nativo e locator (é o que a Lane B
+  // já usa no E14). Cf. o bloco `:visible` do próprio autor no teste de unicidade
+  // ("o MobileHeader também tem um /projects"), que já tratava esse mesmo caso.
+  { group: 'projetos', selector: `.minimal-sidebar a[data-nav-group="projetos"]` },
 ] as const;
 
 function json(body: unknown) {
@@ -484,7 +495,12 @@ test.describe('U1 #450 — navegação desktop agrupada', () => {
     await mockApi(page, 'ADMIN', baseURL!);
     await page.goto(`/projects/${PERSONAL_ID}/monthly`);
 
-    const projetos = page.locator('a[data-nav-group="projetos"]');
+    // Escopado ao rail: "único NO RAIL", não "único na página". O `MobileHeader`
+    // tem uma âncora `/projects` própria (`md:hidden`, no DOM), então o seletor
+    // cru conta 2 em desktop. A promessa medida aqui é que Projetos é destino
+    // ANCORADO do rail e não item de grupo — segue garantida no bloco `:visible`
+    // logo abaixo, que o próprio autor já escreveu para este mesmo caso.
+    const projetos = page.locator('.minimal-sidebar a[data-nav-group="projetos"]');
     await expect(projetos).toHaveCount(1);
     await expect(projetos).toHaveAttribute('href', '/projects');
     await expect(projetos).toHaveAttribute('aria-label', 'Projetos');
@@ -498,7 +514,7 @@ test.describe('U1 #450 — navegação desktop agrupada', () => {
     await expect(page.locator(`${SCROLLER} a[href="/projects"]`)).toHaveCount(0);
 
     // Ancorado = alcançável sem depender de rolagem alguma.
-    const measurement = await measureUnscrolled(page, 'a[data-nav-group="projetos"]', SCROLLER);
+    const measurement = await measureUnscrolled(page, '.minimal-sidebar a[data-nav-group="projetos"]', SCROLLER);
     expect(measurement.found).toBe(true);
     if (!measurement.found) return;
     expect(measurement.inScroller).toBe(false);

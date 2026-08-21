@@ -15,7 +15,7 @@ import { Plus } from 'lucide-react';
 export function ExpenseMobileFab({ activeTab, onClick }: { activeTab: 'despesas' | 'compraveis'; onClick: () => void }) {
   if (activeTab === 'compraveis') return null;
   return (
-    <button type="button" onClick={onClick} aria-label="Nova despesa" data-journey-action="expense.new"
+    <button type="button" onClick={onClick} aria-label="Nova despesa" data-journey-action="expense.new" data-launcher="true"
       className="md:hidden fixed left-4 bottom-[calc(5rem+var(--journey-panel-h,0px)+env(safe-area-inset-bottom))] z-30 flex h-14 w-14 min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-orange-500 text-white shadow-darc-hero active:scale-95 transition-transform">
       <Plus className="h-6 w-6" />
     </button>

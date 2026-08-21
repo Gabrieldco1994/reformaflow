@@ -64,6 +64,7 @@ export function MobileLaunchModeSheet({ open, onClose, onPick, voiceSupported = 
       />
       <section
         data-mobile-sheet="launch-mode"
+        data-overlay="launch"
         className="pessoal-minimal-launch-sheet fixed inset-x-0 bottom-0 z-50 max-h-[96dvh] overflow-y-auto rounded-t-[28px] border border-darc-linen bg-lifeone-surface px-4 pb-6 pt-3 lg:hidden"
       >
         <div className="mb-1 flex items-center justify-between">

@@ -1,9 +1,14 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import { ProjectType, type NavModule } from "@reformaflow/domain";
+import {
+  getProjectNavModules,
+  ProjectType,
+  type NavModule,
+} from "@reformaflow/domain";
 import { describe, expect, it, vi } from "vitest";
 import { MaisSheet } from "./MaisSheet";
+import { getMobilePrimary } from "./mobile-nav";
 
 type LinkProps = React.AnchorHTMLAttributes<HTMLAnchorElement> & {
   href: string;
@@ -20,9 +25,9 @@ vi.mock("next/link", () => ({
 }));
 
 const basePath = "/projects/project-1";
-// `group` é obrigatório em `NavModule` desde U1 (#450): PLANTAS é um tipo de
-// lista única, logo todas as entradas são "modulos" — igual ao PROJECT_NAV.
-const secondary: NavModule[] = [
+
+// PLANTAS é lista única (todas as entradas caem no grupo "modulos" → "Módulos").
+const plantasSecondary: NavModule[] = [
   {
     slug: "plants",
     label: "Minhas Plantas",
@@ -46,6 +51,11 @@ const secondary: NavModule[] = [
   },
 ];
 
+const pessoalSecondary = getMobilePrimary(
+  ProjectType.PESSOAL,
+  getProjectNavModules(ProjectType.PESSOAL),
+).secondary;
+
 const baseProps: React.ComponentProps<typeof MaisSheet> = {
   open: true,
   project: {
@@ -55,7 +65,8 @@ const baseProps: React.ComponentProps<typeof MaisSheet> = {
   },
   basePath,
   pathname: basePath + "/plants-ai/diagnosis",
-  secondary,
+  search: "",
+  secondary: plantasSecondary,
   isAdmin: false,
   canSeeBudgetHistory: false,
   onClose: vi.fn(),
@@ -63,10 +74,42 @@ const baseProps: React.ComponentProps<typeof MaisSheet> = {
 };
 
 describe("MaisSheet", () => {
-  it("preserves supplied order and marks only the exact owning route active", () => {
+  it("is a modal dialog tagged data-overlay=mais", () => {
+    render(<MaisSheet {...baseProps} />);
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveAttribute("data-overlay", "mais");
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+  });
+
+  it("groups the complement of the dock by NAV_GROUPS, mirroring dock+rail labels", () => {
+    render(
+      <MaisSheet
+        {...baseProps}
+        project={{ id: "project-1", name: "Finanças", type: ProjectType.PESSOAL }}
+        secondary={pessoalSecondary}
+      />,
+    );
+
+    // Mesma taxonomia do dock e do rail: seções rotuladas por NAV_GROUPS.
+    const movimentacoes = screen.getByRole("group", { name: "Movimentações" });
+    expect(movimentacoes).toHaveAttribute("data-nav-group", "movimentacoes");
+    expect(
+      within(movimentacoes).getByRole("link", { name: "Despesas" }),
+    ).toHaveAttribute("href", basePath + "/expenses");
+
+    // D1: dre/neutros/planning/cash-flow voltaram — não somem mais do Mais.
+    expect(screen.getByRole("group", { name: "Resultado" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Auditoria" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "DRE" }),
+    ).toBeInTheDocument();
+  });
+
+  it("preserves supplied order within a single group and marks only the exact owning route active", () => {
     const { rerender } = render(<MaisSheet {...baseProps} />);
 
-    const links = screen.getAllByRole("link");
+    const group = screen.getByRole("group", { name: "Módulos" });
+    const links = within(group).getAllByRole("link");
     expect(
       links.map((link) => [
         link.textContent?.trim(),
@@ -97,6 +140,36 @@ describe("MaisSheet", () => {
     ).not.toHaveAttribute("aria-current");
   });
 
+  it("renders the Apoio destination (rail parity, D8)", () => {
+    render(<MaisSheet {...baseProps} />);
+    expect(screen.getByRole("link", { name: "Apoio" })).toHaveAttribute(
+      "href",
+      basePath + "/apoio",
+    );
+  });
+
+  it("preserves ?mes on module and Apoio hrefs while keeping active state lit (E-7)", () => {
+    render(
+      <MaisSheet
+        {...baseProps}
+        pathname={basePath + "/plants-ai"}
+        search="mes=2026-03"
+      />,
+    );
+
+    const diagnostico = screen.getByRole("link", { name: "Diagnóstico IA" });
+    expect(diagnostico).toHaveAttribute(
+      "href",
+      basePath + "/plants-ai?mes=2026-03",
+    );
+    // pathHref (sem query) governa o ativo → não morre com ?mes.
+    expect(diagnostico).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Apoio" })).toHaveAttribute(
+      "href",
+      basePath + "/apoio?mes=2026-03",
+    );
+  });
+
   it("is absent and untabbable while closed", async () => {
     const user = userEvent.setup();
     render(<MaisSheet {...baseProps} open={false} />);
@@ -118,11 +191,7 @@ describe("MaisSheet", () => {
           <button type="button" onClick={() => setOpen(true)}>
             Abrir Mais
           </button>
-          <MaisSheet
-            {...baseProps}
-            open={open}
-            onClose={() => setOpen(false)}
-          />
+          <MaisSheet {...baseProps} open={open} onClose={() => setOpen(false)} />
         </>
       );
     }
@@ -133,7 +202,9 @@ describe("MaisSheet", () => {
 
     const dialog = screen.getByRole("dialog");
     expect(dialog).toHaveAttribute("aria-modal", "true");
-    expect(dialog).toContainElement(screen.getByRole("button", { name: "Fechar" }));
+    expect(dialog).toContainElement(
+      screen.getByRole("button", { name: "Fechar" }),
+    );
 
     await user.keyboard("{Escape}");
 
@@ -151,6 +222,7 @@ describe("MaisSheet", () => {
       <MaisSheet
         {...baseProps}
         project={{ id: "project-1", name: "Finanças", type: ProjectType.PESSOAL }}
+        secondary={pessoalSecondary}
         isAdmin
         canSeeBudgetHistory
       />,
@@ -166,6 +238,7 @@ describe("MaisSheet", () => {
       <MaisSheet
         {...baseProps}
         project={{ id: "project-1", name: "Finanças", type: ProjectType.PESSOAL }}
+        secondary={pessoalSecondary}
         isAdmin
         canSeeBudgetHistory={false}
       />,

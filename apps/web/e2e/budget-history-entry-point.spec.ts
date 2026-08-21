@@ -237,6 +237,17 @@ test.describe('#504 ponto de entrada do histórico congelado de budget', () => {
     const tile = page.getByTestId('mais-budget-history');
     await expect(tile).toBeVisible();
 
+    // O menu "Mais" passou a ROLAR: o reagrupamento do U2/#451 (rótulos de grupo
+    // + espaçamento + o tile "Apoio") empurrou este item abaixo da dobra do
+    // `max-h-[52dvh]`. O contrato do #504 é ALCANÇABILIDADE — "o admin CHEGA ao
+    // histórico" —, não POSIÇÃO acima da dobra: num menu que só cresce, exigir a
+    // dobra quebra o teste a cada item novo e a correção vira corrida. Chegar
+    // rolando é chegar. Protocolo do U2-E04 (mobile-shell-u2:228): rola o scroller
+    // real e mede DEPOIS — a asserção segue ESTRITA (44px + dentro da viewport +
+    // recebe o clique), só que agora após a rolagem, provando a alcançabilidade.
+    // Não afrouxa: se o item existisse no DOM mas não chegasse à tela nem rolando,
+    // `insideViewport`/`hitsItself` continuariam reprovando.
+    await tile.scrollIntoViewIfNeeded();
     await waitForStableRect(page, '[data-testid="mais-budget-history"]');
     expectRealClickableTarget(
       await measureEntryPoint(page, '[data-testid="mais-budget-history"]'),

@@ -2,7 +2,7 @@
 
 import { hasFeature, type ProjectType } from '@reformaflow/domain';
 import { Suspense, useEffect } from 'react';
-import { useOptionalAuth } from '@/contexts/auth-context';
+import { useOptionalAuth, type ModuleSlug } from '@/contexts/auth-context';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import {
@@ -59,8 +59,12 @@ function pickProjectForScreen(
   return fromLast ?? projects[0];
 }
 
-function resolveTargetPath(project: Project, screen: string | null): string {
-  const homePath = getProjectHomePath(project.id, project.type);
+function resolveTargetPath(
+  project: Project,
+  screen: string | null,
+  canSeeModule?: (module: string) => boolean,
+): string {
+  const homePath = getProjectHomePath(project.id, project.type, canSeeModule);
 
   switch (screen) {
     case 'despesas':
@@ -115,7 +119,13 @@ function AppEntryContent() {
         const lastProjectId = window.localStorage.getItem('rf_last_project_id');
         const chosen = pickProjectForScreen(visibleProjects, screen, lastProjectId);
 
-        router.replace(resolveTargetPath(chosen, screen));
+        // E-5: `resolveTargetPath` é função de módulo (sem hooks). O predicado
+        // de permissão entra por PARÂMETRO; sem auth → `undefined` → caso 2
+        // (comportamento inalterado). `auth` já está nas deps do efeito.
+        const canSeeModule = auth
+          ? (module: string) => auth.hasModule(module as ModuleSlug)
+          : undefined;
+        router.replace(resolveTargetPath(chosen, screen, canSeeModule));
       } catch {
         if (!cancelled) router.replace('/projects');
       }

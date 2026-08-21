@@ -362,6 +362,7 @@ export default function SchedulePage() {
           type="button"
           onClick={() => setShowAddTask(true)}
           aria-label="Nova tarefa"
+          data-launcher="true"
           className="md:hidden fixed bottom-20 right-4 z-40 w-14 h-14 rounded-full bg-darc-red-bright text-white shadow-darc-med flex items-center justify-center hover:bg-darc-red-pastel active:scale-95 transition-all"
         >
           <Plus className="w-6 h-6" />

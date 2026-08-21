@@ -1,6 +1,7 @@
 import type { ProjectType } from '@reformaflow/domain';
 import { getExpenseOptions } from '../_types';
 import { FORMA_PAGAMENTO_OPTIONS } from '@/lib/expense-options';
+import { MONTH_KEY_RE } from '../../_lib/nav-href';
 import type { ExpenseViewMode } from '../_components/ExpenseViewToggle';
 
 export interface ExpenseQueryState {
@@ -31,7 +32,9 @@ export const EXPENSE_QUERY_KEYS = [
 ] as const satisfies readonly (keyof ExpenseQueryState)[];
 
 const COMMON_VIEWS: ExpenseViewMode[] = ['category', 'month', 'general'];
-const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
+// Fonte única da regex de mês: `nav-href.ts` (MONTH_KEY_RE). O shell valida
+// `?mes=` com a mesma regra que a tela de expenses valida `period`.
+const MONTH = MONTH_KEY_RE;
 const ORIGIN = /^(?:card|account|CARTAO|EXTRATO):[^:]+$/;
 
 function validView(value: string | null | undefined, personal: boolean): ExpenseViewMode | null {
@@ -67,7 +70,10 @@ export function decodeExpenseQuery(params: URLSearchParams, options: ExpenseQuer
     formaPagamento: formas.has(formaPagamento) ? formaPagamento : '',
     status: status === 'PLANEJADO' || status === 'PAGO' ? status : '',
     view,
-    period: period(params.get('period'), personal),
+    // U2: `?mes=` (contexto compartilhado do shell) cai no `period` quando este
+    // está ausente. `period` explícito (inclusive `ALL`) vence; `mes` só
+    // contribui um mês válido e nunca vaza para não-PESSOAL (month() gateia).
+    period: period(params.get('period'), personal) || month(params.get('mes'), personal),
     rangeStart: month(params.get('rangeStart'), personal),
     rangeEnd: month(params.get('rangeEnd'), personal),
     origin: personal && ORIGIN.test(params.get('origin') ?? '') ? params.get('origin')! : '',

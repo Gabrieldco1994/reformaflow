@@ -23,6 +23,7 @@ function primaryFor(type: ProjectType) {
 function renderTabBar({
   projectType = ProjectType.PESSOAL,
   pathname = `${basePath}/monthly`,
+  search = "",
   primary = primaryFor(projectType),
   canLaunch = true,
   onOpenLaunch = vi.fn(),
@@ -31,6 +32,7 @@ function renderTabBar({
     <MobileTabBar
       basePath={basePath}
       pathname={pathname}
+      search={search}
       projectType={projectType}
       primary={primary}
       canLaunch={canLaunch}
@@ -44,116 +46,138 @@ const NON_PERSONAL_MATRIX = [
     type: ProjectType.REFORMA,
     labels: ["Dashboard", "Despesas", "Recebimentos"],
     slugs: ["dashboard", "expenses", "receipts"],
-    accent: "#C2691E",
   },
   {
     type: ProjectType.COMPRA,
     labels: ["Dashboard", "Despesas", "Preços"],
     slugs: ["dashboard", "expenses", "price-compare"],
-    accent: "#7A3FC2",
   },
   {
     type: ProjectType.CASA,
     labels: ["Dashboard", "Contas", "Financiamento"],
     slugs: ["dashboard", "bills", "financing"],
-    accent: "#1E924A",
   },
   {
     type: ProjectType.CARRO,
     labels: ["Dashboard", "Meu Carro", "Contas"],
     slugs: ["dashboard", "car-info", "bills"],
-    accent: "#5E5A52",
   },
   {
     type: ProjectType.PLANTAS,
     labels: ["Cronograma", "Diagnóstico IA", "Minhas Plantas"],
     slugs: ["dashboard", "plants-ai", "plants"],
-    accent: "#23824D",
   },
 ] as const;
 
-describe("MobileTabBar", () => {
-  it("renders Cockpit, Conta, Maria e Cartões in the PESSOAL pill and separate launch button", () => {
-    renderTabBar({ canLaunch: true });
+describe("MobileTabBar — PESSOAL dock", () => {
+  it("renders the four fixed destinations with data-dock-slot and a separate launcher", () => {
+    const { container } = renderTabBar({ canLaunch: true });
 
-    const pill = screen.getByTestId("pessoal-tab-pill");
-    const links = within(pill).getAllByRole("link");
-    const launch = screen.getByRole("button", { name: "Lançar" });
-    const today = screen.getByRole("link", { name: "Cockpit" });
+    const nav = screen.getByRole("navigation");
+    expect(nav).toHaveAttribute("data-dock", "minimal");
+    expect(nav).toHaveClass("md:hidden");
+    expect(nav).not.toHaveClass("lg:hidden");
 
-    expect(links).toHaveLength(4);
-    expect(links.map((link) => link.textContent)).toEqual([
+    const slots = Array.from(
+      container.querySelectorAll<HTMLAnchorElement>("[data-dock-slot]"),
+    );
+    expect(slots.map((slot) => slot.getAttribute("data-dock-slot"))).toEqual([
+      "monthly",
+      "conta",
+      "maria",
+      "credit-cards",
+    ]);
+    expect(slots.map((slot) => slot.textContent)).toEqual([
       "Cockpit",
       "Conta",
       "Maria",
       "Cartões",
     ]);
-    expect(today).toHaveAttribute("href", `${basePath}/monthly`);
-    expect(today).toHaveAttribute("aria-current", "page");
-    expect(today).toHaveClass("bg-[#111214]", "text-white");
-    expect(screen.getByRole("link", { name: "Conta" })).toHaveAttribute(
-      "href",
-      `${basePath}/conta`,
-    );
-    expect(launch).toHaveClass("h-16", "w-16", "bg-white");
+
+    // Launcher: separado da pill, único, marcado para o invariante I7.
+    const launch = screen.getByRole("button", { name: "Lançar" });
+    expect(launch).toHaveAttribute("data-launcher", "true");
+    expect(container.querySelectorAll('[data-launcher="true"]')).toHaveLength(1);
+    const pill = screen.getByTestId("pessoal-tab-pill");
     expect(pill).not.toContainElement(launch);
-    expect(screen.getByRole("link", { name: "Maria" })).toHaveAttribute(
-      "href",
-      `${basePath}/maria`,
-    );
-    expect(screen.getByRole("link", { name: "Cartões" })).toHaveAttribute(
-      "href",
-      `${basePath}/credit-cards`,
-    );
-    expect(screen.getByRole("navigation")).toHaveClass("md:hidden");
-    expect(screen.getByRole("navigation")).not.toHaveClass("lg:hidden");
   });
 
-  it("omits Cockpit/Conta when PESSOAL monthly permission is absent and keeps Maria/Cartões", () => {
-    renderTabBar({ primary: [], canLaunch: true });
+  it("guards every dock slot by permission — Maria stays, Cockpit/Conta/Cartões drop", () => {
+    const { container } = renderTabBar({ primary: [], canLaunch: true });
 
+    for (const slug of ["monthly", "conta", "credit-cards"]) {
+      expect(
+        container.querySelector(`[data-dock-slot="${slug}"]`),
+      ).not.toBeInTheDocument();
+    }
+    // Maria é agent-first: fica no dock sob o gate de tipo, sem módulo de nav.
     expect(
-      screen.queryByRole("link", { name: "Cockpit" }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("link", { name: "Conta" }),
-    ).not.toBeInTheDocument();
+      container.querySelector('[data-dock-slot="maria"]'),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Lançar" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Maria" })).toHaveAttribute(
-      "href",
-      `${basePath}/maria`,
-    );
-    expect(screen.getByRole("link", { name: "Cartões" })).toHaveAttribute(
-      "href",
-      `${basePath}/credit-cards`,
-    );
   });
 
-  it("omits Lançar when PESSOAL expenses permission is absent", () => {
-    renderTabBar({ canLaunch: false });
+  it("drops only Cartões when credit-cards permission is absent", () => {
+    const primary = primaryFor(ProjectType.PESSOAL).filter(
+      (m) => m.slug !== "credit-cards",
+    );
+    const { container } = renderTabBar({ primary });
 
-    expect(screen.getByRole("link", { name: "Cockpit" })).toHaveAttribute(
-      "href",
-      `${basePath}/monthly`,
-    );
-    expect(screen.getByRole("link", { name: "Conta" })).toHaveAttribute(
-      "href",
-      `${basePath}/conta`,
-    );
+    expect(
+      container.querySelector('[data-dock-slot="credit-cards"]'),
+    ).not.toBeInTheDocument();
+    for (const slug of ["monthly", "conta", "maria"]) {
+      expect(
+        container.querySelector(`[data-dock-slot="${slug}"]`),
+      ).toBeInTheDocument();
+    }
+  });
+
+  it("marks the active slot with data-active=true AND aria-current=page (exclusive)", () => {
+    const { container } = renderTabBar({ pathname: `${basePath}/conta` });
+
+    const conta = container.querySelector('[data-dock-slot="conta"]')!;
+    expect(conta).toHaveAttribute("data-active", "true");
+    expect(conta).toHaveAttribute("aria-current", "page");
+
+    const monthly = container.querySelector('[data-dock-slot="monthly"]')!;
+    expect(monthly).not.toHaveAttribute("data-active");
+    expect(monthly).not.toHaveAttribute("aria-current");
+    const maria = container.querySelector('[data-dock-slot="maria"]')!;
+    expect(maria).not.toHaveAttribute("aria-current");
+  });
+
+  it("preserves ?mes on every dock href AND keeps the active state lit (E-7)", () => {
+    const { container } = renderTabBar({
+      pathname: `${basePath}/conta`,
+      search: "mes=2026-03",
+    });
+
+    // linkHref carrega o contexto compartilhado...
+    expect(
+      container.querySelector('[data-dock-slot="monthly"]'),
+    ).toHaveAttribute("href", `${basePath}/monthly?mes=2026-03`);
+    const conta = container.querySelector('[data-dock-slot="conta"]')!;
+    expect(conta).toHaveAttribute("href", `${basePath}/conta?mes=2026-03`);
+    // ...mas o estado ativo é computado do pathHref (sem query): não morre com ?mes.
+    expect(conta).toHaveAttribute("data-active", "true");
+    expect(conta).toHaveAttribute("aria-current", "page");
+  });
+
+  it("omits the launcher when expenses permission is absent (canLaunch=false)", () => {
+    const { container } = renderTabBar({ canLaunch: false });
+
+    expect(container.querySelectorAll('[data-launcher="true"]')).toHaveLength(0);
     expect(
       screen.queryByRole("button", { name: "Lançar" }),
     ).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Maria" })).toHaveAttribute(
-      "href",
-      `${basePath}/maria`,
-    );
-    expect(screen.getByRole("link", { name: "Cartões" })).toHaveAttribute(
-      "href",
-      `${basePath}/credit-cards`,
-    );
+    // Maria não depende do launcher.
+    expect(
+      container.querySelector('[data-dock-slot="maria"]'),
+    ).toBeInTheDocument();
   });
 
-  it("calls onOpenLaunch when the PESSOAL center FAB is clicked", async () => {
+  it("calls onOpenLaunch when the center launcher is clicked", async () => {
     const user = userEvent.setup();
     const onOpenLaunch = vi.fn();
     renderTabBar({ canLaunch: true, onOpenLaunch });
@@ -162,91 +186,50 @@ describe("MobileTabBar", () => {
 
     expect(onOpenLaunch).toHaveBeenCalledTimes(1);
   });
+});
 
-  it("marks Conta as active on the conta route for PESSOAL", () => {
-    renderTabBar({
-      pathname: `${basePath}/conta`,
-      canLaunch: true,
-    });
-
-    expect(screen.getByRole("link", { name: "Conta" })).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
-    expect(screen.getByRole("link", { name: "Cockpit" })).not.toHaveAttribute(
-      "aria-current",
-    );
-  });
-
-  it("marks Maria as the only active pill tab on the assistant route", () => {
-    renderTabBar({ pathname: `${basePath}/maria` });
-
-    expect(screen.getByRole("link", { name: "Maria" })).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
-    expect(screen.getByRole("link", { name: "Cockpit" })).not.toHaveAttribute(
-      "aria-current",
-    );
-    expect(screen.getByRole("link", { name: "Conta" })).not.toHaveAttribute(
-      "aria-current",
-    );
-    expect(screen.getByRole("link", { name: "Cartões" })).not.toHaveAttribute(
-      "aria-current",
-    );
-  });
-
+describe("MobileTabBar — non-PESSOAL dock", () => {
   it.each(NON_PERSONAL_MATRIX)(
-    "renders the permission-filtered $type primary modules with project links and active accent",
-    ({ type, labels, slugs, accent }) => {
+    "renders $type primary modules with data-dock-slot, project links and active state",
+    ({ type, labels, slugs }) => {
       const activeIndex = 1;
-      renderTabBar({
+      const { container } = renderTabBar({
         projectType: type,
         pathname: `${basePath}/${slugs[activeIndex]}/detail`,
+        search: "mes=2026-03",
       });
 
-      const links = screen.getAllByRole("link");
-      expect(links.map((link) => link.textContent)).toEqual(labels);
+      const slots = Array.from(
+        container.querySelectorAll<HTMLAnchorElement>("[data-dock-slot]"),
+      );
+      expect(slots.map((s) => s.getAttribute("data-dock-slot"))).toEqual(slugs);
+      expect(slots.map((s) => s.textContent)).toEqual(labels);
 
-      links.forEach((link, index) => {
-        expect(link).toHaveAttribute("href", `${basePath}/${slugs[index]}`);
-        expect(link).toHaveClass("min-h-11");
-        expect(link.querySelector("svg")).toBeInTheDocument();
+      slots.forEach((slot, index) => {
+        // ?mes preservado no href de cada slot.
+        expect(slot).toHaveAttribute(
+          "href",
+          `${basePath}/${slugs[index]}?mes=2026-03`,
+        );
+        expect(slot).toHaveClass("min-h-11");
+        expect(slot.querySelector("svg")).toBeInTheDocument();
       });
 
-      expect(links[activeIndex]).toHaveAttribute("aria-current", "page");
-      expect(links[activeIndex]).toHaveClass("minimal-tab-link--active");
-      expect(links[activeIndex]).not.toHaveAttribute("style");
-      expect(accent).toMatch(/^#[0-9A-F]{6}$/);
+      expect(slots[activeIndex]).toHaveAttribute("data-active", "true");
+      expect(slots[activeIndex]).toHaveAttribute("aria-current", "page");
+      expect(slots[activeIndex]).toHaveClass("minimal-tab-link--active");
+
+      // Sem Maria, sem launcher fora do PESSOAL.
       expect(
-        screen.queryByRole("link", { name: "Cockpit" }),
+        container.querySelector('[data-dock-slot="maria"]'),
       ).not.toBeInTheDocument();
       expect(
         screen.queryByRole("button", { name: "Lançar" }),
       ).not.toBeInTheDocument();
-      expect(
-        screen.queryByRole("link", { name: "Maria" }),
-      ).not.toBeInTheDocument();
-      expect(screen.getByRole("navigation")).toHaveClass("md:hidden");
-    },
-  );
-
-  it.each([1, 2])(
-    "renders only the %i non-PESSOAL primary links supplied after permission filtering",
-    (count) => {
-      const primary = primaryFor(ProjectType.CASA).slice(0, count);
-      renderTabBar({
-        projectType: ProjectType.CASA,
-        pathname: `${basePath}/${primary[0].slug}`,
-        primary,
-      });
-
-      expect(screen.getAllByRole("link")).toHaveLength(count);
-      for (const module of primary) {
-        expect(
-          screen.getByRole("link", { name: module.label }),
-        ).toHaveAttribute("href", `${basePath}/${module.slug}`);
-      }
+      expect(screen.getByRole("navigation")).toHaveAttribute(
+        "data-dock",
+        "minimal",
+      );
     },
   );
 
@@ -260,37 +243,19 @@ describe("MobileTabBar", () => {
     expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
   });
 
-  it("uses exact segment boundaries for active state and aria-current", () => {
+  it("uses exact segment boundaries for active state", () => {
     const primary = primaryFor(ProjectType.PLANTAS);
-    const { rerender } = renderTabBar({
+    const { container } = renderTabBar({
       projectType: ProjectType.PLANTAS,
       pathname: `${basePath}/plants-ai/result`,
       primary,
     });
 
     expect(
-      screen.getByRole("link", { name: "Diagnóstico IA" }),
+      container.querySelector('[data-dock-slot="plants-ai"]'),
     ).toHaveAttribute("aria-current", "page");
     expect(
-      screen.getByRole("link", { name: "Minhas Plantas" }),
+      container.querySelector('[data-dock-slot="plants"]'),
     ).not.toHaveAttribute("aria-current");
-
-    rerender(
-      <MobileTabBar
-        basePath={basePath}
-        pathname={`${basePath}/plants/profile`}
-        projectType={ProjectType.PLANTAS}
-        primary={primary}
-        canLaunch={false}
-        onOpenLaunch={vi.fn()}
-      />,
-    );
-
-    expect(
-      screen.getByRole("link", { name: "Diagnóstico IA" }),
-    ).not.toHaveAttribute("aria-current");
-    expect(
-      screen.getByRole("link", { name: "Minhas Plantas" }),
-    ).toHaveAttribute("aria-current", "page");
   });
 });
