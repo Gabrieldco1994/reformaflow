@@ -122,6 +122,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setOverlay(null);
   }, [pathname, projectId]);
 
+  /**
+   * Marca o `<body>` enquanto o shell de projeto está montado.
+   *
+   * O shell é quem monta o dock mobile; o marcador liga a var
+   * `--rf-bottom-chrome` (ver `globals.css`) para que os flutuantes saiam de
+   * cima do dock — hoje o painel de jornada, que nascia na MESMA borda e, com
+   * z-70 contra z-30, roubava o hit-test das abas e do "Lançar".
+   *
+   * No `<body>` e não no shell porque o painel é montado pelos providers,
+   * irmão do shell. Fora do shell o atributo some e os consumidores caem em
+   * `0px`.
+   */
+  useEffect(() => {
+    document.body.setAttribute('data-rf-shell', 'project');
+    return () => document.body.removeAttribute('data-rf-shell');
+  }, []);
+
   const canAccessProject = Boolean(
     project && hasProjectType(project.type) && hasProjectAccess(project.id),
   );
