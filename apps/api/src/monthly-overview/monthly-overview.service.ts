@@ -280,6 +280,29 @@ export class MonthlyOverviewService {
       bankLast4: e.expense?.bankLast4 ?? null,
       isEspelho: isEspelho(e),
       expenseId: e.expenseId ?? null,
+      // ── V1 card fields (issue #452) ──────────────────────────────
+      kind: (e.tipo === 'DESPESA' ? 'expense' : 'receipt') as 'expense' | 'receipt',
+      origin: projectTypeById.get(e.projectId) ?? 'OUTROS',
+      originProjectId: e.projectId,
+      originProjectName: projectNameById.get(e.projectId) ?? '',
+      purpose: e.categoria ?? '',
+      purposeLabel: e.categoria
+        ? ExpenseTypeLabels[e.categoria as keyof typeof ExpenseTypeLabels] ?? e.categoria
+        : '',
+      amountCents: e.valor,
+      date: e.data instanceof Date ? e.data.toISOString() : String(e.data),
+      title: e.expense?.titulo ?? null,
+      supplier: e.expense?.fornecedor ?? null,
+      installment: e.parcela ?? null,
+      paymentForm: e.formaPagamento ?? null,
+      relationship: (e.expense?.cardLast4 || e.expense?.bankLast4 || e.receipt?.bankLast4)
+        ? {
+            cardLast4: e.expense?.cardLast4 ?? null,
+            bankLast4: e.expense?.bankLast4 ?? e.receipt?.bankLast4 ?? null,
+          }
+        : null,
+      hasEvidence: false,
+      actions: [] as Array<{ actionId: string }>,
     });
 
     // Todas as entries (todos os meses) para permitir navegação de mês no cockpit.

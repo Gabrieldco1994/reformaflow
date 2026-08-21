@@ -152,6 +152,8 @@ export interface DashboardData {
   byExpenseCategory: DashboardExpenseCategorySummary[];
 }
 
+export { type FinancialItemCardV1, assertFinancialItemCardV1Shape } from './financial-item-card-v1';
+
 export interface Attachment {
   id: string;
   entityType: string;
