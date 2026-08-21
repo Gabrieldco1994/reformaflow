@@ -301,4 +301,13 @@ describe('regressões travadas (não provam esta implementação)', () => {
     ]);
     expect(PROJECT_NAV[ProjectType.PESSOAL][0].slug).toBe('monthly');
   });
+
+  it('U5 — vocabulário unificado de planejamento: labels inequívocos', () => {
+    const bySlug = (s: string) =>
+      PROJECT_NAV[ProjectType.PESSOAL].find((m) => m.slug === s)!;
+
+    // module-navigator labels (U5 AC-1)
+    expect(bySlug('planning').label).toBe('Orçamento futuro');
+    expect(bySlug('planejador').label).toBe('Compras e cenários');
+  });
 });
