@@ -109,12 +109,28 @@ test.describe('U4-10 caso 1: sem módulo → /no-permission', () => {
   }
 });
 
-// ─── CASO 2 (cont.): SEM monthlyOverview o destino é o MESMO ───────────────
+// ─── CASO 2 (cont.): SEM monthlyOverview a rota colapsada NÃO RENDERIZA ────
 // Este describe ocupa o lugar do antigo "caso 3", que afirmava que este mesmo
 // perfil renderizava a página legada. O #529 matou esse estado. Mantive o
 // perfil idêntico (módulo da página SIM, `monthlyOverview` NÃO) de propósito:
-// é o único jeito de provar que a variável que ANTES decidia o destino agora
-// não decide nada. Cobre os QUATRO slugs — o teste antigo cobria só dois.
+// é o ÚNICO perfil que discrimina a mudança. Com `monthlyOverview` o destino
+// já era /conta antes e depois — um teste assim passaria verde mesmo se alguém
+// reintroduzisse `&& hasModule('monthlyOverview')`. Cobre os QUATRO slugs; o
+// teste antigo cobria dois.
+//
+// O QUE ESTE TESTE APRENDEU (medido, não suposto): a primeira versão exigia
+// aterrissagem em /conta e ficava verde isolada e VERMELHA na suíte cheia,
+// recebendo /no-permission. Não era flake: /conta É o hub, e o hub exige
+// `monthlyOverview` — que este perfil, por definição, não tem. Então a cadeia
+// real é /<slug> → /conta → /no-permission, e /conta é um PONTO DE PASSAGEM.
+// Sob carga o segundo salto assenta antes do meu poll. Eu estava ancorando um
+// transitório e chamando de destino.
+//
+// A propriedade do #529 não é "vai para /conta"; é "a rota colapsada não
+// renderiza mais a página legada, entrega ao hub e o hub decide". Por isso a
+// asserção forte é SAIR do slug (determinística, e o que quebra se o caso 3
+// voltar), e o destino assentado é registrado como /no-permission — que é a
+// consequência honesta de um perfil que o #529 tornou inexistente.
 const CONTENT_MARKER: Record<string, string> = {
   'bank-accounts': 'Nenhuma conta cadastrada',
   'credit-cards': 'Cartões de Crédito',
@@ -122,14 +138,23 @@ const CONTENT_MARKER: Record<string, string> = {
 
 test.describe('U4-10c sem monthlyOverview: o redirect ao hub é INCONDICIONAL', () => {
   for (const slug of ['expenses', 'receipts', 'credit-cards', 'bank-accounts']) {
-    test(`/${slug} sem monthlyOverview também vai para /conta`, async ({ page, baseURL }) => {
+    test(`/${slug} sem monthlyOverview não renderiza a rota colapsada`, async ({ page, baseURL }) => {
       const modules = ALL_MODULES.filter((m) => m !== 'monthlyOverview');
       await mockApi(page, baseURL!, { role: 'USER', modules });
       await page.goto(`/projects/${PESSOAL_ID}/${slug}`);
+      // A ASSERÇÃO DO #529: a rota colapsada deixa de ser destino. É ela que
+      // fica vermelha se `&& hasModule('monthlyOverview')` voltar à guarda —
+      // nesse caso o usuário PERMANECE aqui, com a página legada montada.
       await expect(
         page,
-        `#529: com o módulo, o destino não depende mais de monthlyOverview`,
-      ).toHaveURL(new RegExp(`/projects/${PESSOAL_ID}/conta`), { timeout: 10_000 });
+        `#529: /${slug} continuou sendo destino — o caso 3 voltou`,
+      ).not.toHaveURL(new RegExp(`/projects/${PESSOAL_ID}/${slug}`), { timeout: 10_000 });
+      // Destino ASSENTADO, medido: o hub exige `monthlyOverview`, então este
+      // perfil é repassado adiante. Ancorar /conta seria ancorar o transitório.
+      await expect(
+        page,
+        `destino assentado mudou — remedir a cadeia /${slug} → /conta → ?`,
+      ).toHaveURL(/\/no-permission/, { timeout: 10_000 });
       // Barreira: se a página legada voltar a montar, o teste fica VERMELHO
       // dizendo o que voltou — em vez de passar por a URL ter oscilado.
       const marker = CONTENT_MARKER[slug];
