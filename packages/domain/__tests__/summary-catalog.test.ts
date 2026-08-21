@@ -231,4 +231,15 @@ describe('summary-catalog', () => {
       expect(allSlugs.size).toBeGreaterThan(0);
     });
   });
+
+  it('U5 — vocabulário unificado: títulos de planning e planejador no catálogo', () => {
+    const planning = getCatalogItem(ProjectType.PESSOAL, 'planning')!;
+    const planejador = getCatalogItem(ProjectType.PESSOAL, 'planejador')!;
+    const cashFlow = getCatalogItem(ProjectType.PESSOAL, 'cash-flow')!;
+
+    expect(planning.title).toBe('Orçamento futuro');
+    expect(planejador.title).toBe('Compras e cenários');
+    // CTA no card cash-flow aponta para o planejador com label alinhado
+    expect(cashFlow.ctas.find((c) => c.href === 'planejador')?.label).toBe('Compras e cenários');
+  });
 });

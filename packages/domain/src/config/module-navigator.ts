@@ -109,8 +109,8 @@ export const PROJECT_NAV: Record<ProjectType, NavModule[]> = {
     // no signup, e quem já tem conta não teria 'recurrences' — sumiria do menu.
     { slug: 'recorrentes', label: 'Recorrentes', iconName: 'Repeat', module: 'expenses', group: 'planejamento' },
     { slug: 'metas', label: 'Metas', iconName: 'Target', module: 'expenses', group: 'planejamento' },
-    { slug: 'planning', label: 'Planning', iconName: 'CalendarClock', module: 'monthlyOverview', group: 'planejamento' },
-    { slug: 'planejador', label: 'Planejador', iconName: 'Calculator', module: 'monthlyOverview', group: 'planejamento' },
+    { slug: 'planning', label: 'Orçamento futuro', iconName: 'CalendarClock', module: 'monthlyOverview', group: 'planejamento' },
+    { slug: 'planejador', label: 'Compras e cenários', iconName: 'Calculator', module: 'monthlyOverview', group: 'planejamento' },
     // 'budget-allocation' saiu da descoberta em #449 (B2): virou histórico
     // administrativo somente leitura, alcançável apenas por deep-link de ADMIN.
     // Sem esta remoção o item continuaria no menu de todo mundo levando a 403.

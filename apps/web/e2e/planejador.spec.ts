@@ -170,12 +170,12 @@ async function openPlanejador(
     : "";
   await page.goto(`/projects/${projectId}/planejador${query}`);
   await expect(
-    page.getByRole("heading", { name: "Planejador de Compras" }),
+    page.getByRole("heading", { name: "Compras e cenários" }),
   ).toBeVisible();
   return mutations;
 }
 
-test.describe("Planejador de Compras", () => {
+test.describe("Compras e cenários", () => {
   test("J1: cria cenário, adiciona financiamento e o veredito recalcula ao trocar horizonte sem novo fetch", async ({
     page,
   }, testInfo) => {

@@ -69,7 +69,7 @@ export default function PlanningPage() {
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-darc-linen/60">
           Planejamento pessoal
         </p>
-        <h1 className="mt-1 text-2xl font-bold tracking-tight">Planning de despesas e recebimentos</h1>
+        <h1 className="mt-1 text-2xl font-bold tracking-tight">Orçamento futuro de despesas e recebimentos</h1>
         <p className="mt-1 text-sm text-darc-linen/70">
           Simule seu fluxo futuro para controlar saldos, antecipar risco de caixa e ajustar seu budget.
         </p>
