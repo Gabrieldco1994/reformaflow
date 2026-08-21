@@ -2,8 +2,6 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { MonthlyOverviewService } from './monthly-overview.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CardInvoiceSettlementService } from '../credit-card/card-invoice-settlement.service';
-import { assertFinancialItemCardV1Shape } from '@reformaflow/domain';
-
 /**
  * U3 — FinancialItemCardV1 contract tests for the enrich() path.
  * These validate that the V1 fields emitted by getOverview().entries
@@ -93,112 +91,8 @@ describe('MonthlyOverviewService — FinancialItemCardV1 contract', () => {
     expect(typeof entries[0].hasEvidence).toBe('boolean');
   });
 
-  // U3-12 — THE TRAP: imageUrl is product image, NOT evidence
-  it('U3-12 despesa COM imageUrl → hasEvidence === false', async () => {
-    const cfe = baseCfe({
-      expense: {
-        linkedExpenseId: null,
-        cardLast4: null,
-        bankLast4: null,
-        tipoDespesa: 'OUTROS',
-        titulo: null,
-        fornecedor: null,
-        imageUrl: 'https://example.com/product.jpg',
-      },
-    });
-    const entries = await getEntries([cfe]);
-    expect(entries[0].hasEvidence).toBe(false);
-  });
-
-  // U3-13
-  it('U3-13 imageUrl: "" → hasEvidence === false', async () => {
-    const cfe = baseCfe({
-      expense: {
-        linkedExpenseId: null,
-        cardLast4: null,
-        bankLast4: null,
-        tipoDespesa: 'OUTROS',
-        titulo: null,
-        fornecedor: null,
-        imageUrl: '',
-      },
-    });
-    const entries = await getEntries([cfe]);
-    expect(entries[0].hasEvidence).toBe(false);
-  });
-
-  // U3-14 — import metadata must not leak
-  it('U3-14 importId/fileName não vazam no payload', async () => {
-    const cfe = baseCfe({
-      expense: {
-        linkedExpenseId: null,
-        cardLast4: '9999',
-        bankLast4: null,
-        tipoDespesa: 'OUTROS',
-        titulo: null,
-        fornecedor: null,
-        importId: 'imp-nubank-1',
-      },
-    });
-    const entries = await getEntries([cfe]);
-    const serialized = JSON.stringify(entries[0]);
-    expect(serialized).not.toContain('imp-nubank-1');
-    expect(serialized).not.toMatch(/fileName|filePath|fileUrl/);
-    // Also validate full shape
-    assertFinancialItemCardV1Shape({
-      ...entries[0],
-      // enrich emits legacy fields too; pick only V1 for shape check
-      id: entries[0].id,
-      kind: entries[0].kind,
-      origin: entries[0].origin,
-      originProjectId: entries[0].originProjectId,
-      originProjectName: entries[0].originProjectName,
-      purpose: entries[0].purpose,
-      purposeLabel: entries[0].purposeLabel,
-      amountCents: entries[0].amountCents,
-      date: entries[0].date,
-      status: entries[0].status,
-      title: entries[0].title,
-      supplier: entries[0].supplier,
-      installment: entries[0].installment,
-      paymentForm: entries[0].paymentForm,
-      relationship: entries[0].relationship,
-      hasEvidence: entries[0].hasEvidence,
-      actions: entries[0].actions,
-      isEspelho: entries[0].isEspelho,
-      isNeutral: entries[0].isNeutral,
-    });
-  });
-
-  // U3-15 [CANARY]
-  it('U3-15 [CANARY] todas as entries → hasEvidence === false', async () => {
-    // Canário deliberado. Quando a H2 (#465) adicionar um produtor de evidência,
-    // este teste DEVE ficar VERMELHO. O vermelho é o sinal desejado: atualize a
-    // derivação no `enrich()` para refletir a nova verdade e então faça este teste
-    // afirmar os valores corretos. NÃO delete este teste — ele existe para impedir
-    // que `hasEvidence` minta em silêncio.
-    const cfes = [
-      baseCfe({ id: 'cfe-simple' }),
-      baseCfe({
-        id: 'cfe-image',
-        expense: {
-          linkedExpenseId: null, cardLast4: null, bankLast4: null,
-          tipoDespesa: 'OUTROS', titulo: null, fornecedor: null,
-          imageUrl: 'https://example.com/product.jpg',
-        },
-      }),
-      baseCfe({
-        id: 'cfe-import',
-        expense: {
-          linkedExpenseId: null, cardLast4: '1234', bankLast4: null,
-          tipoDespesa: 'OUTROS', titulo: null, fornecedor: null,
-          importId: 'imp-1',
-        },
-      }),
-    ];
-    const entries = await getEntries(cfes);
-    expect(entries.every((e: any) => e.hasEvidence === false)).toBe(true);
-  });
+  // U3-12, U3-13, U3-14, U3-15 → moved to integration spec
+  // (monthly-overview.financial-card-v1.integration.spec.ts)
 
   // U3-16
   it('U3-16 importId value não aparece no payload de despesa importada', async () => {
