@@ -818,22 +818,26 @@ test.describe('U2 shell mobile — preservação de mês', () => {
     await expect(page.locator('main')).not.toContainText(CURRENT_MONTH_LABEL);
   });
 
-  // U2-P15 — monthly → expenses pelo MAIS: o SHELL carrega `?mes` na URL. É só o
-  // que MINHA lane pode provar aqui: o tile do Mais leva o mês adiante (mes OU
-  // period). URL-ONLY por decisão do PO — a INTERPRETAÇÃO do mês pelo expenses
-  // MÓVEL é fatia própria (MobileExpensesScreen.tsx:68 faz
-  // useState(currentMonthKey()) e NÃO lê a URL; o fallback de 1 linha do spec é
-  // do decoder DESKTOP `period`). Por isso o `expenses`-móvel entra no DIAG P21.
-  test('375 — U2-P15 shell carrega o mês ao Mais (monthly → expenses), URL-only', async ({ page, baseURL }) => {
+  // U2-P15 — monthly → Mais: o SHELL carrega `?mes` na URL. É só o que MINHA
+  // lane pode provar aqui: o tile do Mais leva o mês adiante (mes OU period).
+  // URL-ONLY por decisão do PO — a INTERPRETAÇÃO do mês pelo destino é fatia
+  // própria (ver o DIAG P21, que declara `dre` entre os que ignoram `?mes`).
+  //
+  // U4 (#453): o tile era `expenses`, que saiu de `PROJECT_NAV[PESSOAL]` e
+  // portanto sumiu do Mais — o locator não achava nada. Trocado por `dre`, que
+  // continua no Mais. A propriedade ("o shell não dropa o mês ao navegar pelo
+  // Mais") é a mesma e o teste segue URL-only pelo mesmo motivo: `dre` também
+  // não lê a URL hoje, como o P21 declara.
+  test('375 — U2-P15 shell carrega o mês ao Mais (monthly → dre), URL-only', async ({ page, baseURL }) => {
     await bootMobile(page, baseURL!, { modules: MODULES.full });
     await page.goto(`/projects/${PESSOAL_ID}/monthly?mes=${TEST_MONTH}`);
     const overlay = await openMais(page);
-    const tile = overlay.locator('a[href*="/expenses"]');
-    await expect(tile, 'tile expenses ausente no Mais — Lane A ainda não marcou').toBeVisible();
+    const tile = overlay.locator('a[href*="/dre"]');
+    await expect(tile, 'tile dre ausente no Mais — Lane A ainda não marcou').toBeVisible();
     await tile.click();
     // contrato do shell (minha lane): o mês viaja na URL (mes OU period). A
-    // LEITURA pelo destino é fatia própria — ver o DIAG P21 `expenses`.
-    await expect(page, 'Mais dropou o mês (href sem mês)').toHaveURL(/\/expenses\?.*(mes|period)=2026-03/);
+    // LEITURA pelo destino é fatia própria — ver o DIAG P21 `dre`.
+    await expect(page, 'Mais dropou o mês (href sem mês)').toHaveURL(/\/dre\?.*(mes|period)=2026-03/);
   });
 
   // U2-P16 — 1280: mesma jornada no RAIL desktop (monthly → conta). O rail passa
@@ -924,13 +928,17 @@ test.describe('U2 shell mobile — travas e diagnóstico (2ª prioridade)', () =
     await bootMobile(page, baseURL!, { modules: MODULES.full });
     await page.goto(`/projects/${PESSOAL_ID}/monthly?mes=${TEST_MONTH}&focus=closingDay`);
     const overlay = await openMais(page);
-    const tile = overlay.locator('a[href*="/bank-accounts"]');
-    await expect(tile, 'tile bank-accounts ausente no Mais — Lane A ainda não marcou').toBeVisible();
+    // U4 (#453): o tile medido era `bank-accounts`, que saiu de
+    // `PROJECT_NAV[PESSOAL]` e sumiu do Mais. `cash-flow` o substitui — segue no
+    // Mais e serve igual, porque `buildNavHref` é agnóstico de tela: o que se
+    // mede aqui é o ALLOWLIST, não o destino.
+    const tile = overlay.locator('a[href*="/cash-flow"]');
+    await expect(tile, 'tile cash-flow ausente no Mais — Lane A ainda não marcou').toBeVisible();
     const href = (await tile.getAttribute('href')) ?? '';
     // Positivo: o mês (allowlist) VIAJA — senão o negativo passaria por acidente
     // num href que simplesmente descartou toda a query.
     expect(href, `tile não carregou o mês do allowlist: ${href}`).toMatch(
-      new RegExp(`/bank-accounts\\?.*mes=${TEST_MONTH}`),
+      new RegExp(`/cash-flow\\?.*mes=${TEST_MONTH}`),
     );
     // Negativo (o contrato): focus NÃO está no allowlist ⇒ buildNavHref o dropa.
     expect(href, `focus vazou para o tile (não está no allowlist): ${href}`).not.toMatch(/focus=/);
