@@ -1,11 +1,39 @@
 import { test, expect, type Page, type ViewportSize } from "@playwright/test";
 
-const projectId = "pessoal-test";
+/**
+ * ─── O QUE ESTE ARQUIVO DEIXOU DE COBRIR, E POR QUÊ (#453 / #529) ──────────
+ *
+ * Este arquivo tinha 3 testes de viewport móvel (360/390/402) que mediam o
+ * `MobileExpensesScreen`: os cartões "Gastei de verdade", "Saiu da conta",
+ * "Carteira · faturas espelham o banco", o chip "Todos", "Mostrar
+ * investimentos". Eles foram REMOVIDOS, não consertados.
+ *
+ * Motivo: `expenses/page.tsx` só monta o `MobileExpensesScreen` quando
+ * `projectType === 'PESSOAL'` (a linha `if (projectType !== 'PESSOAL') return
+ * <ExpensesView/>`). E o #529 tornou o redirect ao hub INCONDICIONAL no
+ * PESSOAL — `/expenses` desse tipo nunca mais monta. As duas condições juntas
+ * tornam aquela superfície inalcançável para qualquer perfil, em qualquer tipo
+ * de projeto. Não existe fixture honesta que a alcance.
+ *
+ * NÃO adianta mover para REFORMA: lá a mesma rota renderiza o `ExpensesView`,
+ * que é OUTRO componente e não tem nenhum daqueles elementos. Os testes
+ * passariam a medir outra tela — exatamente o erro que estes comentários
+ * existem para impedir.
+ *
+ * Se o `MobileExpensesScreen` voltar a ser alcançável, a cobertura tem de ser
+ * reescrita a partir do perfil que o alcança, não ressuscitada daqui.
+ *
+ * O que SOBROU é o teste desktop, que mede o `ExpensesView` — componente vivo
+ * e alcançável. Ele migrou de PESSOAL para REFORMA pelo mesmo motivo dos
+ * testes do #490: a propriedade é da TELA e independe do tipo.
+ */
+
+const projectId = "reforma-test";
 const expenses = [
   {
     id: "card-paid",
     projectId,
-    tipoDespesa: "MERCADO",
+    tipoDespesa: "MATERIAL_CONSTRUCAO",
     titulo: "Compra no cartão",
     valor: 12990,
     quantidade: 1,
@@ -99,8 +127,8 @@ async function openExpenses(page: Page, viewport: ViewportSize) {
       return route.fulfill(
         json({
           id: projectId,
-          name: "Pessoal Teste",
-          type: "PESSOAL",
+          name: "Reforma Teste",
+          type: "REFORMA",
           onboardedAt: "2026-01-01T00:00:00.000Z",
           rooms: [],
         }),
@@ -131,7 +159,7 @@ async function openExpenses(page: Page, viewport: ViewportSize) {
       );
     if (path === "/projects")
       return route.fulfill(
-        json([{ id: projectId, name: "Pessoal Teste", type: "PESSOAL" }]),
+        json([{ id: projectId, name: "Reforma Teste", type: "REFORMA" }]),
       );
     if (path === `/projects/${projectId}/category-budgets`)
       return route.fulfill(json([]));
@@ -153,7 +181,7 @@ async function openExpenses(page: Page, viewport: ViewportSize) {
               data: "2026-07-05",
               descricao: "Compra no cartão",
               valor: 12990,
-              tipoDespesa: "ALIMENTACAO",
+              tipoDespesa: "MATERIAL_CONSTRUCAO",
               status: "PAGO",
               projetoOrigem: null,
               origem: {
@@ -242,6 +270,12 @@ async function openExpenses(page: Page, viewport: ViewportSize) {
           },
         ]),
       );
+    // REFORMA faz uma query que o PESSOAL não fazia (`enabled: projectType !==
+    // 'PESSOAL'`). Sem esta rota o fallback devolvia `[]`, e
+    // `buildPaidOriginIndex` itera `response.items` — `undefined` → estouro e
+    // ErrorBoundary; a tela nem chegava a montar.
+    if (path === `/projects/${projectId}/expenses/paid-origins`)
+      return route.fulfill(json({ items: [] }));
     return route.fulfill(json([]));
   });
   await page.goto(`/projects/${projectId}/expenses?period=ALL&view=general`);
@@ -260,65 +294,7 @@ async function expectNoHorizontalOverflow(page: Page) {
   expect(scrollWidth).toBeLessThanOrEqual(clientWidth + 1);
 }
 
-test.describe("Expenses — phase-AB mobile quick wins", () => {
-  for (const viewport of [
-    { width: 360, height: 800 },
-    { width: 390, height: 844 },
-    { width: 402, height: 840 },
-  ]) {
-    test(`mobile ${viewport.width}x${viewport.height}`, async ({
-      page,
-    }, testInfo) => {
-      test.skip(
-        testInfo.project.name !== "desktop",
-        "viewports are explicitly owned by this spec",
-      );
-      await openExpenses(page, viewport);
-      await expectNoHorizontalOverflow(page);
-
-      // Resumo "Gastei de verdade" com quebra por origem (mobile screen).
-      await expect(
-        page.getByText(/Gastei de verdade/i).filter({ visible: true }),
-      ).toBeVisible();
-      await expect(
-        page.getByText("No cartão", { exact: true }).filter({ visible: true }),
-      ).toBeVisible();
-      await expect(
-        page
-          .getByText("Saiu da conta", { exact: true })
-          .filter({ visible: true }),
-      ).toBeVisible();
-
-      // bug 4: carteira de cartões "físicos" — gradiente + •••• last4 + badge
-      // de fatura (status derivado do cadastro real via card-wallet-status).
-      await expect(
-        page.getByText("Carteira · faturas espelham o banco"),
-      ).toBeVisible();
-      await expect(page.getByText("•••• 5876")).toBeVisible();
-      await expect(page.getByText("fatura aberta")).toBeVisible();
-
-      // A despesa do cartão aparece na lista mobile (agrupada por dia).
-      await expect(
-        page
-          .getByText("Compra no cartão", { exact: true })
-          .filter({ visible: true }),
-      ).toBeVisible();
-
-      // Piso v3.1: chips de filtro com alvo ≥44px + toggle de investimentos presente.
-      const todosChip = page
-        .getByRole("button", { name: "Todos", exact: true })
-        .filter({ visible: true });
-      await expect(todosChip).toBeVisible();
-      expect((await todosChip.boundingBox())?.height).toBeGreaterThanOrEqual(
-        44,
-      );
-      await expect(
-        page
-          .getByText("Mostrar investimentos", { exact: true })
-          .filter({ visible: true }),
-      ).toBeVisible();
-    });
-  }
+test.describe("Expenses — phase-AB, tabela desktop do ExpensesView", () => {
 
   test("desktop 1280x800", async ({ page }, testInfo) => {
     test.skip(
@@ -326,6 +302,10 @@ test.describe("Expenses — phase-AB mobile quick wins", () => {
       "viewport is explicitly owned by this spec",
     );
     await openExpenses(page, { width: 1280, height: 800 });
+    await expect(
+      page,
+      "guarda U4 disparou em REFORMA — a fixture não deveria colapsar aqui",
+    ).toHaveURL(new RegExp(`/projects/${projectId}/expenses`));
     await expectNoHorizontalOverflow(page);
     // A tabela desktop (única árvore visível em ≥lg) continua listando a despesa.
     await expect(
