@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { hasNavRoute, type ProjectType } from '@reformaflow/domain';
 import { useProject } from '@/contexts/project-context';
+import { useAuth } from '@/contexts/auth-context';
 import { ExpensesView } from './ExpensesView';
 import { MobileExpensesScreen } from './_components/MobileExpensesScreen';
 
@@ -25,19 +26,27 @@ import { MobileExpensesScreen } from './_components/MobileExpensesScreen';
  */
 export default function ExpensesPage() {
   const { projectType, projectId } = useProject();
+  const { hasModule } = useAuth();
   const params = useParams();
   const router = useRouter();
   const routeProjectId = String(params?.projectId ?? projectId);
   const type = projectType as ProjectType;
   const shouldRedirectToAvulsas = !hasNavRoute(type, 'expenses') && hasNavRoute(type, 'bills');
+  const navCollapsed = !hasNavRoute(type, 'expenses') && hasNavRoute(type, 'conta');
+  const noPermission = navCollapsed && !hasModule('expenses');
+  const shouldRedirectToHub = navCollapsed && hasModule('expenses') && hasModule('monthlyOverview');
 
   useEffect(() => {
     if (shouldRedirectToAvulsas) {
       router.replace(`/projects/${routeProjectId}/bills?tab=avulsas`);
+    } else if (noPermission) {
+      router.replace('/no-permission');
+    } else if (shouldRedirectToHub) {
+      router.replace(`/projects/${routeProjectId}/conta`);
     }
-  }, [shouldRedirectToAvulsas, routeProjectId, router]);
+  }, [shouldRedirectToAvulsas, noPermission, shouldRedirectToHub, routeProjectId, router]);
 
-  if (shouldRedirectToAvulsas) {
+  if (shouldRedirectToAvulsas || noPermission || shouldRedirectToHub) {
     return null;
   }
 

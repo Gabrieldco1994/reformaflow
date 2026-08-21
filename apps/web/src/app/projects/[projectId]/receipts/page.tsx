@@ -5,6 +5,8 @@ import { useAuth } from '@/contexts/auth-context';
 
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
+import { hasNavRoute, type ProjectType } from '@reformaflow/domain';
 import { api } from '@/lib/api';
 import { canReadBudgetAllocations } from '@/lib/budget-allocation-access';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
@@ -41,7 +43,13 @@ function StatusBadge({ status }: { status: string }) {
 
 export default function ReceiptsPage() {
   const { projectId: PROJECT_ID, projectType } = useProject();
-  const { user: authUser } = useAuth();
+  const router = useRouter();
+  const { user: authUser, hasModule } = useAuth();
+  const queryClient = useQueryClient();
+  const type = projectType as ProjectType;
+  const navCollapsed = !hasNavRoute(type, 'receipts') && hasNavRoute(type, 'conta');
+  const noPermission = navCollapsed && !hasModule('receipts');
+  const shouldRedirectToHub = navCollapsed && hasModule('receipts') && hasModule('monthlyOverview');
   const isPessoal = projectType === 'PESSOAL';
   const TIPO_OPTIONS = getReceiptTipoOptions(projectType);
   const defaultTipo = TIPO_OPTIONS[0]?.value ?? 'PAGAMENTO';
@@ -63,7 +71,6 @@ export default function ReceiptsPage() {
       </optgroup>
     ));
   };
-  const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Receipt | null>(null);
   const [newRow, setNewRow] = useState({ valor: '', data: '', tipo: defaultTipo, status: 'PREVISTO' });
@@ -369,6 +376,18 @@ export default function ReceiptsPage() {
   }, [allReceipts, TIPO_OPTIONS]);
 
   const totalGeral = grouped.reduce((s, g) => s + g.total, 0);
+
+  useEffect(() => {
+    if (noPermission) {
+      router.replace('/no-permission');
+    } else if (shouldRedirectToHub) {
+      router.replace(`/projects/${PROJECT_ID}/conta`);
+    }
+  }, [noPermission, shouldRedirectToHub, PROJECT_ID, router]);
+
+  if (noPermission || shouldRedirectToHub) {
+    return null;
+  }
 
   return (
     <div className="space-y-6">

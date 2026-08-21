@@ -1,9 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams, useSearchParams, useRouter } from 'next/navigation';
+import { hasNavRoute, type ProjectType } from '@reformaflow/domain';
 import { api } from '@/lib/api';
 import { useProject } from '@/contexts/project-context';
+import { useAuth } from '@/contexts/auth-context';
 import { formatCurrency } from '@/lib/utils';
 import { CreditCard, Plus, Trash2, Link2, History } from 'lucide-react';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -25,8 +27,15 @@ function limitLabel(percent: number) {
 export default function CreditCardsPage() {
   const params = useParams();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const projectId = String(params?.projectId ?? '');
   const { projectType } = useProject();
+  const { hasModule } = useAuth();
+  const type = projectType as ProjectType;
+  const navCollapsed = !hasNavRoute(type, 'credit-cards') && hasNavRoute(type, 'conta');
+  const noPermission = navCollapsed && !hasModule('creditCards');
+  const shouldRedirectToHub = navCollapsed && hasModule('creditCards') && hasModule('monthlyOverview');
+
   const [cards, setCards] = useState<CardRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -79,6 +88,18 @@ export default function CreditCardsPage() {
       setFormOpen(true);
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    if (noPermission) {
+      router.replace('/no-permission');
+    } else if (shouldRedirectToHub) {
+      router.replace(`/projects/${projectId}/conta`);
+    }
+  }, [noPermission, shouldRedirectToHub, projectId, router]);
+
+  if (noPermission || shouldRedirectToHub) {
+    return null;
+  }
 
   async function handleDelete(card: CardRow) {
     const cardProjectId = card.projectId ?? projectId;

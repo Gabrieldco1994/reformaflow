@@ -103,8 +103,6 @@ export const PROJECT_NAV: Record<ProjectType, NavModule[]> = {
     { slug: 'conta', label: 'Visão Conta', iconName: 'Landmark', module: 'monthlyOverview', group: 'movimentacoes' },
     { slug: 'dre', label: 'DRE', iconName: 'Target', module: 'monthlyOverview', group: 'resultado' },
     { slug: 'neutros', label: 'Neutros', iconName: 'Shuffle', module: 'monthlyOverview', group: 'auditoria' },
-    { slug: 'expenses', label: 'Despesas', iconName: 'Receipt', module: 'expenses', group: 'movimentacoes' },
-    { slug: 'receipts', label: 'Recebimentos', iconName: 'Wallet', module: 'receipts', group: 'movimentacoes' },
     // module 'expenses' (não 'recurrences'): a permissão do usuário é persistida
     // no signup, e quem já tem conta não teria 'recurrences' — sumiria do menu.
     { slug: 'recorrentes', label: 'Recorrentes', iconName: 'Repeat', module: 'expenses', group: 'planejamento' },
@@ -115,8 +113,6 @@ export const PROJECT_NAV: Record<ProjectType, NavModule[]> = {
     // administrativo somente leitura, alcançável apenas por deep-link de ADMIN.
     // Sem esta remoção o item continuaria no menu de todo mundo levando a 403.
     { slug: 'cash-flow', label: 'Fluxo de Caixa', iconName: 'ArrowLeftRight', module: 'cashFlow', group: 'auditoria' },
-    { slug: 'credit-cards', label: 'Cartões', iconName: 'CreditCard', module: 'creditCards', group: 'movimentacoes' },
-    { slug: 'bank-accounts', label: 'Contas', iconName: 'Landmark', module: 'bankAccounts', group: 'movimentacoes' },
   ],
   [ProjectType.CASA]: [
     { slug: 'dashboard', label: 'Dashboard', iconName: 'LayoutDashboard', module: 'dashboard', group: 'modulos' },
