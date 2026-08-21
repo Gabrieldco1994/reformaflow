@@ -67,6 +67,77 @@ interface PessoalHub {
   hubProjectIds: string[];
 }
 
+// ── Action derivation for enriched entries (U4, issue #453) ────────
+// Mirrors the action logic in MovimentacaoRow.tsx (L214-250).
+// Espelhos (linkedExpenseId) NEVER get mutation actions.
+// Emitting an actionId does NOT authorize the mutation — each endpoint
+// reauthorizes independently.
+const INVOICE_TIPO = 'PAGAMENTO_FATURA_CARTAO';
+
+interface ActionEntry {
+  tipo: string;
+  status: string;
+  id: string;
+  expenseId: string | null;
+  receiptId: string | null;
+  expense: {
+    linkedExpenseId: string | null;
+    cardLast4: string | null;
+    bankLast4: string | null;
+    tipoDespesa: string;
+  } | null;
+}
+
+function deriveEntryActions(
+  e: ActionEntry,
+  espelho: boolean,
+): Array<{ actionId: string }> {
+  if (espelho) return [];
+
+  const isDespesa = e.tipo === 'DESPESA';
+  const isRecebimento = e.tipo === 'RECEBIMENTO';
+  const isInvoice = isDespesa && e.expense?.tipoDespesa === INVOICE_TIPO;
+  const realizado = isDespesa
+    ? e.status === 'PAGO'
+    : e.status === 'EM_CAIXA';
+  const hasCard = !!e.expense?.cardLast4;
+
+  const actions: Array<{ actionId: string }> = [];
+
+  // edit — any non-espelho entry with an id
+  if (isDespesa || (isRecebimento && !!e.id)) {
+    actions.push({ actionId: 'edit' });
+  }
+
+  // ratear / vincular — despesa não-fatura, não-espelho (cross-link candidates)
+  if (isDespesa && !isInvoice) {
+    actions.push({ actionId: 'ratear' });
+    actions.push({ actionId: 'vincular' });
+  }
+
+  // ajustar-fatura — invoice with known card
+  if (isInvoice && hasCard) {
+    actions.push({ actionId: 'ajustar-fatura' });
+  }
+
+  // quitar-parcela (resíduo) — unpaid invoice with card
+  if (isInvoice && hasCard && !realizado) {
+    actions.push({ actionId: 'quitar-parcela' });
+  }
+
+  // desfazer-pagamento — paid invoice
+  if (isInvoice && realizado) {
+    actions.push({ actionId: 'desfazer-pagamento' });
+  }
+
+  // excluir — same guard as edit
+  if (isDespesa || (isRecebimento && !!e.id)) {
+    actions.push({ actionId: 'excluir' });
+  }
+
+  return actions;
+}
+
 @Injectable()
 export class MonthlyOverviewService {
   constructor(
@@ -302,15 +373,10 @@ export class MonthlyOverviewService {
           }
         : null,
       hasEvidence: false,
-      // Vazio deliberadamente no V1: nenhum action ID server-provided foi definido
-      // ainda. Invariante da #452: "sem action ID seguro não há CTA; servidor
-      // reautoriza mutação". Quem liga actions ao contrato é o U4 (#453), cujo
-      // AC diz "launcher duplicado sai e actions vêm do V1" — e ali o servidor
-      // precisa REAUTORIZAR a mutação, não só emitir o id. Quando actions reais
-      // existirem (e.g. 'pay', 'undo', 'adjust'), derive-os aqui a partir do
-      // estado da entry e do contexto de permissão, e atualize o canário U3-19
-      // no spec de integração — o vermelho é o sinal desejado.
-      actions: [] as Array<{ actionId: string }>,
+      // U4 (#453): actions passam a ser derivadas no servidor a partir do estado
+      // da entry. O invariante da #452 permanece — quem MUTA reautoriza no
+      // handler; este campo só declara o que é oferecível.
+      actions: deriveEntryActions(e, isEspelho(e)),
     });
 
     // Todas as entries (todos os meses) para permitir navegação de mês no cockpit.
