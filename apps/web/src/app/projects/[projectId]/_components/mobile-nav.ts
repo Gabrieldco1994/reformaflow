@@ -24,13 +24,20 @@ export const DOCK_PRIMARY_SLOTS = 3;
 
 /**
  * PESSOAL (agent-first): destinos FIXOS do dock que SÃO módulos de nav. A Maria
- * é um 4º destino do dock, mas NÃO é módulo (`/maria` não está em PROJECT_NAV);
+ * é o 3º destino do dock, mas NÃO é módulo (`/maria` não está em PROJECT_NAV);
  * ela é renderizada inline no MobileTabBar sob o mesmo gate de tipo
  * (`monthlyOverview`). O dock preserva os destinos de HOJE — ele não deriva da
  * ordem do array (decisão de produto, não efeito colateral de um PR de shell).
  * Aqui só se filtra por permissão; cada slot é guardado por si.
+ *
+ * U4 (#453): `credit-cards` SAIU desta lista junto com a saída do slug de
+ * `PROJECT_NAV[PESSOAL]` — cartões passam a ser geridos pelo hub `/conta`. Não
+ * bastava deixar a entrada morta aqui: `visibleNav` nunca mais traz o slug, e
+ * uma entrada que jamais casa é um 4º slot latente que voltaria sozinho no dia
+ * em que alguém devolvesse o slug ao nav. O dock é decisão de produto (3 slots),
+ * então ele é declarado, não herdado por acidente.
  */
-const PESSOAL_DOCK_SLUGS = new Set(['monthly', 'conta', 'credit-cards']);
+const PESSOAL_DOCK_SLUGS = new Set(['monthly', 'conta']);
 
 function isProjectType(value: string): value is ProjectType {
   return Object.values(ProjectType).includes(value as ProjectType);
@@ -44,8 +51,8 @@ export interface MobileNavSplit {
 /**
  * Particiona a navegação (já filtrada por permissão) para o mobile.
  *
- * PESSOAL: o dock são os destinos de HOJE (`monthly`, `conta`, `credit-cards` —
- * mais a Maria inline no MobileTabBar). Cada um é guardado INDEPENDENTEMENTE por
+ * PESSOAL: o dock são os destinos de HOJE (`monthly`, `conta` — mais a Maria
+ * inline no MobileTabBar). Cada um é guardado INDEPENDENTEMENTE por
  * `visibleNav`; conta não some só porque monthly foi bloqueado (era o
  * acoplamento antigo, mesma classe do D11/E-5). O `secondary` (Mais) é o
  * COMPLEMENTO EXATO do dock — nada de ocultar `dre/neutros/planning/cash-flow`

@@ -43,33 +43,28 @@ const NON_PERSONAL_MATRIX = [
 ] as const;
 
 describe('getMobilePrimary', () => {
-  it('docks PESSOAL monthly/conta/credit-cards and leaves the rest in Mais (D1: dre/neutros/planning/cash-flow voltam)', () => {
+  it('docks PESSOAL monthly/conta and leaves the rest in Mais (D1: dre/neutros/planning/cash-flow voltam)', () => {
     const visible = getProjectNavModules(ProjectType.PESSOAL);
     const { primary, secondary } = getMobilePrimary(
       ProjectType.PESSOAL,
       visible,
     );
 
-    // Dock = destinos de HOJE (monthly, conta, credit-cards) + Maria inline no
-    // MobileTabBar (não é módulo de nav). Preservados, não derivados da ordem.
-    expect(primary.map((module) => module.slug)).toEqual([
-      'monthly',
-      'conta',
-      'credit-cards',
-    ]);
+    // Dock = destinos de HOJE (monthly, conta) + Maria inline no MobileTabBar
+    // (não é módulo de nav). Preservados, não derivados da ordem.
+    // U4 (#453): `credit-cards` saiu do nav do PESSOAL e do dock — cartões
+    // vivem no hub `/conta`.
+    expect(primary.map((module) => module.slug)).toEqual(['monthly', 'conta']);
     // Mais = complemento exato do dock. dre/neutros/planning/cash-flow NÃO são
     // mais ocultados (D1): dock ∪ Mais === visibleNav.
     expect(secondary.map((module) => module.slug)).toEqual([
       'dre',
       'neutros',
-      'expenses',
-      'receipts',
       'recorrentes',
       'metas',
       'planning',
       'planejador',
       'cash-flow',
-      'bank-accounts',
     ]);
     // Invariante de alcançabilidade (U2-E05): nada autorizado fica órfão.
     expect([...primary, ...secondary].map((m) => m.slug).sort()).toEqual(
@@ -113,8 +108,11 @@ describe('getMobilePrimary', () => {
   });
 
   it('keeps visible PESSOAL secondary modules in Mais but excludes docked conta', () => {
+    // `recorrentes` no lugar do antigo `expenses`: mesma PROPRIEDADE (um módulo
+    // visível que NÃO é do dock cai no Mais), com um slug que ainda existe em
+    // PROJECT_NAV[PESSOAL] depois do U4.
     const visible = getProjectNavModules(ProjectType.PESSOAL).filter((module) =>
-      ['monthly', 'conta', 'dre', 'expenses'].includes(module.slug),
+      ['monthly', 'conta', 'dre', 'recorrentes'].includes(module.slug),
     );
 
     const { primary, secondary } = getMobilePrimary(
@@ -123,8 +121,13 @@ describe('getMobilePrimary', () => {
     );
 
     expect(primary.map((module) => module.slug)).toEqual(['monthly', 'conta']);
-    expect(secondary.map((module) => module.slug)).toEqual(['dre', 'expenses']);
-    expect(visible.map((module) => module.slug)).toContain('expenses');
+    expect(secondary.map((module) => module.slug)).toEqual([
+      'dre',
+      'recorrentes',
+    ]);
+    // Premissa da fixture: sem isto, um `recorrentes` removido do nav faria o
+    // filtro devolver [] e o teste passaria provando nada.
+    expect(visible.map((module) => module.slug)).toContain('recorrentes');
     expect(secondary.map((module) => module.slug)).not.toContain(
       'conta',
     );
@@ -132,7 +135,7 @@ describe('getMobilePrimary', () => {
 
   it('guards each PESSOAL dock slot independently — conta survives without monthly', () => {
     const visible = getProjectNavModules(ProjectType.PESSOAL).filter((module) =>
-      ['conta', 'expenses'].includes(module.slug),
+      ['conta', 'recorrentes'].includes(module.slug),
     );
 
     const { primary, secondary } = getMobilePrimary(
@@ -144,7 +147,7 @@ describe('getMobilePrimary', () => {
     // por permissão (era o acoplamento antigo). Cada slot é guardado por si —
     // mesma classe do defeito D11/E-5.
     expect(primary.map((module) => module.slug)).toEqual(['conta']);
-    expect(secondary.map((module) => module.slug)).toEqual(['expenses']);
+    expect(secondary.map((module) => module.slug)).toEqual(['recorrentes']);
     expect(secondary.map((module) => module.slug)).not.toContain('conta');
   });
 
