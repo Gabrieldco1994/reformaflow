@@ -67,6 +67,77 @@ interface PessoalHub {
   hubProjectIds: string[];
 }
 
+// ── Action derivation for enriched entries (U4, issue #453) ────────
+// Mirrors the action logic in MovimentacaoRow.tsx (L214-250).
+// Espelhos (linkedExpenseId) NEVER get mutation actions.
+// Emitting an actionId does NOT authorize the mutation — each endpoint
+// reauthorizes independently.
+const INVOICE_TIPO = 'PAGAMENTO_FATURA_CARTAO';
+
+interface ActionEntry {
+  tipo: string;
+  status: string;
+  id: string;
+  expenseId: string | null;
+  receiptId: string | null;
+  expense: {
+    linkedExpenseId: string | null;
+    cardLast4: string | null;
+    bankLast4: string | null;
+    tipoDespesa: string;
+  } | null;
+}
+
+function deriveEntryActions(
+  e: ActionEntry,
+  espelho: boolean,
+): Array<{ actionId: string }> {
+  if (espelho) return [];
+
+  const isDespesa = e.tipo === 'DESPESA';
+  const isRecebimento = e.tipo === 'RECEBIMENTO';
+  const isInvoice = isDespesa && e.expense?.tipoDespesa === INVOICE_TIPO;
+  const realizado = isDespesa
+    ? e.status === 'PAGO'
+    : e.status === 'EM_CAIXA';
+  const hasCard = !!e.expense?.cardLast4;
+
+  const actions: Array<{ actionId: string }> = [];
+
+  // edit — any non-espelho entry with an id
+  if (isDespesa || (isRecebimento && !!e.id)) {
+    actions.push({ actionId: 'edit' });
+  }
+
+  // ratear / vincular — despesa não-fatura, não-espelho (cross-link candidates)
+  if (isDespesa && !isInvoice) {
+    actions.push({ actionId: 'ratear' });
+    actions.push({ actionId: 'vincular' });
+  }
+
+  // ajustar-fatura — invoice with known card
+  if (isInvoice && hasCard) {
+    actions.push({ actionId: 'ajustar-fatura' });
+  }
+
+  // quitar-parcela (resíduo) — unpaid invoice with card
+  if (isInvoice && hasCard && !realizado) {
+    actions.push({ actionId: 'quitar-parcela' });
+  }
+
+  // desfazer-pagamento — paid invoice
+  if (isInvoice && realizado) {
+    actions.push({ actionId: 'desfazer-pagamento' });
+  }
+
+  // excluir — same guard as edit
+  if (isDespesa || (isRecebimento && !!e.id)) {
+    actions.push({ actionId: 'excluir' });
+  }
+
+  return actions;
+}
+
 @Injectable()
 export class MonthlyOverviewService {
   constructor(
@@ -302,7 +373,7 @@ export class MonthlyOverviewService {
           }
         : null,
       hasEvidence: false,
-      actions: [] as Array<{ actionId: string }>,
+      actions: deriveEntryActions(e, isEspelho(e)),
     });
 
     // Todas as entries (todos os meses) para permitir navegação de mês no cockpit.

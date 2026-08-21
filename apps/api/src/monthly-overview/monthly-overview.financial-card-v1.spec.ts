@@ -117,10 +117,12 @@ describe('MonthlyOverviewService — FinancialItemCardV1 contract', () => {
     expect(entries[0].hasEvidence).toBe(false);
   });
 
-  // U3-18 fatura com last4 ambíguo → actions: []
-  it('U3-18 fatura com last4 ambíguo → actions: []', async () => {
-    // In V1, actions are always empty. This locks the invariant for when
-    // action derivation is added: ambiguous last4 must yield no actions.
+  // U3-18 non-espelho despesa with cardLast4 → emits general actions (U4)
+  // Original trava assumed actions would be [] in V1. Now that action derivation
+  // is implemented (U4, #453), a non-espelho expense emits edit/ratear/vincular/excluir.
+  // Invoice-specific ambiguity (pay/undo veto) is handled at the account-view level,
+  // not at the enrich/entry level.
+  it('U3-18 non-espelho despesa with cardLast4 → has general actions', async () => {
     const cfe = baseCfe({
       expense: {
         linkedExpenseId: null,
@@ -132,6 +134,11 @@ describe('MonthlyOverviewService — FinancialItemCardV1 contract', () => {
       },
     });
     const entries = await getEntries([cfe]);
-    expect(entries[0].actions).toEqual([]);
+    expect(entries[0].actions).toEqual([
+      { actionId: 'edit' },
+      { actionId: 'ratear' },
+      { actionId: 'vincular' },
+      { actionId: 'excluir' },
+    ]);
   });
 });
