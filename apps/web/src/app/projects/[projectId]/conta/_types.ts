@@ -1,3 +1,5 @@
+import type { FinancialItemCardV1 } from '@reformaflow/domain';
+
 export interface AccountViewCardSummary {
   /**
    * Identidade estável do cartão (B1a #448). ADITIVO e OPCIONAL: a API antiga
@@ -71,6 +73,19 @@ export interface AccountViewSaida {
   foreignExpenseId?: string | null;
   suggestionTipoDespesa?: string | null;
   suggestionSource?: 'MANUAL' | 'AI' | 'REGEX' | 'CACHE' | null;
+  /**
+   * Campos V1 (FinancialItemCardV1, #452) — aditivos/opcionais.
+   * O backend novo preenche; o legado não manda. Nomes derivados de
+   * `FinancialItemCardV1` em `@reformaflow/domain` para evitar drift.
+   */
+  purposeLabel?: FinancialItemCardV1['purposeLabel'];
+  title?: FinancialItemCardV1['title'];
+  supplier?: FinancialItemCardV1['supplier'];
+  installment?: FinancialItemCardV1['installment'];
+  paymentForm?: FinancialItemCardV1['paymentForm'];
+  hasEvidence?: FinancialItemCardV1['hasEvidence'];
+  isEspelho?: FinancialItemCardV1['isEspelho'];
+  isNeutral?: FinancialItemCardV1['isNeutral'];
 }
 
 export interface AccountViewEntrada {
@@ -84,6 +99,14 @@ export interface AccountViewEntrada {
   valor: number;
   bankLast4: string | null;
   status: 'EM_CAIXA' | 'PREVISTO';
+  /**
+   * Campos V1 (FinancialItemCardV1, #452) — aditivos/opcionais.
+   * Nomes derivados de `FinancialItemCardV1` em `@reformaflow/domain`.
+   */
+  purposeLabel?: FinancialItemCardV1['purposeLabel'];
+  title?: FinancialItemCardV1['title'];
+  hasEvidence?: FinancialItemCardV1['hasEvidence'];
+  isNeutral?: FinancialItemCardV1['isNeutral'];
 }
 
 export type AccountViewMovimentacao = AccountViewSaida | AccountViewEntrada;

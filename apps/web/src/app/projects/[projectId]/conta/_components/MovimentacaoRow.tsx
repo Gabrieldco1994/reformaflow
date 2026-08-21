@@ -108,8 +108,8 @@ export function MovimentacaoRow({
 
   const titulo =
     item.kind === 'saida' && !item.isInvoice
-      ? item.descricao || tipoLabel(item.tipoDespesa)
-      : item.descricao;
+      ? item.title || item.descricao || tipoLabel(item.tipoDespesa)
+      : item.title || item.descricao;
 
   // Saída sem cartão nem conta bancária → pseudo-origem Carteira.
   // NÃO incluir o retorno de originLabel no meta text — chip separado.
@@ -125,7 +125,9 @@ export function MovimentacaoRow({
 
   const meta = [
     dateStr,
-    item.kind === 'saida' && !item.isInvoice ? tipoLabel(item.tipoDespesa) : null,
+    item.kind === 'saida' && !item.isInvoice ? (item.purposeLabel || tipoLabel(item.tipoDespesa)) : null,
+    item.kind === 'entrada' && item.purposeLabel ? item.purposeLabel : null,
+    item.kind === 'saida' && item.supplier ? item.supplier : null,
     item.kind === 'saida' &&
     item.isInvoice &&
     (item.invoicePaidAmount ?? 0) > 0 &&
@@ -384,6 +386,16 @@ export function MovimentacaoRow({
             {projOrigem && (
               <span className="min-w-0 shrink truncate rounded-full bg-[#E6EFFE] px-1.5 py-0.5 text-[11px] font-semibold text-lifeone-blue">
                 {projOrigem.name}
+              </span>
+            )}
+            {item.kind === 'saida' && item.isEspelho && (
+              <span className="shrink-0 rounded-full bg-[#F3F3F3] px-1.5 py-0.5 text-[11px] font-semibold text-lifeone-ink-3">
+                Espelho
+              </span>
+            )}
+            {item.kind === 'saida' && item.installment && (
+              <span className="shrink-0 text-[11px] text-lifeone-ink-3">
+                {item.installment}
               </span>
             )}
             {suggestionLabel && onConfirmSuggestion && item.kind === 'saida' && item.suggestionTipoDespesa && (
