@@ -199,7 +199,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   const basePath = `/projects/${projectId}`;
-  const search = searchParams.toString();
+  /**
+   * U2-P14/P15/P16 — o href do shell (dock, Mais, rail) preserva `?mes`. A fonte
+   * do contexto NÃO pode ser só `useSearchParams()`: esse espelho popula um tick
+   * DEPOIS da hidratação, e como o dock só renderiza após o fetch de projeto
+   * (mockado, quase síncrono nos e2e) ele pode nascer com o espelho ainda vazio.
+   * O clique então pega `?mes` vazio → href sem mês. Local ganha a corrida e o
+   * CI (thread mais lenta) perde: determinístico por ambiente — por isso passou
+   * 36/36 aqui e caiu no runner. Não é `waitFor` empurrando o sintoma: a causa é
+   * o href derivar de um espelho que atrasa. `window.location.search` é a URL
+   * VIVA do browser, e este ponto já é 100% cliente (passou o portão de loading;
+   * o dock nunca existe no HTML de SSR), então não há descasamento de hidratação.
+   * `useSearchParams()` segue como gatilho de reatividade nas navegações de shell.
+   */
+  const search =
+    searchParams.toString() ||
+    (typeof window !== "undefined" ? window.location.search : "");
   const resolvedProjectType = project.type as ProjectType;
   const { primary, secondary } = getMobilePrimary(project.type, visibleNav);
   const hasMoreSheet = secondary.length > 0 || isAdmin || Boolean(user?.name);
