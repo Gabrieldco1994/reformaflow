@@ -263,4 +263,17 @@ describe('FinancialItemCardV1 — integration (real DB)', () => {
     expect(entries.length).toBeGreaterThanOrEqual(4); // simple + image + empty + imported
     expect(entries.every((e: any) => e.hasEvidence === false)).toBe(true);
   });
+
+  // U3-19 [CANARY]
+  it('U3-19 [CANARY] todas as entries do banco → actions vazio', async () => {
+    // Canário deliberado. Quando actions server-provided forem implementados
+    // (e.g. 'pay', 'undo', 'adjust'), este teste DEVE ficar VERMELHO. O vermelho
+    // é o sinal desejado: atualize este teste para afirmar os actions corretos
+    // conforme o estado de cada entry. NÃO delete este teste — ele existe para
+    // impedir que `actions` fique vazio em silêncio quando deveria ter conteúdo,
+    // ou que emita actions sem reautorização no servidor.
+    const entries = await getAllEntries();
+    expect(entries.length).toBeGreaterThanOrEqual(4);
+    expect(entries.every((e: any) => Array.isArray(e.actions) && e.actions.length === 0)).toBe(true);
+  });
 });

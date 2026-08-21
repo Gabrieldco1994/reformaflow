@@ -302,6 +302,12 @@ export class MonthlyOverviewService {
           }
         : null,
       hasEvidence: false,
+      // Vazio deliberadamente no V1: nenhum action ID server-provided foi definido
+      // ainda. Invariante da #452: "sem action ID seguro não há CTA; servidor
+      // reautoriza mutação". Quando actions reais existirem (e.g. 'pay', 'undo',
+      // 'adjust'), derive-os aqui a partir do estado da entry e do contexto de
+      // permissão, e atualize o canário U3-19 no spec de integração — o vermelho
+      // é o sinal desejado.
       actions: [] as Array<{ actionId: string }>,
     });
 
