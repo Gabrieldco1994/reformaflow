@@ -63,6 +63,8 @@ Use Node 20+ and npm workspaces (`npm@11.6.2`); do not use pnpm.
 - Call `useProject()` only inside React components/hooks. Reuse `apps/web/src/lib/api.ts`, `apps/web/src/lib/expense-options.ts`, and domain exports instead of parallel helpers.
 - Freeze the clock in current-month tests (`vi.setSystemTime` or `page.clock.setFixedTime` before navigation) and validate date-sensitive suites with `TZ=UTC`.
 - Route, auth/onboarding, and access-gate changes require Playwright because jsdom does not exercise redirects or middleware; reproduce parallel-only failures with `--workers=1`.
+- Removing a slug from `PROJECT_NAV` is repo-wide, never local: gates derived from nav live far from the config — the mobile dock's 4th slot (`canViewCards`), `MaisSheet` group membership, and `getProjectHomePath` all read it. Run the **whole** `apps/web` vitest suite before pushing; a targeted selection passes and CI does not (2026-08-21, PR #528: four slugs removed, seven suites red, one of them a real regression — the dock silently dropped from four destinations to three).
+- When a nav/config removal breaks a test, re-point the fixture, don't rewrite the expectation to whatever the code now returns. The property under test usually still matters; only the slug it was written against died. Rewriting the expectation leaves a green test that proves nothing.
 - Update `docs/manual-do-aplicativo.md` in the same change when visible behavior changes.
 - In a Nest controller mixing literal and `:id` routes, declare literal
   segments (e.g. `@Get('paid-origins')`) BEFORE the `@Get(':id')` handler —
@@ -74,6 +76,7 @@ Use Node 20+ and npm workspaces (`npm@11.6.2`); do not use pnpm.
 ## Collaboration
 
 - Work in an isolated git worktree, branched from `origin/main`. Never edit/reset the shared checkout or use `git stash`, which is shared across worktrees. The shared checkout can sit many commits behind `origin/main`, and an agent auto-loads this file from the tree it runs in — so a stale checkout silently hands it an outdated contract.
+- Two worktree traps that fail silently, both costing a full verification cycle (2026-08-21): rebuilding `packages/domain` without `rm -rf dist *.tsbuildinfo` first, where an inherited `tsbuildinfo` makes `tsc` exit 0 while `dist/types/` is never emitted; and `ln -sfn <target> <dir>` against a directory that already exists, which creates the link *inside* it instead of replacing it — `apps/web/node_modules` reappears on its own because vitest writes `.vite` there. Both produce a clean typecheck against the wrong tree.
 - Never remove `apps/web/src/app/prototype/agent-monitor/` or `tools/agent-monitor/`; both are production functionality.
 - For multi-agent coordination, use `.claude/agents/fleet-po.md`. One owner per branch; the PO owns merge order.
 - Experience owners decide Web, Mobile/PWA, or Maria contracts; the existing backend/frontend builders continue to implement them.
