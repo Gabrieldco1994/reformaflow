@@ -43,12 +43,22 @@ function GridTile({
       href={href}
       aria-current={isActive ? "page" : undefined}
       data-testid={testId}
-      className="minimal-more-tile flex min-h-[74px] flex-col items-center gap-2 rounded-2xl px-1.5 py-3.5 transition-transform active:scale-95"
+      className="minimal-more-tile flex min-h-[74px] min-w-0 flex-col items-center gap-2 rounded-2xl px-1.5 py-3.5 transition-transform active:scale-95"
     >
       <span className="minimal-more-icon flex h-10 w-10 items-center justify-center rounded-[13px]">
         <Icon className="h-5 w-5" />
       </span>
-      <span className="minimal-more-label text-center text-[11px] font-semibold leading-tight">
+      {/*
+        U2-E11 — o rótulo NÃO pode depender de quanto uma fonte específica mede.
+        A célula do grid-cols-4 é ~78px; sem largura própria o span cresce até o
+        max-content da palavra e uma palavra longa (Recebimentos/Recorrentes/
+        Planejador) transborda por poucos px — invisível no macOS, +2px no Linux
+        do CI (`sw:80 cw:78`). `w-full` prende o span à célula e `break-words`
+        quebra a palavra dentro dela: a MESMA folga existe com uma fonte 3% mais
+        larga, porque a palavra passa a quebrar em vez de vazar. E-03 (1 linha) é
+        do DOCK; o Mais não exige linha única (E-04 só mede 44px e ≥11px).
+      */}
+      <span className="minimal-more-label w-full break-words text-center text-[11px] font-semibold leading-tight">
         {label}
       </span>
     </Link>
