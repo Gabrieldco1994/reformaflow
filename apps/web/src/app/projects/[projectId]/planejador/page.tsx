@@ -201,7 +201,7 @@ export default function PlanejadorPage() {
   if (!enabled) {
     return (
       <div className="rounded-2xl border border-lifeone-hairline bg-lifeone-card p-5 text-sm text-lifeone-ink-2">
-        O Planejador de Compras só está disponível no projeto Pessoal.
+        Compras e cenários só está disponível no projeto Pessoal.
       </div>
     );
   }
@@ -211,7 +211,7 @@ export default function PlanejadorPage() {
       <header className="flex items-center gap-3">
         <Calculator className="h-7 w-7 text-[var(--ck-accent)]" />
         <div>
-          <h1 className="text-2xl font-semibold text-[var(--ck-text)]">Planejador de Compras</h1>
+          <h1 className="text-2xl font-semibold text-[var(--ck-text)]">Compras e cenários</h1>
           <p className="text-sm text-[var(--ck-muted)]">
             Simule à vista, parcelado ou financiamento sobre a projeção do Pessoal — sem afetar o caixa real.
           </p>

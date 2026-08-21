@@ -44,7 +44,7 @@ módulos (abas) ficam disponíveis:
 
 | Tipo | Para quê serve | Módulos disponíveis |
 |---|---|---|
-| **PESSOAL** | Controle do dinheiro pessoal (o "cockpit" da sua vida financeira) | Cockpit, Visão Conta, Cartões, Metas, Planning, Planejador, DRE, Fluxo de Caixa, Neutros, Recorrentes (+ drill-downs: Despesas/Recebimentos). **Budget** não é mais um módulo: virou histórico congelado, só para administradores — ver 4.11 |
+| **PESSOAL** | Controle do dinheiro pessoal (o "cockpit" da sua vida financeira) | Cockpit, Visão Conta, Cartões, Metas, Orçamento futuro, Compras e cenários, DRE, Fluxo de Caixa, Neutros, Recorrentes (+ drill-downs: Despesas/Recebimentos). **Budget** não é mais um módulo: virou histórico congelado, só para administradores — ver 4.11 |
 | **REFORMA** | Controle financeiro e visual de uma obra/reforma | Dashboard, Despesas, Recebimentos, Fluxo de Caixa, Cômodos, Plantas, Simulação, Cronograma, Comparar Preço, Pendências |
 | **CASA** | Gestão da casa (financiamento, contas fixas, manutenções, lembretes) | Dashboard, Financiamento, Contas recorrentes + Avulsas, Manutenção, Lembretes |
 | **CARRO** | Gestão do carro | Dashboard, Carro (dados), Documentos, Financiamento, Contas recorrentes + Avulsas, Manutenção, Lembretes |
@@ -315,7 +315,7 @@ Os módulos aparecem agrupados por finalidade, sempre nesta ordem:
 |---|---|
 | **Hoje** | Cockpit |
 | **Movimentações** | Visão Conta, Despesas, Recebimentos, Cartões, Contas |
-| **Planejamento** | Recorrentes, Metas, Planning, Planejador |
+| **Planejamento** | Recorrentes, Metas, Orçamento futuro, Compras e cenários |
 | **Resultado** | DRE |
 | **Auditoria** | Neutros, Fluxo de Caixa |
 
@@ -407,7 +407,7 @@ todas as jornadas** à esquerda e o **editor da selecionada** à direita.
   A trilha oferece tanto os **passos operacionais** de sempre (Despesa,
   Recebimento, Contas & cartões, Conta recorrente, Veículo, Planta) quanto,
   agora, as **telas do catálogo de resumos** (Dashboard, Cockpit, Visão Conta,
-  DRE, Fluxo de Caixa, Recorrentes, Metas, Planejador, entre outras) — dá para
+  DRE, Fluxo de Caixa, Recorrentes, Metas, Compras e cenários, entre outras) — dá para
   montar uma jornada guiada usando qualquer uma delas.
 - **O que a experiência Resumida realmente mostra** — depende do que a etapa
   representa, resolvido automaticamente pelo executor, nesta ordem:
@@ -921,7 +921,7 @@ Limites de gasto por categoria no mês.
 - Ações: **criar / editar / remover meta**.
 - **Estado vazio:** "Nenhuma meta definida" com CTA "Criar primeira meta".
 
-### 4.10 Planning (`/planning`)
+### 4.10 Orçamento futuro (`/planning`)
 Cenários de projeção de longo prazo.
 
 - **Hero** explicando o objetivo (simular o fluxo futuro para controlar saldos,
@@ -971,7 +971,7 @@ continua visível** — congelar preservando o histórico, não extinguir.
   somado por conta própria; dois números com o mesmo nome na mesma tela obrigam
   quem lê a conferir se batem, então ficou só o do card.
 
-### 4.12 Planejador de Compras (`/planejador`) — apenas PESSOAL
+### 4.12 Compras e cenários (`/planejador`) — apenas PESSOAL
 Responde "cabe no meu orçamento?" antes de uma compra grande ou financiamento,
 simulando o impacto **sobre a projeção real do PESSOAL** — sem criar nenhum
 lançamento e sem ser um segundo motor financeiro (CASA/CARRO/COMPRA continuam
@@ -994,9 +994,9 @@ sendo só fontes de itens e destinos de conversão).
   "Com esse plano, a projeção fica negativa em outubro", com o menor saldo do
   período e mini-barras por mês (mesmo padrão visual do runway do Cockpit).
 - **Deep-link a partir do Monitoramento de preços (COMPRA):** o botão **"Simular
-  impacto"** de um item monitorado (ver §8) abre o Planejador do projeto PESSOAL
+  impacto"** de um item monitorado (ver §8) abre Compras e cenários do projeto PESSOAL
   já com nome e melhor preço pré-carregados (referência como fallback).
-- **Conversão só por navegação:** o Planejador nunca lança nada sozinho — para
+- **Conversão só por navegação:** Compras e cenários nunca lança nada sozinho — para
   efetivar, use os CTAs já existentes "Comprar agora" (COMPRA) ou "Criar
   financiamento" (CASA/CARRO/Financiamento).
 - Disponível apenas quando o projeto tem o módulo `monthlyOverview` (só
@@ -1219,8 +1219,8 @@ Para acompanhar uma compra grande (casa, carro, etc.).
   seções do PESSOAL/REFORMA. (Recebimentos e Fluxo de Caixa foram removidos:
   dado real do banco mostrou 0 usos em projetos COMPRA — dieta #291.)
 - Em **Preços** (`/price-compare`), há uma tela própria de watchlist para monitorar produtos e atualizar cotações.
-  Cada item monitorado tem o botão **"Simular impacto"**, que abre o Planejador de
-  Compras (§4.12) do projeto PESSOAL com nome e melhor preço já pré-carregados —
+  Cada item monitorado tem o botão **"Simular impacto"**, que abre Compras e
+  cenários (§4.12) do projeto PESSOAL com nome e melhor preço já pré-carregados —
   útil para responder "cabe no orçamento?" antes de decidir comprar.
 - Tipos de despesa próprios: Entrada, Financiamento, Documentação, Cartório,
   Imposto, Seguro, Vistoria, Mudança, Outros.

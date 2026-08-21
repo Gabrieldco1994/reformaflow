@@ -170,7 +170,7 @@ export const SUMMARY_CATALOG: Record<ProjectType, SummaryPageDef[]> = {
       description: 'Projeção de saldo ao longo do tempo',
       iconName: 'ArrowLeftRight',
       ctas: [
-        { label: 'Planejador', iconName: 'Calculator', href: 'planejador', variant: 'secondary' },
+        { label: 'Compras e cenários', iconName: 'Calculator', href: 'planejador', variant: 'secondary' },
       ],
     },
     {
@@ -193,7 +193,7 @@ export const SUMMARY_CATALOG: Record<ProjectType, SummaryPageDef[]> = {
     },
     {
       slug: 'planning',
-      title: 'Planning',
+      title: 'Orçamento futuro',
       description: 'Planejamento de receitas e despesas',
       iconName: 'CalendarClock',
       ctas: [
@@ -202,7 +202,7 @@ export const SUMMARY_CATALOG: Record<ProjectType, SummaryPageDef[]> = {
     },
     {
       slug: 'planejador',
-      title: 'Planejador de Fluxo',
+      title: 'Compras e cenários',
       description: 'Estruture seu fluxo financeiro',
       iconName: 'Calculator',
       ctas: [
