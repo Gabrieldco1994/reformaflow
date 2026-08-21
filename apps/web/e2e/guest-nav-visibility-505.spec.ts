@@ -32,6 +32,26 @@ import { deriveObjectiveAccess, ProjectType } from "@reformaflow/domain";
  * `auth.service.registerGuest` usa. Um literal escrito aqui passaria a valer
  * como segunda fonte de verdade e continuaria verde no dia em que o servidor
  * mudasse a concessão.
+ *
+ * ─── U4 (#453): POR QUE A ÂNCORA DO PESSOAL MUDOU ──────────────────────────
+ *
+ * Este arquivo NÃO exercita a guarda de 3 casos das rotas colapsadas — o
+ * convidado TEM `monthlyOverview` (ver `deriveObjectiveAccess` acima), então
+ * ele nunca cai no caso 3. O que mudou aqui é só o CARDÁPIO: `expenses`,
+ * `receipts`, `credit-cards` e `bank-accounts` saíram de
+ * `PROJECT_NAV[PESSOAL]` e viraram o hub `/conta`.
+ *
+ * A propriedade medida é a MESMA e continua valendo: "o convidado entra e o
+ * menu NÃO está vazio — endurecer não pode virar beco sem saída". O que
+ * envelheceu foi a ÂNCORA: no PESSOAL, a primeira ação que a demonstração
+ * promete (as despesas que `demo.service` semeia) agora se alcança por
+ * `/conta`, não por `/expenses`. Trocar a âncora preserva a propriedade;
+ * APAGAR a asserção a destruiria — sem ela, "menu vazio" volta a passar.
+ *
+ * A ausência de `/expenses` no PESSOAL é assertada de PROPÓSITO (barreira):
+ * se alguém devolver o slug ao nav, este teste fica VERMELHO e a decisão volta
+ * à mesa em vez de reentrar de carona. No REFORMA `expenses` continua no nav e
+ * continua sendo exigido — ver o teste de alcance dos dois tipos, abaixo.
  */
 
 const PERSONAL_ID = "guest-505-pessoal";
@@ -154,11 +174,19 @@ for (const shape of SESSION_SHAPES) {
         const nav = page.locator("nav").first();
         await expect(nav).toBeVisible();
         await expect(nav.locator("a")).not.toHaveCount(0);
-        // "Despesas" é a primeira ação que a demonstração promete:
-        // `demo.service` semeia despesas nos dois projetos.
+        // U4 (#453): a primeira ação que a demonstração promete continua sendo
+        // "despesas" — `demo.service` segue semeando nos dois projetos —, mas
+        // no PESSOAL ela passou a ser alcançada pelo hub `/conta`. A âncora
+        // mudou; a promessa, não.
         await expect(
-          nav.locator(`a[href*="/projects/${PERSONAL_ID}/expenses"]`).first(),
+          nav.locator(`a[href*="/projects/${PERSONAL_ID}/conta"]`).first(),
         ).toBeVisible();
+        // Barreira: `expenses` NÃO volta ao nav do PESSOAL por acidente. Sem
+        // esta linha, devolver o slug deixaria o teste verde e o colapso do U4
+        // seria desfeito em silêncio.
+        await expect(
+          nav.locator(`a[href*="/projects/${PERSONAL_ID}/expenses"]`),
+        ).toHaveCount(0);
       });
 
       test('NÃO recebe o item administrativo "Usuários"', async ({
@@ -234,14 +262,25 @@ for (const shape of SESSION_SHAPES) {
     }) => {
       await mockGuestSession(page, baseURL!, shape.role);
 
-      for (const projectId of [PERSONAL_ID, REFORMA_ID]) {
+      for (const { projectId, destino } of [
+        // U4 (#453): no PESSOAL a rota colapsou. O convidado TEM `expenses` e
+        // `monthlyOverview`, então ele cai no caso 2 da guarda e é levado ao
+        // hub `/conta`. A propriedade deste teste é "o convidado ALCANÇA os
+        // dois tipos que a demo semeia" — não "a URL /expenses sobrevive".
+        //
+        // A asserção antiga (`/expenses` nos dois) passava por CORRIDA: a URL
+        // ainda era /expenses no instante da medição e o redirect chegava
+        // depois. Verde por acidente de timing é o mesmo que verde vazio.
+        { projectId: PERSONAL_ID, destino: "conta" },
+        { projectId: REFORMA_ID, destino: "expenses" },
+      ]) {
         await page.goto(`/projects/${projectId}/expenses`);
         // Não basta a URL responder: a tela do módulo tem de MONTAR. `main` é
         // o único marco da casca que existe nos dois viewports (o cabeçalho é
         // `md:hidden` e a sidebar é `md+`), então serve aos dois projetos.
         await expect(page.locator("main").first()).toBeVisible();
         await expect(page).toHaveURL(
-          new RegExp(`/projects/${projectId}/expenses`),
+          new RegExp(`/projects/${projectId}/${destino}`),
         );
       }
     });
