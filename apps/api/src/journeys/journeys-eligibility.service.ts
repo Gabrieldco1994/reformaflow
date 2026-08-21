@@ -1,9 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import {
-  JOURNEY_STEP_SLUGS,
   JOURNEY_TRIGGER_DEVICES,
   JOURNEY_TRIGGER_TYPES,
   ProjectType,
+  resolveJourneyStepSlug,
 } from '@reformaflow/domain';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -31,7 +31,10 @@ export interface EligibleStepView {
    * Slug de `PROJECT_NAV` (não a rota completa — `/projects/:id/` fica por
    * conta do runtime, que compõe com o projeto ATIVO na hora de navegar,
    * nunca com o projeto do momento da elegibilidade). Ausente para passos
-   * SUMMARY ou sem tela própria (`JOURNEY_STEP_SLUGS`); nunca vem do banco.
+   * SUMMARY ou sem tela própria; nunca vem do banco. Resolvido POR TIPO de
+   * projeto (`resolveJourneyStepSlug`) — o mesmo `stepKey` tem destinos
+   * diferentes em tipos diferentes (ex.: `receipt` vai para `receipts` numa
+   * REFORMA e para `conta` num PESSOAL, onde a tela foi absorvida pelo hub).
    */
   slug?: string;
 }
@@ -148,7 +151,14 @@ export class JourneysEligibilityService {
           label: s.label,
           subtitle: s.subtitle,
           skippable: s.skippable,
-          slug: JOURNEY_STEP_SLUGS[s.stepKey],
+          // O tipo vem do PROJETO REAL em contexto. NÃO caia na tentação de
+          // usar `?? trigger.targetProjectType` como reserva: o filtro de
+          // `matched` acima já garante `targetProjectType === null ||
+          // targetProjectType === resolvedProjectType`, então a reserva é
+          // provadamente inalcançável (código morto que finge robustez).
+          // Sem tipo resolvido, `resolveJourneyStepSlug` usa o mapa base — uma
+          // etapa Completa nunca fica sem destino.
+          slug: resolveJourneyStepSlug(s.stepKey, resolvedProjectType),
         }));
 
       eligible.push({

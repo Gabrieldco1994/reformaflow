@@ -923,4 +923,170 @@ describe('JourneysEligibilityService', () => {
       expect(entry.steps[0].slug).toBeUndefined();
     });
   });
+
+  /**
+   * #531 — o slug de uma etapa Completa passa a variar por TIPO de projeto.
+   *
+   * O U4 (#453, programa #436) tira `expenses`/`receipts` do
+   * `PROJECT_NAV[PESSOAL]`, e essas telas passam a sempre redirecionar para
+   * `/conta`. Sem resolução per-type o servidor manda a jornada para uma URL e
+   * o produto entrega outra. É AQUI que a correção mora: este serviço é o
+   * ÚNICO lugar que resolve o slug — o runtime web só compõe
+   * `/projects/:id/:slug` com o que vem daqui, nunca inventa um slug.
+   */
+  describe('slug resolvido por tipo de projeto (#531)', () => {
+    const PESSOAL_FULL_STEPS = ['expense', 'import', 'expense-import', 'receipt'] as const;
+
+    function stepRow(stepKey: string): JourneyStepRow {
+      return {
+        id: `s-${stepKey}`,
+        journeyId: 'j1',
+        stepKey,
+        order: 0,
+        experience: 'FULL',
+        label: stepKey,
+        subtitle: null,
+        enabled: true,
+        skippable: true,
+      };
+    }
+
+    it.each(PESSOAL_FULL_STEPS)(
+      'num projeto PESSOAL, "%s" navega para `conta` (a tela que de fato atende)',
+      async (stepKey) => {
+        await build({
+          journeys: [journey],
+          triggers: [trigger({ id: 'tp', targetProjectType: 'PESSOAL', repeatPolicy: 'ALWAYS' })],
+          steps: [stepRow(stepKey)],
+          projects: [{ id: 'p-pessoal', tenantId: 'tenant-a', type: 'PESSOAL', deletedAt: null }],
+        });
+
+        const [entry] = await service.getEligible(
+          { triggerType: 'PROJECT_CREATED', device: 'web', projectId: 'p-pessoal' },
+          'tenant-a',
+          'user-1',
+        );
+
+        expect(entry.steps[0]).toMatchObject({ stepKey, slug: 'conta' });
+      },
+    );
+
+    it('num projeto REFORMA, "expense" continua navegando para `expenses`', async () => {
+      await build({
+        journeys: [{ ...journey, key: 'onboarding:REFORMA' }],
+        triggers: [trigger({ id: 'tr', targetProjectType: 'REFORMA', repeatPolicy: 'ALWAYS' })],
+        steps: [stepRow('expense')],
+        projects: [{ id: 'p-reforma', tenantId: 'tenant-a', type: 'REFORMA', deletedAt: null }],
+      });
+
+      const [entry] = await service.getEligible(
+        { triggerType: 'PROJECT_CREATED', device: 'web', projectId: 'p-reforma' },
+        'tenant-a',
+        'user-1',
+      );
+
+      expect(entry.steps[0]).toMatchObject({ stepKey: 'expense', slug: 'expenses' });
+    });
+
+    /**
+     * O tipo vem do PROJETO REAL do banco, não do que a query afirma — é o
+     * projeto que determina em qual navegação a tela existe.
+     */
+    it('usa o tipo do projeto REAL do banco, não o que a query afirma', async () => {
+      await build({
+        journeys: [journey],
+        triggers: [trigger({ id: 'tp', targetProjectType: 'PESSOAL', repeatPolicy: 'ALWAYS' })],
+        steps: [stepRow('receipt')],
+        projects: [{ id: 'p-pessoal', tenantId: 'tenant-a', type: 'PESSOAL', deletedAt: null }],
+      });
+
+      const [entry] = await service.getEligible(
+        {
+          triggerType: 'PROJECT_CREATED',
+          device: 'web',
+          projectId: 'p-pessoal',
+          projectType: ProjectType.PESSOAL,
+        },
+        'tenant-a',
+        'user-1',
+      );
+
+      expect(prisma.project.findFirst).toHaveBeenCalled();
+      expect(entry.steps[0]).toMatchObject({ stepKey: 'receipt', slug: 'conta' });
+    });
+
+    /**
+     * A outra via de resolução do tipo: `projectType` na query SEM `projectId`
+     * (contrato suportado pelo serviço). Cobre o segundo ramo de
+     * `resolvedProjectType` — senão só o caminho via banco estaria testado.
+     */
+    it('resolve pelo projectType da query quando não há projectId', async () => {
+      await build({
+        journeys: [journey],
+        triggers: [trigger({ id: 'tp', targetProjectType: 'PESSOAL', repeatPolicy: 'ALWAYS' })],
+        steps: [stepRow('expense')],
+      });
+
+      const [entry] = await service.getEligible(
+        { triggerType: 'PROJECT_CREATED', device: 'web', projectType: ProjectType.PESSOAL },
+        'tenant-a',
+        'user-1',
+      );
+
+      expect(prisma.project.findFirst).not.toHaveBeenCalled();
+      expect(entry.steps[0]).toMatchObject({ stepKey: 'expense', slug: 'conta' });
+    });
+
+    /**
+     * Este teste existe porque o mutation-check pegou uma reserva
+     * `?? trigger.targetProjectType` que eu tinha escrito no serviço: removê-la
+     * NÃO deixava nenhum teste vermelho, porque ela é inalcançável. O filtro de
+     * `matched` só deixa passar gatilho com `targetProjectType === null` ou
+     * `=== resolvedProjectType` — não existe gatilho tipado sobrevivendo a um
+     * tipo não resolvido, então não há para onde "cair".
+     *
+     * Fixado aqui para ninguém reintroduzir a reserva achando que cobre um
+     * buraco: o buraco não existe, e o gatilho tipado simplesmente NÃO É
+     * ELEGÍVEL sem tipo em contexto.
+     */
+    it('gatilho com targetProjectType nem sequer é elegível sem tipo em contexto (não há reserva a fazer)', async () => {
+      await build({
+        journeys: [journey],
+        triggers: [
+          trigger({
+            id: 'tp',
+            triggerType: 'SIGNUP_COMPLETED',
+            targetProjectType: 'PESSOAL',
+            repeatPolicy: 'ALWAYS',
+          }),
+        ],
+        steps: [stepRow('expense-import')],
+      });
+
+      const result = await service.getEligible(
+        { triggerType: 'SIGNUP_COMPLETED', device: 'web' },
+        'tenant-a',
+        'user-1',
+      );
+
+      expect(result).toEqual([]);
+    });
+
+    /** Sem tipo por nenhuma via, o mapa base ainda responde — nunca `undefined`. */
+    it('sem tipo nenhum, o mapa base ainda resolve (etapa FULL nunca fica sem destino)', async () => {
+      await build({
+        journeys: [journey],
+        triggers: [trigger({ id: 'tg', targetProjectType: null, repeatPolicy: 'ALWAYS' })],
+        steps: [stepRow('expense')],
+      });
+
+      const [entry] = await service.getEligible(
+        { triggerType: 'PROJECT_CREATED', device: 'web' },
+        'tenant-a',
+        'user-1',
+      );
+
+      expect(entry.steps[0].slug).toBe('expenses');
+    });
+  });
 });

@@ -514,6 +514,80 @@ export const JOURNEY_STEP_SLUGS: Partial<Record<string, string>> = {
 };
 
 /**
+ * Divergências de destino POR TIPO DE PROJETO — só o que difere de
+ * `JOURNEY_STEP_SLUGS`. Base + override, nunca um mapa aninhado completo: um
+ * `Record<ProjectType, Record<stepKey, slug>>` obrigaria a declarar cada
+ * `stepKey` novo 6 vezes, cinco delas idênticas, e divergência por OMISSÃO
+ * viraria o modo de falha padrão.
+ *
+ * ⚠️ POR QUE O PESSOAL DIVERGE — leia antes de "limpar" isto.
+ *
+ * NÃO é gambiarra. O U4 (#453, programa #436) remove `expenses`, `receipts`,
+ * `credit-cards` e `bank-accounts` de `PROJECT_NAV[PESSOAL]`: no financeiro
+ * pessoal essas telas foram absorvidas pelo hub `/conta`, e as rotas antigas
+ * passam a SEMPRE redirecionar para lá. Mandar a jornada para `expenses` num
+ * projeto PESSOAL faz o produto se contradizer — anuncia uma URL e entrega
+ * outra.
+ *
+ * E `conta` faz o mesmo trabalho, não um trabalho parecido: o
+ * `conta/_components/DespesaModal.tsx` reusa o MESMO `ExpenseFormModal` da
+ * tela de despesas. O usuário consegue exatamente o que o painel da jornada
+ * pede — só que na tela que continua existindo.
+ *
+ * INVARIANTE QUE ESTE MAPA NÃO PODE QUEBRAR (travada por teste em
+ * `journey-step-slugs-per-type.test.ts`): um override REDIRECIONA, nunca
+ * REMOVE. Todo valor aqui é uma tela real, e todo `stepKey` aqui já existe em
+ * `JOURNEY_STEP_SLUGS`. É isso que permite a `hasJourneyStepSlug` — e portanto
+ * a `assertFullExperienceHasSlug`, em `journeys-admin.service.ts` — continuar
+ * type-agnostic: "esse passo tem tela própria?" dá a mesma resposta com e sem
+ * tipo. E ela PRECISA continuar type-agnostic, porque naquele ponto o tipo não
+ * existe: passos pertencem à JORNADA, e uma jornada pode ter 0..N gatilhos
+ * mirando tipos diferentes (ou nenhum, quando é global).
+ */
+export const JOURNEY_STEP_SLUG_OVERRIDES: Partial<
+  Record<ProjectType, Partial<Record<string, string>>>
+> = {
+  [ProjectType.PESSOAL]: {
+    expense: 'conta',
+    import: 'conta',
+    'expense-import': 'conta',
+    receipt: 'conta',
+  },
+};
+
+/**
+ * Destino da experiência Completa de um passo, no tipo de projeto em que a
+ * jornada está rodando. ÚNICA forma correta de ler o mapa de slugs — ler
+ * `JOURNEY_STEP_SLUGS[stepKey]` cru ignora os overrides e ressuscita o defeito.
+ *
+ * `projectType` ausente/`null` (ex.: `SIGNUP_COMPLETED`, que não tem projeto em
+ * contexto) cai no mapa base — nunca em `undefined` novo, que faria uma etapa
+ * Completa deixar de navegar.
+ *
+ * ⚠️ LIMITAÇÃO CONHECIDA E MEDIDA (não é descuido): o slug é resolvido no
+ * servidor para o tipo do projeto do momento da ELEGIBILIDADE, mas o runtime
+ * web compõe `/projects/${projectId}/${slug}` com o projeto ATIVO na hora de
+ * navegar (`journey-runtime-context.tsx`). Numa jornada `crossProject` o
+ * usuário pode trocar para um projeto de OUTRO tipo e receber um slug
+ * resolvido para o tipo anterior. Hoje é inofensivo e foi conferido no banco:
+ * as 6 triggers existentes têm `cross_project = 0` e não há nenhuma jornada
+ * cross-project com passo FULL. Resolver de verdade exigiria a API devolver o
+ * destino de todos os tipos para o runtime re-resolver na troca — PR inteira
+ * para uma demanda que não existe. Se surgir a primeira jornada cross-project
+ * com etapa Completa, este comentário é a dívida a pagar.
+ */
+export function resolveJourneyStepSlug(
+  stepKey: string,
+  projectType?: ProjectType | null,
+): string | undefined {
+  if (projectType) {
+    const override = JOURNEY_STEP_SLUG_OVERRIDES[projectType]?.[stepKey];
+    if (override !== undefined) return override;
+  }
+  return JOURNEY_STEP_SLUGS[stepKey];
+}
+
+/**
  * `stepKey`s do catálogo deliberadamente sem tela própria — Etapa Completa
  * nunca é permitida para eles. Existe só para `findUnclassifiedStepKeys`
  * distinguir "esquecido" de "sem rota de propósito".
@@ -539,15 +613,79 @@ export function findUnclassifiedStepKeys(): string[] {
 }
 
 /**
- * Primitiva de regressão de cobertura: todo slug em `JOURNEY_STEP_SLUGS`
- * precisa ser um slug REAL de `PROJECT_NAV` (de algum tipo de projeto) —
- * pega typo/rota removida antes de virar 404 em produção.
+ * Um destino inválido, já localizado: o passo `stepKey`, rodando num projeto
+ * do tipo `type`, mandaria o usuário para `slug` — que não é rota daquele tipo.
  */
-export function findInvalidStepSlugs(): string[] {
-  const allNavSlugs = new Set(
-    Object.values(ProjectType).flatMap((type) => getProjectNavModules(type).map((m) => m.slug)),
-  );
-  return Object.entries(JOURNEY_STEP_SLUGS)
-    .filter(([, slug]) => slug !== undefined && !allNavSlugs.has(slug))
-    .map(([key]) => key);
+export interface InvalidStepSlug {
+  type: ProjectType;
+  stepKey: string;
+  slug: string;
+}
+
+export interface StepSlugAuditOptions {
+  /**
+   * Substitui `PROJECT_NAV` só nos tipos informados (MESCLA, não troca): o
+   * teste sobrescreve um tipo e os outros cinco seguem com o nav real. Existe
+   * para a guarda ser testável contra um nav HIPOTÉTICO — provar que ela pega
+   * o colapso de uma rota sem depender do estado atual da navegação nem
+   * esperar a PR que o causa.
+   */
+  nav?: Partial<Record<ProjectType, ReadonlyArray<{ slug: string }>>>;
+}
+
+/**
+ * `stepKey`s que podem rodar num projeto de tipo `type`: os passos de toda
+ * jornada que mira esse tipo, mais os das jornadas globais
+ * (`targetProjectType: null`, que valem para qualquer projeto).
+ *
+ * Este escopo é o que impede a auditoria de virar máquina de falso-positivo:
+ * `bill -> bills` só existe no onboarding de CASA e NUNCA pode ser cobrado do
+ * PESSOAL, que legitimamente não tem `bills` no nav.
+ *
+ * Uma jornada global é cobrada contra TODOS os tipos, e uma jornada sem
+ * nenhum gatilho também. É escolha, não descuido: hoje não existe nenhuma das
+ * duas (as 6 jornadas do catálogo miram um tipo cada), e se surgir uma global
+ * com passo cujo slug só vale em alguns tipos, a auditoria vai gritar. Falso
+ * positivo grita e alguém conserta; falso negativo é exatamente o que deixou
+ * o PESSOAL quebrado com o CI verde.
+ */
+function listCatalogStepKeysForType(type: ProjectType): string[] {
+  const keys = new Set<string>();
+  for (const journey of Object.values(JOURNEY_CATALOG)) {
+    const appliesToType =
+      journey.triggers.length === 0 ||
+      journey.triggers.some((t) => t.targetProjectType === null || t.targetProjectType === type);
+    if (!appliesToType) continue;
+    for (const step of journey.steps) keys.add(step.key);
+  }
+  return [...keys];
+}
+
+/**
+ * Primitiva de regressão de cobertura: todo destino de passo precisa ser uma
+ * rota REAL do tipo de projeto em que aquele passo roda. Vazio = catálogo são.
+ *
+ * ⚠️ ESTA GUARDA JÁ FALHOU EM SILÊNCIO — não a afrouxe de volta. A versão
+ * anterior validava os slugs contra a UNIÃO de todos os tipos. Quando o U4
+ * (#453) tirou `expenses` do `PROJECT_NAV[PESSOAL]`, a rota sobreviveu em
+ * REFORMA e COMPRA, a união continuou contendo `expenses` e a guarda devolveu
+ * `[]` com 4 passos do PESSOAL quicando para `/conta`. Guarda type-agnostic
+ * para um problema per-type não protege ninguém: valide SEMPRE por tipo, e
+ * resolva o destino por `resolveJourneyStepSlug(stepKey, type)` — nunca por
+ * `JOURNEY_STEP_SLUGS[stepKey]` cru, que ignora os overrides.
+ */
+export function findInvalidStepSlugs(options: StepSlugAuditOptions = {}): InvalidStepSlug[] {
+  const invalid: InvalidStepSlug[] = [];
+  for (const type of Object.values(ProjectType)) {
+    const navSlugs = new Set(
+      (options.nav?.[type] ?? PROJECT_NAV[type] ?? []).map((m) => m.slug),
+    );
+    for (const stepKey of listCatalogStepKeysForType(type)) {
+      const slug = resolveJourneyStepSlug(stepKey, type);
+      if (slug !== undefined && !navSlugs.has(slug)) {
+        invalid.push({ type, stepKey, slug });
+      }
+    }
+  }
+  return invalid;
 }
