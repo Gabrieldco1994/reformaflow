@@ -1,8 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams, useSearchParams, useRouter } from 'next/navigation';
+import { hasNavRoute, type ProjectType } from '@reformaflow/domain';
 import { api } from '@/lib/api';
+import { useProject } from '@/contexts/project-context';
 import { formatCurrency } from '@/lib/utils';
 import { Landmark, Plus, Trash2, Link2, ArrowDownLeft, History } from 'lucide-react';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -17,7 +19,12 @@ import type { BankAccountRow } from './_types';
 export default function BankAccountsPage() {
   const params = useParams();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const projectId = String(params?.projectId ?? '');
+  const { projectType } = useProject();
+  const type = projectType as ProjectType;
+  const shouldRedirectToHub = !hasNavRoute(type, 'bank-accounts') && hasNavRoute(type, 'conta');
+
   const [accounts, setAccounts] = useState<BankAccountRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
@@ -51,6 +58,16 @@ export default function BankAccountsPage() {
       setFormOpen(true);
     }
   }, [loading, accounts, searchParams]);
+
+  useEffect(() => {
+    if (shouldRedirectToHub) {
+      router.replace(`/projects/${projectId}/conta`);
+    }
+  }, [shouldRedirectToHub, projectId, router]);
+
+  if (shouldRedirectToHub) {
+    return null;
+  }
 
   async function handleDelete(acc: BankAccountRow) {
     if (!confirm(`Excluir conta "${acc.nickname ?? acc.last4}"? As despesas importadas serão mantidas.`)) return;

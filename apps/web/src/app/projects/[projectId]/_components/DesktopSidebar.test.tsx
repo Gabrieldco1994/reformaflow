@@ -181,13 +181,9 @@ describe("DesktopSidebar", () => {
       Array.from(movimentacoes!.querySelectorAll("a")).map((a) => a.getAttribute("href")),
     ).toEqual([
       `${basePath}/conta`,
-      `${basePath}/expenses`,
-      `${basePath}/receipts`,
-      `${basePath}/credit-cards`,
-      `${basePath}/bank-accounts`,
     ]);
-    expect(screen.getByRole("link", { name: "Despesas" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Recebimentos" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Despesas" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Recebimentos" })).not.toBeInTheDocument();
   });
 
   it("U1-V03 [RED] cada grupo é um `role=group` nomeado — o nome existe mesmo recolhido", () => {
@@ -263,15 +259,15 @@ describe("DesktopSidebar", () => {
     // navegador e não vive no DOM — `getBoundingClientRect` não a alcança,
     // `elementFromPoint` não a acha, o Playwright não a vê. Se a dica fosse a
     // nativa, não haveria como provar entrega. Daí ser elemento próprio.
-    const cartoes = screen.getByRole("link", { name: "Cartões" });
+    const conta = screen.getByRole("link", { name: "Visão Conta" });
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
 
-    fireEvent.mouseOver(cartoes);
+    fireEvent.mouseOver(conta);
     const hint = screen.getByRole("tooltip");
-    expect(hint).toHaveTextContent("Movimentações · Cartões");
-    expect(cartoes).toHaveAttribute("aria-describedby", hint.id);
+    expect(hint).toHaveTextContent("Movimentações · Visão Conta");
+    expect(conta).toHaveAttribute("aria-describedby", hint.id);
 
-    fireEvent.mouseOut(cartoes);
+    fireEvent.mouseOut(conta);
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
 
     // Teclado tem que chegar na mesma dica; senão só o mouse vê o grupo.
@@ -413,12 +409,9 @@ describe("DesktopSidebar", () => {
     );
 
   it("U1-V09 [RED] permissão reduzida: grupos e réguas ACOMPANHAM a permissão (nada de contagem fixa)", () => {
-    // Sem `monthlyOverview`: caem Hoje, Resultado e Auditoria por inteiro.
+    // Sem `monthlyOverview` nem `cashFlow`: caem Hoje, Movimentações, Resultado e Auditoria.
     const visibleNav = allowOnly([
       "expenses",
-      "receipts",
-      "creditCards",
-      "bankAccounts",
     ]);
     const { container } = render(
       <DesktopSidebar
@@ -430,7 +423,7 @@ describe("DesktopSidebar", () => {
 
     const expected = buildNavGroups(ProjectType.PESSOAL, visibleNav);
     // Contrato, não número: se o domínio mudar a partição, este teste segue.
-    expect(expected.map((g) => g.id)).toEqual(["movimentacoes", "planejamento"]);
+    expect(expected.map((g) => g.id)).toEqual(["planejamento"]);
 
     const rendered = Array.from(
       container.querySelectorAll<HTMLElement>("nav [data-nav-group]"),
@@ -443,7 +436,7 @@ describe("DesktopSidebar", () => {
       expected.length - 1,
     );
     // Grupo vazio não deixa cabeçalho órfão nem `role=group` fantasma.
-    for (const gone of ["hoje", "resultado", "auditoria"]) {
+    for (const gone of ["hoje", "movimentacoes", "resultado", "auditoria"]) {
       expect(container.querySelector(`[data-nav-group="${gone}"]`)).toBeNull();
     }
     expect(screen.queryByRole("group", { name: "Hoje" })).toBeNull();
@@ -453,7 +446,7 @@ describe("DesktopSidebar", () => {
   });
 
   it("U1-V10 [RED] um único grupo autorizado: zero régua, zero cabeçalho, grupo ainda nomeado", () => {
-    const visibleNav = allowOnly(["creditCards"]);
+    const visibleNav = allowOnly(["cashFlow"]);
     const { container } = render(
       <DesktopSidebar
         {...props}
@@ -467,9 +460,9 @@ describe("DesktopSidebar", () => {
     // n-1 = 0: régua solta seria um rodapé falso.
     expect(container.querySelectorAll("[data-nav-separator]")).toHaveLength(0);
     // Com uma seção só não há o que separar: o cabeçalho textual some...
-    expect(screen.queryByText("Movimentações", { selector: "p" })).toBeNull();
+    expect(screen.queryByText("Auditoria", { selector: "p" })).toBeNull();
     // ...mas o nome do grupo continua existindo para leitor de tela e para a dica.
-    expect(screen.getByRole("group", { name: "Movimentações" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Auditoria" })).toBeInTheDocument();
   });
 
   it("REG-02 [TRAVA — já passa] Budget fica FORA dos grupos e DENTRO do bloco administrativo", () => {
@@ -519,7 +512,7 @@ describe("DesktopSidebar", () => {
       expect(scroller!.contains(link)).toBe(false);
     }
     // ...e a lista de módulos continua sendo a única coisa que rola.
-    expect(scroller!.contains(screen.getByRole("link", { name: "Cartões" }))).toBe(true);
+    expect(scroller!.contains(screen.getByRole("link", { name: "Visão Conta" }))).toBe(true);
   });
 
 

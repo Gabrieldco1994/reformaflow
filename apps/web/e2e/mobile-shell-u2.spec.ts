@@ -92,10 +92,10 @@ const MODULES = {
  * protects". Se PROJECT_NAV mudar, alguém edita aqui de propósito.
  */
 const EXPECTED_V: Record<keyof typeof MODULES, string[]> = {
-  full: ['monthly', 'conta', 'dre', 'neutros', 'expenses', 'receipts', 'recorrentes', 'metas', 'planning', 'planejador', 'cash-flow', 'credit-cards', 'bank-accounts'],
+  full: ['monthly', 'conta', 'dre', 'neutros', 'recorrentes', 'metas', 'planning', 'planejador', 'cash-flow'],
   soMonthly: ['monthly', 'conta', 'dre', 'neutros', 'planning', 'planejador'],
-  soBank: ['bank-accounts'],
-  reduced: ['expenses', 'receipts', 'recorrentes', 'metas', 'credit-cards', 'bank-accounts'],
+  soBank: [],
+  reduced: ['recorrentes', 'metas'],
   semNav: [],
 };
 

@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams, useSearchParams, useRouter } from 'next/navigation';
+import { hasNavRoute, type ProjectType } from '@reformaflow/domain';
 import { api } from '@/lib/api';
 import { useProject } from '@/contexts/project-context';
 import { formatCurrency } from '@/lib/utils';
@@ -25,8 +26,12 @@ function limitLabel(percent: number) {
 export default function CreditCardsPage() {
   const params = useParams();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const projectId = String(params?.projectId ?? '');
   const { projectType } = useProject();
+  const type = projectType as ProjectType;
+  const shouldRedirectToHub = !hasNavRoute(type, 'credit-cards') && hasNavRoute(type, 'conta');
+
   const [cards, setCards] = useState<CardRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -79,6 +84,16 @@ export default function CreditCardsPage() {
       setFormOpen(true);
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    if (shouldRedirectToHub) {
+      router.replace(`/projects/${projectId}/conta`);
+    }
+  }, [shouldRedirectToHub, projectId, router]);
+
+  if (shouldRedirectToHub) {
+    return null;
+  }
 
   async function handleDelete(card: CardRow) {
     const cardProjectId = card.projectId ?? projectId;

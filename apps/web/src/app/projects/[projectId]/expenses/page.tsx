@@ -30,14 +30,17 @@ export default function ExpensesPage() {
   const routeProjectId = String(params?.projectId ?? projectId);
   const type = projectType as ProjectType;
   const shouldRedirectToAvulsas = !hasNavRoute(type, 'expenses') && hasNavRoute(type, 'bills');
+  const shouldRedirectToHub = !hasNavRoute(type, 'expenses') && hasNavRoute(type, 'conta');
 
   useEffect(() => {
     if (shouldRedirectToAvulsas) {
       router.replace(`/projects/${routeProjectId}/bills?tab=avulsas`);
+    } else if (shouldRedirectToHub) {
+      router.replace(`/projects/${routeProjectId}/conta`);
     }
-  }, [shouldRedirectToAvulsas, routeProjectId, router]);
+  }, [shouldRedirectToAvulsas, shouldRedirectToHub, routeProjectId, router]);
 
-  if (shouldRedirectToAvulsas) {
+  if (shouldRedirectToAvulsas || shouldRedirectToHub) {
     return null;
   }
 
