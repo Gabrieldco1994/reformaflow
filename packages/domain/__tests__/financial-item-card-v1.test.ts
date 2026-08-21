@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { assertFinancialItemCardV1Shape, type FinancialItemCardV1 } from '@reformaflow/domain';
-import type { MonthlyOverviewEntry } from '@reformaflow/domain';
+import { assertFinancialItemCardV1Shape, type FinancialItemCardV1 } from '../src/types/financial-item-card-v1';
+import type { MonthlyOverviewEntry } from '../src/calculations';
 
 function validCard(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
