@@ -1,0 +1,18 @@
+# Prettier 3 does NOT read .gitignore, so this file is the only thing standing
+# between `npm run format` (`prettier --write "**/*.{ts,tsx,md}"`) and ~4.6k
+# files inside agent worktrees that live *under the repo tree*. Without it the
+# script silently rewrites another agent's uncommitted work. See #534.
+#
+# Scope note: `.claude/` itself is TRACKED repo content (43 files — the agent
+# roster and skills). Only `.claude/worktrees/` is scratch. Never ignore, and
+# never gitignore, `.claude/` wholesale.
+.claude/worktrees/
+.agents/
+node_modules/
+dist/
+.next/
+coverage/
+playwright-report/
+test-results/
+uploads/
+prisma/*.db
