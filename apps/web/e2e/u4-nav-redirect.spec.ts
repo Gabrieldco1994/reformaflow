@@ -3,10 +3,18 @@ import { expect, test, type Page } from '@playwright/test';
 /**
  * U4 (issue #453) — redirect das 4 rotas colapsadas para o hub `/conta`.
  *
- * Três casos por rota colapsada:
+ * DOIS casos por rota colapsada (decisão do PO no #529 — o antigo "caso 3"
+ * MORREU):
  *   1. Sem módulo da página → /no-permission
- *   2. Com módulo + monthlyOverview → /conta (redirect ao hub)
- *   3. Com módulo, sem monthlyOverview → renderiza a página legada
+ *   2. Com módulo → /conta (redirect ao hub), INCONDICIONAL
+ *
+ * O que era o caso 3 ("com módulo, sem `monthlyOverview` → renderiza a página
+ * legada") deixou de ser estado suportado no PESSOAL. Não removi aquele teste
+ * em silêncio: ele virou o describe "U4-10c", que afirma a regra NOVA no mesmo
+ * perfil que antes exercitava a regra velha. É uma asserção mais FORTE do que
+ * a anterior, porque não depende mais de perfil de permissão nenhum — antes o
+ * destino variava com `monthlyOverview`, agora é o mesmo para todo mundo que
+ * tenha o módulo.
  *
  * REFORMA/CASA/CARRO: a navegação deles NÃO regride.
  */
@@ -31,10 +39,11 @@ const ALL_MODULES = [
 async function mockApi(
   page: Page,
   baseURL: string,
-  opts: { role?: string; modules?: string[] } = {},
+  opts: { role?: string; modules?: string[]; projectTypes?: string[] } = {},
 ) {
   const role = opts.role ?? 'ADMIN';
   const modules = opts.modules ?? ALL_MODULES;
+  const projectTypes = opts.projectTypes ?? ['PESSOAL', 'REFORMA', 'CASA', 'CARRO'];
   await page.context().addCookies([{ name: 'rf_token', value: 'u4-test', url: baseURL }]);
   await page.route('http://localhost:3001/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
@@ -48,7 +57,7 @@ async function mockApi(
         tenantId: 'u4-tenant',
         allowedModules: [...modules],
         allowedProjects: [PESSOAL_ID, REFORMA_ID, CASA_ID, CARRO_ID],
-        allowedProjectTypes: ['PESSOAL', 'REFORMA', 'CASA', 'CARRO'],
+        allowedProjectTypes: [...projectTypes],
       }));
     }
     if (path === `/projects/${PESSOAL_ID}`) {
@@ -100,21 +109,77 @@ test.describe('U4-10 caso 1: sem módulo → /no-permission', () => {
   }
 });
 
-// ─── CASO 3: com módulo, sem monthlyOverview → renderiza legada ─────────────
-test.describe('U4-10 caso 3: com módulo, sem monthlyOverview → página legada', () => {
-  for (const [slug, contentMarker] of [
-    ['bank-accounts', 'Nenhuma conta cadastrada'],
-    ['credit-cards', 'Cartões de Crédito'],
-  ] as const) {
-    test(`/${slug} sem monthlyOverview renderiza a página`, async ({ page, baseURL }) => {
+// ─── CASO 2 (cont.): SEM monthlyOverview o destino é o MESMO ───────────────
+// Este describe ocupa o lugar do antigo "caso 3", que afirmava que este mesmo
+// perfil renderizava a página legada. O #529 matou esse estado. Mantive o
+// perfil idêntico (módulo da página SIM, `monthlyOverview` NÃO) de propósito:
+// é o único jeito de provar que a variável que ANTES decidia o destino agora
+// não decide nada. Cobre os QUATRO slugs — o teste antigo cobria só dois.
+const CONTENT_MARKER: Record<string, string> = {
+  'bank-accounts': 'Nenhuma conta cadastrada',
+  'credit-cards': 'Cartões de Crédito',
+};
+
+test.describe('U4-10c sem monthlyOverview: o redirect ao hub é INCONDICIONAL', () => {
+  for (const slug of ['expenses', 'receipts', 'credit-cards', 'bank-accounts']) {
+    test(`/${slug} sem monthlyOverview também vai para /conta`, async ({ page, baseURL }) => {
       const modules = ALL_MODULES.filter((m) => m !== 'monthlyOverview');
       await mockApi(page, baseURL!, { role: 'USER', modules });
       await page.goto(`/projects/${PESSOAL_ID}/${slug}`);
-      // Deve ficar na rota, não redirecionar
-      await page.waitForTimeout(2000);
-      await expect(page).toHaveURL(new RegExp(`/projects/${PESSOAL_ID}/${slug}`));
-      // Renderiza conteúdo da página (não 404, não /no-permission, não /conta)
-      await expect(page.getByText(contentMarker, { exact: false }).first()).toBeVisible({ timeout: 10_000 });
+      await expect(
+        page,
+        `#529: com o módulo, o destino não depende mais de monthlyOverview`,
+      ).toHaveURL(new RegExp(`/projects/${PESSOAL_ID}/conta`), { timeout: 10_000 });
+      // Barreira: se a página legada voltar a montar, o teste fica VERMELHO
+      // dizendo o que voltou — em vez de passar por a URL ter oscilado.
+      const marker = CONTENT_MARKER[slug];
+      if (marker) {
+        await expect(
+          page.getByText(marker, { exact: false }),
+          `a página legada de ${slug} renderizou — o caso 3 voltou`,
+        ).toHaveCount(0);
+      }
+    });
+  }
+});
+
+// ─── RESSALVA DO SRE: o legado `allowed_project_types = []` ────────────────
+// O blast radius do #529 foi ~zero por uma razão ESTRUTURAL, não por sorte:
+// `TYPE_MODULES[PESSOAL]` concede `monthlyOverview` e PESSOAL é o único tipo
+// que concede, então quem tem PESSOAL em `allowed_project_types` recebe o
+// módulo na leitura (`reconcileUserModules`) e nunca esteve no perfil de risco.
+// A classe de risco era só o legado com `allowed_project_types = []`.
+//
+// Essa proteção é uma PROPRIEDADE DE DADOS, não do código desta página: se
+// algum fluxo voltar a criar usuário com tipos vazios, a classe volta. Esta
+// trava existe para que, se isso acontecer, a consequência apareça AQUI e não
+// num ticket de suporte seis meses depois.
+//
+// MEDIDO (não suposto): o destino é `/no-permission`, NÃO `/conta`. Eu tinha
+// escrito `/conta` e o teste ficou vermelho — a medição corrigiu a hipótese.
+// A razão importa: `allowed_project_types = []` é barrado pelo gate de TIPO
+// no `AppShell`, que roda ANTES da guarda desta página. Ou seja, a classe de
+// risco do SRE tem DUAS proteções independentes: o gate de tipo e, depois, o
+// redirect incondicional. O que esta trava afirma é a propriedade que interessa
+// nas duas — o legado NUNCA renderiza a página colapsada.
+test.describe('U4-10d trava: usuário legado sem allowed_project_types', () => {
+  for (const slug of ['expenses', 'bank-accounts']) {
+    test(`/${slug} com allowedProjectTypes=[] nunca renderiza a legada`, async ({ page, baseURL }) => {
+      const modules = ALL_MODULES.filter((m) => m !== 'monthlyOverview');
+      await mockApi(page, baseURL!, { role: 'USER', modules, projectTypes: [] });
+      await page.goto(`/projects/${PESSOAL_ID}/${slug}`);
+      // 1ª camada: o gate de TIPO barra antes da guarda da página.
+      await expect(
+        page,
+        'usuário legado (tipos vazios) não caiu no gate de tipo — a 1ª camada saiu',
+      ).toHaveURL(/\/no-permission/, { timeout: 10_000 });
+      // A propriedade que importa, independente de QUAL camada barrou: a rota
+      // colapsada não montou. Se um dia o gate de tipo mudar, esta linha segue
+      // valendo e o teste continua dizendo a verdade.
+      await expect(
+        page,
+        `a rota colapsada /${slug} montou para o usuário legado`,
+      ).not.toHaveURL(new RegExp(`/projects/${PESSOAL_ID}/${slug}`));
     });
   }
 });

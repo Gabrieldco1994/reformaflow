@@ -34,7 +34,12 @@ export default function ExpensesPage() {
   const shouldRedirectToAvulsas = !hasNavRoute(type, 'expenses') && hasNavRoute(type, 'bills');
   const navCollapsed = !hasNavRoute(type, 'expenses') && hasNavRoute(type, 'conta');
   const noPermission = navCollapsed && !hasModule('expenses');
-  const shouldRedirectToHub = navCollapsed && hasModule('expenses') && hasModule('monthlyOverview');
+  // #529: o redirect ao hub é INCONDICIONAL para quem tem o módulo. NÃO
+  // acrescente `&& hasModule('monthlyOverview')` aqui: o antigo "caso 3"
+  // (módulo sem o hub → renderizava a página legada) deixou de ser estado
+  // suportado no PESSOAL. As QUATRO rotas colapsadas usam a mesma condição —
+  // divergir uma delas já foi defeito antes. Travado por u4-nav-redirect (U4-10c/d).
+  const shouldRedirectToHub = navCollapsed && hasModule('expenses');
 
   useEffect(() => {
     if (shouldRedirectToAvulsas) {

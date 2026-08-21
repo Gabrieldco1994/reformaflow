@@ -27,7 +27,12 @@ export default function BankAccountsPage() {
   const type = projectType as ProjectType;
   const navCollapsed = !hasNavRoute(type, 'bank-accounts') && hasNavRoute(type, 'conta');
   const noPermission = navCollapsed && !hasModule('bankAccounts');
-  const shouldRedirectToHub = navCollapsed && hasModule('bankAccounts') && hasModule('monthlyOverview');
+  // #529: o redirect ao hub é INCONDICIONAL para quem tem o módulo. NÃO
+  // acrescente `&& hasModule('monthlyOverview')` aqui: o antigo "caso 3"
+  // (módulo sem o hub → renderizava a página legada) deixou de ser estado
+  // suportado no PESSOAL. As QUATRO rotas colapsadas usam a mesma condição —
+  // divergir uma delas já foi defeito antes. Travado por u4-nav-redirect (U4-10c/d).
+  const shouldRedirectToHub = navCollapsed && hasModule('bankAccounts');
 
   const [accounts, setAccounts] = useState<BankAccountRow[]>([]);
   const [loading, setLoading] = useState(true);

@@ -49,7 +49,12 @@ export default function ReceiptsPage() {
   const type = projectType as ProjectType;
   const navCollapsed = !hasNavRoute(type, 'receipts') && hasNavRoute(type, 'conta');
   const noPermission = navCollapsed && !hasModule('receipts');
-  const shouldRedirectToHub = navCollapsed && hasModule('receipts') && hasModule('monthlyOverview');
+  // #529: o redirect ao hub é INCONDICIONAL para quem tem o módulo. NÃO
+  // acrescente `&& hasModule('monthlyOverview')` aqui: o antigo "caso 3"
+  // (módulo sem o hub → renderizava a página legada) deixou de ser estado
+  // suportado no PESSOAL. As QUATRO rotas colapsadas usam a mesma condição —
+  // divergir uma delas já foi defeito antes. Travado por u4-nav-redirect (U4-10c/d).
+  const shouldRedirectToHub = navCollapsed && hasModule('receipts');
   const isPessoal = projectType === 'PESSOAL';
   const TIPO_OPTIONS = getReceiptTipoOptions(projectType);
   const defaultTipo = TIPO_OPTIONS[0]?.value ?? 'PAGAMENTO';
