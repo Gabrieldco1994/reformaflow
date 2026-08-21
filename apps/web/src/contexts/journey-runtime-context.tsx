@@ -432,29 +432,6 @@ function JourneyRuntimeOverlay() {
   const active = runtime.active;
   const panelRef = useRef<HTMLElement>(null);
 
-  // Publica a altura real do painel para quem precisa sair de baixo dele — o
-  // FAB de "Nova despesa" é `fixed bottom` em z-30 e ficava debaixo do painel
-  // (z-70), ou seja: a jornada mandava lançar a primeira despesa e tapava o
-  // único botão que faz isso no mobile. Altura MEDIDA, não constante: o painel
-  // cresce com o texto do passo.
-  useEffect(() => {
-    const panel = panelRef.current;
-    const root = document.body;
-    if (!panel) {
-      root.style.removeProperty("--journey-panel-h");
-      return;
-    }
-    const publish = () =>
-      root.style.setProperty("--journey-panel-h", `${panel.offsetHeight}px`);
-    publish();
-    const observer = new ResizeObserver(publish);
-    observer.observe(panel);
-    return () => {
-      observer.disconnect();
-      root.style.removeProperty("--journey-panel-h");
-    };
-  });
-
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
   const wasOpenRef = useRef(false);
   const [activeProjectType, setActiveProjectType] = useState<ProjectType | null>(null);
@@ -571,9 +548,9 @@ function JourneyRuntimeOverlay() {
       data-journey-panel
       aria-modal="false"
       aria-label={`Jornada: ${active.journey.name}`}
-      className="fixed inset-x-3 bottom-3 z-[70] mx-auto max-w-lg rounded-[18px] border border-lifeone-hairline bg-lifeone-card p-4 shadow-2xl"
+      className="fixed inset-x-3 bottom-[calc(0.75rem+var(--rf-bottom-chrome,0px))] z-[70] mx-auto flex max-h-[calc(100dvh-var(--rf-bottom-chrome,0px)-5rem)] max-w-lg flex-col rounded-[18px] border border-lifeone-hairline bg-lifeone-card p-4 shadow-2xl"
     >
-      <div className="mb-3 flex items-center justify-between gap-3">
+      <div className="mb-3 flex shrink-0 items-center justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wide text-lifeone-blue">
             Jornada ·{" "}
@@ -600,45 +577,60 @@ function JourneyRuntimeOverlay() {
         </button>
       </div>
 
-      {step.experience === "FULL" ? (
-        <p className="text-[13px] text-lifeone-ink-2">
-          {/* `subtitle` é `String?` no banco: pode vir null E pode vir vazio/só
+      {/*
+        Área rolável do painel.
+
+        Ao ceder os 144px do chrome inferior o painel perde altura útil, e um
+        passo com rótulo/subtítulo longos estouraria. Rolar preserva o texto
+        inteiro — cortar, não. As AÇÕES ficam FORA deste contêiner: se
+        rolassem junto, trocaríamos "painel tapa o botão do app" por "painel
+        esconde o próprio botão", mesma família de defeito.
+
+        `-mx-4 px-4` devolve o respiro do `p-4` para dentro da área rolável,
+        de modo que a barra de rolagem encoste na borda do cartão.
+      */}
+      <div className="-mx-4 min-h-0 flex-1 overflow-y-auto px-4">
+        {step.experience === "FULL" ? (
+          <p className="text-[13px] text-lifeone-ink-2">
+            {/* `subtitle` é `String?` no banco: pode vir null E pode vir vazio/só
               espaços (`??` deixaria o vazio passar e renderizaria um parágrafo
               em branco). Só cai na frase genérica quando não há texto real. */}
-          {step.subtitle && step.subtitle.trim().length > 0
-            ? step.subtitle
-            : "Você está na tela real da funcionalidade. Use o painel para continuar a jornada."}
-        </p>
-      ) : active.projectId ? (
-        <SummaryStepPanel
-          step={step}
-          projectId={active.projectId}
-          projectType={activeProjectType}
-          funding={funding}
-          onFundingChange={setFunding}
-          onDone={() => runtime.next()}
-          onSkip={runtime.skip}
-          onBack={active.stepIndex > 0 ? runtime.back : undefined}
-        />
-      ) : (
-        // Cross-project sem projeto escolhido ainda (o `ProjectPicker`
-        // abaixo resolve isso) — nenhum componente sabe o que renderizar
-        // sem um `projectId`, então o texto de apoio puro é o único caminho
-        // seguro aqui, igual ao comportamento anterior a esta mudança.
-        <p className="text-[13px] text-lifeone-ink-2">{step.subtitle}</p>
-      )}
-      {step.blocked && (
-        <p className="mt-3 text-[13px] text-lifeone-ink-2">
-          Esta etapa aguarda uma condição para continuar.
-        </p>
-      )}
+            {step.subtitle && step.subtitle.trim().length > 0
+              ? step.subtitle
+              : "Você está na tela real da funcionalidade. Use o painel para continuar a jornada."}
+          </p>
+        ) : active.projectId ? (
+          <SummaryStepPanel
+            step={step}
+            projectId={active.projectId}
+            projectType={activeProjectType}
+            funding={funding}
+            onFundingChange={setFunding}
+            onDone={() => runtime.next()}
+            onSkip={runtime.skip}
+            onBack={active.stepIndex > 0 ? runtime.back : undefined}
+          />
+        ) : (
+          // Cross-project sem projeto escolhido ainda (o `ProjectPicker`
+          // abaixo resolve isso) — nenhum componente sabe o que renderizar
+          // sem um `projectId`, então o texto de apoio puro é o único caminho
+          // seguro aqui, igual ao comportamento anterior a esta mudança.
+          <p className="text-[13px] text-lifeone-ink-2">{step.subtitle}</p>
+        )}
+        {step.blocked && (
+          <p className="mt-3 text-[13px] text-lifeone-ink-2">
+            Esta etapa aguarda uma condição para continuar.
+          </p>
+        )}
 
-      {active.journey.crossProject && <ProjectPicker runtime={runtime} />}
+        {active.journey.crossProject && <ProjectPicker runtime={runtime} />}
+      </div>
 
       {!suppressGenericActions && (
-        <div className="mt-4 flex justify-end gap-2">
+        <div className="mt-4 flex shrink-0 justify-end gap-2">
           <button
             type="button"
+            data-journey-panel-action="back"
             onClick={runtime.back}
             disabled={active.stepIndex === 0}
             className="min-h-11 rounded-[10px] border border-lifeone-hairline px-3 text-[13px] disabled:opacity-40"
@@ -648,6 +640,7 @@ function JourneyRuntimeOverlay() {
           {step.skippable && (
             <button
               type="button"
+              data-journey-panel-action="skip"
               onClick={runtime.skip}
               className="min-h-11 rounded-[10px] px-3 text-[13px] text-lifeone-ink-2"
             >
@@ -656,6 +649,7 @@ function JourneyRuntimeOverlay() {
           )}
           <button
             type="button"
+            data-journey-panel-action="next"
             onClick={runtime.next}
             disabled={step.blocked}
             className="min-h-11 rounded-[10px] bg-lifeone-blue px-4 text-[13px] font-semibold text-white"

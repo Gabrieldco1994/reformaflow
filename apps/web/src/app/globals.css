@@ -358,6 +358,37 @@
 @media (max-width: 767px) {
 :root {
   --minimal-mobile-safe-top: 0px;
+
+  /*
+   * Faixa de chrome inferior flutuante do mobile — a ÚNICA definição do número.
+   *
+   * Mede o que flutua por cima da borda de baixo: o dock (`.minimal-dock`,
+   * 96px a 375 e 390) e os FABs de rota (`bottom-20` + 56px = 136px de
+   * alcance). 144px cobre os dois com folga; a origem da medida está no
+   * comentário de `.minimal-main` abaixo (#490).
+   *
+   * Quem precisa sair de cima dessa faixa consome esta var em vez de repetir
+   * a constante. Repetir foi como o bug anterior nasceu: a correção foi
+   * aplicada FAB a FAB (O(N)) e não alcançou o dock, por onde todas as telas
+   * mobile passam.
+   */
+  --rf-bottom-chrome-size: calc(144px + env(safe-area-inset-bottom));
+}
+
+/*
+ * Interruptor da faixa: só as telas que REALMENTE montam o dock ligam a var.
+ *
+ * O `AppShell` marca o `<body>` enquanto está montado. Fora dele (login, lista
+ * de projetos, desktop) a var fica indefinida e todo consumidor cai no
+ * fallback `0px` — comportamento idêntico ao de antes, sem repetir a condição
+ * de breakpoint em cada consumidor.
+ *
+ * No `<body>` e não no shell porque o painel de jornada é montado pelos
+ * providers, IRMÃO do shell: var em `[data-ui-skin]` não chegaria nele por
+ * herança.
+ */
+body[data-rf-shell="project"] {
+  --rf-bottom-chrome: var(--rf-bottom-chrome-size);
 }
 
 @media (display-mode: standalone), (display-mode: fullscreen) {
@@ -394,8 +425,8 @@
      * elemento devolvia `NAV.minimal-dock`. Com o scrollport encolhido, o alvo
      * para ACIMA do dock.
      */
-    padding: 8px 20px calc(144px + env(safe-area-inset-bottom));
-    scroll-padding-bottom: calc(144px + env(safe-area-inset-bottom));
+    padding: 8px 20px var(--rf-bottom-chrome-size);
+    scroll-padding-bottom: var(--rf-bottom-chrome-size);
   }
 
   [data-ui-skin="minimal"] .minimal-header {

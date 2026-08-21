@@ -812,52 +812,6 @@ describe("JourneyRuntimeProvider", () => {
   // O FAB de "Nova despesa" é `fixed bottom` em z-30 e o painel em z-70: sem a
   // altura MEDIDA do painel, ele tapava o único botão que a própria jornada
   // manda apertar. Constante não serve — o painel cresce com o texto do passo.
-  it("publica a altura do painel em --journey-panel-h e limpa ao fechar", async () => {
-    mocks.apiGet.mockImplementation((path: string) => {
-      const params = new URL(`http://localhost${path}`).searchParams;
-      if (params.get("triggerType") !== "PROJECT_CREATED")
-        return Promise.resolve([]);
-      return Promise.resolve([
-        {
-          journeyId: "j1",
-          key: "tour:altura",
-          name: "Altura",
-          triggerId: "t1",
-          repeatPolicy: "ALWAYS",
-          dismissPolicy: "DISMISS_UNTIL_LOGIN",
-          crossProject: false,
-          steps: [
-            {
-              stepKey: "feedback",
-              order: 0,
-              experience: "SUMMARY",
-              label: "A",
-              subtitle: "Resumo",
-              skippable: true,
-            },
-          ],
-        },
-      ]);
-    });
-
-    expect(
-      document.body.style.getPropertyValue("--journey-panel-h"),
-    ).toBe("");
-
-    const { unmount } = renderRuntime();
-    await act(async () => {
-      await userEvent.click(screen.getByText("Criar projeto"));
-    });
-
-    await waitFor(() =>
-      expect(
-        document.body.style.getPropertyValue("--journey-panel-h"),
-      ).not.toBe(""),
-    );
-
-    unmount();
-    expect(document.body.style.getPropertyValue("--journey-panel-h")).toBe("");
-  });
 
   // Regressão: o painel da etapa FULL imprimia sempre a frase genérica e
   // descartava o `subtitle` real do passo — que existe e está preenchido nos 17
