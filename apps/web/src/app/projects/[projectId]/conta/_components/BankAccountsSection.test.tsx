@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectType } from "@reformaflow/domain";
 import BankAccountsSection from "./BankAccountsSection";
+import ContaPage from "../page";
 
 const apiGetMock = vi.fn();
 const apiPatchMock = vi.fn();
@@ -12,9 +13,18 @@ let searchQuery = "";
 let hasBankAccountsModule = true;
 
 vi.mock("next/navigation", () => ({
+  useParams: () => ({ projectId: "p1" }),
   usePathname: () => "/projects/p1/conta",
   useRouter: () => ({ replace: routerReplaceMock }),
   useSearchParams: () => new URLSearchParams(searchQuery),
+}));
+
+vi.mock("@/contexts/project-context", () => ({
+  useProject: () => ({
+    projectId: "p1",
+    projectType: "PESSOAL",
+    projectName: "Pessoal",
+  }),
 }));
 
 vi.mock("@/contexts/auth-context", () => ({
@@ -37,8 +47,8 @@ vi.mock("sonner", () => ({
 }));
 
 vi.mock(
-  "@/app/projects/[projectId]/bank-accounts/_components/RecebimentosVinculadorModal",
-  () => ({ default: () => <div data-testid="recebimentos-modal" /> }),
+  "@/app/projects/[projectId]/expenses/_components/NovaDespesaLauncher",
+  () => ({ NovaDespesaLauncher: () => null }),
 );
 
 const ACCOUNTS = [
@@ -93,7 +103,7 @@ describe("BankAccountsSection", () => {
     apiPatchMock.mockReset().mockResolvedValue({});
     apiPostMock.mockReset().mockResolvedValue({
       bankAccount: ACCOUNTS[0],
-      receiptsWithoutAccount: [],
+      receiptsWithoutAccount: 0,
     });
   });
 
@@ -238,5 +248,48 @@ describe("BankAccountsSection", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
     expect(await screen.findByText("Conta A")).toBeVisible();
+  });
+
+  it("invalida todos os prefixes financeiros ao salvar pela página Conta", async () => {
+    apiGetMock.mockImplementation((path: string) => {
+      if (path === "/projects/p1/bank-accounts") {
+        return Promise.resolve(ACCOUNTS);
+      }
+      return new Promise(() => undefined);
+    });
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ContaPage />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Editar Conta A, final 1111",
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() =>
+      expect(apiPatchMock).toHaveBeenCalledWith(
+        "/projects/p1/bank-accounts/acc-a",
+        expect.any(Object),
+      ),
+    );
+    for (const prefix of [
+      "account-view",
+      "account-view-yearly",
+      "dre-overview",
+      "monthly-overview",
+    ]) {
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: [prefix, "p1"],
+      });
+    }
   });
 });

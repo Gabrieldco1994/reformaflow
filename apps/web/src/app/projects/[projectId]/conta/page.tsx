@@ -87,6 +87,8 @@ export default function ContaPage() {
     for (const key of [
       'account-view',
       'account-view-yearly',
+      'dre-overview',
+      'monthly-overview',
       'card-invoices-yearly',
       'expenses',
       'cash-flow',

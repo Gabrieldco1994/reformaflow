@@ -21,13 +21,6 @@ vi.mock('sonner', () => ({
   },
 }));
 
-vi.mock(
-  '@/app/projects/[projectId]/bank-accounts/_components/RecebimentosVinculadorModal',
-  () => ({
-    default: () => <div data-testid="recebimentos-modal" />,
-  }),
-);
-
 function fillLast4() {
   fireEvent.change(screen.getAllByPlaceholderText('1234')[0], { target: { value: '1234' } });
 }
@@ -44,7 +37,7 @@ describe('BankAccountFormModal', () => {
     toastSuccessMock.mockReset();
     apiPostMock.mockResolvedValue({
       bankAccount: { id: 'ba1' },
-      receiptsWithoutAccount: [],
+      receiptsWithoutAccount: 2,
     });
   });
 
@@ -66,7 +59,7 @@ describe('BankAccountFormModal', () => {
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith('ba1'));
   });
 
-  it('usa bankAccount.id da resposta canônica do POST', async () => {
+  it('usa bankAccount.id da resposta canônica e ignora a contagem sem abrir vinculador', async () => {
     const onSaved = vi.fn();
     wrap(
       <BankAccountFormModal
@@ -80,6 +73,8 @@ describe('BankAccountFormModal', () => {
     fireEvent.click(screen.getByText('Salvar'));
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith('ba1'));
+    expect(screen.queryByText(/vincular/i)).not.toBeInTheDocument();
+    expect(toastSuccessMock).toHaveBeenCalledWith('Conta criada com sucesso');
   });
 
   it('mantém o formulário aberto e mostra erro quando o PATCH falha', async () => {
