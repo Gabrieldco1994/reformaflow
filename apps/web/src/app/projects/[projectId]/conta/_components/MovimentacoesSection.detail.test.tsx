@@ -95,7 +95,10 @@ function mockWidth(width: number) {
   });
 }
 
-function renderSection(data: AccountViewResponse) {
+function renderSection(
+  data: AccountViewResponse,
+  overrides: Partial<React.ComponentProps<typeof MovimentacoesSection>> = {},
+) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
@@ -110,6 +113,7 @@ function renderSection(data: AccountViewResponse) {
         onUndoPayment={vi.fn()}
         summaryQuickFilter={null}
         onClearSummaryQuickFilter={vi.fn()}
+        {...overrides}
       />
     </QueryClientProvider>,
   );
@@ -195,5 +199,114 @@ describe('MovimentacoesSection → FinancialItemDetail wiring', () => {
     // The detail should not contain action buttons like Editar, Excluir, etc.
     expect(detail.querySelector('[aria-label="Editar"]')).toBeNull();
     expect(detail.querySelector('[aria-label="Excluir"]')).toBeNull();
+  });
+});
+
+describe('Deep-link: ?item=<id>', () => {
+  it('opens detail automatically when initialItemId matches an item in the response', () => {
+    mockWidth(375);
+    renderSection(makeResponse(), { initialItemId: 'exp-1' });
+
+    // Detail should open automatically for the matching item
+    expect(screen.getByTestId('financial-detail-sheet')).toBeInTheDocument();
+    expect(screen.getByTestId('financial-detail-sheet')).toHaveTextContent('R$ 1.500,00');
+  });
+
+  it('silently ignores initialItemId that does not match any item — no detail, no message, no fetch', async () => {
+    mockWidth(375);
+    const { api } = await import('@/lib/api');
+
+    // Clear any prior call counts
+    vi.mocked(api.get).mockClear();
+    vi.mocked(api.post).mockClear();
+    vi.mocked(api.patch).mockClear();
+    vi.mocked(api.delete).mockClear();
+
+    renderSection(makeResponse(), { initialItemId: 'nonexistent-id-12345' });
+
+    // No detail shown
+    expect(screen.queryByTestId('financial-detail-sheet')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('financial-detail-drawer')).not.toBeInTheDocument();
+
+    // No error message — security: don't reveal whether the id exists
+    expect(screen.queryByText(/não encontrad/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/not found/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/sem permissão/i)).not.toBeInTheDocument();
+
+    // No additional network request was made to fetch the item
+    // (the only api calls should be the merchant-suggestions query, not a /financial-items/:id)
+    for (const method of [api.get, api.post, api.patch, api.delete] as Array<ReturnType<typeof vi.fn>>) {
+      for (const call of method.mock.calls) {
+        const url = String(call[0] ?? '');
+        expect(url).not.toContain('nonexistent-id-12345');
+        expect(url).not.toMatch(/financial-items/);
+      }
+    }
+  });
+
+  it('closing a deep-linked detail calls onClearItemId', () => {
+    mockWidth(375);
+    const onClearItemId = vi.fn();
+    renderSection(makeResponse(), { initialItemId: 'exp-1', onClearItemId });
+
+    expect(screen.getByTestId('financial-detail-sheet')).toBeInTheDocument();
+
+    // Close the detail
+    fireEvent.click(screen.getByLabelText('Fechar'));
+
+    expect(screen.queryByTestId('financial-detail-sheet')).not.toBeInTheDocument();
+    expect(onClearItemId).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not reopen detail after manual close even if initialItemId persists', () => {
+    mockWidth(375);
+    const onClearItemId = vi.fn();
+    const { rerender } = render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MovimentacoesSection
+          data={makeResponse()}
+          projectId="proj-1"
+          originFilter={null}
+          onClearOrigin={vi.fn()}
+          onPayInvoice={vi.fn()}
+          onAdjustInvoice={vi.fn()}
+          onSettleWithResidual={vi.fn()}
+          onUndoPayment={vi.fn()}
+          summaryQuickFilter={null}
+          onClearSummaryQuickFilter={vi.fn()}
+          initialItemId="exp-1"
+          onClearItemId={onClearItemId}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByTestId('financial-detail-sheet')).toBeInTheDocument();
+
+    // Close manually
+    fireEvent.click(screen.getByLabelText('Fechar'));
+    expect(screen.queryByTestId('financial-detail-sheet')).not.toBeInTheDocument();
+
+    // Re-render with same initialItemId (simulates URL not yet cleared)
+    rerender(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MovimentacoesSection
+          data={makeResponse()}
+          projectId="proj-1"
+          originFilter={null}
+          onClearOrigin={vi.fn()}
+          onPayInvoice={vi.fn()}
+          onAdjustInvoice={vi.fn()}
+          onSettleWithResidual={vi.fn()}
+          onUndoPayment={vi.fn()}
+          summaryQuickFilter={null}
+          onClearSummaryQuickFilter={vi.fn()}
+          initialItemId="exp-1"
+          onClearItemId={onClearItemId}
+        />
+      </QueryClientProvider>,
+    );
+
+    // Should NOT reopen
+    expect(screen.queryByTestId('financial-detail-sheet')).not.toBeInTheDocument();
   });
 });

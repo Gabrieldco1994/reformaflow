@@ -50,6 +50,17 @@ export default function ContaPage() {
     [pathname, router, searchParams],
   );
   const [viewMode, setViewMode] = useState<'mes' | 'ano'>('mes');
+
+  // Deep-link: `?item=<id>` seleciona e abre o detalhe do item correspondente.
+  // Se o id não está na resposta escopada, é silenciosamente ignorado.
+  const itemId = searchParams.get('item');
+  const clearItemId = useCallback(() => {
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete('item');
+    const query = next.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }, [pathname, router, searchParams]);
+
   const [payCardLast4, setPayCardLast4] = useState<string | null>(null);
   const [adjustCardLast4, setAdjustCardLast4] = useState<string | null>(null);
   const [residualCardLast4, setResidualCardLast4] = useState<string | null>(null);
@@ -263,6 +274,8 @@ export default function ContaPage() {
                 onUndoPayment={setUndoCardLast4}
                 summaryQuickFilter={resumoQuickFilter}
                 onClearSummaryQuickFilter={() => setResumoQuickFilter(null)}
+                initialItemId={itemId}
+                onClearItemId={clearItemId}
               />
             </>
           )}

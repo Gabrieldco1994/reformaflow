@@ -78,6 +78,8 @@ export function MovimentacoesSection({
   mode = 'mes',
   monthFilter = null,
   onMonthFilterChange,
+  initialItemId = null,
+  onClearItemId,
 }: {
   data: AccountViewResponse | AccountViewYearlyResponse;
   projectId: string;
@@ -99,6 +101,11 @@ export function MovimentacoesSection({
   /** Só no modo 'ano': recorta a lista num mês (`YYYY-MM`) — clique na barra do gráfico. */
   monthFilter?: string | null;
   onMonthFilterChange?: (mes: string | null) => void;
+  /** Deep-link: id do item a abrir automaticamente. Se não encontrado na resposta
+   *  escopada, é silenciosamente ignorado (segurança: não revelar existência). */
+  initialItemId?: string | null;
+  /** Chamado ao fechar o detalhe para limpar `?item=` da URL. */
+  onClearItemId?: () => void;
 }) {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<Tab>('tudo');
@@ -134,6 +141,24 @@ export function MovimentacoesSection({
   const [rulesOpen, setRulesOpen] = useState(false);
   const [ruleSearch, setRuleSearch] = useState('');
   const [detailItem, setDetailItem] = useState<AccountViewMovimentacao | null>(null);
+
+  // Deep-link: open detail for `initialItemId` from already-loaded data.
+  // If the id is not in the scoped response, do nothing (security: don't reveal existence).
+  // Track which id we've already consumed to avoid re-opening after manual close.
+  const [consumedItemId, setConsumedItemId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!initialItemId || initialItemId === consumedItemId) return;
+    const allItems: AccountViewMovimentacao[] = [
+      ...data.saidas,
+      ...data.comprasCartao,
+      ...data.entradas,
+    ];
+    const found = allItems.find((m) => m.id === initialItemId);
+    if (found) {
+      setDetailItem(found);
+    }
+    setConsumedItemId(initialItemId);
+  }, [initialItemId, consumedItemId, data.saidas, data.comprasCartao, data.entradas]);
 
   useEffect(() => {
     if (!summaryQuickFilter) return;
@@ -1320,7 +1345,7 @@ export function MovimentacoesSection({
       {detailItem && (
         <FinancialItemDetail
           item={toDetailItem(detailItem)}
-          onClose={() => setDetailItem(null)}
+          onClose={() => { setDetailItem(null); onClearItemId?.(); }}
         />
       )}
     </section>
