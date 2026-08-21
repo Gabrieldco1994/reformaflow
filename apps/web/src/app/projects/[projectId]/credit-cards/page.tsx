@@ -5,6 +5,7 @@ import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import { hasNavRoute, type ProjectType } from '@reformaflow/domain';
 import { api } from '@/lib/api';
 import { useProject } from '@/contexts/project-context';
+import { useAuth } from '@/contexts/auth-context';
 import { formatCurrency } from '@/lib/utils';
 import { CreditCard, Plus, Trash2, Link2, History } from 'lucide-react';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -29,8 +30,11 @@ export default function CreditCardsPage() {
   const router = useRouter();
   const projectId = String(params?.projectId ?? '');
   const { projectType } = useProject();
+  const { hasModule } = useAuth();
   const type = projectType as ProjectType;
-  const shouldRedirectToHub = !hasNavRoute(type, 'credit-cards') && hasNavRoute(type, 'conta');
+  const navCollapsed = !hasNavRoute(type, 'credit-cards') && hasNavRoute(type, 'conta');
+  const noPermission = navCollapsed && !hasModule('creditCards');
+  const shouldRedirectToHub = navCollapsed && hasModule('creditCards') && hasModule('monthlyOverview');
 
   const [cards, setCards] = useState<CardRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -86,12 +90,14 @@ export default function CreditCardsPage() {
   }, [searchParams]);
 
   useEffect(() => {
-    if (shouldRedirectToHub) {
+    if (noPermission) {
+      router.replace('/no-permission');
+    } else if (shouldRedirectToHub) {
       router.replace(`/projects/${projectId}/conta`);
     }
-  }, [shouldRedirectToHub, projectId, router]);
+  }, [noPermission, shouldRedirectToHub, projectId, router]);
 
-  if (shouldRedirectToHub) {
+  if (noPermission || shouldRedirectToHub) {
     return null;
   }
 

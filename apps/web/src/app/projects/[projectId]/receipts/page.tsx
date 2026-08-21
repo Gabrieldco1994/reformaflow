@@ -44,10 +44,12 @@ function StatusBadge({ status }: { status: string }) {
 export default function ReceiptsPage() {
   const { projectId: PROJECT_ID, projectType } = useProject();
   const router = useRouter();
-  const { user: authUser } = useAuth();
+  const { user: authUser, hasModule } = useAuth();
   const queryClient = useQueryClient();
   const type = projectType as ProjectType;
-  const shouldRedirectToHub = !hasNavRoute(type, 'receipts') && hasNavRoute(type, 'conta');
+  const navCollapsed = !hasNavRoute(type, 'receipts') && hasNavRoute(type, 'conta');
+  const noPermission = navCollapsed && !hasModule('receipts');
+  const shouldRedirectToHub = navCollapsed && hasModule('receipts') && hasModule('monthlyOverview');
   const isPessoal = projectType === 'PESSOAL';
   const TIPO_OPTIONS = getReceiptTipoOptions(projectType);
   const defaultTipo = TIPO_OPTIONS[0]?.value ?? 'PAGAMENTO';
@@ -376,12 +378,14 @@ export default function ReceiptsPage() {
   const totalGeral = grouped.reduce((s, g) => s + g.total, 0);
 
   useEffect(() => {
-    if (shouldRedirectToHub) {
+    if (noPermission) {
+      router.replace('/no-permission');
+    } else if (shouldRedirectToHub) {
       router.replace(`/projects/${PROJECT_ID}/conta`);
     }
-  }, [shouldRedirectToHub, PROJECT_ID, router]);
+  }, [noPermission, shouldRedirectToHub, PROJECT_ID, router]);
 
-  if (shouldRedirectToHub) {
+  if (noPermission || shouldRedirectToHub) {
     return null;
   }
 

@@ -5,6 +5,7 @@ import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import { hasNavRoute, type ProjectType } from '@reformaflow/domain';
 import { api } from '@/lib/api';
 import { useProject } from '@/contexts/project-context';
+import { useAuth } from '@/contexts/auth-context';
 import { formatCurrency } from '@/lib/utils';
 import { Landmark, Plus, Trash2, Link2, ArrowDownLeft, History } from 'lucide-react';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -22,8 +23,11 @@ export default function BankAccountsPage() {
   const router = useRouter();
   const projectId = String(params?.projectId ?? '');
   const { projectType } = useProject();
+  const { hasModule } = useAuth();
   const type = projectType as ProjectType;
-  const shouldRedirectToHub = !hasNavRoute(type, 'bank-accounts') && hasNavRoute(type, 'conta');
+  const navCollapsed = !hasNavRoute(type, 'bank-accounts') && hasNavRoute(type, 'conta');
+  const noPermission = navCollapsed && !hasModule('bankAccounts');
+  const shouldRedirectToHub = navCollapsed && hasModule('bankAccounts') && hasModule('monthlyOverview');
 
   const [accounts, setAccounts] = useState<BankAccountRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -60,12 +64,14 @@ export default function BankAccountsPage() {
   }, [loading, accounts, searchParams]);
 
   useEffect(() => {
-    if (shouldRedirectToHub) {
+    if (noPermission) {
+      router.replace('/no-permission');
+    } else if (shouldRedirectToHub) {
       router.replace(`/projects/${projectId}/conta`);
     }
-  }, [shouldRedirectToHub, projectId, router]);
+  }, [noPermission, shouldRedirectToHub, projectId, router]);
 
-  if (shouldRedirectToHub) {
+  if (noPermission || shouldRedirectToHub) {
     return null;
   }
 
