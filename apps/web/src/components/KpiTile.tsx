@@ -142,12 +142,31 @@ export function KpiTile({
     .filter(Boolean)
     .join(' ');
 
+  /**
+   * O nome do gatilho de ajuda é DERIVADO do rótulo do KPI.
+   *
+   * `InfoHint` assume `aria-label="Ajuda"` quando o chamador não passa nada, e
+   * este era o chamador que não passava. Resultado medido em runtime: `/conta`
+   * servia CINCO botões chamados "Ajuda", cada um abrindo um texto diferente —
+   * na lista de controles do leitor de tela, cinco entradas indistinguíveis
+   * para cinco ações distintas. A correção mora aqui, e não em cada tela,
+   * porque `KpiTile` é o dono do padrão: são 12 arquivos consumindo este
+   * componente, e /conta era só onde o QA olhou.
+   *
+   * `plainText` devolve vazio quando o rótulo é um `ReactNode` composto; nesse
+   * caso o `undefined` deixa o default de `InfoHint` valer, em vez de produzir
+   * "Ajuda sobre " com o nome cortado.
+   */
+  const infoAriaLabel = plainText(label) ? `Ajuda sobre ${plainText(label)}` : undefined;
+
   const inner = (
     <>
       <p className={`flex items-center gap-1 font-semibold leading-4 ${labelSize} ${labelColor}`}>
         {icon && <span className="shrink-0">{icon}</span>}
         <span className="min-w-0 truncate">{label}</span>
-        {info && <InfoHint text={info} className={infoClassName || undefined} />}
+        {info && (
+          <InfoHint text={info} className={infoClassName || undefined} ariaLabel={infoAriaLabel} />
+        )}
       </p>
       <p className={`${mobileCompact ? 'mt-1 md:mt-2' : 'mt-2'} font-geist tabular-nums font-bold tracking-tight leading-tight ${valueSize} ${valueColor}`}>
         {value}

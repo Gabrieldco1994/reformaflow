@@ -40,7 +40,7 @@ describe("ResumoCards", () => {
     // (`<button>` dentro de `<button>` era HTML inválido), então assertar no
     // botão passaria a ser vácuo.
     expect(
-      screen.getByRole("button", { name: /Ainda falta pagar/ }).closest("article"),
+      screen.getByRole("button", { name: /^Ainda falta pagar/ }).closest("article"),
     ).not.toHaveTextContent("R$ 505,05");
     expect(projection).toHaveTextContent("Sobra prevista");
     expect(projection).toHaveTextContent("R$ 606,06");
@@ -50,6 +50,11 @@ describe("ResumoCards", () => {
 
   it("emits only the three existing quick-filter keys and keeps Sobra noninteractive", () => {
     const onQuickFilterSelect = vi.fn();
+    // `^` ancorado: desde que a ajuda ⓘ passou a se chamar "Ajuda sobre <KPI>"
+    // (A1), uma regex solta casa com o gatilho de ajuda TAMBÉM e a query fica
+    // ambígua. O alvo aqui é a sobreposição do quick-filter, cujo nome começa
+    // pelo rótulo do KPI.
+
     render(
       <ResumoCards
         {...values}
@@ -58,9 +63,9 @@ describe("ResumoCards", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Entrou no mês/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Saiu no mês/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Ainda falta pagar/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Entrou no mês/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Saiu no mês/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Ainda falta pagar/ }));
 
     expect(onQuickFilterSelect.mock.calls.map(([key]) => key)).toEqual([
       "entrouMes",
@@ -68,8 +73,11 @@ describe("ResumoCards", () => {
       "faltaPagarMes",
     ]);
     const projection = screen.getByRole("region", { name: "Projeção" });
+    // `^` de novo: o que não pode existir é a SOBREPOSIÇÃO do quick-filter,
+    // cujo nome começa pelo rótulo. A ajuda ⓘ ("Ajuda sobre Sobra prevista")
+    // existe e deve continuar existindo.
     expect(
-      within(projection).queryByRole("button", { name: /Sobra prevista/ }),
+      within(projection).queryByRole("button", { name: /^Sobra prevista/ }),
     ).not.toBeInTheDocument();
     expect(within(projection).getByText("Sobra prevista")).toBeInTheDocument();
   });

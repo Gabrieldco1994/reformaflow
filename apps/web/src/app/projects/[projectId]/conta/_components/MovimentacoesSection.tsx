@@ -901,9 +901,20 @@ export function MovimentacoesSection({
             title="Ver por categoria"
           >
             <PieChart className="h-3.5 w-3.5" />
-            Categorias
+            Por categoria
           </button>
-          {/* "Por projeto" só no desktop (drill-down largo); no sheet mobile fica fora. */}
+          {/*
+            "Por projeto" só no desktop (drill-down largo); no sheet mobile fica
+            fora.
+
+            O rótulo é "Por projeto", não "Projetos": a sidebar do desktop já
+            serve um controle chamado "Projetos" que NAVEGA para `/projects`, e
+            os dois ficam visíveis ao mesmo tempo. Mesmo nome para ir embora da
+            tela e para reagrupar a lista dentro dela. Quem muda de nome é este:
+            o link da sidebar é contrato de navegação (#450), com
+            `data-nav-group` e travas próprias. "Por categoria" acompanha para o
+            segmented control não falar duas gramáticas.
+          */}
           {!stacked && (
             <button
               type="button"
@@ -914,7 +925,7 @@ export function MovimentacoesSection({
               title="Ver por projeto e categoria"
             >
               <Layers className="h-3.5 w-3.5" />
-              Projetos
+              Por projeto
             </button>
           )}
         </div>

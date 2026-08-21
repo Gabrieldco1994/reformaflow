@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { KpiTile } from './KpiTile';
+import { duplicates } from '@/test-utils/accessible-name-census';
 
 /**
  * #490 D-B — `<button>` dentro de `<button>`.
@@ -41,12 +42,14 @@ describe('KpiTile — dois controles, nenhum aninhado (#490)', () => {
     );
 
     // O card inteiro continua sendo o alvo do quick-filter, com nome acessível.
-    const filtro = screen.getByRole('button', { name: /Saiu no mês/ });
+    // O nome é EXATO porque a ajuda também cita o rótulo do KPI: uma regex
+    // /Saiu no mês/ casa com os dois controles e a query fica ambígua.
+    const filtro = screen.getByRole('button', { name: 'Saiu no mês, R$ 303,03' });
     fireEvent.click(filtro);
     expect(onClick).toHaveBeenCalledTimes(1);
 
     // A ajuda é um controle próprio, irmão do filtro — não dispara o filtro.
-    const ajuda = screen.getByRole('button', { name: 'Ajuda' });
+    const ajuda = screen.getByRole('button', { name: 'Ajuda sobre Saiu no mês' });
     fireEvent.click(ajuda);
     expect(onClick).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('tooltip')).toHaveTextContent(
@@ -58,7 +61,7 @@ describe('KpiTile — dois controles, nenhum aninhado (#490)', () => {
     const { rerender } = render(
       <KpiTile label="Entrou no mês" value="R$ 1,00" info="ajuda" onClick={vi.fn()} active />,
     );
-    expect(screen.getByRole('button', { name: /Entrou no mês/ })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: 'Entrou no mês, R$ 1,00' })).toHaveAttribute(
       'aria-pressed',
       'true',
     );
@@ -66,7 +69,7 @@ describe('KpiTile — dois controles, nenhum aninhado (#490)', () => {
     rerender(
       <KpiTile label="Entrou no mês" value="R$ 1,00" info="ajuda" onClick={vi.fn()} active={false} />,
     );
-    expect(screen.getByRole('button', { name: /Entrou no mês/ })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: 'Entrou no mês, R$ 1,00' })).toHaveAttribute(
       'aria-pressed',
       'false',
     );
@@ -78,6 +81,51 @@ describe('KpiTile — dois controles, nenhum aninhado (#490)', () => {
     );
     // Só o gatilho de ajuda.
     expect(container.querySelectorAll('button')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Ajuda sobre Sobra prevista' })).toBeInTheDocument();
+  });
+});
+
+/**
+ * A ajuda ⓘ tem de dizer DE QUAL indicador ela fala.
+ *
+ * `InfoHint` assume `aria-label="Ajuda"` quando ninguém passa nada, e `KpiTile`
+ * não passava — `/conta` servia CINCO botões chamados "Ajuda", cada um abrindo
+ * um texto diferente. A trava mora aqui, e não em `/conta`, porque este
+ * componente é o dono do padrão: 12 arquivos o consomem, e /conta era só onde
+ * o QA olhou primeiro.
+ */
+describe('KpiTile — a ajuda ⓘ é nomeada pelo indicador (A1)', () => {
+  it('deriva nomes distintos para KPIs distintos na mesma tela', () => {
+    const { container } = render(
+      <>
+        <KpiTile label="Entrou no mês" value="R$ 1,00" info="a" />
+        <KpiTile label="Saiu no mês" value="R$ 2,00" info="b" />
+        <KpiTile label="Ainda falta pagar" value="R$ 3,00" info="c" />
+      </>,
+    );
+
+    const nomes = [...container.querySelectorAll('button')].map((b) => b.getAttribute('aria-label'));
+    expect(nomes).toEqual([
+      'Ajuda sobre Entrou no mês',
+      'Ajuda sobre Saiu no mês',
+      'Ajuda sobre Ainda falta pagar',
+    ]);
+    expect(duplicates(nomes.filter((n): n is string => n != null))).toEqual([]);
+  });
+
+  it('mantém o default quando o rótulo não é texto — melhor genérico que cortado', () => {
+    render(
+      <KpiTile
+        label={
+          <>
+            Sobra <b>prevista</b>
+          </>
+        }
+        value="R$ 4,00"
+        info="d"
+      />,
+    );
+
     expect(screen.getByRole('button', { name: 'Ajuda' })).toBeInTheDocument();
   });
 });

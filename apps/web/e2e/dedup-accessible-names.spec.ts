@@ -176,14 +176,22 @@ test.describe("/conta — nenhum nome acessível designa duas ações", () => {
 
   test("A2 · o segmented control fala uma gramática só", async ({ page }) => {
     await openConta(page);
-    test.skip(
-      test.info().project.name !== "desktop",
-      "o agrupamento por projeto é desktop-only (drill-down largo)",
-    );
+    const grupoPorProjeto = page.getByTitle("Ver por projeto e categoria");
 
-    const grupo = page.getByTitle("Ver por projeto e categoria");
-    await expect(grupo).toHaveText(/Por projeto/);
-    await expect(page.getByTitle("Ver por categoria")).toHaveText(/Por categoria/);
+    if (test.info().project.name === "desktop") {
+      // "Lista | Por categoria | Por projeto": metade dos rótulos numa gramática
+      // e metade noutra é pior que o diff maior.
+      await expect(page.getByTitle("Ver por categoria")).toHaveText(/Por categoria/);
+      await expect(grupoPorProjeto).toHaveText(/Por projeto/);
+      await expect(grupoPorProjeto).toBeVisible();
+    } else {
+      // No mobile o agrupamento por projeto não é OFERECIDO — o drill-down é
+      // largo demais para o sheet. Repare que ele continua no DOM
+      // (`hidden md:flex`): é exatamente por isso que este censo é Playwright
+      // e não jsdom. Sem skip: a invisibilidade é a asserção.
+      await expect(grupoPorProjeto).toHaveCount(1);
+      await expect(grupoPorProjeto).toBeHidden();
+    }
   });
 
   test("censo completo: nenhum rótulo visível designa dois controles", async ({ page }) => {
