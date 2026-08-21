@@ -70,7 +70,7 @@ const NON_PERSONAL_MATRIX = [
 ] as const;
 
 describe("MobileTabBar — PESSOAL dock", () => {
-  it("renders the four fixed destinations with data-dock-slot and a separate launcher", () => {
+  it("renders the three fixed destinations with data-dock-slot and a separate launcher", () => {
     const { container } = renderTabBar({ canLaunch: true });
 
     const nav = screen.getByRole("navigation");
@@ -78,6 +78,9 @@ describe("MobileTabBar — PESSOAL dock", () => {
     expect(nav).toHaveClass("md:hidden");
     expect(nav).not.toHaveClass("lg:hidden");
 
+    // U4 (#453): TRÊS slots. `credit-cards` saiu de PROJECT_NAV[PESSOAL] e do
+    // dock — cartões vivem no hub `/conta`. A igualdade EXATA é o ponto: ela
+    // falha tanto se um slot sumir quanto se um 4º voltar sem decisão.
     const slots = Array.from(
       container.querySelectorAll<HTMLAnchorElement>("[data-dock-slot]"),
     );
@@ -85,14 +88,17 @@ describe("MobileTabBar — PESSOAL dock", () => {
       "monthly",
       "conta",
       "maria",
-      "credit-cards",
     ]);
     expect(slots.map((slot) => slot.textContent)).toEqual([
       "Cockpit",
       "Conta",
       "Maria",
-      "Cartões",
     ]);
+    // Nenhum slot fantasma: a pill contém exatamente os três, nada além.
+    const pillSlots = within(
+      screen.getByTestId("pessoal-tab-pill"),
+    ).getAllByRole("link");
+    expect(pillSlots).toHaveLength(3);
 
     // Launcher: separado da pill, único, marcado para o invariante I7.
     const launch = screen.getByRole("button", { name: "Lançar" });
@@ -102,10 +108,10 @@ describe("MobileTabBar — PESSOAL dock", () => {
     expect(pill).not.toContainElement(launch);
   });
 
-  it("guards every dock slot by permission — Maria stays, Cockpit/Conta/Cartões drop", () => {
+  it("guards every dock slot by permission — Maria stays, Cockpit/Conta drop", () => {
     const { container } = renderTabBar({ primary: [], canLaunch: true });
 
-    for (const slug of ["monthly", "conta", "credit-cards"]) {
+    for (const slug of ["monthly", "conta"]) {
       expect(
         container.querySelector(`[data-dock-slot="${slug}"]`),
       ).not.toBeInTheDocument();
@@ -117,16 +123,21 @@ describe("MobileTabBar — PESSOAL dock", () => {
     expect(screen.getByRole("button", { name: "Lançar" })).toBeInTheDocument();
   });
 
-  it("drops only Cartões when credit-cards permission is absent", () => {
+  it("drops only Conta when the conta module is absent", () => {
+    // PROPRIEDADE: cada slot do dock é guardado por SI. Antes do U4 isto era
+    // medido em `credit-cards`; com o slug fora do nav, esse filtro não removia
+    // mais nada e o caso passava vazio. `conta` é o slug vivo equivalente.
     const primary = primaryFor(ProjectType.PESSOAL).filter(
-      (m) => m.slug !== "credit-cards",
+      (m) => m.slug !== "conta",
     );
+    expect(primary.map((m) => m.slug)).toEqual(["monthly"]);
+
     const { container } = renderTabBar({ primary });
 
     expect(
-      container.querySelector('[data-dock-slot="credit-cards"]'),
+      container.querySelector('[data-dock-slot="conta"]'),
     ).not.toBeInTheDocument();
-    for (const slug of ["monthly", "conta", "maria"]) {
+    for (const slug of ["monthly", "maria"]) {
       expect(
         container.querySelector(`[data-dock-slot="${slug}"]`),
       ).toBeInTheDocument();

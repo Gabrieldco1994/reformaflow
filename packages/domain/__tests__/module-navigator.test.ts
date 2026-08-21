@@ -5,6 +5,8 @@ import {
   splitMobileNav,
   hasNavRoute,
 } from '../src/config/module-navigator';
+import { hasFeature } from '../src/config/project-features';
+import { projectTypeHasModule } from '../src/config/type-modules';
 import { ProjectType } from '../src/enums';
 
 describe('hasNavRoute', () => {
@@ -13,10 +15,27 @@ describe('hasNavRoute', () => {
     expect(hasNavRoute(ProjectType.CARRO, 'expenses')).toBe(false);
   });
 
-  it('is true for REFORMA/COMPRA/PESSOAL "expenses" (não afetados pela dieta de CASA/CARRO)', () => {
+  it('is true for REFORMA/COMPRA "expenses" (não afetados pela dieta de CASA/CARRO)', () => {
     expect(hasNavRoute(ProjectType.REFORMA, 'expenses')).toBe(true);
     expect(hasNavRoute(ProjectType.COMPRA, 'expenses')).toBe(true);
-    expect(hasNavRoute(ProjectType.PESSOAL, 'expenses')).toBe(true);
+  });
+
+  it('U4-02 [TRAVA] PESSOAL: 4 slugs colapsados no hub não são mais rotas de nav', () => {
+    for (const slug of ['expenses', 'receipts', 'credit-cards', 'bank-accounts']) {
+      expect(hasNavRoute(ProjectType.PESSOAL, slug)).toBe(false);
+    }
+  });
+
+  it('U4-02b [TRAVA] colapsados continuam em PROJECT_FEATURES e TYPE_MODULES', () => {
+    // Capacidade e autorização preservadas — só a navegação colapsou no hub.
+    expect(hasFeature(ProjectType.PESSOAL, 'expenses')).toBe(true);
+    expect(hasFeature(ProjectType.PESSOAL, 'receipts')).toBe(true);
+    expect(hasFeature(ProjectType.PESSOAL, 'creditCards')).toBe(true);
+    expect(hasFeature(ProjectType.PESSOAL, 'bankAccounts')).toBe(true);
+    expect(projectTypeHasModule(ProjectType.PESSOAL, 'expenses')).toBe(true);
+    expect(projectTypeHasModule(ProjectType.PESSOAL, 'receipts')).toBe(true);
+    expect(projectTypeHasModule(ProjectType.PESSOAL, 'creditCards')).toBe(true);
+    expect(projectTypeHasModule(ProjectType.PESSOAL, 'bankAccounts')).toBe(true);
   });
 
   it('is true for slugs still present in CASA/CARRO nav (financing, bills, maintenance...)', () => {
@@ -59,21 +78,18 @@ describe('getProjectNavModules', () => {
     }
   });
 
-  it('reproduces legacy FEATURE_NAV ordering for PESSOAL (no nav regression)', () => {
-    expect(getProjectNavModules(ProjectType.PESSOAL).map((m) => m.slug)).toEqual([
+  it('U4-01 PESSOAL nav has exactly 9 items after hub collapse', () => {
+    const slugs = getProjectNavModules(ProjectType.PESSOAL).map((m) => m.slug);
+    expect(slugs).toEqual([
       'monthly',
       'conta',
       'dre',
       'neutros',
-      'expenses',
-      'receipts',
       'recorrentes',
       'metas',
       'planning',
       'planejador',
       'cash-flow',
-      'credit-cards',
-      'bank-accounts',
     ]);
   });
 
@@ -141,8 +157,8 @@ describe('getProjectNavModules', () => {
     ]);
   });
 
-  it('PESSOAL exposes 13 modules', () => {
-    expect(getProjectNavModules(ProjectType.PESSOAL)).toHaveLength(13);
+  it('PESSOAL exposes 9 modules (U4: 4 colapsados no hub)', () => {
+    expect(getProjectNavModules(ProjectType.PESSOAL)).toHaveLength(9);
   });
 
   it('não descobre budget-allocation: virou histórico administrativo (#449 B2)', () => {
@@ -175,22 +191,22 @@ describe('getProjectNavModules', () => {
 });
 
 describe('splitMobileNav', () => {
-  it('primary = first 4, secondary = rest (PESSOAL: 4 + 9)', () => {
+  it('primary = first 4, secondary = rest (PESSOAL: 4 + 5)', () => {
     const { primary, secondary } = splitMobileNav(
       getProjectNavModules(ProjectType.PESSOAL),
       4,
     );
     expect(primary).toHaveLength(4);
-    expect(secondary).toHaveLength(9);
+    expect(secondary).toHaveLength(5);
   });
 
-  it('supports a custom primary count of 3 (PESSOAL tab bar leaves a center slot: 3 + 10)', () => {
+  it('supports a custom primary count of 3 (PESSOAL tab bar leaves a center slot: 3 + 6)', () => {
     const { primary, secondary } = splitMobileNav(
       getProjectNavModules(ProjectType.PESSOAL),
       3,
     );
     expect(primary.map((m) => m.slug)).toEqual(['monthly', 'conta', 'dre']);
-    expect(secondary).toHaveLength(10);
+    expect(secondary).toHaveLength(6);
   });
 
   it('list with exactly 4 modules yields empty secondary (no "Mais" needed)', () => {

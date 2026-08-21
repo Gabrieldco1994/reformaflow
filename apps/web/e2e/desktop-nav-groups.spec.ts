@@ -77,6 +77,29 @@ const FULL_MODULES = [
 /** Sem `monthlyOverview` e sem `cashFlow`: 6 itens / 2 grupos em PESSOAL. */
 const REDUCED_MODULES = ['expenses', 'receipts', 'creditCards', 'bankAccounts'] as const;
 
+/**
+ * ROTA DE PARTIDA e ÂNCORA de montagem do rail — trocadas pelo U4 (#453).
+ *
+ * Antes eram `/expenses` + `[data-nav-group="movimentacoes"]`. As duas
+ * morreram para o PESSOAL, por motivos DIFERENTES, e cada uma estragava a
+ * medição de um jeito:
+ *
+ *  • `/expenses` saiu de `PROJECT_NAV[PESSOAL]` e agora REDIRECIONA ao hub
+ *    `/conta` para quem tem `monthlyOverview`. As linhas "completa" e
+ *    "ADMIN bypass" continuavam VERDES — medindo a sidebar de `/conta`
+ *    enquanto o teste dizia `/expenses`. Verde medindo outra tela.
+ *  • `movimentacoes` passou a conter UM item só (`conta`, de
+ *    `monthlyOverview`). Como `REDUCED_MODULES` exclui `monthlyOverview` de
+ *    propósito, o grupo inteiro deixa de existir na linha "reduzida" — e a
+ *    âncora ficava VERMELHA.
+ *
+ * `recorrentes`/`planejamento` (module `expenses`) é o único par que existe
+ * nos TRÊS perfis e NÃO redireciona em nenhum: é ele que devolve à tabela a
+ * comparabilidade entre as linhas, que é o produto deste arquivo.
+ */
+const BOOT_SLUG = 'recorrentes';
+const BOOT_GROUP = 'planejamento';
+
 const CASES = [
   { id: 'USER permissao=completa', role: 'USER', modules: FULL_MODULES },
   { id: 'USER permissao=reduzida', role: 'USER', modules: REDUCED_MODULES },
@@ -369,8 +392,8 @@ test.describe('U1 #450 — navegação desktop agrupada', () => {
       test(`${label}: primários alcançáveis (rail recolhido)`, async ({ page, baseURL }) => {
         await page.setViewportSize(viewport);
         await mockApi(page, testCase.role, baseURL!, testCase.modules);
-        await page.goto(`/projects/${PERSONAL_ID}/expenses`);
-        await expect(page.locator('[data-nav-group="movimentacoes"]')).toBeVisible();
+        await page.goto(`/projects/${PERSONAL_ID}/${BOOT_SLUG}`);
+        await expect(page.locator(`[data-nav-group="${BOOT_GROUP}"]`)).toBeVisible();
         await waitForStableRect(page, SCROLLER);
 
         await measureAndAssertPrimaries(page, `${label} recolhido`);
@@ -379,7 +402,7 @@ test.describe('U1 #450 — navegação desktop agrupada', () => {
       test(`${label}: primários alcançáveis (rail expandido)`, async ({ page, baseURL }) => {
         await page.setViewportSize(viewport);
         await mockApi(page, testCase.role, baseURL!, testCase.modules);
-        await openExpandedSidebar(page, `/projects/${PERSONAL_ID}/expenses`);
+        await openExpandedSidebar(page, `/projects/${PERSONAL_ID}/${BOOT_SLUG}`);
         await waitForStableRect(page, SCROLLER);
 
         await measureAndAssertPrimaries(page, `${label} expandido`);
@@ -396,7 +419,11 @@ test.describe('U1 #450 — navegação desktop agrupada', () => {
     // e a tabela entregue ao PO passa a mentir.
     await page.setViewportSize(VIEWPORTS[1]);
     await mockApi(page, 'ADMIN', baseURL!, REDUCED_MODULES);
-    await page.goto(`/projects/${PERSONAL_ID}/expenses`);
+    await page.goto(`/projects/${PERSONAL_ID}/${BOOT_SLUG}`);
+    // Aqui a âncora CONTINUA sendo `movimentacoes`, e de propósito: é ela que
+    // prova o bypass. Com a lista reduzida, um USER não tem `monthlyOverview` e
+    // portanto NÃO teria este grupo (pós-U4 ele contém só `conta`) — se o ADMIN
+    // o tem, o papel ignorou `allowedModules`, que é o contrato deste teste.
     await expect(page.locator('[data-nav-group="movimentacoes"]')).toBeVisible();
     // "Hoje" só existe com `monthlyOverview`, que NÃO está na lista reduzida.
     await expect(page.locator('[data-nav-group="hoje"]')).toHaveCount(1);
@@ -408,15 +435,22 @@ test.describe('U1 #450 — navegação desktop agrupada', () => {
   }) => {
     await page.setViewportSize(VIEWPORTS[1]);
     await mockApi(page, 'USER', baseURL!, REDUCED_MODULES);
-    await page.goto(`/projects/${PERSONAL_ID}/expenses`);
-    await expect(page.locator('[data-nav-group="movimentacoes"]')).toBeVisible();
+    await page.goto(`/projects/${PERSONAL_ID}/${BOOT_SLUG}`);
+    await expect(page.locator(`[data-nav-group="${BOOT_GROUP}"]`)).toBeVisible();
 
     const groups = await page.locator('nav [data-nav-group]').count();
     expect(groups, 'perfil reduzido deve render ao menos um grupo').toBeGreaterThan(0);
     // n-1 DERIVADO do DOM — nunca literal: a contagem varia com a permissão.
     await expect(page.locator('[data-nav-separator]')).toHaveCount(groups - 1);
     // Grupo sem item autorizado não pode deixar cabeçalho nem `role=group` órfão.
-    for (const gone of ['hoje', 'resultado', 'auditoria']) {
+    //
+    // U4 (#453): `movimentacoes` ENTRA nesta lista. Ele passou a ter um item só
+    // (`conta`, de `monthlyOverview`), que a lista reduzida não concede — logo o
+    // grupo tem de sumir INTEIRO, sem cabeçalho órfão, exatamente como os
+    // outros três. Assertar o sumiço é mais forte do que ter deixado de
+    // assertá-lo: se um cabeçalho vazio de "Movimentações" voltar, isto fica
+    // VERMELHO.
+    for (const gone of ['hoje', 'movimentacoes', 'resultado', 'auditoria']) {
       await expect(page.locator(`[data-nav-group="${gone}"]`)).toHaveCount(0);
     }
     // ...e o ancorado sobrevive.
@@ -429,14 +463,20 @@ test.describe('U1 #450 — navegação desktop agrupada', () => {
     await page.goto(`/projects/${PERSONAL_ID}/monthly`);
     await expect(page.locator('[data-nav-group="movimentacoes"]')).toBeVisible();
 
-    // Recolhido, o rótulo "Cartões" é `sr-only` e o cabeçalho "MOVIMENTAÇÕES"
+    // Recolhido, o rótulo do item é `sr-only` e o cabeçalho "MOVIMENTAÇÕES"
     // nem existe. Se a dica fosse a NATIVA do navegador, ela não estaria no DOM
     // e este teste seria impossível de escrever — é exatamente o ponto.
-    const cartoes = page.locator('[data-nav-group="movimentacoes"] a[href$="/credit-cards"]');
-    await cartoes.hover();
+    //
+    // U4 (#453): o alvo era `credit-cards`, que saiu de `PROJECT_NAV[PESSOAL]`
+    // (o `hover` num item inexistente estourava os 30s do teste). Trocado por
+    // `conta`, hoje o ÚNICO item de `movimentacoes`. A propriedade medida é a
+    // mesma — "a dica é PINTADA e diz «grupo · item»" —, só muda o item; o par
+    // teclado/`auditoria · Neutros` abaixo segue intocado e guarda o outro lado.
+    const alvo = page.locator('[data-nav-group="movimentacoes"] a[href$="/conta"]');
+    await alvo.hover();
 
     const hint = page.getByRole('tooltip');
-    await expect(hint).toHaveText('Movimentações · Cartões');
+    await expect(hint).toHaveText('Movimentações · Visão Conta');
 
     // Existir no DOM não basta: caixa de área zero é o modo clássico de
     // "existe e o usuário não vê".
@@ -445,7 +485,7 @@ test.describe('U1 #450 — navegação desktop agrupada', () => {
     expect(box?.height ?? 0).toBeGreaterThan(0);
 
     // E ela não pode roubar o clique do próprio item que a abriu.
-    await expectReachable(page, '[data-nav-group="movimentacoes"] a[href$="/credit-cards"]', SCROLLER);
+    await expectReachable(page, '[data-nav-group="movimentacoes"] a[href$="/conta"]', SCROLLER);
 
     // Teclado chega na mesma dica.
     //

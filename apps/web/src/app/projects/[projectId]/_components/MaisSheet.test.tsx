@@ -90,18 +90,51 @@ describe("MaisSheet", () => {
       />,
     );
 
-    // Mesma taxonomia do dock e do rail: seções rotuladas por NAV_GROUPS.
-    const movimentacoes = screen.getByRole("group", { name: "Movimentações" });
-    expect(movimentacoes).toHaveAttribute("data-nav-group", "movimentacoes");
+    // Mesma taxonomia do dock e do rail: seções rotuladas por NAV_GROUPS, na
+    // ORDEM de NAV_GROUPS (nunca a ordem de chegada dos itens).
+    //
+    // U4 (#453): "Movimentações" NÃO aparece mais aqui, e isso é correto, não
+    // regressão. Os 4 slugs que o povoavam (expenses/receipts/credit-cards/
+    // bank-accounts) saíram de PROJECT_NAV[PESSOAL] e o único membro restante
+    // do grupo — `conta` — está DOCADO, logo fora do complemento. Grupo sem
+    // membro não é emitido (contrato de `buildNavGroups`).
+    const groups = screen.getAllByRole("group");
     expect(
-      within(movimentacoes).getByRole("link", { name: "Despesas" }),
-    ).toHaveAttribute("href", basePath + "/expenses");
+      groups.map((group) => group.getAttribute("aria-label")),
+    ).toEqual(["Planejamento", "Resultado", "Auditoria"]);
+
+    // REGRESSÃO QUE ESTE CASO EXISTE PARA PEGAR: um cabeçalho de seção sem
+    // nenhum link. É exatamente o que a PRÓXIMA remoção de slug causaria se
+    // alguém emitisse o grupo antes de filtrar. Vale para todo grupo, sempre.
+    for (const group of groups) {
+      expect(
+        within(group).getAllByRole("link").length,
+        `grupo "${group.getAttribute("aria-label")}" renderizado sem nenhum link`,
+      ).toBeGreaterThan(0);
+    }
+    expect(
+      screen.queryByRole("group", { name: "Movimentações" }),
+    ).not.toBeInTheDocument();
+
+    // Itens caem no grupo declarado, com href do próprio slug.
+    const planejamento = screen.getByRole("group", { name: "Planejamento" });
+    expect(planejamento).toHaveAttribute("data-nav-group", "planejamento");
+    expect(
+      within(planejamento).getByRole("link", { name: "Recorrentes" }),
+    ).toHaveAttribute("href", basePath + "/recorrentes");
 
     // D1: dre/neutros/planning/cash-flow voltaram — não somem mais do Mais.
-    expect(screen.getByRole("group", { name: "Resultado" })).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "Auditoria" })).toBeInTheDocument();
+    const resultado = screen.getByRole("group", { name: "Resultado" });
+    const auditoria = screen.getByRole("group", { name: "Auditoria" });
+    expect(within(resultado).getByRole("link", { name: "DRE" })).toHaveAttribute(
+      "href",
+      basePath + "/dre",
+    );
     expect(
-      screen.getByRole("link", { name: "DRE" }),
+      within(auditoria).getByRole("link", { name: "Fluxo de Caixa" }),
+    ).toBeInTheDocument();
+    expect(
+      within(auditoria).getByRole("link", { name: "Neutros" }),
     ).toBeInTheDocument();
   });
 

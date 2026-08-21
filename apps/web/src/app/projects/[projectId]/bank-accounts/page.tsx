@@ -1,8 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams, useSearchParams, useRouter } from 'next/navigation';
+import { hasNavRoute, type ProjectType } from '@reformaflow/domain';
 import { api } from '@/lib/api';
+import { useProject } from '@/contexts/project-context';
+import { useAuth } from '@/contexts/auth-context';
 import { formatCurrency } from '@/lib/utils';
 import { Landmark, Plus, Trash2, Link2, ArrowDownLeft, History } from 'lucide-react';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -17,7 +20,20 @@ import type { BankAccountRow } from './_types';
 export default function BankAccountsPage() {
   const params = useParams();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const projectId = String(params?.projectId ?? '');
+  const { projectType } = useProject();
+  const { hasModule } = useAuth();
+  const type = projectType as ProjectType;
+  const navCollapsed = !hasNavRoute(type, 'bank-accounts') && hasNavRoute(type, 'conta');
+  const noPermission = navCollapsed && !hasModule('bankAccounts');
+  // #529: o redirect ao hub é INCONDICIONAL para quem tem o módulo. NÃO
+  // acrescente `&& hasModule('monthlyOverview')` aqui: o antigo "caso 3"
+  // (módulo sem o hub → renderizava a página legada) deixou de ser estado
+  // suportado no PESSOAL. As QUATRO rotas colapsadas usam a mesma condição —
+  // divergir uma delas já foi defeito antes. Travado por u4-nav-redirect (U4-10c/d).
+  const shouldRedirectToHub = navCollapsed && hasModule('bankAccounts');
+
   const [accounts, setAccounts] = useState<BankAccountRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
@@ -51,6 +67,18 @@ export default function BankAccountsPage() {
       setFormOpen(true);
     }
   }, [loading, accounts, searchParams]);
+
+  useEffect(() => {
+    if (noPermission) {
+      router.replace('/no-permission');
+    } else if (shouldRedirectToHub) {
+      router.replace(`/projects/${projectId}/conta`);
+    }
+  }, [noPermission, shouldRedirectToHub, projectId, router]);
+
+  if (noPermission || shouldRedirectToHub) {
+    return null;
+  }
 
   async function handleDelete(acc: BankAccountRow) {
     if (!confirm(`Excluir conta "${acc.nickname ?? acc.last4}"? As despesas importadas serão mantidas.`)) return;

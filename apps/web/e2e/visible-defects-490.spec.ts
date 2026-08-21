@@ -266,7 +266,15 @@ async function mockApi(page: Page) {
         }),
       );
     }
-    if (path === `/projects/${pessoalId}/receipts`) {
+    // #529: a mesma fixture de recebimentos passa a servir os DOIS projetos.
+    // Os testes de `/receipts` migraram para REFORMA (no PESSOAL a rota
+    // colapsou), e o que eles medem — a linha, o menu "Ações" e a geometria sob
+    // o dock — não depende do tipo nem dos rótulos de `tipo`. Servir o mesmo
+    // payload mantém a medição idêntica à de antes.
+    if (
+      path === `/projects/${pessoalId}/receipts` ||
+      path === `/projects/${reformaId}/receipts`
+    ) {
       return route.fulfill(json(receipts));
     }
     if (path.endsWith("/monthly-overview/account-view")) {
@@ -562,7 +570,17 @@ test.describe("#490 — defeitos visíveis medidos em runtime", () => {
         page.locator('[data-journey-action="credit-card.new"]'),
       ).toHaveCount(1);
 
-      await page.goto(`/projects/${pessoalId}/bank-accounts`);
+      await page.goto(`/projects/${reformaId}/bank-accounts`);
+      // #529: `/bank-accounts` do PESSOAL agora SEMPRE redireciona ao hub, então
+      // a CTA do estado vazio não existe mais lá para ser contada. A propriedade
+      // medida (#490 — no vazio a CTA primária é única) é da TELA e independe do
+      // tipo, e em REFORMA `hasNavRoute(REFORMA,'conta')` é falso ⇒ `navCollapsed`
+      // nunca liga ⇒ a página segue alcançável. Fica simétrico ao `credit-cards`
+      // logo acima, que já media em REFORMA.
+      await expect(
+        page,
+        "guarda U4 disparou em REFORMA — a fixture não deveria colapsar aqui",
+      ).toHaveURL(new RegExp(`/projects/${reformaId}/bank-accounts`));
       await expect(page.getByText("Nenhuma conta cadastrada")).toBeVisible();
       expect(repeated(await visibleActionLabels(page))).toEqual([]);
       await expect(page.getByRole("button", { name: /Nova conta/ })).toHaveCount(1);
@@ -603,7 +621,12 @@ test.describe("#490 — defeitos visíveis medidos em runtime", () => {
   }
 
   for (const width of [375, 390]) {
-    test(`${width}px — ações de /receipts e abas de /conta alcançáveis sob o dock`, async ({
+    // #529 partiu este teste em DOIS. Ele cobria `/receipts` e `/conta` na
+    // mesma sessão PESSOAL; agora `/receipts` do PESSOAL sempre redireciona ao
+    // hub, e `/conta` só existe no PESSOAL. Os destinos ficaram em tipos
+    // diferentes, então uma navegação só não alcança os dois. A régua
+    // (`expectUsableTarget`) e as duas propriedades são as de antes.
+    test(`${width}px — ações de /receipts alcançáveis sob o dock`, async ({
       page,
     }, testInfo) => {
       test.skip(
@@ -613,7 +636,24 @@ test.describe("#490 — defeitos visíveis medidos em runtime", () => {
       await page.setViewportSize({ width, height: 844 });
       await mockApi(page);
 
-      await page.goto(`/projects/${pessoalId}/receipts`);
+      // REFORMA: `receipts` segue no nav do tipo (destino de primeira classe),
+      // e `MobileReceiptList` é gated por `viewMode`, não por tipo — a mesma
+      // lista que era medida no PESSOAL.
+      await page.goto(`/projects/${reformaId}/receipts`);
+      await expect(
+        page,
+        "guarda U4 disparou em REFORMA — a fixture não deveria colapsar aqui",
+      ).toHaveURL(new RegExp(`/projects/${reformaId}/receipts`));
+      // ANTI-VACUIDADE, e aqui ela é obrigatória: a régua deste teste é "não
+      // ser mordido pelo dock", e o dock de REFORMA é OUTRO chassi — o
+      // `MobileTabBar` ramifica em `hasFeature(type,'monthlyOverview')`, que é
+      // falso fora do PESSOAL. O ramo genérico não tem launcher e faz
+      // `if (primary.length === 0) return null`. Sem esta linha, um dock ausente
+      // faria o teste passar por vazio.
+      await expect(
+        page.locator('[data-dock="minimal"]'),
+        "sem dock na tela, medir 'alcançável sob o dock' seria verde vazio",
+      ).toBeVisible();
       const lastRow = page.getByTestId("receipt-row").last();
       await expect(lastRow).toBeVisible();
       const menuTrigger = lastRow.getByRole("button", { name: /^Ações/ });
@@ -633,7 +673,19 @@ test.describe("#490 — defeitos visíveis medidos em runtime", () => {
         );
       }
       await page.keyboard.press("Escape");
+    });
 
+    test(`${width}px — abas de /conta alcançáveis sob o dock`, async ({
+      page,
+    }, testInfo) => {
+      test.skip(
+        testInfo.project.name !== "desktop",
+        "esta spec controla as próprias larguras",
+      );
+      await page.setViewportSize({ width, height: 844 });
+      await mockApi(page);
+
+      // `/conta` é o hub do PESSOAL — não existe em REFORMA. Continua aqui.
       await page.goto(`/projects/${pessoalId}/conta`);
       for (const label of ["Saídas", "Entradas", "Tudo"]) {
         await expectUsableTarget(
@@ -660,7 +712,14 @@ test.describe("#490 — defeitos visíveis medidos em runtime", () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await mockApi(page);
 
-    await page.goto(`/projects/${pessoalId}/receipts`);
+    // #529: mesma migração do teste de ações — `/receipts` do PESSOAL sempre
+    // redireciona; a propriedade (no desktop a linha mantém os ícones inline,
+    // sem menu "⋯") é da TELA e independe do tipo.
+    await page.goto(`/projects/${reformaId}/receipts`);
+    await expect(
+      page,
+      "guarda U4 disparou em REFORMA — a fixture não deveria colapsar aqui",
+    ).toHaveURL(new RegExp(`/projects/${reformaId}/receipts`));
     const lastRow = page.getByTestId("receipt-row").last();
     await expect(lastRow).toBeVisible();
     // O menu "⋯" é uma troca de mobile: no desktop a linha continua com os

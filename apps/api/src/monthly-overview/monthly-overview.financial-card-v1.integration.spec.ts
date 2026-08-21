@@ -265,15 +265,33 @@ describe('FinancialItemCardV1 — integration (real DB)', () => {
   });
 
   // U3-19 [CANARY]
-  it('U3-19 [CANARY] todas as entries do banco → actions vazio', async () => {
-    // Canário deliberado. Quando actions server-provided forem implementados
-    // (e.g. 'pay', 'undo', 'adjust'), este teste DEVE ficar VERMELHO. O vermelho
-    // é o sinal desejado: atualize este teste para afirmar os actions corretos
-    // conforme o estado de cada entry. NÃO delete este teste — ele existe para
-    // impedir que `actions` fique vazio em silêncio quando deveria ter conteúdo,
-    // ou que emita actions sem reautorização no servidor.
+  it('U3-19 [CANARY] actions vêm do servidor e só do vocabulário conhecido', async () => {
+    // Este canário nasceu no U3 (#452) afirmando `actions: []`, com a instrução
+    // de ficar VERMELHO quando o U4 (#453) ligasse a derivação no servidor. Ele
+    // ficou, e foi atualizado — não deletado. O que ele guarda agora:
+    //   1. a derivação alcança este caminho (nenhuma entry volta a `[]` em silêncio);
+    //   2. nenhum actionId escapa do vocabulário acordado.
+    // O item 2 é o que este teste guarda SOZINHO: U4-03/U4-04 afirmam actions
+    // específicos no fixture do U4, mas nenhum deles barra um id novo inventado.
+    const KNOWN = new Set([
+      'edit', 'ratear', 'vincular', 'ajustar-fatura',
+      'quitar-parcela', 'desfazer-pagamento', 'excluir',
+    ]);
     const entries = await getAllEntries();
     expect(entries.length).toBeGreaterThanOrEqual(4);
-    expect(entries.every((e: any) => Array.isArray(e.actions) && e.actions.length === 0)).toBe(true);
+
+    const emitted = entries.flatMap((e: any) => e.actions.map((a: any) => a.actionId));
+    expect(emitted.filter((id: string) => !KNOWN.has(id))).toEqual([]);
+
+    // Despesas comuns, não-espelho: o conjunto base é estável e não-vazio.
+    expect(entries.every((e: any) => e.isEspelho === false)).toBe(true);
+    for (const e of entries) {
+      expect(e.actions).toEqual([
+        { actionId: 'edit' },
+        { actionId: 'ratear' },
+        { actionId: 'vincular' },
+        { actionId: 'excluir' },
+      ]);
+    }
   });
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { CreditCard, Home, Landmark, MessageCircle, Plus } from "lucide-react";
+import { Home, Landmark, MessageCircle, Plus } from "lucide-react";
 import { hasFeature, ProjectType, type NavModule } from "@reformaflow/domain";
 import { isPathActive } from "./mobile-nav";
 import { buildNavHref } from "../_lib/nav-href";
@@ -76,11 +76,14 @@ export function MobileTabBar({
     // Dock PESSOAL: destinos FIXOS de hoje, cada um guardado por permissão via
     // presença em `primary` (D11/E-5). A Maria não é módulo de nav — é o destino
     // agent-first, sempre presente sob o gate de tipo (`monthlyOverview`).
+    //
+    // U4 (#453): TRÊS slots. `credit-cards` saiu de `PROJECT_NAV[PESSOAL]` e do
+    // dock — cartões vivem no hub `/conta`. O slot foi REMOVIDO, não deixado
+    // atrás de um `canViewCards` que `primary` nunca mais satisfaz: ramo que não
+    // pode executar não tem teste honesto (só se escreve um forjando um
+    // `NavModule` à mão) e volta sozinho no primeiro PR que mexer no nav.
     const canViewToday = primary.some((module) => module.slug === "monthly");
     const canViewConta = primary.some((module) => module.slug === "conta");
-    const canViewCards = primary.some(
-      (module) => module.slug === "credit-cards",
-    );
 
     return (
       <nav
@@ -98,8 +101,6 @@ export function MobileTabBar({
             {canViewConta &&
               renderSlot("conta", "Conta", Landmark, pessoalTabClass)}
             {renderSlot("maria", "Maria", MessageCircle, pessoalTabClass)}
-            {canViewCards &&
-              renderSlot("credit-cards", "Cartões", CreditCard, pessoalTabClass)}
           </div>
 
           {canLaunch && (

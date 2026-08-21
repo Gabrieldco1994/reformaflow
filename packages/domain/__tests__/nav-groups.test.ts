@@ -53,10 +53,6 @@ const EXPECTED_LABELS: Record<NavGroupId, string> = {
 const EXPECTED_PESSOAL_GROUPS: Record<string, NavGroupId> = {
   monthly: 'hoje',
   conta: 'movimentacoes',
-  'credit-cards': 'movimentacoes',
-  'bank-accounts': 'movimentacoes',
-  expenses: 'movimentacoes',
-  receipts: 'movimentacoes',
   recorrentes: 'planejamento',
   metas: 'planejamento',
   planning: 'planejamento',
@@ -157,7 +153,7 @@ describe('buildNavGroups', () => {
     ]);
     expect(groups.map((g) => g.items.map((i) => i.slug))).toEqual([
       ['monthly'],
-      ['conta', 'expenses', 'receipts', 'credit-cards', 'bank-accounts'],
+      ['conta'],
       ['recorrentes', 'metas', 'planning', 'planejador'],
       ['dre'],
       ['neutros', 'cash-flow'],
@@ -289,15 +285,11 @@ describe('regressões travadas (não provam esta implementação)', () => {
       'conta',
       'dre',
       'neutros',
-      'expenses',
-      'receipts',
       'recorrentes',
       'metas',
       'planning',
       'planejador',
       'cash-flow',
-      'credit-cards',
-      'bank-accounts',
     ]);
     expect(PROJECT_NAV[ProjectType.PESSOAL][0].slug).toBe('monthly');
   });
