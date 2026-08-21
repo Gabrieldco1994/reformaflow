@@ -330,11 +330,26 @@ export function MovimentacaoRow({
   return (
     <div className="rounded-xl border border-lifeone-hairline bg-lifeone-card transition-colors hover:border-lifeone-blue hover:shadow-lifeone-card md:rounded-2xl">
       <div className="flex items-start gap-2.5 px-2.5 py-2 md:items-center md:gap-3 md:px-4 md:py-3">
-        <span
-          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full md:h-10 md:w-10 ${iconCfg.bgColor} ${iconCfg.color}`}
-        >
-          <AvatarIcon className="h-4 w-4 md:h-[18px] md:w-[18px]" />
-        </span>
+        {onShowDetail ? (
+          <button
+            type="button"
+            aria-label="Ver detalhe"
+            onClick={(ev) => { ev.stopPropagation(); onShowDetail(item); }}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full"
+          >
+            <span
+              className={`flex h-9 w-9 items-center justify-center rounded-full md:h-10 md:w-10 ${iconCfg.bgColor} ${iconCfg.color}`}
+            >
+              <AvatarIcon className="h-4 w-4 md:h-[18px] md:w-[18px]" />
+            </span>
+          </button>
+        ) : (
+          <span
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full md:h-10 md:w-10 ${iconCfg.bgColor} ${iconCfg.color}`}
+          >
+            <AvatarIcon className="h-4 w-4 md:h-[18px] md:w-[18px]" />
+          </span>
+        )}
 
         {/* Título + metadados: separados para o chip "Sem conta" não aninhar <button> dentro de <button>. */}
         <div className="min-w-0 flex-1">
@@ -342,11 +357,10 @@ export function MovimentacaoRow({
             type="button"
             onClick={() => {
               if (canExpand) onToggleExpand!();
-              else if (onShowDetail) onShowDetail(item);
               else if (canEdit) doEdit();
             }}
             className="w-full text-left"
-            title={canExpand ? (expanded ? 'Recolher compras' : 'Ver compras da fatura') : onShowDetail ? 'Ver detalhe' : canEdit ? 'Editar' : undefined}
+            title={canExpand ? (expanded ? 'Recolher compras' : 'Ver compras da fatura') : canEdit ? 'Editar' : undefined}
           >
             <div className="flex items-center gap-1">
               {canExpand &&

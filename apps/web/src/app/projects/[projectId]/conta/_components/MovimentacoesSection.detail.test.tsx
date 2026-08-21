@@ -128,7 +128,7 @@ describe('MovimentacoesSection → FinancialItemDetail wiring', () => {
     expect(screen.queryByTestId('financial-detail-sheet')).not.toBeInTheDocument();
 
     // Find the first row title button and click it
-    const titleButtons = screen.getAllByTitle('Ver detalhe');
+    const titleButtons = screen.getAllByLabelText('Ver detalhe');
     fireEvent.click(titleButtons[0]!);
 
     // Detail sheet appears
@@ -143,7 +143,7 @@ describe('MovimentacoesSection → FinancialItemDetail wiring', () => {
 
     expect(screen.queryByTestId('financial-detail-drawer')).not.toBeInTheDocument();
 
-    const titleButtons = screen.getAllByTitle('Ver detalhe');
+    const titleButtons = screen.getAllByLabelText('Ver detalhe');
     fireEvent.click(titleButtons[0]!);
 
     expect(screen.getByTestId('financial-detail-drawer')).toBeInTheDocument();
@@ -159,7 +159,7 @@ describe('MovimentacoesSection → FinancialItemDetail wiring', () => {
     fireEvent.click(saidasTab);
 
     // Open detail
-    const titleButtons = screen.getAllByTitle('Ver detalhe');
+    const titleButtons = screen.getAllByLabelText('Ver detalhe');
     fireEvent.click(titleButtons[0]!);
     expect(screen.getByTestId('financial-detail-sheet')).toBeInTheDocument();
 
@@ -180,7 +180,7 @@ describe('MovimentacoesSection → FinancialItemDetail wiring', () => {
     mockWidth(375);
     renderSection(makeResponse());
 
-    const titleButtons = screen.getAllByTitle('Ver detalhe');
+    const titleButtons = screen.getAllByLabelText('Ver detalhe');
     fireEvent.click(titleButtons[0]!);
 
     // R$ 1.500,00 (150_000 centavos)
@@ -192,7 +192,7 @@ describe('MovimentacoesSection → FinancialItemDetail wiring', () => {
     mockWidth(375);
     renderSection(makeResponse());
 
-    const titleButtons = screen.getAllByTitle('Ver detalhe');
+    const titleButtons = screen.getAllByLabelText('Ver detalhe');
     fireEvent.click(titleButtons[0]!);
 
     const detail = screen.getByTestId('financial-detail-sheet');
