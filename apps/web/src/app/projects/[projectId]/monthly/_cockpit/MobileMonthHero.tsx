@@ -100,14 +100,18 @@ export default function MobileMonthHero({
         </div>
         <div className="mt-1.5 flex items-center justify-between gap-3 text-sm text-[#9AA0A8]">
           <span className="text-[#5B6068]">Hoje</span>
-          <button
-            type="button"
-            onClick={scrollToRunway}
-            className="-my-1.5 flex min-h-[44px] items-center font-semibold text-[#5B6068] hover:underline"
-            aria-label="Rolar até projeção detalhada"
-          >
-            fim do mês
-          </button>
+          {/*
+            Legenda do eixo, não controle: "Hoje" e "fim do mês" rotulam as duas
+            pontas da MESMA barra de progresso. "fim do mês" era um `<button>`
+            com `aria-label="Rolar até projeção detalhada"` — exatamente o mesmo
+            nome do botão da frase logo acima, que rola para a mesma âncora.
+            Dois controles com nome idêntico viram duas entradas indistinguíveis
+            na lista do leitor de tela; e o par visível ficava assimétrico (um
+            span de um lado, um link do outro) para a mesma função. A rolagem
+            continua alcançável pela frase acima (44px de altura, largura
+            inteira) e pela linha "Projeção" abaixo.
+          */}
+          <span className="font-semibold text-[#5B6068]">fim do mês</span>
         </div>
 
         <div className="mt-4 space-y-2 border-t border-[#E8EAEE] pt-3">
@@ -139,12 +143,7 @@ export default function MobileMonthHero({
           </Link>
           <button
             type="button"
-            onClick={() => {
-              const element = document.getElementById("mobile-cockpit-runway");
-              if (element) {
-                element.scrollIntoView({ behavior: "smooth" });
-              }
-            }}
+            onClick={scrollToRunway}
             className="w-full flex min-h-[44px] items-center justify-between gap-3 rounded-[14px] bg-[#F6F7F9] px-3 text-sm text-[#5B6068] hover:bg-[#EDEFF4] active:scale-[0.99]"
             aria-label="Rolar até projeção"
           >

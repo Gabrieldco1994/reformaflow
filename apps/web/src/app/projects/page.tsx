@@ -254,7 +254,16 @@ export default function ProjectsPage() {
               </div>
             )}
 
-            {/* Desktop: grade 3 colunas com add-card */}
+            {/*
+              Grade sem add-card: o botão tracejado no fim da grade repetia
+              "Novo Projeto" com o botão do header — mesmo rótulo, mesmo
+              `openCreate()`, mesmo viewport, lado a lado, e só quando já havia
+              pelo menos um projeto (por isso a suíte antiga, com fixture
+              vazio, nunca viu). Quem ficou foi o do header: é ele que carrega
+              o token de jornada `project.new` do desktop e que explica no
+              `title` por que a criação está bloqueada quando `!canCreate` —
+              o add-card simplesmente sumia, sem dizer nada.
+            */}
             <div className="hidden md:grid grid-cols-3 gap-4">
               {filteredProjects.map((project) => (
                 <ProjectHubCard
@@ -265,15 +274,6 @@ export default function ProjectsPage() {
                   onDelete={(e) => { e.stopPropagation(); handleDelete(project.id); }}
                 />
               ))}
-              {canCreate && (
-                <button
-                  onClick={openCreate}
-                  className="flex flex-col items-center justify-center gap-2 min-h-[152px] rounded-[18px] border-2 border-dashed border-lifeone-hairline text-lifeone-ink-3 hover:border-lifeone-blue hover:text-lifeone-blue transition-all"
-                >
-                  <Plus className="w-6 h-6" />
-                  <span className="text-[14px] font-medium">Novo Projeto</span>
-                </button>
-              )}
             </div>
 
             {/* Mobile: lista de cards */}

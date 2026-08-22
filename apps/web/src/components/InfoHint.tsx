@@ -6,16 +6,16 @@ import { Info } from 'lucide-react';
 const TOOLTIP_WIDTH = 240;
 
 /**
- * Botão de ajuda "ⓘ" com tooltip explicativo. Acessível: abre no hover, no foco
- * (teclado) e no toque/clique (mobile), e fecha com Escape. Usa `position: fixed`
- * calculada a partir do gatilho para NÃO ser cortado por cards com
- * `overflow-hidden`. Herda a cor do texto (`text-current`), então funciona tanto
- * em cards claros quanto escuros. O clique não propaga (não dispara ações do card).
+ * Botão de ajuda "ⓘ" com tooltip explicativo. Acessível: nomeia-se pelo conteúdo,
+ * abre no hover, no foco (teclado) e no toque/clique (mobile), e fecha com Escape.
+ * O botão mede 44×44, mas fica posicionado sobre um slot visual de 16×16 para não
+ * afastar rótulos. Usa `position: fixed` no tooltip para NÃO ser cortado por cards
+ * com `overflow-hidden`. O clique não propaga (não dispara ações do card).
  */
 export function InfoHint({
   text,
   className,
-  ariaLabel = 'Ajuda',
+  ariaLabel,
 }: {
   text: string;
   className?: string;
@@ -25,6 +25,7 @@ export function InfoHint({
   const [pos, setPos] = useState<{ top: number; left: number; below: boolean } | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const id = useId();
+  const accessibleName = ariaLabel ?? `Ajuda: ${text}`;
 
   function place() {
     const el = btnRef.current;
@@ -55,11 +56,11 @@ export function InfoHint({
   }, [open]);
 
   return (
-    <span className={`relative inline-flex ${className ?? ''}`}>
+    <span className={`relative inline-flex h-4 w-4 shrink-0 ${className ?? ''}`}>
       <button
         ref={btnRef}
         type="button"
-        aria-label={ariaLabel}
+        aria-label={accessibleName}
         aria-describedby={open ? id : undefined}
         onMouseEnter={() => setOpen(true)}
         onMouseLeave={() => setOpen(false)}
@@ -70,7 +71,7 @@ export function InfoHint({
           e.preventDefault();
           setOpen((v) => !v);
         }}
-        className="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full opacity-45 transition-opacity hover:opacity-100 focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-current/40"
+        className="absolute left-1/2 top-1/2 z-10 inline-flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 cursor-help items-center justify-center rounded-full opacity-45 transition-opacity hover:opacity-100 focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-current/40"
       >
         <Info className="h-3.5 w-3.5" />
       </button>

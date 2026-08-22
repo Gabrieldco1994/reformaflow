@@ -110,6 +110,20 @@ export function ResumoCards({
 }) {
   const modoCarteira = caixaHoje === 0 && (carteiraHoje ?? 0) !== 0;
 
+  /**
+   * Uma fonte só para o rótulo do card de saldo: ele aparece como texto visível
+   * e dentro do nome do gatilho de ajuda. Duas cópias derivam com o tempo, e o
+   * leitor de tela fica anunciando um rótulo que ninguém mais vê na tela.
+   *
+   * Carteira também é saldo PONTUAL: na visão anual o rótulo precisa dizer
+   * "hoje", senão o número é lido como fluxo do ano inteiro.
+   */
+  const saldoLabel = modoCarteira
+    ? period === 'ano'
+      ? 'Carteira (dinheiro) hoje'
+      : 'Carteira (dinheiro)'
+    : 'Tenho na conta hoje';
+
   const values: Record<SummaryKey, number> = {
     entrouMes,
     saiuMes,
@@ -166,13 +180,7 @@ export function ResumoCards({
     <section className="grid gap-2 xl:grid-cols-12 xl:gap-4">
       <article className="rounded-2xl border border-lifeone-hairline bg-lifeone-card p-2.5 shadow-lifeone-card xl:col-span-4 xl:flex xl:min-h-full xl:flex-col xl:justify-between xl:rounded-3xl xl:p-6">
         <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-lifeone-ink-3">
-          {modoCarteira
-            ? // Carteira também é saldo PONTUAL: na visão anual o rótulo precisa
-              // dizer "hoje", senão o número é lido como fluxo do ano inteiro.
-              period === 'ano'
-              ? 'Carteira (dinheiro) hoje'
-              : 'Carteira (dinheiro)'
-            : 'Tenho na conta hoje'}
+          {saldoLabel}
           <InfoHint
             text={
               modoCarteira
@@ -180,6 +188,7 @@ export function ResumoCards({
                 : 'O dinheiro disponível de verdade na conta agora, reconciliado com o banco. Compras no cartão só entram aqui quando a fatura é paga.'
             }
             className="text-lifeone-ink-3"
+            ariaLabel={`Ajuda sobre ${saldoLabel}`}
           />
         </p>
         <p className="mt-1 font-geist text-[22px] font-bold tabular-nums tracking-tight text-lifeone-ink xl:mt-2 xl:text-[34px]">
