@@ -210,3 +210,22 @@ test.describe("/conta — nenhum nome acessível designa duas ações", () => {
     expect(duplicates(nomes), `censo completo: ${JSON.stringify(nomes)}`).toEqual([]);
   });
 });
+
+test.describe("/projects — uma CTA de criação por viewport", () => {
+  test("mantém só um gatilho visível para criar projeto", async ({ page }) => {
+    await mockConta(page);
+    await page.goto("/projects");
+    await expect(
+      page.getByRole("heading", { name: "Meus Projetos" }),
+    ).toBeVisible();
+
+    // `getByRole` ignora a árvore de acessibilidade escondida pelo breakpoint:
+    // diferente do jsdom, esta contagem prova o viewport renderizado de verdade.
+    await expect(
+      page.getByRole("button", { name: /^Novo projeto$/i }),
+    ).toHaveCount(1);
+    await expect(
+      page.locator('[data-journey-action="project.new"]:visible'),
+    ).toHaveCount(1);
+  });
+});
