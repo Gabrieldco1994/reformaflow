@@ -352,6 +352,35 @@ test.describe("Monthly cockpit — Phase C mobile relance", () => {
     expect(mutations).toEqual([]);
   });
 
+  test("desktop dá nomes distintos e úteis às seis ajudas do cockpit", async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== "desktop",
+      "desktop cockpit is explicitly owned by this test",
+    );
+    await openMonthly(page, { width: 1280, height: 800 });
+
+    const ajudas = page.locator('button[aria-label^="Ajuda"]:visible');
+    await expect(ajudas).toHaveCount(6);
+    const nomes = await ajudas.evaluateAll((elements) =>
+      elements.map((element) => element.getAttribute("aria-label") ?? ""),
+    );
+
+    expect(nomes).not.toContain("Ajuda");
+    expect(new Set(nomes).size).toBe(nomes.length);
+    expect(nomes).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/^Ajuda: Semáforo do fim do mês/),
+        expect.stringMatching(/^Ajuda: Recebimentos já efetivados/),
+        expect.stringMatching(/^Ajuda: Tudo que sai da conta/),
+        expect.stringMatching(/^Ajuda: Como o mês deve fechar/),
+        expect.stringMatching(/^Ajuda: Projeção do saldo real da conta/),
+        expect.stringMatching(/^Ajuda: Como o gasto do mês/),
+      ]),
+    );
+  });
+
   // O FAB "Lançar" e o sheet de lançamento vivem no AppShell (global a todas as
   // rotas do projeto), então o cockpit é uma superfície válida para exercê-los.
   test("Lançar: FAB minimal, modo Despesa traz origens do projeto e categorias diretas", async ({

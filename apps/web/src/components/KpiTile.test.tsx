@@ -88,8 +88,8 @@ describe('KpiTile — dois controles, nenhum aninhado (#490)', () => {
 /**
  * A ajuda ⓘ tem de dizer DE QUAL indicador ela fala.
  *
- * `InfoHint` assume `aria-label="Ajuda"` quando ninguém passa nada, e `KpiTile`
- * não passava — `/conta` servia CINCO botões chamados "Ajuda", cada um abrindo
+ * `InfoHint` assumia `aria-label="Ajuda"` quando ninguém passava nada, e `KpiTile`
+ * também não passava — `/conta` servia CINCO botões chamados "Ajuda", cada um abrindo
  * um texto diferente. A trava mora aqui, e não em `/conta`, porque este
  * componente é o dono do padrão: 12 arquivos o consomem, e /conta era só onde
  * o QA olhou primeiro.
@@ -113,7 +113,7 @@ describe('KpiTile — a ajuda ⓘ é nomeada pelo indicador (A1)', () => {
     expect(duplicates(nomes.filter((n): n is string => n != null))).toEqual([]);
   });
 
-  it('mantém o default quando o rótulo não é texto — melhor genérico que cortado', () => {
+  it('deriva o fallback do conteúdo quando o rótulo não é texto', () => {
     render(
       <KpiTile
         label={
@@ -126,6 +126,6 @@ describe('KpiTile — a ajuda ⓘ é nomeada pelo indicador (A1)', () => {
       />,
     );
 
-    expect(screen.getByRole('button', { name: 'Ajuda' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ajuda: d' })).toBeInTheDocument();
   });
 });

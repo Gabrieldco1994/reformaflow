@@ -13,9 +13,8 @@ import { expect, test, type Page } from "@playwright/test";
  *
  *  A1 — CINCO botões com `aria-label="Ajuda"` idêntico (os "ⓘ" dos KPIs). Cada
  *       um abre um texto diferente; para leitor de tela são cinco entradas
- *       indistinguíveis na lista de controles. A raiz é `InfoHint`, que assume
- *       `ariaLabel = 'Ajuda'` quando o chamador não passa nada, e `KpiTile`,
- *       que não passava.
+ *       indistinguíveis na lista de controles. A raiz era `InfoHint`, cujo
+ *       fallback era só "Ajuda", e `KpiTile`, que não passava contexto.
  *
  *  A2 — DOIS controles chamados "Projetos": o link de navegação da sidebar
  *       (leva para `/projects`) e o toggle de agrupamento da lista de
@@ -153,6 +152,49 @@ async function openConta(page: Page) {
 }
 
 test.describe("/conta — nenhum nome acessível designa duas ações", () => {
+  for (const width of [375, 390]) {
+    test(`A1 · alvos de ajuda têm pelo menos 44×44 em ${width}px`, async ({
+      page,
+    }, testInfo) => {
+      test.skip(
+        testInfo.project.name !== "desktop",
+        "viewports are explicitly owned by this test",
+      );
+      await page.setViewportSize({ width, height: 844 });
+      await openConta(page);
+
+      const ajudas = page.locator('button[aria-label^="Ajuda sobre"]:visible');
+      await expect(ajudas).toHaveCount(5);
+      const dimensoes = await ajudas.evaluateAll((elements) =>
+        elements.map((element) => {
+          const { width, height } = element.getBoundingClientRect();
+          const slot = element.parentElement?.getBoundingClientRect();
+          const icon = element.querySelector("svg")?.getBoundingClientRect();
+          return {
+            width,
+            height,
+            slotWidth: slot?.width,
+            slotHeight: slot?.height,
+            iconWidth: icon?.width,
+            iconHeight: icon?.height,
+          };
+        }),
+      );
+      for (const dimensao of dimensoes) {
+        expect(dimensao.width).toBeGreaterThanOrEqual(44);
+        expect(dimensao.height).toBeGreaterThanOrEqual(44);
+        expect(dimensao.slotWidth).toBe(16);
+        expect(dimensao.slotHeight).toBe(16);
+        expect(dimensao.iconWidth).toBe(14);
+        expect(dimensao.iconHeight).toBe(14);
+      }
+
+      await ajudas.first().focus();
+      await expect(ajudas.first()).toBeFocused();
+      await expect(page.getByRole("tooltip")).toBeVisible();
+    });
+  }
+
   test("A1 · cada ajuda ⓘ diz de QUAL indicador ela fala", async ({ page }) => {
     await openConta(page);
     const nomes = await visibleNameCensus(page);

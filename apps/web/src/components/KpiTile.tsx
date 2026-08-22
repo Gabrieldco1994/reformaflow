@@ -145,8 +145,8 @@ export function KpiTile({
   /**
    * O nome do gatilho de ajuda é DERIVADO do rótulo do KPI.
    *
-   * `InfoHint` assume `aria-label="Ajuda"` quando o chamador não passa nada, e
-   * este era o chamador que não passava. Resultado medido em runtime: `/conta`
+   * `InfoHint` assumia `aria-label="Ajuda"` quando o chamador não passava nada,
+   * e este era o chamador que não passava. Resultado medido em runtime: `/conta`
    * servia CINCO botões chamados "Ajuda", cada um abrindo um texto diferente —
    * na lista de controles do leitor de tela, cinco entradas indistinguíveis
    * para cinco ações distintas. A correção mora aqui, e não em cada tela,
@@ -154,8 +154,8 @@ export function KpiTile({
    * componente, e /conta era só onde o QA olhou.
    *
    * `plainText` devolve vazio quando o rótulo é um `ReactNode` composto; nesse
-   * caso o `undefined` deixa o default de `InfoHint` valer, em vez de produzir
-   * "Ajuda sobre " com o nome cortado.
+   * caso o `undefined` deixa `InfoHint` derivar o nome do conteúdo, em vez de
+   * produzir "Ajuda sobre " com o nome cortado.
    */
   const infoAriaLabel = plainText(label) ? `Ajuda sobre ${plainText(label)}` : undefined;
 
