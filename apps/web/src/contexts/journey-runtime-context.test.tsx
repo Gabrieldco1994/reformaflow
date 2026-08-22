@@ -72,6 +72,7 @@ function Fixture() {
           </button>
         </div>
       )}
+      {runtime.error && <div role="alert">{runtime.error}</div>}
     </>
   );
 }
@@ -321,6 +322,53 @@ describe("JourneyRuntimeProvider", () => {
     );
   });
 
+  it("does not erase the persisted step while restoring it after hydration", async () => {
+    sessionStorage.setItem(
+      "lifeone:journey-runtime",
+      JSON.stringify({
+        journey: {
+          journeyId: "j1",
+          key: "tour:test",
+          name: "Retomada",
+          triggerId: "t1",
+          repeatPolicy: "ALWAYS",
+          dismissPolicy: "DISMISS_UNTIL_LOGIN",
+          crossProject: false,
+          steps: [
+            {
+              stepKey: "feedback",
+              order: 0,
+              experience: "SUMMARY",
+              label: "A",
+              subtitle: "Resumo",
+              skippable: true,
+            },
+            {
+              stepKey: "expense",
+              order: 1,
+              experience: "FULL",
+              label: "B",
+              subtitle: "Despesa",
+              skippable: true,
+            },
+          ],
+        },
+        stepIndex: 1,
+        projectId: "current",
+      }),
+    );
+    const removeItem = vi.spyOn(Storage.prototype, "removeItem");
+
+    renderRuntime();
+
+    expect(await screen.findByTestId("active")).toHaveTextContent("Retomada:1");
+    expect(removeItem).not.toHaveBeenCalledWith("lifeone:journey-runtime");
+    expect(JSON.parse(sessionStorage.getItem("lifeone:journey-runtime")!)).toMatchObject({
+      stepIndex: 1,
+    });
+    removeItem.mockRestore();
+  });
+
   it("shows compatible projects for a cross-project journey", async () => {
     mocks.apiGet.mockImplementation((path: string) => {
       if (path === "/projects")
@@ -558,17 +606,41 @@ describe("JourneyRuntimeProvider", () => {
     });
   });
 
-  // Regressão: o gatilho SCREEN_VISIT antes esperava um boolean `restored`
-  // (setado num effect de montagem) além de auth/pathname/`!active` — dois
-  // gates sequenciais e um round-trip antes do painel poder existir. Agora a
-  // retomada é lida de forma síncrona no initializer do `useState`, então só
-  // resta o gate de auth real.
-  describe("disparo do SCREEN_VISIT (retomada síncrona + gate de auth)", () => {
+  describe("disparo do SCREEN_VISIT (retomada hidratada + gate de auth)", () => {
     function screenVisitCalls() {
       return mocks.apiGet.mock.calls.filter((call: unknown[]) =>
         String(call[0]).includes("triggerType=SCREEN_VISIT"),
       ).length;
     }
+
+    it("always sends the current screen key, including a trailing-slash pathname", async () => {
+      mocks.pathname = "/projects/current/monthly/";
+
+      renderRuntime();
+
+      await waitFor(() => expect(screenVisitCalls()).toBe(1));
+      const [url] = mocks.apiGet.mock.calls.find((call: unknown[]) =>
+        String(call[0]).includes("triggerType=SCREEN_VISIT"),
+      )!;
+      expect(new URL(`http://localhost${url}`).searchParams.get("screenKey")).toBe(
+        "monthly",
+      );
+    });
+
+    it("surfaces an eligibility error instead of treating the 400 as an empty result", async () => {
+      mocks.apiGet.mockImplementation((path: string) => {
+        if (path.startsWith("/journeys/eligible")) {
+          return Promise.reject(new Error("SCREEN_VISIT exige screenKey na consulta."));
+        }
+        return Promise.resolve({ type: "PESSOAL" });
+      });
+
+      renderRuntime();
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "SCREEN_VISIT exige screenKey na consulta.",
+      );
+    });
 
     it("resumes an active journey from sessionStorage even while auth is still resolving", async () => {
       mocks.authLoading = true;
@@ -599,8 +671,8 @@ describe("JourneyRuntimeProvider", () => {
         }),
       );
       renderRuntime();
-      // Retomada é lida no initializer, no primeiro render — não depende de
-      // auth ter resolvido.
+      // A retomada acontece antes dos effects passivos e não depende de auth
+      // ter resolvido.
       expect(screen.getByTestId("active")).toHaveTextContent("Retomada:0");
       expect(screenVisitCalls()).toBe(0);
       await act(async () => {

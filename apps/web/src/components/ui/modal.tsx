@@ -123,7 +123,7 @@ export function Modal({
           <h2 className="font-editorial italic text-xl text-darc-maroon">{title}</h2>
           <button
             onClick={onClose}
-            className="p-2 rounded-full hover:bg-darc-linen/40 active:bg-darc-linen/60 transition-colors"
+            className="flex min-h-11 min-w-11 items-center justify-center rounded-full hover:bg-darc-linen/40 active:bg-darc-linen/60 transition-colors"
             aria-label="Fechar"
           >
             <X className="w-5 h-5 text-darc-maroon" />

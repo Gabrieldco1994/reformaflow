@@ -6,6 +6,7 @@ import { formatCurrency } from '@/lib/utils';
 import { moneyGlance } from '@/lib/money';
 import { tipoLabel } from '@/lib/expense-options';
 import { getExpenseIcon } from '@/lib/expense-icons';
+import { useOverlayLock } from '@/components/ui/use-overlay-lock';
 import { useCategorySuggestion } from '../../expenses/_hooks/useCategorySuggestion';
 import { getExpenseOptions } from '../../expenses/_types';
 import { faturaDestino } from '../../_lib/fatura-destino';
@@ -76,6 +77,7 @@ export function MobileLaunchSheet({
   projectedBalanceCents,
   mode = 'PAGA',
 }: Props) {
+  useOverlayLock(open);
   const origins = useMemo<OriginOption[]>(() => {
     const accountOrigins: OriginOption[] = accounts.map((account) => ({
       key: `account:${account.id}`,

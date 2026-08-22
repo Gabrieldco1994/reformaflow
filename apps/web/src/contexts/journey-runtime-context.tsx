@@ -78,6 +78,11 @@ function currentProjectId(pathname: string): string | undefined {
   return match?.[1];
 }
 
+function currentScreenKey(pathname: string): string | undefined {
+  const segments = pathname.split("/").filter(Boolean);
+  return segments[segments.length - 1];
+}
+
 function device(): "web" | "mobile" {
   return typeof window !== "undefined" &&
     typeof window.matchMedia === "function" &&
@@ -111,6 +116,7 @@ export function JourneyRuntimeProvider({
   const pathname = usePathname();
   const router = useRouter();
   const [active, setActive] = useState<ActiveJourney | null>(null);
+  const [restored, setRestored] = useState(false);
   const [queue, setQueue] = useState<QueuedJourney[]>([]);
   const [projects, setProjects] = useState<JourneyProject[]>([]);
   const [loading, setLoading] = useState(false);
@@ -124,15 +130,19 @@ export function JourneyRuntimeProvider({
   // divergindo do HTML do servidor (`<aside>` presente vs. ausente) e
   // disparando "Hydration failed". `useLayoutEffect` roda síncrono, DEPOIS da
   // hidratação (que já viu `null`, igual ao servidor) e ANTES do browser
-  // pintar — restaura a jornada sem o usuário ver o frame vazio.
+  // pintar — restaura a jornada sem o usuário ver o frame vazio. `restored`
+  // impede os effects passivos do primeiro render de apagarem esse valor ou
+  // consultarem elegibilidade antes da restauração.
   useLayoutEffect(() => {
     const stored = readStored();
     if (stored) setActive(stored);
+    setRestored(true);
   }, []);
 
   useEffect(() => {
+    if (!restored) return;
     writeStored(active);
-  }, [active]);
+  }, [active, restored]);
 
   // Gatilho emitido ANTES de a autenticação resolver não pode ser descartado:
   // no cadastro, `emit` é chamado de dentro de um `handleSubmit` cujo closure
@@ -167,7 +177,7 @@ export function JourneyRuntimeProvider({
               ? getProjectType(context.projectId).catch(() => null)
               : Promise.resolve(null);
             const [eligible, projectType] = await Promise.all([
-              getEligibleJourneys(context).catch(() => []),
+              getEligibleJourneys(context),
               projectTypePromise,
             ]);
             return eligible.map((j) => ({
@@ -206,8 +216,12 @@ export function JourneyRuntimeProvider({
           });
           setQueue(entries);
         }
-      } catch {
-        // The runtime is additive: an unavailable journey API must not break the app.
+      } catch (cause) {
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : "Não foi possível carregar a jornada.",
+        );
       } finally {
         setLoading(false);
       }
@@ -246,15 +260,15 @@ export function JourneyRuntimeProvider({
   }, [active, authLoading, emitMany, user]);
 
   useEffect(() => {
-    if (!user || authLoading || !pathname || active) return;
+    if (!restored || !user || authLoading || !pathname || active) return;
     const projectId = currentProjectId(pathname);
     void emit({
       triggerType: "SCREEN_VISIT",
       device: device(),
       projectId,
-      screenKey: pathname.split("/").pop() || undefined,
+      screenKey: currentScreenKey(pathname),
     });
-  }, [active, authLoading, emit, pathname, user]);
+  }, [active, authLoading, emit, pathname, restored, user]);
 
   useEffect(() => {
     if (!user || authLoading) return;

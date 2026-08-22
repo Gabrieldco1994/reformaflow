@@ -201,6 +201,39 @@ async function openContaWithJourney(
       return route.fulfill(
         json([{ id: projectId, name: "Pessoal Teste", type: "PESSOAL" }]),
       );
+    if (path === `/projects/${projectId}/bank-accounts`)
+      return route.fulfill(json([]));
+    if (path === `/projects/${projectId}/monthly-overview/account-view`)
+      return route.fulfill(
+        json({
+          mesSelecionado: "2026-07",
+          caixaHoje: 0,
+          carteiraHoje: 0,
+          entrouMes: 0,
+          saiuMes: 0,
+          faltaPagarMes: 0,
+          recebimentosPrevistosMes: 0,
+          sobraPrevista: 0,
+          devoCartaoTotal: 0,
+          cartoes: [],
+          contas: [],
+          saidas: [],
+          comprasCartao: [],
+          entradas: [],
+          ticketMedio: {
+            valor: 0,
+            nCompras: 0,
+            totalCompras: 0,
+            serie6m: [],
+            media6m: 0,
+            deltaVsMediaPct: null,
+          },
+        }),
+      );
+    if (path === `/projects/${projectId}/monthly-overview/dre-overview`)
+      return route.fulfill(
+        json({ anual: { saldoAcumuladoSerie: [] } }),
+      );
     return route.fulfill(json([]));
   });
 
@@ -209,7 +242,9 @@ async function openContaWithJourney(
   // O painel PRECISA estar aberto — sem ele o teste não mede nada e passaria
   // verde por ausência do que deveria estar atrapalhando.
   await expect(page.locator("[data-journey-panel]")).toBeVisible();
-  await expect(page.locator('[data-dock="minimal"]')).toBeVisible();
+  if (viewport.width < 768) {
+    await expect(page.locator('[data-dock="minimal"]')).toBeVisible();
+  }
 }
 
 /**
@@ -316,6 +351,102 @@ test.describe("Painel da jornada não esconde as próprias ações", () => {
         blocked.map((entry) => entry.report),
         `Ações do painel inalcançáveis a ${viewport.width}px:\n  ${blocked.map((entry) => entry.report).join("\n  ")}`,
       ).toEqual([]);
+    });
+  }
+});
+
+test.describe("Overlays de conta e lançamento afastam o painel da jornada", () => {
+  for (const viewport of [
+    { width: 375, height: 812 },
+    { width: 390, height: 844 },
+    { width: 1280, height: 800 },
+  ]) {
+    test(`conta bancária continua tocável a ${viewport.width}px`, async ({
+      page,
+    }, testInfo) => {
+      test.skip(
+        testInfo.project.name !== "desktop",
+        "os viewports são explicitamente donos deste spec",
+      );
+      await openContaWithJourney(page, viewport);
+
+      await page
+        .getByRole("button", { name: "Nova conta", exact: true })
+        .filter({ visible: true })
+        .evaluate((button: HTMLButtonElement) => button.click());
+
+      await expect(
+        page.getByRole("heading", { name: "Nova conta bancária" }),
+      ).toBeVisible();
+      await expect(page.locator("body")).toHaveAttribute(
+        "data-overlay-open",
+        "true",
+      );
+      await expect(page.locator("[data-journey-panel]")).toBeHidden();
+
+      for (const action of ["Cancelar", "Salvar"]) {
+        const target = page.getByRole("button", { name: action, exact: true });
+        await target.scrollIntoViewIfNeeded();
+        await expect
+          .poll(() =>
+            target.evaluate((element) => {
+              const box = element.getBoundingClientRect();
+              const hit = document.elementFromPoint(
+                box.x + box.width / 2,
+                box.y + box.height / 2,
+              );
+              return !!hit && element.contains(hit);
+            }),
+          )
+          .toBe(true);
+      }
+
+      await page.getByRole("button", { name: "Cancelar", exact: true }).click();
+      await expect(page.locator("body")).not.toHaveAttribute(
+        "data-overlay-open",
+        "true",
+      );
+      await expect(page.locator("[data-journey-panel]")).toBeVisible();
+    });
+  }
+
+  for (const viewport of VIEWPORTS) {
+    test(`folhas de lançamento continuam tocáveis a ${viewport.width}px`, async ({
+      page,
+    }, testInfo) => {
+      test.skip(
+        testInfo.project.name !== "desktop",
+        "os viewports são explicitamente donos deste spec",
+      );
+      await openContaWithJourney(page, viewport);
+
+      await page.locator("[data-launcher]").click();
+      const expenseMode = page.locator(
+        '[data-mobile-sheet="launch-mode"] [data-journey-action="expense.new"]',
+      );
+      await expect(expenseMode).toBeVisible();
+      await expect(page.locator("[data-journey-panel]")).toBeHidden();
+
+      await expenseMode.click();
+      const keypadFive = page
+        .locator('[data-mobile-sheet="launch"]')
+        .getByRole("button", { name: "5", exact: true });
+      await expect(keypadFive).toBeVisible();
+      await expect
+        .poll(() =>
+          keypadFive.evaluate((element) => {
+            const box = element.getBoundingClientRect();
+            const hit = document.elementFromPoint(
+              box.x + box.width / 2,
+              box.y + box.height / 2,
+            );
+            return !!hit && element.contains(hit);
+          }),
+        )
+        .toBe(true);
+
+      await page.getByRole("button", { name: "Fechar lançar" }).click();
+      await expect(page.locator("[data-journey-panel]")).toBeVisible();
     });
   }
 });

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useOverlayLock } from '@/components/ui/use-overlay-lock';
 import CardFormModal from '../credit-cards/_components/CardFormModal';
 import BankAccountFormModal from '../bank-accounts/_components/BankAccountFormModal';
 
@@ -18,6 +19,7 @@ interface Props {
 // foi unificada com um toggle, delegando pros modais já existentes.
 export default function AccountFormModal({ projectId, defaultType, onClose, onSaved }: Props) {
   const [type, setType] = useState<AccountKind>(defaultType);
+  useOverlayLock(true);
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">

@@ -200,6 +200,48 @@ test.describe("jornada dirigida pela configuração devolvida por /journeys/elig
     await expect(page.locator(PANEL)).toHaveCount(0);
   });
 
+  test("envia screenKey e retoma o passo persistido após reload", async ({
+    page,
+  }) => {
+    const config = steps(5);
+    const requestedScreens: Array<string | null> = [];
+    await stubSession(page);
+    await page.route("**/journeys/eligible*", (route) => {
+      const screenKey = new URL(route.request().url()).searchParams.get(
+        "screenKey",
+      );
+      requestedScreens.push(screenKey);
+      if (!screenKey) {
+        return route.fulfill({
+          status: 400,
+          json: { message: "SCREEN_VISIT exige screenKey na consulta." },
+        });
+      }
+      return route.fulfill({ json: [journey({ steps: config })] });
+    });
+
+    await page.goto("/projects/p1/monthly");
+    await expect(page.locator(PROGRESS)).toHaveText("1/5");
+    await page
+      .locator(PANEL)
+      .getByRole("button", { name: "Continuar" })
+      .click();
+    await expect(page.locator(PROGRESS)).toHaveText("2/5");
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const raw = sessionStorage.getItem("lifeone:journey-runtime");
+          return raw ? JSON.parse(raw).stepIndex : null;
+        }),
+      )
+      .toBe(1);
+
+    await page.reload();
+
+    await expect(page.locator(PROGRESS)).toHaveText("2/5");
+    expect(requestedScreens).toEqual(["monthly"]);
+  });
+
   test("passo desligado sai do fluxo e do denominador do progresso", async ({
     page,
   }) => {

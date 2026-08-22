@@ -321,7 +321,7 @@ export function NovaDespesaWizard({
             </div>
           )}
           <div className="pt-1">
-            <Button type="button" variant="secondary" onClick={() => setPagaChoice(null)}>
+            <Button type="button" variant="secondary" className="min-h-11" onClick={() => setPagaChoice(null)}>
               <ArrowLeft className="h-4 w-4" /> Voltar
             </Button>
           </div>
@@ -388,11 +388,11 @@ export function NovaDespesaWizard({
           {/* Rodapé de navegação */}
           <div className="sticky bottom-0 flex items-center justify-between gap-2 border-t border-darc-linen bg-white pt-3">
             {state.step === 'DADOS' ? (
-              <Button type="button" variant="secondary" onClick={onClose}>
+              <Button type="button" variant="secondary" className="min-h-11" onClick={onClose}>
                 Cancelar
               </Button>
             ) : (
-              <Button type="button" variant="secondary" onClick={() => dispatch({ type: 'BACK' })}>
+              <Button type="button" variant="secondary" className="min-h-11" onClick={() => dispatch({ type: 'BACK' })}>
                 <ArrowLeft className="h-4 w-4" /> Voltar
               </Button>
             )}
@@ -400,6 +400,7 @@ export function NovaDespesaWizard({
             {(state.step === 'DADOS' || state.step === 'PAGAMENTO') && (
               <Button
                 type="button"
+                className="min-h-11"
                 onClick={() => dispatch({ type: 'NEXT', isReforma })}
                 disabled={
                   state.step === 'DADOS'

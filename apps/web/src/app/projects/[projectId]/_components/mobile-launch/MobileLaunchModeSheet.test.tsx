@@ -4,6 +4,18 @@ import userEvent from '@testing-library/user-event';
 import { MobileLaunchModeSheet } from './MobileLaunchModeSheet';
 
 describe('MobileLaunchModeSheet', () => {
+  it('marks the body only while the fullscreen sheet is open', () => {
+    const { rerender } = render(
+      <MobileLaunchModeSheet open onClose={vi.fn()} onPick={vi.fn()} />,
+    );
+    expect(document.body.dataset.overlayOpen).toBe('true');
+
+    rerender(
+      <MobileLaunchModeSheet open={false} onClose={vi.fn()} onPick={vi.fn()} />,
+    );
+    expect(document.body.dataset.overlayOpen).toBeUndefined();
+  });
+
   it('não renderiza nada quando fechado', () => {
     const { container } = render(
       <MobileLaunchModeSheet open={false} onClose={vi.fn()} onPick={vi.fn()} />,

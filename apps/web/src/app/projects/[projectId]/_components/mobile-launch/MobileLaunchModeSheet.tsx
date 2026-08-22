@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { ArrowDownCircle, ArrowUpCircle, CalendarClock, Camera, CreditCard, Landmark, Mic, X } from 'lucide-react';
+import { useOverlayLock } from '@/components/ui/use-overlay-lock';
 import type { LaunchMode } from './launch-modes';
 import { MOBILE_LAUNCH_MODES, PHOTO_MODES } from './launch-modes';
 
@@ -47,6 +48,7 @@ function OptionCard({ icon: Icon, title, subtitle, onClick, accent }: OptionCard
  */
 export function MobileLaunchModeSheet({ open, onClose, onPick, voiceSupported = true }: Props) {
   const [view, setView] = useState<'root' | 'foto'>('root');
+  useOverlayLock(open);
 
   // Toda reabertura começa na raiz (critério de aceite: o "+" sempre mostra os 3 modos).
   useEffect(() => {
