@@ -485,12 +485,14 @@ body[data-rf-shell="project"] {
     );
     padding-bottom: max(14px, env(safe-area-inset-bottom));
     padding-top: 18px;
+    pointer-events: none;
   }
 
   [data-ui-skin="minimal"] .minimal-tab-pill,
   [data-ui-skin="minimal"] .minimal-launch-action {
     background: var(--minimal-card);
     box-shadow: var(--minimal-shadow);
+    pointer-events: auto;
   }
 
   [data-ui-skin="minimal"] .minimal-tab-link {

@@ -96,6 +96,21 @@ test.describe('U4-10 caso 2: PESSOAL rotas colapsadas → /conta (ADMIN)', () =>
   }
 });
 
+test('#536: /bank-accounts preserva integralmente a query no redirect', async ({
+  page,
+  baseURL,
+}) => {
+  await page.clock.setFixedTime(new Date('2026-08-21T12:00:00.000Z'));
+  await mockApi(page, baseURL!);
+  await page.goto(
+    `/projects/${PESSOAL_ID}/bank-accounts?focus=openingBalance&accountId=acc-b&tag=a&tag=b&unknown=x`,
+  );
+
+  await expect(page).toHaveURL(
+    `/projects/${PESSOAL_ID}/conta?focus=openingBalance&accountId=acc-b&tag=a&tag=b&unknown=x`,
+  );
+});
+
 // ─── CASO 1: sem módulo da página → /no-permission ─────────────────────────
 test.describe('U4-10 caso 1: sem módulo → /no-permission', () => {
   for (const slug of ['bank-accounts', 'expenses']) {

@@ -1,12 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { X } from 'lucide-react';
 import { centsToReaisInput, currencyInputToCents, maskCurrencyInput } from '@/lib/currency-input';
-import RecebimentosVinculadorModal, { type ReceiptWithoutAccount } from './RecebimentosVinculadorModal';
 import type { BankAccountRow } from '../_types';
 
 interface Props {
@@ -34,8 +32,6 @@ const INSTITUTIONS = [
 ];
 
 export default function BankAccountFormModal({ projectId, account, onClose, onSaved, bare, hideCancel }: Props) {
-  const queryClient = useQueryClient();
-
   const [institution, setInstitution] = useState(account?.institution ?? 'ITAU');
   const [nickname, setNickname] = useState(account?.nickname ?? '');
   const [last4, setLast4] = useState(account?.last4 ?? '');
@@ -49,11 +45,6 @@ export default function BankAccountFormModal({ projectId, account, onClose, onSa
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Estado para modal de vinculação de recebimentos
-  const [showLinkModal, setShowLinkModal] = useState(false);
-  const [createdAccountId, setCreatedAccountId] = useState<string | null>(null);
-  const [receiptsWithoutAccount, setReceiptsWithoutAccount] = useState<ReceiptWithoutAccount[]>([]);
 
   async function handleSave() {
     setError(null);
@@ -78,22 +69,11 @@ export default function BankAccountFormModal({ projectId, account, onClose, onSa
         onSaved(account.id);
       } else {
         const created = await api.post<{
-          id: string;
-          receiptsWithoutAccount?: ReceiptWithoutAccount[];
+          bankAccount: BankAccountRow;
+          receiptsWithoutAccount: number;
         }>(`/projects/${projectId}/bank-accounts`, body);
-
-        setCreatedAccountId(created.id);
-
-        // Se há recebimentos sem conta, mostrar modal de vinculação
-        if (created.receiptsWithoutAccount && created.receiptsWithoutAccount.length > 0) {
-          setReceiptsWithoutAccount(created.receiptsWithoutAccount);
-          setShowLinkModal(true);
-          toast.success('Conta criada. Vamos vincular seus recebimentos anteriores?');
-        } else {
-          // Se não há recebimentos, fechar direto
-          toast.success('Conta criada com sucesso');
-          onSaved(created.id);
-        }
+        toast.success('Conta criada com sucesso');
+        onSaved(created.bankAccount.id);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao salvar');
@@ -102,23 +82,23 @@ export default function BankAccountFormModal({ projectId, account, onClose, onSa
     }
   }
 
-  async function handleLinkingSuccess() {
-    // Refetch account view e close modals
-    await queryClient.refetchQueries({ queryKey: ['accountView', projectId] });
-    setShowLinkModal(false);
-    
-    toast.success(`${receiptsWithoutAccount.length} recebimento(s) vinculado(s) com sucesso!`);
-
-    if (createdAccountId) {
-      onSaved(createdAccountId);
-    }
-  }
-
   const content = (
-      <div className="bg-white rounded-lg w-full max-w-md p-6">
+      <div
+        className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-lg bg-white p-6"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="bank-account-form-title"
+      >
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-bold">{account ? 'Editar conta' : 'Nova conta bancária'}</h2>
-          <button onClick={onClose}><X className="w-5 h-5" /></button>
+          <h2 id="bank-account-form-title" className="text-lg font-bold">{account ? 'Editar conta' : 'Nova conta bancária'}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Fechar"
+            className="flex min-h-11 min-w-11 items-center justify-center"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
         <div className="space-y-3">
@@ -178,30 +158,14 @@ export default function BankAccountFormModal({ projectId, account, onClose, onSa
           {error && <div className="text-sm text-red-600">{error}</div>}
 
           <div className="flex justify-end gap-2 pt-2">
-            {!hideCancel && <button onClick={onClose} className="px-4 py-2 border rounded-lg">Cancelar</button>}
-            <button onClick={handleSave} disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg disabled:opacity-50">
+            {!hideCancel && <button onClick={onClose} className="min-h-11 px-4 py-2 border rounded-lg">Cancelar</button>}
+            <button onClick={handleSave} disabled={saving} className="min-h-11 px-4 py-2 bg-blue-600 text-white rounded-lg disabled:opacity-50">
               {saving ? 'Salvando…' : 'Salvar'}
             </button>
           </div>
         </div>
       </div>
   );
-
-  // Se há modal de vinculação aberta, mostrar ela em vez da modal principal
-  if (showLinkModal && createdAccountId && receiptsWithoutAccount.length > 0) {
-    return (
-      <RecebimentosVinculadorModal
-        projectId={projectId}
-        accountId={createdAccountId}
-        receipts={receiptsWithoutAccount}
-        onClose={() => {
-          setShowLinkModal(false);
-          onClose();
-        }}
-        onSuccess={handleLinkingSuccess}
-      />
-    );
-  }
 
   if (bare) return content;
   return (

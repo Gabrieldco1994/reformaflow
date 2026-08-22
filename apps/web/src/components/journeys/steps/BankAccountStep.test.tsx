@@ -35,7 +35,10 @@ describe('BankAccountStep', () => {
   });
 
   it('saving successfully (mock api.post resolves) calls onDone exactly once', async () => {
-    apiPostMock.mockResolvedValue({});
+    apiPostMock.mockResolvedValue({
+      bankAccount: { id: 'acc-journey' },
+      receiptsWithoutAccount: 0,
+    });
     const onDone = vi.fn();
     renderWithQueryClient(<BankAccountStep projectId="p1" projectType={ProjectType.PESSOAL} onDone={onDone} onSkip={vi.fn()} />);
     fillLast4();

@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * #490 D-A — CTA duplicado no estado vazio, gêmeo do `/credit-cards`.
@@ -30,10 +30,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const accountsResponse: { value: unknown[] } = { value: [] };
 const apiGet = vi.fn(async () => accountsResponse.value);
 const routerReplace = vi.fn();
+let projectType = "REFORMA";
+let hasBankAccountsModule = true;
+let searchQuery = "";
 
-vi.mock('next/navigation', () => ({
-  useParams: () => ({ projectId: 'project-1' }),
-  useSearchParams: () => new URLSearchParams(),
+vi.mock("next/navigation", () => ({
+  useParams: () => ({ projectId: "project-1" }),
+  useSearchParams: () => new URLSearchParams(searchQuery),
   useRouter: () => ({
     replace: routerReplace,
     push: vi.fn(),
@@ -42,24 +45,25 @@ vi.mock('next/navigation', () => ({
   }),
 }));
 
-vi.mock('@/contexts/project-context', () => ({
+vi.mock("@/contexts/project-context", () => ({
   useProject: () => ({
-    projectId: 'project-1',
-    projectType: 'REFORMA',
-    projectName: 'Reforma',
+    projectId: "project-1",
+    projectType,
+    projectName: "Reforma",
   }),
 }));
 
 // REFORMA não tem `conta` no nav ⇒ `navCollapsed` é falso ⇒ nenhum ramo da
 // guarda dispara e a página renderiza. O módulo segue mockado porque a página
 // o consulta; o que mudou foi o TIPO, não a permissão.
-vi.mock('@/contexts/auth-context', () => ({
+vi.mock("@/contexts/auth-context", () => ({
   useAuth: () => ({
-    hasModule: (slug: string) => slug === 'bankAccounts',
+    hasModule: (slug: string) =>
+      slug === "bankAccounts" && hasBankAccountsModule,
   }),
 }));
 
-vi.mock('@/lib/api', () => ({
+vi.mock("@/lib/api", () => ({
   api: {
     get: (...args: unknown[]) => apiGet(...(args as [])),
     post: vi.fn(),
@@ -68,50 +72,97 @@ vi.mock('@/lib/api', () => ({
   },
 }));
 
-import BankAccountsPage from './page';
+import BankAccountsPage from "./page";
 
 function repeatedLabels() {
   const labels = screen
-    .getAllByRole('button')
-    .map((button) => (button.textContent ?? '').trim())
+    .getAllByRole("button")
+    .map((button) => (button.textContent ?? "").trim())
     .filter(Boolean);
   return labels.filter((label, index) => labels.indexOf(label) !== index);
 }
 
-describe('BankAccountsPage — CTA única no estado vazio (#490)', () => {
+describe("BankAccountsPage — CTA única no estado vazio (#490)", () => {
   beforeEach(() => {
     accountsResponse.value = [];
+    projectType = "REFORMA";
+    hasBankAccountsModule = true;
+    searchQuery = "";
     apiGet.mockClear();
     routerReplace.mockClear();
   });
 
   it('não repete o rótulo "Nova conta" quando não há nenhuma conta', async () => {
     render(<BankAccountsPage />);
-    expect(await screen.findByText('Nenhuma conta cadastrada')).toBeInTheDocument();
+    expect(
+      await screen.findByText("Nenhuma conta cadastrada"),
+    ).toBeInTheDocument();
 
     expect(repeatedLabels()).toEqual([]);
-    expect(screen.getAllByRole('button', { name: /Nova conta/ })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: /Nova conta/ })).toHaveLength(
+      1,
+    );
     // Caso 3 da guarda U4: nada de redirect — a página legada é o que se mede.
     expect(routerReplace).not.toHaveBeenCalled();
   });
 
-  it('mantém o token de jornada bank-account.new exatamente uma vez no estado vazio', async () => {
+  it("mantém o token de jornada bank-account.new exatamente uma vez no estado vazio", async () => {
     const { container } = render(<BankAccountsPage />);
-    expect(await screen.findByText('Nenhuma conta cadastrada')).toBeInTheDocument();
+    expect(
+      await screen.findByText("Nenhuma conta cadastrada"),
+    ).toBeInTheDocument();
 
-    expect(container.querySelectorAll('[data-journey-action="bank-account.new"]')).toHaveLength(1);
+    expect(
+      container.querySelectorAll('[data-journey-action="bank-account.new"]'),
+    ).toHaveLength(1);
     expect(routerReplace).not.toHaveBeenCalled();
   });
 
-  it('devolve a CTA do cabeçalho quando já existe conta', async () => {
+  it("devolve a CTA do cabeçalho quando já existe conta", async () => {
     accountsResponse.value = [
-      { id: 'acc-1', last4: '9876', institution: 'Itaú', nickname: 'Conta', balanceCents: 1000 },
+      {
+        id: "acc-1",
+        last4: "9876",
+        institution: "Itaú",
+        nickname: "Conta",
+        balanceCents: 1000,
+      },
     ];
     const { container } = render(<BankAccountsPage />);
-    expect(await screen.findByRole('button', { name: /Nova conta/ })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: /Nova conta/ }),
+    ).toBeInTheDocument();
 
     expect(repeatedLabels()).toEqual([]);
-    expect(container.querySelectorAll('[data-journey-action="bank-account.new"]')).toHaveLength(1);
+    expect(
+      container.querySelectorAll('[data-journey-action="bank-account.new"]'),
+    ).toHaveLength(1);
     expect(routerReplace).not.toHaveBeenCalled();
+  });
+
+  it("redireciona o PESSOAL sem consultar a API da página legada", async () => {
+    projectType = "PESSOAL";
+    searchQuery = "focus=openingBalance&tag=a&tag=b";
+
+    render(<BankAccountsPage />);
+
+    await waitFor(() =>
+      expect(routerReplace).toHaveBeenCalledWith(
+        "/projects/project-1/conta?focus=openingBalance&tag=a&tag=b",
+      ),
+    );
+    expect(apiGet).not.toHaveBeenCalled();
+  });
+
+  it("nega permissão sem consultar a API da página legada", async () => {
+    projectType = "PESSOAL";
+    hasBankAccountsModule = false;
+
+    render(<BankAccountsPage />);
+
+    await waitFor(() =>
+      expect(routerReplace).toHaveBeenCalledWith("/no-permission"),
+    );
+    expect(apiGet).not.toHaveBeenCalled();
   });
 });

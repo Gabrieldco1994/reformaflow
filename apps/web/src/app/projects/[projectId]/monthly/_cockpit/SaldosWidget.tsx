@@ -235,7 +235,7 @@ export default function SaldosWidget({
         {showAccounts && (
           <section className="flex h-full flex-col gap-2">
             <SectionHeader
-              href={`/projects/${projectId}/bank-accounts`}
+              href={`/projects/${projectId}/conta`}
               icon={<Landmark className="w-3.5 h-3.5" />}
               title="Contas"
             />
