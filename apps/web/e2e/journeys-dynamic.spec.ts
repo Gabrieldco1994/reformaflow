@@ -200,6 +200,59 @@ test.describe("jornada dirigida pela configuração devolvida por /journeys/elig
     await expect(page.locator(PANEL)).toHaveCount(0);
   });
 
+  test("envia screenKey e retoma o passo persistido após reload", async ({
+    page,
+  }) => {
+    const config = steps(5);
+    const requestedScreens: Array<string | null> = [];
+    await stubSession(page);
+    await page.route("**/journeys/eligible*", (route) => {
+      const screenKey = new URL(route.request().url()).searchParams.get(
+        "screenKey",
+      );
+      requestedScreens.push(screenKey);
+      if (!screenKey) {
+        return route.fulfill({
+          status: 400,
+          json: { message: "SCREEN_VISIT exige screenKey na consulta." },
+        });
+      }
+      return route.fulfill({ json: [journey({ steps: config })] });
+    });
+
+    await page.goto("/projects/p1/monthly");
+    await expect(page.locator(PROGRESS)).toHaveText("1/5");
+    await page
+      .locator(PANEL)
+      .getByRole("button", { name: "Continuar" })
+      .click();
+    await expect(page.locator(PROGRESS)).toHaveText("2/5");
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const raw = sessionStorage.getItem("lifeone:journey-runtime");
+          if (!raw) return null;
+          const snapshot = JSON.parse(raw);
+          return {
+            stepIndex: snapshot.active?.stepIndex,
+            owner: snapshot.owner,
+            queued: snapshot.queue?.length,
+          };
+        }),
+      )
+      .toEqual({
+        stepIndex: 1,
+        owner: { userId: "u1", tenantId: "t1" },
+        queued: 0,
+      });
+    expect(requestedScreens).toEqual(["monthly"]);
+
+    await page.reload();
+
+    await expect(page.locator(PROGRESS)).toHaveText("2/5");
+    expect(requestedScreens).toEqual(["monthly"]);
+  });
+
   test("passo desligado sai do fluxo e do denominador do progresso", async ({
     page,
   }) => {
@@ -361,15 +414,23 @@ test.describe("jornada dirigida pela configuração devolvida por /journeys/elig
     await expect(page.locator(PANEL)).toHaveCount(0);
   });
 
-  test("falha de rede ao carregar as jornadas não derruba a tela", async ({
+  test("falha ao carregar jornadas aparece no toast sem derrubar a tela", async ({
     page,
   }) => {
     await stubSession(page);
-    await page.route("**/journeys/eligible*", (route) => route.abort("failed"));
+    await page.route("**/journeys/eligible*", (route) =>
+      route.fulfill({
+        status: 500,
+        json: { message: "Falha ao carregar jornada E2E" },
+      }),
+    );
 
     await page.goto("/projects/p1/monthly");
 
     await expect(page.locator(PANEL)).toHaveCount(0);
+    await expect(
+      page.getByText("Falha ao carregar jornada E2E", { exact: true }),
+    ).toBeVisible();
     await expect(page.locator("body")).toBeVisible();
   });
 });

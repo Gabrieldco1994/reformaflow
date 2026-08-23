@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { Search, X } from 'lucide-react';
+import { useOverlayLock } from '@/components/ui/use-overlay-lock';
 import { FORMA_PAGAMENTO_OPTIONS } from '@/lib/expense-options';
 import type { ExpenseQueryState } from '../_lib/expense-query-state';
 
@@ -30,6 +31,7 @@ export function MobileExpenseControlsSheet({ open, draft, projectType, hasRooms,
   const dialogRef = useRef<HTMLElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const onOpenChangeRef = useRef(onOpenChange);
+  useOverlayLock(open);
   onOpenChangeRef.current = onOpenChange;
   const set = <K extends keyof ExpenseQueryState>(key: K, value: ExpenseQueryState[K]) => onDraftChange({ ...draft, [key]: value });
   useEffect(() => {
