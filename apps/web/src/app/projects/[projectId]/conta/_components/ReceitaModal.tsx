@@ -197,8 +197,19 @@ export function ReceitaModal({
         />
         <Select label="Status" name="status" options={STATUS_OPTIONS} required defaultValue={editing?.status ?? 'EM_CAIXA'} />
         <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
-          <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
+          <Button
+            type="button"
+            variant="secondary"
+            className="min-h-11"
+            onClick={onClose}
+          >
+            Cancelar
+          </Button>
+          <Button
+            type="submit"
+            className="min-h-11"
+            disabled={createMutation.isPending || updateMutation.isPending}
+          >
             {isEdit ? 'Salvar' : 'Criar'}
           </Button>
         </div>
