@@ -105,6 +105,7 @@ export function ReceitaModal({
   const invalidate = () => {
     invalidateExpenseQueries(queryClient, projectId);
     queryClient.invalidateQueries({ queryKey: ['receipts', projectId] });
+    queryClient.invalidateQueries({ queryKey: ['dre-overview', projectId] });
   };
 
   const createMutation = useMutation({
