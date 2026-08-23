@@ -122,6 +122,7 @@ export function JourneyRuntimeProvider({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const completedKeys = useRef(new Set<string>());
+  const emittedScreenVisit = useRef<string | null>(null);
 
   // `useLayoutEffect`, não `useState(() => readStored())`: o componente é
   // renderizado no servidor também (client component com SSR), onde
@@ -260,13 +261,26 @@ export function JourneyRuntimeProvider({
   }, [active, authLoading, emitMany, user]);
 
   useEffect(() => {
-    if (!restored || !user || authLoading || !pathname || active) return;
+    if (!restored || authLoading) return;
+    if (!user) {
+      emittedScreenVisit.current = null;
+      return;
+    }
+    if (!pathname || active) return;
     const projectId = currentProjectId(pathname);
+    const screenKey = currentScreenKey(pathname);
+    if (!screenKey) return;
+    const visitKey = `${user.id}:${pathname}`;
+    // O Strict Mode pode concluir duas leituras de /auth/me com objetos
+    // equivalentes enquanto a primeira elegibilidade ainda está em voo.
+    // Marcar antes do await garante um único SCREEN_VISIT por navegação.
+    if (emittedScreenVisit.current === visitKey) return;
+    emittedScreenVisit.current = visitKey;
     void emit({
       triggerType: "SCREEN_VISIT",
       device: device(),
       projectId,
-      screenKey: currentScreenKey(pathname),
+      screenKey,
     });
   }, [active, authLoading, emit, pathname, restored, user]);
 
@@ -369,11 +383,10 @@ export function JourneyRuntimeProvider({
     if (!active) return;
     const step = active.journey.steps[active.stepIndex];
     if (!step?.skippable) return;
-    // Sem isto, fechar é no-op no gatilho SCREEN_VISIT: o effect re-roda com
-    // `active === null` no MESMO pathname, a API devolve a mesma jornada (ela
-    // não foi concluída, e não existe endpoint de dismiss) e o painel reabre.
-    // `completedKeys` é a única supressão client-side e vive enquanto a aba
-    // vive — exatamente a semântica de `DISMISS_UNTIL_LOGIN`.
+    // Uma navegação posterior pode devolver a mesma jornada (ela não foi
+    // concluída, e não existe endpoint de dismiss). `completedKeys` é a
+    // supressão client-side que vive enquanto a aba vive — exatamente a
+    // semântica de `DISMISS_UNTIL_LOGIN`.
     completedKeys.current.add(active.journey.key);
     setQueue([]);
     setActive(null);

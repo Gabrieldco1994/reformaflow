@@ -542,8 +542,8 @@ describe("JourneyRuntimeProvider", () => {
       ).length;
     }
 
-    /** Espera a re-avaliação de elegibilidade que segue o fechamento. */
-    async function waitForRecheck(previousCalls: number) {
+    /** Espera a avaliação de elegibilidade da navegação seguinte. */
+    async function waitForNavigationCheck(previousCalls: number) {
       await waitFor(() =>
         expect(screenVisitCalls()).toBeGreaterThan(previousCalls),
       );
@@ -552,9 +552,9 @@ describe("JourneyRuntimeProvider", () => {
       });
     }
 
-    it("does NOT reopen the panel after dismissing on the same pathname", async () => {
+    it("does NOT reopen the panel after dismissing and navigating", async () => {
       setupScreenVisitJourney();
-      renderRuntime();
+      const { rerender } = renderRuntime();
 
       const panel = await screen.findByRole("dialog");
       const callsWhileOpen = screenVisitCalls();
@@ -566,7 +566,17 @@ describe("JourneyRuntimeProvider", () => {
       await waitFor(() =>
         expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
       );
-      await waitForRecheck(callsWhileOpen);
+      expect(screenVisitCalls()).toBe(callsWhileOpen);
+
+      mocks.pathname = "/projects/current/expenses";
+      rerender(
+        <JourneyRuntimeProvider>
+          <main data-testid="page-main">
+            <Fixture />
+          </main>
+        </JourneyRuntimeProvider>,
+      );
+      await waitForNavigationCheck(callsWhileOpen);
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
 
@@ -582,7 +592,10 @@ describe("JourneyRuntimeProvider", () => {
       await waitFor(() =>
         expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
       );
-      await waitForRecheck(callsWhileOpen);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(screenVisitCalls()).toBe(callsWhileOpen);
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
 
@@ -699,10 +712,23 @@ describe("JourneyRuntimeProvider", () => {
       await waitFor(() => expect(screenVisitCalls()).toBe(1));
     });
 
-    it("does not emit SCREEN_VISIT twice for the same navigation on extra re-renders", async () => {
+    it("does not emit SCREEN_VISIT twice when auth refreshes during eligibility", async () => {
+      let resolveEligibility!: (journeys: unknown[]) => void;
+      const eligibility = new Promise<unknown[]>((resolve) => {
+        resolveEligibility = resolve;
+      });
+      mocks.apiGet.mockImplementation((path: string) => {
+        if (path.startsWith("/journeys/eligible")) return eligibility;
+        if (path === "/projects/current")
+          return Promise.resolve({ type: "PESSOAL" });
+        return Promise.resolve([]);
+      });
       const { rerender } = renderRuntime();
       await waitFor(() => expect(screenVisitCalls()).toBe(1));
 
+      // O Strict Mode do Next pode concluir duas leituras de /auth/me com
+      // objetos equivalentes enquanto a elegibilidade ainda está em voo.
+      mocks.user = { id: "u1" };
       rerender(
         <JourneyRuntimeProvider>
           <main data-testid="page-main">
@@ -711,7 +737,8 @@ describe("JourneyRuntimeProvider", () => {
         </JourneyRuntimeProvider>,
       );
       await act(async () => {
-        await Promise.resolve();
+        resolveEligibility([]);
+        await eligibility;
       });
       expect(screenVisitCalls()).toBe(1);
     });

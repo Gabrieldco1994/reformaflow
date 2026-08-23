@@ -235,6 +235,7 @@ test.describe("jornada dirigida pela configuração devolvida por /journeys/elig
         }),
       )
       .toBe(1);
+    expect(requestedScreens).toEqual(["monthly"]);
 
     await page.reload();
 
