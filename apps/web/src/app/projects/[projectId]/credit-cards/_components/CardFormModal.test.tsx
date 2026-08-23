@@ -28,6 +28,18 @@ describe('CardFormModal hideCancel prop', () => {
     expect(screen.getByText('Cancelar')).toBeInTheDocument();
   });
 
+  it('marks only the fullscreen mode as an open overlay', () => {
+    const fullscreen = render(
+      <CardFormModal projectId="p1" card={null} onClose={vi.fn()} onSaved={vi.fn()} />,
+    );
+    expect(document.body.dataset.overlayOpen).toBe('true');
+    fullscreen.unmount();
+    expect(document.body.dataset.overlayOpen).toBeUndefined();
+
+    render(<CardFormModal projectId="p1" card={null} onClose={vi.fn()} onSaved={vi.fn()} bare />);
+    expect(document.body.dataset.overlayOpen).toBeUndefined();
+  });
+
   it('hideCancel=true: "Cancelar" button is absent, "Salvar" is still present and still calls onSaved on success', async () => {
     const onSaved = vi.fn();
     render(<CardFormModal projectId="p1" card={null} onClose={vi.fn()} onSaved={onSaved} hideCancel />);

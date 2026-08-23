@@ -5,6 +5,7 @@ import { Camera, Image as ImageIcon, Loader2, Sprout, X, ChevronDown, ChevronUp 
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
 import { checkImageQuality } from '@/lib/image-compress';
+import { useOverlayLock } from '@/components/ui/use-overlay-lock';
 import { usePlantInsights } from '../_hooks/usePlantInsights';
 import { PlantInsightsPanel } from './PlantInsightsPanel';
 
@@ -88,6 +89,7 @@ function ConfirmNameStep({
 
 export function CreatePlantModal({ onClose, onCreated, bare }: CreatePlantModalProps) {
   const { projectId } = useProject();
+  useOverlayLock(!bare);
   const [step, setStep] = useState<Step>('pick-photo');
   const [error, setError] = useState<string | null>(null);
   const [suggestedName, setSuggestedName] = useState('');

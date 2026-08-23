@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { Archive, Compass, LogOut, Settings, Users, X } from "lucide-react";
 import { buildNavGroups, type ProjectType } from "@reformaflow/domain";
+import { useOverlayLock } from "@/components/ui/use-overlay-lock";
 import { isPathActive } from "./mobile-nav";
 import { buildNavHref } from "../_lib/nav-href";
 import { navIcon } from "./nav-icons";
@@ -79,6 +80,7 @@ export function MaisSheet({
   onLogout,
 }: MaisSheetProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
+  useOverlayLock(open);
 
   // Mesma taxonomia do dock e do rail (§4.d): o Mais lista o COMPLEMENTO do
   // dock agrupado por NAV_GROUPS. Grupos vazios não são emitidos (buildNavGroups

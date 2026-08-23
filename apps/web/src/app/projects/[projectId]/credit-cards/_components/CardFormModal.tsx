@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { api } from '@/lib/api';
 import { X } from 'lucide-react';
 import { centsToReaisInput, currencyInputToCents, maskCurrencyInput } from '@/lib/currency-input';
+import { useOverlayLock } from '@/components/ui/use-overlay-lock';
 import type { CardRow } from '../_types';
 
 interface Props {
@@ -32,6 +33,7 @@ const INSTITUTIONS = [
 const BRANDS = ['Visa', 'Mastercard', 'Elo', 'Amex', 'Hipercard'];
 
 export default function CardFormModal({ projectId, card, onClose, onSaved, bare, hideCancel }: Props) {
+  useOverlayLock(!bare);
   const [institution, setInstitution] = useState(card?.institution ?? 'ITAU');
   const [brand, setBrand] = useState(card?.brand ?? 'Visa');
   const [nickname, setNickname] = useState(card?.nickname ?? '');

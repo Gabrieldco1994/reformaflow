@@ -24,6 +24,8 @@ import { expect, test, type Page } from "@playwright/test";
  */
 
 const projectId = "journey-occlusion-test";
+const JOURNEY_PANEL = "[data-journey-panel]";
+const JOURNEY_PROGRESS = "[data-journey-progress]";
 
 /**
  * CENSO, não lista fixa.
@@ -163,7 +165,11 @@ async function openContaWithJourney(
   await page.addInitScript((active) => {
     window.sessionStorage.setItem(
       "lifeone:journey-runtime",
-      JSON.stringify(active),
+      JSON.stringify({
+        owner: { userId: "user-test", tenantId: "tenant-test" },
+        active,
+        queue: [],
+      }),
     );
   }, journey);
 
@@ -356,6 +362,35 @@ test.describe("Painel da jornada não esconde as próprias ações", () => {
 });
 
 test.describe("Overlays de conta e lançamento afastam o painel da jornada", () => {
+  test("Escape fecha o Mais sem dispensar a etapa ativa", async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== "desktop",
+      "o viewport mobile explícito é dono deste cenário",
+    );
+    await openContaWithJourney(page, { width: 375, height: 812 });
+    await expect(page.locator(JOURNEY_PROGRESS)).toHaveText("1/2");
+
+    await page.getByRole("button", { name: /^Mais opções/ }).click();
+    await expect(page.locator('[data-overlay="mais"]')).toBeVisible();
+    await expect(page.locator("body")).toHaveAttribute(
+      "data-overlay-open",
+      "true",
+    );
+    await expect(page.locator(JOURNEY_PANEL)).toBeHidden();
+
+    await page.keyboard.press("Escape");
+
+    await expect(page.locator('[data-overlay="mais"]')).toBeHidden();
+    await expect(page.locator("body")).not.toHaveAttribute(
+      "data-overlay-open",
+      "true",
+    );
+    await expect(page.locator(JOURNEY_PANEL)).toBeVisible();
+    await expect(page.locator(JOURNEY_PROGRESS)).toHaveText("1/2");
+  });
+
   for (const viewport of [
     { width: 375, height: 812 },
     { width: 390, height: 844 },

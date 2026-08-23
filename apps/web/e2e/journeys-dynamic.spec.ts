@@ -231,10 +231,20 @@ test.describe("jornada dirigida pela configuração devolvida por /journeys/elig
       .poll(() =>
         page.evaluate(() => {
           const raw = sessionStorage.getItem("lifeone:journey-runtime");
-          return raw ? JSON.parse(raw).stepIndex : null;
+          if (!raw) return null;
+          const snapshot = JSON.parse(raw);
+          return {
+            stepIndex: snapshot.active?.stepIndex,
+            owner: snapshot.owner,
+            queued: snapshot.queue?.length,
+          };
         }),
       )
-      .toBe(1);
+      .toEqual({
+        stepIndex: 1,
+        owner: { userId: "u1", tenantId: "t1" },
+        queued: 0,
+      });
     expect(requestedScreens).toEqual(["monthly"]);
 
     await page.reload();
@@ -404,15 +414,23 @@ test.describe("jornada dirigida pela configuração devolvida por /journeys/elig
     await expect(page.locator(PANEL)).toHaveCount(0);
   });
 
-  test("falha de rede ao carregar as jornadas não derruba a tela", async ({
+  test("falha ao carregar jornadas aparece no toast sem derrubar a tela", async ({
     page,
   }) => {
     await stubSession(page);
-    await page.route("**/journeys/eligible*", (route) => route.abort("failed"));
+    await page.route("**/journeys/eligible*", (route) =>
+      route.fulfill({
+        status: 500,
+        json: { message: "Falha ao carregar jornada E2E" },
+      }),
+    );
 
     await page.goto("/projects/p1/monthly");
 
     await expect(page.locator(PANEL)).toHaveCount(0);
+    await expect(
+      page.getByText("Falha ao carregar jornada E2E", { exact: true }),
+    ).toBeVisible();
     await expect(page.locator("body")).toBeVisible();
   });
 });

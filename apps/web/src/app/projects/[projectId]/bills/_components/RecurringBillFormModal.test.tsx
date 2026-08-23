@@ -86,12 +86,16 @@ describe('RecurringBillFormModal', () => {
       <RecurringBillFormModal projectId="p1" projectType="CASA" bill={null} onClose={vi.fn()} onSaved={vi.fn()} bare />,
     );
     expect(container.querySelector('.fixed.inset-0')).not.toBeInTheDocument();
+    expect(document.body.dataset.overlayOpen).toBeUndefined();
     unmount();
 
-    const { container: containerDefault } = render(
+    const { container: containerDefault, unmount: unmountDefault } = render(
       <RecurringBillFormModal projectId="p1" projectType="CASA" bill={null} onClose={vi.fn()} onSaved={vi.fn()} />,
     );
     expect(containerDefault.querySelector('.fixed.inset-0')).toBeInTheDocument();
+    expect(document.body.dataset.overlayOpen).toBe('true');
+    unmountDefault();
+    expect(document.body.dataset.overlayOpen).toBeUndefined();
   });
 
   it('CASA/CARRO hint banner shown only when creating (no editing bill)', () => {
