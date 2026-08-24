@@ -5,7 +5,6 @@ import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { X } from 'lucide-react';
 import { centsToReaisInput, currencyInputToCents, maskCurrencyInput } from '@/lib/currency-input';
-import { useOverlayLock } from '@/components/ui/use-overlay-lock';
 import type { BankAccountRow } from '../_types';
 
 interface Props {
@@ -33,7 +32,6 @@ const INSTITUTIONS = [
 ];
 
 export default function BankAccountFormModal({ projectId, account, onClose, onSaved, bare, hideCancel }: Props) {
-  useOverlayLock(!bare);
   const [institution, setInstitution] = useState(account?.institution ?? 'ITAU');
   const [nickname, setNickname] = useState(account?.nickname ?? '');
   const [last4, setLast4] = useState(account?.last4 ?? '');

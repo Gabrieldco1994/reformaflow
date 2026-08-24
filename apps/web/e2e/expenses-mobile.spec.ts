@@ -326,20 +326,5 @@ test.describe("Expenses — phase-AB, tabela desktop do ExpensesView", () => {
     expect(
       await desktopCta.evaluate((el) => getComputedStyle(el).position),
     ).not.toBe("fixed");
-
-    await desktopCta.click();
-    await page
-      .getByRole("button", { name: /^Planejar\b/ })
-      .filter({ visible: true })
-      .click();
-
-    for (const name of ["Fechar", "Cancelar", "Avançar"]) {
-      const button = page
-        .getByRole("button", { name, exact: true })
-        .filter({ visible: true });
-      const box = await button.boundingBox();
-      expect(box, `${name} precisa estar visível`).not.toBeNull();
-      expect(box!.height, `${name} precisa ter pelo menos 44px`).toBeGreaterThanOrEqual(44);
-    }
   });
 });

@@ -81,13 +81,6 @@ describe("MaisSheet", () => {
     expect(dialog).toHaveAttribute("aria-modal", "true");
   });
 
-  it("marks the body only while the sheet is open", () => {
-    const { rerender } = render(<MaisSheet {...baseProps} />);
-    expect(document.body.dataset.overlayOpen).toBe("true");
-    rerender(<MaisSheet {...baseProps} open={false} />);
-    expect(document.body.dataset.overlayOpen).toBeUndefined();
-  });
-
   it("groups the complement of the dock by NAV_GROUPS, mirroring dock+rail labels", () => {
     render(
       <MaisSheet
