@@ -1,6 +1,13 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { isNeutralExpenseType } from '@reformaflow/domain';
+import {
+  isNeutralExpenseType,
+  buildInstallments,
+  buildRecurringOccurrences,
+  isSinglePaymentForm,
+  localDateUtc,
+  type InstallmentInput,
+} from '@reformaflow/domain';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpsertCategoryBudgetDto } from './dto/category-budget.dto';
 
@@ -91,7 +98,8 @@ export class CategoryBudgetService {
 
     if (resolvedBudgets.size === 0) return [];
 
-    const { start, end } = monthRangeUtc(mes);
+    // Buscar todas as despesas da categoria (sem filtro de data)
+    // para poder expandir parcelas e recorrências corretamente
     const expenses = await this.prisma.expense.findMany({
       where: {
         tenantId,
@@ -99,22 +107,83 @@ export class CategoryBudgetService {
         deletedAt: null,
         settledByExpenseId: null,
         tipoDespesa: { in: Array.from(resolvedBudgets.keys()) },
-        OR: [
-          { dataPagamento: { gte: start, lt: end } },
-          { dataPagamento: null, dataInicioParcela: { gte: start, lt: end } },
-          { dataPagamento: null, dataInicioParcela: null, createdAt: { gte: start, lt: end } },
-        ],
       },
-      select: { tipoDespesa: true, valorTotal: true },
+      select: {
+        id: true,
+        tipoDespesa: true,
+        valorTotal: true,
+        formaPagamento: true,
+        dataPagamento: true,
+        quantidadeParcela: true,
+        dataInicioParcela: true,
+        installmentDateOverrides: true,
+        paidParcelas: true,
+        status: true,
+        recorrente: true,
+        recorrenciaFim: true,
+        createdAt: true,
+      },
     });
 
+    // Calcular o mês em BRT (não UTC)
+    const { startBrt, endBrt } = monthRangeBrt(mes);
+
+    // Expandir despesas em parcelas e ocorrências, depois contar gasto no mês
     const spentByType = new Map<string, number>();
+
     for (const expense of expenses) {
       if (isNeutralExpenseType(expense.tipoDespesa)) continue;
-      spentByType.set(
-        expense.tipoDespesa,
-        (spentByType.get(expense.tipoDespesa) ?? 0) + expense.valorTotal,
-      );
+
+      // Recorrência: expande em múltiplas ocorrências (uma por mês)
+      if (expense.recorrente && isSinglePaymentForm(expense.formaPagamento)) {
+        const startDate = expense.dataPagamento || expense.dataInicioParcela || expense.createdAt;
+        if (!startDate) continue;
+
+        const recurringOccurrences = buildRecurringOccurrences({
+          valorTotal: expense.valorTotal,
+          dataInicio: startDate,
+          recorrenciaFim: expense.recorrenciaFim,
+          horizonEnd: endBrt,
+        });
+
+        for (const occ of recurringOccurrences) {
+          // Verificar se a ocorrência cai no mês solicitado (em BRT)
+          const occDateBrt = localDateUtc(occ.data, 'America/Sao_Paulo');
+          if (occDateBrt >= startBrt && occDateBrt < endBrt) {
+            spentByType.set(
+              expense.tipoDespesa,
+              (spentByType.get(expense.tipoDespesa) ?? 0) + occ.valor,
+            );
+          }
+        }
+        continue;
+      }
+
+      // Parcelamento: expande em múltiplas parcelas
+      const installments = buildInstallments({
+        valorTotal: expense.valorTotal,
+        formaPagamento: expense.formaPagamento,
+        dataPagamento: expense.dataPagamento,
+        quantidadeParcela: expense.quantidadeParcela,
+        dataInicioParcela: expense.dataInicioParcela,
+        installmentDateOverrides: expense.installmentDateOverrides,
+      } as InstallmentInput);
+
+      const paidSet = this.parsePaidParcelas(expense.paidParcelas, installments.length);
+      const fullyPaid = expense.status === 'PAGO';
+
+      for (let i = 0; i < installments.length; i++) {
+        const inst = installments[i];
+        const instDateBrt = localDateUtc(inst.data, 'America/Sao_Paulo');
+
+        // Verificar se a parcela cai no mês solicitado (em BRT)
+        if (instDateBrt >= startBrt && instDateBrt < endBrt) {
+          spentByType.set(
+            expense.tipoDespesa,
+            (spentByType.get(expense.tipoDespesa) ?? 0) + inst.valor,
+          );
+        }
+      }
     }
 
     return Array.from(resolvedBudgets.values()).map((budget) => {
@@ -126,6 +195,22 @@ export class CategoryBudgetService {
         pct: budget.valorLimiteCents > 0 ? Math.round((gastoCents / budget.valorLimiteCents) * 100) : 0,
       };
     });
+  }
+
+  private parsePaidParcelas(raw: string | null | undefined, n: number): Set<number> {
+    if (!raw) return new Set();
+    try {
+      const arr = JSON.parse(raw);
+      if (!Array.isArray(arr)) return new Set();
+      const s = new Set<number>();
+      for (const v of arr) {
+        const i = Number(v);
+        if (Number.isInteger(i) && i >= 0 && i < n) s.add(i);
+      }
+      return s;
+    } catch {
+      return new Set();
+    }
   }
 
   private async validatePersonalProject(tenantId: string, projectId: string) {
@@ -147,14 +232,26 @@ export class CategoryBudgetService {
   }
 }
 
-function monthRangeUtc(mes: string) {
+/**
+ * Calcula o intervalo de um mês em BRT (America/Sao_Paulo).
+ * Retorna datas em UTC que representam meia-noite BRT dos limites.
+ *
+ * Exemplo: '2026-08' retorna:
+ * - startBrt: 2026-08-01T00:00:00Z (meia-noite BRT do dia 1 = 03:00 UTC)
+ * - endBrt: 2026-09-01T00:00:00Z (meia-noite BRT do dia 1 de setembro)
+ */
+function monthRangeBrt(mes: string) {
   const [yearRaw, monthRaw] = mes.split('-');
   const year = Number(yearRaw);
   const month = Number(monthRaw);
   if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
     throw new BadRequestException('Mês deve estar no formato YYYY-MM');
   }
-  const start = new Date(Date.UTC(year, month - 1, 1));
-  const end = new Date(Date.UTC(year, month, 1));
-  return { start, end };
+
+  // Criar datas "de calendário" em BRT (meia-noite BRT = Date.UTC)
+  // Ex.: 2026-08-01 em BRT é representado como 2026-08-01T00:00:00Z
+  const startBrt = new Date(Date.UTC(year, month - 1, 1));
+  const endBrt = new Date(Date.UTC(year, month, 1));
+
+  return { startBrt, endBrt };
 }
