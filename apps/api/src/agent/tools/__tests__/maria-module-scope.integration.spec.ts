@@ -108,6 +108,10 @@ describe("Maria — escopo por recurso nas tools financeiras (#483, banco real)"
   const setup = new PrismaClient();
   const prisma = new PrismaService();
   const monthly = {
+    getAccountView: jest.fn(async () => ({
+      caixaHoje: 0,
+      carteiraHoje: 0,
+    })),
     getCaixaConta: jest.fn(async () => ({
       hoje: 0,
       saldoInicial: 0,
@@ -610,7 +614,9 @@ describe("Maria — escopo por recurso nas tools financeiras (#483, banco real)"
     await service.execute("get_top_suppliers", ctx, {});
     await service.execute("find_expenses", ctx, {});
 
-    const modulesResolved = resolver.mock.calls.map((call) => call[6]).sort();
+    const modulesResolved = resolver.mock.calls
+      .map((call: any) => call[6])
+      .sort();
     expect(modulesResolved).toEqual(["expenses", "receipts"]);
     resolver.mockRestore();
   });

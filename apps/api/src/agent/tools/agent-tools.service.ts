@@ -465,7 +465,7 @@ export class AgentToolsService {
         def: {
           name: 'get_financial_overview',
           description:
-            'KPIs financeiros consolidados de TODOS os projetos: caixa total, pago no mês/ano/total, previsões de gastos e recebimentos para 30/90 dias, saldo projetado. Valores em centavos.',
+            'KPIs financeiros consolidados de TODOS os projetos: caixa total, carteira total, pago no mês/ano/total, previsões de gastos e recebimentos para 30/90 dias, saldo projetado (caixa + carteira + recebimentos - previsões). Valores em centavos.',
           parameters: noParams,
         },
         run: async (ctx) => this.financial.getOverview(ctx.tenantId, await this.financialScope(ctx)),
