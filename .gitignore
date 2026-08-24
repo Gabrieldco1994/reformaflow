@@ -19,6 +19,7 @@ coverage
 prisma/dev.db*
 uploads/
 apps/api/uploads/
+private-uploads/
 api.log
 *.log
 .DS_Store
