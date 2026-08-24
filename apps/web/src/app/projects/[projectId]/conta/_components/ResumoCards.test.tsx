@@ -21,11 +21,12 @@ describe("ResumoCards", () => {
       />,
     );
 
-    const realized = screen.getByRole("region", { name: "Realizado" });
+    const realized = screen.getByRole("region", { name: "Movimentação" });
     expect(realized).toHaveTextContent("Entrou no mês");
     expect(realized).toHaveTextContent("R$ 202,02");
     expect(realized).toHaveTextContent("Saiu no mês");
     expect(realized).toHaveTextContent("R$ 303,03");
+    expect(realized).toHaveTextContent("pago + planejado");
     expect(realized).not.toHaveTextContent("R$ 404,04");
     expect(realized).not.toHaveTextContent("R$ 505,05");
     expect(realized).not.toHaveTextContent("R$ 606,06");

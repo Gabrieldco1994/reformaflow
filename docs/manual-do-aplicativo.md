@@ -569,12 +569,13 @@ mês (‹ › + calendário).
 |---|---|
 | **Tenho na conta hoje** | O dinheiro disponível de verdade na conta agora, reconciliado com o banco (caixa real). Compras no cartão só entram quando a fatura é paga. |
 | **Entrou no mês** | Recebimentos que já caíram na conta neste mês. |
-| **Saiu no mês** | Tudo que já foi pago até hoje — **inclui lançamentos sem conta vinculada (Carteira)**. Um rateio pago entra só pela compra-fonte, com sua origem preservada; os alvos pagos não são somados outra vez. Quando há lançamentos Carteira, aparece a nota "inclui R$ X sem conta vinculada" abaixo do valor. |
+| **Saiu no mês** | Tudo que sai da conta neste mês — **pago + planejado**, incluindo lançamentos sem conta vinculada (Carteira). Um rateio pago entra só pela compra-fonte, com sua origem preservada; os alvos pagos não são somados outra vez. Quando há lançamentos Carteira, aparece a nota "inclui R$ X sem conta vinculada" abaixo do valor. |
 | **Ainda falta pagar** | O que ainda vai sair até o fim do mês: faturas de cartão e contas em aberto. **Só saídas** — recebimentos previstos não entram aqui. Clicável → filtra o que falta pagar. |
 | **Sobra prevista** | Previsão do saldo no fim do mês: o que tem hoje + o que ainda entra − o que ainda falta pagar. Quando há recebimentos previstos, aparece a nota "inclui R$ X previsto ainda a entrar" abaixo do valor. Negativo = a conta deve fechar no vermelho. |
 
 Os cards "Entrou/Saiu/Falta pagar" funcionam como **filtros rápidos** das
-movimentações abaixo.
+movimentações abaixo. O bloco superior usa o rótulo neutro **Movimentação** para
+reunir os cards de fluxo.
 
 **Projeção multi-mês (runway):**
 - A exploração da projeção fica no **Cockpit** (mobile e desktop), incluindo
@@ -666,7 +667,9 @@ ano — é a mesma tela, não um resumo separado:
 - **Gráfico de faturas** por origem/cartão ao longo do ano. Clicar num chip de origem
   ou numa barra de mês **filtra a lista abaixo** (o drill-down por origem/mês).
 - **Cards de resumo** com os fluxos do ano: "Entrou no ano", "Saiu no ano" e
-  "Ainda falta pagar no ano" — cada um é a **soma exata dos 12 meses**.
+  "Ainda falta pagar no ano" — cada um é a **soma exata dos 12 meses**; "Saiu no
+  ano" usa o total canônico pago + planejado, o mesmo que alimenta o drill-down
+  da lista.
 - **"Tenho na conta hoje"** continua sendo o saldo de **hoje**, não uma soma do ano.
   Saldo é uma foto do momento; somar 12 fotas iguais daria 12× o valor real.
 - **"Sobra prevista no ano"** responde *"com o caixa de hoje, eu atravesso o ano?"*:

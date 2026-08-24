@@ -62,7 +62,7 @@ describe('MonthlyOverviewService.getOverview — espelhos cross-project', () => 
     jest.useFakeTimers().setSystemTime(new Date('2026-07-11T12:00:00'));
     prisma.cashFlowEntry.findMany.mockResolvedValue([]);
     const accountView = {
-      caixaHoje: 100, entrouMes: 200, saiuMes: 50, faltaPagarMes: 25,
+      caixaHoje: 100, entrouMes: 200, saiuMes: 50, faltaPagarMes: 25, saidaTotal: 60,
       recebimentosPrevistosMes: 75, sobraPrevista: 300,
     };
     // `getOverview`'s projection now calls the shared private

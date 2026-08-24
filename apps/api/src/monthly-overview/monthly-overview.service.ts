@@ -522,6 +522,7 @@ export class MonthlyOverviewService {
           entrouMes: number;
           saiuMes: number;
           faltaPagarMes: number;
+          saidaTotal: number;
           recebimentosPrevistosMes: number;
           sobraPrevista: number;
           carteiraHoje: number;
@@ -536,6 +537,7 @@ export class MonthlyOverviewService {
         entrouMes: av.entrouMes,
         saiuMes: av.saiuMes,
         faltaPagarMes: av.faltaPagarMes,
+        saidaTotal: av.saidaTotal,
         recebimentosPrevistosMes: av.recebimentosPrevistosMes,
         sobraPrevista: av.sobraPrevista,
         carteiraHoje: av.carteiraHoje,
@@ -1049,18 +1051,16 @@ export class MonthlyOverviewService {
       .filter((invoice) => invoice.dueMonth === mesSelecionado)
       .sort((a, b) => b.total - a.total);
 
+    // A lista/drilldown é consolidada entre contas; `caixa` continua ancorado na
+    // conta primária e o cliente recorta cada conta por `bankLast4`.
     const accountExpenseList = expenses
       .filter((expense) => {
         if (!expense.bankLast4 || expense.cardLast4) return false;
+        // #576: despesa liquidada por outra é duplicata contábil. O filtro
+        // permanece mesmo com a lista consolidada da #559 — é justamente ele
+        // que impede a consolidação de dobrar o item em conta secundária e
+        // inflar o "Saiu". Dedupe de conciliação vale para toda conta.
         if (expense.settledByExpenseId) return false;
-        if (
-          resolveMovementAccountId({
-            bankLast4: expense.bankLast4,
-            importId: expense.importId ?? null,
-          }) !== (primaryAccount?.id ?? null)
-        ) {
-          return false;
-        }
         if (isNeutralExpenseType(expense.tipoDespesa)) return false;
         return true;
       })
@@ -1516,6 +1516,15 @@ export class MonthlyOverviewService {
       saidas.filter((s: any) => s.kind === 'saida' && !s.realizado),
       (s: any) => s.valor,
     );
+    // Mesmo total exibido pelo card/drilldown "Saiu": lista canônica completa
+    // (pago + planejado), sem aportes, que permanecem no eixo de caixa.
+    const saidaTotal = sumBy(
+      saidas.filter(
+        (s: any) =>
+          s.kind === 'saida' && s.tipoDespesa !== ExpenseType.INVESTIMENTOS,
+      ),
+      (s: any) => s.valor,
+    );
 
     const entradas = receipts
       .filter(
@@ -1669,6 +1678,7 @@ export class MonthlyOverviewService {
       entrouMes,
       saiuMes: recalculatedSaiuMes,
       faltaPagarMes: recalculatedFaltaPagarMes,
+      saidaTotal,
       recebimentosPrevistosMes,
       // #519: a sobra prevista é dinheiro DISPONÍVEL de verdade — banco + carteira.
       // `carteiraHoje` (saldo pontual da carteira, já sinalizado: despesa −, dinheiro

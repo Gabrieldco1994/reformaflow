@@ -795,7 +795,7 @@ export function deriveCockpitTop(
   const entrouMes = canonicalProjection?.entrouMes ?? resultadoEntrou;
   const saidaJaSaiu = canonicalProjection?.saiuMes ?? resultadoGastou;
   const saidaVaiSair = aPagarMes;
-  const saidaTotal = saidaJaSaiu + saidaVaiSair;
+  const saidaTotal = canonicalProjection?.saidaTotal ?? (saidaJaSaiu + saidaVaiSair);
 
   // Fração do mês decorrida (para a barra de progresso do headline).
   const [y, m] = selectedMonth.split('-').map((n) => parseInt(n, 10));

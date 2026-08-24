@@ -129,7 +129,7 @@ export default function MobileMonthHero({
             </span>
           </Link>
           <Link
-            href={`/projects/${projectId}/conta?quick=saiuMes`}
+            href={`/projects/${projectId}/conta?mes=${top.mesAtualKey}&quick=saiuMes`}
             className="flex min-h-[44px] items-center justify-between gap-3 rounded-[14px] bg-[#F6F7F9] px-3 text-sm text-[#5B6068] hover:bg-[#EDEFF4] active:scale-[0.99]"
             aria-label="Ver saídas do mês"
           >
@@ -138,7 +138,7 @@ export default function MobileMonthHero({
               Saiu
             </span>
             <span className="shrink-0 font-geist text-[15px] font-bold tabular-nums text-[#EF4444]">
-              {moneyGlance(top.saidaJaSaiu)}
+              {moneyGlance(top.saidaTotal)}
             </span>
           </Link>
           <button

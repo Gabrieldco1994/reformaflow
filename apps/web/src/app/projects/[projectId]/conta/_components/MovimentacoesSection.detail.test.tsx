@@ -119,6 +119,54 @@ function renderSection(
   );
 }
 
+describe('quick=saiuMes', () => {
+  it('mostra exatamente pago + planejado sem aporte e combina com o filtro por conta', () => {
+    mockWidth(390);
+    const data = makeResponse({
+      saidaTotal: 35_801,
+      saidas: [
+        makeSaida({
+          id: 'paid',
+          descricao: 'Pago Itaú',
+          valor: 12_345,
+          bankLast4: '1122',
+        }),
+        makeSaida({
+          id: 'planned',
+          descricao: 'Planejado Nubank',
+          valor: 23_456,
+          realizado: false,
+          status: 'PLANEJADO',
+          bankLast4: '3344',
+        }),
+        makeSaida({
+          id: 'investment',
+          descricao: 'Aporte Itaú',
+          valor: 34_567,
+          tipoDespesa: 'INVESTIMENTOS',
+          bankLast4: '1122',
+        }),
+      ],
+    });
+
+    const firstRender = renderSection(data, { summaryQuickFilter: 'saiuMes' });
+
+    expect(screen.getByText('Pago Itaú')).toBeInTheDocument();
+    expect(screen.getByText('Planejado Nubank')).toBeInTheDocument();
+    expect(screen.queryByText('Aporte Itaú')).not.toBeInTheDocument();
+
+    firstRender.unmount();
+    renderSection(data, {
+      summaryQuickFilter: 'saiuMes',
+      originFilter: '3344',
+    });
+
+    expect(screen.queryByText('Pago Itaú')).not.toBeInTheDocument();
+    expect(screen.getByText('Planejado Nubank')).toBeInTheDocument();
+    expect(screen.queryByText('Aporte Itaú')).not.toBeInTheDocument();
+  });
+});
+
 describe('MovimentacoesSection → FinancialItemDetail wiring', () => {
   it('clicking a row opens the detail sheet at mobile width', () => {
     mockWidth(375);

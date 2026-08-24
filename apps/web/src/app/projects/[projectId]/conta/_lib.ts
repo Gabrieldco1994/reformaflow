@@ -95,18 +95,21 @@ export function originLast4FromKey(key: string | null | undefined): string | nul
  * Aporte em INVESTIMENTOS sai da conta, mas não é consumo: fica fora do total de
  * saídas (mesma regra da lista).
  */
-export function computeMovementTotals(
-  items: Array<
-    | { kind: 'saida'; valor: number; tipoDespesa: string }
-    | { kind: 'entrada'; valor: number; status: 'EM_CAIXA' | 'PREVISTO' }
-  >,
-) {
+type MovementTotalItem =
+  | { kind: 'saida'; valor: number; tipoDespesa: string }
+  | { kind: 'entrada'; valor: number; status: 'EM_CAIXA' | 'PREVISTO' };
+
+export function isIncludedInSaidaTotal(item: MovementTotalItem) {
+  return item.kind === 'saida' && item.tipoDespesa !== 'INVESTIMENTOS';
+}
+
+export function computeMovementTotals(items: MovementTotalItem[]) {
   let totalSaidas = 0;
   let totalEntradasRecebido = 0;
   let totalEntradasPrevisto = 0;
   for (const m of items) {
     if (m.kind === 'saida') {
-      if (m.tipoDespesa === 'INVESTIMENTOS') continue;
+      if (!isIncludedInSaidaTotal(m)) continue;
       totalSaidas += m.valor;
     } else if (m.status === 'EM_CAIXA') totalEntradasRecebido += m.valor;
     else if (m.status === 'PREVISTO') totalEntradasPrevisto += m.valor;
@@ -115,14 +118,15 @@ export function computeMovementTotals(
 }
 
 /**
- * Soma das saídas realizadas SEM conta/cartão vinculado (pseudo-origem Carteira,
- * regra de ouro 14). Mesma conta no mês e no ano — por isso mora aqui, não na page.
+ * Soma das saídas do card SEM conta/cartão vinculado (pseudo-origem Carteira,
+ * regra de ouro 14). Mesma base pago + planejado do card — por isso mora aqui,
+ * não na page.
  */
 export function sumSaidasSemConta(
-  saidas: Array<{ isInvoice: boolean; cardLast4: string | null; bankLast4: string | null; realizado: boolean; valor: number }>,
+  saidas: Array<{ isInvoice: boolean; cardLast4: string | null; bankLast4: string | null; valor: number }>,
 ) {
   return saidas
-    .filter((s) => !s.isInvoice && !s.cardLast4 && !s.bankLast4 && s.realizado)
+    .filter((s) => !s.isInvoice && !s.cardLast4 && !s.bankLast4)
     .reduce((acc, s) => acc + s.valor, 0);
 }
 

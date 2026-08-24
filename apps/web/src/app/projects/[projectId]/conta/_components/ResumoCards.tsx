@@ -29,8 +29,8 @@ const CARDS: Record<
   },
   saiuMes: {
     title: 'Saiu no mês',
-    help: 'tudo que já foi pago até hoje',
-    info: 'Tudo que já saiu da conta neste mês (pagamentos efetivados até hoje). Clique para filtrar as saídas abaixo.',
+    help: 'pago + planejado no mês',
+    info: 'Tudo que sai da conta neste mês (pago + planejado). Clique para filtrar as saídas abaixo.',
     tone: 'slate',
   },
   faltaPagarMes: {
@@ -64,7 +64,7 @@ const CARDS_ANO: Record<SummaryKey, { title: string; help: string; info: string 
   saiuMes: {
     title: 'Saiu no ano',
     help: 'soma dos 12 meses do ano',
-    info: 'Tudo que já saiu da conta no ano (soma dos 12 meses, mesma base da visão mensal). Clique para filtrar as saídas abaixo.',
+    info: 'Tudo que sai da conta no ano (soma dos 12 meses, mesma base da visão mensal). Clique para filtrar as saídas abaixo.',
   },
   faltaPagarMes: {
     title: 'Ainda falta pagar no ano',
@@ -78,7 +78,7 @@ const CARDS_ANO: Record<SummaryKey, { title: string; help: string; info: string 
   },
 };
 
-const REALIZED_KEYS = ['entrouMes', 'saiuMes'] as const;
+const MOVEMENT_KEYS = ['entrouMes', 'saiuMes'] as const;
 const PROJECTION_KEYS = ['faltaPagarMes', 'sobraPrevista'] as const;
 
 export function ResumoCards({
@@ -204,12 +204,12 @@ export function ResumoCards({
       </article>
 
       <div className="space-y-2 xl:col-span-8 xl:grid xl:auto-rows-fr xl:grid-cols-4 xl:gap-4 xl:space-y-0">
-        <section aria-label="Realizado" className="space-y-1 xl:contents">
+        <section aria-label="Movimentação" className="space-y-1 xl:contents">
           <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-lifeone-ink-3 xl:hidden">
-            Realizado
+            Movimentação
           </h2>
           <div className="grid grid-cols-2 gap-2 xl:contents">
-            {REALIZED_KEYS.map(renderTile)}
+            {MOVEMENT_KEYS.map(renderTile)}
           </div>
         </section>
         <section aria-label="Projeção" className="space-y-1 xl:contents">

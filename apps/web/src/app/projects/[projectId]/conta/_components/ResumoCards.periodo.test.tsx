@@ -31,7 +31,7 @@ describe('ResumoCards — período anual', () => {
       />,
     );
 
-    const realized = screen.getByRole('region', { name: 'Realizado' });
+    const realized = screen.getByRole('region', { name: 'Movimentação' });
     expect(realized).toHaveTextContent('Entrou no ano');
     expect(realized).toHaveTextContent('Saiu no ano');
     expect(realized).not.toHaveTextContent('Entrou no mês');
@@ -89,7 +89,7 @@ describe('ResumoCards — período anual', () => {
       <ResumoCards {...values} activeQuickFilter={null} onQuickFilterSelect={vi.fn()} />,
     );
 
-    const realized = screen.getByRole('region', { name: 'Realizado' });
+    const realized = screen.getByRole('region', { name: 'Movimentação' });
     expect(realized).toHaveTextContent('Entrou no mês');
     expect(realized).toHaveTextContent('Saiu no mês');
     expect(screen.getByRole('region', { name: 'Projeção' })).toHaveTextContent(
