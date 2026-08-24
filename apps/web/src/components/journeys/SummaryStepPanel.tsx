@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import type { OnboardingFunding, ProjectType } from '@reformaflow/domain';
-import { getCatalogItem } from '@reformaflow/domain';
+import { getCatalogItem, JOURNEY_STEPS_WITHOUT_SLUG } from '@reformaflow/domain';
 import { ProjectProvider } from '@/contexts/project-context';
 import { SummaryPageHeader, SummaryCTASection } from '@/components/informational-summary';
 import { getOperationalSummaryStep } from '@/lib/operational-summaries/registry';
@@ -56,6 +56,8 @@ export function SummaryStepPanel({
 
   useEffect(() => {
     if (!isFallback || !projectType) return;
+    // Etapas sem tela própria (feedback, maria-insight) são propositais — não logar erro.
+    if (JOURNEY_STEPS_WITHOUT_SLUG.has(step.stepKey)) return;
     // eslint-disable-next-line no-console
     console.error(
       `[jornadas] stepKey "${step.stepKey}" (SUMMARY) sem componente operacional nem entrada no catálogo de resumos para o tipo "${projectType}" — usando fallback de texto simples.`,

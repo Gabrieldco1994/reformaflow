@@ -60,4 +60,18 @@ describe('MobileLaunchModeSheet', () => {
     await user.click(screen.getByRole('button', { name: /Voltar/ }));
     expect(screen.getByRole('button', { name: /^Despesa Teclado rápido/i })).toBeInTheDocument();
   });
+
+  it('marca Despesa e Recebimento com data-journey-action para rastreamento de jornada', () => {
+    const { container } = render(<MobileLaunchModeSheet open onClose={vi.fn()} onPick={vi.fn()} />);
+
+    // Despesa tem marker de jornada
+    const despesaBtn = container.querySelector('[data-journey-action="expense.new"]');
+    expect(despesaBtn).toBeInTheDocument();
+    expect(despesaBtn?.textContent).toMatch(/Despesa/);
+
+    // Recebimento tem marker de jornada (antes deste fix, estava ausente em mobile)
+    const recebimentoBtn = container.querySelector('[data-journey-action="receipt.new"]');
+    expect(recebimentoBtn).toBeInTheDocument();
+    expect(recebimentoBtn?.textContent).toMatch(/Recebimento/);
+  });
 });

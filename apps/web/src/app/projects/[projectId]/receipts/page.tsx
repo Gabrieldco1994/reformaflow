@@ -708,17 +708,23 @@ export default function ReceiptsPage() {
         </button>
       )}
 
-      {/* FAB mobile */}
-      <button
-        type="button"
-        onClick={openCreate}
-        aria-label="Novo recebimento"
-        data-journey-action="receipt.new"
-        data-launcher="true"
-        className="md:hidden fixed bottom-20 right-4 z-40 w-14 h-14 rounded-full bg-darc-red-bright text-white shadow-darc-med flex items-center justify-center hover:bg-darc-red-pastel active:scale-95 transition-all"
-      >
-        <Plus className="w-6 h-6" />
-      </button>
+      {/* PESSOAL não renderiza o FAB: nesta rota a superfície mobile do PESSOAL é o
+          `/conta`, onde lançar é o "Lançar" central do `MobileTabBar` (dock
+          multi-modo). Para os demais tipos (REFORMA, COMPRA), o FAB continua
+          visível para acesso direto e rápido a novo recebimento. O
+          `data-journey-action="receipt.new"` é mantido para rastreamento em não-PESSOAL. */}
+      {!isPessoal && (
+        <button
+          type="button"
+          onClick={openCreate}
+          aria-label="Novo recebimento"
+          data-journey-action="receipt.new"
+          data-launcher="true"
+          className="md:hidden fixed bottom-20 right-4 z-40 w-14 h-14 rounded-full bg-darc-red-bright text-white shadow-darc-med flex items-center justify-center hover:bg-darc-red-pastel active:scale-95 transition-all"
+        >
+          <Plus className="w-6 h-6" />
+        </button>
+      )}
 
       {/* Modal de criação/edição completa */}
       <Modal open={modalOpen} onClose={closeModal} title={editing ? 'Editar Recebimento' : 'Novo Recebimento'}>
