@@ -42,9 +42,8 @@ export const OPERATIONAL_SUMMARY_REGISTRY: Record<string, ComponentType<Operatio
   // Plants
   plant: PlantStep,
 
-  // NOTE: maria-insight and feedback are rendered directly by the shell (not via registry)
-  // because they have custom props (createdExpense, feedback context) and are conditional
-  // on step outcomes from earlier steps. They are NOT part of the operational summary registry.
+  // NOTE: maria-insight and feedback are intentionally absent — they have no dedicated screen.
+  // These steps belong to JOURNEY_STEPS_WITHOUT_SLUG and render fallback text only.
 };
 
 /**
