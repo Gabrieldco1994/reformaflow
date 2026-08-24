@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 /**
  * OCLUSÃO DE SHELL, não de componente.
@@ -53,6 +53,10 @@ const MIN_CENSUS = 3;
 const VIEWPORTS = [
   { width: 375, height: 812 },
   { width: 390, height: 844 },
+];
+const OVERLAY_VIEWPORTS = [
+  ...VIEWPORTS,
+  { width: 1280, height: 800 },
 ];
 
 function json(body: unknown) {
@@ -149,11 +153,167 @@ const TALL_JOURNEY = {
   },
 };
 
+const STATIONARY_JOURNEY = {
+  ...ACTIVE_JOURNEY,
+  journey: {
+    ...ACTIVE_JOURNEY.journey,
+    steps: [
+      { ...ACTIVE_JOURNEY.journey.steps[0], slug: "" },
+      ACTIVE_JOURNEY.journey.steps[1],
+    ],
+  },
+};
+
+const FINANCIAL_ITEM = {
+  id: "expense-detail",
+  kind: "saida",
+  descricao: "Material da jornada",
+  data: "2026-07-05",
+  forma: "pix",
+  valor: 20_696,
+  realizado: true,
+  status: "PAGO",
+  cardId: null,
+  actions: [],
+  fingerprint: null,
+  cardLast4: null,
+  bankLast4: "1881",
+  tipoDespesa: "MATERIAL",
+  isInvoice: false,
+  editavel: true,
+  dueMonth: null,
+  projetoOrigem: { id: projectId, name: "Pessoal Teste", type: "PESSOAL" },
+  purposeLabel: "Compra de material",
+  title: "Cimento da jornada",
+  supplier: "Loja Teste",
+  installment: null,
+  paymentForm: "PIX",
+  hasEvidence: false,
+  isEspelho: false,
+  isNeutral: false,
+};
+
+function accountView(mode: "actions" | "pay") {
+  const paid = mode === "actions";
+  return {
+    mesSelecionado: "2026-07",
+    caixaHoje: 500_000,
+    carteiraHoje: 0,
+    entrouMes: 0,
+    saiuMes: 20_696,
+    faltaPagarMes: paid ? 0 : 25_000,
+    recebimentosPrevistosMes: 0,
+    sobraPrevista: 479_304,
+    devoCartaoTotal: 25_000,
+    cartoes: [
+      {
+        cardId: "card-journey",
+        nickname: "Nubank Jornada",
+        last4: "4488",
+        faturaAtual: 25_000,
+        faturaPendente: paid ? 0 : 25_000,
+        faturaPaga: paid ? 25_000 : 0,
+        residualDeclarado: 0,
+        possuiIntervencaoManual: false,
+        ajusteManualTotal: 0,
+        dueMonth: "2026-07",
+        vencimento: "2026-07-20T12:00:00.000Z",
+        status: paid ? "paga" : "a pagar",
+        limiteUsadoPct: 25,
+        limiteUsado: 25_000,
+        limiteTotal: 100_000,
+        actions: paid ? ["undo"] : ["pay"],
+        fingerprint: "journey-card",
+      },
+    ],
+    contas: [
+      {
+        accountId: "account-journey",
+        last4: "1881",
+        nome: "Itaú Jornada",
+      },
+    ],
+    saidas: [FINANCIAL_ITEM],
+    comprasCartao: [],
+    entradas: [],
+    ticketMedio: {
+      valor: 0,
+      nCompras: 0,
+      totalCompras: 0,
+      serie6m: [],
+      media6m: 0,
+      deltaVsMediaPct: null,
+    },
+  };
+}
+
+const MONTH_ROW = {
+  mes: "2026-07",
+  totalDespesas: 20_696,
+  totalRecebimentos: 0,
+  despesasRealizadas: 20_696,
+  recebimentosRealizados: 0,
+  saldoMes: -20_696,
+  saldoMesRealizado: -20_696,
+  porOrigem: {},
+  porCategoria: [{ categoria: "Material", valor: 20_696 }],
+};
+
+const MONTHLY_OVERVIEW = {
+  mesAtual: "2026-07",
+  meses: [MONTH_ROW],
+  comparativo: {
+    current: MONTH_ROW,
+    previous: null,
+    deltaDespesas: 0,
+    deltaDespesasPct: null,
+    deltaRecebimentos: 0,
+    deltaRecebimentosPct: null,
+    deltaSaldo: 0,
+  },
+  mesAtualEntries: [],
+  entries: [],
+  projetos: [{ id: projectId, name: "Pessoal Teste", type: "PESSOAL" }],
+  cards: [],
+  caixa: {
+    hoje: 500_000,
+    saldoInicial: 500_000,
+    temSaldoInicial: true,
+    porMes: [{ mes: "2026-07", caixa: 500_000 }],
+  },
+  projecao: {
+    caixaHoje: 500_000,
+    entrouMes: 0,
+    saiuMes: 20_696,
+    faltaPagarMes: 25_000,
+    recebimentosPrevistosMes: 0,
+    sobraPrevista: 454_304,
+  },
+};
+
+const RUNWAY_ROWS = [
+  ["2026-07", 400_000],
+  ["2026-08", 250_000],
+  ["2026-09", 100_000],
+  ["2026-10", -50_000],
+  ["2026-11", -200_000],
+  ["2026-12", -350_000],
+].map(([mes, saldoProjetado]) => ({
+  mes,
+  recebimentos: 0,
+  despesas: 150_000,
+  recebimentosRealizados: null,
+  despesasRealizadas: null,
+  saldoProjetado,
+  saldoRealizado: null,
+}));
+
 async function openContaWithJourney(
   page: Page,
   viewport: { width: number; height: number },
   journey: typeof ACTIVE_JOURNEY = ACTIVE_JOURNEY,
 ) {
+  let accountMode: "actions" | "pay" = "actions";
   await page.clock.setFixedTime(new Date("2026-07-15T12:00:00.000Z"));
   await page.setViewportSize(viewport);
   await page
@@ -210,36 +370,20 @@ async function openContaWithJourney(
     if (path === `/projects/${projectId}/bank-accounts`)
       return route.fulfill(json([]));
     if (path === `/projects/${projectId}/monthly-overview/account-view`)
+      return route.fulfill(json(accountView(accountMode)));
+    if (path === `/projects/${projectId}/monthly-overview`)
+      return route.fulfill(json(MONTHLY_OVERVIEW));
+    if (path === `/projects/${projectId}/monthly-overview/dre-overview`)
       return route.fulfill(
         json({
-          mesSelecionado: "2026-07",
-          caixaHoje: 0,
-          carteiraHoje: 0,
-          entrouMes: 0,
-          saiuMes: 0,
-          faltaPagarMes: 0,
-          recebimentosPrevistosMes: 0,
-          sobraPrevista: 0,
-          devoCartaoTotal: 0,
-          cartoes: [],
-          contas: [],
-          saidas: [],
-          comprasCartao: [],
-          entradas: [],
-          ticketMedio: {
-            valor: 0,
-            nCompras: 0,
-            totalCompras: 0,
-            serie6m: [],
-            media6m: 0,
-            deltaVsMediaPct: null,
+          anual: {
+            saldoAcumuladoSerie: RUNWAY_ROWS,
+            candidatos: [],
           },
         }),
       );
-    if (path === `/projects/${projectId}/monthly-overview/dre-overview`)
-      return route.fulfill(
-        json({ anual: { saldoAcumuladoSerie: [] } }),
-      );
+    if (path === `/projects/${projectId}/category-budgets/progress`)
+      return route.fulfill(json([]));
     return route.fulfill(json([]));
   });
 
@@ -251,6 +395,11 @@ async function openContaWithJourney(
   if (viewport.width < 768) {
     await expect(page.locator('[data-dock="minimal"]')).toBeVisible();
   }
+  return {
+    setAccountMode(mode: "actions" | "pay") {
+      accountMode = mode;
+    },
+  };
 }
 
 /**
