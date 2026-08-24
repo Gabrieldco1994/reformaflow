@@ -95,18 +95,21 @@ export function originLast4FromKey(key: string | null | undefined): string | nul
  * Aporte em INVESTIMENTOS sai da conta, mas não é consumo: fica fora do total de
  * saídas (mesma regra da lista).
  */
-export function computeMovementTotals(
-  items: Array<
-    | { kind: 'saida'; valor: number; tipoDespesa: string }
-    | { kind: 'entrada'; valor: number; status: 'EM_CAIXA' | 'PREVISTO' }
-  >,
-) {
+type MovementTotalItem =
+  | { kind: 'saida'; valor: number; tipoDespesa: string }
+  | { kind: 'entrada'; valor: number; status: 'EM_CAIXA' | 'PREVISTO' };
+
+export function isIncludedInSaidaTotal(item: MovementTotalItem) {
+  return item.kind === 'saida' && item.tipoDespesa !== 'INVESTIMENTOS';
+}
+
+export function computeMovementTotals(items: MovementTotalItem[]) {
   let totalSaidas = 0;
   let totalEntradasRecebido = 0;
   let totalEntradasPrevisto = 0;
   for (const m of items) {
     if (m.kind === 'saida') {
-      if (m.tipoDespesa === 'INVESTIMENTOS') continue;
+      if (!isIncludedInSaidaTotal(m)) continue;
       totalSaidas += m.valor;
     } else if (m.status === 'EM_CAIXA') totalEntradasRecebido += m.valor;
     else if (m.status === 'PREVISTO') totalEntradasPrevisto += m.valor;

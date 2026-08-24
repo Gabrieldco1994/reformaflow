@@ -10,7 +10,13 @@ import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { tipoLabel } from '@/lib/expense-options';
 import { getExpenseIcon } from '@/lib/expense-icons';
-import { computeMovementTotals, groupByMovementDay, groupByMovementMonth, monthLabelLong } from '../_lib';
+import {
+  computeMovementTotals,
+  groupByMovementDay,
+  groupByMovementMonth,
+  isIncludedInSaidaTotal,
+  monthLabelLong,
+} from '../_lib';
 import { Modal } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
 import type { Expense } from '@/types';
@@ -465,7 +471,7 @@ export function MovimentacoesSection({
     (m: AccountViewMovimentacao): boolean => {
       if (summaryQuickFilter === 'entrouMes' && (m.kind !== 'entrada' || m.status !== 'EM_CAIXA'))
         return false;
-      if (summaryQuickFilter === 'saiuMes' && m.kind !== 'saida') return false;
+      if (summaryQuickFilter === 'saiuMes' && !isIncludedInSaidaTotal(m)) return false;
       if (summaryQuickFilter === 'faltaPagarMes' && (m.kind !== 'saida' || m.realizado)) return false;
 
       if (semContaFilter) {
