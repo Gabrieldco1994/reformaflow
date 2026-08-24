@@ -19,7 +19,12 @@ const RESTRICTED_IMPORT_REQUESTER: RateioRequester = {
 function makePrismaMock() {
   return {
     project: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
-    bankAccount: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
+    bankAccount: {
+      findFirst: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
     bankStatementImport: {
       create: jest.fn().mockResolvedValue({ id: 'bimp1' }),
       update: jest.fn().mockResolvedValue({}),
@@ -825,6 +830,100 @@ describe('BankAccountService', () => {
         installmentCurrent: null,
         installmentTotal: null,
       });
+    });
+  });
+
+  describe('TOCTOU race condition fix', () => {
+    it('updateAccount throws NotFoundException when account scope changes between check and write', async () => {
+      // Simulate race condition: findAccount passes validation, but between
+      // validation and update, the account is deleted or moved to another tenant/project.
+      // The updateMany inside the transaction returns count === 0.
+      prisma.bankAccount.updateMany.mockResolvedValueOnce({ count: 0 });
+
+      await expect(
+        service.updateAccount('t1', 'pessoal1', 'acc1', { nickname: 'Updated' }),
+      ).rejects.toThrow('Conta bancária não encontrada ou foi modificada');
+
+      // Verify that updateMany was called with complete scope (not just id)
+      expect(prisma.bankAccount.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            id: 'acc1',
+            tenantId: 't1',
+            projectId: 'pessoal1',
+            deletedAt: null,
+          }),
+        }),
+      );
+    });
+
+    it('updateAccount succeeds when updateMany returns count === 1', async () => {
+      prisma.bankAccount.updateMany.mockResolvedValueOnce({ count: 1 });
+      // The second findFirst call (in the return statement) will use the default mock
+      prisma.bankAccount.findFirst.mockResolvedValueOnce({
+        id: 'acc1',
+        tenantId: 't1',
+        projectId: 'pessoal1',
+        institution: 'Itau',
+        last4: '5678',
+        nickname: 'Updated Nickname',
+      });
+
+      const result = await service.updateAccount('t1', 'pessoal1', 'acc1', { nickname: 'Updated Nickname' });
+
+      expect(result).toBeDefined();
+      expect(result.id).toBe('acc1');
+      expect(prisma.bankAccount.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            id: 'acc1',
+            tenantId: 't1',
+            projectId: 'pessoal1',
+            deletedAt: null,
+          }),
+        }),
+      );
+    });
+
+    it('deleteAccount throws NotFoundException when account scope changes between check and delete', async () => {
+      // Simulate race condition: findAccount passes validation, but between
+      // validation and delete, the account is deleted or moved to another tenant/project.
+      // The deleteMany returns count === 0.
+      prisma.bankAccount.deleteMany.mockResolvedValueOnce({ count: 0 });
+
+      await expect(
+        service.deleteAccount('t1', 'pessoal1', 'acc1'),
+      ).rejects.toThrow('Conta bancária não encontrada ou foi modificada');
+
+      // Verify that deleteMany was called with complete scope (not just id)
+      expect(prisma.bankAccount.deleteMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            id: 'acc1',
+            tenantId: 't1',
+            projectId: 'pessoal1',
+            deletedAt: null,
+          }),
+        }),
+      );
+    });
+
+    it('deleteAccount succeeds when deleteMany returns count === 1', async () => {
+      prisma.bankAccount.deleteMany.mockResolvedValueOnce({ count: 1 });
+
+      const result = await service.deleteAccount('t1', 'pessoal1', 'acc1');
+
+      expect(result).toEqual({ ok: true });
+      expect(prisma.bankAccount.deleteMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            id: 'acc1',
+            tenantId: 't1',
+            projectId: 'pessoal1',
+            deletedAt: null,
+          }),
+        }),
+      );
     });
   });
 });
