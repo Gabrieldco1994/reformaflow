@@ -1051,18 +1051,16 @@ export class MonthlyOverviewService {
       .filter((invoice) => invoice.dueMonth === mesSelecionado)
       .sort((a, b) => b.total - a.total);
 
+    // A lista/drilldown é consolidada entre contas; `caixa` continua ancorado na
+    // conta primária e o cliente recorta cada conta por `bankLast4`.
     const accountExpenseList = expenses
       .filter((expense) => {
         if (!expense.bankLast4 || expense.cardLast4) return false;
+        // #576: despesa liquidada por outra é duplicata contábil. O filtro
+        // permanece mesmo com a lista consolidada da #559 — é justamente ele
+        // que impede a consolidação de dobrar o item em conta secundária e
+        // inflar o "Saiu". Dedupe de conciliação vale para toda conta.
         if (expense.settledByExpenseId) return false;
-        if (
-          resolveMovementAccountId({
-            bankLast4: expense.bankLast4,
-            importId: expense.importId ?? null,
-          }) !== (primaryAccount?.id ?? null)
-        ) {
-          return false;
-        }
         if (isNeutralExpenseType(expense.tipoDespesa)) return false;
         return true;
       })

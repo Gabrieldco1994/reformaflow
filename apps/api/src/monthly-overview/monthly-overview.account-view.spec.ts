@@ -2042,7 +2042,81 @@ describe("MonthlyOverviewService.getAccountView", () => {
 
     expect(res.caixaHoje).toBe(103_000);
     expect(res.entrouMes).toBe(5_000);
-    expect(res.saiuMes).toBe(2_000);
+    expect(res.saiuMes).toBe(9_000);
+  });
+
+  it("mantém pago + planejado de duas contas no total e no filtro da conta secundária, excluindo aporte", async () => {
+    prisma.bankAccount.findMany.mockResolvedValue([
+      {
+        id: "acc-itau",
+        openingBalanceCents: 100_000,
+        openingBalanceDate: new Date("2025-12-31T00:00:00.000Z"),
+        last4: "1122",
+        nickname: "Itaú",
+        institution: "ITAU",
+      },
+      {
+        id: "acc-nubank",
+        openingBalanceCents: 0,
+        openingBalanceDate: null,
+        last4: "3344",
+        nickname: "Nubank",
+        institution: "NUBANK",
+      },
+    ]);
+    const expense = (
+      id: string,
+      tipoDespesa: string,
+      valorTotal: number,
+      status: "PAGO" | "PLANEJADO",
+      bankLast4: string,
+    ) => ({
+      id,
+      tenantId,
+      projectId,
+      tipoDespesa,
+      titulo: id,
+      fornecedor: null,
+      valorTotal,
+      valor: valorTotal,
+      formaPagamento: "A_VISTA",
+      dataPagamento: new Date("2026-08-10T00:00:00.000Z"),
+      dataInicioParcela: null,
+      createdAt: new Date("2026-08-10T00:00:00.000Z"),
+      quantidadeParcela: null,
+      status,
+      cardLast4: null,
+      bankLast4,
+      importId: null,
+      linkedExpenseId: null,
+      settledByExpenseId: null,
+      settlesInvoiceKey: null,
+      project: { id: projectId, name: "Pessoal", type: "PESSOAL" },
+    });
+    prisma.expense.findMany.mockResolvedValue([
+      expense("pago-itau", "ALIMENTACAO", 12_345, "PAGO", "1122"),
+      expense("planejado-nubank", "MORADIA", 23_456, "PLANEJADO", "3344"),
+      expense("aporte-itau", "INVESTIMENTOS", 34_567, "PAGO", "1122"),
+    ]);
+    prisma.receipt.findMany.mockResolvedValue([]);
+    prisma.cashFlowEntry.findMany.mockResolvedValue([]);
+    prisma.creditCard.findMany.mockResolvedValue([]);
+
+    const res: any = await service.getAccountView(tenantId, projectId, "2026-08");
+    const filtroNubank = res.saidas.filter(
+      (item: any) => item.bankLast4 === "3344",
+    );
+
+    expect(res.saiuMes).toBe(46_912);
+    expect(res.faltaPagarMes).toBe(23_456);
+    expect(res.saidaTotal).toBe(35_801);
+    expect(filtroNubank).toEqual([
+      expect.objectContaining({
+        id: "planejado-nubank",
+        valor: 23_456,
+        status: "PLANEJADO",
+      }),
+    ]);
   });
 
   describe("payInvoice", () => {
