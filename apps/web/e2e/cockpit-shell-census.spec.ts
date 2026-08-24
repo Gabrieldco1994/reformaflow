@@ -14,6 +14,8 @@ const DESKTOP_VIEWPORTS = [
   { width: 1280, height: 900 },
 ] as const;
 
+const DESKTOP_WIDGET_VIEWPORT = DESKTOP_VIEWPORTS[1];
+
 const accountView = {
   caixaHoje: 1_010_100,
   entrouMes: 2_020_200,
@@ -231,10 +233,23 @@ async function mockApi(page: Page) {
   });
 }
 
-type Verdict = "ok" | "covered" | "dead-link";
+type Verdict = "ok" | "covered" | "offscreen" | "dead-link";
 
-async function measureTarget(_page: Page, target: Locator, name: string) {
-  await target.scrollIntoViewIfNeeded();
+interface Measurement {
+  verdict: Verdict;
+  width: number;
+  height: number;
+  hit: string;
+  href: string | null;
+}
+
+interface TargetCensus {
+  label: string;
+  initial: Measurement;
+  final: Measurement;
+}
+
+async function readTarget(target: Locator, name: string): Promise<Measurement> {
   return target.evaluate((element, label) => {
     const rect = element.getBoundingClientRect();
     const cx = rect.left + rect.width / 2;
@@ -245,9 +260,15 @@ async function measureTarget(_page: Page, target: Locator, name: string) {
     const deadLink =
       element instanceof HTMLAnchorElement &&
       (href === "#" || href === "");
+    const centerInsideViewport =
+      cx >= 0 &&
+      cy >= 0 &&
+      cx <= document.documentElement.clientWidth &&
+      cy <= document.documentElement.clientHeight;
 
     let verdict: Verdict = "ok";
     if (deadLink) verdict = "dead-link";
+    else if (!centerInsideViewport) verdict = "offscreen";
     else if (!hit || !(hit === element || element.contains(hit))) verdict = "covered";
 
     return {
@@ -255,25 +276,121 @@ async function measureTarget(_page: Page, target: Locator, name: string) {
       verdict,
       width: Math.round(rect.width),
       height: Math.round(rect.height),
-      hit: hit ? `${hit.tagName.toLowerCase()}.${String(hit.className).split(" ").slice(0, 2).join(".")}` : "none",
+      hit: hit
+        ? `${hit.tagName.toLowerCase()}.${String(hit.className).split(" ").slice(0, 2).join(".")}`
+        : "none",
       href,
     };
   }, name);
 }
 
 async function census(page: Page, targets: Array<{ label: string; locator: Locator }>) {
-  const results = [];
+  const initial: Measurement[] = [];
   for (const target of targets) {
-    results.push(await measureTarget(page, target.locator, target.label));
+    initial.push(await readTarget(target.locator, target.label));
+  }
+
+  const results: TargetCensus[] = [];
+  for (let index = 0; index < targets.length; index += 1) {
+    const target = targets[index];
+    const initialTarget = initial[index];
+    let finalTarget = initialTarget;
+    if (initialTarget.verdict !== "dead-link" && initialTarget.verdict !== "ok") {
+      await target.locator.scrollIntoViewIfNeeded();
+      finalTarget = await readTarget(target.locator, target.label);
+    }
+    results.push({
+      label: target.label,
+      initial: initialTarget,
+      final: finalTarget,
+    });
   }
   expect(results.length).toBeGreaterThanOrEqual(MIN_CENSUS);
-  const bad = results.filter((r) => r.verdict !== "ok");
+  const bad = results.filter(
+    (r) => r.final.verdict !== "ok",
+  );
   expect(bad, JSON.stringify(bad, null, 2)).toEqual([]);
   for (const result of results) {
-    expect(result.width).toBeGreaterThanOrEqual(44);
-    expect(result.height).toBeGreaterThanOrEqual(44);
+    expect(result.final.width).toBeGreaterThanOrEqual(44);
+    expect(result.final.height).toBeGreaterThanOrEqual(44);
   }
   return results;
+}
+
+async function ensureWidgetOpen(page: Page) {
+  const openButton = page.getByLabel("Abrir Copiloto Financeiro");
+  if (await openButton.count()) {
+    await page.evaluate(() => {
+      const button = document.querySelector<HTMLButtonElement>(
+        '[aria-label="Abrir Copiloto Financeiro"]',
+      );
+      button?.click();
+    });
+    await page.waitForTimeout(300);
+  }
+}
+
+async function planningTargets(page: Page) {
+  const matrixSection = page
+    .locator("section")
+    .filter({ has: page.getByRole("heading", { name: "Matriz mensal (modo planilha)" }) });
+  const inputs = matrixSection.locator("input");
+  const count = await inputs.count();
+  const start = Math.max(0, count - 5);
+  return Array.from({ length: Math.min(5, count) }, (_, index) => ({
+    label: `Matriz mensal · input ${index + 1}`,
+    locator: inputs.nth(start + index),
+  }));
+}
+
+function contaTargets(page: Page) {
+  return [
+    {
+      label: "Ajuda sobre Tenho na conta hoje",
+      locator: page.getByRole("button", { name: "Ajuda sobre Tenho na conta hoje" }),
+    },
+    {
+      label: "Entrou no mês",
+      locator: page.getByRole("button", { name: /^Entrou no mês, / }),
+    },
+    {
+      label: "Saiu no mês",
+      locator: page.getByRole("button", { name: /^Saiu no mês, / }),
+    },
+    {
+      label: "Ajuda sobre Ainda falta pagar",
+      locator: page.getByRole("button", { name: "Ajuda sobre Ainda falta pagar" }),
+    },
+    {
+      label: "Ajuda sobre Sobra prevista",
+      locator: page.getByRole("button", { name: "Ajuda sobre Sobra prevista" }),
+    },
+  ];
+}
+
+function mariaTargets(page: Page) {
+  return [
+    {
+      label: "Voltar para hoje",
+      locator: page.getByRole("link", { name: "Voltar para hoje" }),
+    },
+    {
+      label: "Posso gastar R$ 500?",
+      locator: page.getByRole("button", { name: "Posso gastar R$ 500?" }),
+    },
+    {
+      label: "Quanto gastei com mercado?",
+      locator: page.getByRole("button", { name: "Quanto gastei com mercado?" }),
+    },
+    {
+      label: "Iniciar conversa por voz",
+      locator: page.getByRole("button", { name: "Iniciar conversa por voz" }),
+    },
+    {
+      label: "Falar",
+      locator: page.getByRole("button", { name: "Falar", exact: true }),
+    },
+  ];
 }
 
 async function openMonthly(page: Page, viewport: { width: number; height: number }) {
@@ -299,6 +416,30 @@ test.describe("issue #564 — cockpit shell census", () => {
         { label: "Expandir menu lateral", locator: page.getByRole("button", { name: "Expandir menu lateral" }) },
       ]);
     }
+  });
+
+  test("desktop 1280×800 rail expandido segura os choques do FinancialAgentWidget", async ({ page }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== "desktop",
+      "a colisão expandida do FinancialAgentWidget só roda no projeto desktop",
+    );
+    await page.addInitScript(() => {
+      window.localStorage.setItem("lifeone:sidebar:collapsed", "false");
+    });
+    await mockApi(page);
+    await page.setViewportSize(DESKTOP_WIDGET_VIEWPORT);
+
+    await page.goto(`/projects/${PROJECT_ID}/maria`);
+    await ensureWidgetOpen(page);
+    await census(page, mariaTargets(page));
+
+    await page.goto(`/projects/${PROJECT_ID}/planning`);
+    await ensureWidgetOpen(page);
+    await census(page, await planningTargets(page));
+
+    await page.goto(`/projects/${PROJECT_ID}/conta`);
+    await ensureWidgetOpen(page);
+    await census(page, contaTargets(page));
   });
 
   test("mobile monthly keeps dock, cta and Maria details hittable at 390/375", async ({ page }) => {
