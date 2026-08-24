@@ -708,35 +708,23 @@ export default function ReceiptsPage() {
         </button>
       )}
 
-      {/* FAB mobile — PERGUNTA DE PRODUTO (#520)
-       *
-       * ⚠️ Esta página PODE TER DOIS `data-launcher="true"`:
-       * 1. Este FAB (abre modal específico de "Novo recebimento")
-       * 2. Dock "Lançar" do MobileTabBar (quando PESSOAL + expenses ativo)
-       *
-       * O teste MobileTabBar.test.tsx exige EXATAMENTE 1 launcher por página.
-       * Ambos têm `data-journey-action="receipt.new"` mas fazem coisas diferentes:
-       * - Dock: lançador multi-modo (despesa, recebimento, voz, importação...)
-       * - FAB: direto para novo recebimento
-       *
-       * DECISÃO PENDENTE: qual dos dois `+` desaparece? Opções:
-       * a) Remover FAB → todos usam Dock (menos direto, mas consistente)
-       * b) Remover data-launcher do FAB → dois `+` visíveis (ambiguidade)
-       * c) Remover Dock nesta página → só FAB (específico demais?)
-       *
-       * Reporte: qual experiência é melhor? "Um clique" (Dock) vs.
-       * "direto para recebimento" (FAB)?
-       */}
-      <button
-        type="button"
-        onClick={openCreate}
-        aria-label="Novo recebimento"
-        data-journey-action="receipt.new"
-        data-launcher="true"
-        className="md:hidden fixed bottom-20 right-4 z-40 w-14 h-14 rounded-full bg-darc-red-bright text-white shadow-darc-med flex items-center justify-center hover:bg-darc-red-pastel active:scale-95 transition-all"
-      >
-        <Plus className="w-6 h-6" />
-      </button>
+      {/* PESSOAL não renderiza o FAB: nesta rota a superfície mobile do PESSOAL é o
+          `/conta`, onde lançar é o "Lançar" central do `MobileTabBar` (dock
+          multi-modo). Para os demais tipos (REFORMA, COMPRA), o FAB continua
+          visível para acesso direto e rápido a novo recebimento. O
+          `data-journey-action="receipt.new"` é mantido para rastreamento em não-PESSOAL. */}
+      {!isPessoal && (
+        <button
+          type="button"
+          onClick={openCreate}
+          aria-label="Novo recebimento"
+          data-journey-action="receipt.new"
+          data-launcher="true"
+          className="md:hidden fixed bottom-20 right-4 z-40 w-14 h-14 rounded-full bg-darc-red-bright text-white shadow-darc-med flex items-center justify-center hover:bg-darc-red-pastel active:scale-95 transition-all"
+        >
+          <Plus className="w-6 h-6" />
+        </button>
+      )}
 
       {/* Modal de criação/edição completa */}
       <Modal open={modalOpen} onClose={closeModal} title={editing ? 'Editar Recebimento' : 'Novo Recebimento'}>
