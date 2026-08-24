@@ -139,27 +139,40 @@ describe('MobileLaunchModeSheet', () => {
       }
     });
 
-    it('restores focus to trigger element when closed via Escape', async () => {
-      const user = userEvent.setup();
-      const onClose = vi.fn();
-
-      render(
+    it('restores focus to trigger element when closed', () => {
+      const { rerender } = render(
         <>
           <button id="trigger-button">Open Mode Sheet</button>
-          <MobileLaunchModeSheet open onClose={onClose} onPick={vi.fn()} />
+          <MobileLaunchModeSheet open={false} onClose={vi.fn()} onPick={vi.fn()} />
         </>,
       );
 
       const triggerButton = screen.getByRole('button', { name: 'Open Mode Sheet' });
 
-      // Simulate triggering focus before opening (would happen in real usage)
+      // Focus trigger button
       triggerButton.focus();
-      const initialFocus = document.activeElement;
+      expect(document.activeElement).toBe(triggerButton);
 
-      // Close via Escape — onClose is called, parent component should handle focus
-      await user.keyboard('{Escape}');
+      // Rerender with dialog open
+      rerender(
+        <>
+          <button id="trigger-button">Open Mode Sheet</button>
+          <MobileLaunchModeSheet open onClose={vi.fn()} onPick={vi.fn()} />
+        </>,
+      );
 
-      expect(onClose).toHaveBeenCalled();
+      expect(document.activeElement).not.toBe(triggerButton);
+
+      // Rerender with dialog closed — focus should be restored
+      const onClose = vi.fn();
+      rerender(
+        <>
+          <button id="trigger-button">Open Mode Sheet</button>
+          <MobileLaunchModeSheet open={false} onClose={onClose} onPick={vi.fn()} />
+        </>,
+      );
+
+      expect(document.activeElement).toBe(triggerButton);
     });
   });
 });
