@@ -134,6 +134,8 @@ export interface AccountViewResponse {
   entrouMes: number;
   saiuMes: number;
   faltaPagarMes: number;
+  /** Pago + planejado de `saidas`, excluindo INVESTIMENTOS. */
+  saidaTotal?: number;
   recebimentosPrevistosMes: number;
   sobraPrevista: number;
   devoCartaoTotal: number;

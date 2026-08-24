@@ -106,7 +106,9 @@ export default function ContaPage() {
       api.get(`/projects/${projectId}/monthly-overview/account-view?month=${selectedMonth}`),
     enabled: !!projectId,
   });
-  const totalSaidas = data ? computeMovementTotals(data.saidas).totalSaidas : 0;
+  const totalSaidas = data
+    ? data.saidaTotal ?? computeMovementTotals(data.saidas).totalSaidas
+    : 0;
 
   // Runway de caixa (visão da verdade): só faz sentido para o ano corrente,
   // pois a série é ancorada no caixa real de hoje. Reaproveita a série já

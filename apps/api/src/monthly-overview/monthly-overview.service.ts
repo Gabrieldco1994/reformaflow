@@ -522,6 +522,7 @@ export class MonthlyOverviewService {
           entrouMes: number;
           saiuMes: number;
           faltaPagarMes: number;
+          saidaTotal: number;
           recebimentosPrevistosMes: number;
           sobraPrevista: number;
           carteiraHoje: number;
@@ -536,6 +537,7 @@ export class MonthlyOverviewService {
         entrouMes: av.entrouMes,
         saiuMes: av.saiuMes,
         faltaPagarMes: av.faltaPagarMes,
+        saidaTotal: av.saidaTotal,
         recebimentosPrevistosMes: av.recebimentosPrevistosMes,
         sobraPrevista: av.sobraPrevista,
         carteiraHoje: av.carteiraHoje,
@@ -1516,6 +1518,15 @@ export class MonthlyOverviewService {
       saidas.filter((s: any) => s.kind === 'saida' && !s.realizado),
       (s: any) => s.valor,
     );
+    // Mesmo total exibido pelo card/drilldown "Saiu": lista canônica completa
+    // (pago + planejado), sem aportes, que permanecem no eixo de caixa.
+    const saidaTotal = sumBy(
+      saidas.filter(
+        (s: any) =>
+          s.kind === 'saida' && s.tipoDespesa !== ExpenseType.INVESTIMENTOS,
+      ),
+      (s: any) => s.valor,
+    );
 
     const entradas = receipts
       .filter(
@@ -1669,6 +1680,7 @@ export class MonthlyOverviewService {
       entrouMes,
       saiuMes: recalculatedSaiuMes,
       faltaPagarMes: recalculatedFaltaPagarMes,
+      saidaTotal,
       recebimentosPrevistosMes,
       // #519: a sobra prevista é dinheiro DISPONÍVEL de verdade — banco + carteira.
       // `carteiraHoje` (saldo pontual da carteira, já sinalizado: despesa −, dinheiro

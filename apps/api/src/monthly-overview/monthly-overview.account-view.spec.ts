@@ -359,6 +359,7 @@ describe("MonthlyOverviewService.getAccountView", () => {
     expect(res.recebimentosPrevistosMes).toBe(4_000);
     expect(res.saiuMes).toBe(12_000);
     expect(res.faltaPagarMes).toBe(8_000);
+    expect(res.saidaTotal).toBe(20_000);
     expect(res.sobraPrevista).toBe(104_000);
     expect(res.devoCartaoTotal).toBe(2_000);
 

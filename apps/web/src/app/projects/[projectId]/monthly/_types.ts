@@ -101,6 +101,8 @@ export interface MonthlyOverviewResponse {
     entrouMes: number;
     saiuMes: number;
     faltaPagarMes: number;
+    /** Pago + planejado da lista da Visão Conta, excluindo INVESTIMENTOS. */
+    saidaTotal?: number;
     recebimentosPrevistosMes: number;
     sobraPrevista: number;
     /** Fluxo líquido realizado em espécie, sem conta/cartão vinculado. */

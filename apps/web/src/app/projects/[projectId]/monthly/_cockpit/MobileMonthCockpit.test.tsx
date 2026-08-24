@@ -265,6 +265,28 @@ describe("MobileMonthCockpit", () => {
     expect(within(hero).getByText("R$ 12.345,67")).toBeInTheDocument();
   });
 
+  it("mostra no Saiu o pago + planejado da Visão Conta sem INVESTIMENTOS", () => {
+    const overview = data({
+      projecao: {
+        status: "canonical",
+        mes: "2026-07",
+        caixaHoje: 100_000,
+        entrouMes: 0,
+        saiuMes: 25_000,
+        faltaPagarMes: 15_000,
+        saidaTotal: 30_000,
+        recebimentosPrevistosMes: 0,
+        sobraPrevista: 85_000,
+      },
+    });
+
+    renderCockpit({ data: overview });
+
+    expect(
+      screen.getByRole("link", { name: "Ver saídas do mês" }),
+    ).toHaveTextContent("R$ 300");
+  });
+
   it("forwards the selected month and keeps its exact canonical values separate from the current-month mini hero", () => {
     const overview = data({
       projecao: {

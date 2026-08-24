@@ -74,6 +74,26 @@ describe('deriveCockpitTop — projeção de fim de mês (eixo de caixa, §10)',
     expect(t.saidaTotal).toBe(4_412_804 + 3_759_570); // 81.723,74
   });
 
+  it('usa o total da Visão Conta sem INVESTIMENTOS, preservando pago + planejado', () => {
+    const data = baseData({
+      projecao: {
+        status: 'canonical',
+        mes: '2026-07',
+        caixaHoje: 100_000,
+        entrouMes: 0,
+        // Caixa inclui aportes pago (5.000) e planejado (5.000).
+        saiuMes: 25_000,
+        faltaPagarMes: 15_000,
+        // Drilldown quick=saiuMes: consumo pago (20.000) + planejado (10.000).
+        saidaTotal: 30_000,
+        recebimentosPrevistosMes: 0,
+        sobraPrevista: 85_000,
+      },
+    });
+
+    expect(deriveCockpitTop(data).saidaTotal).toBe(30_000);
+  });
+
   it('cai no cálculo por competência quando projecao ausente (payload antigo)', () => {
     const data = baseData({
       entries: [
