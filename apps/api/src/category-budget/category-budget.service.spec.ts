@@ -120,8 +120,8 @@ describe('CategoryBudgetService', () => {
     const result = await service.progress(tenantId, projectId, '2026-06');
 
     expect(result).toEqual([
-      { tipoDespesa: 'ALIMENTACAO', limiteCents: 100000, gastoCents: 80000, pct: 80 },
-      { tipoDespesa: 'TRANSPORTE', limiteCents: 50000, gastoCents: 60000, pct: 120 },
+      { tipoDespesa: 'ALIMENTACAO', limiteCents: 100000, gastoCents: 80000, comprometidoCents: 80000, pct: 80 },
+      { tipoDespesa: 'TRANSPORTE', limiteCents: 50000, gastoCents: 60000, comprometidoCents: 60000, pct: 120 },
     ]);
 
     jest.useRealTimers();
@@ -161,8 +161,11 @@ describe('CategoryBudgetService', () => {
     const result = await service.progress(tenantId, projectId, '2026-08');
 
     // Valor esperado: apenas a primeira parcela (30000 / 3 = 10000)
+    // status = PLANEJADO e paidParcelas = null, então:
+    // - gastoCents = 0 (nenhuma parcela paga)
+    // - comprometidoCents = 10000 (parcela 1 de agosto)
     expect(result).toEqual([
-      { tipoDespesa: 'MOVEIS', limiteCents: 300000, gastoCents: 10000, pct: 3 },
+      { tipoDespesa: 'MOVEIS', limiteCents: 300000, gastoCents: 0, comprometidoCents: 10000, pct: 0 },
     ]);
 
     jest.useRealTimers();
@@ -202,8 +205,9 @@ describe('CategoryBudgetService', () => {
     const result = await service.progress(tenantId, projectId, '2026-08');
 
     // Apenas a ocorrência de agosto (150000 centavos)
+    // status = PAGO, então gastoCents = comprometidoCents
     expect(result).toEqual([
-      { tipoDespesa: 'ALUGUEL', limiteCents: 150000, gastoCents: 150000, pct: 100 },
+      { tipoDespesa: 'ALUGUEL', limiteCents: 150000, gastoCents: 150000, comprometidoCents: 150000, pct: 100 },
     ]);
 
     jest.useRealTimers();
@@ -242,8 +246,9 @@ describe('CategoryBudgetService', () => {
     const result = await service.progress(tenantId, projectId, '2026-09');
 
     // A despesa deve ser contada em setembro
+    // status = PAGO, então gastoCents = comprometidoCents
     expect(result).toEqual([
-      { tipoDespesa: 'ALIMENTACAO', limiteCents: 100000, gastoCents: 50000, pct: 50 },
+      { tipoDespesa: 'ALIMENTACAO', limiteCents: 100000, gastoCents: 50000, comprometidoCents: 50000, pct: 50 },
     ]);
 
     jest.useRealTimers();
@@ -257,22 +262,23 @@ describe('CategoryBudgetService', () => {
       { tipoDespesa: 'ELETRONICO', valorLimiteCents: 100000, mes: '2026-08' },
     ]);
 
-    // Despesa parcelada em 2x
-    // Parcela 1 (paga): 15000 centavos vencimento 2026-08-05
-    // Parcela 2 (planejada): 15000 centavos vencimento 2026-09-05
-    // paidParcelas = [0] (índice 0 é pago)
+    // Despesa parcelada em 2x, AMBAS em agosto:
+    // Parcela 1 (PAGA): 15000 centavos vencimento 2026-08-05
+    // Parcela 2 (PLANEJADA): 15000 centavos vencimento 2026-08-25 (via override)
+    // paidParcelas = [0] (índice 0 é pago, índice 1 não é)
+    // Total: gastoCents = 15000 (só a paga), comprometidoCents = 30000 (ambas)
     prisma.expense.findMany.mockResolvedValue([
       {
-        id: 'exp-parcial',
+        id: 'exp-parcial-agosto',
         tipoDespesa: 'ELETRONICO',
         valorTotal: 30000,
         formaPagamento: 'PARCELADO',
         dataPagamento: null,
         quantidadeParcela: 2,
         dataInicioParcela: new Date('2026-08-05'),
-        installmentDateOverrides: null,
+        installmentDateOverrides: '{"1":"2026-08-25"}', // Força segunda parcela para 2026-08-25
         paidParcelas: '[0]', // Apenas primeira parcela paga
-        status: 'PLANEJADO',
+        status: 'PLANEJADO', // Status do todo é PLANEJADO (não PAGO)
         recorrente: false,
         recorrenciaFim: null,
         createdAt: new Date('2026-08-01'),
@@ -281,9 +287,16 @@ describe('CategoryBudgetService', () => {
 
     const result = await service.progress(tenantId, projectId, '2026-08');
 
-    // Apenas a parcela 1 em agosto (15000 centavos)
+    // Gasto (pago): 15000 centavos (parcela 1)
+    // Comprometido (tudo): 30000 centavos (parcela 1 + parcela 2)
     expect(result).toEqual([
-      { tipoDespesa: 'ELETRONICO', limiteCents: 100000, gastoCents: 15000, pct: 15 },
+      {
+        tipoDespesa: 'ELETRONICO',
+        limiteCents: 100000,
+        gastoCents: 15000,
+        comprometidoCents: 30000,
+        pct: 15, // pct baseado em gastoCents (15000 / 100000)
+      },
     ]);
 
     jest.useRealTimers();

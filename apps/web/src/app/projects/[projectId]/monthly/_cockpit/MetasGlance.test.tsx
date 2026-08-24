@@ -4,7 +4,8 @@ import { MetasGlance } from './MetasGlance';
 import type { MetaProgress } from '../../metas/_components/MetaCategoriaCard';
 
 function progress(pct: number, tipo: string): MetaProgress {
-  return { tipoDespesa: tipo, limiteCents: 100_000, gastoCents: Math.round(1000 * pct), pct };
+  const gastoCents = Math.round(1000 * pct);
+  return { tipoDespesa: tipo, limiteCents: 100_000, gastoCents, comprometidoCents: gastoCents, pct };
 }
 
 describe('MetasGlance', () => {

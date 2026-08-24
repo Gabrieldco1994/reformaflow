@@ -6,7 +6,10 @@ import { metaProgressTone as tone } from '../_lib/metaTone';
 export interface MetaProgress {
   tipoDespesa: string;
   limiteCents: number;
+  /** Gasto real no mês (caixa): soma apenas das parcelas pagas */
   gastoCents: number;
+  /** Comprometido no mês: soma de todas as parcelas (pagas ou planejadas) */
+  comprometidoCents: number;
   pct: number;
 }
 

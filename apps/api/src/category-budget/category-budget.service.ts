@@ -14,7 +14,11 @@ import { UpsertCategoryBudgetDto } from './dto/category-budget.dto';
 export interface CategoryBudgetProgress {
   tipoDespesa: string;
   limiteCents: number;
+  /** Gasto real no mês (caixa): soma apenas das parcelas pagas */
   gastoCents: number;
+  /** Comprometido no mês: soma de todas as parcelas (pagas ou planejadas) */
+  comprometidoCents: number;
+  /** Percentual de uso do limite, baseado em gastoCents */
   pct: number;
 }
 
@@ -128,8 +132,11 @@ export class CategoryBudgetService {
     // Calcular o mês em BRT (não UTC)
     const { startBrt, endBrt } = monthRangeBrt(mes);
 
-    // Expandir despesas em parcelas e ocorrências, depois contar gasto no mês
-    const spentByType = new Map<string, number>();
+    // Expandir despesas em parcelas e ocorrências, depois contar:
+    // - gastoCents: apenas parcelas pagas (caixa real)
+    // - comprometidoCents: todas as parcelas do mês (pago + planejado)
+    const gastoByType = new Map<string, number>();
+    const comprometidoByType = new Map<string, number>();
 
     for (const expense of expenses) {
       if (isNeutralExpenseType(expense.tipoDespesa)) continue;
@@ -146,14 +153,24 @@ export class CategoryBudgetService {
           horizonEnd: endBrt,
         });
 
+        const fullyPaid = expense.status === 'PAGO';
+
         for (const occ of recurringOccurrences) {
           // Verificar se a ocorrência cai no mês solicitado (em BRT)
           const occDateBrt = localDateUtc(occ.data, 'America/Sao_Paulo');
           if (occDateBrt >= startBrt && occDateBrt < endBrt) {
-            spentByType.set(
+            // Comprometido: todas as ocorrências do mês
+            comprometidoByType.set(
               expense.tipoDespesa,
-              (spentByType.get(expense.tipoDespesa) ?? 0) + occ.valor,
+              (comprometidoByType.get(expense.tipoDespesa) ?? 0) + occ.valor,
             );
+            // Gasto: apenas se despesa inteira está paga
+            if (fullyPaid) {
+              gastoByType.set(
+                expense.tipoDespesa,
+                (gastoByType.get(expense.tipoDespesa) ?? 0) + occ.valor,
+              );
+            }
           }
         }
         continue;
@@ -178,20 +195,31 @@ export class CategoryBudgetService {
 
         // Verificar se a parcela cai no mês solicitado (em BRT)
         if (instDateBrt >= startBrt && instDateBrt < endBrt) {
-          spentByType.set(
+          // Comprometido: todas as parcelas do mês
+          comprometidoByType.set(
             expense.tipoDespesa,
-            (spentByType.get(expense.tipoDespesa) ?? 0) + inst.valor,
+            (comprometidoByType.get(expense.tipoDespesa) ?? 0) + inst.valor,
           );
+          // Gasto: apenas parcelas pagas (paidSet.has(i) ou fullyPaid)
+          const isPaid = fullyPaid || paidSet.has(i);
+          if (isPaid) {
+            gastoByType.set(
+              expense.tipoDespesa,
+              (gastoByType.get(expense.tipoDespesa) ?? 0) + inst.valor,
+            );
+          }
         }
       }
     }
 
     return Array.from(resolvedBudgets.values()).map((budget) => {
-      const gastoCents = spentByType.get(budget.tipoDespesa) ?? 0;
+      const gastoCents = gastoByType.get(budget.tipoDespesa) ?? 0;
+      const comprometidoCents = comprometidoByType.get(budget.tipoDespesa) ?? 0;
       return {
         tipoDespesa: budget.tipoDespesa,
         limiteCents: budget.valorLimiteCents,
         gastoCents,
+        comprometidoCents,
         pct: budget.valorLimiteCents > 0 ? Math.round((gastoCents / budget.valorLimiteCents) * 100) : 0,
       };
     });
