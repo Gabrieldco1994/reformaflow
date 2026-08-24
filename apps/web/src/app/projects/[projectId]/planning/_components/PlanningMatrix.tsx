@@ -127,7 +127,7 @@ export default function PlanningMatrix({
                     step={1}
                     value={Math.round((incomeByMonthCents[monthKey] ?? 0) / 100)}
                     onChange={(e) => onIncomeChange(monthKey, reaisToCents(Number(e.target.value)))}
-                    className="w-full rounded-lg border border-emerald-200 px-2 py-1.5 text-sm text-emerald-900 bg-white text-right"
+                    className="w-full min-h-11 rounded-lg border border-emerald-200 px-2 py-2 text-sm text-emerald-900 bg-white text-right"
                   />
                 </td>
               ))}
@@ -151,7 +151,7 @@ export default function PlanningMatrix({
                       onChange={(e) =>
                         onExpenseChange(monthKey, row.typeCode, reaisToCents(Number(e.target.value)))
                       }
-                      className="w-full rounded-lg border border-darc-linen px-2 py-1.5 text-sm text-darc-velvet bg-white text-right"
+                      className="w-full min-h-11 rounded-lg border border-darc-linen px-2 py-2 text-sm text-darc-velvet bg-white text-right"
                     />
                   </td>
                 ))}

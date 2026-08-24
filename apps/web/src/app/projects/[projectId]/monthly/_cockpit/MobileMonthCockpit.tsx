@@ -236,7 +236,7 @@ export default function MobileMonthCockpit({
         </Link>
         {/* "Maria percebeu" — insights por regra pura (sem IA nesta fase),
             derivados de dados já calculados. */}
-        <MariaStories insights={mariaInsights} />
+        <MariaStories projectId={projectId} insights={mariaInsights} />
 
         <MobileCockpitAccordion
           id="mobile-cockpit-consumption"

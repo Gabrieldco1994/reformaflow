@@ -346,6 +346,8 @@ No projeto **PESSOAL**, o atalho **"Maria"** da barra inferior abre o assistente
 financeiro em tela própria (chat em tela cheia no mobile).
 
 - Mostra abertura proativa com leitura do mês atual.
+- No cockpit mensal, o CTA **"Ver detalhes"** dos cards de "Maria percebeu" abre
+  a mesma tela **Maria** do projeto, para aprofundar o insight.
 - Pode ser aberta **já com uma pergunta pré-preenchida e enviada** a partir do
   onboarding (passo "Pergunte à Maria", ver §3.1c): o texto chega via
   sessionStorage e dispara uma única vez; abrir a Maria por qualquer outro
@@ -358,6 +360,8 @@ financeiro em tela própria (chat em tela cheia no mobile).
   já com o **saldo inicial** cadastrado da conta e a sua data de corte. Não há
   duas contas diferentes do mesmo dinheiro.
 - A ação **Editar** em sugestões abre o mesmo sheet de lançamento usado no app.
+- No desktop, ao abrir o painel flutuante, o conteúdo usa **reserva total 408px:
+  painel 384px + inset lateral 24px**; fechado, mantém o respiro padrão de 24px.
 - Também pode consultar monitoramento de preços (watchlist) e busca avulsa de preços por produto via chat/voz.
 - Também responde sobre manutenção de **CASA/CARRO/PLANTAS** (ex.: "quando foi
   a última troca de óleo?"), lendo os registros de manutenção do projeto —

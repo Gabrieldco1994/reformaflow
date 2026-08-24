@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { CreditCard, TrendingDown, TrendingUp } from "lucide-react";
 import { fmtMoney, fmtPct, mesCurto } from "./format";
 import type { MariaInsight } from "../_lib/insights";
@@ -62,8 +63,10 @@ function cardDetail(insight: MariaInsight): string {
 }
 
 export default function MariaStories({
+  projectId,
   insights,
 }: {
+  projectId: string;
   insights: MariaInsight[];
 }) {
   return (
@@ -106,12 +109,13 @@ export default function MariaStories({
                 <p className="mt-1 text-sm text-[var(--ck-muted)]">
                   {cardDetail(insight)}
                 </p>
-                <a
-                  href="#"
+                <Link
+                  href={`/projects/${projectId}/maria`}
+                  aria-label={`Ver detalhes de ${title}`}
                   className="mt-2 flex min-h-[44px] items-center text-sm font-semibold text-[var(--ck-accent)]"
                 >
                   Ver detalhes
-                </a>
+                </Link>
               </article>
             );
           })}
