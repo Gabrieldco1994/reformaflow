@@ -11,7 +11,7 @@ import {
   useState,
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import type { ProjectType, OnboardingFunding } from "@reformaflow/domain";
+import { ProjectType, type OnboardingFunding } from "@reformaflow/domain";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/auth-context";
 import {
@@ -108,21 +108,105 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function isActiveJourney(value: unknown): value is ActiveJourney {
+const PROJECT_TYPE_VALUES = new Set<string>(Object.values(ProjectType));
+
+function isProjectType(value: unknown): value is ProjectType {
+  return typeof value === "string" && PROJECT_TYPE_VALUES.has(value);
+}
+
+function isEligibleJourneyStep(value: unknown): value is EligibleJourneyStep {
   return (
     isRecord(value) &&
-    isRecord(value.journey) &&
-    Array.isArray(value.journey.steps) &&
-    typeof value.stepIndex === "number"
+    typeof value.stepKey === "string" &&
+    value.stepKey.length > 0 &&
+    typeof value.order === "number" &&
+    Number.isInteger(value.order) &&
+    value.order >= 0 &&
+    (value.experience === "SUMMARY" || value.experience === "FULL") &&
+    typeof value.label === "string" &&
+    (value.subtitle === null || typeof value.subtitle === "string") &&
+    typeof value.skippable === "boolean" &&
+    (value.enabled === undefined || typeof value.enabled === "boolean") &&
+    (value.blocked === undefined || typeof value.blocked === "boolean") &&
+    (value.slug === undefined || typeof value.slug === "string")
   );
+}
+
+function isRuntimeJourney(value: unknown): value is RuntimeJourney {
+  return (
+    isRecord(value) &&
+    typeof value.journeyId === "string" &&
+    typeof value.key === "string" &&
+    typeof value.name === "string" &&
+    typeof value.triggerId === "string" &&
+    typeof value.repeatPolicy === "string" &&
+    typeof value.dismissPolicy === "string" &&
+    typeof value.crossProject === "boolean" &&
+    Array.isArray(value.steps) &&
+    value.steps.length > 0 &&
+    value.steps.every(isEligibleJourneyStep)
+  );
+}
+
+function hasValidProjectContext(value: Record<string, unknown>): boolean {
+  return (
+    (value.projectId === undefined || typeof value.projectId === "string") &&
+    (value.projectType === undefined ||
+      value.projectType === null ||
+      isProjectType(value.projectType))
+  );
+}
+
+function isActiveJourney(value: unknown): value is ActiveJourney {
+  if (
+    !isRecord(value) ||
+    !isRuntimeJourney(value.journey) ||
+    typeof value.stepIndex !== "number" ||
+    !Number.isInteger(value.stepIndex) ||
+    !hasValidProjectContext(value)
+  ) {
+    return false;
+  }
+  return value.stepIndex >= 0 && value.stepIndex < value.journey.steps.length;
 }
 
 function isQueuedJourney(value: unknown): value is QueuedJourney {
   return (
     isRecord(value) &&
-    isRecord(value.journey) &&
-    Array.isArray(value.journey.steps)
+    isRuntimeJourney(value.journey) &&
+    hasValidProjectContext(value)
   );
+}
+
+function journeyInstanceKey(entry: {
+  journey: Pick<RuntimeJourney, "key">;
+  projectId?: string;
+}): string {
+  return JSON.stringify([entry.journey.key, entry.projectId ?? null]);
+}
+
+function isJourneySnapshot(value: unknown): value is JourneySnapshot {
+  if (
+    !isRecord(value) ||
+    !isRecord(value.owner) ||
+    typeof value.owner.userId !== "string" ||
+    value.owner.userId.length === 0 ||
+    typeof value.owner.tenantId !== "string" ||
+    value.owner.tenantId.length === 0 ||
+    !isActiveJourney(value.active) ||
+    !Array.isArray(value.queue) ||
+    !value.queue.every(isQueuedJourney)
+  ) {
+    return false;
+  }
+
+  const seen = new Set([journeyInstanceKey(value.active)]);
+  for (const queued of value.queue) {
+    const key = journeyInstanceKey(queued);
+    if (seen.has(key)) return false;
+    seen.add(key);
+  }
+  return true;
 }
 
 function readStored(): JourneySnapshot | null {
@@ -131,18 +215,7 @@ function readStored(): JourneySnapshot | null {
     const raw = window.sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
-    if (
-      !isRecord(parsed) ||
-      !isRecord(parsed.owner) ||
-      typeof parsed.owner.userId !== "string" ||
-      typeof parsed.owner.tenantId !== "string" ||
-      !isActiveJourney(parsed.active) ||
-      !Array.isArray(parsed.queue) ||
-      !parsed.queue.every(isQueuedJourney)
-    ) {
-      return null;
-    }
-    return parsed as unknown as JourneySnapshot;
+    return isJourneySnapshot(parsed) ? parsed : null;
   } catch {
     return null;
   }
@@ -176,6 +249,8 @@ export function JourneyRuntimeProvider({
   const emittedScreenVisit = useRef<string | null>(null);
   const pendingEmit = useRef<JourneyEligibilityContext[] | null>(null);
   const runtimeOwner = useRef<string | null>(null);
+  const eligibilityGeneration = useRef(0);
+  const projectListGeneration = useRef(0);
   const currentUserId = user?.id;
   const currentTenantId = user?.tenantId;
   const currentOwner =
@@ -192,9 +267,10 @@ export function JourneyRuntimeProvider({
   // (persistência e SCREEN_VISIT), sem divergir do HTML produzido no servidor.
   useLayoutEffect(() => {
     if (authLoading) return;
-    let cancelled = false;
     const previousOwner = runtimeOwner.current;
     runtimeOwner.current = currentOwner;
+    eligibilityGeneration.current += 1;
+    projectListGeneration.current += 1;
 
     setActive(null);
     setQueue([]);
@@ -230,19 +306,6 @@ export function JourneyRuntimeProvider({
     setActive(stored.active);
     setQueue(stored.queue);
     setRestoredOwner(currentOwner);
-    if (stored.active.journey.crossProject) {
-      void listJourneyProjects()
-        .then((items) => {
-          if (!cancelled) setProjects(items);
-        })
-        .catch(() => {
-          if (!cancelled) setProjects([]);
-        });
-    }
-
-    return () => {
-      cancelled = true;
-    };
   }, [authLoading, currentOwner, currentTenantId, currentUserId]);
 
   useEffect(() => {
@@ -261,6 +324,35 @@ export function JourneyRuntimeProvider({
     );
   }, [active, currentTenantId, currentUserId, queue, restored]);
 
+  const activeProjectContext = active
+    ? JSON.stringify([
+        active.journey.journeyId,
+        active.journey.triggerId,
+        active.journey.key,
+      ])
+    : null;
+  const activeCrossProject = active?.journey.crossProject === true;
+
+  // Uma única fonte para projetos cross-project: restauração, primeira
+  // ativação e promoção da fila passam por esta mesma troca de `active`.
+  useEffect(() => {
+    const requestGeneration = ++projectListGeneration.current;
+    setProjects([]);
+    if (!restored || !currentOwner || !activeCrossProject) return;
+    const requestOwner = currentOwner;
+    const isCurrentRequest = () =>
+      runtimeOwner.current === requestOwner &&
+      projectListGeneration.current === requestGeneration;
+
+    void listJourneyProjects()
+      .then((items) => {
+        if (isCurrentRequest()) setProjects(items);
+      })
+      .catch(() => {
+        if (isCurrentRequest()) setProjects([]);
+      });
+  }, [activeCrossProject, activeProjectContext, currentOwner, restored]);
+
   // Gatilho emitido ANTES de a autenticação resolver não pode ser descartado:
   // no cadastro, `emit` é chamado de dentro de um `handleSubmit` cujo closure
   // ainda enxerga `user === null` (o `setUser` do `register()` só chega no
@@ -276,6 +368,10 @@ export function JourneyRuntimeProvider({
         return;
       }
       const requestOwner = currentOwner;
+      const requestGeneration = ++eligibilityGeneration.current;
+      const isCurrentRequest = () =>
+        runtimeOwner.current === requestOwner &&
+        eligibilityGeneration.current === requestGeneration;
       pendingEmit.current = null;
       setLoading(true);
       setError(null);
@@ -303,7 +399,7 @@ export function JourneyRuntimeProvider({
             }));
           }),
         );
-        if (runtimeOwner.current !== requestOwner) return;
+        if (!isCurrentRequest()) return;
 
         const seen = new Set<string>();
         const entries: QueuedJourney[] = [];
@@ -312,7 +408,7 @@ export function JourneyRuntimeProvider({
           if (completedKeys.current.has(entry.journey.key)) continue;
           // Chave por jornada E projeto: dois projetos do mesmo tipo têm cada
           // um a sua jornada (repeatPolicy é ONCE_PER_PROJECT).
-          const dedupeKey = `${entry.journey.key}:${entry.projectId ?? ""}`;
+          const dedupeKey = journeyInstanceKey(entry);
           if (seen.has(dedupeKey)) continue;
           seen.add(dedupeKey);
           entries.push(entry);
@@ -320,15 +416,6 @@ export function JourneyRuntimeProvider({
 
         const [first] = entries;
         if (first) {
-          if (first.journey.crossProject) {
-            void listJourneyProjects()
-              .then((items) => {
-                if (runtimeOwner.current === requestOwner) setProjects(items);
-              })
-              .catch(() => {
-                if (runtimeOwner.current === requestOwner) setProjects([]);
-              });
-          }
           setActive({
             journey: first.journey,
             stepIndex: 0,
@@ -338,7 +425,7 @@ export function JourneyRuntimeProvider({
           setQueue(entries.slice(1));
         }
       } catch (cause) {
-        if (runtimeOwner.current !== requestOwner) return;
+        if (!isCurrentRequest()) return;
         const message =
           cause instanceof Error
             ? cause.message
@@ -346,7 +433,7 @@ export function JourneyRuntimeProvider({
         setError(message);
         toast.error(message);
       } finally {
-        if (runtimeOwner.current === requestOwner) setLoading(false);
+        if (isCurrentRequest()) setLoading(false);
       }
     },
     [active, authLoading, currentOwner, user],

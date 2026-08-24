@@ -59,6 +59,19 @@ function Fixture() {
       >
         Criar projeto
       </button>
+      {["p1", "p2"].map((projectId) => (
+        <button
+          key={projectId}
+          type="button"
+          onClick={() =>
+            void runtime.emitProjectsCreated([
+              { id: projectId, type: ProjectType.PESSOAL },
+            ])
+          }
+        >
+          Criar {projectId}
+        </button>
+      ))}
       <button
         type="button"
         onClick={() =>
@@ -134,6 +147,28 @@ function resumableActive(
     },
     stepIndex: 0,
     projectId: overrides.projectId ?? "current",
+  };
+}
+
+function eligibleJourney(name: string, crossProject = false) {
+  return {
+    journeyId: `j-${name}`,
+    key: `tour:${name}`,
+    name,
+    triggerId: `t-${name}`,
+    repeatPolicy: "ALWAYS",
+    dismissPolicy: "DISMISS_UNTIL_LOGIN",
+    crossProject,
+    steps: [
+      {
+        stepKey: "feedback",
+        order: 0,
+        experience: "SUMMARY",
+        label: name,
+        subtitle: "Resumo",
+        skippable: true,
+      },
+    ],
   };
 }
 
@@ -416,6 +451,68 @@ describe("JourneyRuntimeProvider", () => {
     removeItem.mockRestore();
   });
 
+  it.each([
+    [
+      "an out-of-range step index",
+      () => ({
+        active: { ...resumableActive(), stepIndex: 99 },
+        queue: [],
+      }),
+    ],
+    [
+      "an invalid step field",
+      () => {
+        const active = resumableActive();
+        return {
+          active: {
+            ...active,
+            journey: {
+              ...active.journey,
+              steps: [{ ...active.journey.steps[0], skippable: "yes" }],
+            },
+          },
+          queue: [],
+        };
+      },
+    ],
+    [
+      "the active journey duplicated in the queue",
+      () => {
+        const active = resumableActive();
+        return {
+          active,
+          queue: [
+            {
+              journey: active.journey,
+              projectId: active.projectId,
+            },
+          ],
+        };
+      },
+    ],
+  ])("discards a snapshot with %s", async (_case, makeSnapshot) => {
+    const snapshot = makeSnapshot();
+    storeRuntime(snapshot.active, snapshot.queue);
+
+    renderRuntime();
+
+    await waitFor(() =>
+      expect(sessionStorage.getItem("lifeone:journey-runtime")).toBeNull(),
+    );
+    expect(screen.queryByTestId("active")).not.toBeInTheDocument();
+  });
+
+  it("discards a syntactically malformed snapshot JSON", async () => {
+    sessionStorage.setItem("lifeone:journey-runtime", "{");
+
+    renderRuntime();
+
+    await waitFor(() =>
+      expect(sessionStorage.getItem("lifeone:journey-runtime")).toBeNull(),
+    );
+    expect(screen.queryByTestId("active")).not.toBeInTheDocument();
+  });
+
   it("waits for auth and discards a snapshot owned by another account", async () => {
     storeRuntime(resumableActive());
     mocks.user = null;
@@ -517,6 +614,119 @@ describe("JourneyRuntimeProvider", () => {
           ],
         },
       ]);
+      await eligibility;
+    });
+
+    expect(screen.queryByTestId("active")).not.toBeInTheDocument();
+    expect(sessionStorage.getItem("lifeone:journey-runtime")).toBeNull();
+  });
+
+  it("keeps the latest project eligibility when an older request resolves last", async () => {
+    const deferred = new Map<
+      string,
+      {
+        promise: Promise<unknown[]>;
+        resolve: (journeys: unknown[]) => void;
+      }
+    >();
+    for (const projectId of ["p1", "p2"]) {
+      let resolve!: (journeys: unknown[]) => void;
+      deferred.set(projectId, {
+        promise: new Promise<unknown[]>((done) => {
+          resolve = done;
+        }),
+        resolve: (journeys) => resolve(journeys),
+      });
+    }
+    mocks.apiGet.mockImplementation((path: string) => {
+      const url = new URL(`http://localhost${path}`);
+      const projectId = url.searchParams.get("projectId");
+      if (
+        url.searchParams.get("triggerType") === "PROJECT_CREATED" &&
+        projectId
+      ) {
+        return deferred.get(projectId)!.promise;
+      }
+      if (path === "/projects/p1" || path === "/projects/p2") {
+        return Promise.resolve({ type: "PESSOAL" });
+      }
+      return Promise.resolve([]);
+    });
+    renderRuntime();
+
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "Criar p1" }));
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "Criar p2" }));
+    await waitFor(() =>
+      expect(
+        mocks.apiGet.mock.calls.filter((call) =>
+          String(call[0]).includes("triggerType=PROJECT_CREATED"),
+        ),
+      ).toHaveLength(2),
+    );
+
+    await act(async () => {
+      deferred.get("p2")!.resolve([eligibleJourney("P2")]);
+      await deferred.get("p2")!.promise;
+    });
+    expect(await screen.findByTestId("active")).toHaveTextContent("P2:0");
+    expect(screen.getByTestId("active-project")).toHaveTextContent("p2");
+
+    await act(async () => {
+      deferred.get("p1")!.resolve([eligibleJourney("P1")]);
+      await deferred.get("p1")!.promise;
+    });
+    expect(screen.getByTestId("active")).toHaveTextContent("P2:0");
+    expect(screen.getByTestId("active-project")).toHaveTextContent("p2");
+  });
+
+  it("invalidates eligibility across logout and login of the same account", async () => {
+    let resolveEligibility!: (journeys: unknown[]) => void;
+    const eligibility = new Promise<unknown[]>((resolve) => {
+      resolveEligibility = resolve;
+    });
+    mocks.apiGet.mockImplementation((path: string) => {
+      const url = new URL(`http://localhost${path}`);
+      if (url.searchParams.get("triggerType") === "PROJECT_CREATED") {
+        return eligibility;
+      }
+      if (path === "/projects/p1") {
+        return Promise.resolve({ type: "PESSOAL" });
+      }
+      return Promise.resolve([]);
+    });
+    const { rerender } = renderRuntime();
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "Criar p1" }));
+    await waitFor(() =>
+      expect(mocks.apiGet).toHaveBeenCalledWith(
+        expect.stringContaining("triggerType=PROJECT_CREATED"),
+      ),
+    );
+
+    mocks.user = null;
+    rerender(
+      <JourneyRuntimeProvider>
+        <main data-testid="page-main">
+          <Fixture />
+        </main>
+      </JourneyRuntimeProvider>,
+    );
+    mocks.user = { id: "u1", tenantId: "tenant-1" };
+    rerender(
+      <JourneyRuntimeProvider>
+        <main data-testid="page-main">
+          <Fixture />
+        </main>
+      </JourneyRuntimeProvider>,
+    );
+
+    await act(async () => {
+      resolveEligibility([eligibleJourney("Sessão anterior")]);
       await eligibility;
     });
 
@@ -1009,7 +1219,7 @@ describe("JourneyRuntimeProvider", () => {
   // jornada: antes ela guardava só a jornada e a segunda herdava o projectId
   // da primeira, abrindo no projeto errado.
   describe("uma jornada por projeto criado", () => {
-    function journeyFor(type: string, id: string) {
+    function journeyFor(type: string, id: string, crossProject = false) {
       return {
         journeyId: `j-${type}`,
         key: `onboarding:${type}`,
@@ -1017,7 +1227,7 @@ describe("JourneyRuntimeProvider", () => {
         triggerId: `t-${type}`,
         repeatPolicy: "ONCE_PER_PROJECT",
         dismissPolicy: "DISMISS_UNTIL_LOGIN",
-        crossProject: false,
+        crossProject,
         steps: [
           {
             stepKey: "feedback",
@@ -1080,6 +1290,50 @@ describe("JourneyRuntimeProvider", () => {
         ),
       );
       expect(screen.getByTestId("active-project")).toHaveTextContent("p-casa");
+    });
+
+    it("loads project choices when the next queued journey is cross-project", async () => {
+      mocks.apiGet.mockImplementation((path: string) => {
+        if (path === "/projects") {
+          return Promise.resolve([
+            { id: "p-reforma", name: "Reforma", type: "REFORMA" },
+            { id: "p-casa", name: "Casa", type: "CASA" },
+          ]);
+        }
+        const params = new URL(`http://localhost${path}`).searchParams;
+        if (params.get("triggerType") !== "PROJECT_CREATED") {
+          return Promise.resolve([]);
+        }
+        const projectId = params.get("projectId") ?? "";
+        const type = params.get("projectType") ?? "";
+        return Promise.resolve([
+          journeyFor(type, projectId, projectId === "p-casa"),
+        ]);
+      });
+      renderRuntime();
+      await userEvent
+        .setup()
+        .click(screen.getByRole("button", { name: "Criar dois projetos" }));
+      await waitFor(() =>
+        expect(screen.getByTestId("active")).toHaveTextContent(
+          "Onboarding REFORMA:0",
+        ),
+      );
+      expect(mocks.apiGet).not.toHaveBeenCalledWith("/projects");
+
+      await userEvent.setup().click(
+        within(screen.getByTestId("active")).getByRole("button", {
+          name: "Continuar",
+        }),
+      );
+
+      expect(await screen.findByTestId("active")).toHaveTextContent(
+        "Onboarding CASA:0",
+      );
+      expect(mocks.apiGet).toHaveBeenCalledWith("/projects");
+      expect(
+        await screen.findByRole("combobox", { name: "Projeto da jornada" }),
+      ).toBeInTheDocument();
     });
 
     it("restores the remaining project journey after the provider remounts", async () => {
