@@ -261,12 +261,20 @@ export class CategoryBudgetService {
 }
 
 /**
- * Calcula o intervalo de um mês em BRT (America/Sao_Paulo).
- * Retorna datas em UTC que representam meia-noite BRT dos limites.
+ * Gera os limites de um mês como "dia-calendário" BRT, na mesma convenção
+ * que `localDateUtc()` usa para normalizar datas de parcelas.
+ *
+ * Não faz conversão real de fuso horário: cria marcadores de "dia-calendário"
+ * (ano-mês-dia sem componente de hora) codificados como meia-noite UTC.
+ * A comparação com datas de parcela funciona porque AMBOS os lados (limites
+ * do mês e datas das parcelas expandidas) usam a mesma convenção.
  *
  * Exemplo: '2026-08' retorna:
- * - startBrt: 2026-08-01T00:00:00Z (meia-noite BRT do dia 1 = 03:00 UTC)
- * - endBrt: 2026-09-01T00:00:00Z (meia-noite BRT do dia 1 de setembro)
+ * - startBrt: 2026-08-01T00:00:00Z (dia 1 de agosto em BRT)
+ * - endBrt: 2026-09-01T00:00:00Z (dia 1 de setembro em BRT)
+ *
+ * Ambas são representadas como meia-noite UTC para usar como limite de intervalo
+ * semi-aberto [startBrt, endBrt).
  */
 function monthRangeBrt(mes: string) {
   const [yearRaw, monthRaw] = mes.split('-');
@@ -276,8 +284,9 @@ function monthRangeBrt(mes: string) {
     throw new BadRequestException('Mês deve estar no formato YYYY-MM');
   }
 
-  // Criar datas "de calendário" em BRT (meia-noite BRT = Date.UTC)
-  // Ex.: 2026-08-01 em BRT é representado como 2026-08-01T00:00:00Z
+  // Criar marcadores de "dia-calendário" em BRT: ano-mês-dia codificado
+  // como meia-noite UTC, mesma convenção que `localDateUtc()` do @reformaflow/domain
+  // Ex.: 2026-08-01 em BRT → 2026-08-01T00:00:00Z (intervalo [start, end))
   const startBrt = new Date(Date.UTC(year, month - 1, 1));
   const endBrt = new Date(Date.UTC(year, month, 1));
 
