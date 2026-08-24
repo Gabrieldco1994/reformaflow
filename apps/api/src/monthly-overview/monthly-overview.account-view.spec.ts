@@ -3629,8 +3629,9 @@ describe("MonthlyOverviewService.getAccountView — Carteira (origem='none')", (
     ]);
     expect(res.saiuMes).toBe(1_000);
     expect(res.faltaPagarMes).toBe(1_000);
-    expect(res.carteiraHoje).toBe(-1_000);
-    expect(res.carteiraHoje).toBe(-res.saiuMes);
+    // A ocorrência explicitamente paga continua no fluxo de julho, mas não no
+    // saldo pontual da Carteira enquanto sua data ainda for futura.
+    expect(res.carteiraHoje).toBe(0);
   });
 
   it("mantém parcelado local sem dataInicioParcela no mês histórico de dataPagamento", async () => {

@@ -154,6 +154,23 @@ describe('MonthlyOverviewService.getCaixaConta — delegador público do §10 (c
         tipoDespesa: 'ALIMENTACAO',
         settledByExpenseId: null,
       },
+      {
+        valorTotal: 6_000,
+        status: 'PLANEJADO',
+        formaPagamento: 'PARCELADO',
+        quantidadeParcela: 2,
+        dataPagamento: null,
+        dataInicioParcela: D('2026-07-01'),
+        dataCompra: null,
+        paidParcelas: '[0]',
+        installmentDateOverrides: null,
+        createdAt: today,
+        cardLast4: null,
+        bankLast4: null,
+        importId: null,
+        tipoDespesa: 'ALIMENTACAO',
+        settledByExpenseId: null,
+      },
     ]);
     prisma.receipt.findMany.mockResolvedValue([
       {

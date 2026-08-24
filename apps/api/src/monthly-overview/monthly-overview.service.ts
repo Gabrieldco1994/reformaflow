@@ -101,7 +101,6 @@ interface CarteiraOccurrence {
   valor: number;
   status: string;
   realizado: boolean;
-  explicitlyPaid: boolean;
   parcelaIndex: number | null;
 }
 
@@ -230,10 +229,7 @@ export class MonthlyOverviewService {
 
     const carteiraHoje =
       sumBy(
-        localCarteiraOccurrences.filter(
-          ({ realizado, explicitlyPaid, data }) =>
-            realizado && (data <= today || explicitlyPaid),
-        ),
+        localCarteiraOccurrences.filter(({ realizado, data }) => realizado && data <= today),
         ({ valor }) => -valor,
       ) +
       sumBy(
@@ -260,7 +256,6 @@ export class MonthlyOverviewService {
           valor: expense.valorTotal,
           status: realizado ? 'PAGO' : expense.status,
           realizado,
-          explicitlyPaid: false,
           parcelaIndex: null,
         },
       ];
@@ -283,7 +278,6 @@ export class MonthlyOverviewService {
         valor: installment.valor,
         status: realizado ? 'PAGO' : 'PLANEJADO',
         realizado,
-        explicitlyPaid: paidParcelas.has(index),
         parcelaIndex: index as number | null,
       };
     });
