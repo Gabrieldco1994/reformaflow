@@ -12,10 +12,7 @@ const apiMocks = vi.hoisted(() => ({
   patch: vi.fn(),
 }));
 
-vi.mock("@/lib/api", () => ({
-  api: apiMocks,
-}));
-
+vi.mock("@/lib/api", () => ({ api: apiMocks }));
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
@@ -130,7 +127,7 @@ describe("ReceitaModal", () => {
   ])(
     "mantém os CTAs de $mode com altura mínima de 44px",
     ({ editingReceipt, submitLabel }) => {
-      renderModal(editingReceipt);
+      const { unsubscribe } = renderModal(editingReceipt);
 
       expect(screen.getByRole("button", { name: "Cancelar" })).toHaveClass(
         "min-h-11",
@@ -138,6 +135,8 @@ describe("ReceitaModal", () => {
       expect(screen.getByRole("button", { name: submitLabel })).toHaveClass(
         "min-h-11",
       );
+
+      unsubscribe();
     },
   );
 });
