@@ -174,7 +174,15 @@ export function KpiTile({
           />
         )}
       </div>
-      <p className={`${mobileCompact ? 'mt-1 md:mt-2' : 'mt-2'} font-geist tabular-nums font-bold tracking-tight leading-tight ${valueSize} ${valueColor}`}>
+      <p
+        data-kpi-value={plainText(label) || undefined}
+        // `whitespace-nowrap`: valor monetário nunca quebra (contrato do
+        // AGENTS.md). Sem isso o sinal `-` fica órfão numa linha só dele e um
+        // saldo negativo é lido como positivo (#588). Quem acomoda a largura é
+        // a grade da faixa (container query, ver .kpi-band em globals.css) —
+        // aqui nunca `truncate`/`overflow:hidden`, que esconderia dígito.
+        className={`${mobileCompact ? 'mt-1 md:mt-2' : 'mt-2'} whitespace-nowrap font-geist tabular-nums font-bold tracking-tight leading-tight ${valueSize} ${valueColor}`}
+      >
         {value}
       </p>
       {delta && (
