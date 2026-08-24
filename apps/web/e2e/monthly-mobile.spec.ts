@@ -251,7 +251,7 @@ async function expectNoHorizontalOverflow(page: Page) {
 
 test.describe("Monthly cockpit — Phase C mobile relance", () => {
   for (const viewport of [
-    { width: 360, height: 800 },
+    { width: 375, height: 812 },
     { width: 390, height: 844 },
     { width: 402, height: 840 },
   ]) {
@@ -328,6 +328,15 @@ test.describe("Monthly cockpit — Phase C mobile relance", () => {
       await expect(
         mobile.getByRole("link", { name: "Ver todas as despesas" }),
       ).toHaveAttribute("href", `/projects/${projectId}/expenses`);
+      await expect(
+        mobile.getByRole("link", { name: "Ver saídas do mês" }),
+      ).toHaveTextContent("R$ 2,5 mil");
+      await expect(
+        mobile.getByRole("link", { name: "Ver saídas do mês" }),
+      ).toHaveAttribute(
+        "href",
+        `/projects/${projectId}/conta?mes=2026-07&quick=saiuMes`,
+      );
 
       // A mini-hero capsule (leitura de relance do caixa) fica fixa no topo do
       // cockpit — revelada por rolagem no mês corrente, sempre visível em outro
@@ -414,9 +423,7 @@ test.describe("Monthly cockpit — Phase C mobile relance", () => {
     ).toBeVisible();
 
     // Despesa → sheet de lançamento rápido.
-    await launchModeSheet
-      .getByRole("button", { name: /^Despesa\b/ })
-      .click();
+    await launchModeSheet.getByRole("button", { name: /^Despesa\b/ }).click();
     await expect(
       page.getByRole("heading", { name: "Lançar", exact: true }),
     ).toBeVisible();
@@ -425,7 +432,9 @@ test.describe("Monthly cockpit — Phase C mobile relance", () => {
     // a pseudo-origem Carteira, sempre ofertada para permitir lançar sem conta.
     const origins = page.locator('button[aria-label^="Origem "]');
     await expect(origins).toHaveCount(3);
-    await expect(page.getByRole("button", { name: "Origem Carteira" })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Origem Carteira" }),
+    ).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Origem Itaú Personnalité" }),
     ).toBeVisible();

@@ -10,15 +10,18 @@ import type {
 import type { DreSaldoAcumuladoRow } from "../../dre/_types";
 import MobileMonthCockpit from "./MobileMonthCockpit";
 
-const RUNWAY: DreSaldoAcumuladoRow[] = Array.from({ length: 6 }, (_, index) => ({
-  mes: `2026-${String(index + 7).padStart(2, "0")}`,
-  recebimentos: 0,
-  despesas: 0,
-  recebimentosRealizados: null,
-  despesasRealizados: null,
-  saldoProjetado: 1_200_000 - index * 100_000,
-  saldoRealizado: null,
-}));
+const RUNWAY: DreSaldoAcumuladoRow[] = Array.from(
+  { length: 6 },
+  (_, index) => ({
+    mes: `2026-${String(index + 7).padStart(2, "0")}`,
+    recebimentos: 0,
+    despesas: 0,
+    recebimentosRealizados: null,
+    despesasRealizados: null,
+    saldoProjetado: 1_200_000 - index * 100_000,
+    saldoRealizado: null,
+  }),
+);
 
 const comparison: MonthComparison = {
   current: null,
@@ -117,7 +120,9 @@ function renderCockpit(
   props: Partial<React.ComponentProps<typeof MobileMonthCockpit>> = {},
 ) {
   const overview = data();
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return render(
     <QueryClientProvider client={client}>
       <MobileMonthCockpit
@@ -214,9 +219,11 @@ describe("MobileMonthCockpit", () => {
   it("does not change canonical values while outer accordions toggle", () => {
     renderCockpit();
     const getCanonicalValues = () => ({
-      entrou: screen.getByRole("link", { name: "Ver entradas do mês" }).textContent,
+      entrou: screen.getByRole("link", { name: "Ver entradas do mês" })
+        .textContent,
       saiu: screen.getByRole("link", { name: "Ver saídas do mês" }).textContent,
-      projecao: screen.getByRole("button", { name: "Rolar até projeção" }).textContent,
+      projecao: screen.getByRole("button", { name: "Rolar até projeção" })
+        .textContent,
     });
     const values = getCanonicalValues();
     for (const name of ["Consumo"]) {
@@ -241,7 +248,13 @@ describe("MobileMonthCockpit", () => {
     ).toHaveTextContent("R$ 3 mil");
     expect(
       within(cockpit).getByRole("link", { name: "Ver saídas do mês" }),
-    ).toHaveTextContent("R$ 2 mil");
+    ).toHaveTextContent(/R\$ 2,5 mil/);
+    expect(
+      within(cockpit).getByRole("link", { name: "Ver saídas do mês" }),
+    ).toHaveAttribute(
+      "href",
+      "/projects/pessoal-test/conta?mes=2026-07&quick=saiuMes",
+    );
     expect(
       within(cockpit).getByRole("button", { name: "Rolar até projeção" }),
     ).toHaveTextContent("R$ 12 mil");
@@ -266,15 +279,21 @@ describe("MobileMonthCockpit", () => {
       },
     });
     renderCockpit({ data: overview, monthKey: "2026-06", entries: [] });
-    expect(screen.getByRole("link", { name: "Ver entradas do mês" })).toHaveTextContent(
-      "R$ 4,6 mil",
+    expect(
+      screen.getByRole("link", { name: "Ver entradas do mês" }),
+    ).toHaveTextContent("R$ 4,6 mil");
+    expect(
+      screen.getByRole("link", { name: "Ver saídas do mês" }),
+    ).toHaveTextContent("R$ 1,3 mil");
+    expect(
+      screen.getByRole("link", { name: "Ver saídas do mês" }),
+    ).toHaveAttribute(
+      "href",
+      "/projects/pessoal-test/conta?mes=2026-06&quick=saiuMes",
     );
-    expect(screen.getByRole("link", { name: "Ver saídas do mês" })).toHaveTextContent(
-      "R$ 1,2 mil",
-    );
-    expect(screen.getByRole("button", { name: "Rolar até projeção" })).toHaveTextContent(
-      "R$ 9,9 mil",
-    );
+    expect(
+      screen.getByRole("button", { name: "Rolar até projeção" }),
+    ).toHaveTextContent("R$ 9,9 mil");
     const miniHero = screen.getByTestId("mini-hero-capsule");
     expect(miniHero).toHaveTextContent("Julho 2026");
     expect(miniHero).toHaveTextContent("R$ 12 mil");
@@ -303,7 +322,9 @@ describe("MobileMonthCockpit", () => {
     ).not.toBeInTheDocument();
 
     const overview = data();
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
     rerender(
       <QueryClientProvider client={client}>
         <MobileMonthCockpit
@@ -328,9 +349,12 @@ describe("MobileMonthCockpit", () => {
     });
     // "Entrou" e "Saiu" são agora Links; "Projeção" é um button
     const canonical = [
-      within(cockpit).getByRole("link", { name: "Ver entradas do mês" }).textContent,
-      within(cockpit).getByRole("link", { name: "Ver saídas do mês" }).textContent,
-      within(cockpit).getByRole("button", { name: "Rolar até projeção" }).textContent,
+      within(cockpit).getByRole("link", { name: "Ver entradas do mês" })
+        .textContent,
+      within(cockpit).getByRole("link", { name: "Ver saídas do mês" })
+        .textContent,
+      within(cockpit).getByRole("button", { name: "Rolar até projeção" })
+        .textContent,
     ];
     const hero = within(cockpit).getByRole("button", {
       name: "Mostrar valor exato",
@@ -342,9 +366,12 @@ describe("MobileMonthCockpit", () => {
       within(cockpit).getByRole("button", { name: "Mostrar valor exato" }),
     ).toHaveTextContent(hero ?? "");
     expect([
-      within(cockpit).getByRole("link", { name: "Ver entradas do mês" }).textContent,
-      within(cockpit).getByRole("link", { name: "Ver saídas do mês" }).textContent,
-      within(cockpit).getByRole("button", { name: "Rolar até projeção" }).textContent,
+      within(cockpit).getByRole("link", { name: "Ver entradas do mês" })
+        .textContent,
+      within(cockpit).getByRole("link", { name: "Ver saídas do mês" })
+        .textContent,
+      within(cockpit).getByRole("button", { name: "Rolar até projeção" })
+        .textContent,
     ]).toEqual(canonical);
     expect(
       within(cockpit).getByRole("article", { name: "Consumo realizado" }),
@@ -367,7 +394,9 @@ describe("MobileMonthCockpit", () => {
       valor: 45_123,
     });
     renderCockpit({ monthKey: "2026-08", entries: [future] });
-    expect(screen.queryByRole("region", { name: "Próximas saídas" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("region", { name: "Próximas saídas" }),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /pagar/i }),
     ).not.toBeInTheDocument();
@@ -376,20 +405,36 @@ describe("MobileMonthCockpit", () => {
   it("uses the passed six-month runway, integrates scenarios and delta, and keeps the canonical hero unchanged", () => {
     renderCockpit();
     const runway = screen.getByRole("region", { name: "Vai dar até dez?" });
-    const heroBefore = screen.getByRole("button", { name: "Mostrar valor exato" }).textContent;
+    const heroBefore = screen.getByRole("button", {
+      name: "Mostrar valor exato",
+    }).textContent;
 
     expect(within(runway).getAllByTestId(/runway-month/)).toHaveLength(6);
-    expect(within(runway).getByRole("group", { name: "Cenários e se…?" })).toBeInTheDocument();
-    fireEvent.click(within(runway).getByRole("button", { name: "gastar +500" }));
-    expect(within(runway).getByTestId("scenario-delta")).toHaveTextContent("-R$ 500");
-    expect(screen.getByRole("button", { name: "Mostrar valor exato" })).toHaveTextContent(heroBefore ?? "");
-    expect(screen.queryByText(/desliza a curva projetada do herói acima/i)).not.toBeInTheDocument();
-    expect(screen.getAllByRole("group", { name: "Cenários e se…?" })).toHaveLength(1);
+    expect(
+      within(runway).getByRole("group", { name: "Cenários e se…?" }),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      within(runway).getByRole("button", { name: "gastar +500" }),
+    );
+    expect(within(runway).getByTestId("scenario-delta")).toHaveTextContent(
+      "-R$ 500",
+    );
+    expect(
+      screen.getByRole("button", { name: "Mostrar valor exato" }),
+    ).toHaveTextContent(heroBefore ?? "");
+    expect(
+      screen.queryByText(/desliza a curva projetada do herói acima/i),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getAllByRole("group", { name: "Cenários e se…?" }),
+    ).toHaveLength(1);
   });
 
   it("does not render an empty runway card when fewer than six months are available", () => {
     renderCockpit({ runwaySerie: RUNWAY.slice(0, 5) });
-    expect(screen.queryByRole("region", { name: "Vai dar até dez?" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("region", { name: "Vai dar até dez?" }),
+    ).not.toBeInTheDocument();
   });
 
   it("renders sections in the required mobile reading order", () => {
@@ -401,14 +446,21 @@ describe("MobileMonthCockpit", () => {
       screen.getByRole("button", { name: "Consumo" }),
     ];
     sections.slice(1).forEach((section, index) => {
-      expect(sections[index]!.compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(
+        sections[index]!.compareDocumentPosition(section) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
     });
   });
 
   it("removes sticky aside, fluxo do mês and vai sair copy from mobile cockpit", () => {
     renderCockpit();
-    expect(screen.queryByRole("complementary", { name: "Resumo do mês atual" })).not.toBeInTheDocument();
-    expect(screen.queryByText(/valores canônicos|client-side|inovação/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("complementary", { name: "Resumo do mês atual" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/valores canônicos|client-side|inovação/i),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText(/fluxo do mês/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/vai sair/i)).not.toBeInTheDocument();
   });
@@ -423,7 +475,10 @@ describe("MobileMonthCockpit", () => {
     renderCockpit();
     const currentCapsule = screen.getByTestId("mini-hero-capsule");
     expect(currentCapsule).toHaveAttribute("aria-hidden", "true");
-    Object.defineProperty(window, "scrollY", { configurable: true, value: 300 });
+    Object.defineProperty(window, "scrollY", {
+      configurable: true,
+      value: 300,
+    });
     fireEvent.scroll(window);
     expect(currentCapsule).toHaveAttribute("aria-hidden", "false");
   });

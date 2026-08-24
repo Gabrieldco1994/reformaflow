@@ -29,8 +29,8 @@ const CARDS: Record<
   },
   saiuMes: {
     title: 'Saiu no mês',
-    help: 'tudo que já foi pago até hoje',
-    info: 'Tudo que já saiu da conta neste mês (pagamentos efetivados até hoje). Clique para filtrar as saídas abaixo.',
+    help: 'pago + planejado no mês',
+    info: 'Tudo que sai da conta neste mês (pago + planejado). Clique para filtrar as saídas abaixo.',
     tone: 'slate',
   },
   faltaPagarMes: {
@@ -64,7 +64,7 @@ const CARDS_ANO: Record<SummaryKey, { title: string; help: string; info: string 
   saiuMes: {
     title: 'Saiu no ano',
     help: 'soma dos 12 meses do ano',
-    info: 'Tudo que já saiu da conta no ano (soma dos 12 meses, mesma base da visão mensal). Clique para filtrar as saídas abaixo.',
+    info: 'Tudo que sai da conta no ano (soma dos 12 meses, mesma base da visão mensal). Clique para filtrar as saídas abaixo.',
   },
   faltaPagarMes: {
     title: 'Ainda falta pagar no ano',

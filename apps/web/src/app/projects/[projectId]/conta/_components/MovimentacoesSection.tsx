@@ -175,7 +175,7 @@ export function MovimentacoesSection({
     }
     if (summaryQuickFilter === 'saiuMes') {
       setTab('saidas');
-      setStatusFilter('pago');
+      setStatusFilter('todos');
       return;
     }
     if (summaryQuickFilter === 'faltaPagarMes') {
@@ -465,7 +465,7 @@ export function MovimentacoesSection({
     (m: AccountViewMovimentacao): boolean => {
       if (summaryQuickFilter === 'entrouMes' && (m.kind !== 'entrada' || m.status !== 'EM_CAIXA'))
         return false;
-      if (summaryQuickFilter === 'saiuMes' && (m.kind !== 'saida' || !m.realizado)) return false;
+      if (summaryQuickFilter === 'saiuMes' && m.kind !== 'saida') return false;
       if (summaryQuickFilter === 'faltaPagarMes' && (m.kind !== 'saida' || m.realizado)) return false;
 
       if (semContaFilter) {
