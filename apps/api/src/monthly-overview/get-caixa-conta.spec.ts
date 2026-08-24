@@ -15,6 +15,7 @@ const D = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
 
 describe('MonthlyOverviewService.getCaixaConta — delegador público do §10 (congelado)', () => {
   let service: MonthlyOverviewService;
+  let prisma: any;
 
   // Dataset PESSOAL: conta Itaú 3636 com saldo inicial + 1 débito PAGO + 1 crédito EM_CAIXA.
   const accounts = [
@@ -46,7 +47,7 @@ describe('MonthlyOverviewService.getCaixaConta — delegador público do §10 (c
   ];
 
   beforeEach(async () => {
-    const prisma = {
+    prisma = {
       bankAccount: { findMany: jest.fn().mockResolvedValue(accounts) },
       expense: { findMany: jest.fn().mockResolvedValue(expenses) },
       receipt: { findMany: jest.fn().mockResolvedValue(receipts) },
@@ -76,6 +77,36 @@ describe('MonthlyOverviewService.getCaixaConta — delegador público do §10 (c
     expect(r.hoje).toBe(oracle.hoje); // paridade com a função pura congelada
     expect(r.saldoInicial).toBe(1_000_000);
     expect(r.temSaldoInicial).toBe(true);
+  });
+
+  it('expõe carteiraHoje na rota estreita sem montar a Visão Conta completa', async () => {
+    prisma.expense.findMany.mockResolvedValue([
+      {
+        valorTotal: 12_500,
+        status: 'PAGO',
+        formaPagamento: 'A_VISTA',
+        quantidadeParcela: null,
+        dataPagamento: D('2026-03-10'),
+        dataInicioParcela: null,
+        dataCompra: null,
+        paidParcelas: null,
+        installmentDateOverrides: null,
+        createdAt: D('2026-03-10'),
+        cardLast4: null,
+        bankLast4: null,
+        importId: null,
+        tipoDespesa: 'ALIMENTACAO',
+        settledByExpenseId: null,
+      },
+    ]);
+    prisma.receipt.findMany.mockResolvedValue([
+      { valor: 2_500, status: 'EM_CAIXA', data: D('2026-03-12'), bankLast4: null, importId: null },
+    ]);
+
+    const r = await service.getCaixaConta('t1', 'pessoal-1');
+
+    expect(r.hoje).toBe(1_000_000);
+    expect(r.carteiraHoje).toBe(-10_000);
   });
 });
 

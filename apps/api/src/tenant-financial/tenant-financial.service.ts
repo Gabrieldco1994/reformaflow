@@ -51,11 +51,6 @@ interface ResolvedLenses {
   caixa: ProjectScope;
 }
 
-interface MonthlyOverviewAccountView {
-  caixaHoje: number;
-  carteiraHoje: number;
-}
-
 export interface TenantFinancialOverview {
   caixaTotal: number | null;
   carteiraTotal: number | null;
@@ -269,15 +264,16 @@ export class TenantFinancialService {
     if (pessoalProjects.length > 0) {
       const views = await Promise.all(
         pessoalProjects.map(
-          async (p): Promise<MonthlyOverviewAccountView> =>
-            (await this.monthly.getAccountView(
+          async (p): Promise<{ hoje: number; carteiraHoje?: number }> =>
+            (await this.monthly.getCaixaConta(
               tenantId,
               p.id,
-            )) as unknown as MonthlyOverviewAccountView,
+              today,
+            )) as unknown as { hoje: number; carteiraHoje?: number },
         ),
       );
-      caixaTotal = views.reduce((sum, view) => sum + view.caixaHoje, 0);
-      carteiraTotal = views.reduce((sum, view) => sum + view.carteiraHoje, 0);
+      caixaTotal = views.reduce((sum, view) => sum + view.hoje, 0);
+      carteiraTotal = views.reduce((sum, view) => sum + (view.carteiraHoje ?? 0), 0);
     }
 
     let pagoMesAtual = 0;

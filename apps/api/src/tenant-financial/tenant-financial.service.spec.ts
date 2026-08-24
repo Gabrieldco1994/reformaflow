@@ -25,12 +25,12 @@ function makePrismaMock() {
 describe("TenantFinancialService", () => {
   let service: TenantFinancialService;
   let prisma: ReturnType<typeof makePrismaMock>;
-  let monthly: { getAccountView: jest.Mock; getCaixaConta: jest.Mock };
+  let monthly: { getCaixaConta: jest.Mock; getAccountView: jest.Mock };
 
   beforeEach(async () => {
     jest.useFakeTimers().setSystemTime(NOW);
     prisma = makePrismaMock();
-    monthly = { getAccountView: jest.fn(), getCaixaConta: jest.fn() };
+    monthly = { getCaixaConta: jest.fn(), getAccountView: jest.fn() };
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
         TenantFinancialService,
@@ -49,8 +49,8 @@ describe("TenantFinancialService", () => {
     const CARTEIRA_10 = 12_500;
 
     it("caixa/carteira e janelas 30/90 usam a mesma fronteira BRT", async () => {
-      monthly.getAccountView.mockResolvedValue({
-        caixaHoje: CAIXA_10,
+      monthly.getCaixaConta.mockResolvedValue({
+        hoje: CAIXA_10,
         carteiraHoje: CARTEIRA_10,
       });
       prisma.project.findMany.mockResolvedValue([
@@ -84,7 +84,8 @@ describe("TenantFinancialService", () => {
 
       expect(r.caixaTotal).toBe(CAIXA_10); // §10, não 150_000
       expect(r.carteiraTotal).toBe(CARTEIRA_10);
-      expect(monthly.getAccountView).toHaveBeenCalledWith(TENANT, PESSOAL);
+      expect(monthly.getCaixaConta).toHaveBeenCalledWith(TENANT, PESSOAL, TODAY);
+      expect(monthly.getAccountView).not.toHaveBeenCalled();
       expect(r.totalProjetos).toBe(3);
       expect(r.pagoMesAtual).toBe(50_000);
       expect(r.pagoYTD).toBe(50_000);
@@ -114,17 +115,17 @@ describe("TenantFinancialService", () => {
       expect(r.saldoProjetado30d).toBeNull();
       expect(r.saldoProjetado90d).toBeNull();
       expect(r.totalProjetos).toBe(1);
-      expect(monthly.getAccountView).not.toHaveBeenCalled();
+      expect(monthly.getCaixaConta).not.toHaveBeenCalled();
     });
 
     it("múltiplos PESSOAL no escopo → caixaTotal soma o §10 de TODOS (consolidado, sem omitir conta)", async () => {
       // O agregado interno da Maria consolida: com 2 projetos PESSOAL o caixa é a
       // SOMA dos §10, nunca só o mais antigo (senão a 2ª conta some do total).
       // Blinda a regressão de "find(primeiro PESSOAL)" que omitia contas.
-      monthly.getAccountView.mockImplementation(
+      monthly.getCaixaConta.mockImplementation(
         (_t: string, projectId: string) =>
           Promise.resolve({
-            caixaHoje: projectId === "pessoal-1" ? 6_342_735 : 1_000_000,
+            hoje: projectId === "pessoal-1" ? 6_342_735 : 1_000_000,
             carteiraHoje: projectId === "pessoal-1" ? 100_000 : 25_000,
           }),
       );
@@ -140,17 +141,17 @@ describe("TenantFinancialService", () => {
       expect(r.caixaTotal).toBe(6_342_735 + 1_000_000);
       expect(r.carteiraTotal).toBe(125_000);
       expect(r.saldoProjetado30d).toBe(6_342_735 + 1_000_000 + 125_000);
-      expect(monthly.getAccountView).toHaveBeenCalledWith(TENANT, "pessoal-1");
-      expect(monthly.getAccountView).toHaveBeenCalledWith(TENANT, "pessoal-2");
-      expect(monthly.getAccountView).toHaveBeenCalledTimes(2);
+      expect(monthly.getCaixaConta).toHaveBeenCalledWith(TENANT, "pessoal-1", TODAY);
+      expect(monthly.getCaixaConta).toHaveBeenCalledWith(TENANT, "pessoal-2", TODAY);
+      expect(monthly.getCaixaConta).toHaveBeenCalledTimes(2);
     });
   });
 
   describe("getOverview — escopo (o filtro de projetos precisa chegar às queries)", () => {
     it("escopo inclui PESSOAL → caixaTotal === §10; where escopado nas duas queries", async () => {
       const scope = ["pessoal-1", "reforma-1"];
-      monthly.getAccountView.mockResolvedValue({
-        caixaHoje: 6_342_735,
+      monthly.getCaixaConta.mockResolvedValue({
+        hoje: 6_342_735,
         carteiraHoje: 0,
       });
       prisma.project.findMany.mockResolvedValue([
@@ -163,7 +164,7 @@ describe("TenantFinancialService", () => {
 
       expect(r.caixaTotal).toBe(6_342_735);
       expect(r.carteiraTotal).toBe(0);
-      expect(monthly.getAccountView).toHaveBeenCalledWith(TENANT, "pessoal-1");
+      expect(monthly.getCaixaConta).toHaveBeenCalledWith(TENANT, "pessoal-1", TODAY);
       // Sem o escopo nas queries, o agregado filtrado vazaria outros projetos.
       expect(prisma.project.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -190,7 +191,7 @@ describe("TenantFinancialService", () => {
       expect(r.carteiraTotal).toBeNull();
       expect(r.saldoProjetado30d).toBeNull();
       expect(r.saldoProjetado90d).toBeNull();
-      expect(monthly.getAccountView).not.toHaveBeenCalled();
+      expect(monthly.getCaixaConta).not.toHaveBeenCalled();
       expect(prisma.project.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({ id: { in: scope } }),
