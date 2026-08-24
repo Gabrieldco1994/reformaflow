@@ -108,6 +108,75 @@ describe('MonthlyOverviewService.getCaixaConta — delegador público do §10 (c
     expect(r.hoje).toBe(1_000_000);
     expect(r.carteiraHoje).toBe(-10_000);
   });
+
+  it('aplica o mesmo hoje BRT ao caixa e à Carteira, excluindo realizados futuros', async () => {
+    const today = D('2026-06-30');
+    prisma.expense.findMany.mockResolvedValue([
+      {
+        valorTotal: 10_000,
+        status: 'PAGO',
+        formaPagamento: 'A_VISTA',
+        dataPagamento: today,
+        createdAt: today,
+        bankLast4: '3636',
+        importId: null,
+      },
+      {
+        valorTotal: 20_000,
+        status: 'PAGO',
+        formaPagamento: 'A_VISTA',
+        dataPagamento: D('2026-07-01'),
+        createdAt: D('2026-07-01'),
+        bankLast4: '3636',
+        importId: null,
+      },
+      {
+        valorTotal: 1_000,
+        status: 'PAGO',
+        formaPagamento: 'A_VISTA',
+        dataPagamento: today,
+        createdAt: today,
+        cardLast4: null,
+        bankLast4: null,
+        importId: null,
+        tipoDespesa: 'ALIMENTACAO',
+        settledByExpenseId: null,
+      },
+      {
+        valorTotal: 2_000,
+        status: 'PAGO',
+        formaPagamento: 'A_VISTA',
+        dataPagamento: D('2026-07-01'),
+        createdAt: D('2026-07-01'),
+        cardLast4: null,
+        bankLast4: null,
+        importId: null,
+        tipoDespesa: 'ALIMENTACAO',
+        settledByExpenseId: null,
+      },
+    ]);
+    prisma.receipt.findMany.mockResolvedValue([
+      {
+        valor: 500,
+        status: 'EM_CAIXA',
+        data: today,
+        bankLast4: null,
+        importId: null,
+      },
+      {
+        valor: 5_000,
+        status: 'EM_CAIXA',
+        data: D('2026-07-01'),
+        bankLast4: null,
+        importId: null,
+      },
+    ]);
+
+    const result = await service.getCaixaConta('t1', 'pessoal-1', today);
+
+    expect(result.hoje).toBe(990_000);
+    expect(result.carteiraHoje).toBe(-500);
+  });
 });
 
 describe('computeCaixaConta — corte pelo saldo inicial (§10)', () => {

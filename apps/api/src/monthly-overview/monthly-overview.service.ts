@@ -91,6 +91,7 @@ interface CarteiraExpenseRow {
 interface CarteiraReceiptRow {
   valor: number;
   status: string;
+  data: Date;
   bankLast4: string | null;
 }
 
@@ -100,6 +101,7 @@ interface CarteiraOccurrence {
   valor: number;
   status: string;
   realizado: boolean;
+  explicitlyPaid: boolean;
   parcelaIndex: number | null;
 }
 
@@ -214,6 +216,7 @@ export class MonthlyOverviewService {
   private buildCarteiraSnapshot(
     expenses: CarteiraExpenseRow[],
     receipts: CarteiraReceiptRow[],
+    today: Date,
   ): { localCarteiraOccurrences: CarteiraOccurrence[]; carteiraHoje: number } {
     const localCarteiraOccurrences = expenses
       .filter(
@@ -227,11 +230,17 @@ export class MonthlyOverviewService {
 
     const carteiraHoje =
       sumBy(
-        localCarteiraOccurrences.filter(({ realizado }) => realizado),
+        localCarteiraOccurrences.filter(
+          ({ realizado, explicitlyPaid, data }) =>
+            realizado && (data <= today || explicitlyPaid),
+        ),
         ({ valor }) => -valor,
       ) +
       sumBy(
-        receipts.filter((receipt) => !receipt.bankLast4 && receipt.status === 'EM_CAIXA'),
+        receipts.filter(
+          (receipt) =>
+            !receipt.bankLast4 && receipt.status === 'EM_CAIXA' && receipt.data <= today,
+        ),
         (receipt) => receipt.valor,
       );
 
@@ -251,6 +260,7 @@ export class MonthlyOverviewService {
           valor: expense.valorTotal,
           status: realizado ? 'PAGO' : expense.status,
           realizado,
+          explicitlyPaid: false,
           parcelaIndex: null,
         },
       ];
@@ -273,6 +283,7 @@ export class MonthlyOverviewService {
         valor: installment.valor,
         status: realizado ? 'PAGO' : 'PLANEJADO',
         realizado,
+        explicitlyPaid: paidParcelas.has(index),
         parcelaIndex: index as number | null,
       };
     });
@@ -520,7 +531,7 @@ export class MonthlyOverviewService {
         }
       | { mes: string; status: typeof PROJECTION_STATUS.DEGRADED };
     try {
-      const av = await this.computeAccountView(tenantId, hub, projectionMonth);
+      const av = await this.computeAccountView(tenantId, hub, projectionMonth, today);
       projecao = {
         mes: projectionMonth,
         status: PROJECTION_STATUS.CANONICAL,
@@ -569,7 +580,8 @@ export class MonthlyOverviewService {
     requester?: MonthlyOverviewRequester,
   ) {
     const hub = await this.resolveHub(tenantId, projectId, requester);
-    return this.computeAccountView(tenantId, hub, month);
+    const today = todayLocalDateUtc(FINANCIAL_TIME_ZONE);
+    return this.computeAccountView(tenantId, hub, month, today);
   }
 
   /**
@@ -577,7 +589,12 @@ export class MonthlyOverviewService {
    * (`getAccountView`/`getAccountViewYearly`/`getDreOverview`) instead of
    * re-resolving membership on every one of the up to 12 monthly calls.
    */
-  private async computeAccountView(tenantId: string, hub: PessoalHub, month?: string) {
+  private async computeAccountView(
+    tenantId: string,
+    hub: PessoalHub,
+    month: string | undefined,
+    today: Date,
+  ) {
     const projectId = hub.pessoal.id;
 
     const mesSelecionado = normalizeMonthKey(month);
@@ -857,6 +874,7 @@ export class MonthlyOverviewService {
             importId: receipt.importId ?? null,
           }) === (primaryAccount?.id ?? null),
       ),
+      today,
     );
 
     const entrouMes = sumBy(
@@ -919,6 +937,7 @@ export class MonthlyOverviewService {
     const { localCarteiraOccurrences, carteiraHoje } = this.buildCarteiraSnapshot(
       expenses,
       receipts,
+      today,
     );
     const localCarteiraThisMonth = localCarteiraOccurrences.filter(
       ({ expense, data }) =>
@@ -1685,6 +1704,7 @@ export class MonthlyOverviewService {
     requester?: MonthlyOverviewRequester,
   ) {
     const hub = await this.resolveHub(tenantId, projectId, requester);
+    const today = todayLocalDateUtc(FINANCIAL_TIME_ZONE);
 
     const targetYear = normalizeYear(year);
     const months = Array.from({ length: 12 }, (_, index) =>
@@ -1695,7 +1715,7 @@ export class MonthlyOverviewService {
     // se medição mostrar esgotamento do pool do SQLite; não otimizar às cegas.
     // Hub resolvido UMA vez acima (não 12x): reusa o mesmo escopo por mês.
     const accountViewsByMonth = await Promise.all(
-      months.map((month) => this.computeAccountView(tenantId, hub, month)),
+      months.map((month) => this.computeAccountView(tenantId, hub, month, today)),
     );
 
     // Consolidar resultados: concatenar todos os itens e somar agregados
@@ -1810,6 +1830,7 @@ export class MonthlyOverviewService {
     requester?: MonthlyOverviewRequester,
   ) {
     const hub = await this.resolveHub(tenantId, projectId, requester);
+    const today = todayLocalDateUtc(FINANCIAL_TIME_ZONE);
 
     const mesSelecionado = normalizeMonthKey(params?.month);
     const anoSelecionado = normalizeYear(
@@ -1860,7 +1881,12 @@ export class MonthlyOverviewService {
         select: { last4: true, nickname: true, closingDay: true, dueDay: true },
       }),
     ]);
-    const accountView = await this.computeAccountView(tenantId, hub, mesSelecionado);
+    const accountView = await this.computeAccountView(
+      tenantId,
+      hub,
+      mesSelecionado,
+      today,
+    );
 
     const cardByLast4 = new Map<string, { nickname: string; closingDay: number | null; dueDay: number | null }>();
     for (const card of cards) {
@@ -2028,12 +2054,11 @@ export class MonthlyOverviewService {
         : roundPct(((resultadoMes - resultadoMesAnterior) / Math.abs(resultadoMesAnterior)) * 100);
 
     const months = Array.from({ length: 12 }, (_, i) => `${anoSelecionado}-${String(i + 1).padStart(2, '0')}`);
-    const now = new Date();
     const realizedUntil =
-      anoSelecionado < now.getUTCFullYear()
+      anoSelecionado < today.getUTCFullYear()
         ? 12
-        : anoSelecionado === now.getUTCFullYear()
-          ? now.getUTCMonth() + 1
+        : anoSelecionado === today.getUTCFullYear()
+          ? today.getUTCMonth() + 1
           : 0;
 
     const monthRows = months.map((mes, index) => {
@@ -2145,7 +2170,7 @@ export class MonthlyOverviewService {
       months.map((mes) =>
         mes === mesSelecionado
           ? Promise.resolve(accountView)
-          : this.computeAccountView(tenantId, hub, mes),
+          : this.computeAccountView(tenantId, hub, mes, today),
       ),
     );
     const caixaHojeAtual = accountView.caixaHoje;
@@ -2995,8 +3020,11 @@ export class MonthlyOverviewService {
    * Diferente de "caixaAgora" do cockpit (fluxo realizado conta+cartão): este bate
    * com o saldo do app do banco quando o saldo inicial está cadastrado.
    */
-  private async computeCaixaConta(tenantId: string, projectId: string, _today?: Date) {
-    void _today;
+  private async computeCaixaConta(
+    tenantId: string,
+    projectId: string,
+    today: Date = todayLocalDateUtc(FINANCIAL_TIME_ZONE),
+  ) {
     const [accounts, expenses, receipts] = await Promise.all([
       this.prisma.bankAccount.findMany({
         where: { tenantId, projectId, deletedAt: null },
@@ -3068,8 +3096,9 @@ export class MonthlyOverviewService {
       primaryAccount ? [primaryAccount] : accounts,
       bankExpenses,
       bankReceipts,
+      today,
     );
-    const { carteiraHoje } = this.buildCarteiraSnapshot(expenses, receipts);
+    const { carteiraHoje } = this.buildCarteiraSnapshot(expenses, receipts, today);
 
     // Conta que ANCORA o §10 (`pickPrimaryBankAccount`). Quem exibe o número
     // precisa saber a QUE conta ele se refere; sem isto cada consumidor

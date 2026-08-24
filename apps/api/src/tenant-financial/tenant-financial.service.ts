@@ -263,14 +263,7 @@ export class TenantFinancialService {
     let carteiraTotal: number | null = null;
     if (pessoalProjects.length > 0) {
       const views = await Promise.all(
-        pessoalProjects.map(
-          async (p): Promise<{ hoje: number; carteiraHoje?: number }> =>
-            (await this.monthly.getCaixaConta(
-              tenantId,
-              p.id,
-              today,
-            )) as unknown as { hoje: number; carteiraHoje?: number },
-        ),
+        pessoalProjects.map((p) => this.monthly.getCaixaConta(tenantId, p.id, today)),
       );
       caixaTotal = views.reduce((sum, view) => sum + view.hoje, 0);
       carteiraTotal = views.reduce((sum, view) => sum + (view.carteiraHoje ?? 0), 0);
