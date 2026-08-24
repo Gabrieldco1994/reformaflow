@@ -83,7 +83,16 @@ describe('MonthlyOverviewService.getOverview — espelhos cross-project', () => 
 
     const res = await service.getOverview(tenantId, PESSOAL, '2026-03');
 
-    expect(computeAccountView).toHaveBeenCalledWith(tenantId, expectedHub, '2026-03');
+    // O 4º argumento é o `today` BRT resolvido UMA vez por request e compartilhado
+    // com `getCaixaConta` (#560): o cockpit exibe os dois `carteiraHoje` lado a
+    // lado, então resolver o "hoje" duas vezes os faria divergir na virada da
+    // meia-noite. Asserção sobre a INTENÇÃO (tenant, hub, mês pedido, hoje BRT).
+    expect(computeAccountView).toHaveBeenCalledWith(
+      tenantId,
+      expectedHub,
+      '2026-03',
+      new Date('2026-07-11T00:00:00.000Z'),
+    );
     expect(res.projecao).toEqual({ mes: '2026-03', status: 'canonical', ...accountView });
     expect(res.mesAtual).toBe('2026-07');
     jest.useRealTimers();

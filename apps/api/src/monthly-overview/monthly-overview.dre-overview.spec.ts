@@ -540,8 +540,13 @@ describe('MonthlyOverviewService.getDreOverview', () => {
       const { spy } = await runAnnual();
       expect(spy).toHaveBeenCalledTimes(12);
       for (const m of Object.keys(baseMonthData)) {
-        expect(spy).toHaveBeenCalledWith(tenantId, expectedHub, m);
+        expect(spy).toHaveBeenCalledWith(tenantId, expectedHub, m, expect.any(Date));
       }
+      // #560: o `today` BRT é resolvido UMA vez e compartilhado pelas 12 chamadas
+      // — 12 resoluções independentes poderiam cair em dias diferentes na virada
+      // da meia-noite e produzir 12 `carteiraHoje` inconsistentes na mesma série.
+      const todays = spy.mock.calls.map((call: unknown[]) => (call[3] as Date).getTime());
+      expect(new Set(todays).size).toBe(1);
     });
 
     it('(a) reconciliação: saldoRealizado do mês corrente == caixaHoje; opening calibrado', async () => {

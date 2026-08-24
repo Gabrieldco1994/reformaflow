@@ -192,7 +192,46 @@ describe('MonthlyOverviewService.getCaixaConta — delegador público do §10 (c
     const result = await service.getCaixaConta('t1', 'pessoal-1', today);
 
     expect(result.hoje).toBe(990_000);
-    expect(result.carteiraHoje).toBe(-500);
+    // #560, critério de aceite nº 1 ("carteiraTotal idêntica ao §10"): a parcela
+    // em `paidParcelas` (3_000, vencendo 2026-07-01) É pagamento explícito e conta
+    // hoje mesmo com data futura — exatamente como `computeCaixaConta` já faz no
+    // §10. A expectativa anterior (-500, de 9c99ba13) codificava a divergência
+    // entre os dois motores que a issue manda eliminar.
+    //   +500 (recebimento hoje) -1_000 (à vista PAGO hoje) -3_000 (parcela pré-paga)
+    expect(result.carteiraHoje).toBe(-3_500);
+  });
+
+  it('mantém FORA da Carteira a parcela futura realizada só por herança do status PAGO', async () => {
+    // Regra (b) da #560 — o bug ORIGINAL da issue: `status='PAGO'` na despesa
+    // parcelada propaga `realizado` para TODAS as parcelas, inclusive as futuras
+    // (sem movimento no extrato). Essa propagação FRACA continua cortada por
+    // `data <= today`; só a evidência explícita (`paidParcelas`) fura o corte.
+    const today = D('2026-06-30');
+    prisma.expense.findMany.mockResolvedValue([
+      {
+        valorTotal: 6_000,
+        status: 'PAGO',
+        formaPagamento: 'PARCELADO',
+        quantidadeParcela: 2,
+        dataPagamento: null,
+        dataInicioParcela: D('2026-06-01'),
+        dataCompra: null,
+        paidParcelas: null,
+        installmentDateOverrides: null,
+        createdAt: today,
+        cardLast4: null,
+        bankLast4: null,
+        importId: null,
+        tipoDespesa: 'ALIMENTACAO',
+        settledByExpenseId: null,
+      },
+    ]);
+    prisma.receipt.findMany.mockResolvedValue([]);
+
+    const result = await service.getCaixaConta('t1', 'pessoal-1', today);
+
+    // Só a 1ª parcela (2026-06-01, passada) sai do caixa; a 2ª (2026-07-01) não.
+    expect(result.carteiraHoje).toBe(-3_000);
   });
 });
 

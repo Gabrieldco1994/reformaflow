@@ -3629,9 +3629,13 @@ describe("MonthlyOverviewService.getAccountView — Carteira (origem='none')", (
     ]);
     expect(res.saiuMes).toBe(1_000);
     expect(res.faltaPagarMes).toBe(1_000);
-    // A ocorrência explicitamente paga continua no fluxo de julho, mas não no
-    // saldo pontual da Carteira enquanto sua data ainda for futura.
-    expect(res.carteiraHoje).toBe(0);
+    // #560, critério de aceite nº 1 ("carteiraTotal idêntica ao §10"): a parcela 0
+    // está em `paidParcelas` — pagamento EXPLÍCITO, entra no saldo pontual mesmo
+    // com data futura (2026-07-20 > hoje 2026-06-15), igual ao motor §10
+    // `computeCaixaConta`. O `0` posto por 9c99ba13 codificava a divergência entre
+    // os motores que a issue manda eliminar.
+    expect(res.carteiraHoje).toBe(-1_000);
+    expect(res.carteiraHoje).toBe(-res.saiuMes);
   });
 
   it("mantém parcelado local sem dataInicioParcela no mês histórico de dataPagamento", async () => {

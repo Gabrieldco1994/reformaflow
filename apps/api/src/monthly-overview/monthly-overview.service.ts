@@ -101,6 +101,7 @@ interface CarteiraOccurrence {
   valor: number;
   status: string;
   realizado: boolean;
+  explicitlyPaid: boolean;
   parcelaIndex: number | null;
 }
 
@@ -229,7 +230,7 @@ export class MonthlyOverviewService {
 
     const carteiraHoje =
       sumBy(
-        localCarteiraOccurrences.filter(({ realizado, data }) => realizado && data <= today),
+        localCarteiraOccurrences.filter((occurrence) => countsInCarteiraToday(occurrence, today)),
         ({ valor }) => -valor,
       ) +
       sumBy(
@@ -256,6 +257,7 @@ export class MonthlyOverviewService {
           valor: expense.valorTotal,
           status: realizado ? 'PAGO' : expense.status,
           realizado,
+          explicitlyPaid: realizado && !hasDeclaredDate(expense),
           parcelaIndex: null,
         },
       ];
@@ -278,6 +280,7 @@ export class MonthlyOverviewService {
         valor: installment.valor,
         status: realizado ? 'PAGO' : 'PLANEJADO',
         realizado,
+        explicitlyPaid: paidParcelas.has(index),
         parcelaIndex: index as number | null,
       };
     });
@@ -4355,6 +4358,48 @@ function purchaseDate(expense: {
     ?? expense.dataInicioParcela
     ?? todayLocalDateUtc(FINANCIAL_TIME_ZONE, expense.createdAt)
   );
+}
+
+/**
+ * A despesa DECLAROU uma data para o dinheiro sair (`dataPagamento` ou
+ * `dataInicioParcela`)? Sem nenhuma delas, `purchaseDate` cai no `createdAt`,
+ * que é carimbo de DIGITAÇÃO e não promessa de pagamento futuro — logo não pode
+ * arbitrar um corte de caixa: quem decide é o `status='PAGO'`.
+ *
+ * Com data declarada o corte VALE mesmo em pagamento único PAGO: "paguei, com
+ * data futura" é pagamento agendado, o dinheiro ainda não saiu da carteira.
+ */
+function hasDeclaredDate(expense: {
+  dataPagamento: Date | null;
+  dataInicioParcela: Date | null;
+}): boolean {
+  return expense.dataPagamento != null || expense.dataInicioParcela != null;
+}
+
+/**
+ * PONTO ÚNICO do corte "hoje" do saldo pontual da Carteira (#560) — todo
+ * chamador passa por aqui; NUNCA replicar o gate por chamador (foi a réplica
+ * divergente que produziu a regressão consertada nesta issue).
+ *
+ * Uma ocorrência entra no caixa de hoje se está realizada E (a) sua data já
+ * chegou ou (b) o pagamento é EXPLÍCITO. "Explícito" = evidência direta de que
+ * o dinheiro JÁ saiu, e nesse caso a data não manda:
+ *
+ *  - parcela em `paidParcelas` (pré-pagamento manual, evidência por-parcela);
+ *  - pagamento único PAGO que não DECLAROU data (ver `hasDeclaredDate`).
+ *
+ * Espelha exatamente `computeCaixaConta` (motor §10 congelado), que já isenta
+ * `paidParcelas` do corte — critério de aceite nº 1 da #560: `carteiraTotal`
+ * idêntica ao §10. Duas fórmulas para o mesmo dinheiro é a classe de bug da
+ * #508; se um dos lados mudar, o outro muda junto.
+ *
+ * NÃO é explícito o `realizado` herdado do `status='PAGO'` da despesa
+ * PARCELADA/QUINZENAL: essa propagação fraca marca TODAS as parcelas, inclusive
+ * futuras sem movimento no extrato, e continua sujeita a `data <= today` — era
+ * o bug original da #560 (R$3.600 em 6× drenando o caixa inteiro).
+ */
+function countsInCarteiraToday(occurrence: CarteiraOccurrence, today: Date): boolean {
+  return occurrence.realizado && (occurrence.explicitlyPaid || occurrence.data <= today);
 }
 
 function accountExpenseDate(expense: { dataPagamento: Date | null; createdAt: Date }): Date {
