@@ -5,6 +5,7 @@ import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigat
 import { api } from '@/lib/api';
 import { ProjectProvider } from '@/contexts/project-context';
 import { useAuth, type ModuleSlug } from '@/contexts/auth-context';
+import { useCopilotStore } from '@/stores/copilot-store';
 import { getProjectNavModules, hasFeature, ProjectType } from '@reformaflow/domain';
 import { canSeeBudgetAllocationEntryPoint } from '@/lib/budget-allocation-access';
 import { FinancialAgentWidget } from '@/components/agent/FinancialAgentWidget';
@@ -191,6 +192,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     : false;
   const canLaunch =
     supportsMobileCockpit && visibleNav.some((item) => item.module === 'expenses');
+  const open = useCopilotStore((state) => state.open);
 
   useEffect(() => {
     if (!canLaunch) return;
@@ -290,7 +292,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           onLogout={handleLogout}
         />
 
-        <main className="minimal-main flex-1 overflow-y-auto p-4 pb-24 md:p-6 md:pb-6 lg:pr-96">
+        <main
+          className={`minimal-main flex-1 overflow-y-auto p-4 pb-24 md:p-6 md:pb-6 ${open ? 'lg:pr-96' : ''}`}
+        >
           {children}
         </main>
 

@@ -14,8 +14,6 @@ const DESKTOP_VIEWPORTS = [
   { width: 1280, height: 900 },
 ] as const;
 
-const DESKTOP_WIDGET_VIEWPORT = DESKTOP_VIEWPORTS[1];
-
 const accountView = {
   caixaHoje: 1_010_100,
   entrouMes: 2_020_200,
@@ -326,15 +324,23 @@ async function ensureWidgetOpen(page: Page) {
       );
       button?.click();
     });
-    await page.waitForTimeout(300);
+    await expect(page.getByLabel("Fechar")).toBeVisible();
   }
 }
 
+async function readMainPaddingRight(page: Page) {
+  return page.locator("main.minimal-main").evaluate((element) => {
+    return Number.parseFloat(getComputedStyle(element).paddingRight);
+  });
+}
+
 async function planningTargets(page: Page) {
+  await expect(page.getByRole("heading", { name: "Matriz mensal (modo planilha)" })).toBeVisible();
   const matrixSection = page
     .locator("section")
     .filter({ has: page.getByRole("heading", { name: "Matriz mensal (modo planilha)" }) });
   const inputs = matrixSection.locator("input");
+  await expect(inputs.first()).toBeVisible();
   const count = await inputs.count();
   const start = Math.max(0, count - 5);
   return Array.from({ length: Math.min(5, count) }, (_, index) => ({
@@ -418,7 +424,7 @@ test.describe("issue #564 — cockpit shell census", () => {
     }
   });
 
-  test("desktop 1280×800 rail expandido segura os choques do FinancialAgentWidget", async ({ page }, testInfo) => {
+  test("desktop rail expandido segura os choques do FinancialAgentWidget em 700/800/900", async ({ page }, testInfo) => {
     test.skip(
       testInfo.project.name !== "desktop",
       "a colisão expandida do FinancialAgentWidget só roda no projeto desktop",
@@ -427,19 +433,23 @@ test.describe("issue #564 — cockpit shell census", () => {
       window.localStorage.setItem("lifeone:sidebar:collapsed", "false");
     });
     await mockApi(page);
-    await page.setViewportSize(DESKTOP_WIDGET_VIEWPORT);
+    for (const viewport of DESKTOP_VIEWPORTS) {
+      await page.setViewportSize(viewport);
 
-    await page.goto(`/projects/${PROJECT_ID}/maria`);
-    await ensureWidgetOpen(page);
-    await census(page, mariaTargets(page));
+      await page.goto(`/projects/${PROJECT_ID}/maria`);
+      expect(await readMainPaddingRight(page)).toBe(24);
+      await ensureWidgetOpen(page);
+      expect(await readMainPaddingRight(page)).toBe(384);
+      await census(page, mariaTargets(page));
 
-    await page.goto(`/projects/${PROJECT_ID}/planning`);
-    await ensureWidgetOpen(page);
-    await census(page, await planningTargets(page));
+      await page.goto(`/projects/${PROJECT_ID}/planning`);
+      await ensureWidgetOpen(page);
+      await census(page, await planningTargets(page));
 
-    await page.goto(`/projects/${PROJECT_ID}/conta`);
-    await ensureWidgetOpen(page);
-    await census(page, contaTargets(page));
+      await page.goto(`/projects/${PROJECT_ID}/conta`);
+      await ensureWidgetOpen(page);
+      await census(page, contaTargets(page));
+    }
   });
 
   test("mobile monthly keeps dock, cta and Maria details hittable at 390/375", async ({ page }) => {
