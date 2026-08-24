@@ -3841,4 +3841,92 @@ describe("MonthlyOverviewService.getAccountView — Carteira (origem='none')", (
     expect(res.faltaPagarMes).toBe(0);
     expect(res.caixaHoje).toBe(99_000);
   });
+
+  // INTERSEÇÃO #559 × #576. As duas mudanças se cruzam exatamente aqui e o
+  // conflito de rebase foi neste filtro (`accountExpenseList`):
+  //   #559 removeu o recorte por conta primária → a lista virou consolidada
+  //        entre contas (o cliente recorta por `bankLast4`);
+  //   #576 acrescentou `if (expense.settledByExpenseId) return false`.
+  // Sozinho, cada lado tem teste. Cruzados, ninguém cobria: uma despesa em
+  // conta SECUNDÁRIA liquidada por outra só passa a existir nesta lista por
+  // causa da #559, e só não vira money-double por causa da #576. Sem a linha
+  // da #576, a consolidação faria o item aparecer duas vezes e INFLAR o
+  // "Saiu" — justamente o número que a #559 existe para consertar.
+  it("conta SECUNDÁRIA: despesa liquidada por outra não dobra o Saiu (dedupe vale fora da conta primária)", async () => {
+    prisma.bankAccount.findMany.mockResolvedValue([
+      {
+        // Primária: é a ancorada (tem openingBalanceDate), cf. pickPrimaryBankAccount.
+        id: "acc-primary",
+        openingBalanceCents: 100_000,
+        openingBalanceDate: new Date("2025-12-31T00:00:00.000Z"),
+        last4: "9999",
+        nickname: "Conta principal",
+        institution: "Banco",
+      },
+      {
+        // Secundária: sem âncora. Antes da #559 tudo daqui era descartado.
+        id: "acc-secondary",
+        openingBalanceCents: 0,
+        openingBalanceDate: null,
+        last4: "1111",
+        nickname: "Conta secundária",
+        institution: "Banco 2",
+      },
+    ]);
+    prisma.expense.findMany.mockResolvedValue([
+      base({
+        id: "sec-planned-settled",
+        projectId,
+        tipoDespesa: "ALIMENTACAO",
+        titulo: "Mercado planejado (secundária)",
+        valorTotal: 1_000,
+        valor: 1_000,
+        formaPagamento: "A_VISTA",
+        dataPagamento: new Date("2026-06-12T00:00:00.000Z"),
+        status: "PLANEJADO",
+        bankLast4: "1111",
+        settledByExpenseId: "sec-paid",
+        project: { id: projectId, name: "Pessoal", type: "PESSOAL" },
+      }),
+      base({
+        id: "sec-paid",
+        projectId,
+        tipoDespesa: "ALIMENTACAO",
+        titulo: "Mercado pago (secundária)",
+        valorTotal: 1_000,
+        valor: 1_000,
+        formaPagamento: "A_VISTA",
+        dataPagamento: new Date("2026-06-12T00:00:00.000Z"),
+        status: "PAGO",
+        bankLast4: "1111",
+        settledByExpenseId: null,
+        project: { id: projectId, name: "Pessoal", type: "PESSOAL" },
+      }),
+    ]);
+    prisma.receipt.findMany.mockResolvedValue([]);
+    prisma.cashFlowEntry.findMany.mockResolvedValue([]);
+    prisma.creditCard.findMany.mockResolvedValue([]);
+
+    const res: any = await service.getAccountView(tenantId, projectId, "2026-06");
+
+    // Lado #559: a conta secundária CHEGA na lista. Se este `toBeDefined`
+    // falhar, o recorte por conta primária voltou e o teste abaixo viraria
+    // vacuamente verde (nada some porque nada aparece).
+    const pago = res.saidas.find((s: any) => s.id === "sec-paid");
+    expect(pago).toBeDefined();
+    expect(pago.valor).toBe(1_000);
+    expect(pago.bankLast4).toBe("1111");
+
+    // Lado #576: a liquidada NÃO aparece.
+    expect(res.saidas.find((s: any) => s.id === "sec-planned-settled")).toBeUndefined();
+
+    // O número que o usuário vê. 2_000 seria o money-double exato que a
+    // interseção poderia produzir; fixar o valor (e não "> 0") é o que
+    // transforma isto num oráculo.
+    expect(res.saiuMes).toBe(1_000);
+    expect(res.faltaPagarMes).toBe(0);
+    expect(
+      res.saidas.filter((s: any) => s.bankLast4 === "1111").length,
+    ).toBe(1);
+  });
 });
