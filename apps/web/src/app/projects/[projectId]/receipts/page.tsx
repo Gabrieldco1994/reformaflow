@@ -708,7 +708,25 @@ export default function ReceiptsPage() {
         </button>
       )}
 
-      {/* FAB mobile */}
+      {/* FAB mobile — PERGUNTA DE PRODUTO (#520)
+       *
+       * ⚠️ Esta página PODE TER DOIS `data-launcher="true"`:
+       * 1. Este FAB (abre modal específico de "Novo recebimento")
+       * 2. Dock "Lançar" do MobileTabBar (quando PESSOAL + expenses ativo)
+       *
+       * O teste MobileTabBar.test.tsx exige EXATAMENTE 1 launcher por página.
+       * Ambos têm `data-journey-action="receipt.new"` mas fazem coisas diferentes:
+       * - Dock: lançador multi-modo (despesa, recebimento, voz, importação...)
+       * - FAB: direto para novo recebimento
+       *
+       * DECISÃO PENDENTE: qual dos dois `+` desaparece? Opções:
+       * a) Remover FAB → todos usam Dock (menos direto, mas consistente)
+       * b) Remover data-launcher do FAB → dois `+` visíveis (ambiguidade)
+       * c) Remover Dock nesta página → só FAB (específico demais?)
+       *
+       * Reporte: qual experiência é melhor? "Um clique" (Dock) vs.
+       * "direto para recebimento" (FAB)?
+       */}
       <button
         type="button"
         onClick={openCreate}
