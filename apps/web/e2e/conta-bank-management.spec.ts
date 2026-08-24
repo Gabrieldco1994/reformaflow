@@ -130,11 +130,14 @@ async function expectCenterHitsControl(control: Locator) {
       hitsControl:
         target === element || (target ? element.contains(target) : false),
       tagName: target?.tagName ?? null,
+      width: bounds.width,
+      height: bounds.height,
     };
   });
 
   expect(hit.tagName).not.toBe("NAV");
   expect(hit.hitsControl).toBe(true);
+  return hit;
 }
 
 test("375/390/desktop: conta exata, modal no viewport, sem overflow e alvos de 44px", async ({
@@ -271,5 +274,66 @@ test("375/390: seletor e dock mantêm os alvos clicáveis acima da faixa decorat
       );
       await page.getByRole("button", { name: "Cancelar" }).click();
     }
+  }
+});
+
+test("#552 375/390: CTAs de recebimento têm 44px, hit-test e nenhum overflow", async ({
+  page,
+  baseURL,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "desktop",
+    "a spec controla as próprias larguras",
+  );
+  await mockApi(page, baseURL!);
+
+  for (const viewport of [
+    { width: 375, height: 812 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto(`/projects/${PROJECT_ID}/conta?mes=2026-08`);
+
+    await page.getByRole("button", { name: "Lançar", exact: true }).click();
+    const launchMenu = page.locator('[data-mobile-sheet="launch-mode"]');
+    await launchMenu.getByRole("button", { name: /^Recebimento\b/ }).click();
+
+    const heading = page.getByRole("heading", { name: "Nova Receita" });
+    await expect(heading).toBeVisible();
+    const modal = page.locator('[data-mobile-sheet="modal"]').filter({
+      has: heading,
+    });
+    await expect
+      .poll(async () =>
+        modal.evaluate((element) =>
+          Math.max(
+            0,
+            Math.ceil(
+              element.getBoundingClientRect().bottom - window.innerHeight,
+            ),
+          ),
+        ),
+      )
+      .toBe(0);
+
+    const ctas = modal.getByRole("button", { name: /^(Cancelar|Criar)$/ });
+    const census = await ctas.all();
+    expect(census.length).toBeGreaterThan(0);
+    expect(await ctas.allTextContents()).toEqual(["Cancelar", "Criar"]);
+    for (const target of census) {
+      const name = (await target.textContent())?.trim() ?? "CTA";
+      const bounds = await expectCenterHitsControl(target);
+      expect(bounds.width, name).toBeGreaterThanOrEqual(44);
+      expect(bounds.height, name).toBeGreaterThanOrEqual(44);
+    }
+
+    const widths = await modal.evaluate((element) => ({
+      pageClient: document.documentElement.clientWidth,
+      pageScroll: document.documentElement.scrollWidth,
+      modalClient: element.clientWidth,
+      modalScroll: element.scrollWidth,
+    }));
+    expect(widths.pageScroll).toBeLessThanOrEqual(widths.pageClient + 1);
+    expect(widths.modalScroll).toBeLessThanOrEqual(widths.modalClient + 1);
   }
 });
