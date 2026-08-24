@@ -75,7 +75,7 @@ describe('CarInfoService', () => {
         where: { id: projectA_TenantA, tenantId: tenantA, deletedAt: null },
       });
       expect(prisma.carInfo.findFirst).toHaveBeenCalledWith({
-        where: { projectId: projectA_TenantA },
+        where: { projectId: projectA_TenantA, tenantId: tenantA },
       });
     });
 

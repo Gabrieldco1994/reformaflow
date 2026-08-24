@@ -23,7 +23,7 @@ export class CarInfoService {
     await this.ensureProject(tenantId, projectId);
 
     return this.prisma.carInfo.findFirst({
-      where: { projectId },
+      where: { projectId, tenantId },
     });
   }
 
