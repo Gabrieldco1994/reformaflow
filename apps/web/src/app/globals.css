@@ -920,3 +920,60 @@ a,
 body[data-overlay-open] [data-journey-panel] {
   display: none;
 }
+
+/* #588 — a faixa de KPI do cockpit precisa responder ao CONTÊINER, não à
+   viewport. O breakpoint `xl:` afirma "1280px de tela, cabem 4 colunas", mas
+   quem decide é a largura real disponível: com o Copiloto aberto a #578 reserva
+   408px e a faixa cai para ~517px em 1280 — 4 tiles de 117px, com 83px úteis
+   para um valor que precisa de 150px. O resultado medido era o valor quebrando
+   com o sinal `-` órfão numa linha só dele (saldo negativo lido como positivo)
+   ou perdendo dígito no corte. Encolher a fonte até caber exigiria ~11px, menor
+   que o próprio rótulo; então quem cede é a grade, não o número.
+
+   O limiar de 760px foi escolhido para NÃO mexer no que já funciona: com o
+   painel fechado a faixa mede 772px em 1280 e segue com as 4 colunas de hoje
+   (o censo da fase D exige os quatro tiles na mesma linha nessa largura). Com
+   o Copiloto aberto ela cai para 517–688px em 1280–1536 e aí reflui para 2x2,
+   onde o valor cabe inteiro. Os poucos pixels que ainda faltam nas colunas
+   estreitas de 4 saem da escala do próprio número (.kpi-money-tile abaixo),
+   nunca de truncamento. */
+.kpi-band {
+  container-type: inline-size;
+  container-name: kpi-band;
+}
+
+@container kpi-band (min-width: 760px) {
+  /* Seletor duplicado de propósito: o bundle do Next emite as utilitárias do
+     Tailwind DEPOIS deste arquivo, então `.kpi-band-grid` sozinha (mesma
+     especificidade de `xl:grid-cols-2`) perderia por ordem. Dobrar a classe
+     sobe a especificidade sem recorrer a `!important`, que quebraria qualquer
+     override futuro. */
+  .kpi-band-grid.kpi-band-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* O card de saldo é o único valor "hero" (34px) e não divide espaço com
+   ninguém: aqui a saída correta é a escala tipográfica, não o refluxo. O
+   `clamp` mantém os 34px sempre que couber e cede proporcionalmente à largura
+   do próprio card quando o Copiloto aperta (medido: 25px em 1280 aberto, onde
+   34px transbordava 45px e quebrava em duas linhas). */
+.kpi-hero {
+  container-type: inline-size;
+}
+
+/* Último milímetro de acomodação nos tiles do cockpit: quando a coluna fica
+   estreita (4 colunas em 1280 com o painel fechado: 147px úteis para um valor
+   de 159px), o número cede de 22px para ~20px em vez de vazar. É escala, não
+   corte: nenhum dígito some. `container-type` fica só aqui — o KpiTile é
+   compartilhado por 12 telas e não deve ganhar contenção global. O clamp é
+   md+ porque abaixo disso o valor já tem tamanho próprio (text-base). */
+@media (min-width: 768px) {
+  .kpi-money-tile {
+    container-type: inline-size;
+  }
+
+  .kpi-money-tile [data-kpi-value] {
+    font-size: clamp(17px, 13.5cqi, 22px);
+  }
+}

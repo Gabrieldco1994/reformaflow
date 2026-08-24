@@ -152,7 +152,7 @@ export function ResumoCards({
         info={card.info}
         value={formatCurrency(value / 100)}
         context={card.help}
-        className="xl:flex xl:min-h-full xl:flex-col xl:justify-between xl:p-4"
+        className="kpi-money-tile xl:flex xl:min-h-full xl:flex-col xl:justify-between xl:p-4"
         mobileCompact
         active={quickFilterKey != null && activeQuickFilter === quickFilterKey}
         onClick={
@@ -178,7 +178,7 @@ export function ResumoCards({
 
   return (
     <section className="grid gap-2 xl:grid-cols-12 xl:gap-4">
-      <article className="rounded-2xl border border-lifeone-hairline bg-lifeone-card p-2.5 shadow-lifeone-card xl:col-span-4 xl:flex xl:min-h-full xl:flex-col xl:justify-between xl:rounded-3xl xl:p-6">
+      <article className="kpi-hero rounded-2xl border border-lifeone-hairline bg-lifeone-card p-2.5 shadow-lifeone-card xl:col-span-4 xl:flex xl:min-h-full xl:flex-col xl:justify-between xl:rounded-3xl xl:p-6">
         <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-lifeone-ink-3">
           {saldoLabel}
           <InfoHint
@@ -193,7 +193,7 @@ export function ResumoCards({
         </p>
         <p
           data-kpi-value={saldoLabel}
-          className="mt-1 font-geist text-[22px] font-bold tabular-nums tracking-tight text-lifeone-ink xl:mt-2 xl:text-[34px]"
+          className="mt-1 whitespace-nowrap font-geist text-[22px] font-bold tabular-nums tracking-tight text-lifeone-ink xl:mt-2 xl:text-[clamp(24px,11cqi,34px)]"
         >
           {formatCurrency((modoCarteira ? (carteiraHoje ?? 0) : caixaHoje) / 100)}
         </p>
@@ -206,7 +206,12 @@ export function ResumoCards({
         </p>
       </article>
 
-      <div className="space-y-2 xl:col-span-8 xl:grid xl:auto-rows-fr xl:grid-cols-4 xl:gap-4 xl:space-y-0">
+      {/* A faixa de tiles é o contêiner de referência (.kpi-band): as colunas
+          saem da largura REAL dela, não da viewport — com o Copiloto aberto a
+          reserva de 408px da #578 encolhe a faixa e 4 colunas deixam de caber.
+          Ver o bloco #588 em globals.css. */}
+      <div className="kpi-band xl:col-span-8">
+        <div className="kpi-band-grid space-y-2 xl:grid xl:h-full xl:auto-rows-fr xl:grid-cols-2 xl:gap-4 xl:space-y-0">
         <section aria-label="Movimentação" className="space-y-1 xl:contents">
           <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-lifeone-ink-3 xl:hidden">
             Movimentação
@@ -222,7 +227,8 @@ export function ResumoCards({
           <div className="grid grid-cols-2 gap-2 xl:contents">
             {PROJECTION_KEYS.map(renderTile)}
           </div>
-        </section>
+          </section>
+        </div>
       </div>
     </section>
   );

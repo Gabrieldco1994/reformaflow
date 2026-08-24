@@ -55,6 +55,10 @@ const accountView = {
   caixaHoje: CENTS.caixaHoje,
   entrouMes: CENTS.entrouMes,
   saiuMes: CENTS.saiuMes,
+  // #577 tornou `saidaTotal` a fonte canônica do "Saiu" (consolida todas as
+  // contas). Sem ela o tile renderiza R$ 0,00 e o gate mediria um valor curto —
+  // exatamente o furo que deixou a #588 passar.
+  saidaTotal: CENTS.saiuMes,
   faltaPagarMes: CENTS.faltaPagarMes,
   recebimentosPrevistosMes: 5_050_500,
   sobraPrevista: CENTS.sobraPrevista,
@@ -167,6 +171,7 @@ interface ValueMetrics {
   scrollWidth: number;
   fontSize: number;
   right: number;
+  whiteSpace: string;
 }
 
 /**
@@ -188,6 +193,7 @@ async function readValue(page: Page, label: string): Promise<ValueMetrics> {
       scrollWidth: node.scrollWidth,
       fontSize: Number.parseFloat(getComputedStyle(node).fontSize),
       right: rects.length ? Math.max(...rects.map((r) => r.right)) : 0,
+      whiteSpace: getComputedStyle(node).whiteSpace,
     };
   });
 }
@@ -257,6 +263,14 @@ test.describe("#588 — valor monetário do cockpit cabe em uma linha", () => {
           `${width}px · ${label}: valor quebrou em ${m.lines} linhas`,
         ).toBe(1);
 
+        // "Uma linha" hoje pode ser sorte de largura; o contrato do AGENTS.md é
+        // que valor monetário NÃO quebra. Sem a declaração, o primeiro rótulo
+        // mais longo ou troca de fonte devolve o `-` órfão.
+        expect(
+          m.whiteSpace,
+          `${width}px · ${label}: valor monetário sem nowrap`,
+        ).toBe("nowrap");
+
         // 3. Sem transbordo: nada vaza para fora da caixa (nem é cortado).
         expect(
           m.scrollWidth,
@@ -312,14 +326,21 @@ test.describe("#588 — valor monetário do cockpit cabe em uma linha", () => {
       "cenário desktop com o painel disponível",
     );
     await mockApi(page);
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await page.goto(`/projects/${PROJECT_ID}/conta`);
-
-    for (const { key, label } of EXPECTED) {
-      const m = await readValue(page, label);
-      expect(m.text).toBe(brl(CENTS[key]));
-      expect(m.lines).toBe(1);
-      expect(m.scrollWidth).toBeLessThanOrEqual(m.clientWidth);
+    // As mesmas quatro larguras: com o painel fechado a faixa fica larga e
+    // segue com 4 colunas — este é o lado do gate que protege o layout ATUAL
+    // de uma "correção" que reflua o cockpit sem necessidade.
+    for (const width of WIDTHS) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.goto(`/projects/${PROJECT_ID}/conta`);
+      for (const { key, label } of EXPECTED) {
+        const m = await readValue(page, label);
+        expect(m.text, `${width}px · ${label}`).toBe(brl(CENTS[key]));
+        expect(m.lines, `${width}px · ${label}`).toBe(1);
+        expect(
+          m.scrollWidth,
+          `${width}px · ${label}`,
+        ).toBeLessThanOrEqual(m.clientWidth);
+      }
     }
   });
 

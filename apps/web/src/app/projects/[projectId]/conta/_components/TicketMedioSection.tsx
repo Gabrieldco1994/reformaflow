@@ -35,7 +35,10 @@ export function TicketMedioSection({
           >
             Ticket médio do mês
           </h2>
-          <p className="mt-2 text-2xl font-bold tracking-tight text-lifeone-ink xl:text-[34px] font-geist tabular-nums">
+          {/* Mesmo contrato do #588: valor monetário não quebra. Aqui a coluna
+              é fixa em 18rem (288px) e o pior caso medido ocupa 246px a 34px,
+              então o `nowrap` não cria transbordo — só impede o sinal órfão. */}
+          <p className="mt-2 whitespace-nowrap text-2xl font-bold tracking-tight text-lifeone-ink xl:text-[34px] font-geist tabular-nums">
             {formatCurrency(ticket.valor / 100)}
           </p>
           <p className="mt-1 text-[11px] text-lifeone-ink-3">
