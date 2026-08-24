@@ -132,7 +132,7 @@ export default function PersonalExpenseCard({
             if (cashMode === 'caixa' || !expense.cardLast4) onToggleStatus(expense.id, isPago ? 'PLANEJADO' : 'PAGO');
           }}
           title="Alternar status"
-          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusSelo.cls}`}
+          className={`inline-flex items-center justify-center min-h-11 min-w-11 rounded-full px-3 text-[10px] font-semibold ${statusSelo.cls}`}
         >
           {statusSelo.txt}
         </button>
