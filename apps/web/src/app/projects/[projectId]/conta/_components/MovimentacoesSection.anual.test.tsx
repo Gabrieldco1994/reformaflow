@@ -267,6 +267,7 @@ describe("MovimentacoesSection — visão anual", () => {
     });
 
     expect(screen.getByText(/Filtro rápido: Saiu no mês/)).toBeInTheDocument();
+    expect(screen.getByText(/−\s*R\$ 220,00/)).toBeInTheDocument();
     expect(screen.getByText("Mercado 07")).toBeInTheDocument();
     expect(screen.getByText("A pagar")).toBeInTheDocument();
   });

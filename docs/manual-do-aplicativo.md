@@ -666,7 +666,9 @@ ano — é a mesma tela, não um resumo separado:
 - **Gráfico de faturas** por origem/cartão ao longo do ano. Clicar num chip de origem
   ou numa barra de mês **filtra a lista abaixo** (o drill-down por origem/mês).
 - **Cards de resumo** com os fluxos do ano: "Entrou no ano", "Saiu no ano" e
-  "Ainda falta pagar no ano" — cada um é a **soma exata dos 12 meses**.
+  "Ainda falta pagar no ano" — cada um é a **soma exata dos 12 meses**; "Saiu no
+  ano" usa o total canônico pago + planejado, o mesmo que alimenta o drill-down
+  da lista.
 - **"Tenho na conta hoje"** continua sendo o saldo de **hoje**, não uma soma do ano.
   Saldo é uma foto do momento; somar 12 fotas iguais daria 12× o valor real.
 - **"Sobra prevista no ano"** responde *"com o caixa de hoje, eu atravesso o ano?"*:

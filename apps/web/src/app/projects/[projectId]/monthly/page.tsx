@@ -49,6 +49,11 @@ export default function CockpitPage() {
   const [selectedCardLast4, setSelectedCardLast4] = useState<string | null>(null);
   const [ritmoSimulador, setRitmoSimulador] = useState<number | null>(null);
 
+  useEffect(() => {
+    const monthParam = searchParams.get("mes");
+    if (monthParam && monthParam !== selectedMonth) setSelectedMonth(monthParam);
+  }, [searchParams, selectedMonth]);
+
   const selectMonth = useCallback((month: string | null) => {
     setSelectedMonth(month);
     const next = new URLSearchParams(searchParams.toString());

@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { LoadingBlock } from '@/app/_components/LoadingBlock';
-import { originLast4FromKey, sumSaidasSemConta } from '../_lib';
+import { computeMovementTotals, originLast4FromKey, sumSaidasSemConta } from '../_lib';
 import { MovimentacoesSection } from './MovimentacoesSection';
 import { ResumoCards, type ResumoQuickFilterKey } from './ResumoCards';
 import type { AccountViewYearlyResponse } from '../_types';
@@ -56,6 +56,14 @@ export function ContaAnoView({
       api.get(`/projects/${projectId}/monthly-overview/account-view-yearly?year=${year}`),
     enabled: !!projectId,
   });
+  const totalSaidas = useMemo(
+    () =>
+      computeMovementTotals([
+        ...(accountData?.saidas ?? []),
+        ...(accountData?.comprasCartao ?? []),
+      ]).totalSaidas,
+    [accountData?.comprasCartao, accountData?.saidas],
+  );
 
   return (
     <>
@@ -68,7 +76,7 @@ export function ContaAnoView({
             caixaHoje={accountData.caixaHoje}
             carteiraHoje={accountData.carteiraHoje}
             entrouMes={accountData.entrouMes}
-            saiuMes={accountData.saiuMes}
+            saiuMes={totalSaidas}
             faltaPagarMes={accountData.faltaPagarMes}
             recebimentosPrevistosMes={accountData.recebimentosPrevistosMes}
             sobraPrevista={accountData.sobraPrevista}

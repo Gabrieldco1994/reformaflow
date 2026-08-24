@@ -8,7 +8,7 @@ const entries = [
     data: "2026-07-05T12:00:00.000Z",
     tipo: "DESPESA",
     status: "PAGO",
-    valor: 129_901,
+    valor: 200_014,
     categoria: "Mercado",
     subcategoria: null,
     formaPagamento: "CARTAO_CREDITO",
@@ -25,7 +25,7 @@ const entries = [
     data: "2026-07-03T12:00:00.000Z",
     tipo: "RECEBIMENTO",
     status: "EM_CAIXA",
-    valor: 500_025,
+    valor: 300_025,
     categoria: "Salário",
     subcategoria: null,
     formaPagamento: "PIX",
@@ -42,7 +42,7 @@ const entries = [
     data: "2026-07-25T12:00:00.000Z",
     tipo: "DESPESA",
     status: "PLANEJADO",
-    valor: 75_007,
+    valor: 50_007,
     categoria: "Moradia",
     subcategoria: null,
     formaPagamento: "PIX",
@@ -57,14 +57,14 @@ const entries = [
 
 const monthRow = {
   mes: "2026-07",
-  totalDespesas: 204_908,
-  totalRecebimentos: 500_025,
-  despesasRealizadas: 129_901,
-  recebimentosRealizados: 500_025,
-  saldoMes: 295_117,
-  saldoMesRealizado: 370_124,
+  totalDespesas: 250_021,
+  totalRecebimentos: 300_025,
+  despesasRealizadas: 200_014,
+  recebimentosRealizados: 300_025,
+  saldoMes: 50_004,
+  saldoMesRealizado: 100_011,
   porOrigem: {},
-  porCategoria: [{ categoria: "Mercado", valor: 129_901 }],
+  porCategoria: [{ categoria: "Mercado", valor: 200_014 }],
 };
 
 const overview = {
@@ -72,7 +72,7 @@ const overview = {
   meses: [
     { ...monthRow, mes: "2026-06", saldoMes: 0, saldoMesRealizado: 0 },
     monthRow,
-    { ...monthRow, mes: "2026-08", saldoMes: -75_007, saldoMesRealizado: 0 },
+    { ...monthRow, mes: "2026-08", saldoMes: -50_007, saldoMesRealizado: 0 },
   ],
   comparativo: {
     current: monthRow,
@@ -97,12 +97,14 @@ const overview = {
     ],
   },
   projecao: {
+    status: "canonical",
+    mes: "2026-07",
     caixaHoje: 1_234_567,
-    entrouMes: 500_025,
-    saiuMes: 129_901,
-    faltaPagarMes: 75_007,
-    recebimentosPrevistosMes: 0,
-    sobraPrevista: 1_159_560,
+    entrouMes: 300_025,
+    saiuMes: 200_014,
+    faltaPagarMes: 50_007,
+    recebimentosPrevistosMes: 15_465,
+    sobraPrevista: 1_200_025,
   },
 };
 
@@ -330,7 +332,7 @@ test.describe("Monthly cockpit — Phase C mobile relance", () => {
       ).toHaveAttribute("href", `/projects/${projectId}/expenses`);
       await expect(
         mobile.getByRole("link", { name: "Ver saídas do mês" }),
-      ).toHaveTextContent("R$ 2,5 mil");
+      ).toContainText("R$ 2,5 mil");
       await expect(
         mobile.getByRole("link", { name: "Ver saídas do mês" }),
       ).toHaveAttribute(
