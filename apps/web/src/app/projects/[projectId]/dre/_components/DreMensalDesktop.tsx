@@ -179,7 +179,7 @@ export function DreMensalDesktop({
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em]" style={{ color: positive ? SEM.in.ink : SEM.out.ink }}>
               {resultLabel}
             </p>
-            <p className="mt-1.5 text-[38px] font-bold leading-none tracking-tight tabular-nums" style={{ color: positive ? SEM.in.ink : SEM.out.ink }}>
+            <p className="whitespace-nowrap mt-1.5 text-[38px] font-bold leading-none tracking-tight tabular-nums" style={{ color: positive ? SEM.in.ink : SEM.out.ink }}>
               {formatCurrency(resultValue / 100)}
             </p>
             <p className="mt-1.5 text-[11.5px]" style={{ color: positive ? '#3F7B64' : '#9A4A2C' }}>
@@ -218,7 +218,7 @@ export function DreMensalDesktop({
           <div className="mt-5 flex items-end justify-between border-t border-lifeone-hairline-3 pt-4">
             <div>
               <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-lifeone-ink-3">margem</p>
-              <p className="mt-1 text-[19px] font-bold tabular-nums" style={{ color: margem >= 0 ? SEM.in.ink : SEM.out.ink }}>
+              <p className="whitespace-nowrap mt-1 text-[19px] font-bold tabular-nums" style={{ color: margem >= 0 ? SEM.in.ink : SEM.out.ink }}>
                 {formatCurrency(margem / 100)}
               </p>
             </div>
@@ -254,7 +254,7 @@ function SpineTermCell({ term, op }: { term: SpineTerm; op?: string }) {
           {term.label}
           {term.info && <InfoHint text={term.info} />}
         </p>
-        <p className="mt-1.5 text-[27px] font-bold leading-none tracking-tight tabular-nums" style={{ color: sem.ink }}>
+        <p className="whitespace-nowrap mt-1.5 text-[27px] font-bold leading-none tracking-tight tabular-nums" style={{ color: sem.ink }}>
           {formatCurrency(term.value / 100)}
         </p>
         <p className="mt-1.5 text-[11.5px] text-lifeone-ink-3">{term.sub}</p>
@@ -279,7 +279,7 @@ function ProportionBar({ label, value, pct, tone }: { label: string; value: numb
     <div>
       <div className="mb-1.5 flex items-center justify-between text-[12.5px]">
         <span className="font-semibold text-lifeone-ink-2">{label}</span>
-        <span className="font-bold tabular-nums" style={{ color: sem.ink }}>
+        <span className="whitespace-nowrap font-bold tabular-nums" style={{ color: sem.ink }}>
           {formatCurrency(value / 100)}
         </span>
       </div>
@@ -305,7 +305,7 @@ function EntradasColumn({ entradas, total }: { entradas: DreLine[]; total: numbe
             <DreIcon name="wallet" className="h-3.5 w-3.5" />
           </span>
           <span className="flex-1 truncate text-[13.5px] font-medium text-lifeone-ink">{line.label}</span>
-          <span className="text-[13.5px] font-bold tabular-nums" style={{ color: SEM.in.ink }}>
+          <span className="whitespace-nowrap text-[13.5px] font-bold tabular-nums" style={{ color: SEM.in.ink }}>
             {formatCurrency(line.valor / 100)}
           </span>
         </div>
@@ -344,7 +344,7 @@ function SaidasColumn({ groups, total }: { groups: DreGroup[]; total: number }) 
                 {group.group}
                 <span className="ml-1 text-[11px] font-medium text-lifeone-ink-4">· {group.items.length}</span>
               </span>
-              <span className="text-[13.5px] font-bold tabular-nums" style={{ color: SEM.out.ink }}>
+              <span className="whitespace-nowrap text-[13.5px] font-bold tabular-nums" style={{ color: SEM.out.ink }}>
                 {formatCurrency(totalGrupo / 100)}
               </span>
               <ChevronDown className={`h-3.5 w-3.5 text-lifeone-ink-4 transition-transform ${open ? 'rotate-180' : ''}`} />
@@ -357,7 +357,7 @@ function SaidasColumn({ groups, total }: { groups: DreGroup[]; total: number }) 
                 {group.items.map((item, j) => (
                   <div key={`${item.label}-${j}`} className="flex items-center justify-between gap-3 text-[12px] text-lifeone-ink-2">
                     <span className="truncate">{item.label}</span>
-                    <span className="font-semibold tabular-nums" style={{ color: SEM.out.ink }}>
+                    <span className="whitespace-nowrap font-semibold tabular-nums" style={{ color: SEM.out.ink }}>
                       {formatCurrency(item.valor / 100)}
                     </span>
                   </div>
@@ -390,7 +390,7 @@ function GuardadoColumn({ guardado, total, monthLabel }: { guardado: DreLine[]; 
               <DreIcon name="piggy-bank" className="h-3.5 w-3.5" />
             </span>
             <span className="flex-1 truncate text-[13.5px] font-medium text-lifeone-ink">{line.label}</span>
-            <span className="text-[13.5px] font-bold tabular-nums" style={{ color: SEM.save.ink }}>
+            <span className="whitespace-nowrap text-[13.5px] font-bold tabular-nums" style={{ color: SEM.save.ink }}>
               {formatCurrency(line.valor / 100)}
             </span>
           </div>
@@ -409,7 +409,7 @@ function ColumnTotal({ label, value, tone }: { label: string; value: number; ton
       style={{ background: sem.tint, color: sem.ink }}
     >
       <span>{label}</span>
-      <span className="tabular-nums">{formatCurrency(value / 100)}</span>
+      <span className="whitespace-nowrap tabular-nums">{formatCurrency(value / 100)}</span>
     </div>
   );
 }

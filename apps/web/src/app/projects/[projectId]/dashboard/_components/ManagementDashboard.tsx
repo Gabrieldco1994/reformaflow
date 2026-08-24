@@ -215,13 +215,13 @@ export default function ManagementDashboard({ projectId, projectType }: { projec
         <section className="rounded-2xl border border-lifeone-hairline bg-lifeone-card p-4 shadow-lifeone-card md:p-5">
           <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-lifeone-ink-3">Gasto com Combustível</p>
           <div className="grid grid-cols-2 gap-3">
-            <div>
+            <div className="kpi-money-tile">
               <p className="text-xs text-lifeone-ink-3">Este mês</p>
               <p className="whitespace-nowrap font-geist text-lg font-bold tabular-nums text-lifeone-ink">
                 {formatCurrency(fuelSummary.currentMonthCents / 100)}
               </p>
             </div>
-            <div>
+            <div className="kpi-money-tile">
               <p className="text-xs text-lifeone-ink-3">Média mensal</p>
               <p className="whitespace-nowrap font-geist text-lg font-bold tabular-nums text-lifeone-ink">
                 {fuelSummary.monthsConsidered > 0 ? formatCurrency(fuelSummary.averageMonthlyCents / 100) : 'Sem histórico'}
@@ -263,7 +263,7 @@ export default function ManagementDashboard({ projectId, projectType }: { projec
               const dias = daysUntilDue(bill.diaVencimento, today);
               const isOverdue = dias < 0;
               return (
-                <div key={bill.id} className={`flex items-center justify-between gap-3 py-3 ${isOverdue ? '-mx-2 rounded-lg bg-[#FCEBE9] px-2' : ''}`}>
+                <div key={bill.id} className={`flex items-center justify-between gap-3 py-3 kpi-money-tile ${isOverdue ? '-mx-2 rounded-lg bg-[#FCEBE9] px-2' : ''}`}>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold text-lifeone-ink">
                       {bill.nome}
