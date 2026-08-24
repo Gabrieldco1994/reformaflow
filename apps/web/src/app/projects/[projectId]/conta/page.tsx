@@ -255,7 +255,6 @@ export default function ContaPage() {
                 saiuSemConta={sumSaidasSemConta(data.saidas)}
                 activeQuickFilter={resumoQuickFilter}
                 onQuickFilterSelect={(key) => {
-                  setOriginFilter(null);
                   setResumoQuickFilter(key);
                 }}
               />

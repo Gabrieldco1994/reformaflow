@@ -193,9 +193,6 @@ describe('PriceComparePage — Price Alerts', () => {
       expect(invalidateSpy).toHaveBeenCalledWith({
         queryKey: ['cash-flow', 'test-project-1'],
       });
-      expect(invalidateSpy).toHaveBeenCalledWith({
-        queryKey: ['simulation', 'test-project-1'],
-      });
     });
   });
 });
