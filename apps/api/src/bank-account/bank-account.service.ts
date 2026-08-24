@@ -379,14 +379,30 @@ export class BankAccountService {
       if (dto.last4 !== undefined) {
         await this.assertNoDuplicateAccount(tx, tenantId, projectId, dto.last4, id);
       }
-      await tx.bankAccount.update({ where: { id }, data });
+      // Use updateMany with complete scope (id, tenantId, projectId, deletedAt: null)
+      // to ensure atomicity and prevent TOCTOU race conditions.
+      const result = await tx.bankAccount.updateMany({
+        where: { id, tenantId, projectId, deletedAt: null },
+        data,
+      });
+      if (result.count !== 1) {
+        throw new NotFoundException('Conta bancária não encontrada ou foi modificada');
+      }
     });
     return this.findAccount(tenantId, projectId, id);
   }
 
   async deleteAccount(tenantId: string, projectId: string, id: string) {
     await this.findAccount(tenantId, projectId, id);
-    await this.prisma.bankAccount.delete({ where: { id } });
+    // Use deleteMany with complete scope (id, tenantId, projectId, deletedAt: null)
+    // to ensure atomicity and prevent TOCTOU race conditions.
+    // The soft-delete middleware will convert deleteMany to updateMany.
+    const result = await this.prisma.bankAccount.deleteMany({
+      where: { id, tenantId, projectId, deletedAt: null },
+    });
+    if (result.count !== 1) {
+      throw new NotFoundException('Conta bancária não encontrada ou foi modificada');
+    }
     return { ok: true };
   }
 
