@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UseGuards, UseInterceptors } from '@nestjs/common';
 import { MerchantClassifierService, type MerchantCategory } from './merchant-classifier.service';
 import { MERCHANT_TO_EXPENSE_TYPE } from './merchant-classifier.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CurrentTenant } from '../common/decorators/tenant.decorator';
+import { TenantInterceptor } from '../common/interceptors/tenant.interceptor';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 
@@ -25,6 +26,7 @@ const NEUTRAL_SUGGESTION: SuggestCategoryResponse = {
 };
 
 @Controller('merchant-categories')
+@UseInterceptors(TenantInterceptor)
 export class MerchantClassifierController {
   constructor(
     private readonly svc: MerchantClassifierService,
