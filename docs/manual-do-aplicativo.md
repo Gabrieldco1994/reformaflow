@@ -360,6 +360,8 @@ financeiro em tela própria (chat em tela cheia no mobile).
   já com o **saldo inicial** cadastrado da conta e a sua data de corte. Não há
   duas contas diferentes do mesmo dinheiro.
 - A ação **Editar** em sugestões abre o mesmo sheet de lançamento usado no app.
+- No desktop, ao abrir o painel flutuante, o conteúdo usa **reserva total 408px:
+  painel 384px + inset lateral 24px**; fechado, mantém o respiro padrão de 24px.
 - Também pode consultar monitoramento de preços (watchlist) e busca avulsa de preços por produto via chat/voz.
 - Também responde sobre manutenção de **CASA/CARRO/PLANTAS** (ex.: "quando foi
   a última troca de óleo?"), lendo os registros de manutenção do projeto —

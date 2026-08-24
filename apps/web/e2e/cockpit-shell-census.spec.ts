@@ -476,7 +476,26 @@ test.describe("issue #564 — cockpit shell census", () => {
       await page.goto(`/projects/${PROJECT_ID}/maria`);
       expect(await readMainPaddingRight(page)).toBe(24);
       await ensureWidgetOpen(page);
-      expect(await readMainPaddingRight(page)).toBe(408);
+      const paddingRight = await readMainPaddingRight(page);
+      expect(paddingRight).toBe(408);
+      const main = page.locator("main.minimal-main");
+      const widget = page.getByLabel("Fechar").locator("xpath=../../..");
+      const [mainBox, widgetBox] = await Promise.all([
+        main.boundingBox(),
+        widget.boundingBox(),
+      ]);
+      expect(mainBox).not.toBeNull();
+      expect(widgetBox).not.toBeNull();
+      expect(mainBox!.x + mainBox!.width - paddingRight).toBeLessThanOrEqual(
+        widgetBox!.x,
+      );
+      expect(
+        await page.evaluate(
+          () =>
+            document.documentElement.scrollWidth <=
+            document.documentElement.clientWidth,
+        ),
+      ).toBe(true);
       await census(page, [...mariaTargets(page), ...expandedSidebarTargets(page)]);
 
       await page.goto(`/projects/${PROJECT_ID}/planning`);
