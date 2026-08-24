@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, CreditCard, Landmark, Sparkles, Wallet, X } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import { moneyGlance } from '@/lib/money';
@@ -96,6 +96,8 @@ export function MobileLaunchSheet({
     return [WALLET_ORIGIN, ...accountOrigins, ...cardOrigins];
   }, [accounts, cards]);
 
+  const dialogRef = useRef<HTMLElement>(null);
+
   const [digits, setDigits] = useState('');
   const [description, setDescription] = useState('');
   const [originKey, setOriginKey] = useState('');
@@ -136,6 +138,46 @@ export function MobileLaunchSheet({
     setOriginKey(preferred?.key ?? '');
   }, [open, origins]);
 
+  // Focus management: contenção dentro do dialog, restauração ao fechar
+  useEffect(() => {
+    if (!open) return;
+    const trigger = document.activeElement as HTMLElement | null;
+    const dialog = dialogRef.current;
+    const focusableSelector =
+      'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])';
+
+    dialog?.querySelector<HTMLElement>(focusableSelector)?.focus();
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab' || !dialog) return;
+
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(focusableSelector),
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      trigger?.focus();
+    };
+  }, [onClose, open]);
+
   if (!open) return null;
 
   const today = new Date().toISOString().slice(0, 10);
@@ -172,9 +214,17 @@ export function MobileLaunchSheet({
   return (
     <>
       <div className="pessoal-minimal-backdrop fixed inset-0 z-40 bg-darc-velvet/60 backdrop-blur-sm lg:hidden" onClick={onClose} aria-hidden />
-      <section data-mobile-sheet="launch" data-overlay="launch" className="pessoal-minimal-launch-sheet fixed inset-x-0 bottom-0 z-50 max-h-[96dvh] overflow-y-auto rounded-t-[28px] border border-darc-linen bg-lifeone-surface px-4 pb-6 pt-3 lg:hidden">
+      <section
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="mobile-launch-title"
+        data-mobile-sheet="launch"
+        data-overlay="launch"
+        className="pessoal-minimal-launch-sheet fixed inset-x-0 bottom-0 z-50 max-h-[96dvh] overflow-y-auto rounded-t-[28px] border border-darc-linen bg-lifeone-surface px-4 pb-6 pt-3 lg:hidden"
+      >
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-xl font-bold text-lifeone-ink">{mode === 'PLANEJAR' ? 'Planejar' : 'Lançar'}</h2>
+          <h2 id="mobile-launch-title" className="text-xl font-bold text-lifeone-ink">{mode === 'PLANEJAR' ? 'Planejar' : 'Lançar'}</h2>
           <button type="button" onClick={onClose} aria-label="Fechar lançar" className="flex min-h-11 min-w-11 items-center justify-center rounded-full text-darc-velvet/70 hover:bg-darc-linen/60">
             <X className="h-5 w-5" />
           </button>

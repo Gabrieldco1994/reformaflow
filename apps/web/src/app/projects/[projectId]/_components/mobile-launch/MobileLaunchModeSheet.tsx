@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowDownCircle, ArrowUpCircle, CalendarClock, Camera, CreditCard, Landmark, Mic, X } from 'lucide-react';
 import type { LaunchMode } from './launch-modes';
 import { MOBILE_LAUNCH_MODES, PHOTO_MODES } from './launch-modes';
@@ -46,12 +46,53 @@ function OptionCard({ icon: Icon, title, subtitle, onClick, accent }: OptionCard
  * Modos carregados do catálogo centralizado (launch-modes.ts).
  */
 export function MobileLaunchModeSheet({ open, onClose, onPick, voiceSupported = true }: Props) {
+  const dialogRef = useRef<HTMLElement>(null);
   const [view, setView] = useState<'root' | 'foto'>('root');
 
   // Toda reabertura começa na raiz (critério de aceite: o "+" sempre mostra os 3 modos).
   useEffect(() => {
     if (open) setView('root');
   }, [open]);
+
+  // Focus management: contenção dentro do dialog, restauração ao fechar
+  useEffect(() => {
+    if (!open) return;
+    const trigger = document.activeElement as HTMLElement | null;
+    const dialog = dialogRef.current;
+    const focusableSelector =
+      'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])';
+
+    dialog?.querySelector<HTMLElement>(focusableSelector)?.focus();
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab' || !dialog) return;
+
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(focusableSelector),
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      trigger?.focus();
+    };
+  }, [onClose, open]);
 
   if (!open) return null;
 
@@ -63,12 +104,16 @@ export function MobileLaunchModeSheet({ open, onClose, onPick, voiceSupported = 
         aria-hidden
       />
       <section
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="mobile-launch-mode-title"
         data-mobile-sheet="launch-mode"
         data-overlay="launch"
         className="pessoal-minimal-launch-sheet fixed inset-x-0 bottom-0 z-50 max-h-[96dvh] overflow-y-auto rounded-t-[28px] border border-darc-linen bg-lifeone-surface px-4 pb-6 pt-3 lg:hidden"
       >
         <div className="mb-1 flex items-center justify-between">
-          <h2 className="text-[17px] font-semibold text-darc-velvet">
+          <h2 id="mobile-launch-mode-title" className="text-[17px] font-semibold text-darc-velvet">
             {view === 'root' ? 'Como quer lançar?' : 'Importar por foto'}
           </h2>
           <button
