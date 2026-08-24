@@ -502,6 +502,17 @@ describe("JourneyRuntimeProvider", () => {
     expect(screen.queryByTestId("active")).not.toBeInTheDocument();
   });
 
+  it("discards a syntactically malformed snapshot JSON", async () => {
+    sessionStorage.setItem("lifeone:journey-runtime", "{");
+
+    renderRuntime();
+
+    await waitFor(() =>
+      expect(sessionStorage.getItem("lifeone:journey-runtime")).toBeNull(),
+    );
+    expect(screen.queryByTestId("active")).not.toBeInTheDocument();
+  });
+
   it("waits for auth and discards a snapshot owned by another account", async () => {
     storeRuntime(resumableActive());
     mocks.user = null;
