@@ -252,22 +252,43 @@ async function readTarget(target: Locator, name: string): Promise<Measurement> {
     const rect = element.getBoundingClientRect();
     const cx = rect.left + rect.width / 2;
     const cy = rect.top + rect.height / 2;
-    const hit = document.elementFromPoint(cx, cy);
+    const sampleWidth = Math.min(44, rect.width);
+    const sampleHeight = Math.min(44, rect.height);
+    const inset = Math.min(8, sampleWidth / 4, sampleHeight / 4);
+    const left = cx - sampleWidth / 2;
+    const right = cx + sampleWidth / 2;
+    const top = cy - sampleHeight / 2;
+    const bottom = cy + sampleHeight / 2;
+    const pointHits = [
+      { x: cx, y: cy },
+      { x: left + inset, y: top + inset },
+      { x: right - inset, y: top + inset },
+      { x: left + inset, y: bottom - inset },
+      { x: right - inset, y: bottom - inset },
+    ].map(({ x, y }) => ({
+      insideViewport:
+        x >= 0 &&
+        y >= 0 &&
+        x <= document.documentElement.clientWidth &&
+        y <= document.documentElement.clientHeight,
+      hit: document.elementFromPoint(x, y),
+    }));
+    const coveredPoint = pointHits.find(
+      ({ insideViewport, hit }) =>
+        insideViewport && (!hit || !(hit === element || element.contains(hit))),
+    );
+    const hit = coveredPoint?.hit ?? pointHits[0].hit;
     const href =
       element instanceof HTMLAnchorElement ? element.getAttribute("href") : null;
     const deadLink =
       element instanceof HTMLAnchorElement &&
       (href === "#" || href === "");
-    const centerInsideViewport =
-      cx >= 0 &&
-      cy >= 0 &&
-      cx <= document.documentElement.clientWidth &&
-      cy <= document.documentElement.clientHeight;
+    const fullyInsideViewport = pointHits.every(({ insideViewport }) => insideViewport);
 
     let verdict: Verdict = "ok";
     if (deadLink) verdict = "dead-link";
-    else if (!centerInsideViewport) verdict = "offscreen";
-    else if (!hit || !(hit === element || element.contains(hit))) verdict = "covered";
+    else if (!fullyInsideViewport) verdict = "offscreen";
+    else if (coveredPoint) verdict = "covered";
 
     return {
       label,
@@ -318,12 +339,8 @@ async function census(page: Page, targets: Array<{ label: string; locator: Locat
 async function ensureWidgetOpen(page: Page) {
   const openButton = page.getByLabel("Abrir Copiloto Financeiro");
   if (await openButton.count()) {
-    await page.evaluate(() => {
-      const button = document.querySelector<HTMLButtonElement>(
-        '[aria-label="Abrir Copiloto Financeiro"]',
-      );
-      button?.click();
-    });
+    await expect(openButton).toBeVisible();
+    await openButton.click();
     await expect(page.getByLabel("Fechar")).toBeVisible();
   }
 }
@@ -399,6 +416,26 @@ function mariaTargets(page: Page) {
   ];
 }
 
+function expandedSidebarTargets(page: Page) {
+  const sidebar = page.locator("aside.minimal-sidebar");
+  return [
+    { label: "Sidebar · Projetos", locator: sidebar.getByLabel("Projetos") },
+    { label: "Sidebar · Notificações", locator: sidebar.getByLabel("Notificações") },
+    { label: "Sidebar · Enviar feedback", locator: sidebar.getByLabel("Enviar feedback") },
+    { label: "Sidebar · Apoio", locator: sidebar.getByLabel("Apoio") },
+    {
+      label: "Sidebar · Histórico de Budget",
+      locator: sidebar.getByLabel("Histórico de Budget"),
+    },
+    { label: "Sidebar · Usuários", locator: sidebar.getByLabel("Usuários") },
+    { label: "Sidebar · Sair", locator: sidebar.getByLabel("Sair (Ana)") },
+    {
+      label: "Sidebar · Recolher menu lateral",
+      locator: sidebar.getByLabel("Recolher menu lateral"),
+    },
+  ];
+}
+
 async function openMonthly(page: Page, viewport: { width: number; height: number }) {
   await page.setViewportSize(viewport);
   await page.goto(`/projects/${PROJECT_ID}/monthly`);
@@ -439,16 +476,19 @@ test.describe("issue #564 — cockpit shell census", () => {
       await page.goto(`/projects/${PROJECT_ID}/maria`);
       expect(await readMainPaddingRight(page)).toBe(24);
       await ensureWidgetOpen(page);
-      expect(await readMainPaddingRight(page)).toBe(384);
-      await census(page, mariaTargets(page));
+      expect(await readMainPaddingRight(page)).toBe(408);
+      await census(page, [...mariaTargets(page), ...expandedSidebarTargets(page)]);
 
       await page.goto(`/projects/${PROJECT_ID}/planning`);
       await ensureWidgetOpen(page);
-      await census(page, await planningTargets(page));
+      await census(page, [
+        ...(await planningTargets(page)),
+        ...expandedSidebarTargets(page),
+      ]);
 
       await page.goto(`/projects/${PROJECT_ID}/conta`);
       await ensureWidgetOpen(page);
-      await census(page, contaTargets(page));
+      await census(page, [...contaTargets(page), ...expandedSidebarTargets(page)]);
     }
   });
 
