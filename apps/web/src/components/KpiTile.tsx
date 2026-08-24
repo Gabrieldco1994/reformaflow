@@ -174,7 +174,10 @@ export function KpiTile({
           />
         )}
       </div>
-      <p className={`${mobileCompact ? 'mt-1 md:mt-2' : 'mt-2'} font-geist tabular-nums font-bold tracking-tight leading-tight ${valueSize} ${valueColor}`}>
+      <p
+        data-kpi-value={plainText(label) || undefined}
+        className={`${mobileCompact ? 'mt-1 md:mt-2' : 'mt-2'} font-geist tabular-nums font-bold tracking-tight leading-tight ${valueSize} ${valueColor}`}
+      >
         {value}
       </p>
       {delta && (

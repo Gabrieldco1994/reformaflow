@@ -191,7 +191,10 @@ export function ResumoCards({
             ariaLabel={`Ajuda sobre ${saldoLabel}`}
           />
         </p>
-        <p className="mt-1 font-geist text-[22px] font-bold tabular-nums tracking-tight text-lifeone-ink xl:mt-2 xl:text-[34px]">
+        <p
+          data-kpi-value={saldoLabel}
+          className="mt-1 font-geist text-[22px] font-bold tabular-nums tracking-tight text-lifeone-ink xl:mt-2 xl:text-[34px]"
+        >
           {formatCurrency((modoCarteira ? (carteiraHoje ?? 0) : caixaHoje) / 100)}
         </p>
         <p className="mt-1 max-w-sm text-[11px] leading-3.5 text-lifeone-ink-3 xl:mt-2 xl:text-xs xl:leading-5">
