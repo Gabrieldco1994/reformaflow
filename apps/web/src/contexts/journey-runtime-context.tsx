@@ -11,8 +11,7 @@ import {
   useState,
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { ProjectType, type OnboardingFunding } from "@reformaflow/domain";
-import { toast } from "sonner";
+import type { ProjectType, OnboardingFunding } from "@reformaflow/domain";
 import { useAuth } from "@/contexts/auth-context";
 import {
   SummaryStepPanel,
@@ -52,18 +51,6 @@ interface QueuedJourney {
   projectType?: ProjectType | null;
 }
 
-interface JourneySnapshotOwner {
-  userId: string;
-  tenantId: string;
-}
-
-interface JourneySnapshot {
-  owner: JourneySnapshotOwner;
-  active: ActiveJourney;
-  /** Só as jornadas seguintes; a ativa já está armazenada acima. */
-  queue: QueuedJourney[];
-}
-
 interface JourneyRuntimeContextValue {
   active: ActiveJourney | null;
   projects: JourneyProject[];
@@ -91,11 +78,6 @@ function currentProjectId(pathname: string): string | undefined {
   return match?.[1];
 }
 
-function currentScreenKey(pathname: string): string | undefined {
-  const segments = pathname.split("/").filter(Boolean);
-  return segments[segments.length - 1];
-}
-
 function device(): "web" | "mobile" {
   return typeof window !== "undefined" &&
     typeof window.matchMedia === "function" &&
@@ -104,131 +86,20 @@ function device(): "web" | "mobile" {
     : "web";
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-const PROJECT_TYPE_VALUES = new Set<string>(Object.values(ProjectType));
-
-function isProjectType(value: unknown): value is ProjectType {
-  return typeof value === "string" && PROJECT_TYPE_VALUES.has(value);
-}
-
-function isEligibleJourneyStep(value: unknown): value is EligibleJourneyStep {
-  return (
-    isRecord(value) &&
-    typeof value.stepKey === "string" &&
-    value.stepKey.length > 0 &&
-    typeof value.order === "number" &&
-    Number.isInteger(value.order) &&
-    value.order >= 0 &&
-    (value.experience === "SUMMARY" || value.experience === "FULL") &&
-    typeof value.label === "string" &&
-    (value.subtitle === null || typeof value.subtitle === "string") &&
-    typeof value.skippable === "boolean" &&
-    (value.enabled === undefined || typeof value.enabled === "boolean") &&
-    (value.blocked === undefined || typeof value.blocked === "boolean") &&
-    (value.slug === undefined || typeof value.slug === "string")
-  );
-}
-
-function isRuntimeJourney(value: unknown): value is RuntimeJourney {
-  return (
-    isRecord(value) &&
-    typeof value.journeyId === "string" &&
-    typeof value.key === "string" &&
-    typeof value.name === "string" &&
-    typeof value.triggerId === "string" &&
-    typeof value.repeatPolicy === "string" &&
-    typeof value.dismissPolicy === "string" &&
-    typeof value.crossProject === "boolean" &&
-    Array.isArray(value.steps) &&
-    value.steps.length > 0 &&
-    value.steps.every(isEligibleJourneyStep)
-  );
-}
-
-function hasValidProjectContext(value: Record<string, unknown>): boolean {
-  return (
-    (value.projectId === undefined || typeof value.projectId === "string") &&
-    (value.projectType === undefined ||
-      value.projectType === null ||
-      isProjectType(value.projectType))
-  );
-}
-
-function isActiveJourney(value: unknown): value is ActiveJourney {
-  if (
-    !isRecord(value) ||
-    !isRuntimeJourney(value.journey) ||
-    typeof value.stepIndex !== "number" ||
-    !Number.isInteger(value.stepIndex) ||
-    !hasValidProjectContext(value)
-  ) {
-    return false;
-  }
-  return value.stepIndex >= 0 && value.stepIndex < value.journey.steps.length;
-}
-
-function isQueuedJourney(value: unknown): value is QueuedJourney {
-  return (
-    isRecord(value) &&
-    isRuntimeJourney(value.journey) &&
-    hasValidProjectContext(value)
-  );
-}
-
-function journeyInstanceKey(entry: {
-  journey: Pick<RuntimeJourney, "key">;
-  projectId?: string;
-}): string {
-  return JSON.stringify([entry.journey.key, entry.projectId ?? null]);
-}
-
-function isJourneySnapshot(value: unknown): value is JourneySnapshot {
-  if (
-    !isRecord(value) ||
-    !isRecord(value.owner) ||
-    typeof value.owner.userId !== "string" ||
-    value.owner.userId.length === 0 ||
-    typeof value.owner.tenantId !== "string" ||
-    value.owner.tenantId.length === 0 ||
-    !isActiveJourney(value.active) ||
-    !Array.isArray(value.queue) ||
-    !value.queue.every(isQueuedJourney)
-  ) {
-    return false;
-  }
-
-  const seen = new Set([journeyInstanceKey(value.active)]);
-  for (const queued of value.queue) {
-    const key = journeyInstanceKey(queued);
-    if (seen.has(key)) return false;
-    seen.add(key);
-  }
-  return true;
-}
-
-function readStored(): JourneySnapshot | null {
+function readStored(): ActiveJourney | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = window.sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed: unknown = JSON.parse(raw);
-    return isJourneySnapshot(parsed) ? parsed : null;
+    return raw ? (JSON.parse(raw) as ActiveJourney) : null;
   } catch {
     return null;
   }
 }
 
-function writeStored(snapshot: JourneySnapshot | null) {
+function writeStored(active: ActiveJourney | null) {
   if (typeof window === "undefined") return;
-  if (!snapshot) window.sessionStorage.removeItem(STORAGE_KEY);
-  else window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
-}
-
-function snapshotOwnerKey(owner: JourneySnapshotOwner): string {
-  return JSON.stringify([owner.userId, owner.tenantId]);
+  if (!active) window.sessionStorage.removeItem(STORAGE_KEY);
+  else window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(active));
 }
 
 export function JourneyRuntimeProvider({
@@ -240,118 +111,28 @@ export function JourneyRuntimeProvider({
   const pathname = usePathname();
   const router = useRouter();
   const [active, setActive] = useState<ActiveJourney | null>(null);
-  const [restoredOwner, setRestoredOwner] = useState<string | null>(null);
   const [queue, setQueue] = useState<QueuedJourney[]>([]);
   const [projects, setProjects] = useState<JourneyProject[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const completedKeys = useRef(new Set<string>());
-  const emittedScreenVisit = useRef<string | null>(null);
-  const pendingEmit = useRef<JourneyEligibilityContext[] | null>(null);
-  const runtimeOwner = useRef<string | null>(null);
-  const eligibilityGeneration = useRef(0);
-  const projectListGeneration = useRef(0);
-  const currentUserId = user?.id;
-  const currentTenantId = user?.tenantId;
-  const currentOwner =
-    currentUserId && currentTenantId
-      ? snapshotOwnerKey({
-          userId: currentUserId,
-          tenantId: currentTenantId,
-        })
-      : null;
-  const restored = !!currentOwner && restoredOwner === currentOwner;
 
-  // A hidratação precisa terminar antes de ler a sessão autenticada. Quando a
-  // identidade resolve, o layout effect restaura antes dos effects passivos
-  // (persistência e SCREEN_VISIT), sem divergir do HTML produzido no servidor.
+  // `useLayoutEffect`, não `useState(() => readStored())`: o componente é
+  // renderizado no servidor também (client component com SSR), onde
+  // `readStored()` sempre é `null` — usar o initializer do `useState` faria o
+  // PRIMEIRO render do cliente (hidratação) já ler o sessionStorage real,
+  // divergindo do HTML do servidor (`<aside>` presente vs. ausente) e
+  // disparando "Hydration failed". `useLayoutEffect` roda síncrono, DEPOIS da
+  // hidratação (que já viu `null`, igual ao servidor) e ANTES do browser
+  // pintar — restaura a jornada sem o usuário ver o frame vazio.
   useLayoutEffect(() => {
-    if (authLoading) return;
-    const previousOwner = runtimeOwner.current;
-    runtimeOwner.current = currentOwner;
-    eligibilityGeneration.current += 1;
-    projectListGeneration.current += 1;
-
-    setActive(null);
-    setQueue([]);
-    setProjects([]);
-    setLoading(false);
-    setError(null);
-    completedKeys.current.clear();
-    emittedScreenVisit.current = null;
-
-    if (!currentUserId || !currentTenantId || !currentOwner) {
-      pendingEmit.current = null;
-      writeStored(null);
-      setRestoredOwner(null);
-      return;
-    }
-
-    // Troca direta de conta não pode carregar um gatilho pendente da anterior.
-    // No primeiro login, porém, preserva PROJECT_CREATED emitido pelo cadastro.
-    if (previousOwner && previousOwner !== currentOwner) {
-      pendingEmit.current = null;
-    }
-
     const stored = readStored();
-    const belongsToUser =
-      stored?.owner.userId === currentUserId &&
-      stored.owner.tenantId === currentTenantId;
-    if (!stored || !belongsToUser) {
-      writeStored(null);
-      setRestoredOwner(currentOwner);
-      return;
-    }
-
-    setActive(stored.active);
-    setQueue(stored.queue);
-    setRestoredOwner(currentOwner);
-  }, [authLoading, currentOwner, currentTenantId, currentUserId]);
+    if (stored) setActive(stored);
+  }, []);
 
   useEffect(() => {
-    if (!restored || !currentUserId || !currentTenantId) return;
-    writeStored(
-      active
-        ? {
-            owner: {
-              userId: currentUserId,
-              tenantId: currentTenantId,
-            },
-            active,
-            queue,
-          }
-        : null,
-    );
-  }, [active, currentTenantId, currentUserId, queue, restored]);
-
-  const activeProjectContext = active
-    ? JSON.stringify([
-        active.journey.journeyId,
-        active.journey.triggerId,
-        active.journey.key,
-      ])
-    : null;
-  const activeCrossProject = active?.journey.crossProject === true;
-
-  // Uma única fonte para projetos cross-project: restauração, primeira
-  // ativação e promoção da fila passam por esta mesma troca de `active`.
-  useEffect(() => {
-    const requestGeneration = ++projectListGeneration.current;
-    setProjects([]);
-    if (!restored || !currentOwner || !activeCrossProject) return;
-    const requestOwner = currentOwner;
-    const isCurrentRequest = () =>
-      runtimeOwner.current === requestOwner &&
-      projectListGeneration.current === requestGeneration;
-
-    void listJourneyProjects()
-      .then((items) => {
-        if (isCurrentRequest()) setProjects(items);
-      })
-      .catch(() => {
-        if (isCurrentRequest()) setProjects([]);
-      });
-  }, [activeCrossProject, activeProjectContext, currentOwner, restored]);
+    writeStored(active);
+  }, [active]);
 
   // Gatilho emitido ANTES de a autenticação resolver não pode ser descartado:
   // no cadastro, `emit` é chamado de dentro de um `handleSubmit` cujo closure
@@ -360,18 +141,15 @@ export function JourneyRuntimeProvider({
   // nem uma requisição. Guardamos o contexto e reemitimos quando o usuário
   // aparece, o que preserva "nunca disparar sem usuário autenticado" sem
   // perder o gatilho.
+  const pendingEmit = useRef<JourneyEligibilityContext[] | null>(null);
+
   const emitMany = useCallback(
     async (contexts: JourneyEligibilityContext[]) => {
       if (active || contexts.length === 0) return;
-      if (!user || authLoading || !currentOwner) {
+      if (!user || authLoading) {
         pendingEmit.current = contexts;
         return;
       }
-      const requestOwner = currentOwner;
-      const requestGeneration = ++eligibilityGeneration.current;
-      const isCurrentRequest = () =>
-        runtimeOwner.current === requestOwner &&
-        eligibilityGeneration.current === requestGeneration;
       pendingEmit.current = null;
       setLoading(true);
       setError(null);
@@ -389,7 +167,7 @@ export function JourneyRuntimeProvider({
               ? getProjectType(context.projectId).catch(() => null)
               : Promise.resolve(null);
             const [eligible, projectType] = await Promise.all([
-              getEligibleJourneys(context),
+              getEligibleJourneys(context).catch(() => []),
               projectTypePromise,
             ]);
             return eligible.map((j) => ({
@@ -399,7 +177,6 @@ export function JourneyRuntimeProvider({
             }));
           }),
         );
-        if (!isCurrentRequest()) return;
 
         const seen = new Set<string>();
         const entries: QueuedJourney[] = [];
@@ -408,7 +185,7 @@ export function JourneyRuntimeProvider({
           if (completedKeys.current.has(entry.journey.key)) continue;
           // Chave por jornada E projeto: dois projetos do mesmo tipo têm cada
           // um a sua jornada (repeatPolicy é ONCE_PER_PROJECT).
-          const dedupeKey = journeyInstanceKey(entry);
+          const dedupeKey = `${entry.journey.key}:${entry.projectId ?? ""}`;
           if (seen.has(dedupeKey)) continue;
           seen.add(dedupeKey);
           entries.push(entry);
@@ -416,27 +193,26 @@ export function JourneyRuntimeProvider({
 
         const [first] = entries;
         if (first) {
+          if (first.journey.crossProject) {
+            void listJourneyProjects()
+              .then(setProjects)
+              .catch(() => setProjects([]));
+          }
           setActive({
             journey: first.journey,
             stepIndex: 0,
             projectId: first.projectId,
             projectType: first.projectType,
           });
-          setQueue(entries.slice(1));
+          setQueue(entries);
         }
-      } catch (cause) {
-        if (!isCurrentRequest()) return;
-        const message =
-          cause instanceof Error
-            ? cause.message
-            : "Não foi possível carregar a jornada.";
-        setError(message);
-        toast.error(message);
+      } catch {
+        // The runtime is additive: an unavailable journey API must not break the app.
       } finally {
-        if (isCurrentRequest()) setLoading(false);
+        setLoading(false);
       }
     },
-    [active, authLoading, currentOwner, user],
+    [active, authLoading, user],
   );
 
   const emit = useCallback(
@@ -470,28 +246,15 @@ export function JourneyRuntimeProvider({
   }, [active, authLoading, emitMany, user]);
 
   useEffect(() => {
-    if (!restored || authLoading) return;
-    if (!user) {
-      emittedScreenVisit.current = null;
-      return;
-    }
-    if (!pathname || active) return;
+    if (!user || authLoading || !pathname || active) return;
     const projectId = currentProjectId(pathname);
-    const screenKey = currentScreenKey(pathname);
-    if (!screenKey) return;
-    const visitKey = `${user.id}:${pathname}`;
-    // O Strict Mode pode concluir duas leituras de /auth/me com objetos
-    // equivalentes enquanto a primeira elegibilidade ainda está em voo.
-    // Marcar antes do await garante um único SCREEN_VISIT por navegação.
-    if (emittedScreenVisit.current === visitKey) return;
-    emittedScreenVisit.current = visitKey;
     void emit({
       triggerType: "SCREEN_VISIT",
       device: device(),
       projectId,
-      screenKey,
+      screenKey: pathname.split("/").pop() || undefined,
     });
-  }, [active, authLoading, emit, pathname, restored, user]);
+  }, [active, authLoading, emit, pathname, user]);
 
   useEffect(() => {
     if (!user || authLoading) return;
@@ -531,7 +294,7 @@ export function JourneyRuntimeProvider({
     if (!active) return;
     const completed = active;
     completedKeys.current.add(completed.journey.key);
-    const [nextJourney] = queue;
+    const nextJourney = queue[1];
     if (nextJourney) {
       setQueue((current) => current.slice(1));
       setActive({
@@ -592,10 +355,11 @@ export function JourneyRuntimeProvider({
     if (!active) return;
     const step = active.journey.steps[active.stepIndex];
     if (!step?.skippable) return;
-    // Uma navegação posterior pode devolver a mesma jornada (ela não foi
-    // concluída, e não existe endpoint de dismiss). `completedKeys` é a
-    // supressão client-side que vive enquanto a aba vive — exatamente a
-    // semântica de `DISMISS_UNTIL_LOGIN`.
+    // Sem isto, fechar é no-op no gatilho SCREEN_VISIT: o effect re-roda com
+    // `active === null` no MESMO pathname, a API devolve a mesma jornada (ela
+    // não foi concluída, e não existe endpoint de dismiss) e o painel reabre.
+    // `completedKeys` é a única supressão client-side e vive enquanto a aba
+    // vive — exatamente a semântica de `DISMISS_UNTIL_LOGIN`.
     completedKeys.current.add(active.journey.key);
     setQueue([]);
     setActive(null);
@@ -757,12 +521,7 @@ function JourneyRuntimeOverlay() {
   useEffect(() => {
     if (!active || !currentStep) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (
-        event.key === "Escape" &&
-        !document.body.hasAttribute("data-overlay-open")
-      ) {
-        runtime.dismiss();
-      }
+      if (event.key === "Escape") runtime.dismiss();
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);

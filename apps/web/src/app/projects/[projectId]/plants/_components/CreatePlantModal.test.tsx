@@ -99,13 +99,9 @@ describe('CreatePlantModal', () => {
   it('bare=true renders without the outer "fixed inset-0 bg-black/40" wrapper class; bare=false (default) keeps it', () => {
     const { container, unmount } = render(<CreatePlantModal onClose={vi.fn()} onCreated={vi.fn()} bare />);
     expect(container.querySelector('.fixed.inset-0.bg-black\\/40')).not.toBeInTheDocument();
-    expect(document.body.dataset.overlayOpen).toBeUndefined();
     unmount();
 
-    const { container: containerDefault, unmount: unmountDefault } = render(<CreatePlantModal onClose={vi.fn()} onCreated={vi.fn()} />);
+    const { container: containerDefault } = render(<CreatePlantModal onClose={vi.fn()} onCreated={vi.fn()} />);
     expect(containerDefault.querySelector('.fixed.inset-0.bg-black\\/40')).toBeInTheDocument();
-    expect(document.body.dataset.overlayOpen).toBe('true');
-    unmountDefault();
-    expect(document.body.dataset.overlayOpen).toBeUndefined();
   });
 });

@@ -48,27 +48,6 @@ describe('BankAccountFormModal', () => {
     expect(screen.getByText('Cancelar')).toBeInTheDocument();
   });
 
-  it('marks only the fullscreen mode as an open overlay', () => {
-    const fullscreen = wrap(
-      <BankAccountFormModal projectId="p1" account={null} onClose={vi.fn()} onSaved={vi.fn()} />,
-    );
-    expect(document.body.dataset.overlayOpen).toBe('true');
-
-    fullscreen.unmount();
-    expect(document.body.dataset.overlayOpen).toBeUndefined();
-
-    wrap(
-      <BankAccountFormModal
-        projectId="p1"
-        account={null}
-        onClose={vi.fn()}
-        onSaved={vi.fn()}
-        bare
-      />,
-    );
-    expect(document.body.dataset.overlayOpen).toBeUndefined();
-  });
-
   it('hideCancel=true: "Cancelar" button is absent, "Salvar" is still present and still calls onSaved on success', async () => {
     const onSaved = vi.fn();
     wrap(

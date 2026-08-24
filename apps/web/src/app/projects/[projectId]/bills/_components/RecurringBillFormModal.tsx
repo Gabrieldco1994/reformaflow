@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { api } from '@/lib/api';
 import { maskCurrencyInput, currencyInputToNumber, centsToReaisInput } from '@/lib/currency-input';
-import { useOverlayLock } from '@/components/ui/use-overlay-lock';
 import { BILL_CATEGORIES, BILL_FREQUENCIES, type RecurringBillRow } from '../_display';
 
 interface Props {
@@ -17,7 +16,6 @@ interface Props {
 }
 
 export default function RecurringBillFormModal({ projectId, projectType, bill, onClose, onSaved, bare }: Props) {
-  useOverlayLock(!bare);
   const [nome, setNome] = useState(bill?.nome ?? '');
   const [valor, setValor] = useState(bill ? centsToReaisInput(bill.valor) : '');
   const [diaVencimento, setDiaVencimento] = useState(bill?.diaVencimento ?? 10);

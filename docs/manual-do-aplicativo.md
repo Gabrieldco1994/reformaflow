@@ -233,9 +233,6 @@ O painel é acionado pelo trigger `PROJECT_CREATED` ao criar novo projeto e cont
 2. **Comportamento de saída:** ao fechar o painel (botão de X, clique fora ou "Concluir"),
    o usuário volta ao **Dashboard/Cockpit do projeto**. Diferentemente do fluxo anterior,
    não há rota dedicada pós-onboarding — tudo acontece no mesmo Dashboard.
-   O passo atual é retomado após recarregar a página ou entrar novamente. Quando
-   um modal ou uma folha de tela cheia é aberto, o painel sai temporariamente da
-   frente para liberar todos os campos e botões e reaparece ao fechar.
 
 O critério central permanece o mesmo do fluxo original do PESSOAL: quem segue o
 caminho feliz sai do assistente com pelo menos um lançamento/dado real

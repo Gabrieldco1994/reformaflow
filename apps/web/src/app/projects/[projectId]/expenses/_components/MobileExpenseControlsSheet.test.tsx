@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { MobileExpenseControlsSheet } from './MobileExpenseControlsSheet';
 
@@ -37,17 +37,6 @@ function renderSheet(
 }
 
 describe('MobileExpenseControlsSheet', () => {
-  it('marks the body only while the fullscreen sheet is open', () => {
-    renderSheet();
-    expect(document.body.dataset.overlayOpen).toBe('true');
-
-    cleanup();
-    expect(document.body.dataset.overlayOpen).toBeUndefined();
-
-    renderSheet({ open: false });
-    expect(document.body.dataset.overlayOpen).toBeUndefined();
-  });
-
   it('shows REFORMA room controls without leaking the PESSOAL-only project view', () => {
     renderSheet();
     expect(screen.getByRole('textbox', { name: 'Ambiente' })).toBeInTheDocument();

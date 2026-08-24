@@ -14,16 +14,6 @@ function wrap(ui: React.ReactElement) {
 }
 
 describe("AccountFormModal", () => {
-  it("marks its fullscreen wrapper while the nested account form stays bare", () => {
-    const modal = wrap(
-      <AccountFormModal projectId="p1" defaultType="BANK" onClose={vi.fn()} onSaved={vi.fn()} />,
-    );
-
-    expect(document.body.dataset.overlayOpen).toBe("true");
-    modal.unmount();
-    expect(document.body.dataset.overlayOpen).toBeUndefined();
-  });
-
   it("starts on the credit card form and switches to bank account on toggle", async () => {
     const user = userEvent.setup();
     wrap(

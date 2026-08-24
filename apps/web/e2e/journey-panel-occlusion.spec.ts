@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 /**
  * OCLUSÃO DE SHELL, não de componente.
@@ -24,8 +24,6 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
  */
 
 const projectId = "journey-occlusion-test";
-const JOURNEY_PANEL = "[data-journey-panel]";
-const JOURNEY_PROGRESS = "[data-journey-progress]";
 
 /**
  * CENSO, não lista fixa.
@@ -53,10 +51,6 @@ const MIN_CENSUS = 3;
 const VIEWPORTS = [
   { width: 375, height: 812 },
   { width: 390, height: 844 },
-];
-const OVERLAY_VIEWPORTS = [
-  ...VIEWPORTS,
-  { width: 1280, height: 800 },
 ];
 
 function json(body: unknown) {
@@ -153,167 +147,11 @@ const TALL_JOURNEY = {
   },
 };
 
-const STATIONARY_JOURNEY = {
-  ...ACTIVE_JOURNEY,
-  journey: {
-    ...ACTIVE_JOURNEY.journey,
-    steps: [
-      { ...ACTIVE_JOURNEY.journey.steps[0], slug: "" },
-      ACTIVE_JOURNEY.journey.steps[1],
-    ],
-  },
-};
-
-const FINANCIAL_ITEM = {
-  id: "expense-detail",
-  kind: "saida",
-  descricao: "Material da jornada",
-  data: "2026-07-05",
-  forma: "pix",
-  valor: 20_696,
-  realizado: true,
-  status: "PAGO",
-  cardId: null,
-  actions: [],
-  fingerprint: null,
-  cardLast4: null,
-  bankLast4: "1881",
-  tipoDespesa: "MATERIAL",
-  isInvoice: false,
-  editavel: true,
-  dueMonth: null,
-  projetoOrigem: { id: projectId, name: "Pessoal Teste", type: "PESSOAL" },
-  purposeLabel: "Compra de material",
-  title: "Cimento da jornada",
-  supplier: "Loja Teste",
-  installment: null,
-  paymentForm: "PIX",
-  hasEvidence: false,
-  isEspelho: false,
-  isNeutral: false,
-};
-
-function accountView(mode: "actions" | "pay") {
-  const paid = mode === "actions";
-  return {
-    mesSelecionado: "2026-07",
-    caixaHoje: 500_000,
-    carteiraHoje: 0,
-    entrouMes: 0,
-    saiuMes: 20_696,
-    faltaPagarMes: paid ? 0 : 25_000,
-    recebimentosPrevistosMes: 0,
-    sobraPrevista: 479_304,
-    devoCartaoTotal: 25_000,
-    cartoes: [
-      {
-        cardId: "card-journey",
-        nickname: "Nubank Jornada",
-        last4: "4488",
-        faturaAtual: 25_000,
-        faturaPendente: paid ? 0 : 25_000,
-        faturaPaga: paid ? 25_000 : 0,
-        residualDeclarado: 0,
-        possuiIntervencaoManual: false,
-        ajusteManualTotal: 0,
-        dueMonth: "2026-07",
-        vencimento: "2026-07-20T12:00:00.000Z",
-        status: paid ? "paga" : "a pagar",
-        limiteUsadoPct: 25,
-        limiteUsado: 25_000,
-        limiteTotal: 100_000,
-        actions: paid ? ["undo"] : ["pay"],
-        fingerprint: "journey-card",
-      },
-    ],
-    contas: [
-      {
-        accountId: "account-journey",
-        last4: "1881",
-        nome: "Itaú Jornada",
-      },
-    ],
-    saidas: [FINANCIAL_ITEM],
-    comprasCartao: [],
-    entradas: [],
-    ticketMedio: {
-      valor: 0,
-      nCompras: 0,
-      totalCompras: 0,
-      serie6m: [],
-      media6m: 0,
-      deltaVsMediaPct: null,
-    },
-  };
-}
-
-const MONTH_ROW = {
-  mes: "2026-07",
-  totalDespesas: 20_696,
-  totalRecebimentos: 0,
-  despesasRealizadas: 20_696,
-  recebimentosRealizados: 0,
-  saldoMes: -20_696,
-  saldoMesRealizado: -20_696,
-  porOrigem: {},
-  porCategoria: [{ categoria: "Material", valor: 20_696 }],
-};
-
-const MONTHLY_OVERVIEW = {
-  mesAtual: "2026-07",
-  meses: [MONTH_ROW],
-  comparativo: {
-    current: MONTH_ROW,
-    previous: null,
-    deltaDespesas: 0,
-    deltaDespesasPct: null,
-    deltaRecebimentos: 0,
-    deltaRecebimentosPct: null,
-    deltaSaldo: 0,
-  },
-  mesAtualEntries: [],
-  entries: [],
-  projetos: [{ id: projectId, name: "Pessoal Teste", type: "PESSOAL" }],
-  cards: [],
-  caixa: {
-    hoje: 500_000,
-    saldoInicial: 500_000,
-    temSaldoInicial: true,
-    porMes: [{ mes: "2026-07", caixa: 500_000 }],
-  },
-  projecao: {
-    caixaHoje: 500_000,
-    entrouMes: 0,
-    saiuMes: 20_696,
-    faltaPagarMes: 25_000,
-    recebimentosPrevistosMes: 0,
-    sobraPrevista: 454_304,
-  },
-};
-
-const RUNWAY_ROWS = [
-  ["2026-07", 400_000],
-  ["2026-08", 250_000],
-  ["2026-09", 100_000],
-  ["2026-10", -50_000],
-  ["2026-11", -200_000],
-  ["2026-12", -350_000],
-].map(([mes, saldoProjetado]) => ({
-  mes,
-  recebimentos: 0,
-  despesas: 150_000,
-  recebimentosRealizados: null,
-  despesasRealizadas: null,
-  saldoProjetado,
-  saldoRealizado: null,
-}));
-
 async function openContaWithJourney(
   page: Page,
   viewport: { width: number; height: number },
   journey: typeof ACTIVE_JOURNEY = ACTIVE_JOURNEY,
 ) {
-  let accountMode: "actions" | "pay" = "actions";
   await page.clock.setFixedTime(new Date("2026-07-15T12:00:00.000Z"));
   await page.setViewportSize(viewport);
   await page
@@ -325,11 +163,7 @@ async function openContaWithJourney(
   await page.addInitScript((active) => {
     window.sessionStorage.setItem(
       "lifeone:journey-runtime",
-      JSON.stringify({
-        owner: { userId: "user-test", tenantId: "tenant-test" },
-        active,
-        queue: [],
-      }),
+      JSON.stringify(active),
     );
   }, journey);
 
@@ -367,23 +201,6 @@ async function openContaWithJourney(
       return route.fulfill(
         json([{ id: projectId, name: "Pessoal Teste", type: "PESSOAL" }]),
       );
-    if (path === `/projects/${projectId}/bank-accounts`)
-      return route.fulfill(json([]));
-    if (path === `/projects/${projectId}/monthly-overview/account-view`)
-      return route.fulfill(json(accountView(accountMode)));
-    if (path === `/projects/${projectId}/monthly-overview`)
-      return route.fulfill(json(MONTHLY_OVERVIEW));
-    if (path === `/projects/${projectId}/monthly-overview/dre-overview`)
-      return route.fulfill(
-        json({
-          anual: {
-            saldoAcumuladoSerie: RUNWAY_ROWS,
-            candidatos: [],
-          },
-        }),
-      );
-    if (path === `/projects/${projectId}/category-budgets/progress`)
-      return route.fulfill(json([]));
     return route.fulfill(json([]));
   });
 
@@ -392,14 +209,7 @@ async function openContaWithJourney(
   // O painel PRECISA estar aberto — sem ele o teste não mede nada e passaria
   // verde por ausência do que deveria estar atrapalhando.
   await expect(page.locator("[data-journey-panel]")).toBeVisible();
-  if (viewport.width < 768) {
-    await expect(page.locator('[data-dock="minimal"]')).toBeVisible();
-  }
-  return {
-    setAccountMode(mode: "actions" | "pay") {
-      accountMode = mode;
-    },
-  };
+  await expect(page.locator('[data-dock="minimal"]')).toBeVisible();
 }
 
 /**
@@ -506,131 +316,6 @@ test.describe("Painel da jornada não esconde as próprias ações", () => {
         blocked.map((entry) => entry.report),
         `Ações do painel inalcançáveis a ${viewport.width}px:\n  ${blocked.map((entry) => entry.report).join("\n  ")}`,
       ).toEqual([]);
-    });
-  }
-});
-
-test.describe("Overlays de conta e lançamento afastam o painel da jornada", () => {
-  test("Escape fecha o Mais sem dispensar a etapa ativa", async ({
-    page,
-  }, testInfo) => {
-    test.skip(
-      testInfo.project.name !== "desktop",
-      "o viewport mobile explícito é dono deste cenário",
-    );
-    await openContaWithJourney(page, { width: 375, height: 812 });
-    await expect(page.locator(JOURNEY_PROGRESS)).toHaveText("1/2");
-
-    await page.getByRole("button", { name: /^Mais opções/ }).click();
-    await expect(page.locator('[data-overlay="mais"]')).toBeVisible();
-    await expect(page.locator("body")).toHaveAttribute(
-      "data-overlay-open",
-      "true",
-    );
-    await expect(page.locator(JOURNEY_PANEL)).toBeHidden();
-
-    await page.keyboard.press("Escape");
-
-    await expect(page.locator('[data-overlay="mais"]')).toBeHidden();
-    await expect(page.locator("body")).not.toHaveAttribute(
-      "data-overlay-open",
-      "true",
-    );
-    await expect(page.locator(JOURNEY_PANEL)).toBeVisible();
-    await expect(page.locator(JOURNEY_PROGRESS)).toHaveText("1/2");
-  });
-
-  for (const viewport of [
-    { width: 375, height: 812 },
-    { width: 390, height: 844 },
-    { width: 1280, height: 800 },
-  ]) {
-    test(`conta bancária continua tocável a ${viewport.width}px`, async ({
-      page,
-    }, testInfo) => {
-      test.skip(
-        testInfo.project.name !== "desktop",
-        "os viewports são explicitamente donos deste spec",
-      );
-      await openContaWithJourney(page, viewport);
-
-      await page
-        .getByRole("button", { name: "Nova conta", exact: true })
-        .filter({ visible: true })
-        .evaluate((button: HTMLButtonElement) => button.click());
-
-      await expect(
-        page.getByRole("heading", { name: "Nova conta bancária" }),
-      ).toBeVisible();
-      await expect(page.locator("body")).toHaveAttribute(
-        "data-overlay-open",
-        "true",
-      );
-      await expect(page.locator("[data-journey-panel]")).toBeHidden();
-
-      for (const action of ["Cancelar", "Salvar"]) {
-        const target = page.getByRole("button", { name: action, exact: true });
-        await target.scrollIntoViewIfNeeded();
-        await expect
-          .poll(() =>
-            target.evaluate((element) => {
-              const box = element.getBoundingClientRect();
-              const hit = document.elementFromPoint(
-                box.x + box.width / 2,
-                box.y + box.height / 2,
-              );
-              return !!hit && element.contains(hit);
-            }),
-          )
-          .toBe(true);
-      }
-
-      await page.getByRole("button", { name: "Cancelar", exact: true }).click();
-      await expect(page.locator("body")).not.toHaveAttribute(
-        "data-overlay-open",
-        "true",
-      );
-      await expect(page.locator("[data-journey-panel]")).toBeVisible();
-    });
-  }
-
-  for (const viewport of VIEWPORTS) {
-    test(`folhas de lançamento continuam tocáveis a ${viewport.width}px`, async ({
-      page,
-    }, testInfo) => {
-      test.skip(
-        testInfo.project.name !== "desktop",
-        "os viewports são explicitamente donos deste spec",
-      );
-      await openContaWithJourney(page, viewport);
-
-      await page.locator("[data-launcher]").click();
-      const expenseMode = page.locator(
-        '[data-mobile-sheet="launch-mode"] [data-journey-action="expense.new"]',
-      );
-      await expect(expenseMode).toBeVisible();
-      await expect(page.locator("[data-journey-panel]")).toBeHidden();
-
-      await expenseMode.click();
-      const keypadFive = page
-        .locator('[data-mobile-sheet="launch"]')
-        .getByRole("button", { name: "5", exact: true });
-      await expect(keypadFive).toBeVisible();
-      await expect
-        .poll(() =>
-          keypadFive.evaluate((element) => {
-            const box = element.getBoundingClientRect();
-            const hit = document.elementFromPoint(
-              box.x + box.width / 2,
-              box.y + box.height / 2,
-            );
-            return !!hit && element.contains(hit);
-          }),
-        )
-        .toBe(true);
-
-      await page.getByRole("button", { name: "Fechar lançar" }).click();
-      await expect(page.locator("[data-journey-panel]")).toBeVisible();
     });
   }
 });

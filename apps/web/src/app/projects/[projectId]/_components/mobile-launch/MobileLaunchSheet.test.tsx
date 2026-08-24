@@ -8,24 +8,6 @@ vi.mock('../../expenses/_hooks/useCategorySuggestion', () => ({
 }));
 
 describe('MobileLaunchSheet', () => {
-  it('marks the body only while the fullscreen expense sheet is open', () => {
-    const props: React.ComponentProps<typeof MobileLaunchSheet> = {
-      open: true,
-      onClose: vi.fn(),
-      onLaunch: vi.fn(async () => undefined),
-      launching: false,
-      accounts: [],
-      cards: [],
-      recentDescriptions: [],
-      projectType: 'PESSOAL',
-    };
-    const { rerender } = render(<MobileLaunchSheet {...props} />);
-    expect(document.body.dataset.overlayOpen).toBe('true');
-
-    rerender(<MobileLaunchSheet {...props} open={false} />);
-    expect(document.body.dataset.overlayOpen).toBeUndefined();
-  });
-
   it('enables launch when value is informed and submits card payload', async () => {
     const user = userEvent.setup();
     const onLaunch = vi.fn(async () => undefined);
