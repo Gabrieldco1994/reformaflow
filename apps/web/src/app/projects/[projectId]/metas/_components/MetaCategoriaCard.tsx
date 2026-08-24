@@ -6,7 +6,10 @@ import { metaProgressTone as tone } from '../_lib/metaTone';
 export interface MetaProgress {
   tipoDespesa: string;
   limiteCents: number;
+  /** Gasto real no mês (caixa): soma apenas das parcelas pagas */
   gastoCents: number;
+  /** Comprometido no mês: soma de todas as parcelas (pagas ou planejadas) */
+  comprometidoCents: number;
   pct: number;
 }
 
@@ -30,6 +33,11 @@ export function MetaCategoriaCard({
           <p className="truncate text-sm font-semibold text-darc-velvet">{label}</p>
           <p className="text-[11px] text-darc-velvet/50">
             {formatCurrency(item.gastoCents / 100)} de {formatCurrency(item.limiteCents / 100)}
+            {item.comprometidoCents > item.gastoCents && (
+              <span className="ml-1 text-darc-velvet/35">
+                · {formatCurrency(item.comprometidoCents / 100)} comprometido
+              </span>
+            )}
           </p>
         </button>
         <div className="flex items-center gap-2 shrink-0">

@@ -4,7 +4,12 @@ import { MetasGlance } from './MetasGlance';
 import type { MetaProgress } from '../../metas/_components/MetaCategoriaCard';
 
 function progress(pct: number, tipo: string): MetaProgress {
-  return { tipoDespesa: tipo, limiteCents: 100_000, gastoCents: Math.round(1000 * pct), pct };
+  const gastoCents = Math.round(1000 * pct);
+  // comprometidoCents propositalmente diferente de gastoCents: MetasGlance não
+  // renderiza esse campo hoje, mas a fixture não deve fingir que os dois são
+  // sempre iguais — quem reusar isso ganha um dado realista, não um atalho.
+  const comprometidoCents = gastoCents + 5_000;
+  return { tipoDespesa: tipo, limiteCents: 100_000, gastoCents, comprometidoCents, pct };
 }
 
 describe('MetasGlance', () => {
