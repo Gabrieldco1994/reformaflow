@@ -3629,6 +3629,11 @@ describe("MonthlyOverviewService.getAccountView — Carteira (origem='none')", (
     ]);
     expect(res.saiuMes).toBe(1_000);
     expect(res.faltaPagarMes).toBe(1_000);
+    // #560, critério de aceite nº 1 ("carteiraTotal idêntica ao §10"): a parcela 0
+    // está em `paidParcelas` — pagamento EXPLÍCITO, entra no saldo pontual mesmo
+    // com data futura (2026-07-20 > hoje 2026-06-15), igual ao motor §10
+    // `computeCaixaConta`. O `0` posto por 9c99ba13 codificava a divergência entre
+    // os motores que a issue manda eliminar.
     expect(res.carteiraHoje).toBe(-1_000);
     expect(res.carteiraHoje).toBe(-res.saiuMes);
   });
@@ -3707,5 +3712,58 @@ describe("MonthlyOverviewService.getAccountView — Carteira (origem='none')", (
     // Os dois totais somados NÃO podem contar a mesma despesa duas vezes.
     expect(res.saiuMes).toBe(1_000);
     expect(res.faltaPagarMes).toBe(700);
+  });
+
+  it("não debita duas vezes quando a planejada vira PAGO (snapshot planejado + clone pago)", async () => {
+    prisma.bankAccount.findMany.mockResolvedValue([
+      {
+        openingBalanceCents: 100_000,
+        openingBalanceDate: new Date("2025-12-31T00:00:00.000Z"),
+        last4: "9999",
+        nickname: "Conta",
+        institution: "Banco",
+      },
+    ]);
+    prisma.expense.findMany.mockResolvedValue([
+      base({
+        id: "planned-original",
+        projectId,
+        tipoDespesa: "ALIMENTACAO",
+        titulo: "Mercado planejado",
+        valorTotal: 1_000,
+        valor: 1_000,
+        formaPagamento: "A_VISTA",
+        dataPagamento: new Date("2026-06-12T00:00:00.000Z"),
+        status: "PLANEJADO",
+        bankLast4: "9999",
+        settledByExpenseId: "paid-clone",
+        project: { id: projectId, name: "Pessoal", type: "PESSOAL" },
+      }),
+      base({
+        id: "paid-clone",
+        projectId,
+        tipoDespesa: "ALIMENTACAO",
+        titulo: "Mercado pago",
+        valorTotal: 1_000,
+        valor: 1_000,
+        formaPagamento: "A_VISTA",
+        dataPagamento: new Date("2026-06-12T00:00:00.000Z"),
+        status: "PAGO",
+        bankLast4: "9999",
+        settledByExpenseId: null,
+        project: { id: projectId, name: "Pessoal", type: "PESSOAL" },
+      }),
+    ]);
+    prisma.receipt.findMany.mockResolvedValue([]);
+    prisma.cashFlowEntry.findMany.mockResolvedValue([]);
+    prisma.creditCard.findMany.mockResolvedValue([]);
+
+    const res: any = await service.getAccountView(tenantId, projectId, "2026-06");
+
+    expect(res.saidas.find((s: any) => s.id === "planned-original")).toBeUndefined();
+    expect(res.saidas.find((s: any) => s.id === "paid-clone")).toBeDefined();
+    expect(res.saiuMes).toBe(1_000);
+    expect(res.faltaPagarMes).toBe(0);
+    expect(res.caixaHoje).toBe(99_000);
   });
 });

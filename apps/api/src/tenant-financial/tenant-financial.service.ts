@@ -1,16 +1,22 @@
-import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
-import { MonthlyOverviewService } from '../monthly-overview/monthly-overview.service';
-import { CashFlowType, ExpenseTypeLabels } from '@reformaflow/domain';
+import { Injectable } from "@nestjs/common";
+import { PrismaService } from "../prisma/prisma.service";
+import { MonthlyOverviewService } from "../monthly-overview/monthly-overview.service";
+import {
+  CashFlowType,
+  ExpenseTypeLabels,
+  todayLocalDateUtc,
+} from "@reformaflow/domain";
 import {
   intersectProjectScope,
   projectScopeIncludes,
   sameProjectScope,
   unionProjectScope,
   type ProjectScope,
-} from '../common/project-scope';
+} from "../common/project-scope";
 
-type ProjectType = 'REFORMA' | 'COMPRA' | 'CASA' | 'CARRO' | 'PESSOAL';
+type ProjectType = "REFORMA" | "COMPRA" | "CASA" | "CARRO" | "PESSOAL";
+const FINANCIAL_TIME_ZONE = "America/Sao_Paulo";
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Escopo POR RECURSO das agregações financeiras (#483 SEC-5).
@@ -47,6 +53,7 @@ interface ResolvedLenses {
 
 export interface TenantFinancialOverview {
   caixaTotal: number | null;
+  carteiraTotal: number | null;
   pagoMesAtual: number;
   pagoYTD: number;
   pagoTotal: number;
@@ -94,7 +101,7 @@ export interface UpcomingDueRow {
   projectType: ProjectType;
   descricao: string;
   valor: number;
-  tipo: 'DESPESA' | 'RECEBIMENTO';
+  tipo: "DESPESA" | "RECEBIMENTO";
   status: string;
 }
 
@@ -123,7 +130,12 @@ export class TenantFinancialService {
    */
   private lenses(scope: FinancialScope): ResolvedLenses {
     if (scope === null || Array.isArray(scope)) {
-      return { expenses: scope, receipts: scope, projects: scope, caixa: scope };
+      return {
+        expenses: scope,
+        receipts: scope,
+        projects: scope,
+        caixa: scope,
+      };
     }
     const { expenses, receipts } = scope;
     return {
@@ -172,9 +184,13 @@ export class TenantFinancialService {
 
   private async listProjects(tenantId: string, scope: ProjectScope) {
     return this.prisma.project.findMany({
-      where: { tenantId, deletedAt: null, ...(scope ? { id: { in: scope } } : {}) },
+      where: {
+        tenantId,
+        deletedAt: null,
+        ...(scope ? { id: { in: scope } } : {}),
+      },
       select: { id: true, name: true, type: true },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: "asc" },
     });
   }
 
@@ -183,21 +199,27 @@ export class TenantFinancialService {
   }
 
   private startOfMonth(d: Date) {
-    return new Date(d.getFullYear(), d.getMonth(), 1);
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
   }
 
   private startOfYear(d: Date) {
-    return new Date(d.getFullYear(), 0, 1);
+    return new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
   }
 
-  async getOverview(tenantId: string, scope: FinancialScope): Promise<TenantFinancialOverview> {
+  async getOverview(
+    tenantId: string,
+    scope: FinancialScope,
+  ): Promise<TenantFinancialOverview> {
     const lenses = this.lenses(scope);
-    const resourceFilter = this.resourceScopeFilter(lenses.expenses, lenses.receipts);
-    const now = new Date();
-    const startMes = this.startOfMonth(now);
-    const startAno = this.startOfYear(now);
-    const in30 = new Date(now.getTime() + 30 * 24 * 3600 * 1000);
-    const in90 = new Date(now.getTime() + 90 * 24 * 3600 * 1000);
+    const resourceFilter = this.resourceScopeFilter(
+      lenses.expenses,
+      lenses.receipts,
+    );
+    const today = todayLocalDateUtc(FINANCIAL_TIME_ZONE);
+    const startMes = this.startOfMonth(today);
+    const startAno = this.startOfYear(today);
+    const in30 = new Date(today.getTime() + 30 * DAY_MS);
+    const in90 = new Date(today.getTime() + 90 * DAY_MS);
 
     const [projects, cashFlow] = await Promise.all([
       this.listProjects(tenantId, lenses.projects),
@@ -235,14 +257,16 @@ export class TenantFinancialService {
     // pode ler OS DOIS recursos (lente `caixa`), senão o KPI vazaria o recurso
     // não autorizado dentro de um número agregado.
     const pessoalProjects = projects.filter(
-      (p) => p.type === 'PESSOAL' && projectScopeIncludes(lenses.caixa, p.id),
+      (p) => p.type === "PESSOAL" && projectScopeIncludes(lenses.caixa, p.id),
     );
     let caixaTotal: number | null = null;
+    let carteiraTotal: number | null = null;
     if (pessoalProjects.length > 0) {
-      const caixas = await Promise.all(
-        pessoalProjects.map((p) => this.monthly.getCaixaConta(tenantId, p.id)),
+      const views = await Promise.all(
+        pessoalProjects.map((p) => this.monthly.getCaixaConta(tenantId, p.id, today)),
       );
-      caixaTotal = caixas.reduce((sum, c) => sum + c.hoje, 0);
+      caixaTotal = views.reduce((sum, view) => sum + view.hoje, 0);
+      carteiraTotal = views.reduce((sum, view) => sum + (view.carteiraHoje ?? 0), 0);
     }
 
     let pagoMesAtual = 0;
@@ -254,25 +278,26 @@ export class TenantFinancialService {
     let recebimento90d = 0;
 
     for (const e of cashFlow) {
-      if (e.tipo === 'DESPESA') {
-        if (e.status === 'PAGO') {
+      if (e.tipo === "DESPESA") {
+        if (e.status === "PAGO") {
           pagoTotal += e.valor;
           if (e.data >= startAno) pagoYTD += e.valor;
           if (e.data >= startMes) pagoMesAtual += e.valor;
-        } else if (e.status === 'PLANEJADO') {
-          if (e.data <= in30 && e.data >= now) previsao30d += e.valor;
-          if (e.data <= in90 && e.data >= now) previsao90d += e.valor;
+        } else if (e.status === "PLANEJADO") {
+          if (e.data <= in30 && e.data >= today) previsao30d += e.valor;
+          if (e.data <= in90 && e.data >= today) previsao90d += e.valor;
         }
-      } else if (e.tipo === 'RECEBIMENTO') {
-        if (e.status === 'PREVISTO') {
-          if (e.data <= in30 && e.data >= now) recebimento30d += e.valor;
-          if (e.data <= in90 && e.data >= now) recebimento90d += e.valor;
+      } else if (e.tipo === "RECEBIMENTO") {
+        if (e.status === "PREVISTO") {
+          if (e.data <= in30 && e.data >= today) recebimento30d += e.valor;
+          if (e.data <= in90 && e.data >= today) recebimento90d += e.valor;
         }
       }
     }
 
     return {
       caixaTotal,
+      carteiraTotal,
       pagoMesAtual,
       pagoYTD,
       pagoTotal,
@@ -280,13 +305,22 @@ export class TenantFinancialService {
       previsao90d,
       recebimento30d,
       recebimento90d,
-      saldoProjetado30d: caixaTotal === null ? null : caixaTotal + recebimento30d - previsao30d,
-      saldoProjetado90d: caixaTotal === null ? null : caixaTotal + recebimento90d - previsao90d,
+      saldoProjetado30d:
+        caixaTotal === null || carteiraTotal === null
+          ? null
+          : caixaTotal + carteiraTotal + recebimento30d - previsao30d,
+      saldoProjetado90d:
+        caixaTotal === null || carteiraTotal === null
+          ? null
+          : caixaTotal + carteiraTotal + recebimento90d - previsao90d,
       totalProjetos: projects.length,
     };
   }
 
-  async getByProject(tenantId: string, scope: FinancialScope): Promise<ProjectBreakdownRow[]> {
+  async getByProject(
+    tenantId: string,
+    scope: FinancialScope,
+  ): Promise<ProjectBreakdownRow[]> {
     const lenses = this.lenses(scope);
     const projects = await this.listProjects(tenantId, lenses.projects);
     if (projects.length === 0) return [];
@@ -346,16 +380,16 @@ export class TenantFinancialService {
     for (const e of cashFlow) {
       const row = byProject.get(e.projectId);
       if (!row) continue;
-      if (e.tipo === 'DESPESA') {
-        if (e.status === 'PAGO') row.gastoTotal += e.valor;
-        else if (e.status === 'PLANEJADO') row.planejadoRestante += e.valor;
+      if (e.tipo === "DESPESA") {
+        if (e.status === "PAGO") row.gastoTotal += e.valor;
+        else if (e.status === "PLANEJADO") row.planejadoRestante += e.valor;
       }
     }
     for (const r of receipts) {
       const row = byProject.get(r.projectId);
       if (!row) continue;
-      if (r.status === 'EM_CAIXA') row.recebimentoTotal += r.valor;
-      else if (r.status === 'PREVISTO') row.recebimentoPrevisto += r.valor;
+      if (r.status === "EM_CAIXA") row.recebimentoTotal += r.valor;
+      else if (r.status === "PREVISTO") row.recebimentoPrevisto += r.valor;
     }
     for (const row of byProject.values()) {
       row.saldo = row.recebimentoTotal - row.gastoTotal;
@@ -365,9 +399,16 @@ export class TenantFinancialService {
     return Array.from(byProject.values());
   }
 
-  async getCashFlow(tenantId: string, months: number, scope: FinancialScope): Promise<ConsolidatedCashFlowPoint[]> {
+  async getCashFlow(
+    tenantId: string,
+    months: number,
+    scope: FinancialScope,
+  ): Promise<ConsolidatedCashFlowPoint[]> {
     const lenses = this.lenses(scope);
-    const resourceFilter = this.resourceScopeFilter(lenses.expenses, lenses.receipts);
+    const resourceFilter = this.resourceScopeFilter(
+      lenses.expenses,
+      lenses.receipts,
+    );
     const now = new Date();
     const from = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
 
@@ -392,7 +433,13 @@ export class TenantFinancialService {
             ...resourceFilter.and,
           ],
         },
-        select: { projectId: true, tipo: true, status: true, valor: true, data: true },
+        select: {
+          projectId: true,
+          tipo: true,
+          status: true,
+          valor: true,
+          data: true,
+        },
       }),
       this.listProjects(tenantId, lenses.projects),
     ]);
@@ -430,23 +477,27 @@ export class TenantFinancialService {
         };
         pointsMap.set(key, pt);
       }
-      if (!pt.byProject[e.projectId]) pt.byProject[e.projectId] = { pago: 0, planejado: 0 };
+      if (!pt.byProject[e.projectId])
+        pt.byProject[e.projectId] = { pago: 0, planejado: 0 };
 
-      if (e.tipo === 'DESPESA') {
-        if (e.status === 'PAGO') {
+      if (e.tipo === "DESPESA") {
+        if (e.status === "PAGO") {
           pt.pago += e.valor;
           pt.byProject[e.projectId].pago += e.valor;
-        } else if (e.status === 'PLANEJADO') {
+        } else if (e.status === "PLANEJADO") {
           pt.planejado += e.valor;
           pt.byProject[e.projectId].planejado += e.valor;
         }
-      } else if (e.tipo === 'RECEBIMENTO') {
-        if (e.status === 'EM_CAIXA' || e.status === 'PAGO') pt.recebido += e.valor;
-        else if (e.status === 'PREVISTO') pt.previsto += e.valor;
+      } else if (e.tipo === "RECEBIMENTO") {
+        if (e.status === "EM_CAIXA" || e.status === "PAGO")
+          pt.recebido += e.valor;
+        else if (e.status === "PREVISTO") pt.previsto += e.valor;
       }
     }
 
-    const sorted = Array.from(pointsMap.values()).sort((a, b) => a.mes.localeCompare(b.mes));
+    const sorted = Array.from(pointsMap.values()).sort((a, b) =>
+      a.mes.localeCompare(b.mes),
+    );
     let acc = 0;
     for (const pt of sorted) {
       acc += pt.recebido - pt.pago;
@@ -455,7 +506,10 @@ export class TenantFinancialService {
     return sorted;
   }
 
-  async getByCategory(tenantId: string, scope: FinancialScope): Promise<CategoryRow[]> {
+  async getByCategory(
+    tenantId: string,
+    scope: FinancialScope,
+  ): Promise<CategoryRow[]> {
     const lenses = this.lenses(scope);
     const expenses = await this.prisma.expense.findMany({
       where: {
@@ -480,11 +534,18 @@ export class TenantFinancialService {
       .sort((a, b) => b.total - a.total);
   }
 
-  async getUpcoming(tenantId: string, days: number, scope: FinancialScope): Promise<UpcomingDueRow[]> {
+  async getUpcoming(
+    tenantId: string,
+    days: number,
+    scope: FinancialScope,
+  ): Promise<UpcomingDueRow[]> {
     const lenses = this.lenses(scope);
-    const resourceFilter = this.resourceScopeFilter(lenses.expenses, lenses.receipts);
-    const now = new Date();
-    const until = new Date(now.getTime() + days * 24 * 3600 * 1000);
+    const resourceFilter = this.resourceScopeFilter(
+      lenses.expenses,
+      lenses.receipts,
+    );
+    const today = todayLocalDateUtc(FINANCIAL_TIME_ZONE);
+    const until = new Date(today.getTime() + days * DAY_MS);
     const projects = await this.listProjects(tenantId, lenses.projects);
     const projMap = new Map(projects.map((p) => [p.id, p]));
 
@@ -492,8 +553,8 @@ export class TenantFinancialService {
       where: {
         tenantId,
         deletedAt: null,
-        data: { gte: now, lte: until },
-        status: { in: ['PLANEJADO', 'PREVISTO'] },
+        data: { gte: today, lte: until },
+        status: { in: ["PLANEJADO", "PREVISTO"] },
         ...resourceFilter.where,
         OR: [
           { expenseId: null },
@@ -509,7 +570,7 @@ export class TenantFinancialService {
           ...resourceFilter.and,
         ],
       },
-      orderBy: { data: 'asc' },
+      orderBy: { data: "asc" },
       take: 100,
       include: {
         expense: { select: { titulo: true, fornecedor: true } },
@@ -534,14 +595,18 @@ export class TenantFinancialService {
           projectType: proj.type as ProjectType,
           descricao,
           valor: e.valor,
-          tipo: e.tipo as 'DESPESA' | 'RECEBIMENTO',
+          tipo: e.tipo as "DESPESA" | "RECEBIMENTO",
           status: e.status,
         };
       })
       .filter((x): x is UpcomingDueRow => x !== null);
   }
 
-  async getTopSuppliers(tenantId: string, limit: number, scope: FinancialScope): Promise<SupplierRow[]> {
+  async getTopSuppliers(
+    tenantId: string,
+    limit: number,
+    scope: FinancialScope,
+  ): Promise<SupplierRow[]> {
     const lenses = this.lenses(scope);
     const expenses = await this.prisma.expense.findMany({
       where: {
@@ -562,17 +627,25 @@ export class TenantFinancialService {
 
     const map = new Map<string, SupplierRow>();
     for (const e of expenses) {
-      const key = (e.fornecedor || '').trim().toUpperCase();
+      const key = (e.fornecedor || "").trim().toUpperCase();
       if (!key) continue;
       let row = map.get(key);
       if (!row) {
-        row = { fornecedor: e.fornecedor || key, total: 0, count: 0, projetos: [] };
+        row = {
+          fornecedor: e.fornecedor || key,
+          total: 0,
+          count: 0,
+          projetos: [],
+        };
         map.set(key, row);
       }
       row.total += e.valorTotal;
       row.count += 1;
       if (!row.projetos.some((p) => p.projectId === e.projectId)) {
-        row.projetos.push({ projectId: e.projectId, projectName: e.project.name });
+        row.projetos.push({
+          projectId: e.projectId,
+          projectName: e.project.name,
+        });
       }
     }
     return Array.from(map.values())

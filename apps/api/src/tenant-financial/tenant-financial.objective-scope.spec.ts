@@ -5,9 +5,13 @@ describe("tenant financial objective scope", () => {
     const prisma: any = {
       project: { findMany: jest.fn().mockResolvedValue(projectRows) },
       cashFlowEntry: {
-        findMany: jest.fn().mockImplementation(({ where }: any) =>
-          where.projectId?.in?.length === 0 ? Promise.resolve([]) : Promise.resolve(cashRows),
-        ),
+        findMany: jest
+          .fn()
+          .mockImplementation(({ where }: any) =>
+            where.projectId?.in?.length === 0
+              ? Promise.resolve([])
+              : Promise.resolve(cashRows),
+          ),
       },
       receipt: { findMany: jest.fn() },
       expense: { findMany: jest.fn() },
@@ -15,6 +19,7 @@ describe("tenant financial objective scope", () => {
     return {
       prisma,
       subject: new TenantFinancialService(prisma, {
+        getAccountView: jest.fn(),
         getCaixaConta: jest.fn(),
       } as any),
     };
@@ -40,6 +45,7 @@ describe("tenant financial objective scope", () => {
       pagoYTD: 0,
       pagoTotal: 0,
       caixaTotal: null,
+      carteiraTotal: null,
     });
     expect(prisma.project.findMany).toHaveBeenCalledWith(
       expect.objectContaining({

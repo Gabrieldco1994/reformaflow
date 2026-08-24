@@ -70,6 +70,7 @@ describe('Motor Único — paridade §10 entre os consumidores (mesmo fixture, s
       creditCard: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn() },
       crossProjectSettlement: { findMany: jest.fn().mockResolvedValue([]) },
       rateioAllocation: { findMany: jest.fn().mockResolvedValue([]) },
+      invoiceAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
       bankStatementImport: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const settlement = { settleInvoice: jest.fn().mockResolvedValue({ settledExpenses: 0, settledParcelas: 0 }) };

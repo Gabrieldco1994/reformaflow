@@ -322,6 +322,10 @@ describe("synthetic deterministic finance-center persisted contract", () => {
       saldoInicial: 1_000_000,
       temSaldoInicial: true,
       porMes: [{ mes: "2026-08", caixa: 983_928 }],
+      // #560: o delegador §10 também publica o saldo pontual da Carteira — é o
+      // campo que `tenant-financial` soma em `carteiraTotal` (critério de aceite
+      // nº 1: idêntico ao §10). Valor provado logo abaixo pela aritmética literal.
+      carteiraHoje: 2_994,
       // #508: the engine also names the account that ANCHORS §10, so every
       // consumer labels the number without re-deciding which account is primary.
       contaPrimaria: {

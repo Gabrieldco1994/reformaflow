@@ -67,6 +67,44 @@ interface PessoalHub {
   hubProjectIds: string[];
 }
 
+interface CarteiraExpenseRow {
+  id: string;
+  linkedExpenseId: string | null;
+  titulo: string | null;
+  fornecedor: string | null;
+  tipoDespesa: string;
+  formaPagamento: string;
+  quantidadeParcela: number | null;
+  valorTotal: number;
+  dataPagamento: Date | null;
+  dataInicioParcela: Date | null;
+  dataCompra: Date | null;
+  status: string;
+  cardLast4: string | null;
+  bankLast4: string | null;
+  createdAt: Date;
+  paidParcelas: string | null;
+  installmentDateOverrides: string | null;
+  settledByExpenseId: string | null;
+}
+
+interface CarteiraReceiptRow {
+  valor: number;
+  status: string;
+  data: Date;
+  bankLast4: string | null;
+}
+
+interface CarteiraOccurrence {
+  expense: CarteiraExpenseRow;
+  data: Date;
+  valor: number;
+  status: string;
+  realizado: boolean;
+  explicitlyPaid: boolean;
+  parcelaIndex: number | null;
+}
+
 // ── Action derivation for enriched entries (U4, issue #453) ────────
 // Mirrors the action logic in MovimentacaoRow.tsx (L214-250).
 // Espelhos (linkedExpenseId) NEVER get mutation actions.
@@ -173,6 +211,79 @@ export class MonthlyOverviewService {
       requester.allowedProjectTypes,
       requester.allowedModules ?? [],
     );
+  }
+
+  private buildCarteiraSnapshot(
+    expenses: CarteiraExpenseRow[],
+    receipts: CarteiraReceiptRow[],
+    today: Date,
+  ): { localCarteiraOccurrences: CarteiraOccurrence[]; carteiraHoje: number } {
+    const localCarteiraOccurrences = expenses
+      .filter(
+        (expense) =>
+          !expense.cardLast4 &&
+          !expense.bankLast4 &&
+          !isNeutralExpenseType(expense.tipoDespesa),
+      )
+      .flatMap((expense) => this.localExpenseOccurrences(expense, purchaseDate(expense)))
+      .filter(({ expense }) => expense.status === 'PAGO' || !expense.settledByExpenseId);
+
+    const carteiraHoje =
+      sumBy(
+        localCarteiraOccurrences.filter((occurrence) => countsInCarteiraToday(occurrence, today)),
+        ({ valor }) => -valor,
+      ) +
+      sumBy(
+        receipts.filter(
+          (receipt) =>
+            !receipt.bankLast4 && receipt.status === 'EM_CAIXA' && receipt.data <= today,
+        ),
+        (receipt) => receipt.valor,
+      );
+
+    return { localCarteiraOccurrences, carteiraHoje };
+  }
+
+  private localExpenseOccurrences(
+    expense: CarteiraExpenseRow,
+    singlePaymentDate: Date,
+  ): CarteiraOccurrence[] {
+    if (isSinglePaymentForm(expense.formaPagamento)) {
+      const realizado = expense.status === 'PAGO';
+      return [
+        {
+          expense,
+          data: singlePaymentDate,
+          valor: expense.valorTotal,
+          status: realizado ? 'PAGO' : expense.status,
+          realizado,
+          explicitlyPaid: realizado && !hasDeclaredDate(expense),
+          parcelaIndex: null,
+        },
+      ];
+    }
+
+    const installments = buildInstallments({
+      formaPagamento: expense.formaPagamento,
+      quantidadeParcela: expense.quantidadeParcela,
+      valorTotal: expense.valorTotal,
+      dataInicioParcela: expense.dataInicioParcela ?? expense.dataPagamento ?? singlePaymentDate,
+      dataPagamento: expense.dataPagamento,
+      installmentDateOverrides: expense.installmentDateOverrides,
+    });
+    const paidParcelas = new Set(parsePaidParcelas(expense.paidParcelas, installments.length));
+    return installments.map((installment, index) => {
+      const realizado = expense.status === 'PAGO' || paidParcelas.has(index);
+      return {
+        expense,
+        data: installment.data,
+        valor: installment.valor,
+        status: realizado ? 'PAGO' : 'PLANEJADO',
+        realizado,
+        explicitlyPaid: paidParcelas.has(index),
+        parcelaIndex: index as number | null,
+      };
+    });
   }
 
   /**
@@ -309,7 +420,7 @@ export class MonthlyOverviewService {
 
     const rows = buildMonthlyOverview(adapted, { topCategorias: 6 });
 
-    const today = new Date();
+    const today = todayLocalDateUtc(FINANCIAL_TIME_ZONE);
     const currentKey = `${today.getUTCFullYear()}-${String(today.getUTCMonth() + 1).padStart(2, '0')}`;
     const comparison = compareMonths(rows, currentKey);
 
@@ -394,21 +505,7 @@ export class MonthlyOverviewService {
       .filter((p) => p.id !== pessoalProjectId)
       .map((p) => ({ id: p.id, name: p.name, type: p.type }));
 
-    const caixa = await this.computeCaixaConta(tenantId, pessoalProjectId);
-    const carteiraHoje = entries.reduce((total, entry) => {
-      if (entry.projectId !== pessoalProjectId) return total;
-      if (entry.tipo === 'DESPESA') {
-        return !entry.expense?.cardLast4 &&
-          !entry.expense?.bankLast4 &&
-          entry.status === 'PAGO'
-          ? total - entry.valor
-          : total;
-      }
-      return !entry.receipt?.bankLast4 && entry.status === 'EM_CAIXA'
-        ? total + entry.valor
-        : total;
-    }, 0);
-    const caixaComCarteira = { ...caixa, carteiraHoje };
+    const caixaComCarteira = await this.getCaixaConta(tenantId, pessoalProjectId, today);
 
     // Projeção de caixa do MÊS CORRENTE (eixo de caixa, §10) — fonte única para o
     // card "Projeção fim do mês" do cockpit, para casar EXATAMENTE com a Visão Conta.
@@ -416,7 +513,7 @@ export class MonthlyOverviewService {
     // Expense/buildInstallments, que o cashFlowEntry das entries NÃO materializa) +
     // parcelas cross vencendo, não a competência das entries. Aditivo e resiliente:
     // se falhar, o frontend cai no cálculo por competência (comportamento anterior).
-    const projectionMonth = normalizeMonthKey(month);
+    const projectionMonth = month ? normalizeMonthKey(month) : currentKey;
     let projecao:
       | {
           mes: string;
@@ -431,7 +528,7 @@ export class MonthlyOverviewService {
         }
       | { mes: string; status: typeof PROJECTION_STATUS.DEGRADED };
     try {
-      const av = await this.computeAccountView(tenantId, hub, projectionMonth);
+      const av = await this.computeAccountView(tenantId, hub, projectionMonth, today);
       projecao = {
         mes: projectionMonth,
         status: PROJECTION_STATUS.CANONICAL,
@@ -480,7 +577,8 @@ export class MonthlyOverviewService {
     requester?: MonthlyOverviewRequester,
   ) {
     const hub = await this.resolveHub(tenantId, projectId, requester);
-    return this.computeAccountView(tenantId, hub, month);
+    const today = todayLocalDateUtc(FINANCIAL_TIME_ZONE);
+    return this.computeAccountView(tenantId, hub, month, today);
   }
 
   /**
@@ -488,7 +586,12 @@ export class MonthlyOverviewService {
    * (`getAccountView`/`getAccountViewYearly`/`getDreOverview`) instead of
    * re-resolving membership on every one of the up to 12 monthly calls.
    */
-  private async computeAccountView(tenantId: string, hub: PessoalHub, month?: string) {
+  private async computeAccountView(
+    tenantId: string,
+    hub: PessoalHub,
+    month: string | undefined,
+    today: Date,
+  ) {
     const projectId = hub.pessoal.id;
 
     const mesSelecionado = normalizeMonthKey(month);
@@ -526,6 +629,7 @@ export class MonthlyOverviewService {
           formaPagamento: true,
           dataPagamento: true,
           dataInicioParcela: true,
+          dataCompra: true,
           quantidadeParcela: true,
           status: true,
           cardLast4: true,
@@ -767,6 +871,7 @@ export class MonthlyOverviewService {
             importId: receipt.importId ?? null,
           }) === (primaryAccount?.id ?? null),
       ),
+      today,
     );
 
     const entrouMes = sumBy(
@@ -820,66 +925,17 @@ export class MonthlyOverviewService {
         .map((expense) => expense.linkedExpenseId as string),
     );
 
-    const localExpenseOccurrences = (
-      expense: (typeof expenses)[number],
-      singlePaymentDate: Date,
-    ) => {
-      if (isSinglePaymentForm(expense.formaPagamento)) {
-        const realizado = expense.status === 'PAGO';
-        return [
-          {
-            expense,
-            data: singlePaymentDate,
-            valor: expense.valorTotal,
-            status: realizado ? 'PAGO' : expense.status,
-            realizado,
-            parcelaIndex: null as number | null,
-          },
-        ];
-      }
-
-      const installments = buildInstallments({
-        formaPagamento: expense.formaPagamento,
-        quantidadeParcela: expense.quantidadeParcela,
-        valorTotal: expense.valorTotal,
-        dataInicioParcela:
-          expense.dataInicioParcela ?? expense.dataPagamento ?? singlePaymentDate,
-        dataPagamento: expense.dataPagamento,
-        installmentDateOverrides: expense.installmentDateOverrides,
-      });
-      const paidParcelas = new Set(
-        parsePaidParcelas(expense.paidParcelas, installments.length),
-      );
-      return installments.map((installment, index) => {
-        const realizado = expense.status === 'PAGO' || paidParcelas.has(index);
-        return {
-          expense,
-          data: installment.data,
-          valor: installment.valor,
-          status: realizado ? 'PAGO' : 'PLANEJADO',
-          realizado,
-          parcelaIndex: index as number | null,
-        };
-      });
-    };
-
     // Despesas LOCAIS do próprio projeto sem cartão E sem conta (ex.: lançadas
     // por voz sem meio de pagamento informado) — a "Carteira". Regra de ouro 14:
     // nunca sumir com origin:'none' do consolidado. Sem cartão/conta elas saem
     // direto do caixa como dinheiro; espelha o tratamento das foreign carteira,
     // mas para o projeto atual. Espelho em carteira fica como a representação de
     // caixa, mesmo se outras parcelas do alvo tiverem settlement.
-    const localCarteiraOccurrences = expenses
-      .filter(
-        (expense) =>
-          !expense.cardLast4 &&
-          !expense.bankLast4 &&
-          !isNeutralExpenseType(expense.tipoDespesa),
-      )
-      .flatMap((expense) => localExpenseOccurrences(expense, purchaseDate(expense)))
-      .filter(
-        ({ expense }) => expense.status === 'PAGO' || !expense.settledByExpenseId,
-      );
+    const { localCarteiraOccurrences, carteiraHoje } = this.buildCarteiraSnapshot(
+      expenses,
+      receipts,
+      today,
+    );
     const localCarteiraThisMonth = localCarteiraOccurrences.filter(
       ({ expense, data }) =>
         (!expense.linkedExpenseId ||
@@ -996,6 +1052,7 @@ export class MonthlyOverviewService {
     const accountExpenseList = expenses
       .filter((expense) => {
         if (!expense.bankLast4 || expense.cardLast4) return false;
+        if (expense.settledByExpenseId) return false;
         if (
           resolveMovementAccountId({
             bankLast4: expense.bankLast4,
@@ -1007,7 +1064,7 @@ export class MonthlyOverviewService {
         if (isNeutralExpenseType(expense.tipoDespesa)) return false;
         return true;
       })
-      .flatMap((expense) => localExpenseOccurrences(expense, accountExpenseDate(expense)))
+      .flatMap((expense) => this.localExpenseOccurrences(expense, accountExpenseDate(expense)))
       .filter(({ data }) => isInRange(data, monthStart, monthEnd))
       .sort((a, b) => a.data.getTime() - b.data.getTime());
 
@@ -1604,15 +1661,6 @@ export class MonthlyOverviewService {
         last4: account.last4,
         nome: account.nickname?.trim() || account.institution || `Conta ${account.last4}`,
       }));
-    const carteiraHoje =
-      sumBy(
-        localCarteiraOccurrences.filter(({ realizado }) => realizado),
-        ({ valor }) => -valor,
-      ) +
-      sumBy(
-        receipts.filter((receipt) => !receipt.bankLast4 && receipt.status === 'EM_CAIXA'),
-        (receipt) => receipt.valor,
-      );
 
     return {
       mesSelecionado,
@@ -1653,6 +1701,7 @@ export class MonthlyOverviewService {
     requester?: MonthlyOverviewRequester,
   ) {
     const hub = await this.resolveHub(tenantId, projectId, requester);
+    const today = todayLocalDateUtc(FINANCIAL_TIME_ZONE);
 
     const targetYear = normalizeYear(year);
     const months = Array.from({ length: 12 }, (_, index) =>
@@ -1663,7 +1712,7 @@ export class MonthlyOverviewService {
     // se medição mostrar esgotamento do pool do SQLite; não otimizar às cegas.
     // Hub resolvido UMA vez acima (não 12x): reusa o mesmo escopo por mês.
     const accountViewsByMonth = await Promise.all(
-      months.map((month) => this.computeAccountView(tenantId, hub, month)),
+      months.map((month) => this.computeAccountView(tenantId, hub, month, today)),
     );
 
     // Consolidar resultados: concatenar todos os itens e somar agregados
@@ -1778,6 +1827,7 @@ export class MonthlyOverviewService {
     requester?: MonthlyOverviewRequester,
   ) {
     const hub = await this.resolveHub(tenantId, projectId, requester);
+    const today = todayLocalDateUtc(FINANCIAL_TIME_ZONE);
 
     const mesSelecionado = normalizeMonthKey(params?.month);
     const anoSelecionado = normalizeYear(
@@ -1828,7 +1878,12 @@ export class MonthlyOverviewService {
         select: { last4: true, nickname: true, closingDay: true, dueDay: true },
       }),
     ]);
-    const accountView = await this.computeAccountView(tenantId, hub, mesSelecionado);
+    const accountView = await this.computeAccountView(
+      tenantId,
+      hub,
+      mesSelecionado,
+      today,
+    );
 
     const cardByLast4 = new Map<string, { nickname: string; closingDay: number | null; dueDay: number | null }>();
     for (const card of cards) {
@@ -1996,12 +2051,11 @@ export class MonthlyOverviewService {
         : roundPct(((resultadoMes - resultadoMesAnterior) / Math.abs(resultadoMesAnterior)) * 100);
 
     const months = Array.from({ length: 12 }, (_, i) => `${anoSelecionado}-${String(i + 1).padStart(2, '0')}`);
-    const now = new Date();
     const realizedUntil =
-      anoSelecionado < now.getUTCFullYear()
+      anoSelecionado < today.getUTCFullYear()
         ? 12
-        : anoSelecionado === now.getUTCFullYear()
-          ? now.getUTCMonth() + 1
+        : anoSelecionado === today.getUTCFullYear()
+          ? today.getUTCMonth() + 1
           : 0;
 
     const monthRows = months.map((mes, index) => {
@@ -2113,7 +2167,7 @@ export class MonthlyOverviewService {
       months.map((mes) =>
         mes === mesSelecionado
           ? Promise.resolve(accountView)
-          : this.computeAccountView(tenantId, hub, mes),
+          : this.computeAccountView(tenantId, hub, mes, today),
       ),
     );
     const caixaHojeAtual = accountView.caixaHoje;
@@ -2963,7 +3017,11 @@ export class MonthlyOverviewService {
    * Diferente de "caixaAgora" do cockpit (fluxo realizado conta+cartão): este bate
    * com o saldo do app do banco quando o saldo inicial está cadastrado.
    */
-  private async computeCaixaConta(tenantId: string, projectId: string) {
+  private async computeCaixaConta(
+    tenantId: string,
+    projectId: string,
+    today: Date = todayLocalDateUtc(FINANCIAL_TIME_ZONE),
+  ) {
     const [accounts, expenses, receipts] = await Promise.all([
       this.prisma.bankAccount.findMany({
         where: { tenantId, projectId, deletedAt: null },
@@ -2977,23 +3035,31 @@ export class MonthlyOverviewService {
         },
       }),
       this.prisma.expense.findMany({
-        where: { tenantId, projectId, deletedAt: null, bankLast4: { not: null } },
+        where: { tenantId, projectId, deletedAt: null },
         select: {
+          id: true,
+          titulo: true,
+          fornecedor: true,
+          tipoDespesa: true,
+          formaPagamento: true,
+          quantidadeParcela: true,
           valorTotal: true,
           status: true,
           dataPagamento: true,
           dataInicioParcela: true,
-          formaPagamento: true,
-          quantidadeParcela: true,
+          dataCompra: true,
           paidParcelas: true,
           installmentDateOverrides: true,
           createdAt: true,
+          cardLast4: true,
           bankLast4: true,
           importId: true,
+          linkedExpenseId: true,
+          settledByExpenseId: true,
         },
       }),
       this.prisma.receipt.findMany({
-        where: { tenantId, projectId, deletedAt: null, bankLast4: { not: null } },
+        where: { tenantId, projectId, deletedAt: null },
         select: { valor: true, status: true, data: true, bankLast4: true, importId: true },
       }),
     ]);
@@ -3007,23 +3073,29 @@ export class MonthlyOverviewService {
       importAccountById,
       primaryAccount?.id ?? null,
     );
+    const bankExpenses = expenses.filter(
+      (expense) =>
+        !!expense.bankLast4 &&
+        resolveMovementAccountId({
+          bankLast4: expense.bankLast4,
+          importId: expense.importId ?? null,
+        }) === (primaryAccount?.id ?? null),
+    );
+    const bankReceipts = receipts.filter(
+      (receipt) =>
+        !!receipt.bankLast4 &&
+        resolveMovementAccountId({
+          bankLast4: receipt.bankLast4,
+          importId: receipt.importId ?? null,
+        }) === (primaryAccount?.id ?? null),
+    );
     const caixa = computeCaixaConta(
       primaryAccount ? [primaryAccount] : accounts,
-      expenses.filter(
-        (expense) =>
-          resolveMovementAccountId({
-            bankLast4: expense.bankLast4,
-            importId: expense.importId ?? null,
-          }) === (primaryAccount?.id ?? null),
-      ),
-      receipts.filter(
-        (receipt) =>
-          resolveMovementAccountId({
-            bankLast4: receipt.bankLast4,
-            importId: receipt.importId ?? null,
-          }) === (primaryAccount?.id ?? null),
-      ),
+      bankExpenses,
+      bankReceipts,
+      today,
     );
+    const { carteiraHoje } = this.buildCarteiraSnapshot(expenses, receipts, today);
 
     // Conta que ANCORA o §10 (`pickPrimaryBankAccount`). Quem exibe o número
     // precisa saber a QUE conta ele se refere; sem isto cada consumidor
@@ -3039,7 +3111,7 @@ export class MonthlyOverviewService {
         }
       : null;
 
-    return { ...caixa, contaPrimaria };
+    return { ...caixa, carteiraHoje, contaPrimaria };
   }
 
   /**
@@ -3048,11 +3120,11 @@ export class MonthlyOverviewService {
    * Não lança para não-PESSOAL (só consulta por projectId), então o chamador DEVE
    * filtrar por `project.type === 'PESSOAL'` antes de chamar.
    *
-   * Devolve também `contaPrimaria` (a conta que ancora o §10) para que o
-   * consumidor rotule o número sem redecidir qual conta é a primária.
+   * Devolve também `carteiraHoje` e `contaPrimaria` (a conta que ancora o §10)
+   * para que o consumidor rotule os números sem redecidir origem/primária.
    */
-  async getCaixaConta(tenantId: string, projectId: string) {
-    return this.computeCaixaConta(tenantId, projectId);
+  async getCaixaConta(tenantId: string, projectId: string, today?: Date) {
+    return this.computeCaixaConta(tenantId, projectId, today);
   }
 
   private pickPrimaryBankAccount(
@@ -4286,6 +4358,48 @@ function purchaseDate(expense: {
     ?? expense.dataInicioParcela
     ?? todayLocalDateUtc(FINANCIAL_TIME_ZONE, expense.createdAt)
   );
+}
+
+/**
+ * A despesa DECLAROU uma data para o dinheiro sair (`dataPagamento` ou
+ * `dataInicioParcela`)? Sem nenhuma delas, `purchaseDate` cai no `createdAt`,
+ * que é carimbo de DIGITAÇÃO e não promessa de pagamento futuro — logo não pode
+ * arbitrar um corte de caixa: quem decide é o `status='PAGO'`.
+ *
+ * Com data declarada o corte VALE mesmo em pagamento único PAGO: "paguei, com
+ * data futura" é pagamento agendado, o dinheiro ainda não saiu da carteira.
+ */
+function hasDeclaredDate(expense: {
+  dataPagamento: Date | null;
+  dataInicioParcela: Date | null;
+}): boolean {
+  return expense.dataPagamento != null || expense.dataInicioParcela != null;
+}
+
+/**
+ * PONTO ÚNICO do corte "hoje" do saldo pontual da Carteira (#560) — todo
+ * chamador passa por aqui; NUNCA replicar o gate por chamador (foi a réplica
+ * divergente que produziu a regressão consertada nesta issue).
+ *
+ * Uma ocorrência entra no caixa de hoje se está realizada E (a) sua data já
+ * chegou ou (b) o pagamento é EXPLÍCITO. "Explícito" = evidência direta de que
+ * o dinheiro JÁ saiu, e nesse caso a data não manda:
+ *
+ *  - parcela em `paidParcelas` (pré-pagamento manual, evidência por-parcela);
+ *  - pagamento único PAGO que não DECLAROU data (ver `hasDeclaredDate`).
+ *
+ * Espelha exatamente `computeCaixaConta` (motor §10 congelado), que já isenta
+ * `paidParcelas` do corte — critério de aceite nº 1 da #560: `carteiraTotal`
+ * idêntica ao §10. Duas fórmulas para o mesmo dinheiro é a classe de bug da
+ * #508; se um dos lados mudar, o outro muda junto.
+ *
+ * NÃO é explícito o `realizado` herdado do `status='PAGO'` da despesa
+ * PARCELADA/QUINZENAL: essa propagação fraca marca TODAS as parcelas, inclusive
+ * futuras sem movimento no extrato, e continua sujeita a `data <= today` — era
+ * o bug original da #560 (R$3.600 em 6× drenando o caixa inteiro).
+ */
+function countsInCarteiraToday(occurrence: CarteiraOccurrence, today: Date): boolean {
+  return occurrence.realizado && (occurrence.explicitlyPaid || occurrence.data <= today);
 }
 
 function accountExpenseDate(expense: { dataPagamento: Date | null; createdAt: Date }): Date {

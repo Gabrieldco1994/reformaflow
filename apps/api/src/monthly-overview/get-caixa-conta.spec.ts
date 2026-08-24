@@ -15,6 +15,7 @@ const D = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
 
 describe('MonthlyOverviewService.getCaixaConta — delegador público do §10 (congelado)', () => {
   let service: MonthlyOverviewService;
+  let prisma: any;
 
   // Dataset PESSOAL: conta Itaú 3636 com saldo inicial + 1 débito PAGO + 1 crédito EM_CAIXA.
   const accounts = [
@@ -46,7 +47,7 @@ describe('MonthlyOverviewService.getCaixaConta — delegador público do §10 (c
   ];
 
   beforeEach(async () => {
-    const prisma = {
+    prisma = {
       bankAccount: { findMany: jest.fn().mockResolvedValue(accounts) },
       expense: { findMany: jest.fn().mockResolvedValue(expenses) },
       receipt: { findMany: jest.fn().mockResolvedValue(receipts) },
@@ -76,6 +77,161 @@ describe('MonthlyOverviewService.getCaixaConta — delegador público do §10 (c
     expect(r.hoje).toBe(oracle.hoje); // paridade com a função pura congelada
     expect(r.saldoInicial).toBe(1_000_000);
     expect(r.temSaldoInicial).toBe(true);
+  });
+
+  it('expõe carteiraHoje na rota estreita sem montar a Visão Conta completa', async () => {
+    prisma.expense.findMany.mockResolvedValue([
+      {
+        valorTotal: 12_500,
+        status: 'PAGO',
+        formaPagamento: 'A_VISTA',
+        quantidadeParcela: null,
+        dataPagamento: D('2026-03-10'),
+        dataInicioParcela: null,
+        dataCompra: null,
+        paidParcelas: null,
+        installmentDateOverrides: null,
+        createdAt: D('2026-03-10'),
+        cardLast4: null,
+        bankLast4: null,
+        importId: null,
+        tipoDespesa: 'ALIMENTACAO',
+        settledByExpenseId: null,
+      },
+    ]);
+    prisma.receipt.findMany.mockResolvedValue([
+      { valor: 2_500, status: 'EM_CAIXA', data: D('2026-03-12'), bankLast4: null, importId: null },
+    ]);
+
+    const r = await service.getCaixaConta('t1', 'pessoal-1');
+
+    expect(r.hoje).toBe(1_000_000);
+    expect(r.carteiraHoje).toBe(-10_000);
+  });
+
+  it('aplica o mesmo hoje BRT ao caixa e à Carteira, excluindo realizados futuros', async () => {
+    const today = D('2026-06-30');
+    prisma.expense.findMany.mockResolvedValue([
+      {
+        valorTotal: 10_000,
+        status: 'PAGO',
+        formaPagamento: 'A_VISTA',
+        dataPagamento: today,
+        createdAt: today,
+        bankLast4: '3636',
+        importId: null,
+      },
+      {
+        valorTotal: 20_000,
+        status: 'PAGO',
+        formaPagamento: 'A_VISTA',
+        dataPagamento: D('2026-07-01'),
+        createdAt: D('2026-07-01'),
+        bankLast4: '3636',
+        importId: null,
+      },
+      {
+        valorTotal: 1_000,
+        status: 'PAGO',
+        formaPagamento: 'A_VISTA',
+        dataPagamento: today,
+        createdAt: today,
+        cardLast4: null,
+        bankLast4: null,
+        importId: null,
+        tipoDespesa: 'ALIMENTACAO',
+        settledByExpenseId: null,
+      },
+      {
+        valorTotal: 2_000,
+        status: 'PAGO',
+        formaPagamento: 'A_VISTA',
+        dataPagamento: D('2026-07-01'),
+        createdAt: D('2026-07-01'),
+        cardLast4: null,
+        bankLast4: null,
+        importId: null,
+        tipoDespesa: 'ALIMENTACAO',
+        settledByExpenseId: null,
+      },
+      {
+        valorTotal: 6_000,
+        status: 'PLANEJADO',
+        formaPagamento: 'PARCELADO',
+        quantidadeParcela: 2,
+        dataPagamento: null,
+        dataInicioParcela: D('2026-07-01'),
+        dataCompra: null,
+        paidParcelas: '[0]',
+        installmentDateOverrides: null,
+        createdAt: today,
+        cardLast4: null,
+        bankLast4: null,
+        importId: null,
+        tipoDespesa: 'ALIMENTACAO',
+        settledByExpenseId: null,
+      },
+    ]);
+    prisma.receipt.findMany.mockResolvedValue([
+      {
+        valor: 500,
+        status: 'EM_CAIXA',
+        data: today,
+        bankLast4: null,
+        importId: null,
+      },
+      {
+        valor: 5_000,
+        status: 'EM_CAIXA',
+        data: D('2026-07-01'),
+        bankLast4: null,
+        importId: null,
+      },
+    ]);
+
+    const result = await service.getCaixaConta('t1', 'pessoal-1', today);
+
+    expect(result.hoje).toBe(990_000);
+    // #560, critério de aceite nº 1 ("carteiraTotal idêntica ao §10"): a parcela
+    // em `paidParcelas` (3_000, vencendo 2026-07-01) É pagamento explícito e conta
+    // hoje mesmo com data futura — exatamente como `computeCaixaConta` já faz no
+    // §10. A expectativa anterior (-500, de 9c99ba13) codificava a divergência
+    // entre os dois motores que a issue manda eliminar.
+    //   +500 (recebimento hoje) -1_000 (à vista PAGO hoje) -3_000 (parcela pré-paga)
+    expect(result.carteiraHoje).toBe(-3_500);
+  });
+
+  it('mantém FORA da Carteira a parcela futura realizada só por herança do status PAGO', async () => {
+    // Regra (b) da #560 — o bug ORIGINAL da issue: `status='PAGO'` na despesa
+    // parcelada propaga `realizado` para TODAS as parcelas, inclusive as futuras
+    // (sem movimento no extrato). Essa propagação FRACA continua cortada por
+    // `data <= today`; só a evidência explícita (`paidParcelas`) fura o corte.
+    const today = D('2026-06-30');
+    prisma.expense.findMany.mockResolvedValue([
+      {
+        valorTotal: 6_000,
+        status: 'PAGO',
+        formaPagamento: 'PARCELADO',
+        quantidadeParcela: 2,
+        dataPagamento: null,
+        dataInicioParcela: D('2026-06-01'),
+        dataCompra: null,
+        paidParcelas: null,
+        installmentDateOverrides: null,
+        createdAt: today,
+        cardLast4: null,
+        bankLast4: null,
+        importId: null,
+        tipoDespesa: 'ALIMENTACAO',
+        settledByExpenseId: null,
+      },
+    ]);
+    prisma.receipt.findMany.mockResolvedValue([]);
+
+    const result = await service.getCaixaConta('t1', 'pessoal-1', today);
+
+    // Só a 1ª parcela (2026-06-01, passada) sai do caixa; a 2ª (2026-07-01) não.
+    expect(result.carteiraHoje).toBe(-3_000);
   });
 });
 
