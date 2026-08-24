@@ -164,6 +164,123 @@ async function mockApi(page: Page) {
   });
 }
 
+/**
+ * ─── /cash-flow: o tile mais apertado do app com o Copiloto aberto ───────────
+ *
+ * A varredura das 12 telas que consomem `KpiTile` (registrada na PR #592)
+ * achou UM caso sem margem confortável: `/cash-flow` em projeto NÃO-PESSOAL,
+ * onde `CashFlowKpiHeader` usa `lg:grid-cols-4`. Com os 408px do Copiloto
+ * reservados, cada tile fica com `clientWidth` 164 em 1280 — contra 230+ das
+ * demais telas (3 colunas). É o único número da varredura que é LIMITE, não
+ * margem, e por isso vira barreira aqui: a #588 nasceu justamente de um gate
+ * que só media o caso folgado (cockpit inteiro em `R$ 0,00`).
+ *
+ * Diferença de formatação relevante: `/cash-flow` renderiza `moneyGlance`
+ * (abreviado — `-R$ 999,9 mi`), não o formato cheio do cockpit. Os valores
+ * abaixo são os que produzem a string MAIS LARGA que essa tela consegue
+ * emitir, e vêm do MOCK (não de substituição de `textContent` em runtime):
+ * é a entrada do componente que sobrevive a um refactor de formatação.
+ */
+const CF_PROJECT_ID = "kpi-fit-588-cf";
+
+/**
+ * `moneyGlance` abrevia: ≥ 1 mi ⇒ `R$ X,Y mi` com uma casa decimal. A string
+ * mais larga possível tem 3 dígitos na parte inteira + decimal + sufixo + o
+ * sinal negativo (o mesmo sinal que ficava órfão na #588).
+ */
+const CF_CENTS = {
+  /** `rollingBalance` do último entry ⇒ "Fluxo projetado". */
+  saldoProjetado: -99_994_900_000,
+  /** `rollingBalanceRealizado` do último entry ⇒ "Fluxo realizado". */
+  saldoRealizado: -88_886_600_000,
+  /** Soma dos RECEBIMENTO ⇒ "Entradas". */
+  entradas: 77_775_500_000,
+  /** Soma dos DESPESA ⇒ "Saídas". */
+  saidas: 66_664_400_000,
+} as const;
+
+/**
+ * Strings esperadas, escritas à mão de propósito: é a comparação de string que
+ * pega dígito perdido. Se `moneyGlance` mudar de regra, este teste falha alto —
+ * que é o comportamento desejado para um contrato de exibição de dinheiro.
+ */
+const CF_EXPECTED: Array<{ label: string; text: string }> = [
+  { label: "Fluxo projetado", text: "-R$ 999,9 mi" },
+  { label: "Fluxo realizado", text: "-R$ 888,9 mi" },
+  { label: "Entradas", text: "R$ 777,8 mi" },
+  { label: "Saídas", text: "R$ 666,6 mi" },
+];
+
+const cashFlowEntries = [
+  {
+    id: "cf-1",
+    data: "2026-07-02",
+    tipo: "RECEBIMENTO",
+    valor: CF_CENTS.entradas,
+    status: "EM_CAIXA",
+    titulo: "Aporte",
+    rollingBalance: CF_CENTS.entradas,
+    rollingBalanceRealizado: CF_CENTS.entradas,
+  },
+  {
+    id: "cf-2",
+    data: "2026-07-10",
+    tipo: "DESPESA",
+    valor: CF_CENTS.saidas,
+    status: "PAGO",
+    titulo: "Empreiteiro",
+    // O KPI lê os rolling* do ÚLTIMO entry — são eles que definem as duas
+    // primeiras colunas, independentemente das somas acima.
+    rollingBalance: CF_CENTS.saldoProjetado,
+    rollingBalanceRealizado: CF_CENTS.saldoRealizado,
+  },
+];
+
+async function mockCashFlowApi(page: Page) {
+  await page.clock.setFixedTime(new Date("2026-07-15T12:00:00.000Z"));
+  await page.context().addCookies([
+    {
+      name: "rf_token",
+      value: CF_PROJECT_ID,
+      url: `http://localhost:${process.env.PLAYWRIGHT_PORT ?? 3013}`,
+    },
+  ]);
+
+  const project = {
+    id: CF_PROJECT_ID,
+    name: "Obra Centro",
+    // NÃO-PESSOAL é pré-condição: só aí `CashFlowKpiHeader` abre as 4 colunas
+    // (`lg:grid-cols-4`) que produzem o tile de 164px.
+    type: "REFORMA",
+    onboardedAt: "2026-01-01T00:00:00.000Z",
+  };
+
+  await page.route("http://localhost:3001/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+
+    if (path === "/auth/me") {
+      return route.fulfill(
+        json({
+          id: `${CF_PROJECT_ID}-user`,
+          username: CF_PROJECT_ID,
+          name: "Ana",
+          role: "ADMIN",
+          tenantId: `${CF_PROJECT_ID}-tenant`,
+          allowedModules: [],
+          allowedProjects: [],
+          allowedProjectTypes: [],
+        }),
+      );
+    }
+    if (path === "/projects") return route.fulfill(json([project]));
+    if (path === `/projects/${CF_PROJECT_ID}`) return route.fulfill(json(project));
+    if (path === `/projects/${CF_PROJECT_ID}/cash-flow`) {
+      return route.fulfill(json(cashFlowEntries));
+    }
+    return route.fulfill(json([]));
+  });
+}
+
 interface ValueMetrics {
   text: string;
   lines: number;
@@ -171,6 +288,7 @@ interface ValueMetrics {
   scrollWidth: number;
   fontSize: number;
   right: number;
+  textWidth: number;
   whiteSpace: string;
 }
 
@@ -193,6 +311,7 @@ async function readValue(page: Page, label: string): Promise<ValueMetrics> {
       scrollWidth: node.scrollWidth,
       fontSize: Number.parseFloat(getComputedStyle(node).fontSize),
       right: rects.length ? Math.max(...rects.map((r) => r.right)) : 0,
+      textWidth: rects.length ? Math.max(...rects.map((r) => r.width)) : 0,
       whiteSpace: getComputedStyle(node).whiteSpace,
     };
   });
@@ -368,5 +487,65 @@ test.describe("#588 — valor monetário do cockpit cabe em uma linha", () => {
         ).toBeLessThanOrEqual(m.clientWidth);
       }
     }
+  });
+  test("/cash-flow (4 colunas, tile de 164px) cabe com o Copiloto aberto", async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== "desktop",
+      "a reserva do Copiloto é `lg:` — no mobile o painel nem existe",
+    );
+    await mockCashFlowApi(page);
+
+    const report: string[] = [];
+
+    for (const width of WIDTHS) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.goto(`/projects/${CF_PROJECT_ID}/cash-flow`);
+      await openCopilot(page);
+
+      for (const { label, text } of CF_EXPECTED) {
+        const m = await readValue(page, label);
+        report.push(
+          `${width} · ${label}: text="${m.text}" lines=${m.lines} client=${m.clientWidth} texto=${Math.round(m.textWidth)} folga=${Math.round(m.clientWidth - m.textWidth)} font=${m.fontSize}`,
+        );
+
+        // 1. Nenhum dígito perdido — string contra string.
+        expect(
+          m.text,
+          `${width}px · ${label}: texto renderizado difere do esperado`,
+        ).toBe(text);
+
+        // 2. Uma linha só: sem `nowrap` a quebra cai depois do `R$ `, deixando
+        //    o sinal negativo órfão na primeira linha — o defeito da #588.
+        expect(
+          m.lines,
+          `${width}px · ${label}: valor quebrou em ${m.lines} linhas`,
+        ).toBe(1);
+
+        // 3. Sem transbordo: este é o tile mais estreito do app.
+        expect(
+          m.scrollWidth,
+          `${width}px · ${label}: transborda ${m.scrollWidth - m.clientWidth}px`,
+        ).toBeLessThanOrEqual(m.clientWidth);
+
+        // 4. E a declaração, que aqui é a assertiva SENSÍVEL: com `moneyGlance`
+        //    a string mais larga desta tela mede 118px contra os 164px do tile
+        //    em 1280 — 46px de folga, então a geometria sozinha continuaria
+        //    verde se alguém removesse o `whitespace-nowrap` (medido). O que
+        //    protege /cash-flow é o contrato do AGENTS.md declarado; a
+        //    geometria acima é a barreira para o dia em que entrar uma 5ª
+        //    coluna, uma fonte maior ou um formato menos abreviado.
+        expect(
+          m.whiteSpace,
+          `${width}px · ${label}: valor monetário sem nowrap`,
+        ).toBe("nowrap");
+      }
+    }
+
+    await testInfo.attach("kpi-fit-588-cash-flow", {
+      body: report.join("\n"),
+      contentType: "text/plain",
+    });
   });
 });
