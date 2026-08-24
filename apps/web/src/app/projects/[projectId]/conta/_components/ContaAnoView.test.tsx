@@ -35,7 +35,7 @@ function yearlyResponse(): AccountViewYearlyResponse {
     caixaHoje: 100_000,
     carteiraHoje: 0,
     entrouMes: 0,
-    saiuMes: 10_000,
+    saiuMes: 99_999,
     faltaPagarMes: 0,
     recebimentosPrevistosMes: 0,
     sobraPrevista: 90_000,
@@ -78,7 +78,25 @@ function yearlyResponse(): AccountViewYearlyResponse {
         projetoOrigem: null,
       },
     ],
-    comprasCartao: [],
+    comprasCartao: [
+      {
+        id: 'card-purchase',
+        kind: 'saida',
+        descricao: 'Cartão',
+        data: '2026-07-12T00:00:00.000Z',
+        forma: 'cartao',
+        valor: 6_000,
+        realizado: true,
+        status: 'PAGO',
+        cardLast4: '4242',
+        bankLast4: null,
+        tipoDespesa: 'MERCADO',
+        isInvoice: false,
+        editavel: true,
+        dueMonth: '2026-08',
+        projetoOrigem: null,
+      },
+    ],
     entradas: [],
     ticketMedio: {
       valor: 0,
@@ -120,6 +138,9 @@ describe('ContaAnoView', () => {
       saiuMes: 22_000,
     });
     expect(mockMovimentacoesSection).toHaveBeenCalledTimes(1);
+    expect(
+      (mockMovimentacoesSection.mock.calls[0]?.[0] as { data: AccountViewYearlyResponse }).data.comprasCartao,
+    ).toHaveLength(1);
     expect(
       (mockMovimentacoesSection.mock.calls[0]?.[0] as { data: AccountViewYearlyResponse }).data.saidas.map(
         (item) => item.status,

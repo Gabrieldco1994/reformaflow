@@ -9,6 +9,7 @@ import {
   invoiceIdentityErrorMessage,
   invoicePayBlockedReason,
   originLast4FromKey,
+  sumSaidasSemConta,
 } from './_lib';
 import type { AccountViewMovimentacao } from './_types';
 
@@ -114,6 +115,20 @@ describe('computeMovementTotals', () => {
       totalSaidas: 10_000,
       totalEntradasRecebido: 500_000,
       totalEntradasPrevisto: 30_000,
+    });
+
+    describe('sumSaidasSemConta', () => {
+      it('soma o mesmo card base pago + planejado e segue excluindo invoice/cartão/conta', () => {
+        expect(
+          sumSaidasSemConta([
+            { isInvoice: false, cardLast4: null, bankLast4: null, valor: 5_000 },
+            { isInvoice: false, cardLast4: null, bankLast4: null, valor: 7_000 },
+            { isInvoice: false, cardLast4: '4242', bankLast4: null, valor: 11_000 },
+            { isInvoice: false, cardLast4: null, bankLast4: '0001', valor: 13_000 },
+            { isInvoice: true, cardLast4: null, bankLast4: null, valor: 17_000 },
+          ]),
+        ).toBe(12_000);
+      });
     });
   });
 

@@ -574,7 +574,8 @@ mês (‹ › + calendário).
 | **Sobra prevista** | Previsão do saldo no fim do mês: o que tem hoje + o que ainda entra − o que ainda falta pagar. Quando há recebimentos previstos, aparece a nota "inclui R$ X previsto ainda a entrar" abaixo do valor. Negativo = a conta deve fechar no vermelho. |
 
 Os cards "Entrou/Saiu/Falta pagar" funcionam como **filtros rápidos** das
-movimentações abaixo.
+movimentações abaixo. O bloco superior usa o rótulo neutro **Movimentação** para
+reunir os cards de fluxo.
 
 **Projeção multi-mês (runway):**
 - A exploração da projeção fica no **Cockpit** (mobile e desktop), incluindo

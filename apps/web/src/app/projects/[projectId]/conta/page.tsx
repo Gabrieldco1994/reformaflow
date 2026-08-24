@@ -7,7 +7,7 @@ import { useRef, useState, useEffect, useCallback } from 'react';
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
 import { LoadingBlock } from '@/app/_components/LoadingBlock';
-import { currentMonthKey, monthLabelLong, sumSaidasSemConta } from './_lib';
+import { computeMovementTotals, currentMonthKey, monthLabelLong, sumSaidasSemConta } from './_lib';
 import { readMonthParam } from '../_lib/nav-href';
 import { ContaMonthPicker } from './_components/ContaMonthPicker';
 import { ResumoCards, type ResumoQuickFilterKey } from './_components/ResumoCards';
@@ -106,6 +106,7 @@ export default function ContaPage() {
       api.get(`/projects/${projectId}/monthly-overview/account-view?month=${selectedMonth}`),
     enabled: !!projectId,
   });
+  const totalSaidas = data ? computeMovementTotals(data.saidas).totalSaidas : 0;
 
   // Runway de caixa (visão da verdade): só faz sentido para o ano corrente,
   // pois a série é ancorada no caixa real de hoje. Reaproveita a série já
@@ -245,7 +246,7 @@ export default function ContaPage() {
                 caixaHoje={data.caixaHoje}
                 carteiraHoje={data.carteiraHoje}
                 entrouMes={data.entrouMes}
-                saiuMes={data.saiuMes}
+                saiuMes={totalSaidas}
                 faltaPagarMes={data.faltaPagarMes}
                 recebimentosPrevistosMes={data.recebimentosPrevistosMes}
                 sobraPrevista={sobraPrevistaAcumulada ?? data.sobraPrevista}

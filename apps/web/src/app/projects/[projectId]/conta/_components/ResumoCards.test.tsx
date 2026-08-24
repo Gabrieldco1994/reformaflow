@@ -21,7 +21,7 @@ describe("ResumoCards", () => {
       />,
     );
 
-    const realized = screen.getByRole("region", { name: "Realizado" });
+    const realized = screen.getByRole("region", { name: "Movimentação" });
     expect(realized).toHaveTextContent("Entrou no mês");
     expect(realized).toHaveTextContent("R$ 202,02");
     expect(realized).toHaveTextContent("Saiu no mês");

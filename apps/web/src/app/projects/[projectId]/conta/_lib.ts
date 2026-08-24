@@ -115,14 +115,15 @@ export function computeMovementTotals(
 }
 
 /**
- * Soma das saídas realizadas SEM conta/cartão vinculado (pseudo-origem Carteira,
- * regra de ouro 14). Mesma conta no mês e no ano — por isso mora aqui, não na page.
+ * Soma das saídas do card SEM conta/cartão vinculado (pseudo-origem Carteira,
+ * regra de ouro 14). Mesma base pago + planejado do card — por isso mora aqui,
+ * não na page.
  */
 export function sumSaidasSemConta(
-  saidas: Array<{ isInvoice: boolean; cardLast4: string | null; bankLast4: string | null; realizado: boolean; valor: number }>,
+  saidas: Array<{ isInvoice: boolean; cardLast4: string | null; bankLast4: string | null; valor: number }>,
 ) {
   return saidas
-    .filter((s) => !s.isInvoice && !s.cardLast4 && !s.bankLast4 && s.realizado)
+    .filter((s) => !s.isInvoice && !s.cardLast4 && !s.bankLast4)
     .reduce((acc, s) => acc + s.valor, 0);
 }
 

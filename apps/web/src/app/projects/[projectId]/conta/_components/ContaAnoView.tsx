@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { LoadingBlock } from '@/app/_components/LoadingBlock';
@@ -56,14 +56,7 @@ export function ContaAnoView({
       api.get(`/projects/${projectId}/monthly-overview/account-view-yearly?year=${year}`),
     enabled: !!projectId,
   });
-  const totalSaidas = useMemo(
-    () =>
-      computeMovementTotals([
-        ...(accountData?.saidas ?? []),
-        ...(accountData?.comprasCartao ?? []),
-      ]).totalSaidas,
-    [accountData?.comprasCartao, accountData?.saidas],
-  );
+  const totalSaidas = accountData ? computeMovementTotals(accountData.saidas).totalSaidas : 0;
 
   return (
     <>
