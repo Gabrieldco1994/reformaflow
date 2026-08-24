@@ -12,7 +12,6 @@ import {
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import type { ProjectType, OnboardingFunding } from "@reformaflow/domain";
-import { toast } from "sonner";
 import { useAuth } from "@/contexts/auth-context";
 import {
   SummaryStepPanel,
@@ -52,18 +51,6 @@ interface QueuedJourney {
   projectType?: ProjectType | null;
 }
 
-interface JourneySnapshotOwner {
-  userId: string;
-  tenantId: string;
-}
-
-interface JourneySnapshot {
-  owner: JourneySnapshotOwner;
-  active: ActiveJourney;
-  /** Só as jornadas seguintes; a ativa já está armazenada acima. */
-  queue: QueuedJourney[];
-}
-
 interface JourneyRuntimeContextValue {
   active: ActiveJourney | null;
   projects: JourneyProject[];
@@ -91,11 +78,6 @@ function currentProjectId(pathname: string): string | undefined {
   return match?.[1];
 }
 
-function currentScreenKey(pathname: string): string | undefined {
-  const segments = pathname.split("/").filter(Boolean);
-  return segments[segments.length - 1];
-}
-
 function device(): "web" | "mobile" {
   return typeof window !== "undefined" &&
     typeof window.matchMedia === "function" &&
@@ -104,58 +86,20 @@ function device(): "web" | "mobile" {
     : "web";
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function isActiveJourney(value: unknown): value is ActiveJourney {
-  return (
-    isRecord(value) &&
-    isRecord(value.journey) &&
-    Array.isArray(value.journey.steps) &&
-    typeof value.stepIndex === "number"
-  );
-}
-
-function isQueuedJourney(value: unknown): value is QueuedJourney {
-  return (
-    isRecord(value) &&
-    isRecord(value.journey) &&
-    Array.isArray(value.journey.steps)
-  );
-}
-
-function readStored(): JourneySnapshot | null {
+function readStored(): ActiveJourney | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = window.sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed: unknown = JSON.parse(raw);
-    if (
-      !isRecord(parsed) ||
-      !isRecord(parsed.owner) ||
-      typeof parsed.owner.userId !== "string" ||
-      typeof parsed.owner.tenantId !== "string" ||
-      !isActiveJourney(parsed.active) ||
-      !Array.isArray(parsed.queue) ||
-      !parsed.queue.every(isQueuedJourney)
-    ) {
-      return null;
-    }
-    return parsed as unknown as JourneySnapshot;
+    return raw ? (JSON.parse(raw) as ActiveJourney) : null;
   } catch {
     return null;
   }
 }
 
-function writeStored(snapshot: JourneySnapshot | null) {
+function writeStored(active: ActiveJourney | null) {
   if (typeof window === "undefined") return;
-  if (!snapshot) window.sessionStorage.removeItem(STORAGE_KEY);
-  else window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
-}
-
-function snapshotOwnerKey(owner: JourneySnapshotOwner): string {
-  return JSON.stringify([owner.userId, owner.tenantId]);
+  if (!active) window.sessionStorage.removeItem(STORAGE_KEY);
+  else window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(active));
 }
 
 export function JourneyRuntimeProvider({
@@ -167,99 +111,28 @@ export function JourneyRuntimeProvider({
   const pathname = usePathname();
   const router = useRouter();
   const [active, setActive] = useState<ActiveJourney | null>(null);
-  const [restoredOwner, setRestoredOwner] = useState<string | null>(null);
   const [queue, setQueue] = useState<QueuedJourney[]>([]);
   const [projects, setProjects] = useState<JourneyProject[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const completedKeys = useRef(new Set<string>());
-  const emittedScreenVisit = useRef<string | null>(null);
-  const pendingEmit = useRef<JourneyEligibilityContext[] | null>(null);
-  const runtimeOwner = useRef<string | null>(null);
-  const currentUserId = user?.id;
-  const currentTenantId = user?.tenantId;
-  const currentOwner =
-    currentUserId && currentTenantId
-      ? snapshotOwnerKey({
-          userId: currentUserId,
-          tenantId: currentTenantId,
-        })
-      : null;
-  const restored = !!currentOwner && restoredOwner === currentOwner;
 
-  // A hidratação precisa terminar antes de ler a sessão autenticada. Quando a
-  // identidade resolve, o layout effect restaura antes dos effects passivos
-  // (persistência e SCREEN_VISIT), sem divergir do HTML produzido no servidor.
+  // `useLayoutEffect`, não `useState(() => readStored())`: o componente é
+  // renderizado no servidor também (client component com SSR), onde
+  // `readStored()` sempre é `null` — usar o initializer do `useState` faria o
+  // PRIMEIRO render do cliente (hidratação) já ler o sessionStorage real,
+  // divergindo do HTML do servidor (`<aside>` presente vs. ausente) e
+  // disparando "Hydration failed". `useLayoutEffect` roda síncrono, DEPOIS da
+  // hidratação (que já viu `null`, igual ao servidor) e ANTES do browser
+  // pintar — restaura a jornada sem o usuário ver o frame vazio.
   useLayoutEffect(() => {
-    if (authLoading) return;
-    let cancelled = false;
-    const previousOwner = runtimeOwner.current;
-    runtimeOwner.current = currentOwner;
-
-    setActive(null);
-    setQueue([]);
-    setProjects([]);
-    setLoading(false);
-    setError(null);
-    completedKeys.current.clear();
-    emittedScreenVisit.current = null;
-
-    if (!currentUserId || !currentTenantId || !currentOwner) {
-      pendingEmit.current = null;
-      writeStored(null);
-      setRestoredOwner(null);
-      return;
-    }
-
-    // Troca direta de conta não pode carregar um gatilho pendente da anterior.
-    // No primeiro login, porém, preserva PROJECT_CREATED emitido pelo cadastro.
-    if (previousOwner && previousOwner !== currentOwner) {
-      pendingEmit.current = null;
-    }
-
     const stored = readStored();
-    const belongsToUser =
-      stored?.owner.userId === currentUserId &&
-      stored.owner.tenantId === currentTenantId;
-    if (!stored || !belongsToUser) {
-      writeStored(null);
-      setRestoredOwner(currentOwner);
-      return;
-    }
-
-    setActive(stored.active);
-    setQueue(stored.queue);
-    setRestoredOwner(currentOwner);
-    if (stored.active.journey.crossProject) {
-      void listJourneyProjects()
-        .then((items) => {
-          if (!cancelled) setProjects(items);
-        })
-        .catch(() => {
-          if (!cancelled) setProjects([]);
-        });
-    }
-
-    return () => {
-      cancelled = true;
-    };
-  }, [authLoading, currentOwner, currentTenantId, currentUserId]);
+    if (stored) setActive(stored);
+  }, []);
 
   useEffect(() => {
-    if (!restored || !currentUserId || !currentTenantId) return;
-    writeStored(
-      active
-        ? {
-            owner: {
-              userId: currentUserId,
-              tenantId: currentTenantId,
-            },
-            active,
-            queue,
-          }
-        : null,
-    );
-  }, [active, currentTenantId, currentUserId, queue, restored]);
+    writeStored(active);
+  }, [active]);
 
   // Gatilho emitido ANTES de a autenticação resolver não pode ser descartado:
   // no cadastro, `emit` é chamado de dentro de um `handleSubmit` cujo closure
@@ -268,14 +141,15 @@ export function JourneyRuntimeProvider({
   // nem uma requisição. Guardamos o contexto e reemitimos quando o usuário
   // aparece, o que preserva "nunca disparar sem usuário autenticado" sem
   // perder o gatilho.
+  const pendingEmit = useRef<JourneyEligibilityContext[] | null>(null);
+
   const emitMany = useCallback(
     async (contexts: JourneyEligibilityContext[]) => {
       if (active || contexts.length === 0) return;
-      if (!user || authLoading || !currentOwner) {
+      if (!user || authLoading) {
         pendingEmit.current = contexts;
         return;
       }
-      const requestOwner = currentOwner;
       pendingEmit.current = null;
       setLoading(true);
       setError(null);
@@ -293,7 +167,7 @@ export function JourneyRuntimeProvider({
               ? getProjectType(context.projectId).catch(() => null)
               : Promise.resolve(null);
             const [eligible, projectType] = await Promise.all([
-              getEligibleJourneys(context),
+              getEligibleJourneys(context).catch(() => []),
               projectTypePromise,
             ]);
             return eligible.map((j) => ({
@@ -303,7 +177,6 @@ export function JourneyRuntimeProvider({
             }));
           }),
         );
-        if (runtimeOwner.current !== requestOwner) return;
 
         const seen = new Set<string>();
         const entries: QueuedJourney[] = [];
@@ -322,12 +195,8 @@ export function JourneyRuntimeProvider({
         if (first) {
           if (first.journey.crossProject) {
             void listJourneyProjects()
-              .then((items) => {
-                if (runtimeOwner.current === requestOwner) setProjects(items);
-              })
-              .catch(() => {
-                if (runtimeOwner.current === requestOwner) setProjects([]);
-              });
+              .then(setProjects)
+              .catch(() => setProjects([]));
           }
           setActive({
             journey: first.journey,
@@ -335,21 +204,15 @@ export function JourneyRuntimeProvider({
             projectId: first.projectId,
             projectType: first.projectType,
           });
-          setQueue(entries.slice(1));
+          setQueue(entries);
         }
-      } catch (cause) {
-        if (runtimeOwner.current !== requestOwner) return;
-        const message =
-          cause instanceof Error
-            ? cause.message
-            : "Não foi possível carregar a jornada.";
-        setError(message);
-        toast.error(message);
+      } catch {
+        // The runtime is additive: an unavailable journey API must not break the app.
       } finally {
-        if (runtimeOwner.current === requestOwner) setLoading(false);
+        setLoading(false);
       }
     },
-    [active, authLoading, currentOwner, user],
+    [active, authLoading, user],
   );
 
   const emit = useCallback(
@@ -383,28 +246,15 @@ export function JourneyRuntimeProvider({
   }, [active, authLoading, emitMany, user]);
 
   useEffect(() => {
-    if (!restored || authLoading) return;
-    if (!user) {
-      emittedScreenVisit.current = null;
-      return;
-    }
-    if (!pathname || active) return;
+    if (!user || authLoading || !pathname || active) return;
     const projectId = currentProjectId(pathname);
-    const screenKey = currentScreenKey(pathname);
-    if (!screenKey) return;
-    const visitKey = `${user.id}:${pathname}`;
-    // O Strict Mode pode concluir duas leituras de /auth/me com objetos
-    // equivalentes enquanto a primeira elegibilidade ainda está em voo.
-    // Marcar antes do await garante um único SCREEN_VISIT por navegação.
-    if (emittedScreenVisit.current === visitKey) return;
-    emittedScreenVisit.current = visitKey;
     void emit({
       triggerType: "SCREEN_VISIT",
       device: device(),
       projectId,
-      screenKey,
+      screenKey: pathname.split("/").pop() || undefined,
     });
-  }, [active, authLoading, emit, pathname, restored, user]);
+  }, [active, authLoading, emit, pathname, user]);
 
   useEffect(() => {
     if (!user || authLoading) return;
@@ -444,7 +294,7 @@ export function JourneyRuntimeProvider({
     if (!active) return;
     const completed = active;
     completedKeys.current.add(completed.journey.key);
-    const [nextJourney] = queue;
+    const nextJourney = queue[1];
     if (nextJourney) {
       setQueue((current) => current.slice(1));
       setActive({
@@ -505,10 +355,11 @@ export function JourneyRuntimeProvider({
     if (!active) return;
     const step = active.journey.steps[active.stepIndex];
     if (!step?.skippable) return;
-    // Uma navegação posterior pode devolver a mesma jornada (ela não foi
-    // concluída, e não existe endpoint de dismiss). `completedKeys` é a
-    // supressão client-side que vive enquanto a aba vive — exatamente a
-    // semântica de `DISMISS_UNTIL_LOGIN`.
+    // Sem isto, fechar é no-op no gatilho SCREEN_VISIT: o effect re-roda com
+    // `active === null` no MESMO pathname, a API devolve a mesma jornada (ela
+    // não foi concluída, e não existe endpoint de dismiss) e o painel reabre.
+    // `completedKeys` é a única supressão client-side e vive enquanto a aba
+    // vive — exatamente a semântica de `DISMISS_UNTIL_LOGIN`.
     completedKeys.current.add(active.journey.key);
     setQueue([]);
     setActive(null);
@@ -670,12 +521,7 @@ function JourneyRuntimeOverlay() {
   useEffect(() => {
     if (!active || !currentStep) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (
-        event.key === "Escape" &&
-        !document.body.hasAttribute("data-overlay-open")
-      ) {
-        runtime.dismiss();
-      }
+      if (event.key === "Escape") runtime.dismiss();
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);

@@ -11,11 +11,7 @@ const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
   apiPost: vi.fn(),
   push: vi.fn(),
-  toastError: vi.fn(),
-  user: { id: "u1", tenantId: "tenant-1" } as {
-    id: string;
-    tenantId: string;
-  } | null,
+  user: { id: "u1" } as { id: string } | null,
   authLoading: false,
   pathname: "/projects/current/monthly",
 }));
@@ -25,9 +21,6 @@ vi.mock("@/contexts/auth-context", () => ({
 }));
 vi.mock("@/lib/api", () => ({
   api: { get: mocks.apiGet, post: mocks.apiPost },
-}));
-vi.mock("sonner", () => ({
-  toast: { error: mocks.toastError },
 }));
 vi.mock("next/navigation", () => ({
   usePathname: () => mocks.pathname,
@@ -95,57 +88,13 @@ function renderRuntime() {
   );
 }
 
-const STORED_OWNER = { userId: "u1", tenantId: "tenant-1" };
-
-function storeRuntime(active: unknown, queue: unknown[] = []) {
-  sessionStorage.setItem(
-    "lifeone:journey-runtime",
-    JSON.stringify({ owner: STORED_OWNER, active, queue }),
-  );
-}
-
-function resumableActive(
-  overrides: Partial<{
-    name: string;
-    key: string;
-    projectId: string;
-    crossProject: boolean;
-  }> = {},
-) {
-  return {
-    journey: {
-      journeyId: "j-resume",
-      key: overrides.key ?? "tour:resume",
-      name: overrides.name ?? "Retomada",
-      triggerId: "t-resume",
-      repeatPolicy: "ALWAYS",
-      dismissPolicy: "DISMISS_UNTIL_LOGIN",
-      crossProject: overrides.crossProject ?? false,
-      steps: [
-        {
-          stepKey: "feedback",
-          order: 0,
-          experience: "SUMMARY",
-          label: "Resumo",
-          subtitle: "Resumo",
-          skippable: true,
-        },
-      ],
-    },
-    stepIndex: 0,
-    projectId: overrides.projectId ?? "current",
-  };
-}
-
 describe("JourneyRuntimeProvider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sessionStorage.clear();
-    mocks.user = { id: "u1", tenantId: "tenant-1" };
+    mocks.user = { id: "u1" };
     mocks.authLoading = false;
     mocks.pathname = "/projects/current/monthly";
-    document.body.style.overflow = "";
-    delete document.body.dataset.overlayOpen;
     mocks.apiGet.mockImplementation((path: string) => {
       const context = Object.fromEntries(
         new URL(`http://localhost${path}`).searchParams,
@@ -336,172 +285,14 @@ describe("JourneyRuntimeProvider", () => {
   });
 
   it("resumes an active journey from sessionStorage", async () => {
-    storeRuntime({
-      journey: {
-        journeyId: "j1",
-        key: "tour:test",
-        name: "Retomada",
-        triggerId: "t1",
-        repeatPolicy: "ALWAYS",
-        dismissPolicy: "DISMISS_UNTIL_LOGIN",
-        crossProject: false,
-        steps: [
-          {
-            stepKey: "feedback",
-            order: 0,
-            experience: "SUMMARY",
-            label: "A",
-            subtitle: "Resumo",
-            skippable: true,
-          },
-        ],
-      },
-      stepIndex: 0,
-      projectId: "current",
-    });
-    renderRuntime();
-    expect(await screen.findByTestId("active")).toHaveTextContent("Retomada:0");
-    await waitFor(() =>
-      expect(mocks.apiGet).not.toHaveBeenCalledWith(
-        "/journeys/eligible",
-        expect.anything(),
-      ),
-    );
-  });
-
-  it("does not erase the persisted step while restoring it after hydration", async () => {
-    storeRuntime({
-      journey: {
-        journeyId: "j1",
-        key: "tour:test",
-        name: "Retomada",
-        triggerId: "t1",
-        repeatPolicy: "ALWAYS",
-        dismissPolicy: "DISMISS_UNTIL_LOGIN",
-        crossProject: false,
-        steps: [
-          {
-            stepKey: "feedback",
-            order: 0,
-            experience: "SUMMARY",
-            label: "A",
-            subtitle: "Resumo",
-            skippable: true,
-          },
-          {
-            stepKey: "expense",
-            order: 1,
-            experience: "FULL",
-            label: "B",
-            subtitle: "Despesa",
-            skippable: true,
-          },
-        ],
-      },
-      stepIndex: 1,
-      projectId: "current",
-    });
-    const removeItem = vi.spyOn(Storage.prototype, "removeItem");
-
-    renderRuntime();
-
-    expect(await screen.findByTestId("active")).toHaveTextContent("Retomada:1");
-    expect(removeItem).not.toHaveBeenCalledWith("lifeone:journey-runtime");
-    expect(
-      JSON.parse(sessionStorage.getItem("lifeone:journey-runtime")!),
-    ).toMatchObject({
-      owner: STORED_OWNER,
-      active: { stepIndex: 1 },
-    });
-    removeItem.mockRestore();
-  });
-
-  it("waits for auth and discards a snapshot owned by another account", async () => {
-    storeRuntime(resumableActive());
-    mocks.user = null;
-    mocks.authLoading = true;
-    const { rerender } = renderRuntime();
-
-    expect(sessionStorage.getItem("lifeone:journey-runtime")).not.toBeNull();
-    expect(screen.queryByTestId("active")).not.toBeInTheDocument();
-
-    mocks.user = { id: "u2", tenantId: "tenant-2" };
-    mocks.authLoading = false;
-    rerender(
-      <JourneyRuntimeProvider>
-        <main data-testid="page-main">
-          <Fixture />
-        </main>
-      </JourneyRuntimeProvider>,
-    );
-
-    await waitFor(() =>
-      expect(sessionStorage.getItem("lifeone:journey-runtime")).toBeNull(),
-    );
-    expect(screen.queryByTestId("active")).not.toBeInTheDocument();
-  });
-
-  it("removes the active journey and its snapshot when logout is observed", async () => {
-    storeRuntime(resumableActive());
-    const { rerender } = renderRuntime();
-    expect(await screen.findByTestId("active")).toHaveTextContent("Retomada:0");
-
-    mocks.user = null;
-    rerender(
-      <JourneyRuntimeProvider>
-        <main data-testid="page-main">
-          <Fixture />
-        </main>
-      </JourneyRuntimeProvider>,
-    );
-
-    await waitFor(() =>
-      expect(screen.queryByTestId("active")).not.toBeInTheDocument(),
-    );
-    expect(sessionStorage.getItem("lifeone:journey-runtime")).toBeNull();
-  });
-
-  it("ignores eligibility that resolves after switching accounts", async () => {
-    let resolveEligibility!: (journeys: unknown[]) => void;
-    const eligibility = new Promise<unknown[]>((resolve) => {
-      resolveEligibility = resolve;
-    });
-    mocks.apiGet.mockImplementation((path: string) => {
-      const url = new URL(`http://localhost${path}`);
-      if (url.searchParams.get("triggerType") === "PROJECT_CREATED") {
-        return eligibility;
-      }
-      if (path === "/projects/current") {
-        return Promise.resolve({ type: "PESSOAL" });
-      }
-      return Promise.resolve([]);
-    });
-    const { rerender } = renderRuntime();
-    await userEvent
-      .setup()
-      .click(screen.getByRole("button", { name: "Criar projeto" }));
-    await waitFor(() =>
-      expect(mocks.apiGet).toHaveBeenCalledWith(
-        expect.stringContaining("triggerType=PROJECT_CREATED"),
-      ),
-    );
-
-    mocks.user = { id: "u2", tenantId: "tenant-2" };
-    rerender(
-      <JourneyRuntimeProvider>
-        <main data-testid="page-main">
-          <Fixture />
-        </main>
-      </JourneyRuntimeProvider>,
-    );
-
-    await act(async () => {
-      resolveEligibility([
-        {
-          journeyId: "j-old",
-          key: "tour:old-account",
-          name: "Conta anterior",
-          triggerId: "t-old",
+    sessionStorage.setItem(
+      "lifeone:journey-runtime",
+      JSON.stringify({
+        journey: {
+          journeyId: "j1",
+          key: "tour:test",
+          name: "Retomada",
+          triggerId: "t1",
           repeatPolicy: "ALWAYS",
           dismissPolicy: "DISMISS_UNTIL_LOGIN",
           crossProject: false,
@@ -516,28 +307,18 @@ describe("JourneyRuntimeProvider", () => {
             },
           ],
         },
-      ]);
-      await eligibility;
-    });
-
-    expect(screen.queryByTestId("active")).not.toBeInTheDocument();
-    expect(sessionStorage.getItem("lifeone:journey-runtime")).toBeNull();
-  });
-
-  it("reloads project choices for a restored cross-project journey", async () => {
-    storeRuntime(resumableActive({ crossProject: true }));
-    mocks.apiGet.mockImplementation((path: string) => {
-      if (path === "/projects")
-        return Promise.resolve([{ id: "p1", name: "Casa", type: "CASA" }]);
-      return Promise.resolve([]);
-    });
-
+        stepIndex: 0,
+        projectId: "current",
+      }),
+    );
     renderRuntime();
-
-    expect(
-      await screen.findByRole("combobox", { name: "Projeto da jornada" }),
-    ).toBeInTheDocument();
-    expect(mocks.apiGet).toHaveBeenCalledWith("/projects");
+    expect(await screen.findByTestId("active")).toHaveTextContent("Retomada:0");
+    await waitFor(() =>
+      expect(mocks.apiGet).not.toHaveBeenCalledWith(
+        "/journeys/eligible",
+        expect.anything(),
+      ),
+    );
   });
 
   it("shows compatible projects for a cross-project journey", async () => {
@@ -652,23 +433,6 @@ describe("JourneyRuntimeProvider", () => {
       );
     });
 
-    it("leaves the journey open when Escape belongs to a fullscreen overlay", async () => {
-      setupJourney(true);
-      renderRuntime();
-      await userEvent
-        .setup()
-        .click(screen.getByRole("button", { name: "Criar projeto" }));
-      const panel = await screen.findByRole("dialog");
-
-      document.body.dataset.overlayOpen = "true";
-      try {
-        await userEvent.setup().keyboard("{Escape}");
-        expect(screen.getByRole("dialog")).toBe(panel);
-      } finally {
-        delete document.body.dataset.overlayOpen;
-      }
-    });
-
     it("ignores Escape when the current step is NOT skippable", async () => {
       setupJourney(false);
       renderRuntime();
@@ -730,8 +494,8 @@ describe("JourneyRuntimeProvider", () => {
       ).length;
     }
 
-    /** Espera a avaliação de elegibilidade da navegação seguinte. */
-    async function waitForNavigationCheck(previousCalls: number) {
+    /** Espera a re-avaliação de elegibilidade que segue o fechamento. */
+    async function waitForRecheck(previousCalls: number) {
       await waitFor(() =>
         expect(screenVisitCalls()).toBeGreaterThan(previousCalls),
       );
@@ -740,9 +504,9 @@ describe("JourneyRuntimeProvider", () => {
       });
     }
 
-    it("does NOT reopen the panel after dismissing and navigating", async () => {
+    it("does NOT reopen the panel after dismissing on the same pathname", async () => {
       setupScreenVisitJourney();
-      const { rerender } = renderRuntime();
+      renderRuntime();
 
       const panel = await screen.findByRole("dialog");
       const callsWhileOpen = screenVisitCalls();
@@ -754,17 +518,7 @@ describe("JourneyRuntimeProvider", () => {
       await waitFor(() =>
         expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
       );
-      expect(screenVisitCalls()).toBe(callsWhileOpen);
-
-      mocks.pathname = "/projects/current/expenses";
-      rerender(
-        <JourneyRuntimeProvider>
-          <main data-testid="page-main">
-            <Fixture />
-          </main>
-        </JourneyRuntimeProvider>,
-      );
-      await waitForNavigationCheck(callsWhileOpen);
+      await waitForRecheck(callsWhileOpen);
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
 
@@ -780,10 +534,7 @@ describe("JourneyRuntimeProvider", () => {
       await waitFor(() =>
         expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
       );
-      await act(async () => {
-        await Promise.resolve();
-      });
-      expect(screenVisitCalls()).toBe(callsWhileOpen);
+      await waitForRecheck(callsWhileOpen);
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
 
@@ -807,86 +558,54 @@ describe("JourneyRuntimeProvider", () => {
     });
   });
 
-  describe("disparo do SCREEN_VISIT (retomada hidratada + gate de auth)", () => {
+  // Regressão: o gatilho SCREEN_VISIT antes esperava um boolean `restored`
+  // (setado num effect de montagem) além de auth/pathname/`!active` — dois
+  // gates sequenciais e um round-trip antes do painel poder existir. Agora a
+  // retomada é lida de forma síncrona no initializer do `useState`, então só
+  // resta o gate de auth real.
+  describe("disparo do SCREEN_VISIT (retomada síncrona + gate de auth)", () => {
     function screenVisitCalls() {
       return mocks.apiGet.mock.calls.filter((call: unknown[]) =>
         String(call[0]).includes("triggerType=SCREEN_VISIT"),
       ).length;
     }
 
-    it("always sends the current screen key, including a trailing-slash pathname", async () => {
-      mocks.pathname = "/projects/current/monthly/";
-
-      renderRuntime();
-
-      await waitFor(() => expect(screenVisitCalls()).toBe(1));
-      const [url] = mocks.apiGet.mock.calls.find((call: unknown[]) =>
-        String(call[0]).includes("triggerType=SCREEN_VISIT"),
-      )!;
-      expect(new URL(`http://localhost${url}`).searchParams.get("screenKey")).toBe(
-        "monthly",
-      );
-    });
-
-    it("surfaces an eligibility error instead of treating the 400 as an empty result", async () => {
-      mocks.apiGet.mockImplementation((path: string) => {
-        if (path.startsWith("/journeys/eligible")) {
-          return Promise.reject(new Error("SCREEN_VISIT exige screenKey na consulta."));
-        }
-        return Promise.resolve({ type: "PESSOAL" });
-      });
-
-      renderRuntime();
-
-      await waitFor(() =>
-        expect(mocks.toastError).toHaveBeenCalledWith(
-          "SCREEN_VISIT exige screenKey na consulta.",
-        ),
-      );
-    });
-
-    it("waits for auth before restoring a snapshot owned by the resolved user", async () => {
+    it("resumes an active journey from sessionStorage even while auth is still resolving", async () => {
       mocks.authLoading = true;
-      mocks.user = null;
-      storeRuntime({
-        journey: {
-          journeyId: "j1",
-          key: "tour:test",
-          name: "Retomada",
-          triggerId: "t1",
-          repeatPolicy: "ALWAYS",
-          dismissPolicy: "DISMISS_UNTIL_LOGIN",
-          crossProject: false,
-          steps: [
-            {
-              stepKey: "feedback",
-              order: 0,
-              experience: "SUMMARY",
-              label: "A",
-              subtitle: "Resumo",
-              skippable: true,
-            },
-          ],
-        },
-        stepIndex: 0,
-        projectId: "current",
-      });
-      const { rerender } = renderRuntime();
-
-      expect(screen.queryByTestId("active")).not.toBeInTheDocument();
-      expect(screenVisitCalls()).toBe(0);
-
-      mocks.user = { id: "u1", tenantId: "tenant-1" };
-      mocks.authLoading = false;
-      rerender(
-        <JourneyRuntimeProvider>
-          <main data-testid="page-main">
-            <Fixture />
-          </main>
-        </JourneyRuntimeProvider>,
+      sessionStorage.setItem(
+        "lifeone:journey-runtime",
+        JSON.stringify({
+          journey: {
+            journeyId: "j1",
+            key: "tour:test",
+            name: "Retomada",
+            triggerId: "t1",
+            repeatPolicy: "ALWAYS",
+            dismissPolicy: "DISMISS_UNTIL_LOGIN",
+            crossProject: false,
+            steps: [
+              {
+                stepKey: "feedback",
+                order: 0,
+                experience: "SUMMARY",
+                label: "A",
+                subtitle: "Resumo",
+                skippable: true,
+              },
+            ],
+          },
+          stepIndex: 0,
+          projectId: "current",
+        }),
       );
-      expect(await screen.findByTestId("active")).toHaveTextContent("Retomada:0");
+      renderRuntime();
+      // Retomada é lida no initializer, no primeiro render — não depende de
+      // auth ter resolvido.
+      expect(screen.getByTestId("active")).toHaveTextContent("Retomada:0");
       expect(screenVisitCalls()).toBe(0);
+      await act(async () => {
+        await Promise.resolve();
+      });
     });
 
     it("does not emit SCREEN_VISIT before auth resolves, then emits once auth resolves", async () => {
@@ -908,23 +627,10 @@ describe("JourneyRuntimeProvider", () => {
       await waitFor(() => expect(screenVisitCalls()).toBe(1));
     });
 
-    it("does not emit SCREEN_VISIT twice when auth refreshes during eligibility", async () => {
-      let resolveEligibility!: (journeys: unknown[]) => void;
-      const eligibility = new Promise<unknown[]>((resolve) => {
-        resolveEligibility = resolve;
-      });
-      mocks.apiGet.mockImplementation((path: string) => {
-        if (path.startsWith("/journeys/eligible")) return eligibility;
-        if (path === "/projects/current")
-          return Promise.resolve({ type: "PESSOAL" });
-        return Promise.resolve([]);
-      });
+    it("does not emit SCREEN_VISIT twice for the same navigation on extra re-renders", async () => {
       const { rerender } = renderRuntime();
       await waitFor(() => expect(screenVisitCalls()).toBe(1));
 
-      // O Strict Mode do Next pode concluir duas leituras de /auth/me com
-      // objetos equivalentes enquanto a elegibilidade ainda está em voo.
-      mocks.user = { id: "u1", tenantId: "tenant-1" };
       rerender(
         <JourneyRuntimeProvider>
           <main data-testid="page-main">
@@ -933,8 +639,7 @@ describe("JourneyRuntimeProvider", () => {
         </JourneyRuntimeProvider>,
       );
       await act(async () => {
-        resolveEligibility([]);
-        await eligibility;
+        await Promise.resolve();
       });
       expect(screenVisitCalls()).toBe(1);
     });
@@ -964,7 +669,7 @@ describe("JourneyRuntimeProvider", () => {
       expect(projectCreatedCalls()).toBe(0);
 
       mocks.authLoading = false;
-      mocks.user = { id: "u1", tenantId: "tenant-1" };
+      mocks.user = { id: "u1" };
       rerender(
         <JourneyRuntimeProvider>
           <main data-testid="page-main">
@@ -976,8 +681,7 @@ describe("JourneyRuntimeProvider", () => {
       await waitFor(() => expect(projectCreatedCalls()).toBe(1));
     });
 
-    it("não reemite o gatilho guardado numa segunda passagem", async () => {
-      mocks.authLoading = true;
+    it("não reemite o gatilho guardado numa segunda passagem", async () => {      mocks.authLoading = true;
       mocks.user = null;
       const { rerender } = renderRuntime();
       await act(async () => {
@@ -985,7 +689,7 @@ describe("JourneyRuntimeProvider", () => {
       });
 
       mocks.authLoading = false;
-      mocks.user = { id: "u1", tenantId: "tenant-1" };
+      mocks.user = { id: "u1" };
       const tree = (
         <JourneyRuntimeProvider>
           <main data-testid="page-main">
@@ -1078,43 +782,6 @@ describe("JourneyRuntimeProvider", () => {
         expect(screen.getByTestId("active")).toHaveTextContent(
           "Onboarding CASA:0",
         ),
-      );
-      expect(screen.getByTestId("active-project")).toHaveTextContent("p-casa");
-    });
-
-    it("restores the remaining project journey after the provider remounts", async () => {
-      const mounted = renderRuntime();
-      await act(async () => {
-        await userEvent.click(screen.getByText("Criar dois projetos"));
-      });
-      await waitFor(() =>
-        expect(screen.getByTestId("active")).toHaveTextContent(
-          "Onboarding REFORMA:0",
-        ),
-      );
-      await waitFor(() => {
-        const snapshot = JSON.parse(
-          sessionStorage.getItem("lifeone:journey-runtime")!,
-        );
-        expect(snapshot.owner).toEqual(STORED_OWNER);
-        expect(snapshot.queue).toHaveLength(1);
-      });
-
-      mounted.unmount();
-      renderRuntime();
-      expect(await screen.findByTestId("active")).toHaveTextContent(
-        "Onboarding REFORMA:0",
-      );
-
-      await act(async () => {
-        await userEvent.click(
-          within(screen.getByTestId("active")).getByRole("button", {
-            name: "Continuar",
-          }),
-        );
-      });
-      expect(await screen.findByTestId("active")).toHaveTextContent(
-        "Onboarding CASA:0",
       );
       expect(screen.getByTestId("active-project")).toHaveTextContent("p-casa");
     });
