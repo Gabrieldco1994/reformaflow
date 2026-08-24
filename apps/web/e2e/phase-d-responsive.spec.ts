@@ -325,16 +325,27 @@ test.describe("Phase D responsive cards and account hierarchy", () => {
       await openAccount(page);
       await expectNoHorizontalOverflow(page);
       if (width < 1280) {
+        // #559: o card "Saiu" passou a somar pago + planejado, então o grupo
+        // deixou de se chamar "Realizado" e virou "Movimentação". `exact`
+        // porque "Movimentação" é prefixo de "Movimentações do mês".
         await expect(
-          page.getByRole("heading", { name: "Realizado" }),
+          page.getByRole("heading", { name: "Movimentação", exact: true }),
         ).toBeVisible();
         await expect(
           page.getByRole("heading", { name: "Projeção" }),
         ).toBeVisible();
       } else {
-        await expect(
-          page.getByRole("heading", { name: "Realizado" }),
-        ).toBeHidden();
+        // `toBeHidden` também passa quando o elemento NÃO existe, então o
+        // ramo 1280 sozinho não pegaria um rename do rótulo (foi o que
+        // aconteceu em #559: só 390/767/768 falharam). `getByRole` não serve
+        // aqui: `xl:hidden` é `display:none`, o que tira o h2 da árvore de
+        // acessibilidade. `getByText` enxerga o DOM, então fixa a existência
+        // do rótulo antes de exigir que o CSS o esconda no xl.
+        const movimentacaoHeading = page.getByText("Movimentação", {
+          exact: true,
+        });
+        await expect(movimentacaoHeading).toHaveCount(1);
+        await expect(movimentacaoHeading).toBeHidden();
         await expect(
           page.getByRole("heading", { name: "Projeção" }),
         ).toBeHidden();
