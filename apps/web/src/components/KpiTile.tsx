@@ -161,13 +161,19 @@ export function KpiTile({
 
   const inner = (
     <>
-      <p className={`flex items-center gap-1 font-semibold leading-4 ${labelSize} ${labelColor}`}>
-        {icon && <span className="shrink-0">{icon}</span>}
-        <span className="min-w-0 truncate">{label}</span>
+      <div className="relative">
+        <p className={`flex items-center gap-1 pr-8 font-semibold leading-4 ${labelSize} ${labelColor}`}>
+          {icon && <span className="shrink-0">{icon}</span>}
+          <span className="min-w-0 truncate">{label}</span>
+        </p>
         {info && (
-          <InfoHint text={info} className={infoClassName || undefined} ariaLabel={infoAriaLabel} />
+          <InfoHint
+            text={info}
+            className={`absolute right-0 top-0 ${infoClassName}`}
+            ariaLabel={infoAriaLabel}
+          />
         )}
-      </p>
+      </div>
       <p className={`${mobileCompact ? 'mt-1 md:mt-2' : 'mt-2'} font-geist tabular-nums font-bold tracking-tight leading-tight ${valueSize} ${valueColor}`}>
         {value}
       </p>

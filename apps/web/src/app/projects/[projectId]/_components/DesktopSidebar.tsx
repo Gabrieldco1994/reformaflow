@@ -105,7 +105,7 @@ export function DesktopSidebar({
 
   return (
     <aside
-      className={`minimal-sidebar relative hidden flex-col border-r transition-[width] duration-200 md:flex ${collapsed ? "w-16" : "w-56"}`}
+      className={`minimal-sidebar sticky top-0 hidden h-[100dvh] shrink-0 flex-col border-r transition-[width] duration-200 md:flex ${collapsed ? "w-16" : "w-56"}`}
     >
       <div className="minimal-sidebar-header border-b p-2">
         <div

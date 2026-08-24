@@ -346,6 +346,8 @@ No projeto **PESSOAL**, o atalho **"Maria"** da barra inferior abre o assistente
 financeiro em tela própria (chat em tela cheia no mobile).
 
 - Mostra abertura proativa com leitura do mês atual.
+- No cockpit mensal, o CTA **"Ver detalhes"** dos cards de "Maria percebeu" abre
+  a mesma tela **Maria** do projeto, para aprofundar o insight.
 - Pode ser aberta **já com uma pergunta pré-preenchida e enviada** a partir do
   onboarding (passo "Pergunte à Maria", ver §3.1c): o texto chega via
   sessionStorage e dispara uma única vez; abrir a Maria por qualquer outro

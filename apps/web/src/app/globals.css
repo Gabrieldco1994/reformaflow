@@ -429,6 +429,10 @@ body[data-rf-shell="project"] {
     scroll-padding-bottom: var(--rf-bottom-chrome-size);
   }
 
+  [data-ui-skin="minimal"] .minimal-floating-fab {
+    bottom: calc(var(--rf-bottom-chrome-size) - 4rem);
+  }
+
   [data-ui-skin="minimal"] .minimal-header {
     height: calc(56px + var(--minimal-mobile-safe-top));
     gap: 8px;

@@ -1,7 +1,17 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import type { ReactNode } from "react";
+import { describe, expect, it, vi } from "vitest";
 import type { MariaInsight } from "../_lib/insights";
 import MariaStories from "./MariaStories";
+
+vi.mock("next/link", () => ({
+  __esModule: true,
+  default: ({ href, children, ...rest }: { href: string; children: ReactNode }) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
+}));
 
 const fixtures: MariaInsight[] = [
   {
@@ -28,7 +38,7 @@ const fixtures: MariaInsight[] = [
 
 describe("MariaStories", () => {
   it("renders one story card per insight, typed by kind, with tone-appropriate icon", () => {
-    render(<MariaStories insights={fixtures} />);
+    render(<MariaStories projectId="p1" insights={fixtures} />);
     const cards = screen.getAllByRole("article");
     expect(cards).toHaveLength(3);
     expect(cards[0]).toHaveAttribute("data-kind", "categoria-alta");
@@ -40,7 +50,7 @@ describe("MariaStories", () => {
   });
 
   it("renders nothing (empty state), not an error, when insights=[]", () => {
-    expect(() => render(<MariaStories insights={[]} />)).not.toThrow();
+    expect(() => render(<MariaStories projectId="p1" insights={[]} />)).not.toThrow();
     expect(screen.queryAllByRole("article")).toHaveLength(0);
     expect(
       screen.getByText(/nada fora do padrão/i),
@@ -48,7 +58,7 @@ describe("MariaStories", () => {
   });
 
   it("story cards meet the typography floor and touch target for their CTA link", () => {
-    render(<MariaStories insights={fixtures} />);
+    render(<MariaStories projectId="p1" insights={fixtures} />);
     for (const link of screen.getAllByRole("link", { name: /ver detalhes/i })) {
       expect(link.className).toMatch(/min-h-\[44px\]/);
     }
