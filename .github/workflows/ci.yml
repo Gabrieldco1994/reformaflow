@@ -66,6 +66,10 @@ jobs:
         run: cd apps/api && TZ=UTC npx jest src/monthly-overview/finance-center.fixture.integration.spec.ts --runInBand
       - name: Synthetic finance-center fixture contract (America/Sao_Paulo)
         run: cd apps/api && TZ=America/Sao_Paulo npx jest src/monthly-overview/finance-center.fixture.integration.spec.ts --runInBand
+      - name: Financing soft-delete reactivation e2e (UTC)
+        run: cd apps/api && TZ=UTC npx ts-node -T src/financing/__tests__/e2e-soft-delete-reactivation.test.ts
+      - name: Financing soft-delete reactivation e2e (America/Sao_Paulo)
+        run: cd apps/api && TZ=America/Sao_Paulo npx ts-node -T src/financing/__tests__/e2e-soft-delete-reactivation.test.ts
       - name: Run tests
         run: npm --workspace @reformaflow/api run test -- --no-coverage
 
