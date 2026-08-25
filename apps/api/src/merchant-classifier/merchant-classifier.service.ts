@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ExpenseType } from '@reformaflow/domain';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -293,6 +293,9 @@ export class MerchantClassifierService {
   }
 
   async removeManual(raw: string, tenantId: string): Promise<{ merchantKey: string; deleted: boolean }> {
+    if (!tenantId) {
+      throw new BadRequestException('tenantId é obrigatório para remover regra manual');
+    }
     const key = MerchantClassifierService.normalizeKey(raw);
     if (!key) return { merchantKey: '', deleted: false };
     const deleted = await this.prisma.merchantCategory.deleteMany({
