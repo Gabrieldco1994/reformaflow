@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import type { FinancialItemCardV1 } from '@reformaflow/domain';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatDateBR } from '@/lib/utils';
 import { formaLabel } from '@/lib/expense-options';
 
 /* ── Breakpoint hook (no existing useIsMobile in the project) ── */
@@ -51,7 +51,7 @@ function DetailContent({
     { label: 'Tipo', value: KIND_LABELS[item.kind] },
     { label: 'Finalidade', value: item.purposeLabel },
     { label: 'Origem', value: item.originProjectName },
-    { label: 'Data', value: new Date(item.date).toLocaleDateString('pt-BR') },
+    { label: 'Data', value: formatDateBR(item.date) },
     {
       label: 'Valor',
       value: formatCurrency(item.amountCents / 100),
