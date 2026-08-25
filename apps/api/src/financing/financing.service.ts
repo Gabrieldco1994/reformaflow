@@ -1,8 +1,10 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { Prisma, FinancingInstallment } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ExpenseService } from '../expense/expense.service';
@@ -33,6 +35,8 @@ function toDateOnlyString(date: Date): string {
 
 @Injectable()
 export class FinancingService {
+  private readonly logger = new Logger(FinancingService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly expenseService: ExpenseService,
@@ -42,10 +46,62 @@ export class FinancingService {
     return this.getWithSummary(this.prisma, tenantId, projectId);
   }
 
+  /**
+   * Defeito 2 (#586): sem isto, `materializeWindow` só roda dentro do
+   * `upsert` — um financiamento criado e nunca mais editado ficaria com a
+   * janela rolling parada no dia da criação e nunca ganharia despesa
+   * espelho para os meses seguintes. Varre mensalmente todos os
+   * financiamentos vivos e materializa a janela de cada um.
+   *
+   * Idempotente por natureza: `materializeWindow` só cria despesa para
+   * parcela com `expenseId: null`; rodar duas vezes no mesmo período (ou
+   * reprocessar um financiamento já materializado) não duplica `Expense`.
+   * Falha em um financiamento não derruba os demais (mesmo padrão de
+   * isolamento de `PriceAlertScheduler.checkPriceAlerts`).
+   */
+  @Cron(CronExpression.EVERY_1ST_DAY_OF_MONTH_AT_MIDNIGHT)
+  async materializeAllFinancingsWindow(): Promise<void> {
+    const financings = await this.prisma.financing.findMany({
+      where: { deletedAt: null },
+      select: { id: true, tenantId: true, projectId: true, prazoMeses: true },
+    });
+    this.logger.log(
+      `[materializeAllFinancingsWindow] ${financings.length} financiamento(s) ativo(s)`,
+    );
+
+    for (const financing of financings) {
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          const materializable = await tx.financingInstallment.findMany({
+            where: { financingId: financing.id, deletedAt: null, expenseId: null },
+            orderBy: { numeroParcela: 'asc' },
+          });
+          await this.materializeWindow(
+            tx,
+            financing.tenantId,
+            financing.projectId,
+            materializable,
+            financing.prazoMeses,
+          );
+        });
+      } catch (err) {
+        // Não deixa a falha de um financiamento derrubar os demais.
+        this.logger.error(
+          `[materializeAllFinancingsWindow] erro no financiamento ${financing.id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+  }
+
   async upsert(tenantId: string, projectId: string, dto: UpsertFinancingDto) {
     return this.prisma.$transaction(async (tx) => {
+      // SEM `deletedAt: null`: `projectId` é @unique na tabela — se houver um
+      // financiamento soft-deletado para este projeto e a busca o ignorasse,
+      // caía no ramo `create` abaixo e colidia no índice único (500). Alargar
+      // aqui também é o que faz este upsert reativar (des-soft-deletar) um
+      // financiamento removido, em vez de tentar recriar por cima dele.
       const existing = await tx.financing.findFirst({
-        where: { projectId, tenantId, deletedAt: null },
+        where: { projectId, tenantId },
       });
 
       const anchor = parseDateOnlyUtc(dto.dataPrimeiraParcela);
@@ -89,13 +145,29 @@ export class FinancingService {
         });
       } else {
         financingId = existing.id;
+        // SEM `deletedAt: null`: as parcelas soft-deletadas continuam ocupando
+        // fisicamente os slots dos três índices únicos da tabela
+        // (financingId+numeroParcela, expenseId, e por tabela pai o
+        // projectId de Financing). Se não entrarem em `current`, nunca são
+        // descartadas por `discardInstallments` (hard-delete) e o
+        // `createMany` abaixo colide de novo nesses índices.
         const current = await tx.financingInstallment.findMany({
-          where: { financingId, deletedAt: null },
+          where: { financingId },
           orderBy: { numeroParcela: 'asc' },
         });
 
         const protectedNumeros = new Set<number>();
         for (const installment of current) {
+          // Condição A (issue #586): uma parcela soft-deletada NUNCA pode ser
+          // protegida, mesmo que `isInstallmentProtected` diria que sim. O
+          // client de transação (`tx`) não passa pelo middleware `$use` de
+          // soft-delete, então `tx.expense.findUnique` enxerga uma Expense
+          // apagada como se estivesse viva/PAGA — sem este guard, a parcela
+          // ficaria de fora tanto de `toDiscard` quanto de `toInsert`:
+          // permanece soft-deletada ocupando o slot físico, o cronograma
+          // ganha um buraco permanente invisível, e ainda conta em
+          // `maxProtectedNumero`, podendo reprovar um prazoMeses legítimo.
+          if (installment.deletedAt !== null) continue;
           if (await this.isInstallmentProtected(tx, installment)) {
             protectedNumeros.add(installment.numeroParcela);
           }
@@ -107,7 +179,14 @@ export class FinancingService {
           );
         }
 
-        await tx.financing.update({ where: { id: financingId }, data: baseData });
+        // `deletedAt: null` explícito: desfaz o soft-delete quando `existing`
+        // veio de um financiamento previamente removido (Defeito 1).
+        // `baseData` não inclui `deletedAt` de propósito (não é campo de
+        // edição normal); é adicionado só aqui, neste update pontual.
+        await tx.financing.update({
+          where: { id: financingId },
+          data: { ...baseData, deletedAt: null },
+        });
 
         // Recalcula do zero as parcelas NÃO protegidas: as protegidas (pagas ou
         // vinculadas via rateio ao PESSOAL) preservam id/expenseId intocados.
