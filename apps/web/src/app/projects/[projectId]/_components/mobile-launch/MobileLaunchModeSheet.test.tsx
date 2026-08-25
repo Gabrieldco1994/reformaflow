@@ -74,4 +74,105 @@ describe('MobileLaunchModeSheet', () => {
     expect(recebimentoBtn).toBeInTheDocument();
     expect(recebimentoBtn?.textContent).toMatch(/Recebimento/);
   });
+
+  describe('Accessibility', () => {
+    it('announces dialog and maintains focus containment', async () => {
+      render(
+        <MobileLaunchModeSheet open onClose={vi.fn()} onPick={vi.fn()} />,
+      );
+
+      const dialog = screen.getByRole('dialog');
+      expect(dialog).toHaveAttribute('aria-modal', 'true');
+      expect(dialog).toHaveAttribute('aria-labelledby', 'mobile-launch-mode-title');
+      expect(screen.getByRole('heading', { name: /Como quer lançar/ })).toHaveAttribute(
+        'id',
+        'mobile-launch-mode-title',
+      );
+    });
+
+    it('closes dialog when Escape is pressed', async () => {
+      const user = userEvent.setup();
+      const onClose = vi.fn();
+
+      render(
+        <MobileLaunchModeSheet open onClose={onClose} onPick={vi.fn()} />,
+      );
+
+      await user.keyboard('{Escape}');
+
+      expect(onClose).toHaveBeenCalled();
+    });
+
+    it('contains Tab focus within dialog', async () => {
+      const user = userEvent.setup();
+
+      render(
+        <MobileLaunchModeSheet open onClose={vi.fn()} onPick={vi.fn()} />,
+      );
+
+      // Verify dialog is present
+      const dialog = screen.getByRole('dialog');
+      expect(dialog).toBeInTheDocument();
+
+      // Get focusable elements within dialog
+      const focusableElements = dialog.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])',
+      );
+
+      expect(focusableElements.length).toBeGreaterThan(0);
+
+      // First Tab should focus first focusable element within dialog
+      await user.tab();
+      expect(dialog).toContainElement(document.activeElement as HTMLElement);
+
+      // Tab several times and verify focus stays within dialog
+      for (let i = 0; i < 5; i++) {
+        await user.tab();
+        // Focus should remain within the dialog
+        expect(dialog).toContainElement(document.activeElement as HTMLElement);
+      }
+
+      // Verify backward Tab (Shift+Tab) also stays in dialog
+      for (let i = 0; i < 3; i++) {
+        await user.keyboard('{Shift>}{Tab}{/Shift}');
+        expect(dialog).toContainElement(document.activeElement as HTMLElement);
+      }
+    });
+
+    it('restores focus to trigger element when closed', () => {
+      const { rerender } = render(
+        <>
+          <button id="trigger-button">Open Mode Sheet</button>
+          <MobileLaunchModeSheet open={false} onClose={vi.fn()} onPick={vi.fn()} />
+        </>,
+      );
+
+      const triggerButton = screen.getByRole('button', { name: 'Open Mode Sheet' });
+
+      // Focus trigger button
+      triggerButton.focus();
+      expect(document.activeElement).toBe(triggerButton);
+
+      // Rerender with dialog open
+      rerender(
+        <>
+          <button id="trigger-button">Open Mode Sheet</button>
+          <MobileLaunchModeSheet open onClose={vi.fn()} onPick={vi.fn()} />
+        </>,
+      );
+
+      expect(document.activeElement).not.toBe(triggerButton);
+
+      // Rerender with dialog closed — focus should be restored
+      const onClose = vi.fn();
+      rerender(
+        <>
+          <button id="trigger-button">Open Mode Sheet</button>
+          <MobileLaunchModeSheet open={false} onClose={onClose} onPick={vi.fn()} />
+        </>,
+      );
+
+      expect(document.activeElement).toBe(triggerButton);
+    });
+  });
 });
