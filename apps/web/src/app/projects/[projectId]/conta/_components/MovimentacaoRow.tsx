@@ -255,6 +255,28 @@ export function MovimentacaoRow({
   // Controle primário de status (visível em ambos): pagar fatura / quitar / alternar.
   const statusBaseClass =
     'inline-flex min-h-6 items-center justify-end text-[11px] font-semibold leading-none md:min-h-[30px]';
+  // Alvo de toque ≥44×44px (piso do projeto) SEM inflar a linha densa da
+  // lista (regra de ouro 13): padding real + margem negativa igual em módulo.
+  // O padding cresce a caixa DE VERDADE do botão — `getBoundingClientRect`
+  // mede o alvo tocável real —, e a margem negativa cancela essa mesma
+  // quantidade na contribuição ao fluxo do flex pai, então a altura/largura
+  // VISUAL da linha (e a posição do texto, centrado na caixa original) não
+  // mudam. Só entra quando o controle é de fato clicável: um chip desabilitado
+  // (fatura vetada pelo servidor) não ganha área de toque maior por não fazer
+  // nada ao ser tocado (issue #600).
+  // Nota: a margem NÃO é simplesmente "-padding" nos dois eixos. Na
+  // horizontal, sim (o botão não tem min-width, então o padding é sempre o
+  // que determina a caixa, e a margem negativa igual cancela por completo).
+  // Na vertical, `statusBaseClass` já trazia `min-h-6`/`md:min-h-[30px]` —
+  // ANTES do padding, era o `min-height` (24/30px) que vencia sobre o
+  // conteúdo (11px de linha), não o conteúdo sozinho. Com o padding, quem
+  // passa a vencer é `conteúdo + padding` (11+34=45 > 24 e > 30), então a
+  // margem vertical tem que cancelar de volta para o `min-height` de cada
+  // breakpoint (24 mobile, 30 desktop), não para o conteúdo cru — senão a
+  // linha ENCOLHE (regressão oposta à armadilha 1, mas ainda uma mudança
+  // visual não intencional). Valores calculados para p=17px: mobile
+  // (45-24)/2=10.5px, desktop (45-30)/2=7.5px.
+  const touchTargetClass = 'p-[17px] -mx-[17px] -my-[10.5px] md:-my-[7.5px]';
   // O chip de status da fatura É a CTA "Pagar fatura". Com veto do servidor
   // (`actions` sem 'pay' — final ambíguo, 409 garantido) ele degrada para chip
   // informativo: continua mostrando o status, deixa de prometer uma ação que a
@@ -267,11 +289,12 @@ export function MovimentacaoRow({
   const statusControl = isInvoiceRow ? (
     <button
       type="button"
+      data-testid="movimentacao-status"
       onClick={() => {
         if (canPayInvoiceRow && item.kind === 'saida' && item.cardLast4) onPayInvoice(item.cardLast4);
       }}
       disabled={!canPayInvoiceRow}
-      className={`${statusBaseClass} ${status.cls} ${
+      className={`${statusBaseClass} ${canPayInvoiceRow ? touchTargetClass : ''} ${status.cls} ${
         canPayInvoiceRow ? 'cursor-pointer hover:brightness-90' : 'cursor-default'
       }`}
       title={canPayInvoiceRow ? 'Pagar fatura' : undefined}
@@ -301,6 +324,7 @@ export function MovimentacaoRow({
   ) : (
     <button
       type="button"
+      data-testid="movimentacao-status"
       onClick={(ev) => {
         ev.stopPropagation();
         if (canToggleReceita && item.kind === 'entrada' && item.id) {
@@ -310,7 +334,7 @@ export function MovimentacaoRow({
         }
       }}
       disabled={!(canToggle || canToggleReceita)}
-      className={`${statusBaseClass} ${status.cls} ${
+      className={`${statusBaseClass} ${(canToggle || canToggleReceita) ? touchTargetClass : ''} ${status.cls} ${
         canToggle || canToggleReceita ? 'cursor-pointer hover:brightness-90' : 'cursor-default'
       }`}
       title={
@@ -328,7 +352,10 @@ export function MovimentacaoRow({
   );
 
   return (
-    <div className="rounded-xl border border-lifeone-hairline bg-lifeone-card transition-colors hover:border-lifeone-blue hover:shadow-lifeone-card md:rounded-2xl">
+    <div
+      data-testid="movimentacao-row"
+      className="rounded-xl border border-lifeone-hairline bg-lifeone-card transition-colors hover:border-lifeone-blue hover:shadow-lifeone-card md:rounded-2xl"
+    >
       <div className="flex items-start gap-2.5 px-2.5 py-2 md:items-center md:gap-3 md:px-4 md:py-3">
         {onShowDetail ? (
           <button
