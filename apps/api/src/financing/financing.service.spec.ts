@@ -474,6 +474,56 @@ describe('FinancingService', () => {
         data: expect.objectContaining({ deletedAt: null, prazoMeses: 3 }),
       });
     });
+
+    it('Condição C — reativa aplicando os termos NOVOS do dto, não os ANTIGOS do registro soft-deletado', async () => {
+      // `existing` representa o financiamento ORIGINAL: prazo 60 meses, R$50.000,
+      // já soft-deletado. O dto do upsert traz termos DIFERENTES (36 meses,
+      // R$30.000) — se o `update` preservasse valores antigos (ex.: por engano
+      // via `restore()`/spread do registro antigo), o financiamento reativado
+      // ficaria com os termos ERRADOS, ignorando o que o usuário digitou.
+      const deletedAt = new Date('2026-07-24T01:38:16.000Z');
+      const originalTerms = {
+        id: 'fin-1',
+        deletedAt,
+        prazoMeses: 60,
+        valorTotalFinanciado: 5_000_000, // R$ 50.000,00 em centavos
+        taxaJurosMensalBps: 150,
+        instituicao: 'Banco Antigo',
+      };
+      prisma.financing.findFirst
+        .mockResolvedValueOnce(originalTerms) // existing: financiamento antigo soft-deletado
+        .mockResolvedValueOnce({ id: 'fin-1', valorTotalFinanciado: 3_000_000, installments: [] }); // summary
+      prisma.financingInstallment.findMany
+        .mockResolvedValueOnce([]) // current
+        .mockResolvedValueOnce([]); // materializable
+
+      const novoDto = {
+        ...baseDto,
+        instituicao: 'Banco Novo',
+        prazoMeses: 36,
+        valorTotalFinanciado: 3_000_000, // R$ 30.000,00 em centavos
+        taxaJurosMensalBps: 90,
+      };
+
+      await service.upsert(tenantId, projectId, novoDto as any);
+
+      // O update tem que carregar os valores NOVOS do dto — nunca os antigos de
+      // `originalTerms` (60 / 5_000_000 / Banco Antigo).
+      expect(prisma.financing.update).toHaveBeenCalledWith({
+        where: { id: 'fin-1' },
+        data: expect.objectContaining({
+          deletedAt: null,
+          prazoMeses: 36,
+          valorTotalFinanciado: 3_000_000,
+          taxaJurosMensalBps: 90,
+          instituicao: 'Banco Novo',
+        }),
+      });
+      const updateCall = prisma.financing.update.mock.calls[0][0];
+      expect(updateCall.data.prazoMeses).not.toBe(originalTerms.prazoMeses);
+      expect(updateCall.data.valorTotalFinanciado).not.toBe(originalTerms.valorTotalFinanciado);
+      expect(updateCall.data.instituicao).not.toBe(originalTerms.instituicao);
+    });
   });
 
   describe('issue #586 — Condição A/B: guard contra parcela soft-deletada "protegida" por engano', () => {
