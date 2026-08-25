@@ -82,6 +82,7 @@ describe('CreditCardService candidate ACL (#480)', () => {
         }),
       },
       $transaction: jest.fn((run: any) => run(prisma)),
+      $queryRaw: jest.fn().mockResolvedValue([]),
     };
     const service = serviceWith(prisma);
 

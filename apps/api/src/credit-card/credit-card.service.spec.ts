@@ -54,6 +54,10 @@ function makePrismaMock() {
       count: jest.fn().mockResolvedValue(0),
     },
     $transaction: jest.fn(),
+    // findExistingExternalIds usa $queryRaw (bypassa o middleware de
+    // soft-delete de propósito, ver credit-card.service.ts) — default sem
+    // duplicatas; testes que precisam simular "já existe" sobrescrevem.
+    $queryRaw: jest.fn().mockResolvedValue([]),
   } as any;
 }
 
@@ -434,22 +438,14 @@ describe('CreditCardService', () => {
 
     it('marca como duplicate quando externalId já existe no projeto', async () => {
       const ofx = buildOfx(ofxFor('20260429', 100, 'LOJA', 'X5'));
-      // 1ª chamada: parsed.transactions[].externalId  (findExistingExternalIds)
-      // 2ª chamada: expense.findMany para cross-project (vazio)
-      prisma.expense.findMany
-        .mockResolvedValueOnce([{ externalId: 'dummy' }]) // será substituído
-        .mockResolvedValueOnce([]);
-      // Mais simples: stub findExistingExternalIds via prisma.expense.findMany
-      // retornando o externalId real. Para isso, precisamos saber o ID. Simplifica:
-      // mocka pra qualquer chamada retornar [].
-      prisma.expense.findMany.mockReset();
-      // 1ª call → existing IDs (with select externalId)
-      prisma.expense.findMany.mockImplementation(async (args: any) => {
-        if (args?.select?.externalId) {
-          // retorna o primeiro externalId que o parser gerou
-          return [{ externalId: args.where.externalId.in[0] }];
-        }
-        return [];
+      // findExistingExternalIds usa $queryRaw (não findMany) — stub retornando
+      // o próprio externalId que o parser vai gerar para essa transação, seja
+      // qual for (não precisamos saber o hash de antemão).
+      prisma.$queryRaw.mockImplementation(async (_strings: TemplateStringsArray, ...values: any[]) => {
+        // O 3º valor interpolado é o Prisma.join(ids) (fragmento com .values).
+        const joined = values.find((v) => v && Array.isArray(v.values));
+        const ids: string[] = joined?.values ?? [];
+        return ids.length > 0 ? [{ external_id: ids[0] }] : [];
       });
       const result = await service.previewImport('t1', 'pessoal1', 'card1', Buffer.from(ofx), 'f.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
       expect(result.duplicated).toBe(1);
@@ -812,7 +808,6 @@ describe('CreditCardService', () => {
         item.merchant.includes('SKIP'),
       )!.externalId;
       prisma.expense.findMany.mockImplementation(({ where }: any) => {
-        if (where.externalId) return Promise.resolve([{ externalId: duplicateId }]);
         if (where.id) {
           return Promise.resolve([
             {
@@ -829,6 +824,8 @@ describe('CreditCardService', () => {
         }
         return Promise.resolve([]);
       });
+      // findExistingExternalIds usa $queryRaw: simula duplicateId já existente.
+      prisma.$queryRaw.mockResolvedValue([{ external_id: duplicateId }]);
       prisma.expense.create.mockClear();
       prisma.crossProjectSettlement.upsert.mockClear();
 
@@ -877,8 +874,9 @@ describe('CreditCardService', () => {
         TEST_OWNER_REQUESTER,
       );
       const externalId = preview.preview[0].externalId;
+      // findExistingExternalIds usa $queryRaw; default do factory já retorna
+      // [] (nada duplicado) — não precisa de override aqui.
       prisma.expense.findMany.mockImplementation(({ where }: any) => {
-        if (where.externalId) return Promise.resolve([]);
         if (where.id) {
           return Promise.resolve([
             {

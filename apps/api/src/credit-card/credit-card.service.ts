@@ -968,11 +968,21 @@ export class CreditCardService {
     ids: string[],
   ): Promise<Set<string>> {
     if (ids.length === 0) return new Set();
-    const rows = await this.prisma.expense.findMany({
-      where: { tenantId, projectId, externalId: { in: ids }, deletedAt: null },
-      select: { externalId: true },
-    });
-    return new Set(rows.map((r) => r.externalId).filter(Boolean) as string[]);
+    // $queryRaw (não findMany) de propósito: findMany passa pelo middleware de
+    // soft-delete (prisma.service.ts) que força deletedAt=null, então uma linha
+    // que o usuário excluiu deixaria de "existir" pro importador e reimportar a
+    // mesma fatura a recriaria. O check de duplicidade precisa enxergar
+    // deletadas também — exclusão é definitiva, não "esqueça que já importei"
+    // (mesmo padrão do lado Conta, ver bank-account.service.ts). Fatura de
+    // cartão só gera Expense (nunca Receipt), então não há tabela irmã aqui.
+    const rows = await this.prisma.$queryRaw<{ external_id: string }[]>`
+      SELECT external_id FROM expenses
+      WHERE tenant_id = ${tenantId} AND project_id = ${projectId}
+        AND external_id IN (${Prisma.join(ids)})
+    `;
+    const set = new Set<string>();
+    for (const r of rows) if (r.external_id) set.add(r.external_id);
+    return set;
   }
 
   private async createExpenseFromTransaction(
