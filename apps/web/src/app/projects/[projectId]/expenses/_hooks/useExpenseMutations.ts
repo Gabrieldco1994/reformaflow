@@ -41,6 +41,32 @@ export function invalidateExpenseProjects(
   }
 }
 
+/**
+ * Pós-importação de extrato/fatura (issue #572): além do conjunto canônico de
+ * despesa, uma importação pode criar RECEBIMENTOS (extrato de conta), casar
+ * pagamento de fatura (mexe em cartão) e mudar saldo de conta — nenhuma
+ * dessas famílias está em `invalidateExpenseQueries` porque mutações comuns
+ * de despesa não as afetam. Cobre as DUAS famílias de chave usadas no app:
+ * escopo do projeto (`['x', projectId]`, ex.: `ExpensesView`) e escopo do
+ * tenant (`['tenant', 'x']`, ex.: seletores de cartão/conta em
+ * `WizardStepPagamento`, `QuickExpenseStep`, `NovaDespesaLauncher`,
+ * `RecorrenteWizard`, `VinculosFields`, `OriginChips`, `QuitarParcelaModal`,
+ * `PendenciasQueueCard`) — sem a família `tenant`, o launcher de nova despesa
+ * e o wizard de pagamento continuavam mostrando cartão/conta desatualizados
+ * depois de importar, mesmo com a Visão Conta já correta.
+ */
+export function invalidateImportQueries(queryClient: QueryClient, projectId: string) {
+  invalidateExpenseQueries(queryClient, projectId);
+  queryClient.invalidateQueries({ queryKey: ['receipts', projectId] });
+  queryClient.invalidateQueries({ queryKey: ['credit-cards', projectId] });
+  queryClient.invalidateQueries({ queryKey: ['bank-accounts', projectId] });
+  queryClient.invalidateQueries({ queryKey: ['project', projectId, 'credit-cards'] });
+  queryClient.invalidateQueries({ queryKey: ['project', projectId, 'bank-accounts'] });
+  queryClient.invalidateQueries({ queryKey: ['origin-items-yearly', projectId] });
+  queryClient.invalidateQueries({ queryKey: ['tenant', 'credit-cards'] });
+  queryClient.invalidateQueries({ queryKey: ['tenant', 'bank-accounts'] });
+}
+
 interface InstallmentDateResponse {
   id: string;
   parcela: number;

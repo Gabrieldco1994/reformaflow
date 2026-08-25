@@ -18,6 +18,7 @@ import ImportBankStatementModal from '../../bank-accounts/_components/ImportBank
 import { ReceitaModal } from '../../conta/_components/ReceitaModal';
 import { Modal } from '@/components/ui/modal';
 import { useVoiceExpense } from '../_hooks/useVoiceExpense';
+import { invalidateImportQueries } from '../_hooks/useExpenseMutations';
 
 interface Props {
   projectId: string;
@@ -276,7 +277,7 @@ export function NovaDespesaLauncher({ projectId, projectType, trigger, onChanged
           projectId={projectId}
           card={selectedCard as any}
           onClose={() => { setSelectedCard(null); setImportStep(null); }}
-          onCommitted={() => { setSelectedCard(null); setImportStep(null); invalidate(); }}
+          onCommitted={() => { setSelectedCard(null); setImportStep(null); invalidate(); invalidateImportQueries(queryClient, projectId); }}
         />
       )}
 
@@ -285,7 +286,7 @@ export function NovaDespesaLauncher({ projectId, projectType, trigger, onChanged
           projectId={projectId}
           account={selectedAccount as any}
           onClose={() => { setSelectedAccount(null); setImportStep(null); }}
-          onCommitted={() => { setSelectedAccount(null); setImportStep(null); invalidate(); }}
+          onCommitted={() => { setSelectedAccount(null); setImportStep(null); invalidate(); invalidateImportQueries(queryClient, projectId); }}
         />
       )}
     </>

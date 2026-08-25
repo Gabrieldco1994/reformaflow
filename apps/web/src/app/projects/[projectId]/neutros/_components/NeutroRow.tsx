@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { ArrowDownCircle, ArrowUpCircle, Check, CreditCard, Landmark, Loader2, Pencil, RotateCcw, Trash2, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
-import { centsToReaisInput, currencyInputToNumber, maskCurrencyInput } from '@/lib/currency-input';
+import { centsToReaisInput, currencyInputToNumber, maskCurrencyInputPositive } from '@/lib/currency-input';
 import type { NeutroItem } from '../_types';
 
 function dateParts(iso: string): { dia: string; mes: string } {
@@ -173,7 +173,7 @@ export function NeutroRow({
               value={valorReais}
               autoFocus
               disabled={saving}
-              onChange={(e) => setValorReais(maskCurrencyInput(e.target.value))}
+              onChange={(e) => setValorReais(maskCurrencyInputPositive(e.target.value))}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') confirmEdit();
                 if (e.key === 'Escape') setEditing(false);

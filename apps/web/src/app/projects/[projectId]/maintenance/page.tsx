@@ -4,7 +4,7 @@ import { useProject } from "@/contexts/project-context";
 import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
 import { formatDateBR } from "@/lib/utils";
-import { centsToReaisInput, currencyInputToNumber, maskCurrencyInput } from "@/lib/currency-input";
+import { centsToReaisInput, currencyInputToNumber, maskCurrencyInputPositive } from "@/lib/currency-input";
 import { Plus, Wrench } from "lucide-react";
 import { MaintenanceHistoryView } from "./_components/MaintenanceHistoryView";
 import { MaintenanceKpiHeader } from "./_components/MaintenanceKpiHeader";
@@ -268,7 +268,7 @@ export default function MaintenancePage() {
                     onChange={(e) =>
                       setForm((f) => ({
                         ...f,
-                        custo: maskCurrencyInput(e.target.value),
+                        custo: maskCurrencyInputPositive(e.target.value),
                       }))
                     }
                     className="w-full border rounded-lg px-3 py-2"

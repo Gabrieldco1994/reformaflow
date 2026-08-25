@@ -8,7 +8,7 @@ import { RefreshCcw, Plus, Trash2, ExternalLink, Edit, ShoppingCart, Calculator 
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
-import { currencyInputToCents, maskCurrencyInput } from '@/lib/currency-input';
+import { currencyInputToCents, maskCurrencyInputPositive } from '@/lib/currency-input';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
@@ -170,7 +170,7 @@ export default function PriceComparePage() {
               name="referencePrice"
               inputMode="numeric"
               value={referencePrice}
-              onChange={(e) => setReferencePrice(maskCurrencyInput(e.target.value))}
+              onChange={(e) => setReferencePrice(maskCurrencyInputPositive(e.target.value))}
               placeholder="0,00"
             />
             <Input
@@ -178,7 +178,7 @@ export default function PriceComparePage() {
               name="targetPrice"
               inputMode="numeric"
               value={targetPrice}
-              onChange={(e) => setTargetPrice(maskCurrencyInput(e.target.value))}
+              onChange={(e) => setTargetPrice(maskCurrencyInputPositive(e.target.value))}
               placeholder="0,00"
             />
           </div>

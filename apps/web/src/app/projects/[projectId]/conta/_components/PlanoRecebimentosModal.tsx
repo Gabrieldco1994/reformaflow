@@ -6,7 +6,7 @@ import { Loader2 } from 'lucide-react';
 import { Modal } from '@/components/ui/modal';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { currencyInputToNumber, maskCurrencyInput } from '@/lib/currency-input';
+import { currencyInputToNumber, maskCurrencyInputPositive } from '@/lib/currency-input';
 import { useGenerateReceiptsPlan } from '../_hooks/useGenerateReceiptsPlan';
 
 function currentMonth(): string {
@@ -70,7 +70,7 @@ export function PlanoRecebimentosModal({
             type="text"
             inputMode="numeric"
             value={salaryValue}
-            onChange={(e) => setSalaryValue(maskCurrencyInput(e.target.value))}
+            onChange={(e) => setSalaryValue(maskCurrencyInputPositive(e.target.value))}
           />
           <Input
             label="% no dia 15"
@@ -102,14 +102,14 @@ export function PlanoRecebimentosModal({
             type="text"
             inputMode="numeric"
             value={dividendsValue}
-            onChange={(e) => setDividendsValue(maskCurrencyInput(e.target.value))}
+            onChange={(e) => setDividendsValue(maskCurrencyInputPositive(e.target.value))}
           />
           <Input
             label="Juros renda fixa mensal (R$)"
             type="text"
             inputMode="numeric"
             value={fixedIncomeValue}
-            onChange={(e) => setFixedIncomeValue(maskCurrencyInput(e.target.value))}
+            onChange={(e) => setFixedIncomeValue(maskCurrencyInputPositive(e.target.value))}
           />
         </div>
 

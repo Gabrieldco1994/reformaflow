@@ -8,7 +8,7 @@ import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
-import { centsToReaisInput, currencyInputToNumber, maskCurrencyInput } from '@/lib/currency-input';
+import { centsToReaisInput, currencyInputToNumber, maskCurrencyInputPositive } from '@/lib/currency-input';
 import { Modal } from '@/components/ui/modal';
 import { FORMA_PAGAMENTO_OPTIONS } from '@/lib/expense-options';
 import { formatCurrency } from '@/lib/utils';
@@ -276,7 +276,7 @@ export function AvulsasTab({ projectId, projectType }: Props) {
               inputMode="numeric"
               required
               value={draft.valor}
-              onChange={(e) => setDraft({ ...draft, valor: maskCurrencyInput(e.target.value) })}
+              onChange={(e) => setDraft({ ...draft, valor: maskCurrencyInputPositive(e.target.value) })}
             />
             <Select
               label="Status"

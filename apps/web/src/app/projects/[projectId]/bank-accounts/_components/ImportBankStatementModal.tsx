@@ -44,6 +44,11 @@ export default function ImportBankStatementModal({ projectId, account, onClose, 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [txStates, setTxStates] = useState<Record<string, BankTxState>>({});
+  // Snapshot da auto-detecção do backend (cartão detectado sem ambiguidade,
+  // match único de cross-project) no momento em que a prévia carregou. Usado
+  // por `clearDecision` para "limpar decisão" voltar à sugestão automática em
+  // vez de apagar tudo — inclusive o cartão que o sistema já tinha achado.
+  const [autoTxStates, setAutoTxStates] = useState<Record<string, BankTxState>>({});
 
   const isPdf = files.some((f) => f.name.toLowerCase().endsWith('.pdf') || f.type === 'application/pdf');
 
@@ -59,6 +64,7 @@ export default function ImportBankStatementModal({ projectId, account, onClose, 
     setLoading(true);
     setPreview(null);
     setTxStates({});
+    setAutoTxStates({});
     try {
       const fd = new FormData();
       for (const f of files) fd.append('files', f);
@@ -91,6 +97,7 @@ export default function ImportBankStatementModal({ projectId, account, onClose, 
         }
       }
       setTxStates(auto);
+      setAutoTxStates(auto);
       setNeedsPassword(false);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Erro no preview';
@@ -132,10 +139,21 @@ export default function ImportBankStatementModal({ projectId, account, onClose, 
     setTxStates((s) => ({ ...s, [externalId]: { ...s[externalId], ...patch } }));
   }
 
+  // Regressão #572: "limpar decisão" apagava a linha inteira do estado,
+  // inclusive o cartão/vínculo que o BACKEND já tinha auto-detectado — o
+  // usuário perdia a sugestão do sistema, não só a própria edição. Agora volta
+  // para o snapshot de auto-detecção (`autoTxStates`) quando existir; só some
+  // de vez quando a linha nunca teve sugestão automática.
   function clearDecision(externalId: string) {
     setTxStates((s) => {
-      const { [externalId]: _, ...rest } = s;
-      return rest;
+      const next = { ...s };
+      const auto = autoTxStates[externalId];
+      if (auto) {
+        next[externalId] = auto;
+      } else {
+        delete next[externalId];
+      }
+      return next;
     });
   }
 
@@ -181,6 +199,7 @@ export default function ImportBankStatementModal({ projectId, account, onClose, 
                     setNeedsPassword(false);
                     setPassword('');
                     setTxStates({});
+                    setAutoTxStates({});
                   }}
                   className="w-full border rounded-lg p-2"
                 />
@@ -221,13 +240,24 @@ export default function ImportBankStatementModal({ projectId, account, onClose, 
               )}
               <Button
                 onClick={handlePreview}
-                disabled={files.length === 0 || loading}
+                disabled={files.length === 0 || loading || !!preview}
                 className="w-full"
                 variant="secondary"
               >
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                 {loading ? 'Processando…' : 'Pré-visualizar'}
               </Button>
+              {/* Regressão #572: clicar de novo em "Pré-visualizar" com uma prévia
+                  já carregada chamava `setTxStates({})` e apagava silenciosamente
+                  exclusões/edições/vínculos que o usuário já tinha feito. Uma vez
+                  que a prévia existe, o botão fica desabilitado — para reprocessar,
+                  o usuário escolhe o(s) arquivo(s) de novo (o próprio input de
+                  arquivo já limpa a prévia e as decisões, de forma explícita). */}
+              {preview && (
+                <p className="text-xs text-gray-500 -mt-1">
+                  Prévia já carregada. Para reprocessar, escolha o(s) arquivo(s) novamente acima.
+                </p>
+              )}
             </div>
 
             {error && (

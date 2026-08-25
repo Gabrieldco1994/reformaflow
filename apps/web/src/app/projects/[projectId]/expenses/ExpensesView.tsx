@@ -20,7 +20,7 @@ import {
 } from './_types';
 import { useVoiceExpense } from './_hooks/useVoiceExpense';
 import { useExpenseFilters } from './_hooks/useExpenseFilters';
-import { useExpenseMutations } from './_hooks/useExpenseMutations';
+import { useExpenseMutations, invalidateImportQueries } from './_hooks/useExpenseMutations';
 import { ExpenseKpiCards } from './_components/ExpenseKpiCards';
 import { ExpenseFiltersBar } from './_components/ExpenseFiltersBar';
 import { VoiceExpenseModal } from './_components/VoiceExpenseModal';
@@ -1538,7 +1538,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
           projectId={PROJECT_ID}
           card={selectedCard as any}
           onClose={() => { setSelectedCard(null); setImportStep(null); }}
-          onCommitted={() => { setSelectedCard(null); setImportStep(null); invalidate(); }}
+          onCommitted={() => { setSelectedCard(null); setImportStep(null); invalidateImportQueries(queryClient, PROJECT_ID); }}
         />
       )}
 
@@ -1547,7 +1547,7 @@ export function ExpensesView({ lockedEixo }: { lockedEixo?: ExpenseEixo } = {}) 
           projectId={PROJECT_ID}
           account={selectedAccount as any}
           onClose={() => { setSelectedAccount(null); setImportStep(null); }}
-          onCommitted={() => { setSelectedAccount(null); setImportStep(null); invalidate(); }}
+          onCommitted={() => { setSelectedAccount(null); setImportStep(null); invalidateImportQueries(queryClient, PROJECT_ID); }}
         />
       )}
 

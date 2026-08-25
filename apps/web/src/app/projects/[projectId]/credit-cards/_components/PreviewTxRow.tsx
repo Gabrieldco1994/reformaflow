@@ -91,6 +91,10 @@ export function PreviewTxRow({ tx, state, onChange, onClearDecision }: RowProps)
         </div>
 
         <div className="w-32">
+          {/* Negativo é legítimo aqui (auditoria #572): linha da fatura pode
+              ser um estorno/crédito (valorCents < 0), diferente da prévia de
+              extrato de conta que sempre usa valor absoluto — por isso usa
+              `maskCurrencyInput` (com sinal), não a variante `Positive`. */}
           <input
             type="text"
             inputMode="numeric"

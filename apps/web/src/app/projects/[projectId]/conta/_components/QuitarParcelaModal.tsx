@@ -9,7 +9,7 @@ import { Modal } from '@/components/ui/modal';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { getExpenseOptions } from '../../expenses/_types';
-import { centsToReaisInput, currencyInputToCents, maskCurrencyInput } from '@/lib/currency-input';
+import { centsToReaisInput, currencyInputToCents, maskCurrencyInputPositive } from '@/lib/currency-input';
 import {
   buildEspelhoQuitacaoPayload,
   type QuitacaoMeio,
@@ -216,7 +216,7 @@ export function QuitarParcelaModal({
           type="text"
           inputMode="numeric"
           value={valorReais}
-          onChange={(e) => setValorReais(maskCurrencyInput(e.target.value))}
+          onChange={(e) => setValorReais(maskCurrencyInputPositive(e.target.value))}
         />
 
         <Input

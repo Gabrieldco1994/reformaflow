@@ -135,6 +135,10 @@ export default function BankAccountFormModal({ projectId, account, onClose, onSa
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs text-gray-500">Saldo (R$)</label>
+                {/* Negativo é legítimo aqui (auditoria #572): conta pode ter
+                    começado em cheque especial/overdraft na data de
+                    referência — usa `maskCurrencyInput` (com sinal), não a
+                    variante `Positive`. */}
                 <input
                   value={openingBalance}
                   onChange={(e) => setOpeningBalance(maskCurrencyInput(e.target.value))}

@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { CreditCard, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
-import { centsToReaisInput, currencyInputToCents, maskCurrencyInput } from '@/lib/currency-input';
+import { centsToReaisInput, currencyInputToCents, maskCurrencyInputPositive } from '@/lib/currency-input';
 import { buildPayInvoicePayload, invoiceIdentityErrorMessage } from '../_lib';
 import type { AccountViewCardSummary, AccountViewConta } from '../_types';
 
@@ -134,7 +134,7 @@ export function PagarFaturaDialog({
                 type="text"
                 inputMode="numeric"
                 value={valor}
-                onChange={(e) => setValor(maskCurrencyInput(e.target.value))}
+                onChange={(e) => setValor(maskCurrencyInputPositive(e.target.value))}
                 className="mt-1 h-11 w-full rounded-xl border border-lifeone-hairline bg-lifeone-card px-3 text-sm text-lifeone-ink outline-none focus:border-lifeone-blue"
               />
               <span className="mt-1 block text-[11px] text-lifeone-ink-4">

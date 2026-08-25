@@ -1,7 +1,7 @@
 'use client';
 
 import { formatCurrency, formatDateBR } from '@/lib/utils';
-import { centsToReaisInput, currencyInputToCents, maskCurrencyInput } from '@/lib/currency-input';
+import { centsToReaisInput, currencyInputToCents, maskCurrencyInputPositive } from '@/lib/currency-input';
 import { Trash2, Link2, RotateCcw, Check, ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
 import type { BankPreviewTx, BankCrossProjectMatch, BankCardCandidate } from '../_types';
 import type { BankImportDecision, BankTxState } from './ImportBankStatementModal';
@@ -157,7 +157,7 @@ export function BankPreviewTxRow({ tx, state, onChange, onClearDecision }: RowPr
             inputMode="numeric"
             value={centsToReaisInput(valorCents)}
             disabled={isSkipped}
-            onChange={(e) => setOverride({ valorCents: currencyInputToCents(maskCurrencyInput(e.target.value)) || 0 })}
+            onChange={(e) => setOverride({ valorCents: currencyInputToCents(maskCurrencyInputPositive(e.target.value)) || 0 })}
             className={`w-full px-2 py-1 border rounded text-sm text-right font-mono ${isCredit ? 'text-green-700' : 'text-red-700'}`}
           />
         </div>

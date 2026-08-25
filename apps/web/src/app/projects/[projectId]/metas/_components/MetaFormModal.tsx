@@ -4,7 +4,7 @@ import { Modal } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
-import { currencyInputToNumber, maskCurrencyInput } from '@/lib/currency-input';
+import { currencyInputToNumber, maskCurrencyInputPositive } from '@/lib/currency-input';
 
 /**
  * Modal para definir/editar a meta (limite mensal) de uma categoria.
@@ -53,7 +53,7 @@ export function MetaFormModal({
           type="text"
           inputMode="numeric"
           value={valor}
-          onChange={(e) => setValor(maskCurrencyInput(e.target.value))}
+          onChange={(e) => setValor(maskCurrencyInputPositive(e.target.value))}
           required
         />
         <div className="flex justify-end gap-2 pt-2">

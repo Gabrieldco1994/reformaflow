@@ -19,7 +19,7 @@ import { SkeletonList } from '@/components/ui/Skeleton';
 import { Modal } from '@/components/ui/modal';
 import React from 'react';
 import type { Receipt, ReceiptFormData } from '@/types';
-import { centsToReaisInput, currencyInputToNumber, maskCurrencyInput } from '@/lib/currency-input';
+import { centsToReaisInput, currencyInputToNumber, maskCurrencyInputPositive } from '@/lib/currency-input';
 import { MobileReceiptList } from './_components/MobileReceiptList';
 import { ReceiptsKpiCards } from './_components/ReceiptsKpiCards';
 import { ViewToggle } from './_components/ViewToggle';
@@ -460,7 +460,7 @@ export default function ReceiptsPage() {
               type="text"
               inputMode="numeric"
               value={salaryValue}
-              onChange={(e) => setSalaryValue(maskCurrencyInput(e.target.value))}
+              onChange={(e) => setSalaryValue(maskCurrencyInputPositive(e.target.value))}
             />
             <Input
               label="% no dia 15"
@@ -491,14 +491,14 @@ export default function ReceiptsPage() {
               type="text"
               inputMode="numeric"
               value={dividendsValue}
-              onChange={(e) => setDividendsValue(maskCurrencyInput(e.target.value))}
+              onChange={(e) => setDividendsValue(maskCurrencyInputPositive(e.target.value))}
             />
             <Input
               label="Juros renda fixa mensal (R$)"
               type="text"
               inputMode="numeric"
               value={fixedIncomeValue}
-              onChange={(e) => setFixedIncomeValue(maskCurrencyInput(e.target.value))}
+              onChange={(e) => setFixedIncomeValue(maskCurrencyInputPositive(e.target.value))}
             />
           </div>
           <div className="flex justify-end">
@@ -644,7 +644,7 @@ export default function ReceiptsPage() {
                   <td />
                   <td className="px-4 py-2">
                     <input type="text" inputMode="numeric" placeholder="Valor" value={newRow.valor}
-                      onChange={(e) => setNewRow({ ...newRow, valor: maskCurrencyInput(e.target.value) })}
+                      onChange={(e) => setNewRow({ ...newRow, valor: maskCurrencyInputPositive(e.target.value) })}
                       onKeyDown={handleNewRowKeyDown}
                       className="w-full border border-darc-linen rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-darc-mist"
                       autoFocus />
@@ -732,7 +732,7 @@ export default function ReceiptsPage() {
           <Input label="Valor (R$)" name="valor" type="text" inputMode="numeric" required
             defaultValue={editing ? centsToReaisInput(editing.valor) : ''}
             onChange={(e) => {
-              e.currentTarget.value = maskCurrencyInput(e.currentTarget.value);
+              e.currentTarget.value = maskCurrencyInputPositive(e.currentTarget.value);
             }} />
           <Input label="Data" name="data" type="date" required
             defaultValue={editing?.data ? editing.data.slice(0, 10) : ''} />

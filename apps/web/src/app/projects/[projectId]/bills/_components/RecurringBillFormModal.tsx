@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { api } from '@/lib/api';
-import { maskCurrencyInput, currencyInputToNumber, centsToReaisInput } from '@/lib/currency-input';
+import { maskCurrencyInputPositive, currencyInputToNumber, centsToReaisInput } from '@/lib/currency-input';
 import { BILL_CATEGORIES, BILL_FREQUENCIES, type RecurringBillRow } from '../_display';
 
 interface Props {
@@ -70,7 +70,7 @@ export default function RecurringBillFormModal({ projectId, projectType, bill, o
               type="text"
               inputMode="numeric"
               value={valor}
-              onChange={(e) => setValor(maskCurrencyInput(e.target.value))}
+              onChange={(e) => setValor(maskCurrencyInputPositive(e.target.value))}
               className="w-full border rounded-lg px-3 py-2"
             />
           </div>
