@@ -44,10 +44,15 @@ const CYCLE_MONTHS: Record<string, number> = {
 function advanceRecurrence(base: Date, recorrencia: string, now: Date): Date | null {
   const fixedDays = FIXED_DAY_RECURRENCES[recorrencia];
   if (fixedDays) {
+    // UTC, não local: `setDate`/`getDate` usam o fuso do processo — em
+    // TZ != UTC, uma `base` perto da virada de dia pode deslizar um dia
+    // inteiro dependendo do fuso do runtime. `Date` já armazena um instante
+    // absoluto; usar os acessores UTC evita esse drift sem depender de onde
+    // o processo Node está rodando.
     const next = new Date(base);
-    next.setDate(next.getDate() + fixedDays);
+    next.setUTCDate(next.getUTCDate() + fixedDays);
     while (next.getTime() < now.getTime()) {
-      next.setDate(next.getDate() + fixedDays);
+      next.setUTCDate(next.getUTCDate() + fixedDays);
     }
     return next;
   }
@@ -72,10 +77,24 @@ export class ReminderService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll(tenantId: string, projectId: string) {
-    return this.prisma.reminder.findMany({
+    const reminders = await this.prisma.reminder.findMany({
       where: { tenantId, projectId },
       orderBy: { data: 'asc' },
+      include: { plant: { select: { id: true, nome: true, deletedAt: true } } },
     });
+    // O middleware de soft-delete ($use em prisma.service.ts) só intercepta a
+    // ação de nível superior da query (aqui, `Reminder.findMany`) — ele NÃO
+    // filtra relações trazidas via `include` na mesma query, porque essas não
+    // passam por uma ação Prisma própria para o middleware interceptar
+    // (confirmado empiricamente: uma Plant soft-deletada ainda volta no
+    // include, com `deletedAt` preenchido). Se um Reminder vivo ainda aponta
+    // pra uma Plant apagada, nulificamos aqui em vez de vazar a planta morta
+    // pro consumidor de `findAll` — a UI não deve linkar pra uma planta que
+    // não existe mais.
+    return reminders.map((r) => ({
+      ...r,
+      plant: r.plant && !r.plant.deletedAt ? { id: r.plant.id, nome: r.plant.nome } : null,
+    }));
   }
 
   async findById(tenantId: string, projectId: string, id: string) {
