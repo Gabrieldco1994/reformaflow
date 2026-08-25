@@ -3,6 +3,9 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { ArrowLeft, Sparkles } from 'lucide-react';
+import { useAuth, type ModuleSlug } from '@/contexts/auth-context';
+import { useProject } from '@/contexts/project-context';
+import { getProjectHomePath } from '@/app/projects/_lib/project-home-route';
 import { MariaChatBody } from './_components/MariaChatBody';
 
 /**
@@ -11,15 +14,31 @@ import { MariaChatBody } from './_components/MariaChatBody';
  * dock, voz, sheet de edição) vive em `MariaChatBody`, reusado também pelo
  * passo final do onboarding (`MariaInsightStep`) para abrir a Maria sem sair
  * da jornada.
+ *
+ * `/maria` não é um slug de `PROJECT_NAV[PESSOAL]` (é o destino agent-first
+ * do dock, guardado só por `hasFeature(tipo, 'monthlyOverview')` — ver
+ * `mobile-nav.ts`/`MobileTabBar.tsx`), então o guard de `AppShell` (que só
+ * atua sobre slugs presentes no nav) nunca bloqueia esta rota por permissão
+ * de usuário. Um usuário SEM o módulo `monthlyOverview` chega aqui normalmente.
+ * O "Voltar" por isso não pode apontar direto para `/monthly` (exigiria esse
+ * módulo e cairia em `/no-permission` — issue #521): usa `getProjectHomePath`,
+ * a mesma fonte única de "rota visível para este usuário" já usada em
+ * `app/page.tsx`/`projects/page.tsx`, para resolver o primeiro destino que o
+ * usuário realmente enxerga.
  */
 export default function MariaPage() {
   const params = useParams<{ projectId: string }>();
+  const { projectType } = useProject();
+  const { hasModule } = useAuth();
+  const backHref = getProjectHomePath(params.projectId as string, projectType, (module) =>
+    hasModule(module as ModuleSlug),
+  );
 
   return (
     <section className="pessoal-minimal-maria flex h-full min-h-0 flex-col">
       <header className="pessoal-minimal-page-header flex items-center gap-3 rounded-2xl border border-lifeone-hairline bg-white px-4 py-3 shadow-lifeone-card">
         <Link
-          href={`/projects/${params.projectId}/monthly`}
+          href={backHref}
           className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-lifeone-hairline bg-lifeone-surface text-lifeone-ink-2"
           aria-label="Voltar para hoje"
         >

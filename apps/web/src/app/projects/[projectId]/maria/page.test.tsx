@@ -2,15 +2,37 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import MariaPage from './page';
 import { setPendingMariaPrompt, consumePendingMariaPrompt } from './_lib/pending-prompt';
+import { ProjectProvider } from '@/contexts/project-context';
 
 // Contrato de view: a página Maria reusa `useFinancialAgent`/`useSpeechRecognition`
 // (nenhuma nova instância de STT/TTS aqui) e ganha um CTA explícito e acessível
 // "Iniciar conversa por voz" que abre `VoiceAssistantOverlay` — o microfone
 // one-shot do dock e o botão "Ouvir" de cada resposta seguem como fallback.
+//
+// Issue #521: o "Voltar" do header (`aria-label="Voltar para hoje"`) não pode
+// apontar direto para `/monthly` — `/maria` não é slug de `PROJECT_NAV`, então
+// `AppShell` nunca bloqueia a rota por permissão, e um usuário sem o módulo
+// `monthlyOverview` chegaria aqui e cairia em `/no-permission` ao voltar. Os
+// testes abaixo controlam `hasModule` via mock do contexto real de auth
+// (não uma cópia da lógica) para prová-lo com o componente de verdade.
+
+const hasModuleMock = vi.fn((_slug: string) => true);
+
+vi.mock('@/contexts/auth-context', () => ({
+  useAuth: () => ({ hasModule: (slug: string) => hasModuleMock(slug) }),
+}));
 
 vi.mock('next/navigation', () => ({
   useParams: () => ({ projectId: 'project-1' }),
 }));
+
+function renderMariaPage() {
+  return render(
+    <ProjectProvider value={{ projectId: 'project-1', projectType: 'PESSOAL', projectName: 'Pessoal' }}>
+      <MariaPage />
+    </ProjectProvider>,
+  );
+}
 
 // jsdom não implementa `Element.scrollTo` — a página usa isso para rolar o
 // histórico de mensagens ao fundo. Stub mínimo só para montar em teste
@@ -77,15 +99,36 @@ describe('MariaPage', () => {
     streamSpeak.mockClear();
     ttsStop.mockClear();
     sessionStorage.clear();
+    hasModuleMock.mockReset();
+    hasModuleMock.mockReturnValue(true);
+  });
+
+  it('points "Voltar para hoje" at /monthly when the user has monthlyOverview', () => {
+    renderMariaPage();
+    expect(screen.getByLabelText('Voltar para hoje')).toHaveAttribute(
+      'href',
+      '/projects/project-1/monthly',
+    );
+  });
+
+  it('never sends a monthlyOverview-reduced user through /monthly (issue #521): falls back to the first module they can actually see', () => {
+    // Reduzido: só enxerga `expenses` (que cobre `recorrentes`/`metas` no nav
+    // do PESSOAL) — sem `monthlyOverview`, o alvo antigo (`/monthly`) cairia
+    // em `/no-permission`.
+    hasModuleMock.mockImplementation((slug: string) => slug === 'expenses');
+    renderMariaPage();
+    const href = screen.getByLabelText('Voltar para hoje').getAttribute('href');
+    expect(href).not.toBe('/projects/project-1/monthly');
+    expect(href).toBe('/projects/project-1/recorrentes');
   });
 
   it('does not render the voice overlay until the explicit CTA is used', () => {
-    render(<MariaPage />);
+    renderMariaPage();
     expect(screen.queryByTestId('voice-assistant-overlay')).not.toBeInTheDocument();
   });
 
   it('opens VoiceAssistantOverlay via the "Iniciar conversa por voz" CTA, reusing agent.send and auto-starting capture', () => {
-    render(<MariaPage />);
+    renderMariaPage();
 
     fireEvent.click(screen.getByRole('button', { name: 'Iniciar conversa por voz' }));
 
@@ -96,7 +139,7 @@ describe('MariaPage', () => {
 
   it('stops one-shot capture and page audio before opening the automatic conversation', () => {
     agentMessages = [{ role: 'assistant', content: 'Resposta da Maria.' }];
-    render(<MariaPage />);
+    renderMariaPage();
 
     fireEvent.click(screen.getByRole('button', { name: 'Ouvir resposta' }));
     fireEvent.click(screen.getByRole('button', { name: 'Iniciar conversa por voz' }));
@@ -107,7 +150,7 @@ describe('MariaPage', () => {
   });
 
   it('ignores a late one-shot transcript after the automatic conversation opens', () => {
-    render(<MariaPage />);
+    renderMariaPage();
     fireEvent.click(screen.getByRole('button', { name: 'Falar' }));
     const callbacks = speechStart.mock.calls[0]?.[0] as { onResult: (text: string) => void };
 
@@ -120,7 +163,7 @@ describe('MariaPage', () => {
   it('auto-envia o prompt pendente do onboarding uma vez e limpa a ponte', () => {
     setPendingMariaPrompt('Quanto já gastei em Supermercado este mês?');
 
-    render(<MariaPage />);
+    renderMariaPage();
 
     expect(agentSend).toHaveBeenCalledTimes(1);
     expect(agentSend).toHaveBeenCalledWith('Quanto já gastei em Supermercado este mês?');
@@ -129,12 +172,12 @@ describe('MariaPage', () => {
   });
 
   it('não envia nada quando não há prompt pendente (input nasce vazio)', () => {
-    render(<MariaPage />);
+    renderMariaPage();
     expect(agentSend).not.toHaveBeenCalled();
   });
 
   it('closes the overlay via onClose and returns control to the dock', () => {
-    render(<MariaPage />);
+    renderMariaPage();
     fireEvent.click(screen.getByRole('button', { name: 'Iniciar conversa por voz' }));
     fireEvent.click(screen.getByRole('button', { name: 'Fechar overlay' }));
     expect(screen.queryByTestId('voice-assistant-overlay')).not.toBeInTheDocument();
