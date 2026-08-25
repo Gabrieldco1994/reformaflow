@@ -805,6 +805,17 @@ test.describe('U2 shell mobile — preservação de mês', () => {
   // asserção (conta mostra março) impede o verde vazio.
   test('375 — U2-P14 mês sobrevive ao toque no dock (monthly → conta)', async ({ page, baseURL }) => {
     await bootMobile(page, baseURL!, { modules: MODULES.full });
+    // Aquecimento deliberado, não é cosmético. Causa raiz medida (issue
+    // #581): em `next dev`, quando /conta é a PRIMEIRA rota compilada sob
+    // demanda no processo do webServer desta suíte, o clique no dock nunca
+    // navega — não "demora" (reproduzido com timeout de 20s numa única
+    // tentativa e a URL nunca mudou; ver trace no corpo do PR). Contra
+    // `next build && next start` (sem compilação sob demanda) a mesma
+    // sequência passa de forma determinística — a causa é do ambiente de
+    // dev, não do roteamento real (`MobileTabBar`/`next/link` seguem
+    // corretos). Visitar /conta uma vez antes do fluxo cronometrado força
+    // essa compilação fora da janela do assert.
+    await page.goto(`/projects/${PESSOAL_ID}/conta`);
     await page.goto(`/projects/${PESSOAL_ID}/monthly?mes=${TEST_MONTH}`);
     const conta = page.locator('[data-dock-slot="conta"]');
     await expect(conta, 'slot conta ausente no dock — Lane A ainda não marcou').toBeVisible();
