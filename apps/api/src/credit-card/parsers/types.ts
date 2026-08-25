@@ -170,6 +170,21 @@ export function inferPeriodLabel(txs: NormalizedTx[]): string | undefined {
   return best;
 }
 
+/**
+ * Detecta se uma descrição de transação contém informação de parcelamento.
+ *
+ * LIMITAÇÃO CONHECIDA (ambiguidade de desenho):
+ *   Casos onde `current === total` E ambos <= 12 (ex: "12/12", "01/01", "06/06")
+ *   são ambíguos: podem ser "última parcela de 12" ou "data no formato dia/mês
+ *   onde dia coincide com mês". A estratégia atual é aceitar como parcela nestes
+ *   casos porque última parcela com este padrão é mais frequente em faturas reais
+ *   que data sozinha numa descrição de lançamento. Casos com leading zero tipo
+ *   "03/07" (dia ≠ mês) ou "03/03" (dia == mês, mas sem leading zero) seguem
+ *   rigorosos: "03/07" é rejeitado (data), "3/3" é aceito (parcela).
+ *
+ *   Contexto explícito (PARC, parênteses, palavra DE) supera essa ambiguidade e
+ *   sempre funciona corretamente.
+ */
 export function detectInstallment(description: string): { current?: number; total?: number; cleanMerchant: string } {
   // Padrões: "PARC 02/10", "PARC. 2/10", "2/12 puro", "2 DE 10", "(2/10)"
   //
