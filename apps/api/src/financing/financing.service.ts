@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { Prisma, FinancingInstallment } from '@prisma/client';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService, INCLUDE_SOFT_DELETED } from '../prisma/prisma.service';
 import { ExpenseService } from '../expense/expense.service';
 import { CreateExpenseDto } from '../expense/dto/create-expense.dto';
 import { UpsertFinancingDto, PayInstallmentDto } from './dto/financing.dto';
@@ -95,13 +95,17 @@ export class FinancingService {
 
   async upsert(tenantId: string, projectId: string, dto: UpsertFinancingDto) {
     return this.prisma.$transaction(async (tx) => {
-      // SEM `deletedAt: null`: `projectId` é @unique na tabela — se houver um
-      // financiamento soft-deletado para este projeto e a busca o ignorasse,
-      // caía no ramo `create` abaixo e colidia no índice único (500). Alargar
-      // aqui também é o que faz este upsert reativar (des-soft-deletar) um
-      // financiamento removido, em vez de tentar recriar por cima dele.
+      // `deletedAt: INCLUDE_SOFT_DELETED` (não omitir a chave!): `projectId` é
+      // @unique na tabela — se `where.deletedAt` ficasse `undefined`, o $use de
+      // soft-delete (prisma.service.ts) reinjetaria `deletedAt: null` e a busca
+      // ignoraria um financiamento soft-deletado para este projeto, caindo no
+      // ramo `create` abaixo e colidindo no índice único (500, issue #586). Com
+      // a chave presente (mesmo que semanticamente "não filtra nada"), o
+      // middleware não sobrescreve. É isso que faz este upsert reativar
+      // (des-soft-deletar) um financiamento removido, em vez de tentar recriar
+      // por cima dele.
       const existing = await tx.financing.findFirst({
-        where: { projectId, tenantId },
+        where: { projectId, tenantId, deletedAt: INCLUDE_SOFT_DELETED },
       });
 
       const anchor = parseDateOnlyUtc(dto.dataPrimeiraParcela);
@@ -145,14 +149,15 @@ export class FinancingService {
         });
       } else {
         financingId = existing.id;
-        // SEM `deletedAt: null`: as parcelas soft-deletadas continuam ocupando
-        // fisicamente os slots dos três índices únicos da tabela
-        // (financingId+numeroParcela, expenseId, e por tabela pai o
-        // projectId de Financing). Se não entrarem em `current`, nunca são
-        // descartadas por `discardInstallments` (hard-delete) e o
-        // `createMany` abaixo colide de novo nesses índices.
+        // `deletedAt: INCLUDE_SOFT_DELETED` (não omitir a chave!): as parcelas
+        // soft-deletadas continuam ocupando fisicamente os slots dos índices
+        // únicos da tabela (financingId+numeroParcela, expenseId). Se
+        // `where.deletedAt` ficasse `undefined`, o $use reinjetaria
+        // `deletedAt: null` e elas nunca entrariam em `current` — nunca seriam
+        // descartadas por `discardInstallments` (hard-delete) e o `createMany`
+        // abaixo colidiria de novo nesses índices (issue #586, segundo ponto).
         const current = await tx.financingInstallment.findMany({
-          where: { financingId },
+          where: { financingId, deletedAt: INCLUDE_SOFT_DELETED },
           orderBy: { numeroParcela: 'asc' },
         });
 
