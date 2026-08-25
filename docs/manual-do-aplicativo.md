@@ -1152,6 +1152,13 @@ Tarefas com prazo e prioridade.
 - **Filtros (pills):** **Pendente / Concluído / Adiado / Todos**.
 - **Card de lembrete:** título, data, frequência, badges de **prioridade** e
   **status**. Ações: **Concluir**, **Adiar**, **Editar**, **Excluir**.
+- **Três estados de carregamento mutuamente exclusivos:** enquanto busca
+  (spinner), se a busca falhar (cartão "Não foi possível carregar os
+  lembretes" com botão **Tentar novamente** — nunca confundido com lista
+  vazia) e vazio real (`"Nenhum lembrete <status>"`, só quando a busca teve
+  sucesso e realmente não há itens no filtro). Se **Concluir**, **Adiar**,
+  **Editar** ou **Excluir** falhar (rede/API fora), a tela mostra um toast de
+  erro visível (além do log no console).
 
 ### 6.6 Despesas (`/expenses`) — descontinuada para CASA/CARRO (issue #369)
 CASA e CARRO tinham duas superfícies para a mesma coisa: a aba **Avulsas**

@@ -1,12 +1,14 @@
 'use client';
 
 import { useProject } from '@/contexts/project-context';
-import { useState, useEffect } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { api } from '@/lib/api';
-import { Plus } from 'lucide-react';
+import { toast } from 'sonner';
+import { Bell, Plus } from 'lucide-react';
 import { ReminderCard, type ReminderRow } from './_components/ReminderCard';
 import { ReminderKpiHero } from './_components/ReminderKpiHero';
 import { computeReminderKpis } from './_lib/kpis';
+import { EmptyState } from '@/components/ui/EmptyState';
 
 type Reminder = ReminderRow;
 
@@ -44,19 +46,28 @@ export default function RemindersPage() {
   const { projectId } = useProject();
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [filter, setFilter] = useState<string>('PENDENTE');
 
-  useEffect(() => { loadReminders(); }, [projectId]);
-
-  async function loadReminders() {
+  const loadReminders = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
     try {
       const data = await api.get<Reminder[]>(`/projects/${projectId}/reminders`);
       setReminders(data);
-    } catch { /* empty */ } finally { setLoading(false); }
-  }
+    } catch (err) {
+      console.error(err);
+      setReminders([]);
+      setLoadError(err instanceof Error ? err.message : 'Não foi possível carregar os lembretes.');
+    } finally {
+      setLoading(false);
+    }
+  }, [projectId]);
+
+  useEffect(() => { loadReminders(); }, [loadReminders]);
 
   async function handleSave() {
     try {
@@ -70,7 +81,10 @@ export default function RemindersPage() {
       setEditingId(null);
       setForm(emptyForm);
       loadReminders();
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+      toast.error('Não foi possível salvar o lembrete. Tente novamente.');
+    }
   }
 
   async function handleDelete(id: string) {
@@ -78,21 +92,30 @@ export default function RemindersPage() {
     try {
       await api.delete(`/projects/${projectId}/reminders/${id}`);
       setReminders((prev) => prev.filter((r) => r.id !== id));
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+      toast.error('Não foi possível excluir o lembrete. Tente novamente.');
+    }
   }
 
   async function markDone(id: string) {
     try {
       await api.patch(`/projects/${projectId}/reminders/${id}`, { status: 'CONCLUIDO' });
       loadReminders();
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+      toast.error('Não foi possível concluir o lembrete. Tente novamente.');
+    }
   }
 
   async function postpone(id: string) {
     try {
       await api.patch(`/projects/${projectId}/reminders/${id}`, { status: 'ADIADO' });
       loadReminders();
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+      toast.error('Não foi possível adiar o lembrete. Tente novamente.');
+    }
   }
 
   function startEdit(r: Reminder) {
@@ -110,6 +133,17 @@ export default function RemindersPage() {
 
   if (loading) {
     return <div className="flex justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600"></div></div>;
+  }
+
+  if (loadError) {
+    return (
+      <EmptyState
+        icon={Bell}
+        title="Não foi possível carregar os lembretes"
+        description={loadError}
+        action={{ label: 'Tentar novamente', onClick: () => loadReminders() }}
+      />
+    );
   }
 
   const filtered = reminders.filter((r) => filter === 'TODOS' || r.status === filter);
