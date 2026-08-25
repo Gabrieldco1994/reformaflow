@@ -337,6 +337,100 @@ describe("journey-catalog — RED spec: still missing (Etapa A Escopo, #338)", (
       expect(findUncoveredNavRoutes()).toEqual([]);
     });
 
+    it("GENERIC_JOURNEY_SCREEN_CATALOG snapshot guards against silent slug loss [#532 guard]", () => {
+      /**
+       * ISSUE #532 / #529 / #453 REGRESSION GUARD
+       *
+       * The regression: when navigation collapses (e.g., PESSOAL loses /expenses,
+       * /receipts in U4 #453), the catalog ALSO auto-shrinks because it's DERIVED
+       * from PROJECT_NAV at module load time. If a PR removes a slug, the catalog
+       * shrinks automatically and the loss is SILENT — no test catches it, and
+       * journeys pointing to that slug break without warning.
+       *
+       * The fix: HARDCODE a snapshot of the expected catalog (today's state from
+       * origin/main). When someone changes PROJECT_NAV:
+       *   - Real catalog: auto-updates from PROJECT_NAV derivation
+       *   - Snapshot: stays fixed (it's hardcoded here)
+       *   - Test: FAILS when they differ
+       *
+       * When test fails, the PR author MUST make a conscious decision:
+       *   - If adding a slug: add it to PROJECT_NAV AND update snapshot
+       *   - If removing a slug: catalog shrinks → test fails → author chooses:
+       *     a) Add `JOURNEY_STEP_SLUG_OVERRIDES` mapping so journeys still work
+       *     b) Accept the loss and update snapshot with a comment explaining why
+       *
+       * This converts the silent loss into an explicit decision point.
+       *
+       * MUTATION VALIDATION: Remove a slug from PROJECT_NAV (e.g., 'dre' from
+       * PESSOAL) WITHOUT updating the hardcoded snapshot below. The real catalog
+       * shrinks, snapshot doesn't, test fails. That proves the guard works.
+       */
+      const catalogObject = mod.GENERIC_JOURNEY_SCREEN_CATALOG as
+        | Record<ProjectType, string[]>
+        | undefined;
+      expect(typeof catalogObject).toBe("object");
+      if (!catalogObject) return;
+
+      // HARDCODED SNAPSHOT: expected catalog state from origin/main
+      // Do NOT update this without conscious decision about the slug change (see comment above).
+      const EXPECTED_SCREEN_CATALOG: Record<ProjectType, string[]> = {
+        [ProjectType.REFORMA]: [
+          "dashboard",
+          "expenses",
+          "receipts",
+          "cash-flow",
+          "schedule",
+          "pendencias",
+          "floor-plans",
+          "simulation",
+          "price-compare",
+        ],
+        [ProjectType.COMPRA]: ["dashboard", "expenses", "price-compare"],
+        [ProjectType.CASA]: [
+          "dashboard",
+          "bills",
+          "financing",
+          "maintenance",
+          "reminders",
+        ],
+        [ProjectType.CARRO]: [
+          "dashboard",
+          "car-info",
+          "bills",
+          "vehicle-documents",
+          "financing",
+          "maintenance",
+          "reminders",
+        ],
+        [ProjectType.PESSOAL]: [
+          "monthly",
+          "conta",
+          "dre",
+          "neutros",
+          "recorrentes",
+          "metas",
+          "planning",
+          "planejador",
+          "cash-flow",
+        ],
+        [ProjectType.PLANTAS]: [
+          "dashboard",
+          "plants-ai",
+          "plants",
+          "maintenance",
+          "reminders",
+        ],
+      };
+
+      for (const type of Object.values(ProjectType)) {
+        const catalogSlugs = catalogObject[type] ?? [];
+        expect(
+          catalogSlugs,
+          `GENERIC_JOURNEY_SCREEN_CATALOG[${type}] differs from snapshot (guard against silent slug loss in #529/#453 regression)`,
+        ).toEqual(EXPECTED_SCREEN_CATALOG[type]);
+      }
+    });
+
     it("findUnclassifiedStepKeys() is empty — every catalog stepKey has a slug or is explicitly slug-less", () => {
       expect(findUnclassifiedStepKeys()).toEqual([]);
     });
