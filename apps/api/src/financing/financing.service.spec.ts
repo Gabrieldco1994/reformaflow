@@ -14,6 +14,7 @@ function makePrismaMock() {
   return {
     financing: {
       findFirst: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
       create: jest.fn(),
       update: jest.fn(),
     },
@@ -334,7 +335,9 @@ describe('FinancingService', () => {
         .mockResolvedValueOnce({ id: 'fin-1' }) // existing
         .mockResolvedValueOnce({ id: 'fin-1', valorTotalFinanciado: 1000, installments: [] }); // summary
       prisma.financingInstallment.findMany
-        .mockResolvedValueOnce([{ id: 'inst-1', numeroParcela: 1, status: 'PAGO', expenseId: null }]) // current
+        .mockResolvedValueOnce([
+          { id: 'inst-1', numeroParcela: 1, status: 'PAGO', expenseId: null, deletedAt: null },
+        ]) // current
         .mockResolvedValueOnce([]); // materializable
 
       await service.upsert(tenantId, projectId, { ...baseDto, prazoMeses: 3 } as any);
@@ -358,7 +361,7 @@ describe('FinancingService', () => {
         .mockResolvedValueOnce({ id: 'fin-1', valorTotalFinanciado: 1000, installments: [] });
       prisma.financingInstallment.findMany
         .mockResolvedValueOnce([
-          { id: 'inst-1', numeroParcela: 1, status: 'PREVISTO', expenseId: 'exp-1' },
+          { id: 'inst-1', numeroParcela: 1, status: 'PREVISTO', expenseId: 'exp-1', deletedAt: null },
         ])
         .mockResolvedValueOnce([]);
       prisma.expense.findUnique.mockResolvedValue({ status: 'PLANEJADO' });
@@ -379,7 +382,7 @@ describe('FinancingService', () => {
         .mockResolvedValueOnce({ id: 'fin-1', valorTotalFinanciado: 1000, installments: [] });
       prisma.financingInstallment.findMany
         .mockResolvedValueOnce([
-          { id: 'inst-old-2', numeroParcela: 2, status: 'PREVISTO', expenseId: 'exp-old-2' },
+          { id: 'inst-old-2', numeroParcela: 2, status: 'PREVISTO', expenseId: 'exp-old-2', deletedAt: null },
         ])
         .mockResolvedValueOnce([]);
       prisma.expense.findUnique.mockResolvedValue({ status: 'PLANEJADO' });
@@ -405,8 +408,8 @@ describe('FinancingService', () => {
     it('rejeita prazo menor que o número da última parcela paga', async () => {
       prisma.financing.findFirst.mockResolvedValueOnce({ id: 'fin-1' });
       prisma.financingInstallment.findMany.mockResolvedValueOnce([
-        { numeroParcela: 1, status: 'PAGO', expenseId: null },
-        { numeroParcela: 2, status: 'PAGO', expenseId: null },
+        { numeroParcela: 1, status: 'PAGO', expenseId: null, deletedAt: null },
+        { numeroParcela: 2, status: 'PAGO', expenseId: null, deletedAt: null },
       ]);
 
       await expect(
@@ -420,8 +423,8 @@ describe('FinancingService', () => {
     it('rejeita prazo menor que o número de uma parcela vinculada via rateio (mesmo não paga)', async () => {
       prisma.financing.findFirst.mockResolvedValueOnce({ id: 'fin-1' });
       prisma.financingInstallment.findMany.mockResolvedValueOnce([
-        { id: 'inst-1', numeroParcela: 1, status: 'PREVISTO', expenseId: 'exp-1' },
-        { id: 'inst-2', numeroParcela: 2, status: 'PREVISTO', expenseId: 'exp-2' },
+        { id: 'inst-1', numeroParcela: 1, status: 'PREVISTO', expenseId: 'exp-1', deletedAt: null },
+        { id: 'inst-2', numeroParcela: 2, status: 'PREVISTO', expenseId: 'exp-2', deletedAt: null },
       ]);
       prisma.expense.findUnique.mockResolvedValue({ status: 'PLANEJADO' });
       prisma.rateioAllocation.findUnique.mockImplementation(({ where }: any) =>
@@ -433,6 +436,254 @@ describe('FinancingService', () => {
       ).rejects.toBeInstanceOf(BadRequestException);
 
       expect(prisma.financing.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('issue #586 — Defeito 1: reativação (des-soft-delete) de Financing via unique projectId', () => {
+    const baseDto = {
+      sistema: 'PRICE' as const,
+      valorTotalFinanciado: 1000,
+      taxaJurosMensalBps: 0,
+      prazoMeses: 3,
+      dataPrimeiraParcela: '2026-01-10',
+      diaVencimento: 10,
+    };
+
+    it('acha o financiamento soft-deletado (busca SEM filtrar deletedAt) e reativa em vez de colidir no `create`', async () => {
+      const deletedAt = new Date('2026-07-24T01:38:16.000Z');
+      prisma.financing.findFirst
+        .mockResolvedValueOnce({ id: 'fin-1', deletedAt }) // existing: soft-deletado
+        .mockResolvedValueOnce({ id: 'fin-1', valorTotalFinanciado: 1000, installments: [] }); // summary
+      prisma.financingInstallment.findMany
+        .mockResolvedValueOnce([]) // current: nenhuma parcela (nem viva nem soft-deletada) neste caso
+        .mockResolvedValueOnce([]); // materializable
+
+      await service.upsert(tenantId, projectId, { ...baseDto, prazoMeses: 3 } as any);
+
+      // A busca de `existing` não pode filtrar deletedAt: null, senão o financiamento
+      // soft-deletado nunca é achado e o upsert tenta `create` por cima dele (500 no
+      // índice único projectId).
+      expect(prisma.financing.findFirst).toHaveBeenNthCalledWith(1, {
+        where: { projectId, tenantId },
+      });
+      expect(prisma.financing.create).not.toHaveBeenCalled();
+      // O update precisa desfazer o soft-delete explicitamente (baseData não inclui
+      // deletedAt de propósito).
+      expect(prisma.financing.update).toHaveBeenCalledWith({
+        where: { id: 'fin-1' },
+        data: expect.objectContaining({ deletedAt: null, prazoMeses: 3 }),
+      });
+    });
+
+    it('Condição C — reativa aplicando os termos NOVOS do dto, não os ANTIGOS do registro soft-deletado', async () => {
+      // `existing` representa o financiamento ORIGINAL: prazo 60 meses, R$50.000,
+      // já soft-deletado. O dto do upsert traz termos DIFERENTES (36 meses,
+      // R$30.000) — se o `update` preservasse valores antigos (ex.: por engano
+      // via `restore()`/spread do registro antigo), o financiamento reativado
+      // ficaria com os termos ERRADOS, ignorando o que o usuário digitou.
+      const deletedAt = new Date('2026-07-24T01:38:16.000Z');
+      const originalTerms = {
+        id: 'fin-1',
+        deletedAt,
+        prazoMeses: 60,
+        valorTotalFinanciado: 5_000_000, // R$ 50.000,00 em centavos
+        taxaJurosMensalBps: 150,
+        instituicao: 'Banco Antigo',
+      };
+      prisma.financing.findFirst
+        .mockResolvedValueOnce(originalTerms) // existing: financiamento antigo soft-deletado
+        .mockResolvedValueOnce({ id: 'fin-1', valorTotalFinanciado: 3_000_000, installments: [] }); // summary
+      prisma.financingInstallment.findMany
+        .mockResolvedValueOnce([]) // current
+        .mockResolvedValueOnce([]); // materializable
+
+      const novoDto = {
+        ...baseDto,
+        instituicao: 'Banco Novo',
+        prazoMeses: 36,
+        valorTotalFinanciado: 3_000_000, // R$ 30.000,00 em centavos
+        taxaJurosMensalBps: 90,
+      };
+
+      await service.upsert(tenantId, projectId, novoDto as any);
+
+      // O update tem que carregar os valores NOVOS do dto — nunca os antigos de
+      // `originalTerms` (60 / 5_000_000 / Banco Antigo).
+      expect(prisma.financing.update).toHaveBeenCalledWith({
+        where: { id: 'fin-1' },
+        data: expect.objectContaining({
+          deletedAt: null,
+          prazoMeses: 36,
+          valorTotalFinanciado: 3_000_000,
+          taxaJurosMensalBps: 90,
+          instituicao: 'Banco Novo',
+        }),
+      });
+      const updateCall = prisma.financing.update.mock.calls[0][0];
+      expect(updateCall.data.prazoMeses).not.toBe(originalTerms.prazoMeses);
+      expect(updateCall.data.valorTotalFinanciado).not.toBe(originalTerms.valorTotalFinanciado);
+      expect(updateCall.data.instituicao).not.toBe(originalTerms.instituicao);
+    });
+  });
+
+  describe('issue #586 — Condição A/B: guard contra parcela soft-deletada "protegida" por engano', () => {
+    const baseDto = {
+      sistema: 'PRICE' as const,
+      valorTotalFinanciado: 1000,
+      taxaJurosMensalBps: 0,
+      prazoMeses: 3,
+      dataPrimeiraParcela: '2026-01-10',
+      diaVencimento: 10,
+    };
+
+    it('caso 6 — parcela SOFT-DELETADA com espelho PAGO é descartada (hard-delete) e RECRIADA com o mesmo numeroParcela, não vira buraco no cronograma', async () => {
+      const deletedAt = new Date('2026-07-24T13:42:26.000Z'); // mesmo carimbo do incidente real (Minha Casa)
+
+      prisma.financing.findFirst
+        .mockResolvedValueOnce({ id: 'fin-1', deletedAt }) // financing também soft-deletado (cenário real)
+        .mockResolvedValueOnce({ id: 'fin-1', valorTotalFinanciado: 1000, installments: [] });
+      prisma.financingInstallment.findMany
+        .mockResolvedValueOnce([
+          {
+            id: 'inst-soft-2',
+            numeroParcela: 2,
+            status: 'PREVISTO',
+            expenseId: 'exp-soft-2',
+            deletedAt, // SOFT-DELETADA — nunca pode entrar em protectedNumeros
+          },
+        ]) // current
+        .mockResolvedValueOnce([]); // materializable
+
+      // Sem o guard da Condição A, `isInstallmentProtected` DIRIA que esta parcela
+      // está protegida: `tx.expense.findUnique` roda dentro da transação, que não
+      // passa pelo middleware `$use` de soft-delete, e enxergaria esta Expense
+      // apagada como se estivesse viva e PAGA.
+      prisma.expense.findUnique.mockResolvedValue({ status: 'PAGO' });
+      prisma.rateioAllocation.findUnique.mockResolvedValue(null);
+
+      await service.upsert(tenantId, projectId, { ...baseDto, prazoMeses: 3 } as any);
+
+      // 1) A checagem de proteção nunca é chamada para a parcela soft-deletada —
+      //    o guard descarta ela ANTES de consultar a Expense.
+      expect(prisma.expense.findUnique).not.toHaveBeenCalled();
+
+      // 2) Foi hard-deletada (libera o slot físico dos três índices únicos).
+      expect(prisma.$executeRaw).toHaveBeenCalled();
+      expect(prisma.cashFlowEntry.updateMany).toHaveBeenCalledWith({
+        where: { expenseId: { in: ['exp-soft-2'] }, deletedAt: null },
+        data: { deletedAt: expect.any(Date) },
+      });
+
+      // 3) Foi RECRIADA com o MESMO numeroParcela — sem buraco no cronograma novo.
+      const insertedNumeros = prisma.financingInstallment.createMany.mock.calls[0][0].data.map(
+        (r: any) => r.numeroParcela,
+      );
+      expect(insertedNumeros).toEqual([1, 2, 3]);
+    });
+
+    it('mutação de controle: SEM o guard (deletedAt !== null → continue) a parcela soft-deletada entraria em protectedNumeros e o `prazoMeses` legítimo seria rejeitado', async () => {
+      // Este teste documenta o comportamento que o guard da Condição A previne —
+      // não executa produção sem o guard (isso seria reintroduzir o bug), apenas
+      // prova via mock que `isInstallmentProtected` teria retornado true.
+      const deletedAt = new Date('2026-07-24T13:42:26.000Z');
+      const installment = {
+        id: 'inst-soft-2',
+        numeroParcela: 2,
+        status: 'PREVISTO',
+        expenseId: 'exp-soft-2',
+        deletedAt,
+      };
+      prisma.expense.findUnique.mockResolvedValue({ status: 'PAGO' });
+      prisma.rateioAllocation.findUnique.mockResolvedValue(null);
+
+      const protectedByBuggyLogic = await (service as any).isInstallmentProtected(prisma, installment);
+      expect(protectedByBuggyLogic).toBe(true); // confirma a armadilha que o guard evita
+    });
+  });
+
+  describe('issue #586 — Defeito 2: materializeAllFinancingsWindow (scheduler mensal)', () => {
+    it('varre todos os financiamentos vivos (deletedAt: null) e materializa a janela de cada um em transações isoladas', async () => {
+      prisma.financing.findMany.mockResolvedValue([
+        { id: 'fin-1', tenantId, projectId: 'project-1', prazoMeses: 12 },
+        { id: 'fin-2', tenantId, projectId: 'project-2', prazoMeses: 6 },
+      ]);
+      prisma.financingInstallment.findMany.mockResolvedValue([]);
+
+      await service.materializeAllFinancingsWindow();
+
+      expect(prisma.financing.findMany).toHaveBeenCalledWith({
+        where: { deletedAt: null },
+        select: { id: true, tenantId: true, projectId: true, prazoMeses: true },
+      });
+      expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    });
+
+    it('materializa despesa PLANEJADA para parcela dentro da janela rolling ao rodar via scheduler (não só via upsert)', async () => {
+      prisma.financing.findMany.mockResolvedValue([{ id: 'fin-1', tenantId, projectId, prazoMeses: 1 }]);
+      prisma.financingInstallment.findMany.mockResolvedValueOnce([
+        {
+          id: 'inst-1',
+          numeroParcela: 1,
+          expenseId: null,
+          valorPrevisto: 34000,
+          dataVencimento: parseDateOnlyUtc(isoDateMonthsFromNow(1)),
+        },
+      ]);
+      expenseService.create.mockResolvedValue({ id: 'expense-1' });
+
+      await service.materializeAllFinancingsWindow();
+
+      expect(expenseService.create).toHaveBeenCalledWith(
+        tenantId,
+        projectId,
+        expect.objectContaining({ tipoDespesa: 'FINANCIAMENTO', status: 'PLANEJADO' }),
+        null,
+        prisma,
+      );
+      expect(prisma.financingInstallment.update).toHaveBeenCalledWith({
+        where: { id: 'inst-1' },
+        data: { expenseId: 'expense-1' },
+      });
+    });
+
+    it('idempotente: rodar 2× no mesmo período não duplica despesa (materializeWindow só toca expenseId: null)', async () => {
+      prisma.financing.findMany.mockResolvedValue([{ id: 'fin-1', tenantId, projectId, prazoMeses: 1 }]);
+      prisma.financingInstallment.findMany.mockResolvedValueOnce([
+        {
+          id: 'inst-1',
+          numeroParcela: 1,
+          expenseId: null,
+          valorPrevisto: 34000,
+          dataVencimento: parseDateOnlyUtc(isoDateMonthsFromNow(1)),
+        },
+      ]);
+      expenseService.create.mockResolvedValue({ id: 'expense-1' });
+      await service.materializeAllFinancingsWindow();
+
+      // Segunda rodada: a query real filtraria expenseId: null e não devolveria
+      // mais esta parcela (já materializada); simulamos isso no mock.
+      prisma.financingInstallment.findMany.mockResolvedValueOnce([]);
+      await service.materializeAllFinancingsWindow();
+
+      expect(expenseService.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('isola falha de um financiamento (não derruba os demais)', async () => {
+      prisma.financing.findMany.mockResolvedValue([
+        { id: 'fin-erro', tenantId, projectId: 'project-erro', prazoMeses: 1 },
+        { id: 'fin-ok', tenantId, projectId: 'project-ok', prazoMeses: 1 },
+      ]);
+      let call = 0;
+      prisma.$transaction.mockImplementation(async (arg: any) => {
+        call += 1;
+        if (call === 1) throw new Error('boom');
+        if (typeof arg === 'function') return arg(prisma);
+        return Promise.all(arg);
+      });
+      prisma.financingInstallment.findMany.mockResolvedValue([]);
+
+      await expect(service.materializeAllFinancingsWindow()).resolves.toBeUndefined();
+      expect(prisma.$transaction).toHaveBeenCalledTimes(2);
     });
   });
 
