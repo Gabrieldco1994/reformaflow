@@ -171,22 +171,55 @@ export function inferPeriodLabel(txs: NormalizedTx[]): string | undefined {
 }
 
 export function detectInstallment(description: string): { current?: number; total?: number; cleanMerchant: string } {
-  // Padrões: "PARC 02/10", "PARC. 2/10", "2/10", "2 DE 10", "(2/10)"
-  const patterns = [
-    /\bPARC\.?\s*(\d{1,2})\s*\/\s*(\d{1,2})\b/i,
-    /\((\d{1,2})\s*\/\s*(\d{1,2})\)/,
-    /\b(\d{1,2})\s*\/\s*(\d{1,2})\b(?!\d)/,
-    /\b(\d{1,2})\s*DE\s*(\d{1,2})\b/i,
+  // Padrões: "PARC 02/10", "PARC. 2/10", "2/12 puro", "2 DE 10", "(2/10)"
+  //
+  // Contexto explícito (com palavra-chave ou padrão inequívoco):
+  //   - "PARC 2/12" — palavra "PARC"
+  //   - "(2/12)" — parênteses
+  //   - "2 DE 12" — palavra "DE"
+  // Validação: flexível (current >= 1, total > 1, current <= total, total <= 60)
+  //
+  // Contexto implícito (X/Y puro):
+  //   - "2/12" isolado
+  // Validação: rigorosa para evitar confundir data (ex.: 03/07 = 3 de julho) com parcela.
+  // Uma data válida tem dia 1-31 e mês 1-12. Parcela sem contexto explícito só passa se
+  // total > 12 (pois mês máximo é 12; um total > 12 é definitivamente parcelamento).
+  const patterns: Array<{ re: RegExp; hasContext: boolean }> = [
+    { re: /\bPARC\.?\s*(\d{1,2})\s*\/\s*(\d{1,2})\b/i, hasContext: true },
+    { re: /\((\d{1,2})\s*\/\s*(\d{1,2})\)/, hasContext: true },
+    { re: /\b(\d{1,2})\s*\/\s*(\d{1,2})\b(?!\d)/, hasContext: false },
+    { re: /\b(\d{1,2})\s*DE\s*(\d{1,2})\b/i, hasContext: true },
   ];
-  for (const re of patterns) {
+
+  for (const { re, hasContext } of patterns) {
     const m = description.match(re);
     if (m) {
-      const current = parseInt(m[1], 10);
-      const total = parseInt(m[2], 10);
-      if (current >= 1 && total > 1 && current <= total && total <= 60) {
-        const cleanMerchant = description.replace(re, '').replace(/\s+/g, ' ').trim();
-        return { current, total, cleanMerchant: cleanMerchant || description.trim() };
+      const currentStr = m[1];
+      const totalStr = m[2];
+      const current = parseInt(currentStr, 10);
+      const total = parseInt(totalStr, 10);
+
+      // Validação base: current >= 1, total > 1, current <= total
+      if (!(current >= 1 && total > 1 && current <= total)) continue;
+
+      // Se não tem contexto explícito (X/Y puro), evita confundir data com parcela:
+      // Estratégia: rejeita SÓ se for claramente uma data (dia com leading zero + mês <= 12)
+      // - "03/07" (data: 3 de julho): leading zero + total <= 12 + current != total → REJEITA ✓
+      // - "03/03" (parcela 3 de 3, última): leading zero MAS current == total → ACEITA ✓
+      // - "3/7" ou "3 de 7" (parcela: 3 de 7): sem leading zero, pode passar
+      // - "1/3", "2/3" (parcela: 1-3): sem leading zero, deve passar
+      // - "15/24" (parcela: 15 de 24): total > 12 → claramente parcela, passa
+      if (!hasContext && total <= 12 && currentStr.length > 1 && currentStr[0] === '0' && current !== total) {
+        // Leading zero (ex: "03") com total <= 12 E não é última parcela (03/03, 06/06, etc.)
+        // é típico de data, não parcela
+        continue;
       }
+
+      // Validação final: total <= 60 (limite razoável para parcelamento)
+      if (total > 60) continue;
+
+      const cleanMerchant = description.replace(re, '').replace(/\s+/g, ' ').trim();
+      return { current, total, cleanMerchant: cleanMerchant || description.trim() };
     }
   }
   return { cleanMerchant: description.trim() };

@@ -142,7 +142,7 @@ function mapColumns(header: string[], hasHeader: boolean): ColumnMap {
     return -1;
   };
   const date = find('data', 'date');
-  const merchant = find('descri', 'title', 'memo', 'historic', 'estabelec');
+  const merchant = find('descri', 'title', 'memo', 'historic', 'estabelec', 'lançamento');
   const amount = find('valor', 'amount', 'value');
   const category = find('categ', 'category');
   return {

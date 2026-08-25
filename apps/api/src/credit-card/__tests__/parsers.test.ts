@@ -40,12 +40,12 @@ assert(id1.length === 32, 'externalId 32 chars');
 const nubankCsv = `date,title,amount
 2026-05-12,IFOOD *RESTAURANTE,89.90
 2026-05-13,UBER TRIP,32.40
-2026-05-14,NETFLIX 2/12,55.90
+2026-05-14,NETFLIX PARC 2/12,55.90
 `;
 const rNu = parseStatement(nubankCsv, 'card-1', 'CSV_NUBANK');
 assert(rNu.transactions.length === 3, 'Nubank 3 tx');
 assert(rNu.transactions[0].amountCents === 8990, 'Nubank R$ 89.90');
-assert(rNu.transactions[2].installmentCurrent === 2 && rNu.transactions[2].installmentTotal === 12, 'Nubank parcela');
+assert(rNu.transactions[2].installmentCurrent === 2 && rNu.transactions[2].installmentTotal === 12, 'Nubank parcela com palavra PARC');
 assert(rNu.periodLabel === '2026-05', 'periodLabel');
 assert(rNu.totalAmountCents === 8990 + 3240 + 5590, 'soma Nubank');
 
@@ -108,6 +108,36 @@ assert(rAuto.source === 'OFX', 'AUTO detecta OFX');
 
 const rAutoCsv = parseStatement(nubankCsv, 'card-5', 'AUTO', 'nubank-fatura.csv');
 assert(rAutoCsv.source === 'CSV_NUBANK', 'AUTO detecta Nubank pelo nome');
+
+// ─── P1: coluna "lançamento" deve ser reconhecida como merchant ────────────────
+// Reprodução: CSV com coluna "lançamento" em posição 0 (antes da data) — se não
+// for reconhecida, o fallback usa coluna 1 que é data, e merchant vira "12/05/2026"
+const csvWithLancamento = `lançamento;data;valor
+IFOOD RESTAURANTE;12/05/2026;R$ 89,90
+UBER DO BRASIL;13/05/2026;32,40
+`;
+const rLancamento = parseStatement(csvWithLancamento, 'card-p1', 'CSV_GENERIC');
+assert(rLancamento.transactions.length === 2, 'P1: CSV com "lançamento" parseia 2 tx');
+assert(rLancamento.transactions[0].merchant === 'IFOOD RESTAURANTE', 'P1: merchant é IFOOD, NÃO uma data (ex.: 12/05/2026)');
+assert(rLancamento.transactions[1].merchant === 'UBER DO BRASIL', 'P1: merchant é UBER, NÃO uma data (ex.: 13/05/2026)');
+
+// ─── P2: regex deve distinguir data (03/07 = 3 julho) de parcela (3/7) ──────────
+// Reprodução: descrição com "03/07" (dia/mês, data legítima) NÃO deve ser lida
+// como "parcela 3 de 7" (installmentTotal > 1 dispara falso alarme no bank-account.service)
+inst = detectInstallment('COMPRA 03/07');
+assert(
+  inst.current === undefined && inst.total === undefined,
+  'P2: "COMPRA 03/07" não é parcela (é data 03/julho), detectInstallment.current===undefined'
+);
+assert(inst.cleanMerchant === 'COMPRA 03/07', 'P2: merchant não é modificado se não é parcela');
+
+// Mesmo teste via CSV parser
+const csvWithDatePattern = `data;descricao;valor
+12/05/2026;COMPRA 03/07;R$ 89,90
+`;
+const rDatePattern = parseStatement(csvWithDatePattern, 'card-p2', 'CSV_GENERIC');
+assert(rDatePattern.transactions[0].merchant === 'COMPRA 03/07', 'P2: descrição com data não é confundida com parcela');
+assert(rDatePattern.transactions[0].installmentTotal === undefined, 'P2: installmentTotal undefined (não é parcela)');
 
 console.log(`\n${passed} passed, ${failures} failed`);
 if (failures > 0) process.exit(1);
