@@ -460,11 +460,14 @@ describe('FinancingService', () => {
 
       await service.upsert(tenantId, projectId, { ...baseDto, prazoMeses: 3 } as any);
 
-      // A busca de `existing` não pode filtrar deletedAt: null, senão o financiamento
-      // soft-deletado nunca é achado e o upsert tenta `create` por cima dele (500 no
-      // índice único projectId).
+      // A busca de `existing` não pode deixar `where.deletedAt` como `undefined`
+      // (o $use de soft-delete reinjetaria `deletedAt: null` e o financiamento
+      // soft-deletado nunca seria achado, levando o upsert a tentar `create` por
+      // cima dele — 500 no índice único projectId). A chave precisa estar
+      // presente com um valor que não filtre nada (`{ not: undefined }`,
+      // exportado como `INCLUDE_SOFT_DELETED` em `prisma.service.ts`).
       expect(prisma.financing.findFirst).toHaveBeenNthCalledWith(1, {
-        where: { projectId, tenantId },
+        where: { projectId, tenantId, deletedAt: { not: undefined } },
       });
       expect(prisma.financing.create).not.toHaveBeenCalled();
       // O update precisa desfazer o soft-delete explicitamente (baseData não inclui

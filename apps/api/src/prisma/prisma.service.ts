@@ -1,6 +1,11 @@
 import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
+/** Faz a query enxergar registros soft-deletados. O $use só injeta
+ *  `deletedAt: null` quando a chave é `undefined`; nomear aqui evita que
+ *  alguém "limpe" o idioma e reintroduza o 500 do #586. */
+export const INCLUDE_SOFT_DELETED = { not: undefined } as const;
+
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
   constructor() {
