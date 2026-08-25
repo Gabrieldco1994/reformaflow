@@ -187,10 +187,15 @@ Implementados em `apps/api/src/conciliacao/conciliacao.service.ts`,
 | **COMPAT** | Espelhos vinculados **manualmente sem** `CrossProjectSettlement` (PIX RMD legados) continuam funcionando via caminho agregado bank. | `foreignPendingItems` caminho legado |
 
 ### Helper `softDeleteMirror(tx, sourceId)`
-`$transaction` **ignora** o `$use` de soft-delete do Prisma. Ao remover um espelho
-dentro de uma tx é preciso soft-deletar **a despesa E o `cashFlowEntry` juntos** —
-senão a entrada órfã vaza em `notifications.service.ts` (que consulta
-`cashFlowEntry` sem filtrar `expense.deletedAt`). O helper faz os dois.
+**Não é sobre `$transaction` ignorar `$use`** — o `$use` roda dentro de tx igual
+a fora (verificado por execução, 2026-08-25; a crença antiga era falsa, ver
+`AGENTS.md` Scars). O motivo real é mais simples: `Expense` e `CashFlowEntry`
+são duas linhas/modelos distintos, e não há cascade automático de soft-delete
+entre eles — soft-deletar a `Expense` não soft-deleta o `CashFlowEntry`
+correspondente sozinho. Ao remover um espelho dentro de uma tx é preciso
+soft-deletar **a despesa E o `cashFlowEntry` juntos, explicitamente** — senão a
+entrada órfã vaza em `notifications.service.ts` (que consulta `cashFlowEntry`
+sem filtrar `expense.deletedAt`). O helper faz os dois.
 
 ### `getAccountView` — 3 caminhos de `foreignPendingItems`
 (`monthly-overview.service.ts`, ~L578)
