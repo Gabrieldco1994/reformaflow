@@ -1151,7 +1151,10 @@ Tarefas com prazo e prioridade.
   frequência).
 - **Filtros (pills):** **Pendente / Concluído / Adiado / Todos**.
 - **Card de lembrete:** título, data, frequência, badges de **prioridade** e
-  **status**. Ações: **Concluir**, **Adiar**, **Editar**, **Excluir**.
+  **status**. Se o lembrete tiver uma planta vinculada (gerado automaticamente
+  em PLANTAS a partir do diagnóstico/agenda de cuidados), mostra também
+  **"Planta: &lt;nome&gt;"**; sem vínculo, nada é exibido nesse lugar (nunca
+  um placeholder). Ações: **Concluir**, **Adiar**, **Editar**, **Excluir**.
 - **Três estados de carregamento mutuamente exclusivos:** enquanto busca
   (spinner), se a busca falhar (cartão "Não foi possível carregar os
   lembretes" com botão **Tentar novamente** — nunca confundido com lista

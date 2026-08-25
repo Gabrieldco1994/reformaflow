@@ -13,6 +13,7 @@ export interface ReminderRow {
   status: string;
   prioridade: string;
   generatedBy?: string | null;
+  plant?: { id: string; nome: string } | null;
 }
 
 const PRIORIDADES: Record<string, { label: string; color: string }> = {
@@ -109,6 +110,11 @@ export function ReminderCard({
             <span className="rounded bg-gray-100 px-1.5 py-0.5">{recLabel}</span>
           )}
           <span className={`rounded px-1.5 py-0.5 ${statusCfg?.color ?? ''}`}>{statusCfg?.label}</span>
+          {r.plant && (
+            <span className="rounded bg-green-50 px-1.5 py-0.5 text-green-700">
+              Planta: {r.plant.nome}
+            </span>
+          )}
           {isManagedVehicleDocument && (
             <span className="rounded bg-blue-50 px-1.5 py-0.5 text-blue-700">
               Gerenciado em Documentos
