@@ -22,8 +22,17 @@ import { caixaMonthForCardPurchase } from '@reformaflow/domain';
 /** Tolerância para considerar que o pagamento quita a fatura inteira. */
 export const CARD_MATCH_TOLERANCE_CENTS = 200; // R$ 2 (encargos variam)
 
-/** Meses de vencimento considerados, relativos ao mês do pagamento. */
-const DUE_MONTH_OFFSETS = [-1, 0, 1];
+/**
+ * Meses de vencimento considerados, relativos ao mês do pagamento.
+ *
+ * Igual à janela do motor real de liquidação (`resolveTargetDueMonth` em
+ * `card-invoice-settlement.service.ts`, `{payMonth, payMonth+1}`) — decisão
+ * do produto (issue #569, fase 2): a prévia NÃO promete mais vínculo do que
+ * a liquidação de fato confirma. Antes era `[-1, 0, 1]` (3 meses), o que
+ * inflava `invoiceLiquidations` em `getImportDetail` com faturas que o
+ * motor real nunca tocaria.
+ */
+const DUE_MONTH_OFFSETS = [0, 1];
 
 export interface CardWithEntries {
   /** Internal identity used to keep same-last4 cards and their entries apart. */

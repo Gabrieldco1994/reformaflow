@@ -437,10 +437,12 @@ describe("CardInvoiceSettlementService.settleInvoice — child ACL real SQLite",
         cardLast4: card.last4,
       });
 
-      await expect(settle(service, card, requester)).resolves.toEqual({
-        settledExpenses: 1,
-        settledParcelas: 1,
-      });
+      await expect(settle(service, card, requester)).resolves.toEqual(
+        expect.objectContaining({
+          settledExpenses: 1,
+          settledParcelas: 1,
+        }),
+      );
 
       const state = await snapshot();
       expect(state.expenses).toEqual([
@@ -507,10 +509,12 @@ describe("CardInvoiceSettlementService.settleInvoice — child ACL real SQLite",
     // `@RequireModule('monthlyOverview')`) continua liquidando. O gate por
     // recurso é do dono da rota; travá-lo no serviço 404-aria uma feature já
     // entregue.
-    await expect(settle(service, VISIBLE_CARD, EXPENSES_ONLY)).resolves.toEqual({
-      settledExpenses: 1,
-      settledParcelas: 1,
-    });
+    await expect(settle(service, VISIBLE_CARD, EXPENSES_ONLY)).resolves.toEqual(
+      expect.objectContaining({
+        settledExpenses: 1,
+        settledParcelas: 1,
+      }),
+    );
     expect(await snapshot()).toEqual({
       expenses: [
         {

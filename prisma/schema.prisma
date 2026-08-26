@@ -245,6 +245,7 @@ model Expense {
   origin             String    @default("none") @map("origin") // none | import | account — controla visibilidade/comportamento na Conta
   linkedExpenseId    String?   @map("linked_expense_id") // quando importada do cartão é vinculada a despesa de outro projeto (evita dupla contagem)
   settlesInvoiceKey  String?   @map("settles_invoice_key") // quando esta despesa (cobrança cartão-paga-cartão ou PIX) quita a fatura de OUTRO cartão: "{cardLast4}:{dueMonth}"
+  settledInvoiceKey  String?   @map("settled_invoice_key") // #569: quando esta PAGAMENTO_FATURA_CARTAO (importação de extrato) foi liquidada automaticamente, a fatura ({cardLast4}:{dueMonth}) que a liquidação escolheu — usado por undoImport/getImportDetail para reverter/contar a fatura CORRETA, não uma reconstrução por mês do pagamento. Campo distinto de settlesInvoiceKey (fluxo manual "cartão paga cartão"/PIX, lido por monthly-overview.service.ts) — motor canônico congelado, não reaproveitado para não mudar a classificação implícita/explícita dele.
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
   deletedAt          DateTime? @map("deleted_at")

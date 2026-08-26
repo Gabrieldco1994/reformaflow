@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBankAccountDto, UpdateBankAccountDto } from './dto/bank-account.dto';
@@ -226,6 +226,8 @@ function detectRecurrence(merchant: string): RecurrenceHint | null {
 
 @Injectable()
 export class BankAccountService {
+  private readonly logger = new Logger(BankAccountService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly merchantClassifier: MerchantClassifierService,
@@ -1023,6 +1025,52 @@ export class BankAccountService {
   }
 
   /**
+   * Decide QUAL fatura `undoImport` deve reverter para um pagamento
+   * (issue #569).
+   *
+   * Caminho preferido: `Expense.settledInvoiceKey`
+   * ("{cardLast4}:{dueMonth}"), gravado pela própria liquidação automática
+   * (`applyPreparedSettlement`/`createCardPaymentExpense`) — é a fatura que
+   * `resolveTargetDueMonth` de fato escolheu, não uma reconstrução por data.
+   *
+   * Fallback LEGADO (decisão de produto, #569 fase 2): pagamentos gravados
+   * antes deste campo existir não têm `settledInvoiceKey`. Para não deixar
+   * de reverter faturas antigas, cai de volta no mês do PAGAMENTO — o mesmo
+   * comportamento (com o mesmo defeito conhecido: pode não ser a fatura que
+   * a liquidação de fato escolheu, ver M1) que existia antes do #569. Todo
+   * uso deste fallback é LOGADO em `warn` para rastreabilidade — nunca
+   * silencioso.
+   */
+  private resolveUndoDueMonth(
+    payment: { id: string; cardLast4: string | null; dataPagamento: Date | null; createdAt: Date; settledInvoiceKey?: string | null },
+    card: { last4: string },
+  ): string {
+    const parsed = this.parseSettledInvoiceKey(payment.settledInvoiceKey ?? null);
+    if (parsed) return parsed.dueMonth;
+
+    const derivedDueMonth = this.yearMonthUtc(payment.dataPagamento ?? payment.createdAt);
+    this.logger.warn(
+      `undoImport: pagamento de fatura sem settledInvoiceKey (fallback legado) — ` +
+        `derivando fatura pelo mês do pagamento. paymentExpenseId=${payment.id} ` +
+        `cardLast4=${card.last4} dueMonthDerivado=${derivedDueMonth}`,
+    );
+    return derivedDueMonth;
+  }
+
+  /** Parseia "{cardLast4}:{dueMonth}" — `null` se ausente ou malformado. */
+  private parseSettledInvoiceKey(
+    raw: string | null,
+  ): { cardLast4: string; dueMonth: string } | null {
+    if (!raw) return null;
+    const idx = raw.indexOf(':');
+    if (idx < 0) return null;
+    const cardLast4 = raw.slice(0, idx);
+    const dueMonth = raw.slice(idx + 1);
+    if (!cardLast4 || !/^\d{4}-\d{2}$/.test(dueMonth)) return null;
+    return { cardLast4, dueMonth };
+  }
+
+  /**
    * Detalhe de um lote de importação de extrato: o que ele criou e o que será
    * revertido (ou não) se for desfeito. Alimenta o preview de impacto do
    * "Desfazer importação".
@@ -1036,7 +1084,7 @@ export class BankAccountService {
 
     const createdExpenses = await this.prisma.expense.findMany({
       where: { tenantId, importId, deletedAt: null, createdAt: { gte: importRecord.createdAt } },
-      select: { id: true, titulo: true, valorTotal: true, status: true, tipoDespesa: true, cardLast4: true, fornecedor: true, linkedExpenseId: true },
+      select: { id: true, titulo: true, valorTotal: true, status: true, tipoDespesa: true, cardLast4: true, fornecedor: true, linkedExpenseId: true, settledInvoiceKey: true },
       orderBy: { createdAt: 'asc' },
     });
     const createdReceipts = await this.prisma.receipt.findMany({
@@ -1074,8 +1122,18 @@ export class BankAccountService {
         where: { tenantId, last4: p.cardLast4 as string, deletedAt: null },
         select: { closingDay: true, dueDay: true },
       });
-      if (c && c.closingDay != null && c.dueDay != null) invoiceLiquidations++;
-      else notRevertibleInvoiceLiquidations++;
+      if (c && c.closingDay != null && c.dueDay != null) {
+        // #569 M2: só conta como liquidação de fato realizada quando a
+        // liquidação automática gravou QUAL fatura escolheu
+        // (`settledInvoiceKey`) — ter cartão com closingDay/dueDay
+        // configurado não garante que `resolveTargetDueMonth` tenha
+        // encontrado e fechado alguma fatura dentro da janela real de 2
+        // meses (a prévia de 3 meses do card-invoice-match não é a
+        // liquidação real).
+        if (p.settledInvoiceKey) invoiceLiquidations++;
+      } else {
+        notRevertibleInvoiceLiquidations++;
+      }
     }
 
     // Recorrências propagadas (RecurringBill) — efeito IRREVERSÍVEL (upsert sem
@@ -1159,6 +1217,7 @@ export class BankAccountService {
           cardLast4: true,
           dataPagamento: true,
           createdAt: true,
+          settledInvoiceKey: true,
         },
       });
       const receipts = await tx.receipt.findMany({
@@ -1213,7 +1272,7 @@ export class BankAccountService {
           notRevertedInvoiceLiquidations++;
           continue;
         }
-        const dueMonth = this.yearMonthUtc(payment.dataPagamento ?? payment.createdAt);
+        const dueMonth = this.resolveUndoDueMonth(payment, card);
         const key = `${card.id}__${dueMonth}`;
         if (seen.has(key)) continue;
         seen.add(key);
@@ -2212,6 +2271,7 @@ export class BankAccountService {
           createdByUserId,
           matchedCard,
           cardPaymentInfo.last4,
+          currentSettlement.settledInvoiceKey,
         );
         await this.cardSettlement.applyPreparedSettlement(client, currentSettlement);
         return {
@@ -2312,6 +2372,14 @@ export class BankAccountService {
     createdByUserId: string | null,
     matchedCard: MatchedSettlementCard | null,
     detectedLast4: string | null,
+    /**
+     * Fatura ("{cardLast4}:{dueMonth}") que a liquidação automática desta
+     * importação de fato escolheu (`PreparedInvoiceSettlement.settledInvoiceKey`,
+     * issue #569). `null` quando não houve resolução por vencimento (fallback
+     * por fatura importada, ou nenhum cartão casado) — `undoImport` cai no
+     * fallback legado por mês do pagamento nesse caso.
+     */
+    settledInvoiceKey: string | null = null,
   ): Promise<{ id: string }> {
     return client.expense.create({
       data: {
@@ -2333,6 +2401,7 @@ export class BankAccountService {
         bankLast4: account.last4,
         cardLast4: matchedCard?.last4 ?? detectedLast4,
         createdByUserId,
+        settledInvoiceKey,
       },
       select: { id: true },
     });

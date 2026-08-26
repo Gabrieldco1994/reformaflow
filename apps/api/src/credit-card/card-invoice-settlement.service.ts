@@ -76,6 +76,16 @@ export interface PreparedInvoiceUnsettlement {
 
 export interface PreparedInvoiceSettlement {
   purchases: SettlePurchase[];
+  /**
+   * Fatura ("{cardLast4}:{dueMonth}") que este settlement efetivamente
+   * escolheu e vai quitar — resolvida por `resolveTargetDueMonth`
+   * (estratégia 1, por vencimento). `null` quando a liquidação usou o
+   * fallback por fatura importada (estratégia 2) ou quando nada foi
+   * liquidado (`purchases` vazio): nesses casos não há um único `dueMonth`
+   * a que atribuir a chave. O caller (import de extrato) persiste esta
+   * chave em `Expense.settledInvoiceKey` do pagamento — issue #569.
+   */
+  settledInvoiceKey: string | null;
 }
 
 /**
@@ -123,14 +133,23 @@ export class CardInvoiceSettlementService {
     requester: RateioRequester;
     /** Ver `assertCanAccessCard.requiredModule` (#480 SEC-1). */
     requiredModule?: string;
-  }): Promise<{ settledExpenses: number; settledParcelas: number }> {
+  }): Promise<{ settledExpenses: number; settledParcelas: number; settledInvoiceKey: string | null }> {
     assertRateioRequester(params.requester);
     return this.prisma.$transaction(async (tx) => {
       const prepared = await this.prepareSettleInvoice({
         ...params,
         tx,
       });
-      return this.applyPreparedSettlement(tx, prepared);
+      const applied = await this.applyPreparedSettlement(tx, prepared);
+      return {
+        ...applied,
+        // #569: repassa a fatura efetivamente escolhida por esta liquidação
+        // (ou `null` quando nada foi liquidado / fallback por importação) —
+        // usado por quem chama `settleInvoice` (não `prepareSettleInvoice`
+        // diretamente) e precisa persistir a chave em
+        // `Expense.settledInvoiceKey` do pagamento correspondente.
+        settledInvoiceKey: applied.settledExpenses > 0 ? prepared.settledInvoiceKey : null,
+      };
     });
   }
 
@@ -208,7 +227,9 @@ export class CardInvoiceSettlementService {
           card,
           target,
         );
-        if (prepared.length > 0) return { purchases: prepared };
+        if (prepared.length > 0) {
+          return { purchases: prepared, settledInvoiceKey: `${card.last4}:${target}` };
+        }
       }
     }
 
@@ -220,7 +241,7 @@ export class CardInvoiceSettlementService {
       amountCents,
       paymentDate,
     );
-    if (!matchedImport) return { purchases: [] };
+    if (!matchedImport) return { purchases: [], settledInvoiceKey: null };
 
     const importPurchases = purchases.filter(
       (purchase) => purchase.importId === matchedImport.id,
@@ -229,7 +250,9 @@ export class CardInvoiceSettlementService {
       tx,
       importPurchases,
     );
-    return { purchases: prepared };
+    // Fallback por fatura importada não resolve um único dueMonth (cada
+    // compra pode ter uma parcela em aberto de mês diferente) — sem chave.
+    return { purchases: prepared, settledInvoiceKey: null };
   }
 
   /**

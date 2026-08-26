@@ -231,12 +231,21 @@ describe("BankAccountService — janela de liquidação de fatura (issue #569)",
     });
 
     const card = { id: cardId, last4: LAST4, closingDay: 25, dueDay: 5 };
-    await cardSettlement.settleInvoice({
+    const settleResult = await cardSettlement.settleInvoice({
       tenantId: TENANT,
       card,
       amountCents: 700_000,
       paymentDate,
       requester: REQUESTER,
+    });
+    // Mesma persistência que o fluxo real de import faz (bank-account.service
+    // .createInvoicePaymentExpense grava `currentSettlement.settledInvoiceKey`
+    // no pagamento no momento em que a liquidação é aplicada) — aqui feita
+    // explicitamente porque o teste chama `settleInvoice` fora do fluxo de
+    // commit completo.
+    await setupPrisma.expense.update({
+      where: { id: "payment-m1" },
+      data: { settledInvoiceKey: settleResult.settledInvoiceKey },
     });
 
     const beforeUndo = await setupPrisma.cashFlowEntry.findMany({
