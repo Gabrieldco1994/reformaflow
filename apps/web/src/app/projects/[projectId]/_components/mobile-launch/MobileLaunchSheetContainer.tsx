@@ -8,7 +8,7 @@ import { ExpenseType } from '@reformaflow/domain';
 import { api } from '@/lib/api';
 import { Modal } from '@/components/ui/modal';
 import { useProject } from '@/contexts/project-context';
-import { invalidateExpenseQueries } from '../../expenses/_hooks/useExpenseMutations';
+import { invalidateExpenseQueries, invalidateImportQueries } from '../../expenses/_hooks/useExpenseMutations';
 import { getExpenseOptions } from '../../expenses/_types';
 import { useVoiceExpense } from '../../expenses/_hooks/useVoiceExpense';
 import { VoiceExpenseModal } from '../../expenses/_components/VoiceExpenseModal';
@@ -151,8 +151,10 @@ export function MobileLaunchSheetContainer({ projectId, open, onClose }: Props) 
   }, [onClose]);
 
   const handleImported = useCallback(() => {
-    invalidateExpenseQueries(queryClient, projectId);
-    queryClient.invalidateQueries({ queryKey: ['origin-items-yearly', projectId] });
+    // Issue #572: invalidação pós-importação incompleta — `invalidateImportQueries`
+    // cobre despesas/recebimentos/cartões/contas nas duas famílias de chave
+    // (por projeto e `['tenant', ...]`), além do que já era feito aqui.
+    invalidateImportQueries(queryClient, projectId);
     handleClose();
   }, [queryClient, projectId, handleClose]);
 

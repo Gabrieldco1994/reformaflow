@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
-import { centsToReaisInput, currencyInputToNumber, maskCurrencyInput } from '@/lib/currency-input';
+import { centsToReaisInput, currencyInputToNumber, maskCurrencyInputPositive } from '@/lib/currency-input';
 import { invalidateExpenseQueries } from '../../expenses/_hooks/useExpenseMutations';
 
 type TipoOption = { value: string; label: string; group?: string };
@@ -166,7 +166,7 @@ export function ReceitaModal({
           required
           defaultValue={editing ? centsToReaisInput(editing.valor) : ''}
           onChange={(e) => {
-            e.currentTarget.value = maskCurrencyInput(e.currentTarget.value);
+            e.currentTarget.value = maskCurrencyInputPositive(e.currentTarget.value);
           }}
         />
         <Input

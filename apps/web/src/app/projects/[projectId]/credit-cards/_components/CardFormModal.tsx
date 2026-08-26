@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { api } from '@/lib/api';
 import { X } from 'lucide-react';
-import { centsToReaisInput, currencyInputToCents, maskCurrencyInput } from '@/lib/currency-input';
+import { centsToReaisInput, currencyInputToCents, maskCurrencyInputPositive } from '@/lib/currency-input';
 import type { CardRow } from '../_types';
 
 interface Props {
@@ -130,7 +130,7 @@ export default function CardFormModal({ projectId, card, onClose, onSaved, bare,
               type="text"
               inputMode="numeric"
               value={limitReais}
-              onChange={(e) => setLimitReais(maskCurrencyInput(e.target.value))}
+              onChange={(e) => setLimitReais(maskCurrencyInputPositive(e.target.value))}
               placeholder="10000"
               className="w-full border rounded-lg p-2"
             />

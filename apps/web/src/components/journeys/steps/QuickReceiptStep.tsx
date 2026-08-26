@@ -3,7 +3,7 @@
 import { useRef, useState } from 'react';
 import { ArrowRight, SkipForward, ChevronLeft } from 'lucide-react';
 import { api } from '@/lib/api';
-import { maskCurrencyInput, currencyInputToNumber } from '@/lib/currency-input';
+import { maskCurrencyInputPositive, currencyInputToNumber } from '@/lib/currency-input';
 import { getReceiptTipoOptions } from '@/app/projects/[projectId]/receipts/_lib/tipo-options';
 import type { OnboardingStepProps } from '../_types';
 
@@ -97,7 +97,7 @@ export function QuickReceiptStep({ projectId, projectType, onDone, onSkip, onBac
             <input
               id="qr-valor"
               value={valor}
-              onChange={(e) => setValor(maskCurrencyInput(e.target.value))}
+              onChange={(e) => setValor(maskCurrencyInputPositive(e.target.value))}
               placeholder="1.500,00"
               inputMode="numeric"
               className="min-h-11 w-full rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-3.5 py-2.5 text-[14px] font-mono placeholder:text-lifeone-ink-4 focus:border-lifeone-blue focus:outline-none focus:ring-2 focus:ring-lifeone-blue/25"

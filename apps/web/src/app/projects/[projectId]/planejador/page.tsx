@@ -7,7 +7,7 @@ import { hasFeature, ProjectType, type PurchasePlanHorizonte, type PurchasePlanI
 import { Calculator, Plus, Trash2 } from 'lucide-react';
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
-import { maskCurrencyInput, currencyInputToCents, centsToReaisInput } from '@/lib/currency-input';
+import { maskCurrencyInputPositive, currencyInputToCents, centsToReaisInput } from '@/lib/currency-input';
 import { moneyGlance } from '@/lib/money';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -349,7 +349,7 @@ export default function PlanejadorPage() {
                 id="item-valor"
                 label="Valor (R$)"
                 value={itemForm.valor}
-                onChange={(e) => setItemForm((f) => ({ ...f, valor: maskCurrencyInput(e.target.value) }))}
+                onChange={(e) => setItemForm((f) => ({ ...f, valor: maskCurrencyInputPositive(e.target.value) }))}
                 required
               />
               <Input
@@ -377,7 +377,7 @@ export default function PlanejadorPage() {
                     id="item-entrada"
                     label="Entrada (R$)"
                     value={itemForm.entrada}
-                    onChange={(e) => setItemForm((f) => ({ ...f, entrada: maskCurrencyInput(e.target.value) }))}
+                    onChange={(e) => setItemForm((f) => ({ ...f, entrada: maskCurrencyInputPositive(e.target.value) }))}
                   />
                   <Input
                     id="item-taxa-juros"

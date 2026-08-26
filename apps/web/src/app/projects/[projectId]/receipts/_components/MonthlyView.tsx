@@ -12,7 +12,7 @@ import {
   Copy,
 } from 'lucide-react';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
-import { centsToReaisInput, currencyInputToNumber, maskCurrencyInput } from '@/lib/currency-input';
+import { centsToReaisInput, currencyInputToNumber, maskCurrencyInputPositive } from '@/lib/currency-input';
 import { CardActionsMenu, type CardAction } from '@/components/CardActionsMenu';
 import type { Receipt } from '@/types';
 import type { GrupoPorMes } from '../_types';
@@ -271,7 +271,7 @@ function MonthlyViewImpl({
                             type="text"
                             inputMode="numeric"
                             value={editValor}
-                            onChange={(e) => setEditValor(maskCurrencyInput(e.target.value))}
+                            onChange={(e) => setEditValor(maskCurrencyInputPositive(e.target.value))}
                             placeholder="Valor"
                             className="w-24 border border-darc-mist rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-darc-mist"
                             autoFocus
@@ -431,7 +431,7 @@ function MonthlyViewImpl({
                         type="text"
                         inputMode="numeric"
                         value={newValor}
-                        onChange={(e) => setNewValor(maskCurrencyInput(e.target.value))}
+                        onChange={(e) => setNewValor(maskCurrencyInputPositive(e.target.value))}
                         placeholder="Valor (R$)"
                         className="w-28 border border-darc-mist rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-darc-mist"
                         autoFocus

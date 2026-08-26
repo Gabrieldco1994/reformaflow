@@ -868,6 +868,17 @@ Gestão dos cartões de crédito.
   **Editar**, **Excluir** (com confirmação).
 - **Importação de fatura:** ao importar, é possível **marcar a despesa planejada
   como paga** (vinculando a importação a ela) ou **excluir itens** da importação.
+- **Valor editável na prévia aceita estorno/crédito negativo** (ex.: `-45,00`):
+  o campo de valor da linha da fatura preserva o sinal de menos ao editar —
+  diferente da prévia de extrato de conta, que sempre trata o valor como
+  absoluto (a direção já vem do ícone de entrada/saída da linha).
+- **"Pré-visualizar" fica desabilitado com a prévia já carregada** — evita que
+  reprocessar o mesmo arquivo apague silenciosamente exclusões/edições/vínculos
+  já feitos na tela; para reprocessar, escolha o(s) arquivo(s) novamente.
+- **"Restaurar" (limpar decisão) de uma linha volta à sugestão automática do
+  sistema** (cartão detectado, vínculo de fatura), não a um estado vazio —
+  reaplicar depois de uma edição manual não descarta o que o backend já tinha
+  identificado sozinho.
 - **Estado vazio:** "Nenhum cartão cadastrado" — com o botão **"Novo cartão"**
   dentro do próprio aviso. Enquanto a lista está vazia esse é o **único**
   "Novo cartão" da tela: o botão do cabeçalho só reaparece quando existe pelo
@@ -897,7 +908,11 @@ Permite importar um extrato ou fatura sem associar a uma conta cadastrada. O flu
    Se o PDF estiver protegido por senha, o app solicita a senha antes de prosseguir.
 3. **Pré-visualização somente leitura** — o upload gera uma tabela com cada
    lançamento encontrado (data, descrição, valor, tipo e status). Nenhum dado é
-   gravado nesta etapa; a prévia existe apenas para revisão.
+   gravado nesta etapa; a prévia existe apenas para revisão. Com a prévia já
+   carregada, o botão "Pré-visualizar" fica desabilitado (reprocessar exige
+   escolher o(s) arquivo(s) de novo) e "Restaurar" numa linha excluída volta à
+   sugestão automática do sistema, não a um estado vazio — mesmo mecanismo da
+   importação de fatura (§4.7).
 4. **Confirmação explícita** — somente ao clicar em **Confirmar importação** os
    lançamentos são criados. Os registros vão para **Carteira / Sem conta** com os
    seguintes valores-padrão por origem:

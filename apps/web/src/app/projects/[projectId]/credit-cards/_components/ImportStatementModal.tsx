@@ -41,6 +41,10 @@ export default function ImportStatementModal({ projectId, card, onClose, onCommi
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [txStates, setTxStates] = useState<Record<string, TxState>>({});
+  // Snapshot da auto-detecção do backend (match único de cross-project) no
+  // momento em que a prévia carregou. Usado por `clearDecision` para "limpar
+  // decisão" voltar à sugestão automática em vez de apagar tudo (issue #572).
+  const [autoTxStates, setAutoTxStates] = useState<Record<string, TxState>>({});
   const [showFuture, setShowFuture] = useState(false);
 
   const isPdf = files.some((f) => f.name.toLowerCase().endsWith('.pdf') || f.type === 'application/pdf');
@@ -57,6 +61,7 @@ export default function ImportStatementModal({ projectId, card, onClose, onCommi
     setLoading(true);
     setPreview(null);
     setTxStates({});
+    setAutoTxStates({});
     try {
       const fd = new FormData();
       for (const f of files) fd.append('files', f);
@@ -73,6 +78,7 @@ export default function ImportStatementModal({ projectId, card, onClose, onCommi
         }
       }
       setTxStates(auto);
+      setAutoTxStates(auto);
       setNeedsPassword(false);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Erro no preview';
@@ -114,10 +120,20 @@ export default function ImportStatementModal({ projectId, card, onClose, onCommi
     setTxStates((s) => ({ ...s, [externalId]: { ...s[externalId], ...patch } }));
   }
 
+  // Regressão #572: "limpar decisão" apagava a linha inteira do estado,
+  // inclusive o vínculo que o backend já tinha auto-detectado. Agora volta
+  // para o snapshot de auto-detecção (`autoTxStates`) quando existir; só some
+  // de vez quando a linha nunca teve sugestão automática.
   function clearDecision(externalId: string) {
     setTxStates((s) => {
-      const { [externalId]: _, ...rest } = s;
-      return rest;
+      const next = { ...s };
+      const auto = autoTxStates[externalId];
+      if (auto) {
+        next[externalId] = auto;
+      } else {
+        delete next[externalId];
+      }
+      return next;
     });
   }
 
@@ -148,11 +164,20 @@ export default function ImportStatementModal({ projectId, card, onClose, onCommi
       ) : (
         <>
           <UploadStep
-            files={files} setFiles={(f) => { setFiles(f); setPreview(null); setNeedsPassword(false); setPassword(''); setTxStates({}); }}
+            files={files}
+            setFiles={(f) => {
+              setFiles(f);
+              setPreview(null);
+              setNeedsPassword(false);
+              setPassword('');
+              setTxStates({});
+              setAutoTxStates({});
+            }}
             source={source} setSource={setSource}
             password={password} setPassword={setPassword}
             isPdf={isPdf} needsPassword={needsPassword}
             loading={loading} onPreview={handlePreview}
+            hasPreview={!!preview}
           />
 
           {error && (
@@ -225,7 +250,7 @@ export default function ImportStatementModal({ projectId, card, onClose, onCommi
 }
 
 function UploadStep({
-  files, setFiles, source, setSource, password, setPassword, isPdf, needsPassword, loading, onPreview,
+  files, setFiles, source, setSource, password, setPassword, isPdf, needsPassword, loading, onPreview, hasPreview,
 }: {
   files: File[];
   setFiles: (f: File[]) => void;
@@ -237,6 +262,7 @@ function UploadStep({
   needsPassword: boolean;
   loading: boolean;
   onPreview: () => void;
+  hasPreview: boolean;
 }) {
   return (
     <div className="space-y-3 mb-4">
@@ -289,13 +315,24 @@ function UploadStep({
       )}
       <Button
         onClick={onPreview}
-        disabled={files.length === 0 || loading}
+        disabled={files.length === 0 || loading || hasPreview}
         className="w-full"
         variant="secondary"
       >
         {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
         {loading ? 'Processando…' : 'Pré-visualizar'}
       </Button>
+      {/* Regressão #572: clicar de novo em "Pré-visualizar" com prévia já
+          carregada apagava silenciosamente exclusões/edições/vínculos do
+          usuário (`setTxStates({})` no início de `handlePreview`). O botão
+          fica desabilitado enquanto a prévia existir — reprocessar exige
+          escolher o(s) arquivo(s) de novo, que já limpa a prévia de forma
+          explícita. */}
+      {hasPreview && (
+        <p className="text-xs text-gray-500 -mt-1">
+          Prévia já carregada. Para reprocessar, escolha o(s) arquivo(s) novamente acima.
+        </p>
+      )}
     </div>
   );
 }

@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, Camera, CreditCard, Landmark, SkipForward, Wallet } from 'lucide-react';
 import { ExpenseType } from '@reformaflow/domain';
 import { api } from '@/lib/api';
-import { maskCurrencyInput, centsToReaisInput, currencyInputToNumber } from '@/lib/currency-input';
+import { maskCurrencyInputPositive, centsToReaisInput, currencyInputToNumber } from '@/lib/currency-input';
 import { getExpenseOptions } from '@/app/projects/[projectId]/expenses/_types';
 import { invalidateExpenseQueries } from '@/app/projects/[projectId]/expenses/_hooks/useExpenseMutations';
 import { useVoiceExpense } from '@/app/projects/[projectId]/expenses/_hooks/useVoiceExpense';
@@ -309,7 +309,7 @@ export function QuickExpenseStep({
                 <input
                   id="qe-valor"
                   value={valor}
-                  onChange={(e) => setValor(maskCurrencyInput(e.target.value))}
+                  onChange={(e) => setValor(maskCurrencyInputPositive(e.target.value))}
                   placeholder="150,00"
                   inputMode="numeric"
                   className="min-h-11 w-full rounded-[10px] border border-lifeone-hairline bg-lifeone-surface px-3.5 py-2.5 text-[14px] font-mono placeholder:text-lifeone-ink-4 focus:border-lifeone-blue focus:outline-none focus:ring-2 focus:ring-lifeone-blue/25"

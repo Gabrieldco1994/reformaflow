@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Modal } from '@/components/ui/modal';
 import { api } from '@/lib/api';
-import { currencyInputToCents, maskCurrencyInput, centsToReaisInput } from '@/lib/currency-input';
+import { currencyInputToCents, maskCurrencyInputPositive, centsToReaisInput } from '@/lib/currency-input';
 import { toast } from 'sonner';
 
 interface EditAlertModalProps {
@@ -124,7 +124,7 @@ export function EditAlertModal({ open, onClose, item, projectId }: EditAlertModa
             name="targetPrice"
             inputMode="numeric"
             value={targetPrice}
-            onChange={(e) => setTargetPrice(maskCurrencyInput(e.target.value))}
+            onChange={(e) => setTargetPrice(maskCurrencyInputPositive(e.target.value))}
             placeholder="0,00"
           />
           <Select

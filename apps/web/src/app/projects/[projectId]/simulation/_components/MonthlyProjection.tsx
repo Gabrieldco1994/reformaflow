@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { useProject } from '@/contexts/project-context';
 import { api } from '@/lib/api';
-import { currencyInputToNumber, maskCurrencyInput } from '@/lib/currency-input';
+import { currencyInputToNumber, maskCurrencyInputPositive } from '@/lib/currency-input';
 import { formatCurrency, formatDateBR } from '@/lib/utils';
 import type { CashFlowEntry } from '@/types';
 import { CATEGORIA_MAO_DE_OBRA_OPTIONS, tipoLabel } from '@/lib/expense-options';
@@ -569,7 +569,7 @@ export function MonthlyProjection({
                             placeholder={(currentProj / 100).toFixed(2)}
                             value={overrideStr}
                             onClick={(e) => e.stopPropagation()}
-                            onChange={(e) => onTipoOverrideChange(tipoCard.key, maskCurrencyInput(e.target.value))}
+                            onChange={(e) => onTipoOverrideChange(tipoCard.key, maskCurrencyInputPositive(e.target.value))}
                             className={`flex-1 border rounded px-2 py-1 text-xs text-right focus:outline-none focus:ring-1 focus:ring-blue-300 ${hasOverride ? 'border-blue-400 bg-blue-50 font-semibold' : 'border-gray-200'}`}
                           />
                           {hasOverride && (
@@ -797,7 +797,7 @@ export function MonthlyProjection({
                                 inputMode="numeric"
                                 placeholder={(group.totalValor / 100).toFixed(2)}
                                 value={cfg.valor}
-                                onChange={(e) => onPayConfigChange(group.groupId, { ...cfg, valor: maskCurrencyInput(e.target.value) })}
+                                onChange={(e) => onPayConfigChange(group.groupId, { ...cfg, valor: maskCurrencyInputPositive(e.target.value) })}
                                 className={`w-24 border rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:ring-1 focus:ring-blue-300 ${hasValorChange ? 'border-blue-400 bg-blue-50' : 'border-gray-200 bg-white'}`}
                                 disabled={isExcluded}
                               />
@@ -899,7 +899,7 @@ export function MonthlyProjection({
                     </div>
                   </td>
                   <td className="px-3 py-1.5 bg-blue-50/20">
-                    <input type="text" inputMode="numeric" value={newExtra.valor} onChange={(e) => setNewExtra((p) => ({ ...p, valor: maskCurrencyInput(e.target.value) }))}
+                    <input type="text" inputMode="numeric" value={newExtra.valor} onChange={(e) => setNewExtra((p) => ({ ...p, valor: maskCurrencyInputPositive(e.target.value) }))}
                       className="border rounded px-1 py-0.5 text-xs w-20 text-right" placeholder="0,00" />
                   </td>
                   <td className="px-3 py-1.5 bg-blue-50/20">
@@ -1000,7 +1000,7 @@ export function MonthlyProjection({
                 inputMode="numeric"
                 placeholder={(monthlyRecReal[month] ?? 0) > 0 ? ((monthlyRecReal[month] ?? 0) / 100).toFixed(2) : '0'}
                 value={recDist[month] ?? ''}
-                onChange={(e) => onRecDistChange(month, maskCurrencyInput(e.target.value))}
+                onChange={(e) => onRecDistChange(month, maskCurrencyInputPositive(e.target.value))}
                 className="w-full border border-gray-200 rounded px-1 py-0.5 text-xs text-right focus:outline-none focus:ring-1 focus:ring-green-300 mt-0.5"
               />
             </div>
