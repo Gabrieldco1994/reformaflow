@@ -630,6 +630,80 @@ describe('BankAccountService', () => {
       expect(cashFlowCreates.length).toBe(1);
       expect(netCashFlow).toBe(100000);
     });
+
+    it('#574 fix: reclassificar MOVIMENTACAO_INTERNA com conta de destino CADASTRADA zera o líquido (soma-zero real)', async () => {
+      const ofx = buildBankOfx(
+        ofxBankFor('20260720', 100000, 'APLICACAO PROGRAMADA', 'APL2'),
+        ofxBankFor('20260721', -100000, 'RESGATE APLICACAO', 'RESG2'),
+      );
+      const preview = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
+      const debitExt = preview.preview.find((t: any) => /APLICACAO PROGRAMADA/.test(t.merchant))!.externalId;
+      const creditExt = preview.preview.find((t: any) => /RESGATE APLICACAO/.test(t.merchant))!.externalId;
+
+      prisma.bankAccount.findMany.mockResolvedValue([{ id: 'acc-destino' }]);
+      prisma.cashFlowEntry.create.mockClear();
+      prisma.expense.create.mockClear();
+      prisma.receipt.create.mockClear();
+
+      await service.commitImport(
+        't1', 'pessoal1', 'acc1',
+        Buffer.from(ofx), 'ext.ofx', 'OFX',
+        undefined, undefined,
+        [
+          { externalId: debitExt, overrides: { category: 'MOVIMENTACAO_INTERNA', transferToAccountId: 'acc-destino' } },
+          { externalId: creditExt, overrides: { category: 'MOVIMENTACAO_INTERNA', transferToAccountId: 'acc-destino' } },
+        ],
+        null, TEST_OWNER_REQUESTER,
+      );
+
+      expect(prisma.expense.create.mock.calls[0][0].data.tipoDespesa).toBe('MOVIMENTACAO_INTERNA');
+      expect(prisma.receipt.create.mock.calls[0][0].data.tipo).toBe('RESGATE');
+      // Nenhuma CashFlowEntry gerada por nenhuma das duas pernas — soma-zero real.
+      expect(prisma.cashFlowEntry.create).not.toHaveBeenCalled();
+    });
+
+    it('#574: reclassificar MOVIMENTACAO_INTERNA confirmando explicitamente "não é conta minha" (transferToAccountId: null) mantém o comportamento atual (não zera)', async () => {
+      const ofx = buildBankOfx(ofxBankFor('20260721', -100000, 'RESGATE APLICACAO', 'RESG3'));
+      const preview = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
+      const ext = preview.preview[0].externalId;
+
+      prisma.cashFlowEntry.create.mockClear();
+      prisma.receipt.create.mockClear();
+
+      await service.commitImport(
+        't1', 'pessoal1', 'acc1',
+        Buffer.from(ofx), 'ext.ofx', 'OFX',
+        undefined, undefined,
+        [{ externalId: ext, overrides: { category: 'MOVIMENTACAO_INTERNA', transferToAccountId: null } }],
+        null, TEST_OWNER_REQUESTER,
+      );
+
+      expect(prisma.receipt.create.mock.calls[0][0].data.tipo).toBe('RESGATE');
+      expect(prisma.cashFlowEntry.create).toHaveBeenCalledTimes(1);
+      expect(prisma.cashFlowEntry.create.mock.calls[0][0].data.valor).toBe(100000);
+    });
+
+    it('#574: reclassificar MOVIMENTACAO_INTERNA SEM decidir a conta de destino (chave ausente) é rejeitado ANTES de qualquer escrita', async () => {
+      const ofx = buildBankOfx(ofxBankFor('20260721', -100000, 'RESGATE APLICACAO', 'RESG4'));
+      const preview = await service.previewImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, TEST_OWNER_REQUESTER);
+      const ext = preview.preview[0].externalId;
+
+      prisma.receipt.create.mockClear();
+      prisma.cashFlowEntry.create.mockClear();
+
+      await expect(
+        service.commitImport(
+          't1', 'pessoal1', 'acc1',
+          Buffer.from(ofx), 'ext.ofx', 'OFX',
+          undefined, undefined,
+          [{ externalId: ext, overrides: { category: 'MOVIMENTACAO_INTERNA' } }],
+          null, TEST_OWNER_REQUESTER,
+        ),
+      ).rejects.toThrow();
+
+      expect(prisma.receipt.create).not.toHaveBeenCalled();
+      expect(prisma.cashFlowEntry.create).not.toHaveBeenCalled();
+    });
   });
 
   describe('linkToExpense', () => {
