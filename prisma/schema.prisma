@@ -200,6 +200,7 @@ model Receipt {
   budgetAllocations BudgetAllocation[]
 
   @@index([projectId, externalId])
+  @@unique([tenantId, projectId, externalId])
   @@index([linkedReceiptId])
   @@index([accountId])
   @@map("receipts")
@@ -261,6 +262,7 @@ model Expense {
   rateioAsTarget      RateioAllocation[]       @relation("RateioTarget")
   financingInstallment FinancingInstallment?
 
+  @@unique([tenantId, projectId, externalId])
   @@index([linkedExpenseId])
   @@index([seriesKey])
   @@index([recurrenceKey])
