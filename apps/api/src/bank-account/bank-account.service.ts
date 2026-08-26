@@ -2116,7 +2116,11 @@ export class BankAccountService {
     if (tx.amountCents < 0) {
       const receiptAmount = -tx.amountCents;
       // Movimentação interna (resgate de aplicação/cofrinho etc.) entra como
-      // crédito mas NÃO é receita real — vira Expense neutra (sem cashflow).
+      // crédito mas NÃO é receita real — vira Receipt RESGATE e GERA CashFlowEntry
+      // RECEBIMENTO normalmente (ver bloco abaixo). ATENÇÃO (#574): a perna de
+      // DÉBITO (aplicação, MOVIMENTACAO_INTERNA) mais abaixo neste método NÃO gera
+      // CashFlowEntry — hoje isso deixa uma transferência interna simétrica
+      // (líquido zero) aparecer como entrada real no fluxo de caixa consolidado.
       // categoryOverride do usuário tem prioridade sobre o auto-detect.
       const isInternalMov = categoryOverride === 'MOVIMENTACAO_INTERNA'
         || (!categoryOverride && fastClassify(tx.merchant) === 'MOVIMENTACAO_INTERNA');
@@ -2278,8 +2282,12 @@ export class BankAccountService {
       },
     });
 
-    // Tipos neutros (movimentação interna entre contas próprias) NÃO geram
-    // cashflow — não afetam o saldo consolidado nem o total de despesas.
+    // Perna de DÉBITO de movimentação interna (aplicação): NÃO gera CashFlowEntry.
+    // ATENÇÃO (#574): isso é ASSIMÉTRICO em relação à perna de CRÉDITO (resgate,
+    // ver isInternalMov acima) — aquela GERA CashFlowEntry RECEBIMENTO normalmente.
+    // Resultado hoje: uma transferência interna simétrica (aplica R$X + resgata R$X,
+    // líquido zero) aparece como +R$X de entrada real no saldo consolidado, em vez
+    // de neutra. Correção pendente de decisão de produto — ver issue #574.
     if (expenseType === 'MOVIMENTACAO_INTERNA') {
       return { inserted: false, receiptInserted: false, cardPayment: false, unlinkedCardPayment: false, expenseId: expense.id };
     }

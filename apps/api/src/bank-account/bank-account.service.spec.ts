@@ -595,6 +595,41 @@ describe('BankAccountService', () => {
       const created = prisma.expense.create.mock.calls[0][0].data;
       expect(created.tipoDespesa).toBe('TRANSFERENCIA_TED');
     });
+
+    // TODO: aguardando decisão do PO sobre distinguir transferência entre contas
+    // próprias cadastradas de resgate de aplicação/investimento NÃO cadastrada
+    // (issue #574). Documenta o comportamento ATUAL (bug), não o esperado — a
+    // perna de débito (aplicação) não gera CashFlowEntry, mas a perna de crédito
+    // (resgate) gera uma normalmente, então uma transferência interna simétrica
+    // (líquido zero) hoje aparece como +R$1.000,00 de entrada real no fluxo de
+    // caixa consolidado.
+    it('RED (#574): transferência interna simétrica (aplicação R$1.000 + resgate R$1.000) infla o saldo em vez de líquido zero', async () => {
+      const ofx = buildBankOfx(
+        ofxBankFor('20260720', 100000, 'APLICACAO PROGRAMADA', 'APL1'),
+        ofxBankFor('20260721', -100000, 'RESGATE APLICACAO', 'RESG1'),
+      );
+
+      prisma.cashFlowEntry.create.mockClear();
+      prisma.expense.create.mockClear();
+      prisma.receipt.create.mockClear();
+      await service.commitImport('t1', 'pessoal1', 'acc1', Buffer.from(ofx), 'ext.ofx', 'OFX', undefined, undefined, undefined, null, TEST_OWNER_REQUESTER);
+
+      // As duas pernas foram de fato classificadas como MOVIMENTACAO_INTERNA / resgate.
+      expect(prisma.expense.create.mock.calls[0][0].data.tipoDespesa).toBe('MOVIMENTACAO_INTERNA');
+      expect(prisma.receipt.create.mock.calls[0][0].data.tipo).toBe('RESGATE');
+
+      const cashFlowCreates = prisma.cashFlowEntry.create.mock.calls.map((c: any) => c[0].data);
+      const netCashFlow = cashFlowCreates.reduce(
+        (sum: number, e: any) => sum + (e.tipo === 'RECEBIMENTO' ? e.valor : -e.valor),
+        0,
+      );
+
+      // Comportamento HOJE (bug): só a perna de crédito gera CashFlowEntry.
+      // Uma transferência interna verdadeira deveria ter líquido 0, não +100000
+      // (R$1.000,00) de "entrada" fantasma no consolidado.
+      expect(cashFlowCreates.length).toBe(1);
+      expect(netCashFlow).toBe(100000);
+    });
   });
 
   describe('linkToExpense', () => {
